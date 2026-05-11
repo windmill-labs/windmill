@@ -3,7 +3,7 @@
 	import Button from '../common/button/Button.svelte'
 	import Label from '../Label.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
-	import { AIMode } from '../copilot/chat/AIChatManager.svelte'
+	import { AIMode, getVisibleAIModes } from '../copilot/chat/AIChatManager.svelte'
 
 	const MAX_CUSTOM_PROMPT_LENGTH = 5000
 
@@ -45,6 +45,8 @@
 		[AIMode.ASK]: 'Ask Mode'
 	}
 
+	let visibleModes = $derived(getVisibleAIModes())
+
 	function handleSave() {
 		onSave?.()
 		open = false
@@ -77,7 +79,7 @@
 				{/if}
 			</div>
 
-			{#each Object.values(AIMode) as mode (mode)}
+			{#each visibleModes as mode (mode)}
 				<div class="flex flex-col gap-2 pb-4 last:border-b-0">
 					<Label label={modeLabels[mode]} for={`custom-prompt-${mode}`}>
 						<TextInput

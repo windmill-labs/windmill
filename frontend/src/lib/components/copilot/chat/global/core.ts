@@ -753,7 +753,7 @@ function getInlineRunnableContent(
 }
 
 async function loadAppDraftValue(path: string, workspace: string): Promise<AppDraftValue> {
-	const draft = globalDraftStore.getDraft('app', path)
+	const draft = globalDraftStore.getDraft(workspace, 'app', path)
 	if (draft && draft.value && typeof draft.value === 'object' && 'files' in draft.value) {
 		return draft.value as AppDraftValue
 	}
@@ -770,8 +770,8 @@ async function loadAppDraftValue(path: string, workspace: string): Promise<AppDr
 	}
 }
 
-function saveAppDraft(path: string, value: AppDraftValue): WorkspaceItem {
-	return globalDraftStore.setDraft({
+function saveAppDraft(workspace: string, path: string, value: AppDraftValue): WorkspaceItem {
+	return globalDraftStore.setDraft(workspace, {
 		type: 'app',
 		path,
 		summary: value.summary,
@@ -1178,7 +1178,7 @@ export const globalTools: Tool<{}>[] = [
 				byKey.set(getWorkspaceItemKey(item.type, item.path, item.triggerKind), item)
 			}
 
-			for (const draft of globalDraftStore.listDrafts()) {
+			for (const draft of globalDraftStore.listDrafts(workspace)) {
 				if (!types.includes(draft.type)) continue
 				byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
 					...draft,
@@ -1209,7 +1209,12 @@ export const globalTools: Tool<{}>[] = [
 				toolCallbacks.setToolStatus(toolId, { content: message, error: message })
 				return JSON.stringify({ success: false, error: message })
 			}
-			const draft = globalDraftStore.getDraft(parsed.type, parsed.path, parsed.trigger_kind)
+			const draft = globalDraftStore.getDraft(
+				workspace,
+				parsed.type,
+				parsed.path,
+				parsed.trigger_kind
+			)
 			if (draft) {
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Read AI draft ${parsed.type} "${parsed.path}"`
@@ -1606,7 +1611,7 @@ async function loadScriptForEdit(
 	path: string,
 	workspace: string
 ): Promise<{ content: string; language: ScriptLang; summary?: string }> {
-	const draft = globalDraftStore.getDraft('script', path)
+	const draft = globalDraftStore.getDraft(workspace, 'script', path)
 	if (draft) {
 		if (typeof draft.value !== 'string' || !draft.language) {
 			throw new Error(`Draft script "${path}" is missing content or language.`)
@@ -1643,7 +1648,7 @@ async function loadFlowDraftValue(
 	path: string,
 	workspace: string
 ): Promise<{ flow: FlowDraftValue; summary?: string }> {
-	const draft = globalDraftStore.getDraft('flow', path)
+	const draft = globalDraftStore.getDraft(workspace, 'flow', path)
 	if (draft) {
 		if (draft.value === undefined || typeof draft.value === 'string') {
 			throw new Error(`Draft flow "${path}" has no value.`)
@@ -1772,7 +1777,7 @@ async function initApp(
 	const { workspace, toolId, toolCallbacks } = ctx
 	const { path, summary, framework, data } = args
 
-	if (globalDraftStore.getDraft('app', path)) {
+	if (globalDraftStore.getDraft(workspace, 'app', path)) {
 		throw new Error(
 			`An AI draft for app "${path}" already exists. Use write_app_file / write_app_runnable to modify it, or delete the existing draft first.`
 		)
@@ -1801,7 +1806,7 @@ async function initApp(
 		})
 	}
 	await recomputeAppPolicy(value)
-	const stored = saveAppDraft(path, value)
+	const stored = saveAppDraft(workspace, path, value)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Initialized app draft "${path}" (${framework})`,
@@ -1863,7 +1868,7 @@ async function writeAppFile(
 
 	const value = await loadAppDraftValue(args.path, workspace)
 	value.files = { ...value.files, [target.filePath]: args.content }
-	const stored = saveAppDraft(args.path, value)
+	const stored = saveAppDraft(workspace, args.path, value)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Updated ${target.filePath} in app "${args.path}"`,
@@ -1903,7 +1908,7 @@ async function deleteAppFile(
 	}
 	const { [target.filePath]: _removed, ...remaining } = value.files
 	value.files = remaining
-	const stored = saveAppDraft(args.path, value)
+	const stored = saveAppDraft(workspace, args.path, value)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Removed ${target.filePath} from app "${args.path}"`,
@@ -1978,7 +1983,7 @@ async function patchAppFile(
 		}
 	}
 
-	const stored = saveAppDraft(path, value)
+	const stored = saveAppDraft(workspace, path, value)
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Patched ${target.filePath} in app "${path}"`,
 		result: 'Draft updated'
@@ -2016,7 +2021,7 @@ async function writeAppRunnable(
 	const persisted = buildPersistedRunnable(input, existing)
 	value.runnables = { ...value.runnables, [key]: persisted }
 	await recomputeAppPolicy(value)
-	const stored = saveAppDraft(path, value)
+	const stored = saveAppDraft(workspace, path, value)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Updated runnable "${key}" in app "${path}"`,
@@ -2050,7 +2055,7 @@ async function deleteAppRunnable(
 	const { [key]: _removed, ...remaining } = value.runnables
 	value.runnables = remaining
 	await recomputeAppPolicy(value)
-	const stored = saveAppDraft(path, value)
+	const stored = saveAppDraft(workspace, path, value)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Removed runnable "${key}" from app "${path}"`,
@@ -2151,7 +2156,7 @@ async function deployDraft(
 		throw new Error('trigger_kind is required when deploying a trigger.')
 	}
 
-	const draft = globalDraftStore.getDraft(type, path, triggerKind)
+	const draft = globalDraftStore.getDraft(workspace, type, path, triggerKind)
 	if (!draft) {
 		throw new Error(`No AI draft found for ${type} "${path}".`)
 	}
@@ -2247,7 +2252,7 @@ async function deployDraft(
 		}
 	}
 
-	globalDraftStore.deleteDraft(type, path, triggerKind)
+	globalDraftStore.deleteDraft(workspace, type, path, triggerKind)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deployed ${type} "${path}"`,
@@ -2306,7 +2311,7 @@ async function deleteWorkspaceItem(
 			break
 	}
 
-	globalDraftStore.deleteDraft(type, path, triggerKind)
+	globalDraftStore.deleteDraft(workspace, type, path, triggerKind)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deleted ${type} "${path}"`,
@@ -2332,10 +2337,10 @@ async function writeDraft(item: WorkspaceItem, ctx: WriteDraftCtx): Promise<stri
 	})
 
 	const exists =
-		globalDraftStore.getDraft(item.type, item.path, item.triggerKind) !== undefined ||
+		globalDraftStore.getDraft(workspace, item.type, item.path, item.triggerKind) !== undefined ||
 		(await workspaceItemExists(item.type, item.path, workspace, item.triggerKind))
 
-	const stored = globalDraftStore.setDraft(item)
+	const stored = globalDraftStore.setDraft(workspace, item)
 
 	const verb = exists ? 'Updated' : 'Created'
 	toolCallbacks.setToolStatus(toolId, {

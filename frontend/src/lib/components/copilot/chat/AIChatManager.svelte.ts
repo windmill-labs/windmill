@@ -77,6 +77,20 @@ export enum AIMode {
 	ASK = 'ask'
 }
 
+const ALL_AI_MODES = Object.values(AIMode)
+
+export function isAIMode(mode: unknown): mode is AIMode {
+	return ALL_AI_MODES.includes(mode as AIMode)
+}
+
+export function isAIModeVisible(mode: AIMode): boolean {
+	return mode !== AIMode.GLOBAL || isGlobalAiEnabled()
+}
+
+export function getVisibleAIModes(): AIMode[] {
+	return ALL_AI_MODES.filter(isAIModeVisible)
+}
+
 function isWorkspacePath(path: string | undefined): path is string {
 	return path?.startsWith('f/') === true || path?.startsWith('u/') === true
 }
@@ -138,7 +152,7 @@ class AIChatManager {
 		ask: true,
 		API: true,
 		// Dev-only gate. See `./global/gate.ts` for how to enable.
-		global: isGlobalAiEnabled()
+		global: isAIModeVisible(AIMode.GLOBAL)
 	})
 
 	open = $derived(chatState.size > 0)
@@ -240,7 +254,8 @@ class AIChatManager {
 		return {
 			kind: 'script',
 			path: workspacePath,
-			deployed: workspacePath !== undefined && this.scriptEditorOptions?.lastDeployedCode !== undefined
+			deployed:
+				workspacePath !== undefined && this.scriptEditorOptions?.lastDeployedCode !== undefined
 		}
 	}
 
@@ -265,6 +280,7 @@ class AIChatManager {
 			workflowAsCode?: boolean
 		}
 	) {
+		if (!isAIModeVisible(mode)) return
 		if (mode === AIMode.SCRIPT && !tryGetCurrentModel()) return
 		this.mode = mode
 		this.pendingPrompt = pendingPrompt ?? ''
@@ -385,8 +401,11 @@ class AIChatManager {
 			}
 		},
 		fn: async ({ args, toolId, toolCallbacks }) => {
+			if (!isAIMode(args.mode) || !isAIModeVisible(args.mode)) {
+				throw new Error(`AI mode "${args.mode}" is not enabled`)
+			}
 			toolCallbacks.setToolStatus(toolId, { content: 'Switching to ' + args.mode + ' mode...' })
-			this.changeMode(args.mode as AIMode, args.pendingPrompt, {
+			this.changeMode(args.mode, args.pendingPrompt, {
 				closeScriptSettings: true
 			})
 			toolCallbacks.setToolStatus(toolId, { content: 'Switched to ' + args.mode + ' mode' })
@@ -639,17 +658,14 @@ class AIChatManager {
 			isPreprocessor?: boolean
 		} = {}
 	) => {
-		if (options.mode) {
-			this.changeMode(options.mode, undefined, {
-				lang: options.lang,
-				isPreprocessor: options.isPreprocessor
-			})
-		} else {
-			this.changeMode(this.mode, undefined, {
-				lang: options.lang,
-				isPreprocessor: options.isPreprocessor
-			})
+		const requestedMode = options.mode ?? this.mode
+		if (!isAIModeVisible(requestedMode)) {
+			return
 		}
+		this.changeMode(requestedMode, undefined, {
+			lang: options.lang,
+			isPreprocessor: options.isPreprocessor
+		})
 		if (options.instructions) {
 			this.instructions = options.instructions
 		}

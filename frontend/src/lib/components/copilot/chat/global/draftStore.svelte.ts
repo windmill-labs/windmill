@@ -106,61 +106,86 @@ function clone<T>(value: T): T {
 }
 
 class GlobalDraftStore {
-	private drafts = $state<Record<string, WorkspaceItem>>({})
+	private drafts = $state<Record<string, Record<string, WorkspaceItem>>>({})
 
-	listDrafts(): WorkspaceItem[] {
-		return Object.values(this.drafts).map(clone)
+	private getWorkspaceDrafts(workspace: string): Record<string, WorkspaceItem> {
+		return this.drafts[workspace] ?? {}
+	}
+
+	private ensureWorkspaceDrafts(workspace: string): Record<string, WorkspaceItem> {
+		if (!this.drafts[workspace]) {
+			this.drafts[workspace] = {}
+		}
+		return this.drafts[workspace]
+	}
+
+	listDrafts(workspace: string): WorkspaceItem[] {
+		return Object.values(this.getWorkspaceDrafts(workspace)).map(clone)
 	}
 
 	getDraft(
+		workspace: string,
 		type: WorkspaceItemType,
 		path: string,
 		triggerKind?: TriggerKind
 	): WorkspaceItem | undefined {
-		const draft = this.drafts[getWorkspaceItemKey(type, path, triggerKind)]
+		const draft = this.getWorkspaceDrafts(workspace)[getWorkspaceItemKey(type, path, triggerKind)]
 		return draft ? clone(draft) : undefined
 	}
 
-	setDraft(item: WorkspaceItem): WorkspaceItem {
+	setDraft(workspace: string, item: WorkspaceItem): WorkspaceItem {
 		const stored: WorkspaceItem = { ...clone(item), isDraft: true }
-		this.drafts[getWorkspaceItemKey(item.type, item.path, item.triggerKind)] = stored
+		this.ensureWorkspaceDrafts(workspace)[
+			getWorkspaceItemKey(item.type, item.path, item.triggerKind)
+		] = stored
 		return clone(stored)
 	}
 
-	deleteDraft(type: WorkspaceItemType, path: string, triggerKind?: TriggerKind): void {
-		delete this.drafts[getWorkspaceItemKey(type, path, triggerKind)]
+	deleteDraft(
+		workspace: string,
+		type: WorkspaceItemType,
+		path: string,
+		triggerKind?: TriggerKind
+	): void {
+		const drafts = this.drafts[workspace]
+		if (!drafts) return
+
+		delete drafts[getWorkspaceItemKey(type, path, triggerKind)]
+		if (Object.keys(drafts).length === 0) {
+			delete this.drafts[workspace]
+		}
 	}
 
-	clearDrafts(): void {
-		this.drafts = {}
+	clearDrafts(workspace: string): void {
+		delete this.drafts[workspace]
 	}
 
-	getScriptDraft(path: string): WorkspaceItem | undefined {
-		return this.getDraft('script', path)
+	getScriptDraft(workspace: string, path: string): WorkspaceItem | undefined {
+		return this.getDraft(workspace, 'script', path)
 	}
 
-	getFlowDraft(path: string): WorkspaceItem | undefined {
-		return this.getDraft('flow', path)
+	getFlowDraft(workspace: string, path: string): WorkspaceItem | undefined {
+		return this.getDraft(workspace, 'flow', path)
 	}
 
-	getScheduleDraft(path: string): WorkspaceItem | undefined {
-		return this.getDraft('schedule', path)
+	getScheduleDraft(workspace: string, path: string): WorkspaceItem | undefined {
+		return this.getDraft(workspace, 'schedule', path)
 	}
 
-	getTriggerDraft(kind: TriggerKind, path: string): WorkspaceItem | undefined {
-		return this.getDraft('trigger', path, kind)
+	getTriggerDraft(workspace: string, kind: TriggerKind, path: string): WorkspaceItem | undefined {
+		return this.getDraft(workspace, 'trigger', path, kind)
 	}
 
-	getResourceDraft(path: string): WorkspaceItem | undefined {
-		return this.getDraft('resource', path)
+	getResourceDraft(workspace: string, path: string): WorkspaceItem | undefined {
+		return this.getDraft(workspace, 'resource', path)
 	}
 
-	getVariableDraft(path: string): WorkspaceItem | undefined {
-		return this.getDraft('variable', path)
+	getVariableDraft(workspace: string, path: string): WorkspaceItem | undefined {
+		return this.getDraft(workspace, 'variable', path)
 	}
 
-	getAppDraft(path: string): WorkspaceItem | undefined {
-		return this.getDraft('app', path)
+	getAppDraft(workspace: string, path: string): WorkspaceItem | undefined {
+		return this.getDraft(workspace, 'app', path)
 	}
 }
 
