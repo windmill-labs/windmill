@@ -36,6 +36,7 @@
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { clone, emptyString, encodeState, hasUnsavedChanges } from '$lib/utils'
+	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { Slack } from 'lucide-svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 
@@ -1499,13 +1500,26 @@
 
 							<div class="text-xs font-semibold text-emphasis mt-6 mb-1">Export workspace</div>
 							<div class="flex justify-start">
-								<Button
-									size="sm"
-									href="{base}/api/w/{$workspaceStore ?? ''}/workspaces/tarball?archive_type=zip"
-									target="_blank"
-								>
-									Export workspace as zip file
-								</Button>
+								{#if shouldDownloadViaClient()}
+									<Button
+										size="sm"
+										on:click={() =>
+											downloadViaClient(
+												`/w/${$workspaceStore ?? ''}/workspaces/tarball?archive_type=zip`,
+												`${$workspaceStore ?? 'workspace'}.zip`
+											)}
+									>
+										Export workspace as zip file
+									</Button>
+								{:else}
+									<Button
+										size="sm"
+										href="{base}/api/w/{$workspaceStore ?? ''}/workspaces/tarball?archive_type=zip"
+										target="_blank"
+									>
+										Export workspace as zip file
+									</Button>
+								{/if}
 							</div>
 
 							<div class="mt-12"></div>
