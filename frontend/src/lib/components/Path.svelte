@@ -356,6 +356,19 @@
 		!dirty && (dirty = true)
 	}
 
+	$effect(() => {
+		if (
+			path !== undefined &&
+			path !== '' &&
+			initialPath &&
+			!initialPath.startsWith('tmp/') &&
+			path !== initialPath &&
+			!dirty
+		) {
+			dirty = true
+		}
+	})
+
 	const openSearchWithPrefilledText: (t?: string) => void = getContext(
 		'openSearchWithPrefilledText'
 	)
