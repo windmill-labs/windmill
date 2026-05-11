@@ -716,6 +716,34 @@ function getInlineScriptExtension(runnable: PersistedRunnable | undefined): 'ts'
 	return runnable?.inlineScript?.language === 'python3' ? 'py' : 'ts'
 }
 
+/**
+ * Resolve a backend file target to its inline script body, validating that the
+ * runnable exists, is inline, and matches the requested file extension. Throws
+ * with a clear message otherwise.
+ */
+function getInlineRunnableContent(
+	value: AppDraftValue,
+	target: { kind: 'backend'; filePath: string; key: string; extension: 'ts' | 'py' },
+	appPath: string
+): { content: string; runnable: PersistedRunnable } {
+	const runnable = value.runnables[target.key] as PersistedRunnable | undefined
+	if (!runnable) {
+		throw new Error(`Backend runnable "${target.key}" not found in app "${appPath}".`)
+	}
+	if (runnable.type !== 'inline' && runnable.type !== 'runnableByName') {
+		throw new Error(
+			`Runnable "${target.key}" is not inline. Use read_workspace_item on the referenced ${runnable.runType ?? 'item'} instead.`
+		)
+	}
+	const expected = getInlineScriptExtension(runnable)
+	if (target.extension !== expected) {
+		throw new Error(
+			`Runnable "${target.key}" language is ${expected}. Use backend/${target.key}/main.${expected}.`
+		)
+	}
+	return { content: runnable.inlineScript?.content ?? '', runnable }
+}
+
 async function loadAppDraftValue(path: string, workspace: string): Promise<AppDraftValue> {
 	const draft = globalDraftStore.getDraft('app', path)
 	if (draft && draft.value && typeof draft.value === 'object' && 'files' in draft.value) {
@@ -1803,22 +1831,7 @@ async function readAppFile(
 		return content
 	}
 
-	const runnable = value.runnables[target.key] as PersistedRunnable | undefined
-	if (!runnable) {
-		throw new Error(`Backend runnable "${target.key}" not found in app "${args.path}".`)
-	}
-	if (runnable.type !== 'inline' && runnable.type !== 'runnableByName') {
-		throw new Error(
-			`Runnable "${target.key}" is not inline. Use read_workspace_item on the referenced ${runnable.runType ?? 'item'} instead.`
-		)
-	}
-	const expected = getInlineScriptExtension(runnable)
-	if (target.extension !== expected) {
-		throw new Error(
-			`Runnable "${target.key}" language is ${expected}. Use backend/${target.key}/main.${expected}.`
-		)
-	}
-	const content = runnable.inlineScript?.content ?? ''
+	const { content } = getInlineRunnableContent(value, target, args.path)
 	toolCallbacks.setToolStatus(toolId, { content: `Read ${target.filePath}` })
 	return content
 }
@@ -1933,22 +1946,9 @@ async function patchAppFile(
 		}
 		currentContent = existing
 	} else {
-		runnable = value.runnables[target.key] as PersistedRunnable | undefined
-		if (!runnable) {
-			throw new Error(`Backend runnable "${target.key}" not found in app "${path}".`)
-		}
-		if (runnable.type !== 'inline' && runnable.type !== 'runnableByName') {
-			throw new Error(
-				`Runnable "${target.key}" is not inline; only inline runnables can be patched as files.`
-			)
-		}
-		const expected = getInlineScriptExtension(runnable)
-		if (target.extension !== expected) {
-			throw new Error(
-				`Runnable "${target.key}" language is ${expected}. Use backend/${target.key}/main.${expected}.`
-			)
-		}
-		currentContent = runnable.inlineScript?.content ?? ''
+		const resolved = getInlineRunnableContent(value, target, path)
+		currentContent = resolved.content
+		runnable = resolved.runnable
 	}
 
 	const updated = findAndReplace(
