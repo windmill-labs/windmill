@@ -3404,7 +3404,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
         FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
             LEFT JOIN worker_ping wp ON wp.worker = q.worker
         WHERE q.running = true AND q.suspend = 0 AND q.suspend_until IS null AND q.scheduled_for <= now()
-            AND (j.kind = 'flow' OR j.kind = 'flowpreview' OR j.kind = 'flownode')
+            AND (j.kind = 'flow' OR j.kind = 'flowpreview' OR j.kind = 'flownode' OR j.kind = 'singlestepflow')
             AND r.ping IS NOT NULL AND r.ping < NOW() - ($1 || ' seconds')::interval
             AND q.canceled_by IS NULL
 

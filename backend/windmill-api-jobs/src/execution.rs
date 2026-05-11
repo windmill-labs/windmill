@@ -248,8 +248,11 @@ lazy_static::lazy_static! {
 
 #[derive(Deserialize)]
 pub struct WindmillCompositeResult {
+    #[serde(alias = "wm_status_code")]
     windmill_status_code: Option<u16>,
+    #[serde(alias = "wm_content_type")]
     windmill_content_type: Option<String>,
+    #[serde(alias = "wm_headers")]
     windmill_headers: Option<HashMap<String, String>>,
     result: Option<Box<RawValue>>,
 }

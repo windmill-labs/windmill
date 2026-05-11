@@ -48,6 +48,8 @@ pub struct ListableVariable {
     pub expires_at: Option<chrono::DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ws_specific: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, sqlx::FromRow)]
@@ -83,6 +85,8 @@ pub struct CreateVariable {
     pub expires_at: Option<chrono::DateTime<Utc>>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
+    #[serde(default)]
+    pub ws_specific: Option<bool>,
 }
 
 pub async fn build_crypt(db: &DB, w_id: &str) -> crate::error::Result<MagicCrypt256> {

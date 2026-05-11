@@ -2,7 +2,7 @@ name: Codex Auto Review
 
 on:
   pull_request:
-    types: [ready_for_review, opened]
+    types: [ready_for_review, opened, synchronize]
   workflow_call:
     inputs:
       pr_number:

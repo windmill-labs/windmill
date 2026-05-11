@@ -19,7 +19,44 @@ export type DeployKind =
   | "resource"
   | "variable"
   | "resource_type"
-  | "folder";
+  | "folder"
+  | "schedule"
+  | "http_trigger"
+  | "websocket_trigger"
+  | "kafka_trigger"
+  | "nats_trigger"
+  | "postgres_trigger"
+  | "mqtt_trigger"
+  | "sqs_trigger"
+  | "gcp_trigger"
+  | "azure_trigger"
+  | "email_trigger";
+
+export const TRIGGER_KINDS = [
+  "http_trigger",
+  "websocket_trigger",
+  "kafka_trigger",
+  "nats_trigger",
+  "postgres_trigger",
+  "mqtt_trigger",
+  "sqs_trigger",
+  "gcp_trigger",
+  "azure_trigger",
+  "email_trigger",
+] as const satisfies readonly DeployKind[];
+
+export type TriggerDeployKind = (typeof TRIGGER_KINDS)[number];
+
+export function isTriggerKind(kind: string): kind is TriggerDeployKind {
+  return (TRIGGER_KINDS as readonly string[]).includes(kind);
+}
+
+/** True for any kind that deploys via a trigger or schedule API. */
+export function isTriggerOrScheduleKind(
+  kind: string
+): kind is TriggerDeployKind | "schedule" {
+  return kind === "schedule" || isTriggerKind(kind);
+}
 
 export interface DeployResult {
   success: boolean;
@@ -124,6 +161,58 @@ export interface DeployProvider {
     requestBody: any;
   }): Promise<any>;
   deleteFolder(p: { workspace: string; name: string }): Promise<any>;
+  // Triggers — per-kind dispatch is delegated to the implementor so the shared
+  // module doesn't need to know about each of the 9 trigger services.
+  existsTriggerByKind(
+    kind: TriggerDeployKind,
+    p: { workspace: string; path: string }
+  ): Promise<boolean>;
+  /**
+   * Get a trigger as it should be sent to create/update. Includes any kind-specific
+   * transforms the implementor wants to apply before deploy (e.g. wiping GCP
+   * subscription_id so the target workspace can create its own subscription).
+   *
+   * Operational-state handling (strip `mode`/`enabled` on update, pass through
+   * on create) is applied by `deployItem` at the dispatch layer — implementors
+   * should return the full row including `mode`/`enabled` and let the shared
+   * dispatch decide.
+   */
+  getTriggerForDeploy(
+    kind: TriggerDeployKind,
+    p: { workspace: string; path: string; onBehalfOf?: string }
+  ): Promise<any>;
+  createTriggerByKind(
+    kind: TriggerDeployKind,
+    p: { workspace: string; requestBody: any }
+  ): Promise<any>;
+  updateTriggerByKind(
+    kind: TriggerDeployKind,
+    p: { workspace: string; path: string; requestBody: any }
+  ): Promise<any>;
+  deleteTriggerByKind(
+    kind: TriggerDeployKind,
+    p: { workspace: string; path: string }
+  ): Promise<any>;
+  /** Stripped trigger row used for the diff drawer (config fields only). */
+  getTriggerValue(
+    kind: TriggerDeployKind,
+    p: { workspace: string; path: string }
+  ): Promise<unknown>;
+  /** Returns the trigger's `permissioned_as` for `--preserve-on-behalf-of`. */
+  getTriggerPermissionedAs(
+    kind: TriggerDeployKind,
+    p: { workspace: string; path: string }
+  ): Promise<string | undefined>;
+  // Schedules
+  existsSchedule(p: { workspace: string; path: string }): Promise<boolean>;
+  getSchedule(p: { workspace: string; path: string }): Promise<any>;
+  createSchedule(p: { workspace: string; requestBody: any }): Promise<any>;
+  updateSchedule(p: {
+    workspace: string;
+    path: string;
+    requestBody: any;
+  }): Promise<any>;
+  deleteSchedule(p: { workspace: string; path: string }): Promise<any>;
 }
 
 // ---------------------------------------------------------------------------
@@ -133,6 +222,26 @@ export interface DeployProvider {
 /** Folder diff paths carry the `f/` prefix; folder API endpoints expect just the name. */
 export function folderName(path: string): string {
   return path.replace(/^f\//, "");
+}
+
+/**
+ * Strip operational state (`mode`, `enabled`) from a trigger/schedule payload
+ * when deploying as an update; pass through unchanged on create.
+ *
+ * On update the strip lets the backend preserve the target row's existing
+ * state via `is_mode_unspecified()` (triggers) or via `EditSchedule` lacking
+ * `enabled` (schedules). On create there's no target state to preserve, so
+ * the source's flag is sent through — fork-only items land with whatever
+ * state the fork creator chose, and missing flags fall back to the backend
+ * default of enabled (`BaseTriggerData::mode()` / schedule insert default).
+ */
+export function stripOperationalStateOnUpdate<T extends Record<string, any>>(
+  payload: T,
+  alreadyExists: boolean
+): T {
+  if (!alreadyExists) return payload;
+  const { mode: _mode, enabled: _enabled, ...rest } = payload;
+  return rest as T;
 }
 
 function getSubModules(flowModule: any): any[][] {
@@ -214,6 +323,10 @@ export async function checkItemExists(
     return provider.existsResourceType({ workspace, path });
   } else if (kind === "folder") {
     return provider.existsFolder({ workspace, name: folderName(path) });
+  } else if (kind === "schedule") {
+    return provider.existsSchedule({ workspace, path });
+  } else if (isTriggerKind(kind)) {
+    return provider.existsTriggerByKind(kind, { workspace, path });
   }
   throw new Error(`Unknown kind: ${kind}`);
 }
@@ -473,6 +586,59 @@ export async function deployItem(
           },
         });
       }
+    } else if (kind === "schedule") {
+      const schedule = await provider.getSchedule({
+        workspace: workspaceFrom,
+        path,
+      });
+      // Operational-state handling — same shape as triggers below:
+      //   - Update: strip `enabled` so the target's existing state is preserved
+      //     (`EditSchedule` lacks `enabled` server-side, so this is also
+      //     enforced by the type, but stripping keeps the intent explicit).
+      //   - Create: pass `enabled` through so a fork-only schedule lands with
+      //     the state the fork creator chose.
+      const baseBody = stripOperationalStateOnUpdate(schedule, alreadyExists);
+      const requestBody = {
+        ...baseBody,
+        permissioned_as: onBehalfOf,
+        preserve_permissioned_as: preserveOnBehalfOf,
+      };
+      if (alreadyExists) {
+        await provider.updateSchedule({
+          workspace: workspaceTo,
+          path,
+          requestBody,
+        });
+      } else {
+        await provider.createSchedule({
+          workspace: workspaceTo,
+          requestBody,
+        });
+      }
+    } else if (isTriggerKind(kind)) {
+      const triggerBody = await provider.getTriggerForDeploy(kind, {
+        workspace: workspaceFrom,
+        path,
+        onBehalfOf,
+      });
+      // Strip operational state on update; pass through on create. The
+      // implementor's `getTriggerForDeploy` is responsible only for kind-specific
+      // transforms (e.g. GCP subscription_id wipe) — the operational-state
+      // strip lives here so it stays consistent with the schedule branch and
+      // with the legacy `kind === 'trigger'` path in the frontend.
+      const requestBody = stripOperationalStateOnUpdate(triggerBody, alreadyExists);
+      if (alreadyExists) {
+        await provider.updateTriggerByKind(kind, {
+          workspace: workspaceTo,
+          path,
+          requestBody,
+        });
+      } else {
+        await provider.createTriggerByKind(kind, {
+          workspace: workspaceTo,
+          requestBody,
+        });
+      }
     } else {
       throw new Error(`Unknown kind: ${kind}`);
     }
@@ -516,6 +682,10 @@ export async function deleteItemInWorkspace(
       await provider.deleteResourceType({ workspace, path });
     } else if (kind === "folder") {
       await provider.deleteFolder({ workspace, name: folderName(path) });
+    } else if (kind === "schedule") {
+      await provider.deleteSchedule({ workspace, path });
+    } else if (isTriggerKind(kind)) {
+      await provider.deleteTriggerByKind(kind, { workspace, path });
     } else {
       throw new Error(`Deletion not supported for kind: ${kind}`);
     }
@@ -589,11 +759,49 @@ export async function getItemValue(
         extra_perms: folder.extra_perms,
         summary: folder.summary,
       };
+    } else if (kind === "schedule") {
+      // Mirror the runtime-fields-ignore set used server-side so the diff drawer
+      // matches the merge UI's "did config change?" semantics.
+      const schedule = await provider.getSchedule({ workspace, path });
+      return stripTriggerOrScheduleRuntimeFields(schedule);
+    } else if (isTriggerKind(kind)) {
+      const trigger = await provider.getTriggerValue(kind, { workspace, path });
+      return stripTriggerOrScheduleRuntimeFields(trigger);
     }
   } catch {
     // Item may not exist
   }
   return {};
+}
+
+/**
+ * Strip runtime fields from a trigger or schedule row so the diff drawer
+ * shows only config differences. Mirrors the backend's
+ * `TRIGGER_COMPARE_IGNORE` constant.
+ */
+function stripTriggerOrScheduleRuntimeFields(row: unknown): unknown {
+  if (!row || typeof row !== "object") return row;
+  const ignore = new Set([
+    "workspace_id",
+    "edited_by",
+    "edited_at",
+    "email",
+    "error",
+    "enabled",
+    "mode",
+    "server_id",
+    "last_server_ping",
+    "extra_perms",
+    "permissioned_as",
+    // Server-managed (kept in sync with backend `TRIGGER_COMPARE_IGNORE`).
+    "subscription_id",
+    "push_auth_config",
+  ]);
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(row as Record<string, unknown>)) {
+    if (!ignore.has(k)) out[k] = v;
+  }
+  return out;
 }
 
 /**
@@ -616,6 +824,11 @@ export async function getOnBehalfOf(
     } else if (kind === "app" || kind === "raw_app") {
       const app = await provider.getAppByPath({ workspace, path });
       return app.policy?.on_behalf_of_email;
+    } else if (kind === "schedule") {
+      const schedule = await provider.getSchedule({ workspace, path });
+      return schedule.permissioned_as;
+    } else if (isTriggerKind(kind)) {
+      return await provider.getTriggerPermissionedAs(kind, { workspace, path });
     }
   } catch {
     // Item may not exist

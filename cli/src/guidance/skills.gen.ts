@@ -6165,12 +6165,12 @@ Use this guide when writing or modifying Windmill Workflow-as-Code (WAC) scripts
 WAC is authored as a Windmill script and deployed with the normal script workflow. It is not an OpenFlow YAML flow.
 
 Supported WAC authoring targets:
-- TypeScript scripts that import from \`windmill-client\`
+- Bun TypeScript scripts that import from \`windmill-client\`
 - Python 3 scripts that import from \`wmill\`
 
 ## File Shape
 
-TypeScript:
+Bun TypeScript:
 
 \`\`\`typescript
 import {
@@ -6212,7 +6212,7 @@ async def main(x: str):
 
 Rules:
 - Do not call \`main\`.
-- TypeScript should export the workflow entrypoint, preferably \`export const main = workflow(async (...) => { ... })\`.
+- Bun TypeScript should export the workflow entrypoint, preferably \`export const main = workflow(async (...) => { ... })\`.
 - Python must use \`@workflow\` on an async top-level function, usually \`main\`.
 - Define task functions and \`taskScript\`/\`task_script\` or \`taskFlow\`/\`task_flow\` assignments at module top level with stable names.
 - Use the exact SDK names. Do not alias \`workflow\`, \`task\`, \`taskScript\`, \`taskFlow\`, \`step\`, \`sleep\`, \`waitForApproval\`, \`task_script\`, \`task_flow\`, or \`wait_for_approval\`; the WAC parser recognizes these names directly.
@@ -6588,7 +6588,7 @@ app related commands
   - \`--json\` - Output as JSON (for piping to jq)
 - \`app get <path:string>\` - get an app's details
   - \`--json\` - Output as JSON (for piping to jq)
-- \`app push <file_path:string> <remote_path:string>\` - push a local app 
+- \`app push [file_path:string] [remote_path:string]\` - push a local app. With no args, infers the app from the current directory and the remote path from its location relative to wmill.yaml.
 - \`app dev [app_folder:string]\` - Start a development server for building apps with live reload and hot module replacement
   - \`--port <port:number>\` - Port to run the dev server on (will find next available port if occupied)
   - \`--host <host:string>\` - Host to bind the dev server to
@@ -6730,6 +6730,7 @@ Generate metadata (locks, schemas) for all scripts, flows, and apps
 - \`--skip-flows\` - Skip processing flows
 - \`--skip-apps\` - Skip processing apps
 - \`--strict-folder-boundaries\` - Only update items inside the specified folder (requires folder argument)
+- \`--parallel <n:number>\` - Number of items to process in parallel
 - \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which files to include
 - \`-e --excludes <patterns:file[]>\` - Comma separated patterns to specify which files to exclude
 
@@ -6739,6 +6740,7 @@ Generate metadata (locks, schemas) for all scripts, flows, and apps
   - \`--skip-scripts\` - Skip processing scripts
   - \`--skip-flows\` - Skip processing flows
   - \`--skip-apps\` - Skip processing apps
+  - \`--parallel <n:number>\` - Number of items to process in parallel
   - \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which files to include
   - \`-e --excludes <patterns:file[]>\` - Comma separated patterns to specify which files to exclude
 
@@ -7175,6 +7177,7 @@ workspace related commands
 - \`workspace whoami\` - Show the currently active user
 - \`workspace list\` - List local workspace profiles
 - \`workspace list-remote\` - List workspaces on the remote server that you have access to
+  - \`--as-superadmin\` - List ALL workspaces on the instance (requires the token to belong to a superadmin/devops user)
 - \`workspace list-forks\` - List forked workspaces on the remote server
 - \`workspace bind\` - Create or update a workspace entry in wmill.yaml from the active profile
   - \`--workspace <name:string>\` - Workspace name (default: current branch or workspaceId)

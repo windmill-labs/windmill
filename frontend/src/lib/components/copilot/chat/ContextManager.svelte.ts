@@ -18,6 +18,7 @@ export interface ScriptOptions {
 	lastSavedCode?: string
 	lastDeployedCode?: string
 	diffMode: boolean
+	workflowAsCode?: boolean
 }
 
 export interface FlowOptions {

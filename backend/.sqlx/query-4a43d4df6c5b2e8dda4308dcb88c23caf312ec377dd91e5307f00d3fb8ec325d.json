@@ -1,0 +1,99 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    SELECT\n                        id,\n                        args as \"args: _\",\n                        created_at,\n                        kind AS \"kind: _\"\n                    FROM v2_job\n                    WHERE workspace_id = $1\n                      AND (\n                            kind = 'unassigned_script'::JOB_KIND OR\n                            kind = 'unassigned_flow'::JOB_KIND OR\n                            kind = 'unassigned_singlestepflow'::JOB_KIND\n                      )\n                      AND trigger_kind = $2\n                      AND trigger = $3\n                      AND id = ANY($4)\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "args: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "kind: _",
+        "type_info": {
+          "Custom": {
+            "name": "job_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "preview",
+                "flow",
+                "dependencies",
+                "flowpreview",
+                "script_hub",
+                "identity",
+                "flowdependencies",
+                "http",
+                "graphql",
+                "postgresql",
+                "noop",
+                "appdependencies",
+                "deploymentcallback",
+                "singlestepflow",
+                "flowscript",
+                "flownode",
+                "appscript",
+                "aiagent",
+                "unassigned_script",
+                "unassigned_flow",
+                "unassigned_singlestepflow"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        {
+          "Custom": {
+            "name": "job_trigger_kind",
+            "kind": {
+              "Enum": [
+                "webhook",
+                "http",
+                "websocket",
+                "kafka",
+                "email",
+                "nats",
+                "schedule",
+                "app",
+                "ui",
+                "postgres",
+                "sqs",
+                "gcp",
+                "mqtt",
+                "nextcloud",
+                "google",
+                "ci_test",
+                "github",
+                "azure"
+              ]
+            }
+          }
+        },
+        "Text",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "4a43d4df6c5b2e8dda4308dcb88c23caf312ec377dd91e5307f00d3fb8ec325d"
+}

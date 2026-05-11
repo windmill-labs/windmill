@@ -936,4 +936,27 @@ mod tests {
         let result = parse_relative_imports(code, "f/one/two/three/script").unwrap();
         assert_eq!(result, vec!["f/b", "f/one/a"]);
     }
+
+    #[test]
+    fn test_relative_imports_includes_re_exports() {
+        // Barrel re-exports must be captured as relative imports — without
+        // them, importers reaching helpers via a barrel file lose the edge in
+        // the dependency tree and the dep job 404s on the sibling fetches.
+        let code = r#"
+        export * from "./types.ts";
+        export { WorkflowError } from "./WorkflowError.ts";
+        export * as factory from "./errorFactory.ts";
+        export type { ErrorKind } from "./types-only.ts";
+        "#;
+        let result = parse_relative_imports(code, "f/lib/errors/index").unwrap();
+        assert_eq!(
+            result,
+            vec![
+                "f/lib/errors/WorkflowError",
+                "f/lib/errors/errorFactory",
+                "f/lib/errors/types",
+                "f/lib/errors/types-only",
+            ]
+        );
+    }
 }

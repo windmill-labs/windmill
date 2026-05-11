@@ -81,6 +81,33 @@ use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
 use windmill_queue::{canceled_job_to_result, push};
 
+lazy_static::lazy_static! {
+    /// Per-worker LRU cache of resolved `flow_env` values, keyed by flow job id.
+    /// `update_flow_status_after_job_completion_internal` runs once per child-step
+    /// completion, and re-resolving `$var:`/`$res:` references each time was the
+    /// dominant heap-allocation source under flow-heavy load. The cache aligns
+    /// predicate evaluation with `handle_flow`'s input-transform path, which
+    /// already resolves once at flow entry — predicates were the only place still
+    /// re-resolving on every read.
+    ///
+    /// Per-worker scope (caveat): the cache lives in process memory, not the DB,
+    /// so different workers processing children of the same flow each compute
+    /// their own snapshot on first miss. If a `$var:`/`$res:` value mutates
+    /// mid-flow, predicate eval on different workers can observe different
+    /// values for the same flow run. For typical use (env values configured at
+    /// flow start, read-only during execution) this is invisible. Cross-worker
+    /// determinism would require persisting the resolved env in `v2_job_status`;
+    /// see follow-up notes.
+    ///
+    /// Entries become dead weight once a flow completes and are evicted by LRU
+    /// pressure. Bounded at 1024 entries; per-entry footprint depends on the
+    /// env's contents (literals are small but a single resolved `$res:` can be
+    /// tens of KB), so worst-case memory scales with workload mix rather than
+    /// being fixed.
+    static ref RESOLVED_FLOW_ENV_CACHE: quick_cache::sync::Cache<Uuid, Arc<HashMap<String, Box<RawValue>>>> =
+        quick_cache::sync::Cache::new(1024);
+}
+
 #[derive(Debug)]
 pub struct SchedulePushZombieError(pub String);
 
@@ -333,6 +360,7 @@ async fn evaluate_stop_after_all_iters_if(
     stop_early_err_msg: &mut Option<String>,
     nresult: &mut Option<Arc<Box<RawValue>>>,
     args: HashMap<String, Box<RawValue>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
     flow: uuid::Uuid,
     status: &FlowStatus,
 ) -> error::Result<()> {
@@ -354,7 +382,7 @@ async fn evaluate_stop_after_all_iters_if(
     let stop_early_after_all_iters = compute_bool_from_expr(
         &stop_after_all_iters_if.expr,
         Marc::new(args),
-        None,
+        flow_env,
         iters_result.clone(),
         None,
         id_ctx.as_ref(),
@@ -464,6 +492,59 @@ pub async fn update_flow_status_after_job_completion_internal(
         if current_module.is_some_and(|x| x.is_flow()) {
             has_triggered_error_handler = false;
         }
+
+        // Resolve flow_env for predicate evaluations (stop_after_if,
+        // stop_after_all_iters_if, retry_if). Two-level gate:
+        //   1. Structural — at least one such predicate is configured.
+        //   2. Textual — the predicate expression actually references
+        //      `flow_env`. Mirrors the existing `expr.contains("results.")`
+        //      check in `get_id_ctx_for_expr`. A substring match has false
+        //      positives (harmless — just runs an unneeded resolve) but no
+        //      false negatives, since `flow_env` must appear textually for the
+        //      expression engine to read it.
+        let expr_uses_flow_env = |expr: &str| expr.contains("flow_env");
+        let retry_if_uses_flow_env = |module: &FlowModule| {
+            module
+                .retry
+                .as_ref()
+                .and_then(|r| r.retry_if.as_ref())
+                .is_some_and(|r| expr_uses_flow_env(&r.expr))
+        };
+        let needs_flow_env = current_module.is_some_and(|m| {
+            m.stop_after_if
+                .as_ref()
+                .is_some_and(|s| expr_uses_flow_env(&s.expr))
+                || m.stop_after_all_iters_if
+                    .as_ref()
+                    .is_some_and(|s| expr_uses_flow_env(&s.expr))
+                || retry_if_uses_flow_env(m)
+        }) || flow_value
+            .failure_module
+            .as_ref()
+            .is_some_and(|fm| retry_if_uses_flow_env(fm));
+        // The resolved env is constant for a flow's lifetime, so cache it by flow
+        // job id and reuse across child-step completions. Cache miss falls back to
+        // the existing resolve+persist path; same-worker subsequent completions are
+        // a single Arc::clone away. Transient-failure fallbacks (`is_cacheable ==
+        // false`) bypass the insert so a single API blip doesn't poison the rest
+        // of the flow run.
+        let resolved_flow_env: Option<Arc<HashMap<String, Box<RawValue>>>> = if needs_flow_env {
+            if let Some(cached) = RESOLVED_FLOW_ENV_CACHE.get(&flow) {
+                Some(cached)
+            } else {
+                resolve_flow_env_for_status_update(db, client, flow, w_id, flow_value)
+                    .await
+                    .map(|(env, is_cacheable)| {
+                        let arc = Arc::new(env);
+                        if is_cacheable {
+                            RESOLVED_FLOW_ENV_CACHE.insert(flow, arc.clone());
+                        }
+                        arc
+                    })
+            }
+        } else {
+            None
+        };
 
         let module_status = match module_step {
             Step::PreprocessorStep => old_status
@@ -611,7 +692,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         let bool_res = compute_bool_from_expr(
                             &expr,
                             Marc::new(args),
-                            None,
+                            resolved_flow_env.as_deref(),
                             result.clone(),
                             all_iters,
                             id_ctx.as_ref(),
@@ -895,6 +976,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             &mut stop_early_err_msg,
                             &mut nresult,
                             args,
+                            resolved_flow_env.as_deref(),
                             flow,
                             &old_status,
                         )
@@ -1114,6 +1196,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             &mut stop_early_err_msg,
                             &mut nresult,
                             args,
+                            resolved_flow_env.as_deref(),
                             flow,
                             &old_status,
                         )
@@ -1196,7 +1279,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             &old_status.retry,
                             result.clone(),
                             Marc::new(args),
-                            None,
+                            resolved_flow_env.as_deref(),
                             Some(client),
                         )
                         .await?
@@ -1578,7 +1661,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 &old_status.retry,
                 result.clone(),
                 Marc::new(args),
-                None,
+                resolved_flow_env.as_deref(),
                 Some(client),
             )
             .await?
@@ -1976,6 +2059,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                     None,
                 )
                 .await;
+                // override prior child's success so the parent learns this flow failed
+                success = false;
                 true
             }
             Ok(_) => false,
@@ -2358,6 +2443,152 @@ async fn fetch_root_flow_id(db: &DB, flow_id: Uuid) -> Uuid {
     .unwrap_or(flow_id)
 }
 
+// Resolve the flow_env to use for predicate evaluations in
+// `update_flow_status_after_job_completion_internal`: take the current flow's
+// `flow_env` if present, otherwise inherit from the root flow, then interpolate
+// any `$var:`/`$res:` references via `transform_json`.
+//
+// Returns `Some((env, is_cacheable))`. `is_cacheable` is `false` only when the
+// returned env is a partially-resolved fallback after a transient error (e.g.
+// `transform_json` failed mid-resolve, or the mini job fetch failed). Callers
+// must not cache `is_cacheable == false` results — doing so would freeze the
+// transient failure for the rest of the flow run.
+async fn resolve_flow_env_for_status_update(
+    db: &DB,
+    client: &AuthedClient,
+    flow_job_id: Uuid,
+    workspace_id: &str,
+    flow_value: &FlowValue,
+) -> Option<(HashMap<String, Box<RawValue>>, bool)> {
+    // Fetch the env source. For the inherited path, we first need to know whether the
+    // flow even has a parent — `fetch_root_flow_env` runs a recursive CTE on `v2_job`
+    // and is wasted work for top-level flows with no own `flow_env`. The mini job we
+    // pull here can be reused below if `transform_json` ends up needing it.
+    let (env, mini): (HashMap<String, Box<RawValue>>, Option<MiniPulledJob>) =
+        if let Some(ref e) = flow_value.flow_env {
+            (e.clone(), None)
+        } else {
+            let mini = match get_mini_pulled_job(db, &flow_job_id).await {
+                Ok(Some(j)) => j,
+                Ok(None) => return None,
+                Err(e) => {
+                    tracing::warn!("Failed to fetch flow job to resolve flow_env: {e:#}");
+                    return None;
+                }
+            };
+            if mini.parent_job.is_none() {
+                // No own flow_env and no parent to inherit from — nothing to resolve.
+                return None;
+            }
+            let env = fetch_root_flow_env(db, flow_job_id, workspace_id).await?;
+            (env, Some(mini))
+        };
+    if env.is_empty() {
+        return Some((env, true));
+    }
+    // Skip the DB roundtrip + `transform_json` when nothing in env needs interpolation.
+    // This is the common case: a flow_env containing only literal values.
+    if !crate::common::map_needs_resolution(&env) {
+        return Some((env, true));
+    }
+    let mini = match mini {
+        Some(m) => m,
+        None => match get_mini_pulled_job(db, &flow_job_id).await {
+            Ok(Some(j)) => j,
+            // Don't cache: we couldn't fetch the job, so the env we'd return is the
+            // pre-interpolation literal — caching that would freeze the broken state.
+            Ok(None) => return Some((env, false)),
+            Err(e) => {
+                tracing::warn!("Failed to fetch flow job to resolve flow_env: {e:#}");
+                return Some((env, false));
+            }
+        },
+    };
+    match transform_json(
+        client,
+        workspace_id,
+        &env,
+        &mini,
+        &Connection::Sql(db.clone()),
+    )
+    .await
+    {
+        Ok(Some(resolved)) => Some((resolved, true)),
+        Ok(None) => Some((env, true)),
+        // Don't cache transient resolution failures: one variable/resource API blip
+        // would otherwise poison the literal-only env for the rest of the flow run.
+        Err(e) => {
+            tracing::warn!("Failed to resolve flow_env references in status update: {e:#}");
+            Some((env, false))
+        }
+    }
+}
+
+// Maximum number of ancestor jobs the flow_env walk will follow before bailing.
+// Bounds runtime cost and protects against pathological data.
+const MAX_FLOW_ENV_LOOKUP_DEPTH: i32 = 50;
+
+// Look up the nearest ancestor flow's `flow_env` for the given flow job.
+// Sub-flows spawned by branches/loops via `payload_from_modules` don't carry
+// `flow_env` in their own `FlowValue`, so any predicate evaluated against the
+// local flow_env would see `None`. We walk the ancestor chain via
+// `flow_innermost_root_job → parent_job` (one step at a time) and return the
+// CLOSEST ancestor whose persisted flow definition (`flow_version.value` or
+// `raw_flow`) carries `flow_env`.
+//
+// The walk deliberately does NOT use `root_job` (which would jump straight to
+// the topmost parent) because imported flows define their own `flow_env`
+// scope: a branch inside an imported flow must see the imported flow's env,
+// not the top parent's. `flow_innermost_root_job` walks one scope at a time
+// and resets to NULL on parallel-loop iterations and imported sub-flows, so
+// recursion is required to walk past those resets to the closest scope.
+async fn fetch_root_flow_env(
+    db: &DB,
+    flow_job_id: Uuid,
+    workspace_id: &str,
+) -> Option<HashMap<String, Box<RawValue>>> {
+    sqlx::query_scalar!(
+        r#"WITH RECURSIVE chain(id, parent_job, flow_innermost_root_job, runnable_id, runnable_path, raw_flow, depth) AS (
+            SELECT id, parent_job, flow_innermost_root_job, runnable_id, runnable_path, raw_flow, 0
+            FROM v2_job
+            WHERE id = $1 AND workspace_id = $2
+            UNION ALL
+            SELECT j.id, j.parent_job, j.flow_innermost_root_job, j.runnable_id, j.runnable_path, j.raw_flow, c.depth + 1
+            FROM v2_job j
+            JOIN chain c
+                ON j.id = COALESCE(c.flow_innermost_root_job, c.parent_job)
+            WHERE j.workspace_id = $2 AND c.depth < $3
+        )
+        SELECT
+            CASE
+                WHEN flow_version.id IS NOT NULL THEN
+                    flow_version.value -> 'flow_env'
+                ELSE
+                    chain.raw_flow -> 'flow_env'
+            END AS "flow_env: Json<HashMap<String, Box<RawValue>>>"
+         FROM chain
+         LEFT JOIN flow_version
+             ON flow_version.id = chain.runnable_id
+            AND flow_version.path = chain.runnable_path
+            AND flow_version.workspace_id = $2
+         WHERE (CASE
+                WHEN flow_version.id IS NOT NULL THEN flow_version.value -> 'flow_env'
+                ELSE chain.raw_flow -> 'flow_env'
+            END) IS NOT NULL
+         ORDER BY chain.depth ASC
+         LIMIT 1"#,
+        flow_job_id,
+        workspace_id,
+        MAX_FLOW_ENV_LOOKUP_DEPTH,
+    )
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+    .flatten()
+    .map(|json| json.0)
+}
+
 struct FailureContext {
     started_at: Arc<Box<RawValue>>,
     flow_job_id: Uuid,
@@ -2497,11 +2728,27 @@ pub async fn handle_flow(
 ) -> anyhow::Result<()> {
     let flow = flow_data.value();
 
+    // Sub-flows spawned by `payload_from_modules` for branches/loops don't
+    // carry the parent's `flow_env` in their own FlowValue. Fall back to the
+    // nearest enclosing scope's `flow_env` so predicates like `skip_if`,
+    // `stop_after_if`, and branch conditions see the same env as input
+    // transforms.
+    let inherited_env: Option<HashMap<String, Box<RawValue>>> =
+        if flow.flow_env.is_none() && flow_job.parent_job.is_some() {
+            fetch_root_flow_env(db, flow_job.id, &flow_job.workspace_id).await
+        } else {
+            None
+        };
+    let env_source = flow.flow_env.as_ref().or(inherited_env.as_ref());
+
     // Resolve $var: and $res: references in flow_env.
     // We resolve into a separate variable to avoid cloning the entire FlowValue
     // (which includes modules, failure_module, etc.) just to replace flow_env.
+    // `is_cacheable` is `false` only on a transient `transform_json` failure,
+    // matching `resolve_flow_env_for_status_update`'s contract — we must not
+    // freeze a partial resolution into the cache.
     let resolved_env;
-    let flow_env = if let Some(ref env) = flow.flow_env {
+    let (flow_env, is_cacheable) = if let Some(env) = env_source {
         match transform_json(
             client,
             &flow_job.workspace_id,
@@ -2513,17 +2760,30 @@ pub async fn handle_flow(
         {
             Ok(Some(resolved)) => {
                 resolved_env = resolved;
-                Some(&resolved_env)
+                (Some(&resolved_env), true)
             }
-            Ok(None) => flow.flow_env.as_ref(),
+            Ok(None) => (Some(env), true),
             Err(e) => {
                 tracing::warn!("Failed to resolve flow_env references: {e}");
-                flow.flow_env.as_ref()
+                (Some(env), false)
             }
         }
     } else {
-        None
+        (None, true)
     };
+
+    // Populate the per-flow resolved-env cache so subsequent predicate
+    // evaluations in `update_flow_status_after_job_completion_internal` skip
+    // the recursive CTE + transform_json. Costs one HashMap clone per
+    // sub-flow handle_flow entry; saves up to one CTE + one transform_json
+    // per flow execution that has predicates referencing flow_env.
+    if is_cacheable {
+        if let Some(env) = flow_env {
+            if !env.is_empty() {
+                RESOLVED_FLOW_ENV_CACHE.insert(flow_job.id, Arc::new(env.clone()));
+            }
+        }
+    }
 
     let status = flow_job
         .parse_flow_status()
