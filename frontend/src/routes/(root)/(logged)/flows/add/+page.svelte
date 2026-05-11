@@ -13,6 +13,7 @@
 	import { tick } from 'svelte'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 	import type { Trigger } from '$lib/components/triggers/utils'
+	import { UserDraft } from '$lib/userDraft.svelte'
 
 	let nodraft = page.url.searchParams.get('nodraft')
 
@@ -57,8 +58,8 @@
 	// initialArgs may also be set from decoded state below (e.g. fork preview)
 	let flowBuilder: FlowBuilder | undefined = $state(undefined)
 
-	const flowStore: StateStore<Flow> = $state({
-		val: {
+	function emptyFlow(): Flow {
+		return {
 			summary: '',
 			value: { modules: [] },
 			path: '',
@@ -68,23 +69,26 @@
 			extra_perms: {},
 			schema: emptySchema()
 		}
-	})
+	}
+
+	// New flow: empty path → in-memory only (no localStorage).
+	const flowHandle = UserDraft.use<Flow>('flow', '', { defaultValue: emptyFlow() })
+
+	const flowStore: StateStore<Flow> = {
+		get val() {
+			return flowHandle.draft ?? emptyFlow()
+		},
+		set val(v: Flow) {
+			flowHandle.draft = v
+		}
+	}
 	const flowStateStore = $state({ val: {} })
 
 	let draftTriggersFromUrl: Trigger[] | undefined = $state(undefined)
 	let selectedTriggerIndexFromUrl: number | undefined = $state(undefined)
 	async function loadFlow() {
 		loading = true
-		let flow: Flow = {
-			path: '',
-			summary: '',
-			value: { modules: [] },
-			edited_by: '',
-			edited_at: '',
-			archived: false,
-			extra_perms: {},
-			schema: emptySchema()
-		}
+		let flow: Flow = emptyFlow()
 
 		let state = forkState
 		const initialStateQuery = page.url.hash != '' ? page.url.hash.slice(1) : undefined
@@ -126,7 +130,6 @@
 				initialPath = `u/${$userStore?.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')}/${
 					oldPath[oldPath.length - 1]
 				}_fork`
-				flow = flow
 				goto('?', { replaceState: true })
 				selectedId = 'settings-metadata'
 			} else if (hubId) {
@@ -142,7 +145,6 @@
 						flow.value.preprocessor_module.value.content
 					)
 				}
-				flow = flow
 				goto('?', { replaceState: true })
 				selectedId = 'constants'
 			}
@@ -172,9 +174,11 @@
 
 <FlowBuilder
 	onSaveInitial={(e) => {
+		UserDraft.remove('flow', '')
 		goto(`/flows/edit/${e.path}?selected=${e.id}`)
 	}}
 	onDeploy={(e) => {
+		UserDraft.remove('flow', '')
 		goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
 	}}
 	onDetails={(e) => {

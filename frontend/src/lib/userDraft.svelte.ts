@@ -138,6 +138,26 @@ export const UserDraft = {
 		}
 	},
 
+	/**
+	 * Whether a draft currently exists for (workspace, itemKind, path).
+	 * For non-empty paths this checks localStorage; for empty paths it
+	 * checks the in-memory entry. Useful for distinguishing "first visit"
+	 * from "returning visit with unsaved local changes".
+	 */
+	has(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): boolean {
+		const ws = resolveWorkspace(opts)
+		const mk = mapKey(ws, itemKind, path)
+		const entry = entries.get(mk)
+		if (entry) return entry.state.val !== undefined
+		if (isLocalOnly(path)) return false
+		try {
+			const raw = localStorage.getItem(localStorageKey(ws, itemKind, path))
+			return raw != null && raw !== 'undefined'
+		} catch {
+			return false
+		}
+	},
+
 	remove(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)

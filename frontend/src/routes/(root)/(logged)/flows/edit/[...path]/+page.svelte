@@ -3,7 +3,13 @@
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
-	import { cleanValueProperties, decodeState, emptySchema, type StateStore } from '$lib/utils'
+	import {
+		cleanValueProperties,
+		decodeState,
+		emptySchema,
+		orderedJsonStringify,
+		type StateStore
+	} from '$lib/utils'
 	import { initFlow } from '$lib/components/flows/flowStore.svelte'
 	import { goto } from '$lib/navigation'
 	import { afterNavigate, replaceState } from '$app/navigation'
@@ -16,6 +22,7 @@
 	import { untrack } from 'svelte'
 	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
 	import { page } from '$app/state'
+	import { UserDraft } from '$lib/userDraft.svelte'
 
 	let version: undefined | number = $state(undefined)
 	let nodraft = page.url.searchParams.get('nodraft')
@@ -44,8 +51,11 @@
 		}
 	})
 
-	export const flowStore: StateStore<Flow> = $state({
-		val: {
+	const flowDraftPath = page.params.path ?? ''
+	const flowHandle = UserDraft.use<Flow>('flow', flowDraftPath)
+
+	function emptyFlow(): Flow {
+		return {
 			summary: '',
 			value: { modules: [] },
 			path: '',
@@ -55,7 +65,16 @@
 			extra_perms: {},
 			schema: emptySchema()
 		}
-	})
+	}
+
+	export const flowStore: StateStore<Flow> = {
+		get val() {
+			return flowHandle.draft ?? emptyFlow()
+		},
+		set val(v: Flow) {
+			flowHandle.draft = v
+		}
+	}
 	const flowStateStore = $state({ val: {} })
 
 	let loading = $state(false)
@@ -104,13 +123,62 @@
 				draft_triggers?: Trigger[]
 			}
 		}
+
+		const backendFlow =
+			flowWithDraft.draft != undefined && !nobackenddraft ? flowWithDraft.draft : flowWithDraft
+		const localDraft = flowHandle.draft
+
+		if (localDraft != undefined) {
+			// Returning visit: local autosave is the source of truth. If it
+			// matches the backend's view exactly, drop the toast — otherwise
+			// let the user decide between keeping local or discarding.
+			const localClean = cleanValueProperties(localDraft)
+			const backendClean = cleanValueProperties(backendFlow)
+			if (orderedJsonStringify(localClean) === orderedJsonStringify(backendClean)) {
+				flow = backendFlow
+				flowHandle.draft = backendFlow
+			} else {
+				flow = localDraft
+				sendUserToast('Flow loaded from local autosave', false, [
+					{
+						label: 'Discard local autosave',
+						callback: () => {
+							flowHandle.draft = backendFlow
+							loadFlow()
+						}
+					},
+					{
+						label: 'Show diff',
+						callback: async () => {
+							diffDrawer?.openDrawer()
+							diffDrawer?.setDiff({
+								mode: 'simple',
+								original: backendClean,
+								current: localClean,
+								title: `${flowWithDraft.draft ? 'Latest saved draft' : 'Deployed'} <> Autosave`,
+								button: {
+									text: 'Discard autosave',
+									onClick: () => {
+										flowHandle.draft = backendFlow
+										loadFlow()
+									}
+								}
+							})
+						}
+					}
+				])
+			}
+		} else {
+			flow = backendFlow
+			flowHandle.draft = backendFlow
+		}
+
 		if (flowWithDraft.draft != undefined && !nobackenddraft) {
-			flow = flowWithDraft.draft
 			savedPrimarySchedule = flowWithDraft?.draft?.['primary_schedule']
 			flowBuilder?.setPrimarySchedule(savedPrimarySchedule)
 			flowBuilder?.setDraftTriggers(flowWithDraft?.draft?.['draft_triggers'])
 
-			if (!flowWithDraft.draft_only) {
+			if (!flowWithDraft.draft_only && localDraft == undefined) {
 				const deployed = cleanValueProperties(flowWithDraft)
 				const draft = cleanValueProperties(flow)
 				const reloadAction = async () => {
@@ -119,6 +187,7 @@
 						kind: 'flow',
 						path: flow.path
 					})
+					UserDraft.remove('flow', flowDraftPath)
 					nobackenddraft = true
 					loadFlow()
 				}
@@ -143,7 +212,6 @@
 				])
 			}
 		} else {
-			flow = flowWithDraft
 			flowBuilder?.setDraftTriggers(undefined)
 		}
 
@@ -167,6 +235,7 @@
 			return
 		}
 		diffDrawer?.closeDrawer()
+		UserDraft.remove('flow', flowDraftPath)
 		goto(`/flows/edit/${savedFlow.draft.path}`)
 		loadFlow()
 	}
@@ -184,6 +253,7 @@
 				path: savedFlow.path
 			})
 		}
+		UserDraft.remove('flow', flowDraftPath)
 		goto(`/flows/edit/${savedFlow.path}`)
 		loadFlow()
 	}
@@ -200,6 +270,7 @@
 {:else}
 	<FlowBuilder
 		onDeploy={(e) => {
+			UserDraft.remove('flow', flowDraftPath)
 			goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
 		}}
 		onDetails={(e) => {
