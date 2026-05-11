@@ -5,13 +5,12 @@ use windmill_ai::{
         GeminiImageContent, GeminiImageRequest, GeminiImageResponse, GeminiInlineData, GeminiPart,
         GeminiPredictContent, GeminiTextRequest, GeminiTool,
     },
+    image_handler::{download_and_encode_s3_image, prepare_messages_for_api},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
     sse::{GeminiSSEParser, SSEParser},
     types::*,
 };
 use windmill_common::{client::AuthedClient, error::Error};
-
-use crate::ai::image_handler::{download_and_encode_s3_image, prepare_messages_for_api};
 
 // ============================================================================
 // Query Builder Implementation
