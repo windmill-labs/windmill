@@ -22,6 +22,7 @@ use windmill_mcp::McpClient;
 use crate::ai::tools::McpClientStub as McpClient;
 use windmill_ai::{
     ai_providers::AIProvider,
+    image_handler::upload_image_to_s3,
     query_builder::{BuildRequestArgs, ParsedResponse},
     types::*,
     utils::{should_use_structured_output_tool, AI_HTTP_HEADERS},
@@ -43,10 +44,7 @@ use windmill_common::{
 use windmill_queue::{cancel_single_job, CanceledBy, MiniPulledJob};
 
 use crate::{
-    ai::{
-        image_handler::upload_image_to_s3,
-        query_builder::{create_query_builder, StreamEventProcessor},
-    },
+    ai::query_builder::{create_query_builder, StreamEventProcessor},
     common::{build_args_map, resolve_job_timeout, OccupancyMetrics, StreamNotifier},
     handle_child::{run_future_with_polling_update_job_poller_graceful, GracefulPollOutcome},
 };
@@ -1206,7 +1204,8 @@ pub async fn run_agent(
             }
             ParsedResponse::Image { base64_data } => {
                 // For image output, upload to S3 and track in conversation
-                let s3_object = upload_image_to_s3(&base64_data, job, client).await?;
+                let s3_object =
+                    upload_image_to_s3(&base64_data, &job.workspace_id, &job.id, client).await?;
 
                 let content = to_raw_value(&s3_object);
 

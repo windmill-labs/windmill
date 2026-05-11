@@ -4,14 +4,13 @@ use serde_json::value::RawValue;
 use windmill_ai::{
     ai_providers::AIProvider,
     ai_types::OpenAIToolCall,
+    image_handler::{prepare_messages_for_api, s3_object_to_content_part},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
     sse::{OpenAIResponsesSSEParser, SSEParser},
     types::*,
     utils::extract_text_content,
 };
 use windmill_common::{client::AuthedClient, error::Error};
-
-use crate::ai::image_handler::{prepare_messages_for_api, s3_object_to_content_part};
 
 // Responses API structures
 #[derive(Deserialize)]

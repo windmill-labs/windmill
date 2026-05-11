@@ -1067,10 +1067,15 @@ impl<'a> GetQuery<'a> {
                 .ok()
                 .inspect(|data| job.raw_flow = Some(sqlx::types::Json(data.raw_flow.clone())));
         }
-        if self.with_code && job.job_kind() == &JobKind::Preview {
+        if self.with_code
+            && matches!(
+                job.job_kind(),
+                JobKind::Preview | JobKind::FlowScript | JobKind::AppScript
+            )
+        {
             // Try to fetch the code from the cache, fallback to the preview code.
-            // NOTE: This could check for the job kinds instead of the `or_else` but it's not
-            // necessary as `fetch_script` return early if the job kind is not a preview one.
+            // `fetch_script` resolves FlowScript / AppScript via their runnable_id; for
+            // Preview jobs it returns early and we fall through to `fetch_preview_script`.
             let conn = Connection::from(db.clone());
             cache::job::fetch_script(db.clone(), job.job_kind(), hash)
                 .or_else(|_| cache::job::fetch_preview_script(&conn, &id, raw_lock, raw_code))
