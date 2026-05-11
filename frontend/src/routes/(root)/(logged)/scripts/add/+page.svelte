@@ -7,7 +7,6 @@
 	import type { Schema } from '$lib/common'
 	import { decodeState, emptySchema, emptyString, sendUserToast } from '$lib/utils'
 	import { goto } from '$lib/navigation'
-	import { replaceState } from '$app/navigation'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 	import type { Trigger } from '$lib/components/triggers/utils'
@@ -16,6 +15,7 @@
 	import ScriptEditorSkeleton from '$lib/components/ScriptEditorSkeleton.svelte'
 	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
 	import { isWorkflowAsCode } from '$lib/components/graph/wacToFlow'
+	import { UserDraft } from '$lib/userDraft.svelte'
 
 	type Script = NewScript & {
 		draft_triggers?: Trigger[]
@@ -39,19 +39,7 @@
 
 	const path = page.url.searchParams.get('path')
 
-	const initialState = page.url.hash != '' ? page.url.hash.slice(1) : undefined
-
 	let scriptBuilder: ScriptBuilder | undefined = $state(undefined)
-
-	function decodeStateAndHandleError(state) {
-		try {
-			const decoded = decodeState(state)
-			return decoded
-		} catch (e) {
-			console.error('Error decoding state', e)
-			return defaultScript()
-		}
-	}
 
 	function defaultScript(): Script {
 		return {
@@ -63,20 +51,22 @@
 			schema: schema,
 			is_template: false,
 			extra_perms: {},
-			language: (wacParam === 'python' ? 'python3' : wacParam === 'typescript' ? 'bun' : null) ?? collabLang ?? ($defaultScripts?.order?.filter(
-				(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x)
-			)?.[0] ?? 'bun') as ScriptLang,
+			language:
+				(wacParam === 'python' ? 'python3' : wacParam === 'typescript' ? 'bun' : null) ??
+				collabLang ??
+				(($defaultScripts?.order?.filter(
+					(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x)
+				)?.[0] ?? 'bun') as ScriptLang),
 			kind: 'script'
 		}
 	}
 
-	let script: Script | undefined = $state(
-		templatePath || hubPath
-			? undefined
-			: !path && initialState != undefined
-				? decodeStateAndHandleError(initialState)
-				: defaultScript()
-	)
+	// New script: keyed on '' (in-memory only — empty paths bypass localStorage).
+	// templatePath/hubPath/import flows replace the value before render, so
+	// defaultValue is left undefined for those to avoid flashing a blank editor.
+	const scriptHandle = UserDraft.use<Script>('script', '', {
+		defaultValue: templatePath || hubPath ? undefined : defaultScript()
+	})
 
 	async function loadTemplate(): Promise<void> {
 		if (templatePath) {
@@ -85,7 +75,7 @@
 					workspace: $workspaceStore!,
 					path: templatePath
 				})
-				script = {
+				scriptHandle.draft = {
 					...defaultScript(),
 					summary: !emptyString(template.summary) ? `Copy of ${template.summary}` : '',
 					description: template.description,
@@ -95,7 +85,7 @@
 					path: template.path + '_fork'
 				}
 			} catch (err) {
-				script = defaultScript()
+				scriptHandle.draft = defaultScript()
 				console.error('Error loading template', err)
 				sendUserToast('Error loading template: ' + err.message, true)
 			}
@@ -108,7 +98,7 @@
 				const { content, language, summary } = await ScriptService.getHubScriptByPath({
 					path: hubPath
 				})
-				script = {
+				scriptHandle.draft = {
 					...defaultScript(),
 					description: `Fork of ${hubPath}`,
 					content: replaceScriptPlaceholderWithItsValues(hubPath, content),
@@ -117,7 +107,7 @@
 					path: hubPath + '_fork'
 				}
 			} catch (err) {
-				script = defaultScript()
+				scriptHandle.draft = defaultScript()
 				console.error('Error loading script from hub', err)
 				sendUserToast('Error loading script from hub: ' + err.message, true)
 			}
@@ -131,7 +121,7 @@
 		const imported = $importScriptStore
 		$importScriptStore = undefined
 		const isWac = isWorkflowAsCode(imported.content ?? '', imported.language ?? '')
-		script = {
+		scriptHandle.draft = {
 			...defaultScript(),
 			...imported,
 			path: path ?? '',
@@ -139,8 +129,7 @@
 			extra_perms: {}
 		}
 		if (isWac) {
-			importedWacTemplate =
-				imported.language === 'python3' ? 'wac_python' : 'wac_typescript'
+			importedWacTemplate = imported.language === 'python3' ? 'wac_python' : 'wac_typescript'
 			sendUserToast('WAC script loaded from YAML/JSON')
 		} else {
 			sendUserToast('Script loaded from YAML/JSON')
@@ -154,12 +143,17 @@
 	})
 </script>
 
-{#if script}
+{#if scriptHandle.draft}
 	<ScriptBuilder
 		{initialArgs}
 		bind:this={scriptBuilder}
 		lockedLanguage={templatePath != null || hubPath != null}
-		template={importedWacTemplate ?? (wacParam === 'python' ? 'wac_python' : wacParam === 'typescript' ? 'wac_typescript' : 'script')}
+		template={importedWacTemplate ??
+			(wacParam === 'python'
+				? 'wac_python'
+				: wacParam === 'typescript'
+					? 'wac_typescript'
+					: 'script')}
 		onDeploy={(e) => {
 			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
 		}}
@@ -167,9 +161,8 @@
 			goto(`/scripts/edit/${e.path}`)
 		}}
 		searchParams={page.url.searchParams}
-		bind:script
+		bind:script={scriptHandle.draft}
 		{showMeta}
-		replaceStateFn={(path) => replaceState(path, page.state)}
 	>
 		<UnsavedConfirmationModal
 			getInitialAndModifiedValues={scriptBuilder?.getInitialAndModifiedValues}
