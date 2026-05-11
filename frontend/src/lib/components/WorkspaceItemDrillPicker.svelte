@@ -2,8 +2,11 @@
 @component
 Drill-through workspace item picker. One level is shown at a time:
 
-  - **Root** (no scope): kinds (Flows / Scripts / Apps).
+  - **Root** (no scope): All + kinds (Flows / Scripts / Apps). "All" is a
+    cross-kind row — drilling in shows folders/items merged across every kind.
   - **Kind** (`{ kind }`): top-level scopes for that kind (e.g. `f/demo`, `u/alice`).
+    `kind: 'all'` is the cross-kind variant — folders contain items from
+    every kind, leaves still belong to a real kind.
   - **Dir** (`{ kind, dir }`): immediate children of `dir` — subdirs + leaves.
 
 Clicking a row drills *down*; the chevron-left in the header walks one level
@@ -11,7 +14,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 -->
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
-	import { ChevronLeft, ChevronRight, Folder, Loader2, User } from 'lucide-svelte'
+	import { ChevronLeft, ChevronRight, Folder, Layers, Loader2, User } from 'lucide-svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
@@ -30,8 +33,11 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 
 	type Kind = WorkspaceItemKind
 	type Item = WorkspaceItem
+	/** `'all'` is a virtual cross-kind scope — items still belong to a real
+	 * kind, but folders and the root row group items from every kind. */
+	type ScopeKind = Kind | 'all'
 
-	export type Scope = { kind: Kind; dir?: string } | undefined
+	export type Scope = { kind: ScopeKind; dir?: string } | undefined
 
 	interface Props {
 		onPick: (item: WorkspaceItem) => void
@@ -111,9 +117,12 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		}
 	}
 
-	// Fetch the scope's kind on entry to a non-root level.
+	// Fetch the scope's kind on entry to a non-root level. The `'all'` scope
+	// needs every kind loaded since it merges items across them.
 	$effect(() => {
-		if (scope) ensureLoaded(scope.kind)
+		if (!scope) return
+		if (scope.kind === 'all') for (const k of kinds) ensureLoaded(k)
+		else ensureLoaded(scope.kind)
 	})
 
 	// Searching is global → load every kind.
@@ -204,8 +213,16 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	const flowTree = $derived(buildIfActive('flow', loaded.flow))
 	const scriptTree = $derived(buildIfActive('script', loaded.script))
 	const appTree = $derived(buildIfActive('app', loaded.app))
+	/** Cross-kind tree: every loaded item from every active kind, merged into
+	 * one folder hierarchy. Each leaf still carries its real kind, so the row
+	 * icon and `editPathFor` routing still work; folders contain a mix. */
+	const allTree = $derived.by(() => {
+		const merged = kinds.flatMap((k) => withCurrent(loaded[k] ?? [], k))
+		return merged.length === 0 ? [] : buildTreeFromItems(merged)
+	})
 
-	function treeFor(k: Kind): DirNode[] {
+	function treeFor(k: ScopeKind): DirNode[] {
+		if (k === 'all') return allTree
 		if (k === 'flow') return flowTree
 		if (k === 'script') return scriptTree
 		return appTree
@@ -227,8 +244,8 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	}
 
 	type Entry =
-		| { type: 'kind'; key: string; kind: Kind }
-		| { type: 'dir'; key: string; kind: Kind; node: DirNode }
+		| { type: 'kind'; key: string; kind: ScopeKind }
+		| { type: 'dir'; key: string; kind: ScopeKind; node: DirNode }
 		| { type: 'leaf'; key: string; item: Item }
 
 	type DisplayItem = Item & { marked?: string }
@@ -256,7 +273,18 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	let entries = $derived.by<Entry[]>(() => {
 		const s = scope
 		if (!s) {
-			return kinds.map((k) => ({ type: 'kind', key: kindKey(k), kind: k }))
+			const kindEntries = kinds.map((k) => ({
+				type: 'kind' as const,
+				key: kindKey(k),
+				kind: k
+			}))
+			// "All" only makes sense across multiple kinds — with a single kind
+			// it would duplicate that kind's own root row.
+			if (kinds.length <= 1) return kindEntries
+			return [
+				{ type: 'kind' as const, key: kindKey('all'), kind: 'all' as ScopeKind },
+				...kindEntries
+			]
 		}
 		const tree = treeFor(s.kind)
 		if (!s.dir) {
@@ -415,7 +443,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	 * (`f/<folder>` or `u/<user>`) as one chunk, then any nested subdirs. */
 	let headerSegments = $derived.by<string[]>(() => {
 		if (!scope) return []
-		const out = [KIND_LABEL_LOWER[scope.kind]]
+		const out = [scope.kind === 'all' ? 'all' : KIND_LABEL_LOWER[scope.kind]]
 		if (scope.dir) {
 			const parts = scope.dir.split('/')
 			out.push(parts.slice(0, 2).join('/'))
@@ -481,6 +509,9 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 
 	let scopeLoading = $derived.by(() => {
 		if (!scope) return false
+		if (scope.kind === 'all') {
+			return kinds.some((k) => !loaded[k] && !!loadingKind[k])
+		}
 		return !loaded[scope.kind] && !!loadingKind[scope.kind]
 	})
 </script>
@@ -557,7 +588,11 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 			title={headerLabel}
 		>
 			<ChevronLeft size={12} class="shrink-0 text-secondary" />
-			<RowIcon kind={s.kind} size={12} />
+			{#if s.kind === 'all'}
+				<Layers size={12} class="shrink-0 text-tertiary" />
+			{:else}
+				<RowIcon kind={s.kind} size={12} />
+			{/if}
 			<span bind:this={breadcrumbSpan} class="flex-1 min-w-0 truncate truncate-start"
 				>{headerLabelDisplay}</span
 			>
@@ -619,8 +654,13 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 							onmouseenter={() => setHoverHighlight(entry.key)}
 						>
 							{#if entry.type === 'kind'}
-								<RowIcon kind={entry.kind} size={12} />
-								<span class="flex-1">{KIND_LABEL[entry.kind]}</span>
+								{#if entry.kind === 'all'}
+									<Layers size={12} class="shrink-0 text-tertiary" />
+									<span class="flex-1">All</span>
+								{:else}
+									<RowIcon kind={entry.kind} size={12} />
+									<span class="flex-1">{KIND_LABEL[entry.kind]}</span>
+								{/if}
 							{:else if entry.node.isScope && entry.node.fullPath.startsWith('u/')}
 								<User size={12} class="shrink-0 text-tertiary" />
 								<span class="flex-1 truncate">{entry.node.name}</span>
@@ -628,7 +668,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 								<Folder size={12} class="shrink-0 text-tertiary" />
 								<span class="flex-1 truncate">{entry.node.name}</span>
 							{/if}
-							{#if entry.type === 'kind' && loadingKind[entry.kind]}
+							{#if entry.type === 'kind' && entry.kind !== 'all' && loadingKind[entry.kind]}
 								<Loader2 size={12} class="animate-spin text-tertiary" />
 							{/if}
 							<ChevronRight size={10} class="shrink-0 text-secondary" />

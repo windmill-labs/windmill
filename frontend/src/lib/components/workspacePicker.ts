@@ -24,9 +24,11 @@ export const KIND_LABEL_LOWER: Record<WorkspaceItemKind, string> = {
 }
 
 /** Composite keys used for keyboard nav and `initialHighlight`. The picker and
- * its callers must agree on these — keep them all here. */
-export const kindKey = (k: WorkspaceItemKind) => `kind:${k}`
-export const dirKey = (k: WorkspaceItemKind, fullPath: string) => `dir:${k}:${fullPath}`
+ * its callers must agree on these — keep them all here. `'all'` is a virtual
+ * kind for the cross-kind root view; only valid for `kindKey` / `dirKey`
+ * (leaves always belong to a real kind). */
+export const kindKey = (k: WorkspaceItemKind | 'all') => `kind:${k}`
+export const dirKey = (k: WorkspaceItemKind | 'all', fullPath: string) => `dir:${k}:${fullPath}`
 export const leafKeyFor = (k: WorkspaceItemKind, path: string) => `leaf:${k}:${path}`
 
 export function editPathFor(item: WorkspaceItem): string {

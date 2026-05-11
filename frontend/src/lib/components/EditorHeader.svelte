@@ -135,12 +135,14 @@
 			/>
 			{#if segments}
 				{#each segments.dirs as dir, i (dir.fullPath)}
-					{@const dKey = dirKey(kind, dir.fullPath)}
+					{@const dKey = dirKey('all', dir.fullPath)}
 					<BreadcrumbSegment
 						label={dir.name}
 						withChevron
 						extraClass={i === 0 ? 'gap-0.5 min-w-0 max-w-[40%]' : 'gap-0.5 min-w-0'}
-						initialScope={i === 0 ? { kind } : { kind, dir: segments.dirs[i - 1].fullPath }}
+						initialScope={i === 0
+							? { kind: 'all' }
+							: { kind: 'all', dir: segments.dirs[i - 1].fullPath }}
 						initialHighlight={dKey}
 						{currentItem}
 						{disabled}
@@ -153,7 +155,7 @@
 					label={segments.leaf.name}
 					withChevron
 					extraClass="gap-0.5 min-w-0"
-					initialScope={leafParent ? { kind, dir: leafParent } : { kind }}
+					initialScope={leafParent ? { kind: 'all', dir: leafParent } : { kind: 'all' }}
 					initialHighlight={leafKey}
 					isCurrent
 					{currentItem}
