@@ -337,7 +337,7 @@ export function buildEditableFlowJson(
 	let preprocessorModule = flow.value.preprocessor_module
 	if (
 		preprocessorModule?.value?.type === 'rawscript' &&
-		preprocessorModule.value.content &&
+		typeof preprocessorModule.value.content === 'string' &&
 		inlineScriptSession
 	) {
 		inlineScriptSession.set(preprocessorModule.id, preprocessorModule.value.content)
@@ -353,7 +353,7 @@ export function buildEditableFlowJson(
 	let failureModule = flow.value.failure_module
 	if (
 		failureModule?.value?.type === 'rawscript' &&
-		failureModule.value.content &&
+		typeof failureModule.value.content === 'string' &&
 		inlineScriptSession
 	) {
 		inlineScriptSession.set(failureModule.id, failureModule.value.content)

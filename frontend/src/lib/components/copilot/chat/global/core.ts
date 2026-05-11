@@ -485,7 +485,16 @@ function flowToItem(flow: Flow, includeValue: boolean): WorkspaceItem {
  * `set_flow_module_code`. `patch_flow_json` operates on this compact view too,
  * so structural edits never have to traverse inline script bodies.
  */
-function compactFlowItemForRead(item: WorkspaceItem): unknown {
+function serializeWorkspaceItemForRead(item: WorkspaceItem): unknown {
+	if (item.type === 'variable') {
+		return {
+			type: 'variable',
+			path: item.path,
+			summary: item.summary,
+			isDraft: item.isDraft
+		}
+	}
+
 	if (item.type !== 'flow' || !item.value) return item
 	const flowDraft = item.value as FlowDraftValue
 	const session = createInlineScriptSession()
@@ -1220,7 +1229,7 @@ export const globalTools: Tool<{}>[] = [
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Read AI draft ${parsed.type} "${parsed.path}"`
 				})
-				return JSON.stringify(compactFlowItemForRead(draft), null, 2)
+				return JSON.stringify(serializeWorkspaceItemForRead(draft), null, 2)
 			}
 
 			toolCallbacks.setToolStatus(toolId, {
@@ -1233,7 +1242,7 @@ export const globalTools: Tool<{}>[] = [
 				parsed.trigger_kind
 			)
 			toolCallbacks.setToolStatus(toolId, { content: `Read ${parsed.type} "${parsed.path}"` })
-			return JSON.stringify(compactFlowItemForRead(item), null, 2)
+			return JSON.stringify(serializeWorkspaceItemForRead(item), null, 2)
 		}
 	},
 	{
@@ -2345,7 +2354,7 @@ async function writeDraft(item: WorkspaceItem, ctx: WriteDraftCtx): Promise<stri
 		{
 			success: true,
 			message: `${verb} AI draft ${item.type} "${item.path}". The workspace was not saved or deployed.`,
-			item: stored
+			item: stored.type === 'variable' ? serializeWorkspaceItemForRead(stored) : stored
 		},
 		null,
 		2
