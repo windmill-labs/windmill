@@ -30,7 +30,6 @@ deno_permissions.workspace = true
 deno_io.workspace = true
 deno_telemetry.workspace = true
 deno_error.workspace = true
-deno_runtime.workspace = true
 winapi.workspace = true
 
 itertools.workspace = true
@@ -60,6 +59,6 @@ deno_ast.workspace = true
 deno_tls.workspace = true
 deno_permissions.workspace = true
 deno_io.workspace = true
-deno_runtime.workspace = true
 deno_telemetry.workspace = true
+deno_error.workspace = true
 winapi.workspace = true
