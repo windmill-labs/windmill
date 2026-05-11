@@ -374,3 +374,39 @@ export function buildEditableFlowJson(
 		groups: flow.value.groups ?? null
 	}
 }
+
+function restoreSpecialRawscriptModule(
+	module: FlowModule | null,
+	session: InlineScriptSession
+): FlowModule | null {
+	if (!module || module.value.type !== 'rawscript' || !module.value.content) return module
+	const match = module.value.content.match(/^inline_script\.(.+)$/)
+	if (!match) return module
+	const content = session.get(match[1])
+	if (content === undefined) return module
+	return { ...module, value: { ...module.value, content } }
+}
+
+/**
+ * Inverse of `buildEditableFlowJson`. Replaces `inline_script.<moduleId>`
+ * placeholders in `editable.modules` and the special modules with the content
+ * stored in `session`. Other fields on the original FlowValue (`same_worker`,
+ * `concurrent_limit`, etc.) are preserved.
+ *
+ * Pair with `buildEditableFlowJson` for round-trip patches: extract → patch
+ * the compact view → restore.
+ */
+export function applyEditableFlowJsonToFlow(
+	originalValue: FlowValue,
+	editable: EditableFlowJson,
+	session: InlineScriptSession
+): FlowValue {
+	return {
+		...originalValue,
+		modules: session.restoreInlineScriptReferences(editable.modules),
+		preprocessor_module:
+			restoreSpecialRawscriptModule(editable.preprocessor_module, session) ?? undefined,
+		failure_module: restoreSpecialRawscriptModule(editable.failure_module, session) ?? undefined,
+		groups: editable.groups ?? undefined
+	}
+}

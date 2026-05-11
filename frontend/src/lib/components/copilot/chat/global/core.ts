@@ -35,6 +35,12 @@ import {
 	type FrameworkKey
 } from '$lib/components/raw_apps/templates'
 import {
+	applyEditableFlowJsonToFlow,
+	buildEditableFlowJson,
+	validateEditableFlowJson
+} from '../flow/editableFlowJson'
+import { createInlineScriptSession } from '../flow/inlineScriptsUtils'
+import {
 	getFlowPrompt,
 	getRawAppPrompt,
 	getResourcePrompt,
@@ -158,6 +164,25 @@ const flowValueSchema = z
 			.describe("Optional failure handler module with id 'failure'.")
 	})
 	.describe('OpenFlow value: modules plus optional preprocessor_module and failure_module.')
+
+const readFlowModuleCodeSchema = z.object({
+	path: z.string().describe('Workspace path of the flow.'),
+	module_id: z
+		.string()
+		.describe(
+			'Module id whose inline rawscript content to read. Must reference a module whose value.type is "rawscript".'
+		)
+})
+
+const setFlowModuleCodeSchema = z.object({
+	path: z.string().describe('Workspace path of the flow.'),
+	module_id: z
+		.string()
+		.describe(
+			'Module id whose inline rawscript content to overwrite. Must reference a module whose value.type is "rawscript". Use patch_flow_json for structural changes.'
+		),
+	code: z.string().describe('New script source. Replaces the module\'s value.content entirely.')
+})
 
 // `value` is taken as a JSON string rather than a typed object because the
 // underlying flowValueSchema is recursive (modules can contain modules), which
@@ -395,6 +420,7 @@ You can inspect workspace scripts, flows, schedules, triggers, resources, variab
 Important rules:
 - write_{script,flow,schedule,trigger,resource,variable} create or overwrite drafts. They do not save, deploy, or mutate workspace items.
 - edit_script and patch_flow_json apply small exact-text edits and save the result as a draft. Prefer them for localized changes; use write_* for large rewrites.
+- For flows specifically: read_workspace_item and patch_flow_json work on a COMPACT view where rawscript module bodies are replaced with the placeholder "inline_script.<moduleId>". Use read_flow_module_code / set_flow_module_code to inspect or overwrite an inline script body; use patch_flow_json for structural edits.
 - deploy_workspace_item persists a draft to the workspace via the real backend create/update API and removes the draft. Requires user confirmation. Only call after the user has reviewed the draft and explicitly asked to deploy.
 - delete_workspace_item permanently removes a workspace item (and any matching draft). Irreversible. Requires user confirmation. Only call when the user has explicitly asked to delete.
 - Use list_workspace_items before broad reads.
@@ -449,6 +475,27 @@ function flowToItem(flow: Flow, includeValue: boolean): WorkspaceItem {
 			? { value: flow.value, schema: flow.schema, groups: flow.value.groups ?? null }
 			: undefined,
 		isDraft: false
+	}
+}
+
+/**
+ * Turn a flow workspace item into the compact response we send to the model:
+ * rawscript content is replaced with `inline_script.<moduleId>` placeholders.
+ * The model retrieves real content via `read_flow_module_code` and edits it via
+ * `set_flow_module_code`. `patch_flow_json` operates on this compact view too,
+ * so structural edits never have to traverse inline script bodies.
+ */
+function compactFlowItemForRead(item: WorkspaceItem): unknown {
+	if (item.type !== 'flow' || !item.value) return item
+	const flowDraft = item.value as FlowDraftValue
+	const session = createInlineScriptSession()
+	const editable = buildEditableFlowJson(flowDraft, session)
+	return {
+		type: 'flow',
+		path: item.path,
+		summary: item.summary,
+		value: editable,
+		isDraft: item.isDraft
 	}
 }
 
@@ -989,7 +1036,15 @@ function getFlowInstructions(): string {
 - Every module needs a stable unique \`id\` and a useful \`summary\` when the schema supports it.
 - Prefer path/script/flow modules when composing existing workspace logic. Use rawscript modules only when new inline code is needed.
 - When writing rawscript module code, call \`get_instructions\` with \`subject: "script"\` and the rawscript language first.
-- Use \`patch_flow_json\` for small localized changes (operates on the value as compact JSON); use \`write_flow\` for full rewrites.
+
+## Compact view: how rawscript bodies surface in tool I/O
+
+- \`read_workspace_item\` and \`patch_flow_json\` operate on a **compact view** of the flow: every rawscript module's \`value.content\` is replaced with the placeholder \`"inline_script.<moduleId>"\` so inline script bodies don't bloat tool I/O. Schema, groups, preprocessor_module and failure_module are all shown in this view.
+- Inline rawscript content is **not** part of the JSON \`patch_flow_json\` sees. Edits to inline bodies happen via dedicated tools:
+  - \`read_flow_module_code(path, module_id)\` — returns the raw inline script content for one module.
+  - \`set_flow_module_code(path, module_id, code)\` — overwrites that module's inline script content; saves to the AI draft.
+- Use \`patch_flow_json\` for *structural* edits: module ids, paths, input_transforms, branch arrangement, summaries, preprocessor/failure swaps, schema/groups. Use \`set_flow_module_code\` for changes inside a specific rawscript body.
+- \`write_flow\` is for full overwrites / create-from-scratch. Its \`value\` argument is the **non-compact** OpenFlow value (rawscript content is the actual code, not a placeholder).
 
 # Windmill flow authoring reference
 
@@ -1124,7 +1179,7 @@ export const globalTools: Tool<{}>[] = [
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Read AI draft ${parsed.type} "${parsed.path}"`
 				})
-				return JSON.stringify(draft, null, 2)
+				return JSON.stringify(compactFlowItemForRead(draft), null, 2)
 			}
 
 			toolCallbacks.setToolStatus(toolId, {
@@ -1137,7 +1192,7 @@ export const globalTools: Tool<{}>[] = [
 				parsed.trigger_kind
 			)
 			toolCallbacks.setToolStatus(toolId, { content: `Read ${parsed.type} "${parsed.path}"` })
-			return JSON.stringify(item, null, 2)
+			return JSON.stringify(compactFlowItemForRead(item), null, 2)
 		}
 	},
 	{
@@ -1391,6 +1446,31 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
+			readFlowModuleCodeSchema,
+			'read_flow_module_code',
+			'Read the inline rawscript content of one flow module by id. Reads from the AI draft when one exists, otherwise from the workspace flow. Use this instead of patch_flow_json when you only need to inspect an inline script body.'
+		),
+		fn: async (ctx) => {
+			const parsed = readFlowModuleCodeSchema.parse(ctx.args)
+			return readFlowModuleCode(parsed, ctx)
+		}
+	},
+	{
+		def: createToolDef(
+			setFlowModuleCodeSchema,
+			'set_flow_module_code',
+			'Overwrite the inline rawscript content of one flow module by id. Saves to the AI draft only — does not deploy. Use this for inline script body changes; structural changes (module ids, paths, input_transforms, branches) go through patch_flow_json.'
+		),
+		showDetails: true,
+		streamArguments: true,
+		showFade: true,
+		fn: async (ctx) => {
+			const parsed = setFlowModuleCodeSchema.parse(ctx.args)
+			return setFlowModuleCode(parsed, ctx)
+		}
+	},
+	{
+		def: createToolDef(
 			initAppSchema,
 			'init_app',
 			'Initialize a new raw app draft from a framework template. Errors if an app already exists at the path or a draft is already in flight. Confirm framework, path, and summary with the user before calling — do not silently default to react19.',
@@ -1559,11 +1639,17 @@ async function patchFlowJson(
 	const { path, old_string: oldString, new_string: newString, replace_all: replaceAll } = args
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: `Patching flow "${path}"...` })
 
+	// Operate on the compact (placeholders-for-rawscript) view so inline script
+	// bodies don't appear in the JSON the model sees or patches. Real script
+	// content is preserved through the patch via the InlineScriptSession; the
+	// model uses set_flow_module_code to change inline script bodies.
 	const base = await loadFlowDraftValue(path, ctx.workspace)
-	const currentJson = JSON.stringify(base.flow.value)
+	const session = createInlineScriptSession()
+	const editable = buildEditableFlowJson(base.flow, session)
+	const currentJson = JSON.stringify(editable)
 	const matchCount = countExactMatches(currentJson, oldString)
 	if (matchCount === 0) {
-		throw new Error('old_string was not found in the flow value JSON.')
+		throw new Error('old_string was not found in the compact flow JSON.')
 	}
 	if (!replaceAll && matchCount !== 1) {
 		throw new Error(
@@ -1580,22 +1666,73 @@ async function patchFlowJson(
 		throw new Error(`Invalid JSON after replacement: ${message}`)
 	}
 
-	const validated = flowValueSchema.safeParse(parsedValue)
-	if (!validated.success) {
-		throw new Error(
-			`Replacement produced an invalid flow value: ${validated.error.issues
-				.slice(0, 5)
-				.map((i) => `${i.path.join('.')}: ${i.message}`)
-				.join('; ')}`
-		)
-	}
+	const patchedEditable = validateEditableFlowJson(parsedValue)
+	const newFlowValue = applyEditableFlowJsonToFlow(base.flow.value, patchedEditable, session)
 
 	return writeDraft(
 		{
 			type: 'flow',
 			path,
 			summary: base.summary,
-			value: { ...base.flow, value: validated.data as FlowValue },
+			value: {
+				...base.flow,
+				value: newFlowValue,
+				schema: patchedEditable.schema,
+				groups: patchedEditable.groups
+			},
+			isDraft: true
+		},
+		ctx
+	)
+}
+
+async function readFlowModuleCode(
+	args: { path: string; module_id: string },
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Reading inline script for module "${args.module_id}" from flow "${args.path}"...`
+	})
+	const base = await loadFlowDraftValue(args.path, workspace)
+	const session = createInlineScriptSession()
+	buildEditableFlowJson(base.flow, session)
+	const content = session.get(args.module_id)
+	if (content === undefined) {
+		throw new Error(
+			`Module "${args.module_id}" is not an inline rawscript in flow "${args.path}". (Path runnables, branches, and loops have no inline script content; use patch_flow_json to inspect them.)`
+		)
+	}
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Read inline script for "${args.module_id}"`
+	})
+	return content
+}
+
+async function setFlowModuleCode(
+	args: { path: string; module_id: string; code: string },
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Updating inline script for module "${args.module_id}" in flow "${args.path}"...`
+	})
+	const base = await loadFlowDraftValue(args.path, workspace)
+	const session = createInlineScriptSession()
+	const editable = buildEditableFlowJson(base.flow, session)
+	if (!session.has(args.module_id)) {
+		throw new Error(
+			`Module "${args.module_id}" is not an inline rawscript in flow "${args.path}". Use patch_flow_json or write_flow for structural changes.`
+		)
+	}
+	session.set(args.module_id, args.code)
+	const newFlowValue = applyEditableFlowJsonToFlow(base.flow.value, editable, session)
+	return writeDraft(
+		{
+			type: 'flow',
+			path: args.path,
+			summary: base.summary,
+			value: { ...base.flow, value: newFlowValue },
 			isDraft: true
 		},
 		ctx
