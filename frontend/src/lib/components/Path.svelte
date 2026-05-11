@@ -419,6 +419,7 @@
 		)}
 	>
 		{#if meta != undefined}
+			{@const nameDisabled = disabled || disableEditing}
 			<!-- svelte-ignore a11y_label_has_associated_control -->
 			{#if !hideUser}
 				<div class="block">
@@ -429,7 +430,7 @@
 						]}
 						RightIcon={ChevronDown}
 						transformInputSelectedText={(t) => t.substring(0, 1).toLowerCase()}
-						inputClass="border-none"
+						inputClass={twMerge('border-none', disabled && '!bg-transparent')}
 						useContentEditable
 						bind:value={
 							() => meta?.ownerKind,
@@ -455,17 +456,18 @@
 			{/if}
 			<div>
 				{#if meta.ownerKind === 'user'}
+					{@const userOwnerDisabled =
+						disabled || !($superadmin || ($userStore?.is_admin ?? false)) || disableEditing}
 					<label class="block shrink min-w-0">
 						<TextInput
-							class="!border-none"
+							class={twMerge('!border-none', userOwnerDisabled && '!bg-transparent')}
 							{size}
 							underlyingInputEl="div"
 							bind:value={meta.owner}
 							inputProps={{
 								placeholder: $userStore?.username ?? '',
 								onkeydown: setDirty,
-								disabled:
-									disabled || !($superadmin || ($userStore?.is_admin ?? false)) || disableEditing
+								disabled: userOwnerDisabled
 							}}
 						/>
 					</label>
@@ -478,7 +480,7 @@
 							{disableEditing}
 							{size}
 							{drawerOffset}
-							selectInputClass="!border-none"
+							selectInputClass={twMerge('!border-none', disabled && '!bg-transparent')}
 						/>
 					</label>
 				{/if}
@@ -495,9 +497,12 @@
 					{autofocus}
 					id="path"
 					placeholder={namePlaceholder}
-					disabled={disabled || disableEditing}
+					disabled={nameDisabled}
 					onkeyup={handleKeyUp}
-					textInputClass="border-none"
+					textInputClass={twMerge(
+						'border-none',
+						nameDisabled && '!bg-transparent disabled:!bg-transparent'
+					)}
 				/>
 			</label>
 		{/if}

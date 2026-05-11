@@ -103,6 +103,8 @@
 
 	let underlyingInputEl = $derived(_underlyingInputEl ?? ('input' as const))
 	let inputProps = $derived(_inputProps as any)
+	let isDiv = $derived(underlyingInputEl === 'div')
+	let divDisabled = $derived(isDiv && Boolean(inputProps?.disabled))
 
 	let fullClassName = $derived(
 		twMerge(
@@ -112,6 +114,9 @@
 			inputBorderClass({ error: !!error }),
 			unifiedHeight ? ButtonType.UnifiedHeightClasses[size] : '',
 			'w-full',
+			isDiv &&
+				`whitespace-pre overflow-hidden ${inputLeadingClasses[size]} focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 empty:before:content-[attr(data-placeholder)] empty:before:text-hint`,
+			divDisabled && '!bg-surface-disabled !border-transparent !text-disabled cursor-not-allowed',
 			className
 		)
 	)
@@ -156,14 +161,7 @@
 		tabindex={disabled ? -1 : 0}
 		contenteditable={!disabled}
 		{...divProps}
-		class={twMerge(
-			fullClassName,
-			'whitespace-pre overflow-hidden',
-			inputLeadingClasses[size],
-			'focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0',
-			'empty:before:content-[attr(data-placeholder)] empty:before:text-hint',
-			disabled && '!bg-surface-disabled !border-transparent !text-disabled'
-		)}
+		class={fullClassName}
 		data-placeholder={placeholder ?? ''}
 		onpointerdown={(e) => e.stopImmediatePropagation()}
 		oninput={(e) => {
