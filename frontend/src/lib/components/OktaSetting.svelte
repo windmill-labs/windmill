@@ -5,6 +5,7 @@
 	import Toggle from './Toggle.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import Password from './Password.svelte'
 	import SettingCard from './instanceSettings/SettingCard.svelte'
 
 	interface Props {
@@ -100,7 +101,7 @@
 				<span class="text-secondary font-normal text-xs"
 					>from the CLIENT SECRETS section of the okta service configuration</span
 				>
-				<input type="text" placeholder="Client Secret" bind:value={value['secret']} />
+				<Password placeholder="Client Secret" bind:password={value['secret']} />
 			</label>
 			<CollapseLink text="Instructions">
 				<div class="text-xs text-primary border rounded-md p-4 space-y-3">
