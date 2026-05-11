@@ -1,16 +1,18 @@
+use crate::types::*;
 use base64::Engine;
 use futures;
 use ulid;
+use uuid::Uuid;
 use windmill_common::{client::AuthedClient, error::Error};
-use windmill_queue::MiniPulledJob;
 use windmill_types::s3::S3Object;
 
-use crate::ai::types::*;
-
-/// Upload image to S3 and return S3Object
+/// Upload image to S3 and return S3Object.
+///
+/// The caller must provide an AuthedClient authorized for `workspace_id`.
 pub async fn upload_image_to_s3(
     base64_image: &str,
-    job: &MiniPulledJob,
+    workspace_id: &str,
+    job_id: &Uuid,
     client: &AuthedClient,
 ) -> Result<S3Object, Error> {
     let image_bytes = base64::engine::general_purpose::STANDARD
@@ -19,7 +21,7 @@ pub async fn upload_image_to_s3(
 
     // Generate unique S3 key
     let unique_id = ulid::Ulid::new().to_string();
-    let s3_key = format!("ai_images/{}/{}.png", job.id, unique_id);
+    let s3_key = format!("ai_images/{}/{}.png", job_id, unique_id);
 
     // Create byte stream
     let byte_stream = futures::stream::once(async move {
@@ -29,7 +31,7 @@ pub async fn upload_image_to_s3(
     // Upload to S3
     client
         .upload_s3_file(
-            &job.workspace_id,
+            workspace_id,
             s3_key.clone(),
             None, // storage - use default
             byte_stream,
@@ -45,7 +47,9 @@ pub async fn upload_image_to_s3(
     })
 }
 
-/// Download an S3 image and convert it to a base64 data URL
+/// Download an S3 image and convert it to a base64 data URL.
+///
+/// The caller must provide an AuthedClient authorized for `workspace_id`.
 pub async fn download_and_encode_s3_image(
     image: &S3Object,
     client: &AuthedClient,
@@ -71,6 +75,8 @@ pub async fn download_and_encode_s3_image(
 }
 
 /// Convert an S3Object to the appropriate ContentPart based on MIME type.
+///
+/// The caller must provide an AuthedClient authorized for `workspace_id`.
 pub async fn s3_object_to_content_part(
     s3_object: &S3Object,
     client: &AuthedClient,
@@ -80,7 +86,7 @@ pub async fn s3_object_to_content_part(
         download_and_encode_s3_image(s3_object, client, workspace_id).await?;
     let data_url = format!("data:{};base64,{}", mime_type, file_bytes);
 
-    if windmill_ai::ai_types::is_document_mime(&mime_type) {
+    if crate::ai_types::is_document_mime(&mime_type) {
         let filename = s3_object
             .s3
             .rsplit('/')
@@ -93,7 +99,9 @@ pub async fn s3_object_to_content_part(
     }
 }
 
-/// Prepare messages for API by converting S3Objects to base64 ImageUrls
+/// Prepare messages for API by converting S3Objects to base64 ImageUrls.
+///
+/// The caller must provide an AuthedClient authorized for `workspace_id`.
 pub async fn prepare_messages_for_api(
     messages: &[OpenAIMessage],
     client: &AuthedClient,
