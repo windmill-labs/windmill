@@ -2373,7 +2373,7 @@ pub async fn monitor_db(
     let verify_license_key_f = async {
         #[cfg(feature = "enterprise")]
         if !initial_load {
-            verify_license_key().await;
+            verify_license_key(conn.as_sql()).await;
         }
     };
 
@@ -2381,9 +2381,7 @@ pub async fn monitor_db(
         #[cfg(feature = "enterprise")]
         if server_mode && !initial_load {
             if let Some(db) = conn.as_sql() {
-                // The function itself throttles the expensive worker_ping scan to once
-                // per LICENSE_OFFLINE_CHECK_INTERVAL_SECS, so calling it on every monitor
-                // tick is cheap when nothing has changed.
+                // Cheap: one query for workers active in the last 2 minutes.
                 if let Err(e) = windmill_common::ee_oss::enforce_offline_caps(db).await {
                     tracing::error!("Failed to enforce offline license caps: {e:#}");
                 }
@@ -2870,7 +2868,7 @@ pub async fn reload_base_url_setting(conn: &Connection) -> error::Result<()> {
 
     #[cfg(feature = "enterprise")]
     {
-        crate::ee_oss::verify_license_key().await;
+        crate::ee_oss::verify_license_key(conn.as_sql()).await;
     }
 
     Ok(())

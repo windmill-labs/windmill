@@ -60,10 +60,11 @@
 		license_key_id: string
 		license_key_valid: boolean
 		kind: 'offline' | 'online'
+		instance_hash?: string | null
 		offline?: {
 			v: number
 			kind: string
-			base_url: string
+			hash: string
 			seats: number
 			cu_limit: number
 		}
@@ -72,11 +73,9 @@
 			seats_cap: number
 			author_count: number
 			operator_count: number
-			avg_cu_30d: number
+			current_cu: number
 			cu_cap: number
 			cu_over_cap: boolean
-			cu_over_since?: string | null
-			cu_seconds_until_invalidation?: number | null
 		}
 	} | null = $state(null)
 
@@ -546,15 +545,27 @@
 							</div>
 						{/if}
 
+						{#if licenseStatus?.instance_hash}
+							<div
+								class="mt-3 rounded border border-gray-300 bg-gray-50 p-3 text-xs dark:border-gray-700 dark:bg-gray-900/40"
+							>
+								<div class="mb-1 font-semibold">Instance hash</div>
+								<div class="mb-1.5 text-tertiary">
+									Share this hash with Windmill support (<a
+										href="mailto:support@windmill.dev"
+										class="underline">support@windmill.dev</a
+									>) when requesting an offline license key.
+								</div>
+								<code class="block break-all rounded bg-white p-1.5 font-mono dark:bg-gray-950"
+									>{licenseStatus.instance_hash}</code
+								>
+							</div>
+						{/if}
+
 						{#if licenseStatus?.kind === 'offline' && licenseStatus.offline}
-							{@const meta = licenseStatus.offline}
 							{@const cap = licenseStatus.cap_status}
 							{@const seatsAtCap = !!cap && cap.seats_used >= cap.seats_cap}
 							{@const cuOver = !!cap?.cu_over_cap}
-							{@const cuDaysLeft =
-								cap?.cu_seconds_until_invalidation != null
-									? Math.max(0, Math.ceil(cap.cu_seconds_until_invalidation / 86400))
-									: null}
 							<div
 								class="mt-3 rounded border p-3 text-xs flex flex-col gap-1.5 {cuOver
 									? 'border-red-400 bg-red-50 dark:bg-red-950/30'
@@ -564,19 +575,11 @@
 							>
 								<div class="font-semibold flex items-center gap-1">
 									<Info size={14} />
-									Offline (URL-bound) license
+									Offline license
 								</div>
 								<div>
-									Bound to <code class="font-mono">{meta.base_url}</code>. Renewal is disabled —
-									this key is intended for air-gapped instances. To reissue when approaching expiry,
-									self-serve at
-									<a
-										href="https://portal.windmill.dev"
-										target="_blank"
-										rel="noopener noreferrer"
-										class="underline">portal.windmill.dev</a
-									>
-									(if enabled on your subscription) or
+									Renewal is disabled — this key is intended for air-gapped instances. To reissue
+									when approaching expiry,
 									<a href="mailto:support@windmill.dev" class="underline">contact us</a>.
 								</div>
 								{#if cap}
@@ -593,10 +596,10 @@
 											>
 										</div>
 										<div>
-											Avg CU (30d): <span
-												class={cap.cu_over_cap ? 'text-red-600 font-semibold' : ''}
-												>{cap.avg_cu_30d.toFixed(2)} / {cap.cu_cap.toFixed(2)}</span
+											Current CU: <span class={cap.cu_over_cap ? 'text-red-600 font-semibold' : ''}
+												>{cap.current_cu.toFixed(2)} / {cap.cu_cap.toFixed(2)}</span
 											>
+											<span class="text-tertiary">(last 2 min)</span>
 										</div>
 									</div>
 									{#if seatsAtCap}
@@ -609,15 +612,7 @@
 									{#if cuOver}
 										<div class="mt-1 flex items-center gap-1 text-red-700 dark:text-red-300">
 											<AlertCircle size={14} />
-											{#if cuDaysLeft && cuDaysLeft > 0}
-												Avg CU above cap. License will be invalidated in
-												<strong>{cuDaysLeft} day{cuDaysLeft === 1 ? '' : 's'}</strong
-												>{cap.cu_over_since
-													? ` (since ${new Date(cap.cu_over_since).toLocaleString()})`
-													: ''} unless usage drops back under cap.
-											{:else}
-												Avg CU has been above cap for too long — license is invalidated.
-											{/if}
+											CU usage is over cap — license is invalidated until usage drops back under cap.
 										</div>
 									{/if}
 								{/if}

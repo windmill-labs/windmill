@@ -19,7 +19,9 @@ lazy_static::lazy_static! {
   pub static ref LICENSE_KEY_ID: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee("".to_string());
   pub static ref LICENSE_KEY: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee("".to_string());
   pub static ref LICENSE_OFFLINE_METADATA: arc_swap::ArcSwap<Option<OfflineMetadata>> = arc_swap::ArcSwap::from_pointee(None);
-  pub static ref LICENSE_OFFLINE_OVER_GRACE: AtomicBool = AtomicBool::new(false);
+  pub static ref LICENSE_OFFLINE_OVER_CU_CAP: AtomicBool = AtomicBool::new(false);
+  pub static ref LICENSE_OFFLINE_LAST_STATUS: arc_swap::ArcSwap<Option<OfflineCapStatus>> = arc_swap::ArcSwap::from_pointee(None);
+  pub static ref LICENSE_OFFLINE_LAST_CHECKED_AT: arc_swap::ArcSwap<Option<chrono::DateTime<chrono::Utc>>> = arc_swap::ArcSwap::from_pointee(None);
 }
 
 #[cfg(not(feature = "private"))]
@@ -27,7 +29,7 @@ lazy_static::lazy_static! {
 pub struct OfflineMetadata {
     pub v: u32,
     pub kind: String,
-    pub base_url: String,
+    pub hash: String,
     pub seats: i64,
     pub cu_limit: f64,
 }
@@ -46,11 +48,9 @@ pub struct OfflineCapStatus {
     pub seats_cap: i64,
     pub author_count: i64,
     pub operator_count: i64,
-    pub avg_cu_30d: f64,
+    pub current_cu: f64,
     pub cu_cap: f64,
     pub cu_over_cap: bool,
-    pub cu_over_since: Option<chrono::DateTime<chrono::Utc>>,
-    pub cu_seconds_until_invalidation: Option<i64>,
 }
 
 #[cfg(all(feature = "enterprise", not(feature = "private")))]
@@ -58,6 +58,12 @@ pub async fn check_seat_cap_for_new_user(
     _db: &DB,
     _new_user_is_operator: bool,
 ) -> anyhow::Result<Option<String>> {
+    Ok(None)
+}
+
+#[cfg(all(feature = "enterprise", not(feature = "private")))]
+pub async fn compute_instance_hash(_db: &DB) -> anyhow::Result<Option<String>> {
+    // Implementation is not open source
     Ok(None)
 }
 

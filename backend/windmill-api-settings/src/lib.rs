@@ -355,6 +355,11 @@ pub struct LicenseStatus {
     pub license_key_id: String,
     pub license_key_valid: bool,
     pub kind: &'static str,
+    /// Per-instance binding hash. Always present on EE builds (no offline key
+    /// is needed to compute it). The superadmin sends this to Windmill support
+    /// when requesting an offline key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance_hash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offline: Option<windmill_common::ee_oss::OfflineMetadata>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -384,8 +389,16 @@ pub async fn get_license_status(
         _ => ("online", None),
     };
 
+    #[cfg(feature = "enterprise")]
+    let instance_hash = windmill_common::ee_oss::compute_instance_hash(&db)
+        .await
+        .ok()
+        .flatten();
+    #[cfg(not(feature = "enterprise"))]
+    let instance_hash: Option<String> = None;
+
     // Read after enforce_offline_caps runs so a freshly-flipped invalid state
-    // (cap exceeded + grace expired) is reflected in the same response.
+    // (cap exceeded) is reflected in the same response.
     let license_key_valid =
         windmill_common::ee_oss::LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed);
 
@@ -393,6 +406,7 @@ pub async fn get_license_status(
         license_key_id,
         license_key_valid,
         kind,
+        instance_hash,
         offline,
         cap_status,
     }))
