@@ -7,7 +7,7 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { canWrite } from '$lib/utils'
+	import { canWrite, readFieldsRecursively } from '$lib/utils'
 	import { Save } from 'lucide-svelte'
 	import VariableForm from './VariableForm.svelte'
 	import WsSpecificVersions from './WsSpecificVersions.svelte'
@@ -15,6 +15,7 @@
 	import { deepEqual } from 'fast-equals'
 	import { getUserExt } from '$lib/user'
 	import type { UserExt } from '$lib/stores'
+	import { UserDraft } from '$lib/userDraft.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -84,7 +85,7 @@
 				VariableService.getVariable({ workspace: ws, path: p, decryptSecret: false }),
 				getUserExt(ws)
 			]).then(([v, user]) => {
-				const s: VariableState = {
+				const backendState: VariableState = {
 					path: v.path,
 					variable: {
 						value: v.value ?? '',
@@ -94,13 +95,27 @@
 					labels: v.labels ?? undefined,
 					wsSpecific: v.ws_specific ?? false
 				}
-				states[ws] = s
-				initialStates[ws] = structuredClone(s)
+				const local =
+					ws === $workspaceStore ? UserDraft.get<VariableState>('variable', p) : undefined
+				const useLocal = local && !deepEqual(local, backendState)
+				states[ws] = useLocal ? local : backendState
+				initialStates[ws] = structuredClone(backendState)
 				existedInitially[ws] = true
 				extraPerms[ws] = v.extra_perms ?? {}
 				perWsUser[ws] = user
 			})
 		})
+	})
+
+	// Persist the current workspace's edit state on every mutation. Empty
+	// path (new variable) stays in-memory only.
+	$effect(() => {
+		const ws = $workspaceStore
+		if (!ws) return
+		const s = states[ws]
+		if (!s) return
+		readFieldsRecursively(s)
+		UserDraft.save('variable', editPath ?? '', s)
 	})
 
 	function reset() {
@@ -116,14 +131,19 @@
 		reset()
 		editPath = undefined
 		const ws = $workspaceStore!
-		const s: VariableState = {
+		// Empty-path drafts live in-memory only; this just rehydrates a
+		// shared in-memory entry if one already exists on this page.
+		const local = UserDraft.get<VariableState>('variable', '')
+		const s: VariableState = local ?? {
 			path: '',
 			variable: { value: '', is_secret: true, description: '' },
 			labels: undefined,
 			wsSpecific: false
 		}
 		states[ws] = s
-		initialStates[ws] = structuredClone(s)
+		initialStates[ws] = structuredClone(
+			local ? { ...s, variable: { ...s.variable, value: '' } } : s
+		)
 		existedInitially[ws] = false
 		selected = ws
 		drawer?.openDrawer()
@@ -188,6 +208,7 @@
 				}
 			}
 			sendUserToast(edit ? `Updated variable in ${dirty.length} workspace(s)` : `Created variable`)
+			UserDraft.remove('variable', editPath ?? '')
 			dispatch('create')
 			drawer?.closeDrawer()
 		} catch (err) {
