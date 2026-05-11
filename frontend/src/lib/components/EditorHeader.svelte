@@ -110,9 +110,7 @@
 	})
 
 	function handleSummarySave(newValue: string) {
-		const trimmed = newValue.trim()
-		if (trimmed === '') return
-		summary = trimmed
+		summary = newValue.trim()
 	}
 
 	function handlePickerSelect(item: WorkspaceItem) {
@@ -194,7 +192,7 @@
 				<div class="flex flex-col gap-6 w-[480px]">
 					{#if own}
 						<Path
-							autofocus={false}
+							autofocus
 							bind:path
 							initialPath={snapshotPath ?? path ?? ''}
 							namePlaceholder={kind}

@@ -16,9 +16,11 @@ should be able to edit a label in place without opening a modal or popover.
 />
 ```
 
-The current value isn't bound — `onSave` is fired only when the user commits
-a non-empty change. The parent owns the canonical state; this component just
-proposes new values.
+The current value isn't bound — `onSave` is fired with the trimmed draft
+whenever it differs from the prior `value`, including with `''` when the
+user clears the field. Callers that want to reject empty commits should
+guard inside their `onSave` handler. The parent owns the canonical state;
+this component just proposes new values.
 -->
 <script lang="ts">
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -29,8 +31,10 @@ proposes new values.
 		/** Shown when `value` is empty, in both idle and editing modes. */
 		placeholder?: string
 		/**
-		 * Called when the user commits a *changed*, non-empty value (Enter or blur).
-		 * Not called on Escape, on blur with no change, or on whitespace-only input.
+		 * Called when the user commits a changed value (Enter or blur). Fires
+		 * with the trimmed draft, including `''` if the user cleared the field.
+		 * Not called on Escape, or on blur when the trimmed draft matches the
+		 * prior `value`. Guard against empty in your handler if needed.
 		 */
 		onSave?: (newValue: string) => void
 		/** When false, the component renders as plain text (not clickable). Default true. */
@@ -113,6 +117,7 @@ proposes new values.
 		type="button"
 		onclick={startEditing}
 		disabled={!editable}
+		aria-label={editable ? `Edit ${placeholder.toLowerCase() || 'value'}` : undefined}
 		class="text-left truncate rounded p-0.5 {editable
 			? 'cursor-text hover:bg-surface-hover'
 			: 'cursor-default'} {textClass} {className}"

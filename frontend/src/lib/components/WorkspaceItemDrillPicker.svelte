@@ -91,7 +91,9 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	let mouseActive = $state(false)
 
 	// Seed from cache so kinds already fetched in this session render on the
-	// first frame.
+	// first frame. Read once at mount: melt-ui mounts a fresh picker per
+	// popover open, so workspace changes are picked up at the next open
+	// without needing this seed to be reactive.
 	let loaded = $state<Partial<Record<Kind, Item[]>>>(
 		(() => {
 			if (!$workspaceStore) return {}
@@ -602,7 +604,11 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	<div class="flex-1 overflow-y-auto" role="listbox" id={listboxId}>
 		{#if isSearching}
 			{@const total = (searchedItems ?? []).length}
-			{#if !searchedItems}
+			{@const anyKindLoading = kinds.some((k) => loadingKind[k])}
+			{#if !searchedItems || anyKindLoading}
+				<!-- "Searching…" while any active kind is still loading, otherwise
+				     `SearchItems` would briefly write `filteredItems=[]` from the
+				     partial set and flash "No matches" before results trickle in. -->
 				<div role="status" class="px-3 py-2 text-xs text-tertiary flex items-center gap-2">
 					<Loader2 size={14} class="animate-spin" /> Searching…
 				</div>
