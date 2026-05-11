@@ -76,8 +76,10 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	/** Tracks whether the last user action was mouse movement (true) or
 	 * keyboard nav (false). When false, row `mouseenter` events are ignored
 	 * — prevents the cursor from stealing the keyboard-driven highlight as
-	 * rows shift under it during scope changes. Re-enabled on `mousemove`. */
-	let mouseActive = $state(true)
+	 * rows shift under it during scope changes. Re-enabled on `mousemove`.
+	 * Starts `false` so the synthetic `mouseenter` fired when the popover
+	 * mounts under a stationary cursor doesn't clobber `initialHighlight`. */
+	let mouseActive = $state(false)
 
 	// Seed from cache so kinds already fetched in this session render on the
 	// first frame.

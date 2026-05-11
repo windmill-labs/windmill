@@ -37,8 +37,8 @@
 	}
 
 	let {
-		summary = $bindable(''),
-		path = $bindable(''),
+		summary = $bindable(),
+		path = $bindable(),
 		savedPath,
 		kind = 'flow',
 		onNavigate,

@@ -85,20 +85,27 @@
 
 	let flowBuilder: FlowBuilder | undefined = $state(undefined)
 	let notFound = $state(false)
+	/** Increments per `loadFlow` call. Each in-flight load checks its captured
+	 * token against this before writing shared state — if a newer load started
+	 * (e.g. picker navigation while a draft-discard reload is in flight),
+	 * the older promise no-ops at the next checkpoint. */
+	let loadFlowToken = 0
 	async function loadFlow(): Promise<void> {
-		console.log('loadFlow')
+		const tok = ++loadFlowToken
 		loading = true
 		let flow: Flow
 		let statePath = stateLoadedFromUrl?.path
 		if (stateLoadedFromUrl != undefined && statePath == page.params.path) {
 			// Currently there is no way to get version of flow with flow.
 			// So we have to request it here
-			version = (
+			const v = (
 				await FlowService.getFlowLatestVersion({
 					workspace: $workspaceStore!,
 					path: statePath
 				})
 			)?.id
+			if (tok !== loadFlowToken) return
+			version = v
 
 			if (version == undefined) {
 				notFound = true
@@ -106,10 +113,12 @@
 				return
 			}
 
-			savedFlow = await FlowService.getFlowByPathWithDraft({
+			const sf = await FlowService.getFlowByPathWithDraft({
 				workspace: $workspaceStore!,
 				path: statePath
 			})
+			if (tok !== loadFlowToken) return
+			savedFlow = sf
 
 			const draftOrDeployed = cleanValueProperties(savedFlow?.draft || savedFlow)
 			const urlScript = cleanValueProperties(
@@ -157,17 +166,20 @@
 		} else {
 			// Currently there is no way to get version of flow with flow.
 			// So we have to request it here
-			version = (
+			const v = (
 				await FlowService.getFlowLatestVersion({
 					workspace: $workspaceStore!,
 					path: page.params.path ?? ''
 				})
 			).id
+			if (tok !== loadFlowToken) return
+			version = v
 
 			const flowWithDraft = await FlowService.getFlowByPathWithDraft({
 				workspace: $workspaceStore!,
 				path: page.params.path ?? ''
 			})
+			if (tok !== loadFlowToken) return
 			savedFlow = {
 				...structuredClone($state.snapshot(flowWithDraft)),
 				draft: flowWithDraft.draft
@@ -227,6 +239,7 @@
 		}
 
 		await initFlow(flow, flowStore, flowStateStore)
+		if (tok !== loadFlowToken) return
 		loading = false
 		selectedId = stateLoadedFromUrl?.selectedId ?? page.url.searchParams.get('selected')
 		flowBuilder?.loadFlowState()
