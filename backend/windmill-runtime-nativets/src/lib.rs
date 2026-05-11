@@ -52,10 +52,20 @@ use windmill_common::worker::{write_file, Connection, WINDMILL_DIR};
 
 // ── Snapshot-matched extensions ──────────────────────────────────────
 //
-// Must match the extension list registered in `build.rs` for the snapshot;
-// `deno_core` validates that the runtime's extension list matches the
-// snapshot's order. The ESM is already in the snapshot, so this `init()`
-// at runtime is a no-op for esm — the registration just records the ext.
+// `deno_core` 0.352 validates that the snapshot's extension list is a
+// *prefix* of the runtime's extension list (snapshot does not need an
+// exact match — runtime is allowed to add extensions at the tail, but
+// must not reorder or omit any that the snapshot baked in).
+//
+// Our snapshot (in build.rs) is the same eight deno_* extensions ending
+// with this local `fetch` ext. The runtime adds one extra entry at the
+// end — the windmill `ext` carrying our own ops — which is fine because
+// it's after the snapshot prefix.
+//
+// This local `fetch` extension declaration must be present in both
+// build.rs and lib.rs so the type passes through the `init()` macro.
+// The ESM is already in the snapshot, so this `init()` call at runtime
+// is a no-op for esm — the registration just records the ext.
 deno_core::extension!(
     fetch,
     esm_entry_point = "ext:fetch/src/runtime.js",
