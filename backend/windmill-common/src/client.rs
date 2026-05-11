@@ -161,7 +161,10 @@ impl AuthedClient {
     ) -> anyhow::Result<serde_json::Value> {
         let url = format!(
             "{}/api/w/{}/jobs/flow/user_states/{}/{}",
-            self.base_internal_url, self.workspace, job_id, key
+            self.base_internal_url,
+            self.workspace,
+            job_id,
+            urlencoding::encode(key),
         );
         make_basic_get_request(self, &url, None, Some("decoding flow user state as json")).await
     }
