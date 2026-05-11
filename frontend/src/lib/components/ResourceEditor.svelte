@@ -1,32 +1,17 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import type { Schema } from '$lib/common'
-	import { ResourceService, type Resource, type ResourceType } from '$lib/gen'
-	import { canWrite, emptyString, isOwner, urlize } from '$lib/utils'
+	import { ResourceService, WorkspaceService, type Resource, type ResourceType } from '$lib/gen'
+	import { canWrite } from '$lib/utils'
 	import { createEventDispatcher, untrack } from 'svelte'
-	import { Alert, Skeleton } from './common'
-	import Path from './Path.svelte'
-	import LabelsInput from './LabelsInput.svelte'
-	import Required from './Required.svelte'
-
 	import { userStore, workspaceStore } from '$lib/stores'
-	import SchemaForm from './SchemaForm.svelte'
-	import SimpleEditor from './SimpleEditor.svelte'
-	import FilesetEditor from './FilesetEditor.svelte'
-	import Toggle from './Toggle.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import TestConnection from './TestConnection.svelte'
-	import { Pen } from 'lucide-svelte'
-	import Markdown from 'svelte-exmarkdown'
-	import autosize from '$lib/autosize'
-	import GfmMarkdown from './GfmMarkdown.svelte'
-	import TestTriggerConnection from './triggers/TestTriggerConnection.svelte'
-	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
-	import Button from './common/button/Button.svelte'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
-	import ResourceGen from './copilot/ResourceGen.svelte'
-	import SyncResourceTypes from './SyncResourceTypes.svelte'
+	import ResourceForm from './ResourceForm.svelte'
+	import Alert from './common/alert/Alert.svelte'
+	import { resource } from 'runed'
+	import { deepEqual } from 'fast-equals'
+	import { getUserExt } from '$lib/user'
+	import type { UserExt } from '$lib/stores'
 
 	interface Props {
 		canSave?: boolean
@@ -36,6 +21,7 @@
 		onChange?: (args: { path: string; args: Record<string, any>; description: string }) => void
 		defaultValues?: Record<string, any> | undefined
 		workspace?: string | undefined
+		selected?: string | undefined
 	}
 
 	let {
@@ -45,330 +31,263 @@
 		hidePath = false,
 		onChange,
 		defaultValues = undefined,
-		workspace = undefined
+		workspace = undefined,
+		selected = $bindable()
 	}: Props = $props()
 
-	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
-
-	let isValid = $state(true)
-	let jsonError = $state('')
-	let can_write = $state(true)
-
-	let initialPath = path
-
-	let resourceToEdit: Resource | undefined = $state(undefined)
-
-	let description: string = $state('')
-	let labels: string[] | undefined = $state(undefined)
-	let DESCRIPTION_PLACEHOLDER = `Describe what this resource is for`
-	let resourceSchema: Schema | undefined = $state(undefined)
-	let args: Record<string, any> = $state({})
-	let loadingSchema = $state(true)
-	let linkedVars: string[] = $state([])
-	let resourceTypeInfo: ResourceType | undefined = $state(undefined)
-	let editDescription = $state(false)
-	let viewJsonSchema = $state(false)
-	let newResource = $derived(!path)
+	type ResourceState = {
+		path: string
+		description: string
+		args: Record<string, any>
+		labels: string[] | undefined
+		wsSpecific: boolean
+	}
 
 	const dispatch = createEventDispatcher()
 
-	let rawCode: string | undefined = $state(undefined)
+	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
+	let initialPath = path
 
-	async function initEdit() {
-		resourceToEdit = await ResourceService.getResource({ workspace: effectiveWorkspace, path })
-		description = resourceToEdit!.description ?? ''
-		labels = resourceToEdit!.labels ?? undefined
-		resource_type = resourceToEdit!.resource_type
-		args = resourceToEdit?.value ?? ({} as any)
-		loadResourceType()
-		can_write =
-			resourceToEdit.workspace_id == effectiveWorkspace &&
-			canWrite(path, resourceToEdit.extra_perms ?? {}, $userStore)
-		linkedVars = Object.entries(args)
+	let states: Record<string, ResourceState> = $state({})
+	let initialStates: Record<string, ResourceState> = $state({})
+	let existedInitially: Record<string, boolean> = $state({})
+	let fetchedResources: Record<string, Resource> = $state({})
+	let perWsUser: Record<string, UserExt | undefined> = $state({})
+
+	let isValid = $state(true)
+	let jsonError = $state('')
+	let viewJsonSchema = $state(false)
+	let perWsValid: Record<string, boolean> = $state({})
+
+	const deployToResource = resource(
+		() => selected,
+		async (ws) =>
+			ws ? (await WorkspaceService.getDeployTo({ workspace: ws })).deploy_to : undefined
+	)
+	const resourceTypeResource = resource(
+		[() => resource_type, () => effectiveWorkspace],
+		async ([rt, ws]) =>
+			rt && ws ? ResourceService.getResourceType({ path: rt, workspace: ws }) : null
+	)
+
+	let deployTo = $derived(deployToResource.current)
+	let resourceTypeInfo: ResourceType | undefined = $derived(
+		resourceTypeResource.current ?? undefined
+	)
+	let resourceSchema: Schema | undefined = $derived.by(() => {
+		const rt = resourceTypeResource.current
+		if (!rt?.schema) return undefined
+		const schema = rt.schema as Schema
+		return {
+			...schema,
+			order: schema.order ?? Object.keys(schema.properties).sort()
+		}
+	})
+	let loadingSchema = $derived(resourceTypeResource.loading)
+
+	let current = $derived(selected ? states[selected] : undefined)
+	let resourceToEdit: Resource | undefined = $derived(
+		selected ? fetchedResources[selected] : undefined
+	)
+	let can_write = $derived.by(() => {
+		if (!selected) return true
+		const r = fetchedResources[selected]
+		if (!r) return true
+		return canWrite(
+			current?.path ?? initialPath,
+			r.extra_perms ?? {},
+			perWsUser[selected] ?? $userStore
+		)
+	})
+
+	let linkedVars = $derived(
+		Object.entries(current?.args ?? {})
 			.filter(([_, v]) => typeof v == 'string' && v == `$var:${initialPath}`)
 			.map(([k, _]) => k)
-	}
+	)
 
-	if (!untrack(() => newResource)) {
-		initEdit()
-	} else if (resource_type) {
-		loadResourceType()
-	} else {
-		sendUserToast('Resource type cannot be undefined for new resource creation', true)
-	}
-
-	export async function editResource(): Promise<void> {
-		if (resourceToEdit) {
-			await ResourceService.updateResource({
-				workspace: effectiveWorkspace,
-				path: resourceToEdit.path,
-				requestBody: { path, value: args, description, labels }
-			})
-			if (resourceToEdit.resource_type === 'json_schema') {
-				clearJsonSchemaResourceCache(resourceToEdit.path, effectiveWorkspace)
-			}
-			sendUserToast(`Updated resource at ${path}`)
-			dispatch('refresh', path)
-		} else {
-			throw Error('Cannot edit undefined resource')
-		}
-	}
-
-	export async function createResource(): Promise<void> {
-		await ResourceService.createResource({
-			workspace: effectiveWorkspace,
-			requestBody: { path, value: args, description, resource_type: resource_type!, labels }
+	const dirtyWorkspaces = $derived(
+		Object.keys(states).filter((ws) => !deepEqual(states[ws], initialStates[ws]))
+	)
+	const anyDirty = $derived(dirtyWorkspaces.length > 0)
+	const otherDirty = $derived(
+		dirtyWorkspaces.length == 1
+			? dirtyWorkspaces.filter((ws) => ws !== $workspaceStore)
+			: dirtyWorkspaces
+	)
+	const dirtyValid = $derived(dirtyWorkspaces.every((ws) => perWsValid[ws] !== false))
+	const dirtyCanWrite = $derived(
+		dirtyWorkspaces.every((ws) => {
+			const r = fetchedResources[ws]
+			return (
+				!r ||
+				canWrite(states[ws]?.path ?? initialPath, r.extra_perms ?? {}, perWsUser[ws] ?? $userStore)
+			)
 		})
-		sendUserToast(`Updated resource at ${path}`)
-		dispatch('refresh', path)
-	}
+	)
 
-	async function loadResourceType(): Promise<void> {
-		if (resource_type) {
-			try {
-				const resourceType = await ResourceService.getResourceType({
-					workspace: effectiveWorkspace,
-					path: resource_type
-				})
-
-				resourceTypeInfo = resourceType
-				if (resourceType.schema) {
-					resourceSchema = resourceType.schema as Schema
-					resourceSchema.order =
-						resourceSchema.order ?? Object.keys(resourceSchema.properties).sort()
-				}
-				if (resourceTypeInfo?.format_extension && !resourceTypeInfo?.is_fileset) {
-					textFileContent = args.content
-				}
-			} catch (err) {
-				resourceSchema = undefined
-				loadingSchema = false
-				rawCode = JSON.stringify(args, null, 2)
-			}
-		} else {
-			sendUserToast(`ResourceType cannot be undefined.`, true)
-		}
-		loadingSchema = false
-	}
-
-	function parseJson() {
-		try {
-			args = JSON.parse(rawCode ?? '')
-			jsonError = ''
-		} catch (e) {
-			jsonError = e.message
-		}
-	}
-
-	function updateArgsFromLinkedVars() {
-		linkedVars.forEach((k) => {
-			args[k] = `$var:${path}`
-		})
-	}
-
-	let textFileContent: string = $state('')
-
-	function switchTab(asJson: boolean) {
-		viewJsonSchema = asJson
-		if (asJson) {
-			rawCode = JSON.stringify(args, null, 2)
-		} else {
-			parseJson()
-			if (resourceTypeInfo?.format_extension && !resourceTypeInfo?.is_fileset) {
-				textFileContent = args.content
-			}
-		}
-	}
-
-	function parseTextFileContent() {
-		args = {
-			content: textFileContent
-		}
-	}
-	run(() => {
-		if (defaultValues && Object.keys(defaultValues).length > 0) {
-			args = defaultValues
-		}
-	})
-	run(() => {
-		canSave = (can_write && isValid && jsonError == '') || (viewJsonSchema && jsonError == '')
-	})
+	// Bootstrap: ensure selected is set on mount (edit or new)
 	$effect(() => {
-		onChange && onChange({ path, args, description })
+		if (selected !== undefined) return
+		if (!effectiveWorkspace) return
+		untrack(() => {
+			selected = effectiveWorkspace
+			if (!initialPath) {
+				// New resource
+				const s: ResourceState = {
+					path: '',
+					description: '',
+					args: (defaultValues && Object.keys(defaultValues).length > 0
+						? defaultValues
+						: {}) as any,
+					labels: undefined,
+					wsSpecific: false
+				}
+				states[effectiveWorkspace] = s
+				initialStates[effectiveWorkspace] = structuredClone(s)
+				existedInitially[effectiveWorkspace] = false
+			}
+		})
 	})
-	run(() => {
-		rawCode && untrack(() => parseJson())
+
+	// Lazy-fetch the resource for the selected workspace when not already cached
+	$effect(() => {
+		const ws = selected
+		if (!ws || !initialPath) return
+		if (ws in states) return
+		untrack(() => {
+			Promise.all([
+				ResourceService.getResource({ workspace: ws, path: initialPath }),
+				getUserExt(ws)
+			]).then(([r, user]) => {
+				fetchedResources[ws] = r
+				const s: ResourceState = {
+					path: r.path,
+					description: r.description ?? '',
+					args: (r.value ?? {}) as any,
+					labels: r.labels ?? undefined,
+					wsSpecific: r.ws_specific ?? false
+				}
+				states[ws] = s
+				initialStates[ws] = structuredClone(s)
+				existedInitially[ws] = true
+				perWsUser[ws] = user
+				// Keep resource_type in sync for the base workspace (controls the schema)
+				if (ws === effectiveWorkspace) {
+					resource_type = r.resource_type
+				}
+			})
+		})
 	})
-	run(() => {
-		linkedVars.length > 0 && path && untrack(() => updateArgsFromLinkedVars())
+
+	// Keep current.path bound to the outer `path` prop for consumers
+	$effect(() => {
+		if (current) path = current.path
 	})
-	run(() => {
-		textFileContent && untrack(() => parseTextFileContent())
+
+	$effect(() => {
+		if (selected !== undefined) {
+			perWsValid[selected] = isValid && jsonError == ''
+		}
 	})
+
+	$effect(() => {
+		canSave = anyDirty && dirtyValid && dirtyCanWrite
+	})
+
+	$effect(() => {
+		if (current)
+			onChange?.({ path: current.path, args: current.args, description: current.description })
+	})
+
+	$effect(() => {
+		if (!current) return
+		if (linkedVars.length > 0 && current.path) {
+			untrack(() => {
+				linkedVars.forEach((k) => {
+					current!.args[k] = `$var:${current!.path}`
+				})
+			})
+		}
+	})
+
+	export async function save(): Promise<void> {
+		const dirty = dirtyWorkspaces
+		try {
+			for (const ws of dirty) {
+				const s = states[ws]
+				const ini = initialStates[ws]
+				if (existedInitially[ws]) {
+					await ResourceService.updateResource({
+						workspace: ws,
+						path: ini.path,
+						requestBody: {
+							path: s.path,
+							value: s.args,
+							description: s.description,
+							labels: s.labels,
+							ws_specific: s.wsSpecific
+						}
+					})
+					const fetched = fetchedResources[ws]
+					if (fetched?.resource_type === 'json_schema') {
+						clearJsonSchemaResourceCache(ini.path, ws)
+					}
+				} else {
+					await ResourceService.createResource({
+						workspace: ws,
+						requestBody: {
+							path: s.path,
+							value: s.args,
+							description: s.description,
+							resource_type: resource_type!,
+							labels: s.labels,
+							ws_specific: s.wsSpecific
+						}
+					})
+				}
+			}
+			sendUserToast(
+				dirty.length > 1 ? `Saved resource in ${dirty.length} workspaces` : `Saved resource`
+			)
+			dispatch('refresh', current?.path ?? path)
+		} catch (err) {
+			sendUserToast(`Could not save resource: ${err.body ?? err.message}`, true)
+		}
+	}
 </script>
 
 <div>
 	<div class="flex flex-col gap-6 py-2">
-		{#if !hidePath}
-			<div>
-				{#if !can_write}
-					<div class="m-2">
-						<Alert type="warning" title="Only read access">
-							You only have read access to this resource and cannot edit it
-						</Alert>
-					</div>
-				{/if}
-				<Path
-					disabled={initialPath != '' && !isOwner(initialPath, $userStore, $workspaceStore)}
-					bind:path
+		{#if otherDirty.length > 0}
+			<Alert type="warning" title="Editing multiple workspaces">
+				You are going to edit the value in: {otherDirty.join(', ')}
+			</Alert>
+		{/if}
+
+		{#if current}
+			{#key current}
+				<ResourceForm
+					bind:path={current.path}
+					bind:labels={current.labels}
+					bind:description={current.description}
+					bind:args={current.args}
+					bind:wsSpecific={current.wsSpecific}
+					bind:isValid
+					bind:viewJsonSchema
+					bind:jsonError
 					{initialPath}
-					namePlaceholder="resource"
-					kind="resource"
-				/>
-			</div>
-		{/if}
-		<LabelsInput bind:labels class="-mt-4" />
-
-		{#if !emptyString(resourceTypeInfo?.description)}
-			<div class="flex flex-col gap-1">
-				<h4 class="text-xs text-emphasis font-semibold">{resourceTypeInfo?.name} description</h4>
-				<div class="text-xs text-primary font-normal">
-					<Markdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} />
-				</div>
-			</div>
-		{/if}
-
-		<div class="flex flex-col gap-1">
-			<h4 class="inline-flex items-center gap-2 text-xs text-emphasis font-semibold"
-				>Resource description <Required required={false} />
-				{#if can_write}
-					<Button
-						variant="subtle"
-						unifiedSize="xs"
-						btnClasses={editDescription ? 'bg-surface-hover' : ''}
-						startIcon={{ icon: Pen }}
-						on:click={() => (editDescription = !editDescription)}
-					/>
-				{/if}
-			</h4>
-			{#if can_write && editDescription}
-				<div class="relative">
-					<div class="text-2xs text-primary absolute -top-4 right-0">GH Markdown</div>
-					<textarea
-						class="text-xs text-primary font-normal"
-						disabled={!can_write}
-						use:autosize
-						bind:value={description}
-						placeholder={DESCRIPTION_PLACEHOLDER}
-					></textarea>
-				</div>
-			{:else if description == undefined || description == ''}
-				<div class="text-xs text-secondary font-normal">No description provided</div>
-			{:else}
-				<div class="text-xs text-primary font-normal">
-					<GfmMarkdown md={description} noPadding />
-				</div>
-			{/if}
-		</div>
-
-		<div class="flex flex-col gap-1">
-			<div class="w-full flex gap-4 flex-row-reverse items-center">
-				<Toggle
-					on:change={(e) => switchTab(e.detail)}
-					options={{
-						right: 'As JSON'
-					}}
-				/>
-				<ResourceGen
-					bind:args
-					resourceType={resource_type}
-					resourceName={path}
-					resourceDescription={description}
+					{hidePath}
+					{deployTo}
+					{can_write}
+					{resource_type}
+					{resourceTypeInfo}
 					{resourceSchema}
+					{loadingSchema}
+					{resourceToEdit}
+					onLoadResourceType={() => resourceTypeResource.refetch()}
 				/>
-				{#if resourceToEdit?.resource_type === 'nats' || resourceToEdit?.resource_type === 'kafka'}
-					<TestTriggerConnection kind={resourceToEdit?.resource_type} args={{ connection: args }} />
-				{:else}
-					<TestConnection resourceType={resourceToEdit?.resource_type} {args} />
-				{/if}
-				{#if resource_type === 'git_repository' && $workspaceStore && ($userStore?.is_admin || $userStore?.is_super_admin)}
-					<GitHubAppIntegration
-						resourceType={resource_type}
-						{args}
-						{description}
-						onArgsUpdate={(newArgs) => {
-							args = newArgs
-							// Update rawCode if in JSON view mode
-							if (viewJsonSchema) {
-								rawCode = JSON.stringify(args, null, 2)
-							}
-						}}
-						onDescriptionUpdate={(newDescription) => (description = newDescription)}
-					/>
-				{/if}
-			</div>
-
-			<div>
-				{#if loadingSchema}
-					<Skeleton layout={[[4]]} />
-				{:else if !viewJsonSchema && resourceTypeInfo?.is_fileset}
-					<div class="mt-1 flex items-center gap-2">
-						<h5 class="inline-flex items-center gap-4">Fileset</h5>
-						<ResourceGen
-							bind:args
-							resourceType={resource_type}
-							resourceName={path}
-							resourceDescription={description}
-							{resourceSchema}
-							isFileset
-						/>
-					</div>
-					<FilesetEditor bind:args />
-				{:else if !viewJsonSchema && resourceSchema && resourceSchema?.properties}
-					{#if resourceTypeInfo?.format_extension}
-						<h5 class="mt-1 inline-flex items-center gap-4">
-							File content ({resourceTypeInfo.format_extension})
-						</h5>
-						<div class="">
-							<SimpleEditor
-								autoHeight
-								lang={resourceTypeInfo.format_extension}
-								bind:code={textFileContent}
-								fixedOverflowWidgets={false}
-							/>
-						</div>
-					{:else}
-						<SchemaForm
-							onlyMaskPassword
-							noDelete
-							disabled={!can_write}
-							compact
-							schema={resourceSchema}
-							bind:args
-							bind:isValid
-						/>
-					{/if}
-				{:else if !can_write}
-					<input type="text" disabled value={rawCode} />
-				{:else}
-					{#if !viewJsonSchema}
-						<div class="flex flex-col gap-2 mb-4">
-							<p class="text-red-500 dark:text-red-400 text-xs">
-								Resource type '{resource_type}' not found in your workspace
-							</p>
-							<SyncResourceTypes onSynced={loadResourceType} />
-							<p class="italic text-secondary text-xs"> Define the value in JSON directly </p>
-						</div>
-					{/if}
-
-					{#if !emptyString(jsonError)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"
-							>{jsonError}</span
-						>{:else}<div class="py-2"></div>{/if}
-					<div class="bg-surface-tertiary rounded-md border py-2.5">
-						<SimpleEditor autoHeight lang="json" bind:code={rawCode} />
-					</div>
-				{/if}
-			</div>
-		</div>
+			{/key}
+		{/if}
 	</div>
 </div>

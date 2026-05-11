@@ -26,7 +26,13 @@ import {
 	triggerRequestSchemas
 } from './workspaceToolsZod.gen'
 import { z } from 'zod'
-import { createToolDef, type Tool, type ToolCallbacks } from './shared'
+import {
+	createToolDef,
+	type CreatedResourceTriggerKind,
+	type Tool,
+	type ToolCallbacks,
+	type ToolDisplayAction
+} from './shared'
 import { emptyString } from '$lib/utils'
 
 type TriggerKind = keyof typeof triggerRequestSchemas
@@ -60,7 +66,9 @@ function getWorkspaceMutationTarget(helpers: unknown): WorkspaceMutationTarget |
 	return (helpers as WorkspaceMutationHelpers | undefined)?.getWorkspaceMutationTarget?.()
 }
 
-function getWorkspaceMutationTargetError(target: WorkspaceMutationTarget | undefined): string | undefined {
+function getWorkspaceMutationTargetError(
+	target: WorkspaceMutationTarget | undefined
+): string | undefined {
 	if (!target) {
 		return 'the script or flow needs to be deployed before doing this action'
 	}
@@ -74,7 +82,9 @@ function validateWorkspaceMutationTarget(helpers: unknown): string | undefined {
 	return getWorkspaceMutationTargetError(getWorkspaceMutationTarget(helpers))
 }
 
-function requireWorkspaceMutationTarget(helpers: unknown): WorkspaceMutationTarget & { path: string } {
+function requireWorkspaceMutationTarget(
+	helpers: unknown
+): WorkspaceMutationTarget & { path: string } {
 	const target = getWorkspaceMutationTarget(helpers)
 	const error = getWorkspaceMutationTargetError(target)
 	if (error) {
@@ -83,7 +93,9 @@ function requireWorkspaceMutationTarget(helpers: unknown): WorkspaceMutationTarg
 	return target as WorkspaceMutationTarget & { path: string }
 }
 
-function getWorkspaceMutationTargetFields(helpers: unknown): Pick<NewSchedule, 'script_path' | 'is_flow'> {
+function getWorkspaceMutationTargetFields(
+	helpers: unknown
+): Pick<NewSchedule, 'script_path' | 'is_flow'> {
 	const target = requireWorkspaceMutationTarget(helpers)
 	return {
 		script_path: target.path,
@@ -165,6 +177,38 @@ const triggerConfigs = {
 		label: string
 		requestSchema: z.ZodType<TriggerRequestByKind[K]>
 		create: (data: { workspace: string; requestBody: TriggerRequestByKind[K] }) => Promise<string>
+	}
+}
+
+function getActionTargetKind(isFlow: boolean): 'script' | 'flow' {
+	return isFlow ? 'flow' : 'script'
+}
+
+function createOpenScheduleAction(path: string, targetKind: 'script' | 'flow'): ToolDisplayAction {
+	return {
+		id: `open-created-schedule:${path}`,
+		type: 'open_created_resource',
+		label: 'Open schedule',
+		resource: 'schedule',
+		path,
+		targetKind
+	}
+}
+
+function createOpenTriggerAction(
+	kind: TriggerKind,
+	path: string,
+	targetKind: 'script' | 'flow',
+	label: string
+): ToolDisplayAction {
+	return {
+		id: `open-created-trigger:${kind}:${path}`,
+		type: 'open_created_resource',
+		label: `Open ${label}`,
+		resource: 'trigger',
+		triggerKind: kind as CreatedResourceTriggerKind,
+		path,
+		targetKind
 	}
 }
 
@@ -265,16 +309,18 @@ const createScheduleTool: Tool<any> = {
 			})
 			try {
 				const result = await ScheduleService.createSchedule({ workspace, requestBody })
+				const targetKind = getActionTargetKind(requestBody.is_flow)
 				const toolResult = {
 					success: true,
 					path: requestBody.path,
 					target_path: requestBody.script_path,
-					target_kind: requestBody.is_flow ? 'flow' : 'script',
+					target_kind: targetKind,
 					backend_result: result
 				}
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Created schedule "${requestBody.path}"`,
-					result: toolResult
+					result: toolResult,
+					actions: [createOpenScheduleAction(requestBody.path, targetKind)]
 				})
 				return JSON.stringify(toolResult)
 			} catch (error) {
@@ -311,17 +357,26 @@ const createTriggerTool: Tool<any> = {
 			})
 			try {
 				const result = await triggerConfig.create({ workspace, requestBody } as never)
+				const targetKind = getActionTargetKind(requestBody.is_flow)
 				const toolResult = {
 					success: true,
 					kind: parsedArgs.kind,
 					path: requestBody.path,
 					target_path: requestBody.script_path,
-					target_kind: requestBody.is_flow ? 'flow' : 'script',
+					target_kind: targetKind,
 					backend_result: result
 				}
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Created ${triggerConfig.label} "${requestBody.path}"`,
-					result: toolResult
+					result: toolResult,
+					actions: [
+						createOpenTriggerAction(
+							parsedArgs.kind,
+							requestBody.path,
+							targetKind,
+							triggerConfig.label
+						)
+					]
 				})
 				return JSON.stringify(toolResult)
 			} catch (error) {

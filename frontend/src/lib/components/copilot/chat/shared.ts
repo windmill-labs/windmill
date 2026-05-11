@@ -409,6 +409,29 @@ export type UserDisplayMessage = BaseDisplayMessage & {
 	error?: boolean
 }
 
+export type CreatedResourceTriggerKind =
+	| 'http'
+	| 'websocket'
+	| 'kafka'
+	| 'nats'
+	| 'postgres'
+	| 'mqtt'
+	| 'sqs'
+	| 'gcp'
+	| 'azure'
+
+export type CreatedResourceAction = {
+	id: string
+	type: 'open_created_resource'
+	label: string
+	resource: 'schedule' | 'trigger'
+	path: string
+	targetKind: 'script' | 'flow'
+	triggerKind?: CreatedResourceTriggerKind
+}
+
+export type ToolDisplayAction = CreatedResourceAction
+
 export type ToolDisplayMessage = {
 	role: 'tool'
 	tool_call_id: string
@@ -423,6 +446,7 @@ export type ToolDisplayMessage = {
 	isStreamingArguments?: boolean
 	toolName?: string
 	showFade?: boolean
+	actions?: ToolDisplayAction[]
 }
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {

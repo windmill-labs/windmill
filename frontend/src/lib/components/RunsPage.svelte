@@ -755,6 +755,7 @@
 				})}
 				bind:value={filters.val}
 				placeholder="Filter runs..."
+				autofocus
 			/>
 		</div>
 

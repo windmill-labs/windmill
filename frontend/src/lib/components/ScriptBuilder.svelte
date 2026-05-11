@@ -2117,6 +2117,7 @@
 			bind:code={script.content}
 			lang={script.language}
 			kind={script.kind}
+			autoKind={script.auto_kind}
 			{template}
 			tag={script.tag}
 			lastSavedCode={savedScript?.draft?.content}

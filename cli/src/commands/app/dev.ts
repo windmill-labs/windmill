@@ -14,7 +14,8 @@ import * as path from "node:path";
 import process from "node:process";
 import { Buffer } from "node:buffer";
 import { writeFileSync } from "node:fs";
-import { readTextFile } from "../../utils/utils.ts";
+import { getHeaders, readTextFile } from "../../utils/utils.ts";
+import { detectAuthGatewayChallenge } from "../../utils/http_guards.ts";
 import { WebSocket, WebSocketServer } from "ws";
 import {
   createFrameworkPlugins,
@@ -54,13 +55,20 @@ const createHTML = (jsPath: string, cssPath: string) => `
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Windmill App Dev Preview</title>
+  <style>
+    /* Declared before the user stylesheet so Tailwind's layers (theme, base,
+       components, utilities) are appended after wmill-shell and win the
+       cascade. Unlayered styles would override Tailwind utilities. */
+    @layer wmill-shell {
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+    }
+  </style>
   <link rel="stylesheet" href="${cssPath}">
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
         'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
@@ -1707,12 +1715,16 @@ async function streamJobWithSSE(
   const sseUrl =
     `${baseUrl}api/w/${workspace}/jobs_u/getupdate_sse/${jobId}?fast=true`;
 
+  const extraHeaders = getHeaders();
   const response = await fetch(sseUrl, {
     headers: {
       Accept: "text/event-stream",
       Authorization: `Bearer ${token}`,
+      ...extraHeaders,
     },
   });
+
+  await detectAuthGatewayChallenge(response, sseUrl);
 
   if (!response.ok) {
     throw new Error(

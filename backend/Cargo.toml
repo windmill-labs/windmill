@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.694.0"
+version = "1.699.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -87,7 +87,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.694.0"
+version = "1.699.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -546,7 +546,7 @@ tokio-native-tls = "^0"
 openssl = "=0.10"
 mail-parser = "^0"
 matchit = "=0.7.3"
-rdkafka = { version = "0.36.2", features = ["cmake-build", "ssl-vendored"] }
+rdkafka = { version = "0.36.2", features = ["cmake-build", "ssl-vendored", "curl-static"] }
 rdkafka-sys = "=4.9.0"
 pg_escape = "0.1.1"
 async-nats = "0.38.0"

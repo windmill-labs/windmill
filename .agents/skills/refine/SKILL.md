@@ -1,5 +1,6 @@
 ---
 name: refine
+user_invocable: true
 description: End-of-session reflection. Reviews friction encountered during the session and proposes updates to docs/ to capture lessons learned.
 ---
 

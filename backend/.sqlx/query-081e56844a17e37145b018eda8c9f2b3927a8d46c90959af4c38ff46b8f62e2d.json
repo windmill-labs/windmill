@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, enabled,\n            script_path, args, is_flow, email, timezone, summary, permissioned_as)\n         VALUES\n         ('test-workspace', 'f/sch/config_change', 'test-user', NOW(), '0 * * * * *', false,\n            'f/scripts/parent_path', '{}', false, 'test@windmill.dev', 'UTC', 'sch', 'u/test-user'),\n         ('wm-fork-test-workspace', 'f/sch/config_change', 'test-user', NOW(), '0 * * * * *', false,\n            'f/scripts/fork_path', '{}', false, 'test@windmill.dev', 'UTC', 'sch', 'u/test-user')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "081e56844a17e37145b018eda8c9f2b3927a8d46c90959af4c38ff46b8f62e2d"
+}

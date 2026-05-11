@@ -121,18 +121,24 @@ fn validate_relative_path(path: &str, field_name: &str) -> error::Result<()> {
         )));
     }
     let p = std::path::Path::new(trimmed);
-    if p.is_absolute() {
-        return Err(error::Error::BadRequest(format!(
-            "`{}` must be a relative path inside the cloned repo, got: {}",
-            field_name, trimmed
-        )));
-    }
     for component in p.components() {
-        if matches!(component, std::path::Component::ParentDir) {
-            return Err(error::Error::BadRequest(format!(
-                "`{}` must not contain `..` segments, got: {}",
-                field_name, trimmed
-            )));
+        match component {
+            // RootDir catches leading `/` or `\`; Prefix catches Windows drive
+            // letters and UNC paths. `Path::is_absolute()` alone misses
+            // RootDir-only paths on Windows (e.g. `/etc/passwd`).
+            std::path::Component::RootDir | std::path::Component::Prefix(_) => {
+                return Err(error::Error::BadRequest(format!(
+                    "`{}` must be a relative path inside the cloned repo, got: {}",
+                    field_name, trimmed
+                )));
+            }
+            std::path::Component::ParentDir => {
+                return Err(error::Error::BadRequest(format!(
+                    "`{}` must not contain `..` segments, got: {}",
+                    field_name, trimmed
+                )));
+            }
+            _ => {}
         }
     }
     Ok(())
@@ -1765,7 +1771,17 @@ mod tests {
 
     #[test]
     fn test_validate_relative_path_rejects_absolute() {
+        // `/etc/passwd` isn't `is_absolute()` on Windows (no drive prefix), but
+        // its leading RootDir still escapes the cloned repo, so reject it on
+        // every platform.
         assert!(validate_relative_path("/etc/passwd", "playbook").is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_validate_relative_path_rejects_windows_absolute() {
+        assert!(validate_relative_path("\\etc\\passwd", "playbook").is_err());
+        assert!(validate_relative_path("C:\\Windows\\System32", "playbook").is_err());
     }
 
     #[test]

@@ -98,6 +98,21 @@ def preprocessor(event: Event):
 
 Windmill provides built-in support for S3-compatible storage operations.
 
+### Receiving an S3Object as a script parameter
+
+To accept a file from S3 as input to a script, type the parameter with `S3Object` (imported from `wmill`):
+
+```python
+import wmill
+from wmill import S3Object
+
+def main(file: S3Object):
+    content = wmill.load_s3_file(file)
+    # ...
+```
+
+### S3 operations
+
 ```python
 import wmill
 

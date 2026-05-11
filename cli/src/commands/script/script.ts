@@ -12,7 +12,8 @@ import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
 import * as path from "node:path";
 import { stringify as yamlStringify } from "yaml";
-import { deepEqual, readTextFile, readTextFileSync } from "../../utils/utils.ts";
+import { deepEqual, getHeaders, readTextFile, readTextFileSync } from "../../utils/utils.ts";
+import { detectAuthGatewayChallenge } from "../../utils/http_guards.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import * as specificItems from "../../core/specific_items.ts";
 import { getCurrentGitBranch } from "../../utils/git.ts";
@@ -725,6 +726,7 @@ async function createScript(
   // (same content, lockfile, and metadata) as a no-op, so the CLI does not
   // produce phantom git-sync / promotion commits on re-pushes.
   const skipIfNoop = "skip_if_noop=true";
+  const extraHeaders = getHeaders();
   if (!bundleContent) {
     try {
       const url =
@@ -738,9 +740,11 @@ async function createScript(
         headers: {
           Authorization: `Bearer ${workspace.token}`,
           "Content-Type": "application/json",
+          ...extraHeaders,
         },
         body: JSON.stringify(body),
       });
+      await detectAuthGatewayChallenge(req, url);
       if (req.status != 201) {
         throw Error(
           `${req.status} - ${req.statusText} - ${await req.text()}`
@@ -771,9 +775,13 @@ async function createScript(
       skipIfNoop;
     const req = await fetch(url, {
       method: "POST",
-      headers: { Authorization: `Bearer ${workspace.token} ` },
+      headers: {
+        Authorization: `Bearer ${workspace.token} `,
+        ...extraHeaders,
+      },
       body: form,
     });
+    await detectAuthGatewayChallenge(req, url);
     if (req.status != 201) {
       throw Error(
         `Script snapshot creation was not successful: ${req.status} - ${
@@ -1380,7 +1388,42 @@ export async function generateMetadata(
       log.info(colors.green.bold("No metadata to update"));
       return;
     }
-    // TODO: test this
+
+    // Build a DoubleLinkedDependencyTree and upload mismatched scripts to
+    // raw_script_temp before the actual generation pass. Without this,
+    // dep jobs for scripts that import other not-yet-deployed scripts via
+    // relative paths would 404 on the import target (the very bug this
+    // alias was introducing on fresh-DB pushes).
+    const { DoubleLinkedDependencyTree, uploadScripts } = await import(
+      "../../utils/dependency_tree.ts"
+    );
+    const tree = new DoubleLinkedDependencyTree();
+    tree.setWorkspaceDeps(rawWorkspaceDependencies);
+    for (const e of Object.keys(elems)) {
+      await generateScriptMetadataInternal(
+        e,
+        workspace,
+        opts,
+        true, // dryRun: populate tree
+        true,
+        rawWorkspaceDependencies,
+        codebases,
+        false,
+        tree,
+      );
+    }
+    tree.propagateStaleness();
+    try {
+      await uploadScripts(tree, workspace);
+    } catch (e) {
+      log.warn(
+        colors.yellow(
+          `Failed to upload scripts to temp storage (backend may be too old): ${e}. ` +
+            `Locks will be generated using deployed script versions only — locally modified ` +
+            `relative imports may not be reflected.`,
+        ),
+      );
+    }
     for (const e of Object.keys(elems)) {
       await generateScriptMetadataInternal(
         e,
@@ -1390,7 +1433,8 @@ export async function generateMetadata(
         true,
         rawWorkspaceDependencies,
         codebases,
-        false
+        false,
+        tree,
       );
     }
   }
@@ -1551,11 +1595,17 @@ async function preview(
       workspace.workspaceId +
       "/jobs/run/preview_bundle";
 
+    const extraHeaders = getHeaders();
     const response = await fetch(url, {
       method: "POST",
-      headers: { Authorization: `Bearer ${workspace.token}` },
+      headers: {
+        Authorization: `Bearer ${workspace.token}`,
+        ...extraHeaders,
+      },
       body: form,
     });
+
+    await detectAuthGatewayChallenge(response, url);
 
     if (!response.ok) {
       throw new Error(

@@ -180,6 +180,37 @@ Name the parameters by adding comments before the statement:
 -- @name2 (int64) = 0
 SELECT * FROM users WHERE name = @name1 AND age > @name2;
 \`\`\`
+
+## Receiving an S3Object as a script parameter
+
+Declare the arg with type \`(s3object)\`. Windmill renders an S3 file picker for
+it, downloads the file, and binds it as a \`STRING\` JSON parameter — Parquet/CSV
+files are decoded server-side into a JSON array of records, JSON/JSONL pass
+through. Consume with \`JSON_EXTRACT_ARRAY\` / \`JSON_VALUE\`:
+
+\`\`\`sql
+-- @file (s3object)
+SELECT
+  CAST(JSON_VALUE(row, '$.id') AS INT64) AS id,
+  JSON_VALUE(row, '$.name') AS name
+FROM UNNEST(JSON_EXTRACT_ARRAY(@file)) AS row;
+\`\`\`
+
+## Streaming query results to S3
+
+Add a \`-- s3\` directive at the top of the script to stream the result set to S3
+instead of returning rows. Windmill writes the file and returns its \`S3Object\`
+as the script result.
+
+\`\`\`sql
+-- s3 prefix=exports/users format=parquet
+SELECT id, name FROM users;
+\`\`\`
+
+All keys are optional: \`prefix\` (object key prefix), \`storage\` (named storage —
+omit to use the workspace default), \`format\` (\`json\` (default), \`parquet\`, or
+\`csv\`). Use this for large result sets — rows stream directly to S3 instead of
+being buffered, bypassing the 10000-row return cap.
 `,
   "write-script-bun": `---
 name: write-script-bun
@@ -303,19 +334,20 @@ export async function preprocessor(event: Event) {
 
 ## S3 Object Operations
 
-Windmill provides built-in support for S3-compatible storage operations.
+Windmill provides built-in support for S3-compatible storage operations. The \`wmill.S3Object\` type covers both the \`s3://storage/key\` URI form (\`s3:///key\` for the workspace default storage) and the \`{ s3, storage? }\` record form — always use it instead of redefining your own.
 
-### S3Object Type
-
-The S3Object type represents a file in S3 storage:
+### Receiving an S3Object as a script parameter
 
 \`\`\`typescript
-type S3Object = {
-  s3: string; // Path within the bucket
-};
+import * as wmill from "windmill-client";
+
+export async function main(file: wmill.S3Object) {
+  const content = await wmill.loadS3File(file);
+  // ...
+}
 \`\`\`
 
-## TypeScript Operations
+### S3 operations
 
 \`\`\`typescript
 import * as wmill from "windmill-client";
@@ -327,7 +359,7 @@ const content: Uint8Array = await wmill.loadS3File(s3object);
 const blob: Blob = await wmill.loadS3FileStream(s3object);
 
 // Write file to S3
-const result: S3Object = await wmill.writeS3File(
+const result: wmill.S3Object = await wmill.writeS3File(
   s3object, // Target path (or undefined to auto-generate)
   fileContent, // string or Blob
   s3ResourcePath // Optional: specific S3 resource to use
@@ -993,19 +1025,20 @@ export async function preprocessor(event: Event) {
 
 ## S3 Object Operations
 
-Windmill provides built-in support for S3-compatible storage operations.
+Windmill provides built-in support for S3-compatible storage operations. The \`wmill.S3Object\` type covers both the \`s3://storage/key\` URI form (\`s3:///key\` for the workspace default storage) and the \`{ s3, storage? }\` record form — always use it instead of redefining your own.
 
-### S3Object Type
-
-The S3Object type represents a file in S3 storage:
+### Receiving an S3Object as a script parameter
 
 \`\`\`typescript
-type S3Object = {
-  s3: string; // Path within the bucket
-};
+import * as wmill from "windmill-client";
+
+export async function main(file: wmill.S3Object) {
+  const content = await wmill.loadS3File(file);
+  // ...
+}
 \`\`\`
 
-## TypeScript Operations
+### S3 operations
 
 \`\`\`typescript
 import * as wmill from "windmill-client";
@@ -1017,7 +1050,7 @@ const content: Uint8Array = await wmill.loadS3File(s3object);
 const blob: Blob = await wmill.loadS3FileStream(s3object);
 
 // Write file to S3
-const result: S3Object = await wmill.writeS3File(
+const result: wmill.S3Object = await wmill.writeS3File(
   s3object, // Target path (or undefined to auto-generate)
   fileContent, // string or Blob
   s3ResourcePath // Optional: specific S3 resource to use
@@ -1771,19 +1804,20 @@ export async function preprocessor(event: Event) {
 
 ## S3 Object Operations
 
-Windmill provides built-in support for S3-compatible storage operations.
+Windmill provides built-in support for S3-compatible storage operations. The \`wmill.S3Object\` type covers both the \`s3://storage/key\` URI form (\`s3:///key\` for the workspace default storage) and the \`{ s3, storage? }\` record form — always use it instead of redefining your own.
 
-### S3Object Type
-
-The S3Object type represents a file in S3 storage:
+### Receiving an S3Object as a script parameter
 
 \`\`\`typescript
-type S3Object = {
-  s3: string; // Path within the bucket
-};
+import * as wmill from "windmill-client";
+
+export async function main(file: wmill.S3Object) {
+  const content = await wmill.loadS3File(file);
+  // ...
+}
 \`\`\`
 
-## TypeScript Operations
+### S3 operations
 
 \`\`\`typescript
 import * as wmill from "windmill-client";
@@ -1795,7 +1829,7 @@ const content: Uint8Array = await wmill.loadS3File(s3object);
 const blob: Blob = await wmill.loadS3FileStream(s3object);
 
 // Write file to S3
-const result: S3Object = await wmill.writeS3File(
+const result: wmill.S3Object = await wmill.writeS3File(
   s3object, // Target path (or undefined to auto-generate)
   fileContent, // string or Blob
   s3ResourcePath // Optional: specific S3 resource to use
@@ -2432,6 +2466,30 @@ SELECT * FROM read_parquet('s3:///path/to/file.parquet');
 -- JSON files
 SELECT * FROM read_json('s3:///path/to/file.json');
 \`\`\`
+
+### Receiving an S3Object as a script parameter
+
+Declare the arg with type \`(s3object)\`. Windmill renders an S3 file picker for it
+and binds the arg as the bare \`s3://storage/key\` URI, which DuckDB's reader
+functions consume directly:
+
+\`\`\`sql
+-- $file (s3object)
+SELECT * FROM read_parquet($file);
+\`\`\`
+
+Works with any DuckDB reader: \`read_csv($file)\`, \`read_json($file)\`, etc.
+
+### Writing query results to S3
+
+DuckDB writes to S3 natively via \`COPY ... TO\`:
+
+\`\`\`sql
+COPY (SELECT * FROM users) TO 's3:///exports/users.parquet' (FORMAT PARQUET);
+\`\`\`
+
+Use this instead of the \`-- s3\` streaming directive supported by the other SQL
+dialects — that directive is not available in DuckDB.
 `,
   "write-script-go": `---
 name: write-script-go
@@ -2748,6 +2806,36 @@ Name the parameters by adding comments before the statement:
 -- @P2 name2 (int) = 0
 SELECT * FROM users WHERE name = @P1 AND age > @P2;
 \`\`\`
+
+## Receiving an S3Object as a script parameter
+
+Declare the arg with type \`(s3object)\`. Windmill renders an S3 file picker for
+it, downloads the file, and binds it as \`nvarchar(max)\` JSON text — Parquet/CSV
+files are decoded server-side into a JSON array of records, JSON/JSONL pass
+through. Consume with \`OPENJSON\`:
+
+\`\`\`sql
+-- @P1 file (s3object)
+SELECT id, name
+FROM OPENJSON(@P1)
+WITH (id INT, name NVARCHAR(200));
+\`\`\`
+
+## Streaming query results to S3
+
+Add a \`-- s3\` directive at the top of the script to stream the result set to S3
+instead of returning rows. Windmill writes the file and returns its \`S3Object\`
+as the script result.
+
+\`\`\`sql
+-- s3 prefix=exports/users format=parquet
+SELECT id, name FROM users;
+\`\`\`
+
+All keys are optional: \`prefix\` (object key prefix), \`storage\` (named storage —
+omit to use the workspace default), \`format\` (\`json\` (default), \`parquet\`, or
+\`csv\`). Use this for large result sets — rows stream directly to S3 instead of
+being buffered as the script return value.
 `,
   "write-script-mysql": `---
 name: write-script-mysql
@@ -2800,6 +2888,37 @@ Name the parameters by adding comments before the statement:
 -- ? name2 (int) = 0
 SELECT * FROM users WHERE name = ? AND age > ?;
 \`\`\`
+
+## Receiving an S3Object as a script parameter
+
+Declare the arg with type \`(s3object)\`. Windmill renders an S3 file picker for
+it, downloads the file, and binds it as JSON text — Parquet/CSV files are
+decoded server-side into a JSON array of records, JSON/JSONL pass through.
+Consume with \`JSON_TABLE\`:
+
+\`\`\`sql
+-- ? file (s3object)
+SELECT id, name
+FROM JSON_TABLE(?, '$[*]'
+  COLUMNS (id INT PATH '$.id', name VARCHAR(200) PATH '$.name')
+) AS r;
+\`\`\`
+
+## Streaming query results to S3
+
+Add a \`-- s3\` directive at the top of the script to stream the result set to S3
+instead of returning rows. Windmill writes the file and returns its \`S3Object\`
+as the script result.
+
+\`\`\`sql
+-- s3 prefix=exports/users format=parquet
+SELECT id, name FROM users;
+\`\`\`
+
+All keys are optional: \`prefix\` (object key prefix), \`storage\` (named storage —
+omit to use the workspace default), \`format\` (\`json\` (default), \`parquet\`, or
+\`csv\`). Use this for large result sets — rows stream directly to S3 instead of
+being buffered as the script return value.
 `,
   "write-script-nativets": `---
 name: write-script-nativets
@@ -3607,6 +3726,35 @@ Name the parameters by adding comments at the beginning of the script (without s
 -- $2 name2 = default_value
 SELECT * FROM users WHERE name = $1::TEXT AND age > $2::INT;
 \`\`\`
+
+## Receiving an S3Object as a script parameter
+
+Declare the arg with type \`(s3object)\`. Windmill renders an S3 file picker for
+it, downloads the file, and binds it as a \`jsonb\` parameter — Parquet/CSV files
+are decoded server-side into a JSON array of records, JSON/JSONL pass through.
+Consume with \`jsonb_to_recordset\` (or any \`jsonb\` API):
+
+\`\`\`sql
+-- $1 file (s3object)
+SELECT *
+FROM jsonb_to_recordset($1::jsonb) AS r(id INT, name TEXT);
+\`\`\`
+
+## Streaming query results to S3
+
+Add a \`-- s3\` directive at the top of the script to stream the result set to S3
+instead of returning rows. Windmill writes the file and returns its \`S3Object\`
+as the script result.
+
+\`\`\`sql
+-- s3 prefix=exports/users format=parquet
+SELECT id, name FROM users;
+\`\`\`
+
+All keys are optional: \`prefix\` (object key prefix), \`storage\` (named storage —
+omit to use the workspace default), \`format\` (\`json\` (default), \`parquet\`, or
+\`csv\`). Use this for large result sets — rows stream directly to S3 instead of
+being buffered as the script return value.
 `,
   "write-script-powershell": `---
 name: write-script-powershell
@@ -3843,6 +3991,21 @@ def preprocessor(event: Event):
 ## S3 Object Operations
 
 Windmill provides built-in support for S3-compatible storage operations.
+
+### Receiving an S3Object as a script parameter
+
+To accept a file from S3 as input to a script, type the parameter with \`S3Object\` (imported from \`wmill\`):
+
+\`\`\`python
+import wmill
+from wmill import S3Object
+
+def main(file: S3Object):
+    content = wmill.load_s3_file(file)
+    # ...
+\`\`\`
+
+### S3 operations
 
 \`\`\`python
 import wmill
@@ -4848,6 +5011,37 @@ Name the parameters by adding comments before the statement:
 -- ? name2 (number) = 0
 SELECT * FROM users WHERE name = ? AND age > ?;
 \`\`\`
+
+## Receiving an S3Object as a script parameter
+
+Declare the arg with type \`(s3object)\`. Windmill renders an S3 file picker for
+it, downloads the file, and binds it as JSON text — Parquet/CSV files are
+decoded server-side into a JSON array of records, JSON/JSONL pass through.
+Wrap the bind with \`PARSE_JSON(?)\` and walk it with \`LATERAL FLATTEN\`:
+
+\`\`\`sql
+-- ? file (s3object)
+SELECT
+  v.value:id::NUMBER AS id,
+  v.value:name::STRING AS name
+FROM LATERAL FLATTEN(input => PARSE_JSON(?)) v;
+\`\`\`
+
+## Streaming query results to S3
+
+Add a \`-- s3\` directive at the top of the script to stream the result set to S3
+instead of returning rows. Windmill writes the file and returns its \`S3Object\`
+as the script result.
+
+\`\`\`sql
+-- s3 prefix=exports/users format=parquet
+SELECT id, name FROM users;
+\`\`\`
+
+All keys are optional: \`prefix\` (object key prefix), \`storage\` (named storage —
+omit to use the workspace default), \`format\` (\`json\` (default), \`parquet\`, or
+\`csv\`). Use this for large result sets — rows stream directly to S3 instead of
+being buffered, bypassing the 10000-row return cap.
 `,
   "write-flow": `---
 name: write-flow
@@ -5971,12 +6165,12 @@ Use this guide when writing or modifying Windmill Workflow-as-Code (WAC) scripts
 WAC is authored as a Windmill script and deployed with the normal script workflow. It is not an OpenFlow YAML flow.
 
 Supported WAC authoring targets:
-- TypeScript scripts that import from \`windmill-client\`
+- Bun TypeScript scripts that import from \`windmill-client\`
 - Python 3 scripts that import from \`wmill\`
 
 ## File Shape
 
-TypeScript:
+Bun TypeScript:
 
 \`\`\`typescript
 import {
@@ -6018,7 +6212,7 @@ async def main(x: str):
 
 Rules:
 - Do not call \`main\`.
-- TypeScript should export the workflow entrypoint, preferably \`export const main = workflow(async (...) => { ... })\`.
+- Bun TypeScript should export the workflow entrypoint, preferably \`export const main = workflow(async (...) => { ... })\`.
 - Python must use \`@workflow\` on an async top-level function, usually \`main\`.
 - Define task functions and \`taskScript\`/\`task_script\` or \`taskFlow\`/\`task_flow\` assignments at module top level with stable names.
 - Use the exact SDK names. Do not alias \`workflow\`, \`task\`, \`taskScript\`, \`taskFlow\`, \`step\`, \`sleep\`, \`waitForApproval\`, \`task_script\`, \`task_flow\`, or \`wait_for_approval\`; the WAC parser recognizes these names directly.
@@ -6394,7 +6588,7 @@ app related commands
   - \`--json\` - Output as JSON (for piping to jq)
 - \`app get <path:string>\` - get an app's details
   - \`--json\` - Output as JSON (for piping to jq)
-- \`app push <file_path:string> <remote_path:string>\` - push a local app 
+- \`app push [file_path:string] [remote_path:string]\` - push a local app. With no args, infers the app from the current directory and the remote path from its location relative to wmill.yaml.
 - \`app dev [app_folder:string]\` - Start a development server for building apps with live reload and hot module replacement
   - \`--port <port:number>\` - Port to run the dev server on (will find next available port if occupied)
   - \`--host <host:string>\` - Host to bind the dev server to
@@ -6536,6 +6730,7 @@ Generate metadata (locks, schemas) for all scripts, flows, and apps
 - \`--skip-flows\` - Skip processing flows
 - \`--skip-apps\` - Skip processing apps
 - \`--strict-folder-boundaries\` - Only update items inside the specified folder (requires folder argument)
+- \`--parallel <n:number>\` - Number of items to process in parallel
 - \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which files to include
 - \`-e --excludes <patterns:file[]>\` - Comma separated patterns to specify which files to exclude
 
@@ -6545,6 +6740,7 @@ Generate metadata (locks, schemas) for all scripts, flows, and apps
   - \`--skip-scripts\` - Skip processing scripts
   - \`--skip-flows\` - Skip processing flows
   - \`--skip-apps\` - Skip processing apps
+  - \`--parallel <n:number>\` - Number of items to process in parallel
   - \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which files to include
   - \`-e --excludes <patterns:file[]>\` - Comma separated patterns to specify which files to exclude
 
@@ -6981,6 +7177,7 @@ workspace related commands
 - \`workspace whoami\` - Show the currently active user
 - \`workspace list\` - List local workspace profiles
 - \`workspace list-remote\` - List workspaces on the remote server that you have access to
+  - \`--as-superadmin\` - List ALL workspaces on the instance (requires the token to belong to a superadmin/devops user)
 - \`workspace list-forks\` - List forked workspaces on the remote server
 - \`workspace bind\` - Create or update a workspace entry in wmill.yaml from the active profile
   - \`--workspace <name:string>\` - Workspace name (default: current branch or workspaceId)
