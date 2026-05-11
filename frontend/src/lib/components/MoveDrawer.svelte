@@ -18,15 +18,13 @@
 	let initialSummary = $state('')
 	let path = $state<string | undefined>(undefined)
 	let summary = $state<string | undefined>(undefined)
+	let dirtyPath = $state(false)
 
 	let drawer = $state<Drawer>() as Drawer
 
 	let own = $state(false)
 	let onBehalfOfEmail = $state<string | undefined>(undefined)
-	let hasChanges = $derived(
-		(summary ?? '') !== initialSummary ||
-			(path !== undefined && path !== '' && path !== initialPath)
-	)
+	let hasChanges = $derived((summary ?? '') !== initialSummary || dirtyPath)
 
 	export async function openDrawer(
 		initialPath_l: string,
@@ -35,6 +33,7 @@
 	) {
 		kind = kind_l
 		path = undefined
+		dirtyPath = false
 		onBehalfOfEmail = undefined
 		initialPath = initialPath_l
 		initialSummary = summary_l ?? ''
@@ -89,7 +88,7 @@
 		</Label>
 
 		<Label label="Path">
-			<Path disabled={!own} {kind} {initialPath} bind:path />
+			<Path disabled={!own} {kind} {initialPath} bind:path bind:dirty={dirtyPath} />
 		</Label>
 		{#snippet actions()}
 			<Button variant="accent" disabled={!own || !hasChanges} on:click={updatePath}
