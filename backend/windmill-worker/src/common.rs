@@ -148,6 +148,13 @@ lazy_static::lazy_static! {
     static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|jsonvar|res|encrypted)\:"#).unwrap();
 }
 
+/// Returns true if any value in `vs` contains a `$var:`/`$jsonvar:`/`$res:`/`$encrypted:`
+/// reference that would need interpolation by `transform_json`. Cheap pre-check that
+/// callers can use to skip the DB roundtrip + clone path when nothing requires resolution.
+pub(crate) fn map_needs_resolution(vs: &HashMap<String, Box<RawValue>>) -> bool {
+    vs.values().any(|v| (*RE_RES_VAR).is_match(v.get()))
+}
+
 pub async fn transform_json<'a>(
     client: &AuthedClient,
     workspace: &str,

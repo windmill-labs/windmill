@@ -180,6 +180,17 @@ impl ServiceName {
     pub fn integration_service(&self) -> ServiceName {
         *self
     }
+
+    /// How long webhook tokens for this service should remain valid. `None` = no expiry.
+    /// Google channels turn over on a tight schedule (24h Drive, 7d Calendar) — a finite
+    /// TTL lets `delete_expired_items` (`monitor.rs`) sweep orphaned tokens automatically.
+    /// Persistent-webhook services (Nextcloud, GitHub) return `None`.
+    pub fn webhook_token_expiration(&self) -> Option<chrono::Duration> {
+        match self {
+            ServiceName::Google => Some(chrono::Duration::days(14)),
+            ServiceName::Nextcloud | ServiceName::Github => None,
+        }
+    }
 }
 
 impl std::fmt::Display for ServiceName {
@@ -759,22 +770,23 @@ async fn update_oauth_token_resource(
     }
 }
 
-/// Create a new webhook token that keeps the same label as the old one.
-/// The old token is **not** deleted — callers must call `delete_token_by_hash`
-/// on `old_token_hash` after the trigger row has been successfully updated.
-/// This ensures the trigger keeps working if the external service call or
-/// subsequent DB update fails.
+/// Create a new webhook token, minting a fresh `ephemeral-webhook-{service}-{rd5}`
+/// label and the per-service expiration (see `ServiceName::webhook_token_expiration`).
+/// The old token is **not** deleted — callers must call `delete_token_by_hash` on
+/// `old_token_hash` after the trigger row has been successfully updated.
 ///
 /// Returns `Ok(None)` if the old token no longer exists (e.g. manually deleted by user).
-/// In that case, `renew_channel` returns an error which `renew_expiring_channels` writes
-/// to the trigger's `error` column — visible in the UI so the user can re-create the trigger.
-pub async fn rotate_webhook_token(db: &DB, old_token_hash: &str) -> Result<Option<RotatedToken>> {
+pub async fn rotate_webhook_token(
+    db: &DB,
+    old_token_hash: &str,
+    service_name: ServiceName,
+) -> Result<Option<RotatedToken>> {
     use windmill_common::auth::{hash_token, TOKEN_PREFIX_LEN};
     use windmill_common::min_version::MIN_VERSION_SUPPORTS_TOKEN_HASH;
     use windmill_common::utils::rd_string;
 
     let old = match sqlx::query!(
-        "SELECT label, email, scopes, workspace_id, super_admin, owner, expiration FROM token WHERE token_hash = $1",
+        "SELECT email, scopes, workspace_id, super_admin, owner FROM token WHERE token_hash = $1",
         old_token_hash
     )
     .fetch_optional(db)
@@ -799,6 +811,11 @@ pub async fn rotate_webhook_token(db: &DB, old_token_hash: &str) -> Result<Optio
         Some(&new_token)
     };
 
+    let new_label = webhook_token_label(service_name);
+    let new_expiration = service_name
+        .webhook_token_expiration()
+        .map(|d| Utc::now() + d);
+
     sqlx::query!(
         "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes, workspace_id, owner, expiration)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
@@ -806,12 +823,12 @@ pub async fn rotate_webhook_token(db: &DB, old_token_hash: &str) -> Result<Optio
         new_prefix,
         plaintext as Option<&str>,
         old.email,
-        old.label,
+        new_label,
         old.super_admin,
         old.scopes.as_deref(),
         old.workspace_id,
         old.owner,
-        old.expiration,
+        new_expiration,
     )
     .execute(db)
     .await?;
@@ -822,6 +839,19 @@ pub async fn rotate_webhook_token(db: &DB, old_token_hash: &str) -> Result<Optio
     }))
 }
 
+/// Mint the standard label used for native-trigger webhook tokens.
+/// The `ephemeral-` prefix opts the token out of the user-token email/critical-alert
+/// notification paths (`is_user_token` in `monitor.rs`, `register_token_expiry_notification`
+/// in `windmill-api-auth/src/lib.rs`, `isUserToken` in the frontend).
+pub fn webhook_token_label(service_name: ServiceName) -> String {
+    use windmill_common::utils::rd_string;
+    format!(
+        "ephemeral-webhook-{}-{}",
+        service_name.as_str(),
+        rd_string(5)
+    )
+}
+
 pub struct RotatedToken {
     pub new_token: String,
     /// Hash of the old token — callers should delete this after the
@@ -829,7 +859,10 @@ pub struct RotatedToken {
     pub old_token_hash: String,
 }
 
-/// Delete a token from the token table using its hash (exact match).
+/// Delete a token by hash. Returns `Ok(false)` when no row matched.
+/// Some call sites legitimately race against expiry sweeps or concurrent deletes;
+/// callers that consider 0-rows anomalous should log themselves at the appropriate
+/// level rather than have this helper warn unconditionally.
 pub async fn delete_token_by_hash<'c, E: sqlx::Executor<'c, Database = Postgres>>(
     db: E,
     token_hash: &str,

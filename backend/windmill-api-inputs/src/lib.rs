@@ -172,6 +172,7 @@ async fn get_input_history(
             kind IN ('preview', 'flowpreview') as is_preview \
             FROM v2_job JOIN v2_job_completed USING (id) \
             WHERE v2_job.workspace_id = $3 AND {} = $1 AND kind = any($2) \
+            AND v2_job.script_entrypoint_override IS NULL \
             {args_query} AND v2_job_completed.status != 'skipped' {include_non_root} \
             ORDER BY v2_job.created_at DESC LIMIT $4\
         ) t ORDER BY completed_at DESC LIMIT $5 OFFSET $6",

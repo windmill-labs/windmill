@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.697.0
+  version: 1.699.0
   title: Windmill API
 
   contact:
@@ -11997,6 +11997,11 @@ paths:
             type: boolean
         - name: is_not_schedule
           description: is not a scheduled job
+          in: query
+          schema:
+            type: boolean
+        - name: excludes_entrypoint_override
+          description: exclude jobs that were started with a `_ENTRYPOINT_OVERRIDE` arg (e.g. dynamic-select helper runs and preprocessor previews)
           in: query
           schema:
             type: boolean

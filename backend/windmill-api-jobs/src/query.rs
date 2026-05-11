@@ -216,6 +216,10 @@ pub fn filter_list_queue_query(
         sqlb.and_where("trigger_kind IS DISTINCT FROM 'schedule'");
     }
 
+    if lq.excludes_entrypoint_override.unwrap_or(false) {
+        sqlb.and_where_is_null("v2_job.script_entrypoint_override");
+    }
+
     if let Some(tk) = &lq.trigger_kind {
         let quoted: Vec<_> = tk.values.iter().map(|v| quote(&format!("{}", v))).collect();
         if tk.negated {
@@ -519,6 +523,10 @@ pub fn filter_list_completed_query(
         sqlb.and_where("trigger_kind IS DISTINCT FROM 'schedule'");
     }
 
+    if lq.excludes_entrypoint_override.unwrap_or(false) {
+        sqlb.and_where_is_null("v2_job.script_entrypoint_override");
+    }
+
     if let Some(tk) = &lq.trigger_kind {
         let quoted: Vec<_> = tk.values.iter().map(|v| quote(&format!("{}", v))).collect();
         if tk.negated {
@@ -624,6 +632,7 @@ mod tests {
             trigger_path: None,
             include_args: None,
             broad_filter: None,
+            excludes_entrypoint_override: None,
         }
     }
 
@@ -668,6 +677,7 @@ mod tests {
             trigger_path: None,
             include_args: None,
             broad_filter: None,
+            excludes_entrypoint_override: None,
         }
     }
 
