@@ -8,6 +8,8 @@ import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
 import * as log from "../../core/log.ts";
 import {
+  beginLockfileBatch,
+  flushLockfileBatch,
   generateScriptMetadataInternal,
   getRawWorkspaceDependencies,
   readLockfile,
@@ -200,6 +202,12 @@ export async function rehashOnly(
   const stubWorkspace = {} as any;
   const rehashOpts = { ...opts, rehashOnly: true } as any;
 
+  type RehashTask =
+    | { kind: "script"; scriptPath: string }
+    | { kind: "flow"; folder: string }
+    | { kind: "app"; folder: string; rawApp: boolean };
+  const queue: RehashTask[] = [];
+
   if (!rehashFilter?.skipScripts) {
     for (const e of scriptPaths) {
       // Filter against the derived remote path so a folder argument like
@@ -210,14 +218,7 @@ export async function rehashOnly(
       if (rehashFilter?.missingOnly) {
         if (skipIfExisting(remotePath) || skipIfExisting(remotePath, "__script_hash")) continue;
       }
-      try {
-        await generateScriptMetadataInternal(
-          e, stubWorkspace, rehashOpts, false, true, {}, codebases, false,
-        );
-        counts.scripts++;
-      } catch (err) {
-        log.warn(`Skipping ${e}: ${err instanceof Error ? err.message : err}`);
-      }
+      queue.push({ kind: "script", scriptPath: e });
     }
   }
 
@@ -228,12 +229,7 @@ export async function rehashOnly(
         const folderNormalized = f.replaceAll(SEP, "/");
         if (skipIfExisting(folderNormalized, "__flow_hash")) continue;
       }
-      try {
-        await generateFlowLockInternal(f, false, stubWorkspace, rehashOpts, false, true);
-        counts.flows++;
-      } catch (err) {
-        log.warn(`Skipping ${f}: ${err instanceof Error ? err.message : err}`);
-      }
+      queue.push({ kind: "flow", folder: f });
     }
   }
 
@@ -244,13 +240,52 @@ export async function rehashOnly(
         const folderNormalized = appFolder.replaceAll(SEP, "/");
         if (skipIfExisting(folderNormalized, "__app_hash")) continue;
       }
-      try {
-        await generateAppLocksInternal(appFolder, rawApp, false, stubWorkspace, rehashOpts, false, true);
-        counts.apps++;
-      } catch (err) {
-        log.warn(`Skipping ${appFolder}: ${err instanceof Error ? err.message : err}`);
+      queue.push({ kind: "app", folder: appFolder, rawApp });
+    }
+  }
+
+  let parallelism = Number(opts.parallel ?? 1);
+  if (!Number.isFinite(parallelism) || parallelism <= 0) parallelism = 1;
+  if (parallelism > 1) {
+    log.info(`Parallelizing ${parallelism} items at a time`);
+  }
+
+  // Buffer wmill-lock.yaml writes during the parallel phase: each task mutates
+  // the shared in-memory lockfile, then we flush once.
+  await beginLockfileBatch();
+  try {
+    const pool = new Set<Promise<void>>();
+    while (queue.length > 0 || pool.size > 0) {
+      while (pool.size < parallelism && queue.length > 0) {
+        const task = queue.shift()!;
+        const p = (async () => {
+          try {
+            if (task.kind === "script") {
+              await generateScriptMetadataInternal(
+                task.scriptPath, stubWorkspace, rehashOpts, false, true, {}, codebases, false,
+              );
+              counts.scripts++;
+            } else if (task.kind === "flow") {
+              await generateFlowLockInternal(task.folder, false, stubWorkspace, rehashOpts, false, true);
+              counts.flows++;
+            } else {
+              await generateAppLocksInternal(task.folder, task.rawApp, false, stubWorkspace, rehashOpts, false, true);
+              counts.apps++;
+            }
+          } catch (err) {
+            const label = task.kind === "script" ? task.scriptPath : task.folder;
+            log.warn(`Skipping ${label}: ${err instanceof Error ? err.message : err}`);
+          }
+        })();
+        pool.add(p);
+        p.then(() => pool.delete(p));
+      }
+      if (pool.size > 0) {
+        await Promise.race(pool);
       }
     }
+  } finally {
+    await flushLockfileBatch();
   }
 
   if (counts.scripts + counts.flows + counts.apps > 0 || !rehashFilter?.missingOnly) {
@@ -519,85 +554,117 @@ export async function generateMetadata(
 
   const errors: { path: string; error: string }[] = [];
 
-  // Process scripts
-  for (const item of scripts) {
-    current++;
-    log.info(`${formatProgress(current)} script ${item.path}`);
-    try {
-      await generateScriptMetadataInternal(
-        item.path, // originalPath with extension
-        workspace,
-        opts,
-        false, // dryRun
-        true, // noStaleMessage
-        mismatchedWorkspaceDeps,
-        codebases,
-        false,
-        tree
-      );
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      errors.push({ path: item.path, error: msg });
-      log.error(`  Failed: ${msg}`);
-    }
+  let parallelism = Number(opts.parallel ?? 1);
+  if (!Number.isFinite(parallelism) || parallelism <= 0) parallelism = 1;
+  if (parallelism > 1) {
+    log.info(`Parallelizing ${parallelism} items at a time`);
   }
 
-  // Process flows
-  for (const item of flows) {
-    current++;
-    try {
-      const result = await generateFlowLockInternal(
-        item.folder.replaceAll("/", SEP),
-        false, // dryRun
-        workspace,
-        opts,
-        false,
-        true, // noStaleMessage
-        tree
-      );
-      const flowResult = result as FlowLocksResult | undefined;
-      const scriptsInfo = flowResult?.updatedScripts?.length
-        ? colors.dim(colors.white(`: ${flowResult.updatedScripts.join(", ")}`))
-        : "";
-      log.info(`${formatProgress(current)} flow   ${item.path}${scriptsInfo}`);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      errors.push({ path: item.path, error: msg });
-      log.info(`${formatProgress(current)} flow   ${item.path}`);
-      log.error(`  Failed: ${msg}`);
-    }
-  }
+  type Task =
+    | { kind: "script"; item: StaleItem }
+    | { kind: "flow"; item: StaleItem }
+    | { kind: "app"; item: StaleItem };
+  const queue: Task[] = [
+    ...scripts.map<Task>((item) => ({ kind: "script", item })),
+    ...flows.map<Task>((item) => ({ kind: "flow", item })),
+    ...apps.map<Task>((item) => ({ kind: "app", item })),
+  ];
 
-  // Process apps
-  for (const item of apps) {
-    current++;
-    try {
-      const result = await generateAppLocksInternal(
-        item.folder.replaceAll("/", SEP),
-        item.isRawApp!, // rawApp
-        false, // dryRun
-        workspace,
-        opts,
-        false,
-        true, // noStaleMessage
-        tree
-      );
-      const appResult = result as AppLocksResult | undefined;
-      const scriptsInfo = appResult?.updatedScripts?.length
-        ? colors.dim(colors.white(`: ${appResult.updatedScripts.join(", ")}`))
-        : "";
-      log.info(`${formatProgress(current)} app    ${item.path}${scriptsInfo}`);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      errors.push({ path: item.path, error: msg });
-      log.info(`${formatProgress(current)} app    ${item.path}`);
-      log.error(`  Failed: ${msg}`);
+  // Buffer wmill-lock.yaml writes during the parallel phase: each task mutates
+  // the shared in-memory lockfile via clearGlobalLock/updateMetadataGlobalLock,
+  // then we flush once. Without this buffering, two workers' read-modify-write
+  // cycles would race and lose hashes.
+  await beginLockfileBatch();
+  try {
+    const pool = new Set<Promise<void>>();
+    while (queue.length > 0 || pool.size > 0) {
+      while (pool.size < parallelism && queue.length > 0) {
+        const task = queue.shift()!;
+        const taskNumber = ++current;
+        const p = (async () => {
+          if (task.kind === "script") {
+            const item = task.item;
+            log.info(`${formatProgress(taskNumber)} script ${item.path}`);
+            try {
+              await generateScriptMetadataInternal(
+                item.path, // originalPath with extension
+                workspace,
+                opts,
+                false, // dryRun
+                true, // noStaleMessage
+                mismatchedWorkspaceDeps,
+                codebases,
+                false,
+                tree
+              );
+            } catch (e) {
+              const msg = e instanceof Error ? e.message : String(e);
+              errors.push({ path: item.path, error: msg });
+              log.error(`  Failed: ${msg}`);
+            }
+          } else if (task.kind === "flow") {
+            const item = task.item;
+            try {
+              const result = await generateFlowLockInternal(
+                item.folder.replaceAll("/", SEP),
+                false, // dryRun
+                workspace,
+                opts,
+                false,
+                true, // noStaleMessage
+                tree
+              );
+              const flowResult = result as FlowLocksResult | undefined;
+              const scriptsInfo = flowResult?.updatedScripts?.length
+                ? colors.dim(colors.white(`: ${flowResult.updatedScripts.join(", ")}`))
+                : "";
+              log.info(`${formatProgress(taskNumber)} flow   ${item.path}${scriptsInfo}`);
+            } catch (e) {
+              const msg = e instanceof Error ? e.message : String(e);
+              errors.push({ path: item.path, error: msg });
+              log.info(`${formatProgress(taskNumber)} flow   ${item.path}`);
+              log.error(`  Failed: ${msg}`);
+            }
+          } else {
+            const item = task.item;
+            try {
+              const result = await generateAppLocksInternal(
+                item.folder.replaceAll("/", SEP),
+                item.isRawApp!, // rawApp
+                false, // dryRun
+                workspace,
+                opts,
+                false,
+                true, // noStaleMessage
+                tree
+              );
+              const appResult = result as AppLocksResult | undefined;
+              const scriptsInfo = appResult?.updatedScripts?.length
+                ? colors.dim(colors.white(`: ${appResult.updatedScripts.join(", ")}`))
+                : "";
+              log.info(`${formatProgress(taskNumber)} app    ${item.path}${scriptsInfo}`);
+            } catch (e) {
+              const msg = e instanceof Error ? e.message : String(e);
+              errors.push({ path: item.path, error: msg });
+              log.info(`${formatProgress(taskNumber)} app    ${item.path}`);
+              log.error(`  Failed: ${msg}`);
+            }
+          }
+        })();
+        pool.add(p);
+        p.then(() => pool.delete(p));
+      }
+      if (pool.size > 0) {
+        await Promise.race(pool);
+      }
     }
-  }
 
-  // Persist all stale workspace dep hashes (not just filtered — deps are global, not folder-scoped)
-  const allStaleDeps = staleItems.filter((i) => i.type === "dependencies");
-  await tree.persistDepsHashes(allStaleDeps.map((d) => d.path));
+    // Persist all stale workspace dep hashes (not just filtered — deps are global, not folder-scoped)
+    const allStaleDeps = staleItems.filter((i) => i.type === "dependencies");
+    await tree.persistDepsHashes(allStaleDeps.map((d) => d.path));
+  } finally {
+    await flushLockfileBatch();
+  }
 
   const succeeded = total - errors.length;
   log.info("");
@@ -640,6 +707,7 @@ const command = new Command()
   .option("--skip-flows", "Skip processing flows")
   .option("--skip-apps", "Skip processing apps")
   .option("--strict-folder-boundaries", "Only update items inside the specified folder (requires folder argument)")
+  .option("--parallel <n:number>", "Number of items to process in parallel")
   .option(
     "-i --includes <patterns:file[]>",
     "Comma separated patterns to specify which files to include"
@@ -661,6 +729,7 @@ const command = new Command()
       .option("--skip-scripts", "Skip processing scripts")
       .option("--skip-flows", "Skip processing flows")
       .option("--skip-apps", "Skip processing apps")
+      .option("--parallel <n:number>", "Number of items to process in parallel")
       .option(
         "-i --includes <patterns:file[]>",
         "Comma separated patterns to specify which files to include"

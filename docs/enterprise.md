@@ -19,9 +19,15 @@
 
 The `*_ee.rs` files in the windmill repo are symlinks — changes won't appear in `git diff` of the windmill repo. Check the EE repo directly: `git -C <ee-path> status --short`
 
-## EE PR Workflow (MUST DO when modifying `*_ee.rs` files)
+## EE PR Workflow (MUST DO whenever the change has an EE companion PR)
 
-When you modify any `*_ee.rs` file and create a PR on windmill:
+If your work requires any change in `windmill-ee-private` (modifying `*_ee.rs`
+files, adding new ones, adjusting EE-only modules, etc.) — i.e. you need to
+open a companion PR on `windmill-ee-private` — then the windmill (OSS) PR
+counts as an EE PR even when its own `git diff` only touches
+`backend/ee-repo-ref.txt`. The symlinked `*_ee.rs` files won't appear in the
+OSS diff, but the OSS build pulls them in via the EE ref, so reviewers need
+to know.
 
 1. **Prefix the windmill PR title** with `[ee]`: `[ee] <type>: <description>`
 2. **Create a matching branch** in `windmill-ee-private` (same branch name)

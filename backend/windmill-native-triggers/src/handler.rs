@@ -1,7 +1,8 @@
 use crate::{
     decrypt_oauth_data, delete_native_trigger, delete_token_by_hash, get_native_trigger,
     list_native_triggers, rotate_webhook_token, store_native_trigger, update_native_trigger_error,
-    External, NativeTrigger, NativeTriggerConfig, NativeTriggerData, ServiceName,
+    webhook_token_label, External, NativeTrigger, NativeTriggerConfig, NativeTriggerData,
+    ServiceName,
 };
 use axum::{
     extract::{Path, Query},
@@ -18,7 +19,6 @@ use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
-    utils::rd_string,
     DB,
 };
 
@@ -84,10 +84,13 @@ async fn new_webhook_token(
     let kind = if is_flow { "flows" } else { "scripts" };
 
     let scopes = vec![format!("jobs:run:{kind}:{script_path}")];
-    let label = format!("webhook-{}-{}", service_name.as_str(), rd_string(5));
+    let label = webhook_token_label(service_name);
+    let expiration = service_name
+        .webhook_token_expiration()
+        .map(|d| chrono::Utc::now() + d);
     let token_config = NewToken::new(
         Some(label),
-        None,
+        expiration,
         None,
         Some(scopes),
         Some(workspace_id.to_owned()),
@@ -255,8 +258,8 @@ async fn update_native_trigger_handler<T: External>(
         tx = user_db.begin(&authed).await?;
         token
     } else {
-        // Same runnable — rotate the token keeping the same label
-        match rotate_webhook_token(&db, &existing.webhook_token_hash).await? {
+        // Same runnable — rotate the token (mints a fresh label + expiration)
+        match rotate_webhook_token(&db, &existing.webhook_token_hash, service_name).await? {
             Some(rotated) => {
                 old_token_hash_to_delete = Some(rotated.old_token_hash);
                 rotated.new_token

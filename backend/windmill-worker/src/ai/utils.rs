@@ -1,5 +1,3 @@
-pub use crate::ai::types::McpToolSource;
-use crate::ai::types::ToolDef;
 use anyhow::Context;
 use serde_json::value::RawValue;
 use sqlx::types::Json;
@@ -8,7 +6,7 @@ use std::{
     sync::Arc,
 };
 use uuid::Uuid;
-use windmill_ai::ai_providers::AIProvider;
+use windmill_ai::types::*;
 use windmill_common::flows::FlowModuleValue;
 use windmill_common::{
     db::DB,
@@ -24,7 +22,7 @@ use windmill_common::{
 use windmill_mcp::{McpClient, McpResource, McpTool};
 use windmill_queue::{flow_status::get_step_of_flow_status, MiniPulledJob};
 
-use crate::{ai::types::*, parse_sig_of_lang};
+use crate::parse_sig_of_lang;
 
 pub fn parse_raw_script_schema(
     content: &str,
@@ -321,11 +319,6 @@ pub fn get_step_name_from_flow(
             .map(|s| s.to_string())
             .unwrap_or_else(|| format!("AI Agent Step {}", flow_step_id)),
     )
-}
-
-/// AWS Bedrock do not handle structured output query param, so we use a tool for structured output. Same for every Claude models.
-pub fn should_use_structured_output_tool(provider: &AIProvider, model: &str) -> bool {
-    model.contains("claude") || provider == &AIProvider::AWSBedrock
 }
 
 /// Cleanup MCP clients by gracefully shutting down connections
@@ -712,22 +705,4 @@ pub fn any_tool_needs_previous_result(tools: &[Tool]) -> bool {
         }
         false
     })
-}
-
-/// Extract text content from OpenAIContent, joining parts with space if multiple
-pub fn extract_text_content(content: &OpenAIContent) -> String {
-    match content {
-        OpenAIContent::Text(text) => text.clone(),
-        OpenAIContent::Parts(parts) => parts
-            .iter()
-            .filter_map(|p| {
-                if let ContentPart::Text { text } = p {
-                    Some(text.as_str())
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(""),
-    }
 }

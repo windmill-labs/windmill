@@ -6640,7 +6640,7 @@ app related commands
   - \`--json\` - Output as JSON (for piping to jq)
 - \`app get <path:string>\` - get an app's details
   - \`--json\` - Output as JSON (for piping to jq)
-- \`app push <file_path:string> <remote_path:string>\` - push a local app 
+- \`app push [file_path:string] [remote_path:string]\` - push a local app. With no args, infers the app from the current directory and the remote path from its location relative to wmill.yaml.
 - \`app dev [app_folder:string]\` - Start a development server for building apps with live reload and hot module replacement
   - \`--port <port:number>\` - Port to run the dev server on (will find next available port if occupied)
   - \`--host <host:string>\` - Host to bind the dev server to
@@ -6782,6 +6782,7 @@ Generate metadata (locks, schemas) for all scripts, flows, and apps
 - \`--skip-flows\` - Skip processing flows
 - \`--skip-apps\` - Skip processing apps
 - \`--strict-folder-boundaries\` - Only update items inside the specified folder (requires folder argument)
+- \`--parallel <n:number>\` - Number of items to process in parallel
 - \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which files to include
 - \`-e --excludes <patterns:file[]>\` - Comma separated patterns to specify which files to exclude
 
@@ -6791,6 +6792,7 @@ Generate metadata (locks, schemas) for all scripts, flows, and apps
   - \`--skip-scripts\` - Skip processing scripts
   - \`--skip-flows\` - Skip processing flows
   - \`--skip-apps\` - Skip processing apps
+  - \`--parallel <n:number>\` - Number of items to process in parallel
   - \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which files to include
   - \`-e --excludes <patterns:file[]>\` - Comma separated patterns to specify which files to exclude
 

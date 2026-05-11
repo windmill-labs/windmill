@@ -29,6 +29,19 @@ export type Kind =
 	| 'raw_app'
 	| 'resource_type'
 	| 'folder'
+	// Per-kind trigger names returned by the backend's `compareWorkspaces` API.
+	| 'http_trigger'
+	| 'websocket_trigger'
+	| 'kafka_trigger'
+	| 'nats_trigger'
+	| 'postgres_trigger'
+	| 'mqtt_trigger'
+	| 'sqs_trigger'
+	| 'gcp_trigger'
+	| 'azure_trigger'
+	| 'email_trigger'
+	// Legacy generic kind used by the cross-workspace `DeployWorkspace` UI,
+	// which carries the trigger sub-kind in `additionalInformation`.
 	| 'trigger'
 
 export const ALL_DEPLOYABLE: WorkspaceDeployUISettings = {
@@ -108,8 +121,13 @@ export async function existsTrigger(
  * changes without flipping the target's enabled/disabled state. Schedules'
  * `EditSchedule` already lacks `enabled` on the backend, but stripping keeps
  * the intent explicit and matches the YAML/CLI round-trip behavior.
+ *
+ * Used by the legacy `kind === 'trigger'` path in `utils_workspace_deploy.ts`
+ * (the cross-workspace deploy UI). The merge-UI deploy goes through the
+ * shared `deployItem` in `windmill-utils-internal`, which applies its own
+ * `stripOperationalStateOnUpdate` at the dispatch layer.
  */
-function stripOperationalState<T extends Record<string, any>>(
+export function stripOperationalState<T extends Record<string, any>>(
 	payload: T
 ): Omit<T, 'mode' | 'enabled'> {
 	const { mode: _mode, enabled: _enabled, ...rest } = payload
@@ -136,7 +154,7 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...stripOperationalState(sqsTrigger),
+				...sqsTrigger,
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -151,7 +169,7 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...stripOperationalState(kafkaTrigger),
+				...kafkaTrigger,
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -166,7 +184,7 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...stripOperationalState(mqttTrigger),
+				...mqttTrigger,
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -181,7 +199,7 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...stripOperationalState(natsTrigger),
+				...natsTrigger,
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -202,7 +220,7 @@ export async function getTriggersDeployData(
 		}
 
 		const data: GcpTriggerData = {
-			...stripOperationalState(gcpTrigger),
+			...gcpTrigger,
 			delivery_config: gcpTrigger.delivery_config ?? undefined,
 			base_endpoint:
 				gcpTrigger.delivery_type === 'push' ? `${window.location.origin}${base}` : undefined,
@@ -223,7 +241,7 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...stripOperationalState(postgresTrigger),
+				...postgresTrigger,
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -238,7 +256,7 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...stripOperationalState(websocketTrigger),
+				...websocketTrigger,
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -253,7 +271,7 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...stripOperationalState(httpTrigger),
+				...httpTrigger,
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -268,7 +286,7 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...stripOperationalState(azureTrigger),
+				...azureTrigger,
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -283,7 +301,7 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...stripOperationalState(emailTrigger),
+				...emailTrigger,
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -297,7 +315,7 @@ export async function getTriggersDeployData(
 		})
 		return {
 			data: {
-				...stripOperationalState(schedulesTrigger),
+				...schedulesTrigger,
 				// permissioned_as is only set on create, not update
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
@@ -310,228 +328,65 @@ export async function getTriggersDeployData(
 	throw new Error(`Unexpected trigger kind got: ${kind}`)
 }
 
-export async function getTriggerValue(kind: TriggerKind, path: string, workspace: string) {
-	if (kind === 'sqs') {
-		const { mode, script_path, is_flow, queue_url, aws_resource_path, message_attributes } =
-			await SqsTriggerService.getSqsTrigger({
-				workspace: workspace!,
-				path: path
-			})
+/**
+ * Runtime fields stripped from the trigger/schedule diff so the drawer mirrors
+ * the backend's `compare_two_trigger_or_schedule` semantics — same set as
+ * `TRIGGER_COMPARE_IGNORE` and `stripTriggerOrScheduleRuntimeFields` in the
+ * shared deploy module.
+ */
+const TRIGGER_RUNTIME_IGNORE = new Set([
+	'workspace_id',
+	'edited_by',
+	'edited_at',
+	'email',
+	'error',
+	'enabled',
+	'mode',
+	'server_id',
+	'last_server_ping',
+	'extra_perms',
+	'permissioned_as',
+	// Server-managed (kept in sync with backend `TRIGGER_COMPARE_IGNORE`).
+	'subscription_id',
+	'push_auth_config'
+])
 
-		return {
-			mode,
-			script_path,
-			is_flow,
-			queue_url,
-			aws_resource_path,
-			message_attributes
-		}
-	} else if (kind === 'kafka') {
-		const { mode, script_path, is_flow, kafka_resource_path, topics, group_id } =
-			await KafkaTriggerService.getKafkaTrigger({
-				workspace: workspace!,
-				path: path
-			})
-
-		return {
-			mode,
-			script_path,
-			is_flow,
-			kafka_resource_path,
-			topics,
-			group_id
-		}
-	} else if (kind === 'mqtt') {
-		const {
-			mode,
-			script_path,
-			is_flow,
-			mqtt_resource_path,
-			v3_config,
-			v5_config,
-			client_id,
-			subscribe_topics,
-			client_version
-		} = await MqttTriggerService.getMqttTrigger({
-			workspace: workspace!,
-			path: path
-		})
-
-		return {
-			mode,
-			script_path,
-			is_flow,
-			mqtt_resource_path,
-			v3_config,
-			v5_config,
-			client_id,
-			subscribe_topics,
-			client_version
-		}
-	} else if (kind === 'nats') {
-		const {
-			mode,
-			script_path,
-			is_flow,
-			nats_resource_path,
-			use_jetstream,
-			stream_name,
-			consumer_name,
-			subjects
-		} = await NatsTriggerService.getNatsTrigger({
-			workspace: workspace!,
-			path: path
-		})
-
-		return {
-			mode,
-			script_path,
-			is_flow,
-			nats_resource_path,
-			use_jetstream,
-			stream_name,
-			consumer_name,
-			subjects
-		}
-	} else if (kind === 'postgres') {
-		const {
-			mode,
-			script_path,
-			is_flow,
-			postgres_resource_path,
-			replication_slot_name,
-			publication_name
-		} = await PostgresTriggerService.getPostgresTrigger({
-			workspace: workspace!,
-			path: path
-		})
-
-		return {
-			mode,
-			script_path,
-			is_flow,
-			postgres_resource_path,
-			replication_slot_name,
-			publication_name
-		}
-	} else if (kind === 'gcp') {
-		const { mode, script_path, is_flow, gcp_resource_path } = await GcpTriggerService.getGcpTrigger(
-			{
-				workspace: workspace!,
-				path: path
-			}
-		)
-
-		return {
-			mode,
-			script_path,
-			is_flow,
-			gcp_resource_path
-		}
-	} else if (kind === 'websockets') {
-		const {
-			mode,
-			script_path,
-			is_flow,
-			url,
-			url_runnable_args,
-			can_return_message,
-			filters,
-			initial_messages
-		} = await WebsocketTriggerService.getWebsocketTrigger({
-			workspace: workspace!,
-			path: path
-		})
-
-		return {
-			mode,
-			script_path,
-			is_flow,
-			url,
-			url_runnable_args,
-			can_return_message,
-			filters,
-			initial_messages
-		}
-	} else if (kind === 'routes') {
-		const {
-			script_path,
-			is_flow,
-			http_method,
-			route_path,
-			static_asset_config,
-			request_type,
-			authentication_method,
-			is_static_website,
-			authentication_resource_path
-		} = await HttpTriggerService.getHttpTrigger({
-			workspace: workspace!,
-			path: path
-		})
-
-		return {
-			script_path,
-			is_flow,
-			http_method,
-			route_path,
-			static_asset_config,
-			request_type,
-			authentication_method,
-			is_static_website,
-			authentication_resource_path
-		}
-	} else if (kind === 'schedules') {
-		const {
-			script_path,
-			is_flow,
-			on_failure,
-			schedule,
-			timezone,
-			on_failure_times,
-			on_failure_exact,
-			on_failure_extra_args,
-			on_recovery,
-			on_recovery_times,
-			on_recovery_extra_args,
-			on_success,
-			on_success_extra_args,
-			ws_error_handler_muted,
-			retry,
-			summary,
-			no_flow_overlap,
-			tag,
-			paused_until,
-			cron_version
-		} = await ScheduleService.getSchedule({
-			workspace: workspace!,
-			path: path
-		})
-
-		return {
-			script_path,
-			is_flow,
-			on_failure,
-			schedule,
-			timezone,
-			on_failure_times,
-			on_failure_exact,
-			on_failure_extra_args,
-			on_recovery,
-			on_recovery_times,
-			on_recovery_extra_args,
-			on_success,
-			on_success_extra_args,
-			ws_error_handler_muted,
-			retry,
-			summary,
-			no_flow_overlap,
-			tag,
-			paused_until,
-			cron_version
-		}
+function stripTriggerRuntimeFields<T extends Record<string, any>>(row: T): Partial<T> {
+	const out: Record<string, any> = {}
+	for (const [k, v] of Object.entries(row)) {
+		if (!TRIGGER_RUNTIME_IGNORE.has(k)) out[k] = v
 	}
+	return out as Partial<T>
+}
 
-	throw new Error(`Unexpected trigger kind got: ${kind}`)
+export async function getTriggerValue(kind: TriggerKind, path: string, workspace: string) {
+	let trigger: Record<string, any>
+	if (kind === 'sqs') {
+		trigger = await SqsTriggerService.getSqsTrigger({ workspace, path })
+	} else if (kind === 'kafka') {
+		trigger = await KafkaTriggerService.getKafkaTrigger({ workspace, path })
+	} else if (kind === 'mqtt') {
+		trigger = await MqttTriggerService.getMqttTrigger({ workspace, path })
+	} else if (kind === 'nats') {
+		trigger = await NatsTriggerService.getNatsTrigger({ workspace, path })
+	} else if (kind === 'postgres') {
+		trigger = await PostgresTriggerService.getPostgresTrigger({ workspace, path })
+	} else if (kind === 'gcp') {
+		trigger = await GcpTriggerService.getGcpTrigger({ workspace, path })
+	} else if (kind === 'websockets') {
+		trigger = await WebsocketTriggerService.getWebsocketTrigger({ workspace, path })
+	} else if (kind === 'routes') {
+		trigger = await HttpTriggerService.getHttpTrigger({ workspace, path })
+	} else if (kind === 'schedules') {
+		trigger = await ScheduleService.getSchedule({ workspace, path })
+	} else if (kind === 'azure') {
+		trigger = await AzureTriggerService.getAzureTrigger({ workspace, path })
+	} else if (kind === 'emails') {
+		trigger = await EmailTriggerService.getEmailTrigger({ workspace, path })
+	} else {
+		throw new Error(`Unexpected trigger kind got: ${kind}`)
+	}
+	return stripTriggerRuntimeFields(trigger)
 }
 
 /**
@@ -569,6 +424,12 @@ export async function getTriggerPermissionedAs(
 			return trigger.permissioned_as
 		} else if (kind === 'schedules') {
 			const trigger = await ScheduleService.getSchedule({ workspace, path })
+			return trigger.permissioned_as
+		} else if (kind === 'azure') {
+			const trigger = await AzureTriggerService.getAzureTrigger({ workspace, path })
+			return trigger.permissioned_as
+		} else if (kind === 'emails') {
+			const trigger = await EmailTriggerService.getEmailTrigger({ workspace, path })
 			return trigger.permissioned_as
 		}
 	} catch {
