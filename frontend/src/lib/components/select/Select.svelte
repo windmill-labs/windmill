@@ -202,7 +202,7 @@
 				inputLeadingClasses[size],
 				'focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0',
 				open ? '' : 'cursor-pointer',
-				loading || (clearable && !disabled && value) || RightIcon ? 'pr-8' : '',
+				loading || (clearable && !disabled && value) || RightIcon ? 'pr-7' : '',
 				inputClass ?? '',
 				'empty:before:content-[attr(data-placeholder)]',
 				!value ? 'empty:before:text-hint' : 'empty:before:text-primary'

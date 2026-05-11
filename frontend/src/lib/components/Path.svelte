@@ -405,7 +405,7 @@
 
 <div>
 	<div
-		class="flex gap-2 pb-0 mb-1 flex-col flex-wrap sm:flex-row sm:items-center border rounded-md bg-surface-input"
+		class="flex gap-0 pb-0 mb-1 flex-col flex-wrap sm:flex-row sm:items-center border rounded-md bg-surface-input"
 	>
 		{#if meta != undefined}
 			<!-- svelte-ignore a11y_label_has_associated_control -->
