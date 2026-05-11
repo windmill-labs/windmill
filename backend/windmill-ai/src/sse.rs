@@ -3,17 +3,15 @@ use std::collections::HashMap;
 use eventsource_stream::Eventsource;
 use reqwest::Response;
 use serde::Deserialize;
-use serde_json;
 use tokio_stream::StreamExt;
-use windmill_ai::{
-    ai_google::{parse_gemini_sse_event, GeminiUsageMetadata},
-    ai_types::{ExtraContent, GoogleExtraContent, OpenAIFunction, OpenAIToolCall},
-};
 use windmill_common::{error::Error, utils::rd_string};
 
-use crate::ai::{
+use crate::{
+    ai_google::{parse_gemini_sse_event, GeminiUsageMetadata},
+    ai_types::UrlCitation,
+    ai_types::{ExtraContent, GoogleExtraContent, OpenAIFunction, OpenAIToolCall},
     query_builder::StreamEventSink,
-    types::{StreamingEvent, UrlCitation},
+    types::StreamingEvent,
 };
 
 #[derive(Deserialize)]
@@ -64,6 +62,7 @@ lazy_static::lazy_static! {
         .parse::<bool>()
         .unwrap_or(false);
 }
+#[allow(async_fn_in_trait)]
 pub trait SSEParser {
     async fn parse_event_data(&mut self, data: &str) -> Result<(), Error>;
 
@@ -459,11 +458,11 @@ impl SSEParser for AnthropicSSEParser {
 // Gemini SSE Parser
 // ============================================================================
 
-/// Accumulates Gemini streaming events and converts them into the worker's
-/// internal [`OpenAIToolCall`] / [`StreamingEvent`] representation.
+/// Accumulates Gemini streaming events and converts them into the shared
+/// [`OpenAIToolCall`] / [`StreamingEvent`] representation.
 ///
 /// The actual SSE parsing is delegated to [`parse_gemini_sse_event`] from
-/// `windmill_common::ai_google` so the logic can be shared with the API proxy.
+/// `windmill_ai::ai_google` so the logic can be shared with the API proxy.
 pub struct GeminiSSEParser {
     pub accumulated_content: String,
     pub accumulated_tool_calls: HashMap<i64, OpenAIToolCall>,

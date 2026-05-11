@@ -1,16 +1,17 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use windmill_ai::{ai_google::parse_data_url, ai_providers::AIProvider};
-use windmill_common::{client::AuthedClient, error::Error};
-
-use crate::ai::{
-    image_handler::prepare_messages_for_api,
+use windmill_ai::{
+    ai_google::parse_data_url,
+    ai_providers::AIProvider,
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
     sse::{AnthropicSSEParser, SSEParser},
     types::*,
     utils::{extract_text_content, should_use_structured_output_tool},
 };
+use windmill_common::{client::AuthedClient, error::Error};
+
+use crate::ai::image_handler::prepare_messages_for_api;
 
 /// Anthropic API version for standard API
 const ANTHROPIC_VERSION_STANDARD: &str = "2023-06-01";

@@ -1238,10 +1238,39 @@ async fn delete_resources_bulk(
         .await?;
 
         if let Some(res_data) = trash_resource {
+            // Per-resource linked vars so each resource's trash entry carries
+            // exactly the variables that vanished with it (matching the
+            // single-delete shape: trash_data["linked_variables"]).
+            let mut this_linked: Vec<String> = Vec::new();
             if let Some(value) = res_data.get("value") {
-                collect_var_refs(value, &mut linked_var_paths);
+                collect_var_refs(value, &mut this_linked);
             }
-            let trash_data = serde_json::json!({"row": res_data});
+            this_linked.sort();
+            this_linked.dedup();
+
+            let trash_linked_vars: Vec<serde_json::Value> = if this_linked.is_empty() {
+                Vec::new()
+            } else {
+                let placeholders: Vec<String> = this_linked
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _)| format!("${}", i + 2))
+                    .collect();
+                let query = format!(
+                    "SELECT to_jsonb(t) FROM variable t WHERE workspace_id = $1 AND path IN ({})",
+                    placeholders.join(", ")
+                );
+                let mut q = sqlx::query_scalar::<_, serde_json::Value>(&query).bind(&w_id);
+                for var_path in &this_linked {
+                    q = q.bind(var_path);
+                }
+                q.fetch_all(&mut *tx).await?
+            };
+
+            let mut trash_data = serde_json::json!({"row": res_data});
+            if !trash_linked_vars.is_empty() {
+                trash_data["linked_variables"] = serde_json::Value::Array(trash_linked_vars);
+            }
             windmill_common::trashbin::move_to_trash(
                 &mut *tx,
                 &w_id,
@@ -1251,6 +1280,8 @@ async fn delete_resources_bulk(
                 &authed.username,
             )
             .await?;
+
+            linked_var_paths.extend(this_linked);
         }
     }
     linked_var_paths.sort();

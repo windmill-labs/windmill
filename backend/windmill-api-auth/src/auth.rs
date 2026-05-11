@@ -715,7 +715,8 @@ pub async fn resolve_opt_job_authed(
 fn username_override_from_label(label: Option<String>) -> Option<String> {
     match label {
         Some(label)
-            if label.starts_with("webhook-")
+            if label.starts_with("ephemeral-webhook-")
+                || label.starts_with("webhook-")
                 || label.starts_with("http-")
                 || label.starts_with("email-")
                 || label.starts_with("ws-") =>

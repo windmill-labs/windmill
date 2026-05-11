@@ -15,11 +15,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue};
 use std::collections::HashMap;
 use std::time::Duration;
-use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_ai::ai_cache::current_instance_ai_config_revision;
 use windmill_ai::ai_providers::{
     empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel,
 };
+use windmill_ai::utils::AI_HTTP_HEADERS;
+use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::db::UserDB;
 use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::configure_client;
@@ -101,32 +102,6 @@ lazy_static::lazy_static! {
 
     pub static ref AI_REQUEST_CACHE: Cache<(String, AIProvider), ExpiringAIRequestConfig> = Cache::new(500);
 
-    /// Parse AI_HTTP_HEADERS environment variable into a vector of (header_name, header_value) tuples
-    /// Format: "header1: value1, header2: value2"
-    static ref AI_HTTP_HEADERS: Vec<(String, String)> = {
-        std::env::var("AI_HTTP_HEADERS")
-            .ok()
-            .map(|headers_str| {
-                headers_str
-                    .split(',')
-                    .filter_map(|header| {
-                        let parts: Vec<&str> = header.splitn(2, ':').collect();
-                        if parts.len() == 2 {
-                            let name = parts[0].trim().to_string();
-                            let value = parts[1].trim().to_string();
-                            if !name.is_empty() && !value.is_empty() {
-                                Some((name, value))
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
 }
 
 pub(crate) fn invalidate_ai_request_cache_for_workspace(workspace_id: &str) {

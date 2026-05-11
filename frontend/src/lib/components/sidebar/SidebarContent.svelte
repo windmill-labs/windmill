@@ -4,6 +4,7 @@
 		superadmin,
 		usedTriggerKinds,
 		userStore,
+		userWorkspaces,
 		workspaceStore,
 		isCriticalAlertsUIOpen,
 		enterpriseLicense,
@@ -11,6 +12,7 @@
 		tutorialsToDo,
 		skippedAll
 	} from '$lib/stores'
+	import { findWorkspaceDescendants } from '$lib/utils/workspaceHierarchy'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import {
@@ -123,11 +125,27 @@
 			}
 		}
 
+		if (deleteForkedChildren && forkedDescendants.length > 0) {
+			for (const child of forkedDescendants) {
+				try {
+					await WorkspaceService.deleteWorkspace({ workspace: child.id })
+				} catch (err) {
+					sendUserToast(`Failed to delete forked child ${child.id}: ${err}`, true)
+					return
+				}
+			}
+		}
+
 		await WorkspaceService.deleteWorkspace({ workspace })
 		sendUserToast('You deleted the workspace')
 		clearStores()
 		goto('/user/workspaces')
 	}
+
+	let deleteForkedChildren = $state(false)
+	const forkedDescendants = $derived(
+		$workspaceStore ? findWorkspaceDescendants($workspaceStore, $userWorkspaces ?? []) : []
+	)
 
 	let hasNewChangelogs = $state(false)
 	let recentChangelogs: Changelog[] = $state([])
@@ -492,6 +510,7 @@
 								label: 'Delete Forked Workspace',
 								action: async () => {
 									await loadForkedDatatables()
+									deleteForkedChildren = false
 									deleteWorkspaceForkModal = true
 								},
 								icon: Trash2,
@@ -807,6 +826,30 @@
 	>
 		<div class="flex flex-col w-full space-y-4">
 			<span>Are you sure you want to delete this workspace fork? (deleting {$workspaceStore})</span>
+			{#if forkedDescendants.length > 0}
+				<div class="border rounded-md divide-y">
+					<div class="px-4 py-2 flex items-center justify-between gap-2">
+						<div class="flex flex-col min-w-0">
+							<span class="text-xs font-semibold text-secondary">Forked children</span>
+							<span class="text-3xs text-hint">
+								This fork has {forkedDescendants.length} forked
+								{forkedDescendants.length === 1 ? 'child' : 'children'} (transitively).
+							</span>
+						</div>
+						<Toggle
+							class="shrink-0"
+							size="xs"
+							bind:checked={deleteForkedChildren}
+							options={{ right: 'Also delete children' }}
+						/>
+					</div>
+					<ul class="px-4 py-2 text-3xs text-hint max-h-32 overflow-y-auto">
+						{#each forkedDescendants as child}
+							<li class="font-mono truncate" title={child.id}>{child.id}</li>
+						{/each}
+					</ul>
+				</div>
+			{/if}
 			{#if forkedDatatables.length > 0}
 				<div class="border rounded-md divide-y">
 					<div class="px-4 py-2 text-xs font-semibold text-secondary"> Forked databases </div>

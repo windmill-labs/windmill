@@ -1202,7 +1202,32 @@ export function normalizeLockPath(p: string): string {
   return n;
 }
 
+// When set, `clearGlobalLock` and `updateMetadataGlobalLock` mutate this
+// in-memory copy instead of doing a full read-modify-write on disk for every
+// call. Callers that fan out item processing through a worker pool wrap the
+// pool with `beginLockfileBatch()`/`flushLockfileBatch()` so the lockfile is
+// only written once at the end — see `generate-metadata` parallelism.
+let inMemoryLock: Lock | null = null;
+
+export async function beginLockfileBatch(): Promise<void> {
+  if (inMemoryLock) return;
+  inMemoryLock = await readLockfile();
+}
+
+export async function flushLockfileBatch(): Promise<void> {
+  if (!inMemoryLock) return;
+  // Write first, then clear: if the disk write throws (e.g. ENOSPC), the
+  // buffered updates remain in memory and a retry can re-attempt the flush.
+  await writeFile(
+    WMILL_LOCKFILE,
+    yamlStringify(inMemoryLock as Record<string, any>, yamlOptions),
+    "utf-8",
+  );
+  inMemoryLock = null;
+}
+
 export async function readLockfile(): Promise<Lock> {
+  if (inMemoryLock) return inMemoryLock;
   let parsed: unknown;
   try {
     parsed = await yamlParseFile(WMILL_LOCKFILE);
@@ -1344,11 +1369,13 @@ export async function clearGlobalLock(path: string): Promise<void> {
         }
       });
     }
-    await writeFile(
-      WMILL_LOCKFILE,
-      yamlStringify(conf as Record<string, any>, yamlOptions),
-      "utf-8"
-    );
+    if (!inMemoryLock) {
+      await writeFile(
+        WMILL_LOCKFILE,
+        yamlStringify(conf as Record<string, any>, yamlOptions),
+        "utf-8"
+      );
+    }
   }
 }
 
@@ -1377,9 +1404,11 @@ export async function updateMetadataGlobalLock(
       conf.locks[path] = hash;
     }
   }
-  await writeFile(
-    WMILL_LOCKFILE,
-    yamlStringify(conf as Record<string, any>, yamlOptions),
-    "utf-8"
-  );
+  if (!inMemoryLock) {
+    await writeFile(
+      WMILL_LOCKFILE,
+      yamlStringify(conf as Record<string, any>, yamlOptions),
+      "utf-8"
+    );
+  }
 }
