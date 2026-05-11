@@ -7351,6 +7351,7 @@ async fn list_ws_specific(
                   WHERE v.workspace_id = s.workspace_id AND v.path = s.path
               ))
           )
+        ORDER BY s.item_kind, s.path
         "#,
         &w_id
     )
