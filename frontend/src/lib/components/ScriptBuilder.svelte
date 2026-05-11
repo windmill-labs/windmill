@@ -546,11 +546,6 @@
 
 		loadingSave = true
 		try {
-			try {
-				localStorage.removeItem(script.path)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
 			script.schema = script.schema ?? emptySchema()
 			try {
 				const result = await inferArgs(
@@ -686,11 +681,6 @@
 
 		loadingDraft = true
 		try {
-			try {
-				localStorage.removeItem(script.path)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
 			script.schema = script.schema ?? emptySchema()
 			try {
 				const result = await inferArgs(

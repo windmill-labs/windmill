@@ -3,7 +3,6 @@
 
 	import { AppService, type Policy } from '$lib/gen'
 	import { page } from '$app/state'
-	import { decodeState } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { afterNavigate, replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
@@ -53,8 +52,6 @@
 			importRaw = JSON.parse(sessionData)
 		}
 	}
-
-	const appState = nodraft || hubId ? undefined : localStorage.getItem('rawapp')
 
 	let summary = $state('')
 	let files: Record<string, string> = $state(react19Template)
@@ -163,19 +160,6 @@
 			console.log('App loaded from Hub')
 			sendUserToast('App loaded from Hub')
 			goto('?', { replaceState: true })
-		} else if (!templatePath && !hubId && appState) {
-			console.log('App loaded from browser stored autosave')
-			sendUserToast('App restored from browser stored autosave', false, [
-				{
-					label: 'Start from blank',
-					callback: () => {
-						files = {}
-						runnables = {}
-					}
-				}
-			])
-			let decoded = decodeState(appState)
-			extractValue(decoded)
 		}
 	}
 

@@ -3,10 +3,10 @@
 
 	import { AppService, DraftService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { cleanValueProperties, decodeState, type Value } from '$lib/utils'
+	import { cleanValueProperties, type Value } from '$lib/utils'
 	import { afterNavigate, replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
-	import { sendUserToast, type ToastAction } from '$lib/toast'
+	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { HiddenRunnable } from '$lib/components/apps/types'
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
@@ -74,10 +74,6 @@
 		newPath = app.path
 	}
 
-	const initialState = nodraft ? undefined : localStorage.getItem(`rawapp-${page.params.path}`)
-	let stateLoadedFromLocalStorage =
-		initialState != undefined ? decodeState(initialState) : undefined
-
 	async function loadApp(): Promise<void> {
 		const app_w_draft = await AppService.getAppByPathWithDraft({
 			path,
@@ -94,50 +90,11 @@
 			custom_path: app_w_draft_.custom_path
 		}
 
-		if (stateLoadedFromLocalStorage) {
-			const reloadAction = async () => {
-				stateLoadedFromLocalStorage = undefined
-				await loadApp()
-				redraw++
-			}
-			const actions: ToastAction[] = []
-			if (stateLoadedFromLocalStorage) {
-				actions.push({
-					label: 'Discard browser autosave and reload',
-					callback: reloadAction
-				})
-
-				const draftOrDeployed = cleanValueProperties(savedApp.draft || savedApp)
-				const urlScript = {
-					...draftOrDeployed,
-					value: stateLoadedFromLocalStorage
-				}
-				actions.push({
-					label: 'Show diff',
-					callback: async () => {
-						diffDrawer?.openDrawer()
-						diffDrawer?.setDiff({
-							mode: 'simple',
-							original: draftOrDeployed,
-							current: urlScript,
-							title: `${savedApp?.draft ? 'Latest saved draft' : 'Deployed'} <> Autosave`,
-							button: { text: 'Discard autosave', onClick: reloadAction }
-						})
-					}
-				})
-			}
-			sendUserToast('App restored from browser storage', false, actions)
-			app_w_draft.value = stateLoadedFromLocalStorage
-			const rawValue = app_w_draft.value as any
-			files = rawValue.files as any
-			runnables = rawValue.runnables as any
-			redraw += 1
-		} else if (app_w_draft.draft) {
+		if (app_w_draft.draft) {
 			extractRawApp(app_w_draft.draft)
 
 			if (!app_w_draft.draft_only) {
 				const reloadAction = () => {
-					stateLoadedFromLocalStorage = undefined
 					extractRawApp(app_w_draft)
 					redraw++
 				}

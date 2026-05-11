@@ -4,7 +4,6 @@
 	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
 	import { AppService, type Policy } from '$lib/gen'
 	import { page } from '$app/state'
-	import { decodeState } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type { App } from '$lib/components/apps/types'
 	import { afterNavigate, replaceState } from '$app/navigation'
@@ -26,8 +25,6 @@
 	if ($importStore) {
 		$importStore = undefined
 	}
-
-	const appState = nodraft ? undefined : localStorage.getItem('app')
 
 	let summary = $state('')
 	let value: App = $state({
@@ -94,22 +91,6 @@
 			summary = hub.app.summary
 			sendUserToast('App loaded from Hub')
 			goto('?', { replaceState: true })
-		} else if (!templatePath && !hubId && appState) {
-			sendUserToast('App restored from browser stored autosave', false, [
-				{
-					label: 'Start from blank',
-					callback: () => {
-						value = {
-							grid: [],
-							fullscreen: false,
-							unusedInlineScripts: [],
-							hiddenInlineScripts: [],
-							theme: undefined
-						}
-					}
-				}
-			])
-			value = decodeState(appState)
 		} else {
 			value = emptyApp()
 		}
@@ -121,7 +102,7 @@
 			await tick()
 			let attempts = 0
 			while (attempts < 20 && !document.querySelector('#app-editor-runnable-panel')) {
-				await new Promise(resolve => setTimeout(resolve, 100))
+				await new Promise((resolve) => setTimeout(resolve, 100))
 				attempts++
 			}
 			appEditor?.triggerTutorial()

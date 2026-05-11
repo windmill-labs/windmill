@@ -195,11 +195,6 @@
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
-			try {
-				localStorage.removeItem(`app-${path}`)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
 			onSavedNewAppPath?.(path)
 		} catch (e) {
 			sendUserToast('Error creating app', e)
@@ -299,11 +294,6 @@
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
 		if ($appPath !== npath) {
-			try {
-				localStorage.removeItem(`app-${appPath}`)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
 			onSavedNewAppPath?.(npath)
 		}
 	}
@@ -465,11 +455,6 @@
 			}
 
 			sendUserToast('Draft saved')
-			try {
-				localStorage.removeItem(`app-${path}`)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
 			loading.saveDraft = false
 			if (newApp || savedApp.draft_only) {
 				onSavedNewAppPath?.(newEditedPath || path)

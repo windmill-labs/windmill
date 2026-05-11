@@ -43,9 +43,6 @@
 		}
 	}
 
-	const initialState =
-		hubId || templatePath || nodraft || isFork ? undefined : localStorage.getItem('flow')
-
 	let selectedId: string = $state('settings-metadata')
 	let loading = $state(false)
 
@@ -89,7 +86,7 @@
 			schema: emptySchema()
 		}
 
-		let state = forkState ?? (initialState ? decodeState(initialState) : undefined)
+		let state = forkState
 		const initialStateQuery = page.url.hash != '' ? page.url.hash.slice(1) : undefined
 
 		if (initialStateQuery) {
@@ -100,24 +97,6 @@
 			$importFlowStore = undefined
 			sendUserToast('Flow loaded from YAML/JSON')
 		} else if (!templatePath && !hubId && state) {
-			sendUserToast('Flow restored from draft', false, [
-				{
-					label: 'Start from blank instead',
-					callback: () => {
-						flowStore.val = {
-							summary: '',
-							value: { modules: [] },
-							path: '',
-							edited_at: '',
-							edited_by: '',
-							archived: false,
-							extra_perms: {},
-							schema: emptySchema()
-						}
-					}
-				}
-			])
-
 			flow = state.flow
 			pathStoreInit = state.path
 			if (state.initialArgs) {
@@ -179,7 +158,7 @@
 			await tick()
 			let attempts = 0
 			while (attempts < 20 && !document.querySelector('#flow-editor-virtual-Input')) {
-				await new Promise(resolve => setTimeout(resolve, 100))
+				await new Promise((resolve) => setTimeout(resolve, 100))
 				attempts++
 			}
 			flowBuilder?.triggerTutorial()

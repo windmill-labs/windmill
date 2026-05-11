@@ -27,13 +27,7 @@
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import Tabs from '$lib/components/common/tabs/TabsV2.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import {
-		classNames,
-		encodeState,
-		getModifierKey,
-		sendUserToast,
-		urlParamsToObject
-	} from '$lib/utils'
+	import { classNames, getModifierKey, sendUserToast, urlParamsToObject } from '$lib/utils'
 	import AppPreview from './AppPreview.svelte'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
@@ -166,7 +160,7 @@
 		runnableComponents: writable({}),
 		appPath: writablePath,
 		workspace: $workspaceStore ?? '',
-		onchange: () => saveFrontendDraft(),
+		onchange: undefined,
 		isEditor: true,
 		jobs: writable([]),
 		staticExporter: writable({}),
@@ -218,19 +212,6 @@
 		scale,
 		stylePanel: () => StylePanel
 	})
-
-	let timeout: number | undefined = undefined
-
-	function saveFrontendDraft() {
-		timeout && clearTimeout(timeout)
-		timeout = setTimeout(() => {
-			try {
-				localStorage.setItem(path != '' ? `app-${path}` : 'app', encodeState($appStore))
-			} catch (err) {
-				console.error('Error storing frontend draft in localStorage', err)
-			}
-		}, 500)
-	}
 
 	function hashchange(e: HashChangeEvent) {
 		context.hash = e.newURL.split('#')[1]
@@ -753,9 +734,6 @@
 
 	$effect(() => {
 		path && untrack(() => onPathChange())
-	})
-	$effect(() => {
-		$appStore && untrack(() => saveFrontendDraft())
 	})
 	$effect(() => {
 		context.mode = $mode == 'dnd' ? 'editor' : 'viewer'

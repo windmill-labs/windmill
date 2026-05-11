@@ -7,10 +7,10 @@
 		DraftService
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { cleanValueProperties, decodeState, type Value } from '$lib/utils'
+	import { cleanValueProperties, type Value } from '$lib/utils'
 	import { afterNavigate, replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
-	import { sendUserToast, type ToastAction } from '$lib/toast'
+	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { App } from '$lib/components/apps/types'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
@@ -44,10 +44,6 @@
 			replaceState(url.toString(), page.state)
 		}
 	})
-	const initialState = nodraft ? undefined : localStorage.getItem(`app-${page.params.path}`)
-	let stateLoadedFromLocalStorage =
-		initialState != undefined ? decodeState(initialState) : undefined
-
 	async function loadApp(): Promise<void> {
 		const app_w_draft = await AppService.getAppByPathWithDraft({
 			path,
@@ -75,43 +71,7 @@
 			custom_path: app_w_draft_.custom_path
 		}
 
-		if (stateLoadedFromLocalStorage) {
-			const reloadAction = async () => {
-				stateLoadedFromLocalStorage = undefined
-				await loadApp()
-				redraw++
-			}
-			const actions: ToastAction[] = []
-			if (stateLoadedFromLocalStorage) {
-				actions.push({
-					label: 'Discard browser autosave and reload',
-					callback: reloadAction
-				})
-
-				const draftOrDeployed = cleanValueProperties(savedApp?.draft || savedApp)
-				const urlScript = {
-					...draftOrDeployed,
-					value: stateLoadedFromLocalStorage
-				}
-				actions.push({
-					label: 'Show diff',
-					callback: async () => {
-						diffDrawer?.openDrawer()
-						diffDrawer?.setDiff({
-							mode: 'simple',
-							original: draftOrDeployed,
-							current: urlScript,
-							title: `${savedApp?.draft ? 'Latest saved draft' : 'Deployed'} <> Autosave`,
-							button: { text: 'Discard autosave', onClick: reloadAction }
-						})
-					}
-				})
-			}
-
-			sendUserToast('App restored from browser storage', false, actions)
-			app_w_draft.value = stateLoadedFromLocalStorage
-			app = app_w_draft
-		} else if (app_w_draft.draft) {
+		if (app_w_draft.draft) {
 			if (app_w_draft.summary !== undefined) {
 				// backward compatibility for old drafts missing metadata
 				app = {
@@ -127,7 +87,6 @@
 
 			if (!app_w_draft.draft_only) {
 				const reloadAction = () => {
-					stateLoadedFromLocalStorage = undefined
 					app = app_w_draft
 					redraw++
 				}

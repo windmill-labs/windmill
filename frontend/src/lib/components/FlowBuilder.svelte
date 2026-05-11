@@ -14,7 +14,6 @@
 	import { enterpriseLicense, userStore, workspaceStore, usedTriggerKinds } from '$lib/stores'
 	import {
 		cleanValueProperties,
-		encodeState,
 		generateRandomString,
 		orderedJsonStringify,
 		readFieldsRecursively,
@@ -291,12 +290,6 @@
 		loadingDraft = true
 		try {
 			const flow = cleanFlow(flowStore.val)
-			try {
-				localStorage.removeItem('flow')
-				localStorage.removeItem(`flow-${$pathStore}`)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
 			if (newFlow || savedFlow?.draft_only) {
 				if (savedFlow?.draft_only) {
 					await FlowService.deleteFlowByPath({
@@ -480,12 +473,6 @@
 			// return
 
 			if (newFlow) {
-				try {
-					localStorage.removeItem('flow')
-					localStorage.removeItem(`flow-${$pathStore}`)
-				} catch (e) {
-					console.error('error interacting with local storage', e)
-				}
 				await FlowService.createFlow({
 					workspace: $workspaceStore!,
 					requestBody: {
@@ -523,12 +510,6 @@
 					)
 				}
 			} else {
-				try {
-					localStorage.removeItem(`flow-${initialPath}`)
-				} catch (e) {
-					console.error('error interacting with local storage', e)
-				}
-
 				if (triggersToDeploy) {
 					await deployTriggers(
 						triggersToDeploy,
@@ -576,32 +557,6 @@
 			sendUserToast(`The flow could not be saved: ${err.body ?? err}`, true)
 			loadingSave = false
 		}
-	}
-
-	let timeout: number | undefined = undefined
-
-	function saveSessionDraft() {
-		timeout && clearTimeout(timeout)
-		timeout = window.setTimeout(() => {
-			try {
-				localStorage.setItem(
-					initialPath && initialPath != '' ? `flow-${initialPath}` : 'flow',
-					encodeState({
-						flow: flowStore.val,
-						path: $pathStore,
-						selectedId: selectedIdStore,
-						draft_triggers: triggersState.getDraftTriggersSnapshot(),
-						selected_trigger: triggersState.getSelectedTriggerSnapshot(),
-						loadedFromHistory: {
-							flowJobInitial: stepHistoryLoader.flowJobInitial,
-							stepsState: stepHistoryLoader.stepStates
-						}
-					})
-				)
-			} catch (err) {
-				console.error(err)
-			}
-		}, 500)
 	}
 
 	const selectionManager = new SelectionManager()
@@ -694,8 +649,7 @@
 				{ type: 'default_email', path: '', isDraft: false },
 				...(untrack(() => draftTriggersFromUrl) ?? savedFlow?.draft?.draft_triggers ?? [])
 			],
-			untrack(() => selectedTriggerIndexFromUrl),
-			saveSessionDraft
+			untrack(() => selectedTriggerIndexFromUrl)
 		)
 	)
 
@@ -1022,7 +976,6 @@
 	$effect.pre(() => {
 		if (flowStore.val || selectedIdStore) {
 			readFieldsRecursively(flowStore.val)
-			untrack(() => saveSessionDraft())
 		}
 	})
 	$effect.pre(() => {
@@ -1052,7 +1005,7 @@
 	let stepHistoryLoader = new StepHistoryLoader(
 		untrack(() => loadedFromHistoryFromUrl)?.stepsState ?? {},
 		untrack(() => loadedFromHistoryFromUrl)?.flowJobInitial,
-		saveSessionDraft,
+		undefined,
 		untrack(() => noInitial)
 	)
 	setStepHistoryLoaderContext(stepHistoryLoader)
