@@ -251,7 +251,7 @@
 				if (!open) open = true
 				filterText = e.currentTarget.value
 			}}
-			onpointerdown={() => (open = true)}
+			onpointerdown={() => !disabled && (open = true)}
 			bind:this={inputEl}
 			{id}
 		/>
