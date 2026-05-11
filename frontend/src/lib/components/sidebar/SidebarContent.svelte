@@ -285,6 +285,7 @@
 			label: 'Assets',
 			href: `${base}/assets`,
 			icon: Pyramid,
+			disabled: $userStore?.operator,
 			aiId: 'sidebar-menu-link-assets',
 			aiDescription: 'Button to navigate to assets'
 		},
