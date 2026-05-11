@@ -23,6 +23,58 @@ windmill-worker →  windmill-ai
 
 windmill-common does **NOT** re-export from windmill-ai (would be circular). All consumers update imports.
 
+## Reviewer Note: Keep the Next PR Small
+
+The first merged PR established the crate boundary; it did not yet remove the duplicated API-vs-worker provider paths. The remaining work should stay split by dependency risk, not by the final desired module layout.
+
+Do not jump directly from the current state to provider moves, proxy unification, and credential unification in one PR. The riskiest part is the API proxy because it combines request transformation, endpoint selection, auth headers, custom headers, OAuth user injection, Azure URL handling, Anthropic Vertex handling, Bedrock SDK calls, and SSE keepalive behavior.
+
+Pull the shared plumbing forward before moving provider implementations:
+- Move tiny shared utilities first, including `AI_HTTP_HEADERS`, `extract_text_content`, and `should_use_structured_output_tool`.
+- Move SSE parsers next, using the existing `StreamEventSink` abstraction, and update callers to import from `windmill_ai` directly.
+- Leave provider implementations, image upload/download handling, API proxy changes, and credential unification out of that PR.
+
+Avoid adding modules whose only purpose is to re-export moved code. Direct imports from `windmill_ai` make ownership and dependency direction clearer at each call site.
+
+Also do not make `build_proxy_request(raw_body, path)` too narrow. The proxy path needs method, incoming headers, resolved credentials, base URL/platform, organization/user fields, custom headers, and Bedrock/Azure/Vertex-specific context. Introduce a structured `ProxyBuildArgs`/`ProviderCredentials` shape before deleting `AIRequestConfig::prepare_request`, `google.rs`, or `bedrock.rs`.
+
+## Next Phase PR: Shared Plumbing Only
+
+Goal: make `windmill-ai` own the provider-independent helper code that later provider moves will need, without changing API proxy behavior or agent request behavior.
+
+Suggested PR title: `refactor(ai): move shared SSE plumbing into windmill-ai`.
+
+Scope:
+- Add `windmill-ai/src/utils.rs`.
+- Move the duplicated `AI_HTTP_HEADERS` parsing into `windmill_ai::utils` with identical parsing behavior.
+- Move `extract_text_content` and `should_use_structured_output_tool` from `windmill-worker/src/ai/utils.rs` to `windmill_ai::utils`.
+- Move `windmill-worker/src/ai/sse.rs` to `windmill-ai/src/sse.rs`.
+- Delete `windmill-worker/src/ai/sse.rs` and update callers to import parser types from `windmill_ai::sse`.
+- Update callers of moved utility functions to import from `windmill_ai::utils` directly.
+- Add the minimal new `windmill-ai` dependencies required by `sse.rs` (`eventsource-stream`, `tokio-stream`) and avoid adding worker/queue dependencies.
+
+Out of scope:
+- Do not move provider implementations.
+- Do not move `image_handler`.
+- Do not change `QueryBuilder` method signatures.
+- Do not add `build_proxy_request`.
+- Do not change API proxy routing, request preparation, credential resolution, audit logging, cache behavior, or Bedrock/Google special cases.
+- Do not remove `windmill-api/src/google.rs`, `windmill-api/src/bedrock.rs`, or `AIRequestConfig::prepare_request`.
+
+Implementation checklist:
+1. Add `utils.rs` to `windmill-ai` and export it from `lib.rs`.
+2. Move `AI_HTTP_HEADERS` exactly once, then update `windmill-api/src/ai.rs` and `windmill-worker/src/ai_executor.rs` to import it.
+3. Move the two provider-independent helper functions into `windmill_ai::utils`; leave worker-specific flow/MCP/conversation utilities in `windmill-worker/src/ai/utils.rs`.
+4. Move `sse.rs` into `windmill-ai`, change imports from `crate::ai::{query_builder, types}` to `crate::{query_builder, types}`, and keep behavior unchanged.
+5. Remove worker `ai/sse.rs` and update provider imports to use `windmill_ai::sse` directly.
+6. Run focused grep checks for duplicate `AI_HTTP_HEADERS`, old local helper definitions, and accidental `windmill_queue`/worker dependencies from `windmill-ai`.
+7. Validate with `cargo check -p windmill-ai`, `cargo check -p windmill-worker`, and `cargo check -p windmill-api`. For `bedrock` builds, also check the existing bedrock feature path.
+
+Review expectations:
+- The diff should be mostly moved code and import updates.
+- The behavior should be byte-for-byte equivalent where practical.
+- Tests are only needed if helper behavior changes. For a pure move, existing backend checks plus manual AI streaming verification are enough.
+
 ## Step-by-Step Plan
 
 Each step produces a compiling, working backend.
@@ -131,18 +183,27 @@ This is the key unification step. Add a new method to the `QueryBuilder` trait:
 /// Used by the API chat proxy. Handles format conversion for non-OpenAI providers.
 fn build_proxy_request(
     &self,
-    raw_body: &[u8],
-    path: &str,
+    args: &ProxyBuildArgs<'_>,
 ) -> Result<ProxyRequest, Error>;
 ```
 
-Where `ProxyRequest` contains the transformed body, endpoint URL, and auth headers:
+Where `ProxyBuildArgs` carries the API proxy context that provider implementations need:
+```rust
+pub struct ProxyBuildArgs<'a> {
+    pub method: http::Method,
+    pub path: &'a str,
+    pub headers: &'a http::HeaderMap,
+    pub body: &'a [u8],
+    pub credentials: &'a ProviderCredentials,
+}
+```
+
+And `ProxyRequest` contains the transformed request:
 ```rust
 pub struct ProxyRequest {
     pub url: String,
     pub body: Vec<u8>,
-    pub auth_headers: Vec<(String, String)>,
-    pub is_sse: bool,
+    pub headers: Vec<(String, String)>,
 }
 ```
 
@@ -153,9 +214,9 @@ pub struct ProxyRequest {
 - **Bedrock**: Convert OpenAI format → Bedrock SDK calls. Replaces `windmill-api/src/bedrock.rs`.
 
 **Refactor API proxy** (`windmill-api/src/ai.rs`):
-1. Parse provider from headers, resolve credentials → `ProviderWithResource`
+1. Parse provider from headers, resolve credentials → `ProviderCredentials`
 2. Create `QueryBuilder` via `create_query_builder`
-3. Call `query_builder.build_proxy_request(body, path)` → `ProxyRequest`
+3. Call `query_builder.build_proxy_request(&proxy_args)` → `ProxyRequest`
 4. Send the request, return response with SSE keepalive injection
 
 **Remove** from windmill-api:
@@ -166,7 +227,7 @@ pub struct ProxyRequest {
 - `supports_native_fim`, `transform_fim_to_chat_completions` — moved to windmill-ai
 
 **Keep** in API:
-- `AIRequestConfig::new` credential resolution (or refactor to produce `ProviderWithResource`)
+- `AIRequestConfig::new` credential resolution until it is refactored to produce `ProviderCredentials`
 - HTTP routes, audit logging, request caching
 - `inject_keepalives`, `is_sse_response` helpers
 - `AIConfig`, `ExpiringAIRequestConfig` caching types
