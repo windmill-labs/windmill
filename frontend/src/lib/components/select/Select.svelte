@@ -13,6 +13,7 @@
 	import {
 		inputBaseClass,
 		inputBorderClass,
+		inputLeadingClasses,
 		inputSizeClasses
 	} from '../text_input/TextInput.svelte'
 	import { ButtonType } from '../common/button/model'
@@ -197,7 +198,8 @@
 				inputSizeClasses[size],
 				ButtonType.UnifiedHeightClasses[size],
 				inputBorderClass({ error, forceFocus: open }),
-				'w-full whitespace-pre overflow-hidden leading-8',
+				'w-full whitespace-pre overflow-hidden',
+				inputLeadingClasses[size],
 				'focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0',
 				open ? '' : 'cursor-pointer',
 				loading || (clearable && !disabled && value) || RightIcon ? 'pr-8' : '',

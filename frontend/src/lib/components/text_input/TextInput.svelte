@@ -38,13 +38,15 @@
 		lg: twMerge(ButtonType.UnifiedSizingClasses.lg, ButtonType.UnifiedMinHeightClasses.lg, 'px-2')
 	}
 
-	// Matches each unified height so a single-line contenteditable div centers
-	// its text the way an <input> does natively.
+	// Matches each unified height *minus the !py-0.5 in inputSizeClasses* so a
+	// single-line contenteditable div centers its text the way an <input> does
+	// natively. Use exactly (h − vertical padding) — anything larger and the
+	// line box overflows the content area and the text drops below center.
 	export const inputLeadingClasses: Record<ButtonType.UnifiedSize, string> = {
-		xs: 'leading-5',
-		sm: 'leading-7',
-		md: 'leading-8',
-		lg: 'leading-10'
+		xs: 'leading-4', // h-5 (20px) − py-0.5 (4px) = 16px
+		sm: 'leading-6', // h-7 (28px) − py-0.5 (4px) = 24px
+		md: 'leading-8', // h-8 (32px), no py
+		lg: 'leading-10' // h-10 (40px), no py
 	}
 </script>
 
