@@ -581,6 +581,8 @@
 	let testIsLoading = $state(false)
 	let testJob: Job | undefined = $state()
 	let pastPreviews: CompletedJob[] = $state([])
+	let historyTabActive = false
+	let pastPreviewsRequest: ReturnType<typeof JobService.listCompletedJobs> | undefined
 	let validCode = $state(true)
 
 	// Recording
@@ -711,7 +713,9 @@
 						lastRecording = scriptRecording.stop()
 						setActiveRecording(undefined)
 					}
-					loadPastTests()
+					if (historyTabActive) {
+						loadPastTests()
+					}
 				},
 				doneError({ error }) {
 					if (scriptRecording.active) {
@@ -742,12 +746,29 @@
 	}
 
 	async function loadPastTests(): Promise<void> {
-		pastPreviews = await JobService.listCompletedJobs({
+		pastPreviewsRequest?.cancel()
+		const req = JobService.listCompletedJobs({
 			workspace: $workspaceStore!,
 			jobKinds: 'preview',
 			createdBy: $userStore?.username,
-			scriptPathExact: path
+			scriptPathExact: path,
+			hasNullParent: true
 		})
+		pastPreviewsRequest = req
+		try {
+			const result = await req
+			if (pastPreviewsRequest === req) {
+				pastPreviews = result
+			}
+		} catch (err) {
+			if (!(err instanceof Error) || err.name !== 'CancelError') {
+				throw err
+			}
+		} finally {
+			if (pastPreviewsRequest === req) {
+				pastPreviewsRequest = undefined
+			}
+		}
 	}
 
 	export async function inferSchema(
@@ -1148,7 +1169,6 @@
 		if (!validCode && code && lang) {
 			await inferSchema(code, { applyInitialArgs: true })
 		}
-		loadPastTests()
 		aiChatManager.saveAndClear()
 		aiChatManager.changeMode(AIMode.SCRIPT)
 	})
@@ -1229,6 +1249,8 @@
 	}
 
 	onDestroy(() => {
+		pastPreviewsRequest?.cancel()
+		pastPreviewsRequest = undefined
 		disableCollaboration()
 		aiChatManager.scriptEditorApplyCode = undefined
 		aiChatManager.scriptEditorShowDiffMode = undefined
@@ -1675,6 +1697,12 @@
 										} as any)
 									: testJob}
 								{pastPreviews}
+								onTabChange={(tab) => {
+									historyTabActive = tab === 'history'
+									if (historyTabActive) {
+										loadPastTests()
+									}
+								}}
 								previewIsLoading={debugMode
 									? $debugState.running && !$debugState.stopped
 									: testIsLoading}

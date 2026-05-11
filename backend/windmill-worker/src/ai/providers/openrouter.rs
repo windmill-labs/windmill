@@ -1,15 +1,15 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json;
-use windmill_ai::ai_providers::AIProvider;
-use windmill_common::{client::AuthedClient, error::Error};
-
-use crate::ai::{
+use windmill_ai::{
+    ai_providers::AIProvider,
     image_handler::prepare_messages_for_api,
-    providers::other::OtherQueryBuilder,
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
     types::*,
 };
+use windmill_common::{client::AuthedClient, error::Error};
+
+use crate::ai::providers::other::OtherQueryBuilder;
 
 // OpenRouter-specific types
 #[derive(Serialize)]

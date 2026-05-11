@@ -12,7 +12,7 @@ use AssetUsageAccessType::*;
 
 pub fn parse_assets(code: &str) -> anyhow::Result<ParseAssetsOutput> {
     let cm: Lrc<SourceMap> = Default::default();
-    let fm = cm.new_source_file(FileName::Custom("main.ts".into()).into(), code.into());
+    let fm = cm.new_source_file(FileName::Custom("main.ts".into()).into(), code.to_string());
     let lexer = Lexer::new(
         // We want to parse ecmascript
         Syntax::Typescript(TsSyntax::default()),

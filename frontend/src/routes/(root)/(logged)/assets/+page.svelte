@@ -12,7 +12,13 @@
 		type AssetKind,
 		type ListAssetsResponse
 	} from '$lib/gen'
-	import { userStore, workspaceStore, userWorkspaces, globalDbManagerDrawer } from '$lib/stores'
+	import {
+		userStore,
+		workspaceStore,
+		userWorkspaces,
+		globalDbManagerDrawer,
+		superadmin
+	} from '$lib/stores'
 	import { parseDbInputFromAssetSyntax, pluralize, truncate } from '$lib/utils'
 	import ExploreAssetButton, {
 		assetCanBeExplored
@@ -194,15 +200,17 @@
 								>
 									See documentation
 								</Button>
-								<Button
-									wrapperClasses="h-fit"
-									variant={props.data.current?.length === 0 && !props.data.loading
-										? 'accent'
-										: 'subtle'}
-									iconOnly
-									endIcon={{ icon: SettingsIcon }}
-									href={props.settingsHref}
-								/>
+								{#if !($userStore?.operator || (!$userStore?.is_admin && !$superadmin))}
+									<Button
+										wrapperClasses="h-fit"
+										variant={props.data.current?.length === 0 && !props.data.loading
+											? 'accent'
+											: 'subtle'}
+										iconOnly
+										endIcon={{ icon: SettingsIcon }}
+										href={props.settingsHref}
+									/>
+								{/if}
 							</div>
 						</div>
 						{#if props.data.current?.length}

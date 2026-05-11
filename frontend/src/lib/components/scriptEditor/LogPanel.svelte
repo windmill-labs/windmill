@@ -49,6 +49,7 @@
 		capturesTab?: import('svelte').Snippet
 		customResultPanel?: import('svelte').Snippet
 		showCustomResultPanel?: boolean
+		onTabChange?: (tab: string) => void
 	}
 
 	let {
@@ -65,7 +66,8 @@
 		children,
 		capturesTab,
 		customResultPanel,
-		showCustomResultPanel = false
+		showCustomResultPanel = false,
+		onTabChange
 	}: Props = $props()
 
 	type DContent = {
@@ -77,6 +79,10 @@
 	let selectedTab = $state('logs')
 	let drawerOpen: boolean = $state(false)
 	let drawerContent: DContent | undefined = $state(undefined)
+
+	$effect(() => {
+		onTabChange?.(selectedTab)
+	})
 
 	export function setFocusToLogs() {
 		selectedTab = 'logs'

@@ -1,22 +1,21 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
+	import { run } from 'svelte/legacy'
 
 	import IconedResourceType from './IconedResourceType.svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import Password from './Password.svelte'
 	import Toggle from './Toggle.svelte'
 	import SettingCard from './instanceSettings/SettingCard.svelte'
 
 	interface Props {
-		value: any;
+		value: any
 	}
 
-	let { value = $bindable() }: Props = $props();
+	let { value = $bindable() }: Props = $props()
 
 	const AUTH_URL_SUFFIX = '/ui/oauth2'
 
-
 	let proxyUrlValue = $state(undefined)
-
 
 	function changeValues({ baseUrl, id }) {
 		if (value) {
@@ -47,7 +46,7 @@
 	let baseUrl = $derived(proxyUrlValue ?? derivedBaseUrl ?? '')
 	run(() => {
 		changeValues({ baseUrl, id: value?.id ?? '' })
-	});
+	})
 </script>
 
 <div class="flex flex-col gap-1">
@@ -85,11 +84,12 @@
 					bind:value={value['id']}
 				/>
 			</label>
-			<label class="flex flex-col gap-1">
+			<label for="kanidm_client_secret" class="flex flex-col gap-1">
 				<span class="text-emphasis font-semibold text-xs">Client Secret </span>
-				<TextInput
-					inputProps={{ type: 'text', placeholder: 'Client Secret' }}
-					bind:value={value['secret']}
+				<Password
+					id="kanidm_client_secret"
+					placeholder="Client Secret"
+					bind:password={value['secret']}
 				/>
 			</label>
 		</SettingCard>

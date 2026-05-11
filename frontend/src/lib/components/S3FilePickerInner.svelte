@@ -35,6 +35,7 @@
 		sendUserToast,
 		type S3Object
 	} from '$lib/utils'
+	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { Alert, Button } from './common'
 	import Section from './Section.svelte'
 	import { createEventDispatcher, untrack, type Snippet } from 'svelte'
@@ -715,14 +716,27 @@
 						{#if filePreview !== undefined && (!hideS3SpecificDetails || !readOnlyMode || allowDelete)}
 							<div class="flex gap-2 shrink-0">
 								{#if !hideS3SpecificDetails}
-									<Button
-										title="Download file from S3"
-										variant="default"
-										href={`${base}/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${encodeURIComponent(fileMetadata?.fileKey ?? '')}${storage ? `&storage=${storage}` : ''}`}
-										download={fileMetadata?.fileKey.split('/').pop() ?? 'unnamed_download.file'}
-										startIcon={{ icon: Download }}
-										iconOnly={true}
-									/>
+									{@const downloadApiPath = `/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${encodeURIComponent(fileMetadata?.fileKey ?? '')}${storage ? `&storage=${storage}` : ''}`}
+									{@const downloadName =
+										fileMetadata?.fileKey.split('/').pop() ?? 'unnamed_download.file'}
+									{#if shouldDownloadViaClient()}
+										<Button
+											title="Download file from S3"
+											variant="default"
+											on:click={() => downloadViaClient(downloadApiPath, downloadName)}
+											startIcon={{ icon: Download }}
+											iconOnly={true}
+										/>
+									{:else}
+										<Button
+											title="Download file from S3"
+											variant="default"
+											href={`${base}/api${downloadApiPath}`}
+											download={downloadName}
+											startIcon={{ icon: Download }}
+											iconOnly={true}
+										/>
+									{/if}
 								{/if}
 								{#if !readOnlyMode}
 									<Button
