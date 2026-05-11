@@ -61,6 +61,16 @@ Object.defineProperty(globalThis, 'sessionStorage', {
 	writable: true
 })
 
+// Some modules (e.g. svelte5Utils.useLocalStorageValue) gate browser-only
+// behavior on `typeof window`. Provide a minimal window so they don't
+// short-circuit during tests.
+if (typeof (globalThis as any).window === 'undefined') {
+	Object.defineProperty(globalThis, 'window', {
+		value: globalThis,
+		writable: true
+	})
+}
+
 vi.mock('@codingame/monaco-vscode-standalone-typescript-language-features/worker', () => ({
 	TypeScriptWorker: class TypeScriptWorker {
 		private _mockScriptSnapshot?: {
