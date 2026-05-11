@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.700.0](https://github.com/windmill-labs/windmill/compare/v1.699.0...v1.700.0) (2026-05-11)
+
+
+### Features
+
+* **cli:** auto-infer args for `wmill app push` ([#9091](https://github.com/windmill-labs/windmill/issues/9091)) ([43b1800](https://github.com/windmill-labs/windmill/commit/43b18006f32fd5db54bbf8ae7ff0e0b314a517e5))
+* **forks:** prompt to delete forked children when deleting a fork ([#9097](https://github.com/windmill-labs/windmill/issues/9097)) ([e43a958](https://github.com/windmill-labs/windmill/commit/e43a958c5c6ae01a1fbecf3db63c6541a245be62))
+* **operators:** allow operators to access assets page ([#9095](https://github.com/windmill-labs/windmill/issues/9095)) ([20ecd90](https://github.com/windmill-labs/windmill/commit/20ecd904e7060c3cf90f2605740bb349b2a3e6ed))
+* **vault:** configurable JWT auth mount path and setup-doc fixes ([#9100](https://github.com/windmill-labs/windmill/issues/9100)) ([f8ba084](https://github.com/windmill-labs/windmill/commit/f8ba0840d74572c880cf458938365b3ec808c6fb))
+
+
+### Bug Fixes
+
+* add Input, Result, Trigger to reserved flow step IDs ([#9109](https://github.com/windmill-labs/windmill/issues/9109)) ([9f79a86](https://github.com/windmill-labs/windmill/commit/9f79a86a686708f66ccc512d4f132cb9a00397a7)), closes [#7139](https://github.com/windmill-labs/windmill/issues/7139)
+* **frontend:** mark Path dirty when folder picker changes selection ([#9096](https://github.com/windmill-labs/windmill/issues/9096)) ([23bb1b5](https://github.com/windmill-labs/windmill/commit/23bb1b541e78846d5978153fd8d9bb4f01cec72b))
+* mask oauth client secret in instance settings ([#9112](https://github.com/windmill-labs/windmill/issues/9112)) ([ac3c155](https://github.com/windmill-labs/windmill/commit/ac3c155541eb5ca20d65c38ad13dca6c10a572c9))
+* populate raw_code for flowscript and appscript runs ([#9104](https://github.com/windmill-labs/windmill/issues/9104)) ([05172ac](https://github.com/windmill-labs/windmill/commit/05172ac3bdfc3472da5e9d8a825cdd479ba9e375))
+
+
+### Performance Improvements
+
+* lazy-load script editor history and hit partial index ([#9107](https://github.com/windmill-labs/windmill/issues/9107)) ([03e8bc8](https://github.com/windmill-labs/windmill/commit/03e8bc8c14258355d7d695333c1588807fbf8cd6))
+
 ## [1.699.0](https://github.com/windmill-labs/windmill/compare/v1.698.0...v1.699.0) (2026-05-08)
 
 
