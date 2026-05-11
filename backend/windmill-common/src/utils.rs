@@ -447,7 +447,9 @@ pub async fn get_license_id_or_uid<'c, E: sqlx::Executor<'c, Database = Postgres
     }
 }
 
-async fn get_instance_uid<'c, E: sqlx::Executor<'c, Database = Postgres>>(db: E) -> Result<String> {
+pub async fn get_instance_uid<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
+) -> Result<String> {
     let uid_value = sqlx::query_scalar!(
         "SELECT value FROM global_settings WHERE name = $1",
         UNIQUE_ID_SETTING

@@ -56,6 +56,16 @@
 		attempted_at: string
 	} | null = $state(null)
 
+	let offlineCapStatus: {
+		seats_used: number
+		seats_cap: number
+		author_count: number
+		operator_count: number
+		current_cu: number
+		cu_cap: number
+		cu_over_cap: boolean
+	} | null = $state(null)
+
 	function showSetting(setting: string, values: Record<string, any>) {
 		if (setting == 'dev_instance') {
 			if (values['license_key'] == undefined) {
@@ -72,6 +82,14 @@
 		latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
 	}
 
+	async function reloadLicenseStatus() {
+		try {
+			offlineCapStatus = (await SettingService.getOfflineLicenseStatus()) as any
+		} catch {
+			offlineCapStatus = null
+		}
+	}
+
 	async function reloadLicenseKey() {
 		$values['license_key'] = await SettingService.getGlobal({
 			key: 'license_key'
@@ -80,7 +98,10 @@
 
 	$effect(() => {
 		if (setting.key == 'license_key') {
-			untrack(() => reloadKeyrenewalAttemptInfo())
+			untrack(() => {
+				reloadKeyrenewalAttemptInfo()
+				reloadLicenseStatus()
+			})
 		}
 	})
 
@@ -430,7 +451,7 @@
 								</div>
 							{/if}
 						{/if}
-						{#if latestKeyRenewalAttempt}
+						{#if latestKeyRenewalAttempt && !offlineCapStatus}
 							{@const attemptedAt = new Date(latestKeyRenewalAttempt.attempted_at).toLocaleString()}
 							{@const isTrial = latestKeyRenewalAttempt.result.startsWith('error: trial:')}
 							<div class="relative">
@@ -500,11 +521,41 @@
 							</div>
 						{/if}
 
+						{#if offlineCapStatus}
+							{@const cap = offlineCapStatus}
+							{@const seatsOver = cap.seats_used > cap.seats_cap}
+							{@const cuOver = cap.cu_over_cap}
+							<div class="mt-1 flex flex-row items-center gap-2 text-xs">
+								<div class="flex flex-row items-center gap-1">
+									{#if seatsOver}
+										<BadgeX class="text-red-600" size={12} />
+									{:else}
+										<BadgeCheck class="text-green-600" size={12} />
+									{/if}
+									<span class={seatsOver ? 'text-red-600' : 'text-green-600'}>
+										Seats: {cap.seats_used.toFixed(1)} / {cap.seats_cap}
+									</span>
+								</div>
+								<div class="flex flex-row items-center gap-1">
+									{#if cuOver}
+										<BadgeX class="text-red-600" size={12} />
+									{:else}
+										<BadgeCheck class="text-green-600" size={12} />
+									{/if}
+									<span class={cuOver ? 'text-red-600' : 'text-green-600'}>
+										CUs: {cap.current_cu.toFixed(2)} / {cap.cu_cap.toFixed(2)}
+									</span>
+								</div>
+							</div>
+						{/if}
+
 						{#if valid || expiration}
 							<div class="flex flex-row gap-2 mt-1">
-								<Button on:click={renewLicenseKey} loading={renewing} size="xs" variant="accent"
-									>Renew key
-								</Button>
+								{#if !offlineCapStatus}
+									<Button on:click={renewLicenseKey} loading={renewing} size="xs" variant="accent"
+										>Renew key
+									</Button>
+								{/if}
 								<Button variant="accent" size="xs" loading={opening} on:click={openCustomerPortal}>
 									Open customer portal
 								</Button>
