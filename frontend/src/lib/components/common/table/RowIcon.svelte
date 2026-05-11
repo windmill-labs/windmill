@@ -90,7 +90,7 @@
 	{:else if effectiveKind === 'resource'}
 		<Boxes {size} class="text-gray-400" />
 	{:else if effectiveKind === 'resource_type'}
-		<div style="width: 16px; height: 16px;" class="bg-gray-100 rounded-full"></div>
+		<div style="width: {size}px; height: {size}px;" class="bg-gray-100 rounded-full"></div>
 	{:else if effectiveKind === 'folder'}
 		<Folder {size} class="text-gray-400" />
 	{:else if effectiveKind === 'schedule' || effectiveKind === 'schedules'}
@@ -118,6 +118,6 @@
 	{:else if effectiveKind === 'trigger'}
 		<Calendar {size} class="text-gray-400" />
 	{:else}
-		<div class="w-[16px]"></div>
+		<div style="width: {size}px;"></div>
 	{/if}
 </div>
