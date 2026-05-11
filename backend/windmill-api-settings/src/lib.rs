@@ -392,8 +392,7 @@ pub async fn get_instance_hash(
     #[cfg(feature = "enterprise")]
     let hash = windmill_common::ee_oss::compute_instance_hash(&db)
         .await
-        .ok()
-        .flatten();
+        .map_err(|e| error::Error::internal_err(format!("compute_instance_hash: {e:#}")))?;
     #[cfg(not(feature = "enterprise"))]
     let hash: Option<String> = None;
     Ok(Json(InstanceHash { instance_hash: hash }))
