@@ -1,21 +1,31 @@
 import {
 	AppService,
+	AzureTriggerService,
+	EmailTriggerService,
 	FlowService,
 	FolderService,
+	GcpTriggerService,
+	HttpTriggerService,
+	KafkaTriggerService,
+	MqttTriggerService,
+	NatsTriggerService,
+	PostgresTriggerService,
 	ResourceService,
 	ScheduleService,
 	ScriptService,
-	VariableService
+	SqsTriggerService,
+	VariableService,
+	WebsocketTriggerService
 } from '$lib/gen'
 import {
 	existsTrigger,
 	getTriggersDeployData,
 	getTriggerPermissionedAs,
 	getTriggerValue,
+	stripOperationalState,
 	type AdditionalInformation,
 	type Kind
 } from '$lib/utils_deployable'
-import type { TriggerKind } from './components/triggers'
 
 import {
 	deployItem as sharedDeployItem,
@@ -25,14 +35,131 @@ import {
 	getItemValue as sharedGetItemValue,
 	type DeployProvider,
 	type DeployKind,
-	type DeployResult
+	type DeployResult,
+	type TriggerDeployKind
 } from 'windmill-utils-internal'
 
-export type { DeployResult }
+export type { DeployResult, DeployKind, TriggerDeployKind }
 
 // ---------------------------------------------------------------------------
 // Provider adapter — wraps frontend's class-based services
 // ---------------------------------------------------------------------------
+
+/**
+ * Map a shared `TriggerDeployKind` (e.g. `kafka_trigger`) to the per-kind
+ * service class. Per-kind dispatch lives in the adapter so the shared
+ * `deployItem` only needs to know "trigger" vs "not trigger".
+ */
+function triggerServiceFor(kind: TriggerDeployKind) {
+	switch (kind) {
+		case 'http_trigger':
+			return {
+				exists: HttpTriggerService.existsHttpTrigger,
+				get: HttpTriggerService.getHttpTrigger,
+				create: HttpTriggerService.createHttpTrigger,
+				update: HttpTriggerService.updateHttpTrigger,
+				delete: HttpTriggerService.deleteHttpTrigger
+			}
+		case 'websocket_trigger':
+			return {
+				exists: WebsocketTriggerService.existsWebsocketTrigger,
+				get: WebsocketTriggerService.getWebsocketTrigger,
+				create: WebsocketTriggerService.createWebsocketTrigger,
+				update: WebsocketTriggerService.updateWebsocketTrigger,
+				delete: WebsocketTriggerService.deleteWebsocketTrigger
+			}
+		case 'kafka_trigger':
+			return {
+				exists: KafkaTriggerService.existsKafkaTrigger,
+				get: KafkaTriggerService.getKafkaTrigger,
+				create: KafkaTriggerService.createKafkaTrigger,
+				update: KafkaTriggerService.updateKafkaTrigger,
+				delete: KafkaTriggerService.deleteKafkaTrigger
+			}
+		case 'nats_trigger':
+			return {
+				exists: NatsTriggerService.existsNatsTrigger,
+				get: NatsTriggerService.getNatsTrigger,
+				create: NatsTriggerService.createNatsTrigger,
+				update: NatsTriggerService.updateNatsTrigger,
+				delete: NatsTriggerService.deleteNatsTrigger
+			}
+		case 'postgres_trigger':
+			return {
+				exists: PostgresTriggerService.existsPostgresTrigger,
+				get: PostgresTriggerService.getPostgresTrigger,
+				create: PostgresTriggerService.createPostgresTrigger,
+				update: PostgresTriggerService.updatePostgresTrigger,
+				delete: PostgresTriggerService.deletePostgresTrigger
+			}
+		case 'mqtt_trigger':
+			return {
+				exists: MqttTriggerService.existsMqttTrigger,
+				get: MqttTriggerService.getMqttTrigger,
+				create: MqttTriggerService.createMqttTrigger,
+				update: MqttTriggerService.updateMqttTrigger,
+				delete: MqttTriggerService.deleteMqttTrigger
+			}
+		case 'sqs_trigger':
+			return {
+				exists: SqsTriggerService.existsSqsTrigger,
+				get: SqsTriggerService.getSqsTrigger,
+				create: SqsTriggerService.createSqsTrigger,
+				update: SqsTriggerService.updateSqsTrigger,
+				delete: SqsTriggerService.deleteSqsTrigger
+			}
+		case 'gcp_trigger':
+			return {
+				exists: GcpTriggerService.existsGcpTrigger,
+				get: GcpTriggerService.getGcpTrigger,
+				create: GcpTriggerService.createGcpTrigger,
+				update: GcpTriggerService.updateGcpTrigger,
+				delete: GcpTriggerService.deleteGcpTrigger
+			}
+		case 'azure_trigger':
+			return {
+				exists: AzureTriggerService.existsAzureTrigger,
+				get: AzureTriggerService.getAzureTrigger,
+				create: AzureTriggerService.createAzureTrigger,
+				update: AzureTriggerService.updateAzureTrigger,
+				delete: AzureTriggerService.deleteAzureTrigger
+			}
+		case 'email_trigger':
+			return {
+				exists: EmailTriggerService.existsEmailTrigger,
+				get: EmailTriggerService.getEmailTrigger,
+				create: EmailTriggerService.createEmailTrigger,
+				update: EmailTriggerService.updateEmailTrigger,
+				delete: EmailTriggerService.deleteEmailTrigger
+			}
+		default: {
+			// Exhaustiveness guard: extending TriggerDeployKind without a case here
+			// produces a compile error rather than a silent runtime failure.
+			const _exhaustive: never = kind
+			throw new Error(`Unhandled trigger kind: ${_exhaustive}`)
+		}
+	}
+}
+
+/**
+ * Map the shared `TriggerDeployKind` to the legacy frontend `TriggerKind`
+ * used by helpers in `utils_deployable.ts`.
+ */
+function legacyTriggerKind(kind: TriggerDeployKind) {
+	const map = {
+		http_trigger: 'routes',
+		websocket_trigger: 'websockets',
+		kafka_trigger: 'kafka',
+		nats_trigger: 'nats',
+		postgres_trigger: 'postgres',
+		mqtt_trigger: 'mqtt',
+		sqs_trigger: 'sqs',
+		gcp_trigger: 'gcp',
+		azure_trigger: 'azure',
+		email_trigger: 'emails'
+	} as const
+	return map[kind]
+}
 
 function makeProvider(): DeployProvider {
 	return {
@@ -73,12 +200,41 @@ function makeProvider(): DeployProvider {
 		getFolder: (p) => FolderService.getFolder(p),
 		createFolder: (p) => FolderService.createFolder(p),
 		updateFolder: (p) => FolderService.updateFolder(p),
-		deleteFolder: (p) => FolderService.deleteFolder(p)
+		deleteFolder: (p) => FolderService.deleteFolder(p),
+		// Triggers
+		existsTriggerByKind: (kind, p) => triggerServiceFor(kind).exists(p),
+		getTriggerForDeploy: async (kind, p) => {
+			// Reuses the existing per-kind transform map (e.g. GCP wipes
+			// subscription_id and computes base_endpoint from window.location).
+			// Operational-state strip is applied by the shared `deployItem`
+			// after this returns.
+			const { data } = await getTriggersDeployData(
+				legacyTriggerKind(kind),
+				p.path,
+				p.workspace,
+				p.onBehalfOf
+			)
+			return data
+		},
+		createTriggerByKind: (kind, p) => triggerServiceFor(kind).create(p as any),
+		updateTriggerByKind: (kind, p) => triggerServiceFor(kind).update(p as any),
+		deleteTriggerByKind: (kind, p) => triggerServiceFor(kind).delete(p),
+		getTriggerValue: (kind, p) => getTriggerValue(legacyTriggerKind(kind), p.path, p.workspace),
+		getTriggerPermissionedAs: async (kind, p) => {
+			const trigger = await triggerServiceFor(kind).get(p)
+			return (trigger as any)?.permissioned_as
+		},
+		// Schedules
+		existsSchedule: (p) => ScheduleService.existsSchedule(p),
+		getSchedule: (p) => ScheduleService.getSchedule(p),
+		createSchedule: (p) => ScheduleService.createSchedule(p),
+		updateSchedule: (p) => ScheduleService.updateSchedule(p),
+		deleteSchedule: (p) => ScheduleService.deleteSchedule(p)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Public API — thin wrappers that add trigger handling (frontend-specific)
+// Public API — thin wrappers over the shared dispatch
 // ---------------------------------------------------------------------------
 
 export interface DeployItemParams {
@@ -86,6 +242,11 @@ export interface DeployItemParams {
 	path: string
 	workspaceFrom: string
 	workspaceTo: string
+	/**
+	 * Carries the trigger sub-kind for the legacy generic `kind: 'trigger'` path
+	 * used by `DeployWorkspace.svelte`. Not needed for the new per-kind names
+	 * (`http_trigger`, `kafka_trigger`, …) returned by the fork-merge compare API.
+	 */
 	additionalInformation?: AdditionalInformation
 	/**
 	 * The value to use for on_behalf_of when deploying.
@@ -99,19 +260,25 @@ export interface DeployItemParams {
 }
 
 /**
- * Deploy an item from one workspace to another.
- * Handles all item kinds: flow, script, app, variable, resource, resource_type, folder, trigger.
+ * Deploy an item from one workspace to another. Handles every kind in the shared
+ * `DeployKind` union plus the legacy generic `'trigger'` from `DeployWorkspace.svelte`,
+ * which carries its sub-kind in `additionalInformation`.
  */
 export async function deployItem(params: DeployItemParams): Promise<DeployResult> {
 	const { kind, path, workspaceFrom, workspaceTo, additionalInformation, onBehalfOf } = params
 
-	// Triggers are frontend-specific (not in the shared module)
 	if (kind === 'trigger') {
+		// Legacy path: `DeployWorkspace.svelte` doesn't know the per-kind trigger
+		// name when building dependency graphs, so it passes `kind: 'trigger'` and
+		// the actual sub-kind in `additionalInformation`. Translate to per-kind.
 		if (!additionalInformation?.triggers) {
 			return { success: false, error: 'Missing triggers kind' }
 		}
 		try {
-			const alreadyExists = await checkItemExists(kind, path, workspaceTo, additionalInformation)
+			const alreadyExists = await existsTrigger(
+				{ workspace: workspaceTo, path },
+				additionalInformation.triggers.kind
+			)
 			const { data, createFn, updateFn } = await getTriggersDeployData(
 				additionalInformation.triggers.kind,
 				path,
@@ -119,8 +286,15 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 				onBehalfOf
 			)
 			if (alreadyExists) {
-				await updateFn({ path, workspace: workspaceTo, requestBody: data } as any)
+				// Strip operational state so the update doesn't flip the target's
+				// existing enabled/mode flag — preserved via `is_mode_unspecified()`
+				// on the backend. Mirrors the shared `stripOperationalStateOnUpdate`
+				// in the merge-deploy path.
+				const stripped = stripOperationalState(data)
+				await updateFn({ path, workspace: workspaceTo, requestBody: stripped } as any)
 			} else {
+				// Create — pass source's `mode`/`enabled` through so a new
+				// trigger lands with the state the source workspace had.
 				await createFn({ workspace: workspaceTo, requestBody: data } as any)
 			}
 			return { success: true }
@@ -161,35 +335,12 @@ export async function checkItemExists(
 	workspace: string,
 	additionalInformation?: AdditionalInformation
 ): Promise<boolean> {
-	// Triggers and schedules are frontend-specific
-	if (kind === 'schedule') {
-		return ScheduleService.existsSchedule({ workspace, path })
-	} else if (kind === 'trigger') {
-		const triggersKind: TriggerKind[] = [
-			'kafka',
-			'mqtt',
-			'nats',
-			'postgres',
-			'routes',
-			'schedules',
-			'sqs',
-			'websockets',
-			'gcp',
-			'azure',
-			'emails'
-		]
-		if (
-			additionalInformation?.triggers &&
-			triggersKind.includes(additionalInformation.triggers.kind)
-		) {
-			return existsTrigger({ workspace, path }, additionalInformation.triggers.kind)
-		} else {
-			throw new Error(
-				`Unexpected triggers kind, expected one of: '${triggersKind.join(', ')}' got: ${additionalInformation?.triggers?.kind}`
-			)
+	if (kind === 'trigger') {
+		if (!additionalInformation?.triggers) {
+			throw new Error('Missing triggers kind for legacy trigger deploy')
 		}
+		return existsTrigger({ workspace, path }, additionalInformation.triggers.kind)
 	}
-
 	return sharedCheckItemExists(makeProvider(), kind as DeployKind, path, workspace)
 }
 
@@ -202,18 +353,14 @@ export async function getItemValue(
 	workspace: string,
 	additionalInformation?: AdditionalInformation
 ): Promise<unknown> {
-	// Triggers are frontend-specific
 	if (kind === 'trigger') {
-		if (additionalInformation?.triggers) {
-			try {
-				return await getTriggerValue(additionalInformation.triggers.kind, path, workspace)
-			} catch {
-				return {}
-			}
+		if (!additionalInformation?.triggers) return {}
+		try {
+			return await getTriggerValue(additionalInformation.triggers.kind, path, workspace)
+		} catch {
+			return {}
 		}
-		return {}
 	}
-
 	return sharedGetItemValue(makeProvider(), kind as DeployKind, path, workspace)
 }
 
@@ -226,7 +373,6 @@ export async function getOnBehalfOf(
 	workspace: string,
 	additionalInformation?: AdditionalInformation
 ): Promise<string | undefined> {
-	// Triggers are frontend-specific
 	if (kind === 'trigger' && additionalInformation?.triggers) {
 		try {
 			return await getTriggerPermissionedAs(additionalInformation.triggers.kind, path, workspace)
@@ -234,6 +380,5 @@ export async function getOnBehalfOf(
 			return undefined
 		}
 	}
-
 	return sharedGetOnBehalfOf(makeProvider(), kind as DeployKind, path, workspace)
 }

@@ -93,6 +93,7 @@ itertools.workspace = true
 regex.workspace = true
 prometheus = { workspace = true, optional = true }
 lazy_static.workspace = true
+quick_cache.workspace = true
 chrono.workspace = true
 dotenv.workspace = true
 rand.workspace = true # TODO: Remove. only used by token creation hack.

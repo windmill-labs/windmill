@@ -20,30 +20,16 @@
 	import { Alert, Badge } from './common'
 	import {
 		AppService,
-		EmailTriggerService,
 		FlowService,
 		FolderService,
-		AzureTriggerService,
-		GcpTriggerService,
-		HttpTriggerService,
-		KafkaTriggerService,
-		MqttTriggerService,
-		NatsTriggerService,
-		PostgresTriggerService,
-		ScheduleService,
 		ScriptService,
-		SqsTriggerService,
 		UserService,
-		WebsocketTriggerService,
 		WorkspaceService,
 		type WorkspaceComparison,
 		type WorkspaceItemDiff
 	} from '$lib/gen'
 	import Button from './common/button/Button.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
-	import DiffEditor from './DiffEditor.svelte'
-	import Drawer from './common/drawer/Drawer.svelte'
-	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 
@@ -55,6 +41,7 @@
 		getOnBehalfOf,
 		type DeployResult
 	} from '$lib/utils_workspace_deploy'
+	import { isTriggerOrScheduleKind } from 'windmill-utils-internal'
 	import Tooltip from './Tooltip.svelte'
 	import OnBehalfOfSelector, {
 		needsOnBehalfOfSelection,
@@ -63,13 +50,9 @@
 	} from './OnBehalfOfSelector.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { deepEqual } from 'fast-equals'
-	import { orderedJsonStringify, orderedYamlStringify } from '$lib/utils'
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
 	import DeploymentRequestPanel from './deploymentRequest/DeploymentRequestPanel.svelte'
 	import { userStore } from '$lib/stores'
-	import type { TriggerKind } from './triggers'
-	import { triggerDisplayNamesMap, triggerKindToTriggerType } from './triggers/utils'
-	import { getEmailAddress, getEmailDomain } from './triggers/email/utils'
 	import { base } from '$lib/base'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
@@ -197,10 +180,14 @@
 	}
 
 	async function fetchOnBehalfOfInfo(diffs: WorkspaceItemDiff[]) {
-		const flowsAndScripts = diffs.filter((d) =>
-			['flow', 'script', 'app', 'raw_app'].includes(d.kind)
+		// Runnables carry an email; triggers/schedules carry `permissioned_as`.
+		// `getOnBehalfOf` handles the dispatch — we just need to skip kinds that
+		// have no on_behalf_of concept (resource, variable, folder, resource_type).
+		const itemsWithOnBehalfOf = diffs.filter(
+			(d) =>
+				['flow', 'script', 'app', 'raw_app'].includes(d.kind) || isTriggerOrScheduleKind(d.kind)
 		)
-		for (const diff of flowsAndScripts) {
+		for (const diff of itemsWithOnBehalfOf) {
 			for (const workspace of [currentWorkspaceId, parentWorkspaceId]) {
 				const workspacedKey = getWorkspacedKey(workspace, getItemKey(diff))
 				if (onBehalfOfInfo[workspacedKey] !== undefined) continue
@@ -255,7 +242,8 @@
 		if (choice === 'target') return getTargetOnBehalfOf(itemKey)
 		if (choice === 'custom') {
 			const details = customOnBehalfOf[itemKey]
-			return kind === 'trigger' ? details?.permissionedAs : details?.email
+			const wantsPermissionedAs = kind === 'trigger' || isTriggerOrScheduleKind(kind)
+			return wantsPermissionedAs ? details?.permissionedAs : details?.email
 		}
 		// 'me' or undefined = don't pass, backend will use deploying user's identity
 		return undefined
@@ -300,13 +288,6 @@
 		selectedItems = []
 	}
 
-	async function selectAllNonConflicts() {
-		selectedItems = selectableDiffs
-			.filter((d) => !(d.ahead > 0 && d.behind > 0))
-			.map((d) => getItemKey(d))
-			.filter((k) => !(deploymentStatus[k]?.status == 'deployed'))
-	}
-
 	const deploymentStatus: Record<
 		string,
 		{ status: 'loading' | 'deployed' | 'failed'; error?: string }
@@ -321,8 +302,7 @@
 		path: string,
 		workspaceToDeployTo: string,
 		workspaceFrom: string,
-		statusKey: string,
-		trigger?: ForkTrigger
+		statusKey: string
 	) {
 		deploymentStatus[statusKey] = { status: 'loading' }
 
@@ -338,15 +318,6 @@
 		let result: DeployResult
 		if (itemDeletedInSource) {
 			result = await deleteItemInWorkspace(kind, path, workspaceToDeployTo)
-		} else if (trigger) {
-			result = await deployItem({
-				kind: 'trigger',
-				path,
-				workspaceFrom,
-				workspaceTo: workspaceToDeployTo,
-				additionalInformation: { triggers: { kind: trigger.triggerKind } },
-				onBehalfOf: getOnBehalfOfForDeploy(statusKey, 'trigger')
-			})
 		} else {
 			result = await deployItem({
 				kind,
@@ -422,7 +393,7 @@
 
 			const to = mergeIntoParent ? parent : current
 			const from = mergeIntoParent ? current : parent
-			await deploy(deployable.kind, deployable.path, to, from, itemKey, deployable.trigger)
+			await deploy(deployable.kind, deployable.path, to, from, itemKey)
 			if (deploymentStatus[itemKey]?.status === 'failed') {
 				anyFailed = true
 			}
@@ -459,11 +430,17 @@
 	}
 
 	function selectDefault() {
-		if (mergeIntoParent) {
-			selectAll()
-		} else {
-			selectAllNonConflicts()
-		}
+		// Triggers and schedules are opt-in: they often share runtime state with the
+		// parent (kafka group_id, postgres replication slot, schedule firing time)
+		// and pushing them by default would surprise users running a routine "Deploy
+		// to parent" flow. The user picks them à la carte by clicking the row.
+		const filtered = selectableDiffs.filter((d) => !isTriggerOrScheduleKind(d.kind))
+		const conflictSafe = mergeIntoParent
+			? filtered
+			: filtered.filter((d) => !(d.ahead > 0 && d.behind > 0))
+		selectedItems = conflictSafe
+			.map((d) => getItemKey(d))
+			.filter((k) => !(deploymentStatus[k]?.status == 'deployed'))
 	}
 
 	function toggleDeploymentDirection(v: string) {
@@ -516,15 +493,11 @@
 		allowBehindChangesOverride = false
 	})
 
-	function getTriggerKey(trigger: ForkTrigger): string {
-		return `trigger:${trigger.triggerKind}:${trigger.path}`
-	}
-
-	// Transform diffs + fork triggers to deployable item format for the
-	// shared layout. Triggers render as inline rows alongside diff items;
-	// they carry no ahead/behind info and are selectable à la carte.
+	// Trigger and schedule rows now flow through `comparison.diffs` like every
+	// other deployable kind — the backend's `compareWorkspaces` populates them
+	// from `workspace_diff`, with runtime fields ignored by `compare_two_*`.
 	let deployableItems = $derived.by(() => {
-		const diffItems = (comparison?.diffs ?? [])
+		return (comparison?.diffs ?? [])
 			.filter((diff) => {
 				const key = getItemKey(diff)
 				const isSelectable = selectableDiffs.includes(diff)
@@ -536,49 +509,9 @@
 				key: getItemKey(diff),
 				path: diff.path,
 				kind: diff.kind as Kind,
-				diff,
-				trigger: undefined as ForkTrigger | undefined
+				diff
 			}))
-		const triggerItems = forkTriggers
-			.filter((t) => {
-				if (!isTriggerRelevantForDirection(t, mergeIntoParent)) return false
-				const key = getTriggerKey(t)
-				return deploymentStatus[key]?.status !== 'deployed'
-			})
-			.map((trigger) => ({
-				key: getTriggerKey(trigger),
-				path: trigger.path,
-				kind: 'trigger' as Kind,
-				triggerKind: trigger.triggerKind,
-				diff: undefined as WorkspaceItemDiff | undefined,
-				trigger
-			}))
-		return [...diffItems, ...triggerItems]
 	})
-
-	// --- Fork Triggers ---
-
-	type ForkTrigger = {
-		path: string
-		triggerKind: TriggerKind
-		scriptPath: string
-		isFlow: boolean
-		extraLabel?: string
-		/** Raw row as returned by the listX endpoint, used to detect changes
-		 * between the fork and parent workspaces. */
-		raw?: any
-		/** True only when both workspaces have the trigger and the relevant
-		 * fields differ. False when the trigger only exists on one side. */
-		hasChanges?: boolean
-		/** Source value for this row in a diff view (raw object from the
-		 * workspace whose state we'd push). */
-		sourceRaw?: any
-		/** Target value (the row that would be overwritten). */
-		targetRaw?: any
-		/** "new" when only in source, "modified" when both differ,
-		 * "deleted-in-source" when only in target. */
-		changeKind?: 'new' | 'modified' | 'deleted-in-source'
-	}
 
 	let ciTestResults = $state<Record<string, CiTestResult[]>>({})
 
@@ -631,293 +564,23 @@
 		return [...seen.values()]
 	})
 
-	let forkTriggers = $state<ForkTrigger[]>([])
 	let deploymentRequestPanel: DeploymentRequestPanel | undefined = $state(undefined)
 	let hasOpenDeploymentRequest = $state(false)
 
-	/** Deployable trigger kinds and their list services */
-	const triggerServices = {
-		schedules: {
-			list: (ws: string) => ScheduleService.listSchedules({ workspace: ws }),
-			normalize: (item: any): ForkTrigger => ({
-				path: item.path,
-				triggerKind: 'schedules',
-				scriptPath: item.script_path,
-				isFlow: item.is_flow,
-				extraLabel: item.schedule,
-				raw: item
-			})
-		},
-		routes: {
-			list: (ws: string) => HttpTriggerService.listHttpTriggers({ workspace: ws }),
-			normalize: (item: any): ForkTrigger => ({
-				path: item.path,
-				triggerKind: 'routes',
-				scriptPath: item.script_path,
-				isFlow: item.is_flow,
-				extraLabel: `${(item.http_method ?? 'get').toUpperCase()} ${item.route_path ?? ''}`
-			})
-		},
-		websockets: {
-			list: (ws: string) => WebsocketTriggerService.listWebsocketTriggers({ workspace: ws }),
-			normalize: (item: any): ForkTrigger => ({
-				path: item.path,
-				triggerKind: 'websockets',
-				scriptPath: item.script_path,
-				isFlow: item.is_flow,
-				extraLabel: item.url,
-				raw: item
-			})
-		},
-		kafka: {
-			list: (ws: string) => KafkaTriggerService.listKafkaTriggers({ workspace: ws }),
-			normalize: (item: any): ForkTrigger => ({
-				path: item.path,
-				triggerKind: 'kafka',
-				scriptPath: item.script_path,
-				isFlow: item.is_flow,
-				extraLabel: item.topics?.join(', '),
-				raw: item
-			})
-		},
-		postgres: {
-			list: (ws: string) => PostgresTriggerService.listPostgresTriggers({ workspace: ws }),
-			normalize: (item: any): ForkTrigger => ({
-				path: item.path,
-				triggerKind: 'postgres',
-				scriptPath: item.script_path,
-				isFlow: item.is_flow,
-				raw: item
-			})
-		},
-		nats: {
-			list: (ws: string) => NatsTriggerService.listNatsTriggers({ workspace: ws }),
-			normalize: (item: any): ForkTrigger => ({
-				path: item.path,
-				triggerKind: 'nats',
-				scriptPath: item.script_path,
-				isFlow: item.is_flow,
-				extraLabel: item.subjects?.join(', '),
-				raw: item
-			})
-		},
-		mqtt: {
-			list: (ws: string) => MqttTriggerService.listMqttTriggers({ workspace: ws }),
-			normalize: (item: any): ForkTrigger => ({
-				path: item.path,
-				triggerKind: 'mqtt',
-				scriptPath: item.script_path,
-				isFlow: item.is_flow,
-				raw: item
-			})
-		},
-		sqs: {
-			list: (ws: string) => SqsTriggerService.listSqsTriggers({ workspace: ws }),
-			normalize: (item: any): ForkTrigger => ({
-				path: item.path,
-				triggerKind: 'sqs',
-				scriptPath: item.script_path,
-				isFlow: item.is_flow,
-				extraLabel: item.queue_url,
-				raw: item
-			})
-		},
-		gcp: {
-			list: (ws: string) => GcpTriggerService.listGcpTriggers({ workspace: ws }),
-			normalize: (item: any): ForkTrigger => ({
-				path: item.path,
-				triggerKind: 'gcp',
-				scriptPath: item.script_path,
-				isFlow: item.is_flow,
-				extraLabel: item.topic_id,
-				raw: item
-			})
-		},
-		azure: {
-			list: (ws: string) => AzureTriggerService.listAzureTriggers({ workspace: ws }),
-			normalize: (item: any): ForkTrigger => ({
-				path: item.path,
-				triggerKind: 'azure',
-				scriptPath: item.script_path,
-				isFlow: item.is_flow,
-				extraLabel: item.topic_name ?? item.scope_resource_id,
-				raw: item
-			})
-		},
-		emails: {
-			list: (ws: string) => EmailTriggerService.listEmailTriggers({ workspace: ws }),
-			normalize: (item: any): ForkTrigger => ({
-				path: item.path,
-				triggerKind: 'emails',
-				scriptPath: item.script_path,
-				isFlow: item.is_flow,
-				extraLabel: getEmailAddress(
-					item.local_part,
-					item.workspaced_local_part,
-					currentWorkspaceId,
-					emailDomain ?? ''
-				),
-				raw: item
-			})
-		}
-	} as const
-
-	let emailDomain = $state<string | undefined>(undefined)
-
-	/**
-	 * Fields that should not count as a "change" between the parent and the
-	 * fork. Mode/enabled are forced to 'disabled'/false on clone and stripped
-	 * by the fork-export filter; the rest are runtime state or per-row
-	 * metadata that always diverges. Comparing without these matches the
-	 * semantics of "is this trigger configured the same way?" rather than
-	 * "are these two rows byte-identical?".
-	 */
-	const TRIGGER_COMPARE_IGNORE = new Set([
-		'workspace_id',
-		'mode',
-		'enabled',
-		'edited_at',
-		'edited_by',
-		'last_server_ping',
-		'server_id',
-		'error',
-		'extra_perms',
-		'permissioned_as'
-	])
-
-	function stripIgnoredFields(row: any): any {
-		if (!row || typeof row !== 'object') return row
-		const out: Record<string, any> = {}
-		for (const [k, v] of Object.entries(row)) {
-			if (!TRIGGER_COMPARE_IGNORE.has(k)) out[k] = v
-		}
-		return out
+	/** Display labels for trigger/schedule kinds in the merge UI. */
+	const KIND_DISPLAY_NAMES: Record<string, string> = {
+		schedule: 'Schedule',
+		http_trigger: 'HTTP route',
+		websocket_trigger: 'Websocket trigger',
+		kafka_trigger: 'Kafka trigger',
+		nats_trigger: 'NATS trigger',
+		postgres_trigger: 'Postgres trigger',
+		mqtt_trigger: 'MQTT trigger',
+		sqs_trigger: 'SQS trigger',
+		gcp_trigger: 'GCP trigger',
+		azure_trigger: 'Azure trigger',
+		email_trigger: 'Email trigger'
 	}
-
-	function rowsHaveSameConfig(a: any, b: any): boolean {
-		return (
-			orderedJsonStringify(stripIgnoredFields(a)) === orderedJsonStringify(stripIgnoredFields(b))
-		)
-	}
-
-	async function fetchAllTriggers() {
-		try {
-			emailDomain = await getEmailDomain()
-			const entries = Object.entries(triggerServices) as Array<
-				[TriggerKind, (typeof triggerServices)[keyof typeof triggerServices]]
-			>
-			// Fetch fork + parent in parallel for each kind. Either side may
-			// fail (e.g. permission denied on parent) — fall back to empty.
-			const results = await Promise.allSettled(
-				entries.map(async ([kind, svc]) => {
-					const [forkItems, parentItems] = await Promise.all([
-						svc.list(currentWorkspaceId).catch(() => [] as any[]),
-						svc.list(parentWorkspaceId).catch(() => [] as any[])
-					])
-					const byPath = new Map<string, { fork?: any; parent?: any }>()
-					for (const item of forkItems) {
-						byPath.set(item.path, { fork: item })
-					}
-					for (const item of parentItems) {
-						const entry = byPath.get(item.path) ?? {}
-						entry.parent = item
-						byPath.set(item.path, entry)
-					}
-					const merged: ForkTrigger[] = []
-					for (const [path, entry] of byPath) {
-						const sourceItem = entry.fork ?? entry.parent
-						const normalized = svc.normalize(sourceItem)
-						let changeKind: ForkTrigger['changeKind']
-						let hasChanges = false
-						if (entry.fork && !entry.parent) {
-							changeKind = 'new'
-						} else if (!entry.fork && entry.parent) {
-							changeKind = 'deleted-in-source'
-						} else if (entry.fork && entry.parent) {
-							hasChanges = !rowsHaveSameConfig(entry.fork, entry.parent)
-							if (hasChanges) changeKind = 'modified'
-						}
-						merged.push({
-							...normalized,
-							raw: sourceItem,
-							hasChanges,
-							changeKind,
-							sourceRaw: entry.fork,
-							targetRaw: entry.parent,
-							path
-						})
-					}
-					return merged
-				})
-			)
-			forkTriggers = results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
-		} catch (e) {
-			console.error('Failed to fetch fork triggers:', e)
-			forkTriggers = []
-		}
-	}
-
-	/**
-	 * Triggers worth showing in the merge UI given the current direction.
-	 * - "Deploy to parent": rows that exist in fork and either don't exist in
-	 *   parent or have config differences.
-	 * - "Update current" (pull from parent): mirror.
-	 * Triggers that exist on both sides with identical config are filtered
-	 * out — they would generate a no-op deploy and only add noise.
-	 */
-	function isTriggerRelevantForDirection(t: ForkTrigger, deployingToParent: boolean): boolean {
-		const existsInFork = !!t.sourceRaw
-		const existsInParent = !!t.targetRaw
-		if (deployingToParent) {
-			return existsInFork && (!existsInParent || !!t.hasChanges)
-		} else {
-			return existsInParent && (!existsInFork || !!t.hasChanges)
-		}
-	}
-
-	function getTriggerDisplayName(triggerKind: TriggerKind): string {
-		const triggerType = triggerKindToTriggerType(triggerKind)
-		return triggerType ? triggerDisplayNamesMap[triggerType] : triggerKind
-	}
-
-	let triggerDiffOpen = $state(false)
-	let triggerDiffPayload = $state<
-		| {
-				kindLabel: string
-				path: string
-				originalLabel: string
-				modifiedLabel: string
-				original: string
-				modified: string
-		  }
-		| undefined
-	>(undefined)
-
-	function openTriggerDiff(t: ForkTrigger) {
-		// `sourceRaw` is the fork row, `targetRaw` is the parent row regardless
-		// of direction (set in fetchAllTriggers). The diff reads from the
-		// destination (left) to the source (right), matching the deploy arrow.
-		const sourceWorkspace = mergeIntoParent ? currentWorkspaceId : parentWorkspaceId
-		const targetWorkspace = mergeIntoParent ? parentWorkspaceId : currentWorkspaceId
-		const fromRow = mergeIntoParent ? t.sourceRaw : t.targetRaw
-		const toRow = mergeIntoParent ? t.targetRaw : t.sourceRaw
-		triggerDiffPayload = {
-			kindLabel: getTriggerDisplayName(t.triggerKind),
-			path: t.path,
-			originalLabel: `${targetWorkspace} (target)`,
-			modifiedLabel: `${sourceWorkspace} (source)`,
-			original: orderedYamlStringify(stripIgnoredFields(toRow ?? {})),
-			modified: orderedYamlStringify(stripIgnoredFields(fromRow ?? {}))
-		}
-		triggerDiffOpen = true
-	}
-
-	// Fetch triggers when workspace is available
-	$effect(() => {
-		if (currentWorkspaceId) {
-			fetchAllTriggers()
-		}
-	})
 </script>
 
 {#if $workspaceStore != currentWorkspaceId}
@@ -941,8 +604,7 @@
 				items={deployableItems}
 				{selectedItems}
 				{deploymentStatus}
-				selectablePredicate={(item) =>
-					item.trigger != null || selectableDiffs.some((d) => getItemKey(d) === item.key)}
+				selectablePredicate={(item) => selectableDiffs.some((d) => getItemKey(d) === item.key)}
 				{allSelected}
 				onToggleItem={(item) => toggleKey(item.key)}
 				onSelectAll={selectAll}
@@ -1116,17 +778,15 @@
 				{/snippet}
 
 				{#snippet itemSummary(item)}
-					{#if item.trigger}
-						{@const t = item.trigger as ForkTrigger}
-						<span class="text-emphasis">{getTriggerDisplayName(t.triggerKind)}</span>
-						{#if t.extraLabel}
-							<span class="text-secondary ml-1">{t.extraLabel}</span>
-						{/if}
+					{@const diff = item.diff as WorkspaceItemDiff}
+					{@const key = item.key}
+					{#if isTriggerOrScheduleKind(diff.kind)}
+						<span class="text-emphasis">
+							{KIND_DISPLAY_NAMES[diff.kind as string] ?? diff.kind}
+						</span>
 						<span class="text-tertiary mx-1">&rarr;</span>
-						<span class="text-secondary">{t.scriptPath}</span>
+						<span class="text-secondary">{diff.path}</span>
 					{:else}
-						{@const diff = item.diff as WorkspaceItemDiff}
-						{@const key = item.key}
 						{@const isSelectable = selectableDiffs.includes(diff)}
 						{@const oldSummary = mergeIntoParent
 							? summaryCache[key]?.parent
@@ -1150,140 +810,102 @@
 				{/snippet}
 
 				{#snippet itemActions(item)}
-					{#if item.trigger}
-						{@const t = item.trigger as ForkTrigger}
-						{@const key = item.key}
-						{#if t.changeKind === 'new'}
-							<Badge
-								title={mergeIntoParent
-									? `Only exists in '${currentWorkspaceId}'`
-									: `Only exists in '${parentWorkspaceId}'`}
-								color="indigo"
-								size="xs">New</Badge
-							>
-						{/if}
-						{#if t.isFlow}
-							<Badge color="blue" size="xs">flow</Badge>
-						{/if}
-						{#if !deploymentStatus[key] || deploymentStatus[key].status != 'deployed'}
-							{#if mergeIntoParent}
-								<Badge color="green" size="xs">
-									<ArrowUpRight class="w-3 h-3 inline" />
-									1 ahead
-								</Badge>
-							{:else}
-								<Badge color="blue" size="xs">
-									<ArrowDownRight class="w-3 h-3 inline" />
-									1 behind
-								</Badge>
-							{/if}
-							{#if t.changeKind === 'modified'}
-								<div>
-									<Button size="xs" variant="subtle" onclick={() => openTriggerDiff(t)}>
-										<DiffIcon class="w-3 h-3" />
-										Show diff
-									</Button>
-								</div>
-							{/if}
-						{/if}
-					{:else}
-						{@const diff = item.diff as WorkspaceItemDiff}
-						{@const key = item.key}
-						{@const targetOnBehalfOf = getTargetOnBehalfOf(key)}
-						{@const isConflict = diff.ahead > 0 && diff.behind > 0}
-						{@const existsInBothWorkspaces = !(
-							(diff.exists_in_fork && !diff.exists_in_source) ||
-							(!diff.exists_in_fork && diff.exists_in_source)
-						)}
-						<!-- On-behalf-of selector -->
-						{#if itemNeedsOnBehalfOfSelection(key, diff.kind)}
-							<OnBehalfOfSelector
-								targetWorkspace={deployTargetWorkspace}
-								targetValue={targetOnBehalfOf}
-								selected={onBehalfOfChoice[key]}
-								onSelect={(choice, details) => {
-									onBehalfOfChoice[key] = choice
-									if (details) customOnBehalfOf[key] = details
-								}}
-								kind={diff.kind}
-								canPreserve={canPreserveOnBehalfOf}
-								customValue={customOnBehalfOf[key]?.permissionedAs}
-							/>
-						{/if}
-						{#if diff.kind === 'raw_app'}
-							<Badge small icon={{ icon: FileJson }}>Raw</Badge>
-						{/if}
-						<!-- Status badges -->
-						{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead == 0 && diff.behind > 0}
-							<Badge
-								title="This item was newly created in the parent workspace '{parentWorkspaceId}'"
-								color="indigo"
-								size="xs">New</Badge
-							>
-						{/if}
-						{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead > 0}
-							<Badge title="This item was deleted in '{currentWorkspaceId}'" color="red" size="xs"
-								>Deleted</Badge
-							>
-						{/if}
-						{#if diff.exists_in_fork && !diff.exists_in_source && diff.behind > 0}
-							<Badge
-								title="This item was deleted in the parent workspace '{parentWorkspaceId}'"
-								color="red"
-								size="xs">Deleted</Badge
-							>
-						{/if}
-						{#if diff.exists_in_fork && !diff.exists_in_source && diff.ahead > 0 && diff.behind == 0}
-							<Badge
-								title="This item was newly created in '{currentWorkspaceId}'"
-								color="indigo"
-								size="xs">New</Badge
-							>
-						{/if}
-						{@const ciStatus = getCiTestStatus(diff)}
-						{#if ciStatus === 'pass'}
-							<Badge color="green" size="xs"><CircleCheck size={10} class="mr-0.5" />CI pass</Badge>
-						{:else if ciStatus === 'fail'}
-							<Badge color="red" size="xs"><CircleX size={10} class="mr-0.5" />CI fail</Badge>
-						{:else if ciStatus === 'running'}
-							<Badge color="yellow" size="xs"
-								><Loader2 size={10} class="mr-0.5 animate-spin" />CI</Badge
-							>
-						{/if}
-						{#if !deploymentStatus[key] || deploymentStatus[key].status != 'deployed'}
-							<div class="flex items-center gap-2">
-								{#if isConflict || existsInBothWorkspaces}
-									{#if diff.ahead > 0}
-										<Badge color="green" size="xs">
-											<ArrowUpRight class="w-3 h-3 inline" />
-											{diff.ahead} ahead
-										</Badge>
-									{/if}
-									{#if diff.behind > 0}
-										<Badge color="blue" size="xs">
-											<ArrowDownRight class="w-3 h-3 inline" />
-											{diff.behind} behind
-										</Badge>
-									{/if}
-									{#if isConflict}
-										<Badge color="orange" size="xs">
-											<AlertTriangle class="w-3 h-3 inline" />
-											Conflict
-										</Badge>
-									{/if}
+					{@const diff = item.diff as WorkspaceItemDiff}
+					{@const key = item.key}
+					{@const targetOnBehalfOf = getTargetOnBehalfOf(key)}
+					{@const isConflict = diff.ahead > 0 && diff.behind > 0}
+					{@const existsInBothWorkspaces = !(
+						(diff.exists_in_fork && !diff.exists_in_source) ||
+						(!diff.exists_in_fork && diff.exists_in_source)
+					)}
+					<!-- On-behalf-of selector -->
+					{#if itemNeedsOnBehalfOfSelection(key, diff.kind)}
+						<OnBehalfOfSelector
+							targetWorkspace={deployTargetWorkspace}
+							targetValue={targetOnBehalfOf}
+							selected={onBehalfOfChoice[key]}
+							onSelect={(choice, details) => {
+								onBehalfOfChoice[key] = choice
+								if (details) customOnBehalfOf[key] = details
+							}}
+							kind={diff.kind}
+							canPreserve={canPreserveOnBehalfOf}
+							customValue={customOnBehalfOf[key]?.permissionedAs}
+						/>
+					{/if}
+					{#if diff.kind === 'raw_app'}
+						<Badge small icon={{ icon: FileJson }}>Raw</Badge>
+					{/if}
+					<!-- Status badges -->
+					{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead == 0 && diff.behind > 0}
+						<Badge
+							title="This item was newly created in the parent workspace '{parentWorkspaceId}'"
+							color="indigo"
+							size="xs">New</Badge
+						>
+					{/if}
+					{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead > 0}
+						<Badge title="This item was deleted in '{currentWorkspaceId}'" color="red" size="xs"
+							>Deleted</Badge
+						>
+					{/if}
+					{#if diff.exists_in_fork && !diff.exists_in_source && diff.behind > 0}
+						<Badge
+							title="This item was deleted in the parent workspace '{parentWorkspaceId}'"
+							color="red"
+							size="xs">Deleted</Badge
+						>
+					{/if}
+					{#if diff.exists_in_fork && !diff.exists_in_source && diff.ahead > 0 && diff.behind == 0}
+						<Badge
+							title="This item was newly created in '{currentWorkspaceId}'"
+							color="indigo"
+							size="xs">New</Badge
+						>
+					{/if}
+					{@const ciStatus = getCiTestStatus(diff)}
+					{#if ciStatus === 'pass'}
+						<Badge color="green" size="xs"><CircleCheck size={10} class="mr-0.5" />CI pass</Badge>
+					{:else if ciStatus === 'fail'}
+						<Badge color="red" size="xs"><CircleX size={10} class="mr-0.5" />CI fail</Badge>
+					{:else if ciStatus === 'running'}
+						<Badge color="yellow" size="xs"
+							><Loader2 size={10} class="mr-0.5 animate-spin" />CI</Badge
+						>
+					{/if}
+					{#if !deploymentStatus[key] || deploymentStatus[key].status != 'deployed'}
+						<div class="flex items-center gap-2">
+							{#if isConflict || existsInBothWorkspaces}
+								{#if diff.ahead > 0}
+									<Badge color="green" size="xs">
+										<ArrowUpRight class="w-3 h-3 inline" />
+										{diff.ahead} ahead
+									</Badge>
 								{/if}
-							</div>
-							<div class:invisible={!existsInBothWorkspaces}>
-								<Button
-									size="xs"
-									variant="subtle"
-									onclick={() => showDiff(diff.kind as Kind, diff.path)}
-								>
-									<DiffIcon class="w-3 h-3" />
-									Show diff
-								</Button>
-							</div>
-						{/if}
+								{#if diff.behind > 0}
+									<Badge color="blue" size="xs">
+										<ArrowDownRight class="w-3 h-3 inline" />
+										{diff.behind} behind
+									</Badge>
+								{/if}
+								{#if isConflict}
+									<Badge color="orange" size="xs">
+										<AlertTriangle class="w-3 h-3 inline" />
+										Conflict
+									</Badge>
+								{/if}
+							{/if}
+						</div>
+						<div class:invisible={!existsInBothWorkspaces}>
+							<Button
+								size="xs"
+								variant="subtle"
+								onclick={() => showDiff(diff.kind as Kind, diff.path)}
+							>
+								<DiffIcon class="w-3 h-3" />
+								Show diff
+							</Button>
+						</div>
 					{/if}
 				{/snippet}
 
@@ -1366,31 +988,6 @@
 	</div>
 
 	<DiffDrawer bind:this={diffDrawer} {isFlow} />
-
-	<Drawer bind:open={triggerDiffOpen} size="900px">
-		<DrawerContent
-			title={triggerDiffPayload
-				? `${triggerDiffPayload.kindLabel} ${triggerDiffPayload.path}`
-				: 'Trigger diff'}
-			on:close={() => (triggerDiffOpen = false)}
-		>
-			{#if triggerDiffPayload}
-				<div class="flex flex-col h-full">
-					<div class="flex-1 min-h-0">
-						<DiffEditor
-							open={triggerDiffOpen}
-							className="!h-full"
-							defaultLang="yaml"
-							defaultOriginal={triggerDiffPayload.original}
-							defaultModified={triggerDiffPayload.modified}
-							readOnly
-							inlineDiff={false}
-						/>
-					</div>
-				</div>
-			{/if}
-		</DrawerContent>
-	</Drawer>
 {:else}
 	<div class="flex items-center justify-center h-full">
 		<div class="text-gray-500">No comparison data available</div>

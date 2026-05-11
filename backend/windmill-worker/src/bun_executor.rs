@@ -439,7 +439,7 @@ pub async fn gen_bun_lockfile(
         #[cfg(windows)]
         child_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
 
-        let mut child_process = start_child_process(child_cmd, &*BUN_PATH, false).await?;
+        let child_process = start_child_process(child_cmd, &*BUN_PATH, false).await?;
 
         if let Some(db) = db {
             let mut quiet_buf = String::new();
@@ -471,10 +471,13 @@ pub async fn gen_bun_lockfile(
             }
             result?;
         } else {
-            let status = Box::into_pin(child_process.wait()).await?;
-            if !status.success() {
+            let output = Box::into_pin(child_process.wait_with_output()).await?;
+            if !output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
                 return Err(error::Error::ExecutionErr(format!(
-                    "bun build exited with non-zero status: {status:?}"
+                    "bun build exited with non-zero status: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+                    output.status
                 )));
             }
         }
@@ -749,7 +752,7 @@ pub async fn install_bun_lockfile(
         gen_bunfig(job_dir, job_id, w_id, db).await?;
     }
 
-    let mut child_process = start_child_process(child_cmd, &*BUN_PATH, false).await?;
+    let child_process = start_child_process(child_cmd, &*BUN_PATH, false).await?;
     if let Some(db) = db {
         let mut quiet_buf = String::new();
         let result = handle_child(
@@ -782,10 +785,13 @@ pub async fn install_bun_lockfile(
         }
         result?;
     } else {
-        let status = Box::into_pin(child_process.wait()).await?;
-        if !status.success() {
+        let output = Box::into_pin(child_process.wait_with_output()).await?;
+        if !output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(error::Error::ExecutionErr(format!(
-                "bun install exited with non-zero status: {status:?}"
+                "bun install exited with non-zero status: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+                output.status
             )));
         }
     }
@@ -1010,7 +1016,7 @@ pub async fn generate_bun_bundle(
     #[cfg(windows)]
     child.env("SystemRoot", SYSTEM_ROOT.as_str());
 
-    let mut child_process = start_child_process(child, &*BUN_PATH, false).await?;
+    let child_process = start_child_process(child, &*BUN_PATH, false).await?;
     if let Some(db) = db {
         handle_child(
             job_id,
@@ -1030,10 +1036,13 @@ pub async fn generate_bun_bundle(
         )
         .await?;
     } else {
-        let status = Box::into_pin(child_process.wait()).await?;
-        if !status.success() {
+        let output = Box::into_pin(child_process.wait_with_output()).await?;
+        if !output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(error::Error::ExecutionErr(format!(
-                "bun build exited with non-zero status: {status:?}"
+                "bun build exited with non-zero status: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+                output.status
             )));
         }
     }

@@ -143,7 +143,10 @@ pub struct AzureKeyVaultSettings {
     pub tenant_id: String,
     /// Azure AD application (client) ID
     pub client_id: String,
-    /// Azure AD client secret
+    /// Azure AD client secret. Optional — when omitted, the integration falls back to
+    /// Azure Workload Identity Federation: the Kubernetes-projected service-account JWT at
+    /// `AZURE_FEDERATED_TOKEN_FILE` is exchanged with Entra ID for an access token (no
+    /// long-lived secret stored on the Windmill instance).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_secret: Option<String>,
     /// Static Bearer token for testing/development (optional)

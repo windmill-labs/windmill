@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.696.1",
+	"version": "1.699.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -163,7 +163,7 @@
 		"windmill-parser-wasm-wac": "1.668.6",
 		"windmill-parser-wasm-yaml": "1.593.0",
 		"windmill-sql-datatype-parser-wasm": "1.512.0",
-		"windmill-utils-internal": "^1.4.0",
+		"windmill-utils-internal": "^1.7.0",
 		"xterm": "^5.3.0",
 		"xterm-readline": "^1.1.2",
 		"y-monaco": "^0.1.4",
@@ -378,6 +378,10 @@
 		"./stores": {
 			"types": "./package/stores.d.ts",
 			"default": "./package/stores.js"
+		},
+		"./externalDomain": {
+			"types": "./package/externalDomain.d.ts",
+			"default": "./package/externalDomain.js"
 		},
 		"./gen": {
 			"types": "./package/gen/index.d.ts",
