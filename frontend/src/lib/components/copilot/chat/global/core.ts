@@ -691,6 +691,14 @@ function appToItem(app: ListableApp | AppWithLastVersion, includeValue: boolean)
 
 const GENERATED_APP_FILE_PATHS = new Set(['/wmill.d.ts'])
 
+function assertNotGeneratedAppFile(filePath: string): void {
+	if (GENERATED_APP_FILE_PATHS.has(filePath)) {
+		throw new Error(
+			`"${filePath}" is generated automatically from backend runnables and cannot be modified directly.`
+		)
+	}
+}
+
 type AppFileTarget =
 	| { kind: 'frontend'; filePath: string }
 	| { kind: 'backend'; filePath: string; key: string; extension: 'ts' | 'py' }
@@ -1847,9 +1855,7 @@ async function writeAppFile(
 			`write_app_file only writes frontend files. Use write_app_runnable to set inline backend script content.`
 		)
 	}
-	if (GENERATED_APP_FILE_PATHS.has(target.filePath)) {
-		throw new Error(`"${target.filePath}" is generated automatically. Edit backend runnables instead.`)
-	}
+	assertNotGeneratedAppFile(target.filePath)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Writing ${target.filePath} to app "${args.path}"...`
@@ -1885,9 +1891,7 @@ async function deleteAppFile(
 			`delete_app_file only deletes frontend files. Use delete_app_runnable for backend runnables.`
 		)
 	}
-	if (GENERATED_APP_FILE_PATHS.has(target.filePath)) {
-		throw new Error(`"${target.filePath}" is generated automatically and cannot be deleted.`)
-	}
+	assertNotGeneratedAppFile(target.filePath)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deleting ${target.filePath} from app "${args.path}"...`
@@ -1929,8 +1933,8 @@ async function patchAppFile(
 	const { workspace, toolId, toolCallbacks } = ctx
 	const { path, file_path: filePath, old_string: oldString, new_string: newString, replace_all: replaceAll } = args
 	const target = resolveAppFileTarget(filePath)
-	if (target.kind === 'frontend' && GENERATED_APP_FILE_PATHS.has(target.filePath)) {
-		throw new Error(`"${target.filePath}" is generated automatically. Edit backend runnables instead.`)
+	if (target.kind === 'frontend') {
+		assertNotGeneratedAppFile(target.filePath)
 	}
 
 	toolCallbacks.setToolStatus(toolId, { content: `Patching ${target.filePath} in app "${path}"...` })
