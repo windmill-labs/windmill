@@ -4,7 +4,17 @@
 		globalDraftStore,
 		type WorkspaceItem
 	} from '$lib/components/copilot/chat/global/draftStore.svelte'
+	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
+	import { goto } from '$lib/navigation'
 	import { Trash2 } from 'lucide-svelte'
+	import { onMount } from 'svelte'
+
+	onMount(() => {
+		// Dev-only route. Bounce to home when the global mode gate is closed.
+		if (!isGlobalAiEnabled()) {
+			goto('/')
+		}
+	})
 
 	let drafts = $derived(globalDraftStore.listDrafts())
 

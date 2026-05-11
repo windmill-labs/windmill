@@ -61,6 +61,7 @@ import type { ReviewChangesOpts } from './monaco-adapter'
 import { getCurrentModel, tryGetCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
 import { globalTools, prepareGlobalSystemMessage, prepareGlobalUserMessage } from './global/core'
+import { isGlobalAiEnabled } from './global/gate'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
@@ -136,7 +137,8 @@ class AIChatManager {
 		navigator: true,
 		ask: true,
 		API: true,
-		global: true
+		// Dev-only gate. See `./global/gate.ts` for how to enable.
+		global: isGlobalAiEnabled()
 	})
 
 	open = $derived(chatState.size > 0)
@@ -353,14 +355,24 @@ class AIChatManager {
 			function: {
 				name: 'change_mode',
 				description:
-					'Change the AI mode to the one specified. Script mode is used to create scripts. Flow mode is used to create flows. Global mode is used to inspect workspace scripts and flows and create draft changes. Navigator mode is used to navigate the application and help the user find what they are looking for. API mode is used to make API calls to the Windmill backend.',
+					'Change the AI mode to the one specified. Script mode is used to create scripts. Flow mode is used to create flows.' +
+					(isGlobalAiEnabled()
+						? ' Global mode is used to inspect workspace scripts and flows and create draft changes.'
+						: '') +
+					' Navigator mode is used to navigate the application and help the user find what they are looking for. API mode is used to make API calls to the Windmill backend.',
 				parameters: {
 					type: 'object',
 					properties: {
 						mode: {
 							type: 'string',
 							description: 'The mode to change to',
-							enum: ['script', 'flow', 'global', 'navigator', 'API']
+							enum: [
+								'script',
+								'flow',
+								...(isGlobalAiEnabled() ? ['global'] : []),
+								'navigator',
+								'API'
+							]
 						},
 						pendingPrompt: {
 							type: 'string',
