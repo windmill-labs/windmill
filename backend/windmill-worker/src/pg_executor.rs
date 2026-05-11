@@ -436,15 +436,49 @@ fn do_postgresql_inner<'a>(
     let result_f = async move {
         let mut res: Vec<Box<serde_json::value::RawValue>> = vec![];
 
-        // Always prefer query_typed_raw (unnamed prepared statement). It is sent as
-        // a single Parse+Bind+Execute+Sync round-trip, so it survives transaction-mode
-        // connection poolers (PgBouncer/Supabase pooler/RDS Proxy) where named
-        // statements ("s0", "s1", ...) can be reported missing because the prepare
-        // and the execute land on different backend connections. Fall back to
-        // prepare + query_raw only when an arg has a type unsupported by
-        // otyp_to_pg_type (e.g. custom enum, geometry, …) — in that case we lose
-        // pooler safety, but the query at least runs against a direct connection.
+        // Prefer query_typed_raw (unnamed prepared statement): a single
+        // Parse+Bind+Execute+Sync round-trip survives transaction-mode connection
+        // poolers (PgBouncer/Supabase pooler/RDS Proxy) where named statements
+        // ("s0", "s1", ...) can be reported missing because the prepare and the
+        // execute land on different backend connections.
+        //
+        // But query_typed_raw deadlocks against tokio-postgres 0.7.x when any
+        // result column has a non-builtin OID (e.g: citext). The
+        // RowDescription handler at tokio-postgres/src/query.rs:105 awaits a
+        // typeinfo sub-query *inline* while the parent query's DataRows are
+        // queueing behind a bounded `mpsc::channel(1)` (client.rs:94). If the
+        // result splits across more than one BackendMessage batch, the bg
+        // task's `poll_read` stalls on `sender.poll_ready` (connection.rs:159)
+        // and stops reading the socket — so the typeinfo response never
+        // arrives, `get_type` never resolves, and the call hangs forever.
+        // Symptom: hard hang at `SELECT col::citext FROM t LIMIT 100` while
+        // `LIMIT 10` returns fine.
+        //
+        // Fix: warm tokio-postgres's per-Client typeinfo cache by issuing a
+        // `prepare(&query)` first. prepare reads RowDescription with no Execute
+        // pipelined, so the typeinfo lookups run against an empty server
+        // pipeline and can't back-pressure-deadlock. The resolved `Type`s land
+        // in `InnerClient.cached_typeinfo`, so the subsequent query_typed_raw
+        // finds every OID cached and never triggers the inline get_type. We
+        // throw away the resulting `Statement`; we only execute via the
+        // unnamed path, preserving pooler safety. Cost: +1 RTT on a connection
+        // until its typeinfo cache is warm, plus an extra server-side Parse
+        // (the unnamed statement is planned separately). Subsequent queries on
+        // the same cached connection hit the cache and pay nothing.
+        //
+        // Fall back to prepare + query_raw only when an arg has a type
+        // unsupported by otyp_to_pg_type (e.g. custom enum, geometry, …) — in
+        // that case we lose pooler safety, but the query at least runs against
+        // a direct connection.
         let rows = if all_types_resolved {
+            // Typeinfo warm-up. `prepare` only fails for genuine errors (bad
+            // SQL, connection dead, etc.) — if it fails here, query_typed_raw
+            // would fail too, so we propagate via `?` rather than swallow and
+            // retry. The Statement is dropped immediately; tokio-postgres
+            // sends `Close S <name>` on Drop to deallocate it server-side.
+            let _warmup = client.prepare(&query).await.map_err(to_anyhow)?;
+            drop(_warmup);
+
             let typed_params = query_params
                 .iter()
                 .zip(param_types.iter())
