@@ -108,9 +108,7 @@
 				<span class="text-emphasis font-semibold text-xs"
 					>Client Secret <Tooltip>Client Secret of the auth0 service configuration</Tooltip></span
 				>
-				<div class="max-w-lg">
-					<Password placeholder="Client Secret" bind:password={value['secret']} />
-				</div>
+				<Password small placeholder="Client Secret" bind:password={value['secret']} />
 			</label>
 			<CollapseLink text="Instructions">
 				<div class="text-xs text-primary border rounded-md p-4 space-y-3">

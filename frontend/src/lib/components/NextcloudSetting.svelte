@@ -2,6 +2,7 @@
 	import CollapseLink from './CollapseLink.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import Password from './Password.svelte'
 	import Toggle from './Toggle.svelte'
 	import SettingCard from './instanceSettings/SettingCard.svelte'
 
@@ -90,10 +91,7 @@
 				<span class="text-secondary font-normal text-xs"
 					>Client Secret from your Nextcloud OAuth2 app configuration</span
 				>
-				<TextInput
-					inputProps={{ type: 'password', placeholder: 'Client Secret' }}
-					bind:value={value['secret']}
-				/>
+				<Password placeholder="Client Secret" bind:password={value['secret']} />
 			</label>
 			<CollapseLink text="Instructions">
 				<div class="text-xs text-primary border rounded-md p-4">
