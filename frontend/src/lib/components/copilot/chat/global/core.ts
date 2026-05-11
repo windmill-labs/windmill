@@ -76,6 +76,7 @@ import {
 	type WorkspaceItem,
 	type WorkspaceItemType
 } from './draftStore.svelte'
+import { buildFlowDeployRequestBody, buildScriptDeployRequestBody } from './deployRequests'
 
 const ITEM_TYPES = [
 	'script',
@@ -2172,35 +2173,28 @@ async function deployDraft(
 
 	switch (type) {
 		case 'script': {
-			if (typeof draft.value !== 'string' || !draft.language) {
-				throw new Error(`Draft script "${path}" is missing content or language.`)
-			}
 			const existing = (await ScriptService.existsScriptByPath({ workspace, path }))
 				? await ScriptService.getScriptByPath({ workspace, path })
 				: undefined
 			await ScriptService.createScript({
 				workspace,
-				requestBody: {
-					path,
-					summary: draft.summary ?? '',
-					content: draft.value,
-					language: draft.language,
-					parent_hash: existing?.hash,
-					deployment_message: deploymentMessage
-				}
+				requestBody: buildScriptDeployRequestBody(path, draft, existing, deploymentMessage)
 			})
 			break
 		}
 		case 'flow': {
 			const flowDraft = draft.value as FlowDraftValue
-			const requestBody = {
+			const existing = (await FlowService.existsFlowByPath({ workspace, path }))
+				? await FlowService.getFlowByPath({ workspace, path })
+				: undefined
+			const requestBody = buildFlowDeployRequestBody(
 				path,
-				summary: draft.summary ?? '',
-				value: flowDraft.value,
-				schema: flowDraft.schema ?? {},
-				deployment_message: deploymentMessage
-			}
-			if (await FlowService.existsFlowByPath({ workspace, path })) {
+				draft.summary,
+				flowDraft,
+				existing,
+				deploymentMessage
+			)
+			if (existing) {
 				await FlowService.updateFlow({ workspace, path, requestBody })
 			} else {
 				await FlowService.createFlow({ workspace, requestBody })
