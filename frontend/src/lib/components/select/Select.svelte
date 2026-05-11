@@ -213,7 +213,7 @@
 				if (!open) open = true
 				filterText = e.currentTarget.textContent ?? ''
 			}}
-			onpointerdown={() => (open = true)}
+			onpointerdown={() => !disabled && (open = true)}
 			onkeydown={(e) => {
 				if (e.key === 'Enter') {
 					e.preventDefault()
