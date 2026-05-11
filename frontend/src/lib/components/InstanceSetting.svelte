@@ -56,26 +56,14 @@
 		attempted_at: string
 	} | null = $state(null)
 
-	let licenseStatus: {
-		license_key_id: string
-		license_key_valid: boolean
-		kind: 'offline' | 'online'
-		offline?: {
-			v: number
-			kind: string
-			hash: string
-			seats: number
-			cu_limit: number
-		}
-		cap_status?: {
-			seats_used: number
-			seats_cap: number
-			author_count: number
-			operator_count: number
-			current_cu: number
-			cu_cap: number
-			cu_over_cap: boolean
-		}
+	let offlineCapStatus: {
+		seats_used: number
+		seats_cap: number
+		author_count: number
+		operator_count: number
+		current_cu: number
+		cu_cap: number
+		cu_over_cap: boolean
 	} | null = $state(null)
 
 	function showSetting(setting: string, values: Record<string, any>) {
@@ -96,9 +84,9 @@
 
 	async function reloadLicenseStatus() {
 		try {
-			licenseStatus = (await SettingService.getLicenseStatus()) as any
+			offlineCapStatus = (await SettingService.getOfflineLicenseStatus()) as any
 		} catch {
-			licenseStatus = null
+			offlineCapStatus = null
 		}
 	}
 
@@ -463,7 +451,7 @@
 								</div>
 							{/if}
 						{/if}
-						{#if latestKeyRenewalAttempt && licenseStatus?.kind !== 'offline'}
+						{#if latestKeyRenewalAttempt && !offlineCapStatus}
 							{@const attemptedAt = new Date(latestKeyRenewalAttempt.attempted_at).toLocaleString()}
 							{@const isTrial = latestKeyRenewalAttempt.result.startsWith('error: trial:')}
 							<div class="relative">
@@ -533,8 +521,8 @@
 							</div>
 						{/if}
 
-						{#if licenseStatus?.kind === 'offline' && licenseStatus.cap_status}
-							{@const cap = licenseStatus.cap_status}
+						{#if offlineCapStatus}
+							{@const cap = offlineCapStatus}
 							{@const seatsOver = cap.seats_used > cap.seats_cap}
 							{@const cuOver = cap.cu_over_cap}
 							<div class="mt-1 flex flex-row items-center gap-2 text-xs">
@@ -563,7 +551,7 @@
 
 						{#if valid || expiration}
 							<div class="flex flex-row gap-2 mt-1">
-								{#if licenseStatus?.kind !== 'offline'}
+								{#if !offlineCapStatus}
 									<Button on:click={renewLicenseKey} loading={renewing} size="xs" variant="accent"
 										>Renew key
 									</Button>

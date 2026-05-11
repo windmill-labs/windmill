@@ -118,7 +118,7 @@ pub fn global_service() -> Router {
             get(get_latest_key_renewal_attempt),
         )
         .route("/renew_license_key", post(renew_license_key))
-        .route("/license_status", get(get_license_status))
+        .route("/offline_license_status", get(get_offline_license_status))
         .route("/instance_hash", get(get_instance_hash))
         .route("/customer_portal", post(create_customer_portal_session))
         .route("/test_critical_channels", post(test_critical_channels))
@@ -351,63 +351,40 @@ pub async fn test_license_key(
     }
 }
 
-#[derive(Serialize)]
-pub struct LicenseStatus {
-    pub license_key_id: String,
-    pub license_key_valid: bool,
-    pub kind: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub offline: Option<windmill_common::ee_oss::OfflineMetadata>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cap_status: Option<windmill_common::ee_oss::OfflineCapStatus>,
-}
-
 #[derive(serde::Serialize)]
 pub struct InstanceHash {
     pub instance_hash: Option<String>,
 }
 
-pub async fn get_license_status(
+/// Returns the live cap status for an offline license, or `null` when no
+/// offline license is loaded. Used by the superadmin settings panel.
+pub async fn get_offline_license_status(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
-) -> error::JsonResult<LicenseStatus> {
+) -> error::JsonResult<Option<windmill_common::ee_oss::OfflineCapStatus>> {
     require_super_admin(&db, &authed.email).await?;
 
-    let license_key_id = (**windmill_common::ee_oss::LICENSE_KEY_ID.load()).clone();
     let offline = (**windmill_common::ee_oss::LICENSE_OFFLINE_METADATA.load()).clone();
+    let is_offline = matches!(&offline, Some(m) if m.is_offline());
 
-    let (kind, cap_status) = match offline.as_ref() {
-        Some(m) if m.is_offline() => {
-            #[cfg(feature = "enterprise")]
-            let cap = windmill_common::ee_oss::enforce_offline_caps(&db)
-                .await
-                .ok()
-                .flatten();
-            #[cfg(not(feature = "enterprise"))]
-            let cap: Option<windmill_common::ee_oss::OfflineCapStatus> = None;
-            ("offline", cap)
-        }
-        _ => ("online", None),
-    };
+    if !is_offline {
+        return Ok(Json(None));
+    }
 
-    // Read after enforce_offline_caps runs so a freshly-flipped invalid state
-    // (cap exceeded) is reflected in the same response.
-    let license_key_valid =
-        windmill_common::ee_oss::LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed);
+    #[cfg(feature = "enterprise")]
+    let cap = windmill_common::ee_oss::enforce_offline_caps(&db)
+        .await
+        .ok()
+        .flatten();
+    #[cfg(not(feature = "enterprise"))]
+    let cap: Option<windmill_common::ee_oss::OfflineCapStatus> = None;
 
-    Ok(Json(LicenseStatus {
-        license_key_id,
-        license_key_valid,
-        kind,
-        offline,
-        cap_status,
-    }))
+    Ok(Json(cap))
 }
 
 /// Returns the per-instance binding hash that goes into offline license keys.
-/// Intentionally a separate, explicitly-requested endpoint (not embedded in
-/// `/settings/license_status`) so it isn't leaked on every status poll. Admin
-/// invokes via `curl` with their personal token when requesting a key from support.
+/// Admin invokes via `curl` with their personal token when requesting a key
+/// from support.
 pub async fn get_instance_hash(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,

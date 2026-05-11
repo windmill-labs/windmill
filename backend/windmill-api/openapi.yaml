@@ -1779,63 +1779,41 @@ paths:
               schema:
                 type: string
 
-  /settings/license_status:
+  /settings/offline_license_status:
     get:
-      summary: get current license status (offline metadata + cap usage)
-      operationId: getLicenseStatus
+      summary: get cap-usage status for the currently-loaded offline license
+      description: |
+        Returns the live cap status (seats used vs cap, current CU vs cap) for
+        the offline license key currently in use. Returns `null` if no offline
+        license is loaded. Super-admin only.
+      operationId: getOfflineLicenseStatus
       tags:
         - setting
       responses:
         "200":
-          description: license status
+          description: cap status (or null when no offline license)
           content:
             application/json:
               schema:
                 type: object
-                required: [license_key_id, license_key_valid, kind]
+                nullable: true
                 properties:
-                  license_key_id:
-                    type: string
-                  license_key_valid:
+                  seats_used:
+                    type: number
+                    description: Author-equivalent seats consumed (authors + 0.5 × operators)
+                  seats_cap:
+                    type: integer
+                  author_count:
+                    type: integer
+                  operator_count:
+                    type: integer
+                  current_cu:
+                    type: number
+                    description: Sum of CU rate across workers that pinged in the last 2 minutes.
+                  cu_cap:
+                    type: number
+                  cu_over_cap:
                     type: boolean
-                  kind:
-                    type: string
-                    enum: [offline, online]
-                  offline:
-                    type: object
-                    nullable: true
-                    properties:
-                      v:
-                        type: integer
-                      kind:
-                        type: string
-                      hash:
-                        type: string
-                      seats:
-                        type: integer
-                        description: Total seats (author-equivalent; 1 author = 1 seat, 1 operator = 0.5 seats)
-                      cu_limit:
-                        type: number
-                  cap_status:
-                    type: object
-                    nullable: true
-                    properties:
-                      seats_used:
-                        type: number
-                        description: Author-equivalent seats consumed (authors + 0.5 × operators)
-                      seats_cap:
-                        type: integer
-                      author_count:
-                        type: integer
-                      operator_count:
-                        type: integer
-                      current_cu:
-                        type: number
-                        description: Sum of CU rate across workers that pinged in the last 2 minutes.
-                      cu_cap:
-                        type: number
-                      cu_over_cap:
-                        type: boolean
 
   /settings/instance_hash:
     get:
