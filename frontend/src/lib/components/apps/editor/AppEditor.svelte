@@ -27,7 +27,14 @@
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import Tabs from '$lib/components/common/tabs/TabsV2.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { classNames, getModifierKey, sendUserToast, urlParamsToObject } from '$lib/utils'
+	import {
+		classNames,
+		getModifierKey,
+		readFieldsRecursively,
+		sendUserToast,
+		urlParamsToObject
+	} from '$lib/utils'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import AppPreview from './AppPreview.svelte'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
@@ -78,6 +85,17 @@
 
 	const stateApp = $state(untrack(() => app))
 	const appStore = writable<App>(stateApp)
+
+	// New apps are in-memory only (empty path bypasses localStorage); edits to
+	// an existing path persist to userdraft/w/{ws}/app/{path}. We register a
+	// use() handle so subsequent writes go through useLocalStorageValue's
+	// lastSerialized dedup rather than blindly hitting localStorage each tick.
+	const appDraftPath = newApp ? '' : (path ?? '')
+	const appDraftHandle = UserDraft.use<App>('app', appDraftPath)
+	$effect(() => {
+		readFieldsRecursively(stateApp)
+		appDraftHandle.draft = stateApp
+	})
 	const selectedComponent = writable<string[] | undefined>(undefined)
 
 	// $: selectedComponent.subscribe((s) => {

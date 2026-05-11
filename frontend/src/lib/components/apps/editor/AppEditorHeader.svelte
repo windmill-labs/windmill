@@ -5,6 +5,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AppService, DraftService, type Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history.svelte'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import type { Item } from '$lib/utils'
 	import {
@@ -195,6 +196,7 @@
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
+			UserDraft.remove('app', path)
 			onSavedNewAppPath?.(path)
 		} catch (e) {
 			sendUserToast('Error creating app', e)
@@ -293,6 +295,7 @@
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
+		UserDraft.remove('app', $appPath)
 		if ($appPath !== npath) {
 			onSavedNewAppPath?.(npath)
 		}
@@ -365,6 +368,10 @@
 			}
 
 			draftDrawerOpen = false
+			// When the initial draft was created at a new path, the editor
+			// will navigate to the new URL; the empty-path in-memory entry
+			// is implicitly dropped.
+			UserDraft.remove('app', $appPath)
 			onSavedNewAppPath?.(newEditedPath)
 		} catch (e) {
 			sendUserToast('Error saving initial draft', e)
@@ -455,6 +462,7 @@
 			}
 
 			sendUserToast('Draft saved')
+			UserDraft.remove('app', path)
 			loading.saveDraft = false
 			if (newApp || savedApp.draft_only) {
 				onSavedNewAppPath?.(newEditedPath || path)

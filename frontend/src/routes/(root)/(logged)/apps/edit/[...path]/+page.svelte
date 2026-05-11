@@ -7,7 +7,7 @@
 		DraftService
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { cleanValueProperties, type Value } from '$lib/utils'
+	import { cleanValueProperties, orderedJsonStringify, type Value } from '$lib/utils'
 	import { afterNavigate, replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -17,6 +17,7 @@
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
+	import { UserDraft } from '$lib/userDraft.svelte'
 
 	let app = $state(
 		undefined as (AppWithLastVersion & { draft_only?: boolean; value: any }) | undefined
@@ -71,50 +72,87 @@
 			custom_path: app_w_draft_.custom_path
 		}
 
-		if (app_w_draft.draft) {
-			if (app_w_draft.summary !== undefined) {
-				// backward compatibility for old drafts missing metadata
-				app = {
-					...app_w_draft,
-					...app_w_draft.draft
-				}
-			} else {
-				app = {
-					...app_w_draft,
-					value: app_w_draft.draft as any
-				}
+		// Resolve the app value: backend draft > deployed, then overlay any
+		// local autosave from UserDraft if present.
+		const backendApp = app_w_draft.draft
+			? app_w_draft.summary !== undefined
+				? ({ ...app_w_draft, ...app_w_draft.draft } as AppWithLastVersion & {
+						draft_only?: boolean
+						value: any
+					})
+				: ({ ...app_w_draft, value: app_w_draft.draft } as AppWithLastVersion & {
+						draft_only?: boolean
+						value: any
+					})
+			: app_w_draft
+
+		const localDraftValue = UserDraft.get<App>('app', path)
+		if (
+			localDraftValue != undefined &&
+			orderedJsonStringify(cleanValueProperties(localDraftValue)) !==
+				orderedJsonStringify(cleanValueProperties(backendApp.value))
+		) {
+			const reloadAction = async () => {
+				UserDraft.remove('app', path)
+				await loadApp()
+				redraw++
 			}
-
-			if (!app_w_draft.draft_only) {
-				const reloadAction = () => {
-					app = app_w_draft
-					redraw++
-				}
-
-				const deployed = cleanValueProperties(app_w_draft as Value)
-				const draft = cleanValueProperties(app ?? {})
-				sendUserToast('app loaded from latest saved draft', false, [
-					{
-						label: 'Discard draft and load from latest deployed version',
-						callback: reloadAction
-					},
-					{
-						label: 'Show diff',
-						callback: async () => {
-							diffDrawer?.openDrawer()
-							diffDrawer?.setDiff({
-								mode: 'simple',
-								original: deployed,
-								current: draft,
-								title: 'Deployed <> Draft',
-								button: { text: 'Discard draft', onClick: reloadAction }
-							})
-						}
+			const deployed = cleanValueProperties(savedApp?.draft || savedApp)
+			const local = { ...deployed, value: localDraftValue }
+			sendUserToast('App restored from local autosave', false, [
+				{
+					label: 'Discard local autosave and reload',
+					callback: reloadAction
+				},
+				{
+					label: 'Show diff',
+					callback: async () => {
+						diffDrawer?.openDrawer()
+						diffDrawer?.setDiff({
+							mode: 'simple',
+							original: deployed,
+							current: local,
+							title: `${savedApp?.draft ? 'Latest saved draft' : 'Deployed'} <> Autosave`,
+							button: { text: 'Discard autosave', onClick: reloadAction }
+						})
 					}
-				])
-			}
+				}
+			])
+			app = { ...backendApp, value: localDraftValue }
 		} else {
-			app = app_w_draft
+			// Local is missing or matches backend — wipe any stale entry so it
+			// doesn't haunt the next session and use the backend value.
+			if (localDraftValue != undefined) UserDraft.remove('app', path)
+			app = backendApp
+		}
+
+		if (app_w_draft.draft && !app_w_draft.draft_only && localDraftValue == undefined) {
+			const reloadAction = () => {
+				app = app_w_draft
+				redraw++
+			}
+
+			const deployed = cleanValueProperties(app_w_draft as Value)
+			const draft = cleanValueProperties(app ?? {})
+			sendUserToast('app loaded from latest saved draft', false, [
+				{
+					label: 'Discard draft and load from latest deployed version',
+					callback: reloadAction
+				},
+				{
+					label: 'Show diff',
+					callback: async () => {
+						diffDrawer?.openDrawer()
+						diffDrawer?.setDiff({
+							mode: 'simple',
+							original: deployed,
+							current: draft,
+							title: 'Deployed <> Draft',
+							button: { text: 'Discard draft', onClick: reloadAction }
+						})
+					}
+				}
+			])
 		}
 	}
 
@@ -132,6 +170,7 @@
 			return
 		}
 		diffDrawer?.closeDrawer()
+		UserDraft.remove('app', path)
 		goto(`/apps/edit/${savedApp.draft.path}`)
 		await loadApp()
 		redraw++
@@ -150,6 +189,7 @@
 				path: savedApp.path
 			})
 		}
+		UserDraft.remove('app', path)
 		goto(`/apps/edit/${savedApp.path}`)
 		await loadApp()
 		redraw++

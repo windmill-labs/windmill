@@ -5,6 +5,7 @@
 
 	import JsonEditor from '../../JsonEditor.svelte'
 	import { AppService, DraftService } from '$lib/gen'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
@@ -45,6 +46,7 @@
 			requestBody: { ...app, value: JSON.parse(code) }
 		})
 		dispatch('change')
+		UserDraft.remove('app', path)
 		sendUserToast('App deployed')
 	}
 
@@ -58,6 +60,7 @@
 			}
 		})
 		dispatch('change')
+		UserDraft.remove('app', path)
 		sendUserToast('Draft saved')
 	}
 </script>
