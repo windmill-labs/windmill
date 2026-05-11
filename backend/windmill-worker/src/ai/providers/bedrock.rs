@@ -6,9 +6,9 @@
 //! - Stream event parsing
 //! - Helper utilities
 
-use crate::ai::image_handler::prepare_messages_for_api;
 use std::collections::HashMap;
 use windmill_ai::{
+    image_handler::prepare_messages_for_api,
     query_builder::{ParsedResponse, StreamEventSink},
     types::{OpenAIMessage, StreamingEvent, TokenUsage, ToolDef},
 };
