@@ -297,7 +297,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 
 	$effect(() => {
 		if (highlightedKey && navKeys.includes(highlightedKey)) {
-			queueMicrotask(scrollHighlightIntoView)
+			requestAnimationFrame(scrollHighlightIntoView)
 		}
 	})
 
@@ -306,7 +306,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		const el = pickerRoot.querySelector<HTMLElement>(
 			`[data-nav-key="${CSS.escape(highlightedKey)}"]`
 		)
-		el?.scrollIntoView({ block: 'nearest' })
+		el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
 	}
 
 	function moveHighlight(delta: 1 | -1) {
@@ -315,7 +315,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		const next = cur < 0 ? 0 : (cur + delta + navKeys.length) % navKeys.length
 		highlightedKey = navKeys[next]
 		mouseActive = false
-		queueMicrotask(scrollHighlightIntoView)
+		requestAnimationFrame(scrollHighlightIntoView)
 	}
 
 	function setHoverHighlight(key: string) {
