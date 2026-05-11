@@ -27,6 +27,7 @@
 	import { type DurationStatus, type FlowStatusViewerContext, type GraphModuleState } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
 	import { clone, isScriptPreview, msToSec, readFieldsRecursively, truncateRev } from '$lib/utils'
+	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import JobArgs from './JobArgs.svelte'
 	import { ChevronDown, Download, ExternalLink, Hourglass } from 'lucide-svelte'
 	import { deepEqual } from 'fast-equals'
@@ -1838,16 +1839,29 @@
 				style="min-height: {minTabHeight}px"
 			>
 				{#if !hideDownloadLogs && !isReplay && job?.id}
+					{@const logsApiPath = `/w/${workspace}/jobs_u/get_flow_all_logs/${job.id}`}
+					{@const logsName = `windmill_flow_logs_${job.id}.txt`}
 					<div class="flex justify-end p-1">
-						<Button
-							href="{base}/api/w/{workspace}/jobs_u/get_flow_all_logs/{job.id}"
-							download="windmill_flow_logs_{job.id}.txt"
-							color="light"
-							size="xs"
-							startIcon={{ icon: Download }}
-						>
-							Download all logs
-						</Button>
+						{#if shouldDownloadViaClient()}
+							<Button
+								on:click={() => downloadViaClient(logsApiPath, logsName)}
+								color="light"
+								size="xs"
+								startIcon={{ icon: Download }}
+							>
+								Download all logs
+							</Button>
+						{:else}
+							<Button
+								href="{base}/api{logsApiPath}"
+								download={logsName}
+								color="light"
+								size="xs"
+								startIcon={{ icon: Download }}
+							>
+								Download all logs
+							</Button>
+						{/if}
 					</div>
 				{/if}
 				<FlowLogViewerWrapper
