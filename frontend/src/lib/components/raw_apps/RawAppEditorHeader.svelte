@@ -4,6 +4,7 @@
 	import UndoRedo from '$lib/components/common/button/UndoRedo.svelte'
 
 	import { AppService, DraftService, type Policy } from '$lib/gen'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import { rawAppToHubUrl } from '$lib/hub'
 	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
 	import YAML from 'yaml'
@@ -233,6 +234,7 @@
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
+			UserDraft.remove('raw_app', path)
 			dispatch('savedNewAppPath', path)
 		} catch (e) {
 			sendUserToast('Error creating app', e)
@@ -342,6 +344,7 @@
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
+		UserDraft.remove('raw_app', appPath)
 		if (appPath !== npath) {
 			dispatch('savedNewAppPath', npath)
 		}
@@ -420,6 +423,9 @@
 			}
 
 			draftDrawerOpen = false
+			// /apps_raw/add was in-memory (empty path); drop that entry so it
+			// doesn't shadow a future fresh /add visit before we navigate.
+			UserDraft.remove('raw_app', appPath)
 			dispatch('savedNewAppPath', newEditedPath)
 		} catch (e) {
 			sendUserToast('Error saving initial draft', e)
@@ -520,6 +526,7 @@
 			}
 
 			sendUserToast('Draft saved')
+			UserDraft.remove('raw_app', path)
 			loading.saveDraft = false
 			if (newApp || savedApp.draft_only) {
 				dispatch('savedNewAppPath', newEditedPath || path)

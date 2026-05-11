@@ -11,6 +11,8 @@
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import FileEditorIcon from '$lib/components/raw_apps/FileEditorIcon.svelte'
+	import { UserDraft } from '$lib/userDraft.svelte'
+	import { readFieldsRecursively } from '$lib/utils'
 	import { react18Template, react19Template, svelte5Template } from './templates'
 	import type { Runnable } from '$lib/components/raw_apps/rawAppPolicy'
 	import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
@@ -97,6 +99,23 @@
 	})
 	/** Data configuration including tables and creation policy */
 	let data: RawAppData = $state({ ...DEFAULT_DATA })
+
+	// Empty path → in-memory only; this just keeps the API uniform with
+	// /apps_raw/edit so multiple components reading the draft stay in sync.
+	const draftHandle = UserDraft.use<{
+		files: Record<string, string>
+		runnables: Record<string, Runnable>
+		data: RawAppData
+		summary: string
+	}>('raw_app', '')
+	$effect(() => {
+		readFieldsRecursively(files)
+		readFieldsRecursively(runnables)
+		readFieldsRecursively(data)
+		void summary
+		draftHandle.draft = { files, runnables, data, summary }
+	})
+
 	loadApp()
 
 	function extractValue(value: any) {

@@ -3,7 +3,12 @@
 
 	import { AppService, DraftService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { cleanValueProperties, type Value } from '$lib/utils'
+	import {
+		cleanValueProperties,
+		orderedJsonStringify,
+		readFieldsRecursively,
+		type Value
+	} from '$lib/utils'
 	import { afterNavigate, replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -13,6 +18,15 @@
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { page } from '$app/state'
 	import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
+	import { UserDraft } from '$lib/userDraft.svelte'
+
+	type RawAppDraft = {
+		files: Record<string, string>
+		runnables: Record<string, any>
+		data: RawAppData
+		summary: string
+	}
+
 	let files: Record<string, string> | undefined = $state(undefined)
 	let runnables = $state({})
 	/** Data configuration including tables and creation policy */
@@ -38,6 +52,18 @@
 		| undefined = $state(undefined)
 	let redraw = $state(0)
 	let path = page.params.path ?? ''
+
+	const draftHandle = UserDraft.use<RawAppDraft>('raw_app', path)
+
+	// Persist the bundle whenever any of the four pieces of state changes.
+	$effect(() => {
+		if (!files) return
+		readFieldsRecursively(files)
+		readFieldsRecursively(runnables)
+		readFieldsRecursively(data)
+		void summary
+		draftHandle.draft = { files, runnables, data, summary }
+	})
 
 	let nodraft = page.url.searchParams.get('nodraft')
 
@@ -90,10 +116,61 @@
 			custom_path: app_w_draft_.custom_path
 		}
 
-		if (app_w_draft.draft) {
-			extractRawApp(app_w_draft.draft)
+		const backendSource: any = app_w_draft.draft ? app_w_draft.draft : app_w_draft
+		const localDraft = UserDraft.get<RawAppDraft>('raw_app', path)
+		const backendBundle: RawAppDraft = {
+			files: backendSource.value?.files ?? {},
+			runnables: backendSource.value?.runnables ?? {},
+			data:
+				backendSource.value?.data ??
+				(backendSource.value?.datatables
+					? { ...DEFAULT_DATA, tables: backendSource.value.datatables }
+					: { ...DEFAULT_DATA }),
+			summary: backendSource.summary ?? ''
+		}
 
-			if (!app_w_draft.draft_only) {
+		if (
+			localDraft != undefined &&
+			orderedJsonStringify(cleanValueProperties(localDraft)) !==
+				orderedJsonStringify(cleanValueProperties(backendBundle))
+		) {
+			const reloadAction = async () => {
+				UserDraft.remove('raw_app', path)
+				await loadApp()
+				redraw++
+			}
+			const deployed = cleanValueProperties(app_w_draft as Value)
+			const local = { ...deployed, value: localDraft }
+			sendUserToast('App restored from local autosave', false, [
+				{
+					label: 'Discard local autosave and reload',
+					callback: reloadAction
+				},
+				{
+					label: 'Show diff',
+					callback: async () => {
+						diffDrawer?.openDrawer()
+						diffDrawer?.setDiff({
+							mode: 'simple',
+							original: deployed,
+							current: local,
+							title: `${app_w_draft.draft ? 'Latest saved draft' : 'Deployed'} <> Autosave`,
+							button: { text: 'Discard autosave', onClick: reloadAction }
+						})
+					}
+				}
+			])
+			runnables = localDraft.runnables
+			data = localDraft.data
+			summary = localDraft.summary
+			policy = app_w_draft.policy
+			newPath = app_w_draft.path
+			files = localDraft.files
+		} else {
+			if (localDraft != undefined) UserDraft.remove('raw_app', path)
+			extractRawApp(backendSource)
+
+			if (app_w_draft.draft && !app_w_draft.draft_only) {
 				const reloadAction = () => {
 					extractRawApp(app_w_draft)
 					redraw++
@@ -121,8 +198,6 @@
 					}
 				])
 			}
-		} else {
-			extractRawApp(app_w_draft)
 		}
 	}
 
@@ -138,6 +213,7 @@
 			return
 		}
 		diffDrawer?.closeDrawer()
+		UserDraft.remove('raw_app', path)
 		goto(`/apps/edit/${savedApp.draft.path}`)
 		await loadApp()
 		redraw++
@@ -156,6 +232,7 @@
 				path: savedApp.path
 			})
 		}
+		UserDraft.remove('raw_app', path)
 		goto(`/apps/edit/${savedApp.path}`)
 		await loadApp()
 		redraw++
@@ -185,6 +262,7 @@
 		<div class="h-screen">
 			<RawAppEditor
 				on:savedNewAppPath={(event) => {
+					UserDraft.remove('raw_app', path)
 					goto(`/apps_raw/edit/${event.detail}`)
 					newPath = event.detail
 				}}
