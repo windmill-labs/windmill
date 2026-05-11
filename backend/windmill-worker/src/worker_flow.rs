@@ -5914,7 +5914,12 @@ pub fn get_transform_context(
         .filter_map(|x| x.job_result().map(|y| (x.id(), y)))
         .collect();
 
-    IdContext { flow_job: flow_job.id, steps_results, previous_id: previous_id.to_string() }
+    IdContext {
+        flow_job: flow_job.id,
+        root_flow_job: get_root_job_id(flow_job),
+        steps_results,
+        previous_id: previous_id.to_string(),
+    }
 }
 
 // trait IntoArray: Sized {
