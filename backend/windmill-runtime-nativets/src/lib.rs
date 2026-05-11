@@ -50,6 +50,28 @@ use windmill_common::error::Error;
 use windmill_common::result_stream::append_result_stream_db;
 use windmill_common::worker::{write_file, Connection, WINDMILL_DIR};
 
+// ── Snapshot-matched extensions ──────────────────────────────────────
+//
+// `deno_core` 0.352 validates that the snapshot's extension list is a
+// *prefix* of the runtime's extension list (snapshot does not need an
+// exact match — runtime is allowed to add extensions at the tail, but
+// must not reorder or omit any that the snapshot baked in).
+//
+// Our snapshot (in build.rs) is the same eight deno_* extensions ending
+// with this local `fetch` ext. The runtime adds one extra entry at the
+// end — the windmill `ext` carrying our own ops — which is fine because
+// it's after the snapshot prefix.
+//
+// This local `fetch` extension declaration must be present in both
+// build.rs and lib.rs so the type passes through the `init()` macro.
+// The ESM is already in the snapshot, so this `init()` call at runtime
+// is a no-op for esm — the registration just records the ext.
+deno_core::extension!(
+    fetch,
+    esm_entry_point = "ext:fetch/src/runtime.js",
+    esm = ["src/runtime.js"],
+);
+
 // ── Permission container ─────────────────────────────────────────────
 
 pub struct PermissionsContainer;
@@ -67,11 +89,31 @@ impl FetchPermissions for PermissionsContainer {
     #[inline(always)]
     fn check_read<'a>(
         &mut self,
-        _resolved: bool,
-        p: &'a std::path::Path,
+        path: Cow<'a, std::path::Path>,
         _api_name: &str,
-    ) -> Result<Cow<'a, std::path::Path>, deno_io::fs::FsError> {
-        Ok(Cow::Borrowed(p))
+        _get_path: &'a dyn deno_fs::GetPath,
+    ) -> Result<deno_fs::CheckedPath<'a>, deno_io::fs::FsError> {
+        Ok(deno_fs::CheckedPath::Unresolved(path))
+    }
+
+    #[inline(always)]
+    fn check_write<'a>(
+        &mut self,
+        path: Cow<'a, std::path::Path>,
+        _api_name: &str,
+        _get_path: &'a dyn deno_fs::GetPath,
+    ) -> Result<deno_fs::CheckedPath<'a>, deno_io::fs::FsError> {
+        Ok(deno_fs::CheckedPath::Unresolved(path))
+    }
+
+    #[inline(always)]
+    fn check_net_vsock(
+        &mut self,
+        _cid: u32,
+        _port: u32,
+        _api_name: &str,
+    ) -> Result<(), deno_permissions::PermissionCheckError> {
+        Ok(())
     }
 }
 
@@ -83,17 +125,17 @@ impl TimersPermission for PermissionsContainer {
 }
 
 impl NetPermissions for PermissionsContainer {
-    fn check_read<'a>(
+    fn check_read(
         &mut self,
-        p: &'a str,
+        p: &str,
         _api_name: &str,
     ) -> Result<PathBuf, deno_permissions::PermissionCheckError> {
         Ok(PathBuf::from(p))
     }
 
-    fn check_write<'a>(
+    fn check_write(
         &mut self,
-        p: &'a str,
+        p: &str,
         _api_name: &str,
     ) -> Result<PathBuf, deno_permissions::PermissionCheckError> {
         Ok(PathBuf::from(p))
@@ -109,10 +151,19 @@ impl NetPermissions for PermissionsContainer {
 
     fn check_write_path<'a>(
         &mut self,
-        p: &'a std::path::Path,
+        p: Cow<'a, std::path::Path>,
         _api_name: &str,
-    ) -> Result<std::borrow::Cow<'a, std::path::Path>, deno_permissions::PermissionCheckError> {
-        Ok(Cow::Borrowed(p))
+    ) -> Result<Cow<'a, std::path::Path>, deno_permissions::PermissionCheckError> {
+        Ok(p)
+    }
+
+    fn check_vsock(
+        &mut self,
+        _cid: u32,
+        _port: u32,
+        _api_name: &str,
+    ) -> Result<(), deno_permissions::PermissionCheckError> {
+        Ok(())
     }
 }
 
@@ -384,7 +435,7 @@ pub(crate) fn create_nativets_runtime(
     let fetch_options = deno_fetch::Options {
         root_cert_store_provider: None,
         user_agent: ann.useragent.unwrap_or_else(|| "windmill/beta".to_string()),
-        proxy: ann.proxy.map(|x| deno_tls::Proxy {
+        proxy: ann.proxy.map(|x| deno_tls::Proxy::Http {
             url: x.0,
             basic_auth: x
                 .1
@@ -394,13 +445,14 @@ pub(crate) fn create_nativets_runtime(
     };
 
     let exts: Vec<Extension> = vec![
-        deno_telemetry::deno_telemetry::init_ops(),
-        deno_webidl::deno_webidl::init_ops(),
-        deno_url::deno_url::init_ops(),
-        deno_console::deno_console::init_ops(),
-        deno_web::deno_web::init_ops::<PermissionsContainer>(Arc::new(BlobStore::default()), None),
-        deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(fetch_options),
-        deno_net::deno_net::init_ops::<PermissionsContainer>(None, None),
+        deno_telemetry::deno_telemetry::init(),
+        deno_webidl::deno_webidl::init(),
+        deno_url::deno_url::init(),
+        deno_console::deno_console::init(),
+        deno_web::deno_web::init::<PermissionsContainer>(Arc::new(BlobStore::default()), None),
+        deno_fetch::deno_fetch::init::<PermissionsContainer>(fetch_options),
+        deno_net::deno_net::init::<PermissionsContainer>(None, None),
+        fetch::init(),
         ext,
     ];
 

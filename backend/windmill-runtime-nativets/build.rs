@@ -25,10 +25,30 @@ impl FetchPermissions for PermissionsContainer {
     #[inline(always)]
     fn check_read<'a>(
         &mut self,
-        _resolved: bool,
-        _p: &'a std::path::Path,
+        _path: Cow<'a, Path>,
         _api_name: &str,
-    ) -> Result<Cow<'a, std::path::Path>, deno_io::fs::FsError> {
+        _get_path: &'a dyn deno_fs::GetPath,
+    ) -> Result<deno_fs::CheckedPath<'a>, deno_io::fs::FsError> {
+        unreachable!("snapshotting")
+    }
+
+    #[inline(always)]
+    fn check_write<'a>(
+        &mut self,
+        _path: Cow<'a, Path>,
+        _api_name: &str,
+        _get_path: &'a dyn deno_fs::GetPath,
+    ) -> Result<deno_fs::CheckedPath<'a>, deno_io::fs::FsError> {
+        unreachable!("snapshotting")
+    }
+
+    #[inline(always)]
+    fn check_net_vsock(
+        &mut self,
+        _cid: u32,
+        _port: u32,
+        _api_name: &str,
+    ) -> Result<(), deno_permissions::PermissionCheckError> {
         unreachable!("snapshotting")
     }
 }
@@ -41,17 +61,17 @@ impl TimersPermission for PermissionsContainer {
 }
 
 impl NetPermissions for PermissionsContainer {
-    fn check_read<'a>(
+    fn check_read(
         &mut self,
-        _p: &'a str,
+        _p: &str,
         _api_name: &str,
     ) -> Result<PathBuf, deno_permissions::PermissionCheckError> {
         unreachable!("snapshotting")
     }
 
-    fn check_write<'a>(
+    fn check_write(
         &mut self,
-        _p: &'a str,
+        _p: &str,
         _api_name: &str,
     ) -> Result<PathBuf, deno_permissions::PermissionCheckError> {
         unreachable!("snapshotting")
@@ -67,10 +87,19 @@ impl NetPermissions for PermissionsContainer {
 
     fn check_write_path<'a>(
         &mut self,
-        _: &'a Path,
-        _: &str,
+        _p: Cow<'a, Path>,
+        _api_name: &str,
     ) -> Result<Cow<'a, Path>, deno_permissions::PermissionCheckError> {
-        todo!()
+        unreachable!("snapshotting")
+    }
+
+    fn check_vsock(
+        &mut self,
+        _cid: u32,
+        _port: u32,
+        _api_name: &str,
+    ) -> Result<(), deno_permissions::PermissionCheckError> {
+        unreachable!("snapshotting")
     }
 }
 
@@ -83,7 +112,7 @@ deno_core::extension!(
 // `extension_transpiler` callback for `deno_core::snapshot::create_snapshot`.
 //
 // Specialized to our snapshot's inputs. Of the seven deno_* extensions
-// we register via `init_ops_and_esm()`, six ship pre-built `.js` files
+// we register via `init()`, six ship pre-built `.js` files
 // in their `esm` lists (webidl/url/console/web/fetch/net) — only
 // `deno_telemetry`'s `extension!` macro lists `.ts` files
 // (`telemetry.ts`, `util.ts`), so the TypeScript branch is needed
@@ -153,17 +182,14 @@ fn main() {
     println!("cargo:rustc-env=PROFILE={}", env::var("PROFILE").unwrap());
 
     let exts = vec![
-        deno_telemetry::deno_telemetry::init_ops_and_esm(),
-        deno_webidl::deno_webidl::init_ops_and_esm(),
-        deno_url::deno_url::init_ops_and_esm(),
-        deno_console::deno_console::init_ops_and_esm(),
-        deno_web::deno_web::init_ops_and_esm::<PermissionsContainer>(
-            Arc::new(BlobStore::default()),
-            None,
-        ),
-        deno_fetch::deno_fetch::init_ops_and_esm::<PermissionsContainer>(Default::default()),
-        deno_net::deno_net::init_ops_and_esm::<PermissionsContainer>(None, None),
-        fetch::init_ops_and_esm(),
+        deno_telemetry::deno_telemetry::init(),
+        deno_webidl::deno_webidl::init(),
+        deno_url::deno_url::init(),
+        deno_console::deno_console::init(),
+        deno_web::deno_web::init::<PermissionsContainer>(Arc::new(BlobStore::default()), None),
+        deno_fetch::deno_fetch::init::<PermissionsContainer>(Default::default()),
+        deno_net::deno_net::init::<PermissionsContainer>(None, None),
+        fetch::init(),
     ];
 
     // Build the file path to the snapshot.
