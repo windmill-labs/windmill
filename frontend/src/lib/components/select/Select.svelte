@@ -205,7 +205,8 @@
 				loading || (clearable && !disabled && value) || RightIcon ? 'pr-7' : '',
 				inputClass ?? '',
 				'empty:before:content-[attr(data-placeholder)]',
-				!value ? 'empty:before:text-hint' : 'empty:before:text-primary'
+				!value ? 'empty:before:text-hint' : 'empty:before:text-primary',
+				disabled && '!bg-surface-disabled !border-transparent !text-disabled pointer-events-none'
 			)}
 			data-placeholder={placeholderText}
 			oninput={(e) => {

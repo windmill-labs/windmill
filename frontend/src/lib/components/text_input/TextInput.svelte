@@ -152,6 +152,7 @@
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		role="textbox"
+		aria-disabled={disabled}
 		tabindex={disabled ? -1 : 0}
 		contenteditable={!disabled}
 		{...divProps}
@@ -160,7 +161,8 @@
 			'whitespace-pre overflow-hidden',
 			inputLeadingClasses[size],
 			'focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0',
-			'empty:before:content-[attr(data-placeholder)] empty:before:text-hint'
+			'empty:before:content-[attr(data-placeholder)] empty:before:text-hint',
+			disabled && '!bg-surface-disabled !border-transparent !text-disabled'
 		)}
 		data-placeholder={placeholder ?? ''}
 		onpointerdown={(e) => e.stopImmediatePropagation()}

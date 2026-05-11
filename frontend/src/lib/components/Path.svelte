@@ -37,6 +37,7 @@
 	import PathNameAutocomplete from './PathNameAutocomplete.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import Select from './select/Select.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	type PathKind =
 		| 'resource'
@@ -405,7 +406,11 @@
 
 <div>
 	<div
-		class="flex gap-0 pb-0 mb-1 flex-col flex-wrap sm:flex-row sm:items-center border rounded-md bg-surface-input"
+		class={twMerge(
+			'flex gap-0 pb-0 mb-1 flex-col flex-wrap sm:flex-row sm:items-center border rounded-md',
+			error ? 'border-red-500' : '',
+			disabled ? 'bg-surface-disabled cursor-not-allowed border-none' : 'bg-surface-input'
+		)}
 	>
 		{#if meta != undefined}
 			<!-- svelte-ignore a11y_label_has_associated_control -->
