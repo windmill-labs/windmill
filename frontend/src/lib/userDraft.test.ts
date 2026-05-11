@@ -170,6 +170,98 @@ describe('UserDraft.use() — observer sync', () => {
 	})
 })
 
+describe('UserDraft.use() — defaultValue', () => {
+	it('returns defaultValue when localStorage has no entry', () => {
+		const handle = UserDraft.use<{ value: string }>('flow', 'u/me/withdefault', {
+			defaultValue: { value: 'fallback' }
+		})
+
+		expect(handle.draft).toEqual({ value: 'fallback' })
+	})
+
+	it('does not persist the defaultValue on first read', () => {
+		UserDraft.use<{ value: string }>('flow', 'u/me/lazyDefault', {
+			defaultValue: { value: 'fallback' }
+		})
+
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/lazyDefault')).toBeNull()
+	})
+
+	it('localStorage value wins over defaultValue', () => {
+		localStorage.setItem(
+			'userdraft/w/test_ws/flow/u/me/overridden',
+			JSON.stringify({ value: 'persisted' })
+		)
+
+		const handle = UserDraft.use<{ value: string }>('flow', 'u/me/overridden', {
+			defaultValue: { value: 'fallback' }
+		})
+
+		expect(handle.draft).toEqual({ value: 'persisted' })
+	})
+
+	it('a write through the setter persists even though defaultValue was set', () => {
+		const handle = UserDraft.use<{ value: string }>('flow', 'u/me/writeDefault', {
+			defaultValue: { value: 'fallback' }
+		})
+
+		handle.draft = { value: 'modified' }
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/writeDefault')).toBe(
+			JSON.stringify({ value: 'modified' })
+		)
+	})
+})
+
+describe('UserDraft — empty path (new-item, in-memory only)', () => {
+	it('use() with empty path uses defaultValue and does not persist', () => {
+		const handle = UserDraft.use<{ value: number }>('flow', '', {
+			defaultValue: { value: 0 }
+		})
+
+		handle.draft = { value: 99 }
+
+		expect(handle.draft).toEqual({ value: 99 })
+		// No localStorage key with empty path should ever be written.
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/')).toBeNull()
+	})
+
+	it('two handles with empty path share in-memory state per workspace', () => {
+		const a = UserDraft.use<{ value: number }>('flow', '')
+		const b = UserDraft.use<{ value: number }>('flow', '')
+
+		a.draft = { value: 1 }
+		expect(b.draft).toEqual({ value: 1 })
+
+		b.draft = { value: 2 }
+		expect(a.draft).toEqual({ value: 2 })
+	})
+
+	it('save() with empty path is a no-op against localStorage but updates live handles', () => {
+		const handle = UserDraft.use<{ value: number }>('flow', '')
+
+		UserDraft.save('flow', '', { value: 5 })
+		expect(handle.draft).toEqual({ value: 5 })
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/')).toBeNull()
+	})
+
+	it('get() with empty path returns the in-memory value when a handle is live, else undefined', () => {
+		expect(UserDraft.get('flow', '')).toBeUndefined()
+
+		const handle = UserDraft.use<{ value: number }>('flow', '')
+		handle.draft = { value: 11 }
+		expect(UserDraft.get('flow', '')).toEqual({ value: 11 })
+	})
+
+	it('remove() with empty path is a no-op against localStorage but clears live handles', () => {
+		const handle = UserDraft.use<{ value: number }>('flow', '')
+		handle.draft = { value: 1 }
+
+		UserDraft.remove('flow', '')
+		expect(handle.draft).toBeUndefined()
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/')).toBeNull()
+	})
+})
+
 describe('UserDraft.use() — reference counting & cleanup', () => {
 	it('destroys the entry when the last handle is released', () => {
 		// First handle acquires the entry.

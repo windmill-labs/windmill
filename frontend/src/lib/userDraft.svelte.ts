@@ -33,6 +33,15 @@ export type UserDraftOptions = {
 	workspace?: string
 }
 
+export type UserDraftUseOptions<V> = UserDraftOptions & {
+	/**
+	 * Initial value used when localStorage holds no draft for this
+	 * (workspace, itemKind, path). It is *not* eagerly persisted — the first
+	 * actual mutation is what writes to localStorage.
+	 */
+	defaultValue?: V
+}
+
 type DraftState<V> = { val: V | undefined }
 
 type DraftEntry = {
@@ -50,6 +59,28 @@ function resolveWorkspace(opts?: UserDraftOptions): string {
 		)
 	}
 	return ws
+}
+
+/**
+ * Returns true when this (workspace, itemKind, path) should never touch
+ * localStorage. An empty path means "new item, not yet on disk"; we keep the
+ * draft in-memory so multiple components on the same /add page still share
+ * state, but we don't persist it to avoid colliding new-item drafts.
+ */
+function isLocalOnly(path: string): boolean {
+	return path === ''
+}
+
+function createInMemoryState<T>(defaultValue: T | undefined): DraftState<T> {
+	let s = $state<T | undefined>(defaultValue)
+	return {
+		get val(): T | undefined {
+			return s
+		},
+		set val(newVal: T | undefined) {
+			s = newVal
+		}
+	}
 }
 
 function mapKey(workspace: string, itemKind: UserDraftItemKind, path: string): string {
@@ -72,9 +103,12 @@ export const UserDraft = {
 		const entry = entries.get(mk)
 		if (entry) {
 			// Update the shared reactive state so all observers are notified.
+			// For non-empty paths the underlying useLocalStorageValue setter
+			// persists; for empty paths the in-memory state stays in-memory.
 			entry.state.val = value
 			return
 		}
+		if (isLocalOnly(path)) return
 		try {
 			localStorage.setItem(localStorageKey(ws, itemKind, path), JSON.stringify(value))
 		} catch (e) {
@@ -93,6 +127,7 @@ export const UserDraft = {
 		if (entry) {
 			return entry.state.val as V | undefined
 		}
+		if (isLocalOnly(path)) return undefined
 		try {
 			const raw = localStorage.getItem(localStorageKey(ws, itemKind, path))
 			if (raw == null || raw === 'undefined') return undefined
@@ -112,6 +147,7 @@ export const UserDraft = {
 			entry.state.val = undefined
 			return
 		}
+		if (isLocalOnly(path)) return
 		try {
 			localStorage.removeItem(localStorageKey(ws, itemKind, path))
 		} catch (e) {
@@ -122,15 +158,18 @@ export const UserDraft = {
 	use<V = unknown>(
 		itemKind: UserDraftItemKind,
 		path: string,
-		opts?: UserDraftOptions
+		opts?: UserDraftUseOptions<V>
 	): UserDraftHandle<V> {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
-		const lk = localStorageKey(ws, itemKind, path)
+		const defaultValue = opts?.defaultValue
 
 		let entry = entries.get(mk)
 		if (!entry) {
-			entry = { count: 1, state: useLocalStorageValue<unknown>(lk, undefined) }
+			const state: DraftState<unknown> = isLocalOnly(path)
+				? createInMemoryState<unknown>(defaultValue)
+				: useLocalStorageValue<unknown>(localStorageKey(ws, itemKind, path), defaultValue)
+			entry = { count: 1, state }
 			entries.set(mk, entry)
 		} else {
 			entry.count++
