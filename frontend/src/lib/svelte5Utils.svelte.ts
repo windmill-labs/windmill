@@ -2,7 +2,7 @@
 
 import { untrack } from 'svelte'
 import { deepEqual } from 'fast-equals'
-import type { StateStore } from './utils'
+import { readFieldsRecursively, type StateStore } from './utils'
 import { resource, watch, type ResourceReturn } from 'runed'
 
 export function withProps<Component, Props>(component: Component, props: Props) {
@@ -585,16 +585,52 @@ export function useLocalStorageValue<T>(
 		if (typ === 'boolean') return (val === 'true') as any
 		return JSON.parse(val) as T
 	}
+	const persist = (val: T | undefined) => {
+		try {
+			if (val === undefined) {
+				localStorage.removeItem(key)
+			} else {
+				localStorage.setItem(key, serialize(val as T))
+			}
+		} catch (e) {
+			console.error('useLocalStorageValue: localStorage write failed', e)
+		}
+	}
 
 	if (typeof window === 'undefined') return { val: defaultValue }
 	const savedValue = localStorage.getItem(key)
-	let s = $state(savedValue ? (deserialize(savedValue) as T) : defaultValue)
+	let s = $state<T>(
+		savedValue != null && savedValue !== 'undefined' ? (deserialize(savedValue) as T) : defaultValue
+	)
+
+	// Track the serialized form last written so we can detect deep mutations
+	// (changes that didn't go through the setter) without double-writing on
+	// every setter call. The first effect run sees identical serialized output
+	// and is a no-op (avoids persisting the default value on mount).
+	let lastSerialized: string | undefined = untrack(() =>
+		s === undefined ? undefined : serialize(s)
+	)
+	$effect(() => {
+		readFieldsRecursively(s)
+		const next = s === undefined ? undefined : serialize(s)
+		if (next === lastSerialized) return
+		lastSerialized = next
+		persist(s)
+	})
+
 	return {
 		get val() {
 			return s
 		},
 		set val(newVal: T) {
-			localStorage.setItem(key, serialize(newVal))
+			// Persist synchronously so callers that read localStorage right
+			// after a set see the new value. The effect above stays a no-op
+			// for this change because lastSerialized is kept in sync.
+			const next = newVal === undefined ? undefined : serialize(newVal as T)
+			if (next !== lastSerialized) {
+				lastSerialized = next
+				persist(newVal)
+			}
 			s = newVal
 		}
 	}

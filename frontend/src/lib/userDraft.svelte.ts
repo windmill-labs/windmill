@@ -106,15 +106,14 @@ export const UserDraft = {
 	remove(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
-		const lk = localStorageKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) {
-			// Notify observers via the shared state setter.
+			// Notify observers; useLocalStorageValue's setter handles localStorage removal.
 			entry.state.val = undefined
+			return
 		}
 		try {
-			// Always remove (the setter above would persist "undefined" as a string).
-			localStorage.removeItem(lk)
+			localStorage.removeItem(localStorageKey(ws, itemKind, path))
 		} catch (e) {
 			console.error('UserDraft.remove: localStorage remove failed', e)
 		}
@@ -153,14 +152,9 @@ export const UserDraft = {
 				return sharedEntry.state.val as V | undefined
 			},
 			set draft(value: V | undefined) {
+				// useLocalStorageValue's setter writes synchronously and
+				// removes the localStorage entry when value is undefined.
 				sharedEntry.state.val = value
-				if (value === undefined) {
-					try {
-						localStorage.removeItem(lk)
-					} catch (e) {
-						console.error('UserDraft.use: localStorage remove failed', e)
-					}
-				}
 			}
 		}
 	}
