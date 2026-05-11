@@ -208,7 +208,11 @@ jobs:
           const lines = [
             `Repository: ${process.env.PR_REPOSITORY}`,
             `PR number: ${process.env.PR_NUMBER}`,
-            `PR AUTHOR: ${process.env.PR_AUTHOR || '(unknown)'}`,
+          ];
+          if (process.env.PR_AUTHOR) {
+            lines.push(`PR AUTHOR: ${process.env.PR_AUTHOR}`);
+          }
+          lines.push(
             `Base SHA: ${process.env.PR_BASE_SHA}`,
             `Head SHA: ${process.env.PR_HEAD_SHA}`,
             '',
@@ -226,7 +230,7 @@ jobs:
             '',
             'Full review diff command:',
             `git diff --unified=0 ${process.env.PR_BASE_SHA}...${process.env.PR_HEAD_SHA}`
-          ];
+          );
           if (process.env.EXTRA_PROMPT && process.env.EXTRA_PROMPT.trim()) {
             lines.push('', 'Additional reviewer instructions:', process.env.EXTRA_PROMPT.trim());
           }

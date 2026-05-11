@@ -9,7 +9,7 @@ You are reviewing a GitHub pull request for this repository. Apply this policy a
 
 ## Verdict (first line of the review)
 
-Start every review with a single verdict line, before any other section. Pick exactly one:
+Start every review with a single verdict line, before any other section (the only thing that may appear above the verdict is the optional `cc @<PR_AUTHOR>` ping described in "Pinging the author" below). Pick exactly one:
 
 - **Good to merge** — no blocking issues and no nits worth surfacing.
 - **Mergeable, but should ideally address nits: <short list>** — no blockers, but P2 findings that are worth a look. The list must name each nit briefly (e.g. "doc/code mismatch in `foo.rs`, half-finished `pub fn bar`").
