@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.700.1](https://github.com/windmill-labs/windmill/compare/v1.700.0...v1.700.1) (2026-05-11)
+
+
+### Bug Fixes
+
+* CE build broken by enterprise-gated compute_instance_hash ([#9113](https://github.com/windmill-labs/windmill/issues/9113)) ([cd65de4](https://github.com/windmill-labs/windmill/commit/cd65de49285ff60abdd94c883180ded65609f382))
+
 ## [1.700.0](https://github.com/windmill-labs/windmill/compare/v1.699.0...v1.700.0) (2026-05-11)
 
 
