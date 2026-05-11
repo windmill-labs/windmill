@@ -4,7 +4,7 @@
 	import { page } from '$app/state'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
-	import { editPathFor } from '$lib/components/workspacePicker'
+	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { importFlowStore, initFlow } from '$lib/components/flows/flowStore.svelte'
 	import { FlowService, type Flow } from '$lib/gen'
@@ -194,9 +194,11 @@
 
 <FlowBuilder
 	onSaveInitial={(e) => {
+		if ($workspaceStore) invalidate($workspaceStore, 'flow')
 		goto(`/flows/edit/${e.path}?selected=${e.id}`)
 	}}
 	onDeploy={(e) => {
+		if ($workspaceStore) invalidate($workspaceStore, 'flow')
 		goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
 	}}
 	onDetails={(e) => {

@@ -22,6 +22,8 @@ close siblings.
 		initialScope?: Scope
 		/** Composite key of the row to highlight (e.g. `dir:flow:f/demo`). */
 		initialHighlight?: string
+		/** Mark this segment as the current page (leaf of the breadcrumb). */
+		isCurrent?: boolean
 		currentItem?: WorkspaceItem & { savedPath?: string }
 		onPick: (item: WorkspaceItem) => void
 	}
@@ -33,6 +35,7 @@ close siblings.
 		disabled = false,
 		initialScope,
 		initialHighlight,
+		isCurrent = false,
 		currentItem,
 		onPick
 	}: Props = $props()
@@ -57,6 +60,10 @@ close siblings.
 	class="{SEGMENT_BASE_CLASS} {extraClass} {disabled ? 'cursor-default' : 'cursor-pointer'}"
 	bind:isOpen
 	openFocus="[data-workspace-picker-search]"
+	triggerAttrs={{
+		'aria-label': label,
+		...(isCurrent ? { 'aria-current': 'page' } : {})
+	}}
 	{disabled}
 >
 	{#snippet trigger()}

@@ -2,7 +2,7 @@
 	import { FlowService, type Flow, DraftService } from '$lib/gen'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
-	import { editPathFor } from '$lib/components/workspacePicker'
+	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
 	import {
 		cleanValueProperties,
@@ -297,6 +297,7 @@
 {:else}
 	<FlowBuilder
 		onDeploy={(e) => {
+			if ($workspaceStore) invalidate($workspaceStore, 'flow')
 			goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
 		}}
 		onDetails={(e) => {

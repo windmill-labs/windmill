@@ -3,7 +3,7 @@
 
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
-	import { editPathFor } from '$lib/components/workspacePicker'
+	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
 	import { decodeState, cleanValueProperties, orderedJsonStringify } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { replaceState } from '$app/navigation'
@@ -39,7 +39,12 @@
 
 	let savedPrimarySchedule: ScheduleTrigger | undefined = $state(undefined)
 
+	/** Increments per `loadScript` call. Stale loads (e.g. when picker
+	 * navigation races a draft-discard reload) bail at the next checkpoint
+	 * after their captured token no longer matches. */
+	let loadScriptToken = 0
 	async function loadScript(): Promise<void> {
+		const tok = ++loadScriptToken
 		fullyLoaded = false
 		if (scriptLoadedFromUrl != undefined && scriptLoadedFromUrl.path == page.params.path) {
 			script = scriptLoadedFromUrl
@@ -50,10 +55,12 @@
 			}
 
 			async function compareAutosave() {
-				savedScript = await ScriptService.getScriptByPathWithDraft({
+				const sf = await ScriptService.getScriptByPathWithDraft({
 					workspace: $workspaceStore!,
 					path: script!.path
 				})
+				if (tok !== loadScriptToken) return
+				savedScript = sf
 
 				const draftOrDeployed = cleanValueProperties(savedScript?.draft || savedScript)
 				const urlScript = cleanValueProperties(scriptLoadedFromUrl)
@@ -88,6 +95,7 @@
 					workspace: $workspaceStore!,
 					hash
 				})
+				if (tok !== loadScriptToken) return
 				savedScript = structuredClone($state.snapshot(scriptByHash)) as NewScriptWithDraft
 				script = { ...scriptByHash, parent_hash: hash, lock: undefined }
 			} else {
@@ -95,6 +103,7 @@
 					workspace: $workspaceStore!,
 					path: page.params.path ?? ''
 				})
+				if (tok !== loadScriptToken) return
 				savedScript = structuredClone($state.snapshot(scriptWithDraft))
 				if (scriptWithDraft.draft != undefined) {
 					script = scriptWithDraft.draft
@@ -218,9 +227,11 @@
 		{savedPrimarySchedule}
 		searchParams={page.url.searchParams}
 		onDeploy={(e) => {
+			if ($workspaceStore) invalidate($workspaceStore, 'script')
 			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
 		}}
 		onSaveInitial={(e) => {
+			if ($workspaceStore) invalidate($workspaceStore, 'script')
 			goto(`/scripts/edit/${e.path}`)
 		}}
 		onSeeDetails={(e) => {

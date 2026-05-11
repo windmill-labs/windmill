@@ -56,6 +56,9 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 
 	let searchInput: TextInput | undefined = $state()
 	let pickerRoot: HTMLElement | undefined = $state()
+	const instanceId = crypto.randomUUID()
+	const listboxId = `pkr-list-${instanceId}`
+	const idFor = (key: string) => `pkr-${instanceId}-${key.replace(/[^a-zA-Z0-9-]/g, '_')}`
 
 	export function focus() {
 		searchInput?.focus()
@@ -287,6 +290,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	})
 
 	let highlightedKey = $state<string | undefined>(untrack(() => initialHighlight))
+	let highlightedId = $derived(highlightedKey ? idFor(highlightedKey) : undefined)
 
 	$effect(() => {
 		if (navKeys.length === 0) return
@@ -495,6 +499,9 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	{@const isCur = isCurrent(it)}
 	<button
 		type="button"
+		id={idFor(key)}
+		role="option"
+		aria-selected={isHl}
 		data-nav-key={key}
 		aria-current={isCur ? 'true' : undefined}
 		class="w-full text-left flex items-center gap-2 px-3 transition-colors {baseClass} {isHl
@@ -530,7 +537,12 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 			size="sm"
 			inputProps={{
 				placeholder: 'Search by name or summary...',
-				'data-workspace-picker-search': ''
+				'data-workspace-picker-search': '',
+				role: 'combobox',
+				'aria-controls': listboxId,
+				'aria-expanded': 'true',
+				'aria-autocomplete': 'list',
+				'aria-activedescendant': highlightedId
 			}}
 		/>
 	</div>
@@ -552,15 +564,15 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		</button>
 	{/if}
 
-	<div class="flex-1 overflow-y-auto">
+	<div class="flex-1 overflow-y-auto" role="listbox" id={listboxId}>
 		{#if isSearching}
 			{@const total = (searchedItems ?? []).length}
 			{#if !searchedItems}
-				<div class="px-3 py-2 text-xs text-tertiary flex items-center gap-2">
+				<div role="status" class="px-3 py-2 text-xs text-tertiary flex items-center gap-2">
 					<Loader2 size={14} class="animate-spin" /> Searching…
 				</div>
 			{:else if total === 0}
-				<div class="px-3 py-2 text-xs text-tertiary">No matches</div>
+				<div role="status" class="px-3 py-2 text-xs text-tertiary">No matches</div>
 			{:else}
 				{#each kinds as k (k)}
 					{@const results = searchResultsByKind[k]}
@@ -577,11 +589,11 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 				{/each}
 			{/if}
 		{:else if scopeLoading && entries.length === 0}
-			<div class="px-3 py-2 text-xs text-tertiary flex items-center gap-2">
+			<div role="status" class="px-3 py-2 text-xs text-tertiary flex items-center gap-2">
 				<Loader2 size={14} class="animate-spin" /> Loading…
 			</div>
 		{:else if entries.length === 0}
-			<div class="px-3 py-2 text-xs text-tertiary">Empty</div>
+			<div role="status" class="px-3 py-2 text-xs text-tertiary">Empty</div>
 		{:else}
 			<div class="flex flex-col py-1">
 				{#each entries as entry (entry.key)}
@@ -595,6 +607,9 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 					{:else}
 						<button
 							type="button"
+							id={idFor(entry.key)}
+							role="option"
+							aria-selected={isHl}
 							data-nav-key={entry.key}
 							class="flex items-center gap-1.5 w-full text-left px-3 py-1.5 text-xs font-medium font-mono text-emphasis transition-colors {isHl
 								? 'bg-surface-hover'

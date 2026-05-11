@@ -28,6 +28,9 @@
 		savedPath?: string
 		/** Kind of the item being edited; used to label the first breadcrumb segment. */
 		kind?: WorkspaceItemKind
+		/** True when editing a raw app — forwarded into the virtual `currentItem`
+		 * so the picker / `editPathFor` can route to `/apps_raw/...`. */
+		raw_app?: boolean
 		onNavigate?: (item: WorkspaceItem) => void
 		/** When set, shows a "redeployed on behalf of" warning in the path-edit
 		 * popover. Parents already know this from their loaded item — no API call. */
@@ -41,6 +44,7 @@
 		path = $bindable(),
 		savedPath,
 		kind = 'flow',
+		raw_app = false,
 		onNavigate,
 		onBehalfOfEmail,
 		penVisibility = 'hover',
@@ -56,7 +60,12 @@
 
 	function setPathPopoverOpen(open: boolean) {
 		pathPopoverOpen = open
-		snapshotPath = open ? (path ?? '') : undefined
+		// Only snapshot when there's a path to freeze. New flows / scripts open
+		// the popover with `path === ''` and rely on `Path.reset()` to seed a
+		// path; if we snapshot the empty value the breadcrumb stays blank for
+		// the whole popover lifetime. Leaving `snapshotPath` undefined lets
+		// `displayPath` track the live seeded path instead.
+		snapshotPath = open && path ? path : undefined
 	}
 
 	// Path segments. e.g. "f/demo/weather_report" → scope "f/demo", slug "weather_report".
@@ -96,6 +105,7 @@
 		path: path ?? '',
 		summary: summary ?? '',
 		kind,
+		raw_app,
 		savedPath
 	})
 
@@ -113,41 +123,45 @@
 <div class="inline-block max-w-full align-top group px-2 py-0.5 leading-tight">
 	<!-- Path row -->
 	<div class="flex items-center max-w-full text-2xs text-secondary font-mono">
-		<BreadcrumbSegment
-			label={KIND_LABEL_LOWER[kind]}
-			initialScope={undefined}
-			initialHighlight={kindKey(kind)}
-			{currentItem}
-			{disabled}
-			onPick={handlePickerSelect}
-		/>
-		{#if segments}
-			{#each segments.dirs as dir, i (dir.fullPath)}
-				{@const dKey = dirKey(kind, dir.fullPath)}
-				<BreadcrumbSegment
-					label={dir.name}
-					withChevron
-					extraClass={i === 0 ? 'gap-0.5 min-w-0 max-w-[40%]' : 'gap-0.5 min-w-0'}
-					initialScope={i === 0 ? { kind } : { kind, dir: segments.dirs[i - 1].fullPath }}
-					initialHighlight={dKey}
-					{currentItem}
-					{disabled}
-					onPick={handlePickerSelect}
-				/>
-			{/each}
-			{@const leafKey = leafKeyFor(kind, segments.leaf.fullPath)}
-			{@const leafParent = segments.dirs[segments.dirs.length - 1]?.fullPath}
+		<nav aria-label="Breadcrumb" class="contents">
 			<BreadcrumbSegment
-				label={segments.leaf.name}
-				withChevron
-				extraClass="gap-0.5 min-w-0"
-				initialScope={leafParent ? { kind, dir: leafParent } : { kind }}
-				initialHighlight={leafKey}
+				label={KIND_LABEL_LOWER[kind]}
+				initialScope={undefined}
+				initialHighlight={kindKey(kind)}
+				isCurrent={!segments}
 				{currentItem}
 				{disabled}
 				onPick={handlePickerSelect}
 			/>
-		{/if}
+			{#if segments}
+				{#each segments.dirs as dir, i (dir.fullPath)}
+					{@const dKey = dirKey(kind, dir.fullPath)}
+					<BreadcrumbSegment
+						label={dir.name}
+						withChevron
+						extraClass={i === 0 ? 'gap-0.5 min-w-0 max-w-[40%]' : 'gap-0.5 min-w-0'}
+						initialScope={i === 0 ? { kind } : { kind, dir: segments.dirs[i - 1].fullPath }}
+						initialHighlight={dKey}
+						{currentItem}
+						{disabled}
+						onPick={handlePickerSelect}
+					/>
+				{/each}
+				{@const leafKey = leafKeyFor(kind, segments.leaf.fullPath)}
+				{@const leafParent = segments.dirs[segments.dirs.length - 1]?.fullPath}
+				<BreadcrumbSegment
+					label={segments.leaf.name}
+					withChevron
+					extraClass="gap-0.5 min-w-0"
+					initialScope={leafParent ? { kind, dir: leafParent } : { kind }}
+					initialHighlight={leafKey}
+					isCurrent
+					{currentItem}
+					{disabled}
+					onPick={handlePickerSelect}
+				/>
+			{/if}
+		</nav>
 
 		<!-- Pen → path-edit popover -->
 		<Popover

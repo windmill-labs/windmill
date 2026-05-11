@@ -56,7 +56,7 @@
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
 
 	import EditorHeader from '$lib/components/EditorHeader.svelte'
-	import { editPathFor } from '$lib/components/workspacePicker'
+	import { editPathFor, invalidate as invalidatePicker } from '$lib/components/workspacePicker'
 	import { goto } from '$app/navigation'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
@@ -124,6 +124,15 @@
 		onHideBottomPanel
 	}: Props = $props()
 
+	/** Mirror of the path the user is editing in the pen popover. Initialized
+	 * once from `newPath` (or a synthesized path for new apps) and only
+	 * updated by user input from then on — we deliberately do NOT sync from
+	 * `newPath` afterwards so the user's in-flight rename isn't clobbered by
+	 * a parent reload that re-supplies the saved path. The fallback chain at
+	 * read sites (`newEditedPath || savedApp?.draft?.path || savedApp?.path`)
+	 * handles the case where `newEditedPath` is briefly empty before the
+	 * synthesized initialization runs — falls through to the saved path so
+	 * rename detection still works. */
 	let newEditedPath = $state(
 		untrack(() =>
 			newApp ? userPathPrefix($userStore?.username) + random_adj() + '_app' : (newPath ?? '')
@@ -292,6 +301,7 @@
 				preserve_on_behalf_of: preserveOnBehalfOf || undefined
 			}
 		})
+		invalidatePicker($workspaceStore!, 'app')
 		savedApp = {
 			summary: $summary,
 			value: structuredClone($state.snapshot($app)),

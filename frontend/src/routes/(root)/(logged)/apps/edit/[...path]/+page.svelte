@@ -47,11 +47,17 @@
 	let stateLoadedFromLocalStorage =
 		initialState != undefined ? decodeState(initialState) : undefined
 
+	/** Increments per `loadApp` call. Stale loads (e.g. when picker
+	 * navigation races a draft-discard reload) bail at the next checkpoint
+	 * after their captured token no longer matches. */
+	let loadAppToken = 0
 	async function loadApp(): Promise<void> {
+		const tok = ++loadAppToken
 		const app_w_draft = await AppService.getAppByPathWithDraft({
 			path: page.params.path ?? '',
 			workspace: $workspaceStore!
 		})
+		if (tok !== loadAppToken) return
 		const app_w_draft_: AppWithLastVersionWDraft = structuredClone(stateSnapshot(app_w_draft))
 		savedApp = {
 			summary: app_w_draft_.summary,
