@@ -15,6 +15,9 @@
 mod dedicated;
 pub use dedicated::{ExecutingIsolate, PrewarmedIsolate, PrewarmedResult};
 
+#[cfg(test)]
+mod smoke_tests;
+
 use std::{
     borrow::Cow,
     cell::RefCell,
