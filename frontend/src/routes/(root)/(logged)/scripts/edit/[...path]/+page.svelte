@@ -16,15 +16,12 @@
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
 
-	let initialState = window.location.hash != '' ? window.location.hash.slice(1) : undefined
+	// `initialArgs` is intentionally captured once at mount — it's the
+	// session's initial argument set, not per-script. URL-derived state
+	// (`hash`, `topHash`, fragment autosave) is re-read inside `loadScript`
+	// because picker navigation reuses this component without remounting.
 	let initialArgs = get(initialArgsStore) ?? {}
 	if (get(initialArgsStore)) $initialArgsStore = undefined
-
-	let topHash = page.url.searchParams.get('topHash') ?? undefined
-
-	let hash = page.url.searchParams.get('hash') ?? undefined
-
-	let scriptLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 
 	let script: (NewScript & { draft_triggers?: Trigger[] }) | undefined = $state(undefined)
 
@@ -46,10 +43,18 @@
 	async function loadScript(): Promise<void> {
 		const tok = ++loadScriptToken
 		fullyLoaded = false
+
+		// Re-read URL-derived state on every load. The component doesn't
+		// remount when the picker navigates between scripts, so capturing
+		// these at module init would leave them stale.
+		const urlFragment = window.location.hash != '' ? window.location.hash.slice(1) : undefined
+		const scriptLoadedFromUrl = urlFragment != undefined ? decodeState(urlFragment) : undefined
+		const hash = page.url.searchParams.get('hash') ?? undefined
+		const topHash = page.url.searchParams.get('topHash') ?? undefined
+
 		if (scriptLoadedFromUrl != undefined && scriptLoadedFromUrl.path == page.params.path) {
 			script = scriptLoadedFromUrl
 			reloadAction = async () => {
-				scriptLoadedFromUrl = undefined
 				goto(`/scripts/edit/${script!.path}`)
 				loadScript()
 			}
@@ -115,7 +120,6 @@
 
 					if (!scriptWithDraft.draft_only) {
 						reloadAction = async () => {
-							scriptLoadedFromUrl = undefined
 							await DraftService.deleteDraft({
 								workspace: $workspaceStore!,
 								kind: 'script',
@@ -191,7 +195,6 @@
 		}
 		diffDrawer?.closeDrawer()
 		goto(`/scripts/edit/${savedScript.draft.path}`)
-		scriptLoadedFromUrl = undefined
 		loadScript()
 	}
 
@@ -209,7 +212,6 @@
 			})
 		}
 		goto(`/scripts/edit/${savedScript.path}`)
-		scriptLoadedFromUrl = undefined
 		loadScript()
 	}
 </script>

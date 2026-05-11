@@ -36,7 +36,13 @@
 		 * popover. Parents already know this from their loaded item — no API call. */
 		onBehalfOfEmail?: string | undefined
 		penVisibility?: 'hover' | 'always'
-		disabled?: boolean
+		/** When false, the summary input becomes read-only. Breadcrumb
+		 * navigation and the pen popover are unaffected. */
+		summaryEditable?: boolean
+		/** When false, the pen popover is hidden so the path can't be edited
+		 * inline. Breadcrumb navigation still works — only the rename UI is
+		 * gated. */
+		pathEditable?: boolean
 	}
 
 	let {
@@ -48,7 +54,8 @@
 		onNavigate,
 		onBehalfOfEmail,
 		penVisibility = 'hover',
-		disabled = false
+		summaryEditable = true,
+		pathEditable = true
 	}: Props = $props()
 
 	let pathPopoverOpen = $state(false)
@@ -131,7 +138,6 @@
 				initialHighlight={kindKey(kind)}
 				isCurrent={!segments}
 				{currentItem}
-				{disabled}
 				onPick={handlePickerSelect}
 			/>
 			{#if segments}
@@ -146,7 +152,6 @@
 							: { kind: 'all', dir: segments.dirs[i - 1].fullPath }}
 						initialHighlight={dKey}
 						{currentItem}
-						{disabled}
 						onPick={handlePickerSelect}
 					/>
 				{/each}
@@ -160,71 +165,71 @@
 					initialHighlight={leafKey}
 					isCurrent
 					{currentItem}
-					{disabled}
 					onPick={handlePickerSelect}
 				/>
 			{/if}
 		</nav>
 
-		<!-- Pen → path-edit popover -->
-		<Popover
-			placement="bottom-start"
-			contentClasses="p-4"
-			usePointerDownOutside
-			excludeSelectors=".drawer"
-			disableFocusTrap
-			closeOnOtherPopoverOpen
-			bind:isOpen={() => pathPopoverOpen, setPathPopoverOpen}
-			{disabled}
-		>
-			{#snippet trigger()}
-				<Button
-					variant="subtle"
-					unifiedSize="xs"
-					iconOnly
-					startIcon={{ icon: Pencil }}
-					title="Edit path"
-					aria-label="Edit path"
-					{disabled}
-					btnClasses={penVisibility === 'hover' && !pathPopoverOpen
-						? 'opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100'
-						: ''}
-				/>
-			{/snippet}
-			{#snippet content()}
-				<div class="flex flex-col gap-6 w-[480px]">
-					{#if own}
-						<Path
-							autofocus
-							bind:path
-							initialPath={snapshotPath ?? path ?? ''}
-							namePlaceholder={kind}
-							{kind}
-							hideFullPath
-							size="sm"
-							drawerOffset={4000}
-						/>
-						{#if savedPath && path && path !== savedPath}
-							<Alert
-								type="info"
-								size="xs"
-								title="Deploy the {kind} to make the path change effective."
+		<!-- Pen → path-edit popover. Skipped entirely when path editing is
+		     disabled so the user doesn't see an inert button. -->
+		{#if pathEditable}
+			<Popover
+				placement="bottom-start"
+				contentClasses="p-4"
+				usePointerDownOutside
+				excludeSelectors=".drawer"
+				disableFocusTrap
+				closeOnOtherPopoverOpen
+				bind:isOpen={() => pathPopoverOpen, setPathPopoverOpen}
+			>
+				{#snippet trigger()}
+					<Button
+						variant="subtle"
+						unifiedSize="xs"
+						iconOnly
+						startIcon={{ icon: Pencil }}
+						title="Edit path"
+						aria-label="Edit path"
+						btnClasses={penVisibility === 'hover' && !pathPopoverOpen
+							? 'opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100'
+							: ''}
+					/>
+				{/snippet}
+				{#snippet content()}
+					<div class="flex flex-col gap-6 w-[480px]">
+						{#if own}
+							<Path
+								autofocus
+								bind:path
+								initialPath={snapshotPath ?? path ?? ''}
+								namePlaceholder={kind}
+								{kind}
+								hideFullPath
+								size="sm"
+								drawerOffset={4000}
 							/>
+							{#if savedPath && path && path !== savedPath}
+								<Alert
+									type="info"
+									size="xs"
+									title="Deploy the {kind} to make the path change effective."
+								/>
+							{/if}
+							{#if onBehalfOfEmail}
+								<Alert type="info" title="Run on behalf of" size="xs">
+									This flow will be redeployed on behalf of you ({$userStore?.email}) instead of {onBehalfOfEmail}
+								</Alert>
+							{/if}
+						{:else}
+							<Label label="Path">
+								<span class="text-xs font-mono text-secondary">{path}</span>
+								<p class="text-2xs text-tertiary mt-1">Only the owner can change the path</p>
+							</Label>
 						{/if}
-						{#if onBehalfOfEmail}
-							<Alert type="info" title="Run on behalf of" size="xs">
-								This flow will be redeployed on behalf of you ({$userStore?.email}) instead of {onBehalfOfEmail}
-							</Alert>
-						{/if}
-					{:else}
-						<Label label="Path">
-							<span class="text-xs font-mono text-secondary">{path}</span>
-							<p class="text-2xs text-tertiary mt-1">Only the owner can change the path</p>
-						</Label>
-					{/if}
-				</div>
-			{/snippet}
-		</Popover>
+					</div>
+				{/snippet}
+			</Popover>
+		{/if}
 	</div>
 
 	<!-- Summary -->
@@ -232,7 +237,7 @@
 		<EditableInput
 			value={summary ?? ''}
 			placeholder="Add a summary..."
-			editable={!disabled}
+			editable={summaryEditable}
 			size="sm"
 			onSave={handleSummarySave}
 			textClass="text-xs font-semibold text-emphasis leading-tight"

@@ -25,10 +25,11 @@
 	import { page } from '$app/state'
 
 	let version: undefined | number = $state(undefined)
-	let nodraft = page.url.searchParams.get('nodraft')
-	const initialState = nodraft ? undefined : localStorage.getItem(`flow-${page.params.path}`)
-	let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 
+	// `initialArgs` is captured once at mount — it's the session's initial
+	// argument set. Per-flow autosave (`stateLoadedFromUrl`) and the
+	// `nodraft` flag are re-read inside `loadFlow` / the navigation hook so
+	// picker navigation doesn't reuse the original path's state.
 	const urlArgs = page.url.searchParams.get('initial_args')
 
 	let initialArgs = $state({})
@@ -46,7 +47,7 @@
 		| undefined = $state(undefined)
 
 	afterNavigate(() => {
-		if (nodraft) {
+		if (page.url.searchParams.get('nodraft')) {
 			let url = new URL(page.url.href)
 			url.search = ''
 			replaceState(url.toString(), page.state)
@@ -73,9 +74,15 @@
 
 	let nobackenddraft = false
 
-	let savedPrimarySchedule: ScheduleTrigger | undefined = $state(
-		stateLoadedFromUrl?.primarySchedule
-	)
+	// One-shot read of mount-time autosave, used only to seed the initial
+	// `savedPrimarySchedule` before `loadFlow` runs. `loadFlow` itself
+	// re-reads localStorage on every invocation (see comment there).
+	const initialAutosave = (() => {
+		if (page.url.searchParams.get('nodraft')) return undefined
+		const raw = localStorage.getItem(`flow-${page.params.path}`)
+		return raw != undefined ? decodeState(raw) : undefined
+	})()
+	let savedPrimarySchedule: ScheduleTrigger | undefined = $state(initialAutosave?.primarySchedule)
 
 	let draftTriggersFromUrl: Trigger[] | undefined = $state(undefined)
 	let selectedTriggerIndexFromUrl: number | undefined = $state(undefined)
@@ -93,6 +100,15 @@
 	async function loadFlow(): Promise<void> {
 		const tok = ++loadFlowToken
 		loading = true
+
+		// Re-read autosave per load. The component doesn't remount when the
+		// picker navigates between flows, so capturing at module init would
+		// keep reusing the original flow's state.
+		const stored = page.url.searchParams.get('nodraft')
+			? undefined
+			: localStorage.getItem(`flow-${page.params.path}`)
+		const stateLoadedFromUrl = stored != undefined ? decodeState(stored) : undefined
+
 		let flow: Flow
 		let statePath = stateLoadedFromUrl?.path
 		if (stateLoadedFromUrl != undefined && statePath == page.params.path) {
@@ -136,7 +152,6 @@
 			flowBuilder?.setLoadedFromHistory(loadedFromHistoryFromUrl)
 			const selectedId = stateLoadedFromUrl?.selectedId ?? 'settings-metadata'
 			const reloadAction = () => {
-				stateLoadedFromUrl = undefined
 				goto(`/flows/edit/${statePath}?selected=${selectedId}`)
 				loadFlow()
 			}
@@ -203,7 +218,6 @@
 					const deployed = cleanValueProperties(flowWithDraft)
 					const draft = cleanValueProperties(flow)
 					const reloadAction = async () => {
-						stateLoadedFromUrl = undefined
 						await DraftService.deleteDraft({
 							workspace: $workspaceStore!,
 							kind: 'flow',
@@ -262,7 +276,6 @@
 			return
 		}
 		diffDrawer?.closeDrawer()
-		stateLoadedFromUrl = undefined
 		goto(`/flows/edit/${savedFlow.draft.path}`)
 		loadFlow()
 	}
@@ -280,7 +293,6 @@
 				path: savedFlow.path
 			})
 		}
-		stateLoadedFromUrl = undefined
 		goto(`/flows/edit/${savedFlow.path}`)
 		loadFlow()
 	}

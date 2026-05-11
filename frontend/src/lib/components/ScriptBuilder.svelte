@@ -1980,7 +1980,8 @@
 							bind:path={script.path}
 							savedPath={initialPath}
 							kind="script"
-							disabled={customUi?.topBar?.editableSummary == false}
+							summaryEditable={customUi?.topBar?.editableSummary != false}
+							pathEditable={customUi?.topBar?.editablePath != false}
 							onNavigate={(item) => onNavigate?.(item)}
 						/>
 					{/if}
