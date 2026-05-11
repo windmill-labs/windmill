@@ -356,7 +356,14 @@
 	}
 
 	$effect(() => {
-		if (path !== undefined && path !== '' && path !== initialPath && !dirty) {
+		if (
+			path !== undefined &&
+			path !== '' &&
+			initialPath &&
+			!initialPath.startsWith('tmp/') &&
+			path !== initialPath &&
+			!dirty
+		) {
 			dirty = true
 		}
 	})
