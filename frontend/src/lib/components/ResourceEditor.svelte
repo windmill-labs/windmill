@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import { ResourceService, WorkspaceService, type Resource, type ResourceType } from '$lib/gen'
-	import { canWrite } from '$lib/utils'
+	import { canWrite, readFieldsRecursively } from '$lib/utils'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -12,6 +12,7 @@
 	import { deepEqual } from 'fast-equals'
 	import { getUserExt } from '$lib/user'
 	import type { UserExt } from '$lib/stores'
+	import { UserDraft } from '$lib/userDraft.svelte'
 
 	interface Props {
 		canSave?: boolean
@@ -47,6 +48,8 @@
 
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
 	let initialPath = path
+
+	const resourceDraftHandle = UserDraft.use<ResourceState>('resource', initialPath ?? '')
 
 	let states: Record<string, ResourceState> = $state({})
 	let initialStates: Record<string, ResourceState> = $state({})
@@ -126,15 +129,17 @@
 		})
 	)
 
-	// Bootstrap: ensure selected is set on mount (edit or new)
+	// Bootstrap: ensure selected is set on mount (edit or new). For new
+	// resources we also prefer a local autosave (UserDraft) over defaults so
+	// returning to the drawer mid-edit keeps your work.
 	$effect(() => {
 		if (selected !== undefined) return
 		if (!effectiveWorkspace) return
 		untrack(() => {
 			selected = effectiveWorkspace
 			if (!initialPath) {
-				// New resource
-				const s: ResourceState = {
+				const local = resourceDraftHandle.draft
+				const s: ResourceState = local ?? {
 					path: '',
 					description: '',
 					args: (defaultValues && Object.keys(defaultValues).length > 0
@@ -144,7 +149,7 @@
 					wsSpecific: false
 				}
 				states[effectiveWorkspace] = s
-				initialStates[effectiveWorkspace] = structuredClone(s)
+				initialStates[effectiveWorkspace] = structuredClone(local ? { ...s, args: {} } : s)
 				existedInitially[effectiveWorkspace] = false
 			}
 		})
@@ -161,15 +166,20 @@
 				getUserExt(ws)
 			]).then(([r, user]) => {
 				fetchedResources[ws] = r
-				const s: ResourceState = {
+				const backendState: ResourceState = {
 					path: r.path,
 					description: r.description ?? '',
 					args: (r.value ?? {}) as any,
 					labels: r.labels ?? undefined,
 					wsSpecific: r.ws_specific ?? false
 				}
-				states[ws] = s
-				initialStates[ws] = structuredClone(s)
+				// Local autosave wins for the user's own workspace if it
+				// diverges from the backend; for cross-workspace deploys we
+				// always start from the live backend value.
+				const local = ws === effectiveWorkspace ? resourceDraftHandle.draft : undefined
+				const useLocal = local && !deepEqual(local, backendState)
+				states[ws] = useLocal ? local : backendState
+				initialStates[ws] = structuredClone(backendState)
 				existedInitially[ws] = true
 				perWsUser[ws] = user
 				// Keep resource_type in sync for the base workspace (controls the schema)
@@ -178,6 +188,15 @@
 				}
 			})
 		})
+	})
+
+	// Auto-persist the current workspace's edit state to UserDraft on every
+	// mutation. useLocalStorageValue's lastSerialized check dedupes writes.
+	$effect(() => {
+		const s = states[effectiveWorkspace]
+		if (!s) return
+		readFieldsRecursively(s)
+		resourceDraftHandle.draft = s
 	})
 
 	// Keep current.path bound to the outer `path` prop for consumers
@@ -250,6 +269,7 @@
 			sendUserToast(
 				dirty.length > 1 ? `Saved resource in ${dirty.length} workspaces` : `Saved resource`
 			)
+			UserDraft.remove('resource', initialPath ?? '')
 			dispatch('refresh', current?.path ?? path)
 		} catch (err) {
 			sendUserToast(`Could not save resource: ${err.body ?? err.message}`, true)
