@@ -21020,6 +21020,9 @@ components:
         jwt_role:
           type: string
           description: Vault JWT auth role name for Windmill (optional, if not provided token auth is used)
+        jwt_mount_path:
+          type: string
+          description: Mount path for the JWT auth method in Vault (optional, defaults to "jwt"). Set this when the JWT auth method is mounted at a non-default path, e.g. via `vault auth enable -path=<mount> jwt`.
         namespace:
           type: string
           description: Vault Enterprise namespace (optional)

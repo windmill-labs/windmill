@@ -122,6 +122,11 @@ pub struct VaultSettings {
     /// Optional - if not provided, token auth is used
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jwt_role: Option<String>,
+    /// Mount path for the JWT auth method in Vault (defaults to "jwt").
+    /// Set this when the JWT auth method is mounted at a non-default path,
+    /// e.g. via `vault auth enable -path=my-mount jwt`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jwt_mount_path: Option<String>,
     /// Vault Enterprise namespace (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,

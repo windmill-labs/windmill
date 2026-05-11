@@ -16,6 +16,7 @@
 	import { copyToClipboard } from '$lib/utils'
 	import { base } from '$lib/base'
 	import { withExternalDomain } from '$lib/externalDomain'
+	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { workspaceStore } from '$lib/stores'
 	import { AnsiUp } from 'ansi_up'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
@@ -204,9 +205,14 @@
 			scroll = true
 		}
 	})
-	let downloadHref = $derived(
-		withExternalDomain(`${base}/api/w/${$workspaceStore}/jobs_u/get_logs/${jobId}`)
-	)
+	let logsApiPath = $derived(`/w/${$workspaceStore}/jobs_u/get_logs/${jobId}`)
+	let downloadHref = $derived(withExternalDomain(`${base}/api${logsApiPath}`))
+	let downloadName = $derived(`windmill_logs_${jobId}.txt`)
+	async function onDownloadClick(e: MouseEvent) {
+		if (!shouldDownloadViaClient()) return
+		e.preventDefault()
+		await downloadViaClient(logsApiPath, downloadName)
+	}
 	let truncatedContent = $derived(truncateContent(content, loadedFromObjectStore, LOG_LIMIT))
 	let prefixInfo = $derived(findPrefixInfo(truncatedContent))
 	let downloadStartUrl = $derived(findStartUrl(truncatedContent, prefixInfo))
@@ -246,17 +252,30 @@
 	<DrawerContent title="Expanded Logs" on:close={logViewer.closeDrawer}>
 		{#snippet actions()}
 			{#if jobId && download}
-				<Button
-					href={downloadHref}
-					download="windmill_logs_{jobId}.txt"
-					color="light"
-					size="xs"
-					startIcon={{
-						icon: Download
-					}}
-				>
-					Download
-				</Button>
+				{#if shouldDownloadViaClient()}
+					<Button
+						on:click={() => downloadViaClient(logsApiPath, downloadName)}
+						color="light"
+						size="xs"
+						startIcon={{
+							icon: Download
+						}}
+					>
+						Download
+					</Button>
+				{:else}
+					<Button
+						href={downloadHref}
+						download={downloadName}
+						color="light"
+						size="xs"
+						startIcon={{
+							icon: Download
+						}}
+					>
+						Download
+					</Button>
+				{/if}
 			{/if}
 
 			<Button
@@ -342,7 +361,8 @@
 								class="text-primary pb-0.5"
 								target="_blank"
 								href={downloadHref}
-								download="windmill_logs_{jobId}.txt"
+								download={downloadName}
+								onclick={onDownloadClick}
 								><Download size="14" />
 							</a>
 						</div>

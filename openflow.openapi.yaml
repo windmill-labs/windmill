@@ -1053,6 +1053,12 @@ components:
                 - 0.0 = deterministic, focused responses
                 - 0.7 = balanced (common default)
                 - 1.0+ = more creative/random
+            max_iterations:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                Number. Limits how many times the agent can loop through reasoning and tool use.
+                Range: 1-1000.
           required:
             - provider
             - user_message

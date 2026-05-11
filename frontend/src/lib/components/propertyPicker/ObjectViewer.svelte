@@ -2,6 +2,7 @@
 	import ObjectViewer from './ObjectViewer.svelte'
 
 	import { copyToClipboard, truncate } from '$lib/utils'
+	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 
 	import {
 		createEventDispatcher,
@@ -407,12 +408,17 @@
 					<div class="flex">
 						<span class="text-primary">{closeBracket}</span>
 						{#if getTypeAsString(jsonFiltered) === 's3object'}
+							{@const s3DownloadApiPath = `/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${encodeURIComponent(jsonFiltered?.s3 ?? '')}${jsonFiltered?.storage ? `&storage=${jsonFiltered.storage}` : ''}`}
+							{@const s3DownloadName = jsonFiltered?.s3.split('/').pop() ?? 'unnamed_download.file'}
 							<a
 								class="text-secondary underline font-semibold text-2xs whitespace-nowrap ml-1 w-fit"
-								href={`/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${encodeURIComponent(
-									jsonFiltered?.s3 ?? ''
-								)}${jsonFiltered?.storage ? `&storage=${jsonFiltered.storage}` : ''}`}
-								download={jsonFiltered?.s3.split('/').pop() ?? 'unnamed_download.file'}
+								href={`/api${s3DownloadApiPath}`}
+								download={s3DownloadName}
+								onclick={async (e) => {
+									if (!shouldDownloadViaClient()) return
+									e.preventDefault()
+									await downloadViaClient(s3DownloadApiPath, s3DownloadName)
+								}}
 							>
 								<span class="flex items-center gap-1"><Download size={12} />download</span>
 							</a>
