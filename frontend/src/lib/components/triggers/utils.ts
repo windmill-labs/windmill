@@ -81,7 +81,8 @@ export const jobTriggerKinds: JobTriggerKind[] = [
 	'gcp',
 	'azure',
 	'google',
-	'github'
+	'github',
+	'asset'
 ]
 
 export type Trigger = {

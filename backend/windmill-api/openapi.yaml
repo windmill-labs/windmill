@@ -23677,6 +23677,7 @@ components:
         - azure
         - google
         - github
+        - asset
 
     TriggerMode:
       description: job trigger mode

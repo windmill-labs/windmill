@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM schedule\n           WHERE workspace_id = $1\n             AND managed_by_runnable_path = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "818188e13fd4da80070697027934503130d042aafe2229bf3e64b925d3e93c05"
+}
