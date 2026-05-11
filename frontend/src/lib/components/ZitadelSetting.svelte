@@ -74,9 +74,13 @@
 					bind:value={value['id']}
 				/>
 			</label>
-			<label>
+			<label for="zitadel_client_secret">
 				<span class="text-emphasis font-semibold text-xs">Client Secret </span>
-				<Password placeholder="Client Secret" bind:password={value['secret']} />
+				<Password
+					id="zitadel_client_secret"
+					placeholder="Client Secret"
+					bind:password={value['secret']}
+				/>
 			</label>
 		</SettingCard>
 	{/if}

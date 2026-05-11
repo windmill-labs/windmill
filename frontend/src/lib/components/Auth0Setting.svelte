@@ -104,11 +104,16 @@
 					class="max-w-lg"
 				/>
 			</label>
-			<label class="flex flex-col gap-1">
+			<label for="auth0_client_secret" class="flex flex-col gap-1">
 				<span class="text-emphasis font-semibold text-xs"
 					>Client Secret <Tooltip>Client Secret of the auth0 service configuration</Tooltip></span
 				>
-				<Password small placeholder="Client Secret" bind:password={value['secret']} />
+				<Password
+					id="auth0_client_secret"
+					small
+					placeholder="Client Secret"
+					bind:password={value['secret']}
+				/>
 			</label>
 			<CollapseLink text="Instructions">
 				<div class="text-xs text-primary border rounded-md p-4 space-y-3">

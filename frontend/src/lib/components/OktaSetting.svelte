@@ -96,12 +96,16 @@
 				>
 				<input type="text" placeholder="Client Id" bind:value={value['id']} />
 			</label>
-			<label class="flex flex-col gap-1">
+			<label for="okta_client_secret" class="flex flex-col gap-1">
 				<span class="text-emphasis font-semibold text-xs">Client Secret </span>
 				<span class="text-secondary font-normal text-xs"
 					>from the CLIENT SECRETS section of the okta service configuration</span
 				>
-				<Password placeholder="Client Secret" bind:password={value['secret']} />
+				<Password
+					id="okta_client_secret"
+					placeholder="Client Secret"
+					bind:password={value['secret']}
+				/>
 			</label>
 			<CollapseLink text="Instructions">
 				<div class="text-xs text-primary border rounded-md p-4 space-y-3">

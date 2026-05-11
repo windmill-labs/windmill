@@ -86,12 +86,16 @@
 					bind:value={value['id']}
 				/>
 			</label>
-			<label class="flex flex-col gap-1">
+			<label for="nextcloud_client_secret" class="flex flex-col gap-1">
 				<span class="text-emphasis font-semibold text-xs">Client Secret </span>
 				<span class="text-secondary font-normal text-xs"
 					>Client Secret from your Nextcloud OAuth2 app configuration</span
 				>
-				<Password placeholder="Client Secret" bind:password={value['secret']} />
+				<Password
+					id="nextcloud_client_secret"
+					placeholder="Client Secret"
+					bind:password={value['secret']}
+				/>
 			</label>
 			<CollapseLink text="Instructions">
 				<div class="text-xs text-primary border rounded-md p-4">

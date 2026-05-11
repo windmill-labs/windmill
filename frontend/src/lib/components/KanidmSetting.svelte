@@ -84,9 +84,13 @@
 					bind:value={value['id']}
 				/>
 			</label>
-			<label class="flex flex-col gap-1">
+			<label for="kanidm_client_secret" class="flex flex-col gap-1">
 				<span class="text-emphasis font-semibold text-xs">Client Secret </span>
-				<Password placeholder="Client Secret" bind:password={value['secret']} />
+				<Password
+					id="kanidm_client_secret"
+					placeholder="Client Secret"
+					bind:password={value['secret']}
+				/>
 			</label>
 		</SettingCard>
 	{/if}
