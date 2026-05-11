@@ -52,9 +52,8 @@ import type {
 } from 'openai/resources/chat/completions.mjs'
 import { z } from 'zod'
 import {
-	applyExactReplace,
-	countExactMatches,
 	createToolDef,
+	findAndReplace,
 	type CreatedResourceTriggerKind,
 	type Tool,
 	type ToolCallbacks,
@@ -1590,17 +1589,7 @@ async function editScript(
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: `Editing script "${path}"...` })
 
 	const base = await loadScriptForEdit(path, ctx.workspace)
-	const matchCount = countExactMatches(base.content, oldString)
-	if (matchCount === 0) {
-		throw new Error('old_string was not found in the script source.')
-	}
-	if (!replaceAll && matchCount !== 1) {
-		throw new Error(
-			`old_string matched ${matchCount} locations. Make it more specific or set replace_all to true.`
-		)
-	}
-
-	const updated = applyExactReplace(base.content, oldString, newString, replaceAll)
+	const updated = findAndReplace(base.content, oldString, newString, replaceAll, 'script source')
 	return writeDraft(
 		{
 			type: 'script',
@@ -1647,17 +1636,13 @@ async function patchFlowJson(
 	const session = createInlineScriptSession()
 	const editable = buildEditableFlowJson(base.flow, session)
 	const currentJson = JSON.stringify(editable)
-	const matchCount = countExactMatches(currentJson, oldString)
-	if (matchCount === 0) {
-		throw new Error('old_string was not found in the compact flow JSON.')
-	}
-	if (!replaceAll && matchCount !== 1) {
-		throw new Error(
-			`old_string matched ${matchCount} locations. Make it more specific or set replace_all to true.`
-		)
-	}
-
-	const updatedJson = applyExactReplace(currentJson, oldString, newString, replaceAll)
+	const updatedJson = findAndReplace(
+		currentJson,
+		oldString,
+		newString,
+		replaceAll,
+		'compact flow JSON'
+	)
 	let parsedValue: unknown
 	try {
 		parsedValue = JSON.parse(updatedJson)
@@ -1966,17 +1951,13 @@ async function patchAppFile(
 		currentContent = runnable.inlineScript?.content ?? ''
 	}
 
-	const matchCount = countExactMatches(currentContent, oldString)
-	if (matchCount === 0) {
-		throw new Error('old_string was not found in the current file content.')
-	}
-	if (!replaceAll && matchCount !== 1) {
-		throw new Error(
-			`old_string matched ${matchCount} locations. Make it more specific or set replace_all to true.`
-		)
-	}
-
-	const updated = applyExactReplace(currentContent, oldString, newString, replaceAll)
+	const updated = findAndReplace(
+		currentContent,
+		oldString,
+		newString,
+		replaceAll,
+		`${target.filePath} content`
+	)
 
 	if (target.kind === 'frontend') {
 		value.files = { ...value.files, [target.filePath]: updated }

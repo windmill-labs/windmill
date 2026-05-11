@@ -268,6 +268,30 @@ export function applyExactReplace(
 	return content.slice(0, index) + newString + content.slice(index + oldString.length)
 }
 
+/**
+ * Match-count-validated exact text replacement. Throws when `oldString` is
+ * missing, and (unless `replaceAll`) when it appears more than once.
+ * `contextLabel` flows into the error message ("not found in the <label>.").
+ */
+export function findAndReplace(
+	content: string,
+	oldString: string,
+	newString: string,
+	replaceAll: boolean,
+	contextLabel: string
+): string {
+	const matchCount = countExactMatches(content, oldString)
+	if (matchCount === 0) {
+		throw new Error(`old_string was not found in the ${contextLabel}.`)
+	}
+	if (!replaceAll && matchCount !== 1) {
+		throw new Error(
+			`old_string matched ${matchCount} locations. Make it more specific or set replace_all to true.`
+		)
+	}
+	return applyExactReplace(content, oldString, newString, replaceAll)
+}
+
 export const extractAllModules = (modules: FlowModule[]): FlowModule[] => {
 	return modules.flatMap((m) => {
 		if (m.value.type === 'forloopflow' || m.value.type === 'whileloopflow') {

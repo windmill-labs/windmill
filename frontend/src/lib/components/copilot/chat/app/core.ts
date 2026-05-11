@@ -4,12 +4,11 @@ import type {
 } from 'openai/resources/chat/completions.mjs'
 import { z } from 'zod'
 import {
-	applyExactReplace,
-	countExactMatches,
 	createSearchHubScriptsTool,
 	createToolDef,
 	createSearchWorkspaceTool,
 	createGetRunnableDetailsTool,
+	findAndReplace,
 	type Tool
 } from '../shared'
 import { aiChatManager } from '../AIChatManager.svelte'
@@ -635,17 +634,13 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 				currentContent = backendRunnable.inlineScript.content ?? ''
 			}
 
-			const matchCount = countExactMatches(currentContent, oldString)
-			if (matchCount === 0) {
-				throw new Error('old_string was not found in the current file content.')
-			}
-			if (!replaceAll && matchCount !== 1) {
-				throw new Error(
-					`old_string matched ${matchCount} locations. Make it more specific or set replace_all to true.`
-				)
-			}
-
-			const updatedContent = applyExactReplace(currentContent, oldString, newString, replaceAll)
+			const updatedContent = findAndReplace(
+				currentContent,
+				oldString,
+				newString,
+				replaceAll,
+				'current file content'
+			)
 
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Patching '${target.path}'...`

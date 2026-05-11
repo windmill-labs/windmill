@@ -17,10 +17,9 @@ import {
 	SUPPORTED_CHAT_SCRIPT_LANGUAGES
 } from '../script/core'
 import {
-	applyExactReplace,
-	countExactMatches,
 	createSearchHubScriptsTool,
 	createToolDef,
+	findAndReplace,
 	type Tool,
 	executeTestRun,
 	buildSchemaForTool,
@@ -607,23 +606,18 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			// then copy extracted inline scripts back into the helper session before applying the patch.
 			const inlineScriptSession = createInlineScriptSession()
 			const currentFlowJson = JSON.stringify(buildEditableFlowJson(flow, inlineScriptSession))
-			const matchCount = countExactMatches(currentFlowJson, oldString)
-
-			if (matchCount === 0) {
-				throw new Error('old_string was not found in the current flow JSON.')
-			}
-
-			if (!replaceAll && matchCount !== 1) {
-				throw new Error(
-					`old_string matched ${matchCount} locations. Make it more specific or set replace_all to true.`
-				)
-			}
 
 			toolCallbacks.setToolStatus(toolId, {
 				content: 'Applying JSON patch...'
 			})
 
-			const updatedFlowJson = applyExactReplace(currentFlowJson, oldString, newString, replaceAll)
+			const updatedFlowJson = findAndReplace(
+				currentFlowJson,
+				oldString,
+				newString,
+				replaceAll,
+				'current flow JSON'
+			)
 
 			let parsedFlow: EditableFlowJson
 			try {
