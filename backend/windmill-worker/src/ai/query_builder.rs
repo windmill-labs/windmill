@@ -1,22 +1,17 @@
 use async_trait::async_trait;
+use windmill_ai::{
+    query_builder::{QueryBuilder, StreamEventSink},
+    types::*,
+};
 use windmill_common::{error::Error, worker::Connection};
 use windmill_queue::MiniPulledJob;
 
 use crate::{
-    ai::{
-        providers::{
-            anthropic::AnthropicQueryBuilder, google_ai::GoogleAIQueryBuilder,
-            openai::OpenAIQueryBuilder, openrouter::OpenRouterQueryBuilder,
-            other::OtherQueryBuilder,
-        },
-        types::*,
+    ai::providers::{
+        anthropic::AnthropicQueryBuilder, google_ai::GoogleAIQueryBuilder,
+        openai::OpenAIQueryBuilder, openrouter::OpenRouterQueryBuilder, other::OtherQueryBuilder,
     },
     job_logger::append_result_stream,
-};
-
-// Re-export from windmill_ai
-pub use windmill_ai::query_builder::{
-    BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink,
 };
 
 /// Factory function to create the appropriate query builder for a provider
