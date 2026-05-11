@@ -96,7 +96,10 @@
 		return { dirs, leaf }
 	})
 
-	let own = $derived(isOwner(path ?? '', $userStore, $workspaceStore))
+	// Treat an empty path as ownable so the pen popover lets a user pick the
+	// path for a brand-new item. `Path.reset()` then synthesizes a default
+	// under their own user/folder scope.
+	let own = $derived(!path || isOwner(path, $userStore, $workspaceStore))
 
 	// Virtual entry for the picker: surfaces the currently-edited item at its
 	// live path (which may differ from `savedPath` mid-rename, so the picker

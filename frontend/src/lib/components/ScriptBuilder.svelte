@@ -1974,14 +1974,16 @@
 					>
 						<LanguageIcon lang={script.language} size={24} />
 					</button>
-					<EditorHeader
-						bind:summary={script.summary}
-						bind:path={script.path}
-						savedPath={initialPath}
-						kind="script"
-						disabled={customUi?.topBar?.editableSummary == false}
-						onNavigate={(item) => onNavigate?.(item)}
-					/>
+					{#if customUi?.topBar?.path != false}
+						<EditorHeader
+							bind:summary={script.summary}
+							bind:path={script.path}
+							savedPath={initialPath}
+							kind="script"
+							disabled={customUi?.topBar?.editableSummary == false}
+							onNavigate={(item) => onNavigate?.(item)}
+						/>
+					{/if}
 				</div>
 
 				<!-- Separator -->

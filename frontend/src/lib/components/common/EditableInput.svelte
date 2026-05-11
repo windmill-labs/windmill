@@ -79,6 +79,11 @@ this component just proposes new values.
 	}
 
 	function save() {
+		// Re-entry guard: Enter calls `save()` and sets `editing = false`,
+		// which unmounts the `<input>` and synchronously fires its `blur`
+		// handler — also `save()`. Without this guard, `onSave` would fire
+		// twice for the same edit.
+		if (!editing) return
 		editing = false
 		const trimmed = draft.trim()
 		if (trimmed !== (value ?? '')) {

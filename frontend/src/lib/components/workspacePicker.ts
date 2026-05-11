@@ -49,8 +49,19 @@ type WorkspaceCache = {
  * reload. */
 const cache = new Map<string, WorkspaceCache>()
 const inflight = new Map<string, Promise<WorkspaceItem[]>>()
+/** Bumped by `invalidate()`. Each in-flight `loadKind` captures the version
+ * at start and only writes back to the cache if it still matches — so a
+ * deploy mid-fetch can't have its stale predecessor repopulate the cache. */
+const cacheVersion = new Map<string, number>()
 
 const cacheKey = (workspace: string, kind: WorkspaceItemKind) => `${workspace}:${kind}`
+
+const KINDS: WorkspaceItemKind[] = ['flow', 'script', 'app']
+
+function bumpVersion(workspace: string, kind: WorkspaceItemKind) {
+	const k = cacheKey(workspace, kind)
+	cacheVersion.set(k, (cacheVersion.get(k) ?? 0) + 1)
+}
 
 export function getCachedItems(
 	workspace: string,
@@ -60,14 +71,18 @@ export function getCachedItems(
 }
 
 /** Drop a workspace+kind (or a whole workspace) from the cache so the next
- * picker open re-fetches. Use after creating/deleting items. */
+ * picker open re-fetches. Use after creating/deleting items. Also bumps the
+ * version so any in-flight `loadKind` started before the invalidate won't
+ * write its (now-stale) result back to the cache. */
 export function invalidate(workspace: string, kind?: WorkspaceItemKind) {
 	if (!kind) {
 		cache.delete(workspace)
+		for (const k of KINDS) bumpVersion(workspace, k)
 		return
 	}
 	const bucket = cache.get(workspace)
 	if (bucket) delete bucket[kind]
+	bumpVersion(workspace, kind)
 }
 
 export async function loadKind(
@@ -80,6 +95,7 @@ export async function loadKind(
 	const flying = inflight.get(key)
 	if (flying) return flying
 
+	const startVersion = cacheVersion.get(key) ?? 0
 	const promise = (async () => {
 		const { ScriptService, FlowService, AppService } = await import('$lib/gen')
 		let items: WorkspaceItem[]
@@ -117,9 +133,13 @@ export async function loadKind(
 				raw_app: a.raw_app ?? false
 			}))
 		}
-		const bucket = cache.get(workspace) ?? {}
-		bucket[kind] = items
-		cache.set(workspace, bucket)
+		// Only commit if the cache version hasn't changed since we started —
+		// otherwise we'd overwrite a deliberate `invalidate()` with stale data.
+		if ((cacheVersion.get(key) ?? 0) === startVersion) {
+			const bucket = cache.get(workspace) ?? {}
+			bucket[kind] = items
+			cache.set(workspace, bucket)
+		}
 		return items
 	})()
 	inflight.set(key, promise)

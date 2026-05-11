@@ -530,7 +530,9 @@
 
 		lock = true
 
-		switch (event.key.toLowerCase()) {
+		// Only lowercase single-char keys — named keys (`ArrowDown`, etc.) must
+		// stay PascalCase to match their switch cases.
+		switch (event.key.length === 1 ? event.key.toLowerCase() : event.key) {
 			case 'z':
 				if (event.ctrlKey || event.metaKey) {
 					const napp = event.shiftKey ? redo(history) : undo(history, $app)
