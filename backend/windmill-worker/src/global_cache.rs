@@ -40,6 +40,9 @@ pub async fn build_tar_and_push(
     let tar_file = std::fs::File::create(&tar_path)?;
     let mut tar = tar::Builder::new(tar_file);
     tar.append_dir_all(".", &folder)?;
+    // Write the trailing zero blocks and close the inner file BEFORE std::fs::read
+    // below. Without this, the bytes we upload to S3 are an unfinalized archive.
+    drop(tar.into_inner()?);
 
     let tar_metadata = tokio::fs::metadata(&tar_path).await;
     if tar_metadata.is_err() || tar_metadata.as_ref().unwrap().len() == 0 {
@@ -231,6 +234,7 @@ pub async fn save_cache(
             let tar_file = std::fs::File::create(&tar_path)?;
             let mut tar = tar::Builder::new(tar_file);
             tar.append_dir_all(".", &origin)?;
+            drop(tar.into_inner()?);
             let tar_metadata = tokio::fs::metadata(&tar_path).await;
             if tar_metadata.is_err() || tar_metadata.as_ref().unwrap().len() == 0 {
                 tracing::info!("Failed to tar cache: {origin}");
