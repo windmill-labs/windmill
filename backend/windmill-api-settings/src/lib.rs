@@ -119,6 +119,7 @@ pub fn global_service() -> Router {
         )
         .route("/renew_license_key", post(renew_license_key))
         .route("/license_status", get(get_license_status))
+        .route("/instance_hash", get(get_instance_hash))
         .route("/customer_portal", post(create_customer_portal_session))
         .route("/test_critical_channels", post(test_critical_channels))
         .route("/critical_alerts", get(get_critical_alerts))
@@ -355,15 +356,15 @@ pub struct LicenseStatus {
     pub license_key_id: String,
     pub license_key_valid: bool,
     pub kind: &'static str,
-    /// Per-instance binding hash. Always present on EE builds (no offline key
-    /// is needed to compute it). The superadmin sends this to Windmill support
-    /// when requesting an offline key.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub instance_hash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offline: Option<windmill_common::ee_oss::OfflineMetadata>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cap_status: Option<windmill_common::ee_oss::OfflineCapStatus>,
+}
+
+#[derive(serde::Serialize)]
+pub struct InstanceHash {
+    pub instance_hash: Option<String>,
 }
 
 pub async fn get_license_status(
@@ -389,14 +390,6 @@ pub async fn get_license_status(
         _ => ("online", None),
     };
 
-    #[cfg(feature = "enterprise")]
-    let instance_hash = windmill_common::ee_oss::compute_instance_hash(&db)
-        .await
-        .ok()
-        .flatten();
-    #[cfg(not(feature = "enterprise"))]
-    let instance_hash: Option<String> = None;
-
     // Read after enforce_offline_caps runs so a freshly-flipped invalid state
     // (cap exceeded) is reflected in the same response.
     let license_key_valid =
@@ -406,10 +399,28 @@ pub async fn get_license_status(
         license_key_id,
         license_key_valid,
         kind,
-        instance_hash,
         offline,
         cap_status,
     }))
+}
+
+/// Returns the per-instance binding hash that goes into offline license keys.
+/// Intentionally a separate, explicitly-requested endpoint (not embedded in
+/// `/settings/license_status`) so it isn't leaked on every status poll. Admin
+/// invokes via `curl` with their personal token when requesting a key from support.
+pub async fn get_instance_hash(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> error::JsonResult<InstanceHash> {
+    require_super_admin(&db, &authed.email).await?;
+    #[cfg(feature = "enterprise")]
+    let hash = windmill_common::ee_oss::compute_instance_hash(&db)
+        .await
+        .ok()
+        .flatten();
+    #[cfg(not(feature = "enterprise"))]
+    let hash: Option<String> = None;
+    Ok(Json(InstanceHash { instance_hash: hash }))
 }
 
 pub async fn get_local_settings(

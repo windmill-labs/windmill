@@ -60,7 +60,6 @@
 		license_key_id: string
 		license_key_valid: boolean
 		kind: 'offline' | 'online'
-		instance_hash?: string | null
 		offline?: {
 			v: number
 			kind: string
@@ -464,7 +463,7 @@
 								</div>
 							{/if}
 						{/if}
-						{#if latestKeyRenewalAttempt}
+						{#if latestKeyRenewalAttempt && licenseStatus?.kind !== 'offline'}
 							{@const attemptedAt = new Date(latestKeyRenewalAttempt.attempted_at).toLocaleString()}
 							{@const isTrial = latestKeyRenewalAttempt.result.startsWith('error: trial:')}
 							<div class="relative">
@@ -534,88 +533,44 @@
 							</div>
 						{/if}
 
+						{#if licenseStatus?.kind === 'offline' && licenseStatus.cap_status}
+							{@const cap = licenseStatus.cap_status}
+							{@const seatsOver = cap.seats_used > cap.seats_cap}
+							{@const cuOver = cap.cu_over_cap}
+							<div class="mt-1 flex flex-row items-center gap-2 text-xs">
+								<div class="flex flex-row items-center gap-1">
+									{#if seatsOver}
+										<BadgeX class="text-red-600" size={12} />
+									{:else}
+										<BadgeCheck class="text-green-600" size={12} />
+									{/if}
+									<span class={seatsOver ? 'text-red-600' : 'text-green-600'}>
+										Seats: {cap.seats_used.toFixed(1)} / {cap.seats_cap}
+									</span>
+								</div>
+								<div class="flex flex-row items-center gap-1">
+									{#if cuOver}
+										<BadgeX class="text-red-600" size={12} />
+									{:else}
+										<BadgeCheck class="text-green-600" size={12} />
+									{/if}
+									<span class={cuOver ? 'text-red-600' : 'text-green-600'}>
+										CUs: {cap.current_cu.toFixed(2)} / {cap.cu_cap.toFixed(2)}
+									</span>
+								</div>
+							</div>
+						{/if}
+
 						{#if valid || expiration}
 							<div class="flex flex-row gap-2 mt-1">
-								<Button on:click={renewLicenseKey} loading={renewing} size="xs" variant="accent"
-									>Renew key
-								</Button>
+								{#if licenseStatus?.kind !== 'offline'}
+									<Button on:click={renewLicenseKey} loading={renewing} size="xs" variant="accent"
+										>Renew key
+									</Button>
+								{/if}
 								<Button variant="accent" size="xs" loading={opening} on:click={openCustomerPortal}>
 									Open customer portal
 								</Button>
-							</div>
-						{/if}
-
-						{#if licenseStatus?.instance_hash}
-							<div
-								class="mt-3 rounded border border-gray-300 bg-gray-50 p-3 text-xs dark:border-gray-700 dark:bg-gray-900/40"
-							>
-								<div class="mb-1 font-semibold">Instance hash</div>
-								<div class="mb-1.5 text-tertiary">
-									Share this hash with Windmill support (<a
-										href="mailto:support@windmill.dev"
-										class="underline">support@windmill.dev</a
-									>) when requesting an offline license key.
-								</div>
-								<code class="block break-all rounded bg-white p-1.5 font-mono dark:bg-gray-950"
-									>{licenseStatus.instance_hash}</code
-								>
-							</div>
-						{/if}
-
-						{#if licenseStatus?.kind === 'offline' && licenseStatus.offline}
-							{@const cap = licenseStatus.cap_status}
-							{@const seatsAtCap = !!cap && cap.seats_used >= cap.seats_cap}
-							{@const cuOver = !!cap?.cu_over_cap}
-							<div
-								class="mt-3 rounded border p-3 text-xs flex flex-col gap-1.5 {cuOver
-									? 'border-red-400 bg-red-50 dark:bg-red-950/30'
-									: seatsAtCap
-										? 'border-amber-400 bg-amber-50 dark:bg-amber-950/30'
-										: 'border-blue-300 bg-blue-50 dark:bg-blue-950/30'}"
-							>
-								<div class="font-semibold flex items-center gap-1">
-									<Info size={14} />
-									Offline license
-								</div>
-								<div>
-									Renewal is disabled — this key is intended for air-gapped instances. To reissue
-									when approaching expiry,
-									<a href="mailto:support@windmill.dev" class="underline">contact us</a>.
-								</div>
-								{#if cap}
-									<div class="grid grid-cols-2 gap-2 mt-1">
-										<div>
-											Seats:
-											<span
-												class={cap.seats_used >= cap.seats_cap ? 'text-red-600 font-semibold' : ''}
-												>{cap.seats_used.toFixed(1)} / {cap.seats_cap}</span
-											>
-											<span class="text-tertiary"
-												>({cap.author_count} author{cap.author_count === 1 ? '' : 's'}, {cap.operator_count}
-												op{cap.operator_count === 1 ? '' : 's'} × 0.5)</span
-											>
-										</div>
-										<div>
-											Current CU: <span class={cap.cu_over_cap ? 'text-red-600 font-semibold' : ''}
-												>{cap.current_cu.toFixed(2)} / {cap.cu_cap.toFixed(2)}</span
-											>
-											<span class="text-tertiary">(last 2 min)</span>
-										</div>
-									</div>
-									{#if seatsAtCap}
-										<div class="mt-1 flex items-center gap-1 text-amber-700 dark:text-amber-300">
-											<AlertCircle size={14} />
-											Seat cap reached — new invites and additions are blocked until an existing user
-											is removed or deactivated.
-										</div>
-									{/if}
-									{#if cuOver}
-										<div class="mt-1 flex items-center gap-1 text-red-700 dark:text-red-300">
-											<AlertCircle size={14} />
-											CU usage is over cap — license is invalidated until usage drops back under cap.
-										</div>
-									{/if}
-								{/if}
 							</div>
 						{/if}
 					</div>

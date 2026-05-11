@@ -1801,10 +1801,6 @@ paths:
                   kind:
                     type: string
                     enum: [offline, online]
-                  instance_hash:
-                    type: string
-                    nullable: true
-                    description: Per-instance binding hash to share with Windmill support when requesting an offline license.
                   offline:
                     type: object
                     nullable: true
@@ -1840,6 +1836,27 @@ paths:
                         type: number
                       cu_over_cap:
                         type: boolean
+
+  /settings/instance_hash:
+    get:
+      summary: per-instance binding hash for offline license issuance
+      description: |
+        Returns the hash a superadmin shares with Windmill support when
+        requesting an offline license. Super-admin only.
+      operationId: getInstanceHash
+      tags:
+        - setting
+      responses:
+        '200':
+          description: instance hash
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  instance_hash:
+                    type: string
+                    nullable: true
 
   /settings/customer_portal:
     post:
