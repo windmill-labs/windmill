@@ -43,6 +43,17 @@ export type UserDraftUseOptions<V> = UserDraftOptions & {
 	defaultValue?: V
 }
 
+export type UserDraftListOptions = UserDraftOptions & {
+	itemKinds?: UserDraftItemKind[]
+}
+
+export type UserDraftListEntry<V = unknown> = {
+	workspace: string
+	itemKind: UserDraftItemKind
+	path: string
+	value: V
+}
+
 /**
  * A single (kind, path, workspace) tuple that `useMany` should hold a handle
  * for. The shape mirrors `use()`'s arguments, just bundled into one object
@@ -98,6 +109,9 @@ type DraftState<V> = {
 type DraftEntry = {
 	count: number
 	state: DraftState<unknown>
+	workspace: string
+	itemKind: UserDraftItemKind
+	path: string
 	/**
 	 * Tears down the `$effect.root` scope that owns the entry's
 	 * `useLocalStorageValue` reactivity — its `$state` cell and the persist
@@ -207,6 +221,45 @@ function mapKey(workspace: string, itemKind: UserDraftItemKind, path: string): s
 
 function localStorageKey(workspace: string, itemKind: UserDraftItemKind, path: string): string {
 	return `userdraft/w/${workspace}/${itemKind}/${path}`
+}
+
+function clone<T>(value: T): T {
+	return structuredClone($state.snapshot(value)) as T
+}
+
+function listLocalStorageDrafts(
+	workspace: string,
+	itemKinds: Set<UserDraftItemKind> | undefined
+): Map<string, UserDraftListEntry> {
+	const drafts = new Map<string, UserDraftListEntry>()
+	if (typeof localStorage === 'undefined') return drafts
+
+	const prefix = `userdraft/w/${workspace}/`
+	for (let i = 0; i < localStorage.length; i++) {
+		const key = localStorage.key(i)
+		if (!key?.startsWith(prefix)) continue
+
+		const rest = key.slice(prefix.length)
+		const separator = rest.indexOf('/')
+		if (separator === -1) continue
+
+		const itemKind = rest.slice(0, separator) as UserDraftItemKind
+		if (itemKinds && !itemKinds.has(itemKind)) continue
+
+		const path = rest.slice(separator + 1)
+		const stored = readPersisted<unknown>(key)
+		const value = unwrap(stored)
+		if (value === undefined) continue
+
+		drafts.set(mapKey(workspace, itemKind, path), {
+			workspace,
+			itemKind,
+			path,
+			value: clone(value)
+		})
+	}
+
+	return drafts
 }
 
 export type UserDraftHandle<V> = {
@@ -387,6 +440,29 @@ export const UserDraft = {
 		return readPersisted(localStorageKey(ws, itemKind, path)) !== undefined
 	},
 
+	list(opts?: UserDraftListOptions): UserDraftListEntry[] {
+		const ws = resolveWorkspace(opts)
+		const itemKinds = opts?.itemKinds ? new Set(opts.itemKinds) : undefined
+		const drafts = listLocalStorageDrafts(ws, itemKinds)
+
+		for (const [key, entry] of entries) {
+			if (entry.workspace !== ws) continue
+			if (itemKinds && !itemKinds.has(entry.itemKind)) continue
+
+			const value = unwrap(entry.state.val as StoredDraft<unknown> | undefined)
+			if (value === undefined) continue
+
+			drafts.set(key, {
+				workspace: ws,
+				itemKind: entry.itemKind,
+				path: entry.path,
+				value: clone(value)
+			})
+		}
+
+		return Array.from(drafts.values())
+	},
+
 	remove(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
 		try {
@@ -549,7 +625,14 @@ function acquireEntry(
 		)
 	})
 	if (stateRef) {
-		entries.set(mk, { count: 1, state: stateRef, destroyRoot })
+		entries.set(mk, {
+			count: 1,
+			state: stateRef,
+			workspace,
+			itemKind,
+			path,
+			destroyRoot
+		})
 		return
 	}
 	// Fallback for the vitest runtime where `$effect.root`'s callback isn't
@@ -560,7 +643,7 @@ function acquireEntry(
 		undefined,
 		useLocalStorageOptions
 	)
-	entries.set(mk, { count: 1, state })
+	entries.set(mk, { count: 1, state, workspace, itemKind, path })
 }
 
 function releaseEntry(mk: string): void {

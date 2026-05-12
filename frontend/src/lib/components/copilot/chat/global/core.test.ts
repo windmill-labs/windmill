@@ -42,8 +42,16 @@ vi.mock('$lib/gen', async () => {
 
 	return {
 		...actual,
+		ScriptService: wrapService(actual.ScriptService, {
+			existsScriptByPath: vi.fn(async () => false),
+			listScripts: vi.fn(async () => [])
+		}),
 		FlowService: wrapService(actual.FlowService, {
-			existsFlowByPath: vi.fn(async () => false)
+			existsFlowByPath: vi.fn(async () => false),
+			listFlows: vi.fn(async () => [])
+		}),
+		AppService: wrapService(actual.AppService, {
+			existsApp: vi.fn(async () => false)
 		}),
 		VariableService: wrapService(actual.VariableService, {
 			existsVariable: vi.fn(async () => false)
@@ -53,6 +61,7 @@ vi.mock('$lib/gen', async () => {
 
 import { globalTools } from './core'
 import { globalDraftStore } from './draftStore.svelte'
+import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
 import type { Tool, ToolCallbacks } from '../shared'
 
 const WORKSPACE = 'global-core-test'
@@ -83,7 +92,64 @@ async function callGlobalTool(name: string, args: Record<string, unknown>): Prom
 describe('global AI tools', () => {
 	beforeEach(() => {
 		globalDraftStore.clearDrafts(WORKSPACE)
+		__resetUserDraftForTesting()
+		localStorage.clear()
 		vi.clearAllMocks()
+	})
+
+	it('writes script drafts into the shared UserDraft store', async () => {
+		const content = 'export async function main() {\n\treturn "hello"\n}'
+
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/hello',
+			summary: 'Hello script',
+			language: 'bun',
+			content
+		})
+
+		expect(UserDraft.get<any>('script', 'f/scripts/hello', { workspace: WORKSPACE })).toMatchObject(
+			{
+				path: 'f/scripts/hello',
+				summary: 'Hello script',
+				language: 'bun',
+				content
+			}
+		)
+
+		const raw = await callGlobalTool('read_workspace_item', {
+			type: 'script',
+			path: 'f/scripts/hello'
+		})
+		expect(JSON.parse(raw)).toMatchObject({
+			type: 'script',
+			path: 'f/scripts/hello',
+			summary: 'Hello script',
+			language: 'bun',
+			value: content,
+			isDraft: true
+		})
+	})
+
+	it('overlays shared UserDraft entries in list_workspace_items', async () => {
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/listed',
+			summary: 'Listed script',
+			language: 'bun',
+			content: 'export async function main() { return 1 }'
+		})
+
+		const raw = await callGlobalTool('list_workspace_items', {
+			types: ['script']
+		})
+
+		expect(JSON.parse(raw)).toEqual([
+			expect.objectContaining({
+				type: 'script',
+				path: 'f/scripts/listed',
+				summary: 'Listed script',
+				isDraft: true
+			})
+		])
 	})
 
 	it('redacts variable draft values when reading workspace items', async () => {
@@ -126,6 +192,20 @@ describe('global AI tools', () => {
 			])
 		})
 
+		expect(
+			UserDraft.get<any>('flow', 'f/flows/empty-module', { workspace: WORKSPACE })
+		).toMatchObject({
+			path: 'f/flows/empty-module',
+			summary: 'Flow with empty module',
+			value: {
+				modules: [
+					expect.objectContaining({
+						id: 'empty_step'
+					})
+				]
+			}
+		})
+
 		const code = 'export async function main() {\n\treturn 42\n}'
 
 		await expect(
@@ -142,6 +222,28 @@ describe('global AI tools', () => {
 				module_id: 'empty_step'
 			})
 		).resolves.toBe(code)
+	})
+
+	it('stores raw app drafts in the shared raw_app UserDraft kind', async () => {
+		await callGlobalTool('init_app', {
+			path: 'f/apps/demo',
+			summary: 'Demo app',
+			framework: 'react19'
+		})
+
+		await callGlobalTool('write_app_file', {
+			path: 'f/apps/demo',
+			file_path: '/App.tsx',
+			content: 'export default function App() { return <main>Demo</main> }'
+		})
+
+		const draft = UserDraft.get<any>('raw_app', 'f/apps/demo', { workspace: WORKSPACE })
+		expect(draft).toMatchObject({
+			summary: 'Demo app',
+			files: expect.objectContaining({
+				'/App.tsx': 'export default function App() { return <main>Demo</main> }'
+			})
+		})
 	})
 
 	it('writes flows with flow-mode arguments and reads compact flow value', async () => {

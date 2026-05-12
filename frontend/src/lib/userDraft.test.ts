@@ -285,6 +285,46 @@ describe('UserDraft.use() — defaultValue', () => {
 	})
 })
 
+describe('UserDraft.list()', () => {
+	it('lists persisted drafts for the selected workspace and item kinds', () => {
+		UserDraft.save('script', 'u/me/script1', { content: 'code' })
+		UserDraft.save('flow', 'u/me/flow1', { modules: [] })
+		UserDraft.save('resource', 'u/me/resource1', { path: 'u/me/resource1' })
+		UserDraft.save('script', 'u/other/script2', { content: 'other' }, { workspace: 'other_ws' })
+		localStorage.setItem('userdraft/w/test_ws/script/u/me/bad', 'not-json')
+
+		expect(UserDraft.list({ itemKinds: ['script', 'flow'] })).toEqual([
+			{
+				workspace: 'test_ws',
+				itemKind: 'script',
+				path: 'u/me/script1',
+				value: { content: 'code' }
+			},
+			{
+				workspace: 'test_ws',
+				itemKind: 'flow',
+				path: 'u/me/flow1',
+				value: { modules: [] }
+			}
+		])
+	})
+
+	it('prefers live handle state over a stale localStorage entry', () => {
+		const handle = UserDraft.use<{ source: string }>('script', 'u/me/live')
+		handle.draft = { source: 'live' }
+		localStorage.setItem('userdraft/w/test_ws/script/u/me/live', wrapped({ source: 'persisted' }))
+
+		expect(UserDraft.list({ itemKinds: ['script'] })).toEqual([
+			{
+				workspace: 'test_ws',
+				itemKind: 'script',
+				path: 'u/me/live',
+				value: { source: 'live' }
+			}
+		])
+	})
+})
+
 describe('UserDraft — empty path (new-item drafts persist across reloads)', () => {
 	it('use() with empty path persists subsequent edits to localStorage', () => {
 		const handle = UserDraft.use<number>('flow', '', { defaultValue: 0 })
