@@ -208,11 +208,6 @@
 	let logsApiPath = $derived(`/w/${$workspaceStore}/jobs_u/get_logs/${jobId}`)
 	let downloadHref = $derived(withExternalDomain(`${base}/api${logsApiPath}`))
 	let downloadName = $derived(`windmill_logs_${jobId}.txt`)
-	async function onDownloadClick(e: MouseEvent) {
-		if (!shouldDownloadViaClient()) return
-		e.preventDefault()
-		await downloadViaClient(logsApiPath, downloadName)
-	}
 	let truncatedContent = $derived(truncateContent(content, loadedFromObjectStore, LOG_LIMIT))
 	let prefixInfo = $derived(findPrefixInfo(truncatedContent))
 	let downloadStartUrl = $derived(findStartUrl(truncatedContent, prefixInfo))
@@ -357,14 +352,21 @@
 				<div class="flex gap-2 justify-end flex-1">
 					{#if jobId && download}
 						<div class="flex items-center">
-							<a
-								class="text-primary pb-0.5"
-								target="_blank"
-								href={downloadHref}
-								download={downloadName}
-								onclick={onDownloadClick}
-								><Download size="14" />
-							</a>
+							{#if shouldDownloadViaClient()}
+								<button
+									class="text-primary pb-0.5"
+									onclick={() => downloadViaClient(logsApiPath, downloadName)}
+									><Download size="14" />
+								</button>
+							{:else}
+								<a
+									class="text-primary pb-0.5"
+									target="_blank"
+									href={downloadHref}
+									download={downloadName}
+									><Download size="14" />
+								</a>
+							{/if}
 						</div>
 					{/if}
 					<button onclick={logViewer.openDrawer}><Expand size="12" /></button>

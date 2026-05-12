@@ -187,11 +187,6 @@
 			: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`
 	)
 	let resultDownloadName = $derived(`${filename ?? 'result'}.json`)
-	async function onResultDownload(e: MouseEvent) {
-		if (!resultApiPath || !shouldDownloadViaClient()) return
-		e.preventDefault()
-		await downloadViaClient(resultApiPath, resultDownloadName)
-	}
 
 	function checkIfS3(result: any, keys: string[]) {
 		return keys.includes('s3') && typeof result.s3 === 'string'
@@ -1020,13 +1015,17 @@
 					{:else}
 						{#if largeObject}
 							<div class="text-xs text-emphasis"
-								><a
-									download={resultDownloadName}
-									href={resultDownloadHref}
-									onclick={onResultDownload}
-								>
-									Download {filename ? '' : 'as JSON'}
-								</a>
+								>{#if resultApiPath && shouldDownloadViaClient()}
+									<button
+										onclick={() => downloadViaClient(resultApiPath!, resultDownloadName)}
+									>
+										Download {filename ? '' : 'as JSON'}
+									</button>
+								{:else}
+									<a download={resultDownloadName} href={resultDownloadHref}>
+										Download {filename ? '' : 'as JSON'}
+									</a>
+								{/if}
 								{#if download_as_csv}
 									<DownloadCsv
 										getContent={() => convertJsonToCsv(result)}

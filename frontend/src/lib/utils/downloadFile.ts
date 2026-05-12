@@ -1,32 +1,27 @@
 import { OpenAPI } from '$lib/gen'
+import { getHeaders } from '$lib/gen/core/request'
 import { sendUserToast } from '$lib/toast'
 
-async function resolveToken(): Promise<string | undefined> {
-	const t = OpenAPI.TOKEN
-	if (!t) return undefined
-	return typeof t === 'string' ? t : await t({} as any)
-}
-
 /**
- * When OpenAPI.TOKEN is set we cannot rely on a plain `<a href>` browser navigation
- * because the browser does not attach the Authorization header. In that case fetch
- * the file via the OpenAPI client (which uses OpenAPI.BASE and the Bearer token) and
- * trigger a download from a blob URL. Otherwise let the default link behavior happen.
+ * When OpenAPI is configured to authenticate via headers (TOKEN, basic auth,
+ * or arbitrary HEADERS) we cannot rely on a plain `<a href>` browser
+ * navigation because the browser does not attach those headers. In that case
+ * fetch the file via the OpenAPI client (which carries the configured auth)
+ * and trigger a download from a blob URL. Cookie-only auth still works with
+ * a plain link.
  *
  * `apiPath` should be the path relative to OpenAPI.BASE, starting with `/`
  * (e.g. `/w/foo/job_helpers/download_s3_file?file_key=...`).
  */
 export function shouldDownloadViaClient(): boolean {
-	return Boolean(OpenAPI.TOKEN)
+	return Boolean(OpenAPI.TOKEN || OpenAPI.HEADERS || OpenAPI.USERNAME)
 }
 
 export async function downloadViaClient(apiPath: string, filename: string): Promise<void> {
-	const token = await resolveToken()
 	const url = `${OpenAPI.BASE}${apiPath}`
-	const headers: Record<string, string> = {}
-	if (token) headers['Authorization'] = `Bearer ${token}`
 	let response: Response
 	try {
+		const headers = await getHeaders(OpenAPI, { method: 'GET', url: apiPath })
 		response = await fetch(url, { headers, credentials: OpenAPI.CREDENTIALS })
 	} catch (e) {
 		sendUserToast(`Download failed: ${e}`, true)
