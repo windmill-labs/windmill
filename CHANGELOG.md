@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.700.2](https://github.com/windmill-labs/windmill/compare/v1.700.1...v1.700.2) (2026-05-12)
+
+
+### Bug Fixes
+
+* preserve explicit nulls for typed fields in bulk instance config ([#9123](https://github.com/windmill-labs/windmill/issues/9123)) ([cab0000](https://github.com/windmill-labs/windmill/commit/cab0000f3a5e9a0b201a85da1a01b1f82df8a316))
+* preserve negative integers in Bedrock tool schema conversion ([#9116](https://github.com/windmill-labs/windmill/issues/9116)) ([01e21c7](https://github.com/windmill-labs/windmill/commit/01e21c7f913eaf7dffc3d6a31501418ff2104c8b))
+
 ## [1.700.1](https://github.com/windmill-labs/windmill/compare/v1.700.0...v1.700.1) (2026-05-11)
 
 
