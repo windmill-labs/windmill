@@ -70,6 +70,7 @@
 				address: $values['secret_backend']?.address ?? '',
 				mount_path: $values['secret_backend']?.mount_path ?? 'windmill',
 				jwt_role: $values['secret_backend']?.jwt_role ?? 'windmill-secrets',
+				jwt_mount_path: $values['secret_backend']?.jwt_mount_path ?? null,
 				namespace: $values['secret_backend']?.namespace ?? null,
 				token: $values['secret_backend']?.token ?? null,
 				skip_ssl_verify: $values['secret_backend']?.skip_ssl_verify ?? false
@@ -122,6 +123,7 @@
 			address: $values['secret_backend'].address,
 			mount_path: $values['secret_backend'].mount_path,
 			jwt_role: $values['secret_backend'].jwt_role,
+			jwt_mount_path: $values['secret_backend'].jwt_mount_path || undefined,
 			namespace: $values['secret_backend'].namespace || undefined,
 			token: $values['secret_backend'].token || undefined,
 			skip_ssl_verify: $values['secret_backend'].skip_ssl_verify || undefined
@@ -352,6 +354,10 @@
 	}
 
 	let baseUrl = $derived($values['base_url'] ?? 'https://your-windmill-instance.com')
+	let jwtMount = $derived(($values['secret_backend']?.jwt_mount_path?.trim() || 'jwt') as string)
+	let vaultAudience = $derived(
+		($values['secret_backend']?.address?.trim() || 'https://vault.example.com:8200') as string
+	)
 </script>
 
 <div class="space-y-6">
@@ -500,6 +506,24 @@
 							}}
 							bind:value={$values['secret_backend'].jwt_role}
 						/>
+						<label for="vault_jwt_mount_path" class="block text-xs font-semibold text-emphasis"
+							>JWT Auth Mount Path (optional)</label
+						>
+						<span class="text-2xs text-secondary"
+							>Mount path of the JWT auth method in Vault. Defaults to <code>jwt</code>. Set this
+							only if you mounted the JWT auth method at a non-default path (<code
+								>vault auth enable -path=&lt;mount&gt; jwt</code
+							>).</span
+						>
+						<TextInput
+							inputProps={{
+								type: 'text',
+								id: 'vault_jwt_mount_path',
+								placeholder: 'jwt',
+								disabled
+							}}
+							bind:value={$values['secret_backend'].jwt_mount_path}
+						/>
 						<details class="mt-2">
 							<summary class="text-xs font-medium text-secondary cursor-pointer hover:text-primary"
 								>Vault JWT Setup Instructions</summary
@@ -510,29 +534,32 @@
 									class="bg-gray-100 dark:bg-gray-800 p-2 rounded font-mono text-2xs overflow-x-auto"
 								>
 									<pre
-										># Enable JWT auth method
-vault auth enable jwt
+										># Enable JWT auth method{jwtMount === 'jwt'
+											? ''
+											: ` at custom mount '${jwtMount}'`}
+vault auth enable {jwtMount === 'jwt' ? 'jwt' : `-path=${jwtMount} jwt`}
 
 # Configure JWT auth with Windmill's JWKS endpoint
-vault write auth/jwt/config \
-  jwks_url="{baseUrl}/.well-known/jwks.json" \
-  bound_issuer="{baseUrl}"
+vault write auth/{jwtMount}/config \
+  jwks_url="{baseUrl}/api/oidc/jwks" \
+  bound_issuer="{baseUrl}/api/oidc/"
 
 # Create a policy for Windmill secrets
 vault policy write windmill-secrets - &lt;&lt;EOF
-path "windmill/data/*" &#123;
+path "{$values['secret_backend']?.mount_path ?? 'windmill'}/data/*" &#123;
   capabilities = ["create", "read", "update", "delete"]
 &#125;
-path "windmill/metadata/*" &#123;
+path "{$values['secret_backend']?.mount_path ?? 'windmill'}/metadata/*" &#123;
   capabilities = ["list", "delete"]
 &#125;
 EOF
 
-# Create the JWT role
-vault write auth/jwt/role/windmill-secrets \
+# Create the JWT role. bound_audiences must match the Vault server
+# address — Windmill signs the JWT with `aud` = your Vault address.
+vault write auth/{jwtMount}/role/{$values['secret_backend']?.jwt_role || 'windmill-secrets'} \
   role_type="jwt" \
-  bound_audiences="{baseUrl}" \
-  user_claim="email" \
+  bound_audiences="{vaultAudience}" \
+  user_claim="sub" \
   policies="windmill-secrets" \
   ttl="1h"</pre
 									>

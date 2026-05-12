@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Drawer, DrawerContent, UndoRedo } from '$lib/components/common'
+	import { Drawer, DrawerContent } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -7,7 +7,8 @@
 	import { redo, undo } from '$lib/history.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import type { Item } from '$lib/utils'
+	import { isMac, type Item, userPathPrefix } from '$lib/utils'
+	import { random_adj } from '$lib/components/random_positive_adjetive'
 	import {
 		AlignHorizontalSpaceAround,
 		BellOff,
@@ -25,6 +26,8 @@
 		Sun,
 		Moon,
 		SunMoon,
+		Undo,
+		Redo,
 		Zap,
 		Globe
 	} from 'lucide-svelte'
@@ -53,7 +56,9 @@
 	import AppReportsDrawer from './AppReportsDrawer.svelte'
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
 
-	import Summary from '$lib/components/Summary.svelte'
+	import EditorHeader from '$lib/components/EditorHeader.svelte'
+	import { editPathFor, invalidate as invalidatePicker } from '$lib/components/workspacePicker'
+	import { goto } from '$app/navigation'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 
@@ -120,7 +125,20 @@
 		onHideBottomPanel
 	}: Props = $props()
 
-	let newEditedPath = $state('')
+	/** Mirror of the path the user is editing in the pen popover. Initialized
+	 * once from `newPath` (or a synthesized path for new apps) and only
+	 * updated by user input from then on — we deliberately do NOT sync from
+	 * `newPath` afterwards so the user's in-flight rename isn't clobbered by
+	 * a parent reload that re-supplies the saved path. The fallback chain at
+	 * read sites (`newEditedPath || savedApp?.draft?.path || savedApp?.path`)
+	 * handles the case where `newEditedPath` is briefly empty before the
+	 * synthesized initialization runs — falls through to the saved path so
+	 * rename detection still works. */
+	let newEditedPath = $state(
+		untrack(() =>
+			newApp ? userPathPrefix($userStore?.username) + random_adj() + '_app' : (newPath ?? '')
+		)
+	)
 	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
 	let deployedBy: string | undefined = $state(undefined) // Author
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
@@ -280,6 +298,7 @@
 				preserve_on_behalf_of: preserveOnBehalfOf || undefined
 			}
 		})
+		invalidatePicker($workspaceStore!, 'app')
 		savedApp = {
 			summary: $summary,
 			value: structuredClone($state.snapshot($app)),
@@ -504,19 +523,12 @@
 
 		lock = true
 
-		switch (event.key) {
-			case 'Z':
-				if (event.ctrlKey || event.metaKey) {
-					const napp = redo(history)
-					for (const key in napp) {
-						$app[key] = napp[key]
-					}
-					event.preventDefault()
-				}
-				break
+		// Only lowercase single-char keys — named keys (`ArrowDown`, etc.) must
+		// stay PascalCase to match their switch cases.
+		switch (event.key.length === 1 ? event.key.toLowerCase() : event.key) {
 			case 'z':
 				if (event.ctrlKey || event.metaKey) {
-					const napp = undo(history, $app)
+					const napp = event.shiftKey ? redo(history) : undo(history, $app)
 					for (const key in napp) {
 						$app[key] = napp[key]
 					}
@@ -551,7 +563,37 @@
 		lock = false
 	}
 
+	const mod = isMac() ? '⌘' : 'Ctrl+'
+
+	function handleUndo() {
+		const napp = undo(history, $app)
+		for (const key in napp) {
+			$app[key] = napp[key]
+		}
+	}
+	function handleRedo() {
+		const napp = redo(history)
+		for (const key in napp) {
+			$app[key] = napp[key]
+		}
+	}
+
 	let moreItems = $derived([
+		{
+			displayName: 'Undo',
+			icon: Undo,
+			action: () => handleUndo(),
+			disabled: $history?.index === 0,
+			shortcut: `${mod}Z`
+		},
+		{
+			displayName: 'Redo',
+			icon: Redo,
+			action: () => handleRedo(),
+			disabled: $history && $history?.index === $history.history.length - 1,
+			shortcut: `${mod}⇧Z`,
+			separatorBottom: true
+		},
 		{
 			displayName: 'Deployment history',
 			icon: History,
@@ -883,28 +925,17 @@
 <AppReportsDrawer bind:open={appReportingDrawerOpen} appPath={$appPath ?? ''} />
 
 <div
-	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto"
+	class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto max-h-12 h-12 shrink-0"
 >
 	<div class="flex flex-row gap-2 items-center">
-		<Summary bind:value={$summary} />
+		<EditorHeader
+			bind:summary={$summary}
+			bind:path={newEditedPath}
+			savedPath={$appPath || newPath || undefined}
+			kind="app"
+			onNavigate={(item) => goto(editPathFor(item))}
+		/>
 		<div class="flex gap-2">
-			<UndoRedo
-				undoProps={{ disabled: $history?.index === 0 }}
-				redoProps={{ disabled: $history && $history?.index === $history.history.length - 1 }}
-				on:undo={() => {
-					const napp = undo(history, $app)
-					for (const key in napp) {
-						$app[key] = napp[key]
-					}
-				}}
-				on:redo={() => {
-					const napp = redo(history)
-					for (const key in napp) {
-						$app[key] = napp[key]
-					}
-				}}
-			/>
-
 			{#if $app}
 				<ToggleButtonGroup
 					selected={$app.fullscreen ? 'true' : 'false'}

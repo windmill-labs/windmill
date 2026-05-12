@@ -226,6 +226,7 @@ async fn get_concurrent_intervals(
             trigger_kind: _,
             include_args: _,
             broad_filter: _,
+            excludes_entrypoint_override: _,
         } => true,
         _ => false,
     };

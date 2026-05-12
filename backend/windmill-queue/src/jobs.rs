@@ -630,12 +630,45 @@ pub struct WrappedError {
 pub trait ValidableJson {
     fn is_valid_json(&self) -> bool;
     fn wm_labels(&self) -> Option<Vec<String>>;
+    fn wm_failure(&self) -> Option<String>;
+    fn result_metadata(&self) -> ResultMetadata;
     fn size(&self) -> usize;
 }
 
-#[derive(serde::Deserialize)]
-struct ResultLabels {
-    wm_labels: Vec<String>,
+/// The Windmill-specific markers we look for inside a job's result.
+/// `wm_failure` retags a successful run as a failure with the
+/// given message; `wm_labels` adds runtime labels to the job row.
+#[derive(serde::Deserialize, Default, Debug, Clone)]
+pub struct ResultMetadata {
+    pub wm_labels: Option<Vec<String>>,
+    pub wm_failure: Option<String>,
+}
+
+/// Sentinel `error.name` we inject into a result when retagging a successful
+/// run as a failure due to `wm_failure`. Used downstream to detect that
+/// the result is already in the standard `{ error: { name, message }, ... }`
+/// shape and must not be wrapped a second time by `WrappedError`.
+pub const MANUAL_FAILURE_ERROR_NAME: &str = "ManualFailure";
+
+/// Returns true when the result already carries our injected
+/// `error: { name: "ManualFailure", ... }` marker — i.e. it was shaped by
+/// `process_jc`'s wm_failure path. A real runtime failure whose raw
+/// result happens to contain a `wm_failure` field but no such error
+/// key returns false (and so still goes through the standard wrap path).
+pub fn is_pre_shaped_wm_failure_result(result: &str) -> bool {
+    #[derive(serde::Deserialize)]
+    struct Marker {
+        error: Option<NameOnly>,
+    }
+    #[derive(serde::Deserialize)]
+    struct NameOnly {
+        name: String,
+    }
+    serde_json::from_str::<Marker>(result)
+        .ok()
+        .and_then(|m| m.error)
+        .map(|e| e.name == MANUAL_FAILURE_ERROR_NAME)
+        .unwrap_or(false)
 }
 
 impl ValidableJson for WrappedError {
@@ -645,6 +678,14 @@ impl ValidableJson for WrappedError {
 
     fn wm_labels(&self) -> Option<Vec<String>> {
         None
+    }
+
+    fn wm_failure(&self) -> Option<String> {
+        None
+    }
+
+    fn result_metadata(&self) -> ResultMetadata {
+        ResultMetadata::default()
     }
 
     fn size(&self) -> usize {
@@ -658,9 +699,15 @@ impl ValidableJson for Box<RawValue> {
     }
 
     fn wm_labels(&self) -> Option<Vec<String>> {
-        serde_json::from_str::<ResultLabels>(self.get())
-            .ok()
-            .map(|r| r.wm_labels)
+        self.result_metadata().wm_labels
+    }
+
+    fn wm_failure(&self) -> Option<String> {
+        self.result_metadata().wm_failure
+    }
+
+    fn result_metadata(&self) -> ResultMetadata {
+        serde_json::from_str::<ResultMetadata>(self.get()).unwrap_or_default()
     }
 
     fn size(&self) -> usize {
@@ -677,6 +724,14 @@ impl<T: ValidableJson> ValidableJson for Arc<T> {
         T::wm_labels(&self)
     }
 
+    fn wm_failure(&self) -> Option<String> {
+        T::wm_failure(&self)
+    }
+
+    fn result_metadata(&self) -> ResultMetadata {
+        T::result_metadata(&self)
+    }
+
     fn size(&self) -> usize {
         T::size(&self)
     }
@@ -688,9 +743,15 @@ impl ValidableJson for serde_json::Value {
     }
 
     fn wm_labels(&self) -> Option<Vec<String>> {
-        serde_json::from_value::<ResultLabels>(self.clone())
-            .ok()
-            .map(|r| r.wm_labels)
+        self.result_metadata().wm_labels
+    }
+
+    fn wm_failure(&self) -> Option<String> {
+        self.result_metadata().wm_failure
+    }
+
+    fn result_metadata(&self) -> ResultMetadata {
+        serde_json::from_value::<ResultMetadata>(self.clone()).unwrap_or_default()
     }
 
     fn size(&self) -> usize {
@@ -705,6 +766,14 @@ impl<T: ValidableJson> ValidableJson for Json<T> {
 
     fn wm_labels(&self) -> Option<Vec<String>> {
         self.0.wm_labels()
+    }
+
+    fn wm_failure(&self) -> Option<String> {
+        self.0.wm_failure()
+    }
+
+    fn result_metadata(&self) -> ResultMetadata {
+        self.0.result_metadata()
     }
 
     fn size(&self) -> usize {
@@ -742,16 +811,7 @@ where
     }
 }
 
-pub async fn add_completed_job_error(
-    db: &Pool<Postgres>,
-    completed_job: &MiniCompletedJob,
-    mem_peak: i32,
-    canceled_by: Option<CanceledBy>,
-    e: serde_json::Value,
-    _worker_name: &str,
-    flow_is_done: bool,
-    duration: Option<i64>,
-) -> Result<WrappedError, Error> {
+async fn record_failure_metrics(completed_job: &MiniCompletedJob, _worker_name: &str) {
     #[cfg(feature = "prometheus")]
     register_metric(
         &WORKER_EXECUTION_FAILED,
@@ -772,6 +832,64 @@ pub async fn add_completed_job_error(
     .await;
 
     otel_incr_worker_execution_failed(&completed_job.tag);
+}
+
+/// Tag a completed job as a failure while storing the result as-is, without
+/// the standard `WrappedError` `{ error: ... }` wrap. Use for jobs whose result
+/// is already shaped (e.g. when `wm_failure` injected a top-level
+/// `error` key, while preserving sibling fields like `windmill_status_code`).
+///
+/// This is a worker-internal helper called by trusted result-processing code
+/// after the worker has authenticated and pulled the job. Callers MUST verify
+/// upstream auth (i.e. the job was legitimately pulled by this worker) — this
+/// function performs no authorization check itself, mirroring the contract of
+/// `add_completed_job_error`.
+pub async fn add_completed_job_pre_shaped_failure<T: Serialize + Send + Sync + ValidableJson>(
+    db: &Pool<Postgres>,
+    completed_job: &MiniCompletedJob,
+    mem_peak: i32,
+    canceled_by: Option<CanceledBy>,
+    result: Json<&T>,
+    worker_name: &str,
+    flow_is_done: bool,
+    duration: Option<i64>,
+) -> Result<(), Error> {
+    record_failure_metrics(completed_job, worker_name).await;
+
+    tracing::error!(
+        "job {} in {} did not succeed (wm_failure)",
+        completed_job.id,
+        completed_job.workspace_id,
+    );
+    let _ = add_completed_job(
+        db,
+        completed_job,
+        false,
+        false,
+        result,
+        None,
+        mem_peak,
+        canceled_by,
+        flow_is_done,
+        duration,
+        false,
+    )
+    .warn_after_seconds(10)
+    .await?;
+    Ok(())
+}
+
+pub async fn add_completed_job_error(
+    db: &Pool<Postgres>,
+    completed_job: &MiniCompletedJob,
+    mem_peak: i32,
+    canceled_by: Option<CanceledBy>,
+    e: serde_json::Value,
+    worker_name: &str,
+    flow_is_done: bool,
+    duration: Option<i64>,
+) -> Result<WrappedError, Error> {
+    record_failure_metrics(completed_job, worker_name).await;
 
     let result = WrappedError { error: e };
     tracing::error!(

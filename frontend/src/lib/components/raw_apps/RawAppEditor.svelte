@@ -917,7 +917,7 @@
 		onApply={handleYamlApply}
 	/>
 
-	<Splitpanes id="o2" class="grow min-h-0">
+	<Splitpanes id="o2" class="grow min-h-0 border-t">
 		<Pane bind:size={sidebarPanelSize} maxSize={20} class="h-full overflow-y-auto">
 			<RawAppSidebar
 				bind:files={

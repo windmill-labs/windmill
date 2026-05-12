@@ -9,6 +9,7 @@
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { HelpersService } from '$lib/gen'
 	import { base } from '$lib/base'
+	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { Download } from 'lucide-svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -200,14 +201,26 @@
 		</div>
 	{/if}
 	{#if !disable_download && !s3resource.endsWith('.csv')}
-		<a
-			target="_blank"
-			href="{base}/api/w/{workspaceId}/job_helpers/download_s3_parquet_file_as_csv?file_key={encodeURIComponent(
-				s3resource
-			)}{storage ? `&storage=${storage}` : ''}"
-			class="text-secondary w-full text-right underline text-2xs whitespace-nowrap"
-			><div class="flex flex-row-reverse gap-2 items-center"><Download size={12} /> CSV</div></a
-		>
+		{@const csvApiPath = `/w/${workspaceId}/job_helpers/download_s3_parquet_file_as_csv?file_key=${encodeURIComponent(s3resource)}${storage ? `&storage=${storage}` : ''}`}
+		{@const csvName = (s3resource.split('/').pop() ?? 'download') + '.csv'}
+		{#if shouldDownloadViaClient()}
+			<button
+				class="text-secondary w-full text-right underline text-2xs whitespace-nowrap"
+				onclick={() => downloadViaClient(csvApiPath, csvName)}
+				><div class="flex flex-row-reverse gap-2 items-center"
+					><Download size={12} /> CSV</div
+				></button
+			>
+		{:else}
+			<a
+				target="_blank"
+				href="{base}/api{csvApiPath}"
+				class="text-secondary w-full text-right underline text-2xs whitespace-nowrap"
+				><div class="flex flex-row-reverse gap-2 items-center"
+					><Download size={12} /> CSV</div
+				></a
+			>
+		{/if}
 	{/if}
 
 	{#if nbRows != undefined}

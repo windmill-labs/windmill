@@ -44,6 +44,16 @@ export function getFlowPrompt(): string {
   ].filter(Boolean).join('\n\n');
 }
 
+// Helper for resource & variable authoring
+export function getResourcePrompt(): string {
+  return prompts.RESOURCES_BASE;
+}
+
+// Helper for raw app authoring (chat consumers)
+export function getRawAppPrompt(): string {
+  return prompts.RAW_APP_BASE;
+}
+
 // Helper to get datatable SDK reference for app mode
 export function getDatatableSdkReference(): string {
   return [

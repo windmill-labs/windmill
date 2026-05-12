@@ -42,7 +42,7 @@
 	} from '$lib/utils'
 	import Path from './Path.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
-	import { Alert, Badge, Button, Drawer, SecondsInput, Tab, TabContent, Tabs } from './common'
+	import { Alert, Button, Drawer, SecondsInput, Tab, TabContent, Tabs } from './common'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage, Schema } from '$lib/common'
 	import Tooltip from './Tooltip.svelte'
@@ -50,19 +50,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ErrorHandlerToggleButton from '$lib/components/details/ErrorHandlerToggleButton.svelte'
-	import {
-		Bug,
-		Calendar,
-		CheckCircle,
-		Code,
-		Pen,
-		Plus,
-		Rocket,
-		Save,
-		Settings,
-		Shuffle,
-		X
-	} from 'lucide-svelte'
+	import { Bug, CheckCircle, Code, Plus, Rocket, Save, Settings, Shuffle, X } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import Awareness from './Awareness.svelte'
@@ -79,7 +67,7 @@
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
 	import { onMount, setContext, untrack } from 'svelte'
-	import Summary from './Summary.svelte'
+	import EditorHeader from './EditorHeader.svelte'
 	import LabelsInput from './LabelsInput.svelte'
 
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
@@ -100,7 +88,6 @@
 	import type { ScriptBuilderProps } from './script_builder'
 	import type { DiffDrawerI } from './diff_drawer'
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
-	import { inputSizeClasses } from './text_input/TextInput.svelte'
 	import type { ButtonType } from './common/button/model'
 	import DebounceLimit from './flows/DebounceLimit.svelte'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
@@ -149,6 +136,7 @@
 		onSeeDetails,
 		onSaveDraftError,
 		onSaveDraft,
+		onNavigate,
 		disableAi
 	}: ScriptBuilderProps = $props()
 
@@ -1178,6 +1166,14 @@
 													namePlaceholder="script"
 													kind="script"
 												/>
+												{#if initialPath && script.path && script.path !== initialPath}
+													<Alert
+														type="info"
+														size="xs"
+														title="Deploy the script to make the path change effective."
+														class="mt-2"
+													/>
+												{/if}
 											</Label>
 											<Label label="Description">
 												<MetadataGen
@@ -1928,77 +1924,31 @@
 	<div class="flex flex-col h-screen">
 		<div class="flex h-12 items-center px-4">
 			<div class="flex gap-2 lg:gap-2 w-full items-center">
-				<div class="flex flex-row gap-2 grow max-w-md">
-					<div class="center-center">
-						<button
-							disabled={customUi?.topBar?.settings == false}
-							onclick={async () => {
-								metadataOpen = true
-							}}
-						>
-							<LanguageIcon lang={script.language} size={24} />
-						</button>
-					</div>
-					<Summary
-						disabled={customUi?.topBar?.editableSummary == false}
-						bind:value={script.summary}
-					/>
+				<div class="flex flex-row items-center gap-2 min-w-0 max-w-full">
+					<button
+						disabled={customUi?.topBar?.settings == false}
+						class="shrink-0"
+						onclick={async () => {
+							metadataOpen = true
+						}}
+					>
+						<LanguageIcon lang={script.language} size={24} />
+					</button>
+					{#if customUi?.topBar?.path != false}
+						<EditorHeader
+							bind:summary={script.summary}
+							bind:path={script.path}
+							savedPath={initialPath}
+							kind="script"
+							summaryEditable={customUi?.topBar?.editableSummary != false}
+							pathEditable={customUi?.topBar?.editablePath != false}
+							onNavigate={(item) => onNavigate?.(item)}
+						/>
+					{/if}
 				</div>
 
 				<!-- Separator -->
 				<div class="flex-1"></div>
-
-				<div class="gap-4 flex whitespace-nowrap">
-					{#if triggersState.triggers?.some((t) => t.type === 'schedule')}
-						{@const primarySchedule = triggersState.triggers.findIndex((t) => t.isPrimary)}
-						{@const schedule = triggersState.triggers.findIndex((t) => t.type === 'schedule')}
-
-						<Button
-							btnClasses="hidden lg:inline-flex"
-							startIcon={{ icon: Calendar }}
-							variant="contained"
-							color="light"
-							size="xs"
-							on:click={async () => {
-								metadataOpen = true
-								selectedTab = 'triggers'
-								triggersState.selectedTriggerIndex = primarySchedule ?? schedule
-							}}
-						>
-							{triggersState.triggers[primarySchedule]?.draftConfig?.schedule ??
-								triggersState.triggers[primarySchedule]?.lightConfig?.schedule ??
-								''}
-						</Button>
-					{/if}
-					{#if customUi?.topBar?.path != false}
-						<div class="flex justify-start w-full items-center">
-							{#if customUi?.topBar?.editablePath != false}
-								<button
-									onclick={async () => {
-										metadataOpen = true
-									}}
-								>
-									<Badge
-										color="gray"
-										class="center-center !bg-surface-secondary !text-primary {inputSizeClasses.md}  !w-[70px] rounded-r-none hover:!bg-surface-hover transition-all border border-r-0"
-									>
-										<Pen size={12} class="mr-2 shrink-0" /> Path
-									</Badge>
-								</button>
-							{/if}
-							<input
-								type="text"
-								readonly
-								value={script.path}
-								size={script.path?.length || 50}
-								class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full {inputSizeClasses.md} !my-0 !py-0 !rounded-l-none border border-l-0 !shadow-none"
-								onfocus={({ currentTarget }) => {
-									currentTarget.select()
-								}}
-							/>
-						</div>
-					{/if}
-				</div>
 
 				{#if $enterpriseLicense && initialPath != ''}
 					<Awareness />

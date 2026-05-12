@@ -4,6 +4,7 @@
 	import { page } from '$app/state'
 	import { defaultScripts, initialArgsStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
+	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
 	import type { Schema } from '$lib/common'
 	import { decodeState, emptySchema, emptyString, sendUserToast } from '$lib/utils'
 	import { goto } from '$lib/navigation'
@@ -155,11 +156,14 @@
 					? 'wac_typescript'
 					: 'script')}
 		onDeploy={(e) => {
+			if ($workspaceStore) invalidate($workspaceStore, 'script')
 			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
 		}}
 		onSaveInitial={(e) => {
+			if ($workspaceStore) invalidate($workspaceStore, 'script')
 			goto(`/scripts/edit/${e.path}`)
 		}}
+		onNavigate={(item) => goto(editPathFor(item))}
 		searchParams={page.url.searchParams}
 		bind:script={scriptHandle.draft}
 		{showMeta}

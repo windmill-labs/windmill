@@ -19,6 +19,7 @@
 		readFieldsRecursively,
 		replaceFalseWithUndefined,
 		isMac,
+		userPathPrefix,
 		type Item,
 		type StateStore,
 		type Value
@@ -45,7 +46,6 @@
 	import { GroupEditor, setGroupEditorContext } from './graph/groupEditor.svelte'
 	import { cleanFlow } from './flows/utils.svelte'
 	import {
-		Calendar,
 		Save,
 		DiffIcon,
 		HistoryIcon,
@@ -70,7 +70,7 @@
 	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
 	import { tutorialsToDo } from '$lib/stores'
 	import { getTutorialIndex } from '$lib/tutorials/config'
-	import SummaryPathDisplay from './SummaryPathDisplay.svelte'
+	import EditorHeader from './EditorHeader.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
@@ -129,7 +129,8 @@
 		onDetails,
 		onSaveDraftError,
 		onSaveDraftOnlyAtNewPath,
-		onHistoryRestore
+		onHistoryRestore,
+		onNavigate
 	}: FlowBuilderProps = $props()
 
 	let initialPathStore = writable(initialPath)
@@ -146,13 +147,7 @@
 	})
 
 	// used for new flows for captures
-	let fakeInitialPath =
-		'u/' +
-		($userStore?.username?.includes('@')
-			? $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
-			: $userStore?.username) +
-		'/' +
-		generateRandomString(12)
+	let fakeInitialPath = userPathPrefix($userStore?.username) + generateRandomString(12)
 
 	// Used by multiplayer deploy collision warning
 	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
@@ -202,6 +197,11 @@
 			savedValue: savedFlow,
 			modifiedValue: {
 				...flowStore.val,
+				// `$pathStore` is the live-edited path (the pen popover binds it).
+				// `flowStore.val.path` doesn't track those edits, so without this the
+				// rename wouldn't show up in the diff and the unsaved-changes warning
+				// wouldn't fire when leaving with a pending rename.
+				path: $pathStore,
 				draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
 			}
 		}
@@ -714,16 +714,13 @@
 			return
 		}
 
-		switch (event.key) {
-			case 'Z':
-				if (event.ctrlKey || event.metaKey) {
-					handleRedo()
-					event.preventDefault()
-				}
-				break
+		// Only lowercase single-char keys — named keys like `ArrowDown` must
+		// stay PascalCase to match their switch cases.
+		switch (event.key.length === 1 ? event.key.toLowerCase() : event.key) {
 			case 'z':
 				if (event.ctrlKey || event.metaKey) {
-					handleUndo()
+					if (event.shiftKey) handleRedo()
+					else handleUndo()
 					event.preventDefault()
 				}
 				break
@@ -776,7 +773,10 @@
 		if (savedFlow?.draft_only === false || savedFlow?.draft_only === undefined) {
 			dropdownItems.push({
 				label: 'Exit & see details',
-				onClick: () => onDetails?.({ path: $pathStore })
+				// Use the deployed path, not the live `$pathStore` — the latter
+				// reflects local rename edits that haven't been deployed yet,
+				// which would land the user on a 404 details page.
+				onClick: () => onDetails?.({ path: initialPath })
 			})
 		}
 
@@ -978,9 +978,20 @@
 			readFieldsRecursively(flowStore.val)
 		}
 	})
+	// Sync `$pathStore` from `flowStore.val.path` (which `initFlow` populates
+	// from the loaded flow — including the draft's rename, when there is one).
+	// This effect only tracks `flowStore.val.path`, so popover edits that go
+	// straight to `$pathStore` don't trigger it and aren't overwritten.
+	// Replaces the previous `$pathStore = initialPath` push (added in #2536 for
+	// the VSCode extension), which silently dropped any draft-renamed path
+	// because `initialPath` is the URL, not the loaded path.
 	$effect.pre(() => {
-		initialPath && ($pathStore = initialPath)
+		// `flowStore.val` is typed `OpenFlow` here but `initFlow` actually puts a
+		// `Flow` (with `path`) in it.
+		const p = (flowStore.val as Flow | undefined)?.path
+		if (p) untrack(() => ($pathStore = p))
 	})
+
 	$effect.pre(() => {
 		selectedId && untrack(() => select(selectedId))
 	})
@@ -1103,37 +1114,14 @@
 			<div
 				class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
 			>
-				<div class="flex w-full gap-8 items-center min-w-0">
-					<SummaryPathDisplay
+				<div class="min-w-0 max-w-full">
+					<EditorHeader
 						bind:summary={flowStore.val.summary}
 						bind:path={$pathStore}
-						kind="flow"
-						editable
+						savedPath={initialPath}
+						onBehalfOfEmail={$savedOnBehalfOfEmail}
+						onNavigate={(item) => onNavigate?.(item)}
 					/>
-				</div>
-
-				<div class="gap-4 flex-row hidden md:flex whitespace-nowrap">
-					{#if triggersState.triggers?.some((t) => t.type === 'schedule')}
-						{@const primaryScheduleIndex = triggersState.triggers.findIndex((t) => t.isPrimary)}
-						{@const scheduleIndex = triggersState.triggers.findIndex((t) => t.type === 'schedule')}
-						<Button
-							btnClasses="hidden lg:inline-flex"
-							startIcon={{ icon: Calendar }}
-							variant="subtle"
-							size="xs"
-							on:click={async () => {
-								select('Trigger')
-								const selected = primaryScheduleIndex ?? scheduleIndex
-								if (selected) {
-									triggersState.selectedTriggerIndex = selected
-								}
-							}}
-						>
-							{triggersState.triggers[primaryScheduleIndex]?.draftConfig?.schedule ??
-								triggersState.triggers[primaryScheduleIndex]?.lightConfig?.schedule ??
-								''}
-						</Button>
-					{/if}
 				</div>
 				<div class="flex flex-row gap-2 items-center">
 					{#if $enterpriseLicense && !newFlow}

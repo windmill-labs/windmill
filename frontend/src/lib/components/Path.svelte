@@ -33,12 +33,13 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { random_adj } from './random_positive_adjetive'
-	import { Folder, Loader2, SearchCode, User } from 'lucide-svelte'
+	import { Folder, SearchCode, User } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { tick } from 'svelte'
 	import FolderPicker from './FolderPicker.svelte'
 	import PathNameAutocomplete from './PathNameAutocomplete.svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import InputError from './InputError.svelte'
 
 	type PathKind =
 		| 'resource'
@@ -355,6 +356,19 @@
 		!dirty && (dirty = true)
 	}
 
+	$effect(() => {
+		if (
+			path !== undefined &&
+			path !== '' &&
+			initialPath &&
+			!initialPath.startsWith('tmp/') &&
+			path !== initialPath &&
+			!dirty
+		) {
+			dirty = true
+		}
+	})
+
 	const openSearchWithPrefilledText: (t?: string) => void = getContext(
 		'openSearchWithPrefilledText'
 	)
@@ -524,14 +538,13 @@
 				/>
 				<!-- <span class="font-mono text-sm break-all">{path}</span> -->
 			</div>
-			<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">{error}</div>
 		</div>
 	{/if}
 
+	<InputError {error} />
+
 	{#if pathUsageInFlowsPromise || pathUsageInAppsPromise || pathUsageInScriptsPromise}
-		{#await Promise.all( [pathUsageInAppsPromise, pathUsageInFlowsPromise, pathUsageInScriptsPromise] )}
-			<Loader2 class="animate-spin" size={16} />
-		{:then [apps, flows, scripts]}
+		{#await Promise.all( [pathUsageInAppsPromise, pathUsageInFlowsPromise, pathUsageInScriptsPromise] ) then [apps, flows, scripts]}
 			{#if (apps && apps.length) || (flows && flows.length) || (scripts && scripts.length)}
 				<p class="text-xs">
 					Used by {localeConcatAnd([

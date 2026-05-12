@@ -53,6 +53,7 @@ export interface UseJobLoaderArgs {
 	skip?: boolean
 	lookback?: number
 	perPage?: number
+	excludesEntrypointOverride?: boolean
 }
 
 export function useJobsLoader(args: () => UseJobLoaderArgs) {
@@ -69,6 +70,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let lookback = $derived(_args.lookback ?? 0)
 	let timeframe = $derived(_args?.timeframe)
 	let perPage = $derived(_args?.perPage ?? 1000)
+	let excludesEntrypointOverride = $derived(_args.excludesEntrypointOverride ?? false)
 
 	let label = $derived(filters?.label ?? null)
 	let worker = $derived(filters?.worker ?? null)
@@ -274,7 +276,8 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			allWorkspaces: allWorkspaces ? true : undefined,
 			perPage: perPageOverride ?? perPage,
 			allowWildcards: allowWildcards ? true : undefined,
-			broadFilter
+			broadFilter,
+			excludesEntrypointOverride: excludesEntrypointOverride ? true : undefined
 		})
 		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
 			if (e instanceof CancelError) return CancelablePromiseUtils.err(e)

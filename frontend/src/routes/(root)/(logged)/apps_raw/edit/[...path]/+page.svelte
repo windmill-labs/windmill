@@ -100,11 +100,17 @@
 		newPath = app.path
 	}
 
+	/** Increments per `loadApp` call. Stale loads (e.g. when picker
+	 * navigation races a draft-discard reload) bail at the next checkpoint
+	 * after their captured token no longer matches. */
+	let loadAppToken = 0
 	async function loadApp(): Promise<void> {
+		const tok = ++loadAppToken
 		const app_w_draft = await AppService.getAppByPathWithDraft({
-			path,
+			path: page.params.path ?? '',
 			workspace: $workspaceStore!
 		})
+		if (tok !== loadAppToken) return
 		const app_w_draft_ = structuredClone(stateSnapshot(app_w_draft))
 		savedApp = {
 			summary: app_w_draft_.summary,
@@ -202,7 +208,14 @@
 	}
 
 	run(() => {
-		if ($workspaceStore) {
+		// Re-run on workspace OR path change so navigating from one raw app editor
+		// to another (e.g. via the workspace picker) reloads the new app.
+		const currentPath = page.params.path
+		if ($workspaceStore && currentPath !== undefined) {
+			// Clear files so RawAppEditor unmounts; it will remount when loadApp
+			// completes with fresh data, re-initializing its internal stores.
+			files = undefined
+			path = currentPath
 			loadApp()
 		}
 	})

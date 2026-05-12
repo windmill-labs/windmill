@@ -1441,7 +1441,7 @@ Windmill Community Edition {GIT_VERSION}
                                         tracing::error!("Failed to reload license key on agent: {e:#}");
                                     }
                                     #[cfg(feature = "enterprise")]
-                                    ee_oss::verify_license_key().await;
+                                    ee_oss::verify_license_key(conn.as_sql()).await;
                                 }
 
                                 // update min version explicitly.

@@ -1,12 +1,4 @@
-import {
-  getFrontendEvalModel,
-  resolveEvalModel,
-  type FrontendEvalModelConfig,
-} from "../core/models";
-
-export const DEFAULT_FRONTEND_EVAL_MODEL: FrontendEvalModelConfig = getFrontendEvalModel(
-  resolveEvalModel("flow")
-);
+import type { FrontendEvalModelConfig } from "../core/models";
 
 export function getFrontendApiKey(provider: FrontendEvalModelConfig["provider"]): string {
   const envName =

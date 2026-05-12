@@ -1,42 +1,9 @@
 use async_trait::async_trait;
+use windmill_ai::{query_builder::StreamEventSink, types::*};
 use windmill_common::{error::Error, worker::Connection};
 use windmill_queue::MiniPulledJob;
 
-use crate::{
-    ai::{
-        providers::{
-            anthropic::AnthropicQueryBuilder, google_ai::GoogleAIQueryBuilder,
-            openai::OpenAIQueryBuilder, openrouter::OpenRouterQueryBuilder,
-            other::OtherQueryBuilder,
-        },
-        types::*,
-    },
-    job_logger::append_result_stream,
-};
-
-// Re-export from windmill_ai
-pub use windmill_ai::query_builder::{
-    BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink,
-};
-
-/// Factory function to create the appropriate query builder for a provider
-pub fn create_query_builder(provider: &ProviderWithResource) -> Box<dyn QueryBuilder> {
-    use windmill_ai::ai_providers::AIProvider;
-
-    match provider.kind {
-        AIProvider::GoogleAI => {
-            Box::new(GoogleAIQueryBuilder::new(provider.get_platform().clone()))
-        }
-        AIProvider::OpenAI => Box::new(OpenAIQueryBuilder::new(provider.kind.clone())),
-        AIProvider::Anthropic => Box::new(AnthropicQueryBuilder::new(
-            provider.kind.clone(),
-            provider.get_platform().clone(),
-            provider.get_enable_1m_context(),
-        )),
-        AIProvider::OpenRouter => Box::new(OpenRouterQueryBuilder::new()),
-        _ => Box::new(OtherQueryBuilder::new(provider.kind.clone())),
-    }
-}
+use crate::job_logger::append_result_stream;
 
 /// Processes streaming events by persisting them to the database.
 /// Implements StreamEventSink so it can be passed to QueryBuilder methods.

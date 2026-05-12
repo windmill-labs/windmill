@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { Badge, Drawer, DrawerContent } from '$lib/components/common'
+	import { Drawer, DrawerContent } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import UndoRedo from '$lib/components/common/button/UndoRedo.svelte'
+	import { isMac, userPathPrefix } from '$lib/utils'
+	import { editPathFor, invalidate as invalidatePicker } from '$lib/components/workspacePicker'
 
 	import { AppService, DraftService, type Policy } from '$lib/gen'
 	import { UserDraft } from '$lib/userDraft.svelte'
@@ -16,18 +17,19 @@
 		FileJson,
 		Globe,
 		History,
-		Pen,
+		Redo,
 		Save,
+		Undo,
 		WandSparkles
 	} from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import {
 		cleanValueProperties,
 		orderedJsonStringify,
 		type Value,
-		replaceFalseWithUndefined,
-		defaultIfEmptyString
+		replaceFalseWithUndefined
 	} from '../../utils'
+	import { random_adj } from '$lib/components/random_positive_adjetive'
 
 	// import {  allItems, toStatic } from '../apps/editor/settingsPanel/utils'
 	import AppExportButton from '../apps/editor/AppExportButton.svelte'
@@ -38,7 +40,8 @@
 	import Awareness from '$lib/components/Awareness.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 
-	import Summary from '$lib/components/Summary.svelte'
+	import EditorHeader from '$lib/components/EditorHeader.svelte'
+	import { goto } from '$app/navigation'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 
 	import AppJobsDrawer from '../apps/editor/AppJobsDrawer.svelte'
@@ -131,7 +134,13 @@
 		onOpenYamlEditor = undefined
 	}: Props = $props()
 
-	let newEditedPath = $state('')
+	let newEditedPath = $state(
+		untrack(() =>
+			newApp
+				? userPathPrefix($userStore?.username) + random_adj() + '_app'
+				: newPath || appPath || ''
+		)
+	)
 
 	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
 	let deployedBy: string | undefined = $state(undefined) // Author
@@ -329,6 +338,7 @@
 				css
 			}
 		})
+		invalidatePicker($workspaceStore!, 'app')
 		savedApp = {
 			summary: summary,
 			value: structuredClone(stateSnapshot(app)),
@@ -554,7 +564,24 @@
 		}
 	}
 
-	let moreItems = [
+	const mod = isMac() ? '⌘' : 'Ctrl+'
+
+	let moreItems = $derived([
+		{
+			displayName: 'Undo',
+			icon: Undo,
+			action: () => onUndo?.(),
+			disabled: !canUndo,
+			shortcut: `${mod}Z`
+		},
+		{
+			displayName: 'Redo',
+			icon: Redo,
+			action: () => onRedo?.(),
+			disabled: !canRedo,
+			shortcut: `${mod}⇧Z`,
+			separatorBottom: true
+		},
 		{
 			displayName: 'Deployment history',
 			icon: History,
@@ -609,7 +636,7 @@
 			},
 			disabled: !savedApp
 		}
-	]
+	])
 
 	const dispatch = createEventDispatcher()
 
@@ -816,52 +843,20 @@
 />
 
 <div
-	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto min-h-10 shrink-0"
+	class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto max-h-12 h-12 shrink-0"
 >
 	<div class="flex flex-row gap-2 items-center">
-		<Summary bind:value={summary} />
-		<div></div>
-		<UndoRedo
-			undoProps={{ disabled: !canUndo }}
-			redoProps={{ disabled: !canRedo }}
-			on:undo={() => onUndo?.()}
-			on:redo={() => onRedo?.()}
+		<EditorHeader
+			bind:summary
+			bind:path={newEditedPath}
+			savedPath={appPath || newPath || undefined}
+			kind="app"
+			raw_app
+			onNavigate={(item) => goto(editPathFor(item))}
 		/>
+		<div></div>
 	</div>
 
-	<div class=" flex">
-		{#if newPath || newEditedPath}
-			<div class="flex justify-start w-full border rounded-md overflow-hidden">
-				<div>
-					<button
-						onclick={async () => {
-							saveDrawerOpen = true
-							setTimeout(() => {
-								document.getElementById('path')?.focus()
-							}, 100)
-						}}
-					>
-						<Badge
-							color="gray"
-							class="center-center !bg-surface-secondary !text-primary !h-[28px]  !w-[70px] rounded-none hover:!bg-surface-hover transition-all flex gap-1"
-						>
-							<Pen size={14} />Path
-						</Badge>
-					</button>
-				</div>
-				<input
-					type="text"
-					readonly
-					value={defaultIfEmptyString(newEditedPath, newPath)}
-					size={defaultIfEmptyString(newEditedPath, newPath)?.length || 50}
-					class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none !border-0 !shadow-none"
-					onfocus={({ currentTarget }) => {
-						currentTarget.select()
-					}}
-				/>
-			</div>
-		{/if}
-	</div>
 	{#if $enterpriseLicense && appPath != ''}
 		<Awareness />
 	{/if}

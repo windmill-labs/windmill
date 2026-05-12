@@ -3,6 +3,7 @@
 
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
+	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
 	import { cleanValueProperties, orderedJsonStringify } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -17,6 +18,8 @@
 
 	type EditableScript = NewScript & { draft_triggers?: Trigger[] }
 
+	// `initialArgs` is intentionally captured once at mount — it's the
+	// session's initial argument set, not per-script.
 	let initialArgs = get(initialArgsStore) ?? {}
 	if (get(initialArgsStore)) $initialArgsStore = undefined
 
@@ -38,13 +41,19 @@
 
 	let savedPrimarySchedule: ScheduleTrigger | undefined = $state(undefined)
 
+	/** Increments per `loadScript` call. Stale loads (e.g. when picker
+	 * navigation races a draft-discard reload) bail at the next checkpoint
+	 * after their captured token no longer matches. */
+	let loadScriptToken = 0
 	async function loadScript(): Promise<void> {
+		const tok = ++loadScriptToken
 		fullyLoaded = false
 		if (hash) {
 			const scriptByHash = await ScriptService.getScriptByHash({
 				workspace: $workspaceStore!,
 				hash
 			})
+			if (tok !== loadScriptToken) return
 			savedScript = structuredClone($state.snapshot(scriptByHash)) as NewScriptWithDraft
 			scriptHandle.draft = { ...scriptByHash, parent_hash: hash, lock: undefined }
 		} else {
@@ -52,6 +61,7 @@
 				workspace: $workspaceStore!,
 				path: page.params.path ?? ''
 			})
+			if (tok !== loadScriptToken) return
 			savedScript = structuredClone($state.snapshot(scriptWithDraft))
 
 			const localDraft = scriptHandle.draft
@@ -163,6 +173,9 @@
 	}
 
 	$effect(() => {
+		// Re-run on workspace OR path change so navigating from one script editor
+		// to another (e.g. via the workspace picker) reloads the new script.
+		page.params.path
 		if ($workspaceStore) {
 			untrack(() => loadScript())
 		}
@@ -214,14 +227,17 @@
 		searchParams={page.url.searchParams}
 		onDeploy={(e) => {
 			UserDraft.remove('script', draftPath)
+			if ($workspaceStore) invalidate($workspaceStore, 'script')
 			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
 		}}
 		onSaveInitial={(e) => {
+			if ($workspaceStore) invalidate($workspaceStore, 'script')
 			goto(`/scripts/edit/${e.path}`)
 		}}
 		onSeeDetails={(e) => {
 			goto(`/scripts/get/${e.path}?workspace=${$workspaceStore}`)
 		}}
+		onNavigate={(item) => goto(editPathFor(item))}
 	>
 		<UnsavedConfirmationModal
 			{diffDrawer}

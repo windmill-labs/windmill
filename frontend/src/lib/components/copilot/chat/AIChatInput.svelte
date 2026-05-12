@@ -69,6 +69,8 @@
 				return 'Navigate Windmill UI...'
 			case AIMode.API:
 				return 'Make API calls...'
+			case AIMode.GLOBAL:
+				return 'Work across workspace items...'
 			case AIMode.ASK:
 				return 'Ask questions about Windmill...'
 			default:

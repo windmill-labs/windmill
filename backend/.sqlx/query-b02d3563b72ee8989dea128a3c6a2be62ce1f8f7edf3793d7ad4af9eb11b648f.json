@@ -1,17 +1,17 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT item_kind, path FROM ws_specific WHERE workspace_id = $1",
+  "query": "SELECT label, expiration FROM token WHERE token_hash = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "item_kind",
+        "name": "label",
         "type_info": "Varchar"
       },
       {
         "ordinal": 1,
-        "name": "path",
-        "type_info": "Varchar"
+        "name": "expiration",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
@@ -20,9 +20,9 @@
       ]
     },
     "nullable": [
-      false,
-      false
+      true,
+      true
     ]
   },
-  "hash": "0c6e8f03a4e9f543cb85582e0aec1ed508d83695ef6d62ca06cfb612fd332b87"
+  "hash": "b02d3563b72ee8989dea128a3c6a2be62ce1f8f7edf3793d7ad4af9eb11b648f"
 }

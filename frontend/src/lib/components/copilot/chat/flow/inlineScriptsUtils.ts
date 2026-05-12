@@ -62,7 +62,7 @@ function extractAndReplaceInlineScripts(
 	return modules.map((module) => {
 		const newModule = { ...module }
 
-		if (newModule.value.type === 'rawscript' && newModule.value.content) {
+		if (newModule.value.type === 'rawscript' && typeof newModule.value.content === 'string') {
 			session.set(module.id, newModule.value.content)
 			newModule.value = {
 				...newModule.value,
@@ -113,7 +113,7 @@ function extractAndReplaceInlineScripts(
 							'type' in tool.value &&
 							tool.value.type === 'rawscript' &&
 							'content' in tool.value &&
-							tool.value.content
+							typeof tool.value.content === 'string'
 						) {
 							session.set(tool.id, tool.value.content as string)
 							return {

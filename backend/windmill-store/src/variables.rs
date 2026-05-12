@@ -755,6 +755,17 @@ async fn delete_variables_bulk(
     )
     .fetch_all(&mut *tx)
     .await?;
+    // Mirror single delete_variable: clean the linked-resource ws_specific
+    // markers BEFORE deleting the resource rows so they don't survive as
+    // orphans. A resource later created at the same path would otherwise
+    // inherit a stale ws_specific flag.
+    sqlx::query!(
+        "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = ANY($2)",
+        w_id,
+        &deleted_paths
+    )
+    .execute(&mut *tx)
+    .await?;
     sqlx::query!(
         "DELETE FROM resource WHERE path = ANY($1) AND workspace_id = $2",
         &deleted_paths,
@@ -1013,6 +1024,20 @@ async fn update_variable(
 
             sqlx::query!(
                 "UPDATE ws_specific SET path = $1 WHERE workspace_id = $2 AND item_kind = 'variable' AND path = $3",
+                npath,
+                w_id,
+                path
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            // The linked resource at the same path is renamed above; move
+            // its ws_specific 'resource' marker too so an explicitly-flagged
+            // resource doesn't lose its ws_specific status on rename and
+            // doesn't leave a stale marker at the old path. Symmetric with
+            // update_resource's rename block.
+            sqlx::query!(
+                "UPDATE ws_specific SET path = $1 WHERE workspace_id = $2 AND item_kind = 'resource' AND path = $3",
                 npath,
                 w_id,
                 path

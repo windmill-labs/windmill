@@ -493,6 +493,58 @@ async function cleanupTempDir(dir: string): Promise<void> {
   }
 }
 
+// Polls /flows/deployment_status/p/{path} + /jobs_u/completed/get until the
+// most recent flow dependency job has completed. After a flow create/update
+// the API queues a FlowDependencies job that asynchronously fills inline-
+// script lockfiles and rewrites flow.value; tests that round-trip through
+// sync push/pull must wait for it or they race the worker (CI-only flake).
+// `deployment_status` is the right read here — `/flows/get` does not return
+// `dependency_job`, but the `deployment_metadata.job_id` row is written in
+// the same tx as the dep-job push, so the returned `job_id` is the latest
+// dep-job UUID by the time the create/update API call has returned. Returns
+// silently if the flow doesn't exist on the server (treats it as a no-op
+// push, since the route returns 404 when the flow row is missing).
+async function waitForFlowDependencyJob(
+  backend: any,
+  flowPath: string,
+  timeoutMs: number = 30000,
+): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const statusResp = await backend.apiRequest!(
+      `/api/w/${backend.workspace}/flows/deployment_status/p/${flowPath}`,
+    );
+    if (statusResp.status === 404) {
+      await statusResp.text().catch(() => {});
+      return;
+    }
+    if (!statusResp.ok) {
+      await statusResp.text().catch(() => {});
+      throw new Error(
+        `Failed to fetch deployment status for ${flowPath}: ${statusResp.status}`,
+      );
+    }
+    const status = await statusResp.json();
+    const depJobId: string | undefined = status?.job_id;
+    if (!depJobId) {
+      await new Promise((r) => setTimeout(r, 100));
+      continue;
+    }
+    const completed = await backend.apiRequest!(
+      `/api/w/${backend.workspace}/jobs_u/completed/get/${depJobId}`,
+    );
+    if (completed.ok) {
+      await completed.text();
+      return;
+    }
+    await completed.text().catch(() => {});
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(
+    `Flow dependency job for ${flowPath} did not complete within ${timeoutMs}ms`,
+  );
+}
+
 // =============================================================================
 // Tests
 // =============================================================================
@@ -1796,6 +1848,12 @@ excludes: []
       );
 
       expect(pushResult.code).toEqual(0);
+
+      // sync push of the flow enqueues an async FlowDependencies job that
+      // generates the inline-script lockfile and rewrites flow.value. Wait for
+      // it before pulling back, otherwise pull races the worker and the
+      // dry-run push idempotency check sees phantom diffs (CI-only flake).
+      await waitForFlowDependencyJob(backend, flowName);
 
       // Pull back
       const pullResult = await backend.runCLICommand(

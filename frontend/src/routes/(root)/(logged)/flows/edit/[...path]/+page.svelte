@@ -2,6 +2,7 @@
 	import { FlowService, type Flow, DraftService } from '$lib/gen'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
+	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
 	import {
 		cleanValueProperties,
@@ -25,8 +26,11 @@
 	import { UserDraft } from '$lib/userDraft.svelte'
 
 	let version: undefined | number = $state(undefined)
-	let nodraft = page.url.searchParams.get('nodraft')
 
+	// `initialArgs` is captured once at mount — it's the session's initial
+	// argument set. The flow draft itself lives in UserDraft and is re-read
+	// per loadFlow() so picker navigation doesn't reuse the original path's
+	// state.
 	const urlArgs = page.url.searchParams.get('initial_args')
 
 	let initialArgs = $state({})
@@ -44,7 +48,7 @@
 		| undefined = $state(undefined)
 
 	afterNavigate(() => {
-		if (nodraft) {
+		if (page.url.searchParams.get('nodraft')) {
 			let url = new URL(page.url.href)
 			url.search = ''
 			replaceState(url.toString(), page.state)
@@ -93,23 +97,31 @@
 
 	let flowBuilder: FlowBuilder | undefined = $state(undefined)
 	let notFound = $state(false)
+	/** Increments per `loadFlow` call. Each in-flight load checks its captured
+	 * token against this before writing shared state — if a newer load started
+	 * (e.g. picker navigation while a draft-discard reload is in flight),
+	 * the older promise no-ops at the next checkpoint. */
+	let loadFlowToken = 0
 	async function loadFlow(): Promise<void> {
-		console.log('loadFlow')
+		const tok = ++loadFlowToken
 		loading = true
 		let flow: Flow
 		// Currently there is no way to get version of flow with flow.
 		// So we have to request it here
-		version = (
+		const v = (
 			await FlowService.getFlowLatestVersion({
 				workspace: $workspaceStore!,
 				path: page.params.path ?? ''
 			})
 		).id
+		if (tok !== loadFlowToken) return
+		version = v
 
 		const flowWithDraft = await FlowService.getFlowByPathWithDraft({
 			workspace: $workspaceStore!,
 			path: page.params.path ?? ''
 		})
+		if (tok !== loadFlowToken) return
 		savedFlow = {
 			...structuredClone($state.snapshot(flowWithDraft)),
 			draft: flowWithDraft.draft
@@ -216,12 +228,16 @@
 		}
 
 		await initFlow(flow, flowStore, flowStateStore)
+		if (tok !== loadFlowToken) return
 		loading = false
 		selectedId = page.url.searchParams.get('selected') ?? 'settings-metadata'
 		flowBuilder?.loadFlowState()
 	}
 
 	$effect(() => {
+		// Re-run on workspace OR path change so navigating from one flow editor
+		// to another (e.g. via the workspace picker) reloads the new flow.
+		page.params.path
 		if ($workspaceStore) {
 			untrack(() => loadFlow())
 		}
@@ -271,6 +287,7 @@
 	<FlowBuilder
 		onDeploy={(e) => {
 			UserDraft.remove('flow', flowDraftPath)
+			if ($workspaceStore) invalidate($workspaceStore, 'flow')
 			goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
 		}}
 		onDetails={(e) => {
@@ -282,6 +299,7 @@
 		onHistoryRestore={() => {
 			loadFlow()
 		}}
+		onNavigate={(item) => goto(editPathFor(item))}
 		{flowStore}
 		{flowStateStore}
 		initialPath={page.params.path ?? ''}

@@ -136,7 +136,7 @@ export const svelte5Template = {
 	'/index.css': indexCss,
 	'/package.json': `{
     "dependencies": {
-        "svelte": "5.45.2",
+        "svelte": "^5.55.5",
         "windmill-client": "^1"
     }
 }`
@@ -152,6 +152,43 @@ export const vueTemplate = {
         "vue": "3.5.13"
     }
 }`
+}
+
+export const FRAMEWORK_TEMPLATES = {
+	react19: react19Template,
+	react18: react18Template,
+	svelte5: svelte5Template,
+	vue: vueTemplate
+}
+
+export type FrameworkKey = keyof typeof FRAMEWORK_TEMPLATES
+
+export const STARTER_RUNNABLE_KEY = 'a'
+
+// Matches the starter runnable that the apps_raw/add page seeds, so the
+// React/Svelte demo button (`backend.a({ x: 42 })`) works on first render.
+export const STARTER_RUNNABLE = {
+	name: 'a',
+	fields: {},
+	type: 'inline',
+	inlineScript: {
+		content:
+			'// import * as wmill from "windmill-client"\n\nexport async function main(x: string) {\n  return x\n}\n',
+		language: 'bun',
+		schema: {
+			$schema: 'https://json-schema.org/draft/2020-12/schema',
+			properties: {
+				x: {
+					default: null,
+					description: '',
+					originalType: 'string',
+					type: 'string'
+				}
+			},
+			required: ['x'],
+			type: 'object'
+		}
+	}
 }
 
 export const appVueRouter = `

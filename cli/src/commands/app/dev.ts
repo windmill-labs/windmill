@@ -14,7 +14,8 @@ import * as path from "node:path";
 import process from "node:process";
 import { Buffer } from "node:buffer";
 import { writeFileSync } from "node:fs";
-import { readTextFile } from "../../utils/utils.ts";
+import { getHeaders, readTextFile } from "../../utils/utils.ts";
+import { detectAuthGatewayChallenge } from "../../utils/http_guards.ts";
 import { WebSocket, WebSocketServer } from "ws";
 import {
   createFrameworkPlugins,
@@ -1714,12 +1715,16 @@ async function streamJobWithSSE(
   const sseUrl =
     `${baseUrl}api/w/${workspace}/jobs_u/getupdate_sse/${jobId}?fast=true`;
 
+  const extraHeaders = getHeaders();
   const response = await fetch(sseUrl, {
     headers: {
       Accept: "text/event-stream",
       Authorization: `Bearer ${token}`,
+      ...extraHeaders,
     },
   });
+
+  await detectAuthGatewayChallenge(response, sseUrl);
 
   if (!response.ok) {
     throw new Error(

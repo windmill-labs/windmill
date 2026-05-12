@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.697.0"
+version = "1.700.2"
 authors.workspace = true
 edition.workspace = true
 
@@ -87,7 +87,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.697.0"
+version = "1.700.2"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -207,6 +207,36 @@ all_sqlx_features = ["all_languages", "enterprise", "enterprise_saml", "embeddin
 object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7" }
 # Use tiberius main branch for libgssapi 0.8.1 fix (https://github.com/prisma/tiberius/issues/343)
 tiberius = { git = "https://github.com/prisma/tiberius", rev = "59db57960a14b422fb3a1309aa4aa47880896ff8" }
+# Pin tokio-postgres / postgres-types / postgres-protocol to the
+# MaterializeInc fork. windmill-trigger-postgres already pulled this
+# fork in transitively for the postgres-replication crate
+# (CopyBothDuplex, LogicalReplicationStream, TupleData with binary
+# tuple support) which upstream rust-postgres has declined to merge
+# since 2021 (PR #752 → #778, both still unmerged).
+#
+# MI also carries a mitigation for the
+# Client::query_typed_raw / Client::prepare deadlock on result columns
+# whose Oid the client doesn't know about yet (citext, custom enums /
+# domains, postgis): MI's 2025-12-11 PR #33 resized the per-request
+# response channel from mpsc::channel(1) → mpsc::channel(1024).
+# bounded(1024) is sufficient for any realistic typeinfo deferral
+# (need ~2-3 batches) but leaves a theoretical failure mode at
+# >~64 MB results with a custom-Oid column. The strict-correct fix is
+# mpsc::unbounded(); a follow-up PR to MI is open proposing that.
+#
+# The [patch.crates-io] entries below force windmill-worker's
+# pg_executor (which imports `tokio_postgres::` directly from
+# crates.io) onto the same fork as windmill-trigger-postgres, so the
+# deadlock mitigation reaches both consumers.
+#
+# Upstream deadlock PRs (open, not on the critical path now that MI
+# is mitigated):
+#   https://github.com/rust-postgres/rust-postgres/pull/1348
+#   https://github.com/rust-postgres/rust-postgres/pull/1349
+# Reproducer: https://github.com/rubenfiszel/tokio-postgres-deadlock-repro
+tokio-postgres = { git = "https://github.com/MaterializeInc/rust-postgres", rev = "78c1222577bb091d69bc22b1bc7ad01c14675abe" }
+postgres-types = { git = "https://github.com/MaterializeInc/rust-postgres", rev = "78c1222577bb091d69bc22b1bc7ad01c14675abe" }
+postgres-protocol = { git = "https://github.com/MaterializeInc/rust-postgres", rev = "78c1222577bb091d69bc22b1bc7ad01c14675abe" }
 
 [dependencies]
 anyhow.workspace = true
@@ -387,8 +417,7 @@ tokio-stream = { version = "0.1.17" }
 tower = "^0"
 tower-http = { version = "^0.6", features = ["trace", "cors", "catch-panic"] }
 tower-cookies = "^0.11"
-#stuck because of swc for now
-serde = "=1.0.220"
+serde = "^1"
 serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
 serde_yml = "0.0.12"
 uuid = { version = "^1", features = ["serde", "v4", "js"] }
@@ -443,21 +472,29 @@ aws-sdk-rds = "^1"
 async-trait = "0.1.88"
 
 
-v8 = "=130.0.7"  # Exact version NOTE: Do not forget to update version and hash in flake.nix
-deno_fetch = "0.214.0"
-deno_tls = "0.177.0"
-deno_console = "0.190.0"
-deno_url = "0.190.0"
-deno_webidl = "0.190.0"
-deno_web = "0.221.0"
-deno_io = "0.100.0"
-deno_net = "0.182.0"
-deno_core = "0.336.0"
-deno_ast = { version = "=0.44.0", features = ["transpiling"] }
-deno_permissions = "0.49.0"
-deno_runtime = { version = "0.198.0", features = ["transpile"] }
-deno_telemetry = "0.12.0"
-deno_error = "=0.5.5"
+v8 = "=137.1.0"  # Exact version NOTE: Do not forget to update version and hash in flake.nix
+# deno_* pin set: deno v2.4.0 base, with deno_ast force-overridden to =0.51.0.
+# Rationale: deno_ast 0.51.0 is the first version pulling swc_common =14.0.4,
+# the first swc_common patch that dropped `pub use serde::__private as serde;`
+# (the line that capped our workspace serde pin at =1.0.220). v2.4.0's other
+# pins keep deno_tls at 0.196.0 which uses permissive `rustls ^0.23.11`,
+# compatible with aws-sdk-bedrockruntime's `^0.23.31` requirement. deno_tls
+# 0.198+ tightened that to exact `=0.23.28`, which would have made any
+# meaningful deno bump resolver-impossible against aws-sdk.
+deno_fetch = "0.233.0"
+deno_tls = "0.196.0"
+deno_console = "0.209.0"
+deno_url = "0.209.0"
+deno_webidl = "0.209.0"
+deno_web = "0.240.0"
+deno_io = "0.119.0"
+deno_fs = "0.119.0"
+deno_net = "0.201.0"
+deno_core = "0.352.0"
+deno_ast = { version = "=0.51.0", features = ["transpiling"] }
+deno_permissions = "0.68.0"
+deno_telemetry = "0.31.0"
+deno_error = "=0.6.1"
 rustls-pemfile = "2.2.0"
 
 # only used with special deno_core_mac feature to prevent ffi issue on macos, requires libffi to be installed
@@ -470,10 +507,10 @@ google-cloud-googleapis = {version = "0.16.1", features = ["pubsub"]}
 winapi = { version = "0.3.9", features = ["sysinfoapi"] }
 sysinfo = { version = "0.32.1" }
 
-swc_common = "=0.37.5"
-swc_ecma_parser = "=0.149.1"
-swc_ecma_ast = "=0.118.2"
-swc_ecma_visit = "=0.104.8"
+swc_common = "=14.0.4"
+swc_ecma_parser = "=24.0.3"
+swc_ecma_ast = "=15.0.0"
+swc_ecma_visit = "=15.0.0"
 
 
 async-recursion = "^1"
@@ -517,8 +554,8 @@ wasm-bindgen-test = "^0"
 convert_case = "0.6.0"
 getrandom = "0.2"
 tokio-postgres = {version = "^0.7", features = ["array-impls", "with-serde_json-1", "with-chrono-0_4", "with-uuid-1", "with-bit-vec-0_6"]}
-rust-postgres = { package = "tokio-postgres", git = "https://github.com/imor/rust-postgres", rev = "20265ef38e32a06f76b6f9b678e2077fc2211f6b"}
-rust-postgres-native-tls = { package = "postgres-native-tls", git = "https://github.com/imor/rust-postgres", features = ["runtime"], rev = "20265ef38e32a06f76b6f9b678e2077fc2211f6b" }
+rust-postgres = { package = "tokio-postgres", git = "https://github.com/MaterializeInc/rust-postgres", rev = "78c1222577bb091d69bc22b1bc7ad01c14675abe"}
+rust-postgres-native-tls = { package = "postgres-native-tls", git = "https://github.com/MaterializeInc/rust-postgres", features = ["runtime"], rev = "78c1222577bb091d69bc22b1bc7ad01c14675abe" }
 bit-vec = "=0.6.3"
 mappable-rc = "^0"
 mysql_async = { version = "*", default-features = false, features = ["minimal", "default", "native-tls-tls", "rust_decimal"]}

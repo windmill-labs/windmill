@@ -11,11 +11,12 @@
 </script>
 
 <script lang="ts">
-	import { ClipboardCopy, Download, Expand, Loader2 } from 'lucide-svelte'
+	import { ClipboardCopy, Download, Expand, Loader2, Timer, Cpu } from 'lucide-svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import { copyToClipboard } from '$lib/utils'
 	import { base } from '$lib/base'
 	import { withExternalDomain } from '$lib/externalDomain'
+	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { workspaceStore } from '$lib/stores'
 	import { AnsiUp } from 'ansi_up'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
@@ -166,8 +167,7 @@
 	}
 
 	export function scrollToBottom() {
-		scroll &&
-			setTimeout(() => preEl?.scroll({ top: preEl?.scrollHeight, behavior: 'smooth' }), 100)
+		scroll && setTimeout(() => preEl?.scroll({ top: preEl?.scrollHeight, behavior: 'smooth' }), 100)
 	}
 
 	let logViewer: Drawer | undefined = $state()
@@ -205,9 +205,9 @@
 			scroll = true
 		}
 	})
-	let downloadHref = $derived(
-		withExternalDomain(`${base}/api/w/${$workspaceStore}/jobs_u/get_logs/${jobId}`)
-	)
+	let logsApiPath = $derived(`/w/${$workspaceStore}/jobs_u/get_logs/${jobId}`)
+	let downloadHref = $derived(withExternalDomain(`${base}/api${logsApiPath}`))
+	let downloadName = $derived(`windmill_logs_${jobId}.txt`)
 	let truncatedContent = $derived(truncateContent(content, loadedFromObjectStore, LOG_LIMIT))
 	let prefixInfo = $derived(findPrefixInfo(truncatedContent))
 	let downloadStartUrl = $derived(findStartUrl(truncatedContent, prefixInfo))
@@ -247,17 +247,30 @@
 	<DrawerContent title="Expanded Logs" on:close={logViewer.closeDrawer}>
 		{#snippet actions()}
 			{#if jobId && download}
-				<Button
-					href={downloadHref}
-					download="windmill_logs_{jobId}.txt"
-					color="light"
-					size="xs"
-					startIcon={{
-						icon: Download
-					}}
-				>
-					Download
-				</Button>
+				{#if shouldDownloadViaClient()}
+					<Button
+						on:click={() => downloadViaClient(logsApiPath, downloadName)}
+						color="light"
+						size="xs"
+						startIcon={{
+							icon: Download
+						}}
+					>
+						Download
+					</Button>
+				{:else}
+					<Button
+						href={downloadHref}
+						download={downloadName}
+						color="light"
+						size="xs"
+						startIcon={{
+							icon: Download
+						}}
+					>
+						Download
+					</Button>
+				{/if}
 			{/if}
 
 			<Button
@@ -296,7 +309,9 @@
 			class="w-full h-full bg-surface-secondary flex flex-col {noMaxH ? '' : 'max-h-screen'}"
 			data-nav-id={navigationId}
 		>
-			<div class="flex gap-2 ml-2 {small ? 'py-1' : 'py-2'} border-b">
+			<div
+				class="flex gap-2 ml-2 {small ? 'py-1' : 'py-2'} border-b overflow-x-auto overflow-y-hidden"
+			>
 				{#if isLoading}
 					<div class="flex gap-2 items-center">
 						<Loader2 class="animate-spin" />
@@ -312,31 +327,54 @@
 					</div>
 				{:else if duration}
 					<span
-						class={twMerge('text-secondary dark:text-gray-400', small ? '!text-2xs' : '!text-xs')}
-						>took {duration}ms</span
+						class={twMerge(
+							'flex items-center gap-1 text-secondary dark:text-gray-400',
+							small ? '!text-2xs' : '!text-xs'
+						)}
+						title="Duration"
 					>
+						<Timer size={small ? 10 : 12} />
+						{duration}ms
+					</span>
 				{/if}
 				{#if mem}
-					<span class="{small ? '!text-2xs' : '!text-xs'} text-secondary dark:text-gray-400"
-						>mem peak: {(mem / 1024).toPrecision(4)}MB</span
+					<span
+						class={twMerge(
+							'flex items-center gap-1 text-secondary dark:text-gray-400',
+							small ? '!text-2xs' : '!text-xs'
+						)}
+						title="Memory peak"
 					>
+						<Cpu size={small ? 10 : 12} />
+						{(mem / 1024).toPrecision(4)}MB
+					</span>
 				{/if}
 				<div class="flex gap-2 justify-end flex-1">
 					{#if jobId && download}
 						<div class="flex items-center">
-							<a
-								class="text-primary pb-0.5"
-								target="_blank"
-								href={downloadHref}
-								download="windmill_logs_{jobId}.txt"
-								><Download size="14" />
-							</a>
+							{#if shouldDownloadViaClient()}
+								<button
+									class="text-primary pb-0.5"
+									onclick={() => downloadViaClient(logsApiPath, downloadName)}
+									><Download size="14" />
+								</button>
+							{:else}
+								<a
+									class="text-primary pb-0.5"
+									target="_blank"
+									href={downloadHref}
+									download={downloadName}
+									><Download size="14" />
+								</a>
+							{/if}
 						</div>
 					{/if}
 					<button onclick={logViewer.openDrawer}><Expand size="12" /></button>
 					{#if !noAutoScroll}
-						<label class="pr-2 text-2xs flex gap-2 font-normal text-primary items-center">
-							Auto scroll
+						<label
+							class="pr-2 text-2xs flex gap-2 font-normal text-primary items-center whitespace-nowrap"
+						>
+							auto-scroll
 							<input class="windmillapp" type="checkbox" bind:checked={scroll} />
 						</label>
 					{/if}

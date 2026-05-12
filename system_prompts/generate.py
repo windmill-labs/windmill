@@ -680,6 +680,8 @@ WORKSPACE_TOOL_ZOD_SCHEMAS = [
     ('NewSqsTrigger', 'sqsTriggerRequestSchema'),
     ('GcpTriggerData', 'gcpTriggerRequestSchema'),
     ('AzureTriggerData', 'azureTriggerRequestSchema'),
+    ('CreateVariable', 'variableRequestSchema'),
+    ('CreateResource', 'resourceRequestSchema'),
 ]
 
 WORKSPACE_TOOL_TRIGGER_SCHEMAS = [
@@ -1486,11 +1488,17 @@ def generate_skills(
     # Ensure skills directory exists
     OUTPUT_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Read base files for additional skills
+    # Read base files for additional skills.
+    # Note: raw-app.md is the chat-relevant authoring guide. The CLI workflow
+    # (wmill app new wizard, on-disk layout, sql_to_apply/, CLI commands) lives
+    # in raw-app-cli.md. Concatenated here for the skill so CLI users see CLI
+    # guidance first, then the platform shape.
     base_dir = SCRIPT_DIR / "base"
+    raw_app_cli_md = read_markdown_file(base_dir / "raw-app-cli.md")
+    raw_app_authoring_md = read_markdown_file(base_dir / "raw-app.md")
     base_content = {
         'flow': f"{flow_cli}\n\n{flow_base}\n\n{openflow_content}",
-        'raw_app': read_markdown_file(base_dir / "raw-app.md"),
+        'raw_app': f"{raw_app_cli_md}\n\n{raw_app_authoring_md}",
         'triggers': read_markdown_file(base_dir / "triggers.md"),
         'schedules': read_markdown_file(base_dir / "schedules.md"),
         'resources': read_markdown_file(base_dir / "resources.md"),
@@ -1856,6 +1864,8 @@ def main():
 
     script_base = read_markdown_file(base_dir / "script-base.md")
     flow_base = read_markdown_file(base_dir / "flow-base.md")
+    resources_base = read_markdown_file(base_dir / "resources.md")
+    raw_app_base = read_markdown_file(base_dir / "raw-app.md")
     workflow_as_code_base = read_markdown_file(base_dir / "workflow-as-code.md")
     flow_cli = read_markdown_file(base_dir / "flow-cli.md")
     flow_chat_special_modules = read_markdown_file(base_dir / "flow-chat-special-modules.md")
@@ -1913,6 +1923,8 @@ def main():
         # Base prompts
         'SCRIPT_BASE': script_base,
         'FLOW_BASE': flow_base,
+        'RESOURCES_BASE': resources_base,
+        'RAW_APP_BASE': raw_app_base,
         'WORKFLOW_AS_CODE_BASE': workflow_as_code_base,
         'FLOW_CHAT_SPECIAL_MODULES': flow_chat_special_modules,
 
@@ -2001,6 +2013,16 @@ export function getFlowPrompt(): string {
   ].filter(Boolean).join('\\n\\n');
 }
 
+// Helper for resource & variable authoring
+export function getResourcePrompt(): string {
+  return prompts.RESOURCES_BASE;
+}
+
+// Helper for raw app authoring (chat consumers)
+export function getRawAppPrompt(): string {
+  return prompts.RAW_APP_BASE;
+}
+
 // Helper to get datatable SDK reference for app mode
 export function getDatatableSdkReference(): string {
   return [
@@ -2037,6 +2059,8 @@ export function getWorkflowAsCodePrompt(language?: string): string {
     index_dts_content = """export * from './prompts';
 export declare function getScriptPrompt(language: string): string;
 export declare function getFlowPrompt(): string;
+export declare function getResourcePrompt(): string;
+export declare function getRawAppPrompt(): string;
 export declare function getDatatableSdkReference(): string;
 export declare function getWorkflowAsCodePrompt(language?: string): string;
 """
