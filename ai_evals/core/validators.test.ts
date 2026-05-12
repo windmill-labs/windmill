@@ -216,6 +216,21 @@ describe("validateGlobalState", () => {
     expect(checks.every((check) => check.passed)).toBe(true);
   });
 
+  it("allows read-only global cases without draft expectations", () => {
+    const checks = validateGlobalState({
+      actual: {
+        drafts: [],
+      },
+    });
+
+    expect(
+      checks.some(
+        (check) => check.name === "global produced at least one draft"
+      )
+    ).toBe(false);
+    expect(checks.every((check) => check.passed)).toBe(true);
+  });
+
   it("matches expected global draft fixtures", () => {
     const checks = validateGlobalState({
       actual: {
@@ -278,12 +293,54 @@ describe("validateGlobalState", () => {
       },
     });
 
-    expect(checks).toContainEqual({
-      name: "global drafts match expected",
-      passed: false,
-      details:
-        "actual=drafts: script:f/evals/global/greet_user; expected=drafts: script:f/evals/global/greet_user",
+    const expectedMatchCheck = checks.find(
+      (check) => check.name === "global drafts match expected"
+    );
+    expect(expectedMatchCheck?.passed).toBe(false);
+    expect(expectedMatchCheck?.details).toContain(
+      "script:f/evals/global/greet_user value differs"
+    );
+    expect(expectedMatchCheck?.details).toContain("Hello");
+    expect(expectedMatchCheck?.details).toContain("Bonjour");
+  });
+
+  it("explains expected global draft metadata mismatches", () => {
+    const checks = validateGlobalState({
+      actual: {
+        drafts: [
+          {
+            type: "script",
+            path: "f/evals/global/greet_user",
+            language: "bun",
+            value:
+              "export async function main(name: string) {\n  return `Hello, ${name}!`\n}\n",
+            isDraft: true,
+          },
+        ],
+      },
+      expected: {
+        drafts: [
+          {
+            type: "script",
+            path: "f/evals/global/greet_user",
+            language: "python3",
+            value:
+              "export async function main(name: string) {\n  return `Hello, ${name}!`\n}\n",
+            isDraft: true,
+          },
+        ],
+      },
     });
+
+    const expectedMatchCheck = checks.find(
+      (check) => check.name === "global drafts match expected"
+    );
+    expect(expectedMatchCheck?.passed).toBe(false);
+    expect(expectedMatchCheck?.details).toContain(
+      "script:f/evals/global/greet_user language differs"
+    );
+    expect(expectedMatchCheck?.details).toContain('actual="bun"');
+    expect(expectedMatchCheck?.details).toContain('expected="python3"');
   });
 });
 

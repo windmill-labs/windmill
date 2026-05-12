@@ -233,14 +233,27 @@ export function validateGlobalState(input: {
   validate?: GlobalValidationSpec;
 }): BenchmarkCheck[] {
   const drafts = input.actual.drafts ?? [];
-  const checks: BenchmarkCheck[] = [
-    check("global produced at least one draft", drafts.length > 0, `drafts=${drafts.length}`),
+  const checks: BenchmarkCheck[] = [];
+
+  // Read-only global cases are valid; only enforce draft production when the
+  // case explicitly asks for draft output.
+  if (globalValidationExpectsDrafts(input)) {
+    checks.push(
+      check(
+        "global produced at least one draft",
+        drafts.length > 0,
+        `drafts=${drafts.length}`
+      )
+    );
+  }
+
+  checks.push(
     check(
       "all global outputs are drafts",
       drafts.every((draft) => draft.isDraft === true),
       summarizeGlobalDrafts(drafts)
-    ),
-  ];
+    )
+  );
 
   for (const draft of drafts) {
     if (draft.type !== "script" || typeof draft.value !== "string") {
@@ -271,7 +284,7 @@ export function validateGlobalState(input: {
       check(
         "global drafts match expected",
         globalDraftStatesEqual(input.actual, input.expected),
-        `actual=${summarizeGlobalDrafts(input.actual.drafts ?? [])}; expected=${summarizeGlobalDrafts(input.expected.drafts ?? [])}`
+        describeGlobalDraftStateMismatch(input.actual, input.expected)
       )
     );
   }
@@ -616,9 +629,26 @@ function findGlobalDraft(
 
 function summarizeGlobalDrafts(drafts: GlobalDraft[]): string {
   const summary = drafts
-    .map((draft) => `${draft.type}${draft.triggerKind ? `:${draft.triggerKind}` : ""}:${draft.path}`)
+    .map((draft) => formatGlobalDraftKey(draft))
     .join(", ");
   return `drafts: ${summary || "none"}`;
+}
+
+function formatGlobalDraftKey(draft: GlobalDraft): string {
+  return `${draft.type}${draft.triggerKind ? `:${draft.triggerKind}` : ""}:${draft.path}`;
+}
+
+function globalValidationExpectsDrafts(input: {
+  expected?: GlobalDraftState;
+  validate?: GlobalValidationSpec;
+}): boolean {
+  const validate = input.validate;
+  return (
+    (input.expected?.drafts?.length ?? 0) > 0 ||
+    (validate?.requiredDrafts?.length ?? 0) > 0 ||
+    (validate?.draftCountAtLeast ?? 0) > 0 ||
+    (validate?.draftCountExactly ?? 0) > 0
+  );
 }
 
 function globalDraftStatesEqual(left: GlobalDraftState, right: GlobalDraftState): boolean {
@@ -626,6 +656,103 @@ function globalDraftStatesEqual(left: GlobalDraftState, right: GlobalDraftState)
     JSON.stringify(canonicalizeGlobalDrafts(left.drafts ?? [])) ===
     JSON.stringify(canonicalizeGlobalDrafts(right.drafts ?? []))
   );
+}
+
+function describeGlobalDraftStateMismatch(
+  actual: GlobalDraftState,
+  expected: GlobalDraftState
+): string {
+  const actualDrafts = actual.drafts ?? [];
+  const expectedDrafts = expected.drafts ?? [];
+  const actualByKey = new Map(
+    actualDrafts.map((draft) => [globalDraftSortKey(draft), draft] as const)
+  );
+  const expectedByKey = new Map(
+    expectedDrafts.map((draft) => [globalDraftSortKey(draft), draft] as const)
+  );
+
+  for (const key of Array.from(expectedByKey.keys()).sort()) {
+    const expectedDraft = expectedByKey.get(key);
+    if (expectedDraft && !actualByKey.has(key)) {
+      return `missing expected draft ${formatGlobalDraftKey(expectedDraft)}; actual=${summarizeGlobalDrafts(actualDrafts)}`;
+    }
+  }
+
+  for (const key of Array.from(actualByKey.keys()).sort()) {
+    const actualDraft = actualByKey.get(key);
+    if (actualDraft && !expectedByKey.has(key)) {
+      return `unexpected draft ${formatGlobalDraftKey(actualDraft)}; expected=${summarizeGlobalDrafts(expectedDrafts)}`;
+    }
+  }
+
+  for (const key of Array.from(expectedByKey.keys()).sort()) {
+    const actualDraft = actualByKey.get(key);
+    const expectedDraft = expectedByKey.get(key);
+    if (!actualDraft || !expectedDraft) {
+      continue;
+    }
+
+    const fieldMismatch = describeGlobalDraftFieldMismatch(
+      formatGlobalDraftKey(expectedDraft),
+      actualDraft,
+      expectedDraft
+    );
+    if (fieldMismatch) {
+      return fieldMismatch;
+    }
+  }
+
+  return `actual=${summarizeGlobalDrafts(actualDrafts)}; expected=${summarizeGlobalDrafts(expectedDrafts)}`;
+}
+
+function describeGlobalDraftFieldMismatch(
+  key: string,
+  actual: GlobalDraft,
+  expected: GlobalDraft
+): string | undefined {
+  const fields: Array<"language" | "summary" | "value" | "isDraft"> = [
+    "language",
+    "summary",
+    "value",
+    "isDraft",
+  ];
+
+  for (const field of fields) {
+    const actualValue = comparableGlobalDraftFieldValue(actual, field);
+    const expectedValue = comparableGlobalDraftFieldValue(expected, field);
+    if (JSON.stringify(actualValue) === JSON.stringify(expectedValue)) {
+      continue;
+    }
+
+    return `${key} ${field} differs: actual=${formatGlobalDraftFieldValue(
+      actualValue
+    )}; expected=${formatGlobalDraftFieldValue(expectedValue)}`;
+  }
+
+  return undefined;
+}
+
+function comparableGlobalDraftFieldValue(
+  draft: GlobalDraft,
+  field: "language" | "summary" | "value" | "isDraft"
+): unknown {
+  if (field === "summary" && typeof draft.summary === "string") {
+    return normalizeText(draft.summary);
+  }
+  if (field === "value" && typeof draft.value === "string") {
+    return normalizeText(draft.value);
+  }
+  if (field === "value") {
+    return canonicalizeJsonValue(draft.value);
+  }
+  return draft[field];
+}
+
+function formatGlobalDraftFieldValue(value: unknown): string {
+  if (value === undefined) {
+    return "(missing)";
+  }
+  return truncateForDetails(JSON.stringify(value), 300);
 }
 
 function canonicalizeGlobalDrafts(drafts: GlobalDraft[]): unknown[] {
