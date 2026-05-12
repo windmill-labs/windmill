@@ -24,6 +24,7 @@ export interface CompletedPreviewJob {
 const tokenCache = new Map<string, Promise<string>>()
 const sharedWorkspaceQueue = new Map<string, Promise<void>>()
 const managedSharedWorkspacePrefixes = ['f/evals/']
+const DEFAULT_WORKSPACE_PREFIX = 'ai-evals'
 
 export class BackendPreviewClient {
 	constructor(private readonly settings: BackendValidationSettings) {}
@@ -35,7 +36,7 @@ export class BackendPreviewClient {
 	): Promise<T> {
 		const workspaceId =
 			this.settings.workspaceOverride ??
-			buildWorkspaceId(this.settings.workspacePrefix, caseId, attempt)
+			buildWorkspaceId(caseId, attempt)
 
 		const run = async () => {
 			await this.ensureWorkspace(workspaceId)
@@ -46,7 +47,7 @@ export class BackendPreviewClient {
 			try {
 				return await body(workspaceId)
 			} finally {
-				if (!this.settings.keepWorkspaces && !this.settings.workspaceOverride) {
+				if (!this.settings.workspaceOverride) {
 					await this.deleteWorkspace(workspaceId).catch(() => undefined)
 				}
 			}
@@ -440,14 +441,14 @@ async function withSharedWorkspaceLock<T>(workspaceId: string, body: () => Promi
 	}
 }
 
-function buildWorkspaceId(prefix: string, caseId: string, attempt: number): string {
+function buildWorkspaceId(caseId: string, attempt: number): string {
 	const caseSlug = caseId
 		.toLowerCase()
 		.replace(/[^a-z0-9-]+/g, '-')
 		.replace(/^-+|-+$/g, '')
 		.slice(0, 30)
 	const suffix = randomUUID().slice(0, 8)
-	return `${prefix}-${caseSlug || 'case'}-a${attempt}-${suffix}`
+	return `${DEFAULT_WORKSPACE_PREFIX}-${caseSlug || 'case'}-a${attempt}-${suffix}`
 }
 
 function extractFolderName(path: string): string | null {

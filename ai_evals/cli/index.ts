@@ -27,11 +27,8 @@ import { EVAL_MODES, type EvalMode } from "../core/types";
 import { DEFAULT_JUDGE_MODEL } from "../core/judge";
 import { createCliModeRunner } from "../modes/cli";
 import { runFrontendBenchmarkAdapter } from "../adapters/frontend/runtime";
-import {
-  FRONTEND_EVAL_TRANSPORTS,
-  type FrontendEvalTransport,
-  parseFrontendEvalTransport,
-} from "../core/frontendTransport";
+import { resolveWindmillBackendSettings } from "../core/windmillBackendSettings";
+import { assertWindmillBackendReachable } from "../adapters/frontend/windmillBackend";
 
 async function main() {
   const program = new Command()
@@ -98,10 +95,6 @@ async function main() {
       "--models <names>",
       "comma-separated model aliases to run sequentially",
     )
-    .option(
-      "--transport <mode>",
-      `frontend transport (${FRONTEND_EVAL_TRANSPORTS.join(", ")})`,
-    )
     .option("--verbose", "stream assistant output during frontend runs")
     .option(
       "--record",
@@ -120,7 +113,6 @@ async function main() {
           output?: string;
           model?: string;
           models?: string;
-          transport?: string;
           verbose?: boolean;
           record?: boolean;
           backendValidation?: string;
@@ -133,9 +125,6 @@ async function main() {
           outputPath: options.output,
           model: options.model,
           models: options.models,
-          transport: options.transport
-            ? parseFrontendEvalTransport(options.transport)
-            : undefined,
           verbose: options.verbose ?? false,
           record: options.record ?? false,
           backendValidation: options.backendValidation,
@@ -184,7 +173,6 @@ async function handleRun(input: {
   outputPath?: string;
   model?: string;
   models?: string;
-  transport?: FrontendEvalTransport;
   verbose: boolean;
   record: boolean;
   backendValidation?: string;
@@ -196,11 +184,6 @@ async function handleRun(input: {
   }
   if (input.model && input.models) {
     throw new Error("Use either --model or --models, not both");
-  }
-  if (input.mode === "cli" && input.transport === "proxy") {
-    throw new Error(
-      "--transport proxy is only supported for flow, script, and app modes",
-    );
   }
 
   const selectedCases = await loadSelectedCases(input.mode, input.caseIds);
@@ -219,6 +202,9 @@ async function handleRun(input: {
     throw new Error(
       "--backend-validation currently supports only flow and script modes",
     );
+  }
+  if (input.mode !== "cli") {
+    await assertWindmillBackendReachable(resolveWindmillBackendSettings());
   }
 
   const summaries: Array<{
@@ -249,7 +235,6 @@ async function handleRun(input: {
             caseIds: input.caseIds,
             runs: input.runs,
             model: model.id,
-            transport: input.transport,
             verbose: input.verbose,
             backendValidation,
           });

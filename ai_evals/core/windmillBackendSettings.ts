@@ -2,9 +2,7 @@ export interface WindmillBackendSettings {
   baseUrl: string;
   email: string;
   password: string;
-  keepWorkspaces: boolean;
   workspaceOverride?: string;
-  workspacePrefix: string;
 }
 
 export function resolveWindmillBackendSettings(): WindmillBackendSettings {
@@ -18,12 +16,8 @@ export function resolveWindmillBackendSettings(): WindmillBackendSettings {
     ),
     email: process.env.WMILL_AI_EVAL_BACKEND_EMAIL ?? "admin@windmill.dev",
     password: process.env.WMILL_AI_EVAL_BACKEND_PASSWORD ?? "changeme",
-    keepWorkspaces: isTruthy(process.env.WMILL_AI_EVAL_KEEP_WORKSPACES),
     workspaceOverride: sanitizeOptionalWorkspaceId(
       process.env.WMILL_AI_EVAL_BACKEND_WORKSPACE,
-    ),
-    workspacePrefix: sanitizeWorkspacePrefix(
-      process.env.WMILL_AI_EVAL_WORKSPACE_PREFIX ?? "ai-evals",
     ),
   };
 }
@@ -43,25 +37,9 @@ function normalizeBaseUrl(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
-function sanitizeWorkspacePrefix(value: string): string {
-  const sanitized = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return sanitized.length > 0 ? sanitized : "ai-evals";
-}
-
 function sanitizeOptionalWorkspaceId(
   value: string | undefined,
 ): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
-}
-
-function isTruthy(value: string | undefined): boolean {
-  if (!value) {
-    return false;
-  }
-  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
 }

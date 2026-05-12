@@ -2,34 +2,8 @@ import { describe, expect, it } from "bun:test";
 import {
   buildProxyHeaders,
   buildProxyResourcePath,
-  buildOpenAICompatibleClientOptions,
   resolveEvalModelProvider,
 } from "./providerConfig";
-
-describe("buildOpenAICompatibleClientOptions", () => {
-  it("adds Gemini's OpenAI-compatible base URL and client header", () => {
-    const options = buildOpenAICompatibleClientOptions(
-      "googleai",
-      "gemini-test-key",
-    );
-
-    expect(options).toMatchObject({
-      apiKey: "gemini-test-key",
-      baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
-      defaultHeaders: {
-        "x-goog-api-client": "windmill-ai-evals/1.0",
-      },
-    });
-  });
-
-  it("keeps the default OpenAI-compatible config for OpenAI", () => {
-    expect(
-      buildOpenAICompatibleClientOptions("openai", "openai-test-key"),
-    ).toEqual({
-      apiKey: "openai-test-key",
-    });
-  });
-});
 
 describe("proxy helpers", () => {
   it("builds provider-scoped proxy resource paths", () => {

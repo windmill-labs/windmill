@@ -23,7 +23,6 @@ export async function runFrontendBenchmarkAdapter(input: {
   caseIds: string[];
   runs: number;
   model?: string;
-  transport?: string;
   verbose?: boolean;
   backendValidation?: string;
 }): Promise<BenchmarkRunResult> {
@@ -43,10 +42,6 @@ export async function runFrontendBenchmarkAdapter(input: {
     WMILL_FRONTEND_AI_EVAL_VERBOSE: input.verbose ? "1" : "0",
     WMILL_FRONTEND_AI_EVAL_BACKEND_VALIDATION: input.backendValidation ?? "",
   };
-
-  if (input.transport) {
-    env.WMILL_FRONTEND_AI_EVAL_TRANSPORT = input.transport;
-  }
 
   try {
     await runVitestBenchmark(

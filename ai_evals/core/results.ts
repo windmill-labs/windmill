@@ -74,7 +74,6 @@ export function buildRunResult(input: {
   mode: EvalMode;
   runs: number;
   runModel: string | null;
-  transport?: BenchmarkRunResult["transport"];
   judgeModel: string | null;
   caseResults: BenchmarkCaseResult[];
 }): BenchmarkRunResult {
@@ -116,7 +115,6 @@ export function buildRunResult(input: {
     gitSha: getGitSha(),
     runs: input.runs,
     runModel: input.runModel,
-    transport: input.transport ?? null,
     judgeModel: input.judgeModel,
     caseCount: input.caseResults.length,
     attemptCount,
@@ -142,9 +140,6 @@ export function formatRunSummary(result: BenchmarkRunResult): string {
     `Pass rate: ${formatPercent(result.passRate)} (${result.passedAttempts}/${result.attemptCount})`,
     `Average duration: ${Math.round(result.averageDurationMs)}ms`,
   ];
-  if (result.transport) {
-    lines.splice(1, 0, `Transport: ${result.transport}`);
-  }
 
   const failures = collectFailures(result);
   if (failures.length > 0) {
@@ -251,7 +246,6 @@ function toHistoryRecord(result: BenchmarkRunResult) {
     mode: result.mode,
     runs: result.runs,
     runModel: result.runModel,
-    transport: result.transport,
     judgeModel: result.judgeModel,
     caseCount: result.caseCount,
     attemptCount: result.attemptCount,
