@@ -147,7 +147,7 @@
 			if (!defaultCfg) {
 				initialConfig = structuredClone($state.snapshot(getScheduleCfg()))
 			}
-			const localCfg = UserDraft.get<Record<string, any>>('schedule_schedule', ePath)
+			const localCfg = UserDraft.get<Record<string, any>>('trigger_schedule', ePath)
 			if (localCfg && !deepEqual(localCfg, getScheduleCfg())) {
 				await loadScheduleCfg(localCfg)
 			}
@@ -538,7 +538,7 @@
 		deploymentLoading = true
 		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, $workspaceStore!)
 		if (isSaved) {
-			UserDraft.remove('schedule_schedule', previousPath)
+			UserDraft.remove('trigger_schedule', previousPath)
 			onUpdate?.(scheduleCfg.path)
 			drawer?.closeDrawer()
 		}
@@ -665,7 +665,7 @@
 
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		UserDraft.save('schedule_schedule', initialPath, scheduleCfg)
+		UserDraft.save('trigger_schedule', initialPath, scheduleCfg)
 	})
 </script>
 

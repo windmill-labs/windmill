@@ -137,7 +137,7 @@
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-			const localCfg = UserDraft.get<Record<string, any>>('schedule_nats', ePath)
+			const localCfg = UserDraft.get<Record<string, any>>('trigger_nats', ePath)
 			if (localCfg && !deepEqual(localCfg, getSaveCfg())) {
 				await loadTriggerConfig(localCfg)
 			}
@@ -263,7 +263,7 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
-			UserDraft.remove('schedule_nats', previousPath)
+			UserDraft.remove('trigger_nats', previousPath)
 			onUpdate?.(cfg.path)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			initialPath = cfg.path
@@ -331,7 +331,7 @@
 
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		UserDraft.save('schedule_nats', initialPath, natsConfig)
+		UserDraft.save('trigger_nats', initialPath, natsConfig)
 	})
 </script>
 

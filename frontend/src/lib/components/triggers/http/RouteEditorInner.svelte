@@ -225,7 +225,7 @@
 				initialConfig = structuredClone($state.snapshot(getRouteConfig()))
 			}
 			originalConfig = structuredClone($state.snapshot(getRouteConfig()))
-			const localCfg = UserDraft.get<Record<string, any>>('schedule_http', ePath)
+			const localCfg = UserDraft.get<Record<string, any>>('trigger_http', ePath)
 			if (localCfg && !deepEqual(localCfg, getRouteConfig())) {
 				loadTriggerConfig(localCfg as Partial<HttpTrigger>)
 			}
@@ -362,7 +362,7 @@
 				usedTriggerKinds
 			)
 			if (isSaved) {
-				UserDraft.remove('schedule_http', previousPath)
+				UserDraft.remove('trigger_http', previousPath)
 				onUpdate(saveCfg.path)
 				originalConfig = structuredClone($state.snapshot(getRouteConfig()))
 				initialPath = saveCfg.path
@@ -457,7 +457,7 @@
 
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		UserDraft.save('schedule_http', initialPath, routeConfig)
+		UserDraft.save('trigger_http', initialPath, routeConfig)
 	})
 </script>
 

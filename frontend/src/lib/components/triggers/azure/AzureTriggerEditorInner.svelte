@@ -129,7 +129,7 @@
 				initialConfig = structuredClone($state.snapshot(getAzureConfig()))
 			}
 			originalConfig = structuredClone($state.snapshot(getAzureConfig()))
-			const localCfg = UserDraft.get<Record<string, any>>('schedule_azure', ePath)
+			const localCfg = UserDraft.get<Record<string, any>>('trigger_azure', ePath)
 			if (localCfg && !deepEqual(localCfg, getAzureConfig())) {
 				await loadTriggerConfig(localCfg)
 			}
@@ -226,7 +226,7 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
-			UserDraft.remove('schedule_azure', previousPath)
+			UserDraft.remove('trigger_azure', previousPath)
 			onUpdate?.(cfg.path)
 			originalConfig = structuredClone($state.snapshot(getAzureConfig()))
 			initialPath = cfg.path
@@ -306,7 +306,7 @@
 
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		azureConfig && UserDraft.save('schedule_azure', initialPath, azureConfig)
+		azureConfig && UserDraft.save('trigger_azure', initialPath, azureConfig)
 	})
 </script>
 

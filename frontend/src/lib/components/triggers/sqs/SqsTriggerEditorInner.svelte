@@ -135,7 +135,7 @@
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-			const localCfg = UserDraft.get<Record<string, any>>('schedule_sqs', ePath)
+			const localCfg = UserDraft.get<Record<string, any>>('trigger_sqs', ePath)
 			if (localCfg && !deepEqual(localCfg, getSaveCfg())) {
 				loadTriggerConfig(localCfg)
 			}
@@ -285,7 +285,7 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
-			UserDraft.remove('schedule_sqs', previousPath)
+			UserDraft.remove('trigger_sqs', previousPath)
 			onUpdate?.(cfg.path)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			initialPath = cfg.path
@@ -324,7 +324,7 @@
 	// a path (no localStorage write would happen anyway).
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		UserDraft.save('schedule_sqs', initialPath, sqsConfig)
+		UserDraft.save('trigger_sqs', initialPath, sqsConfig)
 	})
 </script>
 

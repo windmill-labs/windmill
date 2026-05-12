@@ -75,9 +75,9 @@ describe('UserDraft.save / get / remove (no observers)', () => {
 	})
 
 	it('supports trigger kinds as item kinds', () => {
-		UserDraft.save('schedule_kafka', 'u/me/topic1', { value: { brokers: ['localhost:9092'] } })
+		UserDraft.save('trigger_kafka', 'u/me/topic1', { value: { brokers: ['localhost:9092'] } })
 
-		const raw = localStorage.getItem('userdraft/w/test_ws/schedule_kafka/u/me/topic1')
+		const raw = localStorage.getItem('userdraft/w/test_ws/trigger_kafka/u/me/topic1')
 		expect(raw).toBe(JSON.stringify({ value: { brokers: ['localhost:9092'] } }))
 	})
 

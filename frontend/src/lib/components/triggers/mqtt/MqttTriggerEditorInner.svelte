@@ -149,7 +149,7 @@
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-			const localCfg = UserDraft.get<Record<string, any>>('schedule_mqtt', ePath)
+			const localCfg = UserDraft.get<Record<string, any>>('trigger_mqtt', ePath)
 			if (localCfg && !deepEqual(localCfg, getSaveCfg())) {
 				await loadTriggerConfig(localCfg)
 			}
@@ -297,7 +297,7 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
-			UserDraft.remove('schedule_mqtt', previousPath)
+			UserDraft.remove('trigger_mqtt', previousPath)
 			onUpdate?.(cfg.path)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			initialPath = cfg.path
@@ -347,7 +347,7 @@
 
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		UserDraft.save('schedule_mqtt', initialPath, mqttConfig)
+		UserDraft.save('trigger_mqtt', initialPath, mqttConfig)
 	})
 </script>
 

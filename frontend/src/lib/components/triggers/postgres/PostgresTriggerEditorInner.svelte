@@ -244,7 +244,7 @@
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-			const localCfg = UserDraft.get<Record<string, any>>('schedule_postgres', ePath)
+			const localCfg = UserDraft.get<Record<string, any>>('trigger_postgres', ePath)
 			if (localCfg && !deepEqual(localCfg, getSaveCfg())) {
 				await loadTriggerConfig(localCfg)
 			}
@@ -415,7 +415,7 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
-			UserDraft.remove('schedule_postgres', previousPath)
+			UserDraft.remove('trigger_postgres', previousPath)
 			onUpdate?.(path)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			initialPath = cfg.path
@@ -488,7 +488,7 @@
 
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		postgresConfig && UserDraft.save('schedule_postgres', initialPath, postgresConfig)
+		postgresConfig && UserDraft.save('trigger_postgres', initialPath, postgresConfig)
 	})
 
 	$effect(() => {

@@ -181,7 +181,7 @@
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-			const localCfg = UserDraft.get<Record<string, any>>('schedule_websocket', ePath)
+			const localCfg = UserDraft.get<Record<string, any>>('trigger_websocket', ePath)
 			if (localCfg && !deepEqual(localCfg, getSaveCfg())) {
 				loadTriggerConfig(localCfg)
 			}
@@ -357,7 +357,7 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
-			UserDraft.remove('schedule_websocket', previousPath)
+			UserDraft.remove('trigger_websocket', previousPath)
 			onUpdate?.(saveCfg.path)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			initialPath = saveCfg.path
@@ -415,7 +415,7 @@
 
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		UserDraft.save('schedule_websocket', initialPath, websocketCfg)
+		UserDraft.save('trigger_websocket', initialPath, websocketCfg)
 	})
 </script>
 

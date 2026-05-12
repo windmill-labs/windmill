@@ -131,7 +131,7 @@
 				initialConfig = structuredClone($state.snapshot(getGcpConfig()))
 			}
 			originalConfig = structuredClone($state.snapshot(getGcpConfig()))
-			const localCfg = UserDraft.get<Record<string, any>>('schedule_gcp', ePath)
+			const localCfg = UserDraft.get<Record<string, any>>('trigger_gcp', ePath)
 			if (localCfg && !deepEqual(localCfg, getGcpConfig())) {
 				await loadTriggerConfig(localCfg)
 			}
@@ -235,7 +235,7 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
-			UserDraft.remove('schedule_gcp', previousPath)
+			UserDraft.remove('trigger_gcp', previousPath)
 			onUpdate?.(cfg.path)
 			originalConfig = structuredClone($state.snapshot(getGcpConfig()))
 			initialPath = cfg.path
@@ -323,7 +323,7 @@
 
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		gcpConfig && UserDraft.save('schedule_gcp', initialPath, gcpConfig)
+		gcpConfig && UserDraft.save('trigger_gcp', initialPath, gcpConfig)
 	})
 </script>
 

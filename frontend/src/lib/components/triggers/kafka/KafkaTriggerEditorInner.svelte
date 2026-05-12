@@ -153,7 +153,7 @@
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-			const localCfg = UserDraft.get<Record<string, any>>('schedule_kafka', ePath)
+			const localCfg = UserDraft.get<Record<string, any>>('trigger_kafka', ePath)
 			if (localCfg && !deepEqual(localCfg, getSaveCfg())) {
 				loadTriggerConfig(localCfg)
 			}
@@ -284,7 +284,7 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
-			UserDraft.remove('schedule_kafka', previousPath)
+			UserDraft.remove('trigger_kafka', previousPath)
 			onUpdate?.(cfg.path)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			initialPath = cfg.path
@@ -361,7 +361,7 @@
 
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		UserDraft.save('schedule_kafka', initialPath, kafkaConfig)
+		UserDraft.save('trigger_kafka', initialPath, kafkaConfig)
 	})
 </script>
 

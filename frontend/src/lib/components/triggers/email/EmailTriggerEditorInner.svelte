@@ -126,7 +126,7 @@
 				initialConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
 			}
 			originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
-			const localCfg = UserDraft.get<Record<string, any>>('schedule_email', ePath)
+			const localCfg = UserDraft.get<Record<string, any>>('trigger_email', ePath)
 			if (localCfg && !deepEqual(localCfg, getEmailTriggerConfig())) {
 				loadTriggerConfig(localCfg as Partial<EmailTrigger>)
 			}
@@ -229,7 +229,7 @@
 				usedTriggerKinds
 			)
 			if (isSaved) {
-				UserDraft.remove('schedule_email', previousPath)
+				UserDraft.remove('trigger_email', previousPath)
 				onUpdate(saveCfg.path)
 				originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
 				initialPath = saveCfg.path
@@ -303,7 +303,7 @@
 
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		UserDraft.save('schedule_email', initialPath, emailConfig)
+		UserDraft.save('trigger_email', initialPath, emailConfig)
 	})
 </script>
 
