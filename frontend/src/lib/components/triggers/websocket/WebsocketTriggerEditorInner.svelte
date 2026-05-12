@@ -42,6 +42,7 @@
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { capitalize } from '$lib/utils'
@@ -176,13 +177,17 @@
 			dirtyPath = false
 			dirtyUrl = false
 			await loadTrigger(defaultConfig)
-			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-		} catch (err) {
-			sendUserToast(`Could not load websocket trigger: ${err}`, true)
-		} finally {
 			if (!defaultConfig) {
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			const localCfg = UserDraft.get<Record<string, any>>('schedule_websocket', ePath)
+			if (localCfg && !deepEqual(localCfg, getSaveCfg())) {
+				loadTriggerConfig(localCfg)
+			}
+		} catch (err) {
+			sendUserToast(`Could not load websocket trigger: ${err}`, true)
+		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
@@ -342,6 +347,7 @@
 
 	async function updateTrigger(): Promise<void> {
 		deploymentLoading = true
+		const previousPath = initialPath
 		const saveCfg = getSaveCfg()
 		const isSaved = await saveWebsocketTriggerFromCfg(
 			initialPath,
@@ -351,6 +357,7 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
+			UserDraft.remove('schedule_websocket', previousPath)
 			onUpdate?.(saveCfg.path)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			initialPath = saveCfg.path
@@ -404,6 +411,11 @@
 		if (!drawerLoading) {
 			handleConfigChange(websocketCfg, initialConfig, saveDisabled, edit, onConfigChange)
 		}
+	})
+
+	$effect(() => {
+		if (drawerLoading || !initialPath) return
+		UserDraft.save('schedule_websocket', initialPath, websocketCfg)
 	})
 </script>
 
