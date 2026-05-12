@@ -6,6 +6,7 @@ import type {
   CliTrace,
   CliValidationSpec,
   FlowValidationSpec,
+  GlobalValidationSpec,
   ModeRunOutput,
   ToolValidationSpec,
 } from "./types";
@@ -49,6 +50,20 @@ export interface AppDatatableState {
   datatable_name: string;
   schemas: Record<string, Record<string, Record<string, string>>>;
   error?: string;
+}
+
+export interface GlobalDraftState {
+  drafts: GlobalDraft[];
+}
+
+export interface GlobalDraft {
+  type: string;
+  path: string;
+  triggerKind?: string;
+  summary?: string;
+  language?: string;
+  value?: unknown;
+  isDraft?: boolean;
 }
 
 const TS_LIKE_LANGUAGES = new Set(["bun", "deno", "nativets", "bunnative", "ts", "typescript"]);
@@ -154,6 +169,16 @@ export function validateToolExpectations(input: {
     );
   }
 
+  for (const toolName of expect.forbiddenToolsUsed ?? []) {
+    checks.push(
+      check(
+        `does not use ${toolName}`,
+        !input.run.toolsUsed.includes(toolName),
+        `tools used: ${input.run.toolsUsed.join(", ") || "none"}`
+      )
+    );
+  }
+
   for (const rule of expect.toolCallArgs ?? []) {
     const calls = toolCallDetails.filter((call) => call.name === rule.tool);
     checks.push(
@@ -197,6 +222,148 @@ export function validateToolExpectations(input: {
         )
       );
     }
+  }
+
+  return checks;
+}
+
+export function validateGlobalState(input: {
+  actual: GlobalDraftState;
+  expected?: GlobalDraftState;
+  validate?: GlobalValidationSpec;
+}): BenchmarkCheck[] {
+  const drafts = input.actual.drafts ?? [];
+  const checks: BenchmarkCheck[] = [
+    check("global produced at least one draft", drafts.length > 0, `drafts=${drafts.length}`),
+    check(
+      "all global outputs are drafts",
+      drafts.every((draft) => draft.isDraft === true),
+      summarizeGlobalDrafts(drafts)
+    ),
+  ];
+
+  for (const draft of drafts) {
+    if (draft.type !== "script" || typeof draft.value !== "string") {
+      continue;
+    }
+
+    const language = (draft.language ?? "bun").toLowerCase();
+    const syntaxErrors = getScriptSyntaxErrors(draft.value, language);
+    if (TS_LIKE_LANGUAGES.has(language)) {
+      checks.push(
+        check(
+          `script draft ${draft.path} exports entrypoint`,
+          hasSupportedEntrypoint(draft.value)
+        )
+      );
+    }
+    checks.push(
+      check(
+        `script draft ${draft.path} has no syntax errors`,
+        syntaxErrors.length === 0,
+        summarizeProblems(syntaxErrors)
+      )
+    );
+  }
+
+  if (input.expected) {
+    checks.push(
+      check(
+        "global drafts match expected",
+        globalDraftStatesEqual(input.actual, input.expected),
+        `actual=${summarizeGlobalDrafts(input.actual.drafts ?? [])}; expected=${summarizeGlobalDrafts(input.expected.drafts ?? [])}`
+      )
+    );
+  }
+
+  const validate = input.validate;
+  if (!validate) {
+    return checks;
+  }
+
+  if (validate.draftCountAtLeast !== undefined) {
+    checks.push(
+      check(
+        `global includes at least ${validate.draftCountAtLeast} draft(s)`,
+        drafts.length >= validate.draftCountAtLeast,
+        `drafts=${drafts.length}`
+      )
+    );
+  }
+
+  if (validate.draftCountExactly !== undefined) {
+    checks.push(
+      check(
+        `global includes exactly ${validate.draftCountExactly} draft(s)`,
+        drafts.length === validate.draftCountExactly,
+        `drafts=${drafts.length}`
+      )
+    );
+  }
+
+  for (const required of validate.requiredDrafts ?? []) {
+    const draft = findGlobalDraft(drafts, required.type, required.path, required.triggerKind);
+    checks.push(
+      check(
+        `global includes ${required.type} draft ${required.path}`,
+        Boolean(draft),
+        summarizeGlobalDrafts(drafts)
+      )
+    );
+    if (!draft) {
+      continue;
+    }
+
+    if (required.language !== undefined) {
+      checks.push(
+        check(
+          `${required.type} draft ${required.path} uses ${required.language}`,
+          draft.language === required.language,
+          `language=${draft.language ?? "(none)"}`
+        )
+      );
+    }
+
+    for (const snippet of required.summaryIncludes ?? []) {
+      checks.push(
+        check(
+          `${required.type} draft ${required.path} summary includes '${snippet}'`,
+          normalizeText(draft.summary ?? "").includes(normalizeText(snippet)),
+          `summary=${draft.summary ?? ""}`
+        )
+      );
+    }
+
+    const valueText = stringifyGlobalDraftValue(draft.value);
+    for (const snippet of required.valueIncludes ?? []) {
+      checks.push(
+        check(
+          `${required.type} draft ${required.path} value includes '${snippet}'`,
+          normalizeText(valueText).includes(normalizeText(snippet)),
+          truncateForDetails(valueText)
+        )
+      );
+    }
+
+    for (const snippet of required.valueExcludes ?? []) {
+      checks.push(
+        check(
+          `${required.type} draft ${required.path} value excludes '${snippet}'`,
+          !normalizeText(valueText).includes(normalizeText(snippet)),
+          truncateForDetails(valueText)
+        )
+      );
+    }
+  }
+
+  for (const forbidden of validate.forbiddenDrafts ?? []) {
+    checks.push(
+      check(
+        `global does not include ${forbidden.type} draft ${forbidden.path}`,
+        !findGlobalDraft(drafts, forbidden.type, forbidden.path, forbidden.triggerKind),
+        summarizeGlobalDrafts(drafts)
+      )
+    );
   }
 
   return checks;
@@ -431,6 +598,88 @@ function summarizeProblems(problems: string[], limit = 5): string | undefined {
   }
 
   return `${problems.slice(0, limit).join("; ")}; ...and ${problems.length - limit} more`;
+}
+
+function findGlobalDraft(
+  drafts: GlobalDraft[],
+  type: string,
+  path: string,
+  triggerKind?: string
+): GlobalDraft | undefined {
+  return drafts.find(
+    (draft) =>
+      draft.type === type &&
+      draft.path === path &&
+      (triggerKind === undefined || draft.triggerKind === triggerKind)
+  );
+}
+
+function summarizeGlobalDrafts(drafts: GlobalDraft[]): string {
+  const summary = drafts
+    .map((draft) => `${draft.type}${draft.triggerKind ? `:${draft.triggerKind}` : ""}:${draft.path}`)
+    .join(", ");
+  return `drafts: ${summary || "none"}`;
+}
+
+function globalDraftStatesEqual(left: GlobalDraftState, right: GlobalDraftState): boolean {
+  return (
+    JSON.stringify(canonicalizeGlobalDrafts(left.drafts ?? [])) ===
+    JSON.stringify(canonicalizeGlobalDrafts(right.drafts ?? []))
+  );
+}
+
+function canonicalizeGlobalDrafts(drafts: GlobalDraft[]): unknown[] {
+  return drafts
+    .slice()
+    .sort((left, right) => globalDraftSortKey(left).localeCompare(globalDraftSortKey(right)))
+    .map((draft) =>
+      canonicalizeJsonValue({
+        type: draft.type,
+        path: draft.path,
+        triggerKind: draft.triggerKind,
+        language: draft.language,
+        summary:
+          typeof draft.summary === "string" ? normalizeText(draft.summary) : draft.summary,
+        value:
+          typeof draft.value === "string"
+            ? normalizeText(draft.value)
+            : canonicalizeJsonValue(draft.value),
+        isDraft: draft.isDraft,
+      })
+    );
+}
+
+function globalDraftSortKey(draft: GlobalDraft): string {
+  return `${draft.type}:${draft.triggerKind ?? ""}:${draft.path}`;
+}
+
+function canonicalizeJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(canonicalizeJsonValue);
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, nested]) => [key, canonicalizeJsonValue(nested)])
+    );
+  }
+  return value;
+}
+
+function stringifyGlobalDraftValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  return JSON.stringify(value ?? null, null, 2);
+}
+
+function truncateForDetails(value: string, maxLength = 500): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
 function validateCliExpectations(

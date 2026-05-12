@@ -37,7 +37,7 @@ export function resolveFrontendEvalTransportSettings(input: {
 
   if (transport === "proxy" && input.evalMode === "cli") {
     throw new Error(
-      'Frontend eval transport "proxy" is only supported for flow, script, and app evals',
+      'Frontend eval transport "proxy" is only supported for flow, script, app, and global evals',
     );
   }
 

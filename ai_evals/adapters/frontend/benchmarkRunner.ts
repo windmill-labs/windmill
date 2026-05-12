@@ -12,10 +12,11 @@ import type { BenchmarkRunResult, ModeRunner } from "../../core/types";
 import { emitFrontendBenchmarkProgress } from "./progress";
 import { createAppModeRunner } from "../../modes/app";
 import { createFlowModeRunner } from "../../modes/flow";
+import { createGlobalModeRunner } from "../../modes/global";
 import { createScriptModeRunner } from "../../modes/script";
 import { DEFAULT_JUDGE_MODEL } from "../../core/judge";
 
-export type FrontendBenchmarkMode = "flow" | "app" | "script";
+export type FrontendBenchmarkMode = "flow" | "app" | "script" | "global";
 
 export async function runFrontendBenchmarkFromEnv(): Promise<BenchmarkRunResult> {
   const mode = parseMode(process.env.WMILL_FRONTEND_AI_EVAL_MODE);
@@ -89,11 +90,13 @@ function getModeRunner(
         backendValidation,
         transportSettings,
       );
+    case "global":
+      return createGlobalModeRunner(model, transportSettings);
   }
 }
 
 function parseMode(value: string | undefined): FrontendBenchmarkMode {
-  if (value === "flow" || value === "app" || value === "script") {
+  if (value === "flow" || value === "app" || value === "script" || value === "global") {
     return value;
   }
   throw new Error(`Unsupported frontend benchmark mode: ${String(value)}`);

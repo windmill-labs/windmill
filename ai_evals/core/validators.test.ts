@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   validateAppState,
   validateCliWorkspace,
+  validateGlobalState,
   validateScriptState,
   validateToolExpectations,
 } from "./validators";
@@ -115,6 +116,173 @@ describe("validateToolExpectations", () => {
       name: "create_schedule.path avoids rejected prefixes",
       passed: false,
       details: 'rejected prefixes: schedules/; values: "schedules/greet_user_daily"',
+    });
+  });
+
+  it("rejects forbidden tool usage", () => {
+    const checks = validateToolExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 1,
+        toolsUsed: ["write_script", "deploy_workspace_item"],
+        skillsInvoked: [],
+      },
+      toolExpect: {
+        forbiddenToolsUsed: ["deploy_workspace_item"],
+      },
+    });
+
+    expect(checks).toContainEqual({
+      name: "does not use deploy_workspace_item",
+      passed: false,
+      details: "tools used: write_script, deploy_workspace_item",
+    });
+  });
+});
+
+describe("validateGlobalState", () => {
+  it("accepts a required script draft", () => {
+    const checks = validateGlobalState({
+      actual: {
+        drafts: [
+          {
+            type: "script",
+            path: "f/evals/global/greet_user",
+            language: "bun",
+            value:
+              "export async function main(name: string) {\n  return `Hello, ${name}!`\n}\n",
+            isDraft: true,
+          },
+        ],
+      },
+      validate: {
+        draftCountExactly: 1,
+        requiredDrafts: [
+          {
+            type: "script",
+            path: "f/evals/global/greet_user",
+            language: "bun",
+            valueIncludes: ["Hello"],
+          },
+        ],
+      },
+    });
+
+    expect(checks.every((check) => check.passed)).toBe(true);
+  });
+
+  it("fails when a required draft is missing", () => {
+    const checks = validateGlobalState({
+      actual: {
+        drafts: [],
+      },
+      validate: {
+        requiredDrafts: [
+          {
+            type: "script",
+            path: "f/evals/global/greet_user",
+          },
+        ],
+      },
+    });
+
+    expect(checks).toContainEqual({
+      name: "global includes script draft f/evals/global/greet_user",
+      passed: false,
+      details: "drafts: none",
+    });
+  });
+
+  it("does not require a TypeScript entrypoint for non-TypeScript script drafts", () => {
+    const checks = validateGlobalState({
+      actual: {
+        drafts: [
+          {
+            type: "script",
+            path: "f/evals/global/greet_python",
+            language: "python3",
+            value: "def main(name: str):\n    return f'Hello, {name}!'\n",
+            isDraft: true,
+          },
+        ],
+      },
+    });
+
+    expect(checks.some((check) => check.name.includes("exports entrypoint"))).toBe(
+      false
+    );
+    expect(checks.every((check) => check.passed)).toBe(true);
+  });
+
+  it("matches expected global draft fixtures", () => {
+    const checks = validateGlobalState({
+      actual: {
+        drafts: [
+          {
+            type: "script",
+            path: "f/evals/global/greet_user",
+            language: "bun",
+            value:
+              "export async function main(name: string) {\r\n  return `Hello, ${name}!`\r\n}\r\n",
+            isDraft: true,
+          },
+        ],
+      },
+      expected: {
+        drafts: [
+          {
+            type: "script",
+            path: "f/evals/global/greet_user",
+            language: "bun",
+            value:
+              "export async function main(name: string) {\n  return `Hello, ${name}!`\n}\n",
+            isDraft: true,
+          },
+        ],
+      },
+    });
+
+    expect(checks).toContainEqual({
+      name: "global drafts match expected",
+      passed: true,
+    });
+  });
+
+  it("fails when expected global draft fixtures differ", () => {
+    const checks = validateGlobalState({
+      actual: {
+        drafts: [
+          {
+            type: "script",
+            path: "f/evals/global/greet_user",
+            language: "bun",
+            value:
+              "export async function main(name: string) {\n  return `Hello, ${name}!`\n}\n",
+            isDraft: true,
+          },
+        ],
+      },
+      expected: {
+        drafts: [
+          {
+            type: "script",
+            path: "f/evals/global/greet_user",
+            language: "bun",
+            value:
+              "export async function main(name: string) {\n  return `Bonjour, ${name}!`\n}\n",
+            isDraft: true,
+          },
+        ],
+      },
+    });
+
+    expect(checks).toContainEqual({
+      name: "global drafts match expected",
+      passed: false,
+      details:
+        "actual=drafts: script:f/evals/global/greet_user; expected=drafts: script:f/evals/global/greet_user",
     });
   });
 });
