@@ -410,18 +410,26 @@
 						{#if getTypeAsString(jsonFiltered) === 's3object'}
 							{@const s3DownloadApiPath = `/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${encodeURIComponent(jsonFiltered?.s3 ?? '')}${jsonFiltered?.storage ? `&storage=${jsonFiltered.storage}` : ''}`}
 							{@const s3DownloadName = jsonFiltered?.s3.split('/').pop() ?? 'unnamed_download.file'}
-							<a
-								class="text-secondary underline font-semibold text-2xs whitespace-nowrap ml-1 w-fit"
-								href={`/api${s3DownloadApiPath}`}
-								download={s3DownloadName}
-								onclick={async (e) => {
-									if (!shouldDownloadViaClient()) return
-									e.preventDefault()
-									await downloadViaClient(s3DownloadApiPath, s3DownloadName)
-								}}
-							>
-								<span class="flex items-center gap-1"><Download size={12} />download</span>
-							</a>
+							{#if shouldDownloadViaClient()}
+								<button
+									class="text-secondary underline font-semibold text-2xs whitespace-nowrap ml-1 w-fit"
+									onclick={() => downloadViaClient(s3DownloadApiPath, s3DownloadName)}
+								>
+									<span class="flex items-center gap-1"
+										><Download size={12} />download</span
+									>
+								</button>
+							{:else}
+								<a
+									class="text-secondary underline font-semibold text-2xs whitespace-nowrap ml-1 w-fit"
+									href={`/api${s3DownloadApiPath}`}
+									download={s3DownloadName}
+								>
+									<span class="flex items-center gap-1"
+										><Download size={12} />download</span
+									>
+								</a>
+							{/if}
 							<button
 								class="text-secondary underline text-2xs whitespace-nowrap ml-1"
 								onclick={() => {
