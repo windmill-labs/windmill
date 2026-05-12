@@ -67,10 +67,9 @@ ${Object.entries(args)
 {:else if id && workspace && args && typeof args === 'object' && deepEqual( Object.keys(args ?? {}), ['reason'] ) && args['reason'] == 'WINDMILL_TOO_BIG'}
 	The args are too big in size to be able to fetch alongside job. Please {#if shouldDownloadViaClient()}<button
 			class="text-blue-500 hover:underline"
-			onclick={() => downloadViaClient(`/w/${workspace}/jobs_u/get_args/${id}`, argsDownloadName)}
+			onclick={() => downloadViaClient(argsApiPath!, argsDownloadName)}
 			>download the JSON file to view them</button
-		>{:else}<a href="/api/w/{workspace}/jobs_u/get_args/{id}" target="_blank"
-			>download the JSON file to view them</a
+		>{:else}<a href="/api{argsApiPath}" target="_blank">download the JSON file to view them</a
 		>{/if}.
 {:else}
 	<div class="relative">
