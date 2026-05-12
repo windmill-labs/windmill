@@ -27,6 +27,7 @@
 	import { saveGcpTriggerFromCfg } from './utils'
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import { deepEqual } from 'fast-equals'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { base } from '$lib/base'
@@ -126,14 +127,18 @@
 			edit = true
 			dirtyPath = false
 			await loadTrigger(defaultValues)
+			if (!defaultValues) {
+				initialConfig = structuredClone($state.snapshot(getGcpConfig()))
+			}
 			originalConfig = structuredClone($state.snapshot(getGcpConfig()))
+			const localCfg = UserDraft.get<Record<string, any>>('schedule_gcp', ePath)
+			if (localCfg && !deepEqual(localCfg, getGcpConfig())) {
+				await loadTriggerConfig(localCfg)
+			}
 		} catch (err) {
 			sendUserToast(`Could not load GCP Pub/Sub trigger: ${err.body}`, true)
 		} finally {
 			drawerLoading = false
-			if (!defaultValues) {
-				initialConfig = structuredClone($state.snapshot(getGcpConfig()))
-			}
 		}
 	}
 
@@ -217,6 +222,7 @@
 
 	async function updateTrigger(): Promise<void> {
 		deploymentLoading = true
+		const previousPath = initialPath
 		const cfg = gcpConfig
 		if (!cfg) {
 			return
@@ -229,6 +235,7 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
+			UserDraft.remove('schedule_gcp', previousPath)
 			onUpdate?.(cfg.path)
 			originalConfig = structuredClone($state.snapshot(getGcpConfig()))
 			initialPath = cfg.path
@@ -312,6 +319,11 @@
 		if (!drawerLoading) {
 			handleConfigChange(gcpConfig, initialConfig, saveDisabled, edit, onConfigChange)
 		}
+	})
+
+	$effect(() => {
+		if (drawerLoading || !initialPath) return
+		gcpConfig && UserDraft.save('schedule_gcp', initialPath, gcpConfig)
 	})
 </script>
 
