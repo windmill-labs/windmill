@@ -41,12 +41,7 @@ import {
 	validateEditableFlowJson
 } from '../flow/editableFlowJson'
 import { createInlineScriptSession } from '../flow/inlineScriptsUtils'
-import {
-	getFlowPrompt,
-	getRawAppPrompt,
-	getResourcePrompt,
-	getScriptPrompt
-} from '$system_prompts'
+import { getFlowPrompt, getRawAppPrompt, getResourcePrompt, getScriptPrompt } from '$system_prompts'
 import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
@@ -69,7 +64,6 @@ import {
 } from '../workspaceToolsZod.gen'
 import {
 	getWorkspaceItemKey,
-	globalDraftStore,
 	TRIGGER_KINDS,
 	type AppDraftValue,
 	type FlowDraftValue,
@@ -78,6 +72,13 @@ import {
 	type WorkspaceItemType
 } from './draftStore.svelte'
 import { buildFlowDeployRequestBody, buildScriptDeployRequestBody } from './deployRequests'
+import {
+	deleteGlobalDraft,
+	getGlobalDraft,
+	listGlobalDrafts,
+	saveGlobalAppDraft,
+	setGlobalDraft
+} from './userDraftAdapter'
 
 const ITEM_TYPES = [
 	'script',
@@ -154,9 +155,7 @@ const readWorkspaceItemSchema = z.object({
 })
 
 const writeScriptSchema = z.object({
-	path: z
-		.string()
-		.describe('Workspace path of the script, e.g. f/folder/name or u/user/name.'),
+	path: z.string().describe('Workspace path of the script, e.g. f/folder/name or u/user/name.'),
 	summary: z.string().optional().describe('Short human-readable summary.'),
 	language: scriptLangSchema.describe('Script language.'),
 	content: z.string().describe('Full script source code.')
@@ -178,7 +177,7 @@ const setFlowModuleCodeSchema = z.object({
 		.describe(
 			'Module id whose inline rawscript content to overwrite. Must reference a module whose value.type is "rawscript". Use patch_flow_json for structural changes.'
 		),
-	code: z.string().describe('New script source. Replaces the module\'s value.content entirely.')
+	code: z.string().describe("New script source. Replaces the module's value.content entirely.")
 })
 
 // Flow structure fields are taken as JSON strings rather than typed objects
@@ -187,9 +186,7 @@ const setFlowModuleCodeSchema = z.object({
 // rejects those keywords ("Unknown name $ref/$defs"). Same trick as
 // set_flow_json in chat/flow/core.ts.
 const writeFlowSchema = z.object({
-	path: z
-		.string()
-		.describe('Workspace path of the flow, e.g. f/folder/name or u/user/name.'),
+	path: z.string().describe('Workspace path of the flow, e.g. f/folder/name or u/user/name.'),
 	summary: z.string().optional().describe('Short human-readable summary.'),
 	modules: z.string().describe('JSON string containing the complete flow modules array.'),
 	schema: z
@@ -436,7 +433,12 @@ const deleteAppRunnableSchema = z.object({
 	key: z.string().describe('Key of the backend runnable to remove.')
 })
 
-const FRAMEWORK_KEYS = ['react19', 'react18', 'svelte5', 'vue'] as const satisfies readonly FrameworkKey[]
+const FRAMEWORK_KEYS = [
+	'react19',
+	'react18',
+	'svelte5',
+	'vue'
+] as const satisfies readonly FrameworkKey[]
 
 const initAppSchema = z.object({
 	path: z
@@ -658,7 +660,7 @@ function buildPersistedRunnable(
 					{ type: 'static', value: v, fieldType: 'object' }
 				])
 			)
-		: existing?.fields ?? {}
+		: (existing?.fields ?? {})
 
 	if (input.type === 'inline') {
 		if (!input.inlineScript) {
@@ -712,10 +714,12 @@ type AppMetadata = {
 }
 
 function summarizeAppValue(value: AppDraftValue): AppMetadata {
-	const frontend: AppFrontendFileMetadata[] = Object.entries(value.files).map(([path, content]) => ({
-		path,
-		size: typeof content === 'string' ? content.length : 0
-	}))
+	const frontend: AppFrontendFileMetadata[] = Object.entries(value.files).map(
+		([path, content]) => ({
+			path,
+			size: typeof content === 'string' ? content.length : 0
+		})
+	)
 	const backend: AppBackendRunnableMetadata[] = Object.entries(value.runnables).map(
 		([key, runnable]) => {
 			const converted = convertPersistedToBackendRunnable(runnable as PersistedRunnable, key)
@@ -816,7 +820,7 @@ function getInlineRunnableContent(
 }
 
 async function loadAppDraftValue(path: string, workspace: string): Promise<AppDraftValue> {
-	const draft = globalDraftStore.getDraft(workspace, 'app', path)
+	const draft = getGlobalDraft(workspace, 'app', path)
 	if (draft && draft.value && typeof draft.value === 'object' && 'files' in draft.value) {
 		return draft.value as AppDraftValue
 	}
@@ -834,13 +838,7 @@ async function loadAppDraftValue(path: string, workspace: string): Promise<AppDr
 }
 
 function saveAppDraft(workspace: string, path: string, value: AppDraftValue): WorkspaceItem {
-	return globalDraftStore.setDraft(workspace, {
-		type: 'app',
-		path,
-		summary: value.summary,
-		value,
-		isDraft: true
-	})
+	return saveGlobalAppDraft(workspace, path, value)
 }
 
 type TriggerLike = { path: string; summary?: string | null }
@@ -863,11 +861,7 @@ function triggerToItem(
 type TriggerService = {
 	exists(args: { workspace: string; path: string }): Promise<boolean>
 	get(args: { workspace: string; path: string }): Promise<TriggerLike>
-	list(args: {
-		workspace: string
-		pathStart?: string
-		perPage?: number
-	}): Promise<TriggerLike[]>
+	list(args: { workspace: string; pathStart?: string; perPage?: number }): Promise<TriggerLike[]>
 	create(args: { workspace: string; requestBody: any }): Promise<string>
 	update(args: { workspace: string; path: string; requestBody: any }): Promise<string>
 	delete(args: { workspace: string; path: string }): Promise<string>
@@ -997,7 +991,7 @@ async function readWorkspaceItem(
 			)
 		case 'resource':
 			return resourceToItem(
-				await ResourceService.getResource({ workspace, path }) as ListableResource,
+				(await ResourceService.getResource({ workspace, path })) as ListableResource,
 				true
 			)
 		case 'variable':
@@ -1296,7 +1290,7 @@ export const globalTools: Tool<{}>[] = [
 				byKey.set(getWorkspaceItemKey(item.type, item.path, item.triggerKind), item)
 			}
 
-			for (const draft of globalDraftStore.listDrafts(workspace)) {
+			for (const draft of listGlobalDrafts(workspace)) {
 				if (!types.includes(draft.type)) continue
 				byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
 					...draft,
@@ -1327,12 +1321,7 @@ export const globalTools: Tool<{}>[] = [
 				toolCallbacks.setToolStatus(toolId, { content: message, error: message })
 				return JSON.stringify({ success: false, error: message })
 			}
-			const draft = globalDraftStore.getDraft(
-				workspace,
-				parsed.type,
-				parsed.path,
-				parsed.trigger_kind
-			)
+			const draft = getGlobalDraft(workspace, parsed.type, parsed.path, parsed.trigger_kind)
 			if (draft) {
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Read AI draft ${parsed.type} "${parsed.path}"`
@@ -1343,12 +1332,7 @@ export const globalTools: Tool<{}>[] = [
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Reading ${parsed.type} "${parsed.path}"...`
 			})
-			const item = await readWorkspaceItem(
-				parsed.type,
-				parsed.path,
-				workspace,
-				parsed.trigger_kind
-			)
+			const item = await readWorkspaceItem(parsed.type, parsed.path, workspace, parsed.trigger_kind)
 			toolCallbacks.setToolStatus(toolId, { content: `Read ${parsed.type} "${parsed.path}"` })
 			return JSON.stringify(serializeWorkspaceItemForRead(item), null, 2)
 		}
@@ -1723,7 +1707,7 @@ async function loadScriptForEdit(
 	path: string,
 	workspace: string
 ): Promise<{ content: string; language: ScriptLang; summary?: string }> {
-	const draft = globalDraftStore.getDraft(workspace, 'script', path)
+	const draft = getGlobalDraft(workspace, 'script', path)
 	if (draft) {
 		if (typeof draft.value !== 'string' || !draft.language) {
 			throw new Error(`Draft script "${path}" is missing content or language.`)
@@ -1760,7 +1744,7 @@ async function loadFlowDraftValue(
 	path: string,
 	workspace: string
 ): Promise<{ flow: FlowDraftValue; summary?: string }> {
-	const draft = globalDraftStore.getDraft(workspace, 'flow', path)
+	const draft = getGlobalDraft(workspace, 'flow', path)
 	if (draft) {
 		if (draft.value === undefined || typeof draft.value === 'string') {
 			throw new Error(`Draft flow "${path}" has no value.`)
@@ -1889,7 +1873,7 @@ async function initApp(
 	const { workspace, toolId, toolCallbacks } = ctx
 	const { path, summary, framework, data } = args
 
-	if (globalDraftStore.getDraft(workspace, 'app', path)) {
+	if (getGlobalDraft(workspace, 'app', path)) {
 		throw new Error(
 			`An AI draft for app "${path}" already exists. Use write_app_file / write_app_runnable to modify it, or delete the existing draft first.`
 		)
@@ -2048,13 +2032,21 @@ async function patchAppFile(
 	ctx: WriteDraftCtx
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
-	const { path, file_path: filePath, old_string: oldString, new_string: newString, replace_all: replaceAll } = args
+	const {
+		path,
+		file_path: filePath,
+		old_string: oldString,
+		new_string: newString,
+		replace_all: replaceAll
+	} = args
 	const target = resolveAppFileTarget(filePath)
 	if (target.kind === 'frontend') {
 		assertNotGeneratedAppFile(target.filePath)
 	}
 
-	toolCallbacks.setToolStatus(toolId, { content: `Patching ${target.filePath} in app "${path}"...` })
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Patching ${target.filePath} in app "${path}"...`
+	})
 
 	const value = await loadAppDraftValue(path, workspace)
 	let currentContent: string
@@ -2088,7 +2080,8 @@ async function patchAppFile(
 			[target.key]: {
 				...runnable!,
 				inlineScript: {
-					language: runnable!.inlineScript?.language ?? (target.extension === 'py' ? 'python3' : 'bun'),
+					language:
+						runnable!.inlineScript?.language ?? (target.extension === 'py' ? 'python3' : 'bun'),
 					content: updated
 				}
 			}
@@ -2112,10 +2105,7 @@ async function patchAppFile(
 }
 
 async function recomputeAppPolicy(value: AppDraftValue): Promise<void> {
-	value.policy = (await updateRawAppPolicy(
-		value.runnables as any,
-		value.policy as any
-	)) as any
+	value.policy = (await updateRawAppPolicy(value.runnables as any, value.policy as any)) as any
 }
 
 async function writeAppRunnable(
@@ -2196,10 +2186,7 @@ const triggerLabels: Record<TriggerKind, string> = {
 	azure: 'Azure Event Grid trigger'
 }
 
-function createOpenScheduleAction(
-	path: string,
-	targetKind: 'script' | 'flow'
-): ToolDisplayAction {
+function createOpenScheduleAction(path: string, targetKind: 'script' | 'flow'): ToolDisplayAction {
 	return {
 		id: `open-deployed-schedule:${path}`,
 		type: 'open_created_resource',
@@ -2268,7 +2255,7 @@ async function deployDraft(
 		throw new Error('trigger_kind is required when deploying a trigger.')
 	}
 
-	const draft = globalDraftStore.getDraft(workspace, type, path, triggerKind)
+	const draft = getGlobalDraft(workspace, type, path, triggerKind)
 	if (!draft) {
 		throw new Error(`No AI draft found for ${type} "${path}".`)
 	}
@@ -2357,7 +2344,7 @@ async function deployDraft(
 		}
 	}
 
-	globalDraftStore.deleteDraft(workspace, type, path, triggerKind)
+	deleteGlobalDraft(workspace, type, path, triggerKind)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deployed ${type} "${path}"`,
@@ -2416,7 +2403,7 @@ async function deleteWorkspaceItem(
 			break
 	}
 
-	globalDraftStore.deleteDraft(workspace, type, path, triggerKind)
+	deleteGlobalDraft(workspace, type, path, triggerKind)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deleted ${type} "${path}"`,
@@ -2441,11 +2428,14 @@ async function writeDraft(item: WorkspaceItem, ctx: WriteDraftCtx): Promise<stri
 		content: `Writing draft ${item.type} "${item.path}"...`
 	})
 
-	const exists =
-		globalDraftStore.getDraft(workspace, item.type, item.path, item.triggerKind) !== undefined ||
-		(await workspaceItemExists(item.type, item.path, workspace, item.triggerKind))
+	const existingDraft =
+		getGlobalDraft(workspace, item.type, item.path, item.triggerKind) !== undefined
+	const backendExists = existingDraft
+		? false
+		: await workspaceItemExists(item.type, item.path, workspace, item.triggerKind)
+	const exists = existingDraft || backendExists
 
-	const stored = globalDraftStore.setDraft(workspace, item)
+	const stored = await setGlobalDraft(workspace, item, { loadExisting: backendExists })
 	const serializedItem =
 		stored.type === 'variable' || stored.type === 'flow'
 			? serializeWorkspaceItemForRead(stored)
