@@ -324,6 +324,389 @@ Reference a specific resource using \`$res:\` prefix:
 \`\`\`
 `;
 
+export const RESOURCES_BASE = `# Windmill Resources
+
+Resources store credentials and configuration for external services.
+
+## File Format
+
+Resource files use the pattern: \`{path}.resource.json\`
+
+Example: \`f/databases/postgres_prod.resource.json\`
+
+## Resource Structure
+
+\`\`\`json
+{
+  "value": {
+    "host": "db.example.com",
+    "port": 5432,
+    "user": "admin",
+    "password": "$var:g/all/db_password",
+    "dbname": "production"
+  },
+  "description": "Production PostgreSQL database",
+  "resource_type": "postgresql"
+}
+\`\`\`
+
+## Required Fields
+
+- \`value\` - Object containing the resource configuration
+- \`resource_type\` - Name of the resource type (e.g., "postgresql", "slack")
+
+## Variable References
+
+Reference variables in resource values:
+
+\`\`\`json
+{
+  "value": {
+    "api_key": "$var:g/all/api_key",
+    "secret": "$var:u/admin/secret"
+  }
+}
+\`\`\`
+
+**Reference formats:**
+- \`$var:g/all/name\` - Global variable
+- \`$var:u/username/name\` - User variable
+- \`$var:f/folder/name\` - Folder variable
+
+## Resource References
+
+Reference other resources:
+
+\`\`\`json
+{
+  "value": {
+    "database": "$res:f/databases/postgres"
+  }
+}
+\`\`\`
+
+## Common Resource Types
+
+### PostgreSQL
+\`\`\`json
+{
+  "resource_type": "postgresql",
+  "value": {
+    "host": "localhost",
+    "port": 5432,
+    "user": "postgres",
+    "password": "$var:g/all/pg_password",
+    "dbname": "windmill",
+    "sslmode": "prefer"
+  }
+}
+\`\`\`
+
+### MySQL
+\`\`\`json
+{
+  "resource_type": "mysql",
+  "value": {
+    "host": "localhost",
+    "port": 3306,
+    "user": "root",
+    "password": "$var:g/all/mysql_password",
+    "database": "myapp"
+  }
+}
+\`\`\`
+
+### Slack
+\`\`\`json
+{
+  "resource_type": "slack",
+  "value": {
+    "token": "$var:g/all/slack_token"
+  }
+}
+\`\`\`
+
+### AWS S3
+\`\`\`json
+{
+  "resource_type": "s3",
+  "value": {
+    "bucket": "my-bucket",
+    "region": "us-east-1",
+    "accessKeyId": "$var:g/all/aws_access_key",
+    "secretAccessKey": "$var:g/all/aws_secret_key"
+  }
+}
+\`\`\`
+
+### HTTP/API
+\`\`\`json
+{
+  "resource_type": "http",
+  "value": {
+    "baseUrl": "https://api.example.com",
+    "headers": {
+      "Authorization": "Bearer $var:g/all/api_token"
+    }
+  }
+}
+\`\`\`
+
+### Kafka
+\`\`\`json
+{
+  "resource_type": "kafka",
+  "value": {
+    "brokers": "broker1:9092,broker2:9092",
+    "sasl_mechanism": "PLAIN",
+    "security_protocol": "SASL_SSL",
+    "username": "$var:g/all/kafka_user",
+    "password": "$var:g/all/kafka_password"
+  }
+}
+\`\`\`
+
+### NATS
+\`\`\`json
+{
+  "resource_type": "nats",
+  "value": {
+    "servers": ["nats://localhost:4222"],
+    "user": "$var:g/all/nats_user",
+    "password": "$var:g/all/nats_password"
+  }
+}
+\`\`\`
+
+### MQTT
+\`\`\`json
+{
+  "resource_type": "mqtt",
+  "value": {
+    "host": "mqtt.example.com",
+    "port": 8883,
+    "username": "$var:g/all/mqtt_user",
+    "password": "$var:g/all/mqtt_password",
+    "tls": true
+  }
+}
+\`\`\`
+
+## Custom Resource Types
+
+Create custom resource types with JSON Schema:
+
+\`\`\`json
+{
+  "name": "custom_api",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "base_url": {"type": "string", "format": "uri"},
+      "api_key": {"type": "string"},
+      "timeout": {"type": "integer", "default": 30}
+    },
+    "required": ["base_url", "api_key"]
+  },
+  "description": "Custom API connection"
+}
+\`\`\`
+
+Save as: \`custom_api.resource-type.json\`
+
+## OAuth Resources
+
+OAuth resources are managed through the Windmill UI and marked:
+
+\`\`\`json
+{
+  "is_oauth": true,
+  "account": 123
+}
+\`\`\`
+
+OAuth tokens are automatically refreshed by Windmill.
+
+## Using Resources in Scripts
+
+### TypeScript (Bun/Deno)
+\`\`\`typescript
+export async function main(db: RT.Postgresql) {
+  // db contains the resource values
+  const { host, port, user, password, dbname } = db;
+}
+\`\`\`
+
+### Python
+\`\`\`python
+class postgresql(TypedDict):
+    host: str
+    port: int
+    user: str
+    password: str
+    dbname: str
+
+def main(db: postgresql):
+    # db contains the resource values
+    pass
+\`\`\`
+
+## CLI Commands
+
+\`\`\`bash
+# List resources
+wmill resource list
+
+# List resource types with schemas
+wmill resource-type list --schema
+
+# Get specific resource type schema
+wmill resource-type get postgresql
+
+# Push resources (tell the user to run this, do NOT run it yourself)
+wmill sync push
+\`\`\`
+`;
+
+export const RAW_APP_BASE = `# Windmill Raw Apps
+
+Raw apps let you build custom frontends with React, Svelte, or Vue that connect to Windmill backend runnables and datatables.
+
+## App shape
+
+A raw app has three logical parts:
+
+- **Frontend** — bundled with esbuild from \`index.tsx\` as the entrypoint. Files include the entrypoint, components (\`App.tsx\`), styles, etc.
+- **Backend runnables** — server-side scripts the frontend calls, each addressed by a unique key.
+- **Data** — optional whitelisted datatables (managed PostgreSQL) that the backend runnables can query. The frontend never queries the database directly; backend runnables are the only bridge.
+
+## Frontend
+
+### Entrypoint
+
+\`index.tsx\` is the bundling entrypoint. It typically renders a top-level \`App\` component. The bundler is esbuild.
+
+### Generated bindings (\`wmill.d.ts\` / \`wmill.ts\`)
+
+The frontend imports a generated module that mirrors the backend runnables. **Never write to it directly** — it gets regenerated whenever backend runnables change. Modifying it by hand will be overwritten.
+
+### Calling backend runnables
+
+Import the generated bindings and call the runnable like a function:
+
+\`\`\`typescript
+import { backend } from './wmill';
+
+// Call a backend runnable
+const user = await backend.get_user({ user_id: '123' });
+\`\`\`
+
+The frontend cannot reach datatables, workspace items, or external services on its own — it goes through \`backend.<key>(args)\` for everything server-side.
+
+## Backend runnables
+
+Each runnable has a unique key (used to call it from the frontend) and one of four types:
+
+| Type | What it is |
+|---|---|
+| \`inline\` | Custom code stored on the app itself. Most common for app-specific logic. |
+| \`script\` | Reference to an existing workspace script by path. |
+| \`flow\` | Reference to an existing workspace flow by path. |
+| \`hubscript\` | Reference to a hub script by path. |
+
+### Inline runnables
+
+Inline runnables carry their own source code. For file-based raw apps, the runnable language is determined by the backend file extension. The script must expose a \`main\` function as its entrypoint.
+
+**TypeScript example** (\`backend/get_user.ts\`):
+
+\`\`\`typescript
+import * as wmill from 'windmill-client';
+
+export async function main(user_id: string) {
+  const sql = wmill.datatable();
+  const user = await sql\`SELECT * FROM users WHERE id = \${user_id}\`.fetchOne();
+  return user;
+}
+\`\`\`
+
+**Python example** (\`backend/get_user.py\`):
+
+\`\`\`python
+import wmill
+
+def main(user_id: str):
+    db = wmill.datatable()
+    user = db.query('SELECT * FROM users WHERE id = $1', user_id).fetch_one()
+    return user
+\`\`\`
+
+### Path runnables (script / flow / hubscript)
+
+When \`type\` is \`script\`, \`flow\`, or \`hubscript\`, the runnable just stores a \`path\` to an existing workspace or hub item — no inline code. The referenced item's input/output schema becomes the runnable's surface.
+
+### Static inputs
+
+\`staticInputs\` is an optional \`Record<string, any>\` for arguments not overridable from the frontend. Useful with path runnables to pre-fill some args while leaving the rest to the frontend caller.
+
+## Data Tables
+
+Data tables are PostgreSQL databases managed by Windmill. Backend runnables query them via the \`wmill\` client; the frontend never queries them directly.
+
+### Critical rules
+
+1. **Whitelisted tables only**: a runnable can only query tables listed in the app's \`data.tables\` config. Tables not in this list are not accessible.
+2. **Add tables before using**: queries against unlisted tables fail at runtime. When you introduce a new table, register it in \`data.tables\` first.
+3. **Use the configured datatable/schema**: the app's \`data\` config sets the default datatable and schema; reference them consistently across runnables.
+
+### Querying in TypeScript (Bun/Deno)
+
+\`\`\`typescript
+import * as wmill from 'windmill-client';
+
+export async function main(user_id: string) {
+  const sql = wmill.datatable();  // Or: wmill.datatable('other_datatable')
+
+  // Parameterized queries (safe from SQL injection)
+  const user = await sql\`SELECT * FROM users WHERE id = \${user_id}\`.fetchOne();
+  const users = await sql\`SELECT * FROM users WHERE active = \${true}\`.fetch();
+
+  // Insert/Update
+  await sql\`INSERT INTO users (name, email) VALUES (\${name}, \${email})\`;
+  await sql\`UPDATE users SET name = \${newName} WHERE id = \${user_id}\`;
+
+  return user;
+}
+\`\`\`
+
+### Querying in Python
+
+\`\`\`python
+import wmill
+
+def main(user_id: str):
+    db = wmill.datatable()  # Or: wmill.datatable('other_datatable')
+
+    # Use $1, $2, etc. for parameters
+    user = db.query('SELECT * FROM users WHERE id = $1', user_id).fetch_one()
+    users = db.query('SELECT * FROM users WHERE active = $1', True).fetch()
+
+    # Insert/Update
+    db.query('INSERT INTO users (name, email) VALUES ($1, $2)', name, email)
+    db.query('UPDATE users SET name = $1 WHERE id = $2', new_name, user_id)
+
+    return user
+\`\`\`
+
+## Best Practices
+
+1. **Check existing tables** before creating new ones — reuse beats schema growth.
+2. **Use parameterized queries** — never concatenate user input into SQL.
+3. **Keep runnables focused** — one function per runnable; small surface area.
+4. **Use descriptive keys** — \`get_user\`, not \`a\`.
+5. **Always whitelist tables** — adding a runnable that queries a new table requires the table to be in \`data.tables\` first.
+`;
+
 export const WORKFLOW_AS_CODE_BASE = `# Windmill Workflow-as-Code Writing Guide
 
 ## Scope

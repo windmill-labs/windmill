@@ -239,6 +239,59 @@ export interface ContextStringResult {
 	hasFlowModule: boolean
 }
 
+/** Count exact occurrences of `search` in `content`. */
+export function countExactMatches(content: string, search: string): number {
+	if (search.length === 0) return 0
+	let count = 0
+	let index = 0
+	while ((index = content.indexOf(search, index)) !== -1) {
+		count++
+		index += search.length
+	}
+	return count
+}
+
+/**
+ * Replace exact occurrences of `oldString` with `newString` in `content`.
+ * When `replaceAll` is false, only the first match is replaced. Returns the
+ * original string unchanged when no match is found.
+ */
+export function applyExactReplace(
+	content: string,
+	oldString: string,
+	newString: string,
+	replaceAll: boolean
+): string {
+	if (replaceAll) return content.split(oldString).join(newString)
+	const index = content.indexOf(oldString)
+	if (index === -1) return content
+	return content.slice(0, index) + newString + content.slice(index + oldString.length)
+}
+
+/**
+ * Match-count-validated exact text replacement. Throws when `oldString` is
+ * missing, and (unless `replaceAll`) when it appears more than once.
+ * `contextLabel` flows into the error message ("not found in the <label>.").
+ */
+export function findAndReplace(
+	content: string,
+	oldString: string,
+	newString: string,
+	replaceAll: boolean,
+	contextLabel: string
+): string {
+	const matchCount = countExactMatches(content, oldString)
+	if (matchCount === 0) {
+		throw new Error(`old_string was not found in the ${contextLabel}.`)
+	}
+	if (!replaceAll && matchCount !== 1) {
+		throw new Error(
+			`old_string matched ${matchCount} locations. Make it more specific or set replace_all to true.`
+		)
+	}
+	return applyExactReplace(content, oldString, newString, replaceAll)
+}
+
 export const extractAllModules = (modules: FlowModule[]): FlowModule[] => {
 	return modules.flatMap((m) => {
 		if (m.value.type === 'forloopflow' || m.value.type === 'whileloopflow') {
@@ -424,9 +477,9 @@ export type CreatedResourceAction = {
 	id: string
 	type: 'open_created_resource'
 	label: string
-	resource: 'schedule' | 'trigger'
+	resource: 'schedule' | 'trigger' | 'resource' | 'variable'
 	path: string
-	targetKind: 'script' | 'flow'
+	targetKind?: 'script' | 'flow'
 	triggerKind?: CreatedResourceTriggerKind
 }
 

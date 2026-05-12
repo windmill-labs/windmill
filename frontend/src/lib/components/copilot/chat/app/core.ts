@@ -8,6 +8,7 @@ import {
 	createToolDef,
 	createSearchWorkspaceTool,
 	createGetRunnableDetailsTool,
+	findAndReplace,
 	type Tool
 } from '../shared'
 import { aiChatManager } from '../AIChatManager.svelte'
@@ -160,31 +161,6 @@ export interface AppAIChatHelpers {
 const memo = <T>(factory: () => T): (() => T) => {
 	let cached: T | undefined
 	return () => (cached ??= factory())
-}
-
-function countExactMatches(content: string, search: string): number {
-	if (search.length === 0) {
-		return 0
-	}
-
-	let count = 0
-	let index = 0
-
-	while ((index = content.indexOf(search, index)) !== -1) {
-		count += 1
-		index += search.length
-	}
-
-	return count
-}
-
-function replaceFirstExactMatch(content: string, search: string, replace: string): string {
-	const index = content.indexOf(search)
-	if (index === -1) {
-		return content
-	}
-
-	return content.slice(0, index) + replace + content.slice(index + search.length)
 }
 
 type AppPatchTarget =
@@ -658,19 +634,13 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 				currentContent = backendRunnable.inlineScript.content ?? ''
 			}
 
-			const matchCount = countExactMatches(currentContent, oldString)
-			if (matchCount === 0) {
-				throw new Error('old_string was not found in the current file content.')
-			}
-			if (!replaceAll && matchCount !== 1) {
-				throw new Error(
-					`old_string matched ${matchCount} locations. Make it more specific or set replace_all to true.`
-				)
-			}
-
-			const updatedContent = replaceAll
-				? currentContent.split(oldString).join(newString)
-				: replaceFirstExactMatch(currentContent, oldString, newString)
+			const updatedContent = findAndReplace(
+				currentContent,
+				oldString,
+				newString,
+				replaceAll,
+				'current file content'
+			)
 
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Patching '${target.path}'...`
