@@ -29,6 +29,7 @@
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { saveEmailTriggerFromCfg } from './utils'
 	import { deepEqual } from 'fast-equals'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 
@@ -120,14 +121,18 @@
 			dirtyPath = false
 			dirtyLocalPart = false
 			await loadTrigger(defaultConfig)
-			originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
-		} catch (err) {
-			sendUserToast(`Could not load email trigger: ${err}`, true)
-		} finally {
 			if (!defaultConfig) {
 				// If the email trigger is loaded from the backend, we to set the initial config
 				initialConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
 			}
+			originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
+			const localCfg = UserDraft.get<Record<string, any>>('schedule_email', ePath)
+			if (localCfg && !deepEqual(localCfg, getEmailTriggerConfig())) {
+				loadTriggerConfig(localCfg as Partial<EmailTrigger>)
+			}
+		} catch (err) {
+			sendUserToast(`Could not load email trigger: ${err}`, true)
+		} finally {
 			clearTimeout(loader)
 			drawerLoading = false
 			showLoader = false
@@ -213,6 +218,7 @@
 			drawer?.closeDrawer()
 		} else {
 			deploymentLoading = true
+			const previousPath = initialPath
 			const saveCfg = emailConfig
 			const isSaved = await saveEmailTriggerFromCfg(
 				initialPath,
@@ -223,6 +229,7 @@
 				usedTriggerKinds
 			)
 			if (isSaved) {
+				UserDraft.remove('schedule_email', previousPath)
 				onUpdate(saveCfg.path)
 				originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
 				initialPath = saveCfg.path
@@ -292,6 +299,11 @@
 		if (!drawerLoading) {
 			handleConfigChange(emailConfig, initialConfig, saveDisabled, edit, onConfigChange)
 		}
+	})
+
+	$effect(() => {
+		if (drawerLoading || !initialPath) return
+		UserDraft.save('schedule_email', initialPath, emailConfig)
 	})
 </script>
 
