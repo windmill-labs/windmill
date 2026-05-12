@@ -14,10 +14,11 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { App } from '$lib/components/apps/types'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
-	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraft, checkStaleness, type UserDraftMeta } from '$lib/userDraft.svelte'
 
 	let app = $state(
 		undefined as (AppWithLastVersion & { draft_only?: boolean; value: any }) | undefined
@@ -35,6 +36,35 @@
 		| undefined = $state(undefined)
 	let redraw = $state(0)
 	let path = page.params.path ?? ''
+
+	// Local-draft staleness modal: opened when the remote has moved on since
+	// the local autosave was written.
+	let staleModalOpen = $state(false)
+	let staleModalCause = $state<'draft' | 'version'>('version')
+	let pendingBaseline:
+		| { baseline: AppWithLastVersion & { draft_only?: boolean; value: any }; revs: UserDraftMeta }
+		| undefined = undefined
+
+	function onStaleLoadLatest(): void {
+		if (!pendingBaseline) {
+			staleModalOpen = false
+			return
+		}
+		UserDraft.remove('app', path)
+		UserDraft.saveMeta('app', path, pendingBaseline.revs)
+		app = pendingBaseline.baseline
+		pendingBaseline = undefined
+		staleModalOpen = false
+		redraw++
+	}
+
+	function onStaleKeepDraft(): void {
+		if (pendingBaseline) {
+			UserDraft.saveMeta('app', path, pendingBaseline.revs)
+		}
+		pendingBaseline = undefined
+		staleModalOpen = false
+	}
 
 	let nodraft = page.url.searchParams.get('nodraft')
 
@@ -94,37 +124,30 @@
 			: app_w_draft
 
 		const localDraftValue = UserDraft.get<App>('app', path)
+		const previousMeta = UserDraft.getMeta('app', path)
+		const newRevs: UserDraftMeta = {
+			remoteRev: app_w_draft.versions
+				? app_w_draft.versions[app_w_draft.versions.length - 1]
+				: undefined,
+			remoteDraftRev: app_w_draft.draft_created_at
+		}
 		if (
 			localDraftValue != undefined &&
 			orderedJsonStringify(cleanValueProperties(localDraftValue)) !==
 				orderedJsonStringify(cleanValueProperties(backendApp.value))
 		) {
-			const reloadAction = async () => {
-				UserDraft.remove('app', path)
-				await loadApp()
-				redraw++
+			const cause = checkStaleness(previousMeta, newRevs.remoteRev, newRevs.remoteDraftRev)
+			if (cause) {
+				pendingBaseline = { baseline: backendApp, revs: newRevs }
+				staleModalCause = cause
+				staleModalOpen = true
+			} else if (
+				previousMeta.remoteRev === undefined &&
+				previousMeta.remoteDraftRev === undefined
+			) {
+				// Legacy entry — backfill meta so the next load can detect staleness.
+				UserDraft.saveMeta('app', path, newRevs)
 			}
-			const deployed = cleanValueProperties(savedApp?.draft || savedApp)
-			const local = { ...deployed, value: localDraftValue }
-			sendUserToast('App restored from local autosave', false, [
-				{
-					label: 'Discard local autosave and reload',
-					callback: reloadAction
-				},
-				{
-					label: 'Show diff',
-					callback: async () => {
-						diffDrawer?.openDrawer()
-						diffDrawer?.setDiff({
-							mode: 'simple',
-							original: deployed,
-							current: local,
-							title: `${savedApp?.draft ? 'Latest saved draft' : 'Deployed'} <> Autosave`,
-							button: { text: 'Discard autosave', onClick: reloadAction }
-						})
-					}
-				}
-			])
 			app = { ...backendApp, value: localDraftValue }
 		} else {
 			// Local is missing or matches backend — wipe any stale entry so it
@@ -227,6 +250,12 @@
 </script>
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
+<LocalDraftStaleModal
+	open={staleModalOpen}
+	cause={staleModalCause}
+	onLoadLatest={onStaleLoadLatest}
+	onKeepDraft={onStaleKeepDraft}
+/>
 
 {#key redraw}
 	{#if app}

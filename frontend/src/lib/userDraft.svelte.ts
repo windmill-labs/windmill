@@ -277,6 +277,34 @@ export const UserDraft = {
 	},
 
 	/**
+	 * Update the rev metadata for an entry without touching the value, and
+	 * persist immediately. Used by editor routes that don't hold a live
+	 * handle (apps, raw apps) — they read the local draft via `UserDraft.get`
+	 * and the handle is created later inside the child editor.
+	 *
+	 * No-op when the entry has no draft to attach meta to.
+	 */
+	saveMeta(
+		itemKind: UserDraftItemKind,
+		path: string,
+		meta: UserDraftMeta,
+		opts?: UserDraftOptions
+	): void {
+		const ws = resolveWorkspace(opts)
+		const mk = mapKey(ws, itemKind, path)
+		const entry = entries.get(mk)
+		if (entry) {
+			const current = entry.state.val as StoredDraft<unknown> | undefined
+			if (current === undefined) return
+			entry.state.val = wrap(current.value, meta)
+		}
+		if (isLocalOnly(path)) return
+		const existing = readPersisted<unknown>(localStorageKey(ws, itemKind, path))
+		if (existing === undefined) return
+		persistDirect(localStorageKey(ws, itemKind, path), existing.value, meta)
+	},
+
+	/**
 	 * Read the rev metadata for the entry. Returns an empty object if there
 	 * is no entry. Useful for staleness checks before reading the draft.
 	 */

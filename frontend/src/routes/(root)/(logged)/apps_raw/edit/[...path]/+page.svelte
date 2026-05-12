@@ -18,7 +18,8 @@
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { page } from '$app/state'
 	import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
-	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraft, checkStaleness, type UserDraftMeta } from '$lib/userDraft.svelte'
+	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
 
 	type RawAppDraft = {
 		files: Record<string, string>
@@ -54,6 +55,36 @@
 	let path = page.params.path ?? ''
 
 	const draftHandle = UserDraft.use<RawAppDraft>('raw_app', path)
+
+	// Local-draft staleness modal: opened when the remote has moved on since
+	// the local autosave was written.
+	let staleModalOpen = $state(false)
+	let staleModalCause = $state<'draft' | 'version'>('version')
+	let pendingBaseline:
+		| { baseline: RawAppDraft; backendSource: any; revs: UserDraftMeta }
+		| undefined = undefined
+
+	function onStaleLoadLatest(): void {
+		if (!pendingBaseline) {
+			staleModalOpen = false
+			return
+		}
+		const { baseline, backendSource, revs } = pendingBaseline
+		UserDraft.remove('raw_app', path)
+		draftHandle.setDraftAndMeta(baseline, revs)
+		extractRawApp(backendSource)
+		pendingBaseline = undefined
+		staleModalOpen = false
+		redraw++
+	}
+
+	function onStaleKeepDraft(): void {
+		if (pendingBaseline) {
+			draftHandle.setMeta(pendingBaseline.revs, { force: true })
+		}
+		pendingBaseline = undefined
+		staleModalOpen = false
+	}
 
 	// Persist the bundle whenever any of the four pieces of state changes.
 	$effect(() => {
@@ -123,7 +154,14 @@
 		}
 
 		const backendSource: any = app_w_draft.draft ? app_w_draft.draft : app_w_draft
-		const localDraft = UserDraft.get<RawAppDraft>('raw_app', path)
+		const localDraft = draftHandle.draft
+		const previousMeta = draftHandle.meta
+		const newRevs: UserDraftMeta = {
+			remoteRev: app_w_draft.versions
+				? app_w_draft.versions[app_w_draft.versions.length - 1]
+				: undefined,
+			remoteDraftRev: app_w_draft.draft_created_at
+		}
 		const backendBundle: RawAppDraft = {
 			files: backendSource.value?.files ?? {},
 			runnables: backendSource.value?.runnables ?? {},
@@ -140,32 +178,18 @@
 			orderedJsonStringify(cleanValueProperties(localDraft)) !==
 				orderedJsonStringify(cleanValueProperties(backendBundle))
 		) {
-			const reloadAction = async () => {
-				UserDraft.remove('raw_app', path)
-				await loadApp()
-				redraw++
+			const cause = checkStaleness(previousMeta, newRevs.remoteRev, newRevs.remoteDraftRev)
+			if (cause) {
+				pendingBaseline = { baseline: backendBundle, backendSource, revs: newRevs }
+				staleModalCause = cause
+				staleModalOpen = true
+			} else if (
+				previousMeta.remoteRev === undefined &&
+				previousMeta.remoteDraftRev === undefined
+			) {
+				// Legacy entry — backfill meta so the next load can detect staleness.
+				draftHandle.setMeta(newRevs, { force: true })
 			}
-			const deployed = cleanValueProperties(app_w_draft as Value)
-			const local = { ...deployed, value: localDraft }
-			sendUserToast('App restored from local autosave', false, [
-				{
-					label: 'Discard local autosave and reload',
-					callback: reloadAction
-				},
-				{
-					label: 'Show diff',
-					callback: async () => {
-						diffDrawer?.openDrawer()
-						diffDrawer?.setDiff({
-							mode: 'simple',
-							original: deployed,
-							current: local,
-							title: `${app_w_draft.draft ? 'Latest saved draft' : 'Deployed'} <> Autosave`,
-							button: { text: 'Discard autosave', onClick: reloadAction }
-						})
-					}
-				}
-			])
 			runnables = localDraft.runnables
 			data = localDraft.data
 			summary = localDraft.summary
@@ -175,6 +199,7 @@
 		} else {
 			if (localDraft != undefined) UserDraft.remove('raw_app', path)
 			extractRawApp(backendSource)
+			draftHandle.setDraftAndMeta(backendBundle, newRevs)
 
 			if (app_w_draft.draft && !app_w_draft.draft_only) {
 				const reloadAction = () => {
@@ -269,6 +294,12 @@
 </script>
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
+<LocalDraftStaleModal
+	open={staleModalOpen}
+	cause={staleModalCause}
+	onLoadLatest={onStaleLoadLatest}
+	onKeepDraft={onStaleKeepDraft}
+/>
 
 {#if files}
 	{#key redraw}

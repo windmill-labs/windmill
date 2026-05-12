@@ -18,12 +18,13 @@
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import { untrack } from 'svelte'
 	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
 	import { page } from '$app/state'
-	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraft, checkStaleness, type UserDraftMeta } from '$lib/userDraft.svelte'
 
 	let version: undefined | number = $state(undefined)
 
@@ -89,6 +90,33 @@
 
 	let savedPrimarySchedule: ScheduleTrigger | undefined = $state(undefined)
 
+	// Local-draft staleness modal: opened when the remote has moved on since
+	// the local autosave was written.
+	let staleModalOpen = $state(false)
+	let staleModalCause = $state<'draft' | 'version'>('version')
+	let pendingBaseline: { baseline: Flow; revs: UserDraftMeta } | undefined = undefined
+
+	function onStaleLoadLatest(): void {
+		if (!pendingBaseline) {
+			staleModalOpen = false
+			return
+		}
+		const { baseline, revs } = pendingBaseline
+		UserDraft.remove('flow', flowDraftPath)
+		flowHandle.setDraftAndMeta(baseline, revs)
+		pendingBaseline = undefined
+		staleModalOpen = false
+		loadFlow()
+	}
+
+	function onStaleKeepDraft(): void {
+		if (pendingBaseline) {
+			flowHandle.setMeta(pendingBaseline.revs, { force: true })
+		}
+		pendingBaseline = undefined
+		staleModalOpen = false
+	}
+
 	let draftTriggersFromUrl: Trigger[] | undefined = $state(undefined)
 	let selectedTriggerIndexFromUrl: number | undefined = $state(undefined)
 	let loadedFromHistoryFromUrl:
@@ -139,50 +167,38 @@
 		const backendFlow =
 			flowWithDraft.draft != undefined && !nobackenddraft ? flowWithDraft.draft : flowWithDraft
 		const localDraft = flowHandle.draft
+		const previousMeta = flowHandle.meta
+		const newRevs: UserDraftMeta = {
+			remoteRev: v,
+			remoteDraftRev: flowWithDraft.draft_created_at
+		}
 
 		if (localDraft != undefined) {
-			// Returning visit: local autosave is the source of truth. If it
-			// matches the backend's view exactly, drop the toast — otherwise
-			// let the user decide between keeping local or discarding.
 			const localClean = cleanValueProperties(localDraft)
 			const backendClean = cleanValueProperties(backendFlow)
 			if (orderedJsonStringify(localClean) === orderedJsonStringify(backendClean)) {
+				// Local matches backend exactly — silently drop the autosave.
 				flow = backendFlow
-				flowHandle.draft = backendFlow
+				UserDraft.remove('flow', flowDraftPath)
+				flowHandle.setDraftAndMeta(backendFlow, newRevs)
 			} else {
 				flow = localDraft
-				sendUserToast('Flow loaded from local autosave', false, [
-					{
-						label: 'Discard local autosave',
-						callback: () => {
-							flowHandle.draft = backendFlow
-							loadFlow()
-						}
-					},
-					{
-						label: 'Show diff',
-						callback: async () => {
-							diffDrawer?.openDrawer()
-							diffDrawer?.setDiff({
-								mode: 'simple',
-								original: backendClean,
-								current: localClean,
-								title: `${flowWithDraft.draft ? 'Latest saved draft' : 'Deployed'} <> Autosave`,
-								button: {
-									text: 'Discard autosave',
-									onClick: () => {
-										flowHandle.draft = backendFlow
-										loadFlow()
-									}
-								}
-							})
-						}
-					}
-				])
+				const cause = checkStaleness(previousMeta, newRevs.remoteRev, newRevs.remoteDraftRev)
+				if (cause) {
+					pendingBaseline = { baseline: backendFlow, revs: newRevs }
+					staleModalCause = cause
+					staleModalOpen = true
+				} else if (
+					previousMeta.remoteRev === undefined &&
+					previousMeta.remoteDraftRev === undefined
+				) {
+					// Legacy entry — backfill meta so the next load can detect staleness.
+					flowHandle.setMeta(newRevs, { force: true })
+				}
 			}
 		} else {
 			flow = backendFlow
-			flowHandle.draft = backendFlow
+			flowHandle.setDraftAndMeta(backendFlow, newRevs)
 		}
 
 		if (flowWithDraft.draft != undefined && !nobackenddraft) {
@@ -278,6 +294,12 @@
 <!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} isFlow />
+<LocalDraftStaleModal
+	open={staleModalOpen}
+	cause={staleModalCause}
+	onLoadLatest={onStaleLoadLatest}
+	onKeepDraft={onStaleKeepDraft}
+/>
 {#if notFound}
 	<div class="flex flex-col items-center justify-center h-full">
 		<h1 class="text-2xl font-bold">Flow not found at path {page.params.path}</h1>
