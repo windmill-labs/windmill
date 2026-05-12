@@ -364,6 +364,68 @@ describe('UserDraft — rev metadata for staleness checks', () => {
 		expect(handle.draft).toBe('no-rev')
 		expect(handle.meta).toEqual({})
 	})
+
+	it('setMeta({ force: true }) persists immediately, bypassing the first-write skip', () => {
+		localStorage.setItem(
+			'userdraft/w/test_ws/flow/u/me/forceack',
+			JSON.stringify({ value: 'edited', remoteRev: 'v1' })
+		)
+		const handle = UserDraft.use<string>('flow', 'u/me/forceack')
+
+		// Without force, this is the entry's first state mutation and gets
+		// swallowed by saveInitialValue=false — localStorage would still
+		// hold the old remoteRev.
+		handle.setMeta({ remoteRev: 'v2' }, { force: true })
+
+		expect(handle.meta).toEqual({ remoteRev: 'v2' })
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/forceack')).toBe(
+			JSON.stringify({ value: 'edited', remoteRev: 'v2' })
+		)
+	})
+})
+
+describe('checkStaleness', () => {
+	let checkStaleness: (
+		meta: { remoteRev?: string | number; remoteDraftRev?: string | number },
+		currentRev: string | number | undefined,
+		currentDraftRev?: string | number | undefined
+	) => 'draft' | 'version' | null
+
+	beforeEach(async () => {
+		// Re-import to dodge ESM caching surprises across test files.
+		;({ checkStaleness } = await import('./userDraft.svelte'))
+	})
+
+	it('returns null for legacy entries with no recorded rev', () => {
+		expect(checkStaleness({}, 'h1', '2026-01-01')).toBeNull()
+	})
+
+	it('returns null when meta matches current revs exactly', () => {
+		expect(checkStaleness({ remoteRev: 'h1', remoteDraftRev: 'd1' }, 'h1', 'd1')).toBeNull()
+		expect(checkStaleness({ remoteRev: 'h1' }, 'h1', undefined)).toBeNull()
+	})
+
+	it('returns "draft" when a newer DB draft was pushed on the remote', () => {
+		expect(checkStaleness({ remoteRev: 'h1', remoteDraftRev: 'd1' }, 'h1', 'd2')).toBe('draft')
+	})
+
+	it('returns "draft" when the remote gained a DB draft that we didn\'t baseline against', () => {
+		expect(checkStaleness({ remoteRev: 'h1' }, 'h1', 'd1')).toBe('draft')
+	})
+
+	it('returns "version" when the deployed rev moved and draft revs match', () => {
+		expect(checkStaleness({ remoteRev: 'h1' }, 'h2', undefined)).toBe('version')
+	})
+
+	it('returns "version" when the baseline draft was deleted on the remote (no current draft)', () => {
+		expect(checkStaleness({ remoteRev: 'h1', remoteDraftRev: 'd1' }, 'h1', undefined)).toBe(
+			'version'
+		)
+	})
+
+	it('prefers "draft" over "version" when both have changed', () => {
+		expect(checkStaleness({ remoteRev: 'h1', remoteDraftRev: 'd1' }, 'h2', 'd2')).toBe('draft')
+	})
 })
 
 describe('UserDraft.use() — reference counting & cleanup', () => {

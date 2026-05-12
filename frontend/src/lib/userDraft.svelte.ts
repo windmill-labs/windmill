@@ -113,6 +113,55 @@ function extractMeta(stored: StoredDraft<unknown> | undefined): UserDraftMeta {
 	return meta
 }
 
+/**
+ * Compares the rev metadata recorded against the local draft to the current
+ * backend revs. Returns the staleness cause, or `null` when the local draft
+ * is still based on the latest backend state we know about.
+ *
+ * - Entries with no recorded meta (legacy entries written before this field
+ *   existed) report `null` — we can't tell if they're stale, and we'd rather
+ *   trust the local autosave than spam the user with false positives.
+ * - DB-draft staleness wins over deployed-version staleness: a remote DB
+ *   draft is the more recent state to reconcile against.
+ * - If a DB draft existed when the local autosave was created but now no
+ *   longer exists on the remote (someone discarded it), we report `version`
+ *   because the deployed version is now the canonical "latest saved".
+ */
+export type UserDraftStalenessCause = 'draft' | 'version'
+
+export function checkStaleness(
+	meta: UserDraftMeta,
+	currentRev: string | number | undefined,
+	currentDraftRev?: string | number | undefined
+): UserDraftStalenessCause | null {
+	if (meta.remoteRev === undefined && meta.remoteDraftRev === undefined) return null
+	if (meta.remoteDraftRev !== currentDraftRev) {
+		return currentDraftRev !== undefined ? 'draft' : 'version'
+	}
+	if (currentRev !== undefined && meta.remoteRev !== currentRev) return 'version'
+	return null
+}
+
+/**
+ * Synchronously write to localStorage, bypassing the entry's setter. Used by
+ * `setMeta({ force: true })` so a "Keep current draft" modal acknowledgement
+ * persists even when it happens to be the first state mutation of the entry
+ * (which `useLocalStorageValue`'s `saveInitialValue: false` contract would
+ * otherwise skip).
+ */
+function persistDirect<V>(key: string, value: V | undefined, meta: UserDraftMeta): void {
+	try {
+		const next = wrap(value, meta)
+		if (next === undefined) {
+			localStorage.removeItem(key)
+		} else {
+			localStorage.setItem(key, JSON.stringify(next))
+		}
+	} catch (e) {
+		console.error('UserDraft: localStorage write failed', e)
+	}
+}
+
 function readPersisted<V>(key: string): StoredDraft<V> | undefined {
 	try {
 		const raw = localStorage.getItem(key)
@@ -172,8 +221,15 @@ export type UserDraftHandle<V> = {
 	 * Used after the "Keep current draft" modal action to ack the new remote
 	 * rev so the staleness modal doesn't fire again until the remote moves
 	 * further.
+	 *
+	 * Pass `{ force: true }` to also persist the new meta to localStorage
+	 * synchronously, bypassing `saveInitialValue: false`'s skip of the first
+	 * state mutation. Without `force`, an ack that happens to be the first
+	 * write on the entry would only update in-memory state and be lost on
+	 * next mount — re-triggering the staleness modal even after the user
+	 * just acknowledged it.
 	 */
-	setMeta(meta: UserDraftMeta): void
+	setMeta(meta: UserDraftMeta, opts?: { force?: boolean }): void
 }
 
 export const UserDraft = {
@@ -314,10 +370,13 @@ export const UserDraft = {
 			setDraftAndMeta(value: V | undefined, meta: UserDraftMeta): void {
 				sharedEntry.state.val = wrap(value, meta)
 			},
-			setMeta(meta: UserDraftMeta): void {
+			setMeta(meta: UserDraftMeta, opts?: { force?: boolean }): void {
 				const current = sharedEntry.state.val as StoredDraft<V> | undefined
 				if (current === undefined) return
 				sharedEntry.state.val = wrap(current.value, meta)
+				if (opts?.force && !isLocalOnly(path)) {
+					persistDirect(localStorageKey(ws, itemKind, path), current.value, meta)
+				}
 			}
 		}
 	}
