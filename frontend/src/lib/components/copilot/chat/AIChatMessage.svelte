@@ -71,7 +71,7 @@
 	{:else}
 		<div
 			class={twMerge(
-				'text-sm py-1 mx-2',
+				'text-xs py-1 mx-2',
 				message.role === 'user' &&
 					'px-2 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 rounded-lg relative group',
 				(message.role === 'assistant' || message.role === 'tool') && 'px-[1px]',
@@ -88,7 +88,7 @@
 		</div>
 	{/if}
 	{#if message.role === 'user' && message.snapshot}
-		<div class="mx-2 text-sm text-primary flex flex-row items-center justify-between gap-2 mt-2">
+		<div class="mx-2 text-xs text-primary flex flex-row items-center justify-between gap-2 mt-2">
 			Saved {message.snapshot.type === 'flow' ? 'a flow' : 'an app'} snapshot
 			<Button
 				size="xs2"
