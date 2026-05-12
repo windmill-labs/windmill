@@ -200,7 +200,15 @@ fn opaque_json_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schem
 
 /// Typed global settings with schema validation.
 /// Known settings have explicit fields; unknown settings pass through via `extra`.
+///
+/// `#[serde(remote = "Self")]` turns the derived (de)serializers into inherent
+/// associated functions so we can wrap them with the manual `Deserialize` impl
+/// below. The wrapper preserves explicit `null` values (which the typed
+/// `Option<T>` fields would otherwise silently drop on round-trip through
+/// `to_settings_map`) by stashing them in `extra`, where they survive
+/// re-serialization and reach `diff_global_settings` as proper deletes.
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
+#[serde(remote = "Self")]
 #[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
 pub struct GlobalSettings {
     // Numeric settings
@@ -371,6 +379,42 @@ pub struct GlobalSettings {
     /// Catch-all for settings not yet covered by typed fields.
     #[serde(flatten)]
     pub extra: BTreeMap<String, serde_json::Value>,
+}
+
+impl Serialize for GlobalSettings {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        Self::serialize(self, serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for GlobalSettings {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Capture top-level keys explicitly set to `null` so they survive the
+        // `to_settings_map` round-trip — typed `Option<T>` fields all use
+        // `skip_serializing_if = "Option::is_none"`, which would otherwise
+        // silently drop the null. We stash the null entries in `extra`, which
+        // serializes them back out as `null` for `diff_global_settings` to
+        // route to deletes.
+        let mut value = serde_json::Value::deserialize(deserializer)?;
+        let null_keys: Vec<String> = value
+            .as_object()
+            .map(|m| {
+                m.iter()
+                    .filter_map(|(k, v)| v.is_null().then(|| k.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if let Some(obj) = value.as_object_mut() {
+            for k in &null_keys {
+                obj.remove(k);
+            }
+        }
+        let mut s = Self::deserialize(value).map_err(serde::de::Error::custom)?;
+        for k in null_keys {
+            s.extra.insert(k, serde_json::Value::Null);
+        }
+        Ok(s)
+    }
 }
 
 impl GlobalSettings {
@@ -1929,6 +1973,101 @@ mod tests {
     // -----------------------------------------------------------------------
     // to_settings_map edge cases
     // -----------------------------------------------------------------------
+
+    /// Regression test for bulk-endpoint deletion of typed settings.
+    ///
+    /// A naive `#[derive(Deserialize)]` would route
+    /// `{"object_store_cache_config": null}` to the typed `Option<...>` field
+    /// as `None`, and `skip_serializing_if = "Option::is_none"` would then
+    /// strip it from `to_settings_map`, so `diff_global_settings` (Merge mode)
+    /// would never see the deletion. The manual `Deserialize` impl on
+    /// `GlobalSettings` captures explicit top-level nulls into `extra` so they
+    /// survive the round-trip and reach `diff_global_settings` as proper
+    /// deletes.
+    #[test]
+    fn explicit_null_on_typed_field_survives_round_trip() {
+        let json = serde_json::json!({
+            "object_store_cache_config": null,
+            "secret_backend": null,
+            "smtp_settings": null,
+            "base_url": "https://x",
+        });
+        let settings: GlobalSettings =
+            serde_json::from_value(json).expect("null should deserialize");
+        assert!(settings.object_store_cache_config.is_none());
+        assert!(settings.secret_backend.is_none());
+        assert!(settings.smtp_settings.is_none());
+        assert_eq!(settings.base_url.as_deref(), Some("https://x"));
+        let map = settings.to_settings_map();
+        assert_eq!(map["object_store_cache_config"], serde_json::Value::Null);
+        assert_eq!(map["secret_backend"], serde_json::Value::Null);
+        assert_eq!(map["smtp_settings"], serde_json::Value::Null);
+        assert_eq!(map["base_url"], serde_json::json!("https://x"));
+    }
+
+    /// Absent keys remain absent — critical so a PUT that only sets a single
+    /// field doesn't accidentally delete every other setting in Merge mode.
+    #[test]
+    fn absent_typed_fields_do_not_appear_in_map() {
+        let settings: GlobalSettings =
+            serde_json::from_value(serde_json::json!({"base_url": "https://x"})).unwrap();
+        let map = settings.to_settings_map();
+        assert!(!map.contains_key("object_store_cache_config"));
+        assert!(!map.contains_key("smtp_settings"));
+        assert_eq!(map.get("base_url"), Some(&serde_json::json!("https://x")));
+    }
+
+    /// End-to-end: deserialize → `to_settings_map` → diff in Merge mode with
+    /// an explicit null produces a delete (the scenario that silently failed
+    /// before the manual `Deserialize` impl).
+    #[test]
+    fn deserialize_then_diff_deletes_typed_null() {
+        let mut current = BTreeMap::new();
+        current.insert(
+            "object_store_cache_config".to_string(),
+            serde_json::json!({"type": "S3", "bucket": "b"}),
+        );
+        let desired: GlobalSettings =
+            serde_json::from_value(serde_json::json!({"object_store_cache_config": null})).unwrap();
+        let desired_map = desired.to_settings_map();
+        let diff = diff_global_settings(&current, &desired_map, ApplyMode::Merge);
+        assert!(diff.upserts.is_empty());
+        assert_eq!(diff.deletes, vec!["object_store_cache_config".to_string()]);
+    }
+
+    /// Nested nulls inside a typed sub-struct are not promoted to top-level
+    /// deletes — only the top-level key matters, mirroring the per-key API.
+    #[test]
+    fn nested_null_inside_typed_field_is_not_treated_as_top_level_null() {
+        let settings: GlobalSettings =
+            serde_json::from_value(serde_json::json!({"smtp_settings": {"smtp_host": null}}))
+                .unwrap();
+        let map = settings.to_settings_map();
+        assert!(
+            map["smtp_settings"].is_object(),
+            "smtp_settings should be an object, not null"
+        );
+    }
+
+    /// Unknown/extra keys with explicit null still flow through `extra` — this
+    /// was already correct before the manual impl; guard against regression.
+    #[test]
+    fn explicit_null_on_extra_field_survives_round_trip() {
+        let settings: GlobalSettings =
+            serde_json::from_value(serde_json::json!({"unknown_legacy_setting": null})).unwrap();
+        let map = settings.to_settings_map();
+        assert_eq!(map["unknown_legacy_setting"], serde_json::Value::Null);
+    }
+
+    /// Top-level non-object input must reject with a deserialize error rather
+    /// than silently producing defaults. Matches the previous derive behavior.
+    #[test]
+    fn non_object_top_level_input_errors() {
+        assert!(serde_json::from_value::<GlobalSettings>(serde_json::json!(null)).is_err());
+        assert!(serde_json::from_value::<GlobalSettings>(serde_json::json!("s")).is_err());
+        assert!(serde_json::from_value::<GlobalSettings>(serde_json::json!(42)).is_err());
+        assert!(serde_json::from_value::<GlobalSettings>(serde_json::json!([])).is_err());
+    }
 
     #[test]
     fn to_settings_map_empty_defaults() {
