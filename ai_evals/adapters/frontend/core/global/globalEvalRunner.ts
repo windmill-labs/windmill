@@ -9,7 +9,6 @@ import {
 } from "../../../../../frontend/src/lib/components/copilot/chat/global/core";
 import { globalDraftStore } from "../../../../../frontend/src/lib/components/copilot/chat/global/draftStore.svelte";
 import type { Tool as ProductionTool } from "../../../../../frontend/src/lib/components/copilot/chat/shared";
-import type { FrontendEvalTransport } from "../../../../core/frontendTransport";
 import type { ModeRunContext } from "../../../../core/types";
 import type { GlobalDraftState } from "../../../../core/validators";
 import type { WindmillBackendSettings } from "../../../../core/windmillBackendSettings";
@@ -42,8 +41,7 @@ export interface GlobalEvalOptions {
   model?: string;
   maxIterations?: number;
   provider?: AIProvider;
-  transport?: FrontendEvalTransport;
-  backend?: WindmillBackendSettings;
+  backend: WindmillBackendSettings;
   workspaceRoot?: string;
   runContext?: ModeRunContext;
 }
@@ -51,17 +49,17 @@ export interface GlobalEvalOptions {
 export async function runGlobalEval(
   userPrompt: string,
   apiKey: string,
-  options?: GlobalEvalOptions,
+  options: GlobalEvalOptions,
 ): Promise<GlobalEvalResult> {
   const workspaceRoot =
-    options?.workspaceRoot ??
+    options.workspaceRoot ??
     (await mkdtemp(join(tmpdir(), "wmill-frontend-global-benchmark-")));
 
   globalDraftStore.clearDrafts(workspaceRoot);
-  registerBenchmarkWorkspaceRunnables(workspaceRoot, options?.workspaceFixtures ?? {});
+  registerBenchmarkWorkspaceRunnables(workspaceRoot, options.workspaceFixtures ?? {});
 
   try {
-    const model = options?.model ?? "claude-haiku-4-5-20251001";
+    const model = options.model ?? "claude-haiku-4-5-20251001";
     const rawResult = await runEval({
       userPrompt,
       systemMessage: prepareGlobalSystemMessage(),
@@ -70,19 +68,18 @@ export async function runGlobalEval(
       helpers: {},
       apiKey,
       getOutput: () => ({ drafts: globalDraftStore.listDrafts(workspaceRoot) }),
-      onAssistantMessageStart: options?.runContext?.onAssistantMessageStart,
-      onAssistantToken: options?.runContext?.onAssistantChunk,
-      onAssistantMessageEnd: options?.runContext?.onAssistantMessageEnd,
-      onToolCall: options?.runContext?.onToolCall,
+      onAssistantMessageStart: options.runContext?.onAssistantMessageStart,
+      onAssistantToken: options.runContext?.onAssistantChunk,
+      onAssistantMessageEnd: options.runContext?.onAssistantMessageEnd,
+      onToolCall: options.runContext?.onToolCall,
       options: {
-        maxIterations: options?.maxIterations,
+        maxIterations: options.maxIterations,
         model,
         workspace: workspaceRoot,
-        provider: options?.provider,
-        transport: options?.transport,
-        backend: options?.backend,
-        proxyCaseId: options?.runContext?.caseId,
-        proxyAttempt: options?.runContext?.attempt,
+        provider: options.provider,
+        backend: options.backend,
+        caseId: options.runContext?.caseId,
+        attempt: options.runContext?.attempt,
       },
     });
 
@@ -99,7 +96,7 @@ export async function runGlobalEval(
   } finally {
     globalDraftStore.clearDrafts(workspaceRoot);
     unregisterBenchmarkWorkspaceRunnables(workspaceRoot);
-    if (!options?.workspaceRoot) {
+    if (!options.workspaceRoot) {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
   }

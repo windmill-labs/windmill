@@ -1,19 +1,19 @@
 import { readFile } from "node:fs/promises";
 import { runGlobalEval } from "../adapters/frontend/core/global/globalEvalRunner";
 import type { BenchmarkWorkspaceRunnables } from "../adapters/frontend/mockBackend";
-import type { FrontendEvalTransportSettings } from "../core/frontendTransport";
 import type { FrontendEvalModelConfig } from "../core/models";
 import type { BenchmarkArtifactFile, GlobalValidationSpec, ModeRunner } from "../core/types";
 import { validateGlobalState, type GlobalDraftState } from "../core/validators";
-import { DEFAULT_FRONTEND_EVAL_MODEL, getFrontendApiKey } from "./frontendCommon";
+import type { WindmillBackendSettings } from "../core/windmillBackendSettings";
+import { getFrontendApiKey } from "./frontendCommon";
 
 export interface GlobalInitialFixture {
   workspace?: BenchmarkWorkspaceRunnables;
 }
 
 export function createGlobalModeRunner(
-  modelConfig: FrontendEvalModelConfig = DEFAULT_FRONTEND_EVAL_MODEL,
-  transportSettings?: FrontendEvalTransportSettings,
+  modelConfig: FrontendEvalModelConfig,
+  backendSettings: WindmillBackendSettings,
 ): ModeRunner<GlobalInitialFixture, GlobalDraftState, GlobalDraftState> {
   return {
     mode: "global",
@@ -34,8 +34,7 @@ export function createGlobalModeRunner(
           maxIterations: context.evalCase?.runtime?.maxTurns,
           provider: modelConfig.provider,
           model: modelConfig.model,
-          transport: transportSettings?.transport,
-          backend: transportSettings?.backend,
+          backend: backendSettings,
           runContext: context,
         },
       );

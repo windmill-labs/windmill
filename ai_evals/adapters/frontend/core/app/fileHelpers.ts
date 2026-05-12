@@ -2,6 +2,7 @@ import { mkdir, rm, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import type {
 	AppAIChatHelpers,
+	AppDatatableMetadata,
 	AppFiles,
 	BackendRunnable,
 	DataTableSchema,
@@ -9,6 +10,10 @@ import type {
 	SelectedContext
 } from '../../../../../frontend/src/lib/components/copilot/chat/app/core'
 import { buildAppWmillTypes, collectAppDiagnostics } from '../../../../core/appDiagnostics'
+
+export interface AppEvalChatHelpers extends AppAIChatHelpers {
+	getDatatables: () => Promise<DataTableSchema[]>
+}
 
 async function writeFrontendFile(
 	workspaceRoot: string | undefined,
@@ -92,7 +97,7 @@ export async function createAppFileHelpers(
 	initialDatatables: DataTableSchema[] = [],
 	workspaceRoot?: string
 ): Promise<{
-	helpers: AppAIChatHelpers
+	helpers: AppEvalChatHelpers
 	getFiles: () => AppFiles
 	getEvalState: () => {
 		frontend: Record<string, string>
@@ -137,7 +142,7 @@ export async function createAppFileHelpers(
 	}
 	await persistDatatables(workspaceRoot, datatables)
 
-	const helpers: AppAIChatHelpers = {
+	const helpers: AppEvalChatHelpers = {
 		listFrontendFiles: () => [
 			...Object.keys(frontend).filter((path) => path !== '/wmill.d.ts'),
 			'/wmill.d.ts'
@@ -211,6 +216,34 @@ export async function createAppFileHelpers(
 		},
 		lint,
 		getDatatables: async () => structuredClone(datatables),
+		listDatatableTables: async () =>
+			datatables.map(
+				(datatable): AppDatatableMetadata => {
+					const schemas = Object.fromEntries(
+						Object.entries(datatable.schemas).map(([schemaName, tables]) => [
+							schemaName,
+							Object.keys(tables)
+						])
+					)
+					return {
+						datatable_name: datatable.datatable_name,
+						schemas,
+						tableCount: Object.values(schemas).reduce(
+							(sum, tableNames) => sum + tableNames.length,
+							0
+						),
+						error: datatable.error
+					}
+				}
+			),
+		getDatatableTableSchema: async (
+			datatableName: string,
+			schemaName: string,
+			tableName: string
+		) => {
+			const datatable = datatables.find((entry) => entry.datatable_name === datatableName)
+			return structuredClone(datatable?.schemas?.[schemaName]?.[tableName] ?? {})
+		},
 		getAvailableDatatableNames: () => datatables.map((datatable) => datatable.datatable_name),
 		execDatatableSql: async (
 			datatableName: string,

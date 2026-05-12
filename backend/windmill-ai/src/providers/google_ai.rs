@@ -1,5 +1,4 @@
-use async_trait::async_trait;
-use windmill_ai::{
+use crate::{
     ai_google::{
         openai_messages_to_gemini, openai_tools_to_gemini, GeminiGenerationConfig,
         GeminiImageContent, GeminiImageRequest, GeminiImageResponse, GeminiInlineData, GeminiPart,
@@ -10,6 +9,7 @@ use windmill_ai::{
     sse::{GeminiSSEParser, SSEParser},
     types::*,
 };
+use async_trait::async_trait;
 use windmill_common::{client::AuthedClient, error::Error};
 
 // ============================================================================

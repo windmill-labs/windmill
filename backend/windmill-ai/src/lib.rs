@@ -5,6 +5,7 @@ pub mod ai_google;
 pub mod ai_providers;
 pub mod ai_types;
 pub mod image_handler;
+pub mod providers;
 pub mod query_builder;
 pub mod sse;
 pub mod types;

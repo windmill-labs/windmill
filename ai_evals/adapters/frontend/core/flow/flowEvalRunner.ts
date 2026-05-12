@@ -18,7 +18,6 @@ import {
 import { runEval } from "../shared";
 import type { ModeRunContext } from "../../../../core/types";
 import type { TokenUsage, ToolCallDetail } from "../shared/types";
-import type { FrontendEvalTransport } from "../../../../core/frontendTransport";
 import type { WindmillBackendSettings } from "../../../../core/windmillBackendSettings";
 
 export interface FlowFixture {
@@ -48,8 +47,7 @@ export interface FlowEvalOptions {
   model?: string;
   maxIterations?: number;
   provider?: AIProvider;
-  transport?: FrontendEvalTransport;
-  backend?: WindmillBackendSettings;
+  backend: WindmillBackendSettings;
   workspaceRoot?: string;
   runContext?: ModeRunContext;
 }
@@ -57,7 +55,7 @@ export interface FlowEvalOptions {
 export async function runFlowEval(
   userPrompt: string,
   apiKey: string,
-  options?: FlowEvalOptions,
+  options: FlowEvalOptions,
 ): Promise<FlowEvalResult> {
   const workspaceRoot =
     options?.workspaceRoot ??
@@ -100,10 +98,9 @@ export async function runFlowEval(
         model,
         workspace: workspaceRoot,
         provider: options?.provider,
-        transport: options?.transport,
-        backend: options?.backend,
-        proxyCaseId: options?.runContext?.caseId,
-        proxyAttempt: options?.runContext?.attempt,
+        backend: options.backend,
+        caseId: options?.runContext?.caseId,
+        attempt: options?.runContext?.attempt,
       },
     });
 
