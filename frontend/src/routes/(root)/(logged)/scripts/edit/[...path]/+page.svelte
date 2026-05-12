@@ -59,6 +59,17 @@
 				? ({ ...scriptWithDraft.draft } as EditableScript)
 				: undefined
 
+			// Compute the fully-baked initial value once so the assignment
+			// below is a single write — otherwise post-load mutations like
+			// `parent_hash = ...` would count as a second write under
+			// useLocalStorageValue's saveInitialValue=false contract and get
+			// persisted before the user has touched anything.
+			const baseline = (backendDraft ?? (scriptWithDraft as EditableScript)) as EditableScript
+			const bakedBaseline: EditableScript = {
+				...baseline,
+				parent_hash: topHash ?? scriptWithDraft.hash
+			}
+
 			if (localDraft != undefined) {
 				// Local autosave wins; offer a diff against the latest saved
 				// version (backend draft if any, otherwise deployed) so the
@@ -68,13 +79,13 @@
 				const localClean = cleanValueProperties(localDraft)
 				if (orderedJsonStringify(referenceClean) === orderedJsonStringify(localClean)) {
 					// Local matches the saved version — silently drop it and use the saved one.
-					scriptHandle.draft = backendDraft ?? (scriptWithDraft as EditableScript)
+					scriptHandle.draft = bakedBaseline
 				} else {
 					sendUserToast('Script loaded from local autosave', false, [
 						{
 							label: 'Discard local autosave',
 							callback: () => {
-								scriptHandle.draft = backendDraft ?? (scriptWithDraft as EditableScript)
+								scriptHandle.draft = bakedBaseline
 							}
 						},
 						{
@@ -89,7 +100,7 @@
 									button: {
 										text: 'Discard autosave',
 										onClick: () => {
-											scriptHandle.draft = backendDraft ?? (scriptWithDraft as EditableScript)
+											scriptHandle.draft = bakedBaseline
 										}
 									}
 								})
@@ -98,7 +109,7 @@
 					])
 				}
 			} else if (backendDraft) {
-				scriptHandle.draft = backendDraft
+				scriptHandle.draft = bakedBaseline
 				if (scriptHandle.draft?.['primary_schedule']) {
 					savedPrimarySchedule = scriptHandle.draft['primary_schedule']
 					scriptBuilder?.setPrimarySchedule(savedPrimarySchedule)
@@ -139,10 +150,7 @@
 					])
 				}
 			} else {
-				scriptHandle.draft = scriptWithDraft as EditableScript
-			}
-			if (scriptHandle.draft) {
-				scriptHandle.draft.parent_hash = scriptWithDraft.hash
+				scriptHandle.draft = bakedBaseline
 			}
 		}
 
@@ -150,9 +158,6 @@
 			initialPath = scriptHandle.draft.path
 			scriptBuilder?.setDraftTriggers(scriptHandle.draft.draft_triggers)
 			scriptBuilder?.setCode(scriptHandle.draft.content)
-			if (topHash) {
-				scriptHandle.draft.parent_hash = topHash
-			}
 		}
 		fullyLoaded = true
 	}
