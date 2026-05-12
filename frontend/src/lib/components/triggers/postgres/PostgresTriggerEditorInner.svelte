@@ -45,6 +45,7 @@
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import { capitalize } from '$lib/utils'
 
 	interface Props {
@@ -239,13 +240,17 @@
 			transaction_to_track = []
 			tab = 'basic'
 			await loadTrigger(defaultConfig)
-			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-		} catch (err) {
-			sendUserToast(`Could not load postgres trigger: ${err.body}`, true)
-		} finally {
 			if (!defaultConfig) {
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			const localCfg = UserDraft.get<Record<string, any>>('schedule_postgres', ePath)
+			if (localCfg && !deepEqual(localCfg, getSaveCfg())) {
+				await loadTriggerConfig(localCfg)
+			}
+		} catch (err) {
+			sendUserToast(`Could not load postgres trigger: ${err.body}`, true)
+		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
@@ -400,6 +405,7 @@
 		if (!cfg) {
 			return
 		}
+		const previousPath = initialPath
 		deploymentLoading = true
 		const isSaved = await savePostgresTriggerFromCfg(
 			initialPath,
@@ -409,6 +415,7 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
+			UserDraft.remove('schedule_postgres', previousPath)
 			onUpdate?.(path)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			initialPath = cfg.path
@@ -477,6 +484,11 @@
 		if (!drawerLoading) {
 			handleConfigChange(postgresConfig, initialConfig, saveDisabled, edit, onConfigChange)
 		}
+	})
+
+	$effect(() => {
+		if (drawerLoading || !initialPath) return
+		postgresConfig && UserDraft.save('schedule_postgres', initialPath, postgresConfig)
 	})
 
 	$effect(() => {
