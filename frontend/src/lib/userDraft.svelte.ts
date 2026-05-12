@@ -160,14 +160,6 @@ export const UserDraft = {
 
 	remove(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
-		const mk = mapKey(ws, itemKind, path)
-		const entry = entries.get(mk)
-		if (entry) {
-			// Notify observers; useLocalStorageValue's setter handles localStorage removal.
-			entry.state.val = undefined
-			return
-		}
-		if (isLocalOnly(path)) return
 		try {
 			localStorage.removeItem(localStorageKey(ws, itemKind, path))
 		} catch (e) {
