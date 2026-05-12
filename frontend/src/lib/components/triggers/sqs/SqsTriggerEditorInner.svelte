@@ -31,6 +31,7 @@
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { UserDraft } from '$lib/userDraft.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -128,6 +129,11 @@
 			dirtyPath = false
 			await loadTrigger(defaultConfig)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			// Overlay any local autosave on top of the backend value.
+			const localCfg = UserDraft.get<Record<string, any>>('schedule_sqs', ePath)
+			if (localCfg && !deepEqual(localCfg, getSaveCfg())) {
+				loadTriggerConfig(localCfg)
+			}
 		} catch (err) {
 			sendUserToast(`Could not load sqs trigger: ${err.body}`, true)
 		} finally {
@@ -267,6 +273,7 @@
 
 	async function updateTrigger(): Promise<void> {
 		deploymentLoading = true
+		const previousPath = initialPath
 		const cfg = getSaveCfg()
 		const isSaved = await saveSqsTriggerFromCfg(
 			initialPath,
@@ -276,6 +283,7 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
+			UserDraft.remove('schedule_sqs', previousPath)
 			onUpdate?.(cfg.path)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			initialPath = cfg.path
@@ -306,6 +314,15 @@
 		if (!drawerLoading) {
 			handleConfigChange(sqsConfig, initialConfig, saveDisabled, edit, onConfigChange)
 		}
+	})
+
+	// Persist edits to UserDraft so an accidental drawer close doesn't lose
+	// in-progress work. Skipped while the drawer is loading (the freshly
+	// loaded backend value isn't a user edit) and for new triggers without
+	// a path (no localStorage write would happen anyway).
+	$effect(() => {
+		if (drawerLoading || !initialPath) return
+		UserDraft.save('schedule_sqs', initialPath, sqsConfig)
 	})
 </script>
 
