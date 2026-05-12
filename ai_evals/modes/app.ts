@@ -5,15 +5,12 @@ import type { FrontendEvalModelConfig } from "../core/models";
 import { validateAppState, type AppFilesState } from "../core/validators";
 import type { BenchmarkArtifactFile, ModeRunner } from "../core/types";
 import { runAppEval } from "../adapters/frontend/core/app/appEvalRunner";
-import {
-  DEFAULT_FRONTEND_EVAL_MODEL,
-  getFrontendApiKey,
-} from "./frontendCommon";
-import type { FrontendEvalTransportSettings } from "../core/frontendTransport";
+import { getFrontendApiKey } from "./frontendCommon";
+import type { WindmillBackendSettings } from "../core/windmillBackendSettings";
 
 export function createAppModeRunner(
-  modelConfig: FrontendEvalModelConfig = DEFAULT_FRONTEND_EVAL_MODEL,
-  transportSettings?: FrontendEvalTransportSettings,
+  modelConfig: FrontendEvalModelConfig,
+  backendSettings: WindmillBackendSettings,
 ): ModeRunner<AppFilesState, AppFilesState, AppFilesState> {
   return {
     mode: "app",
@@ -37,8 +34,7 @@ export function createAppModeRunner(
           appContext: context.evalCase?.runtime?.appContext,
           provider: modelConfig.provider,
           model: modelConfig.model,
-          transport: transportSettings?.transport,
-          backend: transportSettings?.backend,
+          backend: backendSettings,
           runContext: context,
         },
       );

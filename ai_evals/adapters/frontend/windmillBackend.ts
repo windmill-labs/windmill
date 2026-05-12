@@ -3,6 +3,7 @@ import type { WindmillBackendSettings } from "../../core/windmillBackendSettings
 
 const tokenCache = new Map<string, Promise<string>>();
 const sharedWorkspaceQueue = new Map<string, Promise<void>>();
+const DEFAULT_WORKSPACE_PREFIX = "ai-evals";
 
 export class WindmillBackendClient {
   constructor(private readonly settings: WindmillBackendSettings) {}
@@ -14,7 +15,7 @@ export class WindmillBackendClient {
   ): Promise<T> {
     const workspaceId =
       this.settings.workspaceOverride ??
-      buildWorkspaceId(this.settings.workspacePrefix, caseId, attempt);
+      buildWorkspaceId(caseId, attempt);
 
     const run = async () => {
       await this.ensureWorkspace(workspaceId);
@@ -22,7 +23,7 @@ export class WindmillBackendClient {
       try {
         return await body(workspaceId);
       } finally {
-        if (!this.settings.keepWorkspaces && !this.settings.workspaceOverride) {
+        if (!this.settings.workspaceOverride) {
           await this.deleteWorkspace(workspaceId).catch(() => undefined);
         }
       }
@@ -136,6 +137,24 @@ export class WindmillBackendClient {
   }
 }
 
+export async function assertWindmillBackendReachable(
+  settings: WindmillBackendSettings,
+): Promise<void> {
+  try {
+    await new WindmillBackendClient(settings).getToken();
+  } catch (error) {
+    const details = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      [
+        `Could not initialize the Windmill backend for AI eval proxy at ${settings.baseUrl}.`,
+        "Start a Windmill backend at that URL, or set WMILL_AI_EVAL_BACKEND_URL=<url>.",
+        `Using login ${settings.email}; if authentication failed, set WMILL_AI_EVAL_BACKEND_EMAIL and WMILL_AI_EVAL_BACKEND_PASSWORD.`,
+        `Details: ${details}`,
+      ].join("\n"),
+    );
+  }
+}
+
 async function withSharedWorkspaceLock<T>(
   workspaceId: string,
   body: () => Promise<T>,
@@ -160,18 +179,14 @@ async function withSharedWorkspaceLock<T>(
   }
 }
 
-function buildWorkspaceId(
-  prefix: string,
-  caseId: string,
-  attempt: number,
-): string {
+function buildWorkspaceId(caseId: string, attempt: number): string {
   const caseSlug = caseId
     .toLowerCase()
     .replace(/[^a-z0-9-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 30);
   const suffix = randomUUID().slice(0, 8);
-  return `${prefix}-${caseSlug || "case"}-a${attempt}-${suffix}`;
+  return `${DEFAULT_WORKSPACE_PREFIX}-${caseSlug || "case"}-a${attempt}-${suffix}`;
 }
 
 async function expectOk(response: Response, context: string): Promise<void> {

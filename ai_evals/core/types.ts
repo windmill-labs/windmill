@@ -1,7 +1,6 @@
 export const EVAL_MODES = ["cli", "flow", "script", "app"] as const;
 
 export type EvalMode = (typeof EVAL_MODES)[number];
-export type FrontendEvalTransport = "direct" | "proxy";
 
 export interface EvalCaseRuntimeBackendPreview {
   args?: Record<string, unknown>;
@@ -297,7 +296,6 @@ export interface BenchmarkRunResult {
   gitSha: string | null;
   runs: number;
   runModel: string | null;
-  transport: FrontendEvalTransport | null;
   judgeModel: string | null;
   caseCount: number;
   attemptCount: number;

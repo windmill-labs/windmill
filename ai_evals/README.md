@@ -55,7 +55,7 @@ bun run cli -- run flow flow-test4-order-processing-loop --model opus
 bun run cli -- run flow flow-test0-sum-two-numbers --models haiku,opus,4o
 bun run cli -- run flow flow-test0-sum-two-numbers --runs 3 --verbose
 bun run cli -- run flow --record
-GEMINI_API_KEY=... bun run cli -- run app app-test1-counter-create --model gemini-pro --transport proxy
+GEMINI_API_KEY=... bun run cli -- run app app-test1-counter-create --model gemini-pro
 WMILL_AI_EVAL_BACKEND_URL=http://127.0.0.1:8000 bun run cli -- run flow --backend-validation preview
 bun run cli -- run cli bun-hello-script
 ```
@@ -72,7 +72,6 @@ Public CLI surface:
 - `--output <path>`: custom result JSON path
 - `--model <alias>`: choose the model under test
 - `--models <a,b,c>`: run the same cases sequentially against several model aliases
-- `--transport <mode>`: frontend request transport (`direct` by default, `proxy` to exercise `/api/w/{workspace}/ai/proxy`)
 - `--verbose`: stream assistant output for frontend runs
 - `--record`: append a compact tracked summary line to `ai_evals/history/<mode>.jsonl` for full-suite runs only
 - `--backend-validation <mode>`: optional backend smoke validation (`off` or `preview`) for `script` and `flow` evals
@@ -145,26 +144,23 @@ If `--backend-validation preview` is enabled:
 - `script` evals run a real backend script preview in an isolated temp workspace
 - `flow` evals run a real backend flow preview only for cases that define `runtime.backendPreview`
 - `flow` cases with `initial.workspace` fixtures seed those scripts and flows into the preview workspace before preview
-- when `WMILL_AI_EVAL_BACKEND_WORKSPACE` is set, `ai_evals` treats that workspace as a dedicated test workspace, clears managed eval assets under `f/evals/*` before each preview run, and then reseeds the current case fixtures
+- when `WMILL_AI_EVAL_BACKEND_WORKSPACE` is set, `ai_evals` creates or reuses that workspace as a dedicated test workspace, clears managed eval assets under `f/evals/*` before each preview run, and then reseeds the current case fixtures
 
-Supported backend validation env vars:
+Supported backend env vars:
 
 - `WMILL_AI_EVAL_BACKEND_VALIDATION=preview`
 - `WMILL_AI_EVAL_BACKEND_URL=http://127.0.0.1:8000`
 - `WMILL_AI_EVAL_BACKEND_EMAIL=admin@windmill.dev`
 - `WMILL_AI_EVAL_BACKEND_PASSWORD=changeme`
 - `WMILL_AI_EVAL_BACKEND_WORKSPACE=integration-tests` to reuse an existing workspace on CE installs with low workspace limits
-- `WMILL_AI_EVAL_KEEP_WORKSPACES=1`
-- `WMILL_AI_EVAL_WORKSPACE_PREFIX=ai-evals`
 
-Frontend proxy transport uses the same backend auth/workspace env vars.
+Frontend modes require a reachable Windmill backend and send model requests through the workspace AI proxy at `/api/w/{workspace}/ai/proxy`. At startup, `ai_evals` checks the resolved backend URL and fails early with setup guidance if the backend cannot be reached or login fails.
 
-When `--transport proxy` is set:
+For frontend modes:
 
-- `ai_evals` creates or reuses a backend workspace
+- `ai_evals` creates a temporary backend workspace, or creates/reuses `WMILL_AI_EVAL_BACKEND_WORKSPACE` when it is set
 - it upserts a provider resource under `f/evals/ai/<provider>`
 - frontend requests go through `/api/w/{workspace}/ai/proxy`
-- result JSON and history records include `transport` so direct vs proxy runs stay distinguishable
 
 ## Results And Artifacts
 
@@ -182,7 +178,7 @@ If `--record` is used, the CLI also appends one compact JSON line to:
 
 Each recorded line contains:
 
-- run metadata (`createdAt`, `gitSha`, `mode`, `runModel`, `transport`, `judgeModel`)
+- run metadata (`createdAt`, `gitSha`, `mode`, `runModel`, `judgeModel`)
 - suite totals (`caseCount`, `attemptCount`, `passedAttempts`, `passRate`, `averageDurationMs`, `averageJudgeScore`)
 - average token usage (`averageTokenUsagePerAttempt`)
 - per-case metrics under `cases[]` (`averageDurationMs`, `averageJudgeScore`, `averageTokenUsagePerAttempt`, pass rate)
