@@ -44,12 +44,18 @@
 		wsSpecific: boolean
 	}
 
+	// The local autosave is the entire `states` map, keyed by target workspace.
+	// This editor can edit several workspaces in one session (cross-workspace
+	// deploys); persisting only the current workspace would silently drop
+	// edits made on the other tabs.
+	type ResourceDraft = Record<string, ResourceState>
+
 	const dispatch = createEventDispatcher()
 
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
 	let initialPath = path
 
-	const resourceDraftHandle = UserDraft.use<ResourceState>('resource', initialPath ?? '')
+	const resourceDraftHandle = UserDraft.use<ResourceDraft>('resource', initialPath ?? '')
 
 	let states: Record<string, ResourceState> = $state({})
 	let initialStates: Record<string, ResourceState> = $state({})
@@ -130,16 +136,19 @@
 	)
 
 	// Bootstrap: ensure selected is set on mount (edit or new). For new
-	// resources we also prefer a local autosave (UserDraft) over defaults so
-	// returning to the drawer mid-edit keeps your work.
+	// resources we also rehydrate from a local autosave (UserDraft) so
+	// returning to the drawer mid-edit keeps your work — including edits
+	// staged for additional target workspaces.
 	$effect(() => {
 		if (selected !== undefined) return
 		if (!effectiveWorkspace) return
 		untrack(() => {
 			selected = effectiveWorkspace
 			if (!initialPath) {
-				const local = resourceDraftHandle.draft
-				const s: ResourceState = local ?? {
+				const localBundle = resourceDraftHandle.draft
+				const localFor = (ws: string): ResourceState | undefined => localBundle?.[ws]
+
+				const baseState: ResourceState = {
 					path: '',
 					description: '',
 					args: (defaultValues && Object.keys(defaultValues).length > 0
@@ -148,9 +157,23 @@
 					labels: undefined,
 					wsSpecific: false
 				}
-				states[effectiveWorkspace] = s
-				initialStates[effectiveWorkspace] = structuredClone(local ? { ...s, args: {} } : s)
+
+				const local = localFor(effectiveWorkspace)
+				states[effectiveWorkspace] = local ? structuredClone(local) : baseState
+				// For new resources the "initial state" is the pristine empty
+				// state — that's the baseline dirty is computed against.
+				initialStates[effectiveWorkspace] = structuredClone(baseState)
 				existedInitially[effectiveWorkspace] = false
+
+				// Restore any other workspaces the user had staged edits for.
+				if (localBundle) {
+					for (const ws of Object.keys(localBundle)) {
+						if (ws === effectiveWorkspace) continue
+						states[ws] = structuredClone(localBundle[ws])
+						initialStates[ws] = structuredClone(baseState)
+						existedInitially[ws] = false
+					}
+				}
 			}
 		})
 	})
@@ -173,12 +196,14 @@
 					labels: r.labels ?? undefined,
 					wsSpecific: r.ws_specific ?? false
 				}
-				// Local autosave wins for the user's own workspace if it
-				// diverges from the backend; for cross-workspace deploys we
-				// always start from the live backend value.
-				const local = ws === effectiveWorkspace ? resourceDraftHandle.draft : undefined
-				const useLocal = local && !deepEqual(local, backendState)
-				states[ws] = useLocal ? local : backendState
+				// If the local autosave has a saved state for *this* workspace
+				// and it diverges from the backend, use the local one. The
+				// localStorage entry itself lives under the user's session
+				// workspace (UserDraft's key) regardless of which target
+				// workspace this state belongs to.
+				const localState = resourceDraftHandle.draft?.[ws]
+				const useLocal = localState && !deepEqual(localState, backendState)
+				states[ws] = useLocal ? structuredClone(localState) : backendState
 				initialStates[ws] = structuredClone(backendState)
 				existedInitially[ws] = true
 				perWsUser[ws] = user
@@ -190,13 +215,11 @@
 		})
 	})
 
-	// Auto-persist the current workspace's edit state to UserDraft on every
-	// mutation. useLocalStorageValue's lastSerialized check dedupes writes.
+	// Auto-persist the full multi-workspace edit bundle on every mutation.
+	// useLocalStorageValue's lastSerialized check dedupes writes.
 	$effect(() => {
-		const s = states[effectiveWorkspace]
-		if (!s) return
-		readFieldsRecursively(s)
-		resourceDraftHandle.draft = s
+		readFieldsRecursively(states)
+		resourceDraftHandle.draft = states
 	})
 
 	// Keep current.path bound to the outer `path` prop for consumers

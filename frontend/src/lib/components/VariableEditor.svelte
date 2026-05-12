@@ -74,6 +74,12 @@
 		})
 	)
 
+	// The local autosave is the entire multi-workspace `states` bundle, so
+	// cross-workspace edits in the same drawer session are preserved across
+	// refresh. UserDraft keys on the user's session workspace regardless of
+	// which target workspace each state entry belongs to.
+	type VariableDraft = Record<string, VariableState>
+
 	// Lazy-fetch the variable for the selected workspace when not already cached
 	$effect(() => {
 		const ws = selected
@@ -95,10 +101,10 @@
 					labels: v.labels ?? undefined,
 					wsSpecific: v.ws_specific ?? false
 				}
-				const local =
-					ws === $workspaceStore ? UserDraft.get<VariableState>('variable', p) : undefined
-				const useLocal = local && !deepEqual(local, backendState)
-				states[ws] = useLocal ? local : backendState
+				const localBundle = UserDraft.get<VariableDraft>('variable', p)
+				const localState = localBundle?.[ws]
+				const useLocal = localState && !deepEqual(localState, backendState)
+				states[ws] = useLocal ? structuredClone(localState) : backendState
 				initialStates[ws] = structuredClone(backendState)
 				existedInitially[ws] = true
 				extraPerms[ws] = v.extra_perms ?? {}
@@ -107,15 +113,12 @@
 		})
 	})
 
-	// Persist the current workspace's edit state on every mutation. Empty
-	// path (new variable) stays in-memory only.
+	// Persist the full states bundle on every mutation. Empty path (new
+	// variable) stays in-memory only; UserDraft.save no-ops there.
 	$effect(() => {
-		const ws = $workspaceStore
-		if (!ws) return
-		const s = states[ws]
-		if (!s) return
-		readFieldsRecursively(s)
-		UserDraft.save('variable', editPath ?? '', s)
+		if (Object.keys(states).length === 0) return
+		readFieldsRecursively(states)
+		UserDraft.save('variable', editPath ?? '', states)
 	})
 
 	function reset() {
@@ -131,20 +134,30 @@
 		reset()
 		editPath = undefined
 		const ws = $workspaceStore!
-		// Empty-path drafts live in-memory only; this just rehydrates a
-		// shared in-memory entry if one already exists on this page.
-		const local = UserDraft.get<VariableState>('variable', '')
-		const s: VariableState = local ?? {
+		// Empty-path drafts live in-memory only; rehydrate any in-memory
+		// bundle if one already exists on this page, including states
+		// staged for other target workspaces.
+		const localBundle = UserDraft.get<VariableDraft>('variable', '')
+		const baseState: VariableState = {
 			path: '',
 			variable: { value: '', is_secret: true, description: '' },
 			labels: undefined,
 			wsSpecific: false
 		}
-		states[ws] = s
-		initialStates[ws] = structuredClone(
-			local ? { ...s, variable: { ...s.variable, value: '' } } : s
-		)
+		const localFor = (w: string): VariableState | undefined => localBundle?.[w]
+
+		const localOwn = localFor(ws)
+		states[ws] = localOwn ? structuredClone(localOwn) : baseState
+		initialStates[ws] = structuredClone(baseState)
 		existedInitially[ws] = false
+		if (localBundle) {
+			for (const w of Object.keys(localBundle)) {
+				if (w === ws) continue
+				states[w] = structuredClone(localBundle[w])
+				initialStates[w] = structuredClone(baseState)
+				existedInitially[w] = false
+			}
+		}
 		selected = ws
 		drawer?.openDrawer()
 	}
