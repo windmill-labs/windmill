@@ -55,6 +55,7 @@
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import UserSettings from '$lib/components/UserSettings.svelte'
@@ -219,14 +220,18 @@
 			dirtyPath = false
 			dirtyRoutePath = false
 			await loadTrigger(defaultConfig)
-			originalConfig = structuredClone($state.snapshot(getRouteConfig()))
-		} catch (err) {
-			sendUserToast(`Could not load route: ${err}`, true)
-		} finally {
 			if (!defaultConfig) {
 				// If the route is loaded from the backend, we to set the initial config
 				initialConfig = structuredClone($state.snapshot(getRouteConfig()))
 			}
+			originalConfig = structuredClone($state.snapshot(getRouteConfig()))
+			const localCfg = UserDraft.get<Record<string, any>>('schedule_http', ePath)
+			if (localCfg && !deepEqual(localCfg, getRouteConfig())) {
+				loadTriggerConfig(localCfg as Partial<HttpTrigger>)
+			}
+		} catch (err) {
+			sendUserToast(`Could not load route: ${err}`, true)
+		} finally {
 			clearTimeout(loader)
 			drawerLoading = false
 			showLoader = false
@@ -346,6 +351,7 @@
 			drawer?.closeDrawer()
 		} else {
 			deploymentLoading = true
+			const previousPath = initialPath
 			const saveCfg = routeConfig
 			const isSaved = await saveHttpRouteFromCfg(
 				initialPath,
@@ -356,6 +362,7 @@
 				usedTriggerKinds
 			)
 			if (isSaved) {
+				UserDraft.remove('schedule_http', previousPath)
 				onUpdate(saveCfg.path)
 				originalConfig = structuredClone($state.snapshot(getRouteConfig()))
 				initialPath = saveCfg.path
@@ -446,6 +453,11 @@
 		if (!drawerLoading) {
 			handleConfigChange(routeConfig, initialConfig, saveDisabled, edit, onConfigChange)
 		}
+	})
+
+	$effect(() => {
+		if (drawerLoading || !initialPath) return
+		UserDraft.save('schedule_http', initialPath, routeConfig)
 	})
 </script>
 
