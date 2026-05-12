@@ -46,7 +46,7 @@ Each runnable has a unique key (used to call it from the frontend) and one of fo
 
 ### Inline runnables
 
-Inline runnables carry their own source code. Supported languages: **`bun`** (TypeScript via Bun) or **`python3`**. The script must export a `main` function as its entrypoint.
+Inline runnables carry their own source code. For file-based raw apps, the runnable language is determined by the backend file extension. The script must expose a `main` function as its entrypoint.
 
 **TypeScript example** (`backend/get_user.ts`):
 

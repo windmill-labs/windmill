@@ -405,7 +405,8 @@ export const variableRequestSchema = z.object({
 	"account": z.number().int().describe("The account identifier").optional(),
 	"is_oauth": z.boolean().describe("Whether the variable is an OAuth variable").optional(),
 	"expires_at": z.string().datetime({ offset: true }).describe("The expiration date of the variable").optional(),
-	"labels": z.array(z.string()).optional()
+	"labels": z.array(z.string()).optional(),
+	"ws_specific": z.boolean().optional()
 })
 
 export const resourceRequestSchema = z.object({
@@ -413,7 +414,8 @@ export const resourceRequestSchema = z.object({
 	"value": z.any(),
 	"description": z.string().describe("The description of the resource").optional(),
 	"resource_type": z.string().describe("The resource_type associated with the resource"),
-	"labels": z.array(z.string()).optional()
+	"labels": z.array(z.string()).optional(),
+	"ws_specific": z.boolean().optional()
 })
 
 export const triggerRequestSchemas = {

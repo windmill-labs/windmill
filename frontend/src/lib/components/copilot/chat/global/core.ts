@@ -393,8 +393,6 @@ const initAppSchema = z.object({
 	summary: z.string().optional().describe('Short human-readable summary of the app.'),
 	framework: z
 		.enum(FRAMEWORK_KEYS)
-		.optional()
-		.default('react19')
 		.describe(
 			'Frontend framework template. Confirm with the user before calling — never default silently. react19 is recommended for new apps.'
 		),
