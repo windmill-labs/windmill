@@ -39,6 +39,7 @@
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { UserDraft } from '$lib/userDraft.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -144,13 +145,17 @@
 			edit = true
 			dirtyPath = false
 			await loadTrigger(defaultConfig)
-		} catch (err) {
-			sendUserToast(`Could not load mqtt trigger: ${err.body}`, true)
-		} finally {
 			if (!defaultConfig) {
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			const localCfg = UserDraft.get<Record<string, any>>('schedule_mqtt', ePath)
+			if (localCfg && !deepEqual(localCfg, getSaveCfg())) {
+				await loadTriggerConfig(localCfg)
+			}
+		} catch (err) {
+			sendUserToast(`Could not load mqtt trigger: ${err.body}`, true)
+		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
@@ -282,6 +287,7 @@
 
 	async function updateTrigger(): Promise<void> {
 		deploymentLoading = true
+		const previousPath = initialPath
 		const cfg = getSaveCfg()
 		const isSaved = await saveMqttTriggerFromCfg(
 			initialPath,
@@ -291,6 +297,7 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
+			UserDraft.remove('schedule_mqtt', previousPath)
 			onUpdate?.(cfg.path)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			initialPath = cfg.path
@@ -336,6 +343,11 @@
 		if (!drawerLoading) {
 			handleConfigChange(mqttConfig, initialConfig, saveDisabled, edit, onConfigChange)
 		}
+	})
+
+	$effect(() => {
+		if (drawerLoading || !initialPath) return
+		UserDraft.save('schedule_mqtt', initialPath, mqttConfig)
 	})
 </script>
 
