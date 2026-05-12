@@ -13880,6 +13880,7 @@ dependencies = [
  "bytes",
  "eventsource-stream",
  "futures",
+ "http 1.4.0",
  "lazy_static",
  "mime_guess",
  "reqwest 0.13.1",

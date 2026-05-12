@@ -19,6 +19,7 @@ use windmill_ai::ai_cache::current_instance_ai_config_revision;
 use windmill_ai::ai_providers::{
     empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel,
 };
+use windmill_ai::proxy::ProviderCredentials;
 use windmill_ai::utils::AI_HTTP_HEADERS;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::db::UserDB;
@@ -372,19 +373,22 @@ impl AIRequestConfig {
         headers: HeaderMap,
         body: Bytes,
     ) -> Result<RequestBuilder> {
-        let body = if let Some(user) = self.user {
-            Self::add_user_to_body(body, user)?
+        let credentials = self.into_provider_credentials(provider.clone());
+
+        let body = if let Some(user) = credentials.user.as_ref() {
+            Self::add_user_to_body(body, user.clone())?
         } else {
             body
         };
 
-        let base_url = self.base_url.trim_end_matches('/');
+        let base_url = credentials.base_url.trim_end_matches('/');
 
-        let is_azure = provider.is_azure_openai(base_url);
-        let is_anthropic = matches!(provider, AIProvider::Anthropic);
-        let is_anthropic_vertex = is_anthropic && self.platform == AIPlatform::GoogleVertexAi;
+        let is_azure = credentials.provider.is_azure_openai(base_url);
+        let is_anthropic = credentials.provider == AIProvider::Anthropic;
+        let is_anthropic_vertex =
+            is_anthropic && credentials.platform == AIPlatform::GoogleVertexAi;
         let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
-        let is_google_ai = matches!(provider, AIProvider::GoogleAI);
+        let is_google_ai = credentials.provider == AIProvider::GoogleAI;
 
         let base_url = base_url.to_string();
         let base_url = base_url.as_str();
@@ -423,12 +427,12 @@ impl AIRequestConfig {
             }
         }
 
-        if is_anthropic_sdk && self.enable_1m_context {
+        if is_anthropic_sdk && credentials.enable_1m_context {
             request = request.header("anthropic-beta", "context-1m-2025-08-07");
         }
 
         // Add authentication headers
-        if let Some(api_key) = self.api_key {
+        if let Some(api_key) = credentials.api_key {
             if is_azure {
                 request = request.header("api-key", api_key.clone())
             } else if is_google_ai {
@@ -445,13 +449,13 @@ impl AIRequestConfig {
             }
         }
 
-        if let Some(access_token) = self.access_token {
+        if let Some(access_token) = credentials.access_token {
             request = request.header("authorization", format!("Bearer {}", access_token))
         }
 
         request = request.body(body);
 
-        if let Some(org_id) = self.organization_id {
+        if let Some(org_id) = credentials.organization_id {
             request = request.header("OpenAI-Organization", org_id);
         }
 
@@ -461,11 +465,29 @@ impl AIRequestConfig {
         }
 
         // Apply custom headers from the resource
-        for (header_name, header_value) in &self.custom_headers {
+        for (header_name, header_value) in &credentials.custom_headers {
             request = request.header(header_name.as_str(), header_value.as_str());
         }
 
         Ok(request)
+    }
+
+    fn into_provider_credentials(self, provider: AIProvider) -> ProviderCredentials {
+        ProviderCredentials {
+            provider,
+            base_url: self.base_url,
+            api_key: self.api_key,
+            access_token: self.access_token,
+            organization_id: self.organization_id,
+            user: self.user,
+            region: self.region,
+            aws_access_key_id: self.aws_access_key_id,
+            aws_secret_access_key: self.aws_secret_access_key,
+            aws_session_token: self.aws_session_token,
+            platform: self.platform,
+            enable_1m_context: self.enable_1m_context,
+            custom_headers: self.custom_headers,
+        }
     }
 
     fn add_user_to_body(body: Bytes, user: String) -> Result<Bytes> {
@@ -1101,6 +1123,55 @@ mod tests {
             enable_1m_context: false,
             custom_headers: HashMap::new(),
         }
+    }
+
+    #[test]
+    fn maps_request_config_to_provider_credentials() {
+        let mut custom_headers = HashMap::new();
+        custom_headers.insert("X-Test".to_string(), "yes".to_string());
+
+        let config = AIRequestConfig {
+            base_url: "https://example.com".to_string(),
+            api_key: Some("api-key".to_string()),
+            access_token: Some("access-token".to_string()),
+            organization_id: Some("org-id".to_string()),
+            user: Some("user-id".to_string()),
+            region: Some("us-east-1".to_string()),
+            aws_access_key_id: Some("aws-access-key".to_string()),
+            aws_secret_access_key: Some("aws-secret-key".to_string()),
+            aws_session_token: Some("aws-session-token".to_string()),
+            platform: AIPlatform::GoogleVertexAi,
+            enable_1m_context: true,
+            custom_headers,
+        };
+
+        let credentials = config.into_provider_credentials(AIProvider::Anthropic);
+
+        assert_eq!(credentials.provider, AIProvider::Anthropic);
+        assert_eq!(credentials.base_url, "https://example.com");
+        assert_eq!(credentials.api_key.as_deref(), Some("api-key"));
+        assert_eq!(credentials.access_token.as_deref(), Some("access-token"));
+        assert_eq!(credentials.organization_id.as_deref(), Some("org-id"));
+        assert_eq!(credentials.user.as_deref(), Some("user-id"));
+        assert_eq!(credentials.region.as_deref(), Some("us-east-1"));
+        assert_eq!(
+            credentials.aws_access_key_id.as_deref(),
+            Some("aws-access-key")
+        );
+        assert_eq!(
+            credentials.aws_secret_access_key.as_deref(),
+            Some("aws-secret-key")
+        );
+        assert_eq!(
+            credentials.aws_session_token.as_deref(),
+            Some("aws-session-token")
+        );
+        assert_eq!(credentials.platform, AIPlatform::GoogleVertexAi);
+        assert!(credentials.enable_1m_context);
+        assert_eq!(
+            credentials.custom_headers.get("X-Test").map(String::as_str),
+            Some("yes")
+        );
     }
 
     #[test]
