@@ -24,6 +24,7 @@
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import TriggerFilters from '../TriggerFilters.svelte'
@@ -148,13 +149,17 @@
 			edit = true
 			dirtyPath = false
 			await loadTrigger(defaultConfig)
-			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-		} catch (err) {
-			sendUserToast(`Could not load Kafka trigger: ${err}`, true)
-		} finally {
 			if (!defaultConfig) {
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			const localCfg = UserDraft.get<Record<string, any>>('schedule_kafka', ePath)
+			if (localCfg && !deepEqual(localCfg, getSaveCfg())) {
+				loadTriggerConfig(localCfg)
+			}
+		} catch (err) {
+			sendUserToast(`Could not load Kafka trigger: ${err}`, true)
+		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
@@ -269,6 +274,7 @@
 
 	async function updateTrigger(): Promise<void> {
 		deploymentLoading = true
+		const previousPath = initialPath
 		const cfg = getSaveCfg()
 		const isSaved = await saveKafkaTriggerFromCfg(
 			initialPath,
@@ -278,6 +284,7 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
+			UserDraft.remove('schedule_kafka', previousPath)
 			onUpdate?.(cfg.path)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			initialPath = cfg.path
@@ -350,6 +357,11 @@
 		if (!drawerLoading) {
 			handleConfigChange(kafkaConfig, initialConfig, saveDisabled, edit, onConfigChange)
 		}
+	})
+
+	$effect(() => {
+		if (drawerLoading || !initialPath) return
+		UserDraft.save('schedule_kafka', initialPath, kafkaConfig)
 	})
 </script>
 

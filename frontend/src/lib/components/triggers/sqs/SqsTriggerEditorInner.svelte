@@ -128,8 +128,13 @@
 			edit = true
 			dirtyPath = false
 			await loadTrigger(defaultConfig)
+			// Snapshot the *backend* config as the baseline before overlaying
+			// any local autosave, so hasChanged / onConfigChange correctly
+			// flag the local edits as unsaved changes.
+			if (!defaultConfig) {
+				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
+			}
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-			// Overlay any local autosave on top of the backend value.
 			const localCfg = UserDraft.get<Record<string, any>>('schedule_sqs', ePath)
 			if (localCfg && !deepEqual(localCfg, getSaveCfg())) {
 				loadTriggerConfig(localCfg)
@@ -137,9 +142,6 @@
 		} catch (err) {
 			sendUserToast(`Could not load sqs trigger: ${err.body}`, true)
 		} finally {
-			if (!defaultConfig) {
-				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
-			}
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
