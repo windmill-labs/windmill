@@ -3,6 +3,7 @@
 	import { Download, InfoIcon, ClipboardCopy, Expand } from 'lucide-svelte'
 	import Popover from './Popover.svelte'
 	import { copyToClipboard } from '$lib/utils'
+	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import type { DisplayResultUi } from './custom_ui'
 	import { createEventDispatcher } from 'svelte'
 
@@ -37,21 +38,38 @@
 			return 'error stringifying object: ' + e.toString()
 		}
 	}
+
+	let resultApiPath = $derived(
+		workspaceId && jobId
+			? nodeId
+				? `/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+				: `/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+			: undefined
+	)
+	let downloadName = $derived(`${filename ?? 'result'}.json`)
 </script>
 
 <div class={twMerge('flex flex-row gap-2.5 z-10 text-primary -mt-1 items-center')}>
 	{#if customUi?.disableDownload !== true}
-		<a
-			download="{filename ?? 'result'}.json"
-			class="text-current"
-			href={workspaceId && jobId
-				? nodeId
-					? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
-					: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-				: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
-		>
-			<Download size={14} />
-		</a>
+		{#if resultApiPath && shouldDownloadViaClient()}
+			<button
+				class="text-current"
+				onclick={() => downloadViaClient(resultApiPath!, downloadName)}
+				aria-label="Download result"
+			>
+				<Download size={14} />
+			</button>
+		{:else}
+			<a
+				download={downloadName}
+				class="text-current"
+				href={resultApiPath
+					? `${base}/api${resultApiPath}`
+					: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
+			>
+				<Download size={14} />
+			</a>
+		{/if}
 	{/if}
 	{#if disableTooltips !== true}
 		<Popover documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering">
