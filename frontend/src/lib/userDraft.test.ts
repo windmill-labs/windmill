@@ -277,6 +277,95 @@ describe('UserDraft — empty path (new-item, in-memory only)', () => {
 	})
 })
 
+describe('UserDraft — rev metadata for staleness checks', () => {
+	it('setDraftAndMeta atomically stores value + rev, and the first write is still skipped', () => {
+		const handle = UserDraft.use<string>('flow', 'u/me/atomic')
+
+		// Single atomic write — under saveInitialValue=false this counts as the
+		// initial baseline and shouldn't hit localStorage yet.
+		handle.setDraftAndMeta('backendValue', {
+			remoteRev: 42,
+			remoteDraftRev: '2026-01-01T00:00:00Z'
+		})
+		expect(handle.draft).toBe('backendValue')
+		expect(handle.meta).toEqual({ remoteRev: 42, remoteDraftRev: '2026-01-01T00:00:00Z' })
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/atomic')).toBeNull()
+
+		// A subsequent user edit persists *with* the rev metadata.
+		handle.draft = 'userEdit'
+		const raw = localStorage.getItem('userdraft/w/test_ws/flow/u/me/atomic')
+		expect(raw).toBe(
+			JSON.stringify({
+				value: 'userEdit',
+				remoteRev: 42,
+				remoteDraftRev: '2026-01-01T00:00:00Z'
+			})
+		)
+	})
+
+	it('setMeta updates only the rev fields, preserving the value', () => {
+		const handle = UserDraft.use<string>('flow', 'u/me/setmeta')
+		handle.setDraftAndMeta('initial', { remoteRev: 1 }) // baseline, not persisted
+		handle.draft = 'edited' // persisted with remoteRev: 1
+
+		handle.setMeta({ remoteRev: 2 })
+		expect(handle.draft).toBe('edited')
+		expect(handle.meta).toEqual({ remoteRev: 2 })
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/setmeta')).toBe(
+			JSON.stringify({ value: 'edited', remoteRev: 2 })
+		)
+	})
+
+	it('handle.draft setter preserves rev metadata across user edits', () => {
+		const handle = UserDraft.use<{ count: number }>('flow', 'u/me/preserve')
+		handle.setDraftAndMeta({ count: 0 }, { remoteRev: 'v1' })
+		handle.draft = { count: 1 } // first edit, persisted
+		handle.draft = { count: 2 } // another edit
+
+		expect(handle.meta).toEqual({ remoteRev: 'v1' })
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/preserve')).toBe(
+			JSON.stringify({ value: { count: 2 }, remoteRev: 'v1' })
+		)
+	})
+
+	it('UserDraft.getMeta reads from localStorage when no live handle exists', () => {
+		localStorage.setItem(
+			'userdraft/w/test_ws/flow/u/me/getmeta',
+			JSON.stringify({ value: 'x', remoteRev: 7, remoteDraftRev: '2026-01-02' })
+		)
+		expect(UserDraft.getMeta('flow', 'u/me/getmeta')).toEqual({
+			remoteRev: 7,
+			remoteDraftRev: '2026-01-02'
+		})
+	})
+
+	it('UserDraft.getMeta returns empty object when there is no entry', () => {
+		expect(UserDraft.getMeta('flow', 'u/me/none')).toEqual({})
+	})
+
+	it('UserDraft.save preserves persisted rev metadata when no live handle exists', () => {
+		localStorage.setItem(
+			'userdraft/w/test_ws/flow/u/me/savepreserve',
+			JSON.stringify({ value: 'old', remoteRev: 5 })
+		)
+		UserDraft.save('flow', 'u/me/savepreserve', 'new')
+
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/savepreserve')).toBe(
+			JSON.stringify({ value: 'new', remoteRev: 5 })
+		)
+	})
+
+	it('handle.meta is empty for a draft persisted without rev (forward compat with older entries)', () => {
+		localStorage.setItem(
+			'userdraft/w/test_ws/flow/u/me/legacy',
+			JSON.stringify({ value: 'no-rev' })
+		)
+		const handle = UserDraft.use<string>('flow', 'u/me/legacy')
+		expect(handle.draft).toBe('no-rev')
+		expect(handle.meta).toEqual({})
+	})
+})
+
 describe('UserDraft.use() — reference counting & cleanup', () => {
 	it('destroys the entry when the last handle is released', () => {
 		// First handle acquires the entry.

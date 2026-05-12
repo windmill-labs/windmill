@@ -43,11 +43,26 @@ export type UserDraftUseOptions<V> = UserDraftOptions & {
 }
 
 /**
+ * Snapshot of the remote item's freshness at the moment the local draft was
+ * written. Used by editor routes to detect that the remote has moved on
+ * (someone else deployed, or saved a DB draft) so we can warn the user
+ * before they push stale changes.
+ *
+ * - `remoteRev`: the deployed version's id/hash/timestamp at draft creation.
+ * - `remoteDraftRev`: the DB-draft `created_at` at draft creation, only set
+ *   for kinds that have a DB-draft (`script`, `flow`, `app`, `raw_app`).
+ */
+export type UserDraftMeta = {
+	remoteRev?: string | number
+	remoteDraftRev?: string | number
+}
+
+/**
  * The shape of what we actually persist. Wrapping the value lets us add
  * metadata (timestamps, originating user, schema version, ...) later
  * without breaking existing entries.
  */
-type StoredDraft<V> = { value: V }
+type StoredDraft<V> = { value: V } & UserDraftMeta
 
 type DraftState<V> = { val: StoredDraft<V> | undefined }
 
@@ -78,12 +93,24 @@ function isLocalOnly(path: string): boolean {
 	return path === ''
 }
 
-function wrap<V>(value: V | undefined): StoredDraft<V> | undefined {
-	return value === undefined ? undefined : { value }
+function wrap<V>(value: V | undefined, meta?: UserDraftMeta): StoredDraft<V> | undefined {
+	if (value === undefined) return undefined
+	const out: StoredDraft<V> = { value }
+	if (meta?.remoteRev !== undefined) out.remoteRev = meta.remoteRev
+	if (meta?.remoteDraftRev !== undefined) out.remoteDraftRev = meta.remoteDraftRev
+	return out
 }
 
 function unwrap<V>(stored: StoredDraft<V> | undefined): V | undefined {
 	return stored?.value
+}
+
+function extractMeta(stored: StoredDraft<unknown> | undefined): UserDraftMeta {
+	if (!stored) return {}
+	const meta: UserDraftMeta = {}
+	if (stored.remoteRev !== undefined) meta.remoteRev = stored.remoteRev
+	if (stored.remoteDraftRev !== undefined) meta.remoteDraftRev = stored.remoteDraftRev
+	return meta
 }
 
 function readPersisted<V>(key: string): StoredDraft<V> | undefined {
@@ -125,6 +152,28 @@ function localStorageKey(workspace: string, itemKind: UserDraftItemKind, path: s
 export type UserDraftHandle<V> = {
 	get draft(): V | undefined
 	set draft(value: V | undefined)
+	/**
+	 * Read the rev metadata stored alongside the current draft. Empty object
+	 * if the entry has no draft or no rev was ever recorded.
+	 */
+	get meta(): UserDraftMeta
+	/**
+	 * Atomically set the draft value AND its rev metadata in a single write.
+	 *
+	 * Used by editor routes to record the backend rev at load time without
+	 * triggering an extra persist (combined with the value write, the
+	 * underlying useLocalStorageValue's saveInitialValue=false dedup skips
+	 * it). Subsequent `handle.draft = X` writes only mutate `value` and
+	 * preserve whatever rev metadata is in place.
+	 */
+	setDraftAndMeta(value: V | undefined, meta: UserDraftMeta): void
+	/**
+	 * Update the rev metadata in place without touching the draft value.
+	 * Used after the "Keep current draft" modal action to ack the new remote
+	 * rev so the staleness modal doesn't fire again until the remote moves
+	 * further.
+	 */
+	setMeta(meta: UserDraftMeta): void
 }
 
 export const UserDraft = {
@@ -136,12 +185,21 @@ export const UserDraft = {
 			// Update the shared reactive state so all observers are notified.
 			// For non-empty paths the underlying useLocalStorageValue setter
 			// persists the wrapped value; for empty paths it stays in-memory.
-			entry.state.val = wrap(value)
+			// Preserve any existing rev metadata on the entry.
+			const current = entry.state.val as StoredDraft<unknown> | undefined
+			entry.state.val = wrap(value, extractMeta(current))
 			return
 		}
 		if (isLocalOnly(path)) return
+		// External save without a live handle: preserve any persisted meta
+		// so the staleness signal isn't lost just because the editor wasn't
+		// open while we wrote.
+		const existing = readPersisted<unknown>(localStorageKey(ws, itemKind, path))
 		try {
-			localStorage.setItem(localStorageKey(ws, itemKind, path), JSON.stringify(wrap(value)))
+			localStorage.setItem(
+				localStorageKey(ws, itemKind, path),
+				JSON.stringify(wrap(value, extractMeta(existing)))
+			)
 		} catch (e) {
 			console.error('UserDraft.save: localStorage write failed', e)
 		}
@@ -160,6 +218,19 @@ export const UserDraft = {
 		}
 		if (isLocalOnly(path)) return undefined
 		return unwrap(readPersisted<V>(localStorageKey(ws, itemKind, path)))
+	},
+
+	/**
+	 * Read the rev metadata for the entry. Returns an empty object if there
+	 * is no entry. Useful for staleness checks before reading the draft.
+	 */
+	getMeta(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): UserDraftMeta {
+		const ws = resolveWorkspace(opts)
+		const mk = mapKey(ws, itemKind, path)
+		const entry = entries.get(mk)
+		if (entry) return extractMeta(entry.state.val as StoredDraft<unknown> | undefined)
+		if (isLocalOnly(path)) return {}
+		return extractMeta(readPersisted<unknown>(localStorageKey(ws, itemKind, path)))
 	},
 
 	/**
@@ -230,9 +301,23 @@ export const UserDraft = {
 				return unwrap(sharedEntry.state.val as StoredDraft<V> | undefined)
 			},
 			set draft(value: V | undefined) {
-				// useLocalStorageValue's setter writes synchronously and
-				// removes the localStorage entry when value is undefined.
-				sharedEntry.state.val = wrap(value)
+				// Preserve existing rev metadata when the user just edits the
+				// value (e.g. typing in the editor). useLocalStorageValue's
+				// setter writes synchronously and removes the localStorage
+				// entry when value is undefined.
+				const current = sharedEntry.state.val as StoredDraft<V> | undefined
+				sharedEntry.state.val = wrap(value, extractMeta(current))
+			},
+			get meta(): UserDraftMeta {
+				return extractMeta(sharedEntry.state.val as StoredDraft<unknown> | undefined)
+			},
+			setDraftAndMeta(value: V | undefined, meta: UserDraftMeta): void {
+				sharedEntry.state.val = wrap(value, meta)
+			},
+			setMeta(meta: UserDraftMeta): void {
+				const current = sharedEntry.state.val as StoredDraft<V> | undefined
+				if (current === undefined) return
+				sharedEntry.state.val = wrap(current.value, meta)
 			}
 		}
 	}
