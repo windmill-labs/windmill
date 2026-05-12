@@ -575,8 +575,10 @@ export class DebouncedTempValue<T> {
 export function useLocalStorageValue<T>(
 	key: string,
 	defaultValue: T,
-	typ?: 'string' | 'number' | 'boolean'
+	typ?: 'string' | 'number' | 'boolean',
+	options?: { saveInitialValue?: boolean }
 ): { val: T } {
+	const saveInitialValue = options?.saveInitialValue ?? true
 	const serialize = (val: T) =>
 		typ === 'string' || typ === 'number' || typ === 'boolean' ? String(val) : JSON.stringify(val)
 	const deserialize = (val: string): T => {
@@ -610,11 +612,20 @@ export function useLocalStorageValue<T>(
 	let lastSerialized: string | undefined = untrack(() =>
 		s === undefined ? undefined : serialize(s)
 	)
+	// When saveInitialValue=false, the first time the value actually changes
+	// (either via the setter or a deep mutation) is treated as "loading the
+	// initial value" rather than a user edit — we update lastSerialized so
+	// future writes are detected, but we don't persist.
+	let skipNextWrite = !saveInitialValue
 	$effect(() => {
 		readFieldsRecursively(s)
 		const next = s === undefined ? undefined : serialize(s)
 		if (next === lastSerialized) return
 		lastSerialized = next
+		if (skipNextWrite) {
+			skipNextWrite = false
+			return
+		}
 		persist(s)
 	})
 
@@ -629,7 +640,11 @@ export function useLocalStorageValue<T>(
 			const next = newVal === undefined ? undefined : serialize(newVal as T)
 			if (next !== lastSerialized) {
 				lastSerialized = next
-				persist(newVal)
+				if (skipNextWrite) {
+					skipNextWrite = false
+				} else {
+					persist(newVal)
+				}
 			}
 			s = newVal
 		}

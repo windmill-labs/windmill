@@ -109,41 +109,56 @@ describe('UserDraft.use() — observer sync', () => {
 		expect(a.draft).toEqual({ value: 99 })
 	})
 
-	it('save() propagates to live use() handles', () => {
+	it('save() propagates to live use() handles (in-memory)', () => {
 		const handle = UserDraft.use<{ value: number }>('flow', 'u/me/observed')
 		expect(handle.draft).toBeUndefined()
 
+		// First write through a live entry is treated as the "initial value"
+		// (saveInitialValue=false) and is NOT persisted — observers still see it.
 		UserDraft.save('flow', 'u/me/observed', { value: 7 })
 		expect(handle.draft).toEqual({ value: 7 })
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/observed')).toBeNull()
 
-		// And the underlying localStorage entry is updated too.
+		// Subsequent writes persist.
+		UserDraft.save('flow', 'u/me/observed', { value: 9 })
+		expect(handle.draft).toEqual({ value: 9 })
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/observed')).toBe(
-			JSON.stringify({ value: 7 })
+			JSON.stringify({ value: 9 })
 		)
 	})
 
-	it('remove() propagates to live use() handles and clears localStorage', () => {
-		UserDraft.save('flow', 'u/me/removed', { value: 1 })
+	it('remove() clears localStorage without touching the in-memory handle', () => {
+		// Seed localStorage so the live handle initialises from it.
+		localStorage.setItem('userdraft/w/test_ws/flow/u/me/removed', JSON.stringify({ value: 1 }))
 		const handle = UserDraft.use<{ value: number }>('flow', 'u/me/removed')
 		expect(handle.draft).toEqual({ value: 1 })
 
 		UserDraft.remove('flow', 'u/me/removed')
-		expect(handle.draft).toBeUndefined()
+		// Live handle keeps its current value — remove() only wipes the
+		// persisted side. This is what lets callers run UserDraft.remove
+		// during navigation without flickering the editor UI.
+		expect(handle.draft).toEqual({ value: 1 })
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/removed')).toBeNull()
 	})
 
-	it('writes through the handle setter persist to localStorage', () => {
+	it('the second write through the handle setter persists to localStorage', () => {
 		const handle = UserDraft.use<{ value: string }>('flow', 'u/me/setter')
-		handle.draft = { value: 'persisted' }
 
+		// First write is the baseline — not persisted.
+		handle.draft = { value: 'initial' }
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/setter')).toBeNull()
+
+		// Second (and onwards) persists.
+		handle.draft = { value: 'persisted' }
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/setter')).toBe(
 			JSON.stringify({ value: 'persisted' })
 		)
 	})
 
-	it('setting handle.draft = undefined removes the localStorage entry', () => {
+	it('setting handle.draft = undefined after edits removes the localStorage entry', () => {
 		const handle = UserDraft.use<{ value: string }>('flow', 'u/me/clear')
-		handle.draft = { value: 'temp' }
+		handle.draft = { value: 'initial' } // baseline, not persisted
+		handle.draft = { value: 'edited' } // persisted
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/clear')).not.toBeNull()
 
 		handle.draft = undefined
@@ -200,10 +215,14 @@ describe('UserDraft.use() — defaultValue', () => {
 		expect(handle.draft).toEqual({ value: 'persisted' })
 	})
 
-	it('a write through the setter persists even though defaultValue was set', () => {
+	it('second write through the setter persists even though defaultValue was set', () => {
 		const handle = UserDraft.use<{ value: string }>('flow', 'u/me/writeDefault', {
 			defaultValue: { value: 'fallback' }
 		})
+
+		// First write is the initial-value baseline.
+		handle.draft = { value: 'initial' }
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/writeDefault')).toBeNull()
 
 		handle.draft = { value: 'modified' }
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/writeDefault')).toBe(
@@ -252,12 +271,14 @@ describe('UserDraft — empty path (new-item, in-memory only)', () => {
 		expect(UserDraft.get('flow', '')).toEqual({ value: 11 })
 	})
 
-	it('remove() with empty path is a no-op against localStorage but clears live handles', () => {
+	it('remove() with empty path is a no-op (no localStorage to clear, in-memory untouched)', () => {
 		const handle = UserDraft.use<{ value: number }>('flow', '')
 		handle.draft = { value: 1 }
 
 		UserDraft.remove('flow', '')
-		expect(handle.draft).toBeUndefined()
+		// Empty-path entries never touched localStorage and remove() no longer
+		// resets the in-memory state, so the handle keeps its value.
+		expect(handle.draft).toEqual({ value: 1 })
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/')).toBeNull()
 	})
 })
@@ -266,7 +287,7 @@ describe('UserDraft.use() — reference counting & cleanup', () => {
 	it('destroys the entry when the last handle is released', () => {
 		// First handle acquires the entry.
 		const a = UserDraft.use<{ value: number }>('flow', 'u/me/ref')
-		a.draft = { value: 1 }
+		a.draft = { value: 1 } // baseline write — not persisted
 
 		// Second handle increments the count.
 		const b = UserDraft.use<{ value: number }>('flow', 'u/me/ref')
@@ -281,6 +302,10 @@ describe('UserDraft.use() — reference counting & cleanup', () => {
 
 		UserDraft.save('flow', 'u/me/ref', { value: 2 })
 		expect(a.draft).toEqual({ value: 2 })
+		// Now persisted (second write after the baseline).
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/ref')).toBe(
+			JSON.stringify({ value: 2 })
+		)
 
 		// Releasing the second handle drops the entry; subsequent save()
 		// must go straight to localStorage rather than mutating in-memory
@@ -296,12 +321,13 @@ describe('UserDraft.use() — reference counting & cleanup', () => {
 
 	it('a fresh use() after cleanup re-reads the latest persisted value', () => {
 		const a = UserDraft.use<{ value: string }>('flow', 'u/me/cycle')
-		a.draft = { value: 'first' }
+		a.draft = { value: 'initial' } // baseline — not persisted
+		a.draft = { value: 'edited' } // persisted
 		flushDestroyCallbacks()
 
 		// After all handles release, a brand-new use() must pick up the
 		// value persisted to localStorage from the previous round.
 		const b = UserDraft.use<{ value: string }>('flow', 'u/me/cycle')
-		expect(b.draft).toEqual({ value: 'first' })
+		expect(b.draft).toEqual({ value: 'edited' })
 	})
 })

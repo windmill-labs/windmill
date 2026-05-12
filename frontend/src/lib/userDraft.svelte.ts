@@ -180,7 +180,15 @@ export const UserDraft = {
 		if (!entry) {
 			const state: DraftState<unknown> = isLocalOnly(path)
 				? createInMemoryState<unknown>(defaultValue)
-				: useLocalStorageValue<unknown>(localStorageKey(ws, itemKind, path), defaultValue)
+				: useLocalStorageValue<unknown>(
+						localStorageKey(ws, itemKind, path),
+						defaultValue,
+						undefined,
+						// The first value to flow into the handle (e.g. a backend load
+						// in the editor route) is the baseline — only persist when the
+						// user actually changes it afterwards.
+						{ saveInitialValue: false }
+					)
 			entry = { count: 1, state }
 			entries.set(mk, entry)
 		} else {
