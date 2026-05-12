@@ -142,7 +142,7 @@ Move from `windmill-worker/src/ai/sse.rs` to `windmill-ai/src/sse.rs`:
 
 ---
 
-### Step 5: Move provider implementations to windmill-ai
+### Step 5: Move provider implementations to windmill-ai ✅
 
 Move from `windmill-worker/src/ai/providers/` to `windmill-ai/src/providers/`:
 - `anthropic.rs` — `AnthropicQueryBuilder`
@@ -159,7 +159,7 @@ Move utility functions providers depend on:
 
 ---
 
-### Step 6: Move image_handler to windmill-ai
+### Step 6: Move image_handler to windmill-ai ✅
 
 Move from `windmill-worker/src/ai/image_handler.rs` to `windmill-ai/src/image_handler.rs`:
 - `download_and_encode_s3_image` — no signature change needed
