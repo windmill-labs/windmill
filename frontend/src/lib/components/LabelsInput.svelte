@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Badge from './common/badge/Badge.svelte'
+	import Button from './common/button/Button.svelte'
 	import { Plus, Tag, X } from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
 
@@ -155,11 +156,14 @@
 			{/if}
 		</div>
 	{:else}
-		<button
-			class="text-tertiary hover:text-secondary text-2xs flex items-center gap-0.5"
+		<Button
+			variant="subtle"
+			unifiedSize="xs"
+			startIcon={{ icon: Tag }}
+			endIcon={{ icon: Plus, props: { size: 8 } }}
+			btnClasses="!gap-0.5"
+			aria-label="Add label"
 			onclick={startAdding}
-		>
-			<Tag size={12} /><Plus size={8} />
-		</button>
+		/>
 	{/if}
 </div>
