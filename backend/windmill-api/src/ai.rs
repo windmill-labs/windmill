@@ -19,7 +19,10 @@ use windmill_ai::ai_cache::current_instance_ai_config_revision;
 use windmill_ai::ai_providers::{
     empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel,
 };
-use windmill_ai::proxy::ProviderCredentials;
+use windmill_ai::providers::create_proxy_query_builder;
+use windmill_ai::proxy::{
+    supports_openai_compatible_proxy, ProviderCredentials, ProxyBuildArgs, ProxyRequest,
+};
 use windmill_ai::utils::AI_HTTP_HEADERS;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::db::UserDB;
@@ -663,6 +666,14 @@ fn is_sse_response(headers: &HeaderMap) -> bool {
         .unwrap_or(false)
 }
 
+fn proxy_request_to_request_builder(proxy_request: ProxyRequest) -> RequestBuilder {
+    let mut request = HTTP_CLIENT.request(proxy_request.method.clone(), &proxy_request.url);
+    for (header_name, header_value) in &proxy_request.headers {
+        request = request.header(header_name.as_str(), header_value.as_str());
+    }
+    request.body(proxy_request.body)
+}
+
 pub(crate) fn inject_keepalives<S>(
     upstream: S,
     interval: Duration,
@@ -715,37 +726,64 @@ async fn global_proxy(
 
     let base_url = provider.get_base_url(None, &db).await?;
 
-    let is_anthropic = provider.is_anthropic();
-    let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
-
-    let url = if is_anthropic_sdk {
-        let truncated_base_url = base_url.trim_end_matches("/v1");
-        format!("{}/{}", truncated_base_url, ai_path)
+    let request = if supports_openai_compatible_proxy(&provider) {
+        let credentials = ProviderCredentials {
+            provider: provider.clone(),
+            base_url,
+            api_key: Some(api_key.clone()),
+            access_token: None,
+            organization_id: None,
+            user: None,
+            region: None,
+            aws_access_key_id: None,
+            aws_secret_access_key: None,
+            aws_session_token: None,
+            platform: AIPlatform::Standard,
+            enable_1m_context: false,
+            custom_headers: HashMap::new(),
+        };
+        let query_builder = create_proxy_query_builder(&credentials);
+        let proxy_request = query_builder.build_proxy_request(&ProxyBuildArgs {
+            method: &method,
+            path: &ai_path,
+            headers: &headers,
+            body: &body,
+            credentials: &credentials,
+        })?;
+        proxy_request_to_request_builder(proxy_request)
     } else {
-        format!("{}/{}", base_url, ai_path)
-    };
+        let is_anthropic = provider.is_anthropic();
+        let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
 
-    let mut request = HTTP_CLIENT
-        .request(method, url)
-        .header("content-type", "application/json")
-        .header("Authorization", format!("Bearer {}", &api_key));
+        let url = if is_anthropic_sdk {
+            let truncated_base_url = base_url.trim_end_matches("/v1");
+            format!("{}/{}", truncated_base_url, ai_path)
+        } else {
+            format!("{}/{}", base_url, ai_path)
+        };
 
-    if is_anthropic {
-        request = request.header("X-API-Key", &api_key);
-    }
+        let mut request = HTTP_CLIENT
+            .request(method, url)
+            .header("content-type", "application/json")
+            .header("Authorization", format!("Bearer {}", &api_key));
 
-    for (header_name, header_value) in headers.iter() {
-        if header_name.to_string().starts_with("anthropic-") {
-            request = request.header(header_name, header_value);
+        if is_anthropic {
+            request = request.header("X-API-Key", &api_key);
         }
-    }
 
-    // Apply custom headers from AI_HTTP_HEADERS environment variable
-    for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
-        request = request.header(header_name.as_str(), header_value.as_str());
-    }
+        for (header_name, header_value) in headers.iter() {
+            if header_name.to_string().starts_with("anthropic-") {
+                request = request.header(header_name, header_value);
+            }
+        }
 
-    let request = request.body(body);
+        // Apply custom headers from AI_HTTP_HEADERS environment variable
+        for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
+            request = request.header(header_name.as_str(), header_value.as_str());
+        }
+
+        request.body(body)
+    };
 
     let response = request.send().await.map_err(to_anyhow)?;
 
@@ -1062,7 +1100,20 @@ async fn proxy(
         ));
     }
 
-    let request = request_config.prepare_request(&provider, &ai_path, method, headers, body)?;
+    let request = if supports_openai_compatible_proxy(&provider) {
+        let credentials = request_config.into_provider_credentials(provider.clone());
+        let query_builder = create_proxy_query_builder(&credentials);
+        let proxy_request = query_builder.build_proxy_request(&ProxyBuildArgs {
+            method: &method,
+            path: &ai_path,
+            headers: &headers,
+            body: &body,
+            credentials: &credentials,
+        })?;
+        proxy_request_to_request_builder(proxy_request)
+    } else {
+        request_config.prepare_request(&provider, &ai_path, method, headers, body)?
+    };
 
     let response = request.send().await.map_err(to_anyhow)?;
 

@@ -28,8 +28,8 @@ windmill-common does **NOT** re-export from windmill-ai (would be circular). All
 The crate boundary, shared utilities, SSE parsers, image handling, and worker provider implementations are now in `windmill-ai`. The remaining duplication is the API proxy path: `AIRequestConfig::prepare_request`, `windmill-api/src/google.rs`, and `windmill-api/src/bedrock.rs` still own API-specific request transformation.
 
 Do not jump directly from the current state to full proxy and credential unification in one PR. The API proxy combines request transformation, endpoint selection, auth headers, custom headers, OAuth user injection, Azure URL handling, Anthropic Vertex handling, Bedrock SDK calls, and SSE keepalive behavior. Split the work by risk:
-- Introduce shared proxy request and credential types first, without changing proxy behavior.
-- Move the OpenAI-compatible proxy path into `windmill-ai` next.
+- Introduce shared proxy request and credential types first.
+- Move the OpenAI-compatible proxy path into `windmill-ai` next, while keeping provider-native behavior unchanged.
 - Move Anthropic/Vertex, Google AI, and Bedrock in separate follow-up PRs.
 - Unify credential resolution only after all proxy request builders use the shared shape.
 
@@ -37,28 +37,34 @@ Avoid adding modules whose only purpose is to re-export moved code. Direct impor
 
 Also do not make `build_proxy_request(raw_body, path)` too narrow. The proxy path needs method, incoming headers, resolved credentials, base URL/platform, organization/user fields, custom headers, and Bedrock/Azure/Vertex-specific context. Introduce a structured `ProxyBuildArgs`/`ProviderCredentials` shape before deleting `AIRequestConfig::prepare_request`, `google.rs`, or `bedrock.rs`.
 
-## Next Phase PR: Proxy Contract Only
+## Current Phase PR: Proxy Contract + OpenAI-Compatible Proxy
 
-Goal: introduce the shared API proxy contract in `windmill-ai` without changing any API proxy behavior.
+Goal: introduce the shared API proxy contract in `windmill-ai` and move the OpenAI-compatible proxy request builder there without changing provider behavior.
 
-Suggested PR title: `refactor(ai): introduce shared AI proxy request types`.
+Suggested PR title: `refactor(ai): move openai-compatible proxy building to windmill-ai`.
 
 Scope:
 - Add `windmill-ai/src/proxy.rs` and export it from `lib.rs`.
 - Define `ProviderCredentials`, `ProxyBuildArgs`, and `ProxyRequest`.
 - Include all context known to be needed by the current API proxy path: method, path, incoming headers, body, provider, base URL, API key, OAuth access token, organization/user fields, platform, 1M context flag, custom headers, region, and AWS credentials.
 - Add a conversion from API-side `AIRequestConfig` to `ProviderCredentials`.
-- Keep `AIRequestConfig::prepare_request` as the behavior owner for now, but have it operate through the shared credential shape.
+- Add `QueryBuilder::build_proxy_request` with a default unsupported-provider implementation.
+- Implement `build_proxy_request` for OpenAI-compatible providers (`OpenAI`, `AzureOpenAI`, `Mistral`, `DeepSeek`, `Groq`, `OpenRouter`, `TogetherAI`, `CustomAI`).
+- Route workspace and global API proxy requests for OpenAI-compatible providers through `windmill-ai`.
+- Keep FIM transformation in `windmill-api` before calling the proxy builder.
+- Keep `AIRequestConfig::prepare_request` for Anthropic/Vertex and remaining fallback paths.
 
 Out of scope:
-- Do not add `QueryBuilder::build_proxy_request` yet.
-- Do not change API proxy routing, request preparation behavior, credential resolution, audit logging, cache behavior, SSE keepalive behavior, or Bedrock/Google special cases.
+- Do not move Anthropic/Vertex proxy behavior yet.
+- Do not move Google AI or Bedrock proxy behavior yet.
+- Do not change credential resolution, audit logging, cache behavior, SSE keepalive behavior, or Bedrock/Google special cases.
 - Do not remove `windmill-api/src/google.rs`, `windmill-api/src/bedrock.rs`, or `AIRequestConfig::prepare_request`.
 
 Validation:
+- `cargo test -p windmill-ai proxy`
+- `cargo test -p windmill-api maps_request_config_to_provider_credentials`
 - `cargo check -p windmill-ai -p windmill-api`
 - `cargo check -p windmill-ai -p windmill-api --features bedrock`
-- Focused grep for stale duplicate proxy contract types once follow-up PRs begin moving behavior.
 
 ## Step-by-Step Plan
 
@@ -188,7 +194,7 @@ And `ProxyRequest` contains the transformed request:
 pub struct ProxyRequest {
     pub method: http::Method,
     pub url: String,
-    pub headers: http::HeaderMap,
+    pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
 }
 ```
