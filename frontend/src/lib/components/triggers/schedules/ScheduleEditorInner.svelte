@@ -38,6 +38,8 @@
 	import { runScheduleNow } from '../scheduled/utils'
 	import { handleConfigChange } from '../utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
+	import { deepEqual } from 'fast-equals'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
@@ -142,10 +144,14 @@
 			path = defaultCfg?.path ?? ePath
 			await loadSchedule(defaultCfg)
 			edit = true
-		} finally {
 			if (!defaultCfg) {
 				initialConfig = structuredClone($state.snapshot(getScheduleCfg()))
 			}
+			const localCfg = UserDraft.get<Record<string, any>>('schedule_schedule', ePath)
+			if (localCfg && !deepEqual(localCfg, getScheduleCfg())) {
+				await loadScheduleCfg(localCfg)
+			}
+		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
@@ -527,10 +533,12 @@
 	}
 
 	async function scheduleScript(): Promise<void> {
+		const previousPath = initialPath
 		const scheduleCfg = getScheduleCfg()
 		deploymentLoading = true
 		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, $workspaceStore!)
 		if (isSaved) {
+			UserDraft.remove('schedule_schedule', previousPath)
 			onUpdate?.(scheduleCfg.path)
 			drawer?.closeDrawer()
 		}
@@ -653,6 +661,11 @@
 		if (!drawerLoading) {
 			handleConfigChange(scheduleCfg, initialConfig, saveDisabled, edit, onConfigChange)
 		}
+	})
+
+	$effect(() => {
+		if (drawerLoading || !initialPath) return
+		UserDraft.save('schedule_schedule', initialPath, scheduleCfg)
 	})
 </script>
 
