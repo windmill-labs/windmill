@@ -5,6 +5,7 @@ import type { DiffDrawerI } from './diff_drawer'
 import type { ScriptBuilderFunctionExports } from './scriptBuilder'
 import type { ScheduleTrigger } from './triggers'
 import type { NewScriptWithDraftAndDraftTriggers, Trigger } from './triggers/utils'
+import type { WorkspaceItem } from './workspacePicker'
 
 export interface ScriptBuilderProps {
 	script: NewScript & {
@@ -44,4 +45,5 @@ export interface ScriptBuilderProps {
 	onSaveDraft?: (e: { path: string; savedAtNewPath: boolean; script: NewScript }) => void
 	onSeeDetails?: (e: { path: string }) => void
 	onSaveDraftError?: (e: { path: string; error: any }) => void
+	onNavigate?: (item: WorkspaceItem) => void
 }

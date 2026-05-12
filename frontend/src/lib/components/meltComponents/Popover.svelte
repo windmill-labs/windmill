@@ -52,6 +52,9 @@
 		closeOnOtherPopoverOpen?: boolean
 		allowFullScreen?: boolean
 		extraProps?: Record<string, any>
+		/** Attributes spread onto the trigger button. Use for `aria-label`,
+		 * `aria-current`, etc. — overrides the default `aria-label="Popup button"`. */
+		triggerAttrs?: Record<string, any>
 		disabled?: boolean
 		documentationLink?: string | undefined
 		disableFocusTrap?: boolean
@@ -90,6 +93,7 @@
 		closeOnOtherPopoverOpen = false,
 		allowFullScreen = false,
 		extraProps = {},
+		triggerAttrs = {},
 		disabled = false,
 		documentationLink = undefined,
 		disableFocusTrap = false,
@@ -219,6 +223,7 @@
 	class={className}
 	use:melt={$_trigger}
 	aria-label="Popup button"
+	{...triggerAttrs}
 	disabled={disablePopup || disabled}
 	onmouseenter={() => {
 		if (openOnHover) {

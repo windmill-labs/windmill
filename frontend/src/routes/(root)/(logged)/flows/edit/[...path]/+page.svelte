@@ -2,6 +2,7 @@
 	import { FlowService, type Flow, DraftService } from '$lib/gen'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
+	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
 	import {
 		cleanValueProperties,
@@ -24,10 +25,11 @@
 	import { page } from '$app/state'
 
 	let version: undefined | number = $state(undefined)
-	let nodraft = page.url.searchParams.get('nodraft')
-	const initialState = nodraft ? undefined : localStorage.getItem(`flow-${page.params.path}`)
-	let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 
+	// `initialArgs` is captured once at mount — it's the session's initial
+	// argument set. Per-flow autosave (`stateLoadedFromUrl`) and the
+	// `nodraft` flag are re-read inside `loadFlow` / the navigation hook so
+	// picker navigation doesn't reuse the original path's state.
 	const urlArgs = page.url.searchParams.get('initial_args')
 
 	let initialArgs = $state({})
@@ -45,7 +47,7 @@
 		| undefined = $state(undefined)
 
 	afterNavigate(() => {
-		if (nodraft) {
+		if (page.url.searchParams.get('nodraft')) {
 			let url = new URL(page.url.href)
 			url.search = ''
 			replaceState(url.toString(), page.state)
@@ -72,9 +74,15 @@
 
 	let nobackenddraft = false
 
-	let savedPrimarySchedule: ScheduleTrigger | undefined = $state(
-		stateLoadedFromUrl?.primarySchedule
-	)
+	// One-shot read of mount-time autosave, used only to seed the initial
+	// `savedPrimarySchedule` before `loadFlow` runs. `loadFlow` itself
+	// re-reads localStorage on every invocation (see comment there).
+	const initialAutosave = (() => {
+		if (page.url.searchParams.get('nodraft')) return undefined
+		const raw = localStorage.getItem(`flow-${page.params.path}`)
+		return raw != undefined ? decodeState(raw) : undefined
+	})()
+	let savedPrimarySchedule: ScheduleTrigger | undefined = $state(initialAutosave?.primarySchedule)
 
 	let draftTriggersFromUrl: Trigger[] | undefined = $state(undefined)
 	let selectedTriggerIndexFromUrl: number | undefined = $state(undefined)
@@ -84,20 +92,36 @@
 
 	let flowBuilder: FlowBuilder | undefined = $state(undefined)
 	let notFound = $state(false)
+	/** Increments per `loadFlow` call. Each in-flight load checks its captured
+	 * token against this before writing shared state — if a newer load started
+	 * (e.g. picker navigation while a draft-discard reload is in flight),
+	 * the older promise no-ops at the next checkpoint. */
+	let loadFlowToken = 0
 	async function loadFlow(): Promise<void> {
-		console.log('loadFlow')
+		const tok = ++loadFlowToken
 		loading = true
+
+		// Re-read autosave per load. The component doesn't remount when the
+		// picker navigates between flows, so capturing at module init would
+		// keep reusing the original flow's state.
+		const stored = page.url.searchParams.get('nodraft')
+			? undefined
+			: localStorage.getItem(`flow-${page.params.path}`)
+		const stateLoadedFromUrl = stored != undefined ? decodeState(stored) : undefined
+
 		let flow: Flow
 		let statePath = stateLoadedFromUrl?.path
 		if (stateLoadedFromUrl != undefined && statePath == page.params.path) {
 			// Currently there is no way to get version of flow with flow.
 			// So we have to request it here
-			version = (
+			const v = (
 				await FlowService.getFlowLatestVersion({
 					workspace: $workspaceStore!,
 					path: statePath
 				})
 			)?.id
+			if (tok !== loadFlowToken) return
+			version = v
 
 			if (version == undefined) {
 				notFound = true
@@ -105,10 +129,12 @@
 				return
 			}
 
-			savedFlow = await FlowService.getFlowByPathWithDraft({
+			const sf = await FlowService.getFlowByPathWithDraft({
 				workspace: $workspaceStore!,
 				path: statePath
 			})
+			if (tok !== loadFlowToken) return
+			savedFlow = sf
 
 			const draftOrDeployed = cleanValueProperties(savedFlow?.draft || savedFlow)
 			const urlScript = cleanValueProperties(
@@ -126,7 +152,16 @@
 			flowBuilder?.setLoadedFromHistory(loadedFromHistoryFromUrl)
 			const selectedId = stateLoadedFromUrl?.selectedId ?? 'settings-metadata'
 			const reloadAction = () => {
-				stateLoadedFromUrl = undefined
+				// Discard the localStorage autosave so the next `loadFlow`
+				// (re-)read sees an empty slot and falls through to the
+				// fetch branch — otherwise we'd re-enter this branch and
+				// loop. Scripts dodge this because their state lives in
+				// the URL fragment, which `goto` clears for us.
+				try {
+					localStorage.removeItem(`flow-${statePath}`)
+				} catch (e) {
+					console.error('error interacting with local storage', e)
+				}
 				goto(`/flows/edit/${statePath}?selected=${selectedId}`)
 				loadFlow()
 			}
@@ -156,17 +191,20 @@
 		} else {
 			// Currently there is no way to get version of flow with flow.
 			// So we have to request it here
-			version = (
+			const v = (
 				await FlowService.getFlowLatestVersion({
 					workspace: $workspaceStore!,
 					path: page.params.path ?? ''
 				})
 			).id
+			if (tok !== loadFlowToken) return
+			version = v
 
 			const flowWithDraft = await FlowService.getFlowByPathWithDraft({
 				workspace: $workspaceStore!,
 				path: page.params.path ?? ''
 			})
+			if (tok !== loadFlowToken) return
 			savedFlow = {
 				...structuredClone($state.snapshot(flowWithDraft)),
 				draft: flowWithDraft.draft
@@ -190,7 +228,6 @@
 					const deployed = cleanValueProperties(flowWithDraft)
 					const draft = cleanValueProperties(flow)
 					const reloadAction = async () => {
-						stateLoadedFromUrl = undefined
 						await DraftService.deleteDraft({
 							workspace: $workspaceStore!,
 							kind: 'flow',
@@ -226,12 +263,16 @@
 		}
 
 		await initFlow(flow, flowStore, flowStateStore)
+		if (tok !== loadFlowToken) return
 		loading = false
 		selectedId = stateLoadedFromUrl?.selectedId ?? page.url.searchParams.get('selected')
 		flowBuilder?.loadFlowState()
 	}
 
 	$effect(() => {
+		// Re-run on workspace OR path change so navigating from one flow editor
+		// to another (e.g. via the workspace picker) reloads the new flow.
+		page.params.path
 		if ($workspaceStore) {
 			untrack(() => loadFlow())
 		}
@@ -245,7 +286,6 @@
 			return
 		}
 		diffDrawer?.closeDrawer()
-		stateLoadedFromUrl = undefined
 		goto(`/flows/edit/${savedFlow.draft.path}`)
 		loadFlow()
 	}
@@ -263,7 +303,6 @@
 				path: savedFlow.path
 			})
 		}
-		stateLoadedFromUrl = undefined
 		goto(`/flows/edit/${savedFlow.path}`)
 		loadFlow()
 	}
@@ -280,6 +319,7 @@
 {:else}
 	<FlowBuilder
 		onDeploy={(e) => {
+			if ($workspaceStore) invalidate($workspaceStore, 'flow')
 			goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
 		}}
 		onDetails={(e) => {
@@ -291,6 +331,7 @@
 		onHistoryRestore={() => {
 			loadFlow()
 		}}
+		onNavigate={(item) => goto(editPathFor(item))}
 		{flowStore}
 		{flowStateStore}
 		initialPath={page.params.path ?? ''}
