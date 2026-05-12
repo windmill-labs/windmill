@@ -25,6 +25,7 @@
 	import { saveAzureTriggerFromCfg } from './utils'
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import { deepEqual } from 'fast-equals'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { base } from '$lib/base'
@@ -124,14 +125,18 @@
 			edit = true
 			dirtyPath = false
 			await loadTrigger(defaultValues)
+			if (!defaultValues) {
+				initialConfig = structuredClone($state.snapshot(getAzureConfig()))
+			}
 			originalConfig = structuredClone($state.snapshot(getAzureConfig()))
+			const localCfg = UserDraft.get<Record<string, any>>('schedule_azure', ePath)
+			if (localCfg && !deepEqual(localCfg, getAzureConfig())) {
+				await loadTriggerConfig(localCfg)
+			}
 		} catch (err) {
 			sendUserToast(`Could not load Azure trigger: ${err.body}`, true)
 		} finally {
 			drawerLoading = false
-			if (!defaultValues) {
-				initialConfig = structuredClone($state.snapshot(getAzureConfig()))
-			}
 		}
 	}
 
@@ -210,6 +215,7 @@
 
 	async function updateTrigger(): Promise<void> {
 		deploymentLoading = true
+		const previousPath = initialPath
 		const cfg = azureConfig
 		if (!cfg) return
 		const isSaved = await saveAzureTriggerFromCfg(
@@ -220,6 +226,7 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
+			UserDraft.remove('schedule_azure', previousPath)
 			onUpdate?.(cfg.path)
 			originalConfig = structuredClone($state.snapshot(getAzureConfig()))
 			initialPath = cfg.path
@@ -295,6 +302,11 @@
 	$effect(() => {
 		const args = [captureConfig, isValid] as const
 		untrack(() => onCaptureConfigChange?.(...args))
+	})
+
+	$effect(() => {
+		if (drawerLoading || !initialPath) return
+		azureConfig && UserDraft.save('schedule_azure', initialPath, azureConfig)
 	})
 </script>
 
