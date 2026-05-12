@@ -42,7 +42,14 @@ export type UserDraftUseOptions<V> = UserDraftOptions & {
 	defaultValue?: V
 }
 
-type DraftState<V> = { val: V | undefined }
+/**
+ * The shape of what we actually persist. Wrapping the value lets us add
+ * metadata (timestamps, originating user, schema version, ...) later
+ * without breaking existing entries.
+ */
+type StoredDraft<V> = { value: V }
+
+type DraftState<V> = { val: StoredDraft<V> | undefined }
 
 type DraftEntry = {
 	count: number
@@ -71,13 +78,37 @@ function isLocalOnly(path: string): boolean {
 	return path === ''
 }
 
-function createInMemoryState<T>(defaultValue: T | undefined): DraftState<T> {
-	let s = $state<T | undefined>(defaultValue)
+function wrap<V>(value: V | undefined): StoredDraft<V> | undefined {
+	return value === undefined ? undefined : { value }
+}
+
+function unwrap<V>(stored: StoredDraft<V> | undefined): V | undefined {
+	return stored?.value
+}
+
+function readPersisted<V>(key: string): StoredDraft<V> | undefined {
+	try {
+		const raw = localStorage.getItem(key)
+		if (raw == null || raw === 'undefined') return undefined
+		const parsed = JSON.parse(raw)
+		// Defensive: drop entries written before the wrapping migration. Their
+		// raw payload doesn't have a `.value` and would surface as undefined
+		// anyway — we just don't want to confuse `has()` callers.
+		if (parsed == null || typeof parsed !== 'object' || !('value' in parsed)) return undefined
+		return parsed as StoredDraft<V>
+	} catch (e) {
+		console.error('UserDraft: localStorage read failed', e)
+		return undefined
+	}
+}
+
+function createInMemoryState<V>(defaultValue: StoredDraft<V> | undefined): DraftState<V> {
+	let s = $state<StoredDraft<V> | undefined>(defaultValue)
 	return {
-		get val(): T | undefined {
+		get val(): StoredDraft<V> | undefined {
 			return s
 		},
-		set val(newVal: T | undefined) {
+		set val(newVal: StoredDraft<V> | undefined) {
 			s = newVal
 		}
 	}
@@ -104,13 +135,13 @@ export const UserDraft = {
 		if (entry) {
 			// Update the shared reactive state so all observers are notified.
 			// For non-empty paths the underlying useLocalStorageValue setter
-			// persists; for empty paths the in-memory state stays in-memory.
-			entry.state.val = value
+			// persists the wrapped value; for empty paths it stays in-memory.
+			entry.state.val = wrap(value)
 			return
 		}
 		if (isLocalOnly(path)) return
 		try {
-			localStorage.setItem(localStorageKey(ws, itemKind, path), JSON.stringify(value))
+			localStorage.setItem(localStorageKey(ws, itemKind, path), JSON.stringify(wrap(value)))
 		} catch (e) {
 			console.error('UserDraft.save: localStorage write failed', e)
 		}
@@ -125,17 +156,10 @@ export const UserDraft = {
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) {
-			return entry.state.val as V | undefined
+			return unwrap(entry.state.val as StoredDraft<V> | undefined)
 		}
 		if (isLocalOnly(path)) return undefined
-		try {
-			const raw = localStorage.getItem(localStorageKey(ws, itemKind, path))
-			if (raw == null || raw === 'undefined') return undefined
-			return JSON.parse(raw) as V
-		} catch (e) {
-			console.error('UserDraft.get: localStorage read failed', e)
-			return undefined
-		}
+		return unwrap(readPersisted<V>(localStorageKey(ws, itemKind, path)))
 	},
 
 	/**
@@ -150,12 +174,7 @@ export const UserDraft = {
 		const entry = entries.get(mk)
 		if (entry) return entry.state.val !== undefined
 		if (isLocalOnly(path)) return false
-		try {
-			const raw = localStorage.getItem(localStorageKey(ws, itemKind, path))
-			return raw != null && raw !== 'undefined'
-		} catch {
-			return false
-		}
+		return readPersisted(localStorageKey(ws, itemKind, path)) !== undefined
 	},
 
 	remove(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
@@ -174,15 +193,15 @@ export const UserDraft = {
 	): UserDraftHandle<V> {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
-		const defaultValue = opts?.defaultValue
+		const wrappedDefault = wrap(opts?.defaultValue)
 
 		let entry = entries.get(mk)
 		if (!entry) {
 			const state: DraftState<unknown> = isLocalOnly(path)
-				? createInMemoryState<unknown>(defaultValue)
-				: useLocalStorageValue<unknown>(
+				? createInMemoryState<unknown>(wrappedDefault)
+				: useLocalStorageValue<StoredDraft<unknown> | undefined>(
 						localStorageKey(ws, itemKind, path),
-						defaultValue,
+						wrappedDefault,
 						undefined,
 						// The first value to flow into the handle (e.g. a backend load
 						// in the editor route) is the baseline — only persist when the
@@ -208,12 +227,12 @@ export const UserDraft = {
 
 		return {
 			get draft(): V | undefined {
-				return sharedEntry.state.val as V | undefined
+				return unwrap(sharedEntry.state.val as StoredDraft<V> | undefined)
 			},
 			set draft(value: V | undefined) {
 				// useLocalStorageValue's setter writes synchronously and
 				// removes the localStorage entry when value is undefined.
-				sharedEntry.state.val = value
+				sharedEntry.state.val = wrap(value)
 			}
 		}
 	}
