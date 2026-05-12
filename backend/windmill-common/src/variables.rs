@@ -50,6 +50,10 @@ pub struct ListableVariable {
     pub labels: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_specific: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edited_at: Option<chrono::DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edited_by: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, sqlx::FromRow)]

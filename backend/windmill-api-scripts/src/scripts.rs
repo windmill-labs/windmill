@@ -93,6 +93,11 @@ pub struct ScriptWDraft<SR> {
     pub tag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft: Option<sqlx::types::Json<Box<RawValue>>>,
+    /// Timestamp at which the most recent DB draft was created. Used by the
+    /// frontend's UserDraft staleness check to detect that a teammate (or
+    /// another tab) pushed a new draft while local autosave was in flight.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_created_at: Option<chrono::DateTime<chrono::Utc>>,
     pub schema: Option<Schema>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
@@ -170,6 +175,7 @@ impl ScriptWDraft<ScriptRunnableSettingsHandle> {
             kind: self.kind,
             tag: self.tag,
             draft: self.draft,
+            draft_created_at: self.draft_created_at,
             schema: self.schema,
             draft_only: self.draft_only,
             envs: self.envs,
@@ -978,12 +984,10 @@ async fn create_script_internal<'c>(
         .fetch_one(&mut *tx)
         .await?;
     }
-    let clashing_script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
-        &format!(
-            "SELECT {} FROM script WHERE path = $1 AND archived = false AND workspace_id = $2",
-            windmill_common::scripts::SCRIPT_COLUMNS,
-        ),
-    )
+    let clashing_script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(&format!(
+        "SELECT {} FROM script WHERE path = $1 AND archived = false AND workspace_id = $2",
+        windmill_common::scripts::SCRIPT_COLUMNS,
+    ))
     .bind(&ns.path)
     .bind(&w_id)
     .fetch_optional(&mut *tx)
@@ -1805,7 +1809,7 @@ async fn get_script_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = sqlx::query_as::<_, ScriptWDraft<ScriptRunnableSettingsHandle>>(
-        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, runnable_settings_handle, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, has_preprocessor, on_behalf_of_email, assets, modules, debounce_key, debounce_delay_s, labels FROM script LEFT JOIN draft ON
+        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, runnable_settings_handle, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, ws_error_handler_muted, draft.value as draft, draft.created_at as draft_created_at, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, has_preprocessor, on_behalf_of_email, assets, modules, debounce_key, debounce_delay_s, labels FROM script LEFT JOIN draft ON
          script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
          WHERE script.path = $1 AND script.workspace_id = $2
          ORDER BY script.created_at DESC LIMIT 1",
@@ -2282,12 +2286,10 @@ async fn get_script_by_hash_internal<'c>(
         .fetch_optional(&mut **db)
         .await?
     } else {
-        sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(
-            &format!(
-                "SELECT {}, NULL as starred FROM script WHERE hash = $1 AND workspace_id = $2",
-                windmill_common::scripts::SCRIPT_COLUMNS,
-            ),
-        )
+        sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(&format!(
+            "SELECT {}, NULL as starred FROM script WHERE hash = $1 AND workspace_id = $2",
+            windmill_common::scripts::SCRIPT_COLUMNS,
+        ))
         .bind(hash)
         .bind(workspace_id)
         .fetch_optional(&mut **db)

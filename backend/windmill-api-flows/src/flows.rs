@@ -1480,6 +1480,11 @@ pub struct FlowWDraft {
     pub extra_perms: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
+    /// Timestamp at which the most recent DB draft was created. Used by the
+    /// frontend's UserDraft staleness check to detect that a teammate (or
+    /// another tab) pushed a new draft while local autosave was in flight.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_created_at: Option<chrono::DateTime<chrono::Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1516,6 +1521,7 @@ async fn get_flow_by_path_w_draft(
             flow.ws_error_handler_muted,
             flow.dedicated_worker,
             draft.value AS draft,
+            draft.created_at AS draft_created_at,
             flow.tag,
             flow.visible_to_runner_only,
             flow.on_behalf_of_email,

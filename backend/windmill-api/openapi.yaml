@@ -9541,6 +9541,10 @@ paths:
                     properties:
                       draft:
                         $ref: "#/components/schemas/Flow"
+                      draft_created_at:
+                        type: string
+                        format: date-time
+                        description: Timestamp at which the most recent DB draft was created. Used by the frontend's UserDraft staleness check.
 
   /w/{workspace}/flows/exists/{path}:
     get:
@@ -21679,6 +21683,10 @@ components:
           properties:
             draft:
               $ref: "#/components/schemas/NewScript"
+            draft_created_at:
+              type: string
+              format: date-time
+              description: Timestamp at which the most recent DB draft was created. Used by the frontend's UserDraft staleness check.
             hash:
               type: string
           required:
@@ -22737,6 +22745,11 @@ components:
             type: string
         ws_specific:
           type: boolean
+        edited_at:
+          type: string
+          format: date-time
+        edited_by:
+          type: string
       required:
         - workspace_id
         - path
@@ -26731,6 +26744,10 @@ components:
             draft_only:
               type: boolean
             draft: {}
+            draft_created_at:
+              type: string
+              format: date-time
+              description: Timestamp at which the most recent DB draft was created. Used by the frontend's UserDraft staleness check.
 
     AppHistory:
       type: object
