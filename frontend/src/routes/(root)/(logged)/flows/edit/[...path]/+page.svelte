@@ -270,11 +270,7 @@
 {:else}
 	<FlowBuilder
 		onDeploy={(e) => {
-			// Don't UserDraft.remove here — the route's flowStore reads the
-			// handle's draft directly, so clearing it before goto would blank
-			// the flow value and trip UnsavedConfirmationModal. The entry's
-			// ref count drops on unmount and the next visit's load-time diff
-			// will silently overwrite localStorage with the deployed value.
+			UserDraft.remove('flow', flowDraftPath)
 			goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
 		}}
 		onDetails={(e) => {

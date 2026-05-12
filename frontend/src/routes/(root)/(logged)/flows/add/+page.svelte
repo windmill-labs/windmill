@@ -174,9 +174,11 @@
 
 <FlowBuilder
 	onSaveInitial={(e) => {
+		UserDraft.remove('flow', '')
 		goto(`/flows/edit/${e.path}?selected=${e.id}`)
 	}}
 	onDeploy={(e) => {
+		UserDraft.remove('flow', '')
 		goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
 	}}
 	onDetails={(e) => {
