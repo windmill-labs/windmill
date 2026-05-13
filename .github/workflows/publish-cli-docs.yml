@@ -46,16 +46,25 @@ jobs:
       - name: Commit and push if changed
         working-directory: windmill-cli-docs
         env:
-          VERSION_TAG: ${{ github.ref_name }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
         run: |
           git config user.name "windmill-bot"
           git config user.email "bot@windmill.dev"
           git add -A
           if git diff --cached --quiet; then
-            echo "No doc changes for ${VERSION_TAG}."
+            echo "No doc changes for ${REF_NAME}."
             exit 0
           fi
-          git commit -m "chore: sync from windmill ${VERSION_TAG}"
-          git tag -f "${VERSION_TAG}"
-          git push origin HEAD
-          git push origin "${VERSION_TAG}" --force
+          # Only mirror the version tag when triggered by a tag push.
+          # workflow_dispatch from main would otherwise create a junk tag
+          # named after the branch in the docs repo.
+          if [ "${REF_TYPE}" = "tag" ]; then
+            git commit -m "chore: sync from windmill ${REF_NAME}"
+            git tag -f "${REF_NAME}"
+            git push origin HEAD
+            git push origin "${REF_NAME}" --force
+          else
+            git commit -m "chore: sync from windmill (manual dispatch from ${REF_NAME})"
+            git push origin HEAD
+          fi
