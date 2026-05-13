@@ -1111,13 +1111,12 @@
 				}
 			})
 
-			// Show a ghost breakpoint while hovering the gutter on empty lines
+			// Show a ghost breakpoint while hovering the glyph margin on an empty line.
+			// Restricted to GUTTER_GLYPH_MARGIN (2) to match the click handler — showing
+			// the ghost over line numbers would mislead since clicks there don't toggle.
 			const mouseMoveDisposable = monacoEditor.onMouseMove((e) => {
-				// GUTTER_GLYPH_MARGIN = 2, GUTTER_LINE_NUMBERS = 3, GUTTER_LINE_DECORATIONS = 4
-				const t = e.target.type
-				const isGutter = t === 2 || t === 3 || t === 4
 				const line = e.target.position?.lineNumber
-				if (isGutter && line && !debugBreakpoints.has(line)) {
+				if (e.target.type === 2 && line && !debugBreakpoints.has(line)) {
 					updateHoverBreakpointDecoration(line)
 				} else {
 					clearHoverBreakpointDecoration()
