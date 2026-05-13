@@ -577,6 +577,63 @@ export function main() {
     Ok(())
 }
 
+/// Regression test: a `//nobundling` script that pulls a package whose CJS
+/// internals do bare-specifier `require()` of a sibling dependency.
+///
+/// Before the `--preserve-symlinks` fix, Bun 1.2/1.3+ would follow the
+/// directory symlink in `node_modules/@langchain/core` to its global cache
+/// entry, walk parent dirs from the cache realpath, and fail to find
+/// `node_modules/zod` — producing:
+///   ENOENT while resolving package 'zod/v3' from
+///   '.../cache_nomount/bun/@langchain/core@<ver>@@@1/dist/runnables/base.js'
+///
+/// The fix passes `--preserve-symlinks` so Bun resolves from the
+/// symlink path under `<job_dir>/node_modules/`, where `zod` is a sibling.
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_nobundling_transitive_require(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"//nobundling
+import { ChatPromptTemplate } from "@langchain/core/prompts";
+
+export async function main() {
+    const tpl = ChatPromptTemplate.fromMessages([
+        ["system", "you are a {role}"],
+        ["human", "{input}"],
+    ]);
+    const out = await tpl.formatMessages({ role: "tester", input: "ping" });
+    return out.length;
+}
+"#
+    .to_owned();
+
+    let job = JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        language: ScriptLang::Bun,
+        lock: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        modules: None,
+        tag: None,
+    });
+
+    let result = run_job_in_new_worker_until_complete(&db, false, job, port)
+        .await
+        .json_result()
+        .unwrap();
+
+    assert_eq!(result, serde_json::json!(2));
+    Ok(())
+}
+
 // ============================================================================
 // Native Mode Tests (requires deno_core feature)
 // ============================================================================

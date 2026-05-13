@@ -37,6 +37,7 @@ import {
 import {
 	applyEditableFlowJsonToFlow,
 	buildEditableFlowJson,
+	type EditableFlowJson,
 	validateEditableFlowJson
 } from '../flow/editableFlowJson'
 import { createInlineScriptSession } from '../flow/inlineScriptsUtils'
@@ -59,7 +60,6 @@ import {
 	type ToolCallbacks,
 	type ToolDisplayAction
 } from '../shared'
-import { flowModuleSchema, flowModulesSchema } from '../flow/openFlowZod.gen'
 import {
 	resourceRequestSchema,
 	scheduleRequestSchema,
@@ -149,22 +149,6 @@ const writeScriptSchema = z.object({
 	content: z.string().describe('Full script source code.')
 })
 
-const flowValueSchema = z
-	.looseObject({
-		modules: flowModulesSchema.describe('Sequential flow modules.'),
-		preprocessor_module: flowModuleSchema
-			.nullable()
-			.optional()
-			.describe(
-				"Optional preprocessor module with id 'preprocessor'. Runs before normal modules; cannot reference results.*."
-			),
-		failure_module: flowModuleSchema
-			.nullable()
-			.optional()
-			.describe("Optional failure handler module with id 'failure'.")
-	})
-	.describe('OpenFlow value: modules plus optional preprocessor_module and failure_module.')
-
 const readFlowModuleCodeSchema = z.object({
 	path: z.string().describe('Workspace path of the flow.'),
 	module_id: z
@@ -184,23 +168,80 @@ const setFlowModuleCodeSchema = z.object({
 	code: z.string().describe('New script source. Replaces the module\'s value.content entirely.')
 })
 
-// `value` is taken as a JSON string rather than a typed object because the
-// underlying flowValueSchema is recursive (modules can contain modules), which
-// makes z.toJSONSchema emit $defs/$ref. Gemini's tools API rejects those
-// keywords ("Unknown name $ref/$defs"). The string is parsed and validated
-// against flowValueSchema inside the handler. Same trick as set_flow_json in
-// chat/flow/core.ts (see comment on its schema).
+// Flow structure fields are taken as JSON strings rather than typed objects
+// because the underlying flow module schema is recursive (modules can contain
+// modules), which makes z.toJSONSchema emit $defs/$ref. Gemini's tools API
+// rejects those keywords ("Unknown name $ref/$defs"). Same trick as
+// set_flow_json in chat/flow/core.ts.
 const writeFlowSchema = z.object({
 	path: z
 		.string()
 		.describe('Workspace path of the flow, e.g. f/folder/name or u/user/name.'),
 	summary: z.string().optional().describe('Short human-readable summary.'),
-	value: z
+	modules: z.string().describe('JSON string containing the complete flow modules array.'),
+	schema: z
 		.string()
+		.optional()
+		.nullable()
+		.describe('JSON string containing the flow input schema.'),
+	preprocessor_module: z
+		.string()
+		.optional()
+		.nullable()
+		.describe('JSON string containing the optional preprocessor module.'),
+	failure_module: z
+		.string()
+		.optional()
+		.nullable()
+		.describe('JSON string containing the optional failure module.'),
+	groups: z
+		.string()
+		.optional()
+		.nullable()
 		.describe(
-			'JSON string of the OpenFlow value object: { modules, preprocessor_module?, failure_module? }. Pass it as a JSON-encoded string, not a nested object.'
+			'JSON string containing the optional array of semantic flow groups. Pass null to clear groups.'
 		)
 })
+
+function parseOptionalJsonArg(value: unknown, field: string): unknown {
+	if (value === undefined || value === null) {
+		return value
+	}
+
+	try {
+		return typeof value === 'string' ? JSON.parse(value) : value
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error)
+		throw new Error(`Invalid JSON for ${field}: ${message}`)
+	}
+}
+
+function editableFlowToDraftValue(editable: EditableFlowJson): FlowDraftValue {
+	const value: FlowValue = {
+		modules: editable.modules,
+		preprocessor_module: editable.preprocessor_module ?? undefined,
+		failure_module: editable.failure_module ?? undefined,
+		groups: editable.groups ?? undefined
+	}
+	return {
+		value,
+		schema: editable.schema,
+		groups: editable.groups
+	}
+}
+
+function flowDraftAsEditableInput(flowDraft: FlowDraftValue): {
+	value: FlowValue
+	schema?: Record<string, any> | null | undefined
+} {
+	return {
+		value:
+			flowDraft.groups === undefined
+				? flowDraft.value
+				: { ...flowDraft.value, groups: flowDraft.groups ?? undefined },
+		schema: flowDraft.schema
+	}
+}
 
 const writeScheduleSchema = scheduleRequestSchema
 
@@ -428,7 +469,7 @@ Important rules:
 - Use search_resource_types before write_resource to discover the resource_type name and the JSON Schema its value must match.
 - Use get_instructions before writing a script, flow, resource, or app. For scripts, pass the target language; when modifying, use the language from the item you read.
 - Schedules, triggers, and variables do not need get_instructions — their tool schemas describe every field.
-- A workspace item is { type, path, summary?, language?, triggerKind?, value, isDraft }. For scripts, value is the source code string. For flows, value is { value: <OpenFlow value>, schema, groups } so the inputs schema and groups round-trip through deploy. For schedules/triggers/resources/variables, value is the full request body for that type. For apps, value is { files, runnables, data?, policy?, custom_path? } with frontend file contents and backend runnable definitions.
+- A workspace item is { type, path, summary?, language?, triggerKind?, value, isDraft }. For scripts, value is the source code string. For flows, read_workspace_item returns value as the compact flow object { modules, schema, preprocessor_module, failure_module, groups }; write_flow takes the same flow fields as top-level tool arguments plus path/summary. For schedules/triggers/resources/variables, value is the full request body for that type. For apps, value is { files, runnables, data?, policy?, custom_path? } with frontend file contents and backend runnable definitions.
 - Apps (raw apps): use list_workspace_items with types: ['app'] to find them, read_workspace_item with type 'app' for a metadata summary (file paths + runnable list, no contents), then read_app_file to read individual files. Edit with write_app_file / patch_app_file / delete_app_file for frontend files and write_app_runnable / delete_app_runnable for backend runnables. Frontend file paths start with "/" (e.g. /index.tsx). Backend inline runnables are addressed as "backend/<key>/main.{ts|py}". /wmill.d.ts is generated and cannot be written.
 - To create a new raw app, use init_app. Before calling it, confirm framework (react19 / react18 / svelte5 / vue), path, and summary with the user — do not silently default to react19, even though it is the recommended choice.
 - Apps cannot be deployed from chat. The app editor bundles JS/CSS before save; tell the user to open the app editor to deploy app drafts.
@@ -496,7 +537,7 @@ function serializeWorkspaceItemForRead(item: WorkspaceItem): unknown {
 	if (item.type !== 'flow' || !item.value) return item
 	const flowDraft = item.value as FlowDraftValue
 	const session = createInlineScriptSession()
-	const editable = buildEditableFlowJson(flowDraft, session)
+	const editable = buildEditableFlowJson(flowDraftAsEditableInput(flowDraft), session)
 	return {
 		type: 'flow',
 		path: item.path,
@@ -1074,8 +1115,9 @@ function getFlowInstructions(): string {
 	return `# Global draft flow instructions
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
-- A flow draft is a workspace item: \`{ type: 'flow', path, summary?, value, isDraft }\` where \`value\` is \`{ value: <OpenFlow value object>, schema, groups }\`. The inputs schema and groups are kept alongside the OpenFlow value so deploy round-trips them.
-- \`value.modules\` contains normal sequential modules. Use top-level \`value.preprocessor_module\` and \`value.failure_module\` for special modules; do not put \`preprocessor\` or \`failure\` in \`value.modules\`.
+- \`write_flow\` mirrors flow mode's \`set_flow_json\`: pass \`path\`, optional \`summary\`, required \`modules\`, and optional \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\`. The flow-structure arguments are JSON strings, matching the tool schema descriptions.
+- \`read_workspace_item\` returns a compact flow \`value\` object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\`.
+- \`modules\` contains normal sequential modules. Use top-level \`preprocessor_module\` and \`failure_module\` for special modules; do not put \`preprocessor\` or \`failure\` in \`modules\`.
 - Every module needs a stable unique \`id\` and a useful \`summary\` when the schema supports it.
 - Prefer path/script/flow modules when composing existing workspace logic. Use rawscript modules only when new inline code is needed.
 - When writing rawscript module code, call \`get_instructions\` with \`subject: "script"\` and the rawscript language first.
@@ -1087,7 +1129,7 @@ function getFlowInstructions(): string {
   - \`read_flow_module_code(path, module_id)\` — returns the raw inline script content for one module.
   - \`set_flow_module_code(path, module_id, code)\` — overwrites that module's inline script content; saves to the AI draft.
 - Use \`patch_flow_json\` for *structural* edits: module ids, paths, input_transforms, branch arrangement, summaries, preprocessor/failure swaps, schema/groups. Use \`set_flow_module_code\` for changes inside a specific rawscript body.
-- \`write_flow\` is for full overwrites / create-from-scratch. Its \`value\` argument is the **non-compact** OpenFlow value (rawscript content is the actual code, not a placeholder).
+- \`write_flow\` is for full overwrites / create-from-scratch. Its \`modules\`, \`preprocessor_module\`, and \`failure_module\` arguments use **non-compact** flow modules (rawscript content is the actual code, not a placeholder).
 
 # Windmill flow authoring reference
 
@@ -1271,35 +1313,29 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeFlowSchema,
 			'write_flow',
-			'Create or overwrite an AI draft flow. Does not save or deploy. Read the existing flow first when overwriting. value must be a JSON-encoded string of the OpenFlow value object.'
+			'Create or overwrite an AI draft flow. Does not save or deploy. Read the existing flow first when overwriting. Uses the same flow-structure arguments as set_flow_json plus path and summary.'
 		),
 		showDetails: true,
 		streamArguments: true,
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = writeFlowSchema.parse(ctx.args)
-			let value: unknown
-			try {
-				value = JSON.parse(parsed.value)
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error)
-				throw new Error(`Invalid JSON for value: ${message}`)
-			}
-			const validated = flowValueSchema.safeParse(value)
-			if (!validated.success) {
-				throw new Error(
-					`Invalid flow value: ${validated.error.issues
-						.slice(0, 5)
-						.map((i) => `${i.path.join('.')}: ${i.message}`)
-						.join('; ')}`
-				)
-			}
+			const editable = validateEditableFlowJson({
+				modules: parseOptionalJsonArg(parsed.modules, 'modules'),
+				schema: parseOptionalJsonArg(parsed.schema, 'schema'),
+				preprocessor_module: parseOptionalJsonArg(
+					parsed.preprocessor_module,
+					'preprocessor_module'
+				),
+				failure_module: parseOptionalJsonArg(parsed.failure_module, 'failure_module'),
+				groups: parseOptionalJsonArg(parsed.groups, 'groups')
+			})
 			return writeDraft(
 				{
 					type: 'flow',
 					path: parsed.path,
 					summary: parsed.summary,
-					value: { value: validated.data as FlowValue, schema: null, groups: null },
+					value: editableFlowToDraftValue(editable),
 					isDraft: true
 				},
 				ctx
@@ -1683,7 +1719,7 @@ async function patchFlowJson(
 	// model uses set_flow_module_code to change inline script bodies.
 	const base = await loadFlowDraftValue(path, ctx.workspace)
 	const session = createInlineScriptSession()
-	const editable = buildEditableFlowJson(base.flow, session)
+	const editable = buildEditableFlowJson(flowDraftAsEditableInput(base.flow), session)
 	const currentJson = JSON.stringify(editable)
 	const updatedJson = findAndReplace(
 		currentJson,
@@ -1730,7 +1766,7 @@ async function readFlowModuleCode(
 	})
 	const base = await loadFlowDraftValue(args.path, workspace)
 	const session = createInlineScriptSession()
-	buildEditableFlowJson(base.flow, session)
+	buildEditableFlowJson(flowDraftAsEditableInput(base.flow), session)
 	const content = session.get(args.module_id)
 	if (content === undefined) {
 		throw new Error(
@@ -1753,7 +1789,7 @@ async function setFlowModuleCode(
 	})
 	const base = await loadFlowDraftValue(args.path, workspace)
 	const session = createInlineScriptSession()
-	const editable = buildEditableFlowJson(base.flow, session)
+	const editable = buildEditableFlowJson(flowDraftAsEditableInput(base.flow), session)
 	if (!session.has(args.module_id)) {
 		throw new Error(
 			`Module "${args.module_id}" is not an inline rawscript in flow "${args.path}". Use patch_flow_json or write_flow for structural changes.`
@@ -2342,6 +2378,10 @@ async function writeDraft(item: WorkspaceItem, ctx: WriteDraftCtx): Promise<stri
 		(await workspaceItemExists(item.type, item.path, workspace, item.triggerKind))
 
 	const stored = globalDraftStore.setDraft(workspace, item)
+	const serializedItem =
+		stored.type === 'variable' || stored.type === 'flow'
+			? serializeWorkspaceItemForRead(stored)
+			: stored
 
 	const verb = exists ? 'Updated' : 'Created'
 	toolCallbacks.setToolStatus(toolId, {
@@ -2352,7 +2392,7 @@ async function writeDraft(item: WorkspaceItem, ctx: WriteDraftCtx): Promise<stri
 		{
 			success: true,
 			message: `${verb} AI draft ${item.type} "${item.path}". The workspace was not saved or deployed.`,
-			item: stored.type === 'variable' ? serializeWorkspaceItemForRead(stored) : stored
+			item: serializedItem
 		},
 		null,
 		2

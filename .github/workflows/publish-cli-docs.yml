@@ -1,0 +1,84 @@
+name: Publish CLI docs repo
+
+# Regenerates the windmill-cli-docs repo (consumed by context7) from the
+# canonical sources in this repo on every Windmill release.
+#
+# Required secret:
+#   CLI_DOCS_DEPLOY_KEY — ed25519 private key whose public half is registered
+#                        as a write-access deploy key on
+#                        windmill-labs/windmill-cli-docs.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+# Serialize pushes to windmill-cli-docs so two release tags landing close
+# together (e.g. a release-please bump + a hotfix) can't race to force-push
+# the docs repo.
+concurrency:
+  group: publish-cli-docs
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout windmill (source of truth)
+        uses: actions/checkout@v4
+        with:
+          path: windmill
+
+      - name: Checkout windmill-cli-docs (publish target)
+        uses: actions/checkout@v4
+        with:
+          repository: windmill-labs/windmill-cli-docs
+          path: windmill-cli-docs
+          ssh-key: ${{ secrets.CLI_DOCS_DEPLOY_KEY }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Regenerate docs
+        run: |
+          python3 windmill/system_prompts/generate.py \
+            --context7-dir "$GITHUB_WORKSPACE/windmill-cli-docs"
+
+      - name: Commit and push if changed
+        working-directory: windmill-cli-docs
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          git config user.name "windmill-bot"
+          git config user.email "bot@windmill.dev"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No doc changes for ${REF_NAME}."
+            committed=false
+          else
+            committed=true
+            if [ "${REF_TYPE}" = "tag" ]; then
+              git commit -m "chore: sync from windmill ${REF_NAME}"
+            else
+              git commit -m "chore: sync from windmill (manual dispatch from ${REF_NAME})"
+            fi
+            git push origin HEAD
+          fi
+          # Always mirror the version tag on tag pushes, even when content
+          # didn't change — downstream consumers tie snapshots to releases by
+          # tag, and skipping it would leave the docs repo without a tag for
+          # the new Windmill release.
+          # workflow_dispatch from a non-tag ref skips this so we don't
+          # create a junk tag named after a branch.
+          if [ "${REF_TYPE}" = "tag" ]; then
+            git tag -f "${REF_NAME}"
+            git push origin "${REF_NAME}" --force
+            echo "Mirrored tag ${REF_NAME} to windmill-cli-docs (content changed: ${committed})."
+          fi

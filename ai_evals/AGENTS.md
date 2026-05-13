@@ -6,6 +6,7 @@ This folder contains black-box benchmark cases for:
 - `app`
 - `script`
 - `cli`
+- `global`
 
 The goal is to test the current production prompts and guidance with realistic user requests, not to test one exact implementation shape.
 
@@ -74,6 +75,16 @@ CLI prompts can be more explicit about paths and file names because real CLI use
 Still, avoid benchmark phrasing. The prompt should read like a repo task, not a harness instruction.
 
 When relevant, ask the assistant to tell the user which `wmill` commands to run next. That is part of the benchmarked behavior.
+
+## Global-specific rules
+
+Global prompts should exercise workspace-level drafting behavior:
+
+- inspecting existing scripts, flows, apps, schedules, triggers, resources, and variables when relevant
+- writing AI drafts rather than saving or deploying by default
+- producing coherent multi-artifact changes when the request crosses artifact boundaries
+
+Keep deterministic validation focused on the draft contract: required draft type/path, required content snippets, forbidden draft paths, and forbidden mutating tools such as deploy/delete unless the case explicitly asks for them.
 
 ## Deterministic validation
 

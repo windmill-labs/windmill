@@ -111,6 +111,10 @@ kind: script
 function createFlowFixture(name: string): Record<string, { path: string; content: string }> {
   const flowSuffix = getFolderSuffix("flow");
   const metadataFile = getMetadataFileName("flow", "yaml");
+  // !inline paths are resolved relative to the flow folder (see
+  // pushFlow's fileReader in cli/src/commands/flow/flow.ts), so the
+  // path inside the directive must NOT include the flow folder prefix.
+  const scriptFile = "a.ts";
 
   return {
     metadata: {
@@ -122,7 +126,7 @@ value:
     - id: a
       value:
         type: rawscript
-        content: "!inline ${name}${flowSuffix}/a.ts"
+        content: "!inline ${scriptFile}"
         language: bun
         input_transforms: {}
 schema:
@@ -133,7 +137,7 @@ schema:
 `,
     },
     inlineScript: {
-      path: `${name}${flowSuffix}/a.ts`,
+      path: `${name}${flowSuffix}/${scriptFile}`,
       content: `export async function main() {\n  return "Hello from flow ${name}";\n}`,
     },
   };
