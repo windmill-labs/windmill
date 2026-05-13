@@ -94,13 +94,19 @@ vi.mock('$lib/gen', async () => {
 			existsApp: vi.fn(async () => false)
 		}),
 		VariableService: wrapService(actual.VariableService, {
-			existsVariable: vi.fn(async () => false)
+			existsVariable: vi.fn(async () => false),
+			getVariable: vi.fn(async ({ path }: { path: string }) => ({
+				path,
+				value: 'super-secret-token',
+				is_secret: true,
+				description: 'API key'
+			})),
+			listVariable: vi.fn(async () => [])
 		})
 	}
 })
 
 import { globalTools } from './core'
-import { globalDraftStore } from './draftStore.svelte'
 import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
 import type { Tool, ToolCallbacks } from '../shared'
 
@@ -131,10 +137,16 @@ async function callGlobalTool(name: string, args: Record<string, unknown>): Prom
 
 describe('global AI tools', () => {
 	beforeEach(() => {
-		globalDraftStore.clearDrafts(WORKSPACE)
 		__resetUserDraftForTesting()
 		localStorage.clear()
 		vi.clearAllMocks()
+	})
+
+	it('does not expose resource or variable draft writers until their UserDraft contracts are complete', () => {
+		const toolNames = globalTools.map((tool) => tool.def.function.name)
+
+		expect(toolNames).not.toContain('write_resource')
+		expect(toolNames).not.toContain('write_variable')
 	})
 
 	it('writes script drafts into the shared UserDraft store', async () => {
@@ -269,14 +281,7 @@ describe('global AI tools', () => {
 		])
 	})
 
-	it('redacts variable draft values when reading workspace items', async () => {
-		await callGlobalTool('write_variable', {
-			path: 'f/secrets/api_key',
-			value: 'super-secret-token',
-			is_secret: true,
-			description: 'API key'
-		})
-
+	it('redacts existing variable values when reading workspace items', async () => {
 		const raw = await callGlobalTool('read_workspace_item', {
 			type: 'variable',
 			path: 'f/secrets/api_key'
@@ -288,7 +293,7 @@ describe('global AI tools', () => {
 			type: 'variable',
 			path: 'f/secrets/api_key',
 			summary: 'API key',
-			isDraft: true
+			isDraft: false
 		})
 	})
 
