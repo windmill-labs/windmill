@@ -1798,10 +1798,9 @@ CONTEXT7_PRESERVE = frozenset(
     }
 )
 
-# Marker files that identify a directory as the context7 docs target.
-# clear_context7_dir refuses to wipe a non-empty dir that has none of these
-# (or a matching git remote), so a typo like `--context7-dir .` fails safe.
-CONTEXT7_MARKERS = ("context7.json", "manifest.json")
+# Name written into manifest.json — also used to recognise the docs repo
+# when re-generating into an existing checkout.
+CONTEXT7_REPO_NAME = "windmill-cli-docs"
 
 
 def extract_agents_md_template() -> str:
@@ -1868,20 +1867,37 @@ def build_skill_desc_map(skills: list[str]) -> dict[str, str]:
     return desc_map
 
 
+def _looks_like_windmill_manifest(path: Path) -> bool:
+    """Return True iff `path` is a JSON file whose top-level `name` is ours.
+
+    Used to distinguish a previously-generated docs repo from an unrelated
+    project that happens to have a `manifest.json` (Chrome extensions, npm
+    packages, web app manifests, etc.).
+    """
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return False
+    return isinstance(data, dict) and data.get("name") == CONTEXT7_REPO_NAME
+
+
 def _verify_context7_target(target_dir: Path) -> None:
     """Refuse to wipe a non-empty dir that doesn't look like the docs repo.
 
     A typo such as `--context7-dir .`, `~`, or the wrong checkout could
     otherwise nuke unrelated files. We accept the target if it's empty/new,
-    if it contains a known marker file, or if its git origin points at a
-    `windmill-cli-docs` remote.
+    if it has our ownership file, if its `manifest.json` self-identifies as
+    the windmill-cli-docs repo, or if its git origin points at one.
     """
     if not target_dir.exists() or not any(target_dir.iterdir()):
         return
 
-    for marker in CONTEXT7_MARKERS:
-        if (target_dir / marker).exists():
-            return
+    if (target_dir / "context7.json").exists():
+        return
+
+    manifest_path = target_dir / "manifest.json"
+    if manifest_path.exists() and _looks_like_windmill_manifest(manifest_path):
+        return
 
     git_dir = target_dir / ".git"
     if git_dir.exists():
@@ -1894,17 +1910,19 @@ def _verify_context7_target(target_dir: Path) -> None:
                 text=True,
                 check=True,
             ).stdout.strip()
-            if "windmill-cli-docs" in origin:
+            if CONTEXT7_REPO_NAME in origin:
                 return
         except subprocess.CalledProcessError:
             pass
 
     raise RuntimeError(
-        f"Refusing to overwrite {target_dir}: no context7 marker found.\n"
-        f"Expected one of {list(CONTEXT7_MARKERS)} at the top level, or a git "
-        f"remote 'origin' containing 'windmill-cli-docs'.\n"
-        f"If this is the right directory, add a `context7.json` (or commit one) "
-        f"and retry."
+        f"Refusing to overwrite {target_dir}: target does not look like the "
+        f"{CONTEXT7_REPO_NAME} docs repo.\n"
+        f"Expected one of:\n"
+        f"  - a `context7.json` at the top level,\n"
+        f"  - a `manifest.json` whose top-level `name` is {CONTEXT7_REPO_NAME!r},\n"
+        f"  - a git remote `origin` containing '{CONTEXT7_REPO_NAME}'.\n"
+        f"If this is the right directory, add a `context7.json` and retry."
     )
 
 
@@ -1983,8 +2001,10 @@ def generate_context7_repo(
     (target_dir / "README.md").write_text(_context7_readme(skills))
 
     # Machine-readable index for context7 / downstream consumers.
+    # Note: the `name` field is also the marker `_verify_context7_target`
+    # uses to distinguish our `manifest.json` from generic ones.
     manifest = {
-        "name": "windmill-cli-docs",
+        "name": CONTEXT7_REPO_NAME,
         "description": (
             "Auto-generated Windmill CLI docs: agent prompt, skills, and "
             "full CLI reference. Source: github.com/windmill-labs/windmill."
