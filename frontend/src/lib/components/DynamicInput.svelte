@@ -22,9 +22,10 @@
 	import { safeSelectItems } from './select/utils.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { type DynamicInput } from '$lib/utils'
+	import { emptySchema, type DynamicInput } from '$lib/utils'
 	import { deepEqual } from 'fast-equals'
 	import { untrack } from 'svelte'
+	import { inferArgs } from '$lib/infer'
 
 	interface Props {
 		value?: any
@@ -125,9 +126,48 @@
 		}, 1000)
 	})
 
+	// Parameter names declared by the helper function. When known, we restrict
+	// the change-detection to only those keys so typing in unrelated form fields
+	// no longer retriggers the dynselect job.
+	let helperParams = $state<Set<string> | undefined>(undefined)
+
+	$effect(() => {
+		const script = helperScript
+		const ep = entrypoint
+		helperParams = undefined
+		if (!script || script.source !== 'inline') return
+		let cancelled = false
+		;(async () => {
+			try {
+				const schema = emptySchema()
+				await inferArgs(script.lang, script.code, schema, ep || undefined)
+				if (!cancelled) {
+					helperParams = new Set(Object.keys(schema.properties ?? {}))
+				}
+			} catch {
+				if (!cancelled) helperParams = undefined
+			}
+		})()
+		return () => {
+			cancelled = true
+		}
+	})
+
+	function filterArgs(args: Record<string, any> | undefined) {
+		if (!args || !helperParams) return args
+		const filtered: Record<string, any> = {}
+		for (const k of helperParams) {
+			if (k in args) filtered[k] = args[k]
+		}
+		return filtered
+	}
+
 	$effect(() => {
 		;[filterText, entrypoint, helperScript]
-		if (resultJobLoader && (open || neverLoaded || !deepEqual(lastArgs, nargs))) {
+		if (
+			resultJobLoader &&
+			(open || neverLoaded || !deepEqual(filterArgs(lastArgs), filterArgs(nargs)))
+		) {
 			neverLoaded = false
 			lastArgs = $state.snapshot(otherArgs)
 			_items.refresh()
