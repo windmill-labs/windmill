@@ -1,0 +1,23 @@
+{
+  "workspace": {
+    "scripts": [
+      {
+        "path": "f/evals/global/format_greeting",
+        "summary": "Format a greeting for a provided name",
+        "description": "Returns a plain greeting for the provided name.",
+        "language": "bun",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": ["name"]
+        },
+        "content": "export async function main(name: string) {\n  return `Hello, ${name}`\n}\n"
+      }
+    ]
+  }
+}

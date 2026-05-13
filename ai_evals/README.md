@@ -1,11 +1,12 @@
 # AI Evals
 
-Small benchmark runner for the four Windmill AI generation modes:
+Small benchmark runner for the Windmill AI generation modes:
 
 - `cli`
 - `flow`
 - `script`
 - `app`
+- `global`
 
 The benchmark always tests the current production prompts, tools, and guidance in this checkout.
 
@@ -57,6 +58,7 @@ bun run cli -- run flow flow-test0-sum-two-numbers --runs 3 --verbose
 bun run cli -- run flow --record
 GEMINI_API_KEY=... bun run cli -- run app app-test1-counter-create --model gemini-pro
 WMILL_AI_EVAL_BACKEND_URL=http://127.0.0.1:8000 bun run cli -- run flow --backend-validation preview
+bun run cli -- run global global-test1-script-create
 bun run cli -- run cli bun-hello-script
 ```
 
@@ -94,7 +96,7 @@ Today:
 Notes:
 
 - the command also prints accepted alias spellings such as `gpt-4o`, `claude-opus-4.6`, and `claude-haiku-4.5`
-- frontend modes (`flow`, `script`, `app`) can use Anthropic, OpenAI, and Gemini-backed aliases
+- frontend modes (`flow`, `script`, `app`, `global`) can use Anthropic, OpenAI, and Gemini-backed aliases
 - `cli` mode always uses the Anthropic agent SDK, so only Anthropic aliases are valid there
 - the judge model is separate and currently defaults to `claude-sonnet-4-6`
 
@@ -132,6 +134,13 @@ For `app` mode, `validate` can express narrow hard requirements such as:
 - required backend runnable types
 - minimum datatable / datatable-table counts
 - specific required datatable tables
+
+For `global` mode, `validate` can express draft-level requirements such as:
+
+- required draft type/path/language
+- required or forbidden snippets in draft values
+- required or forbidden draft counts
+- forbidden draft paths
 
 App fixtures can also include an optional `datatables.json` file at the fixture root.
 
@@ -174,6 +183,7 @@ If `--record` is used, the CLI also appends one compact JSON line to:
 - `ai_evals/history/flow.jsonl`
 - `ai_evals/history/script.jsonl`
 - `ai_evals/history/app.jsonl`
+- `ai_evals/history/global.jsonl`
 - `ai_evals/history/cli.jsonl`
 
 Each recorded line contains:
@@ -194,6 +204,7 @@ Typical artifacts by mode:
 - `flow`: `flow.json`
 - `script`: `script.json` plus the generated script file
 - `app`: `app.json` plus frontend/backend files
+- `global`: `global-drafts.json`
 - `cli`: `assistant-output.txt`, `trace.json`, `wmill-invocations.jsonl`, plus generated workspace files
 - backend-validated attempts also include `backend-preview.json`
 
@@ -209,6 +220,7 @@ Typical artifacts by mode:
 ## Notes
 
 - Frontend modes reuse the production frontend chat code through the Vitest bridge.
+- Global mode evaluates the production global AI tools and validates the resulting AI draft store.
 - CLI mode creates an isolated workspace, writes the current checkout guidance into it, and benchmarks the real skills / `AGENTS.md` flow.
 - CLI mode now also records a structured trace of invoked skills, tool calls, proposed `wmill` commands, and any attempted `wmill` executions.
 - Frontend progress streams live while the benchmark is running.

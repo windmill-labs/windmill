@@ -1,4 +1,4 @@
-export type FrontendBenchmarkProgressSurface = 'flow' | 'app' | 'script'
+export type FrontendBenchmarkProgressSurface = 'flow' | 'app' | 'script' | 'global'
 
 export type FrontendBenchmarkProgressEvent =
 	| {
