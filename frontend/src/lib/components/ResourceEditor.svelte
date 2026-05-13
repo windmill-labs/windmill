@@ -1,8 +1,8 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import { ResourceService, WorkspaceService, type Resource, type ResourceType } from '$lib/gen'
-	import { canWrite, readFieldsRecursively } from '$lib/utils'
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { canWrite } from '$lib/utils'
+	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
@@ -12,7 +12,7 @@
 	import { deepEqual } from 'fast-equals'
 	import { getUserExt } from '$lib/user'
 	import type { UserExt } from '$lib/stores'
-	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraft, type UserDraftHandle } from '$lib/userDraft.svelte'
 
 	interface Props {
 		canSave?: boolean
@@ -44,24 +44,39 @@
 		wsSpecific: boolean
 	}
 
-	// The local autosave is the entire `states` map, keyed by target workspace.
-	// This editor can edit several workspaces in one session (cross-workspace
-	// deploys); persisting only the current workspace would silently drop
-	// edits made on the other tabs.
-	type ResourceDraft = Record<string, ResourceState>
-
 	const dispatch = createEventDispatcher()
 
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
 	let initialPath = path
 
-	const resourceDraftHandle = UserDraft.use<ResourceDraft>('resource', initialPath ?? '')
-
-	let states: Record<string, ResourceState> = $state({})
+	// Per-workspace handles. Each workspace's autosave lives at its own
+	// localStorage key (`userdraft/w/{ws}/resource/{initialPath}`) so editing
+	// the same path across two workspaces stays cleanly separated.
+	let states: Record<string, UserDraftHandle<ResourceState>> = $state({})
 	let initialStates: Record<string, ResourceState> = $state({})
 	let existedInitially: Record<string, boolean> = $state({})
 	let fetchedResources: Record<string, Resource> = $state({})
 	let perWsUser: Record<string, UserExt | undefined> = $state({})
+
+	onDestroy(() => {
+		for (const h of Object.values(states)) h.release()
+	})
+
+	/** Create (or reuse) a per-workspace handle, seeding it with `baseline` if
+	 * no local autosave is already present. */
+	function ensureHandle(ws: string, baseline: ResourceState): UserDraftHandle<ResourceState> {
+		if (states[ws]) return states[ws]
+		const h = UserDraft.use<ResourceState>('resource', initialPath ?? '', {
+			workspace: ws,
+			manualRelease: true
+		})
+		// Existing autosave wins; only seed when there's nothing persisted yet.
+		// The seed itself doesn't persist (saveInitialValue=false) — only the
+		// user's first real edit triggers a write.
+		if (h.draft === undefined) h.draft = baseline
+		states[ws] = h
+		return h
+	}
 
 	let isValid = $state(true)
 	let jsonError = $state('')
@@ -94,7 +109,7 @@
 	})
 	let loadingSchema = $derived(resourceTypeResource.loading)
 
-	let current = $derived(selected ? states[selected] : undefined)
+	let current = $derived(selected ? states[selected]?.draft : undefined)
 	let resourceToEdit: Resource | undefined = $derived(
 		selected ? fetchedResources[selected] : undefined
 	)
@@ -116,7 +131,7 @@
 	)
 
 	const dirtyWorkspaces = $derived(
-		Object.keys(states).filter((ws) => !deepEqual(states[ws], initialStates[ws]))
+		Object.keys(states).filter((ws) => !deepEqual(states[ws].draft, initialStates[ws]))
 	)
 	const anyDirty = $derived(dirtyWorkspaces.length > 0)
 	const otherDirty = $derived(
@@ -130,25 +145,24 @@
 			const r = fetchedResources[ws]
 			return (
 				!r ||
-				canWrite(states[ws]?.path ?? initialPath, r.extra_perms ?? {}, perWsUser[ws] ?? $userStore)
+				canWrite(
+					states[ws]?.draft?.path ?? initialPath,
+					r.extra_perms ?? {},
+					perWsUser[ws] ?? $userStore
+				)
 			)
 		})
 	)
 
-	// Bootstrap: ensure selected is set on mount (edit or new). For new
-	// resources we also rehydrate from a local autosave (UserDraft) so
-	// returning to the drawer mid-edit keeps your work — including edits
-	// staged for additional target workspaces.
+	// Bootstrap: ensure selected is set on mount (edit or new)
 	$effect(() => {
 		if (selected !== undefined) return
 		if (!effectiveWorkspace) return
 		untrack(() => {
 			selected = effectiveWorkspace
 			if (!initialPath) {
-				const localBundle = resourceDraftHandle.draft
-				const localFor = (ws: string): ResourceState | undefined => localBundle?.[ws]
-
-				const baseState: ResourceState = {
+				// New resource
+				const s: ResourceState = {
 					path: '',
 					description: '',
 					args: (defaultValues && Object.keys(defaultValues).length > 0
@@ -157,23 +171,9 @@
 					labels: undefined,
 					wsSpecific: false
 				}
-
-				const local = localFor(effectiveWorkspace)
-				states[effectiveWorkspace] = local ? structuredClone(local) : baseState
-				// For new resources the "initial state" is the pristine empty
-				// state — that's the baseline dirty is computed against.
-				initialStates[effectiveWorkspace] = structuredClone(baseState)
+				ensureHandle(effectiveWorkspace, s)
+				initialStates[effectiveWorkspace] = structuredClone(s)
 				existedInitially[effectiveWorkspace] = false
-
-				// Restore any other workspaces the user had staged edits for.
-				if (localBundle) {
-					for (const ws of Object.keys(localBundle)) {
-						if (ws === effectiveWorkspace) continue
-						states[ws] = structuredClone(localBundle[ws])
-						initialStates[ws] = structuredClone(baseState)
-						existedInitially[ws] = false
-					}
-				}
 			}
 		})
 	})
@@ -189,22 +189,15 @@
 				getUserExt(ws)
 			]).then(([r, user]) => {
 				fetchedResources[ws] = r
-				const backendState: ResourceState = {
+				const s: ResourceState = {
 					path: r.path,
 					description: r.description ?? '',
 					args: (r.value ?? {}) as any,
 					labels: r.labels ?? undefined,
 					wsSpecific: r.ws_specific ?? false
 				}
-				// If the local autosave has a saved state for *this* workspace
-				// and it diverges from the backend, use the local one. The
-				// localStorage entry itself lives under the user's session
-				// workspace (UserDraft's key) regardless of which target
-				// workspace this state belongs to.
-				const localState = resourceDraftHandle.draft?.[ws]
-				const useLocal = localState && !deepEqual(localState, backendState)
-				states[ws] = useLocal ? structuredClone(localState) : backendState
-				initialStates[ws] = structuredClone(backendState)
+				ensureHandle(ws, s)
+				initialStates[ws] = structuredClone(s)
 				existedInitially[ws] = true
 				perWsUser[ws] = user
 				// Keep resource_type in sync for the base workspace (controls the schema)
@@ -213,13 +206,6 @@
 				}
 			})
 		})
-	})
-
-	// Auto-persist the full multi-workspace edit bundle on every mutation.
-	// useLocalStorageValue's lastSerialized check dedupes writes.
-	$effect(() => {
-		readFieldsRecursively(states)
-		resourceDraftHandle.draft = states
 	})
 
 	// Keep current.path bound to the outer `path` prop for consumers
@@ -257,7 +243,7 @@
 		const dirty = dirtyWorkspaces
 		try {
 			for (const ws of dirty) {
-				const s = states[ws]
+				const s = states[ws].draft!
 				const ini = initialStates[ws]
 				if (existedInitially[ws]) {
 					await ResourceService.updateResource({
@@ -288,11 +274,14 @@
 						}
 					})
 				}
+				// Saved on the backend — drop the local autosave for this
+				// workspace and refresh the dirty baseline.
+				initialStates[ws] = structuredClone(s)
+				UserDraft.remove('resource', initialPath ?? '', { workspace: ws })
 			}
 			sendUserToast(
 				dirty.length > 1 ? `Saved resource in ${dirty.length} workspaces` : `Saved resource`
 			)
-			UserDraft.remove('resource', initialPath ?? '')
 			dispatch('refresh', current?.path ?? path)
 		} catch (err) {
 			sendUserToast(`Could not save resource: ${err.body ?? err.message}`, true)

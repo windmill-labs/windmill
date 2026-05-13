@@ -40,6 +40,14 @@ export type UserDraftUseOptions<V> = UserDraftOptions & {
 	 * actual mutation is what writes to localStorage.
 	 */
 	defaultValue?: V
+	/**
+	 * When `true`, skip the automatic `onDestroy` registration. The caller is
+	 * responsible for invoking `handle.release()` to decrement the entry's
+	 * refcount. Useful when handles are created dynamically (e.g. inside an
+	 * effect) where `onDestroy` can no longer be called — Svelte 5 only
+	 * accepts lifecycle hooks during component initialization.
+	 */
+	manualRelease?: boolean
 }
 
 /**
@@ -230,6 +238,12 @@ export type UserDraftHandle<V> = {
 	 * just acknowledged it.
 	 */
 	setMeta(meta: UserDraftMeta, opts?: { force?: boolean }): void
+	/**
+	 * Manually decrement the entry's refcount. Only required when `use()` was
+	 * called with `manualRelease: true` — otherwise an `onDestroy` is already
+	 * wired in. Calling this more than once for the same handle is a no-op.
+	 */
+	release(): void
 }
 
 export const UserDraft = {
@@ -371,14 +385,21 @@ export const UserDraft = {
 
 		const sharedEntry = entry
 
-		onDestroy(() => {
+		let released = false
+		const release = (): void => {
+			if (released) return
+			released = true
 			const e = entries.get(mk)
 			if (!e) return
 			e.count--
 			if (e.count <= 0) {
 				entries.delete(mk)
 			}
-		})
+		}
+
+		if (!opts?.manualRelease) {
+			onDestroy(release)
+		}
 
 		return {
 			get draft(): V | undefined {
@@ -405,7 +426,8 @@ export const UserDraft = {
 				if (opts?.force && !isLocalOnly(path)) {
 					persistDirect(localStorageKey(ws, itemKind, path), current.value, meta)
 				}
-			}
+			},
+			release
 		}
 	}
 }

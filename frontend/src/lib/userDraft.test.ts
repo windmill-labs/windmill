@@ -471,4 +471,26 @@ describe('UserDraft.use() — reference counting & cleanup', () => {
 		const b = UserDraft.use<string>('flow', 'u/me/cycle')
 		expect(b.draft).toBe('edited')
 	})
+
+	it('manualRelease=true skips onDestroy registration and gates cleanup behind handle.release()', () => {
+		// Caller opts out of the auto-onDestroy — used by routes that create
+		// handles dynamically (e.g. ResourceEditor's per-workspace handles).
+		const h = UserDraft.use<string>('flow', 'u/me/manual', { manualRelease: true })
+		expect(onDestroyCallbacks.length).toBe(0)
+		h.draft = 'initial' // baseline
+		h.draft = 'edited' // persisted
+
+		// Without release(), the entry stays alive — a co-resident handle
+		// sees the same in-memory state.
+		const h2 = UserDraft.use<string>('flow', 'u/me/manual', { manualRelease: true })
+		expect(h2.draft).toBe('edited')
+		h.release()
+		// h2 still holds the entry. Releasing both clears it.
+		UserDraft.save('flow', 'u/me/manual', 'edited2')
+		expect(h2.draft).toBe('edited2')
+
+		h2.release()
+		// Second release on the same handle is a no-op — refcount stays at 0.
+		h2.release()
+	})
 })
