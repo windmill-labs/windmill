@@ -34,6 +34,28 @@
 	const draftPath = hash ? '' : (page.params.path ?? '')
 	const scriptHandle = UserDraft.use<EditableScript>('script', draftPath)
 
+	/** Some pages base64-JSON-encode a NewScript-like payload into the URL
+	 * hash on `/scripts/edit/<path>#…`. Treat it as a one-shot seed that
+	 * wins over local autosave + backend draft + deployed: apply, toast,
+	 * strip from the URL. Same logic as /scripts/add, kept in this file for
+	 * a faithful mirror of its decoder.
+	 *
+	 * Can't reuse `decodeState` from utils.ts — it fires its own error toast
+	 * on parse failure, which would noise up the UI for unrelated anchors.
+	 */
+	function decodeUrlScriptSeed(): Partial<EditableScript> | undefined {
+		const fragment = page.url.hash.startsWith('#') ? page.url.hash.slice(1) : ''
+		if (!fragment) return undefined
+		try {
+			const decoded = JSON.parse(decodeURIComponent(atob(fragment)))
+			if (decoded && typeof decoded === 'object') return decoded as Partial<EditableScript>
+		} catch {
+			// Hash isn't a valid encoded script — ignore.
+		}
+		return undefined
+	}
+	let urlScriptSeed = decodeUrlScriptSeed()
+
 	let initialPath: string = $state('')
 
 	let scriptBuilder: ScriptBuilder | undefined = $state(undefined)
@@ -124,7 +146,24 @@
 				parent_hash: topHash ?? scriptWithDraft.hash
 			}
 
-			if (localDraft != undefined) {
+			if (urlScriptSeed) {
+				// URL hash seed wins over local autosave + backend draft + deployed.
+				// Wipe the stale autosave on disk so the in-memory seed becomes the
+				// only source — the user's subsequent edits will overwrite cleanly.
+				const seeded = { ...bakedBaseline, ...urlScriptSeed } as EditableScript
+				UserDraft.remove('script', draftPath)
+				scriptHandle.setDraftAndMeta(seeded, newRevs)
+				sendUserToast('Loaded from URL')
+				// Consume-once: strip the hash so a reload restores the user's
+				// autosave (which now reflects the seed + edits) instead of
+				// re-applying the seed.
+				if (typeof window !== 'undefined') {
+					const url = new URL(window.location.href)
+					url.hash = ''
+					window.history.replaceState(window.history.state, '', url.toString())
+				}
+				urlScriptSeed = undefined
+			} else if (localDraft != undefined) {
 				const reference = backendDraft ?? scriptWithDraft
 				const referenceClean = cleanValueProperties(reference)
 				const localClean = cleanValueProperties(localDraft)
