@@ -830,6 +830,7 @@ import sys
 {os_main_override}
 from {module_dir_dot} import {last} as inner_script
 import re
+import math
 
 with open("args.json") as f:
     kwargs = json.load(f, strict=False)
@@ -841,7 +842,16 @@ def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
 
-replace_invalid_fields = re.compile(r'(?:\bNaN\b|\\*\\u0000|Infinity|\-Infinity)')
+def replace_non_finite_floats(o):
+    if isinstance(o, float):
+        return None if not math.isfinite(o) else o
+    if isinstance(o, dict):
+        return {{k: replace_non_finite_floats(v) for k, v in o.items()}}
+    if isinstance(o, (list, tuple)):
+        return [replace_non_finite_floats(v) for v in o]
+    return o
+
+replace_invalid_fields = re.compile(r'\\*\\u0000')
 
 result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
 
@@ -1355,6 +1365,7 @@ import json
 import sys
 import traceback
 import re
+import math
 import base64
 from datetime import datetime, date
 {import_loader}
@@ -1367,7 +1378,16 @@ def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
 
-replace_invalid_fields = re.compile(r'(?:\bNaN\b|\\u0000|Infinity|\-Infinity)')
+def replace_non_finite_floats(o):
+    if isinstance(o, float):
+        return None if not math.isfinite(o) else o
+    if isinstance(o, dict):
+        return {{k: replace_non_finite_floats(v) for k, v in o.items()}}
+    if isinstance(o, (list, tuple)):
+        return [replace_non_finite_floats(v) for v in o]
+    return o
+
+replace_invalid_fields = re.compile(r'\\u0000')
 
 def res_to_json(res, typ):
 {res_to_json_body}
@@ -2941,7 +2961,10 @@ fn python_res_to_json_body(postprocessor: &str) -> String {
         for k, v in res.items():
             if type(v).__name__ == 'bytes':
                 res[k] = to_b_64(v)
-    unprocessed = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
+    try:
+        unprocessed = json.dumps(res, separators=(',', ':'), default=str, allow_nan=False).replace('\n', '')
+    except ValueError:
+        unprocessed = json.dumps(replace_non_finite_floats(res), separators=(',', ':'), default=str).replace('\n', '')
     return {postprocessor}"#
     )
 }
