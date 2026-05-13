@@ -14,8 +14,15 @@
 	import { DEFAULT_THEME } from '$lib/components/apps/editor/componentsPanel/themeUtils'
 	import { emptyApp } from '$lib/components/apps/editor/appUtils'
 	import { tick } from 'svelte'
+	import { UserDraft } from '$lib/userDraft.svelte'
 
 	let nodraft = page.url.searchParams.get('nodraft')
+
+	// "+ App" buttons navigate with ?nodraft=true to signal "start fresh".
+	// Wipe the persisted empty-path autosave so the child AppEditor's handle
+	// opens on a clean slate. A plain reload of /apps/add (no nodraft)
+	// instead restores the previous session via AppEditor's `UserDraft.use`.
+	if (nodraft) UserDraft.remove('app', '')
 	let appEditor: AppEditor | undefined = $state(undefined)
 	const hubId = page.url.searchParams.get('hub')
 	const templatePath = page.url.searchParams.get('template')

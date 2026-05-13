@@ -46,6 +46,12 @@
 	const templateId = page.url.searchParams.get('template_id')
 	const hubId = page.url.searchParams.get('hub')
 
+	// "+ Raw App" / "+ App > Full code" buttons navigate with ?nodraft=true to
+	// signal "start fresh". Wipe the persisted empty-path autosave before the
+	// handle is created so the editor opens on the default template. A plain
+	// reload of /apps_raw/add (no nodraft) instead restores the previous session.
+	if (nodraft) UserDraft.remove('raw_app', '')
+
 	// Check in-memory store first, then sessionStorage (used when full page reload occurs)
 	let importRaw = $importStore
 	if ($importStore) {

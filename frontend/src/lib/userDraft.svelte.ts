@@ -91,16 +91,6 @@ function resolveWorkspace(opts?: UserDraftOptions): string {
 	return ws
 }
 
-/**
- * Returns true when this (workspace, itemKind, path) should never touch
- * localStorage. An empty path means "new item, not yet on disk"; we keep the
- * draft in-memory so multiple components on the same /add page still share
- * state, but we don't persist it to avoid colliding new-item drafts.
- */
-function isLocalOnly(path: string): boolean {
-	return path === ''
-}
-
 function wrap<V>(value: V | undefined, meta?: UserDraftMeta): StoredDraft<V> | undefined {
 	if (value === undefined) return undefined
 	const out: StoredDraft<V> = { value }
@@ -186,18 +176,6 @@ function readPersisted<V>(key: string): StoredDraft<V> | undefined {
 	}
 }
 
-function createInMemoryState<V>(defaultValue: StoredDraft<V> | undefined): DraftState<V> {
-	let s = $state<StoredDraft<V> | undefined>(defaultValue)
-	return {
-		get val(): StoredDraft<V> | undefined {
-			return s
-		},
-		set val(newVal: StoredDraft<V> | undefined) {
-			s = newVal
-		}
-	}
-}
-
 function mapKey(workspace: string, itemKind: UserDraftItemKind, path: string): string {
 	return `${workspace}/${itemKind}/${path}`
 }
@@ -253,14 +231,12 @@ export const UserDraft = {
 		const entry = entries.get(mk)
 		if (entry) {
 			// Update the shared reactive state so all observers are notified.
-			// For non-empty paths the underlying useLocalStorageValue setter
-			// persists the wrapped value; for empty paths it stays in-memory.
-			// Preserve any existing rev metadata on the entry.
+			// The underlying useLocalStorageValue setter persists the wrapped
+			// value. Preserve any existing rev metadata on the entry.
 			const current = entry.state.val as StoredDraft<unknown> | undefined
 			entry.state.val = wrap(value, extractMeta(current))
 			return
 		}
-		if (isLocalOnly(path)) return
 		// External save without a live handle: preserve any persisted meta
 		// so the staleness signal isn't lost just because the editor wasn't
 		// open while we wrote.
@@ -286,7 +262,6 @@ export const UserDraft = {
 		if (entry) {
 			return unwrap(entry.state.val as StoredDraft<V> | undefined)
 		}
-		if (isLocalOnly(path)) return undefined
 		return unwrap(readPersisted<V>(localStorageKey(ws, itemKind, path)))
 	},
 
@@ -312,7 +287,6 @@ export const UserDraft = {
 			if (current === undefined) return
 			entry.state.val = wrap(current.value, meta)
 		}
-		if (isLocalOnly(path)) return
 		const existing = readPersisted<unknown>(localStorageKey(ws, itemKind, path))
 		if (existing === undefined) return
 		persistDirect(localStorageKey(ws, itemKind, path), existing.value, meta)
@@ -327,22 +301,20 @@ export const UserDraft = {
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) return extractMeta(entry.state.val as StoredDraft<unknown> | undefined)
-		if (isLocalOnly(path)) return {}
 		return extractMeta(readPersisted<unknown>(localStorageKey(ws, itemKind, path)))
 	},
 
 	/**
 	 * Whether a draft currently exists for (workspace, itemKind, path).
-	 * For non-empty paths this checks localStorage; for empty paths it
-	 * checks the in-memory entry. Useful for distinguishing "first visit"
-	 * from "returning visit with unsaved local changes".
+	 * Falls back to the persisted localStorage entry when no live handle is
+	 * registered. Useful for distinguishing "first visit" from "returning
+	 * visit with unsaved local changes".
 	 */
 	has(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): boolean {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) return entry.state.val !== undefined
-		if (isLocalOnly(path)) return false
 		return readPersisted(localStorageKey(ws, itemKind, path)) !== undefined
 	},
 
@@ -366,17 +338,15 @@ export const UserDraft = {
 
 		let entry = entries.get(mk)
 		if (!entry) {
-			const state: DraftState<unknown> = isLocalOnly(path)
-				? createInMemoryState<unknown>(wrappedDefault)
-				: useLocalStorageValue<StoredDraft<unknown> | undefined>(
-						localStorageKey(ws, itemKind, path),
-						wrappedDefault,
-						undefined,
-						// The first value to flow into the handle (e.g. a backend load
-						// in the editor route) is the baseline — only persist when the
-						// user actually changes it afterwards.
-						{ saveInitialValue: false }
-					)
+			const state = useLocalStorageValue<StoredDraft<unknown> | undefined>(
+				localStorageKey(ws, itemKind, path),
+				wrappedDefault,
+				undefined,
+				// The first value to flow into the handle (e.g. a backend load
+				// in the editor route) is the baseline — only persist when the
+				// user actually changes it afterwards.
+				{ saveInitialValue: false }
+			)
 			entry = { count: 1, state }
 			entries.set(mk, entry)
 		} else {
@@ -423,7 +393,7 @@ export const UserDraft = {
 				const current = sharedEntry.state.val as StoredDraft<V> | undefined
 				if (current === undefined) return
 				sharedEntry.state.val = wrap(current.value, meta)
-				if (opts?.force && !isLocalOnly(path)) {
+				if (opts?.force) {
 					persistDirect(localStorageKey(ws, itemKind, path), current.value, meta)
 				}
 			},

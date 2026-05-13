@@ -18,6 +18,12 @@
 
 	let nodraft = page.url.searchParams.get('nodraft')
 
+	// "+ Flow" buttons navigate with ?nodraft=true to signal "start fresh".
+	// Wipe the persisted empty-path autosave before the handle is created so
+	// the editor opens on an empty flow. A plain reload of /flows/add (no
+	// nodraft param) instead restores whatever the user was last working on.
+	if (nodraft) UserDraft.remove('flow', '')
+
 	afterNavigate(() => {
 		if (nodraft) {
 			let url = new URL(page.url.href)

@@ -227,18 +227,22 @@ describe('UserDraft.use() — defaultValue', () => {
 	})
 })
 
-describe('UserDraft — empty path (new-item, in-memory only)', () => {
-	it('use() with empty path uses defaultValue and does not persist', () => {
+describe('UserDraft — empty path (new-item drafts persist across reloads)', () => {
+	it('use() with empty path persists subsequent edits to localStorage', () => {
 		const handle = UserDraft.use<number>('flow', '', { defaultValue: 0 })
 
+		// First write under saveInitialValue=false counts as the baseline and
+		// is skipped — only the user's subsequent edits persist.
 		handle.draft = 99
-
-		expect(handle.draft).toBe(99)
-		// No localStorage key with empty path should ever be written.
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/')).toBeNull()
+		handle.draft = 100
+		// The "+ Flow / + Script / …" buttons are expected to call
+		// `UserDraft.remove(kind, '')` to wipe before navigating; an
+		// unguarded /add reload therefore restores the previous session.
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/')).toBe(wrapped(100))
 	})
 
-	it('two handles with empty path share in-memory state per workspace', () => {
+	it('two handles with empty path share state per workspace', () => {
 		const a = UserDraft.use<number>('flow', '')
 		const b = UserDraft.use<number>('flow', '')
 
@@ -249,30 +253,19 @@ describe('UserDraft — empty path (new-item, in-memory only)', () => {
 		expect(a.draft).toBe(2)
 	})
 
-	it('save() with empty path is a no-op against localStorage but updates live handles', () => {
-		const handle = UserDraft.use<number>('flow', '')
-
+	it('save() with empty path writes to localStorage when no handle is live', () => {
 		UserDraft.save('flow', '', 5)
-		expect(handle.draft).toBe(5)
-		expect(localStorage.getItem('userdraft/w/test_ws/flow/')).toBeNull()
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/')).toBe(wrapped(5))
 	})
 
-	it('get() with empty path returns the in-memory value when a handle is live, else undefined', () => {
-		expect(UserDraft.get('flow', '')).toBeUndefined()
-
-		const handle = UserDraft.use<number>('flow', '')
-		handle.draft = 11
+	it('get() with empty path falls back to localStorage when no handle is live', () => {
+		localStorage.setItem('userdraft/w/test_ws/flow/', wrapped(11))
 		expect(UserDraft.get('flow', '')).toBe(11)
 	})
 
-	it('remove() with empty path is a no-op (no localStorage to clear, in-memory untouched)', () => {
-		const handle = UserDraft.use<number>('flow', '')
-		handle.draft = 1
-
+	it('remove() with empty path clears localStorage', () => {
+		localStorage.setItem('userdraft/w/test_ws/flow/', wrapped(1))
 		UserDraft.remove('flow', '')
-		// Empty-path entries never touched localStorage and remove() no longer
-		// resets the in-memory state, so the handle keeps its value.
-		expect(handle.draft).toBe(1)
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/')).toBeNull()
 	})
 })
