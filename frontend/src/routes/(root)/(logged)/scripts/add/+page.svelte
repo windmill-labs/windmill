@@ -105,6 +105,14 @@
 	if (urlScript) {
 		scriptHandle.draft = { ...defaultScript(), ...urlScript }
 		sendUserToast('Loaded from URL')
+		// Consume-once: strip the hash so a reload restores the user's
+		// autosave instead of re-applying the seed (which would clobber
+		// any edits they made).
+		if (typeof window !== 'undefined') {
+			const url = new URL(window.location.href)
+			url.hash = ''
+			window.history.replaceState(window.history.state, '', url.toString())
+		}
 	}
 
 	async function loadTemplate(): Promise<void> {
