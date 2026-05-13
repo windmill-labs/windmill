@@ -58,6 +58,7 @@
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
+	import { migrateLegacyUserDrafts } from '$lib/userDraftLegacyMigration'
 	import { setContext, untrack } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
@@ -364,8 +365,8 @@
 	async function loadCriticalAlertsMuted() {
 		let g_muted = true
 		const ws_muted =
-			(await WorkspaceService.getPublicSettings({ workspace: $workspaceStore! })).mute_critical_alerts ||
-			false
+			(await WorkspaceService.getPublicSettings({ workspace: $workspaceStore! }))
+				.mute_critical_alerts || false
 
 		if ($superadmin) {
 			g_muted = (await SettingService.getGlobal({
@@ -417,6 +418,9 @@
 	})
 	$effect(() => {
 		$workspaceStore && untrack(() => onLoad())
+	})
+	$effect(() => {
+		if ($workspaceStore) untrack(() => migrateLegacyUserDrafts($workspaceStore!))
 	})
 	$effect(() => {
 		innerWidth && untrack(() => changeCollapsed())
