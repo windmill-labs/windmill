@@ -34,6 +34,28 @@
 	const collabLang = page.url.searchParams.get('lang') as ScriptLang | null
 	const wacParam = page.url.searchParams.get('wac')
 	const importParam = page.url.searchParams.get('import')
+
+	/** Some pages (run/[...run]'s "Fork" action, workspace_settings'
+	 * error/success-handler template buttons) base64-JSON-encode a NewScript
+	 * payload into the URL hash. That value is an explicit "open this script"
+	 * intent and wins over local autosave, templates, hubs, and YAML imports.
+	 *
+	 * We can't use `decodeState` from utils.ts directly — it fires its own
+	 * "Impossible to parse state" toast on failure, which would noise up the
+	 * UI when the hash isn't a script payload at all (e.g. a route anchor).
+	 */
+	function decodeUrlScript(): Partial<Script> | undefined {
+		const fragment = page.url.hash.startsWith('#') ? page.url.hash.slice(1) : ''
+		if (!fragment) return undefined
+		try {
+			const decoded = JSON.parse(decodeURIComponent(atob(fragment)))
+			if (decoded && typeof decoded === 'object') return decoded as Partial<Script>
+		} catch {
+			// Hash isn't a valid encoded script — ignore.
+		}
+		return undefined
+	}
+	const urlScript = decodeUrlScript()
 	// "+ Script" buttons navigate with ?nodraft=true to signal "start fresh".
 	// Wipe the persisted empty-path autosave and strip the flag from the URL
 	// synchronously so a reload doesn't wipe the freshly-started draft. A
@@ -73,13 +95,20 @@
 		}
 	}
 
-	// templatePath/hubPath/import flows replace the value before render, so
-	// defaultValue is left undefined for those to avoid flashing a blank editor.
+	// templatePath/hubPath/import/url-hash flows replace the value before
+	// render, so defaultValue is left undefined for those to avoid flashing a
+	// blank editor.
 	const scriptHandle = UserDraft.use<Script>('script', '', {
-		defaultValue: templatePath || hubPath ? undefined : defaultScript()
+		defaultValue: templatePath || hubPath || urlScript ? undefined : defaultScript()
 	})
 
+	if (urlScript) {
+		scriptHandle.draft = { ...defaultScript(), ...urlScript }
+		sendUserToast('Loaded from URL')
+	}
+
 	async function loadTemplate(): Promise<void> {
+		if (urlScript) return
 		if (templatePath) {
 			try {
 				const template = await ScriptService.getScriptByPath({
@@ -104,6 +133,7 @@
 	}
 
 	async function loadHub(): Promise<void> {
+		if (urlScript) return
 		if (hubPath) {
 			try {
 				const { content, language, summary } = await ScriptService.getHubScriptByPath({
@@ -128,7 +158,7 @@
 	loadHub()
 
 	let importedWacTemplate: 'wac_python' | 'wac_typescript' | undefined = undefined
-	if (importParam && $importScriptStore) {
+	if (!urlScript && importParam && $importScriptStore) {
 		const imported = $importScriptStore
 		$importScriptStore = undefined
 		const isWac = isWorkflowAsCode(imported.content ?? '', imported.language ?? '')
