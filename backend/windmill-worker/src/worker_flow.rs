@@ -3919,13 +3919,11 @@ async fn push_next_flow_job(
     for (i, payload_tag) in job_payloads.into_iter().enumerate() {
         if i % 100 == 0 && i != 0 {
             tracing::info!(id = %flow_job.id, root_id = %job_root, "pushed (non-commited yet) first {i} subflows of {len}");
-            // Execute the ping on the pool (outside the current transaction) so it's
-            // immediately visible to the zombie flow monitor and not hidden by MVCC
-            // until the push transaction commits. `clock_timestamp()` is used instead
-            // of `now()` because `now()` returns the transaction start time, which
-            // would make subsequent pings within the same transaction no-ops.
+            // Ping on the pool, outside `tx`, so the zombie flow monitor sees it before the
+            // push transaction commits — otherwise large parallel pushes can be flagged as
+            // zombie and trigger a cancel/push deadlock.
             sqlx::query!(
-                "UPDATE v2_job_runtime SET ping = clock_timestamp() WHERE id = $1",
+                "UPDATE v2_job_runtime SET ping = now() WHERE id = $1",
                 flow_job.id,
             )
             .execute(db)
