@@ -433,8 +433,9 @@
 			}
 
 			draftDrawerOpen = false
-			// /apps_raw/add was in-memory (empty path); drop that entry so it
-			// doesn't shadow a future fresh /add visit before we navigate.
+			// The initial draft was promoted to a real path on the backend —
+			// drop the autosave keyed on the prior (possibly empty) path so
+			// a future "+ App" click opens on a clean slate.
 			UserDraft.remove('raw_app', appPath)
 			dispatch('savedNewAppPath', newEditedPath)
 		} catch (e) {

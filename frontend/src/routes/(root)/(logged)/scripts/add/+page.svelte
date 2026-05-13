@@ -69,7 +69,6 @@
 		}
 	}
 
-	// New script: keyed on '' (in-memory only — empty paths bypass localStorage).
 	// templatePath/hubPath/import flows replace the value before render, so
 	// defaultValue is left undefined for those to avoid flashing a blank editor.
 	const scriptHandle = UserDraft.use<Script>('script', '', {

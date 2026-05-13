@@ -110,8 +110,6 @@
 	/** Data configuration including tables and creation policy */
 	let data: RawAppData = $state({ ...DEFAULT_DATA })
 
-	// Empty path → in-memory only; this just keeps the API uniform with
-	// /apps_raw/edit so multiple components reading the draft stay in sync.
 	const draftHandle = UserDraft.use<{
 		files: Record<string, string>
 		runnables: Record<string, Runnable>

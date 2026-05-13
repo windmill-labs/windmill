@@ -78,7 +78,6 @@
 		}
 	}
 
-	// New flow: empty path → in-memory only (no localStorage).
 	const flowHandle = UserDraft.use<Flow>('flow', '', { defaultValue: emptyFlow() })
 
 	const flowStore: StateStore<Flow> = {

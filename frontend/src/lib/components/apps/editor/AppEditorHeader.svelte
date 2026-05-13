@@ -387,9 +387,9 @@
 			}
 
 			draftDrawerOpen = false
-			// When the initial draft was created at a new path, the editor
-			// will navigate to the new URL; the empty-path in-memory entry
-			// is implicitly dropped.
+			// The initial draft was promoted to a real path on the backend —
+			// drop the autosave keyed on the prior (possibly empty) path so
+			// a future "+ App" click opens on a clean slate.
 			UserDraft.remove('app', $appPath)
 			onSavedNewAppPath?.(newEditedPath)
 		} catch (e) {
