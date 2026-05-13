@@ -1576,7 +1576,7 @@
 								<HideButton
 									hidden={false}
 									direction="right"
-									panelName="Test"
+									panelName="test"
 									shortcut="U"
 									size="md"
 									on:click={() => {
@@ -1976,10 +1976,11 @@
 			</div>
 		{/if}
 		<div class="relative flex-1 !overflow-visible">
-			<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
+			<div class="absolute bg-surface top-2 right-4 z-10 flex flex-row gap-2">
 				{#if assets?.length}
 					<AssetsDropdownButton {assets} />
 				{/if}
+
 				{#if isDebuggableScript && customUi?.editorBar?.debug != false}
 					<Button
 						variant={debugMode ? 'accent' : 'default'}
@@ -1987,17 +1988,17 @@
 						onclick={toggleDebugMode}
 						startIcon={{ icon: Bug }}
 						title="Toggle Debug Mode"
+						destructive={debugMode}
 					>
-						{debugMode ? 'Exit Debug' : 'Debug'}
+						{debugMode ? 'Exit debug' : 'Debug'}
 					</Button>
 				{/if}
 				{#if showDebugPanel && !showDebugConsole}
 					<Button
 						variant="default"
-						size="xs"
+						unifiedSize="sm"
 						onclick={() => (showDebugConsole = true)}
 						startIcon={{ icon: Terminal }}
-						btnClasses="bg-surface hover:bg-surface-hover border border-tertiary/30"
 						title="Show Debug Console"
 					>
 						Console
@@ -2006,10 +2007,9 @@
 				{#if lang === 'ansible' && hasDelegateToGitRepo}
 					<Button
 						variant="default"
-						size="xs"
+						unifiedSize="sm"
 						onclick={() => (gitRepoResourcePickerOpen = true)}
 						startIcon={{ icon: GitBranch }}
-						btnClasses="bg-surface hover:bg-surface-hover border border-tertiary/30"
 					>
 						Delegating to git repo
 					</Button>
@@ -2020,7 +2020,7 @@
 						direction="right"
 						unifiedSize="sm"
 						variant="accent-secondary"
-						panelName="Test"
+						panelName="test"
 						shortcut="U"
 						customHiddenIcon={{
 							icon: PlayIcon
@@ -2043,6 +2043,7 @@
 								icon: WandSparkles
 							}}
 							btnClasses="!text-ai"
+							variant="default"
 							on:click={() => {
 								if (!aiChatManager.open) {
 									aiChatManager.changeMode(AIMode.SCRIPT)
