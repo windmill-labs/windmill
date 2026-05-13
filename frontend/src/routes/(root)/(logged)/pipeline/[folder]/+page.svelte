@@ -923,6 +923,11 @@
 	// into nowhere with only edge animation as feedback. Counter rather
 	// than boolean so back-to-back runs re-fire.
 	let requestRunSignal = $state(0)
+	// Sister counter: bumped instead of requestRunSignal when the canvas user
+	// picks "Run + trigger N downstream" for the currently-open script. Lets
+	// ScriptEditor.runTest run with cascade=true without permanently flipping
+	// its persistent cascade choice.
+	let requestRunCascadeSignal = $state(0)
 	// Counter bumped from the runnable-node action menu to ask the pane to
 	// open its archive/delete confirmation modal for the loaded script.
 	// Counter (vs boolean) so successive triggers re-fire even if the user
@@ -1281,6 +1286,13 @@
 									// immediately — its background poll only kicks in
 									// for already-listed in-flight jobs.
 									if (!$workspaceStore || producer.kind !== 'script') return undefined
+									// Cascade default: same as the Test button — `cascade`
+									// undefined / false skips the asset-trigger dispatch
+									// via `_wmill_skip_asset_dispatch`; explicit `true`
+									// lets the dispatch fire normally. The asset-node
+									// affordance still passes `undefined` (legacy callers),
+									// which we treat as "skip" for consistency.
+									const cascade = producer.cascade === true
 									// If the producer being run is the script currently
 									// edited in the pane, route through ScriptEditor's
 									// Test path — the test panel then shows logs/result
@@ -1292,9 +1304,11 @@
 											? selection.path
 											: undefined)
 									if (openPath === producer.path) {
-										requestRunSignal++
+										if (cascade) requestRunCascadeSignal++
+										else requestRunSignal++
 										return undefined
 									}
+									const skipArg = cascade ? {} : { _wmill_skip_asset_dispatch: true }
 									let jobId: string | undefined
 									if (producer.unsaved) {
 										const draft = drafts.get(producer.path)
@@ -1305,14 +1319,14 @@
 												content: draft.script.content,
 												language: draft.script.language,
 												path: producer.path,
-												args: {}
+												args: { ...skipArg }
 											}
 										})
 									} else {
 										jobId = await JobService.runScriptByPath({
 											workspace: $workspaceStore,
 											path: producer.path,
-											requestBody: {}
+											requestBody: { ...skipArg }
 										})
 									}
 									if (jobId) {
@@ -1373,6 +1387,7 @@
 								}}
 								{requestRemoveSignal}
 								{requestRunSignal}
+								{requestRunCascadeSignal}
 								draftScript={activeDraft?.script}
 								{pathPrefix}
 								onDraftPathChange={renameDraft}

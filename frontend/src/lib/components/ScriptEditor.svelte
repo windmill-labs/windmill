@@ -679,7 +679,15 @@
 		args = nargs
 	}
 
-	export async function runTest() {
+	export async function runTest(opts?: { cascade?: boolean }) {
+		// When the caller forces a cascade choice (e.g. the canvas runnable
+		// menu's "Run + trigger N downstream"), also flip the persistent
+		// `cascadeDownstream` state so the split button's label/icon reflect
+		// the active mode after the run kicks off — keeps "what mode am I in"
+		// visible instead of having a one-off run silently disagree with the
+		// UI. The caller is welcome to bump the signal repeatedly; we just
+		// keep the latest choice as the active mode.
+		if (opts?.cascade !== undefined) cascadeDownstream = opts.cascade
 		// Discard any previous recording when running a normal test
 		if (!scriptRecording.active) {
 			lastRecording = undefined
@@ -1717,9 +1725,13 @@
 											contentClasses="p-0"
 										>
 											{#snippet trigger()}
+												<!-- min-h-7 matches Button's unifiedSize="sm" (28px) so
+												     the caret stretches to the same height as the
+												     primary Test button. self-stretch falls back if the
+												     parent's items-stretch is overridden upstream. -->
 												<button
 													type="button"
-													class="px-1.5 flex items-center justify-center bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/60 text-primary border-l border-blue-300 dark:border-blue-700 transition-colors"
+													class="self-stretch min-h-7 px-1.5 flex items-center justify-center bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/60 text-primary border-l border-blue-300 dark:border-blue-700 transition-colors"
 													title="Run options"
 													aria-label="Run options"
 												>

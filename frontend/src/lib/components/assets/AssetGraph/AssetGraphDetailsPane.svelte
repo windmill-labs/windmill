@@ -151,6 +151,11 @@
 		// cascade option when > 0. The page computes this from the graph
 		// edges + triggers + currently-open path.
 		downstreamSubscribers?: number
+		// Sister to `requestRunSignal`. When bumped, the bridge calls
+		// `ScriptEditor.runTest({ cascade: true })` — used by the canvas
+		// runnable menu's "Run + trigger N downstream" item when the chosen
+		// script happens to be the currently-open one.
+		requestRunCascadeSignal?: number
 	}
 	let {
 		selection,
@@ -176,18 +181,27 @@
 		pathPrefix = '',
 		onDraftPathChange,
 		requestRemoveSignal,
-		downstreamSubscribers = 0
+		downstreamSubscribers = 0,
+		requestRunCascadeSignal
 	}: Props = $props()
 
 	// Held ref to ScriptEditor so we can route a canvas-side Run dispatch
 	// through .runTest() — gives the test panel logs/result/cancel for
 	// runs initiated from the graph, not just the in-pane Test button.
-	let scriptEditorRef: { runTest: () => Promise<unknown> } | undefined = $state(undefined)
+	let scriptEditorRef: { runTest: (opts?: { cascade?: boolean }) => Promise<unknown> } | undefined =
+		$state(undefined)
 	$effect(() => {
 		// Track the counter; ignore the initial 0/undefined.
 		const sig = requestRunSignal
 		if (sig === undefined || sig === 0) return
 		void scriptEditorRef?.runTest()
+	})
+	$effect(() => {
+		// Cascade-explicit sister signal: same pattern, but forces the
+		// runTest call to opt into the asset-trigger cascade for this run.
+		const sig = requestRunCascadeSignal
+		if (sig === undefined || sig === 0) return
+		void scriptEditorRef?.runTest({ cascade: true })
 	})
 
 	// True when the script that writes to the currently-selected asset is

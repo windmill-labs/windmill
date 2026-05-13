@@ -74,6 +74,11 @@
 			kind: 'script' | 'flow'
 			path: string
 			unsaved?: boolean
+			// Whether to let the asset-trigger cascade fan out to downstream
+			// subscribers after this run succeeds. Undefined = use the caller's
+			// default (no skip arg injected); true = explicit cascade; false =
+			// inject `_wmill_skip_asset_dispatch: true` to suppress.
+			cascade?: boolean
 		}) => Promise<string | undefined>
 		// Page-supplied dispatch for the per-runnable-node action menu.
 		// Drafts are discarded immediately by the page; persisted scripts
@@ -172,6 +177,34 @@
 			producersByAsset.set(key, list)
 		}
 
+		// Downstream subscriber count per producer script. Counts distinct
+		// script subscribers (excluding self and flow subs, mirroring the V1
+		// dispatch policy) across all assets the script writes. Drives the
+		// "Run + trigger N downstream" menu item on RunnableNode and lets the
+		// pipeline page short-circuit cascade UX when there's nothing to fan
+		// out to.
+		const subscribersByAsset = new Map<string, Set<string>>()
+		for (const t of g.triggers ?? []) {
+			if (t.trigger_kind !== 'asset' || t.runnable_kind !== 'script') continue
+			const key = `${t.asset_kind}:${t.asset_path}`
+			const set = subscribersByAsset.get(key) ?? new Set<string>()
+			set.add(t.runnable_path)
+			subscribersByAsset.set(key, set)
+		}
+		const downstreamSetsByScript = new Map<string, Set<string>>()
+		for (const e of g.edges ?? []) {
+			if (e.runnable_kind !== 'script') continue
+			const access = e.access_type ?? 'r'
+			if (access !== 'w' && access !== 'rw') continue
+			const subs = subscribersByAsset.get(`${e.asset_kind}:${e.asset_path}`)
+			if (!subs) continue
+			const merged = downstreamSetsByScript.get(e.runnable_path) ?? new Set<string>()
+			for (const s of subs) if (s !== e.runnable_path) merged.add(s)
+			downstreamSetsByScript.set(e.runnable_path, merged)
+		}
+		const downstreamByScript = new Map<string, number>()
+		for (const [path, set] of downstreamSetsByScript) downstreamByScript.set(path, set.size)
+
 		for (const a of g.assets) {
 			const assetId = `asset:${a.kind}:${a.path}`
 			nodes.push({
@@ -206,13 +239,15 @@
 					// click → run with no extra UI clutter.
 					onRunSelf:
 						r.usage_kind === 'script' && onRunProducer
-							? () =>
+							? (opts?: { cascade?: boolean }) =>
 									onRunProducer({
 										kind: 'script',
 										path: r.path,
-										unsaved: r.unsaved ?? false
+										unsaved: r.unsaved ?? false,
+										cascade: opts?.cascade
 									})
 							: undefined,
+					downstreamCount: downstreamByScript.get(r.path) ?? 0,
 					onSelectSelf: () =>
 						onselect?.({
 							kind: 'runnable',

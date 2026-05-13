@@ -8,7 +8,8 @@
 		Loader2,
 		Play,
 		Timer,
-		Trash2
+		Trash2,
+		Zap
 	} from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
@@ -33,8 +34,16 @@
 			// unsaved → runScriptPreview with the locally-cached draft content).
 			// Wired only for script runnables — flows are ignored upstream. When
 			// undefined, the play button is hidden — matches the asset-node
-			// behaviour outside editor contexts.
-			onRunSelf?: () => Promise<string | undefined>
+			// behaviour outside editor contexts. `opts.cascade` lets the
+			// dispatcher decide whether to skip the asset-trigger cascade — the
+			// node's default-click sends `cascade: false` (just this step) to
+			// stay consistent with the editor's Test button.
+			onRunSelf?: (opts?: { cascade?: boolean }) => Promise<string | undefined>
+			// Number of script subscribers that listen on assets this script
+			// writes. When > 0, the hover-menu exposes a "Run + trigger N
+			// downstream" alternative; the round Play button stays a single-
+			// click default. Undefined / 0 hides the cascade menu item.
+			downstreamCount?: number
 			// Called before running so the details pane focuses this script —
 			// mirrors AssetNode.onSelectAsset, keeps the runs/output in view
 			// instead of dispatching into nowhere.
@@ -72,7 +81,7 @@
 	// already running (so the loader doesn't disappear under the cursor).
 	let showRun = $derived(canRun && (hover || selected || running))
 
-	async function runSelf(e: MouseEvent) {
+	async function runSelf(e: MouseEvent, cascade?: boolean) {
 		e.stopPropagation()
 		if (!$workspaceStore || running || !data.onRunSelf) return
 		// Focus this runnable so the details pane opens to its editor — same
@@ -80,7 +89,7 @@
 		if (!selected) data.onSelectSelf?.()
 		running = true
 		try {
-			await data.onRunSelf()
+			await data.onRunSelf(cascade != undefined ? { cascade } : undefined)
 		} catch (err: any) {
 			sendUserToast(`Failed to run: ${err.body ?? err.message}`, true)
 		} finally {
@@ -88,8 +97,23 @@
 		}
 	}
 
-	let menuItems: Item[] = $derived(
-		data.onRequestRemove
+	let menuItems: Item[] = $derived([
+		// Cascade option lives at the top of the menu — the round Run button
+		// is the no-cascade default, this surfaces the alternative when there
+		// are downstream subscribers to fan out to.
+		...(canRun && (data.downstreamCount ?? 0) > 0
+			? [
+					{
+						displayName: `Run + trigger ${data.downstreamCount} downstream`,
+						icon: Zap,
+						action: () => {
+							// Fake MouseEvent-shaped arg so runSelf can stopPropagation.
+							void runSelf({ stopPropagation: () => {} } as MouseEvent, true)
+						}
+					}
+				]
+			: []),
+		...(data.onRequestRemove
 			? [
 					{
 						displayName: data.unsaved ? 'Discard' : 'Delete…',
@@ -98,8 +122,8 @@
 						action: () => data.onRequestRemove?.()
 					}
 				]
-			: []
-	)
+			: [])
+	])
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
