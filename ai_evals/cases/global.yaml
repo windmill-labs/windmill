@@ -53,3 +53,37 @@
     - uppercases the provided name in the greeting
     - returns a message ending with an exclamation mark
     - does not deploy or save the draft to the workspace
+
+- id: global-test3-flow-create
+  prompt: |-
+    Create a draft flow at `f/evals/global/sum_numbers`.
+    It should take two numeric inputs, `a` and `b`, and return their sum.
+    Leave it as an AI draft only; do not deploy or save it.
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: flow
+        path: f/evals/global/sum_numbers
+        valueIncludes:
+          - modules
+          - rawscript
+          - flow_input.a
+          - flow_input.b
+  toolExpect:
+    requiredToolsUsed:
+      - write_flow
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: write_flow
+        field: modules
+        stringStartsWithAnyOf:
+          - "["
+  judgeChecklist:
+    - creates a flow draft at f/evals/global/sum_numbers
+    - the flow accepts numeric inputs a and b
+    - the flow returns the sum of a and b
+    - the result stays as an AI draft and is not deployed or saved to the workspace
