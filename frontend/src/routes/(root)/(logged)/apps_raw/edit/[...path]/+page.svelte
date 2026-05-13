@@ -19,6 +19,7 @@
 	import { page } from '$app/state'
 	import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 	import { UserDraft, checkStaleness, type UserDraftMeta } from '$lib/userDraft.svelte'
+	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
 
 	type RawAppDraft = {
@@ -183,12 +184,33 @@
 				pendingBaseline = { baseline: backendBundle, backendSource, revs: newRevs }
 				staleModalCause = cause
 				staleModalOpen = true
-			} else if (
-				previousMeta.remoteRev === undefined &&
-				previousMeta.remoteDraftRev === undefined
-			) {
-				// Legacy entry — backfill meta so the next load can detect staleness.
-				draftHandle.setMeta(newRevs, { force: true })
+			} else {
+				if (previousMeta.remoteRev === undefined && previousMeta.remoteDraftRev === undefined) {
+					// Legacy entry — backfill meta so the next load can detect staleness.
+					draftHandle.setMeta(newRevs, { force: true })
+				}
+				const appPath = app_w_draft.path
+				const hasBackendDraft = app_w_draft.draft != undefined
+				notifyRestoredFromLocal(hasBackendDraft, !app_w_draft.draft_only, {
+					onResetToSavedDraft: () => {
+						UserDraft.remove('raw_app', path)
+						draftHandle.setDraftAndMeta(backendBundle, newRevs)
+						extractRawApp(backendSource)
+						redraw++
+					},
+					onResetToDeployed: async () => {
+						if (hasBackendDraft) {
+							await DraftService.deleteDraft({
+								workspace: $workspaceStore!,
+								kind: 'app',
+								path: appPath
+							})
+						}
+						UserDraft.remove('raw_app', path)
+						await loadApp()
+						redraw++
+					}
+				})
 			}
 			runnables = localDraft.runnables
 			data = localDraft.data

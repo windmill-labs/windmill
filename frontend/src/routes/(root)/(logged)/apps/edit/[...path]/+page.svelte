@@ -19,6 +19,7 @@
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
 	import { UserDraft, checkStaleness, type UserDraftMeta } from '$lib/userDraft.svelte'
+	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 
 	let app = $state(
 		undefined as (AppWithLastVersion & { draft_only?: boolean; value: any }) | undefined
@@ -141,12 +142,34 @@
 				pendingBaseline = { baseline: backendApp, revs: newRevs }
 				staleModalCause = cause
 				staleModalOpen = true
-			} else if (
-				previousMeta.remoteRev === undefined &&
-				previousMeta.remoteDraftRev === undefined
-			) {
-				// Legacy entry — backfill meta so the next load can detect staleness.
-				UserDraft.saveMeta('app', path, newRevs)
+			} else {
+				if (previousMeta.remoteRev === undefined && previousMeta.remoteDraftRev === undefined) {
+					// Legacy entry — backfill meta so the next load can detect staleness.
+					UserDraft.saveMeta('app', path, newRevs)
+				}
+				const appPath = backendApp.path
+				const hasBackendDraft = app_w_draft.draft != undefined
+				notifyRestoredFromLocal(hasBackendDraft, !app_w_draft.draft_only, {
+					onResetToSavedDraft: () => {
+						UserDraft.remove('app', path)
+						UserDraft.saveMeta('app', path, newRevs)
+						app = backendApp
+						redraw++
+					},
+					onResetToDeployed: async () => {
+						if (hasBackendDraft) {
+							await DraftService.deleteDraft({
+								workspace: $workspaceStore!,
+								kind: 'app',
+								path: appPath
+							})
+						}
+						UserDraft.remove('app', path)
+						goto(`/apps/edit/${appPath}`)
+						await loadApp()
+						redraw++
+					}
+				})
 			}
 			app = { ...backendApp, value: localDraftValue }
 		} else {

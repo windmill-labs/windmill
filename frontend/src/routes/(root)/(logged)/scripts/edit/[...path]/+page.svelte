@@ -16,6 +16,7 @@
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
 	import { UserDraft, checkStaleness, type UserDraftMeta } from '$lib/userDraft.svelte'
+	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 
 	type EditableScript = NewScript & { draft_triggers?: Trigger[] }
 
@@ -140,13 +141,33 @@
 						pendingBaseline = { baseline: bakedBaseline, revs: newRevs }
 						staleModalCause = cause
 						staleModalOpen = true
-					} else if (
-						previousMeta.remoteRev === undefined &&
-						previousMeta.remoteDraftRev === undefined
-					) {
-						// Legacy entry (no meta recorded) — backfill so future
-						// loads can detect staleness even if the user doesn't edit.
-						scriptHandle.setMeta(newRevs, { force: true })
+					} else {
+						if (previousMeta.remoteRev === undefined && previousMeta.remoteDraftRev === undefined) {
+							// Legacy entry (no meta recorded) — backfill so future
+							// loads can detect staleness even if the user doesn't edit.
+							scriptHandle.setMeta(newRevs, { force: true })
+						}
+						const scriptPath = bakedBaseline.path
+						const hasBackendDraft = !!backendDraft
+						notifyRestoredFromLocal(hasBackendDraft, !scriptWithDraft.draft_only, {
+							onResetToSavedDraft: () => {
+								UserDraft.remove('script', draftPath)
+								scriptHandle.setDraftAndMeta(bakedBaseline, newRevs)
+								applyBaseline(bakedBaseline)
+							},
+							onResetToDeployed: async () => {
+								if (hasBackendDraft) {
+									await DraftService.deleteDraft({
+										workspace: $workspaceStore!,
+										kind: 'script',
+										path: scriptPath
+									})
+								}
+								UserDraft.remove('script', draftPath)
+								goto(`/scripts/edit/${scriptPath}`)
+								loadScript()
+							}
+						})
 					}
 				}
 			} else if (backendDraft) {

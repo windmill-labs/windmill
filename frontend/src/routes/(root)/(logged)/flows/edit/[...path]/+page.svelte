@@ -25,6 +25,7 @@
 	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
 	import { page } from '$app/state'
 	import { UserDraft, checkStaleness, type UserDraftMeta } from '$lib/userDraft.svelte'
+	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 
 	let version: undefined | number = $state(undefined)
 
@@ -188,12 +189,32 @@
 					pendingBaseline = { baseline: backendFlow, revs: newRevs }
 					staleModalCause = cause
 					staleModalOpen = true
-				} else if (
-					previousMeta.remoteRev === undefined &&
-					previousMeta.remoteDraftRev === undefined
-				) {
-					// Legacy entry — backfill meta so the next load can detect staleness.
-					flowHandle.setMeta(newRevs, { force: true })
+				} else {
+					if (previousMeta.remoteRev === undefined && previousMeta.remoteDraftRev === undefined) {
+						// Legacy entry — backfill meta so the next load can detect staleness.
+						flowHandle.setMeta(newRevs, { force: true })
+					}
+					const flowPath = backendFlow.path
+					const hasBackendDraft = flowWithDraft.draft != undefined
+					notifyRestoredFromLocal(hasBackendDraft, !flowWithDraft.draft_only, {
+						onResetToSavedDraft: () => {
+							UserDraft.remove('flow', flowDraftPath)
+							flowHandle.setDraftAndMeta(backendFlow, newRevs)
+							loadFlow()
+						},
+						onResetToDeployed: async () => {
+							if (hasBackendDraft) {
+								await DraftService.deleteDraft({
+									workspace: $workspaceStore!,
+									kind: 'flow',
+									path: flowPath
+								})
+							}
+							UserDraft.remove('flow', flowDraftPath)
+							nobackenddraft = true
+							loadFlow()
+						}
+					})
 				}
 			}
 		} else {
