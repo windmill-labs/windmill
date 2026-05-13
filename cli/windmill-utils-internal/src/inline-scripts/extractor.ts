@@ -27,6 +27,19 @@ function extractRawscriptInline(
   const path = mappedPath ?? basePath + ext;
   const language = rawscript.language;
   const content = rawscript.content;
+  // Defensive guard: a rawscript whose content is itself an `!inline ...`
+  // directive is a sign the backend was poisoned by a prior push that sent
+  // the unresolved directive as the script body (GIT-871 / #9140). Refuse
+  // to write that text back to disk — it would silently overwrite the
+  // user's local handler with the literal directive on every pull.
+  if (typeof content === "string" && content.startsWith("!inline ")) {
+    throw new Error(
+      `Refusing to extract corrupted inline script for module '${id}': ` +
+      `rawscript.content is the literal string \`${content.split("\n")[0]}\` ` +
+      `instead of script source. The backend's flow_version.value is corrupt — ` +
+      `re-push from a known-good local copy to repair it.`
+    );
+  }
   const r = [{ path: path, content: content, language, is_lock: false}];
   rawscript.content = "!inline " + path.replaceAll(separator, "/");
   const lock = rawscript.lock;

@@ -266,19 +266,29 @@ export async function generateFlowLockInternal(
           return tree.isStale(treePath);
         })
       : changedScripts;
+    const missingFiles: string[] = [];
     await replaceInlineScripts(
       flowValue.value.modules,
       fileReader,
       log,
       folder + SEP!,
       SEP,
-      locksToRemove
+      locksToRemove,
+      missingFiles
     );
     if (flowValue.value.failure_module) {
-      await replaceInlineScripts([flowValue.value.failure_module], fileReader, log, folder + SEP!, SEP, locksToRemove);
+      await replaceInlineScripts([flowValue.value.failure_module], fileReader, log, folder + SEP!, SEP, locksToRemove, missingFiles);
     }
     if (flowValue.value.preprocessor_module) {
-      await replaceInlineScripts([flowValue.value.preprocessor_module], fileReader, log, folder + SEP!, SEP, locksToRemove);
+      await replaceInlineScripts([flowValue.value.preprocessor_module], fileReader, log, folder + SEP!, SEP, locksToRemove, missingFiles);
+    }
+    if (missingFiles.length > 0) {
+      // Abort before updateFlow rather than push the literal `!inline path`
+      // string as rawscript.content (GIT-871 / #9140).
+      throw new Error(
+        `Cannot regenerate lock for flow ${remote_path}: missing inline script file(s): ${missingFiles.join(", ")}. ` +
+        `Either restore the file(s) or remove the !inline reference(s) from flow.yaml before retrying.`
+      );
     }
 
     //removeChangedLocks
