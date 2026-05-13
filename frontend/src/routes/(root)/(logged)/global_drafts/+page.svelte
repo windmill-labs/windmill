@@ -5,7 +5,7 @@
 		deleteGlobalDraft,
 		listGlobalDrafts
 	} from '$lib/components/copilot/chat/global/userDraftAdapter'
-	import { type WorkspaceItem } from '$lib/components/copilot/chat/global/draftStore.svelte'
+	import { type WorkspaceItem } from '$lib/components/copilot/chat/global/workspaceItems'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { goto } from '$lib/navigation'
 	import { workspaceStore } from '$lib/stores'
