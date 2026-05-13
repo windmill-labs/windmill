@@ -701,8 +701,15 @@ pub async fn resolve_opt_job_authed(
                     }
                 }
                 if authed.read_only {
-                    if let Err(err) = crate::scopes::check_read_only_for_route(path, method) {
-                        return Err((err, parts));
+                    // MCP transport runs over POST (streamable HTTP / SSE handshake),
+                    // so the middleware can't safely reject mutating methods here —
+                    // the MCP runner itself filters out write tools and rejects
+                    // mutating tool calls for read-only tokens.
+                    let is_mcp_path = path.starts_with("/api/mcp/") || path.starts_with("/mcp/");
+                    if !is_mcp_path {
+                        if let Err(err) = crate::scopes::check_read_only_for_route(path, method) {
+                            return Err((err, parts));
+                        }
                     }
                 }
                 parts.extensions.insert(authed.clone());

@@ -792,6 +792,24 @@ mod tests {
     }
 
     #[test]
+    fn test_check_read_only_for_route() {
+        // Plain GETs pass.
+        assert!(check_read_only_for_route("/api/w/x/scripts/list", "GET").is_ok());
+        assert!(check_read_only_for_route("/api/w/x/scripts/get/foo", "HEAD").is_ok());
+        assert!(check_read_only_for_route("/api/w/x/anything", "OPTIONS").is_ok());
+
+        // Mutating methods are rejected.
+        assert!(check_read_only_for_route("/api/w/x/scripts/create", "POST").is_err());
+        assert!(check_read_only_for_route("/api/w/x/scripts/update", "PUT").is_err());
+        assert!(check_read_only_for_route("/api/w/x/scripts/delete", "DELETE").is_err());
+        assert!(check_read_only_for_route("/api/w/x/scripts/patch", "PATCH").is_err());
+
+        // Run paths are rejected even on GET (map_http_method_to_action elevates
+        // them to Run via RUN_PATH_ACTIONS).
+        assert!(check_read_only_for_route("/api/w/x/jobs/run/p/f/foo", "POST").is_err());
+    }
+
+    #[test]
     fn test_specific_scope_access() {
         let scopes = vec!["jobs:read".to_string()];
 

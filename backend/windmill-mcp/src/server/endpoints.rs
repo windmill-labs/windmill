@@ -26,12 +26,10 @@ pub struct EndpointTool {
     pub body_field_renames: Option<serde_json::Value>,
 }
 
-/// True if this endpoint is safe to expose to a read-only token: only `GET`
-/// (and head/options, in practice OpenAPI exposes only GET as read-only) is
-/// considered non-mutating. Mirrors the `read_only_hint` computed by
-/// `create_endpoint_annotations`.
+/// True if this endpoint is safe to expose to a read-only token. Mirrors the
+/// `read_only_hint` computed by `create_endpoint_annotations`: only `GET`.
 pub fn is_endpoint_read_only(tool: &EndpointTool) -> bool {
-    matches!(tool.method.as_ref(), "GET" | "HEAD" | "OPTIONS")
+    tool.method.as_ref() == "GET"
 }
 
 /// Convert a single endpoint tool to MCP tool
