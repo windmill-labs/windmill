@@ -3919,11 +3919,14 @@ async fn push_next_flow_job(
     for (i, payload_tag) in job_payloads.into_iter().enumerate() {
         if i % 100 == 0 && i != 0 {
             tracing::info!(id = %flow_job.id, root_id = %job_root, "pushed (non-commited yet) first {i} subflows of {len}");
+            // Ping on the pool, outside `tx`, so the zombie flow monitor sees it before the
+            // push transaction commits — otherwise large parallel pushes can be flagged as
+            // zombie and trigger a cancel/push deadlock.
             sqlx::query!(
-                "UPDATE v2_job_runtime SET ping = now() WHERE id = $1 AND ping < now()",
+                "UPDATE v2_job_runtime SET ping = now() WHERE id = $1",
                 flow_job.id,
             )
-            .execute(&mut *tx)
+            .execute(db)
             .warn_after_seconds(3)
             .await?;
         }
