@@ -1,0 +1,309 @@
+//! End-to-end test for asset-trigger dispatch.
+//!
+//! Runs a real Bash producer through a worker, lets the
+//! `result_processor` hook fire `dispatch_asset_triggers`, and then makes
+//! several follow-up calls into `dispatch_asset_triggers` against the same
+//! seeded graph to cover the eligibility branches (self-loop, skip arg,
+//! depth cap, flow subscriber, ineligible job kinds). Direct calls share
+//! the same workspace so we exercise the real query paths against real
+//! `asset` / `script_trigger` rows produced by deploy-equivalent seeding.
+
+use serde_json::json;
+use sqlx::{Pool, Postgres};
+use uuid::Uuid;
+use windmill_common::jobs::{JobKind, JobPayload};
+use windmill_common::scripts::{ScriptHash, ScriptLang};
+use windmill_queue::asset_dispatch::dispatch_asset_triggers;
+use windmill_queue::MiniCompletedJob;
+use windmill_test_utils::{initialize_tracing, ApiServer, RunJob};
+
+const WS: &str = "test-workspace";
+const PRODUCER: &str = "u/test-user/producer";
+const SUB_S3: &str = "u/test-user/sub-s3";
+const SUB_RES: &str = "u/test-user/sub-res";
+const SUB_FLOW: &str = "u/test-user/sub-flow";
+
+// ── Seeding helpers ───────────────────────────────────────────────────────
+
+async fn seed_script(
+    db: &Pool<Postgres>,
+    path: &str,
+    content: &str,
+    language: &str,
+) -> anyhow::Result<i64> {
+    // Hash needs to be unique per (workspace, hash). Derive from path so
+    // sibling scripts in the same test don't collide.
+    let mut h = 0i64;
+    for b in path.bytes() {
+        h = h.wrapping_mul(31).wrapping_add(b as i64);
+    }
+    sqlx::query(
+        r#"INSERT INTO script (workspace_id, hash, path, summary, description, content,
+                                created_by, language, tag, lock)
+           VALUES ($1, $2, $3, '', '', $4, 'test-user', $5::script_lang, 'deno', '')
+           ON CONFLICT DO NOTHING"#,
+    )
+    .bind(WS)
+    .bind(h)
+    .bind(path)
+    .bind(content)
+    .bind(language)
+    .execute(db)
+    .await?;
+    Ok(h)
+}
+
+async fn seed_asset_write(
+    db: &Pool<Postgres>,
+    producer_path: &str,
+    kind: &str,
+    asset_path: &str,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        r#"INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind)
+           VALUES ($1, $2, $3::asset_kind, 'w'::asset_access_type, $4, 'script'::asset_usage_kind)
+           ON CONFLICT DO NOTHING"#,
+    )
+    .bind(WS)
+    .bind(asset_path)
+    .bind(kind)
+    .bind(producer_path)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+async fn seed_subscription(
+    db: &Pool<Postgres>,
+    subscriber_path: &str,
+    subscriber_kind: &str,
+    trigger_ref: &str,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        r#"INSERT INTO script_trigger
+             (workspace_id, runnable_kind, runnable_path, trigger_kind, trigger_ref)
+           VALUES ($1, $2::asset_usage_kind, $3, 'asset'::script_trigger_kind, $4)"#,
+    )
+    .bind(WS)
+    .bind(subscriber_kind)
+    .bind(subscriber_path)
+    .bind(trigger_ref)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Insert a synthetic producer `v2_job` row used by the direct
+/// `dispatch_asset_triggers` calls in the edge-case section. `args` lets the
+/// test inject `_wmill_skip_asset_dispatch` or `trigger.depth` so the
+/// dispatcher's arg-driven branches are exercised against real rows.
+async fn seed_producer_job(db: &Pool<Postgres>, args: serde_json::Value) -> anyhow::Result<Uuid> {
+    let id = Uuid::new_v4();
+    sqlx::query!(
+        r#"INSERT INTO v2_job (id, workspace_id, kind, runnable_path, args, created_by,
+                                permissioned_as, permissioned_as_email, tag, script_lang)
+           VALUES ($1, $2, 'script'::job_kind, $3, $4, 'test-user',
+                   'u/test-user', 'test@windmill.dev', 'deno', 'bash'::script_lang)"#,
+        id,
+        WS,
+        PRODUCER,
+        args,
+    )
+    .execute(db)
+    .await?;
+    Ok(id)
+}
+
+fn make_mini(id: Uuid, runnable_path: &str) -> MiniCompletedJob {
+    MiniCompletedJob {
+        id,
+        workspace_id: WS.to_string(),
+        runnable_id: Some(ScriptHash(1)),
+        scheduled_for: chrono::Utc::now(),
+        parent_job: None,
+        flow_innermost_root_job: None,
+        runnable_path: Some(runnable_path.to_string()),
+        kind: JobKind::Script,
+        started_at: Some(chrono::Utc::now()),
+        permissioned_as: "u/test-user".to_string(),
+        created_by: "test-user".to_string(),
+        script_lang: Some(ScriptLang::Bash),
+        permissioned_as_email: "test@windmill.dev".to_string(),
+        flow_step_id: None,
+        trigger_kind: None,
+        trigger: None,
+        priority: None,
+        concurrent_limit: None,
+        tag: "deno".to_string(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        runnable_settings_handle: None,
+    }
+}
+
+/// Read `v2_job` rows that were created by asset dispatch (filtered by
+/// `trigger_kind = 'asset'` so dep-jobs / other infra rows don't leak in).
+async fn fetch_dispatched(
+    db: &Pool<Postgres>,
+) -> anyhow::Result<Vec<(String, Option<String>, Option<serde_json::Value>)>> {
+    let rows = sqlx::query!(
+        r#"SELECT runnable_path AS "runnable_path!", trigger,
+                  args AS "args: sqlx::types::Json<serde_json::Value>"
+             FROM v2_job
+             WHERE workspace_id = $1 AND trigger_kind = 'asset'
+             ORDER BY runnable_path"#,
+        WS,
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| (r.runnable_path, r.trigger, r.args.map(|j| j.0)))
+        .collect())
+}
+
+async fn clear_dispatched(db: &Pool<Postgres>) -> anyhow::Result<()> {
+    sqlx::query!(
+        "DELETE FROM v2_job WHERE workspace_id = $1 AND trigger_kind = 'asset'",
+        WS,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+// ── The test ─────────────────────────────────────────────────────────────
+
+/// One end-to-end test that:
+///   1. seeds a producer that writes two asset kinds (s3 + resource) with three
+///      subscribers (two script subs + one flow sub that must be skipped),
+///   2. runs the producer through a real worker and asserts the
+///      `result_processor` hook fired and pushed the right jobs with the
+///      right trigger metadata,
+///   3. then drives `dispatch_asset_triggers` directly against the same
+///      seeded graph to cover the arg-driven and eligibility branches that
+///      can't be reached by varying the producer's runtime args alone:
+///        - skip arg suppresses dispatch
+///        - cascade depth caps fan-out
+///        - depth increments correctly just below the cap
+///        - self-loop subscriber is filtered
+///        - producer with parent_job is ineligible
+///        - producer with `Flow` kind is ineligible
+#[sqlx::test(fixtures("base"))]
+async fn end_to_end_asset_dispatch(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // ── Seed the graph ──────────────────────────────────────────────────
+    let producer_hash = seed_script(&db, PRODUCER, "echo producer", "bash").await?;
+    seed_script(&db, SUB_S3, "echo s3-subscriber", "bash").await?;
+    seed_script(&db, SUB_RES, "echo res-subscriber", "bash").await?;
+    // Self-loop subscriber: same path as producer → must be filtered.
+    seed_subscription(&db, PRODUCER, "script", "s3://f/blob").await?;
+    // Flow subscriber on the same asset → V1 hard-filters runnable_kind='flow'.
+    seed_subscription(&db, SUB_FLOW, "flow", "s3://f/blob").await?;
+    // Legit subscribers.
+    seed_subscription(&db, SUB_S3, "script", "s3://f/blob").await?;
+    seed_subscription(&db, SUB_RES, "script", "$res:f/cfg").await?;
+    // Two writes from one producer, distinct kinds.
+    seed_asset_write(&db, PRODUCER, "s3object", "f/blob").await?;
+    seed_asset_write(&db, PRODUCER, "resource", "f/cfg").await?;
+
+    // ── 1. Real worker run: the hook must fire after producer success ───
+    let job = JobPayload::ScriptHash {
+        path: PRODUCER.to_string(),
+        hash: ScriptHash(producer_hash),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        language: ScriptLang::Bash,
+        priority: None,
+        apply_preprocessor: false,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        labels: None,
+    };
+    let completed = RunJob::from(job).run_until_complete(&db, false, port).await;
+    assert!(
+        completed.success,
+        "producer must succeed for dispatch to fire"
+    );
+
+    let mut rows = fetch_dispatched(&db).await?;
+    rows.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(
+        rows.len(),
+        2,
+        "expected dispatch to the two legit script subscribers (flow sub filtered, self-loop filtered)"
+    );
+    let by_path: std::collections::HashMap<_, _> = rows.iter().map(|r| (r.0.as_str(), r)).collect();
+
+    let s3_row = by_path
+        .get(SUB_S3)
+        .expect("s3 subscriber should have a job");
+    let s3_trig = s3_row.2.as_ref().unwrap().get("trigger").unwrap();
+    assert_eq!(s3_trig["kind"], "asset");
+    assert_eq!(s3_trig["asset_kind"], "s3object");
+    assert_eq!(s3_trig["asset_path"], "f/blob");
+    assert_eq!(s3_trig["producer_path"], PRODUCER);
+    assert_eq!(s3_trig["depth"], 1, "depth starts at 1 on first hop");
+    assert_eq!(s3_row.1.as_deref(), Some(PRODUCER));
+
+    let res_row = by_path
+        .get(SUB_RES)
+        .expect("resource subscriber should have a job");
+    let res_trig = res_row.2.as_ref().unwrap().get("trigger").unwrap();
+    assert_eq!(res_trig["asset_kind"], "resource");
+    assert_eq!(res_trig["asset_path"], "f/cfg");
+
+    // ── 2. Direct calls to dispatch_asset_triggers for arg / eligibility
+    //      branches that can't be reached via the runtime path ──────────
+    clear_dispatched(&db).await?;
+
+    // skip arg suppresses dispatch
+    let id = seed_producer_job(&db, json!({ "_wmill_skip_asset_dispatch": true })).await?;
+    let r = dispatch_asset_triggers(&db, &make_mini(id, PRODUCER)).await;
+    assert_eq!(r.dispatched.len(), 0, "skip arg suppressed dispatch");
+
+    // depth at cap (MAX_CHAIN_DEPTH = 5) blocks further fan-out
+    let id = seed_producer_job(&db, json!({ "trigger": { "depth": 5 } })).await?;
+    let r = dispatch_asset_triggers(&db, &make_mini(id, PRODUCER)).await;
+    assert_eq!(r.dispatched.len(), 0, "depth at cap blocked");
+
+    // depth just below cap fans out, new run carries depth + 1
+    clear_dispatched(&db).await?;
+    let id = seed_producer_job(&db, json!({ "trigger": { "depth": 4 } })).await?;
+    let r = dispatch_asset_triggers(&db, &make_mini(id, PRODUCER)).await;
+    assert_eq!(r.dispatched.len(), 2);
+    let rows = fetch_dispatched(&db).await?;
+    for row in &rows {
+        let depth = row.2.as_ref().unwrap()["trigger"]["depth"]
+            .as_i64()
+            .unwrap();
+        assert_eq!(depth, 5, "depth should increment to 5");
+    }
+
+    // producer with parent_job (flow step) is ineligible
+    clear_dispatched(&db).await?;
+    let id = seed_producer_job(&db, json!({})).await?;
+    let mut mini = make_mini(id, PRODUCER);
+    mini.parent_job = Some(Uuid::new_v4());
+    let r = dispatch_asset_triggers(&db, &mini).await;
+    assert_eq!(r.dispatched.len(), 0, "flow step producer ineligible");
+
+    // producer with kind=Flow is ineligible
+    let id = seed_producer_job(&db, json!({})).await?;
+    let mut mini = make_mini(id, PRODUCER);
+    mini.kind = JobKind::Flow;
+    let r = dispatch_asset_triggers(&db, &mini).await;
+    assert_eq!(r.dispatched.len(), 0, "flow producer ineligible");
+
+    // Sanity: the eligible direct call (clean producer, no args) still fires —
+    // proves the assertions above are negative cases, not a broken setup.
+    let id = seed_producer_job(&db, json!({})).await?;
+    let r = dispatch_asset_triggers(&db, &make_mini(id, PRODUCER)).await;
+    assert_eq!(r.dispatched.len(), 2, "clean direct call still dispatches");
+
+    Ok(())
+}

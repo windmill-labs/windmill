@@ -398,3 +398,4 @@ async fn push_subscriber(
     tx.commit().await?;
     Ok(id)
 }
+
