@@ -10,7 +10,9 @@
 		initialScopes?: string[]
 		/** Final scope value: null = unrestricted/full access, array = explicit list */
 		value: string[] | null
-		/** Forwarded to McpScopeSelector to filter incompatible endpoints/runnables */
+		/** Read-only flag; also forwarded to McpScopeSelector to filter incompatible
+		 *  endpoints/runnables. Two-way bound so the inline toggle below the
+		 *  "Limit token permissions" switch (and the MCP variant) writes back. */
 		readOnly?: boolean
 	}
 
@@ -19,8 +21,17 @@
 		workspaceId = '',
 		initialScopes,
 		value = $bindable(),
-		readOnly = false
+		readOnly = $bindable(false)
 	}: Props = $props()
+
+	// In standard mode, only meaningful when the user has turned "Limit token
+	// permissions" on. Reset when they un-limit so the flag doesn't quietly
+	// stick if they re-enable later.
+	$effect(() => {
+		if (mode === 'standard' && !limited && readOnly) {
+			readOnly = false
+		}
+	})
 
 	const initialMcpScope = $derived(
 		(initialScopes ?? []).length > 0 ? (initialScopes ?? []).join(' ') : undefined
@@ -59,9 +70,38 @@
 			size="xs"
 		/>
 		{#if limited}
+			<div class="text-tertiary">
+				<Toggle
+					bind:checked={readOnly}
+					options={{
+						right: 'Read-only',
+						rightTooltip:
+							'Restricts this token to GET/HEAD endpoints. Any mutating request (POST/PUT/PATCH/DELETE) or job-run action will be rejected with 403, regardless of the scopes selected below.'
+					}}
+					size="2xs"
+				/>
+			</div>
 			<ScopeSelector bind:selectedScopes={standardScopes} />
 		{/if}
 	</div>
 {:else}
-	<McpScopeSelector {workspaceId} bind:scope={mcpScope} initialScope={initialMcpScope} {readOnly} />
+	<div class="flex flex-col gap-2">
+		<div class="text-tertiary">
+			<Toggle
+				bind:checked={readOnly}
+				options={{
+					right: 'Read-only',
+					rightTooltip:
+						'Restricts this MCP URL to read-only endpoints. The LLM will only see read tools — script and flow runs will be hidden.'
+				}}
+				size="2xs"
+			/>
+		</div>
+		<McpScopeSelector
+			{workspaceId}
+			bind:scope={mcpScope}
+			initialScope={initialMcpScope}
+			{readOnly}
+		/>
+	</div>
 {/if}
