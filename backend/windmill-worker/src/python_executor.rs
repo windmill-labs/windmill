@@ -841,17 +841,10 @@ def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
 
-# Single-pass cleanup of `json.dumps` output. The first alternative consumes
-# a full JSON string (so anything inside quotes is preserved as-is, except
-# ` ` escapes which Postgres jsonb rejects); the others match bare
-# NaN/Infinity/-Infinity tokens emitted by Python for non-finite floats.
-_u0000_re = re.compile(r'\\*\\u0000')
-def _replace_invalid_match(m):
-    s = m.group(0)
-    if s[0] == '"':
-        return _u0000_re.sub(' null ', s) if '\\u0000' in s else s
-    return ' null '
-replace_invalid_fields = re.compile(r'"(?:\\.|[^"\\])*"|\bNaN\b|-?Infinity')
+_u=re.compile(r'\\\\|\\u0000')
+_us=lambda m:' null ' if m.group(0)[1]=='u' else m.group(0)
+_r=lambda m,s='':(_u.sub(_us,s) if '\\u0000' in s else s) if (s:=m.group(0))[0]=='"' else ' null '
+replace_invalid_fields=re.compile(r'"(?:\\.|[^"\\])*"|\bNaN\b|-?Infinity')
 
 result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
 
@@ -1377,14 +1370,10 @@ def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
 
-# Single-pass cleanup of `json.dumps` output. See wrapper.py for rationale.
-_u0000_re = re.compile(r'\\u0000')
-def _replace_invalid_match(m):
-    s = m.group(0)
-    if s[0] == '"':
-        return _u0000_re.sub(' null ', s) if '\\u0000' in s else s
-    return ' null '
-replace_invalid_fields = re.compile(r'"(?:\\.|[^"\\])*"|\bNaN\b|-?Infinity')
+_u=re.compile(r'\\\\|\\u0000')
+_us=lambda m:' null ' if m.group(0)[1]=='u' else m.group(0)
+_r=lambda m,s='':(_u.sub(_us,s) if '\\u0000' in s else s) if (s:=m.group(0))[0]=='"' else ' null '
+replace_invalid_fields=re.compile(r'"(?:\\.|[^"\\])*"|\bNaN\b|-?Infinity')
 
 def res_to_json(res, typ):
 {res_to_json_body}
@@ -2968,7 +2957,7 @@ fn get_result_postprocessor<'a>(skip: bool) -> &'a str {
     if skip {
         "unprocessed"
     } else {
-        "re.sub(replace_invalid_fields, _replace_invalid_match, unprocessed)"
+        "re.sub(replace_invalid_fields,_r,unprocessed)"
     }
 }
 
