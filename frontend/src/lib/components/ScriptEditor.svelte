@@ -43,6 +43,7 @@
 	import {
 		AlertTriangle,
 		Bug,
+		ChevronDown,
 		Copy,
 		CornerDownLeft,
 		Disc,
@@ -56,7 +57,8 @@
 		Terminal,
 		Pencil,
 		WandSparkles,
-		X
+		X,
+		Zap
 	} from 'lucide-svelte'
 	import {
 		DebugToolbar,
@@ -213,6 +215,13 @@
 	let initialArgs = structuredClone($state.snapshot(args))
 	let jsonView = $state(false)
 	let schemaHeight = $state(0)
+	// Asset-trigger cascade choice for the Test button. Only meaningful when
+	// `customUi.previewPanel.downstreamSubscribers > 0`. Defaults to off so
+	// iteration on a pipeline script doesn't accidentally fan out runs to
+	// downstream subscribers. The user can flip it via the split-button
+	// caret next to Test, and the choice sticks for the rest of the session.
+	let cascadeDownstream = $state(false)
+	let cascadeMenuOpen = $state(false)
 	let psCommonParams: Record<string, any> = $state({})
 	let showPsCommonParams = $derived(lang === 'powershell' && /^\s*\[CmdletBinding/im.test(code))
 
@@ -696,6 +705,13 @@
 					testArgs[k] = v
 				}
 			}
+		}
+		// In pipeline-editor contexts (downstreamSubscribers prop set), default
+		// the test run to *just this step* by passing the backend opt-out arg.
+		// The user can run with cascade via the split button's caret option,
+		// which flips `cascadeDownstream` and lets dispatch fire normally.
+		if ((customUi?.previewPanel?.downstreamSubscribers ?? 0) > 0 && !cascadeDownstream) {
+			testArgs['_wmill_skip_asset_dispatch'] = true
 		}
 
 		//@ts-ignore
@@ -1671,6 +1687,98 @@
 										/>
 										Cancel
 									</Button>
+								{:else if (customUi?.previewPanel?.downstreamSubscribers ?? 0) > 0}
+									<!-- Split button: primary "Test" runs just this step
+									     (skips the asset-trigger cascade); the caret
+									     opens a popover with the cascade option labelled
+									     by the downstream count. The active mode is
+									     reflected in both the button label and the
+									     check-mark on the menu item so the user always
+									     knows whether the next run will fan out. -->
+									{@const downstream = customUi!.previewPanel!.downstreamSubscribers!}
+									<div class="flex items-stretch shadow-md rounded-md overflow-hidden">
+										<Button
+											on:click={() => runTest()}
+											unifiedSize="sm"
+											btnClasses="rounded-r-none"
+											variant="accent-secondary"
+											startIcon={{
+												icon: cascadeDownstream ? Zap : Play,
+												classes: 'animate-none'
+											}}
+											shortCut={{ Icon: CornerDownLeft }}
+										>
+											{cascadeDownstream ? `Test + trigger ${downstream}` : 'Test'}
+										</Button>
+										<Popover
+											placement="bottom-end"
+											bind:isOpen={cascadeMenuOpen}
+											usePointerDownOutside
+											contentClasses="p-0"
+										>
+											{#snippet trigger()}
+												<button
+													type="button"
+													class="px-1.5 flex items-center justify-center bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/60 text-primary border-l border-blue-300 dark:border-blue-700 transition-colors"
+													title="Run options"
+													aria-label="Run options"
+												>
+													<ChevronDown size={14} />
+												</button>
+											{/snippet}
+											{#snippet content({ close })}
+												<div class="w-72 py-1 text-xs">
+													<button
+														type="button"
+														class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2"
+														onclick={() => {
+															cascadeDownstream = false
+															close()
+															void runTest()
+														}}
+													>
+														<Play
+															size={14}
+															class="mt-0.5 shrink-0 text-emerald-700 dark:text-emerald-400"
+														/>
+														<div class="flex flex-col min-w-0">
+															<span class="font-medium">
+																Test {!cascadeDownstream ? '(current)' : ''}
+															</span>
+															<span class="text-2xs text-secondary"
+																>Run just this step. Downstream subscribers are not triggered.</span
+															>
+														</div>
+													</button>
+													<button
+														type="button"
+														class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2"
+														onclick={() => {
+															cascadeDownstream = true
+															close()
+															void runTest()
+														}}
+													>
+														<Zap
+															size={14}
+															class="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400"
+														/>
+														<div class="flex flex-col min-w-0">
+															<span class="font-medium">
+																Test + trigger {downstream} downstream {cascadeDownstream
+																	? '(current)'
+																	: ''}
+															</span>
+															<span class="text-2xs text-secondary">
+																Let the asset-trigger cascade fan out to the {downstream}
+																subscribed script{downstream === 1 ? '' : 's'} after this run succeeds.
+															</span>
+														</div>
+													</button>
+												</div>
+											{/snippet}
+										</Popover>
+									</div>
 								{:else}
 									<Button
 										on:click={() => runTest()}

@@ -71,6 +71,13 @@ export type PreviewPanelUi = {
 	// the default top/bottom. Pairs naturally with `hideArgs` when the
 	// preview area is the full bottom band.
 	logsResultSideBySide?: boolean
+	// Number of scripts that subscribe to assets this script writes (via
+	// `// on s3://…` etc.). When > 0, the Test button is rendered as a
+	// split: primary action runs just this step (cascade suppressed via
+	// `_wmill_skip_asset_dispatch`), and a caret exposes "Test + trigger N
+	// downstream" that lets the asset-dispatch hook fire downstream jobs.
+	// Undefined or 0 → plain Test button (no cascade UI).
+	downstreamSubscribers?: number
 }
 
 export type EditorBarUi = {

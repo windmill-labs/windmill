@@ -949,6 +949,46 @@
 			.map((e) => ({ kind: e.runnable_kind, path: e.runnable_path, unsaved: e.unsaved }))
 	})
 
+	// Downstream subscriber count for the currently-edited script. Drives
+	// the Test button's cascade UX: when > 0, ScriptEditor renders a split
+	// button exposing "just this step" (default, with `_wmill_skip_asset_dispatch`)
+	// vs "trigger N downstream" (lets the dispatch hook fan out).
+	//
+	// Computation: for each (asset_kind, asset_path) the edited script writes
+	// (w/rw edge), count distinct script subscribers (via `// on …` declared
+	// in `triggers`) other than self. Flows are excluded because V1 dispatch
+	// only fans out to scripts.
+	let editedScriptDownstreamCount = $derived.by(() => {
+		const editedPath =
+			activeDraftPath ??
+			(selection?.kind === 'runnable' && selection.runnable_kind === 'script'
+				? selection.path
+				: undefined)
+		if (!editedPath) return 0
+		const writes = graphWithDraft.edges.filter(
+			(e) =>
+				e.runnable_path === editedPath &&
+				e.runnable_kind === 'script' &&
+				(e.access_type === 'w' || e.access_type === 'rw')
+		)
+		if (writes.length === 0) return 0
+		const subs = new Set<string>()
+		for (const w of writes) {
+			for (const t of graphWithDraft.triggers) {
+				if (
+					t.trigger_kind === 'asset' &&
+					t.runnable_kind === 'script' &&
+					t.runnable_path !== editedPath &&
+					t.asset_kind === w.asset_kind &&
+					t.asset_path === w.asset_path
+				) {
+					subs.add(t.runnable_path)
+				}
+			}
+		}
+		return subs.size
+	})
+
 	// Folder-picker modal state. Opens from the folder selector button when
 	// there are no other pipelines to switch to, or from the "Choose another
 	// folder…" entry in the dropdown otherwise.
@@ -1312,6 +1352,7 @@
 								{runsRefreshKey}
 								{runsPendingJobId}
 								{activeRunnable}
+								downstreamSubscribers={editedScriptDownstreamCount}
 								onRunCompleted={() => (activeRunnable = undefined)}
 								onTestStateChange={(running) => {
 									// Bridge: ScriptEditor's Test button triggers the

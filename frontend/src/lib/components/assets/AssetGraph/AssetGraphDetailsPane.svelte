@@ -145,6 +145,12 @@
 		// or is still loading. Counter pattern (not a boolean) so successive
 		// triggers re-fire even if the modal was just closed.
 		requestRemoveSignal?: number
+		// Count of scripts that subscribe (via `// on …`) to assets that the
+		// currently-edited script writes. Threaded into ScriptEditor's
+		// `customUi.previewPanel` so the Test button renders a split-button
+		// cascade option when > 0. The page computes this from the graph
+		// edges + triggers + currently-open path.
+		downstreamSubscribers?: number
 	}
 	let {
 		selection,
@@ -169,7 +175,8 @@
 		requestRunSignal,
 		pathPrefix = '',
 		onDraftPathChange,
-		requestRemoveSignal
+		requestRemoveSignal,
+		downstreamSubscribers = 0
 	}: Props = $props()
 
 	// Held ref to ScriptEditor so we can route a canvas-side Run dispatch
@@ -737,7 +744,8 @@
 							// logs|result side by side, and float the Test/Cancel
 							// button onto the editor band above.
 							hideArgs: true,
-							logsResultSideBySide: true
+							logsResultSideBySide: true,
+							downstreamSubscribers
 						}
 					}}
 					bind:code={script.content}
