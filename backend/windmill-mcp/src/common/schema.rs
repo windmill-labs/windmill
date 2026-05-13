@@ -54,6 +54,7 @@ pub fn make_schema_compatible(schema: &mut Value) {
 
     // 1. Strip non-standard keywords that aren't part of JSON Schema
     obj.remove("originalType");
+    obj.remove("resourceType");
 
     // 2. Strip non-standard format values (resource-* is Windmill-internal)
     if obj
@@ -74,15 +75,18 @@ pub fn make_schema_compatible(schema: &mut Value) {
         }
     }
 
-    // 4. Convert integer to number
+    // 4. Convert non-standard types
     if let Some(type_val) = obj.get_mut("type") {
         match type_val {
             Value::String(s) if s == "integer" => *s = "number".to_string(),
+            Value::String(s) if s == "resource" => *s = "string".to_string(),
             Value::Array(arr) => {
                 for item in arr.iter_mut() {
                     if let Value::String(s) = item {
                         if s == "integer" {
                             *s = "number".to_string();
+                        } else if s == "resource" {
+                            *s = "string".to_string();
                         }
                     }
                 }
@@ -367,5 +371,24 @@ mod tests {
         make_schema_compatible(&mut schema);
 
         assert_eq!(schema["type"], json!("object"));
+    }
+
+    #[test]
+    fn converts_resource_type_in_array_items() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "accounts": {
+                    "type": "array",
+                    "items": {
+                        "type": "resource",
+                        "resourceType": "c_aws_account"
+                    }
+                }
+            }
+        });
+        make_schema_compatible(&mut schema);
+        assert_eq!(schema["properties"]["accounts"]["items"]["type"], json!("string"));
+        assert!(schema["properties"]["accounts"]["items"].get("resourceType").is_none());
     }
 }
