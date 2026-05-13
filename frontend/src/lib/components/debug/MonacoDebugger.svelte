@@ -27,13 +27,21 @@
 	let client: DAPClient | null = $state(null)
 	let breakpointDecorations: string[] = $state([])
 	let currentLineDecoration: string[] = $state([])
+	let hoverBreakpointDecoration: string[] = $state([])
 	let disposables: IDisposable[] = []
 
 	// Breakpoint glyph margin decoration
 	const breakpointDecorationType: meditor.IModelDecorationOptions = {
 		glyphMarginClassName: 'debug-breakpoint-glyph',
-		glyphMarginHoverMessage: { value: 'Breakpoint' },
+		glyphMarginHoverMessage: { value: 'Breakpoint (click to remove)' },
 		stickiness: 1 // NeverGrowsWhenTypingAtEdges
+	}
+
+	// Ghost breakpoint shown while hovering the gutter on an empty line
+	const hoverBreakpointDecorationType: meditor.IModelDecorationOptions = {
+		glyphMarginClassName: 'debug-breakpoint-glyph-hover',
+		glyphMarginHoverMessage: { value: 'Click to add a breakpoint' },
+		stickiness: 1
 	}
 
 	// Current line decoration (yellow background when stopped)
@@ -104,6 +112,24 @@
 		})
 		disposables.push(mouseDownDisposable)
 
+		// Show a ghost breakpoint while hovering the gutter on empty lines
+		const mouseMoveDisposable = editor.onMouseMove((e) => {
+			// MouseTargetType.GUTTER_GLYPH_MARGIN = 2, GUTTER_LINE_NUMBERS = 3
+			const isGutter = e.target.type === 2 || e.target.type === 3
+			const line = e.target.position?.lineNumber
+			if (isGutter && line && !breakpoints.has(line)) {
+				updateHoverBreakpointDecoration(line)
+			} else {
+				clearHoverBreakpointDecoration()
+			}
+		})
+		disposables.push(mouseMoveDisposable)
+
+		const mouseLeaveDisposable = editor.onMouseLeave(() => {
+			clearHoverBreakpointDecoration()
+		})
+		disposables.push(mouseLeaveDisposable)
+
 		// Add keyboard shortcut F9 for toggling breakpoint
 		editor.addCommand(
 			120, // KeyCode.F9
@@ -138,7 +164,27 @@
 		}
 		// SvelteSet is reactive, no need to reassign
 		updateBreakpointDecorations()
+		// A real breakpoint now lives here (or just got cleared) — drop the ghost
+		clearHoverBreakpointDecoration()
 		syncBreakpointsWithServer()
+	}
+
+	function updateHoverBreakpointDecoration(line: number): void {
+		if (!editor) return
+
+		const decorations: meditor.IModelDeltaDecoration[] = [
+			{
+				range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 },
+				options: hoverBreakpointDecorationType
+			}
+		]
+
+		hoverBreakpointDecoration = editor.deltaDecorations(hoverBreakpointDecoration, decorations)
+	}
+
+	function clearHoverBreakpointDecoration(): void {
+		if (!editor || hoverBreakpointDecoration.length === 0) return
+		hoverBreakpointDecoration = editor.deltaDecorations(hoverBreakpointDecoration, [])
 	}
 
 	function updateBreakpointDecorations(): void {
@@ -274,7 +320,10 @@
 		}
 	}
 
-	async function signDebugRequest(codeToSign: string, lang: string): Promise<{
+	async function signDebugRequest(
+		codeToSign: string,
+		lang: string
+	): Promise<{
 		token: string
 		code: string
 	}> {
@@ -292,7 +341,9 @@
 			const errorText = await response.text()
 			// Parse specific error cases for better user messages
 			if (errorText.includes('not initialized')) {
-				throw new Error('Debug signing is not configured on the server. Please contact your administrator.')
+				throw new Error(
+					'Debug signing is not configured on the server. Please contact your administrator.'
+				)
 			}
 			throw new Error(errorText || 'Failed to authorize debug session')
 		}
@@ -445,6 +496,17 @@
 		height: 10px !important;
 		margin-left: 5px;
 		margin-top: 4px;
+	}
+
+	:global(.debug-breakpoint-glyph-hover) {
+		background-color: #e51400;
+		opacity: 0.35;
+		border-radius: 50%;
+		width: 10px !important;
+		height: 10px !important;
+		margin-left: 5px;
+		margin-top: 4px;
+		cursor: pointer;
 	}
 
 	:global(.debug-current-line) {
