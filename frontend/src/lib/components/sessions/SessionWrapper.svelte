@@ -223,16 +223,14 @@
 					</div>
 				{/if}
 			</header>
-			<div class="flex-1 min-h-0 w-full max-w-3xl mx-auto flex flex-col">
-				<div class="flex-1 min-h-0">
-					<AIChat
-						hideInputBorder
-						hideHeader
-						hideModeSelector
-						emptyHint={sessionEmptyHint}
-						{inputPreface}
-					/>
-				</div>
+			<div class="flex-1 min-h-0 w-full flex flex-col">
+				<AIChat
+					hideInputBorder
+					hideHeader
+					hideModeSelector
+					emptyHint={sessionEmptyHint}
+					{inputPreface}
+				/>
 			</div>
 		</Pane>
 		{#if hasEditor && session.target}

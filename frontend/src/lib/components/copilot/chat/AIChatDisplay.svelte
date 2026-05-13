@@ -1,17 +1,7 @@
 <script lang="ts">
 	import AIChatMessage from './AIChatMessage.svelte'
 	import { getContext, type Snippet } from 'svelte'
-	import {
-		CheckIcon,
-		HistoryIcon,
-		Loader2,
-		MousePointer2,
-		Plus,
-		Square,
-		TextSelect,
-		X,
-		XIcon
-	} from 'lucide-svelte'
+	import { CheckIcon, HistoryIcon, MousePointer2, Plus, TextSelect, X, XIcon } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { type DisplayMessage } from './shared'
@@ -42,7 +32,6 @@
 		loadPastChat,
 		deletePastChat,
 		saveAndClear,
-		cancel,
 		askAi = () => {}, // todo: remove default,
 		headerLeft,
 		headerRight,
@@ -64,7 +53,6 @@
 		loadPastChat: (id: string) => void
 		deletePastChat: (id: string) => void
 		saveAndClear: () => void
-		cancel: () => void
 		askAi?: (instructions: string, options?: { withCode?: boolean; withDiff?: boolean }) => void
 		headerLeft?: Snippet
 		headerRight?: Snippet
@@ -112,9 +100,34 @@
 		}
 	})
 
-	const isLastMessageTool = $derived(
-		messages.length > 0 && messages[messages.length - 1].role === 'tool'
-	)
+	// Wall-clock for the typing-dots indicator. Starts at the rising edge
+	// of `loading`, ticks once a second, frozen on the last value when
+	// loading ends so callers reading the dot block briefly after still
+	// see something coherent.
+	let loadingStartedAt = $state<number | undefined>(undefined)
+	let loadingElapsedMs = $state(0)
+	$effect(() => {
+		if (!aiChatManager.loading) {
+			loadingStartedAt = undefined
+			return
+		}
+		loadingStartedAt = Date.now()
+		loadingElapsedMs = 0
+		const interval = setInterval(() => {
+			if (loadingStartedAt) loadingElapsedMs = Date.now() - loadingStartedAt
+		}, 1000)
+		return () => clearInterval(interval)
+	})
+	function formatElapsed(ms: number): string {
+		const total = Math.max(0, Math.floor(ms / 1000))
+		if (total < 60) return `${total}s`
+		const m = Math.floor(total / 60)
+		const s = total % 60
+		if (m < 60) return s === 0 ? `${m}m` : `${m}m ${s}s`
+		const h = Math.floor(m / 60)
+		const rm = m % 60
+		return rm === 0 ? `${h}h` : `${h}h ${rm}m`
+	}
 
 	// Get app context for display when in APP mode
 	const appContext = $derived.by((): SelectedContext | undefined => {
@@ -215,13 +228,13 @@
 
 	{#if messages.length > 0}
 		<div
-			class="h-full overflow-y-scroll pt-2 pb-12"
+			class="flex-1 min-h-0 overflow-y-scroll pt-2"
 			bind:this={scrollEl}
 			onwheel={() => {
 				aiChatManager.disableAutomaticScroll()
 			}}
 		>
-			<div class="flex flex-col" bind:clientHeight={height}>
+			<div class="w-full max-w-3xl mx-auto px-8 flex flex-col pb-2" bind:clientHeight={height}>
 				{#each messages as message, messageIndex (messageIndex)}
 					<AIChatMessage
 						{message}
@@ -231,31 +244,34 @@
 						bind:editingMessageIndex
 					/>
 				{/each}
-				{#if aiChatManager.loading && !aiChatManager.currentReply && !isLastMessageTool}
-					<div class="mb-6 py-1 px-2">
-						<Loader2 class="animate-spin" />
+				{#if aiChatManager.loading}
+					<div class="sticky bottom-2 z-10 mt-2 ml-2 self-start pointer-events-none">
+						<span
+							class="inline-flex items-center gap-2 px-2 py-1 rounded-md bg-surface/80 backdrop-blur"
+							aria-label="AI is generating a response"
+						>
+							<span class="inline-flex items-end gap-1">
+								<span class="w-1.5 h-1.5 rounded-full bg-blue-500 chat-typing-dot"></span>
+								<span class="w-1.5 h-1.5 rounded-full bg-blue-500 chat-typing-dot chat-typing-dot-2"
+								></span>
+								<span class="w-1.5 h-1.5 rounded-full bg-blue-500 chat-typing-dot chat-typing-dot-3"
+								></span>
+							</span>
+							<span class="text-2xs text-tertiary tabular-nums"
+								>{formatElapsed(loadingElapsedMs)}</span
+							>
+						</span>
 					</div>
 				{/if}
 			</div>
 		</div>
 	{/if}
 
-	<div class:border-t={messages.length > 0 && !hideInputBorder} class="relative">
-		{#if aiChatManager.loading}
-			<div class="absolute -top-10 w-full flex flex-row justify-center">
-				<Button
-					startIcon={{ icon: Square }}
-					size="xs"
-					variant="default"
-					btnClasses="bg-surface hover:bg-surface-selected"
-					on:click={() => {
-						cancel()
-					}}
-				>
-					Stop
-				</Button>
-			</div>
-		{:else if aiChatManager.flowAiChatHelpers?.hasPendingChanges()}
+	<div
+		class:border-t={messages.length > 0 && !hideInputBorder}
+		class="relative w-full max-w-3xl mx-auto px-8"
+	>
+		{#if aiChatManager.flowAiChatHelpers?.hasPendingChanges()}
 			<div class="absolute -top-10 w-full flex flex-row justify-center gap-2">
 				<Button
 					startIcon={{ icon: CheckIcon }}
@@ -379,3 +395,27 @@
 		{/if}
 	</div>
 </div>
+
+<style>
+	.chat-typing-dot {
+		animation: chat-typing 1.2s ease-in-out infinite;
+	}
+	.chat-typing-dot-2 {
+		animation-delay: 0.15s;
+	}
+	.chat-typing-dot-3 {
+		animation-delay: 0.3s;
+	}
+	@keyframes chat-typing {
+		0%,
+		60%,
+		100% {
+			opacity: 0.3;
+			transform: translateY(0);
+		}
+		30% {
+			opacity: 1;
+			transform: translateY(-2px);
+		}
+	}
+</style>

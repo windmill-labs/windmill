@@ -30,7 +30,9 @@
 </script>
 
 {#if isFork && sessionWorkspace && parentWorkspace && parentWorkspaceId && committedId}
-	<div class="flex flex-row items-center justify-between gap-2 px-1 py-1 text-xs">
+	<div
+		class="flex flex-row items-center justify-between gap-2 py-2 px-3 text-xs border rounded-md bg-surface-tertiary"
+	>
 		<div class="flex items-center gap-1.5 min-w-0">
 			<GitFork class="w-3.5 h-3.5 shrink-0 text-secondary" />
 			<span class="truncate text-secondary" title={sessionWorkspace.name}>

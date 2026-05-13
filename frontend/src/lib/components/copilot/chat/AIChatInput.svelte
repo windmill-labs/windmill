@@ -15,6 +15,8 @@
 	import { getContext, tick, untrack, type Snippet } from 'svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
+	import { ArrowUp, Square } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
 
 	const aiChatManager = getContext<AIChatManager>('aiChatManager') ?? singletonAiChatManager
 	import { sendUserToast } from '$lib/toast'
@@ -394,27 +396,52 @@
 	})
 </script>
 
+{#snippet sendStopButton()}
+	{@const isLoading = aiChatManager.loading}
+	{@const sendDisabled = disabled || instructions.trim().length === 0}
+	<Button
+		variant="subtle"
+		unifiedSize="md"
+		iconOnly
+		title={isLoading ? 'Stop' : 'Send'}
+		startIcon={{ icon: isLoading ? Square : ArrowUp }}
+		disabled={!isLoading && sendDisabled}
+		on:click={() => {
+			if (isLoading) {
+				aiChatManager.cancel()
+			} else if (!sendDisabled) {
+				onSendRequest ? onSendRequest(instructions) : sendRequest()
+			}
+		}}
+	/>
+{/snippet}
+
 <div use:clickOutside class="relative">
 	{#if aiChatManager.mode === AIMode.SCRIPT || aiChatManager.mode === AIMode.FLOW}
-		<ContextTextarea
-			bind:this={contextTextareaComponent}
-			bind:value={instructions}
-			{availableContext}
-			{selectedContext}
-			{isFirstMessage}
-			placeholder={modePlaceholder}
-			onAddContext={(contextElement) => void addContextToSelection(contextElement)}
-			onSendRequest={() => {
-				if (disabled) {
-					return
-				}
-				onSendRequest ? onSendRequest(instructions) : sendRequest()
-			}}
-			{disabled}
-			{onKeyDown}
-		/>
+		<div class="relative">
+			<ContextTextarea
+				bind:this={contextTextareaComponent}
+				bind:value={instructions}
+				{availableContext}
+				{selectedContext}
+				{isFirstMessage}
+				placeholder={modePlaceholder}
+				onAddContext={(contextElement) => void addContextToSelection(contextElement)}
+				onSendRequest={() => {
+					if (disabled) {
+						return
+					}
+					onSendRequest ? onSendRequest(instructions) : sendRequest()
+				}}
+				{disabled}
+				{onKeyDown}
+			/>
+			<div class="absolute bottom-1 right-1">
+				{@render sendStopButton()}
+			</div>
+		</div>
 		{#if showContext}
-			<div class="flex flex-row gap-1 mt-1 overflow-scroll no-scrollbar">
+			<div class="flex flex-row items-center gap-1 mt-1 overflow-scroll no-scrollbar">
 				<Popover>
 					{#snippet trigger()}
 						<div
@@ -478,14 +505,17 @@
 						sendRequest()
 					}
 				}}
-				rows={3}
+				rows={1}
 				placeholder={modePlaceholder}
-				class="resize-none"
+				class="resize-none !pl-3 !pr-10 !py-2"
 				{disabled}
-			></textarea>
+			></textarea>test
+			<div class="absolute bottom-1 right-1">
+				{@render sendStopButton()}
+			</div>
 		</div>
 		{#if showContext}
-			<div class="flex flex-row gap-1 mt-1 overflow-scroll no-scrollbar">
+			<div class="flex flex-row items-center gap-1 mt-1 overflow-scroll no-scrollbar">
 				<Popover>
 					{#snippet trigger()}
 						<div
@@ -557,15 +587,18 @@
 						sendRequest()
 					}
 				}}
-				rows={3}
+				rows={1}
 				placeholder={modePlaceholder}
-				class="resize-none"
+				class="resize-none !pl-3 !pr-10 !py-2"
 				{disabled}
 			></textarea>
+			<div class="absolute bottom-1 right-1">
+				{@render sendStopButton()}
+			</div>
 		</div>
 	{/if}
 	{#if bottomRightSnippet}
-		<div class="absolute bottom-2 right-2">
+		<div class="absolute bottom-1 right-1">
 			{@render bottomRightSnippet()}
 		</div>
 	{/if}
