@@ -1,12 +1,9 @@
-import { FlowService, ScriptService } from '$lib/gen'
-import type { Flow, NewSchedule, NewScript, Script, ScriptLang } from '$lib/gen/types.gen'
+import type { Flow, NewSchedule, NewScript } from '$lib/gen/types.gen'
 import { UserDraft, type UserDraftItemKind, type UserDraftListEntry } from '$lib/userDraft.svelte'
-import { emptySchema } from '$lib/utils'
 import {
 	getWorkspaceItemKey,
 	globalDraftStore,
 	type AppDraftValue,
-	type FlowDraftValue,
 	type TriggerRequestBody,
 	type TriggerKind,
 	type WorkspaceItem,
@@ -54,7 +51,6 @@ const SHARED_DRAFT_KINDS = [
 	'trigger_gcp',
 	'trigger_azure'
 ] as const satisfies UserDraftItemKind[]
-const DEFAULT_SCRIPT_LANGUAGE: ScriptLang = 'bun'
 const DEFAULT_APP_DATA = { tables: [], datatable: undefined, schema: undefined }
 
 function clone<T>(value: T): T {
@@ -99,14 +95,6 @@ function normalizeAppDraftValue(value: AppDraftValue): AppDraftValue {
 
 function getItemSummary(value: unknown): string | undefined {
 	return ((value as { summary?: string | null } | undefined)?.summary ?? undefined) || undefined
-}
-
-function applyItemSummary<T extends object>(value: T, summary: string | undefined): T {
-	const draft = value as T & { summary?: string | null }
-	if (draft.summary === undefined && summary !== undefined) {
-		draft.summary = summary
-	}
-	return value
 }
 
 function scriptDraftToWorkspaceItem(path: string, draft: NewScript): WorkspaceItem {
@@ -188,123 +176,6 @@ function sharedDraftEntryToWorkspaceItem(entry: UserDraftListEntry): WorkspaceIt
 	}
 }
 
-function scriptItemToUserDraft(item: WorkspaceItem, existing?: Script): NewScript {
-	if (typeof item.value !== 'string') {
-		throw new Error(`Draft script "${item.path}" is missing source content.`)
-	}
-
-	if (existing) {
-		return {
-			...clone(existing),
-			parent_hash: existing.hash,
-			path: item.path,
-			summary: item.summary ?? existing.summary,
-			content: item.value,
-			language: item.language ?? existing.language
-		}
-	}
-
-	return {
-		path: item.path,
-		summary: item.summary ?? '',
-		description: '',
-		content: item.value,
-		schema: emptySchema(),
-		is_template: false,
-		language: item.language ?? DEFAULT_SCRIPT_LANGUAGE,
-		kind: 'script'
-	}
-}
-
-function flowItemToUserDraft(item: WorkspaceItem, existing?: Flow): Flow {
-	const draftValue = item.value as FlowDraftValue | undefined
-	if (!draftValue?.value) {
-		throw new Error(`Draft flow "${item.path}" is missing value.`)
-	}
-
-	const value = clone(draftValue.value)
-	if (draftValue.groups !== undefined && draftValue.groups !== null) {
-		value.groups = clone(draftValue.groups)
-	}
-
-	if (existing) {
-		return {
-			...clone(existing),
-			path: item.path,
-			summary: item.summary ?? existing.summary,
-			value,
-			schema: draftValue.schema ?? existing.schema
-		}
-	}
-
-	return {
-		path: item.path,
-		summary: item.summary ?? '',
-		value,
-		schema: draftValue.schema ?? emptySchema(),
-		edited_by: '',
-		edited_at: '',
-		archived: false,
-		extra_perms: {}
-	}
-}
-
-function appItemToUserDraft(item: WorkspaceItem): AppDraftValue {
-	const value = item.value as AppDraftValue | undefined
-	if (!value?.files || !value?.runnables) {
-		throw new Error(`Draft app "${item.path}" is missing files or runnables.`)
-	}
-	return normalizeAppDraftValue({
-		...clone(value),
-		summary: value.summary ?? item.summary
-	})
-}
-
-function scheduleItemToUserDraft(item: WorkspaceItem): NewSchedule {
-	const value = item.value as NewSchedule | undefined
-	if (!value) {
-		throw new Error(`Draft schedule "${item.path}" is missing value.`)
-	}
-	const draft = {
-		...clone(value),
-		path: item.path
-	}
-	return applyItemSummary(draft, item.summary)
-}
-
-function triggerItemToUserDraft(item: WorkspaceItem): TriggerRequestBody {
-	const value = item.value as TriggerRequestBody | undefined
-	if (!item.triggerKind) {
-		throw new Error(`Draft trigger "${item.path}" is missing trigger kind.`)
-	}
-	if (!value) {
-		throw new Error(`Draft trigger "${item.path}" is missing value.`)
-	}
-	const draft = {
-		...clone(value),
-		path: item.path
-	}
-	return applyItemSummary(draft, item.summary)
-}
-
-async function loadExistingScript(
-	workspace: string,
-	path: string,
-	loadExisting: boolean | undefined
-): Promise<Script | undefined> {
-	if (!loadExisting) return undefined
-	return ScriptService.getScriptByPath({ workspace, path })
-}
-
-async function loadExistingFlow(
-	workspace: string,
-	path: string,
-	loadExisting: boolean | undefined
-): Promise<Flow | undefined> {
-	if (!loadExisting) return undefined
-	return FlowService.getFlowByPath({ workspace, path })
-}
-
 function getSharedDraft(
 	workspace: string,
 	type: SharedWorkspaceItemType,
@@ -329,53 +200,6 @@ function getSharedDraft(
 			return triggerKind
 				? triggerDraftToWorkspaceItem(triggerKind, path, draft as TriggerRequestBody)
 				: undefined
-	}
-}
-
-async function setSharedDraft(
-	workspace: string,
-	item: WorkspaceItem,
-	loadExisting: boolean | undefined
-): Promise<WorkspaceItem> {
-	switch (item.type) {
-		case 'script': {
-			const draft = scriptItemToUserDraft(
-				item,
-				await loadExistingScript(workspace, item.path, loadExisting)
-			)
-			UserDraft.save('script', item.path, draft, { workspace })
-			return scriptDraftToWorkspaceItem(item.path, draft)
-		}
-		case 'flow': {
-			const draft = flowItemToUserDraft(
-				item,
-				await loadExistingFlow(workspace, item.path, loadExisting)
-			)
-			UserDraft.save('flow', item.path, draft, { workspace })
-			return flowDraftToWorkspaceItem(item.path, draft)
-		}
-		case 'app': {
-			const draft = appItemToUserDraft(item)
-			UserDraft.save('raw_app', item.path, draft, { workspace })
-			return appDraftToWorkspaceItem(item.path, draft)
-		}
-		case 'schedule': {
-			const draft = scheduleItemToUserDraft(item)
-			UserDraft.save('trigger_schedule', item.path, draft, { workspace })
-			return scheduleDraftToWorkspaceItem(item.path, draft)
-		}
-		case 'trigger': {
-			if (!item.triggerKind) {
-				throw new Error(`Draft trigger "${item.path}" is missing trigger kind.`)
-			}
-			const draft = triggerItemToUserDraft(item)
-			UserDraft.save(TRIGGER_DRAFT_KIND_BY_TRIGGER_KIND[item.triggerKind], item.path, draft, {
-				workspace
-			})
-			return triggerDraftToWorkspaceItem(item.triggerKind, item.path, draft)
-		}
-		default:
-			throw new Error(`Unsupported shared draft type: ${item.type}`)
 	}
 }
 
@@ -419,27 +243,6 @@ export function listGlobalDrafts(workspace: string): WorkspaceItem[] {
 	return Array.from(drafts.values())
 }
 
-export async function setGlobalDraft(
-	workspace: string,
-	item: WorkspaceItem,
-	opts?: { loadExisting?: boolean }
-): Promise<WorkspaceItem> {
-	if (isSharedWorkspaceItemType(item.type)) {
-		return setSharedDraft(workspace, item, opts?.loadExisting)
-	}
-	return globalDraftStore.setDraft(workspace, item)
-}
-
-export function saveGlobalAppDraft(
-	workspace: string,
-	path: string,
-	value: AppDraftValue
-): WorkspaceItem {
-	const draft = appDraftToWorkspaceItem(path, value)
-	UserDraft.save('raw_app', path, draft.value as AppDraftValue, { workspace })
-	return draft
-}
-
 export function deleteGlobalDraft(
 	workspace: string,
 	type: WorkspaceItemType,
@@ -457,4 +260,8 @@ export function clearGlobalDrafts(workspace: string): void {
 		UserDraft.remove(draft.itemKind, draft.path, { workspace })
 	}
 	globalDraftStore.clearDrafts(workspace)
+}
+
+export function triggerKindToUserDraftKind(kind: TriggerKind): UserDraftItemKind {
+	return TRIGGER_DRAFT_KIND_BY_TRIGGER_KIND[kind]
 }
