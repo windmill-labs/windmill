@@ -112,11 +112,14 @@
 		})
 		disposables.push(mouseDownDisposable)
 
-		// Show a ghost breakpoint while hovering the glyph margin on an empty line.
-		// Restricted to GUTTER_GLYPH_MARGIN (2) to match the click handler.
+		// Show a ghost breakpoint while hovering anywhere in the gutter on an empty line.
+		// GUTTER_GLYPH_MARGIN = 2, GUTTER_LINE_NUMBERS = 3, GUTTER_LINE_DECORATIONS = 4.
+		// Hover area is intentionally wider than the click target.
 		const mouseMoveDisposable = editor.onMouseMove((e) => {
+			const t = e.target.type
+			const isGutter = t === 2 || t === 3 || t === 4
 			const line = e.target.position?.lineNumber
-			if (e.target.type === 2 && line && !breakpoints.has(line)) {
+			if (isGutter && line && !breakpoints.has(line)) {
 				updateHoverBreakpointDecoration(line)
 			} else {
 				clearHoverBreakpointDecoration()
