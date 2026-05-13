@@ -14,6 +14,13 @@ on:
       - "v*"
   workflow_dispatch:
 
+# Serialize pushes to windmill-cli-docs so two release tags landing close
+# together (e.g. a release-please bump + a hotfix) can't race to force-push
+# the docs repo.
+concurrency:
+  group: publish-cli-docs
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -54,17 +61,24 @@ jobs:
           git add -A
           if git diff --cached --quiet; then
             echo "No doc changes for ${REF_NAME}."
-            exit 0
-          fi
-          # Only mirror the version tag when triggered by a tag push.
-          # workflow_dispatch from main would otherwise create a junk tag
-          # named after the branch in the docs repo.
-          if [ "${REF_TYPE}" = "tag" ]; then
-            git commit -m "chore: sync from windmill ${REF_NAME}"
-            git tag -f "${REF_NAME}"
-            git push origin HEAD
-            git push origin "${REF_NAME}" --force
+            committed=false
           else
-            git commit -m "chore: sync from windmill (manual dispatch from ${REF_NAME})"
+            committed=true
+            if [ "${REF_TYPE}" = "tag" ]; then
+              git commit -m "chore: sync from windmill ${REF_NAME}"
+            else
+              git commit -m "chore: sync from windmill (manual dispatch from ${REF_NAME})"
+            fi
             git push origin HEAD
+          fi
+          # Always mirror the version tag on tag pushes, even when content
+          # didn't change — downstream consumers tie snapshots to releases by
+          # tag, and skipping it would leave the docs repo without a tag for
+          # the new Windmill release.
+          # workflow_dispatch from a non-tag ref skips this so we don't
+          # create a junk tag named after a branch.
+          if [ "${REF_TYPE}" = "tag" ]; then
+            git tag -f "${REF_NAME}"
+            git push origin "${REF_NAME}" --force
+            echo "Mirrored tag ${REF_NAME} to windmill-cli-docs (content changed: ${committed})."
           fi

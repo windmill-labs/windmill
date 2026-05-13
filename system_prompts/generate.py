@@ -1786,8 +1786,22 @@ def generate_plugin_skills(
 # Files in the context7 target directory that must survive a regeneration
 # (everything else is wiped to keep the export deterministic).
 CONTEXT7_PRESERVE = frozenset(
-    {".git", ".github", "LICENSE", "LICENSE.md", "context7.json"}
+    {
+        ".git",
+        ".github",
+        ".gitignore",
+        ".gitattributes",
+        "CODEOWNERS",
+        "LICENSE",
+        "LICENSE.md",
+        "context7.json",
+    }
 )
+
+# Marker files that identify a directory as the context7 docs target.
+# clear_context7_dir refuses to wipe a non-empty dir that has none of these
+# (or a matching git remote), so a typo like `--context7-dir .` fails safe.
+CONTEXT7_MARKERS = ("context7.json", "manifest.json")
 
 
 def extract_agents_md_template() -> str:
@@ -1798,17 +1812,30 @@ def extract_agents_md_template() -> str:
     """
     core_ts_path = SCRIPT_DIR.parent / "cli" / "src" / "guidance" / "core.ts"
     content = core_ts_path.read_text()
-    match = re.search(r"return\s+`([\s\S]*?)`;", content)
+    # Anchor on the function name so adding other template-literal-returning
+    # functions to core.ts can't silently re-target the regex.
+    match = re.search(
+        r"function\s+generateAgentsMdContent\b[\s\S]*?return\s+`([\s\S]*?)`;",
+        content,
+    )
     if not match:
         raise RuntimeError(
             f"Could not extract AGENTS.md template from {core_ts_path}"
         )
-    # Unescape the TS template literal: \` -> `, \\ -> \, \$ -> $
-    return (
-        match.group(1)
-        .replace("\\`", "`")
-        .replace("\\$", "$")
-        .replace("\\\\", "\\")
+    return _unescape_ts_template_literal(match.group(1))
+
+
+def _unescape_ts_template_literal(raw: str) -> str:
+    """Decode TS template-literal escapes in one pass.
+
+    Multi-pass `.replace()` would mangle e.g. `\\\\` -> `\\` -> `` ` `` if the
+    template ever contained a literal backslash followed by a backtick. A
+    single-pass scan is order-independent.
+    """
+    return re.sub(
+        r"\\(.)",
+        lambda m: {"`": "`", "$": "$", "\\": "\\"}.get(m.group(1), m.group(0)),
+        raw,
     )
 
 
@@ -1841,11 +1868,52 @@ def build_skill_desc_map(skills: list[str]) -> dict[str, str]:
     return desc_map
 
 
+def _verify_context7_target(target_dir: Path) -> None:
+    """Refuse to wipe a non-empty dir that doesn't look like the docs repo.
+
+    A typo such as `--context7-dir .`, `~`, or the wrong checkout could
+    otherwise nuke unrelated files. We accept the target if it's empty/new,
+    if it contains a known marker file, or if its git origin points at a
+    `windmill-cli-docs` remote.
+    """
+    if not target_dir.exists() or not any(target_dir.iterdir()):
+        return
+
+    for marker in CONTEXT7_MARKERS:
+        if (target_dir / marker).exists():
+            return
+
+    git_dir = target_dir / ".git"
+    if git_dir.exists():
+        import subprocess
+
+        try:
+            origin = subprocess.run(
+                ["git", "-C", str(target_dir), "config", "--get", "remote.origin.url"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            if "windmill-cli-docs" in origin:
+                return
+        except subprocess.CalledProcessError:
+            pass
+
+    raise RuntimeError(
+        f"Refusing to overwrite {target_dir}: no context7 marker found.\n"
+        f"Expected one of {list(CONTEXT7_MARKERS)} at the top level, or a git "
+        f"remote 'origin' containing 'windmill-cli-docs'.\n"
+        f"If this is the right directory, add a `context7.json` (or commit one) "
+        f"and retry."
+    )
+
+
 def clear_context7_dir(target_dir: Path) -> None:
     """Wipe the docs repo dir of previously generated content.
 
-    Preserves a small allowlist (.git, .github, LICENSE) so this can run
-    against a real checkout without nuking version control or CI config.
+    Preserves a small allowlist (.git, .github, LICENSE, context7.json, etc.)
+    so this can run against a real checkout without nuking version control or
+    CI config.
     """
     if not target_dir.exists():
         return
@@ -1856,6 +1924,18 @@ def clear_context7_dir(target_dir: Path) -> None:
             shutil.rmtree(entry)
         else:
             entry.unlink()
+
+
+def _read_windmill_version() -> str | None:
+    """Return the Windmill release version (e.g. '1.700.2'), or None if absent.
+
+    Sourced from `version.txt` at the repo root — the same file release-please
+    updates on every release.
+    """
+    version_file = SCRIPT_DIR.parent / "version.txt"
+    if not version_file.exists():
+        return None
+    return version_file.read_text().strip() or None
 
 
 def generate_context7_repo(
@@ -1875,6 +1955,7 @@ def generate_context7_repo(
     """
     target_dir = target_dir.expanduser().resolve()
     target_dir.mkdir(parents=True, exist_ok=True)
+    _verify_context7_target(target_dir)
     clear_context7_dir(target_dir)
 
     skill_desc_map = build_skill_desc_map(skills)
@@ -1913,6 +1994,9 @@ def generate_context7_repo(
             for name in skills
         ],
     }
+    version = _read_windmill_version()
+    if version:
+        manifest["version"] = version
     (target_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2) + "\n"
     )
