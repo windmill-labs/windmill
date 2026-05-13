@@ -324,7 +324,11 @@ export async function parseEntrypointArgs(
 		}
 		if (sig.type === 'Invalid') return undefined
 		if (sig.star_args || sig.star_kwargs) return undefined
-		if (!Array.isArray(sig.args) || sig.args.length === 0) return undefined
+		if (!Array.isArray(sig.args)) return undefined
+		// The parser sets auto_kind when no matching entrypoint function was
+		// found — empty args in that case means "unknown signature", not
+		// "function takes no params", so we fall back to a full comparison.
+		if (sig.args.length === 0 && sig.auto_kind != null) return undefined
 		return new Set(sig.args.map((a) => a.name))
 	} catch {
 		return undefined
