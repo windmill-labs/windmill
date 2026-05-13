@@ -297,6 +297,7 @@ pub struct TruncatedToken {
     pub last_used_at: chrono::DateTime<chrono::Utc>,
     pub scopes: Option<Vec<String>>,
     pub workspace_id: Option<String>,
+    pub read_only: bool,
 }
 
 // NewToken is re-exported from windmill-api-auth above
@@ -2249,7 +2250,7 @@ async fn list_tokens(
         sqlx::query_as!(
             TruncatedToken,
             "SELECT label, token_prefix, expiration, created_at, \
-             last_used_at, scopes, workspace_id FROM token WHERE email = $1 AND (label != 'ephemeral-script' OR label IS NULL)
+             last_used_at, scopes, workspace_id, read_only FROM token WHERE email = $1 AND (label != 'ephemeral-script' OR label IS NULL)
              ORDER BY created_at DESC LIMIT $2 OFFSET $3",
             email,
             per_page as i64,
@@ -2261,7 +2262,7 @@ async fn list_tokens(
         sqlx::query_as!(
             TruncatedToken,
             "SELECT label, token_prefix, expiration, created_at, \
-            last_used_at, scopes, workspace_id FROM token WHERE email = $1
+            last_used_at, scopes, workspace_id, read_only FROM token WHERE email = $1
             ORDER BY created_at DESC LIMIT $2 OFFSET $3",
             email,
             per_page as i64,

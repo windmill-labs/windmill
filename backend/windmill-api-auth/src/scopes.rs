@@ -686,6 +686,19 @@ fn scope_grants_access(
     Ok(true)
 }
 
+/// Enforces a token's `read_only` flag: only methods classified as `Read`
+/// (GET/HEAD/OPTIONS) are allowed. Run actions and mutating methods are
+/// rejected. Independent of `scopes`.
+pub fn check_read_only_for_route(route_path: &str, http_method: &str) -> Result<()> {
+    if map_http_method_to_action(http_method, route_path) == ScopeAction::Read {
+        Ok(())
+    } else {
+        Err(Error::PermissionDenied(
+            "Token is read-only. Mutating endpoints are not allowed.".to_string(),
+        ))
+    }
+}
+
 /// Helper function to check if scopes allow access to a route
 pub fn check_scopes_for_route(
     token_scopes: Option<&[String]>,

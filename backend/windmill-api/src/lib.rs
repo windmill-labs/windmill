@@ -330,6 +330,7 @@ async fn inject_agent_authed(
                 scopes: None,
                 username_override: None,
                 token_prefix: None,
+                read_only: false,
             },
             job_id: None,
         });

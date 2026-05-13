@@ -46,6 +46,7 @@
 	let mcpLabelAutofilled = $state(false)
 
 	let pickedScopes = $state<string[] | null>(null)
+	let readOnly = $state(false)
 
 	function ensureCurrentWorkspaceIncluded(
 		workspacesList: UserWorkspace[],
@@ -67,6 +68,7 @@
 		newTokenWorkspace = defaultNewTokenWorkspace ?? $workspaceStore
 		newToken = undefined
 		newMcpToken = undefined
+		readOnly = false
 		if (!newTokenLabel) {
 			newTokenLabel = 'MCP token'
 			mcpLabelAutofilled = true
@@ -80,6 +82,7 @@
 		newTokenExpiration = undefined
 		newTokenWorkspace = defaultNewTokenWorkspace
 		newMcpToken = undefined
+		readOnly = false
 		if (mcpLabelAutofilled) {
 			newTokenLabel = undefined
 		}
@@ -100,7 +103,8 @@
 					label: newTokenLabel,
 					expiration: date?.toISOString(),
 					scopes: tokenScopes,
-					workspace_id: mcpMode ? newTokenWorkspace || $workspaceStore : newTokenWorkspace
+					workspace_id: mcpMode ? newTokenWorkspace || $workspaceStore : newTokenWorkspace,
+					read_only: readOnly
 				} as NewToken
 			})
 
@@ -193,6 +197,32 @@
 				workspaceId={newTokenWorkspace || $workspaceStore || ''}
 				bind:value={pickedScopes}
 			/>
+		{/if}
+
+		{#if !mcpCreationMode}
+			<div class="mt-3">
+				<Toggle
+					bind:checked={readOnly}
+					options={{
+						right: 'Read-only access',
+						rightTooltip:
+							'Restricts this token to GET/HEAD endpoints. Any mutating request (POST/PUT/PATCH/DELETE) or job-run action will be rejected with 403, regardless of the scopes selected above.'
+					}}
+					size="xs"
+				/>
+			</div>
+		{:else}
+			<div class="mt-3 text-tertiary">
+				<Toggle
+					bind:checked={readOnly}
+					options={{
+						right: 'Read-only',
+						rightTooltip:
+							'Restricts this MCP URL to read-only endpoints. The LLM will only see read tools — script and flow runs will be hidden.'
+					}}
+					size="2xs"
+				/>
+			</div>
 		{/if}
 
 		<div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
