@@ -1,15 +1,38 @@
 import { BROWSER } from 'esm-env'
 import { get } from 'svelte/store'
 import { createLongHash } from '$lib/editorLangUtils'
-import { workspaceStore } from '$lib/stores'
+import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
+import { switchWorkspace } from '$lib/storeUtils'
+import { WorkspaceService } from '$lib/gen'
+import { sendUserToast } from '$lib/toast'
 import type HistoryManager from '$lib/components/copilot/chat/HistoryManager.svelte'
 
 export type SessionTarget = { kind: 'flow' | 'script' | 'app' | 'rawapp'; path: string }
 
+export type PendingFork = {
+	// Existing workspace to fork from (drives routing/scope pre-send).
+	parent_workspace_id: string
+	// Slug the new fork will use, e.g. `wm-fork-foo`.
+	id: string
+	// Display name shown in the workspace bar.
+	name: string
+}
+
 export type Session = {
 	id: string
 	name: string
-	workspace_id: string
+	// Committed strictly at first user-message send. Undefined for drafts
+	// that have never been sent — those scope by `pending_workspace_id`
+	// instead and don't show the fork bar.
+	workspace_id?: string
+	// Pre-send draft workspace, picked via SessionWorkspaceBar. Drives
+	// scope/editor/display while workspace_id is undefined; gets copied
+	// into workspace_id at first send and then becomes irrelevant.
+	pending_workspace_id?: string
+	// Pre-send intent to create a new fork. The actual API call is
+	// deferred to first send (via commitSessionWorkspace) so cancelling
+	// the draft doesn't leave an orphan fork behind.
+	pending_fork?: PendingFork
 	chatId?: string
 	target?: SessionTarget
 	summary?: string
@@ -23,7 +46,6 @@ const defaultSessions: Session[] = [
 	{
 		id: createLongHash(),
 		name: 'session-1',
-		workspace_id: '',
 		summary: 'testing_flow',
 		target: { kind: 'flow', path: 'u/guilhempw/testing_flow' },
 		createdAt: now
@@ -31,7 +53,6 @@ const defaultSessions: Session[] = [
 	{
 		id: createLongHash(),
 		name: 'session-2',
-		workspace_id: '',
 		summary: 'demo_groups',
 		target: { kind: 'flow', path: 'u/guilhempw/demo_groups' },
 		createdAt: now
@@ -45,21 +66,21 @@ function loadSessions(): Session[] {
 		if (raw) {
 			const parsed = JSON.parse(raw)
 			if (Array.isArray(parsed) && parsed.length > 0) {
-				// Backfill workspace_id for sessions stored before this field existed.
-				// We can't know the original workspace; fall back to the current one.
-				const currentWorkspace = get(workspaceStore) ?? ''
+				// Drop empty-string workspace_id (older sessions used '' as a
+				// missing-value marker) so the undefined-until-first-send invariant
+				// holds for legacy drafts.
 				let mutated = false
 				for (const s of parsed) {
-					if (typeof s.workspace_id !== 'string') {
-						s.workspace_id = currentWorkspace
+					if (s.workspace_id === '') {
+						delete s.workspace_id
 						mutated = true
 					}
 				}
-				if (mutated && currentWorkspace) {
+				if (mutated) {
 					try {
 						localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed))
 					} catch (e) {
-						console.error('Failed to persist backfilled workspace_id', e)
+						console.error('Failed to persist normalised sessions', e)
 					}
 				}
 				return parsed as Session[]
@@ -97,10 +118,11 @@ export function createSession(): Session {
 		.map((s) => /^session-(\d+)$/.exec(s.name)?.[1])
 		.map((n) => (n ? parseInt(n, 10) : 0))
 	const next = (existingNumbers.length ? Math.max(...existingNumbers) : 0) + 1
+	const pending = get(workspaceStore)
 	const session: Session = {
 		id: createLongHash(),
 		name: `session-${next}`,
-		workspace_id: get(workspaceStore) ?? '',
+		pending_workspace_id: pending && pending.length > 0 ? pending : undefined,
 		createdAt: Date.now()
 	}
 	sessionState.sessions = [session, ...sessionState.sessions]
@@ -109,11 +131,73 @@ export function createSession(): Session {
 	return session
 }
 
-export function setSessionWorkspace(id: string, workspace_id: string) {
+export function setSessionPendingWorkspace(id: string, workspace_id: string) {
 	const s = sessionState.sessions.find((x) => x.id === id)
-	if (!s || s.workspace_id === workspace_id) return
-	s.workspace_id = workspace_id
+	if (!s) return
+	const changed = s.pending_workspace_id !== workspace_id || s.pending_fork !== undefined
+	s.pending_workspace_id = workspace_id
+	// Picking an existing workspace cancels any pending fork intent.
+	s.pending_fork = undefined
+	if (changed) persistSessions()
+}
+
+// Records the user's intent to create a new fork without firing the API
+// call yet. Routing/scope stay on the parent workspace until commit.
+export function setSessionPendingFork(id: string, fork: PendingFork) {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s) return
+	s.pending_fork = { ...fork }
+	s.pending_workspace_id = fork.parent_workspace_id
 	persistSessions()
+}
+
+// One-shot commit: locks in workspace_id at first user-message send.
+// If a pending fork is set, materialises it via the API first, then
+// switches the global workspace to the freshly created fork. Falls back
+// to the pending pick, then the active workspace. Clears pending so it
+// doesn't shadow later reads.
+export async function commitSessionWorkspace(
+	id: string,
+	fallback?: string
+): Promise<string | undefined> {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s) return undefined
+	if (s.workspace_id) return s.workspace_id
+
+	if (s.pending_fork) {
+		const fork = s.pending_fork
+		try {
+			await WorkspaceService.createWorkspaceFork({
+				workspace: fork.parent_workspace_id,
+				requestBody: { id: fork.id, name: fork.name }
+			})
+			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+			if (get(workspaceStore) !== fork.id) switchWorkspace(fork.id)
+			s.workspace_id = fork.id
+			s.pending_fork = undefined
+			s.pending_workspace_id = undefined
+			persistSessions()
+			sendUserToast(`Created fork ${fork.name}`)
+			return fork.id
+		} catch (e: any) {
+			sendUserToast(`Could not create fork: ${e?.body ?? e?.message ?? e}`, true)
+			return undefined
+		}
+	}
+
+	const ws = s.pending_workspace_id ?? fallback
+	if (!ws) return undefined
+	s.workspace_id = ws
+	s.pending_workspace_id = undefined
+	persistSessions()
+	return ws
+}
+
+// Effective workspace for scope/routing — committed if set, otherwise the
+// pre-send pending pick (which defaults to the workspace at create time).
+// Pending forks route via their parent until creation lands.
+export function getEffectiveWorkspaceId(session: Session): string | undefined {
+	return session.workspace_id ?? session.pending_workspace_id
 }
 
 export function selectSession(id: string) {

@@ -18,11 +18,13 @@
 	let {
 		hideInputBorder = false,
 		hideHeader = false,
+		hideModeSelector = false,
 		emptyHint,
 		inputPreface
 	}: {
 		hideInputBorder?: boolean
 		hideHeader?: boolean
+		hideModeSelector?: boolean
 		emptyHint?: import('svelte').Snippet
 		inputPreface?: import('svelte').Snippet
 	} = $props()
@@ -150,6 +152,7 @@
 	{suggestions}
 	{hideInputBorder}
 	{hideHeader}
+	{hideModeSelector}
 	{emptyHint}
 	{inputPreface}
 ></AIChatDisplay>

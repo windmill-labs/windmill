@@ -13,8 +13,12 @@
 	import { goto } from '$lib/navigation'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { slide } from 'svelte/transition'
+	import { get } from 'svelte/store'
+	import { workspaceStore } from '$lib/stores'
+	import { switchWorkspace } from '$lib/storeUtils'
 	import {
 		createSession,
+		getEffectiveWorkspaceId,
 		renameSession,
 		selectSession,
 		sessionState,
@@ -51,9 +55,15 @@
 
 	let listRoot: HTMLDivElement | undefined = $state()
 
-	// Sessions visible in the current workspace (active workspace + its forks).
+	// Sessions visible in the current workspace (active workspace + its
+	// forks). Drafts (no committed workspace) are scoped by their
+	// pending workspace pick — set at create time to the workspace the
+	// user was in.
 	const visibleSessions = $derived(
-		sessionState.sessions.filter((s) => $visibleWorkspaceIds.has(s.workspace_id))
+		sessionState.sessions.filter((s) => {
+			const ws = getEffectiveWorkspaceId(s)
+			return ws ? $visibleWorkspaceIds.has(ws) : false
+		})
 	)
 
 	// Eagerly create a runtime per VISIBLE session so the status dot reflects
@@ -69,6 +79,11 @@
 
 	async function activate(session: Session, restoreFocus: boolean = false) {
 		selectSession(session.id)
+		// If the session has a committed workspace different from the
+		// active one, switch globally so the editor/forks resolve correctly.
+		if (session.workspace_id && session.workspace_id !== get(workspaceStore)) {
+			switchWorkspace(session.workspace_id)
+		}
 		await goto(`/sessions?session_name=${encodeURIComponent(session.name)}`)
 		if (restoreFocus) {
 			// goto() resets focus to <body> — put it back on the active session button

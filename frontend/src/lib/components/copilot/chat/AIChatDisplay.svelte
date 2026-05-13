@@ -51,6 +51,7 @@
 		suggestions = [],
 		hideInputBorder = false,
 		hideHeader = false,
+		hideModeSelector = false,
 		emptyHint,
 		inputPreface
 	}: {
@@ -72,6 +73,7 @@
 		suggestions?: string[]
 		hideInputBorder?: boolean
 		hideHeader?: boolean
+		hideModeSelector?: boolean
 		emptyHint?: Snippet
 		inputPreface?: Snippet
 	} = $props()
@@ -304,7 +306,9 @@
 					</div>
 				{:else}
 					<div class="flex flex-row gap-x-1.5 min-w-0 flex-wrap items-center">
-						<ChatMode />
+						{#if !hideModeSelector}
+							<ChatMode />
+						{/if}
 						{#if aiChatManager.mode === AIMode.APP}
 							<DatatableCreationPolicy />
 						{/if}

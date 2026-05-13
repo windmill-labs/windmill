@@ -8,9 +8,13 @@
 
 	let { session }: { session: Session } = $props()
 
-	// Resolve the session's workspace and its parent (root) from the user's
-	// workspace list. The bar only renders when both are present.
-	const sessionWorkspace = $derived($userWorkspaces.find((w) => w.id === session.workspace_id))
+	// The fork bar surfaces a committed workspace relationship — only
+	// visible after the session locked its workspace at first send. Drafts
+	// (workspace_id undefined) get nothing here.
+	const committedId = $derived(session.workspace_id)
+	const sessionWorkspace = $derived(
+		committedId ? $userWorkspaces.find((w) => w.id === committedId) : undefined
+	)
 	const parentWorkspaceId = $derived(sessionWorkspace?.parent_workspace_id ?? undefined)
 	const parentWorkspace = $derived(
 		parentWorkspaceId ? $userWorkspaces.find((w) => w.id === parentWorkspaceId) : undefined
@@ -20,14 +24,13 @@
 	let diffDrawer: ForkDiffDrawer | undefined = $state(undefined)
 
 	function openReview() {
-		goto(`/forks/compare?workspace_id=${encodeURIComponent(session.workspace_id)}`)
+		if (!committedId) return
+		goto(`/forks/compare?workspace_id=${encodeURIComponent(committedId)}`)
 	}
 </script>
 
-{#if isFork && sessionWorkspace && parentWorkspace && parentWorkspaceId}
-	<div
-		class="flex flex-row items-center justify-between gap-2 px-3 py-1.5 text-xs border-b border-light bg-surface-secondary"
-	>
+{#if isFork && sessionWorkspace && parentWorkspace && parentWorkspaceId && committedId}
+	<div class="flex flex-row items-center justify-between gap-2 px-1 py-1 text-xs">
 		<div class="flex items-center gap-1.5 min-w-0">
 			<GitFork class="w-3.5 h-3.5 shrink-0 text-secondary" />
 			<span class="truncate text-secondary" title={sessionWorkspace.name}>
@@ -58,9 +61,5 @@
 		</div>
 	</div>
 
-	<ForkDiffDrawer
-		bind:this={diffDrawer}
-		forkWorkspaceId={session.workspace_id}
-		{parentWorkspaceId}
-	/>
+	<ForkDiffDrawer bind:this={diffDrawer} forkWorkspaceId={committedId} {parentWorkspaceId} />
 {/if}

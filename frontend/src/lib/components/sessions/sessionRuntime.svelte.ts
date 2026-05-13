@@ -1,6 +1,5 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
-import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 import { initFlow } from '$lib/components/flows/flowStore.svelte'
 import {
 	AppService,
@@ -113,12 +112,11 @@ function emptyFlow(): Flow {
 function createRuntime(session: Session): SessionRuntime {
 	const manager = new AIChatManager()
 	manager.disabledModes = { navigator: true }
-	// Sessions piggyback on the new GLOBAL chat mode (workspace-item tools) —
-	// it's the natural fit for "ask the AI to do things across the workspace
-	// scoped to one persistent session". The mode is feature-gated, so fall
-	// back to API mode when the gate is off. The mode-upgrade $effect in
-	// SessionWrapper will still flip to FLOW/SCRIPT/APP once a target is set.
-	manager.mode = isGlobalAiEnabled() ? AIMode.GLOBAL : AIMode.API
+	// Sessions always operate in GLOBAL mode (workspace-item tools across
+	// the session's workspace). The page-level gate already requires the
+	// global-AI flag, so this is always available here. Mode is locked
+	// and the dropdown is hidden in the chat UI.
+	manager.mode = AIMode.GLOBAL
 
 	const flowStore: StateStore<Flow> = $state({ val: emptyFlow() })
 	const flowStateStore: { val: Record<string, any> } = $state({ val: {} })

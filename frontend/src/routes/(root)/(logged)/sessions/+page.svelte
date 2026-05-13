@@ -1,8 +1,12 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
+	import { get } from 'svelte/store'
 	import { page } from '$app/state'
 	import SessionWrapper from '$lib/components/sessions/SessionWrapper.svelte'
-	import { sessionState } from '$lib/components/sessions/sessionState.svelte'
+	import {
+		getEffectiveWorkspaceId,
+		sessionState
+	} from '$lib/components/sessions/sessionState.svelte'
 	import {
 		editorWarmIds,
 		getOrCreateRuntime,
@@ -11,17 +15,39 @@
 	} from '$lib/components/sessions/sessionRuntime.svelte'
 	import { visibleWorkspaceIds } from '$lib/components/sessions/sessionScope.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
+	import { workspaceStore } from '$lib/stores'
+	import { switchWorkspace } from '$lib/storeUtils'
 
 	const globalEnabled = isGlobalAiEnabled()
 
 	const sessionName = $derived(page.url.searchParams.get('session_name') ?? '')
-	// Only resolve the active session if it belongs to a workspace currently
-	// in scope (active workspace + its forks). Out-of-scope sessions render
-	// the "No session selected" placeholder.
+
+	// Unfiltered resolution by name — used to drive workspace switching
+	// when a deep-linked session lives outside the current workspace.
+	const sessionByName = $derived(
+		sessionName ? sessionState.sessions.find((s) => s.name === sessionName) : undefined
+	)
+
+	// If the deep-linked session committed to a workspace different from
+	// the active one, switch globally so visibility resolves and the
+	// editor loads against the right workspace.
+	$effect(() => {
+		const s = sessionByName
+		if (!s?.workspace_id) return
+		if (s.workspace_id !== get(workspaceStore)) {
+			untrack(() => switchWorkspace(s.workspace_id))
+		}
+	})
+
+	// Only resolve the active session if its effective workspace is in
+	// scope (active workspace + its forks). Drafts route via their
+	// pending pick.
 	const activeSession = $derived(
-		sessionState.sessions.find(
-			(s) => s.name === sessionName && $visibleWorkspaceIds.has(s.workspace_id)
-		)
+		sessionState.sessions.find((s) => {
+			if (s.name !== sessionName) return false
+			const ws = getEffectiveWorkspaceId(s)
+			return ws ? $visibleWorkspaceIds.has(ws) : false
+		})
 	)
 
 	// Touch the runtime for the active session so it gets created on first visit
@@ -35,7 +61,10 @@
 		listRuntimes()
 			.map((r) => sessionState.sessions.find((s) => s.id === r.sessionId))
 			.filter((s): s is NonNullable<typeof s> => s != null)
-			.filter((s) => $visibleWorkspaceIds.has(s.workspace_id))
+			.filter((s) => {
+				const ws = getEffectiveWorkspaceId(s)
+				return ws ? $visibleWorkspaceIds.has(ws) : false
+			})
 	)
 
 	// Promote the active session in the LRU. Mutations untracked so the effect

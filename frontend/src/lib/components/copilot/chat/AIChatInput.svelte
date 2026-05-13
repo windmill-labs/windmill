@@ -396,8 +396,25 @@
 
 <div use:clickOutside class="relative">
 	{#if aiChatManager.mode === AIMode.SCRIPT || aiChatManager.mode === AIMode.FLOW}
+		<ContextTextarea
+			bind:this={contextTextareaComponent}
+			bind:value={instructions}
+			{availableContext}
+			{selectedContext}
+			{isFirstMessage}
+			placeholder={modePlaceholder}
+			onAddContext={(contextElement) => void addContextToSelection(contextElement)}
+			onSendRequest={() => {
+				if (disabled) {
+					return
+				}
+				onSendRequest ? onSendRequest(instructions) : sendRequest()
+			}}
+			{disabled}
+			{onKeyDown}
+		/>
 		{#if showContext}
-			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
+			<div class="flex flex-row gap-1 mt-1 overflow-scroll no-scrollbar">
 				<Popover>
 					{#snippet trigger()}
 						<div
@@ -433,57 +450,7 @@
 				{/each}
 			</div>
 		{/if}
-		<ContextTextarea
-			bind:this={contextTextareaComponent}
-			bind:value={instructions}
-			{availableContext}
-			{selectedContext}
-			{isFirstMessage}
-			placeholder={modePlaceholder}
-			onAddContext={(contextElement) => void addContextToSelection(contextElement)}
-			onSendRequest={() => {
-				if (disabled) {
-					return
-				}
-				onSendRequest ? onSendRequest(instructions) : sendRequest()
-			}}
-			{disabled}
-			{onKeyDown}
-		/>
 	{:else if aiChatManager.mode === AIMode.APP}
-		{#if showContext}
-			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
-				<Popover>
-					{#snippet trigger()}
-						<div
-							class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
-							>@</div
-						>
-					{/snippet}
-					{#snippet content({ close })}
-						<AppAvailableContextList
-							{availableContext}
-							{selectedContext}
-							onSelect={(element) => {
-								void addContextToSelection(element)
-								close()
-							}}
-						/>
-					{/snippet}
-				</Popover>
-				{#each selectedContext as element (element.type + '-' + element.title)}
-					<ContextElementBadge
-						contextElement={element}
-						deletable
-						onDelete={() => {
-							selectedContext = selectedContext?.filter(
-								(c) => c.type !== element.type || c.title !== element.title
-							)
-						}}
-					/>
-				{/each}
-			</div>
-		{/if}
 		<div class={twMerge('relative w-full scroll-pb-2', className)}>
 			<textarea
 				bind:this={instructionsTextareaComponent}
@@ -517,6 +484,39 @@
 				{disabled}
 			></textarea>
 		</div>
+		{#if showContext}
+			<div class="flex flex-row gap-1 mt-1 overflow-scroll no-scrollbar">
+				<Popover>
+					{#snippet trigger()}
+						<div
+							class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
+							>@</div
+						>
+					{/snippet}
+					{#snippet content({ close })}
+						<AppAvailableContextList
+							{availableContext}
+							{selectedContext}
+							onSelect={(element) => {
+								void addContextToSelection(element)
+								close()
+							}}
+						/>
+					{/snippet}
+				</Popover>
+				{#each selectedContext as element (element.type + '-' + element.title)}
+					<ContextElementBadge
+						contextElement={element}
+						deletable
+						onDelete={() => {
+							selectedContext = selectedContext?.filter(
+								(c) => c.type !== element.type || c.title !== element.title
+							)
+						}}
+					/>
+				{/each}
+			</div>
+		{/if}
 		{#if showAppContextTooltip}
 			<Portal target="body">
 				<div

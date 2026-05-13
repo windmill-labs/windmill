@@ -1,9 +1,14 @@
 <script lang="ts">
-	import { userWorkspaces, usersWorkspaceStore, type UserWorkspace } from '$lib/stores'
-	import { WorkspaceService } from '$lib/gen'
+	import { get } from 'svelte/store'
+	import { userWorkspaces, workspaceStore, type UserWorkspace } from '$lib/stores'
+	import { switchWorkspace } from '$lib/storeUtils'
 	import { findWorkspaceDescendants } from '$lib/utils/workspaceHierarchy'
-	import { setSessionWorkspace, type Session } from './sessionState.svelte'
-	import { sendUserToast } from '$lib/toast'
+	import {
+		getEffectiveWorkspaceId,
+		setSessionPendingFork,
+		setSessionPendingWorkspace,
+		type Session
+	} from './sessionState.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { Button } from '$lib/components/common'
 	import { ChevronDown, ChevronLeft, GitFork, Plus } from 'lucide-svelte'
@@ -12,7 +17,8 @@
 
 	const WM_FORK_PREFIX = 'wm-fork-'
 
-	function findRoot(id: string, all: UserWorkspace[]): UserWorkspace | undefined {
+	function findRoot(id: string | undefined, all: UserWorkspace[]): UserWorkspace | undefined {
+		if (!id) return undefined
 		let current = all.find((w) => w.id === id)
 		while (current?.parent_workspace_id) {
 			const parent = all.find((w) => w.id === current!.parent_workspace_id)
@@ -22,18 +28,30 @@
 		return current
 	}
 
-	const root = $derived(findRoot(session.workspace_id, $userWorkspaces))
+	// Effective workspace for display: committed → pending pick → active store.
+	const effectiveId = $derived(getEffectiveWorkspaceId(session) ?? $workspaceStore ?? undefined)
+	const root = $derived(findRoot(effectiveId, $userWorkspaces))
 	const forks = $derived(root ? findWorkspaceDescendants(root.id, $userWorkspaces) : [])
-	const currentWs = $derived($userWorkspaces.find((w) => w.id === session.workspace_id))
+	const currentWs = $derived(
+		effectiveId ? $userWorkspaces.find((w) => w.id === effectiveId) : undefined
+	)
+	const pendingFork = $derived(session.pending_fork)
 
 	let dropdownOpen = $state(false)
 	let creatingFork = $state(false)
 	let newForkName = $state('')
 	let forkInput: HTMLInputElement | undefined = $state(undefined)
-	let creatingInProgress = $state(false)
 
 	function pick(id: string) {
-		setSessionWorkspace(session.id, id)
+		// Pre-send only: writes the pending pick. workspace_id stays
+		// undefined until the user sends their first message. Switching
+		// the global workspace ensures the session stays in scope —
+		// otherwise picking a sibling fork drops it out of
+		// $visibleWorkspaceIds and the session page goes blank.
+		setSessionPendingWorkspace(session.id, id)
+		if (id !== get(workspaceStore)) {
+			switchWorkspace(id)
+		}
 		dropdownOpen = false
 		creatingFork = false
 	}
@@ -50,29 +68,28 @@
 		newForkName = ''
 	}
 
-	async function createNewFork() {
+	function stageNewFork() {
 		const name = newForkName.trim()
-		if (!root || !name || creatingInProgress) return
+		if (!root || !name) return
 		const baseId = name
 			.toLowerCase()
 			.replace(/[^a-z0-9-]/g, '-')
 			.replace(/-+/g, '-')
 			.replace(/^-|-$/g, '')
 		const prefixed = `${WM_FORK_PREFIX}${baseId}`
-		creatingInProgress = true
-		try {
-			await WorkspaceService.createWorkspaceFork({
-				workspace: root.id,
-				requestBody: { id: prefixed, name }
-			})
-			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-			pick(prefixed)
-			sendUserToast(`Created fork ${name}`)
-		} catch (e: any) {
-			sendUserToast(`Could not create fork: ${e?.body ?? e?.message ?? e}`, true)
-		} finally {
-			creatingInProgress = false
-		}
+		// Defer the API call. The fork is materialised lazily by
+		// commitSessionWorkspace at first user-message send, so abandoning
+		// the draft doesn't leave an orphan fork behind. Routing/scope
+		// stay on the parent root until commit.
+		setSessionPendingFork(session.id, {
+			parent_workspace_id: root.id,
+			id: prefixed,
+			name
+		})
+		if (root.id !== get(workspaceStore)) switchWorkspace(root.id)
+		dropdownOpen = false
+		creatingFork = false
+		newForkName = ''
 	}
 </script>
 
@@ -91,8 +108,11 @@
 			>
 				<GitFork class="w-3 h-3 shrink-0" />
 				<span class="font-medium text-primary truncate max-w-[180px]">
-					{currentWs?.name ?? session.workspace_id}
+					{pendingFork?.name ?? currentWs?.name ?? effectiveId ?? 'Pick workspace'}
 				</span>
+				{#if pendingFork}
+					<span class="text-2xs text-tertiary italic shrink-0">(new)</span>
+				{/if}
 				<ChevronDown class="w-3 h-3 shrink-0 text-tertiary" />
 			</span>
 		{/snippet}
@@ -154,7 +174,7 @@
 							placeholder="Fork name"
 							autofocus
 							onkeydown={(e) => {
-								if (e.key === 'Enter') createNewFork()
+								if (e.key === 'Enter') stageNewFork()
 								else if (e.key === 'Escape') cancelCreate()
 							}}
 							class="w-full bg-surface-input border border-normal rounded px-1.5 py-1 text-xs font-normal text-primary outline-none focus:border-accent"
@@ -164,12 +184,13 @@
 							<Button
 								variant="accent"
 								unifiedSize="xs"
-								on:click={createNewFork}
-								disabled={!newForkName.trim() || creatingInProgress}
+								on:click={stageNewFork}
+								disabled={!newForkName.trim()}
 							>
-								{creatingInProgress ? 'Creating…' : 'Create'}
+								Stage
 							</Button>
 						</div>
+						<span class="text-2xs text-tertiary">Created when you send your first message.</span>
 					</div>
 				{/if}
 			</div>

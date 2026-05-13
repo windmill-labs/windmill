@@ -5,7 +5,7 @@
 	import EditableInput from '$lib/components/common/EditableInput.svelte'
 	import { Button } from '$lib/components/common'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
+	import { AIChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { loadCopilot } from '$lib/aiStore'
 	import { EllipsisVertical, PanelRightClose, PanelRightOpen, Pencil, Trash2 } from 'lucide-svelte'
@@ -18,7 +18,13 @@
 	import RawAppEditorView from './RawAppEditorView.svelte'
 	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
 	import SessionForkBar from './SessionForkBar.svelte'
-	import { persistSessions, sessionState, type SessionTarget } from './sessionState.svelte'
+	import {
+		commitSessionWorkspace,
+		getEffectiveWorkspaceId,
+		persistSessions,
+		sessionState,
+		type SessionTarget
+	} from './sessionState.svelte'
 	import { getOrCreateRuntime, removeSession } from './sessionRuntime.svelte'
 	import { goto } from '$lib/navigation'
 	import { slide } from 'svelte/transition'
@@ -36,22 +42,6 @@
 
 	// Reactive session reference (mutations to summary/target propagate via the $state proxy)
 	const session = $derived(sessionState.sessions.find((s) => s.id === sessionId))
-
-	let initialModeUpgraded = false
-	$effect(() => {
-		if (initialModeUpgraded || !runtime || !session) return
-		const kind = session.target?.kind
-		if (kind === 'flow' && runtime.manager.allowedModes.flow) {
-			runtime.manager.mode = AIMode.FLOW
-			initialModeUpgraded = true
-		} else if (kind === 'script' && runtime.manager.allowedModes.script) {
-			runtime.manager.mode = AIMode.SCRIPT
-			initialModeUpgraded = true
-		} else if ((kind === 'app' || kind === 'rawapp') && runtime.manager.allowedModes.app) {
-			runtime.manager.mode = AIMode.APP
-			initialModeUpgraded = true
-		}
-	})
 
 	$effect(() => {
 		if ($workspaceStore) {
@@ -75,6 +65,28 @@
 	// message — after that the session's workspace is immutable.
 	const hasFirstUserMessage = $derived(
 		runtime?.manager.displayMessages.some((m) => m.role === 'user') ?? false
+	)
+
+	// Commit pending workspace pick (or current active workspace as
+	// fallback) into `workspace_id` exactly once, when the first user
+	// message lands. This is the only path that defines workspace_id.
+	// When a pending fork is staged, this is also where the fork is
+	// materialised via the API — no orphan forks for abandoned drafts.
+	let committing = $state(false)
+	$effect(() => {
+		if (!session || !hasFirstUserMessage || session.workspace_id || committing) return
+		committing = true
+		commitSessionWorkspace(session.id, $workspaceStore ?? undefined)
+			.catch((e) => console.error('Failed to commit session workspace', e))
+			.finally(() => {
+				committing = false
+			})
+	})
+
+	// Effective workspace for routing editor views — committed if set,
+	// otherwise the pending pick, otherwise the current active workspace.
+	const effectiveWorkspaceId = $derived(
+		session ? (getEffectiveWorkspaceId(session) ?? $workspaceStore ?? '') : ''
 	)
 
 	function pickEditorTarget(item: WorkspaceItem) {
@@ -123,6 +135,7 @@
 		{#if !hasFirstUserMessage}
 			<SessionWorkspaceBar {session} />
 		{/if}
+		<SessionForkBar {session} />
 	{/snippet}
 
 	<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
@@ -210,10 +223,15 @@
 					</div>
 				{/if}
 			</header>
-			<SessionForkBar {session} />
 			<div class="flex-1 min-h-0 w-full max-w-3xl mx-auto flex flex-col">
 				<div class="flex-1 min-h-0">
-					<AIChat hideInputBorder hideHeader emptyHint={sessionEmptyHint} {inputPreface} />
+					<AIChat
+						hideInputBorder
+						hideHeader
+						hideModeSelector
+						emptyHint={sessionEmptyHint}
+						{inputPreface}
+					/>
 				</div>
 			</div>
 		</Pane>
@@ -227,28 +245,28 @@
 						<FlowEditorView
 							{runtime}
 							path={session.target.path}
-							workspaceId={session.workspace_id}
+							workspaceId={effectiveWorkspaceId}
 							onNavigate={pickEditorTarget}
 						/>
 					{:else if session.target.kind === 'script'}
 						<ScriptEditorView
 							{runtime}
 							path={session.target.path}
-							workspaceId={session.workspace_id}
+							workspaceId={effectiveWorkspaceId}
 							onNavigate={pickEditorTarget}
 						/>
 					{:else if session.target.kind === 'app'}
 						<AppEditorView
 							{runtime}
 							path={session.target.path}
-							workspaceId={session.workspace_id}
+							workspaceId={effectiveWorkspaceId}
 							onNavigate={pickEditorTarget}
 						/>
 					{:else if session.target.kind === 'rawapp'}
 						<RawAppEditorView
 							{runtime}
 							path={session.target.path}
-							workspaceId={session.workspace_id}
+							workspaceId={effectiveWorkspaceId}
 							onNavigate={pickEditorTarget}
 						/>
 					{/if}
