@@ -1941,12 +1941,9 @@
 				{#if isDebuggableScript && customUi?.editorBar?.debug != false}
 					<Button
 						variant={debugMode ? 'accent' : 'default'}
-						size="xs"
+						unifiedSize="sm"
 						onclick={toggleDebugMode}
 						startIcon={{ icon: Bug }}
-						btnClasses={debugMode
-							? ''
-							: 'bg-surface hover:bg-surface-hover border border-tertiary/30'}
 						title="Toggle Debug Mode"
 					>
 						{debugMode ? 'Exit Debug' : 'Debug'}
@@ -1979,7 +1976,8 @@
 					<HideButton
 						hidden={true}
 						direction="right"
-						size="md"
+						unifiedSize="sm"
+						variant="accent-secondary"
 						panelName="Test"
 						shortcut="U"
 						customHiddenIcon={{
@@ -1988,8 +1986,6 @@
 						on:click={() => {
 							toggleTestPanel()
 						}}
-						btnClasses="bg-marine-400 hover:bg-marine-200 !text-primary-inverse hover:!text-primary-inverse hover:dark:!text-primary-inverse dark:bg-marine-50 dark:hover:bg-marine-50/70"
-						color="marine"
 					/>
 				{/if}
 				{#if !aiChatManager.open && !disableAi && !inSessionPane}
@@ -1999,12 +1995,12 @@
 							direction="right"
 							panelName="AI"
 							shortcut="L"
-							size="md"
+							unifiedSize="sm"
 							usePopoverOverride={!$copilotInfo.enabled}
 							customHiddenIcon={{
 								icon: WandSparkles
 							}}
-							btnClasses="!text-ai border border-gray-200 dark:border-gray-600 bg-surface"
+							btnClasses="!text-ai"
 							on:click={() => {
 								if (!aiChatManager.open) {
 									aiChatManager.changeMode(AIMode.SCRIPT)
