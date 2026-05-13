@@ -20,19 +20,21 @@ function extractRawscriptInline(
   rawscript: RawScript,
   mapping: Record<string, string>,
   separator: string,
-  assigner: PathAssigner
+  assigner: PathAssigner,
+  failOnInlineDirective: boolean
 ): InlineScript[] {
   const [basePath, ext] = assigner.assignPath(summary ?? id, rawscript.language);
   const mappedPath = mapping[id];
   const path = mappedPath ?? basePath + ext;
   const language = rawscript.language;
   const content = rawscript.content;
-  // Defensive guard: a rawscript whose content is itself an `!inline ...`
-  // directive is a sign the backend was poisoned by a prior push that sent
-  // the unresolved directive as the script body (GIT-871 / #9140). Refuse
-  // to write that text back to disk — it would silently overwrite the
-  // user's local handler with the literal directive on every pull.
-  if (typeof content === "string" && content.startsWith("!inline ")) {
+  // Opt-in defensive guard: when extracting from backend-shaped data (i.e.
+  // sync pull), a rawscript whose content is itself an `!inline ...` directive
+  // means the backend was poisoned by a prior push that sent the unresolved
+  // directive as the script body (GIT-871 / #9140). Refuse to write it back
+  // to disk. Off by default because callers that operate on YAML-parsed local
+  // flows (flow_metadata, dev) legitimately see `!inline foo.ts` as content.
+  if (failOnInlineDirective && typeof content === "string" && content.startsWith("!inline ")) {
     throw new Error(
       `Refusing to extract corrupted inline script for module '${id}': ` +
       `rawscript.content is the literal string \`${content.split("\n")[0]}\` ` +
@@ -63,6 +65,15 @@ function extractRawscriptInline(
 export interface ExtractInlineScriptsOptions {
   /** When true, skip the .inline_script. suffix in file names */
   skipInlineScriptSuffix?: boolean;
+  /**
+   * When true, throw if a `rawscript.content` is itself an `!inline ...`
+   * directive. Set this only at the sync-pull call site, where the input
+   * comes from the backend's `flow_version.value` and `!inline ...` content
+   * means the row is corrupt (GIT-871 / #9140). Leave off for callers that
+   * pass YAML-parsed local flows — the directive is the legitimate on-disk
+   * shape there.
+   */
+  failOnInlineDirective?: boolean;
 }
 
 /**
@@ -87,6 +98,7 @@ export function extractInlineScripts(
 ): InlineScript[] {
   // Create pathAssigner only if not provided (top-level call), but reuse it for nested calls
   const assigner = pathAssigner ?? newPathAssigner(defaultTs ?? "bun", { skipInlineScriptSuffix: options?.skipInlineScriptSuffix });
+  const failOnInlineDirective = options?.failOnInlineDirective ?? false;
 
   return modules.flatMap((m) => {
     if (m.value.type == "rawscript") {
@@ -96,7 +108,8 @@ export function extractInlineScripts(
         m.value,
         mapping,
         separator,
-        assigner
+        assigner,
+        failOnInlineDirective
       );
     } else if (m.value.type == "forloopflow") {
       return extractInlineScripts(
@@ -104,11 +117,12 @@ export function extractInlineScripts(
         mapping,
         separator,
         defaultTs,
-        assigner
+        assigner,
+        options
       );
     } else if (m.value.type == "branchall") {
       return m.value.branches.flatMap((b) =>
-        extractInlineScripts(b.modules, mapping, separator, defaultTs, assigner)
+        extractInlineScripts(b.modules, mapping, separator, defaultTs, assigner, options)
       );
     } else if (m.value.type == "whileloopflow") {
       return extractInlineScripts(
@@ -116,7 +130,8 @@ export function extractInlineScripts(
         mapping,
         separator,
         defaultTs,
-        assigner
+        assigner,
+        options
       );
     } else if (m.value.type == "branchone") {
       return [
@@ -126,7 +141,8 @@ export function extractInlineScripts(
             mapping,
             separator,
             defaultTs,
-            assigner
+            assigner,
+            options
           )
         ),
         ...extractInlineScripts(
@@ -134,7 +150,8 @@ export function extractInlineScripts(
           mapping,
           separator,
           defaultTs,
-          assigner
+          assigner,
+          options
         ),
       ];
     } else if (m.value.type == "aiagent") {
@@ -151,7 +168,8 @@ export function extractInlineScripts(
           toolValue,
           mapping,
           separator,
-          assigner
+          assigner,
+          failOnInlineDirective
         );
       });
     } else {
