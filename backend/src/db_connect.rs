@@ -6,6 +6,7 @@ use windmill_common::{
 pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
 pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 5;
 pub const DEFAULT_MAX_CONNECTIONS_INDEXER: u32 = 5;
+pub const DEFAULT_MAX_CONNECTIONS_OPERATOR: u32 = 2;
 
 pub async fn initial_connection() -> Result<sqlx::Pool<sqlx::Postgres>, error::Error> {
     let connect_options = get_database_url().await?.connect_options().await?;
@@ -16,12 +17,35 @@ pub async fn initial_connection() -> Result<sqlx::Pool<sqlx::Postgres>, error::E
         .map_err(|err| Error::ConnectingToDatabase(err.to_string()))
 }
 
+/// Connect to the database for the Kubernetes operator process.
+///
+/// Long-running operator pods need IAM RDS / Entra ID token refresh just like the server,
+/// otherwise new pool connections start failing once the initial token expires (~15 min).
+#[cfg(feature = "operator")]
+pub async fn operator_connection(
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    killpill_rx: tokio::sync::broadcast::Receiver<()>,
+) -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
+    let database_url = get_database_url().await?;
+    let pool = connect(
+        database_url.clone(),
+        DEFAULT_MAX_CONNECTIONS_OPERATOR,
+        false,
+    )
+    .await?;
+
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    spawn_token_refresh_task(pool.clone(), database_url, killpill_rx);
+
+    Ok(pool)
+}
+
 pub async fn connect_db(
     server_mode: bool,
     indexer_mode: bool,
     worker_mode: bool,
     num_workers: i32,
-    #[cfg(feature = "private")] mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    #[cfg(feature = "private")] killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
     use anyhow::Context;
 
@@ -43,70 +67,72 @@ pub async fn connect_db(
     let pool = connect(database_url.clone(), max_connections, worker_mode).await?;
 
     #[cfg(all(feature = "enterprise", feature = "private"))]
-    {
-        let needs_token_refresh = matches!(
-            database_url,
-            DatabaseUrl::IamRds(_) | DatabaseUrl::EntraId(_)
-        );
-        let label = match &database_url {
-            DatabaseUrl::IamRds(_) => "IAM RDS",
-            DatabaseUrl::EntraId(_) => "Entra ID",
-            DatabaseUrl::Static(_) => "",
-        };
-        if needs_token_refresh {
-            let pool2 = pool.clone();
-            let database_url2 = database_url.clone();
-            tokio::spawn(async move {
-                loop {
-                    tokio::select! {
-                        _ = killpill_rx.recv() => {
-                            break;
-                        }
-                        _ = tokio::time::sleep(std::time::Duration::from_secs(10)) => {
-                            if !database_url2.needs_refresh().await {
-                                continue;
-                            }
-                            let new_url = tokio::time::timeout(
-                                std::time::Duration::from_secs(10),
-                                get_database_url(),
-                            )
-                            .await;
-                            match new_url {
-                                Ok(Ok(new_url)) => {
-                                    match new_url.connect_options().await {
-                                        Ok(connect_options) => {
-                                            pool2.set_connect_options(connect_options);
-                                            tracing::info!("Refreshed {label} URL successfully");
-                                        }
-                                        Err(e) => {
-                                            tracing::error!(
-                                                "Error getting {label} connect options, retrying in 10s: {e}"
-                                            );
-                                            continue;
-                                        }
-                                    }
-                                }
-                                Ok(Err(e)) => {
-                                    tracing::error!(
-                                        "Error refreshing {label} URL, trying again in 10s: {e}"
-                                    );
-                                    continue;
+    spawn_token_refresh_task(pool.clone(), database_url, killpill_rx);
+
+    Ok(pool)
+}
+
+/// Spawn a background task that refreshes IAM RDS / Entra ID tokens before they expire
+/// and updates the pool's connect options so new connections use the fresh token.
+/// No-op for static (password-based) database URLs.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+pub fn spawn_token_refresh_task(
+    pool: sqlx::Pool<sqlx::Postgres>,
+    database_url: DatabaseUrl,
+    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+) {
+    let label = match &database_url {
+        DatabaseUrl::IamRds(_) => "IAM RDS",
+        DatabaseUrl::EntraId(_) => "Entra ID",
+        DatabaseUrl::Static(_) => return,
+    };
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = killpill_rx.recv() => {
+                    break;
+                }
+                _ = tokio::time::sleep(std::time::Duration::from_secs(10)) => {
+                    if !database_url.needs_refresh().await {
+                        continue;
+                    }
+                    let new_url = tokio::time::timeout(
+                        std::time::Duration::from_secs(10),
+                        get_database_url(),
+                    )
+                    .await;
+                    match new_url {
+                        Ok(Ok(new_url)) => {
+                            match new_url.connect_options().await {
+                                Ok(connect_options) => {
+                                    pool.set_connect_options(connect_options);
+                                    tracing::info!("Refreshed {label} URL successfully");
                                 }
                                 Err(e) => {
                                     tracing::error!(
-                                        "Timeout after 10s refreshing {label} URL, trying again in 10s: {e}"
+                                        "Error getting {label} connect options, retrying in 10s: {e}"
                                     );
                                     continue;
                                 }
                             }
                         }
+                        Ok(Err(e)) => {
+                            tracing::error!(
+                                "Error refreshing {label} URL, trying again in 10s: {e}"
+                            );
+                            continue;
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                "Timeout after 10s refreshing {label} URL, trying again in 10s: {e}"
+                            );
+                            continue;
+                        }
                     }
                 }
-            });
+            }
         }
-    }
-
-    Ok(pool)
+    });
 }
 
 pub async fn connect(
