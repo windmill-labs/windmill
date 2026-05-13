@@ -174,10 +174,14 @@ export async function pushFlow(
     await replaceInlineScripts([localFlow.value.preprocessor_module], fileReader, log, localPath, SEP, undefined, missingFiles);
   }
   if (missingFiles.length > 0) {
-    log.warn(colors.yellow(
-      `Warning: missing inline script file(s): ${missingFiles.join(", ")}. ` +
-      `The flow will be pushed with unresolved !inline references.`
-    ));
+    // Hard-fail rather than push the literal `!inline path` text as
+    // rawscript.content. That string would be persisted in flow_version.value
+    // and round-trip as the script body on the next pull, overwriting the
+    // user's local handler with the directive — see GIT-871 / #9140.
+    throw new Error(
+      `Cannot push flow ${remotePath}: missing inline script file(s): ${missingFiles.join(", ")}. ` +
+      `Either restore the file(s) or remove the !inline reference(s) from flow.yaml before pushing.`
+    );
   }
 
   const hasOnBehalfOf = (localFlow as any).has_on_behalf_of ?? !!localFlow.on_behalf_of_email;
