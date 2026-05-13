@@ -12,6 +12,7 @@ This script:
 Usage:
     python generate.py
     python generate.py --plugin-dir /path/to/windmill-claude-plugin
+    python generate.py --context7-dir /path/to/windmill-cli-docs
 """
 
 import argparse
@@ -1779,6 +1780,182 @@ def generate_plugin_skills(
 
 
 # =============================================================================
+# Context7 Docs Repo Generation
+# =============================================================================
+
+# Files in the context7 target directory that must survive a regeneration
+# (everything else is wiped to keep the export deterministic).
+CONTEXT7_PRESERVE = frozenset(
+    {".git", ".github", "LICENSE", "LICENSE.md", "context7.json"}
+)
+
+
+def extract_agents_md_template() -> str:
+    """Extract the AGENTS.md template string from cli/src/guidance/core.ts.
+
+    Keeping a single source of truth in TypeScript avoids drift between what
+    `wmill init` writes locally and what we publish for context7 ingestion.
+    """
+    core_ts_path = SCRIPT_DIR.parent / "cli" / "src" / "guidance" / "core.ts"
+    content = core_ts_path.read_text()
+    match = re.search(r"return\s+`([\s\S]*?)`;", content)
+    if not match:
+        raise RuntimeError(
+            f"Could not extract AGENTS.md template from {core_ts_path}"
+        )
+    # Unescape the TS template literal: \` -> `, \\ -> \, \$ -> $
+    return (
+        match.group(1)
+        .replace("\\`", "`")
+        .replace("\\$", "$")
+        .replace("\\\\", "\\")
+    )
+
+
+def render_agents_md_for_docs(
+    skills: list[str], skill_desc_map: dict[str, str]
+) -> str:
+    """Render AGENTS.md exactly as `wmill init` would, for the docs repo."""
+    template = extract_agents_md_template()
+    skills_reference = "\n".join(
+        f"- `.claude/skills/{name}/SKILL.md` - {skill_desc_map[name]}"
+        for name in skills
+        if name in skill_desc_map
+    )
+    return template.replace("${skillsReference}", skills_reference)
+
+
+def build_skill_desc_map(skills: list[str]) -> dict[str, str]:
+    """Map each skill name to its user-facing description.
+
+    Mirrors the logic in `generate_skills_ts_export`: language skills draw from
+    LANGUAGE_METADATA, everything else from SKILL_DEFINITIONS.
+    """
+    desc_map = {s["name"]: s["description"] for s in SKILL_DEFINITIONS}
+    for skill in skills:
+        if skill.startswith("write-script-"):
+            lang_key = skill.replace("write-script-", "")
+            metadata = LANGUAGE_METADATA.get(lang_key)
+            if metadata:
+                desc_map[skill] = metadata["description"]
+    return desc_map
+
+
+def clear_context7_dir(target_dir: Path) -> None:
+    """Wipe the docs repo dir of previously generated content.
+
+    Preserves a small allowlist (.git, .github, LICENSE) so this can run
+    against a real checkout without nuking version control or CI config.
+    """
+    if not target_dir.exists():
+        return
+    for entry in target_dir.iterdir():
+        if entry.name in CONTEXT7_PRESERVE:
+            continue
+        if entry.is_dir():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+
+
+def generate_context7_repo(
+    target_dir: Path,
+    skills: list[str],
+    schema_yaml_content: dict[str, str],
+    cli_commands_md: str,
+) -> Path:
+    """Generate a fully-rendered docs repo suitable for context7 ingestion.
+
+    Layout written to `target_dir`:
+        AGENTS.md              # the prompt agents see in their projects
+        README.md              # stable intro for humans / context7
+        manifest.json          # version + skill list (for indexing)
+        cli-commands.md        # full CLI flag reference
+        skills/<name>/SKILL.md # one rendered skill per file
+    """
+    target_dir = target_dir.expanduser().resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    clear_context7_dir(target_dir)
+
+    skill_desc_map = build_skill_desc_map(skills)
+
+    # AGENTS.md — the same content `wmill init` writes locally.
+    (target_dir / "AGENTS.md").write_text(
+        render_agents_md_for_docs(skills, skill_desc_map)
+    )
+
+    # Full CLI reference at top level.
+    (target_dir / "cli-commands.md").write_text(cli_commands_md)
+
+    # One markdown per skill, with schemas inlined (no template placeholders).
+    skills_dir = target_dir / "skills"
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    for skill_name in skills:
+        skill_dir = skills_dir / skill_name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text(
+            render_plugin_skill_content(skill_name, schema_yaml_content)
+        )
+
+    # Stable README so the GitHub repo landing page tells readers (and
+    # context7's crawler) what they're looking at.
+    (target_dir / "README.md").write_text(_context7_readme(skills))
+
+    # Machine-readable index for context7 / downstream consumers.
+    manifest = {
+        "name": "windmill-cli-docs",
+        "description": (
+            "Auto-generated Windmill CLI docs: agent prompt, skills, and "
+            "full CLI reference. Source: github.com/windmill-labs/windmill."
+        ),
+        "skills": [
+            {"name": name, "description": skill_desc_map.get(name, "")}
+            for name in skills
+        ],
+    }
+    (target_dir / "manifest.json").write_text(
+        json.dumps(manifest, indent=2) + "\n"
+    )
+
+    print(f"\nGenerated for context7 docs repo:")
+    print(f"  - {target_dir} ({len(skills)} skills + AGENTS.md + cli-commands.md)")
+    return target_dir
+
+
+def _context7_readme(skills: list[str]) -> str:
+    """Render the README that ships at the root of the docs repo."""
+    skill_lines = "\n".join(f"- `skills/{name}/SKILL.md`" for name in skills)
+    return f"""# Windmill CLI Docs
+
+Auto-generated documentation for the [Windmill](https://www.windmill.dev) CLI
+(`wmill`) and its AI-agent guidance. This is the same content that `wmill init`
+materialises into a Windmill project, published as a standalone repo so it can
+be ingested by docs aggregators such as [context7](https://context7.com).
+
+**Do not edit by hand.** This repo is regenerated from
+[windmill-labs/windmill](https://github.com/windmill-labs/windmill) on every
+release. Open issues and PRs in the source repo, not here.
+
+## Layout
+
+- `AGENTS.md` — the top-level prompt the CLI installs into each project.
+- `cli-commands.md` — full reference for every `wmill` command and flag.
+- `skills/<name>/SKILL.md` — one skill per directory; each is a self-contained
+  guide on a specific Windmill workflow (writing a flow, configuring a
+  trigger, etc.).
+
+## Skills
+
+{skill_lines}
+
+## Source
+
+Generated by `system_prompts/generate.py --context7-dir` in
+[windmill-labs/windmill](https://github.com/windmill-labs/windmill).
+"""
+
+
+# =============================================================================
 # Main Entry Point
 # =============================================================================
 
@@ -1797,6 +1974,15 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Optional plugin target. Accepts a windmill-claude-plugin repo root, "
             "a plugin root, or a skills directory, and refreshes standalone skills there."
+        ),
+    )
+    parser.add_argument(
+        "--context7-dir",
+        type=Path,
+        help=(
+            "Optional path to a docs-repo checkout (e.g. windmill-cli-docs). "
+            "Writes AGENTS.md, cli-commands.md, skills/, README.md, and manifest.json "
+            "with all placeholders resolved, suitable for context7 ingestion."
         ),
     )
     return parser.parse_args()
@@ -2116,6 +2302,11 @@ export declare function getWorkflowAsCodePrompt(language?: string): string;
 
     if args.plugin_dir:
         generate_plugin_skills(args.plugin_dir, skills, schema_yaml_content)
+
+    if args.context7_dir:
+        generate_context7_repo(
+            args.context7_dir, skills, schema_yaml_content, cli_commands
+        )
 
     print("\nDone!")
 

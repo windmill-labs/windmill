@@ -1,0 +1,61 @@
+name: Publish CLI docs repo
+
+# Regenerates the windmill-cli-docs repo (consumed by context7) from the
+# canonical sources in this repo on every Windmill release.
+#
+# Required secret:
+#   CLI_DOCS_DEPLOY_KEY — ed25519 private key whose public half is registered
+#                        as a write-access deploy key on
+#                        windmill-labs/windmill-cli-docs.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout windmill (source of truth)
+        uses: actions/checkout@v4
+        with:
+          path: windmill
+
+      - name: Checkout windmill-cli-docs (publish target)
+        uses: actions/checkout@v4
+        with:
+          repository: windmill-labs/windmill-cli-docs
+          path: windmill-cli-docs
+          ssh-key: ${{ secrets.CLI_DOCS_DEPLOY_KEY }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Regenerate docs
+        run: |
+          python3 windmill/system_prompts/generate.py \
+            --context7-dir "$GITHUB_WORKSPACE/windmill-cli-docs"
+
+      - name: Commit and push if changed
+        working-directory: windmill-cli-docs
+        env:
+          VERSION_TAG: ${{ github.ref_name }}
+        run: |
+          git config user.name "windmill-bot"
+          git config user.email "bot@windmill.dev"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No doc changes for ${VERSION_TAG}."
+            exit 0
+          fi
+          git commit -m "chore: sync from windmill ${VERSION_TAG}"
+          git tag -f "${VERSION_TAG}"
+          git push origin HEAD
+          git push origin "${VERSION_TAG}" --force

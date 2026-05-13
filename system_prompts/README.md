@@ -38,6 +38,18 @@ python system_prompts/generate.py --plugin-dir ~/windmill-claude-plugin
 - a plugin root such as `plugins/windmill-code-plugin`
 - a direct `skills/` directory
 
+To regenerate the public docs repo (consumed by context7):
+
+```bash
+python system_prompts/generate.py --context7-dir ~/windmill-cli-docs
+```
+
+`--context7-dir` writes a fully-rendered snapshot (`AGENTS.md`,
+`cli-commands.md`, `skills/<name>/SKILL.md`, `README.md`, `manifest.json`)
+with all template placeholders resolved — suitable for ingestion by docs
+aggregators. In CI this runs from `.github/workflows/publish-cli-docs.yml`
+on every release tag.
+
 This will:
 
 1. Parse TypeScript and Python SDK files to extract function signatures
