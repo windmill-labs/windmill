@@ -57,13 +57,13 @@
 				fill: #ffffff;
 			}
 			.st2 {
-				fill: #bcd4fc;
+				fill: #c4b5fd;
 			}
 			.st2-gray {
 				fill: #cccccc;
 			}
 			.st3 {
-				fill: #3b82f6;
+				fill: #8b5cf6;
 			}
 			.st4 {
 				fill: #b3b3b3;
