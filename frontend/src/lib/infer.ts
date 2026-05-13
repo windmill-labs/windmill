@@ -7,7 +7,13 @@ import {
 } from '$lib/gen'
 import { get, writable } from 'svelte/store'
 import type { Schema, SupportedLanguage } from './common.js'
-import { emptySchema, getHubFlowIdFromPath, isHubFlowPath, sortObject } from './utils.js'
+import {
+	type DynamicInput,
+	emptySchema,
+	getHubFlowIdFromPath,
+	isHubFlowPath,
+	sortObject
+} from './utils.js'
 import { tick } from 'svelte'
 
 import initTsParser, { parse_deno, parse_outputs } from 'windmill-parser-wasm-ts'
@@ -323,6 +329,45 @@ export async function parseEntrypointArgs(
 	} catch {
 		return undefined
 	}
+}
+
+const helperEntrypointCache = new Map<string, Set<string> | undefined>()
+
+/**
+ * Resolves a {@link DynamicInput.HelperScript} to its entrypoint parameter
+ * names. For deployed helpers it fetches the script (or the flow's inline
+ * dyn-select code) once and caches the result per workspace+path+entrypoint.
+ */
+export async function getHelperEntrypointArgs(
+	helper: DynamicInput.HelperScript,
+	entrypoint?: string
+): Promise<Set<string> | undefined> {
+	if (helper.source === 'inline') {
+		return parseEntrypointArgs(helper.lang, helper.code, entrypoint)
+	}
+	const workspace = get(workspaceStore)
+	if (!workspace) return undefined
+	const cacheKey = `${workspace}::${helper.runnable_kind}::${helper.path}::${entrypoint ?? ''}`
+	if (helperEntrypointCache.has(cacheKey)) return helperEntrypointCache.get(cacheKey)
+	let result: Set<string> | undefined
+	try {
+		if (helper.runnable_kind === 'script') {
+			const script = await ScriptService.getScriptByPath({ workspace, path: helper.path })
+			result = await parseEntrypointArgs(script.language, script.content ?? '', entrypoint)
+		} else {
+			const flow = await FlowService.getFlowByPath({ workspace, path: helper.path })
+			const schema = flow.schema as Record<string, unknown> | undefined
+			const code = schema?.['x-windmill-dyn-select-code']
+			const lang = schema?.['x-windmill-dyn-select-lang']
+			if (typeof code === 'string' && typeof lang === 'string') {
+				result = await parseEntrypointArgs(lang as SupportedLanguage, code, entrypoint)
+			}
+		}
+	} catch {
+		result = undefined
+	}
+	helperEntrypointCache.set(cacheKey, result)
+	return result
 }
 
 export async function inferArgs(

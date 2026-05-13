@@ -25,7 +25,7 @@
 	import { type DynamicInput } from '$lib/utils'
 	import { deepEqual } from 'fast-equals'
 	import { untrack } from 'svelte'
-	import { parseEntrypointArgs } from '$lib/infer'
+	import { getHelperEntrypointArgs } from '$lib/infer'
 
 	interface Props {
 		value?: any
@@ -137,12 +137,12 @@
 	$effect(() => {
 		const script = helperScript
 		const ep = entrypoint
-		if (!script || script.source !== 'inline') {
+		if (!script) {
 			helperParams = undefined
 			return
 		}
 		let cancelled = false
-		void parseEntrypointArgs(script.lang, script.code, ep || undefined).then((params) => {
+		void getHelperEntrypointArgs(script, ep || undefined).then((params) => {
 			if (!cancelled) helperParams = params
 		})
 		return () => {
