@@ -91,18 +91,6 @@ describe('migrateLegacyUserDrafts', () => {
 		expect(localStorage.getItem('userdraft/w/main/app/u/me/dash')).toBe(existingNew)
 	})
 
-	it('skips legacy keys whose decoded payload does not look like a Windmill draft', () => {
-		// A co-resident app on the same origin happens to use `app-foo`. We must
-		// not touch it.
-		const unrelated = btoa(encodeURIComponent(JSON.stringify({ random: 'data' })))
-		localStorage.setItem('app-some_other_app', unrelated)
-
-		migrateLegacyUserDrafts('main')
-
-		expect(localStorage.getItem('app-some_other_app')).toBe(unrelated)
-		expect(localStorage.getItem('userdraft/w/main/app/some_other_app')).toBeNull()
-	})
-
 	it('is idempotent — the second invocation is a no-op', () => {
 		localStorage.setItem(
 			'app-u/me/dash',

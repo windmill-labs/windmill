@@ -56,28 +56,6 @@ function decodeLegacyState(raw: string): unknown {
 	}
 }
 
-/**
- * Defensive shape check. The legacy keys (`app-foo`, `flow-foo`, ...) are
- * unusual but not unique to Windmill — a co-resident app on the same origin
- * might use the same name space. We require the decoded payload to have at
- * least one of the fields the old format wrote.
- */
-function isPlausibleLegacyValue(kind: LegacyKind, decoded: unknown): boolean {
-	if (decoded == null || typeof decoded !== 'object') return false
-	const obj = decoded as Record<string, unknown>
-	switch (kind) {
-		case 'flow':
-			return 'flow' in obj && obj.flow != null && typeof obj.flow === 'object'
-		case 'app':
-			// `$appStore` (an App) was saved directly — it has `summary` / `value` /
-			// `policy` / `path` etc. The four-of-any check below tolerates pre-1.x
-			// shapes that didn't carry all four.
-			return 'summary' in obj || 'value' in obj || 'policy' in obj || 'path' in obj
-		case 'raw_app':
-			return 'files' in obj || 'runnables' in obj || 'data' in obj
-	}
-}
-
 function transformLegacyValue(kind: LegacyKind, decoded: unknown): unknown {
 	const obj = decoded as Record<string, unknown>
 	switch (kind) {
@@ -135,11 +113,7 @@ export function migrateLegacyUserDrafts(workspace: string): void {
 
 			try {
 				const decoded = decodeLegacyState(raw)
-				if (!isPlausibleLegacyValue(match.newKind, decoded)) {
-					// Doesn't smell like a Windmill draft — leave it alone for the
-					// neighbouring app to deal with.
-					continue
-				}
+				if (decoded == null || typeof decoded !== 'object') continue
 				const value = transformLegacyValue(match.newKind, decoded)
 				const target = newKey(workspace, match.newKind, match.path)
 				if (value !== undefined && localStorage.getItem(target) == null) {
