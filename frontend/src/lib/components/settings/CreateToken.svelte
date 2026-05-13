@@ -148,6 +148,15 @@
 			mcpLabelAutofilled = false
 		}
 	})
+
+	// The Read-only toggle is only shown when scopes are limited (or in MCP mode).
+	// If the user turns "Limit token permissions" off, clear read-only so it
+	// doesn't sneak back the next time they limit again.
+	$effect(() => {
+		if (!mcpCreationMode && pickedScopes === null && readOnly) {
+			readOnly = false
+		}
+	})
 </script>
 
 <div>
@@ -199,18 +208,20 @@
 			/>
 		{/if}
 
-		<div class="mt-2 text-tertiary">
-			<Toggle
-				bind:checked={readOnly}
-				options={{
-					right: 'Read-only',
-					rightTooltip: mcpCreationMode
-						? 'Restricts this MCP URL to read-only endpoints. The LLM will only see read tools — script and flow runs will be hidden.'
-						: 'Restricts this token to GET/HEAD endpoints. Any mutating request (POST/PUT/PATCH/DELETE) or job-run action will be rejected with 403, regardless of the scopes selected above.'
-				}}
-				size="2xs"
-			/>
-		</div>
+		{#if mcpCreationMode || pickedScopes !== null}
+			<div class="mt-2 text-tertiary">
+				<Toggle
+					bind:checked={readOnly}
+					options={{
+						right: 'Read-only',
+						rightTooltip: mcpCreationMode
+							? 'Restricts this MCP URL to read-only endpoints. The LLM will only see read tools — script and flow runs will be hidden.'
+							: 'Restricts this token to GET/HEAD endpoints. Any mutating request (POST/PUT/PATCH/DELETE) or job-run action will be rejected with 403, regardless of the scopes selected above.'
+					}}
+					size="2xs"
+				/>
+			</div>
+		{/if}
 
 		<div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
 			{#if mcpCreationMode}
