@@ -6,6 +6,7 @@ use windmill_common::{
 pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
 pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 5;
 pub const DEFAULT_MAX_CONNECTIONS_INDEXER: u32 = 5;
+#[cfg(feature = "operator")]
 pub const DEFAULT_MAX_CONNECTIONS_OPERATOR: u32 = 2;
 
 pub async fn initial_connection() -> Result<sqlx::Pool<sqlx::Postgres>, error::Error> {
