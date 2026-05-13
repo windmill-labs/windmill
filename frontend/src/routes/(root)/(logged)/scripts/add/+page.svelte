@@ -34,13 +34,17 @@
 	const collabLang = page.url.searchParams.get('lang') as ScriptLang | null
 	const wacParam = page.url.searchParams.get('wac')
 	const importParam = page.url.searchParams.get('import')
-	const nodraft = page.url.searchParams.get('nodraft')
-
 	// "+ Script" buttons navigate with ?nodraft=true to signal "start fresh".
-	// Wipe the persisted empty-path autosave before the handle is created so
-	// the editor opens on a blank script. A plain reload of /scripts/add (no
-	// nodraft param) instead restores the previous session.
-	if (nodraft) UserDraft.remove('script', '')
+	// Wipe the persisted empty-path autosave and strip the flag from the URL
+	// synchronously so a reload doesn't wipe the freshly-started draft. A
+	// plain reload of /scripts/add (no nodraft) instead restores the
+	// previous session.
+	if (page.url.searchParams.get('nodraft') && typeof window !== 'undefined') {
+		UserDraft.remove('script', '')
+		const url = new URL(window.location.href)
+		url.searchParams.delete('nodraft')
+		window.history.replaceState(window.history.state, '', url.toString())
+	}
 
 	let initialArgs = urlArgs ? decodeState(urlArgs) : (get(initialArgsStore) ?? {})
 	if (get(initialArgsStore)) $initialArgsStore = undefined

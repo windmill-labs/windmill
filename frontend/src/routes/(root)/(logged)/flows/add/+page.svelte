@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { afterNavigate, replaceState } from '$app/navigation'
 	import { page } from '$app/state'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
@@ -16,21 +15,17 @@
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import { UserDraft } from '$lib/userDraft.svelte'
 
-	let nodraft = page.url.searchParams.get('nodraft')
-
 	// "+ Flow" buttons navigate with ?nodraft=true to signal "start fresh".
-	// Wipe the persisted empty-path autosave before the handle is created so
-	// the editor opens on an empty flow. A plain reload of /flows/add (no
-	// nodraft param) instead restores whatever the user was last working on.
-	if (nodraft) UserDraft.remove('flow', '')
-
-	afterNavigate(() => {
-		if (nodraft) {
-			let url = new URL(page.url.href)
-			url.search = ''
-			replaceState(url.toString(), page.state)
-		}
-	})
+	// Wipe the persisted empty-path autosave and strip the flag from the URL
+	// synchronously so a reload doesn't wipe the freshly-started draft. A
+	// plain reload of /flows/add (no nodraft) instead restores whatever the
+	// user was last working on.
+	if (page.url.searchParams.get('nodraft') && typeof window !== 'undefined') {
+		UserDraft.remove('flow', '')
+		const url = new URL(window.location.href)
+		url.searchParams.delete('nodraft')
+		window.history.replaceState(window.history.state, '', url.toString())
+	}
 
 	const hubId = page.url.searchParams.get('hub')
 	const templatePath = page.url.searchParams.get('template')

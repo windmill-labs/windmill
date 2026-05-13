@@ -4,7 +4,6 @@
 	import { AppService, type Policy } from '$lib/gen'
 	import { page } from '$app/state'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { afterNavigate, replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 
@@ -41,16 +40,25 @@
 	import { Alert } from '$lib/components/common'
 	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
 
-	let nodraft = page.url.searchParams.get('nodraft')
+	// `nodraft` is captured into a local because we strip it from the URL
+	// below — downstream readers like `templatePicker` must see the original
+	// signal.
+	const nodraft = page.url.searchParams.get('nodraft')
 	const templatePath = page.url.searchParams.get('template')
 	const templateId = page.url.searchParams.get('template_id')
 	const hubId = page.url.searchParams.get('hub')
 
 	// "+ Raw App" / "+ App > Full code" buttons navigate with ?nodraft=true to
-	// signal "start fresh". Wipe the persisted empty-path autosave before the
-	// handle is created so the editor opens on the default template. A plain
-	// reload of /apps_raw/add (no nodraft) instead restores the previous session.
-	if (nodraft) UserDraft.remove('raw_app', '')
+	// signal "start fresh". Wipe the persisted empty-path autosave and strip
+	// the flag from the URL synchronously so a reload doesn't wipe the
+	// freshly-started draft. A plain reload of /apps_raw/add (no nodraft)
+	// instead restores the previous session.
+	if (nodraft && typeof window !== 'undefined') {
+		UserDraft.remove('raw_app', '')
+		const url = new URL(window.location.href)
+		url.searchParams.delete('nodraft')
+		window.history.replaceState(window.history.state, '', url.toString())
+	}
 
 	// Check in-memory store first, then sessionStorage (used when full page reload occurs)
 	let importRaw = $importStore
@@ -67,13 +75,6 @@
 
 	let summary = $state('')
 	let files: Record<string, string> = $state(react19Template)
-	afterNavigate(() => {
-		if (nodraft) {
-			let url = new URL(page.url.href)
-			url.search = ''
-			replaceState(url.toString(), page.state)
-		}
-	})
 	let policy: Policy = $state({
 		on_behalf_of: $userStore?.username.includes('@')
 			? $userStore?.username

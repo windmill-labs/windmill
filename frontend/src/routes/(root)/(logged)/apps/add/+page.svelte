@@ -6,7 +6,7 @@
 	import { page } from '$app/state'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type { App } from '$lib/components/apps/types'
-	import { afterNavigate, replaceState } from '$app/navigation'
+	import { replaceState } from '$app/navigation'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	import { goto } from '$lib/navigation'
@@ -16,13 +16,17 @@
 	import { tick } from 'svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 
-	let nodraft = page.url.searchParams.get('nodraft')
-
 	// "+ App" buttons navigate with ?nodraft=true to signal "start fresh".
-	// Wipe the persisted empty-path autosave so the child AppEditor's handle
-	// opens on a clean slate. A plain reload of /apps/add (no nodraft)
-	// instead restores the previous session via AppEditor's `UserDraft.use`.
-	if (nodraft) UserDraft.remove('app', '')
+	// Wipe the persisted empty-path autosave and strip the flag from the URL
+	// synchronously so a reload doesn't wipe the freshly-started draft. A
+	// plain reload of /apps/add (no nodraft) instead restores the previous
+	// session via the child AppEditor's `UserDraft.use`.
+	if (page.url.searchParams.get('nodraft') && typeof window !== 'undefined') {
+		UserDraft.remove('app', '')
+		const url = new URL(window.location.href)
+		url.searchParams.delete('nodraft')
+		window.history.replaceState(window.history.state, '', url.toString())
+	}
 	let appEditor: AppEditor | undefined = $state(undefined)
 	const hubId = page.url.searchParams.get('hub')
 	const templatePath = page.url.searchParams.get('template')
@@ -42,13 +46,6 @@
 		theme: {
 			type: 'path',
 			path: DEFAULT_THEME
-		}
-	})
-	afterNavigate(() => {
-		if (nodraft) {
-			let url = new URL(page.url.href)
-			url.search = ''
-			replaceState(url.toString(), page.state)
 		}
 	})
 	let policy: Policy = $state({
