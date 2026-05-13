@@ -183,6 +183,10 @@
 	let deploymentMsg = $state('')
 	let preserveOnBehalfOf = $state(false)
 
+	// Top-bar responsive collapse — container width, not viewport.
+	let topbarWidth = $state(0)
+	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
+
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
 	}
@@ -934,9 +938,10 @@
 <AppReportsDrawer bind:open={appReportingDrawerOpen} appPath={$appPath ?? ''} />
 
 <div
+	bind:clientWidth={topbarWidth}
 	class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto max-h-12 h-12 shrink-0"
 >
-	<div class="flex flex-row gap-2 items-center">
+	<div class="flex flex-row gap-2 items-center min-w-[200px]">
 		<EditorHeader
 			bind:summary={$summary}
 			bind:path={newEditedPath}
@@ -944,7 +949,7 @@
 			kind="app"
 			onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
 		/>
-		<div class="flex gap-2">
+		<div class="flex gap-2 {compactTopbar ? 'hidden' : ''}">
 			{#if $app}
 				<ToggleButtonGroup
 					selected={$app.fullscreen ? 'true' : 'false'}
@@ -1090,7 +1095,7 @@
 		<Dropdown items={moreItems} />
 		<AppEditorTutorial bind:this={appEditorTutorial} />
 
-		<div class="hidden md:inline relative overflow-visible shrink-0">
+		<div class="{compactTopbar ? 'hidden' : 'hidden md:inline'} relative overflow-visible shrink-0">
 			{#if hasErrors}
 				<span
 					class="animate-ping absolute inline-flex rounded-full bg-red-600 h-2 w-2 z-50 -right-0.5 -top-0.5"
@@ -1130,43 +1135,48 @@
 		</div>
 		<AppExportButton bind:this={appExport} />
 		<PreviewToggle loading={loading.save} />
-		<Button
-			variant="accent"
-			loading={loading.save}
-			startIcon={{ icon: Save }}
-			on:click={() => saveDraft()}
-			unifiedSize="md"
-			disabled={!newApp && !savedApp}
-			shortCut={{ key: 'S' }}
-		>
-			Draft
-		</Button>
+		{#if !compactTopbar}
+			<Button
+				variant="accent"
+				loading={loading.save}
+				startIcon={{ icon: Save }}
+				on:click={() => saveDraft()}
+				unifiedSize="md"
+				disabled={!newApp && !savedApp}
+				shortCut={{ key: 'S' }}
+			>
+				Draft
+			</Button>
+		{/if}
 		<Button
 			variant="accent"
 			loading={loading.save}
 			startIcon={{ icon: Save }}
 			on:click={save}
 			unifiedSize="md"
-			dropdownItems={$appPath != ''
-				? () => [
-						{
-							label: 'Fork',
-							onClick: () => {
-								window.open(`/apps/add?template=${appPath}`)
-							}
-						},
-						...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
-							? [
-									{
-										label: 'Edit in workspace fork',
-										onClick: () => {
-											window.open(buildForkEditUrl('app', $appPath))
+			dropdownItems={() => [
+				...(compactTopbar ? [{ label: 'Save draft', onClick: () => saveDraft() }] : []),
+				...($appPath != ''
+					? [
+							{
+								label: 'Fork',
+								onClick: () => {
+									window.open(`/apps/add?template=${appPath}`)
+								}
+							},
+							...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
+								? [
+										{
+											label: 'Edit in workspace fork',
+											onClick: () => {
+												window.open(buildForkEditUrl('app', $appPath))
+											}
 										}
-									}
-								]
-							: [])
-					]
-				: undefined}
+									]
+								: [])
+						]
+					: [])
+			]}
 		>
 			Deploy
 		</Button>
