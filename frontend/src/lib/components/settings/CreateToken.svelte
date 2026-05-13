@@ -205,6 +205,7 @@
 				mode={mcpCreationMode ? 'mcp' : 'standard'}
 				workspaceId={newTokenWorkspace || $workspaceStore || ''}
 				bind:value={pickedScopes}
+				{readOnly}
 			/>
 		{/if}
 

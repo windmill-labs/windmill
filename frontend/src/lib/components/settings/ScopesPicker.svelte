@@ -10,9 +10,17 @@
 		initialScopes?: string[]
 		/** Final scope value: null = unrestricted/full access, array = explicit list */
 		value: string[] | null
+		/** Forwarded to McpScopeSelector to filter incompatible endpoints/runnables */
+		readOnly?: boolean
 	}
 
-	let { mode, workspaceId = '', initialScopes, value = $bindable() }: Props = $props()
+	let {
+		mode,
+		workspaceId = '',
+		initialScopes,
+		value = $bindable(),
+		readOnly = false
+	}: Props = $props()
 
 	const initialMcpScope = $derived(
 		(initialScopes ?? []).length > 0 ? (initialScopes ?? []).join(' ') : undefined
@@ -55,5 +63,5 @@
 		{/if}
 	</div>
 {:else}
-	<McpScopeSelector {workspaceId} bind:scope={mcpScope} initialScope={initialMcpScope} />
+	<McpScopeSelector {workspaceId} bind:scope={mcpScope} initialScope={initialMcpScope} {readOnly} />
 {/if}
