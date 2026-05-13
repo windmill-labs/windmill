@@ -2172,6 +2172,7 @@ try {{
                 "--",
                 &BUN_PATH,
                 "run",
+                "--preserve-symlinks",
                 "-i",
                 "--prefer-offline",
                 "-r",
@@ -2238,6 +2239,7 @@ try {{
             } else {
                 vec![
                     "run",
+                    "--preserve-symlinks",
                     "-i",
                     "--prefer-offline",
                     "-r",
@@ -3895,6 +3897,7 @@ pub async fn start_worker(
             common_bun_proc_envs,
             vec![
                 "run",
+                "--preserve-symlinks",
                 "-i",
                 "--prefer-offline",
                 "-r",
