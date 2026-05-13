@@ -43,15 +43,17 @@
 		for (const h of Object.values(states)) h.release()
 	})
 
-	/** Create (or reuse) a per-workspace handle, seeding with `baseline` when
-	 * no autosave is already persisted. */
-	function ensureHandle(ws: string, baseline: VariableState): UserDraftHandle<VariableState> {
+	/** Create (or reuse) a per-workspace handle. `defaultValue` is what the
+	 * handle reports when no autosave is persisted; an existing autosave
+	 * always wins. The default itself never round-trips to localStorage — only
+	 * the user's first real edit triggers a write. */
+	function ensureHandle(ws: string, defaultValue: VariableState): UserDraftHandle<VariableState> {
 		if (states[ws]) return states[ws]
 		const h = UserDraft.use<VariableState>('variable', editPath ?? '', {
 			workspace: ws,
+			defaultValue,
 			manualRelease: true
 		})
-		if (h.draft === undefined) h.draft = baseline
 		states[ws] = h
 		return h
 	}
