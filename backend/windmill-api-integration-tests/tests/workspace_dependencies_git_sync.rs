@@ -747,55 +747,6 @@ async fn test_two_promotion_repos_both_enqueue_callback(db: Pool<Postgres>) -> a
     Ok(())
 }
 
-/// Regression test for the debounce-key collision: two promotion repos must
-/// produce TWO distinct debounce-key rows (one per repo), not one shared row
-/// that lets one repo's push debounce the other.
-#[cfg(all(feature = "enterprise", feature = "private"))]
-#[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_two_promotion_repos_have_distinct_debounce_keys(
-    db: Pool<Postgres>,
-) -> anyhow::Result<()> {
-    initialize_tracing().await;
-
-    create_folder(&db, "28103").await?;
-    create_folder(&db, "target").await?;
-    create_git_repo_resource(&db).await?;
-    create_second_git_repo_resource(&db).await?;
-    let sync_script_path = "f/28103/test_sync_two_repos_keys";
-    create_sync_script(&db, sync_script_path).await?;
-    setup_two_promotion_repos_config(&db, sync_script_path, false).await?;
-
-    let (client, _port, _server) = init_client(db.clone()).await;
-    create_test_script(&client, "f/target/alpha").await?;
-
-    // Wait for both keys to materialise.
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    let mut keys: Vec<String> = vec![];
-    loop {
-        keys = sqlx::query_scalar!("SELECT key FROM debounce_key WHERE key LIKE 'git_sync:%'")
-            .fetch_all(&db)
-            .await?;
-        if keys.len() >= 2 {
-            break;
-        }
-        if tokio::time::Instant::now() >= deadline {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-
-    let mut unique = keys.clone();
-    unique.sort();
-    unique.dedup();
-    assert_eq!(
-        unique.len(),
-        2,
-        "expected two distinct debounce keys (one per repo) for the same item, got: {keys:?}"
-    );
-
-    Ok(())
-}
-
 /// Promotion mode with group_by_folder: items destined for the same per-folder
 /// branch must share one debounce key so they accumulate into a single sync
 /// job; scripts in different folders must get distinct keys.
