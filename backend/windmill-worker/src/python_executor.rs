@@ -830,7 +830,6 @@ import sys
 {os_main_override}
 from {module_dir_dot} import {last} as inner_script
 import re
-import math
 
 with open("args.json") as f:
     kwargs = json.load(f, strict=False)
@@ -842,16 +841,17 @@ def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
 
-def replace_non_finite_floats(o):
-    if isinstance(o, float):
-        return None if not math.isfinite(o) else o
-    if isinstance(o, dict):
-        return {{k: replace_non_finite_floats(v) for k, v in o.items()}}
-    if isinstance(o, (list, tuple)):
-        return [replace_non_finite_floats(v) for v in o]
-    return o
-
-replace_invalid_fields = re.compile(r'\\*\\u0000')
+# Single-pass cleanup of `json.dumps` output. The first alternative consumes
+# a full JSON string (so anything inside quotes is preserved as-is, except
+# ` ` escapes which Postgres jsonb rejects); the others match bare
+# NaN/Infinity/-Infinity tokens emitted by Python for non-finite floats.
+_u0000_re = re.compile(r'\\*\\u0000')
+def _replace_invalid_match(m):
+    s = m.group(0)
+    if s[0] == '"':
+        return _u0000_re.sub(' null ', s) if '\\u0000' in s else s
+    return ' null '
+replace_invalid_fields = re.compile(r'"(?:\\.|[^"\\])*"|\bNaN\b|-?Infinity')
 
 result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
 
@@ -1365,7 +1365,6 @@ import json
 import sys
 import traceback
 import re
-import math
 import base64
 from datetime import datetime, date
 {import_loader}
@@ -1378,16 +1377,14 @@ def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
 
-def replace_non_finite_floats(o):
-    if isinstance(o, float):
-        return None if not math.isfinite(o) else o
-    if isinstance(o, dict):
-        return {{k: replace_non_finite_floats(v) for k, v in o.items()}}
-    if isinstance(o, (list, tuple)):
-        return [replace_non_finite_floats(v) for v in o]
-    return o
-
-replace_invalid_fields = re.compile(r'\\u0000')
+# Single-pass cleanup of `json.dumps` output. See wrapper.py for rationale.
+_u0000_re = re.compile(r'\\u0000')
+def _replace_invalid_match(m):
+    s = m.group(0)
+    if s[0] == '"':
+        return _u0000_re.sub(' null ', s) if '\\u0000' in s else s
+    return ' null '
+replace_invalid_fields = re.compile(r'"(?:\\.|[^"\\])*"|\bNaN\b|-?Infinity')
 
 def res_to_json(res, typ):
 {res_to_json_body}
@@ -2961,10 +2958,7 @@ fn python_res_to_json_body(postprocessor: &str) -> String {
         for k, v in res.items():
             if type(v).__name__ == 'bytes':
                 res[k] = to_b_64(v)
-    try:
-        unprocessed = json.dumps(res, separators=(',', ':'), default=str, allow_nan=False).replace('\n', '')
-    except ValueError:
-        unprocessed = json.dumps(replace_non_finite_floats(res), separators=(',', ':'), default=str).replace('\n', '')
+    unprocessed = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
     return {postprocessor}"#
     )
 }
@@ -2974,7 +2968,7 @@ fn get_result_postprocessor<'a>(skip: bool) -> &'a str {
     if skip {
         "unprocessed"
     } else {
-        "re.sub(replace_invalid_fields, ' null ', unprocessed)"
+        "re.sub(replace_invalid_fields, _replace_invalid_match, unprocessed)"
     }
 }
 
