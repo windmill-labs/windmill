@@ -70,18 +70,21 @@
 			size="xs"
 		/>
 		{#if limited}
-			<div class="text-tertiary">
-				<Toggle
-					bind:checked={readOnly}
-					options={{
-						right: 'Read-only',
-						rightTooltip:
-							'Restricts this token to GET/HEAD endpoints. Any mutating request (POST/PUT/PATCH/DELETE) or job-run action will be rejected with 403, regardless of the scopes selected below.'
-					}}
-					size="2xs"
-				/>
-			</div>
-			<ScopeSelector bind:selectedScopes={standardScopes} />
+			<ScopeSelector bind:selectedScopes={standardScopes}>
+				{#snippet topSlot()}
+					<div class="text-tertiary">
+						<Toggle
+							bind:checked={readOnly}
+							options={{
+								right: 'Read-only',
+								rightTooltip:
+									'Restricts this token to GET/HEAD endpoints. Any mutating request (POST/PUT/PATCH/DELETE) or job-run action will be rejected with 403, regardless of the scopes selected below.'
+							}}
+							size="2xs"
+						/>
+					</div>
+				{/snippet}
+			</ScopeSelector>
 		{/if}
 	</div>
 {:else}
