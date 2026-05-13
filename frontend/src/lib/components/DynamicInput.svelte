@@ -22,10 +22,10 @@
 	import { safeSelectItems } from './select/utils.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { emptySchema, type DynamicInput } from '$lib/utils'
+	import { type DynamicInput } from '$lib/utils'
 	import { deepEqual } from 'fast-equals'
 	import { untrack } from 'svelte'
-	import { inferArgs } from '$lib/infer'
+	import { parseEntrypointArgs } from '$lib/infer'
 
 	interface Props {
 		value?: any
@@ -130,26 +130,21 @@
 
 	// Parameter names declared by the helper function. When known, we restrict
 	// the change-detection to only those keys so typing in unrelated form fields
-	// no longer retriggers the dynselect job.
+	// no longer retriggers the dynselect job. `undefined` means we couldn't
+	// determine the signature → fall back to a full-args comparison.
 	let helperParams = $state<Set<string> | undefined>(undefined)
 
 	$effect(() => {
 		const script = helperScript
 		const ep = entrypoint
-		helperParams = undefined
-		if (!script || script.source !== 'inline') return
+		if (!script || script.source !== 'inline') {
+			helperParams = undefined
+			return
+		}
 		let cancelled = false
-		;(async () => {
-			try {
-				const schema = emptySchema()
-				await inferArgs(script.lang, script.code, schema, ep || undefined)
-				if (!cancelled) {
-					helperParams = new Set(Object.keys(schema.properties ?? {}))
-				}
-			} catch {
-				if (!cancelled) helperParams = undefined
-			}
-		})()
+		void parseEntrypointArgs(script.lang, script.code, ep || undefined).then((params) => {
+			if (!cancelled) helperParams = params
+		})
 		return () => {
 			cancelled = true
 		}

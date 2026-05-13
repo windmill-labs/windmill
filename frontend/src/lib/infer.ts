@@ -286,6 +286,45 @@ const SQL_LANGUAGES = [
 	'duckdb'
 ]
 
+/**
+ * Returns the parameter names of `entrypoint` in `code` (or `main` if not given),
+ * or `undefined` if the function can't be found, the code can't be parsed, the
+ * language isn't supported here, or the signature contains rest/keyword args
+ * (in which case the callee should fall back to a conservative full comparison).
+ *
+ * Lighter than {@link inferArgs} — does not touch any schema.
+ */
+export async function parseEntrypointArgs(
+	language: SupportedLanguage | 'bunnative' | undefined,
+	code: string,
+	entrypoint?: string
+): Promise<Set<string> | undefined> {
+	if (!code) return undefined
+	try {
+		let sig: MainArgSignature
+		if (language === 'python3') {
+			await initWasmPython()
+			sig = JSON.parse(parse_python(code, entrypoint))
+		} else if (
+			language === 'deno' ||
+			language === 'nativets' ||
+			language === 'bun' ||
+			language === 'bunnative'
+		) {
+			await initWasmTs()
+			sig = JSON.parse(parse_deno(code, entrypoint))
+		} else {
+			return undefined
+		}
+		if (sig.type === 'Invalid') return undefined
+		if (sig.star_args || sig.star_kwargs) return undefined
+		if (!Array.isArray(sig.args) || sig.args.length === 0) return undefined
+		return new Set(sig.args.map((a) => a.name))
+	} catch {
+		return undefined
+	}
+}
+
 export async function inferArgs(
 	language: SupportedLanguage | 'bunnative' | undefined,
 	code: string,
