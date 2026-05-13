@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO ws_specific (workspace_id, item_kind, path) VALUES ($1, 'variable', $2) ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5c705ea49ceda8b281155e38ebdb91e3896009a047286747a9c9f4e8e0192e4a"
+}

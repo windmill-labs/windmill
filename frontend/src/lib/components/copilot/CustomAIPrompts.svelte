@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { AIMode } from './chat/AIChatManager.svelte'
+	import { AIMode, getVisibleAIModes } from './chat/AIChatManager.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import Label from '../Label.svelte'
@@ -18,6 +18,7 @@
 	} = $props()
 
 	let selectedAiMode = $state<AIMode>(AIMode.ASK)
+	let visibleModes = $derived(getVisibleAIModes())
 </script>
 
 <div class="flex flex-col gap-2">
@@ -29,7 +30,7 @@
 		<Label label="AI Mode">
 			<ToggleButtonGroup bind:selected={selectedAiMode}>
 				{#snippet children({ item })}
-					{#each Object.values(AIMode) as mode}
+					{#each visibleModes as mode (mode)}
 						<div class="relative">
 							<ToggleButton
 								value={mode}

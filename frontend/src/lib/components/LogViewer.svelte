@@ -11,10 +11,12 @@
 </script>
 
 <script lang="ts">
-	import { ClipboardCopy, Download, Expand, Loader2 } from 'lucide-svelte'
+	import { ClipboardCopy, Download, Expand, Loader2, Timer, Cpu } from 'lucide-svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import { copyToClipboard } from '$lib/utils'
 	import { base } from '$lib/base'
+	import { withExternalDomain } from '$lib/externalDomain'
+	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { workspaceStore } from '$lib/stores'
 	import { AnsiUp } from 'ansi_up'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
@@ -67,7 +69,7 @@
 	ansi_up.use_classes = true
 
 	let scroll = $state(true)
-	let div: HTMLElement | null = $state(null)
+	let preEl: HTMLElement | null = $state(null)
 
 	// let downloadStartUrl: string | undefined = undefined
 
@@ -165,8 +167,7 @@
 	}
 
 	export function scrollToBottom() {
-		// console.log('scrollToBottom', scroll, div)
-		scroll && setTimeout(() => div?.scroll({ top: div?.scrollHeight, behavior: 'smooth' }), 100)
+		scroll && setTimeout(() => preEl?.scroll({ top: preEl?.scrollHeight, behavior: 'smooth' }), 100)
 	}
 
 	let logViewer: Drawer | undefined = $state()
@@ -204,6 +205,9 @@
 			scroll = true
 		}
 	})
+	let logsApiPath = $derived(`/w/${$workspaceStore}/jobs_u/get_logs/${jobId}`)
+	let downloadHref = $derived(withExternalDomain(`${base}/api${logsApiPath}`))
+	let downloadName = $derived(`windmill_logs_${jobId}.txt`)
 	let truncatedContent = $derived(truncateContent(content, loadedFromObjectStore, LOG_LIMIT))
 	let prefixInfo = $derived(findPrefixInfo(truncatedContent))
 	let downloadStartUrl = $derived(findStartUrl(truncatedContent, prefixInfo))
@@ -243,17 +247,30 @@
 	<DrawerContent title="Expanded Logs" on:close={logViewer.closeDrawer}>
 		{#snippet actions()}
 			{#if jobId && download}
-				<Button
-					href="{base}/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
-					download="windmill_logs_{jobId}.txt"
-					color="light"
-					size="xs"
-					startIcon={{
-						icon: Download
-					}}
-				>
-					Download
-				</Button>
+				{#if shouldDownloadViaClient()}
+					<Button
+						on:click={() => downloadViaClient(logsApiPath, downloadName)}
+						color="light"
+						size="xs"
+						startIcon={{
+							icon: Download
+						}}
+					>
+						Download
+					</Button>
+				{:else}
+					<Button
+						href={downloadHref}
+						download={downloadName}
+						color="light"
+						size="xs"
+						startIcon={{
+							icon: Download
+						}}
+					>
+						Download
+					</Button>
+				{/if}
 			{/if}
 
 			<Button
@@ -273,12 +290,12 @@
 				>{#if content}{@const len =
 						(content?.length ?? 0) +
 						(loadedFromObjectStore?.length ?? 0)}{#if splitHtml}{@html splitHtml.before}<button
-								onclick={getStoreLogs}
-								>Show more... <Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
-							>{@html splitHtml.after}{:else if downloadStartUrl}<button
 							onclick={getStoreLogs}
 							>Show more... <Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
-						><br />{@html html}{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)...<br
+						>{@html splitHtml.after}{:else if downloadStartUrl}<button onclick={getStoreLogs}
+							>Show more... <Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
+						><br
+						/>{@html html}{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)...<br
 						/><button onclick={() => showMoreTruncate(len)}>Show more..</button><br
 						/>{@html html}{:else}{@html html}{/if}{:else if isLoading}Waiting for job to start...{:else}No logs are available yet{/if}</pre
 			>
@@ -289,86 +306,100 @@
 <div class="w-full h-full {wrapperClass}">
 	<div class="w-full h-full relative">
 		<div
-			bind:this={div}
-			class="w-full h-full overflow-auto bg-surface-secondary pt-4 {noMaxH ? '' : 'max-h-screen'}"
+			class="w-full h-full bg-surface-secondary flex flex-col {noMaxH ? '' : 'max-h-screen'}"
 			data-nav-id={navigationId}
 		>
-			<div class="absolute z-10 top-0 right-0 flex flex-row-reverse justify-between text-xs">
-				<div class="flex gap-2">
+			<div
+				class="flex gap-2 ml-2 {small ? 'py-1' : 'py-2'} border-b overflow-x-auto overflow-y-hidden"
+			>
+				{#if isLoading}
+					<div class="flex gap-2 items-center">
+						<Loader2 class="animate-spin" />
+						{#if tag}
+							<div class="flex flex-row items-center gap-1">
+								<div class="text-secondary text-2xs">{tagLabel ?? 'tag'}: {tag}</div>
+								<NoWorkerWithTagWarning {tagLabel} {tag} />
+							</div>
+						{/if}
+						{#if jobId}
+							<QueuePosition {jobId} />
+						{/if}
+					</div>
+				{:else if duration}
+					<span
+						class={twMerge(
+							'flex items-center gap-1 text-secondary dark:text-gray-400',
+							small ? '!text-2xs' : '!text-xs'
+						)}
+						title="Duration"
+					>
+						<Timer size={small ? 10 : 12} />
+						{duration}ms
+					</span>
+				{/if}
+				{#if mem}
+					<span
+						class={twMerge(
+							'flex items-center gap-1 text-secondary dark:text-gray-400',
+							small ? '!text-2xs' : '!text-xs'
+						)}
+						title="Memory peak"
+					>
+						<Cpu size={small ? 10 : 12} />
+						{(mem / 1024).toPrecision(4)}MB
+					</span>
+				{/if}
+				<div class="flex gap-2 justify-end flex-1">
 					{#if jobId && download}
 						<div class="flex items-center">
-							<a
-								class="text-primary pb-0.5"
-								target="_blank"
-								href="{base}/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
-								download="windmill_logs_{jobId}.txt"
-								><Download size="14" />
-							</a>
+							{#if shouldDownloadViaClient()}
+								<button
+									class="text-primary pb-0.5"
+									onclick={() => downloadViaClient(logsApiPath, downloadName)}
+									><Download size="14" />
+								</button>
+							{:else}
+								<a
+									class="text-primary pb-0.5"
+									target="_blank"
+									href={downloadHref}
+									download={downloadName}
+									><Download size="14" />
+								</a>
+							{/if}
 						</div>
 					{/if}
 					<button onclick={logViewer.openDrawer}><Expand size="12" /></button>
 					{#if !noAutoScroll}
 						<label
-							class="{small
-								? ''
-								: 'py-2'} pr-2 text-2xs flex gap-2 font-normal text-primary items-center"
+							class="pr-2 text-2xs flex gap-2 font-normal text-primary items-center whitespace-nowrap"
 						>
-							Auto scroll
+							auto-scroll
 							<input class="windmillapp" type="checkbox" bind:checked={scroll} />
 						</label>
 					{/if}
 				</div>
 			</div>
-			{#if isLoading}
-				<div class="flex gap-2 absolute top-2 left-2 items-center z-10">
-					<Loader2 class="animate-spin" />
-					{#if tag}
-						<div class="flex flex-row items-center gap-1">
-							<div class="text-primary text-2xs">{tagLabel ?? 'tag'}: {tag}</div>
-							<NoWorkerWithTagWarning {tagLabel} {tag} />
-						</div>
-					{/if}
-					{#if jobId}
-						<QueuePosition {jobId} />
-					{/if}
-				</div>
-			{:else if duration}
-				<span
-					class={twMerge(
-						'absolute  text-primary dark:text-gray-400',
-						small ? '!text-2xs' : '!text-xs',
-						small ? 'top-0' : 'top-2',
-						noPadding ? '' : 'left-2'
-					)}>took {duration}ms</span
-				>
-			{/if}
-			{#if mem}
-				<span
-					class="absolute {small ? '!text-2xs' : '!text-xs'} text-primary dark:text-gray-400 {small
-						? 'top-0'
-						: 'top-2'}  left-36">mem peak: {(mem / 1024).toPrecision(4)}MB</span
-				>
-			{/if}
 			<pre
+				bind:this={preEl}
 				class={twMerge(
-					'whitespace-pre break-words w-full ',
+					'whitespace-pre break-words w-full flex-1 overflow-auto',
 					small ? '!text-2xs' : '!text-xs',
 					noPadding ? '' : 'p-2'
 				)}
 				>{#if content}{@const len =
-						(content?.length ?? 0) +
-						(loadedFromObjectStore?.length ?? 0)}{#if splitHtml}<span>{@html splitHtml.before}</span><button
-								onclick={getStoreLogs}
-								>Show more... &nbsp;<Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
-							><span>{@html splitHtml.after}</span
-						>{:else if downloadStartUrl}<button
+						(content?.length ?? 0) + (loadedFromObjectStore?.length ?? 0)}{#if splitHtml}<span
+							>{@html splitHtml.before}</span
+						><button onclick={getStoreLogs}
+							>Show more... &nbsp;<Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
+						><span>{@html splitHtml.after}</span>{:else if downloadStartUrl}<button
 							onclick={getStoreLogs}
 							>Show more... &nbsp;<Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
-						><br /><span>{@html html}</span
-						>{:else if len > LOG_LIMIT}<button onclick={() => showMoreTruncate(len)}
-							>Show more..</button
-						>&nbsp;({LOG_LIMIT}/{len} chars)<br /><span>{@html html}</span
-						>{:else}<span>{@html html}</span>{/if}{:else if !isLoading}<span>{customEmptyMessage}</span>{/if}</pre
+						><br /><span>{@html html}</span>{:else if len > LOG_LIMIT}<button
+							onclick={() => showMoreTruncate(len)}>Show more..</button
+						>&nbsp;({LOG_LIMIT}/{len} chars)<br /><span>{@html html}</span>{:else}<span
+							>{@html html}</span
+						>{/if}{:else if !isLoading}<span>{customEmptyMessage}</span>{/if}</pre
 			>
 		</div>
 	</div>

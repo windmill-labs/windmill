@@ -122,6 +122,7 @@ pub struct ListQueueQuery {
     pub trigger_path: Option<NegatedListFilter<String>>,
     pub include_args: Option<bool>,
     pub broad_filter: Option<String>,
+    pub excludes_entrypoint_override: Option<bool>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -167,6 +168,7 @@ pub struct ListCompletedQuery {
     pub trigger_path: Option<NegatedListFilter<String>>,
     pub include_args: Option<bool>,
     pub broad_filter: Option<String>,
+    pub excludes_entrypoint_override: Option<bool>,
 }
 
 impl From<ListCompletedQuery> for ListQueueQuery {
@@ -202,6 +204,7 @@ impl From<ListCompletedQuery> for ListQueueQuery {
             trigger_path: lcq.trigger_path,
             include_args: lcq.include_args,
             broad_filter: lcq.broad_filter,
+            excludes_entrypoint_override: lcq.excludes_entrypoint_override,
         }
     }
 }
@@ -704,6 +707,7 @@ mod tests {
             trigger_path: None,
             include_args: None,
             broad_filter: None,
+            excludes_entrypoint_override: None,
         };
 
         let lqq: ListQueueQuery = lcq.into();
@@ -772,6 +776,7 @@ mod tests {
             trigger_path: None,
             include_args: None,
             broad_filter: None,
+            excludes_entrypoint_override: None,
         };
 
         let lqq: ListQueueQuery = lcq.into();

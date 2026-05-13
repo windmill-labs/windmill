@@ -27,11 +27,8 @@ import { EVAL_MODES, type EvalMode } from "../core/types";
 import { DEFAULT_JUDGE_MODEL } from "../core/judge";
 import { createCliModeRunner } from "../modes/cli";
 import { runFrontendBenchmarkAdapter } from "../adapters/frontend/runtime";
-import {
-  FRONTEND_EVAL_TRANSPORTS,
-  type FrontendEvalTransport,
-  parseFrontendEvalTransport,
-} from "../core/frontendTransport";
+import { resolveWindmillBackendSettings } from "../core/windmillBackendSettings";
+import { assertWindmillBackendReachable } from "../adapters/frontend/windmillBackend";
 
 async function main() {
   const program = new Command()
@@ -56,6 +53,7 @@ async function main() {
         "  bun run cli -- run flow --record",
         "  bun run cli -- run flow --backend-validation preview",
         "  bun run cli -- run flow flow-test5-simple-modification --runs 3",
+        "  bun run cli -- run global global-test1-script-create",
         "  bun run cli -- run cli bun-hello-script",
         "",
         "Models:",
@@ -73,7 +71,7 @@ async function main() {
   program
     .command("cases")
     .description("List available cases")
-    .argument("[mode]", "cli, flow, script, or app", parseOptionalMode)
+    .argument("[mode]", "cli, flow, script, app, or global", parseOptionalMode)
     .action(async (mode?: EvalMode) => {
       await handleCases(mode);
     });
@@ -81,7 +79,7 @@ async function main() {
   program
     .command("run")
     .description("Run one benchmark mode")
-    .argument("<mode>", "cli, flow, script, or app", parseMode)
+    .argument("<mode>", "cli, flow, script, app, or global", parseMode)
     .argument("[caseIds...]", "specific case ids to run")
     .option(
       "--runs <n>",
@@ -97,10 +95,6 @@ async function main() {
     .option(
       "--models <names>",
       "comma-separated model aliases to run sequentially",
-    )
-    .option(
-      "--transport <mode>",
-      `frontend transport (${FRONTEND_EVAL_TRANSPORTS.join(", ")})`,
     )
     .option("--verbose", "stream assistant output during frontend runs")
     .option(
@@ -120,7 +114,6 @@ async function main() {
           output?: string;
           model?: string;
           models?: string;
-          transport?: string;
           verbose?: boolean;
           record?: boolean;
           backendValidation?: string;
@@ -133,9 +126,6 @@ async function main() {
           outputPath: options.output,
           model: options.model,
           models: options.models,
-          transport: options.transport
-            ? parseFrontendEvalTransport(options.transport)
-            : undefined,
           verbose: options.verbose ?? false,
           record: options.record ?? false,
           backendValidation: options.backendValidation,
@@ -163,7 +153,7 @@ function handleModels() {
   process.stdout.write("Available models\n");
   for (const model of EVAL_MODELS) {
     const supports = [
-      ...(model.frontend ? ["flow", "script", "app"] : []),
+      ...(model.frontend ? ["flow", "script", "app", "global"] : []),
       ...(model.cli ? ["cli"] : []),
     ];
     const aliases = [
@@ -184,7 +174,6 @@ async function handleRun(input: {
   outputPath?: string;
   model?: string;
   models?: string;
-  transport?: FrontendEvalTransport;
   verbose: boolean;
   record: boolean;
   backendValidation?: string;
@@ -196,11 +185,6 @@ async function handleRun(input: {
   }
   if (input.model && input.models) {
     throw new Error("Use either --model or --models, not both");
-  }
-  if (input.mode === "cli" && input.transport === "proxy") {
-    throw new Error(
-      "--transport proxy is only supported for flow, script, and app modes",
-    );
   }
 
   const selectedCases = await loadSelectedCases(input.mode, input.caseIds);
@@ -219,6 +203,9 @@ async function handleRun(input: {
     throw new Error(
       "--backend-validation currently supports only flow and script modes",
     );
+  }
+  if (input.mode !== "cli") {
+    await assertWindmillBackendReachable(resolveWindmillBackendSettings());
   }
 
   const summaries: Array<{
@@ -249,7 +236,6 @@ async function handleRun(input: {
             caseIds: input.caseIds,
             runs: input.runs,
             model: model.id,
-            transport: input.transport,
             verbose: input.verbose,
             backendValidation,
           });

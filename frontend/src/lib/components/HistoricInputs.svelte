@@ -112,7 +112,8 @@
 				syncQueuedRunsCount: false,
 				refreshRate: 10000,
 				currentWorkspace: $workspaceStore ?? '',
-				skip: !runnableId
+				skip: !runnableId,
+				excludesEntrypointOverride: true
 			}) satisfies UseJobLoaderArgs
 	)
 	let jobs = $derived(jobsLoader?.jobs ?? [])

@@ -432,7 +432,7 @@
 										: {
 												icon: Eye
 											}}
-									variant="accent"
+									variant="subtle"
 								>
 									{canWrite ? 'Edit' : 'View'}
 								</Button>

@@ -1022,6 +1022,16 @@ export function generateRandomString(len: number = 24): string {
 	return result
 }
 
+/** `u/<sanitized-username>/` — the default scope prefix for items owned by the
+ * current user. The username is normalized so emails and special characters
+ * don't leak into paths. */
+export function userPathPrefix(username: string | undefined): string {
+	const u = username?.includes('@')
+		? username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
+		: (username ?? '')
+	return `u/${u}/`
+}
+
 export function deepMergeWithPriority<T>(target: T, source: T): T {
 	if (typeof target !== 'object' || typeof source !== 'object') {
 		return source

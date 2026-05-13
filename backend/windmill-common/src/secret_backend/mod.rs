@@ -122,6 +122,11 @@ pub struct VaultSettings {
     /// Optional - if not provided, token auth is used
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jwt_role: Option<String>,
+    /// Mount path for the JWT auth method in Vault (defaults to "jwt").
+    /// Set this when the JWT auth method is mounted at a non-default path,
+    /// e.g. via `vault auth enable -path=my-mount jwt`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jwt_mount_path: Option<String>,
     /// Vault Enterprise namespace (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
@@ -143,7 +148,10 @@ pub struct AzureKeyVaultSettings {
     pub tenant_id: String,
     /// Azure AD application (client) ID
     pub client_id: String,
-    /// Azure AD client secret
+    /// Azure AD client secret. Optional — when omitted, the integration falls back to
+    /// Azure Workload Identity Federation: the Kubernetes-projected service-account JWT at
+    /// `AZURE_FEDERATED_TOKEN_FILE` is exchanged with Entra ID for an access token (no
+    /// long-lived secret stored on the Windmill instance).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_secret: Option<String>,
     /// Static Bearer token for testing/development (optional)

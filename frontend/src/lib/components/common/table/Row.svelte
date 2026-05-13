@@ -29,6 +29,16 @@
 			| 'folder'
 			| 'schedule'
 			| 'trigger'
+			| 'http_trigger'
+			| 'websocket_trigger'
+			| 'kafka_trigger'
+			| 'nats_trigger'
+			| 'postgres_trigger'
+			| 'mqtt_trigger'
+			| 'sqs_trigger'
+			| 'gcp_trigger'
+			| 'azure_trigger'
+			| 'email_trigger'
 		triggerKind?: string | undefined
 		summary?: string | undefined
 		path: string

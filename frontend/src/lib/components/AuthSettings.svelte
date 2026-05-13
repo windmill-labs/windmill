@@ -14,6 +14,7 @@
 	import ZitadelSetting from '$lib/components/ZitadelSetting.svelte'
 	import NextcloudSetting from '$lib/components/NextcloudSetting.svelte'
 	import CustomOauth from './CustomOauth.svelte'
+	import Password from './Password.svelte'
 	import { capitalize, type Item } from '$lib/utils'
 	import ClipboardPanel from './details/ClipboardPanel.svelte'
 	import Toggle from './Toggle.svelte'
@@ -297,12 +298,12 @@
 										<span class="text-primary font-semibold text-xs">Client Id</span>
 										<input type="text" placeholder="Client Id" bind:value={oauths[k]['id']} />
 									</label>
-									<label class="block pb-6">
+									<label for="{k}_client_secret_sso" class="block pb-6">
 										<span class="text-primary font-semibold text-xs">Client Secret</span>
-										<input
-											type="text"
+										<Password
+											id="{k}_client_secret_sso"
 											placeholder="Client Secret"
-											bind:value={oauths[k]['secret']}
+											bind:password={oauths[k]['secret']}
 										/>
 									</label>
 									{#if !windmillBuiltins.includes(k) && k != 'slack'}
@@ -394,9 +395,13 @@
 									<span class="text-primary font-semibold text-xs">Client Id</span>
 									<input type="text" placeholder="Client Id" bind:value={oauths[k]['id']} />
 								</label>
-								<label>
+								<label for="{k}_client_secret_oauth">
 									<span class="text-primary font-semibold text-xs">Client Secret</span>
-									<input type="text" placeholder="Client Secret" bind:value={oauths[k]['secret']} />
+									<Password
+										id="{k}_client_secret_oauth"
+										placeholder="Client Secret"
+										bind:password={oauths[k]['secret']}
+									/>
 								</label>
 								{#if k === 'visma' || !windmillBuiltins.includes(k)}
 									<div class="mb-8">

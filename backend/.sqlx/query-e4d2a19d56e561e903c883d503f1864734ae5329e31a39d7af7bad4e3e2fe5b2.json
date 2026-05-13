@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n            EXISTS(SELECT 1 FROM ws_specific\n                   WHERE workspace_id = $1 AND item_kind = 'variable' AND path = $3) AS \"src_ws!\",\n            EXISTS(SELECT 1 FROM ws_specific\n                   WHERE workspace_id = $2 AND item_kind = 'variable' AND path = $3) AS \"tgt_ws!\",\n            EXISTS(SELECT 1 FROM variable\n                   WHERE workspace_id = $1 AND path = $3) AS \"src_var!\",\n            EXISTS(SELECT 1 FROM variable\n                   WHERE workspace_id = $2 AND path = $3) AS \"tgt_var!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "src_ws!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "tgt_ws!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "src_var!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "tgt_var!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "e4d2a19d56e561e903c883d503f1864734ae5329e31a39d7af7bad4e3e2fe5b2"
+}

@@ -2373,7 +2373,19 @@ pub async fn monitor_db(
     let verify_license_key_f = async {
         #[cfg(feature = "enterprise")]
         if !initial_load {
-            verify_license_key().await;
+            verify_license_key(conn.as_sql()).await;
+        }
+    };
+
+    let enforce_offline_caps_f = async {
+        #[cfg(feature = "enterprise")]
+        if server_mode && !initial_load {
+            if let Some(db) = conn.as_sql() {
+                // Cheap: one query for workers active in the last 2 minutes.
+                if let Err(e) = windmill_common::ee_oss::enforce_offline_caps(db).await {
+                    tracing::error!("Failed to enforce offline license caps: {e:#}");
+                }
+            }
         }
     };
 
@@ -2522,6 +2534,7 @@ pub async fn monitor_db(
         vacuum_queue_f,
         expose_queue_metrics_f,
         verify_license_key_f,
+        enforce_offline_caps_f,
         worker_groups_alerts_f,
         jobs_waiting_alerts_f,
         low_disk_alerts_f,
@@ -2852,6 +2865,11 @@ pub async fn reload_base_url_setting(conn: &Connection) -> error::Result<()> {
     }
 
     IS_SECURE.store(is_secure, Ordering::Relaxed);
+
+    #[cfg(feature = "enterprise")]
+    {
+        crate::ee_oss::verify_license_key(conn.as_sql()).await;
+    }
 
     Ok(())
 }
@@ -3404,7 +3422,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
         FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
             LEFT JOIN worker_ping wp ON wp.worker = q.worker
         WHERE q.running = true AND q.suspend = 0 AND q.suspend_until IS null AND q.scheduled_for <= now()
-            AND (j.kind = 'flow' OR j.kind = 'flowpreview' OR j.kind = 'flownode')
+            AND (j.kind = 'flow' OR j.kind = 'flowpreview' OR j.kind = 'flownode' OR j.kind = 'singlestepflow')
             AND r.ping IS NOT NULL AND r.ping < NOW() - ($1 || ' seconds')::interval
             AND q.canceled_by IS NULL
 

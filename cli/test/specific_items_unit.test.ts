@@ -855,3 +855,133 @@ test("mixed config: variables and folders configured - resources and triggers us
   expect(isItemTypeConfigured("f/hook.http_trigger.yaml", config)).toEqual(false);
   expect(isItemTypeConfigured("settings.yaml", config)).toEqual(false);
 });
+
+// =============================================================================
+// JSON workspace-specific path conversion
+// (every helper that previously hard-coded .yaml must also handle .json)
+// =============================================================================
+
+test("toWorkspaceSpecificPath: converts .json variable path", () => {
+  expect(toWorkspaceSpecificPath("f/test.variable.json", "main")).toEqual(
+    "f/test.main.variable.json",
+  );
+});
+
+test("toWorkspaceSpecificPath: converts .json resource path", () => {
+  expect(toWorkspaceSpecificPath("u/admin/db.resource.json", "develop")).toEqual(
+    "u/admin/db.develop.resource.json",
+  );
+});
+
+test("toWorkspaceSpecificPath: converts .json trigger path", () => {
+  expect(
+    toWorkspaceSpecificPath("f/my_trigger.http_trigger.json", "feature-x"),
+  ).toEqual("f/my_trigger.feature-x.http_trigger.json");
+});
+
+test("toWorkspaceSpecificPath: converts .json schedule path", () => {
+  expect(toWorkspaceSpecificPath("f/cron.schedule.json", "main")).toEqual(
+    "f/cron.main.schedule.json",
+  );
+});
+
+test("toWorkspaceSpecificPath: converts folder.meta.json", () => {
+  expect(toWorkspaceSpecificPath("f/myfolder/folder.meta.json", "dev")).toEqual(
+    "f/myfolder/folder.dev.meta.json",
+  );
+});
+
+test("toWorkspaceSpecificPath: converts settings.json", () => {
+  expect(toWorkspaceSpecificPath("settings.json", "prod")).toEqual(
+    "settings.prod.json",
+  );
+});
+
+test("fromWorkspaceSpecificPath: round-trips .json variable", () => {
+  expect(fromWorkspaceSpecificPath("f/test.main.variable.json", "main")).toEqual(
+    "f/test.variable.json",
+  );
+});
+
+test("fromWorkspaceSpecificPath: round-trips .json resource", () => {
+  expect(
+    fromWorkspaceSpecificPath("u/admin/db.develop.resource.json", "develop"),
+  ).toEqual("u/admin/db.resource.json");
+});
+
+test("fromWorkspaceSpecificPath: round-trips .json trigger", () => {
+  expect(
+    fromWorkspaceSpecificPath(
+      "f/my_trigger.feature-x.http_trigger.json",
+      "feature-x",
+    ),
+  ).toEqual("f/my_trigger.http_trigger.json");
+});
+
+test("fromWorkspaceSpecificPath: round-trips folder.<branch>.meta.json", () => {
+  expect(
+    fromWorkspaceSpecificPath("f/myfolder/folder.dev.meta.json", "dev"),
+  ).toEqual("f/myfolder/folder.meta.json");
+});
+
+test("fromWorkspaceSpecificPath: round-trips settings.<branch>.json", () => {
+  expect(fromWorkspaceSpecificPath("settings.prod.json", "prod")).toEqual(
+    "settings.json",
+  );
+});
+
+test("isWorkspaceSpecificFile: detects .json branch-specific files", () => {
+  expect(isWorkspaceSpecificFile("f/test.main.variable.json")).toEqual(true);
+  expect(isWorkspaceSpecificFile("u/admin/db.develop.resource.json")).toEqual(
+    true,
+  );
+  expect(
+    isWorkspaceSpecificFile("f/my_trigger.feature.http_trigger.json"),
+  ).toEqual(true);
+  expect(isWorkspaceSpecificFile("f/myfolder/folder.dev.meta.json")).toEqual(
+    true,
+  );
+  expect(isWorkspaceSpecificFile("settings.prod.json")).toEqual(true);
+});
+
+test("isWorkspaceSpecificFile: rejects base .json files", () => {
+  expect(isWorkspaceSpecificFile("f/test.variable.json")).toEqual(false);
+  expect(isWorkspaceSpecificFile("settings.json")).toEqual(false);
+  expect(isWorkspaceSpecificFile("f/myfolder/folder.meta.json")).toEqual(false);
+});
+
+test("isCurrentWorkspaceFile: detects .json branch-specific files for given workspace", () => {
+  expect(
+    isCurrentWorkspaceFile("f/test.main.variable.json", "main"),
+  ).toEqual(true);
+  expect(
+    isCurrentWorkspaceFile("f/test.dev.variable.json", "main"),
+  ).toEqual(false);
+  expect(
+    isCurrentWorkspaceFile("settings.prod.json", "prod"),
+  ).toEqual(true);
+});
+
+test("isSpecificItem: matches .json paths against .yaml-only patterns", () => {
+  // Patterns from wmill.yaml are conventionally written with .yaml; the
+  // helper should normalize a local .json file before matching so users
+  // configured for opts.json still get specificItems coverage.
+  const config: SpecificItemsConfig = {
+    variables: ["f/*.variable.yaml"],
+    resources: ["u/admin/db.resource.yaml"],
+  };
+  expect(isSpecificItem("f/test.variable.json", config)).toEqual(true);
+  expect(isSpecificItem("u/admin/db.resource.json", config)).toEqual(true);
+  expect(isSpecificItem("u/admin/other.resource.json", config)).toEqual(false);
+});
+
+test("isItemTypeConfigured: works for .json folder.meta and settings", () => {
+  const config: SpecificItemsConfig = {
+    folders: ["f/env_*"],
+    settings: true,
+  };
+  expect(
+    isItemTypeConfigured("f/env_staging/folder.meta.json", config),
+  ).toEqual(true);
+  expect(isItemTypeConfigured("settings.json", config)).toEqual(true);
+});

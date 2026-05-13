@@ -4,6 +4,8 @@
 	import { Drawer } from '$lib/components/common'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import { Loader2 } from 'lucide-svelte'
+	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
+	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import { registerToolDisplayActionHandler } from './createdResourceActions.svelte'
 	import type { CreatedResourceTriggerKind, ToolDisplayAction } from './shared'
 
@@ -36,6 +38,8 @@
 	let editor: EditorHandle | undefined = $state(undefined)
 	let activeDrawer: ActiveDrawerState | undefined = $state(undefined)
 	let nextActiveDrawerId = 0
+	let resourceEditorDrawer: ResourceEditorDrawer | undefined = $state(undefined)
+	let variableEditor: VariableEditor | undefined = $state(undefined)
 
 	const drawerConfigs: Record<DrawerKey, DrawerConfig> = {
 		schedule: {
@@ -120,6 +124,16 @@
 			return
 		}
 
+		if (action.resource === 'resource') {
+			await resourceEditorDrawer?.initEdit(action.path)
+			return
+		}
+
+		if (action.resource === 'variable') {
+			await variableEditor?.editVariable(action.path)
+			return
+		}
+
 		const key = action.resource === 'schedule' ? 'schedule' : action.triggerKind
 		if (!key) {
 			throw new Error('Missing trigger kind')
@@ -172,3 +186,6 @@
 		{/if}
 	</DrawerContent>
 </Drawer>
+
+<ResourceEditorDrawer bind:this={resourceEditorDrawer} />
+<VariableEditor bind:this={variableEditor} />

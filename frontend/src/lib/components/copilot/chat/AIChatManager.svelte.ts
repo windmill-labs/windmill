@@ -60,6 +60,8 @@ import { runChatLoop } from './chatLoop'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import { getCurrentModel, tryGetCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
+import { globalTools, prepareGlobalSystemMessage, prepareGlobalUserMessage } from './global/core'
+import { isGlobalAiEnabled } from './global/gate'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
@@ -71,7 +73,22 @@ export enum AIMode {
 	APP = 'app',
 	NAVIGATOR = 'navigator',
 	API = 'API',
+	GLOBAL = 'global',
 	ASK = 'ask'
+}
+
+const ALL_AI_MODES = Object.values(AIMode)
+
+export function isAIMode(mode: unknown): mode is AIMode {
+	return ALL_AI_MODES.includes(mode as AIMode)
+}
+
+export function isAIModeVisible(mode: AIMode): boolean {
+	return mode !== AIMode.GLOBAL || isGlobalAiEnabled()
+}
+
+export function getVisibleAIModes(): AIMode[] {
+	return ALL_AI_MODES.filter(isAIModeVisible)
 }
 
 function isWorkspacePath(path: string | undefined): path is string {
@@ -133,7 +150,9 @@ class AIChatManager {
 		app: this.appAiChatHelpers !== undefined,
 		navigator: true,
 		ask: true,
-		API: true
+		API: true,
+		// Dev-only gate. See `./global/gate.ts` for how to enable.
+		global: isAIModeVisible(AIMode.GLOBAL)
 	})
 
 	open = $derived(chatState.size > 0)
@@ -235,7 +254,8 @@ class AIChatManager {
 		return {
 			kind: 'script',
 			path: workspacePath,
-			deployed: workspacePath !== undefined && this.scriptEditorOptions?.lastDeployedCode !== undefined
+			deployed:
+				workspacePath !== undefined && this.scriptEditorOptions?.lastDeployedCode !== undefined
 		}
 	}
 
@@ -260,6 +280,7 @@ class AIChatManager {
 			workflowAsCode?: boolean
 		}
 	) {
+		if (!isAIModeVisible(mode)) return
 		if (mode === AIMode.SCRIPT && !tryGetCurrentModel()) return
 		this.mode = mode
 		this.pendingPrompt = pendingPrompt ?? ''
@@ -329,6 +350,11 @@ class AIChatManager {
 			this.systemMessage = prepareApiSystemMessage(customPrompt)
 			this.tools = [...this.apiTools]
 			this.helpers = {}
+		} else if (mode === AIMode.GLOBAL) {
+			const customPrompt = getCombinedCustomPrompt(mode)
+			this.systemMessage = prepareGlobalSystemMessage(customPrompt)
+			this.tools = [...globalTools]
+			this.helpers = {}
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareAppSystemMessage(customPrompt)
@@ -345,14 +371,24 @@ class AIChatManager {
 			function: {
 				name: 'change_mode',
 				description:
-					'Change the AI mode to the one specified. Script mode is used to create scripts. Flow mode is used to create flows. Navigator mode is used to navigate the application and help the user find what they are looking for. API mode is used to make API calls to the Windmill backend.',
+					'Change the AI mode to the one specified. Script mode is used to create scripts. Flow mode is used to create flows.' +
+					(isGlobalAiEnabled()
+						? ' Global mode is used to inspect workspace scripts and flows and create draft changes.'
+						: '') +
+					' Navigator mode is used to navigate the application and help the user find what they are looking for. API mode is used to make API calls to the Windmill backend.',
 				parameters: {
 					type: 'object',
 					properties: {
 						mode: {
 							type: 'string',
 							description: 'The mode to change to',
-							enum: ['script', 'flow', 'navigator', 'API']
+							enum: [
+								'script',
+								'flow',
+								...(isGlobalAiEnabled() ? ['global'] : []),
+								'navigator',
+								'API'
+							]
 						},
 						pendingPrompt: {
 							type: 'string',
@@ -365,8 +401,11 @@ class AIChatManager {
 			}
 		},
 		fn: async ({ args, toolId, toolCallbacks }) => {
+			if (!isAIMode(args.mode) || !isAIModeVisible(args.mode)) {
+				throw new Error(`AI mode "${args.mode}" is not enabled`)
+			}
 			toolCallbacks.setToolStatus(toolId, { content: 'Switching to ' + args.mode + ' mode...' })
-			this.changeMode(args.mode as AIMode, args.pendingPrompt, {
+			this.changeMode(args.mode, args.pendingPrompt, {
 				closeScriptSettings: true
 			})
 			toolCallbacks.setToolStatus(toolId, { content: 'Switched to ' + args.mode + ' mode' })
@@ -498,6 +537,8 @@ class AIChatManager {
 						)
 					} else if (this.mode === AIMode.NAVIGATOR) {
 						return prepareNavigatorUserMessage(pendingPrompt)
+					} else if (this.mode === AIMode.GLOBAL) {
+						return prepareGlobalUserMessage(pendingPrompt)
 					}
 					return undefined
 				},
@@ -617,17 +658,14 @@ class AIChatManager {
 			isPreprocessor?: boolean
 		} = {}
 	) => {
-		if (options.mode) {
-			this.changeMode(options.mode, undefined, {
-				lang: options.lang,
-				isPreprocessor: options.isPreprocessor
-			})
-		} else {
-			this.changeMode(this.mode, undefined, {
-				lang: options.lang,
-				isPreprocessor: options.isPreprocessor
-			})
+		const requestedMode = options.mode ?? this.mode
+		if (!isAIModeVisible(requestedMode)) {
+			return
 		}
+		this.changeMode(requestedMode, undefined, {
+			lang: options.lang,
+			isPreprocessor: options.isPreprocessor
+		})
 		if (options.instructions) {
 			this.instructions = options.instructions
 		}
@@ -715,6 +753,9 @@ class AIChatManager {
 					break
 				case AIMode.API:
 					userMessage = prepareApiUserMessage(oldInstructions)
+					break
+				case AIMode.GLOBAL:
+					userMessage = prepareGlobalUserMessage(oldInstructions)
 					break
 				case AIMode.APP:
 					userMessage = prepareAppUserMessage(
