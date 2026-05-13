@@ -50,6 +50,46 @@ vi.mock('$lib/gen', async () => {
 			existsFlowByPath: vi.fn(async () => false),
 			listFlows: vi.fn(async () => [])
 		}),
+		ScheduleService: wrapService(actual.ScheduleService, {
+			existsSchedule: vi.fn(async () => false),
+			listSchedules: vi.fn(async () => [])
+		}),
+		HttpTriggerService: wrapService(actual.HttpTriggerService, {
+			existsHttpTrigger: vi.fn(async () => false),
+			listHttpTriggers: vi.fn(async () => [])
+		}),
+		WebsocketTriggerService: wrapService(actual.WebsocketTriggerService, {
+			existsWebsocketTrigger: vi.fn(async () => false),
+			listWebsocketTriggers: vi.fn(async () => [])
+		}),
+		KafkaTriggerService: wrapService(actual.KafkaTriggerService, {
+			existsKafkaTrigger: vi.fn(async () => false),
+			listKafkaTriggers: vi.fn(async () => [])
+		}),
+		NatsTriggerService: wrapService(actual.NatsTriggerService, {
+			existsNatsTrigger: vi.fn(async () => false),
+			listNatsTriggers: vi.fn(async () => [])
+		}),
+		PostgresTriggerService: wrapService(actual.PostgresTriggerService, {
+			existsPostgresTrigger: vi.fn(async () => false),
+			listPostgresTriggers: vi.fn(async () => [])
+		}),
+		MqttTriggerService: wrapService(actual.MqttTriggerService, {
+			existsMqttTrigger: vi.fn(async () => false),
+			listMqttTriggers: vi.fn(async () => [])
+		}),
+		SqsTriggerService: wrapService(actual.SqsTriggerService, {
+			existsSqsTrigger: vi.fn(async () => false),
+			listSqsTriggers: vi.fn(async () => [])
+		}),
+		GcpTriggerService: wrapService(actual.GcpTriggerService, {
+			existsGcpTrigger: vi.fn(async () => false),
+			listGcpTriggers: vi.fn(async () => [])
+		}),
+		AzureTriggerService: wrapService(actual.AzureTriggerService, {
+			existsAzureTrigger: vi.fn(async () => false),
+			listAzureTriggers: vi.fn(async () => [])
+		}),
 		AppService: wrapService(actual.AppService, {
 			existsApp: vi.fn(async () => false)
 		}),
@@ -147,6 +187,83 @@ describe('global AI tools', () => {
 				type: 'script',
 				path: 'f/scripts/listed',
 				summary: 'Listed script',
+				isDraft: true
+			})
+		])
+	})
+
+	it('writes schedule drafts into the shared UserDraft store', async () => {
+		await callGlobalTool('write_schedule', {
+			path: 'f/schedules/daily',
+			summary: 'Daily schedule',
+			schedule: '0 0 12 * * *',
+			timezone: 'UTC',
+			script_path: 'f/scripts/hello',
+			is_flow: false,
+			args: { name: 'Ada' },
+			enabled: true
+		})
+
+		expect(
+			UserDraft.get<any>('trigger_schedule', 'f/schedules/daily', { workspace: WORKSPACE })
+		).toMatchObject({
+			path: 'f/schedules/daily',
+			summary: 'Daily schedule',
+			script_path: 'f/scripts/hello',
+			is_flow: false
+		})
+
+		const raw = await callGlobalTool('read_workspace_item', {
+			type: 'schedule',
+			path: 'f/schedules/daily'
+		})
+
+		expect(JSON.parse(raw)).toMatchObject({
+			type: 'schedule',
+			path: 'f/schedules/daily',
+			summary: 'Daily schedule',
+			value: expect.objectContaining({
+				schedule: '0 0 12 * * *',
+				timezone: 'UTC'
+			}),
+			isDraft: true
+		})
+	})
+
+	it('writes trigger drafts into the shared trigger UserDraft kind', async () => {
+		await callGlobalTool('write_trigger', {
+			kind: 'http',
+			config: {
+				path: 'f/triggers/hook',
+				summary: 'Hook trigger',
+				script_path: 'f/scripts/hello',
+				route_path: 'api/hook',
+				is_flow: false,
+				http_method: 'post',
+				authentication_method: 'none',
+				is_static_website: false
+			}
+		})
+
+		expect(
+			UserDraft.get<any>('trigger_http', 'f/triggers/hook', { workspace: WORKSPACE })
+		).toMatchObject({
+			path: 'f/triggers/hook',
+			summary: 'Hook trigger',
+			route_path: 'api/hook',
+			is_flow: false
+		})
+
+		const raw = await callGlobalTool('list_workspace_items', {
+			types: ['trigger']
+		})
+
+		expect(JSON.parse(raw)).toEqual([
+			expect.objectContaining({
+				type: 'trigger',
+				triggerKind: 'http',
+				path: 'f/triggers/hook',
+				summary: 'Hook trigger',
 				isDraft: true
 			})
 		])

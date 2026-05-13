@@ -1,5 +1,5 @@
 import { FlowService, ScriptService } from '$lib/gen'
-import type { Flow, NewScript, Script, ScriptLang } from '$lib/gen/types.gen'
+import type { Flow, NewSchedule, NewScript, Script, ScriptLang } from '$lib/gen/types.gen'
 import { UserDraft, type UserDraftItemKind, type UserDraftListEntry } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
 import {
@@ -7,14 +7,53 @@ import {
 	globalDraftStore,
 	type AppDraftValue,
 	type FlowDraftValue,
+	type TriggerRequestBody,
 	type TriggerKind,
 	type WorkspaceItem,
 	type WorkspaceItemType
 } from './draftStore.svelte'
 
-type SharedWorkspaceItemType = 'script' | 'flow' | 'app'
+type SharedWorkspaceItemType = 'script' | 'flow' | 'app' | 'schedule' | 'trigger'
 
-const SHARED_DRAFT_KINDS = ['script', 'flow', 'raw_app'] as const satisfies UserDraftItemKind[]
+const TRIGGER_DRAFT_KIND_BY_TRIGGER_KIND = {
+	http: 'trigger_http',
+	websocket: 'trigger_websocket',
+	kafka: 'trigger_kafka',
+	nats: 'trigger_nats',
+	postgres: 'trigger_postgres',
+	mqtt: 'trigger_mqtt',
+	sqs: 'trigger_sqs',
+	gcp: 'trigger_gcp',
+	azure: 'trigger_azure'
+} as const satisfies Record<TriggerKind, UserDraftItemKind>
+
+const TRIGGER_KIND_BY_DRAFT_KIND = {
+	trigger_http: 'http',
+	trigger_websocket: 'websocket',
+	trigger_kafka: 'kafka',
+	trigger_nats: 'nats',
+	trigger_postgres: 'postgres',
+	trigger_mqtt: 'mqtt',
+	trigger_sqs: 'sqs',
+	trigger_gcp: 'gcp',
+	trigger_azure: 'azure'
+} as const satisfies Partial<Record<UserDraftItemKind, TriggerKind>>
+
+const SHARED_DRAFT_KINDS = [
+	'script',
+	'flow',
+	'raw_app',
+	'trigger_schedule',
+	'trigger_http',
+	'trigger_websocket',
+	'trigger_kafka',
+	'trigger_nats',
+	'trigger_postgres',
+	'trigger_mqtt',
+	'trigger_sqs',
+	'trigger_gcp',
+	'trigger_azure'
+] as const satisfies UserDraftItemKind[]
 const DEFAULT_SCRIPT_LANGUAGE: ScriptLang = 'bun'
 const DEFAULT_APP_DATA = { tables: [], datatable: undefined, schema: undefined }
 
@@ -23,11 +62,30 @@ function clone<T>(value: T): T {
 }
 
 function isSharedWorkspaceItemType(type: WorkspaceItemType): type is SharedWorkspaceItemType {
-	return type === 'script' || type === 'flow' || type === 'app'
+	return (
+		type === 'script' ||
+		type === 'flow' ||
+		type === 'app' ||
+		type === 'schedule' ||
+		type === 'trigger'
+	)
 }
 
-function sharedDraftKind(type: SharedWorkspaceItemType): UserDraftItemKind {
-	return type === 'app' ? 'raw_app' : type
+function sharedDraftKind(
+	type: SharedWorkspaceItemType,
+	triggerKind?: TriggerKind
+): UserDraftItemKind | undefined {
+	switch (type) {
+		case 'script':
+		case 'flow':
+			return type
+		case 'app':
+			return 'raw_app'
+		case 'schedule':
+			return 'trigger_schedule'
+		case 'trigger':
+			return triggerKind ? TRIGGER_DRAFT_KIND_BY_TRIGGER_KIND[triggerKind] : undefined
+	}
 }
 
 function normalizeAppDraftValue(value: AppDraftValue): AppDraftValue {
@@ -37,6 +95,18 @@ function normalizeAppDraftValue(value: AppDraftValue): AppDraftValue {
 		runnables: { ...(value.runnables ?? {}) },
 		data: value.data ?? { ...DEFAULT_APP_DATA }
 	}
+}
+
+function getItemSummary(value: unknown): string | undefined {
+	return ((value as { summary?: string | null } | undefined)?.summary ?? undefined) || undefined
+}
+
+function applyItemSummary<T extends object>(value: T, summary: string | undefined): T {
+	const draft = value as T & { summary?: string | null }
+	if (draft.summary === undefined && summary !== undefined) {
+		draft.summary = summary
+	}
+	return value
 }
 
 function scriptDraftToWorkspaceItem(path: string, draft: NewScript): WorkspaceItem {
@@ -75,6 +145,31 @@ function appDraftToWorkspaceItem(path: string, draft: AppDraftValue): WorkspaceI
 	}
 }
 
+function scheduleDraftToWorkspaceItem(path: string, draft: NewSchedule): WorkspaceItem {
+	return {
+		type: 'schedule',
+		path,
+		summary: draft.summary ?? undefined,
+		value: clone(draft),
+		isDraft: true
+	}
+}
+
+function triggerDraftToWorkspaceItem(
+	kind: TriggerKind,
+	path: string,
+	draft: TriggerRequestBody
+): WorkspaceItem {
+	return {
+		type: 'trigger',
+		triggerKind: kind,
+		path,
+		summary: getItemSummary(draft),
+		value: clone(draft),
+		isDraft: true
+	}
+}
+
 function sharedDraftEntryToWorkspaceItem(entry: UserDraftListEntry): WorkspaceItem | undefined {
 	switch (entry.itemKind) {
 		case 'script':
@@ -83,8 +178,13 @@ function sharedDraftEntryToWorkspaceItem(entry: UserDraftListEntry): WorkspaceIt
 			return flowDraftToWorkspaceItem(entry.path, entry.value as Flow)
 		case 'raw_app':
 			return appDraftToWorkspaceItem(entry.path, entry.value as AppDraftValue)
+		case 'trigger_schedule':
+			return scheduleDraftToWorkspaceItem(entry.path, entry.value as NewSchedule)
 		default:
-			return undefined
+			const triggerKind = TRIGGER_KIND_BY_DRAFT_KIND[entry.itemKind]
+			return triggerKind
+				? triggerDraftToWorkspaceItem(triggerKind, entry.path, entry.value as TriggerRequestBody)
+				: undefined
 	}
 }
 
@@ -160,6 +260,33 @@ function appItemToUserDraft(item: WorkspaceItem): AppDraftValue {
 	})
 }
 
+function scheduleItemToUserDraft(item: WorkspaceItem): NewSchedule {
+	const value = item.value as NewSchedule | undefined
+	if (!value) {
+		throw new Error(`Draft schedule "${item.path}" is missing value.`)
+	}
+	const draft = {
+		...clone(value),
+		path: item.path
+	}
+	return applyItemSummary(draft, item.summary)
+}
+
+function triggerItemToUserDraft(item: WorkspaceItem): TriggerRequestBody {
+	const value = item.value as TriggerRequestBody | undefined
+	if (!item.triggerKind) {
+		throw new Error(`Draft trigger "${item.path}" is missing trigger kind.`)
+	}
+	if (!value) {
+		throw new Error(`Draft trigger "${item.path}" is missing value.`)
+	}
+	const draft = {
+		...clone(value),
+		path: item.path
+	}
+	return applyItemSummary(draft, item.summary)
+}
+
 async function loadExistingScript(
 	workspace: string,
 	path: string,
@@ -181,9 +308,11 @@ async function loadExistingFlow(
 function getSharedDraft(
 	workspace: string,
 	type: SharedWorkspaceItemType,
-	path: string
+	path: string,
+	triggerKind?: TriggerKind
 ): WorkspaceItem | undefined {
-	const itemKind = sharedDraftKind(type)
+	const itemKind = sharedDraftKind(type, triggerKind)
+	if (!itemKind) return undefined
 	const draft = UserDraft.get(itemKind, path, { workspace })
 	if (draft === undefined) return undefined
 
@@ -194,6 +323,12 @@ function getSharedDraft(
 			return flowDraftToWorkspaceItem(path, draft as Flow)
 		case 'app':
 			return appDraftToWorkspaceItem(path, draft as AppDraftValue)
+		case 'schedule':
+			return scheduleDraftToWorkspaceItem(path, draft as NewSchedule)
+		case 'trigger':
+			return triggerKind
+				? triggerDraftToWorkspaceItem(triggerKind, path, draft as TriggerRequestBody)
+				: undefined
 	}
 }
 
@@ -224,13 +359,35 @@ async function setSharedDraft(
 			UserDraft.save('raw_app', item.path, draft, { workspace })
 			return appDraftToWorkspaceItem(item.path, draft)
 		}
+		case 'schedule': {
+			const draft = scheduleItemToUserDraft(item)
+			UserDraft.save('trigger_schedule', item.path, draft, { workspace })
+			return scheduleDraftToWorkspaceItem(item.path, draft)
+		}
+		case 'trigger': {
+			if (!item.triggerKind) {
+				throw new Error(`Draft trigger "${item.path}" is missing trigger kind.`)
+			}
+			const draft = triggerItemToUserDraft(item)
+			UserDraft.save(TRIGGER_DRAFT_KIND_BY_TRIGGER_KIND[item.triggerKind], item.path, draft, {
+				workspace
+			})
+			return triggerDraftToWorkspaceItem(item.triggerKind, item.path, draft)
+		}
 		default:
 			throw new Error(`Unsupported shared draft type: ${item.type}`)
 	}
 }
 
-function deleteSharedDraft(workspace: string, type: SharedWorkspaceItemType, path: string): void {
-	UserDraft.remove(sharedDraftKind(type), path, { workspace })
+function deleteSharedDraft(
+	workspace: string,
+	type: SharedWorkspaceItemType,
+	path: string,
+	triggerKind?: TriggerKind
+): void {
+	const itemKind = sharedDraftKind(type, triggerKind)
+	if (!itemKind) return
+	UserDraft.remove(itemKind, path, { workspace })
 }
 
 export function getGlobalDraft(
@@ -240,7 +397,7 @@ export function getGlobalDraft(
 	triggerKind?: TriggerKind
 ): WorkspaceItem | undefined {
 	if (isSharedWorkspaceItemType(type)) {
-		const shared = getSharedDraft(workspace, type, path)
+		const shared = getSharedDraft(workspace, type, path, triggerKind)
 		if (shared) return shared
 	}
 	return globalDraftStore.getDraft(workspace, type, path, triggerKind)
@@ -290,7 +447,7 @@ export function deleteGlobalDraft(
 	triggerKind?: TriggerKind
 ): void {
 	if (isSharedWorkspaceItemType(type)) {
-		deleteSharedDraft(workspace, type, path)
+		deleteSharedDraft(workspace, type, path, triggerKind)
 	}
 	globalDraftStore.deleteDraft(workspace, type, path, triggerKind)
 }
