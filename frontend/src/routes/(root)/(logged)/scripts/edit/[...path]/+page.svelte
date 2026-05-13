@@ -203,6 +203,11 @@
 									})
 								}
 								UserDraft.remove('script', draftPath)
+								// UserDraft.remove only clears localStorage. The entry's
+								// in-memory state is kept alive by this route's handle, so
+								// loadScript would re-read the stale autosave and the toast
+								// would fire again. Drop the in-memory state first.
+								scriptHandle.setDraftAndMeta(undefined, {})
 								goto(`/scripts/edit/${scriptPath}`)
 								loadScript()
 							}

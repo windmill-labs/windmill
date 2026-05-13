@@ -207,6 +207,10 @@
 							})
 						}
 						UserDraft.remove('raw_app', path)
+						// UserDraft.remove only clears localStorage. Drop the
+						// entry's in-memory state too so loadApp doesn't re-read
+						// the stale autosave and re-fire the same toast.
+						draftHandle.setDraftAndMeta(undefined, {})
 						await loadApp()
 						redraw++
 					}

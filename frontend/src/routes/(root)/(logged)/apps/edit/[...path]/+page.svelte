@@ -165,6 +165,13 @@
 							})
 						}
 						UserDraft.remove('app', path)
+						// The AppEditor child holds the UserDraft handle for this path.
+						// UserDraft.remove only cleared localStorage; the entry's
+						// in-memory state would otherwise shadow the empty LS and
+						// loadApp would re-fire the same toast. Force AppEditor to
+						// unmount so its handle releases and the entry is destroyed.
+						app = undefined
+						redraw++
 						goto(`/apps/edit/${appPath}`)
 						await loadApp()
 						redraw++

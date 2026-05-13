@@ -211,6 +211,10 @@
 								})
 							}
 							UserDraft.remove('flow', flowDraftPath)
+							// UserDraft.remove only clears localStorage. Drop the
+							// entry's in-memory state too so loadFlow doesn't re-read
+							// the stale autosave and re-fire the same toast.
+							flowHandle.setDraftAndMeta(undefined, {})
 							nobackenddraft = true
 							loadFlow()
 						}
