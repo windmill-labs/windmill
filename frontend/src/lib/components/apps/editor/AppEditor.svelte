@@ -86,10 +86,6 @@
 	const stateApp = $state(untrack(() => app))
 	const appStore = writable<App>(stateApp)
 
-	// New apps are in-memory only (empty path bypasses localStorage); edits to
-	// an existing path persist to userdraft/w/{ws}/app/{path}. We register a
-	// use() handle so subsequent writes go through useLocalStorageValue's
-	// lastSerialized dedup rather than blindly hitting localStorage each tick.
 	const appDraftPath = newApp ? '' : (path ?? '')
 	const appDraftHandle = UserDraft.use<App>('app', appDraftPath)
 	$effect(() => {

@@ -217,9 +217,7 @@ pub struct AppWithLastVersionAndDraft {
     pub draft: Option<sqlx::types::Json<Box<RawValue>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
-    /// Timestamp at which the most recent DB draft was created. Used by the
-    /// frontend's UserDraft staleness check to detect that a teammate (or
-    /// another tab) pushed a new draft while local autosave was in flight.
+    /// Timestamp at which the most recent DB draft was created.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_created_at: Option<chrono::DateTime<chrono::Utc>>,
 }
