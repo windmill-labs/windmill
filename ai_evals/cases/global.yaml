@@ -1,0 +1,89 @@
+- id: global-test1-script-create
+  prompt: |-
+    Create a draft Bun script at `f/evals/global/greet_user`.
+    It should take a string `name` input and return `Hello, ${name}!`.
+    Leave it as an AI draft only; do not deploy or save it.
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/greet_user
+        language: bun
+        valueIncludes:
+          - name
+          - Hello
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - creates a Bun script draft at f/evals/global/greet_user
+    - the script accepts a name input
+    - the script returns a greeting containing Hello, the provided name, and an exclamation mark
+    - the result stays as an AI draft and is not deployed or saved to the workspace
+
+- id: global-test2-script-edit-existing
+  prompt: |-
+    Update the existing workspace script at `f/evals/global/format_greeting`.
+    Keep it as a Bun script, but change the greeting so the provided name is uppercased and the returned message ends with an exclamation mark.
+    Leave the result as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/format_greeting_script.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/format_greeting
+        language: bun
+        valueIncludes:
+          - toUpperCase
+          - "!"
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - creates an AI draft for the existing f/evals/global/format_greeting script
+    - preserves the script as Bun
+    - uppercases the provided name in the greeting
+    - returns a message ending with an exclamation mark
+    - does not deploy or save the draft to the workspace
+
+- id: global-test3-flow-create
+  prompt: |-
+    Create a draft flow at `f/evals/global/sum_numbers`.
+    It should take two numeric inputs, `a` and `b`, and return their sum.
+    Leave it as an AI draft only; do not deploy or save it.
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: flow
+        path: f/evals/global/sum_numbers
+        valueIncludes:
+          - modules
+          - rawscript
+          - flow_input.a
+          - flow_input.b
+  toolExpect:
+    requiredToolsUsed:
+      - write_flow
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: write_flow
+        field: modules
+        stringStartsWithAnyOf:
+          - "["
+  judgeChecklist:
+    - creates a flow draft at f/evals/global/sum_numbers
+    - the flow accepts numeric inputs a and b
+    - the flow returns the sum of a and b
+    - the result stays as an AI draft and is not deployed or saved to the workspace

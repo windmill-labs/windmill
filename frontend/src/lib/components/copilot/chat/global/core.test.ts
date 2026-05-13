@@ -113,19 +113,17 @@ describe('global AI tools', () => {
 		await callGlobalTool('write_flow', {
 			path: 'f/flows/empty-module',
 			summary: 'Flow with empty module',
-			value: JSON.stringify({
-				modules: [
-					{
-						id: 'empty_step',
-						value: {
-							type: 'rawscript',
-							language: 'bun',
-							content: '',
-							input_transforms: {}
-						}
+			modules: JSON.stringify([
+				{
+					id: 'empty_step',
+					value: {
+						type: 'rawscript',
+						language: 'bun',
+						content: '',
+						input_transforms: {}
 					}
-				]
-			})
+				}
+			])
 		})
 
 		const code = 'export async function main() {\n\treturn 42\n}'
@@ -144,5 +142,60 @@ describe('global AI tools', () => {
 				module_id: 'empty_step'
 			})
 		).resolves.toBe(code)
+	})
+
+	it('writes flows with flow-mode arguments and reads compact flow value', async () => {
+		const writeResult = JSON.parse(
+			await callGlobalTool('write_flow', {
+				path: 'f/flows/with-schema-and-groups',
+				summary: 'Flow with schema and groups',
+				modules: JSON.stringify([
+					{
+						id: 'start',
+						summary: 'Start',
+						value: {
+							type: 'identity'
+						}
+					}
+				]),
+				schema: JSON.stringify({
+					type: 'object',
+					properties: {
+						name: { type: 'string' }
+					},
+					required: ['name']
+				}),
+				groups: JSON.stringify([{ summary: 'Main', start_id: 'start', end_id: 'start' }])
+			})
+		)
+
+		expect(writeResult.item.value.value).toBeUndefined()
+
+		const raw = await callGlobalTool('read_workspace_item', {
+			type: 'flow',
+			path: 'f/flows/with-schema-and-groups'
+		})
+		const item = JSON.parse(raw)
+
+		expect(item.value).toMatchObject({
+			modules: [
+				{
+					id: 'start',
+					summary: 'Start',
+					value: { type: 'identity' }
+				}
+			],
+			schema: {
+				type: 'object',
+				properties: {
+					name: { type: 'string' }
+				},
+				required: ['name']
+			},
+			preprocessor_module: null,
+			failure_module: null,
+			groups: [{ summary: 'Main', start_id: 'start', end_id: 'start' }]
+		})
+		expect(item.value.value).toBeUndefined()
 	})
 })

@@ -55,6 +55,7 @@ pub struct ApiAuthed {
     pub scopes: Option<Vec<String>>,
     pub username_override: Option<String>,
     pub token_prefix: Option<String>,
+    pub read_only: bool,
 }
 
 impl ApiAuthed {
@@ -103,6 +104,7 @@ impl From<Authed> for ApiAuthed {
             scopes: value.scopes,
             username_override: None,
             token_prefix: value.token_prefix,
+            read_only: false,
         }
     }
 }
@@ -182,6 +184,10 @@ impl windmill_mcp::server::McpAuth for ApiAuthed {
 
     fn scopes(&self) -> Option<&[String]> {
         self.scopes.as_deref()
+    }
+
+    fn read_only(&self) -> bool {
+        self.read_only
     }
 }
 
@@ -478,6 +484,7 @@ pub async fn fetch_api_authed_from_permissioned_as(
                 scopes: authed.scopes,
                 username_override: None,
                 token_prefix: authed.token_prefix,
+                read_only: false,
             };
 
             API_AUTHED_CACHE.insert(
@@ -506,6 +513,8 @@ pub struct NewToken {
     pub impersonate_email: Option<String>,
     pub scopes: Option<Vec<String>>,
     pub workspace_id: Option<String>,
+    #[serde(default)]
+    pub read_only: Option<bool>,
 }
 
 impl NewToken {
@@ -515,8 +524,9 @@ impl NewToken {
         impersonate_email: Option<String>,
         scopes: Option<Vec<String>>,
         workspace_id: Option<String>,
+        read_only: Option<bool>,
     ) -> Self {
-        Self { label, expiration, impersonate_email, scopes, workspace_id }
+        Self { label, expiration, impersonate_email, scopes, workspace_id, read_only }
     }
 }
 
@@ -564,8 +574,8 @@ pub async fn create_token_internal(
     }
     let rows = sqlx::query!(
         "INSERT INTO token
-            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, workspace_id)
-            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9
+            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, workspace_id, read_only)
+            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
             WHERE $9::varchar IS NULL OR NOT EXISTS(
                 SELECT 1 FROM workspace WHERE id = $9 AND deleted = true
             )",
@@ -578,6 +588,7 @@ pub async fn create_token_internal(
         is_super_admin,
         token_config.scopes.as_ref().map(|x| x.as_slice()),
         token_config.workspace_id,
+        token_config.read_only.unwrap_or(false),
     )
     .execute(&mut *tx)
     .await?;

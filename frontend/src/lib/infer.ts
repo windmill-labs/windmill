@@ -7,7 +7,13 @@ import {
 } from '$lib/gen'
 import { get, writable } from 'svelte/store'
 import type { Schema, SupportedLanguage } from './common.js'
-import { emptySchema, getHubFlowIdFromPath, isHubFlowPath, sortObject } from './utils.js'
+import {
+	type DynamicInput,
+	emptySchema,
+	getHubFlowIdFromPath,
+	isHubFlowPath,
+	sortObject
+} from './utils.js'
 import { tick } from 'svelte'
 
 import initTsParser, { parse_deno, parse_outputs } from 'windmill-parser-wasm-ts'
@@ -285,6 +291,88 @@ const SQL_LANGUAGES = [
 	'oracledb',
 	'duckdb'
 ]
+
+/**
+ * Returns the parameter names of `entrypoint` in `code` (or `main` if not given),
+ * or `undefined` if the function can't be found, the code can't be parsed, the
+ * language isn't supported here, or the signature contains rest/keyword args
+ * (in which case the callee should fall back to a conservative full comparison).
+ *
+ * Lighter than {@link inferArgs} — does not touch any schema.
+ */
+export async function parseEntrypointArgs(
+	language: SupportedLanguage | 'bunnative' | undefined,
+	code: string,
+	entrypoint?: string
+): Promise<Set<string> | undefined> {
+	if (!code) return undefined
+	try {
+		let sig: MainArgSignature
+		if (language === 'python3') {
+			await initWasmPython()
+			sig = JSON.parse(parse_python(code, entrypoint))
+		} else if (
+			language === 'deno' ||
+			language === 'nativets' ||
+			language === 'bun' ||
+			language === 'bunnative'
+		) {
+			await initWasmTs()
+			sig = JSON.parse(parse_deno(code, entrypoint))
+		} else {
+			return undefined
+		}
+		if (sig.type === 'Invalid') return undefined
+		if (sig.star_args || sig.star_kwargs) return undefined
+		if (!Array.isArray(sig.args)) return undefined
+		// The parser sets auto_kind when no matching entrypoint function was
+		// found — empty args in that case means "unknown signature", not
+		// "function takes no params", so we fall back to a full comparison.
+		if (sig.args.length === 0 && sig.auto_kind != null) return undefined
+		return new Set(sig.args.map((a) => a.name))
+	} catch {
+		return undefined
+	}
+}
+
+const helperEntrypointCache = new Map<string, Set<string> | undefined>()
+
+/**
+ * Resolves a {@link DynamicInput.HelperScript} to its entrypoint parameter
+ * names. For deployed helpers it fetches the script (or the flow's inline
+ * dyn-select code) once and caches the result per workspace+path+entrypoint.
+ */
+export async function getHelperEntrypointArgs(
+	helper: DynamicInput.HelperScript,
+	entrypoint?: string
+): Promise<Set<string> | undefined> {
+	if (helper.source === 'inline') {
+		return parseEntrypointArgs(helper.lang, helper.code, entrypoint)
+	}
+	const workspace = get(workspaceStore)
+	if (!workspace) return undefined
+	const cacheKey = `${workspace}::${helper.runnable_kind}::${helper.path}::${entrypoint ?? ''}`
+	if (helperEntrypointCache.has(cacheKey)) return helperEntrypointCache.get(cacheKey)
+	let result: Set<string> | undefined
+	try {
+		if (helper.runnable_kind === 'script') {
+			const script = await ScriptService.getScriptByPath({ workspace, path: helper.path })
+			result = await parseEntrypointArgs(script.language, script.content ?? '', entrypoint)
+		} else {
+			const flow = await FlowService.getFlowByPath({ workspace, path: helper.path })
+			const schema = flow.schema as Record<string, unknown> | undefined
+			const code = schema?.['x-windmill-dyn-select-code']
+			const lang = schema?.['x-windmill-dyn-select-lang']
+			if (typeof code === 'string' && typeof lang === 'string') {
+				result = await parseEntrypointArgs(lang as SupportedLanguage, code, entrypoint)
+			}
+		}
+	} catch {
+		result = undefined
+	}
+	helperEntrypointCache.set(cacheKey, result)
+	return result
+}
 
 export async function inferArgs(
 	language: SupportedLanguage | 'bunnative' | undefined,

@@ -183,6 +183,26 @@ describe("loadCases", () => {
     });
   });
 
+  it("loads global draft validation and forbidden tool expectations", async () => {
+    const globalCases = await loadCases("global");
+    const caseEntry = globalCases.find((entry) => entry.id === "global-test1-script-create");
+
+    expect(caseEntry?.validate).toMatchObject({
+      draftCountExactly: 1,
+      requiredDrafts: [
+        {
+          type: "script",
+          path: "f/evals/global/greet_user",
+          language: "bun",
+        },
+      ],
+    });
+    expect(caseEntry?.toolExpect).toMatchObject({
+      requiredToolsUsed: ["write_script"],
+      forbiddenToolsUsed: ["deploy_workspace_item", "delete_workspace_item"],
+    });
+  });
+
   it("loads tool expectations for workspace mutation cases", async () => {
     const scriptCases = await loadCases("script");
     const caseEntry = scriptCases.find(

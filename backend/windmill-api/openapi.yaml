@@ -22631,10 +22631,13 @@ components:
           type: string
         workspace_id:
           type: string
+        read_only:
+          type: boolean
       required:
         - token_prefix
         - created_at
         - last_used_at
+        - read_only
 
     ExternalJwtToken:
       type: object
@@ -22683,6 +22686,12 @@ components:
             type: string
         workspace_id:
           type: string
+        read_only:
+          type: boolean
+          description: |
+            If true, the token is restricted to read-only HTTP methods
+            (GET/HEAD/OPTIONS). Mutating endpoints and job-run actions are
+            rejected with 403, regardless of the scopes attached.
 
     NewTokenImpersonate:
       type: object

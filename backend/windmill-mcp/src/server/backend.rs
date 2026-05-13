@@ -33,6 +33,13 @@ pub trait McpAuth: Send + Sync + Clone + 'static {
     /// Get token scopes
     fn scopes(&self) -> Option<&[String]>;
 
+    /// True if the token was created with the `read_only` flag.
+    /// When set, write-capable tools must be hidden from `list_tools` and
+    /// rejected by `call_tool`. Defaults to false so existing impls compile.
+    fn read_only(&self) -> bool {
+        false
+    }
+
     /// Check if the user has an MCP scope
     fn has_mcp_scope(&self) -> bool {
         self.scopes()
