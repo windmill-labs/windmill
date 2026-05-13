@@ -565,14 +565,16 @@
 				})
 			}
 
-			menuItems.push({
-				label: 'Delete',
-				Icon: Trash,
-				onclick: async () => {
-					deleteScript(script.hash)
-				},
-				color: 'red'
-			})
+			if ($userStore?.is_admin || $userStore?.is_super_admin) {
+				menuItems.push({
+					label: 'Delete',
+					Icon: Trash,
+					onclick: async () => {
+						deleteScript(script.hash)
+					},
+					color: 'red'
+				})
+			}
 		}
 
 		return menuItems
