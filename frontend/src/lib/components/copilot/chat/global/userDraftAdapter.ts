@@ -2,13 +2,12 @@ import type { Flow, NewSchedule, NewScript } from '$lib/gen/types.gen'
 import { UserDraft, type UserDraftItemKind, type UserDraftListEntry } from '$lib/userDraft.svelte'
 import {
 	getWorkspaceItemKey,
-	globalDraftStore,
 	type AppDraftValue,
 	type TriggerRequestBody,
 	type TriggerKind,
 	type WorkspaceItem,
 	type WorkspaceItemType
-} from './draftStore.svelte'
+} from './workspaceItems'
 
 type SharedWorkspaceItemType = 'script' | 'flow' | 'app' | 'schedule' | 'trigger'
 
@@ -52,6 +51,11 @@ const SHARED_DRAFT_KINDS = [
 	'trigger_azure'
 ] as const satisfies UserDraftItemKind[]
 const DEFAULT_APP_DATA = { tables: [], datatable: undefined, schema: undefined }
+
+// TODO: Add resource and variable here only after their editor-native
+// UserDraft contracts are self-contained. Resource drafts currently need
+// resource_type outside the draft value, and new variable drafts do not have
+// a complete persisted/live empty-path contract.
 
 function clone<T>(value: T): T {
 	return structuredClone(value) as T
@@ -221,18 +225,13 @@ export function getGlobalDraft(
 	triggerKind?: TriggerKind
 ): WorkspaceItem | undefined {
 	if (isSharedWorkspaceItemType(type)) {
-		const shared = getSharedDraft(workspace, type, path, triggerKind)
-		if (shared) return shared
+		return getSharedDraft(workspace, type, path, triggerKind)
 	}
-	return globalDraftStore.getDraft(workspace, type, path, triggerKind)
+	return undefined
 }
 
 export function listGlobalDrafts(workspace: string): WorkspaceItem[] {
 	const drafts = new Map<string, WorkspaceItem>()
-
-	for (const draft of globalDraftStore.listDrafts(workspace)) {
-		drafts.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), draft)
-	}
 
 	for (const entry of UserDraft.list({ workspace, itemKinds: [...SHARED_DRAFT_KINDS] })) {
 		const draft = sharedDraftEntryToWorkspaceItem(entry)
@@ -252,14 +251,12 @@ export function deleteGlobalDraft(
 	if (isSharedWorkspaceItemType(type)) {
 		deleteSharedDraft(workspace, type, path, triggerKind)
 	}
-	globalDraftStore.deleteDraft(workspace, type, path, triggerKind)
 }
 
 export function clearGlobalDrafts(workspace: string): void {
 	for (const draft of UserDraft.list({ workspace, itemKinds: [...SHARED_DRAFT_KINDS] })) {
 		UserDraft.remove(draft.itemKind, draft.path, { workspace })
 	}
-	globalDraftStore.clearDrafts(workspace)
 }
 
 export function triggerKindToUserDraftKind(kind: TriggerKind): UserDraftItemKind {

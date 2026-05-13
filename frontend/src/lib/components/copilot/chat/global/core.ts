@@ -61,14 +61,11 @@ import {
 } from '../shared'
 import type { ContextElement } from '../context'
 import {
-	resourceRequestSchema,
 	scheduleRequestSchema,
-	triggerRequestSchemas,
-	variableRequestSchema
+	triggerRequestSchemas
 } from '../workspaceToolsZod.gen'
 import {
 	getWorkspaceItemKey,
-	globalDraftStore,
 	TRIGGER_KINDS,
 	type AppDraftValue,
 	type FlowDraftValue,
@@ -76,7 +73,7 @@ import {
 	type TriggerKind,
 	type WorkspaceItem,
 	type WorkspaceItemType
-} from './draftStore.svelte'
+} from './workspaceItems'
 import { buildFlowDeployRequestBody, buildScriptDeployRequestBody } from './deployRequests'
 import {
 	deleteGlobalDraft,
@@ -279,10 +276,6 @@ const writeTriggerSchema = z.object({
 		)
 })
 
-const writeResourceSchema = resourceRequestSchema
-
-const writeVariableSchema = variableRequestSchema
-
 const searchResourceTypesSchema = z.object({
 	query: z.string().describe('Substring to match against resource type names.'),
 	limit: z
@@ -474,10 +467,10 @@ const initAppSchema = z.object({
 
 const GLOBAL_SYSTEM_PROMPT = `You are Windmill's global workspace assistant.
 
-You can inspect workspace scripts, flows, schedules, triggers, resources, variables, and apps, then create draft changes in the frontend AI draft store.
+You can inspect workspace scripts, flows, schedules, triggers, resources, variables, and apps, then create draft changes in the frontend AI draft store for supported item types.
 
 Important rules:
-- write_{script,flow,schedule,trigger,resource,variable} create or overwrite drafts. They do not save, deploy, or mutate workspace items.
+- write_{script,flow,schedule,trigger} create or overwrite drafts. They do not save, deploy, or mutate workspace items.
 - edit_script and patch_flow_json apply small exact-text edits and save the result as a draft. Prefer them for localized changes; use write_* for large rewrites.
 - For flows specifically: read_workspace_item and patch_flow_json work on a COMPACT view where rawscript module bodies are replaced with the placeholder "inline_script.<moduleId>". Use read_flow_module_code / set_flow_module_code to inspect or overwrite an inline script body; use patch_flow_json for structural edits.
 - deploy_workspace_item persists a draft to the workspace via the real backend create/update API and removes the draft. Requires user confirmation. Only call after the user has reviewed the draft and explicitly asked to deploy.
@@ -943,31 +936,6 @@ const triggerServices: Record<TriggerKind, TriggerService> = {
 	}
 }
 
-async function workspaceItemExists(
-	type: WorkspaceItemType,
-	path: string,
-	workspace: string,
-	triggerKind?: TriggerKind
-): Promise<boolean> {
-	switch (type) {
-		case 'script':
-			return ScriptService.existsScriptByPath({ workspace, path })
-		case 'flow':
-			return FlowService.existsFlowByPath({ workspace, path })
-		case 'schedule':
-			return ScheduleService.existsSchedule({ workspace, path })
-		case 'trigger':
-			if (!triggerKind) return false
-			return triggerServices[triggerKind].exists({ workspace, path })
-		case 'resource':
-			return ResourceService.existsResource({ workspace, path })
-		case 'variable':
-			return VariableService.existsVariable({ workspace, path })
-		case 'app':
-			return AppService.existsApp({ workspace, path })
-	}
-}
-
 async function readWorkspaceItem(
 	type: WorkspaceItemType,
 	path: string,
@@ -1168,14 +1136,11 @@ ${getRawAppPrompt()}`
 }
 
 function getResourceInstructions(): string {
-	return `# Global draft resource & variable instructions
+	return `# Resource & variable reference
 
-- Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
-- A resource draft is a workspace item: \`{ type: 'resource', path, summary?, value, isDraft }\`. \`value\` is a CreateResource body: \`{ path, value, description?, resource_type, labels? }\` where the inner \`value\` is the resource type's data shape.
-- A variable draft is a workspace item: \`{ type: 'variable', path, summary?, value, isDraft }\`. \`value\` is a CreateVariable body: \`{ path, value, is_secret, description, account?, is_oauth?, expires_at?, labels? }\`.
-- For secret fields in a resource value, do NOT inline the raw secret. Create a Variable first with \`is_secret: true\`, then in the resource value reference it as \`"$var:path/to/variable"\`.
+- Global mode can inspect resources and variables, but cannot create resource or variable drafts until their editor-native UserDraft contracts are complete.
+- For secret fields in a resource value, do NOT inline the raw secret. Reference variables as \`"$var:path/to/variable"\`.
 - Reference formats inside resource values: \`$var:g/all/name\` (global), \`$var:u/user/name\` (user), \`$var:f/folder/name\` (folder). Reference another resource with \`$res:path/to/resource\`.
-- When deploying drafts that depend on each other (e.g., a resource and the variables it references), deploy the variables first.
 - Use \`search_resource_types\` to discover valid \`resource_type\` names and their JSON Schemas. Match the resource value to that schema.
 - For OAuth resources, the \`is_oauth: true\` flag is managed by Windmill's OAuth flow; global mode generally creates manual resources, not OAuth ones.
 
@@ -1476,59 +1441,13 @@ export const globalTools: Tool<{}>[] = [
 			return deleteWorkspaceItem(parsed, ctx)
 		}
 	},
-	{
-		def: createToolDef(
-			writeResourceSchema,
-			'write_resource',
-			'Create or overwrite an AI draft resource. Does not save or deploy. Reference secret values via $var:path/to/variable; create the variable separately with write_variable.',
-			{ strict: false }
-		),
-		showDetails: true,
-		streamArguments: true,
-		showFade: true,
-		fn: async (ctx) => {
-			const parsed = writeResourceSchema.parse(ctx.args)
-			return writeFallbackDraft(
-				{
-					type: 'resource',
-					path: parsed.path,
-					summary: parsed.description,
-					value: parsed,
-					isDraft: true
-				},
-				ctx
-			)
-		}
-	},
-	{
-		def: createToolDef(
-			writeVariableSchema,
-			'write_variable',
-			'Create or overwrite an AI draft variable. Does not save or deploy. Use is_secret: true for secret values. After deploy, reference from a resource as $var:path/to/variable.',
-			{ strict: false }
-		),
-		showDetails: true,
-		streamArguments: true,
-		showFade: true,
-		fn: async (ctx) => {
-			const parsed = writeVariableSchema.parse(ctx.args)
-			return writeFallbackDraft(
-				{
-					type: 'variable',
-					path: parsed.path,
-					summary: parsed.description,
-					value: parsed,
-					isDraft: true
-				},
-				ctx
-			)
-		}
-	},
+	// TODO: Re-enable write_resource/write_variable tools after resource and
+	// variable use self-contained editor-native UserDraft values.
 	{
 		def: createToolDef(
 			searchResourceTypesSchema,
 			'search_resource_types',
-			'Search for resource types in the workspace by substring. Returns names, descriptions, and JSON Schemas — use this before write_resource to know what shape value should have.'
+			'Search for resource types in the workspace by substring. Returns names, descriptions, and JSON Schemas.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = searchResourceTypesSchema.parse(args)
@@ -1705,7 +1624,7 @@ function finishDraftWrite(item: WorkspaceItem, exists: boolean, ctx: WriteDraftC
 		{
 			success: true,
 			message: `${verb} AI draft ${item.type} "${item.path}". The workspace was not saved or deployed.`,
-			item: item.type === 'variable' ? serializeWorkspaceItemForRead(item) : item
+			item
 		},
 		null,
 		2
@@ -1869,20 +1788,6 @@ async function writeTriggerDraft(
 		existingDraft !== undefined || backendExists,
 		ctx
 	)
-}
-
-async function writeFallbackDraft(item: WorkspaceItem, ctx: WriteDraftCtx): Promise<string> {
-	const { workspace } = ctx
-	startDraftWrite(ctx, item.type, item.path)
-
-	const existingDraft =
-		getGlobalDraft(workspace, item.type, item.path, item.triggerKind) !== undefined
-	const backendExists = existingDraft
-		? false
-		: await workspaceItemExists(item.type, item.path, workspace, item.triggerKind)
-	const stored = globalDraftStore.setDraft(workspace, item)
-
-	return finishDraftWrite(stored, existingDraft || backendExists, ctx)
 }
 
 function saveAppDraft(workspace: string, path: string, value: AppDraftValue): WorkspaceItem {
