@@ -978,12 +978,10 @@ async fn create_script_internal<'c>(
         .fetch_one(&mut *tx)
         .await?;
     }
-    let clashing_script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
-        &format!(
-            "SELECT {} FROM script WHERE path = $1 AND archived = false AND workspace_id = $2",
-            windmill_common::scripts::SCRIPT_COLUMNS,
-        ),
-    )
+    let clashing_script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(&format!(
+        "SELECT {} FROM script WHERE path = $1 AND archived = false AND workspace_id = $2",
+        windmill_common::scripts::SCRIPT_COLUMNS,
+    ))
     .bind(&ns.path)
     .bind(&w_id)
     .fetch_optional(&mut *tx)
@@ -2248,7 +2246,7 @@ async fn exists_script_by_path(
     let path = path.to_path();
 
     let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1)",
+        "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1)",
         path,
         w_id
     )
@@ -2282,12 +2280,10 @@ async fn get_script_by_hash_internal<'c>(
         .fetch_optional(&mut **db)
         .await?
     } else {
-        sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(
-            &format!(
-                "SELECT {}, NULL as starred FROM script WHERE hash = $1 AND workspace_id = $2",
-                windmill_common::scripts::SCRIPT_COLUMNS,
-            ),
-        )
+        sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(&format!(
+            "SELECT {}, NULL as starred FROM script WHERE hash = $1 AND workspace_id = $2",
+            windmill_common::scripts::SCRIPT_COLUMNS,
+        ))
         .bind(hash)
         .bind(workspace_id)
         .fetch_optional(&mut **db)
