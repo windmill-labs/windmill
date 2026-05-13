@@ -806,7 +806,17 @@ mod tests {
 
         // Run paths are rejected even on GET (map_http_method_to_action elevates
         // them to Run via RUN_PATH_ACTIONS).
+        assert!(check_read_only_for_route("/api/w/x/jobs/run/p/f/foo", "GET").is_err());
         assert!(check_read_only_for_route("/api/w/x/jobs/run/p/f/foo", "POST").is_err());
+
+        // OAuth/registration endpoints under /api/mcp/* must NOT be exempted by
+        // the auth middleware — they go through this check on the gateway side
+        // because they can mint non-read-only tokens. The middleware decides
+        // which paths to exempt; this helper is method-only, so we just assert
+        // that mutating methods still fail.
+        assert!(
+            check_read_only_for_route("/api/mcp/gateway/oauth/server/approve", "POST").is_err()
+        );
     }
 
     #[test]

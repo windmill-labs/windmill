@@ -702,11 +702,20 @@ pub async fn resolve_opt_job_authed(
                 }
                 if authed.read_only {
                     // MCP transport runs over POST (streamable HTTP / SSE handshake),
-                    // so the middleware can't safely reject mutating methods here —
+                    // so the middleware can't safely reject mutating methods on it —
                     // the MCP runner itself filters out write tools and rejects
-                    // mutating tool calls for read-only tokens.
-                    let is_mcp_path = path.starts_with("/api/mcp/") || path.starts_with("/mcp/");
-                    if !is_mcp_path {
+                    // mutating tool calls for read-only tokens. Narrow to the actual
+                    // transport endpoints: anything else under `/api/mcp/*` (OAuth
+                    // approve, token exchange, client registration) must still go
+                    // through the read-only check, otherwise a read-only token
+                    // could approve an OAuth flow that mints a new non-read-only
+                    // token.
+                    let is_mcp_transport = path == "/api/mcp/gateway"
+                        || (path.starts_with("/api/mcp/w/")
+                            && (path.ends_with("/mcp")
+                                || path.ends_with("/sse")
+                                || path.ends_with("/list_tools")));
+                    if !is_mcp_transport {
                         if let Err(err) = crate::scopes::check_read_only_for_route(path, method) {
                             return Err((err, parts));
                         }

@@ -188,6 +188,17 @@
 				{#each scopes as scope (scope)}
 					<TextInput inputProps={{ disabled: true }} value={scope} class="mb-2 w-full" />
 				{/each}
+				<div class="text-tertiary">
+					<Toggle
+						bind:checked={readOnly}
+						options={{
+							right: 'Read-only',
+							rightTooltip:
+								'Restricts this token to GET/HEAD endpoints. Any mutating request (POST/PUT/PATCH/DELETE) or job-run action will be rejected with 403, regardless of the scopes listed above.'
+						}}
+						size="2xs"
+					/>
+				</div>
 			</div>
 		{/if}
 
