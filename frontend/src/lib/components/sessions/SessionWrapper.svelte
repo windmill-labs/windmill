@@ -17,6 +17,7 @@
 	import AppEditorView from './AppEditorView.svelte'
 	import RawAppEditorView from './RawAppEditorView.svelte'
 	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
+	import SessionForkBar from './SessionForkBar.svelte'
 	import { persistSessions, sessionState, type SessionTarget } from './sessionState.svelte'
 	import { getOrCreateRuntime, removeSession } from './sessionRuntime.svelte'
 	import { goto } from '$lib/navigation'
@@ -209,6 +210,7 @@
 					</div>
 				{/if}
 			</header>
+			<SessionForkBar {session} />
 			<div class="flex-1 min-h-0 w-full max-w-3xl mx-auto flex flex-col">
 				<div class="flex-1 min-h-0">
 					<AIChat hideInputBorder hideHeader emptyHint={sessionEmptyHint} {inputPreface} />
