@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Handle, Position } from '@xyflow/svelte'
 	import {
+		ChevronDown,
 		Code2,
 		EllipsisVertical,
 		GitBranch,
@@ -16,6 +17,7 @@
 	import type { GraphUsageKind } from './types'
 	import { NODE } from '$lib/components/graph/util'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import type { Item } from '$lib/utils'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
@@ -76,10 +78,15 @@
 	let hover = $state(false)
 	let menuOpen = $state(false)
 	let running = $state(false)
+	// Popover state for the on-node Run-button caret. Sticky while open so
+	// `showRun` (which gates the whole pill) stays true even after the
+	// pointer leaves the node — otherwise picking an option would unmount
+	// the Popover mid-click.
+	let cascadeMenuOpen = $state(false)
 	let canRun = $derived(data.runnable_kind === 'script' && data.onRunSelf != undefined)
 	// Reveal pattern matches AssetNode: visible while hovering, selected, or
 	// already running (so the loader doesn't disappear under the cursor).
-	let showRun = $derived(canRun && (hover || selected || running))
+	let showRun = $derived(canRun && (hover || selected || running || cascadeMenuOpen))
 
 	async function runSelf(e: MouseEvent, cascade?: boolean) {
 		e.stopPropagation()
@@ -97,23 +104,11 @@
 		}
 	}
 
-	let menuItems: Item[] = $derived([
-		// Cascade option lives at the top of the menu — the round Run button
-		// is the no-cascade default, this surfaces the alternative when there
-		// are downstream subscribers to fan out to.
-		...(canRun && (data.downstreamCount ?? 0) > 0
-			? [
-					{
-						displayName: `Run + trigger ${data.downstreamCount} downstream`,
-						icon: Zap,
-						action: () => {
-							// Fake MouseEvent-shaped arg so runSelf can stopPropagation.
-							void runSelf({ stopPropagation: () => {} } as MouseEvent, true)
-						}
-					}
-				]
-			: []),
-		...(data.onRequestRemove
+	// Cascade option is surfaced directly on the Run button (via a caret +
+	// popover) when `downstreamCount > 0`, so the kebab menu stays focused
+	// on lifecycle actions only.
+	let menuItems: Item[] = $derived(
+		data.onRequestRemove
 			? [
 					{
 						displayName: data.unsaved ? 'Discard' : 'Delete…',
@@ -122,8 +117,8 @@
 						action: () => data.onRequestRemove?.()
 					}
 				]
-			: [])
-	])
+			: []
+	)
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -177,13 +172,23 @@
 		<!-- Run button revealed on hover/select. Matches the placement, size,
 		     and behaviour of AssetNode's run button so both nodes feel
 		     consistent. Drafts are runnable too (the page handler routes to
-		     runScriptPreview), so no greyed-out state. -->
-		<div class="absolute -left-3 top-1/2 -translate-y-1/2 z-10">
+		     runScriptPreview), so no greyed-out state.
+
+		     When the script has downstream subscribers, the round button
+		     becomes a small split pill: Play on the left (default = skip
+		     cascade) + chevron on the right that pops a menu offering "Run
+		     + trigger N downstream". Matches the editor Test split button
+		     so the affordance is identical on both surfaces. -->
+		{@const hasCascade = (data.downstreamCount ?? 0) > 0}
+		<div class="absolute -left-3 top-1/2 -translate-y-1/2 z-10 flex items-stretch">
 			<button
 				type="button"
-				onclick={runSelf}
+				onclick={(e) => runSelf(e)}
 				disabled={running}
-				class="bg-blue-500 hover:bg-blue-600 disabled:opacity-60 text-white rounded-full w-6 h-6 grid place-items-center shadow border-2 border-surface-secondary leading-none"
+				class={twMerge(
+					'bg-blue-500 hover:bg-blue-600 disabled:opacity-60 text-white grid place-items-center shadow border-2 border-surface-secondary leading-none',
+					hasCascade ? 'rounded-l-full w-6 h-6 border-r-0' : 'rounded-full w-6 h-6'
+				)}
 				title={`Run ${data.path}${data.unsaved ? ' (draft, runs as preview)' : ''}`}
 			>
 				{#if running}
@@ -192,6 +197,61 @@
 					<Play size={14} strokeWidth={2.5} class="translate-x-px" />
 				{/if}
 			</button>
+			{#if hasCascade}
+				<Popover
+					placement="bottom-start"
+					bind:isOpen={cascadeMenuOpen}
+					usePointerDownOutside
+					contentClasses="p-0"
+					class={twMerge(
+						'bg-blue-500 hover:bg-blue-600 disabled:opacity-60 text-white grid place-items-center shadow border-2 border-surface-secondary rounded-r-full w-5 h-6 leading-none -ml-px',
+						'!border-l-white/30'
+					)}
+				>
+					{#snippet trigger()}
+						<ChevronDown size={11} strokeWidth={2.5} />
+					{/snippet}
+					{#snippet content({ close })}
+						<div class="w-72 py-1 text-xs">
+							<button
+								type="button"
+								class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2"
+								onclick={(e) => {
+									close()
+									void runSelf(e, false)
+								}}
+							>
+								<Play size={14} class="mt-0.5 shrink-0 text-emerald-700 dark:text-emerald-400" />
+								<div class="flex flex-col min-w-0">
+									<span class="font-medium">Run</span>
+									<span class="text-2xs text-secondary">
+										Run just this step. Downstream subscribers are not triggered.
+									</span>
+								</div>
+							</button>
+							<button
+								type="button"
+								class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2"
+								onclick={(e) => {
+									close()
+									void runSelf(e, true)
+								}}
+							>
+								<Zap size={14} class="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+								<div class="flex flex-col min-w-0">
+									<span class="font-medium">
+										Run + trigger {data.downstreamCount} downstream
+									</span>
+									<span class="text-2xs text-secondary">
+										Let the asset-trigger cascade fan out to the {data.downstreamCount}
+										subscribed script{data.downstreamCount === 1 ? '' : 's'} after this run succeeds.
+									</span>
+								</div>
+							</button>
+						</div>
+					{/snippet}
+				</Popover>
+			{/if}
 		</div>
 	{/if}
 
