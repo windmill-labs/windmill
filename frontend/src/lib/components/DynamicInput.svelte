@@ -49,7 +49,9 @@
 	})
 
 	let resultJobLoader: JobLoader | undefined = $state()
-	let _items = usePromise(getItemsFromOptions, { clearValueOnRefresh: false })
+	// loadInit:false — the $effect below owns the first refresh once
+	// resultJobLoader is bound; without this the promise is kicked off twice.
+	let _items = usePromise(getItemsFromOptions, { clearValueOnRefresh: false, loadInit: false })
 	let items = $derived(_items.value)
 
 	let filterText: string = $state('')
