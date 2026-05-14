@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.701.0](https://github.com/windmill-labs/windmill/compare/v1.700.2...v1.701.0) (2026-05-13)
+
+
+### Features
+
+* **frontend:** unified EditorHeader with file picker for flow/script/app editors ([#9047](https://github.com/windmill-labs/windmill/issues/9047)) ([d0f23cc](https://github.com/windmill-labs/windmill/commit/d0f23cc5238b025208c61e983701894de28536d5))
+* read-only flag on API tokens ([#9144](https://github.com/windmill-labs/windmill/issues/9144)) ([d666e84](https://github.com/windmill-labs/windmill/commit/d666e8431cdbf14d9373d9ef625b5aafc50ac50a))
+
+
+### Bug Fixes
+
+* align script path existence check with deploy logic; hide Delete for non-admin ([#9152](https://github.com/windmill-labs/windmill/issues/9152)) ([c509206](https://github.com/windmill-labs/windmill/commit/c5092069cbeda2c4c18bea80dd629c7c087b30bf))
+* Allow devops role to use all_workspaces runs filter in admins workspace ([#9153](https://github.com/windmill-labs/windmill/issues/9153)) ([110bef0](https://github.com/windmill-labs/windmill/commit/110bef0a6e76615c7b371c5c0f5bc1f4e7a73a64))
+* **bun:** pass --preserve-symlinks on unbundled execution ([#9147](https://github.com/windmill-labs/windmill/issues/9147)) ([4d0f2c2](https://github.com/windmill-labs/windmill/commit/4d0f2c26a116a0f8a89a64231dc824eabda0a8c3))
+* **cli:** prevent !inline-corruption in flow push/pull ([#9142](https://github.com/windmill-labs/windmill/issues/9142)) ([79c5b7b](https://github.com/windmill-labs/windmill/commit/79c5b7b8b7676b0a06fa6480dd04b7105d39d250))
+* **operator:** refresh IAM RDS / Entra ID tokens in operator process ([#9141](https://github.com/windmill-labs/windmill/issues/9141)) ([7ebb081](https://github.com/windmill-labs/windmill/commit/7ebb08133cd4027bc00bacc4a0fc5865cd5709ec))
+* **python:** preserve strings containing Infinity/NaN in result JSON ([#9149](https://github.com/windmill-labs/windmill/issues/9149)) ([33bf01b](https://github.com/windmill-labs/windmill/commit/33bf01b627c8ea430c03dfc27a97a8f2d770582f))
+* scope promotion-mode debounce key per repo ([#9145](https://github.com/windmill-labs/windmill/issues/9145)) ([2ec1863](https://github.com/windmill-labs/windmill/commit/2ec1863340e759bba3408dbc4f41b16912b959ea))
+* send flow push-loop ping outside transaction so zombie monitor sees it ([#9136](https://github.com/windmill-labs/windmill/issues/9136)) ([818cb31](https://github.com/windmill-labs/windmill/commit/818cb31fbc731fa5c70ddf5942bb37bc4bc56e4d))
+
+
+### Performance Improvements
+
+* **dynselect:** only retrigger when helper args actually change ([#9148](https://github.com/windmill-labs/windmill/issues/9148)) ([dd19e52](https://github.com/windmill-labs/windmill/commit/dd19e52a84fb9a9f48e3ad061b084841c2ee7464))
+
 ## [1.700.2](https://github.com/windmill-labs/windmill/compare/v1.700.1...v1.700.2) (2026-05-12)
 
 
