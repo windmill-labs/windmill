@@ -589,6 +589,9 @@
 	let breakpointDecorations: string[] = $state([])
 	let currentLineDecoration: string[] = $state([])
 	let hoverBreakpointDecoration: string[] = $state([])
+	// Line currently showing the ghost breakpoint, used to short-circuit redundant
+	// deltaDecorations calls on every mousemove event.
+	let hoverBreakpointLine: number | null = null
 	// Get the DAP server URL based on language
 	const dapServerUrl = $derived(getDebugServerUrl((lang || 'python3') as DebugLanguage))
 	const debugFilePath = $derived(`/tmp/script${getDebugFileExtension(lang || '')}`)
@@ -863,6 +866,7 @@
 	}
 
 	function updateHoverBreakpointDecoration(line: number): void {
+		if (hoverBreakpointLine === line) return
 		const monacoEditor = editor?.getEditor?.()
 		if (!monacoEditor) return
 
@@ -875,14 +879,18 @@
 
 		const oldDecorations = untrack(() => hoverBreakpointDecoration)
 		hoverBreakpointDecoration = monacoEditor.deltaDecorations(oldDecorations, decorations)
+		hoverBreakpointLine = line
 	}
 
 	function clearHoverBreakpointDecoration(): void {
+		if (hoverBreakpointLine === null) return
 		const monacoEditor = editor?.getEditor?.()
 		if (!monacoEditor) return
 		const oldDecorations = untrack(() => hoverBreakpointDecoration)
-		if (oldDecorations.length === 0) return
-		hoverBreakpointDecoration = monacoEditor.deltaDecorations(oldDecorations, [])
+		if (oldDecorations.length > 0) {
+			hoverBreakpointDecoration = monacoEditor.deltaDecorations(oldDecorations, [])
+		}
+		hoverBreakpointLine = null
 	}
 
 	function updateBreakpointDecorations(): void {
@@ -1123,8 +1131,7 @@
 
 			// Add click handler for glyph margin (breakpoint toggle)
 			const mouseDownDisposable = monacoEditor.onMouseDown((e) => {
-				// MouseTargetType.GUTTER_GLYPH_MARGIN = 2
-				if (e.target.type === 2) {
+				if (e.target.type === meditor.MouseTargetType.GUTTER_GLYPH_MARGIN) {
 					const line = e.target.position?.lineNumber
 					if (line) {
 						toggleBreakpoint(line)
@@ -1133,12 +1140,14 @@
 			})
 
 			// Show a ghost breakpoint while hovering anywhere in the gutter on an empty line.
-			// GUTTER_GLYPH_MARGIN = 2, GUTTER_LINE_NUMBERS = 3, GUTTER_LINE_DECORATIONS = 4.
 			// Hover area is intentionally wider than the click target — clicks still only
 			// toggle when landing on the glyph margin itself, but the ghost helps users find it.
 			const mouseMoveDisposable = monacoEditor.onMouseMove((e) => {
 				const t = e.target.type
-				const isGutter = t === 2 || t === 3 || t === 4
+				const isGutter =
+					t === meditor.MouseTargetType.GUTTER_GLYPH_MARGIN ||
+					t === meditor.MouseTargetType.GUTTER_LINE_NUMBERS ||
+					t === meditor.MouseTargetType.GUTTER_LINE_DECORATIONS
 				const line = e.target.position?.lineNumber
 				if (isGutter && line && !debugBreakpoints.has(line)) {
 					updateHoverBreakpointDecoration(line)

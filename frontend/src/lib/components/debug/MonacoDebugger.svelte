@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte'
 	import { SvelteSet } from 'svelte/reactivity'
-	import type { editor as meditor, IDisposable } from 'monaco-editor'
+	import { editor as meditor, type IDisposable } from 'monaco-editor'
 	import { debugState, getDAPClient, resetDAPClient, type DAPClient } from './dapClient'
 	import DebugToolbar from './DebugToolbar.svelte'
 	import DebugPanel from './DebugPanel.svelte'
@@ -28,6 +28,9 @@
 	let breakpointDecorations: string[] = $state([])
 	let currentLineDecoration: string[] = $state([])
 	let hoverBreakpointDecoration: string[] = $state([])
+	// Line currently showing the ghost breakpoint, used to short-circuit redundant
+	// deltaDecorations calls on every mousemove event.
+	let hoverBreakpointLine: number | null = null
 	let disposables: IDisposable[] = []
 
 	// Breakpoint glyph margin decoration
@@ -102,8 +105,7 @@
 
 		// Add click handler for glyph margin (breakpoint toggle)
 		const mouseDownDisposable = editor.onMouseDown((e) => {
-			if (e.target.type === 2) {
-				// MouseTargetType.GUTTER_GLYPH_MARGIN
+			if (e.target.type === meditor.MouseTargetType.GUTTER_GLYPH_MARGIN) {
 				const line = e.target.position?.lineNumber
 				if (line) {
 					toggleBreakpoint(line)
@@ -113,11 +115,14 @@
 		disposables.push(mouseDownDisposable)
 
 		// Show a ghost breakpoint while hovering anywhere in the gutter on an empty line.
-		// GUTTER_GLYPH_MARGIN = 2, GUTTER_LINE_NUMBERS = 3, GUTTER_LINE_DECORATIONS = 4.
-		// Hover area is intentionally wider than the click target.
+		// Hover area is intentionally wider than the click target — clicks still only
+		// toggle when landing on the glyph margin itself.
 		const mouseMoveDisposable = editor.onMouseMove((e) => {
 			const t = e.target.type
-			const isGutter = t === 2 || t === 3 || t === 4
+			const isGutter =
+				t === meditor.MouseTargetType.GUTTER_GLYPH_MARGIN ||
+				t === meditor.MouseTargetType.GUTTER_LINE_NUMBERS ||
+				t === meditor.MouseTargetType.GUTTER_LINE_DECORATIONS
 			const line = e.target.position?.lineNumber
 			if (isGutter && line && !breakpoints.has(line)) {
 				updateHoverBreakpointDecoration(line)
@@ -156,6 +161,7 @@
 	onDestroy(() => {
 		disposables.forEach((d) => d.dispose())
 		disposables = []
+		clearHoverBreakpointDecoration()
 	})
 
 	function toggleBreakpoint(line: number): void {
@@ -172,6 +178,7 @@
 	}
 
 	function updateHoverBreakpointDecoration(line: number): void {
+		if (hoverBreakpointLine === line) return
 		if (!editor) return
 
 		const decorations: meditor.IModelDeltaDecoration[] = [
@@ -182,11 +189,15 @@
 		]
 
 		hoverBreakpointDecoration = editor.deltaDecorations(hoverBreakpointDecoration, decorations)
+		hoverBreakpointLine = line
 	}
 
 	function clearHoverBreakpointDecoration(): void {
-		if (!editor || hoverBreakpointDecoration.length === 0) return
-		hoverBreakpointDecoration = editor.deltaDecorations(hoverBreakpointDecoration, [])
+		if (hoverBreakpointLine === null) return
+		if (editor && hoverBreakpointDecoration.length > 0) {
+			hoverBreakpointDecoration = editor.deltaDecorations(hoverBreakpointDecoration, [])
+		}
+		hoverBreakpointLine = null
 	}
 
 	function updateBreakpointDecorations(): void {
