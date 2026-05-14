@@ -21,12 +21,15 @@
 	import {
 		ArrowRightLeft,
 		Ban,
+		Bot,
 		CheckCircle2,
 		ExternalLink,
 		Pencil,
 		UserMinus,
 		UserPlus
 	} from 'lucide-svelte'
+	import Badge from './common/badge/Badge.svelte'
+	import Tooltip from './Tooltip.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import Popover from './meltComponents/Popover.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
@@ -219,7 +222,16 @@
 	{filter}
 	items={users}
 	bind:filteredItems={filteredUsers}
-	f={(x) => x.email + ' ' + x.name + ' ' + x.company}
+	f={(x) =>
+		(x.email ?? '') +
+		' ' +
+		(x.name ?? '') +
+		' ' +
+		(x.company ?? '') +
+		' ' +
+		(x.username ?? '') +
+		' ' +
+		(x.workspace_id ?? '')}
 />
 
 <div class="flex flex-col h-full w-full">
@@ -393,7 +405,8 @@
 										</Head>
 										<tbody>
 											{#if filteredUsers && users}
-												{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, devops, login_type, name, username, operator_only, role_source, disabled }, i (email)}
+												{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, devops, login_type, name, username, operator_only, role_source, disabled, workspace_id }, i (email)}
+													{@const isServiceAccount = login_type === 'service_account'}
 													<tr
 														class="{i % 2 === 0 ? 'bg-surface-tertiary' : 'bg-surface'} {disabled
 															? 'opacity-60'
@@ -401,9 +414,22 @@
 													>
 														<Cell first class="max-w-[250px]">
 															<div class="flex items-center gap-1.5">
-																<a href="mailto:{email}" title={email} class="truncate block"
-																	>{email}</a
-																>
+																{#if isServiceAccount}
+																	<Bot size={16} class="text-blue-500 shrink-0" />
+																	<span title={email} class="truncate block">{email}</span>
+																{:else}
+																	<a href="mailto:{email}" title={email} class="truncate block"
+																		>{email}</a
+																	>
+																{/if}
+																{#if workspace_id}
+																	<a
+																		href="{base}/?workspace={workspace_id}"
+																		title="Workspace: {workspace_id}"
+																	>
+																		<Badge color="blue">{truncate(workspace_id, 20)}</Badge>
+																	</a>
+																{/if}
 																{#if disabled}
 																	<span
 																		class="text-2xs px-1.5 py-0.5 rounded bg-red-100 text-red-600 dark:bg-red-900 dark:text-red-300 whitespace-nowrap"
@@ -449,121 +475,142 @@
 															</Cell>
 														{/if}
 														<Cell>
-															<div class="flex flex-col items-start">
-																{#key `${super_admin}_${devops}_${role_source}`}
-																	<ToggleButtonGroup
-																		selected={super_admin
-																			? 'super_admin'
-																			: devops
-																				? 'devops'
-																				: 'user'}
-																		on:selected={async (e) => {
-																			if (email == $userStore?.email) {
-																				sendUserToast('You cannot demote yourself', true)
+															{#if isServiceAccount}
+																<div class="flex items-center gap-1">
+																	<span
+																		class="rounded-md text-xs px-2 py-1 bg-surface shadow-md font-bold"
+																	>
+																		Operator
+																	</span>
+																	<Tooltip>Service accounts are always operators.</Tooltip>
+																</div>
+															{:else}
+																<div class="flex flex-col items-start">
+																	{#key `${super_admin}_${devops}_${role_source}`}
+																		<ToggleButtonGroup
+																			selected={super_admin
+																				? 'super_admin'
+																				: devops
+																					? 'devops'
+																					: 'user'}
+																			on:selected={async (e) => {
+																				if (email == $userStore?.email) {
+																					sendUserToast('You cannot demote yourself', true)
+																					listUsers(activeOnly)
+																					return
+																				}
+
+																				let role = e.detail
+
+																				if (role === 'super_admin') {
+																					await UserService.globalUserUpdate({
+																						email,
+																						requestBody: {
+																							is_super_admin: true,
+																							is_devops: false
+																						}
+																					})
+																				}
+																				if (role === 'devops') {
+																					await UserService.globalUserUpdate({
+																						email,
+																						requestBody: {
+																							is_super_admin: false,
+																							is_devops: true
+																						}
+																					})
+																				}
+																				if (role === 'user') {
+																					await UserService.globalUserUpdate({
+																						email,
+																						requestBody: {
+																							is_super_admin: false,
+																							is_devops: false
+																						}
+																					})
+																				}
+																				sendUserToast('User updated')
 																				listUsers(activeOnly)
-																				return
-																			}
-
-																			let role = e.detail
-
-																			if (role === 'super_admin') {
-																				await UserService.globalUserUpdate({
-																					email,
-																					requestBody: {
-																						is_super_admin: true,
-																						is_devops: false
-																					}
-																				})
-																			}
-																			if (role === 'devops') {
-																				await UserService.globalUserUpdate({
-																					email,
-																					requestBody: {
-																						is_super_admin: false,
-																						is_devops: true
-																					}
-																				})
-																			}
-																			if (role === 'user') {
-																				await UserService.globalUserUpdate({
-																					email,
-																					requestBody: {
-																						is_super_admin: false,
-																						is_devops: false
-																					}
-																				})
-																			}
-																			sendUserToast('User updated')
-																			listUsers(activeOnly)
-																		}}
-																	>
-																		{#snippet children({ item })}
-																			<ToggleButton
-																				value={'user'}
-																				small
-																				label="User"
-																				disabled={role_source === 'instance_group' &&
-																					(super_admin || devops)}
-																				tooltip={role_source === 'instance_group' &&
-																				(super_admin || devops)
-																					? 'Role is set by an instance group. Remove the user from the group to demote to "User".'
-																					: undefined}
-																				showTooltipIcon={role_source === 'instance_group' &&
-																					(super_admin || devops)}
-																				{item}
-																			/>
-																			<ToggleButton
-																				value={'devops'}
-																				small
-																				label="Devops"
-																				tooltip="Devops is a role that grants visibilty similar to that of a super admin, but without giving all rights. For example devops users can see service logs and crtical alerts. You can think of it as a 'readonly' super admin"
-																				{item}
-																			/>
-																			<ToggleButton
-																				value={'super_admin'}
-																				small
-																				label="Superadmin"
-																				{item}
-																			/>
-																		{/snippet}
-																	</ToggleButtonGroup>
-																{/key}
-																{#if role_source === 'instance_group' && (super_admin || devops)}
-																	<a
-																		href="{base}/groups"
-																		class="text-2xs text-tertiary mt-0.5 ml-1 hover:underline"
-																		title="Role set by instance group. You can upgrade to a higher role manually, but demoting to &quot;User&quot; requires removing them from the group."
-																		onclick={() => closeDrawer?.()}
-																	>
-																		Set by instance group
-																	</a>
-																{/if}
-															</div>
+																			}}
+																		>
+																			{#snippet children({ item })}
+																				<ToggleButton
+																					value={'user'}
+																					small
+																					label="User"
+																					disabled={role_source === 'instance_group' &&
+																						(super_admin || devops)}
+																					tooltip={role_source === 'instance_group' &&
+																					(super_admin || devops)
+																						? 'Role is set by an instance group. Remove the user from the group to demote to "User".'
+																						: undefined}
+																					showTooltipIcon={role_source === 'instance_group' &&
+																						(super_admin || devops)}
+																					{item}
+																				/>
+																				<ToggleButton
+																					value={'devops'}
+																					small
+																					label="Devops"
+																					tooltip="Devops is a role that grants visibilty similar to that of a super admin, but without giving all rights. For example devops users can see service logs and crtical alerts. You can think of it as a 'readonly' super admin"
+																					{item}
+																				/>
+																				<ToggleButton
+																					value={'super_admin'}
+																					small
+																					label="Superadmin"
+																					{item}
+																				/>
+																			{/snippet}
+																		</ToggleButtonGroup>
+																	{/key}
+																	{#if role_source === 'instance_group' && (super_admin || devops)}
+																		<a
+																			href="{base}/groups"
+																			class="text-2xs text-tertiary mt-0.5 ml-1 hover:underline"
+																			title="Role set by instance group. You can upgrade to a higher role manually, but demoting to &quot;User&quot; requires removing them from the group."
+																			onclick={() => closeDrawer?.()}
+																		>
+																			Set by instance group
+																		</a>
+																	{/if}
+																</div>
+															{/if}
 														</Cell>
 														<Cell last>
 															<div class="flex items-center justify-end">
-																<div
-																	bind:this={editWrappers[email]}
-																	class="w-0 h-0 overflow-hidden"
-																>
-																	<InstanceNameEditor
-																		{login_type}
-																		value={name}
-																		{username}
-																		{email}
-																		on:refresh={() => {
-																			listUsers(activeOnly)
-																		}}
-																		on:save={(e) => {
-																			updateName(e.detail, email)
-																		}}
-																		on:renamed={() => {
-																			listUsers(activeOnly)
-																		}}
-																		{automateUsernameCreation}
-																	/>
-																</div>
-																<DropdownV2
+																{#if isServiceAccount}
+																	{#if workspace_id}
+																		<a
+																			href="{base}/workspace_settings?tab=users&workspace={workspace_id}"
+																			class="text-xs text-secondary hover:text-primary hover:underline"
+																			title="Manage in workspace settings"
+																			>Manage in workspace</a
+																		>
+																	{/if}
+																{:else}
+																	<div
+																		bind:this={editWrappers[email]}
+																		class="w-0 h-0 overflow-hidden"
+																	>
+																		<InstanceNameEditor
+																			{login_type}
+																			value={name}
+																			{username}
+																			{email}
+																			on:refresh={() => {
+																				listUsers(activeOnly)
+																			}}
+																			on:save={(e) => {
+																				updateName(e.detail, email)
+																			}}
+																			on:renamed={() => {
+																				listUsers(activeOnly)
+																			}}
+																			{automateUsernameCreation}
+																		/>
+																	</div>
+																	<DropdownV2
 																	items={[
 																		{
 																			displayName: 'Edit',
@@ -627,6 +674,7 @@
 																		}
 																	]}
 																/>
+															{/if}
 															</div>
 														</Cell>
 													</tr>

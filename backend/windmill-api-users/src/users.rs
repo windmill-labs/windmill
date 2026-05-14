@@ -210,6 +210,8 @@ pub struct GlobalUserInfo {
     first_time_user: bool,
     role_source: String,
     disabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_id: Option<String>,
 }
 
 #[derive(Serialize, Debug)]
@@ -451,13 +453,17 @@ async fn list_users_as_super_admin(
     let rows = if active_only.is_some_and(|x| x) {
         sqlx::query_as!(
             GlobalUserInfo,
-            "WITH active_users AS (SELECT distinct username as email FROM (SELECT username, timestamp, operation FROM audit_partitioned UNION ALL SELECT username, timestamp, operation FROM audit) AS a WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login' OR operation = 'users.token.refresh')),
+            r#"WITH active_users AS (SELECT distinct username as email FROM (SELECT username, timestamp, operation FROM audit_partitioned UNION ALL SELECT username, timestamp, operation FROM audit) AS a WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login' OR operation = 'users.token.refresh')),
             authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)
-            SELECT email, email NOT IN (SELECT email FROM authors) as operator_only, login_type::text, verified, super_admin, devops, name, company, username, first_time_user, role_source, disabled
+            SELECT email as "email!", (email NOT IN (SELECT email FROM authors)) as operator_only, login_type::text, verified as "verified!", super_admin as "super_admin!", devops as "devops!", name, company, username, first_time_user as "first_time_user!", role_source as "role_source!", disabled as "disabled!", NULL::text as workspace_id
             FROM password
             WHERE email IN (SELECT email FROM active_users)
-            ORDER BY super_admin DESC, devops DESC
-            LIMIT $1 OFFSET $2",
+            UNION ALL
+            SELECT email as "email!", true as operator_only, 'service_account'::text as login_type, true as "verified!", false as "super_admin!", false as "devops!", NULL::text as name, NULL::text as company, username, false as "first_time_user!", 'service_account'::text as "role_source!", disabled as "disabled!", workspace_id
+            FROM usr
+            WHERE is_service_account IS true
+            ORDER BY "super_admin!" DESC, "devops!" DESC
+            LIMIT $1 OFFSET $2"#,
             per_page as i32,
             offset as i32
         )
@@ -466,8 +472,13 @@ async fn list_users_as_super_admin(
     } else {
         sqlx::query_as!(
             GlobalUserInfo,
-            "SELECT email, login_type::text, verified, super_admin, devops, name, company, username, NULL::bool as operator_only, first_time_user, role_source, disabled FROM password ORDER BY super_admin DESC, devops DESC, email LIMIT \
-            $1 OFFSET $2",
+            r#"SELECT email as "email!", login_type::text, verified as "verified!", super_admin as "super_admin!", devops as "devops!", name, company, username, NULL::bool as operator_only, first_time_user as "first_time_user!", role_source as "role_source!", disabled as "disabled!", NULL::text as workspace_id FROM password
+            UNION ALL
+            SELECT email as "email!", 'service_account'::text as login_type, true as "verified!", false as "super_admin!", false as "devops!", NULL::text as name, NULL::text as company, username, true as operator_only, false as "first_time_user!", 'service_account'::text as "role_source!", disabled as "disabled!", workspace_id
+            FROM usr
+            WHERE is_service_account IS true
+            ORDER BY "super_admin!" DESC, "devops!" DESC, "email!"
+            LIMIT $1 OFFSET $2"#,
             per_page as i32,
             offset as i32
         )
@@ -716,7 +727,7 @@ async fn global_whoami(
 ) -> JsonResult<GlobalUserInfo> {
     let user = sqlx::query_as!(
         GlobalUserInfo,
-        "SELECT email, login_type::TEXT, super_admin, devops, verified, name, company, username, NULL::bool as operator_only, first_time_user, role_source, disabled FROM password WHERE \
+        "SELECT email, login_type::TEXT, super_admin, devops, verified, name, company, username, NULL::bool as operator_only, first_time_user, role_source, disabled, NULL::text as workspace_id FROM password WHERE \
          email = $1",
         email
     )
@@ -740,6 +751,7 @@ async fn global_whoami(
             first_time_user: false,
             role_source: "manual".to_string(),
             disabled: false,
+            workspace_id: None,
         }))
     } else {
         // Service accounts don't have a password row
@@ -756,6 +768,7 @@ async fn global_whoami(
             first_time_user: false,
             role_source: "service_account".to_string(),
             disabled: false,
+            workspace_id: None,
         }))
     }
 }
