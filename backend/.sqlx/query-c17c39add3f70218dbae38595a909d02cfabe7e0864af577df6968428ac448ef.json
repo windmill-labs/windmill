@@ -1,0 +1,95 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH active_users AS (SELECT distinct username as email FROM (SELECT username, timestamp, operation FROM audit_partitioned UNION ALL SELECT username, timestamp, operation FROM audit) AS a WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login' OR operation = 'users.token.refresh')),\n            authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)\n            SELECT email as \"email!\", (email NOT IN (SELECT email FROM authors)) as operator_only, login_type::text, verified as \"verified!\", super_admin as \"super_admin!\", devops as \"devops!\", name, company, username, first_time_user as \"first_time_user!\", role_source as \"role_source!\", disabled as \"disabled!\", NULL::text as workspace_id\n            FROM password\n            WHERE email IN (SELECT email FROM active_users)\n            UNION ALL\n            SELECT email as \"email!\", true as operator_only, 'service_account'::text as login_type, true as \"verified!\", false as \"super_admin!\", false as \"devops!\", NULL::text as name, NULL::text as company, username, false as \"first_time_user!\", 'service_account'::text as \"role_source!\", disabled as \"disabled!\", workspace_id\n            FROM usr\n            WHERE is_service_account IS true\n            ORDER BY \"super_admin!\" DESC, \"devops!\" DESC\n            LIMIT $1 OFFSET $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "operator_only",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "login_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "verified!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "super_admin!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "devops!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "company",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "first_time_user!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "role_source!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 11,
+        "name": "disabled!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "workspace_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "c17c39add3f70218dbae38595a909d02cfabe7e0864af577df6968428ac448ef"
+}
