@@ -998,27 +998,24 @@ async fn get_otel_tracing_proxy_envs(
 /// what the MITM proxy bypasses when relaying upstream (e.g. through a corporate proxy) and
 /// is honored automatically by the in-process MITM. The configured hosts are tunneled
 /// through the proxy without TLS interception, so clients that pin their own CA (kubectl,
-/// helm, terraform, etc.) keep working. Loopback is always included so jobs never try to
-/// intercept their own talking to other workers on the same host.
+/// helm, terraform, etc.) keep working. Empty when unset, matching the prior behavior of
+/// intercepting all destinations including loopback.
 #[cfg(all(feature = "private", feature = "enterprise"))]
 async fn build_tracing_proxy_no_proxy() -> String {
-    const DEFAULTS: &str = "localhost,127.0.0.1";
-    let configured = OTEL_TRACING_PROXY_SETTINGS
+    let Some(configured) = OTEL_TRACING_PROXY_SETTINGS
         .read()
         .await
         .no_proxy_hosts
-        .clone();
+        .clone()
+    else {
+        return String::new();
+    };
     let mut seen = std::collections::HashSet::new();
     let mut out: Vec<String> = Vec::new();
-    for source in [configured.as_deref(), Some(DEFAULTS)]
-        .into_iter()
-        .flatten()
-    {
-        for entry in source.split(',') {
-            let trimmed = entry.trim();
-            if !trimmed.is_empty() && seen.insert(trimmed.to_string()) {
-                out.push(trimmed.to_string());
-            }
+    for entry in configured.split(',') {
+        let trimmed = entry.trim();
+        if !trimmed.is_empty() && seen.insert(trimmed.to_string()) {
+            out.push(trimmed.to_string());
         }
     }
     out.join(",")
