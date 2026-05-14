@@ -1012,6 +1012,7 @@ async fn build_tracing_proxy_no_proxy() -> String {
 
 /// Split a comma-separated NO_PROXY value, trim whitespace, drop empty entries, and
 /// deduplicate while preserving order. `None` returns an empty string.
+#[cfg(all(feature = "private", feature = "enterprise"))]
 fn normalize_no_proxy_hosts(configured: Option<&str>) -> String {
     let Some(configured) = configured else {
         return String::new();
@@ -1027,7 +1028,7 @@ fn normalize_no_proxy_hosts(configured: Option<&str>) -> String {
     out.join(",")
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "private", feature = "enterprise"))]
 mod no_proxy_tests {
     use super::normalize_no_proxy_hosts;
 
