@@ -6,6 +6,57 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Debounce node for flows',
+		href: 'https://www.windmill.dev/changelog/debounce-node',
+		date: '2026-03-24'
+	},
+	{
+		label: 'Collapsible flow groups',
+		href: 'https://www.windmill.dev/changelog/flow-groups',
+		date: '2026-03-24'
+	},
+	{
+		label: 'SCIM user deprovisioning',
+		href: 'https://www.windmill.dev/changelog/scim-deprovisioning',
+		date: '2026-03-25'
+	},
+	{
+		label: 'Trashbin for soft-deleting items',
+		href: 'https://www.windmill.dev/changelog/trashbin',
+		date: '2026-03-26'
+	},
+	{
+		label: 'Workspace service accounts',
+		href: 'https://www.windmill.dev/changelog/workspace-service-accounts',
+		date: '2026-03-27'
+	},
+	{
+		label: 'Azure Key Vault secret backend',
+		href: 'https://www.windmill.dev/changelog/azure-key-vault-backend',
+		date: '2026-04-03'
+	},
+	{
+		label: 'Labels on scripts, flows, apps, and triggers',
+		href: 'https://www.windmill.dev/changelog/labels-on-items',
+		date: '2026-04-03'
+	},
+	{
+		label: 'sql.raw for dynamic SQL fragments',
+		href: 'https://www.windmill.dev/changelog/sql-raw',
+		date: '2026-04-03'
+	},
+	{
+		label: 'AWS Secrets Manager backend (Beta)',
+		href: 'https://www.windmill.dev/changelog/aws-secrets-manager',
+		date: '2026-04-06'
+	},
+	{
+		label: 'Data table forking and workspace merge',
+		href: 'https://www.windmill.dev/changelog/fork-datatables',
+		date: '2026-04-07'
+	},
+
+	{
 		label: 'AWS Bedrock support for Windmill AI',
 		href: 'https://www.windmill.dev/changelog/aws-bedrock',
 		date: '2025-11-19'
