@@ -209,18 +209,17 @@ export async function pushApp(
     });
   }
 
-  // Re-fetch after update/create so applyExtraPermsDiff reconciles against the
-  // post-write perm map (covers folder-inherited entries on the create path).
-  let postRemotePerms: unknown;
-  try {
-    const fresh = await wmill.getAppByPath({ workspace, path: remotePath });
-    postRemotePerms = (fresh as any)?.extra_perms;
-  } catch {
-    postRemotePerms = (app as any)?.extra_perms;
-  }
-
   // Independent perms sync via /acls/* — self-contained log + non-fatal errors.
-  await applyExtraPermsDiff(workspace, "app", remotePath, localPerms, postRemotePerms);
+  // No refetch: extra_perms is item-specific and folder perms are never merged
+  // onto item.extra_perms, and the body sent to update_app / create_app omits
+  // the field — so the value we already have from getAppByPath is authoritative.
+  await applyExtraPermsDiff(
+    workspace,
+    "app",
+    remotePath,
+    localPerms,
+    (app as any)?.extra_perms,
+  );
 }
 
 export async function generatingPolicy(

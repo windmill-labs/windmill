@@ -496,22 +496,14 @@ export async function pushRawApp(
     });
   }
 
-  // Re-fetch after update/create so folder-inherited perms on the create
-  // path are surfaced to applyExtraPermsDiff for proper reconciliation.
-  let postRemotePerms: unknown;
-  try {
-    const fresh = await wmill.getAppByPath({ workspace, path: remotePath });
-    postRemotePerms = (fresh as any)?.extra_perms;
-  } catch {
-    postRemotePerms = (app as any)?.extra_perms;
-  }
-
+  // No refetch needed: folder perms are never merged into item.extra_perms,
+  // and the body sent to update_app_raw / create_app_raw omits the field.
   await applyExtraPermsDiff(
     workspace,
     "raw_app",
     remotePath,
     localPerms,
-    postRemotePerms,
+    (app as any)?.extra_perms,
   );
 }
 

@@ -601,27 +601,20 @@ export async function handleFile(
     // create_script (which would bump the script hash) and instead route
     // through /acls/* via applyExtraPermsDiff.
     //
-    // Re-fetch the script after the deploy so applyExtraPermsDiff sees the
-    // post-write perm map: create_script copies parent-folder perms onto the
-    // new row, and without this fetch the diff would only ADD entries from
-    // local yaml and never revoke folder-inherited ones — leaving create
-    // less authoritative than update.
-    let postRemotePerms: unknown = (remote as any)?.extra_perms;
-    try {
-      const fresh = await wmill.getScriptByPath({
-        workspace: workspaceId,
-        path: remotePath.replaceAll(SEP, "/"),
-      });
-      postRemotePerms = (fresh as any)?.extra_perms;
-    } catch {
-      // fall through with the previously-known remote perms
-    }
+    // No refetch is needed:
+    //  - folder perms are additive at auth time, never merged onto item rows;
+    //  - the body sent to create_script doesn't carry extra_perms, so a fresh
+    //    deploy of an existing path inherits the previous version's perms
+    //    unchanged. The diff against `remote` (captured before the deploy)
+    //    therefore matches what `wmill acl remove` would do — and the granular
+    //    ACL endpoint updates every matching row, so the inheritance on the
+    //    new version doesn't leave ghost entries.
     await applyExtraPermsDiff(
       workspaceId,
       "script",
       remotePath.replaceAll(SEP, "/"),
       (typed as any)?.extra_perms,
-      postRemotePerms,
+      (remote as any)?.extra_perms,
     );
 
     return true;
