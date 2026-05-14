@@ -13,6 +13,8 @@
 		type Session
 	} from './sessionState.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import InputError from '$lib/components/InputError.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { Building, Check, ChevronDown, GitFork, Plus } from 'lucide-svelte'
 
 	let { session }: { session: Session } = $props()
@@ -47,7 +49,7 @@
 	let dropdownOpen = $state(false)
 	let creatingFork = $state(false)
 	let newForkName = $state('')
-	let forkInput: HTMLInputElement | undefined = $state(undefined)
+	let forkInput: TextInput | undefined = $state(undefined)
 
 	// Manual keyboard navigation, modelled after SelectDropdown.svelte. Melt's
 	// menu API couples Enter/Space to closing the menu, which we explicitly
@@ -125,14 +127,37 @@
 		newForkName = ''
 	}
 
-	function stageNewFork() {
-		const name = newForkName.trim()
-		if (!root || !name) return
-		const baseId = name
+	// Strip the typed name into a backend-safe workspace-id suffix. The
+	// final fork id becomes `wm-fork-<baseId>`.
+	function slugForkBaseId(name: string): string {
+		return name
 			.toLowerCase()
 			.replace(/[^a-z0-9-]/g, '-')
 			.replace(/-+/g, '-')
 			.replace(/^-|-$/g, '')
+	}
+
+	// Reactive validation for the inline new-fork input. Empty input is
+	// not an error (the Stage button is just disabled), but typing a
+	// name that slugifies to nothing or collides with an existing
+	// workspace surfaces a message under the input.
+	const forkNameError = $derived.by<string | undefined>(() => {
+		const trimmed = newForkName.trim()
+		if (!trimmed) return undefined
+		const baseId = slugForkBaseId(trimmed)
+		if (!baseId) return 'Name must contain at least one letter or number'
+		const prefixed = `${WM_FORK_PREFIX}${baseId}`
+		const taken = new Set($userWorkspaces.map((w) => w.id))
+		// Editing the current pending fork shouldn't conflict with itself.
+		if (session.pending_fork) taken.delete(session.pending_fork.id)
+		if (taken.has(prefixed)) return 'A workspace with this name already exists'
+		return undefined
+	})
+
+	function stageNewFork() {
+		const name = newForkName.trim()
+		if (!root || !name || forkNameError) return
+		const baseId = slugForkBaseId(name)
 		if (!baseId) return
 		const prefixed = `${WM_FORK_PREFIX}${baseId}`
 		setSessionPendingFork(session.id, {
@@ -143,6 +168,7 @@
 		syncWorkspaceTo(root.id)
 		creatingFork = false
 		newForkName = ''
+		dropdownOpen = false
 	}
 
 	function isSelected(id: string): boolean {
@@ -213,39 +239,48 @@
 							<div class="flex flex-row items-center gap-1.5">
 								<Plus size={14} class="shrink-0 text-tertiary" />
 								<!-- svelte-ignore a11y_autofocus -->
-								<input
+								<TextInput
 									bind:this={forkInput}
-									type="text"
 									bind:value={newForkName}
-									placeholder="Fork name"
-									autofocus
-									onkeydown={(e) => {
-										if (e.key === 'Enter') {
-											e.preventDefault()
-											e.stopPropagation()
-											stageNewFork()
-										} else if (e.key === 'Escape') {
-											e.preventDefault()
-											e.stopPropagation()
-											cancelCreate()
+									size="xs"
+									error={forkNameError}
+									class="flex-1 min-w-0"
+									inputProps={{
+										placeholder: 'Fork name',
+										autofocus: true,
+										'aria-invalid': forkNameError ? 'true' : undefined,
+										onkeydown: (e: KeyboardEvent) => {
+											if (e.key === 'Enter') {
+												e.preventDefault()
+												e.stopPropagation()
+												stageNewFork()
+											} else if (e.key === 'Escape') {
+												e.preventDefault()
+												e.stopPropagation()
+												cancelCreate()
+											}
 										}
 									}}
-									class="flex-1 min-w-0 bg-surface-input border border-normal rounded px-1.5 py-0.5 text-xs font-normal text-primary outline-none focus:border-accent"
 								/>
 								<button
 									type="button"
 									aria-label="Confirm"
 									title="Stage fork"
 									onclick={stageNewFork}
-									disabled={!newForkName.trim()}
+									disabled={!newForkName.trim() || !!forkNameError}
 									class="inline-flex items-center justify-center w-5 h-5 rounded text-accent hover:bg-surface-hover disabled:opacity-40 disabled:cursor-not-allowed"
 								>
 									<Check size={14} />
 								</button>
 							</div>
-							<span class="text-2xs text-tertiary pl-6">
-								Created when you send your first message.
-							</span>
+							<div class="pl-6">
+								<InputError error={forkNameError} />
+								{#if !forkNameError}
+									<span class="text-2xs text-tertiary">
+										Created when you send your first message.
+									</span>
+								{/if}
+							</div>
 						</div>
 					{:else}
 						{@const createIdx = 0}
