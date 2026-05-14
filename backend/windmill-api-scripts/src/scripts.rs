@@ -343,7 +343,10 @@ async fn list_scripts(
     if (!lq.include_without_main.unwrap_or(false)
         && lowercased_kinds
             .as_ref()
-            .map(|x| !x.contains(&"preprocessor".to_string()))
+            .map(|x| {
+                !x.contains(&"preprocessor".to_string())
+                    && (x.contains(&"script".to_string()) || x.is_empty())
+            })
             .unwrap_or(true))
         || authed.is_operator
     {
