@@ -26,6 +26,10 @@ export interface AppFile {
   public?: boolean;
   summary: string;
   policy: Policy;
+  // Mirrors granular ACLs on the app path. Omitted from app.yaml when no perms
+  // are set — the backend treats absent as "no change" and `{}` as "clear all"
+  // (see windmill-api::update_app_internal).
+  extra_perms?: Record<string, boolean>;
 }
 
 const alreadySynced: string[] = [];

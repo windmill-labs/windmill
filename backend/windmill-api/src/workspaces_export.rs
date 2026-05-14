@@ -110,6 +110,12 @@ struct ScriptMetadata {
     pub debouncing_settings: DebouncingSettings,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "is_empty_extra_perms")]
+    pub extra_perms: serde_json::Value,
+}
+
+fn is_empty_extra_perms(value: &serde_json::Value) -> bool {
+    value.as_object().is_some_and(|o| o.is_empty()) || value.is_null()
 }
 
 pub fn is_none_or_false(val: &Option<bool>) -> bool {
@@ -274,8 +280,14 @@ where
                 o2.remove("on_behalf_of");
                 o2.remove("on_behalf_of_email");
             }
-            if !preserve_extra_perms && obj.contains_key("extra_perms") {
-                obj.remove("extra_perms");
+            if obj.contains_key("extra_perms") {
+                let is_empty_extra_perms = obj
+                    .get("extra_perms")
+                    .map(|v| v.as_object().is_some_and(|o| o.is_empty()) || v.is_null())
+                    .unwrap_or(true);
+                if !preserve_extra_perms || is_empty_extra_perms {
+                    obj.remove("extra_perms");
+                }
             }
             if obj
                 .get("default_permissioned_as")
@@ -506,15 +518,13 @@ pub(crate) async fn tarball_workspace(
     }
 
     {
-        let scripts = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
-            &format!(
-                "SELECT {} FROM script as o WHERE workspace_id = $1 AND archived = false
+        let scripts = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(&format!(
+            "SELECT {} FROM script as o WHERE workspace_id = $1 AND archived = false
                  AND (draft_only IS NULL OR draft_only = false)
                  AND created_at = (select max(created_at) from script where path = o.path AND \
                   workspace_id = $1)",
-                windmill_common::scripts::SCRIPT_COLUMNS,
-            ),
-        )
+            windmill_common::scripts::SCRIPT_COLUMNS,
+        ))
         .bind(&w_id)
         .fetch_all(&mut *tx)
         .await?;
@@ -587,6 +597,7 @@ pub(crate) async fn tarball_workspace(
                 on_behalf_of_email: script.on_behalf_of_email,
                 modules: script.modules,
                 labels: script.labels,
+                extra_perms: script.extra_perms,
             };
             let metadata_str = serde_json::to_string_pretty(&metadata).unwrap();
             archive
@@ -644,7 +655,7 @@ pub(crate) async fn tarball_workspace(
          .await?;
 
         for flow in flows {
-            let flow_str = &to_string_without_metadata(&flow, false, None).unwrap();
+            let flow_str = &to_string_without_metadata(&flow, true, None).unwrap();
             archive
                 .write_to_archive(&flow_str, &format!("{}.flow.json", flow.path))
                 .await?;
@@ -693,7 +704,7 @@ pub(crate) async fn tarball_workspace(
          .await?;
 
         for app in apps {
-            let app_str = &to_string_without_metadata(&app, false, None).unwrap();
+            let app_str = &to_string_without_metadata(&app, true, None).unwrap();
             let kind = if app.raw_app { "raw_app" } else { "app" };
             archive
                 .write_to_archive(&app_str, &format!("{}.{}.json", app.path, kind))

@@ -12,6 +12,7 @@ use axum::{
     Json, Router,
 };
 use windmill_api_auth::require_owner_of_path;
+use windmill_common::scripts::ScriptHash;
 use windmill_common::DB;
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
@@ -193,46 +194,49 @@ async fn add_granular_acl(
             )
             .await?
         }
-        // "app" => {
-        //     handle_deployment_metadata(
-        //         &authed.email,
-        //         &authed.username,
-        //         &db,
-        //         &w_id,
-        //         DeployedObject::App { path: path.to_string(), parent_path: None, version: 0 },
-        //         Some(format!("App '{}' changed permissions", path)),
-        //         //         true,
-        //     )
-        //     .await?
-        // }
-        // "script" => {
-        //     handle_deployment_metadata(
-        //         &authed.email,
-        //         &authed.username,
-        //         &db,
-        //         &w_id,
-        //         DeployedObject::Script {
-        //             path: path.to_string(),
-        //             parent_path: None,
-        //             hash: ScriptHash(0),
-        //         },
-        //         Some(format!("Script '{}' changed permissions", path)),
-        //         //         true,
-        //     )
-        //     .await?
-        // }
-        // "flow" => {
-        //     handle_deployment_metadata(
-        //         &authed.email,
-        //         &authed.username,
-        //         &db,
-        //         &w_id,
-        //         DeployedObject::Flow { path: path.to_string(), parent_path: None },
-        //         Some(format!("Flow '{}' changed permissions", path)),
-        //         //         true,
-        //     )
-        //     .await?
-        // }
+        "app" | "raw_app" => {
+            handle_deployment_metadata(
+                &authed.email,
+                &authed.username,
+                &db,
+                &w_id,
+                DeployedObject::App { path: path.to_string(), parent_path: None, version: 0 },
+                Some(format!("App '{}' changed permissions", path)),
+                true,
+                None,
+            )
+            .await?
+        }
+        "script" => {
+            handle_deployment_metadata(
+                &authed.email,
+                &authed.username,
+                &db,
+                &w_id,
+                DeployedObject::Script {
+                    path: path.to_string(),
+                    parent_path: None,
+                    hash: ScriptHash(0),
+                },
+                Some(format!("Script '{}' changed permissions", path)),
+                true,
+                None,
+            )
+            .await?
+        }
+        "flow" => {
+            handle_deployment_metadata(
+                &authed.email,
+                &authed.username,
+                &db,
+                &w_id,
+                DeployedObject::Flow { path: path.to_string(), parent_path: None, version: 0 },
+                Some(format!("Flow '{}' changed permissions", path)),
+                true,
+                None,
+            )
+            .await?
+        }
         _ => (),
     }
 
@@ -353,46 +357,49 @@ async fn remove_granular_acl(
                 )
                 .await?
             }
-            // "app" => {
-            //     handle_deployment_metadata(
-            //         &authed.email,
-            //         &authed.username,
-            //         &db,
-            //         &w_id,
-            //         DeployedObject::App { path: path.to_string(), parent_path: None, version: 0 },
-            //         Some(format!("App '{}' changed permissions", path)),
-            //         //         true,
-            //     )
-            //     .await?
-            // }
-            // "script" => {
-            //     handle_deployment_metadata(
-            //         &authed.email,
-            //         &authed.username,
-            //         &db,
-            //         &w_id,
-            //         DeployedObject::Script {
-            //             path: path.to_string(),
-            //             parent_path: None,
-            //             hash: ScriptHash(0),
-            //         },
-            //         Some(format!("Script '{}' changed permissions", path)),
-            //         //         true,
-            //     )
-            //     .await?
-            // }
-            // "flow" => {
-            //     handle_deployment_metadata(
-            //         &authed.email,
-            //         &authed.username,
-            //         &db,
-            //         &w_id,
-            //         DeployedObject::Flow { path: path.to_string(), parent_path: None },
-            //         Some(format!("Flow '{}' changed permissions", path)),
-            //         //         true,
-            //     )
-            //     .await?
-            // }
+            "app" | "raw_app" => {
+                handle_deployment_metadata(
+                    &authed.email,
+                    &authed.username,
+                    &db,
+                    &w_id,
+                    DeployedObject::App { path: path.to_string(), parent_path: None, version: 0 },
+                    Some(format!("App '{}' changed permissions", path)),
+                    true,
+                    None,
+                )
+                .await?
+            }
+            "script" => {
+                handle_deployment_metadata(
+                    &authed.email,
+                    &authed.username,
+                    &db,
+                    &w_id,
+                    DeployedObject::Script {
+                        path: path.to_string(),
+                        parent_path: None,
+                        hash: ScriptHash(0),
+                    },
+                    Some(format!("Script '{}' changed permissions", path)),
+                    true,
+                    None,
+                )
+                .await?
+            }
+            "flow" => {
+                handle_deployment_metadata(
+                    &authed.email,
+                    &authed.username,
+                    &db,
+                    &w_id,
+                    DeployedObject::Flow { path: path.to_string(), parent_path: None, version: 0 },
+                    Some(format!("Flow '{}' changed permissions", path)),
+                    true,
+                    None,
+                )
+                .await?
+            }
             _ => (),
         }
     }

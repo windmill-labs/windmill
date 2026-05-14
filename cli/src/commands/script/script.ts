@@ -83,6 +83,10 @@ export interface ScriptFile {
   is_template?: boolean;
   lock?: Array<string>;
   kind?: "script" | "failure" | "trigger" | "command" | "approval";
+  // Mirrors granular ACLs on the script path. Omitted from .script.yaml when
+  // no perms are set — the backend treats absent as "no change" and `{}` as
+  // "clear all" (see windmill-api-scripts::create_script_internal).
+  extra_perms?: Record<string, boolean>;
 }
 
 /**
@@ -489,6 +493,11 @@ export async function handleFile(
       envs: typed?.envs,
       modules: modules,
       labels: typed?.labels,
+      // Cast: extra_perms is accepted by the backend (see windmill-types::NewScript)
+      // but may be missing from the auto-generated OpenAPI types until next regen.
+      ...((typed as any)?.extra_perms !== undefined
+        ? { extra_perms: (typed as any).extra_perms }
+        : {}),
     };
 
     const hasOnBehalfOf = (typed as any)?.has_on_behalf_of ?? !!typed?.on_behalf_of_email;
@@ -539,7 +548,11 @@ export async function handleFile(
             typed.codebase == remote.codebase &&
             (hasOnBehalfOf ? true : typed.on_behalf_of_email == remote.on_behalf_of_email) &&
             deepEqual(typed.envs, remote.envs) &&
-            deepEqual(modules ?? null, remote.modules ?? null))
+            deepEqual(modules ?? null, remote.modules ?? null) &&
+            deepEqual(
+              (typed as any).extra_perms ?? {},
+              (remote as any).extra_perms ?? {}
+            ))
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));
           return true;

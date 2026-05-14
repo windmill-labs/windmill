@@ -110,6 +110,8 @@ pub struct NewFlow {
     pub ws_error_handler_muted: Option<bool>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_perms: Option<serde_json::Value>,
 }
 
 impl NewFlow {

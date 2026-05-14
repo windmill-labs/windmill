@@ -303,6 +303,8 @@ pub struct CreateApp {
     pub preserve_on_behalf_of: Option<bool>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_perms: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -316,6 +318,8 @@ pub struct EditApp {
     pub preserve_on_behalf_of: Option<bool>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_perms: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -1345,6 +1349,23 @@ async fn create_app_internal<'a>(
     .execute(&mut *tx)
     .await?;
 
+    if let Some(extra_perms) = app.extra_perms.as_ref() {
+        if let Err(e) = sqlx::query!(
+            "UPDATE app SET extra_perms = $1 WHERE id = $2",
+            extra_perms,
+            id,
+        )
+        .execute(&mut *tx)
+        .await
+        {
+            tracing::warn!(
+                "Skipping extra_perms set for new app {} in workspace {}: {e:#}",
+                app.path,
+                w_id
+            );
+        }
+    }
+
     audit_log(
         &mut *tx,
         &authed,
@@ -1746,6 +1767,7 @@ async fn update_app_internal<'a>(
         || ns.summary.is_some()
         || ns.custom_path.is_some()
         || ns.labels.is_some()
+        || ns.extra_perms.is_some()
     {
         let mut sqlb = SqlBuilder::update_table("app");
         sqlb.and_where_eq("path", "?".bind(&path));
@@ -1845,6 +1867,27 @@ async fn update_app_internal<'a>(
             )
             .execute(&mut *tx)
             .await?;
+        }
+
+        // Caller-supplied extra_perms (see flows.rs for the omitted/empty/non-empty
+        // contract). Non-fatal: failures are logged so a stale yaml referencing a
+        // missing user/group never aborts the push.
+        if let Some(extra_perms) = ns.extra_perms.as_ref() {
+            if let Err(e) = sqlx::query!(
+                "UPDATE app SET extra_perms = $1 WHERE path = $2 AND workspace_id = $3",
+                extra_perms,
+                &npath_val,
+                w_id,
+            )
+            .execute(&mut *tx)
+            .await
+            {
+                tracing::warn!(
+                    "Skipping extra_perms update for app {} in workspace {}: {e:#}",
+                    &npath_val,
+                    w_id
+                );
+            }
         }
 
         npath_val

@@ -733,6 +733,9 @@ async fn is_noop_deploy_against_parent(
         // caller-intent flag (auto-resolve parent), not script state
         auto_parent: _,
         labels,
+        // ACL override is metadata applied to the path row, not part of the
+        // script's content identity; granular_acls changes do not bump version.
+        extra_perms: _,
     } = ns;
 
     if path != &parent.path {
@@ -1112,9 +1115,13 @@ async fn create_script_internal<'c>(
         }
     }?;
     let p_hashes = parent_hashes_and_perms.as_ref().map(|v| &v.p_hashes[..]);
-    let extra_perms = parent_hashes_and_perms
-        .as_ref()
-        .map(|v| v.perms.clone())
+    // Caller-supplied extra_perms (git-sync round-trip) wins over the perms inherited
+    // from the parent version. When omitted we fall back to the parent's perms so
+    // normal updates keep the existing ACL untouched.
+    let extra_perms = ns
+        .extra_perms
+        .clone()
+        .or_else(|| parent_hashes_and_perms.as_ref().map(|v| v.perms.clone()))
         .unwrap_or(json!({}));
     let lock = if ns.codebase.is_some() {
         Some(String::new())

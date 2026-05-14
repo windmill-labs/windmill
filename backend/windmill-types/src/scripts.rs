@@ -540,6 +540,8 @@ pub struct NewScript {
     pub auto_parent: Option<bool>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_perms: Option<serde_json::Value>,
 }
 
 // IMPORTANT: update this Hash impl when adding fields to NewScript

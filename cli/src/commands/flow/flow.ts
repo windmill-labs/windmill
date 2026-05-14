@@ -41,6 +41,10 @@ export interface FlowFile {
   schema?: any;
   on_behalf_of_email?: string;
   has_on_behalf_of?: boolean;
+  // Mirrors granular ACLs on the flow path. Omitted entirely from the yaml when
+  // no perms are set — the backend treats absent as "no change", and `{}` as
+  // "clear all" (see windmill-api-flows::update_flow).
+  extra_perms?: Record<string, boolean>;
 }
 
 function normalizeOptionalString(value: string | null | undefined): string | undefined {
