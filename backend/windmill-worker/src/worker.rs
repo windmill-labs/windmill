@@ -993,12 +993,16 @@ async fn get_otel_tracing_proxy_envs(
     ])
 }
 
-/// Build the NO_PROXY value for jobs routed through the OTEL tracing proxy by merging the
-/// hosts configured in instance settings with the worker's own NO_PROXY env (deduplicated,
-/// order-preserved). Entries here are tunneled through the proxy without MITM, so clients
-/// that pin their own CA (kubectl, helm, terraform, etc.) keep working.
+/// NO_PROXY value injected into jobs so their HTTP clients bypass the local MITM proxy for
+/// the configured hosts. This is distinct from the worker's own NO_PROXY env, which governs
+/// what the MITM proxy bypasses when relaying upstream (e.g. through a corporate proxy) and
+/// is honored automatically by the in-process MITM. The configured hosts are tunneled
+/// through the proxy without TLS interception, so clients that pin their own CA (kubectl,
+/// helm, terraform, etc.) keep working. Loopback is always included so jobs never try to
+/// intercept their own talking to other workers on the same host.
 #[cfg(all(feature = "private", feature = "enterprise"))]
 async fn build_tracing_proxy_no_proxy() -> String {
+    const DEFAULTS: &str = "localhost,127.0.0.1";
     let configured = OTEL_TRACING_PROXY_SETTINGS
         .read()
         .await
@@ -1006,8 +1010,10 @@ async fn build_tracing_proxy_no_proxy() -> String {
         .clone();
     let mut seen = std::collections::HashSet::new();
     let mut out: Vec<String> = Vec::new();
-    let sources = [configured.as_deref(), NO_PROXY.as_deref()];
-    for source in sources.into_iter().flatten() {
+    for source in [configured.as_deref(), Some(DEFAULTS)]
+        .into_iter()
+        .flatten()
+    {
         for entry in source.split(',') {
             let trimmed = entry.trim();
             if !trimmed.is_empty() && seen.insert(trimmed.to_string()) {

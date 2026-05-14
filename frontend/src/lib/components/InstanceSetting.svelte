@@ -716,12 +716,12 @@
 									bind:value={$values[setting.key].no_proxy_hosts}
 								/>
 								<p class="text-xs text-tertiary">
-									Comma-separated host patterns tunneled through the proxy without TLS
-									interception. Use this for clients that pin their own CA — kubectl,
-									helm, terraform providers, aws cli for EKS, etc. — which would
-									otherwise fail with <code
-										>x509: certificate signed by unknown authority</code
-									>. Appended to the worker's existing NO_PROXY env var.
+									Comma-separated host patterns that job HTTP clients should bypass the tracing
+									proxy for — those hosts will not be traced. Use this for clients that pin their
+									own CA (kubectl, helm, terraform providers, aws cli for EKS, etc.) which would
+									otherwise fail with <code>x509: certificate signed by unknown authority</code>.
+									Independent of the worker's own <code>NO_PROXY</code> env, which governs the proxy's
+									upstream relay (e.g. through a corporate proxy).
 								</p>
 							</div>
 						{/if}
