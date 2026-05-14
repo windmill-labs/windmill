@@ -37,7 +37,11 @@ fn audit_action_prefix_for_acl_kind(kind: &str) -> Option<&'static str> {
         "script" => Some("scripts"),
         "flow" => Some("flows"),
         "app" => Some("apps"),
-        "raw_app" => Some("apps"),
+        // Distinct prefix so dashboards aggregating on `action` can separate
+        // raw_app ACL mutations from regular app ones without parsing the
+        // `kind` parameters field. (The granular_acls SQL routes raw_app
+        // writes to the same `app` table; audit log identity is separate.)
+        "raw_app" => Some("raw_apps"),
         "resource" => Some("resources"),
         "variable" => Some("variables"),
         "schedule" => Some("schedules"),
