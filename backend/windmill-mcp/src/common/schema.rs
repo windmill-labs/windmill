@@ -116,6 +116,17 @@ fn apply_resource_enrichment(
     };
     prop_map.insert("type".to_string(), Value::String("string".to_string()));
     prop_map.insert("description".to_string(), Value::String(description));
+    // Drop the Windmill-internal keys we just consumed so the node is clean
+    // regardless of whether `make_schema_compatible` runs after us. (Its strip
+    // only fires while `type == "resource"`, which is no longer true here.)
+    prop_map.remove("resourceType");
+    if prop_map
+        .get("format")
+        .and_then(Value::as_str)
+        .is_some_and(|s| s.starts_with("resource-"))
+    {
+        prop_map.remove("format");
+    }
     if resources_count > 0 {
         let resources_description = resource_cache
             .iter()
@@ -145,8 +156,8 @@ fn apply_resource_enrichment(
 
 /// Walk a schema and enrich every Windmill-resource reference (in either shape,
 /// at any nesting depth) with `type: "string"` and a description listing
-/// available resources. Leftover non-standard keys (`format: resource-*`,
-/// `resourceType`) are cleaned up by `make_schema_compatible` afterwards.
+/// available resources. The non-standard keys (`format: resource-*`,
+/// `resourceType`) consumed by the enrichment are stripped in place.
 pub fn enrich_resource_schemas(
     node: &mut Value,
     resources_cache: &HashMap<String, Vec<ResourceInfo>>,
@@ -702,6 +713,7 @@ mod tests {
         enrich_resource_schemas(&mut node, &cache, &types);
 
         assert_eq!(node["type"], json!("string"));
+        assert!(node.get("format").is_none());
         let desc = node["description"].as_str().unwrap();
         assert!(desc.contains("c_aws_account"));
         assert!(desc.contains("$res:f/platform/aws_dev"));
@@ -719,12 +731,12 @@ mod tests {
         enrich_resource_schemas(&mut node, &cache, &types);
 
         // The items schema should be rewritten to string with a description
-        // listing the available resources.
+        // listing the available resources, and the Windmill-internal
+        // resourceType key should be stripped.
         assert_eq!(node["items"]["type"], json!("string"));
+        assert!(node["items"].get("resourceType").is_none());
         let desc = node["items"]["description"].as_str().unwrap();
         assert!(desc.contains("$res:f/platform/aws_dev"));
-        // The Windmill-internal resourceType key is left behind — make_schema_compatible
-        // strips it afterwards.
     }
 
     #[test]
