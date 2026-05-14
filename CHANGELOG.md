@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.702.0](https://github.com/windmill-labs/windmill/compare/v1.701.0...v1.702.0) (2026-05-14)
+
+
+### Features
+
+* **git-sync:** sync extra_perms for flows/scripts/apps ([#9162](https://github.com/windmill-labs/windmill/issues/9162)) ([5e909b2](https://github.com/windmill-labs/windmill/commit/5e909b2b4f2819f19deaf06d9e78e6458b324683))
+* include service accounts in instance settings users list ([#9157](https://github.com/windmill-labs/windmill/issues/9157)) ([e5286f4](https://github.com/windmill-labs/windmill/commit/e5286f46074cf2893e6ccd26175f929f16011c8f))
+
+
+### Bug Fixes
+
+* **mcp:** sanitize and enrich nested resource schemas ([#9158](https://github.com/windmill-labs/windmill/issues/9158)) ([d870edc](https://github.com/windmill-labs/windmill/commit/d870edc959481a06c894b4eda5e2be1a0269d7d0))
+
 ## [1.701.0](https://github.com/windmill-labs/windmill/compare/v1.700.2...v1.701.0) (2026-05-13)
 
 
