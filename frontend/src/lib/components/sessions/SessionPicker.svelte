@@ -108,14 +108,25 @@
 			if (s.transient) return false
 			if (s.archived && !showArchived.val) return false
 			const ws = getEffectiveWorkspaceId(s)
-			return ws ? $visibleWorkspaceIds.has(ws) : false
+			if (!ws) return false
+			if ($visibleWorkspaceIds.has(ws)) return true
+			// Unavailable sessions (committed workspace was deleted /
+			// archived / access revoked) stay visible everywhere so the
+			// user can resolve them — move, archive, or delete. They'd
+			// otherwise be permanently hidden the moment their workspace
+			// disappeared.
+			if (s.workspace_id && !$userWorkspaces.find((w) => w.id === s.workspace_id)) return true
+			return false
 		})
 	)
 	const archivedCount = $derived(
 		sessionState.sessions.filter((s) => {
 			if (!s.archived || s.transient) return false
 			const ws = getEffectiveWorkspaceId(s)
-			return ws ? $visibleWorkspaceIds.has(ws) : false
+			if (!ws) return false
+			if ($visibleWorkspaceIds.has(ws)) return true
+			if (s.workspace_id && !$userWorkspaces.find((w) => w.id === s.workspace_id)) return true
+			return false
 		}).length
 	)
 
@@ -406,15 +417,13 @@
 					{@const status = runtime ? getSessionChatStatus(runtime) : 'idle'}
 					{@const isSelected = session.id === sessionState.currentSessionId}
 					{@const isEditing = editingId === session.id}
-					{@const unavailable = isUnavailableFork(session)}
 					{@const unread = unreadFor(session)}
 					{@const draft = hasDraft(session)}
 					<div
 						class={twMerge(
 							'flex flex-row items-center group rounded',
 							isSelected ? 'bg-surface-hover text-primary' : 'hover:bg-surface-hover',
-							session.archived ? 'italic opacity-60' : '',
-							unavailable ? 'line-through opacity-60' : ''
+							session.archived ? 'italic opacity-60' : ''
 						)}
 					>
 						{#if isEditing}

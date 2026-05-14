@@ -19,12 +19,20 @@
 		hideInputBorder = false,
 		hideHeader = false,
 		hideModeSelector = false,
+		forceDisabled = false,
+		forceDisabledMessage = '',
 		emptyHint,
 		inputPreface
 	}: {
 		hideInputBorder?: boolean
 		hideHeader?: boolean
 		hideModeSelector?: boolean
+		// External "you can't type here" override. Used by sessions when
+		// the session's committed workspace was deleted/archived so the
+		// chat is effectively read-only until the user moves or discards
+		// the session. Wins over the internal disabled derivation.
+		forceDisabled?: boolean
+		forceDisabledMessage?: string
 		emptyHint?: import('svelte').Snippet
 		inputPreface?: import('svelte').Snippet
 	} = $props()
@@ -32,21 +40,24 @@
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const hasCopilot = $derived($copilotInfo.enabled)
 	const disabled = $derived(
-		!hasCopilot ||
+		forceDisabled ||
+			!hasCopilot ||
 			(aiChatManager.mode === AIMode.SCRIPT &&
 				aiChatManager.scriptEditorOptions?.lang &&
 				!SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(aiChatManager.scriptEditorOptions.lang))
 	)
 	const disabledMessage = $derived(
-		!hasCopilot
-			? isAdmin
-				? `Enable Windmill AI in your [workspace settings](${base}/workspace_settings?tab=ai) to use this chat`
-				: 'Ask an admin to enable Windmill AI in this workspace to use this chat'
-			: aiChatManager.mode === AIMode.SCRIPT &&
-				  aiChatManager.scriptEditorOptions?.lang &&
-				  !SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(aiChatManager.scriptEditorOptions.lang)
-				? `Windmill AI does not support the ${aiChatManager.scriptEditorOptions.lang} language yet.`
-				: ''
+		forceDisabled
+			? forceDisabledMessage
+			: !hasCopilot
+				? isAdmin
+					? `Enable Windmill AI in your [workspace settings](${base}/workspace_settings?tab=ai) to use this chat`
+					: 'Ask an admin to enable Windmill AI in this workspace to use this chat'
+				: aiChatManager.mode === AIMode.SCRIPT &&
+					  aiChatManager.scriptEditorOptions?.lang &&
+					  !SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(aiChatManager.scriptEditorOptions.lang)
+					? `Windmill AI does not support the ${aiChatManager.scriptEditorOptions.lang} language yet.`
+					: ''
 	)
 
 	const suggestions = [

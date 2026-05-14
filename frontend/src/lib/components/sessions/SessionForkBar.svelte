@@ -1,13 +1,17 @@
 <script lang="ts">
 	import {
+		Archive,
 		ArrowRight,
 		GitCompareArrows,
 		GitFork,
 		GitMerge,
 		GitPullRequestArrow,
-		GitPullRequestClosed
+		GitPullRequestClosed,
+		MoveRight,
+		Trash2
 	} from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
+	import WorkspaceFamilyPicker from './WorkspaceFamilyPicker.svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { goto } from '$lib/navigation'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
@@ -16,7 +20,23 @@
 	import { getRuntime } from './sessionRuntime.svelte'
 	import ForkDiffDrawer from './ForkDiffDrawer.svelte'
 
-	let { session }: { session: Session } = $props()
+	let {
+		session,
+		onMove,
+		onCreateForkAndMove,
+		onArchive,
+		onDelete
+	}: {
+		session: Session
+		onMove?: (workspaceId: string) => void
+		onCreateForkAndMove?: (fork: {
+			parent_workspace_id: string
+			id: string
+			name: string
+		}) => void | Promise<void>
+		onArchive?: () => void
+		onDelete?: () => void
+	} = $props()
 
 	// The fork bar surfaces a committed workspace relationship — only
 	// visible after the session locked its workspace at first send. Drafts
@@ -90,38 +110,44 @@
 	}
 </script>
 
-{#if forksAllowed && committedId && isUnavailable}
+{#if committedId && isUnavailable}
 	<!-- Fork workspace is no longer in the user's list (deleted, archived,
-	     or access revoked). Surface a terminal read-only banner; we don't
-	     know the parent so the → label is omitted. -->
-	<div
-		class="flex flex-row items-center justify-between gap-2 py-2 px-3 text-xs border rounded-md bg-surface-tertiary"
-	>
-		<div class="flex items-center gap-1.5 min-w-0">
-			<GitPullRequestClosed class="w-3.5 h-3.5 shrink-0 text-tertiary" />
-			<span class="truncate text-tertiary line-through" title={committedId}>
-				{committedId}
-			</span>
-			<span class="text-2xs text-tertiary italic shrink-0">unavailable</span>
+	     or access revoked). Surface an actionable banner: move the session
+	     to a still-valid workspace, or discard it (archive / delete). The
+	     chat input is disabled by SessionWrapper while this is shown. -->
+	<div class="flex flex-col gap-2 py-2 px-3 text-xs border rounded-md bg-surface-tertiary">
+		<div class="flex flex-row items-start gap-2">
+			<GitPullRequestClosed class="w-4 h-4 shrink-0 text-tertiary mt-0.5" />
+			<div class="flex flex-col min-w-0 flex-1">
+				<span class="text-primary font-medium">The fork has been archived or deleted</span>
+				<span class="text-2xs text-tertiary">
+					Move this session to another workspace, or discard it.
+					<span class="font-mono text-tertiary" title={committedId}>{committedId}</span>
+				</span>
+			</div>
 		</div>
-		<div class="flex items-center gap-1 shrink-0">
-			<Button
-				variant="subtle"
-				unifiedSize="xs"
-				startIcon={{ icon: GitCompareArrows }}
-				disabled
-				title="Fork is unavailable"
+		<div class="flex flex-row items-center justify-end gap-1.5">
+			<WorkspaceFamilyPicker
+				onPick={(workspaceId) => onMove?.(workspaceId)}
+				onCreateFork={async (fork) => {
+					await onCreateForkAndMove?.(fork)
+				}}
+				createForkCaption="Created immediately and the session moved into it."
 			>
-				0
-			</Button>
+				{#snippet trigger()}
+					<Button variant="default" unifiedSize="sm" startIcon={{ icon: MoveRight }}>
+						Move to workspace
+					</Button>
+				{/snippet}
+			</WorkspaceFamilyPicker>
 			<Button
 				variant="default"
-				unifiedSize="xs"
-				startIcon={{ icon: GitMerge }}
-				disabled
-				title="Fork is unavailable"
+				unifiedSize="sm"
+				startIcon={{ icon: Archive }}
+				dropdownItems={[{ label: 'Delete', icon: Trash2, onClick: () => onDelete?.() }]}
+				on:click={() => onArchive?.()}
 			>
-				Review
+				Archive
 			</Button>
 		</div>
 	</div>

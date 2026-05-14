@@ -307,23 +307,14 @@ export async function commitSessionWorkspace(
 
 	if (s.pending_fork) {
 		const fork = s.pending_fork
-		try {
-			await WorkspaceService.createWorkspaceFork({
-				workspace: fork.parent_workspace_id,
-				requestBody: { id: fork.id, name: fork.name }
-			})
-			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-			if (get(workspaceStore) !== fork.id) switchWorkspace(fork.id)
-			s.workspace_id = fork.id
-			s.pending_fork = undefined
-			s.pending_workspace_id = undefined
-			persistSessions()
-			sendUserToast(`Created fork ${fork.name}`)
-			return fork.id
-		} catch (e: any) {
-			sendUserToast(`Could not create fork: ${e?.body ?? e?.message ?? e}`, true)
-			return undefined
-		}
+		const newId = await materializeFork(fork)
+		if (!newId) return undefined
+		if (get(workspaceStore) !== newId) switchWorkspace(newId)
+		s.workspace_id = newId
+		s.pending_fork = undefined
+		s.pending_workspace_id = undefined
+		persistSessions()
+		return newId
 	}
 
 	const ws = s.pending_workspace_id ?? fallback
@@ -362,6 +353,58 @@ export function renameSession(id: string, newSummary: string) {
 	if (!s) return
 	s.summary = trimmed.length > 0 ? trimmed : undefined
 	persistSessions()
+}
+
+// Create a new fork workspace via the API, refresh the user-workspaces
+// store, and return the new fork id. Used by both the first-send commit
+// path (commitSessionWorkspace) and the move-session-to-a-new-fork path
+// in the unavailable-session banner. Returns undefined on failure (a
+// user-facing toast is already emitted).
+export async function materializeFork(fork: PendingFork): Promise<string | undefined> {
+	try {
+		await WorkspaceService.createWorkspaceFork({
+			workspace: fork.parent_workspace_id,
+			requestBody: { id: fork.id, name: fork.name }
+		})
+		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+		sendUserToast(`Created fork ${fork.name}`)
+		return fork.id
+	} catch (e: any) {
+		sendUserToast(`Could not create fork: ${e?.body ?? e?.message ?? e}`, true)
+		return undefined
+	}
+}
+
+// Re-assign a committed session to a different workspace. Used to rescue
+// sessions whose original workspace was deleted / archived / had access
+// revoked — the chat history (stored in IndexedDB keyed by session id) is
+// preserved; only the workspace pointer changes. Drops pending fields
+// since the session is already past the draft stage by definition.
+export function moveSessionToWorkspace(id: string, newWorkspaceId: string) {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s) return
+	if (s.workspace_id === newWorkspaceId) return
+	s.workspace_id = newWorkspaceId
+	delete s.pending_workspace_id
+	delete s.pending_fork
+	persistSessions()
+}
+
+// Create a brand-new fork and re-assign a committed session to it. Used
+// by the unavailable-session banner's "Create new fork" path in the
+// move dropdown. On success the global workspace is switched to the
+// freshly created fork.
+export async function moveSessionToNewFork(
+	id: string,
+	fork: PendingFork
+): Promise<string | undefined> {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s) return undefined
+	const newId = await materializeFork(fork)
+	if (!newId) return undefined
+	if (get(workspaceStore) !== newId) switchWorkspace(newId)
+	moveSessionToWorkspace(id, newId)
+	return newId
 }
 
 export function setSessionArchived(id: string, archived: boolean) {

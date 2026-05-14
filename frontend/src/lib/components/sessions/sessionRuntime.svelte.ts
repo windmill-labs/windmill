@@ -397,12 +397,23 @@ function createRuntime(session: Session): SessionRuntime {
 			if (sep < 0) return
 			const parent = key.slice(0, sep)
 			const fork = key.slice(sep + 1)
-			// Clear so the next ensure() round-trips even though the key
-			// is unchanged; this is the only path callers can use to
-			// force a refresh after a known external mutation.
-			forkComparisonKey = undefined
-			forkComparison.val = undefined
-			await this.ensureForkComparison(parent, fork)
+			// Stale-while-revalidate: re-fetch in place so the cached
+			// status (driving the sidebar dot, fork bar, etc.) stays put
+			// until the new result lands. Clearing forkComparison.val
+			// here flickered the icon back to the neutral GitFork on
+			// every session-activate refresh.
+			if (loadingForkComparison) return
+			loadingForkComparison = true
+			try {
+				forkComparison.val = await WorkspaceService.compareWorkspaces({
+					workspace: parent,
+					targetWorkspaceId: fork
+				})
+			} catch (e) {
+				console.error('SessionRuntime: forkComparison refresh failed', e)
+			} finally {
+				loadingForkComparison = false
+			}
 		}
 	}
 }

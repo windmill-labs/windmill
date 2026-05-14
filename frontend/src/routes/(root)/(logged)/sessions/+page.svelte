@@ -17,6 +17,7 @@
 	import { markSessionSeen } from '$lib/components/sessions/sessionUnread.svelte'
 	import { visibleWorkspaceIds } from '$lib/components/sessions/sessionScope.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
+	import { userWorkspaces } from '$lib/stores'
 
 	const globalEnabled = isGlobalAiEnabled()
 
@@ -30,21 +31,30 @@
 
 	// If the deep-linked session committed to a workspace different from
 	// the active one, switch globally so visibility resolves and the
-	// editor loads against the right workspace.
+	// editor loads against the right workspace. Skip the switch when the
+	// target workspace is no longer in the user's list — pointing the
+	// global workspace at a deleted id would break sidebar scope and the
+	// editor; SessionWrapper handles the unavailable state separately.
 	$effect(() => {
 		const ws = sessionByName?.workspace_id
 		if (!ws) return
+		if (!$userWorkspaces.find((w) => w.id === ws)) return
 		untrack(() => syncWorkspaceTo(ws))
 	})
 
-	// Only resolve the active session if its effective workspace is in
-	// scope (active workspace + its forks). Drafts route via their
-	// pending pick.
+	// Resolve the active session if its effective workspace is in scope
+	// (active workspace + its forks). Unavailable sessions — committed to
+	// a workspace that no longer exists — also resolve so the user can
+	// land on the move/discard banner instead of hitting "Session not
+	// found".
 	const activeSession = $derived(
 		sessionState.sessions.find((s) => {
 			if (s.name !== sessionName) return false
 			const ws = getEffectiveWorkspaceId(s)
-			return ws ? $visibleWorkspaceIds.has(ws) : false
+			if (!ws) return false
+			if ($visibleWorkspaceIds.has(ws)) return true
+			if (s.workspace_id && !$userWorkspaces.find((w) => w.id === s.workspace_id)) return true
+			return false
 		})
 	)
 
@@ -80,14 +90,19 @@
 		})
 	})
 
-	// Warm = has a live runtime (module-scoped) AND its workspace is in scope.
+	// Warm = has a live runtime (module-scoped) AND its workspace is in
+	// scope (or its workspace is unavailable — those sessions still need
+	// to render the move/discard banner instead of vanishing on us).
 	const warmSessions = $derived(
 		listRuntimes()
 			.map((r) => sessionState.sessions.find((s) => s.id === r.sessionId))
 			.filter((s): s is NonNullable<typeof s> => s != null)
 			.filter((s) => {
 				const ws = getEffectiveWorkspaceId(s)
-				return ws ? $visibleWorkspaceIds.has(ws) : false
+				if (!ws) return false
+				if ($visibleWorkspaceIds.has(ws)) return true
+				if (s.workspace_id && !$userWorkspaces.find((w) => w.id === s.workspace_id)) return true
+				return false
 			})
 	)
 

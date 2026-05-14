@@ -51,7 +51,7 @@
 	import DiscordIcon from '../icons/brands/Discord.svelte'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { clearStores } from '$lib/storeUtils'
+	import { clearStores, switchWorkspace } from '$lib/storeUtils'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { goto } from '$lib/navigation'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
@@ -117,6 +117,11 @@
 
 	async function deleteFork() {
 		const workspace = $workspaceStore ?? ''
+		// Capture the parent before delete so we can land the user there
+		// instead of dropping them back on the workspace-picker menu.
+		// Only valid if the parent is still in the user's workspace list.
+		const parentId = $userWorkspaces.find((w) => w.id === workspace)?.parent_workspace_id
+		const parentStillAccessible = !!(parentId && $userWorkspaces.find((w) => w.id === parentId))
 		const dbsToDrop = forkedDatatables.filter((dt) => dt.dropOnDelete).map((dt) => dt.name)
 
 		if (dbsToDrop.length > 0) {
@@ -143,7 +148,12 @@
 		await WorkspaceService.deleteWorkspace({ workspace })
 		sendUserToast('You deleted the workspace')
 		clearStores()
-		goto('/user/workspaces')
+		if (parentStillAccessible && parentId) {
+			switchWorkspace(parentId)
+			await goto('/')
+		} else {
+			await goto('/user/workspaces')
+		}
 	}
 
 	let deleteForkedChildren = $state(false)

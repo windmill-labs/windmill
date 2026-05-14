@@ -7,7 +7,7 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { AIChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { copilotInfo, loadCopilot } from '$lib/aiStore'
 	import {
 		Archive,
@@ -29,8 +29,12 @@
 	import SessionForkBar from './SessionForkBar.svelte'
 	import {
 		commitSessionWorkspace,
+		createSession,
 		getEffectiveWorkspaceId,
+		moveSessionToNewFork,
+		moveSessionToWorkspace,
 		persistSessions,
+		selectSession,
 		sessionState,
 		setSessionArchived,
 		setSessionTarget,
@@ -68,14 +72,27 @@
 
 	let summaryInput: EditableInput | undefined = $state(undefined)
 
+	// Drop the user on a fresh new-session page. Used after archiving or
+	// deleting the open session: the session they were on is no longer
+	// usable, and routing to a sibling would feel arbitrary.
+	async function resetToNewSession() {
+		const fresh = createSession()
+		selectSession(fresh.id)
+		await goto(`/sessions?session_name=${encodeURIComponent(fresh.name)}`)
+	}
+
 	let deleteConfirmOpen = $state(false)
 	async function handleConfirmedDelete() {
 		deleteConfirmOpen = false
 		if (!session) return
 		removeSession(session.id)
-		const next = sessionState.sessions[0]
-		if (next) await goto(`/sessions?session_name=${encodeURIComponent(next.name)}`)
-		else await goto('/sessions')
+		await resetToNewSession()
+	}
+
+	async function archiveAndReset() {
+		if (!session) return
+		setSessionArchived(session.id, true)
+		await resetToNewSession()
 	}
 
 	// Workspace bar is shown only before the session sends its first user
@@ -143,6 +160,27 @@
 		const chat = aiChat
 		setTimeout(() => chat.focusInput(), 0)
 	})
+
+	// True when the session committed to a workspace that's no longer in
+	// the user's list (deleted / archived / access revoked). The chat is
+	// disabled and SessionForkBar shows a move/discard banner.
+	const isUnavailable = $derived(
+		!!session?.workspace_id && !$userWorkspaces.find((w) => w.id === session!.workspace_id)
+	)
+
+	async function moveAndActivate(targetWorkspaceId: string) {
+		if (!session) return
+		moveSessionToWorkspace(session.id, targetWorkspaceId)
+	}
+
+	async function createForkAndMove(fork: {
+		parent_workspace_id: string
+		id: string
+		name: string
+	}) {
+		if (!session) return
+		await moveSessionToNewFork(session.id, fork)
+	}
 </script>
 
 {#if !session || !runtime}
@@ -159,7 +197,13 @@
 		{#if !hasFirstUserMessage}
 			<SessionWorkspaceBar {session} />
 		{/if}
-		<SessionForkBar {session} />
+		<SessionForkBar
+			{session}
+			onMove={(workspaceId) => moveAndActivate(workspaceId)}
+			onCreateForkAndMove={(fork) => createForkAndMove(fork)}
+			onArchive={() => archiveAndReset()}
+			onDelete={() => (deleteConfirmOpen = true)}
+		/>
 	{/snippet}
 
 	<!-- Override the chat's default keyboard-shortcut hint with nothing —
@@ -198,7 +242,7 @@
 							: {
 									displayName: 'Archive',
 									icon: Archive,
-									action: () => setSessionArchived(session.id, true)
+									action: () => archiveAndReset()
 								},
 						{
 							displayName: 'Delete',
@@ -272,6 +316,10 @@
 					hideInputBorder
 					hideHeader
 					hideModeSelector
+					forceDisabled={isUnavailable}
+					forceDisabledMessage={isUnavailable
+						? 'This session is linked to a workspace that no longer exists. Move it or discard it from the banner above to keep working.'
+						: ''}
 					emptyHint={sessionEmptyHint}
 					{inputPreface}
 				/>

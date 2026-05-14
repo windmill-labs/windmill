@@ -64,7 +64,7 @@
 		{:else if forkStatus === 'diverged'}
 			<GitCompareArrows class="w-3 h-3 text-amber-500" />
 		{:else if forkStatus === 'unavailable'}
-			<GitPullRequestClosed class="w-3 h-3 text-tertiary opacity-60" />
+			<GitPullRequestClosed class="w-3 h-3 text-red-500" />
 		{:else}
 			<GitFork class="w-3 h-3 text-tertiary" />
 		{/if}
