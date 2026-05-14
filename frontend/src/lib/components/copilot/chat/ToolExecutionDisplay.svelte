@@ -17,10 +17,13 @@
 		message.parameters !== undefined && Object.keys(message.parameters).length > 0
 	)
 
+	const hasPendingQuestion = $derived(!!message.pendingQuestion)
+
 	let isExpanded = $derived(
 		message.showDetails ||
 			(message.isStreamingArguments && hasParameters) ||
-			(message.isLoading && message.needsConfirmation)
+			(message.isLoading && message.needsConfirmation) ||
+			hasPendingQuestion
 	)
 
 	const visibleActions = $derived(
@@ -67,70 +70,96 @@
 	<!-- Expanded Content -->
 	{#if isExpanded}
 		<div class="p-2 bg-surface space-y-3">
-			<!-- Parameters Section - show if we have parameters, or if confirmation is needed (even with empty params) -->
-			{#if hasParameters || message.needsConfirmation}
-				<div class={message.needsConfirmation ? 'opacity-80' : ''}>
-					<ToolContentDisplay
-						title="Parameters"
-						content={message.parameters}
-						streaming={message.isStreamingArguments}
-						toolName={message.toolName}
-						showFade={message.showFade}
-					/>
+			<!-- User question prompt: takes over the card while the
+			     ask_user_question tool is paused waiting for an answer. -->
+			{#if message.pendingQuestion}
+				<div class="space-y-2 font-sans">
+					<div class="text-primary text-sm">{message.pendingQuestion.question}</div>
+					<div class="flex flex-col gap-1.5">
+						{#each message.pendingQuestion.options as opt}
+							<button
+								type="button"
+								class="text-left px-3 py-2 rounded-md border border-gray-200 dark:border-gray-700 hover:bg-surface-hover hover:border-blue-400 transition-colors"
+								onclick={() => {
+									if (message.tool_call_id) {
+										aiChatManager.handleToolAnswer(message.tool_call_id, opt.value)
+									}
+								}}
+							>
+								<div class="text-primary text-xs font-medium">{opt.label}</div>
+								{#if opt.description}
+									<div class="text-tertiary text-2xs mt-0.5">{opt.description}</div>
+								{/if}
+							</button>
+						{/each}
+					</div>
 				</div>
-			{/if}
+			{:else}
+				<!-- Parameters Section - show if we have parameters, or if confirmation is needed (even with empty params) -->
+				{#if hasParameters || message.needsConfirmation}
+					<div class={message.needsConfirmation ? 'opacity-80' : ''}>
+						<ToolContentDisplay
+							title="Parameters"
+							content={message.parameters}
+							streaming={message.isStreamingArguments}
+							toolName={message.toolName}
+							showFade={message.showFade}
+						/>
+					</div>
+				{/if}
 
-			<!-- Confirmation Footer -->
-			{#if message.needsConfirmation}
-				<div
-					class={twMerge(
-						'mt-3 pt-3 flex flex-row items-center justify-end gap-2',
-						hasParameters ? 'border-t border-gray-200 dark:border-gray-700' : ''
-					)}
-				>
-					<Button
-						variant="default"
-						size="xs"
-						on:click={() => {
-							if (message.tool_call_id) {
-								aiChatManager.handleToolConfirmation(message.tool_call_id, false)
-							}
-						}}
-						startIcon={{ icon: XCircle }}
-						destructive
-					></Button>
-					<Button
-						variant="accent"
-						size="xs"
-						on:click={() => {
-							if (message.tool_call_id) {
-								aiChatManager.handleToolConfirmation(message.tool_call_id, true)
-							}
-						}}
-						startIcon={{ icon: Play }}
+				<!-- Confirmation Footer -->
+				{#if message.needsConfirmation}
+					<div
+						class={twMerge(
+							'mt-3 pt-3 flex flex-row items-center justify-end gap-2',
+							hasParameters ? 'border-t border-gray-200 dark:border-gray-700' : ''
+						)}
 					>
-						Run
-					</Button>
-				</div>
+						<Button
+							variant="default"
+							size="xs"
+							on:click={() => {
+								if (message.tool_call_id) {
+									aiChatManager.handleToolConfirmation(message.tool_call_id, false)
+								}
+							}}
+							startIcon={{ icon: XCircle }}
+							destructive
+						></Button>
+						<Button
+							variant="accent"
+							size="xs"
+							on:click={() => {
+								if (message.tool_call_id) {
+									aiChatManager.handleToolConfirmation(message.tool_call_id, true)
+								}
+							}}
+							startIcon={{ icon: Play }}
+						>
+							Run
+						</Button>
+					</div>
 
-				<!-- Logs and Result - hide while streaming -->
-			{:else if !message.isStreamingArguments}
-				<ToolContentDisplay
-					title="Logs"
-					content={message.logs}
-					loading={message.isLoading}
-					showWhileLoading={false}
-				/>
-
-				{#if visibleActions.length > 0}
-					<ToolMessageActions actions={visibleActions} />
-				{:else}
+					<!-- Logs and Result - hide while streaming -->
+				{:else if !message.isStreamingArguments}
 					<ToolContentDisplay
-						title="Result"
-						content={message.result}
-						error={message.error}
+						title="Logs"
+						content={message.logs}
 						loading={message.isLoading}
+						showWhileLoading={false}
 					/>
+
+					{#if visibleActions.length > 0}
+						<ToolMessageActions actions={visibleActions} />
+					{:else}
+						<ToolContentDisplay
+							title="Result"
+							content={message.result}
+							error={message.error}
+							loading={message.isLoading}
+						/>
+					{/if}
 				{/if}
 			{/if}
 		</div>

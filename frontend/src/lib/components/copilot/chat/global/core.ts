@@ -41,12 +41,7 @@ import {
 	validateEditableFlowJson
 } from '../flow/editableFlowJson'
 import { createInlineScriptSession } from '../flow/inlineScriptsUtils'
-import {
-	getFlowPrompt,
-	getRawAppPrompt,
-	getResourcePrompt,
-	getScriptPrompt
-} from '$system_prompts'
+import { getFlowPrompt, getRawAppPrompt, getResourcePrompt, getScriptPrompt } from '$system_prompts'
 import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
@@ -111,6 +106,34 @@ const getInstructionsSchema = z.object({
 		)
 })
 
+const askUserQuestionSchema = z.object({
+	question: z
+		.string()
+		.describe('The question to put to the user, phrased clearly and ending with a question mark.'),
+	options: z
+		.array(
+			z.object({
+				label: z.string().describe('Short text shown on the option button (1–6 words).'),
+				value: z
+					.string()
+					.describe(
+						'Machine-readable value returned to the tool when this option is picked. Keep it concise — you will receive this exact string back as the tool result.'
+					),
+				description: z
+					.string()
+					.optional()
+					.describe(
+						'Optional one-line explanation rendered below the label to clarify what picking this option means.'
+					)
+			})
+		)
+		.min(2)
+		.max(4)
+		.describe(
+			'2–4 mutually exclusive options for the user to choose from. Order most-recommended first.'
+		)
+})
+
 const listWorkspaceItemsSchema = z.object({
 	types: z
 		.array(itemTypeSchema)
@@ -141,9 +164,7 @@ const readWorkspaceItemSchema = z.object({
 })
 
 const writeScriptSchema = z.object({
-	path: z
-		.string()
-		.describe('Workspace path of the script, e.g. f/folder/name or u/user/name.'),
+	path: z.string().describe('Workspace path of the script, e.g. f/folder/name or u/user/name.'),
 	summary: z.string().optional().describe('Short human-readable summary.'),
 	language: scriptLangSchema.describe('Script language.'),
 	content: z.string().describe('Full script source code.')
@@ -165,7 +186,7 @@ const setFlowModuleCodeSchema = z.object({
 		.describe(
 			'Module id whose inline rawscript content to overwrite. Must reference a module whose value.type is "rawscript". Use patch_flow_json for structural changes.'
 		),
-	code: z.string().describe('New script source. Replaces the module\'s value.content entirely.')
+	code: z.string().describe("New script source. Replaces the module's value.content entirely.")
 })
 
 // Flow structure fields are taken as JSON strings rather than typed objects
@@ -174,9 +195,7 @@ const setFlowModuleCodeSchema = z.object({
 // rejects those keywords ("Unknown name $ref/$defs"). Same trick as
 // set_flow_json in chat/flow/core.ts.
 const writeFlowSchema = z.object({
-	path: z
-		.string()
-		.describe('Workspace path of the flow, e.g. f/folder/name or u/user/name.'),
+	path: z.string().describe('Workspace path of the flow, e.g. f/folder/name or u/user/name.'),
 	summary: z.string().optional().describe('Short human-readable summary.'),
 	modules: z.string().describe('JSON string containing the complete flow modules array.'),
 	schema: z
@@ -423,7 +442,12 @@ const deleteAppRunnableSchema = z.object({
 	key: z.string().describe('Key of the backend runnable to remove.')
 })
 
-const FRAMEWORK_KEYS = ['react19', 'react18', 'svelte5', 'vue'] as const satisfies readonly FrameworkKey[]
+const FRAMEWORK_KEYS = [
+	'react19',
+	'react18',
+	'svelte5',
+	'vue'
+] as const satisfies readonly FrameworkKey[]
 
 const initAppSchema = z.object({
 	path: z
@@ -644,7 +668,7 @@ function buildPersistedRunnable(
 					{ type: 'static', value: v, fieldType: 'object' }
 				])
 			)
-		: existing?.fields ?? {}
+		: (existing?.fields ?? {})
 
 	if (input.type === 'inline') {
 		if (!input.inlineScript) {
@@ -698,10 +722,12 @@ type AppMetadata = {
 }
 
 function summarizeAppValue(value: AppDraftValue): AppMetadata {
-	const frontend: AppFrontendFileMetadata[] = Object.entries(value.files).map(([path, content]) => ({
-		path,
-		size: typeof content === 'string' ? content.length : 0
-	}))
+	const frontend: AppFrontendFileMetadata[] = Object.entries(value.files).map(
+		([path, content]) => ({
+			path,
+			size: typeof content === 'string' ? content.length : 0
+		})
+	)
 	const backend: AppBackendRunnableMetadata[] = Object.entries(value.runnables).map(
 		([key, runnable]) => {
 			const converted = convertPersistedToBackendRunnable(runnable as PersistedRunnable, key)
@@ -849,11 +875,7 @@ function triggerToItem(
 type TriggerService = {
 	exists(args: { workspace: string; path: string }): Promise<boolean>
 	get(args: { workspace: string; path: string }): Promise<TriggerLike>
-	list(args: {
-		workspace: string
-		pathStart?: string
-		perPage?: number
-	}): Promise<TriggerLike[]>
+	list(args: { workspace: string; pathStart?: string; perPage?: number }): Promise<TriggerLike[]>
 	create(args: { workspace: string; requestBody: any }): Promise<string>
 	update(args: { workspace: string; path: string; requestBody: any }): Promise<string>
 	delete(args: { workspace: string; path: string }): Promise<string>
@@ -983,7 +1005,7 @@ async function readWorkspaceItem(
 			)
 		case 'resource':
 			return resourceToItem(
-				await ResourceService.getResource({ workspace, path }) as ListableResource,
+				(await ResourceService.getResource({ workspace, path })) as ListableResource,
 				true
 			)
 		case 'variable':
@@ -1207,6 +1229,39 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
+			askUserQuestionSchema,
+			'ask_user_question',
+			"Ask the user a multiple-choice question and wait for their reply. Use this when you need to disambiguate before continuing — for example to pick a target folder/path, choose between framework options, or confirm a non-obvious tradeoff. Provide 2–4 mutually exclusive options; do NOT use this for free-form questions or yes/no confirmations (regular text or the tool-confirmation flow is better for those). The tool result is the picked option's value verbatim, or empty string if the user cancelled."
+		),
+		fn: async ({ args, toolId, toolCallbacks }) => {
+			const parsed = askUserQuestionSchema.parse(args)
+			if (!toolCallbacks.requestAnswer) {
+				throw new Error('ask_user_question is not supported in this chat mode')
+			}
+			toolCallbacks.setToolStatus(toolId, {
+				content: parsed.question,
+				pendingQuestion: { question: parsed.question, options: parsed.options }
+			})
+			const answer = await toolCallbacks.requestAnswer(toolId, {
+				question: parsed.question,
+				options: parsed.options
+			})
+			const picked = parsed.options.find((o) => o.value === answer)
+			toolCallbacks.setToolStatus(toolId, {
+				content: picked
+					? `User picked: ${picked.label}`
+					: answer
+						? `User answer: ${answer}`
+						: 'User cancelled',
+				pendingQuestion: undefined,
+				answeredValue: answer,
+				result: answer
+			})
+			return answer || '(user cancelled the question)'
+		}
+	},
+	{
+		def: createToolDef(
 			listWorkspaceItemsSchema,
 			'list_workspace_items',
 			'List workspace items (scripts, flows, schedules, triggers, resources, variables, apps) and AI drafts. Returns metadata only (no value). Defaults to scripts and flows.'
@@ -1275,12 +1330,7 @@ export const globalTools: Tool<{}>[] = [
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Reading ${parsed.type} "${parsed.path}"...`
 			})
-			const item = await readWorkspaceItem(
-				parsed.type,
-				parsed.path,
-				workspace,
-				parsed.trigger_kind
-			)
+			const item = await readWorkspaceItem(parsed.type, parsed.path, workspace, parsed.trigger_kind)
 			toolCallbacks.setToolStatus(toolId, { content: `Read ${parsed.type} "${parsed.path}"` })
 			return JSON.stringify(serializeWorkspaceItemForRead(item), null, 2)
 		}
@@ -1980,13 +2030,21 @@ async function patchAppFile(
 	ctx: WriteDraftCtx
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
-	const { path, file_path: filePath, old_string: oldString, new_string: newString, replace_all: replaceAll } = args
+	const {
+		path,
+		file_path: filePath,
+		old_string: oldString,
+		new_string: newString,
+		replace_all: replaceAll
+	} = args
 	const target = resolveAppFileTarget(filePath)
 	if (target.kind === 'frontend') {
 		assertNotGeneratedAppFile(target.filePath)
 	}
 
-	toolCallbacks.setToolStatus(toolId, { content: `Patching ${target.filePath} in app "${path}"...` })
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Patching ${target.filePath} in app "${path}"...`
+	})
 
 	const value = await loadAppDraftValue(path, workspace)
 	let currentContent: string
@@ -2020,7 +2078,8 @@ async function patchAppFile(
 			[target.key]: {
 				...runnable!,
 				inlineScript: {
-					language: runnable!.inlineScript?.language ?? (target.extension === 'py' ? 'python3' : 'bun'),
+					language:
+						runnable!.inlineScript?.language ?? (target.extension === 'py' ? 'python3' : 'bun'),
 					content: updated
 				}
 			}
@@ -2044,10 +2103,7 @@ async function patchAppFile(
 }
 
 async function recomputeAppPolicy(value: AppDraftValue): Promise<void> {
-	value.policy = (await updateRawAppPolicy(
-		value.runnables as any,
-		value.policy as any
-	)) as any
+	value.policy = (await updateRawAppPolicy(value.runnables as any, value.policy as any)) as any
 }
 
 async function writeAppRunnable(
@@ -2128,10 +2184,7 @@ const triggerLabels: Record<TriggerKind, string> = {
 	azure: 'Azure Event Grid trigger'
 }
 
-function createOpenScheduleAction(
-	path: string,
-	targetKind: 'script' | 'flow'
-): ToolDisplayAction {
+function createOpenScheduleAction(path: string, targetKind: 'script' | 'flow'): ToolDisplayAction {
 	return {
 		id: `open-deployed-schedule:${path}`,
 		type: 'open_created_resource',
