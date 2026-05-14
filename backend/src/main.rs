@@ -670,7 +670,24 @@ async fn windmill_main() -> anyhow::Result<()> {
             tracing_subscriber::fmt::init();
             tracing::info!("Starting Windmill Kubernetes operator...");
             tracing::info!("Connecting to database...");
-            let db = crate::db_connect::initial_connection().await?;
+
+            #[cfg(all(feature = "enterprise", feature = "private"))]
+            let (operator_killpill_tx, operator_killpill_rx) =
+                tokio::sync::broadcast::channel::<()>(2);
+
+            let db = crate::db_connect::operator_connection(
+                #[cfg(all(feature = "enterprise", feature = "private"))]
+                operator_killpill_rx,
+            )
+            .await?;
+
+            #[cfg(all(feature = "enterprise", feature = "private"))]
+            tokio::spawn(async move {
+                if let Ok(()) = tokio::signal::ctrl_c().await {
+                    let _ = operator_killpill_tx.send(());
+                }
+            });
+
             tracing::info!("Database connected. Starting ConfigMap watcher...");
             windmill_operator::run(db).await?;
             return Ok(());

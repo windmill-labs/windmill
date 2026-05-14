@@ -1218,6 +1218,22 @@ async fn create_script_internal<'c>(
         }
     };
 
+    // Failure, Trigger, and Approval scripts are runnable entrypoints by
+    // definition. They must never be marked `auto_kind = 'lib'`, or they
+    // disappear from the flow error-handler / trigger / approval pickers
+    // (which filter out lib scripts). Strip a stray `lib` here so a parser
+    // misclassification — e.g. failing to detect `main` after a deno_ast
+    // bump — cannot orphan these scripts in the UI.
+    let auto_kind = if matches!(
+        ns.kind,
+        Some(ScriptKind::Failure) | Some(ScriptKind::Trigger) | Some(ScriptKind::Approval)
+    ) && auto_kind.as_deref() == Some("lib")
+    {
+        None
+    } else {
+        auto_kind
+    };
+
     let ci_test_refs =
         windmill_common::schema::parse_ci_test_annotation(&ns.content, &lang.as_comment_lit());
     let auto_kind = if ci_test_refs.is_some() {
@@ -2250,7 +2266,7 @@ async fn exists_script_by_path(
     let path = path.to_path();
 
     let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1)",
+        "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1)",
         path,
         w_id
     )

@@ -762,6 +762,112 @@ def main():
 
 #[cfg(feature = "python")]
 #[sqlx::test(fixtures("base"))]
+async fn test_python_result_preserves_infinity_in_string(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+def main():
+    return {
+        "plain": "Infinity",
+        "embedded": "value=-Infinity end",
+        "nan_word": "this is NaN inside text",
+        "nested": [{"k": "Infinity"}],
+    }
+        "#
+    .to_owned();
+
+    let job = JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        language: ScriptLang::Python3,
+        lock: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        modules: None,
+        tag: None,
+    });
+
+    let result = run_job_in_new_worker_until_complete(&db, false, job, port)
+        .await
+        .json_result()
+        .unwrap();
+
+    assert_eq!(
+        result,
+        serde_json::json!({
+            "plain": "Infinity",
+            "embedded": "value=-Infinity end",
+            "nan_word": "this is NaN inside text",
+            "nested": [{"k": "Infinity"}],
+        })
+    );
+    Ok(())
+}
+
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base"))]
+async fn test_python_result_non_finite_floats_become_null(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+def main():
+    return {
+        "inf": float("inf"),
+        "neg_inf": float("-inf"),
+        "nan": float("nan"),
+        "finite": 1.5,
+        "nested": [float("inf"), {"x": float("nan")}],
+    }
+        "#
+    .to_owned();
+
+    let job = JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        language: ScriptLang::Python3,
+        lock: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        modules: None,
+        tag: None,
+    });
+
+    let result = run_job_in_new_worker_until_complete(&db, false, job, port)
+        .await
+        .json_result()
+        .unwrap();
+
+    assert_eq!(
+        result,
+        serde_json::json!({
+            "inf": null,
+            "neg_inf": null,
+            "nan": null,
+            "finite": 1.5,
+            "nested": [null, {"x": null}],
+        })
+    );
+    Ok(())
+}
+
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base"))]
 async fn test_python_global_site_packages(db: Pool<Postgres>) -> anyhow::Result<()> {
     use windmill_common::worker::ROOT_CACHE_DIR;
 

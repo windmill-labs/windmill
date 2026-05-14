@@ -699,6 +699,31 @@
 									</button>
 								{/each}
 							</div>
+							<div class="flex flex-col gap-1">
+								<label
+									for="otel_tracing_proxy_no_proxy_hosts"
+									class="block text-xs font-semibold text-emphasis"
+								>
+									NO_PROXY hosts (bypass tracing)
+								</label>
+								<TextInput
+									inputProps={{
+										type: 'text',
+										placeholder: '*.eks.amazonaws.com,*.internal',
+										id: 'otel_tracing_proxy_no_proxy_hosts',
+										disabled: !$enterpriseLicense
+									}}
+									bind:value={$values[setting.key].no_proxy_hosts}
+								/>
+								<p class="text-xs text-tertiary">
+									Comma-separated host patterns that job HTTP clients should bypass the tracing
+									proxy for — those hosts will not be traced. Use this for clients that pin their
+									own CA (kubectl, helm, terraform providers, aws cli for EKS, etc.) which would
+									otherwise fail with <code>x509: certificate signed by unknown authority</code>.
+									Independent of the worker's own <code>NO_PROXY</code> env, which governs the proxy's
+									upstream relay (e.g. through a corporate proxy).
+								</p>
+							</div>
 						{/if}
 					</div>
 				{:else if setting.fieldType == 'object_store_config'}

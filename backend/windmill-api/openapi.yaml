@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.700.2
+  version: 1.702.1
   title: Windmill API
 
   contact:
@@ -22639,10 +22639,13 @@ components:
           type: string
         workspace_id:
           type: string
+        read_only:
+          type: boolean
       required:
         - token_prefix
         - created_at
         - last_used_at
+        - read_only
 
     ExternalJwtToken:
       type: object
@@ -22691,6 +22694,12 @@ components:
             type: string
         workspace_id:
           type: string
+        read_only:
+          type: boolean
+          description: |
+            If true, the token is restricted to read-only HTTP methods
+            (GET/HEAD/OPTIONS). Mutating endpoints and job-run actions are
+            rejected with 403, regardless of the scopes attached.
 
     NewTokenImpersonate:
       type: object
@@ -26367,7 +26376,7 @@ components:
           type: string
         login_type:
           type: string
-          enum: ["password", "github"]
+          enum: ["password", "github", "service_account"]
         super_admin:
           type: boolean
         devops:
@@ -26386,9 +26395,11 @@ components:
           type: boolean
         role_source:
           type: string
-          enum: ["manual", "instance_group"]
+          enum: ["manual", "instance_group", "service_account"]
         disabled:
           type: boolean
+        workspace_id:
+          type: string
 
       required:
         - email

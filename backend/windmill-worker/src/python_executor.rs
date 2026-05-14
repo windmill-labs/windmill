@@ -841,7 +841,11 @@ def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
 
-replace_invalid_fields = re.compile(r'(?:\bNaN\b|\\*\\u0000|Infinity|\-Infinity)')
+_u=re.compile(r'\\\\|\\u0000')
+_us=lambda m:' null ' if m.group(0)[1]=='u' else m.group(0)
+_r=lambda m,s='':(_u.sub(_us,s) if '\\u0000' in s else s) if (s:=m.group(0))[0]=='"' else ' null '
+replace_invalid_fields=re.compile(r'"(?:\\.|[^"\\])*"|\bNaN\b|-?Infinity')
+_fix=lambda s:s if 'Infinity' not in s and 'NaN' not in s and '\\u0000' not in s else re.sub(replace_invalid_fields,_r,s)
 
 result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
 
@@ -1367,7 +1371,11 @@ def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
 
-replace_invalid_fields = re.compile(r'(?:\bNaN\b|\\u0000|Infinity|\-Infinity)')
+_u=re.compile(r'\\\\|\\u0000')
+_us=lambda m:' null ' if m.group(0)[1]=='u' else m.group(0)
+_r=lambda m,s='':(_u.sub(_us,s) if '\\u0000' in s else s) if (s:=m.group(0))[0]=='"' else ' null '
+replace_invalid_fields=re.compile(r'"(?:\\.|[^"\\])*"|\bNaN\b|-?Infinity')
+_fix=lambda s:s if 'Infinity' not in s and 'NaN' not in s and '\\u0000' not in s else re.sub(replace_invalid_fields,_r,s)
 
 def res_to_json(res, typ):
 {res_to_json_body}
@@ -2951,7 +2959,7 @@ fn get_result_postprocessor<'a>(skip: bool) -> &'a str {
     if skip {
         "unprocessed"
     } else {
-        "re.sub(replace_invalid_fields, ' null ', unprocessed)"
+        "_fix(unprocessed)"
     }
 }
 

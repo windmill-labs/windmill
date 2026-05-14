@@ -950,7 +950,7 @@ function ZipFSElement(
                 SEP,
                 defaultTs,
                 assigner,
-                { skipInlineScriptSuffix: getNonDottedPaths() },
+                { skipInlineScriptSuffix: getNonDottedPaths(), failOnInlineDirective: true },
               );
               if (flow.value.failure_module) {
                 inlineScripts.push(...extractInlineScriptsForFlows(
@@ -959,7 +959,7 @@ function ZipFSElement(
                   SEP,
                   defaultTs,
                   assigner,
-                  { skipInlineScriptSuffix: getNonDottedPaths() },
+                  { skipInlineScriptSuffix: getNonDottedPaths(), failOnInlineDirective: true },
                 ));
               }
               if (flow.value.preprocessor_module) {
@@ -969,7 +969,7 @@ function ZipFSElement(
                   SEP,
                   defaultTs,
                   assigner,
-                  { skipInlineScriptSuffix: getNonDottedPaths() },
+                  { skipInlineScriptSuffix: getNonDottedPaths(), failOnInlineDirective: true },
                 ));
               }
             } catch (error) {

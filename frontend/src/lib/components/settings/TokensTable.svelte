@@ -170,7 +170,7 @@
 			{#snippet body()}
 				<tbody>
 					{#if tokens && tokens.length > 0}
-						{#each tokens as { token_prefix, expiration, label, scopes, workspace_id } (token_prefix)}
+						{#each tokens as { token_prefix, expiration, label, scopes, workspace_id, read_only } (token_prefix)}
 							{@const badge = expirationBadge(expiration, label)}
 							<tr>
 								<td class="w-32 text-xs text-primary">{token_prefix}****</td>
@@ -185,8 +185,15 @@
 								</td>
 								<td
 									class="min-w-0 max-w-48 truncate text-xs text-secondary"
-									title={scopes?.join(', ') ?? ''}>{scopes?.join(', ') ?? ''}</td
+									title={scopes?.join(', ') ?? ''}
 								>
+									<div class="flex items-center gap-1.5 truncate">
+										{#if read_only}
+											<Badge color="blue" small>Read-only</Badge>
+										{/if}
+										<span class="truncate">{scopes?.join(', ') ?? ''}</span>
+									</div>
+								</td>
 								<td class="w-24 text-center">
 									<div class="flex items-center justify-center gap-1">
 										<Button

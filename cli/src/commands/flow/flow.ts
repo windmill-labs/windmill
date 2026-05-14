@@ -19,6 +19,7 @@ import { defaultFlowDefinition } from "../../../bootstrap/flow_bootstrap.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { FSFSElement, elementsToMap, ignoreF } from "../sync/sync.ts";
 import { Flow } from "../../../gen/types.gen.ts";
+import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 import {
   collectPathScriptPaths,
@@ -41,6 +42,11 @@ export interface FlowFile {
   schema?: any;
   on_behalf_of_email?: string;
   has_on_behalf_of?: boolean;
+  // Mirrors granular ACLs on the flow path. Omitted from flow.yaml when no
+  // perms are set. The CLI applies diffs through /acls/add and /acls/remove
+  // (see applyExtraPermsDiff) — never through update_flow — so a perm-only
+  // change never bumps the flow version.
+  extra_perms?: Record<string, boolean>;
 }
 
 function normalizeOptionalString(value: string | null | undefined): string | undefined {
@@ -174,10 +180,14 @@ export async function pushFlow(
     await replaceInlineScripts([localFlow.value.preprocessor_module], fileReader, log, localPath, SEP, undefined, missingFiles);
   }
   if (missingFiles.length > 0) {
-    log.warn(colors.yellow(
-      `Warning: missing inline script file(s): ${missingFiles.join(", ")}. ` +
-      `The flow will be pushed with unresolved !inline references.`
-    ));
+    // Hard-fail rather than push the literal `!inline path` text as
+    // rawscript.content. That string would be persisted in flow_version.value
+    // and round-trip as the script body on the next pull, overwriting the
+    // user's local handler with the directive — see GIT-871 / #9140.
+    throw new Error(
+      `Cannot push flow ${remotePath}: missing inline script file(s): ${missingFiles.join(", ")}. ` +
+      `Either restore the file(s) or remove the !inline reference(s) from flow.yaml before pushing.`
+    );
   }
 
   const hasOnBehalfOf = (localFlow as any).has_on_behalf_of ?? !!localFlow.on_behalf_of_email;
@@ -193,22 +203,30 @@ export async function pushFlow(
     // On create: backend applies folder defaults — no client-side resolution needed
   }
 
+  // extra_perms is synced independently via /acls/* (see applyExtraPermsDiff)
+  // so a perm-only edit never bumps the flow version. Strip the field from the
+  // body that goes to update_flow / create_flow and treat it as a separate
+  // step both for the up-to-date short-circuit and after the deploy.
+  const { extra_perms: localPerms, ...localFlowBody } = localFlow as FlowFile & {
+    extra_perms?: Record<string, boolean>;
+  };
+
   if (flow) {
-    if (isSuperset(localFlow, flow)) {
+    if (isSuperset(localFlowBody, flow)) {
       log.info(colors.green(`Flow ${remotePath} is up to date`));
-      return;
-    }
-    log.info(colors.bold.yellow(`Updating flow ${remotePath}...`));
-    await wmill.updateFlow({
-      workspace: workspace,
-      path: remotePath.replaceAll(SEP, "/"),
-      requestBody: {
+    } else {
+      log.info(colors.bold.yellow(`Updating flow ${remotePath}...`));
+      await wmill.updateFlow({
+        workspace: workspace,
         path: remotePath.replaceAll(SEP, "/"),
-        deployment_message: message,
-        ...localFlow,
-        ...preserveFields,
-      },
-    });
+        requestBody: {
+          path: remotePath.replaceAll(SEP, "/"),
+          deployment_message: message,
+          ...localFlowBody,
+          ...preserveFields,
+        },
+      });
+    }
   } else {
     log.info(colors.bold.yellow("Creating new flow..."));
     try {
@@ -217,7 +235,7 @@ export async function pushFlow(
         requestBody: {
           path: remotePath.replaceAll(SEP, "/"),
           deployment_message: message,
-          ...localFlow,
+          ...localFlowBody,
           ...preserveFields,
         },
       });
@@ -228,6 +246,22 @@ export async function pushFlow(
       );
     }
   }
+
+  // Independent of whether the flow body changed, sync extra_perms via /acls/*.
+  // Self-contained log line + non-fatal failures.
+  //
+  // No refetch is needed: extra_perms is item-specific and additive on top of
+  // folder perms — folder perms are never merged onto item.extra_perms. And
+  // since the request body sent to update_flow / create_flow doesn't carry
+  // extra_perms, the value we read in the initial getFlowByPath above is
+  // also the post-write value (a no-op deploy can't drift it).
+  await applyExtraPermsDiff(
+    workspace,
+    "flow",
+    remotePath.replaceAll(SEP, "/"),
+    localPerms,
+    (flow as any)?.extra_perms,
+  );
 }
 
 type Options = GlobalOptions;

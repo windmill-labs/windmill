@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
 use windmill_common::{db::UserDB, utils::StripPath, DB};
+use windmill_mcp::common::schema::enrich_resource_schemas;
 use windmill_mcp::common::transform::apply_key_transformation;
 use windmill_mcp::common::types::{
     FlowInfo, HubScriptInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo,
@@ -203,71 +204,13 @@ impl McpBackend for WindmillBackend {
             schema_obj.properties.insert(new_key, value);
         }
 
-        for (_key, prop_value) in schema_obj.properties.iter_mut() {
-            if let Value::Object(prop_map) = prop_value {
-                if let Some(format_value) = prop_map.get("format") {
-                    if let Value::String(format_str) = format_value {
-                        if format_str.starts_with("resource-") {
-                            let resource_type_key =
-                                format_str.split("-").last().unwrap_or_default().to_string();
-                            let resource_type = resources_types
-                                .iter()
-                                .find(|rt| rt.name == resource_type_key);
-                            let resource_type_obj = resource_type.cloned();
-
-                            if let Some(resource_cache) = resources_cache.get(&resource_type_key) {
-                                let resources_count = resource_cache.len();
-                                let description = match resource_type_obj {
-                                    Some(resource_type_obj) => format!(
-                                        "This is a resource named `{}` with the following description: `{}`.\\nThe path of the resource should be used to specify the resource.\\n{}",
-                                        resource_type_obj.name,
-                                        resource_type_obj.description.as_deref().unwrap_or("No description"),
-                                        if resources_count == 0 {
-                                            "This resource does not have any available instances, you should create one from your windmill workspace."
-                                        } else if resources_count > 1 {
-                                            "This resource has multiple available instances, you should precisely select the one you want to use."
-                                        } else {
-                                            "There is 1 resource available."
-                                        }
-                                    ),
-                                    None => "An object parameter.".to_string(),
-                                };
-                                prop_map.insert(
-                                    "type".to_string(),
-                                    Value::String("string".to_string()),
-                                );
-                                prop_map
-                                    .insert("description".to_string(), Value::String(description));
-                                if resources_count > 0 {
-                                    let resources_description = resource_cache
-                                        .iter()
-                                        .map(|resource| {
-                                            format!(
-                                                "{}: $res:{}",
-                                                resource
-                                                    .description
-                                                    .as_deref()
-                                                    .unwrap_or("No title"),
-                                                resource.path
-                                            )
-                                        })
-                                        .collect::<Vec<String>>()
-                                        .join("\\n");
-
-                                    prop_map.insert(
-                                        "description".to_string(),
-                                        Value::String(format!(
-                                            "{}\\nHere are the available resources, in the format title:path. Title can be empty. Path should be used to specify the resource:\\n{}",
-                                            prop_map.get("description").unwrap_or(&Value::String("No description".to_string())),
-                                            resources_description
-                                        )),
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        // Enrich every resource reference in the schema — including those
+        // inside `items`, nested `properties`, etc. — with a description
+        // listing the available resources. Both shapes are handled:
+        //   { type: "object", format: "resource-<name>" }   (top-level scalar)
+        //   { type: "resource", resourceType: "<name>" }    (inside list items)
+        for prop_value in schema_obj.properties.values_mut() {
+            enrich_resource_schemas(prop_value, resources_cache, resources_types);
         }
 
         schema_obj

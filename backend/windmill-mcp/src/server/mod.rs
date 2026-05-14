@@ -12,7 +12,7 @@ pub mod tools;
 
 // Re-export main types
 pub use backend::{BackendResult, McpAuth, McpBackend};
-pub use endpoints::{endpoint_tool_to_mcp_tool, EndpointTool};
+pub use endpoints::{endpoint_tool_to_mcp_tool, is_endpoint_read_only, EndpointTool};
 pub use runner::Runner;
 pub use tools::create_tool_from_item;
 
