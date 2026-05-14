@@ -2,7 +2,7 @@
 	import autosize from '$lib/autosize'
 	import { tick } from 'svelte'
 	import type { ContextElement } from './context'
-	import AvailableContextList from './AvailableContextList.svelte'
+	import ChatContextPicker from './ChatContextPicker.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import { twMerge } from 'tailwind-merge'
@@ -38,7 +38,7 @@
 	let tooltipPosition = $state({ x: 0, y: 0 })
 	let textarea = $state<HTMLTextAreaElement | undefined>(undefined)
 	let tooltipElement = $state<HTMLDivElement | undefined>(undefined)
-	let tooltipCurrentViewNumber = $state(0)
+	let chatContextPicker: ChatContextPicker | undefined = $state()
 
 	// Properties to copy for caret position calculation
 	const properties = [
@@ -185,66 +185,47 @@
 		showContextTooltip = false
 	}
 
-	async function updateTooltipPosition(currentViewItemsNumber: number) {
+	async function updateTooltipPosition() {
 		if (!textarea) return
 
 		try {
 			const coords = getCaretCoordinates(textarea, textarea.selectionEnd)
 			const rect = textarea.getBoundingClientRect()
 
-			const itemHeight = 28 // Estimated height of one item + gap (Button: p-1(8px) + text-xs(16px) = 24px; Parent: gap-1(4px) = 28px)
-			const containerPadding = 8 // p-1 top + p-1 bottom = 4px + 4px = 8px
-			const maxHeight = 192 + containerPadding // max-h-48 (192px) + containerPadding (8px)
+			// ChatContextPicker is fixed 420px wide. Height is capped at 60vh in
+			// search mode, ~200px in categories mode; assume the worst case for
+			// the above-caret flip so the picker never overlaps the caret line.
+			const maxHeight = Math.round(window.innerHeight * 0.6)
+			const margin = 6
 
-			// Calculate uncapped height, subtract gap from last item as it's not needed
-			const numItems = currentViewItemsNumber
-			let uncappedHeight =
-				numItems > 0 ? numItems * itemHeight - 4 + containerPadding : containerPadding
-			// Ensure height is at least containerPadding even if no items
-			uncappedHeight = Math.max(uncappedHeight, containerPadding)
-
-			const estimatedTooltipHeight = Math.min(uncappedHeight, maxHeight)
-			const margin = 6 // Small margin between caret and tooltip
-
-			// Initial position calculation
 			let finalX = rect.left + coords.left - 70
 			let finalY: number
 
 			if (isFirstMessage) {
-				// Position below the caret line
 				finalY = rect.top + coords.top + coords.height - 3
 			} else {
-				// Position above the caret line
-				finalY = rect.top + coords.top - estimatedTooltipHeight - margin
+				finalY = rect.top + coords.top - maxHeight - margin
+				// If flipping above would clip the top of the viewport, pin
+				// below the caret instead.
+				if (finalY < 10) {
+					finalY = rect.top + coords.top + coords.height - 3
+				}
 			}
 
-			// Set initial position
-			tooltipPosition = {
-				x: finalX,
-				y: finalY
-			}
+			tooltipPosition = { x: finalX, y: finalY }
 
-			// Wait for tooltip to render with initial position
 			await tick()
 
-			// Get actual tooltip width if tooltip is rendered
 			if (tooltipElement) {
 				const tooltipRect = tooltipElement.getBoundingClientRect()
 				const tooltipWidth = tooltipRect.width
 
-				// Adjust position if tooltip would overflow right edge
 				if (finalX + tooltipWidth > window.innerWidth) {
 					finalX = Math.max(10, window.innerWidth - tooltipWidth - 10)
-
-					// Update position after measuring actual width
-					tooltipPosition = {
-						x: finalX,
-						y: finalY
-					}
+					tooltipPosition = { x: finalX, y: finalY }
 				}
 			}
 		} catch (error) {
-			// Hide tooltip on any error related to position calculation
 			console.error('Error updating tooltip position', error)
 			showContextTooltip = false
 		}
@@ -275,7 +256,24 @@
 		}
 
 		if (showContextTooltip) {
-			// avoid new line after Enter in the tooltip
+			// Forward navigation keys to the picker so the textarea-focused
+			// user can drive it. The picker preventDefault/stopPropagation's
+			// the ones it handles; we still preventDefault Enter so it never
+			// inserts a newline even if no item is highlighted. ArrowLeft /
+			// ArrowRight forward too but the picker only consumes them when
+			// the search query is empty — so cursor movement within `@xxx`
+			// still works once the user has typed past the `@`.
+			if (
+				e.key === 'ArrowDown' ||
+				e.key === 'ArrowUp' ||
+				e.key === 'ArrowLeft' ||
+				e.key === 'ArrowRight' ||
+				e.key === 'Enter' ||
+				e.key === 'Tab' ||
+				e.key === 'Escape'
+			) {
+				chatContextPicker?.handleKeydown(e)
+			}
 			if (e.key === 'Enter') {
 				e.preventDefault()
 			}
@@ -290,7 +288,7 @@
 
 	$effect(() => {
 		if (showContextTooltip) {
-			updateTooltipPosition(tooltipCurrentViewNumber)
+			updateTooltipPosition()
 		}
 	})
 
@@ -340,10 +338,11 @@
 	<Portal target="body">
 		<div
 			bind:this={tooltipElement}
-			class="absolute bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg"
+			class="absolute bg-surface border border-gray-200 dark:border-gray-700 rounded-md shadow-lg overflow-hidden"
 			style="left: {tooltipPosition.x}px; top: {tooltipPosition.y}px; z-index: {zIndexes.tooltip};"
 		>
-			<AvailableContextList
+			<ChatContextPicker
+				bind:this={chatContextPicker}
 				{availableContext}
 				{selectedContext}
 				onSelect={(element) => {
@@ -353,14 +352,10 @@
 					onAddContext(element)
 					updateInstructionsWithContext(element)
 					showContextTooltip = false
-					// Refocus the textarea since focus may have been on the search input
 					setTimeout(() => textarea?.focus(), 0)
 				}}
-				showAllAvailable={true}
-				stringSearch={contextTooltipWord.slice(1)}
-				onViewChange={(newNumber) => {
-					tooltipCurrentViewNumber = newNumber
-				}}
+				externalFilter={contextTooltipWord.slice(1)}
+				autoFocus={false}
 				setShowing={(showing) => {
 					showContextTooltip = showing
 				}}
