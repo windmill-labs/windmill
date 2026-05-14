@@ -179,7 +179,6 @@ export async function pushApp(
   const { extra_perms: localPerms, ...localAppBody } = localApp as AppFile & {
     extra_perms?: Record<string, boolean>;
   };
-  const remotePerms = (app as any)?.extra_perms;
 
   if (app) {
     if (isSuperset(localAppBody, app)) {
@@ -210,8 +209,18 @@ export async function pushApp(
     });
   }
 
+  // Re-fetch after update/create so applyExtraPermsDiff reconciles against the
+  // post-write perm map (covers folder-inherited entries on the create path).
+  let postRemotePerms: unknown;
+  try {
+    const fresh = await wmill.getAppByPath({ workspace, path: remotePath });
+    postRemotePerms = (fresh as any)?.extra_perms;
+  } catch {
+    postRemotePerms = (app as any)?.extra_perms;
+  }
+
   // Independent perms sync via /acls/* — self-contained log + non-fatal errors.
-  await applyExtraPermsDiff(workspace, "app", remotePath, localPerms, remotePerms);
+  await applyExtraPermsDiff(workspace, "app", remotePath, localPerms, postRemotePerms);
 }
 
 export async function generatingPolicy(

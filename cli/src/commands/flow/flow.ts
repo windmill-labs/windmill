@@ -210,7 +210,6 @@ export async function pushFlow(
   const { extra_perms: localPerms, ...localFlowBody } = localFlow as FlowFile & {
     extra_perms?: Record<string, boolean>;
   };
-  const remotePerms = (flow as any)?.extra_perms;
 
   if (flow) {
     if (isSuperset(localFlowBody, flow)) {
@@ -248,6 +247,24 @@ export async function pushFlow(
     }
   }
 
+  // Re-fetch the flow after update/create so applyExtraPermsDiff sees the
+  // post-write perm map. On the create path this matters because
+  // create_flow may inherit perms from the parent folder's
+  // default_permissioned_as — without a fresh fetch, applyExtraPermsDiff
+  // would only ADD entries from local yaml and never revoke folder-inherited
+  // ones, leaving "why are these perms still there" inconsistencies between
+  // create and update.
+  let postRemotePerms: unknown;
+  try {
+    const fresh = await wmill.getFlowByPath({
+      workspace,
+      path: remotePath.replaceAll(SEP, "/"),
+    });
+    postRemotePerms = (fresh as any)?.extra_perms;
+  } catch {
+    postRemotePerms = (flow as any)?.extra_perms;
+  }
+
   // Independent of whether the flow body changed, sync extra_perms via /acls/*.
   // Self-contained log line + non-fatal failures.
   await applyExtraPermsDiff(
@@ -255,7 +272,7 @@ export async function pushFlow(
     "flow",
     remotePath.replaceAll(SEP, "/"),
     localPerms,
-    remotePerms,
+    postRemotePerms,
   );
 }
 

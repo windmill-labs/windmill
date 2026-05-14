@@ -439,11 +439,12 @@ export async function pushRawApp(
   // extra_perms is synced independently via /acls/* — strip from the
   // up-to-date comparison so a perm-only edit doesn't trigger a rebuild +
   // new app_version. The kind segment is "raw_app" so git-sync writes back
-  // to `<path>.raw_app.json`, not `<path>.app.json`.
+  // to `<path>.raw_app.json`, not `<path>.app.json`. The backend granular_acls
+  // handler routes "raw_app" to the `app` table (where v2 raw apps actually
+  // live) while still dispatching DeployedObject::RawApp for git-sync.
   const { extra_perms: localPerms, ...localAppNoPerms } = localApp as AppFile & {
     extra_perms?: Record<string, boolean>;
   };
-  const remotePerms = (app as any)?.extra_perms;
 
   if (app) {
     // Check both metadata/runnables AND files for changes
@@ -495,12 +496,22 @@ export async function pushRawApp(
     });
   }
 
+  // Re-fetch after update/create so folder-inherited perms on the create
+  // path are surfaced to applyExtraPermsDiff for proper reconciliation.
+  let postRemotePerms: unknown;
+  try {
+    const fresh = await wmill.getAppByPath({ workspace, path: remotePath });
+    postRemotePerms = (fresh as any)?.extra_perms;
+  } catch {
+    postRemotePerms = (app as any)?.extra_perms;
+  }
+
   await applyExtraPermsDiff(
     workspace,
     "raw_app",
     remotePath,
     localPerms,
-    remotePerms,
+    postRemotePerms,
   );
 }
 

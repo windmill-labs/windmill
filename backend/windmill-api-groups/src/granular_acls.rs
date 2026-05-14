@@ -155,9 +155,15 @@ async fn add_granular_acl(
         }
     }
 
+    // v2 raw apps are stored in the `app` table (with `app_version.raw_app = true`
+    // distinguishing them from regular apps); the legacy `raw_app` table no longer
+    // backs the workspace export, so granting/revoking on `raw_app` must hit `app`
+    // for the change to be visible. Git-sync dispatch still uses
+    // DeployedObject::RawApp so the worker writes back `<path>.raw_app.json`.
+    let table = if kind == "raw_app" { "app" } else { kind };
     // SAFETY: `kind` has been validated against the `KINDS` allowlist before reaching this function.
     let obj_o = sqlx::query_scalar::<_, serde_json::Value>(&format!(
-        "UPDATE {kind} SET extra_perms = jsonb_set(extra_perms, $1, to_jsonb($2), \
+        "UPDATE {table} SET extra_perms = jsonb_set(extra_perms, $1, to_jsonb($2), \
          true) WHERE {identifier} = $3 AND workspace_id = $4 RETURNING extra_perms"
     ))
     .bind(vec![owner.clone()])
@@ -368,13 +374,17 @@ async fn remove_granular_acl(
         require_owner_of_path(&authed, path)?;
     }
 
+    // See add_granular_acl: kind="raw_app" must hit the `app` table because v2
+    // raw apps live there and the legacy `raw_app` table no longer backs the
+    // workspace export.
+    let table = if kind == "raw_app" { "app" } else { kind };
     // SAFETY: `kind` has been validated against the `KINDS` allowlist before reaching this function.
     let obj_o = sqlx::query_scalar::<_, bool>(&format!(
         "WITH old AS (
-            SELECT extra_perms->$1 as old_write FROM {kind}
+            SELECT extra_perms->$1 as old_write FROM {table}
             WHERE {identifier} = $2 AND workspace_id = $3 AND extra_perms ? $1
         )
-        UPDATE {kind} SET extra_perms = extra_perms - $1
+        UPDATE {table} SET extra_perms = extra_perms - $1
         WHERE {identifier} = $2 AND workspace_id = $3 AND extra_perms ? $1
         RETURNING (SELECT old_write FROM old)::bool"
     ))
