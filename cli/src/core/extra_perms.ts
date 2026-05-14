@@ -24,9 +24,10 @@ function normalize(value: unknown): PermsMap {
  * exactly as if the user had clicked through the UI.
  *
  * The function is intentionally independent of the surrounding push logic:
- * it has its own log line, its own try/catch, and its own non-fatal failure
- * mode. A stale yaml referencing a deleted user/group surfaces as a yellow
- * warning, not a hard error that would block the surrounding deploy.
+ * it has its own log lines and its own non-fatal failure mode. Each grant /
+ * revoke is logged as a separate line on success; failures are logged in red
+ * but never throw — a stale yaml referencing a deleted user/group surfaces as
+ * a red warning, not a hard error that would block the surrounding deploy.
  *
  * @returns number of /acls/* calls actually issued (0 means perms in sync).
  */
@@ -55,14 +56,9 @@ export async function applyExtraPermsDiff(
     return 0;
   }
 
-  log.info(
-    colors.gray(
-      `Syncing extra_perms for ${kind} ${path} (${toGrant.length} grant, ${toRevoke.length} revoke)`,
-    ),
-  );
-
   let calls = 0;
   for (const [owner, write] of toGrant) {
+    const access = write ? "write" : "read";
     try {
       await wmill.addGranularAcls({
         workspace,
@@ -70,11 +66,16 @@ export async function applyExtraPermsDiff(
         path,
         requestBody: { owner, write },
       });
+      log.info(
+        colors.green(
+          `  extra_perms: granted ${access} to ${owner} on ${kind}/${path}`,
+        ),
+      );
       calls += 1;
     } catch (e: any) {
-      log.warn(
-        colors.yellow(
-          `  extra_perms: failed to grant ${owner}${write ? " (write)" : ""} on ${kind}/${path}: ${e?.body ?? e?.message ?? e}`,
+      log.error(
+        colors.red(
+          `  extra_perms: failed to grant ${access} to ${owner} on ${kind}/${path}: ${e?.body ?? e?.message ?? e}`,
         ),
       );
     }
@@ -88,10 +89,13 @@ export async function applyExtraPermsDiff(
         path,
         requestBody: { owner },
       });
+      log.info(
+        colors.green(`  extra_perms: revoked ${owner} on ${kind}/${path}`),
+      );
       calls += 1;
     } catch (e: any) {
-      log.warn(
-        colors.yellow(
+      log.error(
+        colors.red(
           `  extra_perms: failed to revoke ${owner} on ${kind}/${path}: ${e?.body ?? e?.message ?? e}`,
         ),
       );
