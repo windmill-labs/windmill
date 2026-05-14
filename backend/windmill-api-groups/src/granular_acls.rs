@@ -194,7 +194,7 @@ async fn add_granular_acl(
             )
             .await?
         }
-        "app" | "raw_app" => {
+        "app" => {
             handle_deployment_metadata(
                 &authed.email,
                 &authed.username,
@@ -202,6 +202,24 @@ async fn add_granular_acl(
                 &w_id,
                 DeployedObject::App { path: path.to_string(), parent_path: None, version: 0 },
                 Some(format!("App '{}' changed permissions", path)),
+                true,
+                None,
+            )
+            .await?
+        }
+        "raw_app" => {
+            // RawApp deliberately uses its own DeployedObject variant: the
+            // git-sync worker reads `path_type` ("app" vs "raw_app") to decide
+            // whether to write `<path>.app.json` or `<path>.raw_app.json`.
+            // Collapsing this into `App` would dispatch raw_app perm changes
+            // against the wrong file in the repo.
+            handle_deployment_metadata(
+                &authed.email,
+                &authed.username,
+                &db,
+                &w_id,
+                DeployedObject::RawApp { path: path.to_string(), parent_path: None, version: 0 },
+                Some(format!("Raw App '{}' changed permissions", path)),
                 true,
                 None,
             )
@@ -357,7 +375,7 @@ async fn remove_granular_acl(
                 )
                 .await?
             }
-            "app" | "raw_app" => {
+            "app" => {
                 handle_deployment_metadata(
                     &authed.email,
                     &authed.username,
@@ -365,6 +383,25 @@ async fn remove_granular_acl(
                     &w_id,
                     DeployedObject::App { path: path.to_string(), parent_path: None, version: 0 },
                     Some(format!("App '{}' changed permissions", path)),
+                    true,
+                    None,
+                )
+                .await?
+            }
+            "raw_app" => {
+                // See add_granular_acl: raw_app must use its own DeployedObject
+                // variant so git-sync writes `<path>.raw_app.json`.
+                handle_deployment_metadata(
+                    &authed.email,
+                    &authed.username,
+                    &db,
+                    &w_id,
+                    DeployedObject::RawApp {
+                        path: path.to_string(),
+                        parent_path: None,
+                        version: 0,
+                    },
+                    Some(format!("Raw App '{}' changed permissions", path)),
                     true,
                     None,
                 )
