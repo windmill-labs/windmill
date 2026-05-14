@@ -46,6 +46,7 @@
 	let mcpLabelAutofilled = $state(false)
 
 	let pickedScopes = $state<string[] | null>(null)
+	let readOnly = $state(false)
 
 	function ensureCurrentWorkspaceIncluded(
 		workspacesList: UserWorkspace[],
@@ -67,6 +68,7 @@
 		newTokenWorkspace = defaultNewTokenWorkspace ?? $workspaceStore
 		newToken = undefined
 		newMcpToken = undefined
+		readOnly = false
 		if (!newTokenLabel) {
 			newTokenLabel = 'MCP token'
 			mcpLabelAutofilled = true
@@ -80,6 +82,7 @@
 		newTokenExpiration = undefined
 		newTokenWorkspace = defaultNewTokenWorkspace
 		newMcpToken = undefined
+		readOnly = false
 		if (mcpLabelAutofilled) {
 			newTokenLabel = undefined
 		}
@@ -100,7 +103,8 @@
 					label: newTokenLabel,
 					expiration: date?.toISOString(),
 					scopes: tokenScopes,
-					workspace_id: mcpMode ? newTokenWorkspace || $workspaceStore : newTokenWorkspace
+					workspace_id: mcpMode ? newTokenWorkspace || $workspaceStore : newTokenWorkspace,
+					read_only: readOnly
 				} as NewToken
 			})
 
@@ -184,6 +188,17 @@
 				{#each scopes as scope (scope)}
 					<TextInput inputProps={{ disabled: true }} value={scope} class="mb-2 w-full" />
 				{/each}
+				<div class="text-tertiary">
+					<Toggle
+						bind:checked={readOnly}
+						options={{
+							right: 'Read-only',
+							rightTooltip:
+								'Restricts this token to GET/HEAD endpoints. Any mutating request (POST/PUT/PATCH/DELETE) or job-run action will be rejected with 403, regardless of the scopes listed above.'
+						}}
+						size="2xs"
+					/>
+				</div>
 			</div>
 		{/if}
 
@@ -192,6 +207,7 @@
 				mode={mcpCreationMode ? 'mcp' : 'standard'}
 				workspaceId={newTokenWorkspace || $workspaceStore || ''}
 				bind:value={pickedScopes}
+				bind:readOnly
 			/>
 		{/if}
 

@@ -2,6 +2,7 @@ import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
 import { writeFile, stat, mkdir } from "node:fs/promises";
 import { Buffer } from "node:buffer";
 import { colors } from "@cliffy/ansi/colors";
@@ -83,6 +84,11 @@ export interface ScriptFile {
   is_template?: boolean;
   lock?: Array<string>;
   kind?: "script" | "failure" | "trigger" | "command" | "approval";
+  // Mirrors granular ACLs on the script path. Omitted from .script.yaml when
+  // no perms are set. The CLI applies diffs through /acls/add and /acls/remove
+  // (see applyExtraPermsDiff) — never through create_script — so a perm-only
+  // change never bumps the script hash/version.
+  extra_perms?: Record<string, boolean>;
 }
 
 /**
@@ -542,6 +548,15 @@ export async function handleFile(
             deepEqual(modules ?? null, remote.modules ?? null))
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));
+          // Even when the body is unchanged, perms may still drift — sync them
+          // independently before returning.
+          await applyExtraPermsDiff(
+            workspaceId,
+            "script",
+            remotePath.replaceAll(SEP, "/"),
+            (typed as any)?.extra_perms,
+            (remote as any)?.extra_perms,
+          );
           return true;
         }
       }
@@ -581,6 +596,27 @@ export async function handleFile(
         )
       );
     }
+
+    // Sync granular ACLs as an independent step — perm-only edits never reach
+    // create_script (which would bump the script hash) and instead route
+    // through /acls/* via applyExtraPermsDiff.
+    //
+    // No refetch is needed:
+    //  - folder perms are additive at auth time, never merged onto item rows;
+    //  - the body sent to create_script doesn't carry extra_perms, so a fresh
+    //    deploy of an existing path inherits the previous version's perms
+    //    unchanged. The diff against `remote` (captured before the deploy)
+    //    therefore matches what `wmill acl remove` would do — and the granular
+    //    ACL endpoint updates every matching row, so the inheritance on the
+    //    new version doesn't leave ghost entries.
+    await applyExtraPermsDiff(
+      workspaceId,
+      "script",
+      remotePath.replaceAll(SEP, "/"),
+      (typed as any)?.extra_perms,
+      (remote as any)?.extra_perms,
+    );
+
     return true;
   }
   return false;
