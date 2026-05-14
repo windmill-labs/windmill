@@ -3,18 +3,11 @@
 	import { Button } from '$lib/components/common'
 	import { userWorkspaces } from '$lib/stores'
 	import { goto } from '$lib/navigation'
-	import type { Session, SessionTarget } from './sessionState.svelte'
+	import { sessionState, type Session } from './sessionState.svelte'
 	import { getRuntime } from './sessionRuntime.svelte'
 	import ForkDiffDrawer from './ForkDiffDrawer.svelte'
-	import ForkDiffCountDropdown from './ForkDiffCountDropdown.svelte'
 
-	let {
-		session,
-		onOpenInPanel
-	}: {
-		session: Session
-		onOpenInPanel?: (target: SessionTarget, summary?: string) => void
-	} = $props()
+	let { session }: { session: Session } = $props()
 
 	// The fork bar surfaces a committed workspace relationship — only
 	// visible after the session locked its workspace at first send. Drafts
@@ -37,19 +30,44 @@
 	const runtime = $derived(getRuntime(session.id))
 	const comparison = $derived(runtime?.forkComparison.val)
 	const totalDiffs = $derived(comparison?.summary?.total_diffs ?? 0)
-	const diffs = $derived(comparison?.diffs ?? [])
 
 	$effect(() => {
 		if (!runtime || !committedId || !parentWorkspaceId) return
 		void runtime.ensureForkComparison(parentWorkspaceId, committedId)
 	})
 
-	export function refresh() {
-		if (runtime && committedId && parentWorkspaceId) {
-			runtime.invalidateForkComparison()
-			void runtime.ensureForkComparison(parentWorkspaceId, committedId)
-		}
+	function refreshComparison() {
+		if (!runtime || !committedId || !parentWorkspaceId) return
+		runtime.invalidateForkComparison()
+		void runtime.ensureForkComparison(parentWorkspaceId, committedId)
 	}
+
+	// Refresh when the AI finishes a turn (loading transitions true →
+	// false). Tool calls in that turn may have created / edited / deleted
+	// fork items, so the diff count needs to reflect them immediately.
+	// Cheap over-refresh on read-only turns is fine — single API call.
+	let wasLoading = $state(false)
+	$effect(() => {
+		const isLoading = runtime?.manager.loading ?? false
+		if (wasLoading && !isLoading) refreshComparison()
+		wasLoading = isLoading
+	})
+
+	// Refresh when the tab regains visibility — covers edits made in
+	// another tab or by another user while we were away. No polling
+	// while the tab is hidden or idle.
+	$effect(() => {
+		if (!runtime || !committedId || !parentWorkspaceId) return
+		function onVisibilityChange() {
+			if (document.visibilityState !== 'visible') return
+			if (sessionState.currentSessionId !== session.id) return
+			refreshComparison()
+		}
+		document.addEventListener('visibilitychange', onVisibilityChange)
+		return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+	})
+
+	export const refresh = refreshComparison
 
 	function openReview() {
 		if (!committedId) return
@@ -72,15 +90,15 @@
 			</span>
 		</div>
 		<div class="flex items-center gap-1 shrink-0">
-			<ForkDiffCountDropdown {diffs} workspaceId={committedId} {onOpenInPanel} />
 			<Button
 				variant="subtle"
 				unifiedSize="xs"
 				startIcon={{ icon: GitCompareArrows }}
 				disabled={totalDiffs === 0}
+				title="{totalDiffs} modified item{totalDiffs === 1 ? '' : 's'}"
 				on:click={() => diffDrawer?.open()}
 			>
-				Diff
+				{totalDiffs}
 			</Button>
 			<Button
 				variant="default"

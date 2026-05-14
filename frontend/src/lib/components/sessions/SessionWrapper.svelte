@@ -147,7 +147,7 @@
 		{#if !hasFirstUserMessage}
 			<SessionWorkspaceBar {session} />
 		{/if}
-		<SessionForkBar {session} onOpenInPanel={applyEditorTarget} />
+		<SessionForkBar {session} />
 	{/snippet}
 
 	<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
