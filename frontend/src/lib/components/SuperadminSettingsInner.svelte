@@ -405,7 +405,7 @@
 										</Head>
 										<tbody>
 											{#if filteredUsers && users}
-												{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, devops, login_type, name, username, operator_only, role_source, disabled, workspace_id }, i (email)}
+												{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, devops, login_type, name, username, operator_only, role_source, disabled, workspace_id }, i (email + '::' + (workspace_id ?? ''))}
 													{@const isServiceAccount = login_type === 'service_account'}
 													<tr
 														class="{i % 2 === 0 ? 'bg-surface-tertiary' : 'bg-surface'} {disabled
@@ -584,8 +584,7 @@
 																		<a
 																			href="{base}/workspace_settings?tab=users&workspace={workspace_id}"
 																			class="text-xs text-secondary hover:text-primary hover:underline"
-																			title="Manage in workspace settings"
-																			>Manage in workspace</a
+																			title="Manage in workspace settings">Manage in workspace</a
 																		>
 																	{/if}
 																{:else}
@@ -611,70 +610,70 @@
 																		/>
 																	</div>
 																	<DropdownV2
-																	items={[
-																		{
-																			displayName: 'Edit',
-																			icon: Pencil,
-																			action: () => {
-																				const btn = editWrappers[email]?.querySelector(
-																					'[aria-label="Popup button"]'
-																				)
-																				if (btn instanceof HTMLElement) btn.click()
-																			}
-																		},
-																		{
-																			displayName: disabled ? 'Enable' : 'Disable',
-																			icon: disabled ? CheckCircle2 : Ban,
-																			action: () => {
-																				if (!disabled) {
-																					disableUserEmail = email
-																					disableConfirmedCallback = async () => {
-																						try {
-																							await UserService.globalUserUpdate({
-																								email,
-																								requestBody: { disabled: true }
-																							})
-																							sendUserToast('User disabled')
-																							listUsers(activeOnly)
-																						} catch (e) {
-																							sendUserToast('Failed to disable user', true)
+																		items={[
+																			{
+																				displayName: 'Edit',
+																				icon: Pencil,
+																				action: () => {
+																					const btn = editWrappers[email]?.querySelector(
+																						'[aria-label="Popup button"]'
+																					)
+																					if (btn instanceof HTMLElement) btn.click()
+																				}
+																			},
+																			{
+																				displayName: disabled ? 'Enable' : 'Disable',
+																				icon: disabled ? CheckCircle2 : Ban,
+																				action: () => {
+																					if (!disabled) {
+																						disableUserEmail = email
+																						disableConfirmedCallback = async () => {
+																							try {
+																								await UserService.globalUserUpdate({
+																									email,
+																									requestBody: { disabled: true }
+																								})
+																								sendUserToast('User disabled')
+																								listUsers(activeOnly)
+																							} catch (e) {
+																								sendUserToast('Failed to disable user', true)
+																							}
 																						}
+																					} else {
+																						UserService.globalUserUpdate({
+																							email,
+																							requestBody: { disabled: false }
+																						})
+																							.then(() => {
+																								sendUserToast('User enabled')
+																								listUsers(activeOnly)
+																							})
+																							.catch(() => {
+																								sendUserToast('Failed to enable user', true)
+																							})
 																					}
-																				} else {
-																					UserService.globalUserUpdate({
-																						email,
-																						requestBody: { disabled: false }
-																					})
-																						.then(() => {
-																							sendUserToast('User enabled')
-																							listUsers(activeOnly)
-																						})
-																						.catch(() => {
-																							sendUserToast('Failed to enable user', true)
-																						})
+																				}
+																			},
+																			{
+																				displayName: 'Reassign',
+																				icon: ArrowRightLeft,
+																				action: () => {
+																					offboardingEmail = email
+																					offboardingReassignOnly = true
+																				}
+																			},
+																			{
+																				displayName: 'Remove',
+																				icon: UserMinus,
+																				type: 'delete',
+																				action: () => {
+																					offboardingEmail = email
+																					offboardingReassignOnly = false
 																				}
 																			}
-																		},
-																		{
-																			displayName: 'Reassign',
-																			icon: ArrowRightLeft,
-																			action: () => {
-																				offboardingEmail = email
-																				offboardingReassignOnly = true
-																			}
-																		},
-																		{
-																			displayName: 'Remove',
-																			icon: UserMinus,
-																			type: 'delete',
-																			action: () => {
-																				offboardingEmail = email
-																				offboardingReassignOnly = false
-																			}
-																		}
-																	]}
-																/>
-															{/if}
+																		]}
+																	/>
+																{/if}
 															</div>
 														</Cell>
 													</tr>
