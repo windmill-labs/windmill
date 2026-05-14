@@ -7,28 +7,54 @@ export type ExtraPermsKind = AddGranularAclsData["kind"];
 
 type PermsMap = Record<string, boolean>;
 
-function normalize(
-  value: unknown,
-  source: string,
-): { perms: PermsMap; invalid: string[] } {
+type Normalized = {
+  perms: PermsMap;
+  /** Keys with non-boolean values: never revoked, never granted — treat as "no opinion". */
+  invalidOwners: Set<string>;
+  /** Top-level value is not a plain object (array, primitive, etc.). The
+   *  entire map is rejected and the caller must treat it like "no opinion"
+   *  to avoid silently revoking every remote ACL. */
+  malformedTop: boolean;
+};
+
+function normalize(value: unknown, source: string): Normalized {
   const perms: PermsMap = {};
-  const invalid: string[] = [];
-  if (!value || typeof value !== "object") return { perms, invalid };
+  const invalidOwners = new Set<string>();
+
+  if (
+    value === null ||
+    value === undefined ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    if (value !== undefined && value !== null) {
+      log.error(
+        colors.red(
+          `extra_perms: ${source} is not a {owner: boolean} map — skipping ACL sync to avoid clobbering remote ACLs`,
+        ),
+      );
+      return { perms, invalidOwners, malformedTop: true };
+    }
+    return { perms, invalidOwners, malformedTop: false };
+  }
+
+  const invalidList: string[] = [];
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
     if (typeof v === "boolean") {
       perms[k] = v;
     } else {
-      invalid.push(k);
+      invalidOwners.add(k);
+      invalidList.push(k);
     }
   }
-  if (invalid.length > 0) {
+  if (invalidList.length > 0) {
     log.error(
       colors.red(
-        `extra_perms: ignoring ${invalid.length} invalid entry/entries in ${source} (non-boolean value): ${invalid.join(", ")}`,
+        `extra_perms: ${invalidList.length} invalid entry/entries in ${source} (non-boolean value, treating as "no opinion"): ${invalidList.join(", ")}`,
       ),
     );
   }
-  return { perms, invalid };
+  return { perms, invalidOwners, malformedTop: false };
 }
 
 function formatError(e: unknown): string {
@@ -86,8 +112,16 @@ export async function applyExtraPermsDiff(
     return 0;
   }
 
-  const { perms: localPerms } = normalize(local, "local yaml");
-  const { perms: remotePerms } = normalize(remote, "remote response");
+  const localN = normalize(local, "local yaml");
+  // Top-level malformed (array, primitive, etc.) → treat as "no opinion" so a
+  // typo in yaml can never silently revoke every remote ACL.
+  if (localN.malformedTop) {
+    return 0;
+  }
+  const remoteN = normalize(remote, "remote response");
+
+  const localPerms = localN.perms;
+  const remotePerms = remoteN.perms;
 
   const toGrant: Array<[string, boolean]> = [];
   for (const [owner, write] of Object.entries(localPerms)) {
@@ -96,8 +130,12 @@ export async function applyExtraPermsDiff(
     }
   }
 
+  // Owners with a malformed value in local yaml are treated as "no opinion":
+  // they are excluded from the revoke set so a typo (`g/devs: "write"`) never
+  // silently strips an existing ACL.
   const toRevoke: string[] = Object.keys(remotePerms).filter(
-    (owner) => !(owner in localPerms),
+    (owner) =>
+      !(owner in localPerms) && !localN.invalidOwners.has(owner),
   );
 
   if (toGrant.length === 0 && toRevoke.length === 0) {

@@ -548,9 +548,13 @@ async fn get_granular_acls(
     } else {
         "path"
     };
+    // See add_granular_acl: raw_app rows live in the `app` table now, so the
+    // read path must also target `app` — otherwise GET would return stale or
+    // 404 state while POST /acls/add and /acls/remove write to `app`.
+    let table = if kind == "raw_app" { "app" } else { kind };
     // SAFETY: `kind` has been validated against the `KINDS` allowlist before reaching this function.
     let obj_o = sqlx::query_scalar::<_, serde_json::Value>(&format!(
-        "SELECT extra_perms from {kind} WHERE {identifier} = $1 AND workspace_id = $2"
+        "SELECT extra_perms from {table} WHERE {identifier} = $1 AND workspace_id = $2"
     ))
     .bind(path)
     .bind(w_id)
