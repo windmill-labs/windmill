@@ -733,9 +733,7 @@ async fn is_noop_deploy_against_parent(
         // caller-intent flag (auto-resolve parent), not script state
         auto_parent: _,
         labels,
-        // ACL override is metadata applied to the path row, not part of the
-        // script's content identity; granular_acls changes do not bump version.
-        extra_perms: _,
+        extra_perms,
     } = ns;
 
     if path != &parent.path {
@@ -815,6 +813,21 @@ async fn is_noop_deploy_against_parent(
     }
     if debouncing_settings != &parent_debouncing {
         return Ok(false);
+    }
+
+    // None = caller has no opinion on perms; only treat as a deploy-worthy
+    // diff when an explicit `extra_perms` was supplied and it disagrees with
+    // the parent. Matches the omit/empty/non-empty contract the update
+    // endpoints use.
+    if let Some(extra_perms) = extra_perms {
+        let parent_perms = if parent.extra_perms.is_null() {
+            serde_json::Value::Object(serde_json::Map::new())
+        } else {
+            parent.extra_perms.clone()
+        };
+        if extra_perms != &parent_perms {
+            return Ok(false);
+        }
     }
 
     Ok(true)

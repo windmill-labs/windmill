@@ -549,10 +549,16 @@ export async function handleFile(
             (hasOnBehalfOf ? true : typed.on_behalf_of_email == remote.on_behalf_of_email) &&
             deepEqual(typed.envs, remote.envs) &&
             deepEqual(modules ?? null, remote.modules ?? null) &&
-            deepEqual(
-              (typed as any).extra_perms ?? {},
-              (remote as any).extra_perms ?? {}
-            ))
+            // Only fail equality when the yaml *explicitly* carries an extra_perms
+            // map. An absent field means "no opinion" — matches the backend
+            // contract (None = leave column untouched). Treating an absent
+            // local field as `{}` would force a new script version on every
+            // push for any path that has ACLs only set via the UI.
+            ((typed as any).extra_perms === undefined ||
+              deepEqual(
+                (typed as any).extra_perms,
+                (remote as any).extra_perms ?? {}
+              )))
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));
           return true;
