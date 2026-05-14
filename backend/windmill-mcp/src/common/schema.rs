@@ -206,8 +206,11 @@ pub fn enrich_resource_schemas(
 pub fn make_schema_compatible(schema: &mut Value) {
     let Value::Object(obj) = schema else { return };
 
-    // 1. Strip non-standard keywords that aren't part of JSON Schema
+    // 1. Strip non-standard keywords that aren't part of JSON Schema. The
+    // Windmill-internal `resourceType` is dropped unconditionally so it can't
+    // leak through even on enrichment cache-miss paths.
     obj.remove("originalType");
+    obj.remove("resourceType");
 
     // 2. Strip non-standard format values (resource-* is Windmill-internal)
     if obj
@@ -224,7 +227,6 @@ pub fn make_schema_compatible(schema: &mut Value) {
     // rejected by strict validators (e.g. Anthropic's tool registration).
     if obj.get("type").and_then(|v| v.as_str()) == Some("resource") {
         obj.insert("type".to_string(), Value::String("string".to_string()));
-        obj.remove("resourceType");
     }
 
     // 3. Fix contradictory type: if `properties` is present, type must be "object"
