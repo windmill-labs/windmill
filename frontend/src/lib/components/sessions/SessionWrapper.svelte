@@ -4,11 +4,20 @@
 	import AIChat from '$lib/components/copilot/chat/AIChat.svelte'
 	import EditableInput from '$lib/components/common/EditableInput.svelte'
 	import { Button } from '$lib/components/common'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { AIChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { copilotInfo, loadCopilot } from '$lib/aiStore'
-	import { EllipsisVertical, PanelRightClose, PanelRightOpen, Pencil, Trash2 } from 'lucide-svelte'
+	import {
+		Archive,
+		ArchiveRestore,
+		EllipsisVertical,
+		PanelRightClose,
+		PanelRightOpen,
+		Pencil,
+		Trash2
+	} from 'lucide-svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import FlowEditorView from './FlowEditorView.svelte'
 	import ScriptEditorView from './ScriptEditorView.svelte'
@@ -21,6 +30,7 @@
 		getEffectiveWorkspaceId,
 		persistSessions,
 		sessionState,
+		setSessionArchived,
 		setSessionTarget,
 		type SessionTarget
 	} from './sessionState.svelte'
@@ -56,10 +66,10 @@
 
 	let summaryInput: EditableInput | undefined = $state(undefined)
 
-	async function handleDelete() {
+	let deleteConfirmOpen = $state(false)
+	async function handleConfirmedDelete() {
+		deleteConfirmOpen = false
 		if (!session) return
-		const label = session.summary ?? session.name
-		if (!window.confirm(`Delete session "${label}"? This cannot be undone.`)) return
 		removeSession(session.id)
 		const next = sessionState.sessions[0]
 		if (next) await goto(`/sessions?session_name=${encodeURIComponent(next.name)}`)
@@ -177,11 +187,22 @@
 							icon: Pencil,
 							action: () => summaryInput?.edit()
 						},
+						session.archived
+							? {
+									displayName: 'Unarchive',
+									icon: ArchiveRestore,
+									action: () => setSessionArchived(session.id, false)
+								}
+							: {
+									displayName: 'Archive',
+									icon: Archive,
+									action: () => setSessionArchived(session.id, true)
+								},
 						{
 							displayName: 'Delete',
 							icon: Trash2,
 							type: 'delete',
-							action: handleDelete
+							action: () => (deleteConfirmOpen = true)
 						}
 					]}
 				>
@@ -269,6 +290,20 @@
 			</Pane>
 		{/if}
 	</Splitpanes>
+
+	<ConfirmationModal
+		open={deleteConfirmOpen}
+		title="Delete session"
+		confirmationText="Delete"
+		onConfirmed={handleConfirmedDelete}
+		onCanceled={() => (deleteConfirmOpen = false)}
+	>
+		<p>
+			Delete session <span class="font-medium text-primary"
+				>{session?.summary ?? session?.name}</span
+			>? This cannot be undone.
+		</p>
+	</ConfirmationModal>
 {/if}
 
 <style>

@@ -21,6 +21,7 @@ import {
 	commitSessionWorkspace,
 	deleteSession as deleteSessionState,
 	ensureChatIdsSeeded,
+	materializeTransient,
 	setSessionChatId,
 	type Session
 } from './sessionState.svelte'
@@ -135,11 +136,12 @@ function createRuntime(session: Session): SessionRuntime {
 	// global-AI flag, so this is always available here. Mode is locked
 	// and the dropdown is hidden in the chat UI.
 	manager.mode = AIMode.GLOBAL
-	// Pre-flight: commit the session's workspace (materialising a staged
-	// fork if needed) before any send. AIChatManager awaits this so the
-	// first message targets the freshly-committed workspace, not the
-	// parent. Idempotent — bails out once workspace_id is set.
+	// Pre-flight: materialise the (still-transient) session, then commit
+	// the workspace (creating a staged fork if needed) before any send.
+	// AIChatManager awaits this so the first message hits a persisted
+	// session targeting the right workspace. Both calls are idempotent.
 	manager.beforeSend = async () => {
+		materializeTransient(session.id)
 		await commitSessionWorkspace(session.id, get(workspaceStore) ?? undefined)
 	}
 

@@ -1,7 +1,13 @@
 import { BROWSER } from 'esm-env'
 import { get } from 'svelte/store'
 import { createLongHash } from '$lib/editorLangUtils'
-import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
+import { random_adj } from '$lib/components/random_positive_adjetive'
+import {
+	userWorkspaces,
+	usersWorkspaceStore,
+	workspaceStore,
+	type UserWorkspace
+} from '$lib/stores'
 import { switchWorkspace } from '$lib/storeUtils'
 
 // Switch the global workspace iff the target differs from the active one
@@ -56,6 +62,15 @@ export type Session = {
 	target?: SessionTarget
 	summary?: string
 	createdAt: number
+	// User-archived sessions are hidden from the sidebar by default
+	// (toggleable via the picker filter). Archive is reversible — distinct
+	// from delete, which removes the session entirely.
+	archived?: boolean
+	// In-memory-only flag: the session exists but isn't written to
+	// localStorage until the user sends their first message. Avoids
+	// piling abandoned drafts across `+` clicks — createSession reuses
+	// the existing transient if one is already open.
+	transient?: boolean
 }
 
 const STORAGE_KEY = 'windmill_sessions'
@@ -127,7 +142,11 @@ export const sessionState = $state<{
 export function persistSessions() {
 	if (!BROWSER) return
 	try {
-		localStorage.setItem(STORAGE_KEY, JSON.stringify($state.snapshot(sessionState.sessions)))
+		// Transient (unsent) sessions stay in memory only. They get
+		// materialised — and from then on written to storage — when the
+		// user sends their first message.
+		const toPersist = $state.snapshot(sessionState.sessions).filter((s) => !s.transient)
+		localStorage.setItem(STORAGE_KEY, JSON.stringify(toPersist))
 	} catch (e) {
 		console.error('Failed to persist sessions', e)
 	}
@@ -137,22 +156,68 @@ export function findSessionByName(name: string): Session | undefined {
 	return sessionState.sessions.find((s) => s.name === name)
 }
 
+// Walk up parent_workspace_id to the family root, given a starting
+// workspace id. Returns the input id if no parent chain is visible.
+function familyRootId(id: string | undefined, all: UserWorkspace[]): string | undefined {
+	if (!id) return undefined
+	let cur = all.find((w) => w.id === id)
+	while (cur?.parent_workspace_id) {
+		const parent = all.find((w) => w.id === cur!.parent_workspace_id)
+		if (!parent) break
+		cur = parent
+	}
+	return cur?.id ?? id
+}
+
 export function createSession(): Session {
+	// Reuse the existing transient session (if any) so the user can hit
+	// the "+" button repeatedly without piling drafts. The transient
+	// becomes a real session at first-message-send time.
+	const existingTransient = sessionState.sessions.find((s) => s.transient)
+	if (existingTransient) {
+		sessionState.currentSessionId = existingTransient.id
+		return existingTransient
+	}
 	const existingNumbers = sessionState.sessions
 		.map((s) => /^session-(\d+)$/.exec(s.name)?.[1])
 		.map((n) => (n ? parseInt(n, 10) : 0))
 	const next = (existingNumbers.length ? Math.max(...existingNumbers) : 0) + 1
-	const pending = get(workspaceStore)
+	// Default to the family root rather than wherever the user happens
+	// to be — sessions usually start from "the canonical workspace" and
+	// the picker lets them switch to a fork later.
+	const currentWs = get(workspaceStore)
+	const root = familyRootId(currentWs ?? undefined, get(userWorkspaces))
+	const pending = root ?? currentWs
+	// Friendly default summary so the header reads like "Zippy session"
+	// rather than "Untitled session" — assigned at create time, the user
+	// can still rename it (or it gets overwritten by an editor target).
+	const adj = random_adj()
+	const summary = `${adj.charAt(0).toUpperCase() + adj.slice(1)} session`
 	const session: Session = {
 		id: createLongHash(),
 		name: `session-${next}`,
+		summary,
 		pending_workspace_id: pending && pending.length > 0 ? pending : undefined,
-		createdAt: Date.now()
+		createdAt: Date.now(),
+		transient: true
 	}
 	sessionState.sessions = [session, ...sessionState.sessions]
 	sessionState.currentSessionId = session.id
+	// persistSessions() filters out transients — this call is a no-op for
+	// the new draft, but kept so any other session mutations get flushed.
 	persistSessions()
 	return session
+}
+
+// Promote an in-memory transient session to a persisted one. No-op when
+// the session isn't transient. Called by the chat manager's beforeSend
+// hook so the session is only written to localStorage once the user
+// commits to it by sending their first message.
+export function materializeTransient(id: string): void {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s || !s.transient) return
+	delete s.transient
+	persistSessions()
 }
 
 export function setSessionPendingWorkspace(id: string, workspace_id: string) {
@@ -244,6 +309,16 @@ export function renameSession(id: string, newSummary: string) {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
 	s.summary = trimmed.length > 0 ? trimmed : undefined
+	persistSessions()
+}
+
+export function setSessionArchived(id: string, archived: boolean) {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s) return
+	const next = archived ? true : undefined
+	if (s.archived === next) return
+	if (archived) s.archived = true
+	else delete s.archived
 	persistSessions()
 }
 

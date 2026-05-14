@@ -1,9 +1,13 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import {
+		Archive,
+		ArchiveRestore,
 		ChevronDown,
 		ChevronRight,
 		EllipsisVertical,
+		Filter,
 		MessageSquare,
 		Pencil,
 		Plus,
@@ -19,9 +23,12 @@
 		renameSession,
 		selectSession,
 		sessionState,
+		setSessionArchived,
 		syncWorkspaceTo,
 		type Session
 	} from './sessionState.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import {
 		getOrCreateRuntime,
 		getRuntime,
@@ -60,18 +67,31 @@
 		false,
 		'boolean'
 	)
+	const showArchived = useLocalStorageValue('windmill_sessions_show_archived', false, 'boolean')
 
 	let listRoot: HTMLDivElement | undefined = $state()
 
 	// Sessions visible in the current workspace (active workspace + its
 	// forks). Drafts (no committed workspace) are scoped by their
 	// pending workspace pick — set at create time to the workspace the
-	// user was in.
+	// user was in. Archived sessions are filtered out unless the user
+	// has opted in via the filter popover.
 	const visibleSessions = $derived(
 		sessionState.sessions.filter((s) => {
+			// Transient (not-yet-sent) sessions live as their own page but
+			// don't clutter the sidebar list.
+			if (s.transient) return false
+			if (s.archived && !showArchived.val) return false
 			const ws = getEffectiveWorkspaceId(s)
 			return ws ? $visibleWorkspaceIds.has(ws) : false
 		})
+	)
+	const archivedCount = $derived(
+		sessionState.sessions.filter((s) => {
+			if (!s.archived || s.transient) return false
+			const ws = getEffectiveWorkspaceId(s)
+			return ws ? $visibleWorkspaceIds.has(ws) : false
+		}).length
 	)
 
 	// Eagerly create a runtime per VISIBLE session so the status dot reflects
@@ -130,9 +150,11 @@
 		editingId = undefined
 	}
 
-	async function confirmDelete(session: Session) {
-		const label = session.summary ?? session.name
-		if (!window.confirm(`Delete session "${label}"? This cannot be undone.`)) return
+	let pendingDelete: Session | undefined = $state(undefined)
+	async function handleConfirmedDelete() {
+		const session = pendingDelete
+		pendingDelete = undefined
+		if (!session) return
 		const wasActive = sessionState.currentSessionId === session.id
 		removeSession(session.id)
 		if (wasActive) {
@@ -237,14 +259,46 @@
 					<ChevronDown size={10} />
 				{/if}
 			</button>
-			<Button
-				variant="subtle"
-				size="xs2"
-				iconOnly
-				startIcon={{ icon: Plus }}
-				on:click={createAndOpen}
-				title="New session"
-			/>
+			<div class="flex flex-row items-center gap-0.5">
+				<Popover placement="bottom-end" usePointerDownOutside disableFocusTrap class="inline-flex">
+					{#snippet trigger()}
+						<button
+							type="button"
+							title="Filter sessions"
+							aria-label="Filter sessions"
+							class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary {showArchived.val
+								? 'text-emphasis'
+								: ''}"
+						>
+							<Filter size={12} />
+						</button>
+					{/snippet}
+					{#snippet content()}
+						<div
+							class="w-56 p-2 bg-surface-tertiary dark:border rounded-md shadow-lg flex flex-col gap-1"
+						>
+							<Toggle
+								bind:checked={showArchived.val}
+								size="xs"
+								options={{ right: 'Show archived' }}
+							/>
+							{#if archivedCount > 0}
+								<span class="text-2xs text-tertiary pl-1">
+									{archivedCount} archived session{archivedCount === 1 ? '' : 's'}
+								</span>
+							{/if}
+						</div>
+					{/snippet}
+				</Popover>
+				<Button
+					variant="subtle"
+					size="xs2"
+					iconOnly
+					startIcon={{ icon: Plus }}
+					on:click={createAndOpen}
+					title="New session"
+				/>
+			</div>
 		</div>
 		{#if !sectionCollapsed.val}
 			<div
@@ -263,7 +317,8 @@
 					<div
 						class={twMerge(
 							'flex flex-row items-center group rounded',
-							isSelected ? 'bg-surface-hover text-primary' : 'hover:bg-surface-hover'
+							isSelected ? 'bg-surface-hover text-primary' : 'hover:bg-surface-hover',
+							session.archived ? 'italic opacity-60' : ''
 						)}
 					>
 						{#if isEditing}
@@ -308,11 +363,22 @@
 											icon: Pencil,
 											action: () => startRename(session)
 										},
+										session.archived
+											? {
+													displayName: 'Unarchive',
+													icon: ArchiveRestore,
+													action: () => setSessionArchived(session.id, false)
+												}
+											: {
+													displayName: 'Archive',
+													icon: Archive,
+													action: () => setSessionArchived(session.id, true)
+												},
 										{
 											displayName: 'Delete',
 											icon: Trash2,
 											type: 'delete',
-											action: () => confirmDelete(session)
+											action: () => (pendingDelete = session)
 										}
 									]}
 								>
@@ -333,3 +399,17 @@
 		{/if}
 	</div>
 {/if}
+
+<ConfirmationModal
+	open={!!pendingDelete}
+	title="Delete session"
+	confirmationText="Delete"
+	onConfirmed={handleConfirmedDelete}
+	onCanceled={() => (pendingDelete = undefined)}
+>
+	<p>
+		Delete session <span class="font-medium text-primary"
+			>{pendingDelete?.summary ?? pendingDelete?.name}</span
+		>? This cannot be undone.
+	</p>
+</ConfirmationModal>
