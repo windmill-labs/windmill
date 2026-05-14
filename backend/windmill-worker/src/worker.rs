@@ -1002,23 +1002,58 @@ async fn get_otel_tracing_proxy_envs(
 /// intercepting all destinations including loopback.
 #[cfg(all(feature = "private", feature = "enterprise"))]
 async fn build_tracing_proxy_no_proxy() -> String {
-    let Some(configured) = OTEL_TRACING_PROXY_SETTINGS
+    let configured = OTEL_TRACING_PROXY_SETTINGS
         .read()
         .await
         .no_proxy_hosts
-        .clone()
-    else {
+        .clone();
+    normalize_no_proxy_hosts(configured.as_deref())
+}
+
+/// Split a comma-separated NO_PROXY value, trim whitespace, drop empty entries, and
+/// deduplicate while preserving order. `None` returns an empty string.
+fn normalize_no_proxy_hosts(configured: Option<&str>) -> String {
+    let Some(configured) = configured else {
         return String::new();
     };
     let mut seen = std::collections::HashSet::new();
-    let mut out: Vec<String> = Vec::new();
+    let mut out: Vec<&str> = Vec::new();
     for entry in configured.split(',') {
         let trimmed = entry.trim();
-        if !trimmed.is_empty() && seen.insert(trimmed.to_string()) {
-            out.push(trimmed.to_string());
+        if !trimmed.is_empty() && seen.insert(trimmed) {
+            out.push(trimmed);
         }
     }
     out.join(",")
+}
+
+#[cfg(test)]
+mod no_proxy_tests {
+    use super::normalize_no_proxy_hosts;
+
+    #[test]
+    fn unset_returns_empty() {
+        assert_eq!(normalize_no_proxy_hosts(None), "");
+    }
+
+    #[test]
+    fn empty_and_whitespace_only_returns_empty() {
+        assert_eq!(normalize_no_proxy_hosts(Some("")), "");
+        assert_eq!(normalize_no_proxy_hosts(Some("  ,  ,\t")), "");
+    }
+
+    #[test]
+    fn trims_and_skips_empties() {
+        assert_eq!(
+            normalize_no_proxy_hosts(Some("  *.eks.amazonaws.com  ,, *.internal ")),
+            "*.eks.amazonaws.com,*.internal"
+        );
+    }
+
+    #[test]
+    fn dedupes_preserving_first_occurrence_order() {
+        assert_eq!(normalize_no_proxy_hosts(Some("a,b,a,c,b,d")), "a,b,c,d");
+    }
 }
 
 #[cfg(windows)]
