@@ -277,6 +277,8 @@ pub struct OtelTracingProxySettings {
     pub enabled: bool,
     #[serde(default)]
     pub enabled_languages: HashSet<ScriptLang>,
+    #[serde(default)]
+    pub no_proxy_hosts: Option<String>,
 }
 
 #[cfg(feature = "prometheus")]
@@ -969,14 +971,15 @@ async fn get_otel_tracing_proxy_envs(
         }
     };
     let proxy_url = format!("http://127.0.0.1:{}", port);
+    let no_proxy = build_tracing_proxy_no_proxy().await;
     Ok(vec![
         ("HTTP_PROXY", proxy_url.clone()),
         ("HTTPS_PROXY", proxy_url.clone()),
         // Lowercase variants for Ruby and other runtimes that check lowercase first
         ("http_proxy", proxy_url.clone()),
         ("https_proxy", proxy_url),
-        ("NO_PROXY", "".to_string()),
-        ("no_proxy", "".to_string()),
+        ("NO_PROXY", no_proxy.clone()),
+        ("no_proxy", no_proxy),
         // CA cert for various runtimes to trust the tracing proxy
         ("SSL_CERT_FILE", TRACING_PROXY_CA_CERT_PATH.to_string()),
         ("REQUESTS_CA_BUNDLE", TRACING_PROXY_CA_CERT_PATH.to_string()),
@@ -988,6 +991,70 @@ async fn get_otel_tracing_proxy_envs(
         ("GIT_SSL_CAINFO", TRACING_PROXY_CA_CERT_PATH.to_string()),
         ("DENO_CERT", TRACING_PROXY_CA_CERT_PATH.to_string()),
     ])
+}
+
+/// NO_PROXY value injected into jobs so their HTTP clients bypass the local MITM proxy for
+/// the configured hosts. This is distinct from the worker's own NO_PROXY env, which governs
+/// what the MITM proxy bypasses when relaying upstream (e.g. through a corporate proxy) and
+/// is honored automatically by the in-process MITM. The configured hosts are tunneled
+/// through the proxy without TLS interception, so clients that pin their own CA (kubectl,
+/// helm, terraform, etc.) keep working. Empty when unset, matching the prior behavior of
+/// intercepting all destinations including loopback.
+#[cfg(all(feature = "private", feature = "enterprise"))]
+async fn build_tracing_proxy_no_proxy() -> String {
+    let configured = OTEL_TRACING_PROXY_SETTINGS
+        .read()
+        .await
+        .no_proxy_hosts
+        .clone();
+    normalize_no_proxy_hosts(configured.as_deref())
+}
+
+/// Split a comma-separated NO_PROXY value, trim whitespace, drop empty entries, and
+/// deduplicate while preserving order. `None` returns an empty string.
+#[cfg(all(feature = "private", feature = "enterprise"))]
+fn normalize_no_proxy_hosts(configured: Option<&str>) -> String {
+    let Some(configured) = configured else {
+        return String::new();
+    };
+    let mut seen = std::collections::HashSet::new();
+    let mut out: Vec<&str> = Vec::new();
+    for entry in configured.split(',') {
+        let trimmed = entry.trim();
+        if !trimmed.is_empty() && seen.insert(trimmed) {
+            out.push(trimmed);
+        }
+    }
+    out.join(",")
+}
+
+#[cfg(all(test, feature = "private", feature = "enterprise"))]
+mod no_proxy_tests {
+    use super::normalize_no_proxy_hosts;
+
+    #[test]
+    fn unset_returns_empty() {
+        assert_eq!(normalize_no_proxy_hosts(None), "");
+    }
+
+    #[test]
+    fn empty_and_whitespace_only_returns_empty() {
+        assert_eq!(normalize_no_proxy_hosts(Some("")), "");
+        assert_eq!(normalize_no_proxy_hosts(Some("  ,  ,\t")), "");
+    }
+
+    #[test]
+    fn trims_and_skips_empties() {
+        assert_eq!(
+            normalize_no_proxy_hosts(Some("  *.eks.amazonaws.com  ,, *.internal ")),
+            "*.eks.amazonaws.com,*.internal"
+        );
+    }
+
+    #[test]
+    fn dedupes_preserving_first_occurrence_order() {
+        assert_eq!(normalize_no_proxy_hosts(Some("a,b,a,c,b,d")), "a,b,c,d");
+    }
 }
 
 #[cfg(windows)]
