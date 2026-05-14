@@ -56,7 +56,12 @@
 	}
 	let urlScriptSeed = decodeUrlScriptSeed()
 
-	let initialPath: string = $state('')
+	// Seed from the URL so ScriptBuilder mounts with a populated `initialPath`
+	// even when `scriptHandle.draft` is already defined synchronously from a
+	// local autosave. An empty initialPath flips ScriptBuilder's
+	// `metadataOpen` heuristic (intended for /scripts/add) into "true" and
+	// pops the settings drawer open on /edit.
+	let initialPath: string = $state(hash ? '' : (page.params.path ?? ''))
 
 	let scriptBuilder: ScriptBuilder | undefined = $state(undefined)
 
