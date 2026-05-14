@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.702.1](https://github.com/windmill-labs/windmill/compare/v1.702.0...v1.702.1) (2026-05-14)
+
+
+### Bug Fixes
+
+* **nativets:** pass tracing-enabled OtelConfig to deno_telemetry::init ([#9163](https://github.com/windmill-labs/windmill/issues/9163)) ([bf99283](https://github.com/windmill-labs/windmill/commit/bf99283c3333bcdbc7679f4aea04ba29e41a48a5))
+
 ## [1.702.0](https://github.com/windmill-labs/windmill/compare/v1.701.0...v1.702.0) (2026-05-14)
 
 
