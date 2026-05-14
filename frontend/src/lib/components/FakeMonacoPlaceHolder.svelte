@@ -3,6 +3,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
 	import { getOS } from '$lib/utils'
+	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { MONACO_Y_PADDING } from './vscode'
 
 	type Props = {
@@ -22,8 +23,10 @@
 		lineNumbersOffset = 0,
 		class: className = '',
 		showNumbers = true,
-		fontSize = 13.5
+		fontSize: fontSizeProp
 	}: Props = $props()
+
+	let fontSize = $derived(fontSizeProp ?? editorFontSize.regular)
 
 	let yPadding = MONACO_Y_PADDING
 

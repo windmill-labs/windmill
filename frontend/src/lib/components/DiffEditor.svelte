@@ -8,6 +8,7 @@
 	import { editor as meditor, KeyMod, KeyCode } from 'monaco-editor'
 
 	import { initializeVscode } from './vscode'
+	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import EditorTheme from './EditorTheme.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -68,6 +69,7 @@
 			scrollBeyondLastLine: false,
 			lineDecorationsWidth: 15,
 			lineNumbersMinChars: 2,
+			fontSize: editorFontSize.regular,
 			scrollbar: { alwaysConsumeMouseWheel: false }
 		})
 
@@ -185,6 +187,13 @@
 			diffEditor.updateOptions({
 				renderSideBySide: inlineDiff ? false : editorWidth >= SIDE_BY_SIDE_MIN_WIDTH
 			})
+		}
+	})
+
+	$effect(() => {
+		const fontSize = editorFontSize.regular
+		if (diffEditor) {
+			diffEditor.updateOptions({ fontSize })
 		}
 	})
 

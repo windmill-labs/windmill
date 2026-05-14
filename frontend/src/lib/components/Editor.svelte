@@ -40,6 +40,7 @@
 	} from '$lib/stores'
 
 	import { editorConfig, updateOptions } from '$lib/editorUtils'
+	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { createHash as randomHash } from '$lib/editorLangUtils'
 	import { workspaceStore } from '$lib/stores'
 	import {
@@ -1372,7 +1373,7 @@
 					$relativeLineNumbers
 				),
 				model,
-				fontSize: !small ? 13.5 : 12,
+				fontSize: small ? editorFontSize.small : editorFontSize.regular,
 				lineNumbersMinChars,
 				// overflowWidgetsDomNode: widgets,
 				tabSize: lang == 'python' ? 4 : 2,
@@ -1756,6 +1757,13 @@
 	}
 
 	let aiChatInlineWidget: AIChatInlineWidget | null = $state(null)
+
+	$effect(() => {
+		const fontSize = small ? editorFontSize.small : editorFontSize.regular
+		if (editor) {
+			editor.updateOptions({ fontSize })
+		}
+	})
 
 	let loadTimeout: number | undefined = undefined
 	onMount(async () => {
