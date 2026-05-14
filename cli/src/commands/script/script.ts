@@ -2,6 +2,7 @@ import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
 import { writeFile, stat, mkdir } from "node:fs/promises";
 import { Buffer } from "node:buffer";
 import { colors } from "@cliffy/ansi/colors";
@@ -84,8 +85,9 @@ export interface ScriptFile {
   lock?: Array<string>;
   kind?: "script" | "failure" | "trigger" | "command" | "approval";
   // Mirrors granular ACLs on the script path. Omitted from .script.yaml when
-  // no perms are set — the backend treats absent as "no change" and `{}` as
-  // "clear all" (see windmill-api-scripts::create_script_internal).
+  // no perms are set. The CLI applies diffs through /acls/add and /acls/remove
+  // (see applyExtraPermsDiff) — never through create_script — so a perm-only
+  // change never bumps the script hash/version.
   extra_perms?: Record<string, boolean>;
 }
 
@@ -493,11 +495,6 @@ export async function handleFile(
       envs: typed?.envs,
       modules: modules,
       labels: typed?.labels,
-      // Cast: extra_perms is accepted by the backend (see windmill-types::NewScript)
-      // but may be missing from the auto-generated OpenAPI types until next regen.
-      ...((typed as any)?.extra_perms !== undefined
-        ? { extra_perms: (typed as any).extra_perms }
-        : {}),
     };
 
     const hasOnBehalfOf = (typed as any)?.has_on_behalf_of ?? !!typed?.on_behalf_of_email;
@@ -548,19 +545,18 @@ export async function handleFile(
             typed.codebase == remote.codebase &&
             (hasOnBehalfOf ? true : typed.on_behalf_of_email == remote.on_behalf_of_email) &&
             deepEqual(typed.envs, remote.envs) &&
-            deepEqual(modules ?? null, remote.modules ?? null) &&
-            // Only fail equality when the yaml *explicitly* carries an extra_perms
-            // map. An absent field means "no opinion" — matches the backend
-            // contract (None = leave column untouched). Treating an absent
-            // local field as `{}` would force a new script version on every
-            // push for any path that has ACLs only set via the UI.
-            ((typed as any).extra_perms === undefined ||
-              deepEqual(
-                (typed as any).extra_perms,
-                (remote as any).extra_perms ?? {}
-              )))
+            deepEqual(modules ?? null, remote.modules ?? null))
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));
+          // Even when the body is unchanged, perms may still drift — sync them
+          // independently before returning.
+          await applyExtraPermsDiff(
+            workspaceId,
+            "script",
+            remotePath.replaceAll(SEP, "/"),
+            (typed as any)?.extra_perms,
+            (remote as any)?.extra_perms,
+          );
           return true;
         }
       }
@@ -600,6 +596,18 @@ export async function handleFile(
         )
       );
     }
+
+    // Sync granular ACLs as an independent step — perm-only edits never reach
+    // create_script (which would bump the script hash) and instead route
+    // through /acls/* via applyExtraPermsDiff.
+    await applyExtraPermsDiff(
+      workspaceId,
+      "script",
+      remotePath.replaceAll(SEP, "/"),
+      (typed as any)?.extra_perms,
+      (remote as any)?.extra_perms,
+    );
+
     return true;
   }
   return false;

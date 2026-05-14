@@ -19,6 +19,7 @@ import { defaultFlowDefinition } from "../../../bootstrap/flow_bootstrap.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { FSFSElement, elementsToMap, ignoreF } from "../sync/sync.ts";
 import { Flow } from "../../../gen/types.gen.ts";
+import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 import {
   collectPathScriptPaths,
@@ -41,9 +42,10 @@ export interface FlowFile {
   schema?: any;
   on_behalf_of_email?: string;
   has_on_behalf_of?: boolean;
-  // Mirrors granular ACLs on the flow path. Omitted entirely from the yaml when
-  // no perms are set — the backend treats absent as "no change", and `{}` as
-  // "clear all" (see windmill-api-flows::update_flow).
+  // Mirrors granular ACLs on the flow path. Omitted from flow.yaml when no
+  // perms are set. The CLI applies diffs through /acls/add and /acls/remove
+  // (see applyExtraPermsDiff) — never through update_flow — so a perm-only
+  // change never bumps the flow version.
   extra_perms?: Record<string, boolean>;
 }
 
@@ -201,22 +203,31 @@ export async function pushFlow(
     // On create: backend applies folder defaults — no client-side resolution needed
   }
 
+  // extra_perms is synced independently via /acls/* (see applyExtraPermsDiff)
+  // so a perm-only edit never bumps the flow version. Strip the field from the
+  // body that goes to update_flow / create_flow and treat it as a separate
+  // step both for the up-to-date short-circuit and after the deploy.
+  const { extra_perms: localPerms, ...localFlowBody } = localFlow as FlowFile & {
+    extra_perms?: Record<string, boolean>;
+  };
+  const remotePerms = (flow as any)?.extra_perms;
+
   if (flow) {
-    if (isSuperset(localFlow, flow)) {
+    if (isSuperset(localFlowBody, flow)) {
       log.info(colors.green(`Flow ${remotePath} is up to date`));
-      return;
-    }
-    log.info(colors.bold.yellow(`Updating flow ${remotePath}...`));
-    await wmill.updateFlow({
-      workspace: workspace,
-      path: remotePath.replaceAll(SEP, "/"),
-      requestBody: {
+    } else {
+      log.info(colors.bold.yellow(`Updating flow ${remotePath}...`));
+      await wmill.updateFlow({
+        workspace: workspace,
         path: remotePath.replaceAll(SEP, "/"),
-        deployment_message: message,
-        ...localFlow,
-        ...preserveFields,
-      },
-    });
+        requestBody: {
+          path: remotePath.replaceAll(SEP, "/"),
+          deployment_message: message,
+          ...localFlowBody,
+          ...preserveFields,
+        },
+      });
+    }
   } else {
     log.info(colors.bold.yellow("Creating new flow..."));
     try {
@@ -225,7 +236,7 @@ export async function pushFlow(
         requestBody: {
           path: remotePath.replaceAll(SEP, "/"),
           deployment_message: message,
-          ...localFlow,
+          ...localFlowBody,
           ...preserveFields,
         },
       });
@@ -236,6 +247,16 @@ export async function pushFlow(
       );
     }
   }
+
+  // Independent of whether the flow body changed, sync extra_perms via /acls/*.
+  // Self-contained log line + non-fatal failures.
+  await applyExtraPermsDiff(
+    workspace,
+    "flow",
+    remotePath.replaceAll(SEP, "/"),
+    localPerms,
+    remotePerms,
+  );
 }
 
 type Options = GlobalOptions;

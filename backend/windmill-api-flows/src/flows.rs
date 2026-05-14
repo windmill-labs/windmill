@@ -558,24 +558,6 @@ async fn create_flow(
         w_id
     ).execute(&mut *tx).await?;
 
-    if let Some(extra_perms) = nf.extra_perms.as_ref() {
-        if let Err(e) = sqlx::query!(
-            "UPDATE flow SET extra_perms = $1 WHERE path = $2 AND workspace_id = $3",
-            extra_perms,
-            nf.path,
-            w_id,
-        )
-        .execute(&mut *tx)
-        .await
-        {
-            tracing::warn!(
-                "Skipping extra_perms set for new flow {} in workspace {}: {e:#}",
-                nf.path,
-                w_id
-            );
-        }
-    }
-
     sqlx::query!(
         "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
         nf.path,
@@ -1125,31 +1107,6 @@ async fn update_flow(
         "UPDATE flow SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3",
         version, nf.path, w_id
     ).execute(&mut *tx).await?;
-
-    // Apply caller-supplied extra_perms (git-sync round-trip).
-    // - field omitted entirely → leave the column untouched (no change intent)
-    // - empty object `{}`      → clear all per-resource perms
-    // - non-empty object       → overwrite to this exact map
-    // Non-fatal: identities are stored verbatim (no FK on extra_perms), and any DB-level
-    // error is logged rather than failing the push so a stale local yaml referencing a
-    // deleted user/group never blocks deploying the flow body itself.
-    if let Some(extra_perms) = nf.extra_perms.as_ref() {
-        if let Err(e) = sqlx::query!(
-            "UPDATE flow SET extra_perms = $1 WHERE path = $2 AND workspace_id = $3",
-            extra_perms,
-            nf.path,
-            w_id,
-        )
-        .execute(&mut *tx)
-        .await
-        {
-            tracing::warn!(
-                "Skipping extra_perms update for flow {} in workspace {}: {e:#}",
-                nf.path,
-                w_id
-            );
-        }
-    }
 
     if is_new_path {
         check_schedule_conflict(&mut tx, &w_id, &nf.path).await?;

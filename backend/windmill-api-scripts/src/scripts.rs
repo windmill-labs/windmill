@@ -733,7 +733,6 @@ async fn is_noop_deploy_against_parent(
         // caller-intent flag (auto-resolve parent), not script state
         auto_parent: _,
         labels,
-        extra_perms,
     } = ns;
 
     if path != &parent.path {
@@ -813,21 +812,6 @@ async fn is_noop_deploy_against_parent(
     }
     if debouncing_settings != &parent_debouncing {
         return Ok(false);
-    }
-
-    // None = caller has no opinion on perms; only treat as a deploy-worthy
-    // diff when an explicit `extra_perms` was supplied and it disagrees with
-    // the parent. Matches the omit/empty/non-empty contract the update
-    // endpoints use.
-    if let Some(extra_perms) = extra_perms {
-        let parent_perms = if parent.extra_perms.is_null() {
-            serde_json::Value::Object(serde_json::Map::new())
-        } else {
-            parent.extra_perms.clone()
-        };
-        if extra_perms != &parent_perms {
-            return Ok(false);
-        }
     }
 
     Ok(true)
@@ -1128,13 +1112,9 @@ async fn create_script_internal<'c>(
         }
     }?;
     let p_hashes = parent_hashes_and_perms.as_ref().map(|v| &v.p_hashes[..]);
-    // Caller-supplied extra_perms (git-sync round-trip) wins over the perms inherited
-    // from the parent version. When omitted we fall back to the parent's perms so
-    // normal updates keep the existing ACL untouched.
-    let extra_perms = ns
-        .extra_perms
-        .clone()
-        .or_else(|| parent_hashes_and_perms.as_ref().map(|v| v.perms.clone()))
+    let extra_perms = parent_hashes_and_perms
+        .as_ref()
+        .map(|v| v.perms.clone())
         .unwrap_or(json!({}));
     let lock = if ns.codebase.is_some() {
         Some(String::new())

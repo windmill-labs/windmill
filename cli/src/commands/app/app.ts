@@ -20,15 +20,17 @@ import newCommand from "./new.ts";
 import generateAgentsCommand from "./generate_agents.ts";
 import { isVersionsGeq1585 } from "../sync/global.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
 
 export interface AppFile {
   value: any;
   public?: boolean;
   summary: string;
   policy: Policy;
-  // Mirrors granular ACLs on the app path. Omitted from app.yaml when no perms
-  // are set — the backend treats absent as "no change" and `{}` as "clear all"
-  // (see windmill-api::update_app_internal).
+  // Mirrors granular ACLs on the app path. Omitted from app.yaml when no
+  // perms are set. The CLI applies diffs through /acls/add and /acls/remove
+  // (see applyExtraPermsDiff) — never through update_app — so a perm-only
+  // change never bumps the app version.
   extra_perms?: Record<string, boolean>;
 }
 
@@ -172,21 +174,28 @@ export async function pushApp(
     // On create: backend applies folder defaults
   }
 
+  // extra_perms goes through /acls/* — strip from the body so a perms-only
+  // edit never bumps the app version (see applyExtraPermsDiff for details).
+  const { extra_perms: localPerms, ...localAppBody } = localApp as AppFile & {
+    extra_perms?: Record<string, boolean>;
+  };
+  const remotePerms = (app as any)?.extra_perms;
+
   if (app) {
-    if (isSuperset(localApp, app)) {
+    if (isSuperset(localAppBody, app)) {
       log.info(colors.green(`App ${remotePath} is up to date`));
-      return;
+    } else {
+      log.info(colors.bold.yellow(`Updating app ${remotePath}...`));
+      await wmill.updateApp({
+        workspace,
+        path: remotePath,
+        requestBody: {
+          deployment_message: message,
+          ...localAppBody,
+          ...preserveFields,
+        },
+      });
     }
-    log.info(colors.bold.yellow(`Updating app ${remotePath}...`));
-    await wmill.updateApp({
-      workspace,
-      path: remotePath,
-      requestBody: {
-        deployment_message: message,
-        ...localApp,
-        ...preserveFields,
-      },
-    });
   } else {
     log.info(colors.yellow.bold("Creating new app..."));
 
@@ -195,11 +204,14 @@ export async function pushApp(
       requestBody: {
         path: remotePath,
         deployment_message: message,
-        ...localApp,
+        ...localAppBody,
         ...preserveFields,
       },
     });
   }
+
+  // Independent perms sync via /acls/* — self-contained log + non-fatal errors.
+  await applyExtraPermsDiff(workspace, "app", remotePath, localPerms, remotePerms);
 }
 
 export async function generatingPolicy(

@@ -540,8 +540,6 @@ pub struct NewScript {
     pub auto_parent: Option<bool>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extra_perms: Option<serde_json::Value>,
 }
 
 // IMPORTANT: update this Hash impl when adding fields to NewScript
@@ -585,23 +583,6 @@ impl Hash for NewScript {
             for (k, v) in sorted {
                 k.hash(state);
                 v.hash(state);
-            }
-        }
-        // ACL override participates in the version hash so that a perms-only
-        // push lands as a distinct version instead of colliding with the parent.
-        // A None value (caller had no opinion) contributes nothing — the
-        // un-changed script body still produces the parent's hash, which the
-        // upstream uniqueness check rejects with the same error as before.
-        if let Some(extra_perms) = &self.extra_perms {
-            if let Some(map) = extra_perms.as_object() {
-                let mut sorted: Vec<_> = map.iter().collect();
-                sorted.sort_by_key(|(k, _)| k.as_str());
-                for (k, v) in sorted {
-                    k.hash(state);
-                    v.to_string().hash(state);
-                }
-            } else {
-                extra_perms.to_string().hash(state);
             }
         }
     }
