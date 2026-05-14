@@ -1073,7 +1073,7 @@ pub(crate) async fn tarball_workspace(
                 for trigger in native_triggers {
                     let trigger_str = &to_string_without_metadata(
                         &trigger,
-                        false,
+                        ExtraPermsBehavior::Drop,
                         Some(native_ignore_keys.clone()),
                     )
                     .unwrap();
