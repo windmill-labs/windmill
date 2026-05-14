@@ -277,6 +277,8 @@ pub struct OtelTracingProxySettings {
     pub enabled: bool,
     #[serde(default)]
     pub enabled_languages: HashSet<ScriptLang>,
+    #[serde(default)]
+    pub no_proxy_hosts: Option<String>,
 }
 
 #[cfg(feature = "prometheus")]
@@ -969,14 +971,15 @@ async fn get_otel_tracing_proxy_envs(
         }
     };
     let proxy_url = format!("http://127.0.0.1:{}", port);
+    let no_proxy = build_tracing_proxy_no_proxy().await;
     Ok(vec![
         ("HTTP_PROXY", proxy_url.clone()),
         ("HTTPS_PROXY", proxy_url.clone()),
         // Lowercase variants for Ruby and other runtimes that check lowercase first
         ("http_proxy", proxy_url.clone()),
         ("https_proxy", proxy_url),
-        ("NO_PROXY", "".to_string()),
-        ("no_proxy", "".to_string()),
+        ("NO_PROXY", no_proxy.clone()),
+        ("no_proxy", no_proxy),
         // CA cert for various runtimes to trust the tracing proxy
         ("SSL_CERT_FILE", TRACING_PROXY_CA_CERT_PATH.to_string()),
         ("REQUESTS_CA_BUNDLE", TRACING_PROXY_CA_CERT_PATH.to_string()),
@@ -988,6 +991,31 @@ async fn get_otel_tracing_proxy_envs(
         ("GIT_SSL_CAINFO", TRACING_PROXY_CA_CERT_PATH.to_string()),
         ("DENO_CERT", TRACING_PROXY_CA_CERT_PATH.to_string()),
     ])
+}
+
+/// Build the NO_PROXY value for jobs routed through the OTEL tracing proxy by merging the
+/// hosts configured in instance settings with the worker's own NO_PROXY env (deduplicated,
+/// order-preserved). Entries here are tunneled through the proxy without MITM, so clients
+/// that pin their own CA (kubectl, helm, terraform, etc.) keep working.
+#[cfg(all(feature = "private", feature = "enterprise"))]
+async fn build_tracing_proxy_no_proxy() -> String {
+    let configured = OTEL_TRACING_PROXY_SETTINGS
+        .read()
+        .await
+        .no_proxy_hosts
+        .clone();
+    let mut seen = std::collections::HashSet::new();
+    let mut out: Vec<String> = Vec::new();
+    let sources = [configured.as_deref(), NO_PROXY.as_deref()];
+    for source in sources.into_iter().flatten() {
+        for entry in source.split(',') {
+            let trimmed = entry.trim();
+            if !trimmed.is_empty() && seen.insert(trimmed.to_string()) {
+                out.push(trimmed.to_string());
+            }
+        }
+    }
+    out.join(",")
 }
 
 #[cfg(windows)]

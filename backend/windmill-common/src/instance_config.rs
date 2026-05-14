@@ -616,6 +616,11 @@ pub struct OtelTracingProxySettings {
     pub enabled: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub enabled_languages: Vec<ScriptLang>,
+    /// Comma-separated list of host patterns appended to the worker's NO_PROXY env when
+    /// the tracing proxy is active. Use this to bypass MITM interception for clients that
+    /// pin their own CA (kubectl, helm, terraform providers, aws cli for EKS, etc.).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub no_proxy_hosts: Option<String>,
 }
 
 /// Script language identifier (for instance config use).
