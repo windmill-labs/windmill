@@ -41,6 +41,7 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - MODE=server
+      - ALLOW_PRIVATE_AI_BASE_URLS=${ALLOW_PRIVATE_AI_BASE_URLS:-false}
     depends_on:
       db:
         condition: service_healthy
