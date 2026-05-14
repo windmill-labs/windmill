@@ -37,7 +37,8 @@
 	<!-- Collapsible Header -->
 	<button
 		class={twMerge(
-			'w-full p-2 bg-surface-secondary/30 hover:bg-surface-hover transition-colors flex items-center justify-between text-left border-b border-border-light',
+			'w-full p-2 bg-surface-secondary/30 hover:bg-surface-hover transition-colors flex items-center justify-between text-left',
+			isExpanded ? 'border-b border-border-light' : '',
 			message.needsConfirmation ? 'opacity-80' : ''
 		)}
 		onclick={() => (isExpanded = !isExpanded)}

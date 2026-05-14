@@ -1,11 +1,18 @@
 <script lang="ts">
-	import { ArrowRight, GitCompareArrows, GitFork, GitMerge } from 'lucide-svelte'
+	import {
+		ArrowRight,
+		GitCompareArrows,
+		GitFork,
+		GitMerge,
+		GitPullRequestArrow,
+		GitPullRequestClosed
+	} from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { goto } from '$lib/navigation'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import { sessionState, type Session } from './sessionState.svelte'
+	import { deriveForkStatus, sessionState, type Session } from './sessionState.svelte'
 	import { getRuntime } from './sessionRuntime.svelte'
 	import ForkDiffDrawer from './ForkDiffDrawer.svelte'
 
@@ -38,6 +45,8 @@
 	const runtime = $derived(getRuntime(session.id))
 	const comparison = $derived(runtime?.forkComparison.val)
 	const totalDiffs = $derived(comparison?.summary?.total_diffs ?? 0)
+	const forkStatus = $derived(deriveForkStatus(session, $userWorkspaces, comparison))
+	const isUnavailable = $derived(forkStatus === 'unavailable')
 
 	$effect(() => {
 		if (!runtime || !committedId || !parentWorkspaceId) return
@@ -53,7 +62,6 @@
 	// Refresh when the AI finishes a turn (loading transitions true →
 	// false). Tool calls in that turn may have created / edited / deleted
 	// fork items, so the diff count needs to reflect them immediately.
-	// Cheap over-refresh on read-only turns is fine — single API call.
 	let wasLoading = $state(false)
 	$effect(() => {
 		const isLoading = runtime?.manager.loading ?? false
@@ -62,8 +70,7 @@
 	})
 
 	// Refresh when the tab regains visibility — covers edits made in
-	// another tab or by another user while we were away. No polling
-	// while the tab is hidden or idle.
+	// another tab or by another user while we were away.
 	$effect(() => {
 		if (!runtime || !committedId || !parentWorkspaceId) return
 		function onVisibilityChange() {
@@ -78,17 +85,74 @@
 	export const refresh = refreshComparison
 
 	function openReview() {
-		if (!committedId) return
+		if (!committedId || isUnavailable) return
 		goto(`/forks/compare?workspace_id=${encodeURIComponent(committedId)}`)
 	}
 </script>
 
-{#if forksAllowed && isFork && sessionWorkspace && parentWorkspace && parentWorkspaceId && committedId}
+{#if forksAllowed && committedId && isUnavailable}
+	<!-- Fork workspace is no longer in the user's list (deleted, archived,
+	     or access revoked). Surface a terminal read-only banner; we don't
+	     know the parent so the → label is omitted. -->
 	<div
 		class="flex flex-row items-center justify-between gap-2 py-2 px-3 text-xs border rounded-md bg-surface-tertiary"
 	>
 		<div class="flex items-center gap-1.5 min-w-0">
-			<GitFork class="w-3.5 h-3.5 shrink-0 text-secondary" />
+			<GitPullRequestClosed class="w-3.5 h-3.5 shrink-0 text-tertiary" />
+			<span class="truncate text-tertiary line-through" title={committedId}>
+				{committedId}
+			</span>
+			<span class="text-2xs text-tertiary italic shrink-0">unavailable</span>
+		</div>
+		<div class="flex items-center gap-1 shrink-0">
+			<Button
+				variant="subtle"
+				unifiedSize="xs"
+				startIcon={{ icon: GitCompareArrows }}
+				disabled
+				title="Fork is unavailable"
+			>
+				0
+			</Button>
+			<Button
+				variant="default"
+				unifiedSize="xs"
+				startIcon={{ icon: GitMerge }}
+				disabled
+				title="Fork is unavailable"
+			>
+				Review
+			</Button>
+		</div>
+	</div>
+{:else if forksAllowed && isFork && sessionWorkspace && parentWorkspace && parentWorkspaceId && committedId}
+	{@const StatusIcon =
+		forkStatus === 'ahead'
+			? GitPullRequestArrow
+			: forkStatus === 'diverged'
+				? GitCompareArrows
+				: GitFork}
+	{@const statusColor =
+		forkStatus === 'ahead'
+			? 'text-blue-500'
+			: forkStatus === 'diverged'
+				? 'text-amber-500'
+				: 'text-secondary'}
+	{@const statusTitle =
+		forkStatus === 'ahead'
+			? 'Ahead of parent'
+			: forkStatus === 'diverged'
+				? 'Diverged from parent'
+				: forkStatus === 'in_sync'
+					? 'In sync with parent'
+					: 'Fork'}
+	<div
+		class="flex flex-row items-center justify-between gap-2 py-2 px-3 text-xs border rounded-md bg-surface-tertiary"
+	>
+		<div class="flex items-center gap-1.5 min-w-0">
+			<span title={statusTitle} class="inline-flex shrink-0">
+				<StatusIcon class="w-3.5 h-3.5 {statusColor}" />
+			</span>
 			<span class="truncate text-secondary" title={sessionWorkspace.name}>
 				{sessionWorkspace.name}
 			</span>

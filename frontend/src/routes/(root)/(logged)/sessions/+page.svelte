@@ -10,9 +10,11 @@
 	} from '$lib/components/sessions/sessionState.svelte'
 	import {
 		getOrCreateRuntime,
+		getRuntime,
 		listRuntimes,
 		promoteEditorWarm
 	} from '$lib/components/sessions/sessionRuntime.svelte'
+	import { markSessionSeen } from '$lib/components/sessions/sessionUnread.svelte'
 	import { visibleWorkspaceIds } from '$lib/components/sessions/sessionScope.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 
@@ -52,14 +54,30 @@
 	// changes the URL but doesn't fire the picker.activate path nor the
 	// visibility-change signal, so this is the only hook that catches a
 	// user returning from another route in the same tab.
+	//
+	// Gate on session identity (id) rather than the full activeSession
+	// derived — sessionState.sessions mutates on every persisted change
+	// (including token-by-token last_message updates during AI streaming),
+	// so a value-trigger would re-fetch compareWorkspaces dozens of times
+	// per turn. We only want to refresh when the user actually arrives at
+	// a new session.
+	let lastArrivedSessionId: string | undefined
 	$effect(() => {
-		if (!activeSession) return
-		// Keep currentSessionId in sync with the URL so consumers
-		// (refresh hooks, picker selection) react to deep links the
-		// same way they react to picker clicks.
-		selectSession(activeSession.id)
-		const rt = getOrCreateRuntime(activeSession)
-		void rt.refreshForkComparison()
+		const session = activeSession
+		if (!session) {
+			lastArrivedSessionId = undefined
+			return
+		}
+		if (lastArrivedSessionId === session.id) return
+		lastArrivedSessionId = session.id
+		untrack(() => {
+			// Keep currentSessionId in sync with the URL so consumers
+			// (refresh hooks, picker selection) react to deep links the
+			// same way they react to picker clicks.
+			selectSession(session.id)
+			const rt = getOrCreateRuntime(session)
+			void rt.refreshForkComparison()
+		})
 	})
 
 	// Warm = has a live runtime (module-scoped) AND its workspace is in scope.
@@ -79,6 +97,22 @@
 		const id = activeSession?.id
 		if (!id) return
 		untrack(() => promoteEditorWarm(id))
+	})
+
+	// Mark the active session "seen" up to its current displayMessages
+	// length. Watching messages.length here means: arrive at the page →
+	// clear unread; AI streams a new message while you're on the page →
+	// clear unread again so the badge never lights up for a session
+	// you're actively looking at. The effect only depends on the
+	// length, not the array contents, so token-by-token streams within
+	// a single message don't fire it on every chunk.
+	$effect(() => {
+		const id = activeSession?.id
+		if (!id) return
+		const rt = getRuntime(id)
+		if (!rt) return
+		const count = rt.manager.displayMessages.length
+		untrack(() => markSessionSeen(id, count))
 	})
 </script>
 

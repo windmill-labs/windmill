@@ -10,6 +10,7 @@
 		Filter,
 		MessageSquare,
 		Pencil,
+		PencilLine,
 		Plus,
 		Trash2
 	} from 'lucide-svelte'
@@ -19,7 +20,9 @@
 	import { slide } from 'svelte/transition'
 	import {
 		createSession,
+		deriveForkStatus,
 		getEffectiveWorkspaceId,
+		isForkSession,
 		renameSession,
 		selectSession,
 		sessionState,
@@ -27,6 +30,7 @@
 		syncWorkspaceTo,
 		type Session
 	} from './sessionState.svelte'
+	import { forgetSessionSeen, unreadCountFor } from './sessionUnread.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
@@ -43,13 +47,34 @@
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { userWorkspaces } from '$lib/stores'
 
-	// A session is "in a fork" when its effective workspace has a parent
-	// workspace in the user's list — i.e., it's not the root.
-	function sessionIsFork(session: Session): boolean {
-		const ws = getEffectiveWorkspaceId(session)
-		if (!ws) return false
-		const entry = $userWorkspaces.find((w) => w.id === ws)
-		return !!entry?.parent_workspace_id
+	// Look up the cached fork comparison for a session through its runtime
+	// (if any). The deriveForkStatus helper handles the "no runtime yet"
+	// and "comparison not loaded" cases by returning undefined; we render
+	// a neutral fork icon in that interim, then upgrade to the proper
+	// status icon once the comparison lands.
+	function forkStatusFor(session: Session) {
+		return deriveForkStatus(session, $userWorkspaces, getRuntime(session.id)?.forkComparison.val)
+	}
+
+	function isForkFor(session: Session): boolean {
+		return isForkSession(session, $userWorkspaces)
+	}
+
+	// Compute the unread count for a session. Driven by the per-runtime
+	// displayMessages array vs. the localStorage-backed lastSeen map;
+	// both are reactive so the badge updates without polling.
+	function unreadFor(session: Session): number {
+		return unreadCountFor(session.id, getRuntime(session.id))
+	}
+
+	// Whether the composer for a session holds non-whitespace text. We
+	// read manager.instructions directly (not the derived chat status)
+	// so the draft cue still shows during streaming/needs-confirmation —
+	// those override the icon slot but shouldn't hide the fact that the
+	// user has unsent text in this session.
+	function hasDraft(session: Session): boolean {
+		const rt = getRuntime(session.id)
+		return !!rt && rt.manager.instructions.trim().length > 0
 	}
 
 	// Sessions piggyback on the same dev gate as the global AI chat — when
@@ -94,6 +119,11 @@
 		}).length
 	)
 
+	// Sum of unread across every visible session — surfaced on the
+	// collapsed-sidebar chat icon so the user sees there's pending
+	// AI activity in some session without expanding the sidebar.
+	const totalUnread = $derived(visibleSessions.reduce((acc, s) => acc + unreadFor(s), 0))
+
 	// Eagerly create a runtime per VISIBLE session so the status dot reflects
 	// the persisted chat (last message, pending confirmation, etc.) without
 	// requiring the user to open the session first. Sessions outside the
@@ -105,11 +135,36 @@
 		}
 	})
 
+	// Pre-fetch the fork comparison for every visible fork session so the
+	// sidebar icons reflect the right ahead/diverged state without
+	// requiring the user to click into each session. Cheap enough at
+	// typical session counts; falls back to a plain dot until the
+	// fetch lands.
+	$effect(() => {
+		if (sectionCollapsed.val) return
+		for (const session of visibleSessions) {
+			if (!session.workspace_id) continue
+			const ws = $userWorkspaces.find((w) => w.id === session.workspace_id)
+			if (!ws?.parent_workspace_id) continue
+			const rt = getRuntime(session.id)
+			if (!rt) continue
+			void rt.ensureForkComparison(ws.parent_workspace_id, session.workspace_id)
+		}
+	})
+
+	function isUnavailableFork(session: Session): boolean {
+		return !!session.workspace_id && !$userWorkspaces.find((w) => w.id === session.workspace_id)
+	}
+
 	async function activate(session: Session, restoreFocus: boolean = false) {
 		selectSession(session.id)
 		// If the session has a committed workspace different from the
 		// active one, switch globally so the editor/forks resolve correctly.
-		syncWorkspaceTo(session.workspace_id)
+		// Skip for unavailable forks — switching to a deleted workspace
+		// would error out and leave the user in limbo.
+		if (!isUnavailableFork(session)) {
+			syncWorkspaceTo(session.workspace_id)
+		}
 		// Refresh the fork diff count — users typically click back into a
 		// session after editing items elsewhere in the SPA, where neither
 		// the visibility-change nor the AI-loading signal would fire.
@@ -157,6 +212,7 @@
 		if (!session) return
 		const wasActive = sessionState.currentSessionId === session.id
 		removeSession(session.id)
+		forgetSessionSeen(session.id)
 		if (wasActive) {
 			const next = sessionState.sessions[0]
 			if (next) await activate(next)
@@ -204,13 +260,23 @@
 			{#snippet children({ createMenu })}
 				<Menu {createMenu} usePointerDownOutside>
 					{#snippet triggr({ trigger })}
-						<MenuButton
-							class="!text-xs"
-							icon={MessageSquare}
-							label="Sessions"
-							{isCollapsed}
-							{trigger}
-						/>
+						<div class="relative">
+							<MenuButton
+								class="!text-xs"
+								icon={MessageSquare}
+								label="AI sessions"
+								{isCollapsed}
+								{trigger}
+							/>
+							{#if totalUnread > 0}
+								<span
+									class="absolute top-1 right-1 pointer-events-none inline-block w-2 h-2 rounded-full bg-blue-500"
+									aria-label="{totalUnread} unread message{totalUnread === 1
+										? ''
+										: 's'} across all sessions"
+								></span>
+							{/if}
+						</div>
 					{/snippet}
 					{#snippet children({ item })}
 						<div class="divide-y min-w-48" role="none">
@@ -225,15 +291,41 @@
 									{@const runtime = getRuntime(session.id)}
 									{@const status = runtime ? getSessionChatStatus(runtime) : 'idle'}
 									{@const isSelected = session.id === sessionState.currentSessionId}
+									{@const unread = unreadFor(session)}
+									{@const draft = hasDraft(session)}
 									<MenuItem
 										class={twMerge(menuItemBase, isSelected ? 'bg-surface-hover' : '')}
 										onClick={() => activate(session)}
 										{item}
 									>
-										<SessionStatusDot {status} isFork={sessionIsFork(session)} />
-										<span class="truncate flex-1 text-left">
+										<SessionStatusDot
+											{status}
+											isFork={isForkFor(session)}
+											forkStatus={forkStatusFor(session)}
+										/>
+										<span
+											class={twMerge(
+												'truncate flex-1 text-left',
+												unread > 0 ? 'font-semibold text-primary' : ''
+											)}
+										>
 											{session.summary ?? 'Untitled session'}
 										</span>
+										{#if draft || unread > 0}
+											<span class="ml-auto shrink-0 inline-flex items-center gap-1">
+												{#if draft}
+													<PencilLine class="w-3 h-3 text-tertiary" aria-label="Unsent draft" />
+												{/if}
+												{#if unread > 0}
+													<span
+														class="inline-flex items-center justify-center rounded-full bg-blue-500 text-white font-medium leading-none min-w-4 h-4 px-1 text-[10px]"
+														aria-label="{unread} unread message{unread === 1 ? '' : 's'}"
+													>
+														{unread > 9 ? '9+' : unread}
+													</span>
+												{/if}
+											</span>
+										{/if}
 									</MenuItem>
 								{/each}
 							</div>
@@ -252,7 +344,7 @@
 				class="text-secondary text-[0.5rem] uppercase flex flex-row items-center gap-1 rounded px-1 -mx-1 py-0.5 hover:bg-surface-hover focus:outline-none"
 				aria-expanded={!sectionCollapsed.val}
 			>
-				Sessions
+				AI sessions
 				{#if sectionCollapsed.val}
 					<ChevronRight size={10} />
 				{:else}
@@ -314,16 +406,24 @@
 					{@const status = runtime ? getSessionChatStatus(runtime) : 'idle'}
 					{@const isSelected = session.id === sessionState.currentSessionId}
 					{@const isEditing = editingId === session.id}
+					{@const unavailable = isUnavailableFork(session)}
+					{@const unread = unreadFor(session)}
+					{@const draft = hasDraft(session)}
 					<div
 						class={twMerge(
 							'flex flex-row items-center group rounded',
 							isSelected ? 'bg-surface-hover text-primary' : 'hover:bg-surface-hover',
-							session.archived ? 'italic opacity-60' : ''
+							session.archived ? 'italic opacity-60' : '',
+							unavailable ? 'line-through opacity-60' : ''
 						)}
 					>
 						{#if isEditing}
 							<span class="flex flex-row items-center gap-2 flex-1 px-2 py-1 min-w-0">
-								<SessionStatusDot {status} isFork={sessionIsFork(session)} />
+								<SessionStatusDot
+									{status}
+									isFork={isForkFor(session)}
+									forkStatus={forkStatusFor(session)}
+								/>
 								<!-- svelte-ignore a11y_autofocus -->
 								<input
 									type="text"
@@ -346,10 +446,32 @@
 								role="option"
 								aria-selected={isSelected}
 								onclick={() => activate(session)}
-								class="flex flex-row items-center gap-2 text-left text-xs font-normal text-secondary focus:outline-none flex-1 min-w-0 px-2 py-1"
+								class={twMerge(
+									'flex flex-row items-center gap-2 text-left text-xs font-normal focus:outline-none flex-1 min-w-0 px-2 py-1',
+									unread > 0 ? 'text-primary font-semibold' : 'text-secondary'
+								)}
 							>
-								<SessionStatusDot {status} isFork={sessionIsFork(session)} />
+								<SessionStatusDot
+									{status}
+									isFork={isForkFor(session)}
+									forkStatus={forkStatusFor(session)}
+								/>
 								<span class="truncate flex-1">{session.summary ?? 'Untitled session'}</span>
+								{#if draft || unread > 0}
+									<span class="shrink-0 inline-flex items-center gap-1">
+										{#if draft}
+											<PencilLine class="w-3 h-3 text-tertiary" aria-label="Unsent draft" />
+										{/if}
+										{#if unread > 0}
+											<span
+												class="inline-flex items-center justify-center rounded-full bg-blue-500 text-white font-medium leading-none min-w-4 h-4 px-1 text-[10px]"
+												aria-label="{unread} unread message{unread === 1 ? '' : 's'}"
+											>
+												{unread > 9 ? '9+' : unread}
+											</span>
+										{/if}
+									</span>
+								{/if}
 							</button>
 							<div
 								class="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity pr-0.5"

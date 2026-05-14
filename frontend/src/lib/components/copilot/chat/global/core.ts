@@ -41,12 +41,7 @@ import {
 	validateEditableFlowJson
 } from '../flow/editableFlowJson'
 import { createInlineScriptSession } from '../flow/inlineScriptsUtils'
-import {
-	getFlowPrompt,
-	getRawAppPrompt,
-	getResourcePrompt,
-	getScriptPrompt
-} from '$system_prompts'
+import { getFlowPrompt, getRawAppPrompt, getResourcePrompt, getScriptPrompt } from '$system_prompts'
 import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
@@ -77,6 +72,8 @@ import {
 	type WorkspaceItemType
 } from './draftStore.svelte'
 import { buildFlowDeployRequestBody, buildScriptDeployRequestBody } from './deployRequests'
+import { userStore } from '$lib/stores'
+import { get } from 'svelte/store'
 
 const ITEM_TYPES = [
 	'script',
@@ -141,9 +138,7 @@ const readWorkspaceItemSchema = z.object({
 })
 
 const writeScriptSchema = z.object({
-	path: z
-		.string()
-		.describe('Workspace path of the script, e.g. f/folder/name or u/user/name.'),
+	path: z.string().describe('Workspace path of the script, e.g. f/folder/name or u/user/name.'),
 	summary: z.string().optional().describe('Short human-readable summary.'),
 	language: scriptLangSchema.describe('Script language.'),
 	content: z.string().describe('Full script source code.')
@@ -165,7 +160,7 @@ const setFlowModuleCodeSchema = z.object({
 		.describe(
 			'Module id whose inline rawscript content to overwrite. Must reference a module whose value.type is "rawscript". Use patch_flow_json for structural changes.'
 		),
-	code: z.string().describe('New script source. Replaces the module\'s value.content entirely.')
+	code: z.string().describe("New script source. Replaces the module's value.content entirely.")
 })
 
 // Flow structure fields are taken as JSON strings rather than typed objects
@@ -174,9 +169,7 @@ const setFlowModuleCodeSchema = z.object({
 // rejects those keywords ("Unknown name $ref/$defs"). Same trick as
 // set_flow_json in chat/flow/core.ts.
 const writeFlowSchema = z.object({
-	path: z
-		.string()
-		.describe('Workspace path of the flow, e.g. f/folder/name or u/user/name.'),
+	path: z.string().describe('Workspace path of the flow, e.g. f/folder/name or u/user/name.'),
 	summary: z.string().optional().describe('Short human-readable summary.'),
 	modules: z.string().describe('JSON string containing the complete flow modules array.'),
 	schema: z
@@ -423,7 +416,12 @@ const deleteAppRunnableSchema = z.object({
 	key: z.string().describe('Key of the backend runnable to remove.')
 })
 
-const FRAMEWORK_KEYS = ['react19', 'react18', 'svelte5', 'vue'] as const satisfies readonly FrameworkKey[]
+const FRAMEWORK_KEYS = [
+	'react19',
+	'react18',
+	'svelte5',
+	'vue'
+] as const satisfies readonly FrameworkKey[]
 
 const initAppSchema = z.object({
 	path: z
@@ -452,9 +450,21 @@ const initAppSchema = z.object({
 		.describe('Optional datatable configuration. Omit unless the user asked to wire one up.')
 })
 
-const GLOBAL_SYSTEM_PROMPT = `You are Windmill's global workspace assistant.
+const buildGlobalSystemPrompt = (
+	username: string
+) => `You are Windmill's global workspace assistant.
+
+The current user's workspace username is "${username}".
 
 You can inspect workspace scripts, flows, schedules, triggers, resources, variables, and apps, then create draft changes in the frontend AI draft store.
+
+Path conventions:
+- Every workspace path has exactly three segments and starts with one of two namespaces:
+  - \`u/${username}/<name>\` — the current user's personal scope. Default for ad-hoc, exploratory, or scratch work.
+  - \`f/<folder>/<name>\` — a shared folder scope. The folder must already exist; bare \`f/<name>\` is INVALID and will fail.
+- When the user gives a bare name without a namespace prefix (e.g. "create a flow called myflow"), default to \`u/${username}/<name>\`. Do NOT invent \`f/<name>\` — that is a structurally invalid path.
+- If the request implies shared / team work but doesn't name a specific folder (e.g. "the marketing flow"), ask which folder to use rather than guessing. Call \`list_workspace_items\` with \`type: ['folder']\` (or rely on the user's hint) before assuming a folder exists.
+- Only use an \`f/<folder>/<name>\` path when the user explicitly named the folder or you confirmed it exists.
 
 Important rules:
 - write_{script,flow,schedule,trigger,resource,variable} create or overwrite drafts. They do not save, deploy, or mutate workspace items.
@@ -644,7 +654,7 @@ function buildPersistedRunnable(
 					{ type: 'static', value: v, fieldType: 'object' }
 				])
 			)
-		: existing?.fields ?? {}
+		: (existing?.fields ?? {})
 
 	if (input.type === 'inline') {
 		if (!input.inlineScript) {
@@ -698,10 +708,12 @@ type AppMetadata = {
 }
 
 function summarizeAppValue(value: AppDraftValue): AppMetadata {
-	const frontend: AppFrontendFileMetadata[] = Object.entries(value.files).map(([path, content]) => ({
-		path,
-		size: typeof content === 'string' ? content.length : 0
-	}))
+	const frontend: AppFrontendFileMetadata[] = Object.entries(value.files).map(
+		([path, content]) => ({
+			path,
+			size: typeof content === 'string' ? content.length : 0
+		})
+	)
 	const backend: AppBackendRunnableMetadata[] = Object.entries(value.runnables).map(
 		([key, runnable]) => {
 			const converted = convertPersistedToBackendRunnable(runnable as PersistedRunnable, key)
@@ -849,11 +861,7 @@ function triggerToItem(
 type TriggerService = {
 	exists(args: { workspace: string; path: string }): Promise<boolean>
 	get(args: { workspace: string; path: string }): Promise<TriggerLike>
-	list(args: {
-		workspace: string
-		pathStart?: string
-		perPage?: number
-	}): Promise<TriggerLike[]>
+	list(args: { workspace: string; pathStart?: string; perPage?: number }): Promise<TriggerLike[]>
 	create(args: { workspace: string; requestBody: any }): Promise<string>
 	update(args: { workspace: string; path: string; requestBody: any }): Promise<string>
 	delete(args: { workspace: string; path: string }): Promise<string>
@@ -983,7 +991,7 @@ async function readWorkspaceItem(
 			)
 		case 'resource':
 			return resourceToItem(
-				await ResourceService.getResource({ workspace, path }) as ListableResource,
+				(await ResourceService.getResource({ workspace, path })) as ListableResource,
 				true
 			)
 		case 'variable':
@@ -1103,7 +1111,7 @@ function getScriptInstructions(language: ScriptLang | undefined): string {
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, or generate metadata.
 - A script draft is a workspace item: \`{ type: 'script', path, summary?, language, value, isDraft }\` where \`value\` is the source code string.
-- Use workspace paths such as \`f/folder/name\` or \`u/username/name\`. Preserve the current path/language when modifying unless the user asked to change them.
+- Paths follow the conventions in the system prompt: default to \`u/<current-user>/<name>\` when the user gave a bare name; only use \`f/<folder>/<name>\` when the folder is known to exist. Preserve the current path/language when modifying unless the user asked to change them.
 - Use \`edit_script\` for small localized changes (provide \`old_string\`/\`new_string\`); use \`write_script\` for full rewrites.${note}
 
 # Windmill script authoring reference (${selected})
@@ -1115,6 +1123,7 @@ function getFlowInstructions(): string {
 	return `# Global draft flow instructions
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
+- Paths follow the conventions in the system prompt: default to \`u/<current-user>/<name>\` when the user gave a bare name; only use \`f/<folder>/<name>\` when the folder is known to exist. Never invent a folder.
 - \`write_flow\` mirrors flow mode's \`set_flow_json\`: pass \`path\`, optional \`summary\`, required \`modules\`, and optional \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\`. The flow-structure arguments are JSON strings, matching the tool schema descriptions.
 - \`read_workspace_item\` returns a compact flow \`value\` object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\`.
 - \`modules\` contains normal sequential modules. Use top-level \`preprocessor_module\` and \`failure_module\` for special modules; do not put \`preprocessor\` or \`failure\` in \`modules\`.
@@ -1142,7 +1151,7 @@ function getAppInstructions(): string {
 	return `# Global draft app instructions
 
 - Global mode edits raw app drafts only; it does not save, deploy, or bundle.
-- App drafts are addressed by workspace path (e.g. \`f/folder/my_app\`). The first write tool snapshots the workspace app onto the draft, and subsequent writes accumulate.
+- App drafts are addressed by workspace path. Follow the path conventions in the system prompt: default to \`u/<current-user>/<name>\` for bare names; only use \`f/<folder>/<name>\` when the folder is known to exist. The first write tool snapshots the workspace app onto the draft, and subsequent writes accumulate.
 - To create a new app, use \`init_app\` with a path, optional summary, and a framework (\`react19\` / \`react18\` / \`svelte5\` / \`vue\`). Confirm framework + path + summary with the user before calling — do not silently default to \`react19\` even though it is the recommended choice. \`init_app\` errors if an app already exists at the path or a draft is already in flight; in that case, edit the existing one rather than re-initializing.
 - \`init_app\` seeds a starter inline runnable named \`a\` (bun, \`main(x: string) => string\`) so the React/Svelte demo button works on first render. Replace or remove it once you start building real backend runnables.
 - Frontend file paths start with \`/\` (e.g. \`/index.tsx\`, \`/App.tsx\`, \`/styles.css\`). Use \`write_app_file\` / \`patch_app_file\` / \`delete_app_file\`.
@@ -1275,12 +1284,7 @@ export const globalTools: Tool<{}>[] = [
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Reading ${parsed.type} "${parsed.path}"...`
 			})
-			const item = await readWorkspaceItem(
-				parsed.type,
-				parsed.path,
-				workspace,
-				parsed.trigger_kind
-			)
+			const item = await readWorkspaceItem(parsed.type, parsed.path, workspace, parsed.trigger_kind)
 			toolCallbacks.setToolStatus(toolId, { content: `Read ${parsed.type} "${parsed.path}"` })
 			return JSON.stringify(serializeWorkspaceItemForRead(item), null, 2)
 		}
@@ -1980,13 +1984,21 @@ async function patchAppFile(
 	ctx: WriteDraftCtx
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
-	const { path, file_path: filePath, old_string: oldString, new_string: newString, replace_all: replaceAll } = args
+	const {
+		path,
+		file_path: filePath,
+		old_string: oldString,
+		new_string: newString,
+		replace_all: replaceAll
+	} = args
 	const target = resolveAppFileTarget(filePath)
 	if (target.kind === 'frontend') {
 		assertNotGeneratedAppFile(target.filePath)
 	}
 
-	toolCallbacks.setToolStatus(toolId, { content: `Patching ${target.filePath} in app "${path}"...` })
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Patching ${target.filePath} in app "${path}"...`
+	})
 
 	const value = await loadAppDraftValue(path, workspace)
 	let currentContent: string
@@ -2020,7 +2032,8 @@ async function patchAppFile(
 			[target.key]: {
 				...runnable!,
 				inlineScript: {
-					language: runnable!.inlineScript?.language ?? (target.extension === 'py' ? 'python3' : 'bun'),
+					language:
+						runnable!.inlineScript?.language ?? (target.extension === 'py' ? 'python3' : 'bun'),
 					content: updated
 				}
 			}
@@ -2044,10 +2057,7 @@ async function patchAppFile(
 }
 
 async function recomputeAppPolicy(value: AppDraftValue): Promise<void> {
-	value.policy = (await updateRawAppPolicy(
-		value.runnables as any,
-		value.policy as any
-	)) as any
+	value.policy = (await updateRawAppPolicy(value.runnables as any, value.policy as any)) as any
 }
 
 async function writeAppRunnable(
@@ -2128,10 +2138,7 @@ const triggerLabels: Record<TriggerKind, string> = {
 	azure: 'Azure Event Grid trigger'
 }
 
-function createOpenScheduleAction(
-	path: string,
-	targetKind: 'script' | 'flow'
-): ToolDisplayAction {
+function createOpenScheduleAction(path: string, targetKind: 'script' | 'flow'): ToolDisplayAction {
 	return {
 		id: `open-deployed-schedule:${path}`,
 		type: 'open_created_resource',
@@ -2402,7 +2409,8 @@ async function writeDraft(item: WorkspaceItem, ctx: WriteDraftCtx): Promise<stri
 export function prepareGlobalSystemMessage(
 	customPrompt?: string
 ): ChatCompletionSystemMessageParam {
-	let content = GLOBAL_SYSTEM_PROMPT
+	const username = get(userStore)?.username ?? ''
+	let content = buildGlobalSystemPrompt(username)
 	if (customPrompt?.trim()) {
 		content = `${content}\n\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
 	}

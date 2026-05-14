@@ -19,6 +19,8 @@
 		Trash2
 	} from 'lucide-svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import WorkspaceItemDrillPicker from '$lib/components/WorkspaceItemDrillPicker.svelte'
 	import FlowEditorView from './FlowEditorView.svelte'
 	import ScriptEditorView from './ScriptEditorView.svelte'
 	import AppEditorView from './AppEditorView.svelte'
@@ -166,7 +168,7 @@
 
 	<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
 		<Pane size={hasEditor ? 50 : 100} minSize={25} class="flex flex-col min-h-0 pb-2">
-			<header class="flex flex-row items-center gap-1 pl-4 pr-1 py-2 shrink-0">
+			<header class="flex flex-row items-center gap-1 pl-4 pr-4 py-2 shrink-0">
 				<EditableInput
 					bind:this={summaryInput}
 					value={session.summary ?? ''}
@@ -215,7 +217,31 @@
 						</span>
 					{/snippet}
 				</DropdownV2>
-				{#if hasTarget && mountEditor && !editorVisible}
+				{#if !session.target && hasFirstUserMessage}
+					<!-- Drill-picker for sessions that have started but haven't
+					     picked an editor target yet. Hidden on fresh sessions
+					     (no messages yet) — the workspace bar is the only
+					     header affordance during the empty state. -->
+					<div class="ml-auto">
+						<Popover
+							placement="bottom-end"
+							usePointerDownOutside
+							disableFocusTrap
+							class="inline-flex"
+						>
+							{#snippet trigger()}
+								<Button variant="default" unifiedSize="xs" startIcon={{ icon: PanelRightOpen }}>
+									Open editor
+								</Button>
+							{/snippet}
+							{#snippet content()}
+								<WorkspaceItemDrillPicker
+									onPick={(item: WorkspaceItem) => pickEditorTarget(item)}
+								/>
+							{/snippet}
+						</Popover>
+					</div>
+				{:else if hasTarget && mountEditor && !editorVisible}
 					<div class="ml-auto">
 						<Button
 							variant="subtle"
