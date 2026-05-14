@@ -7,10 +7,8 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { AIChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { loadCopilot } from '$lib/aiStore'
+	import { copilotInfo, loadCopilot } from '$lib/aiStore'
 	import { EllipsisVertical, PanelRightClose, PanelRightOpen, Pencil, Trash2 } from 'lucide-svelte'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import WorkspaceItemDrillPicker from '$lib/components/WorkspaceItemDrillPicker.svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import FlowEditorView from './FlowEditorView.svelte'
 	import ScriptEditorView from './ScriptEditorView.svelte'
@@ -119,6 +117,20 @@
 	// — the editor stays mounted, so re-opening doesn't pay a remount cost
 	// and xy-flow / Monaco keep their viewport state.
 	let editorVisible = $state(true)
+
+	// Focus the chat input whenever this session is the active one.
+	// The textarea is disabled until copilotInfo loads (otherwise focus is
+	// a silent no-op), so we wait for that too. Triggers on initial mount,
+	// warm-session switch via the picker, and the moment copilot finishes
+	// loading.
+	let aiChat: AIChat | undefined = $state(undefined)
+	$effect(() => {
+		if (sessionState.currentSessionId !== sessionId) return
+		if (!aiChat) return
+		if (!$copilotInfo.enabled) return
+		const chat = aiChat
+		setTimeout(() => chat.focusInput(), 0)
+	})
 </script>
 
 {#if !session || !runtime}
@@ -131,24 +143,16 @@
 		session.target?.kind === 'raw_app'}
 	{@const hasEditor = mountEditor && hasTarget && editorVisible}
 
-	{#snippet sessionEmptyHint()}
-		{#if !session.target}
-			<span
-				class="text-2xs text-tertiary text-center px-4 my-2 inline-flex items-center justify-center gap-1 flex-wrap"
-			>
-				Open an editor on the top right
-				<PanelRightOpen class="inline-block w-3.5 h-3.5" />
-				to work on a flow or script
-			</span>
-		{/if}
-	{/snippet}
-
 	{#snippet inputPreface()}
 		{#if !hasFirstUserMessage}
 			<SessionWorkspaceBar {session} />
 		{/if}
 		<SessionForkBar {session} />
 	{/snippet}
+
+	<!-- Override the chat's default keyboard-shortcut hint with nothing —
+	     sessions have their own empty-state affordances above. -->
+	{#snippet sessionEmptyHint()}{/snippet}
 
 	<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
 		<Pane size={hasEditor ? 50 : 100} minSize={25} class="flex flex-col min-h-0 pb-2">
@@ -190,27 +194,7 @@
 						</span>
 					{/snippet}
 				</DropdownV2>
-				{#if !session.target}
-					<div class="ml-auto">
-						<Popover
-							placement="bottom-end"
-							usePointerDownOutside
-							disableFocusTrap
-							class="inline-flex"
-						>
-							{#snippet trigger()}
-								<Button variant="default" unifiedSize="xs" startIcon={{ icon: PanelRightOpen }}>
-									Open editor
-								</Button>
-							{/snippet}
-							{#snippet content()}
-								<WorkspaceItemDrillPicker
-									onPick={(item: WorkspaceItem) => pickEditorTarget(item)}
-								/>
-							{/snippet}
-						</Popover>
-					</div>
-				{:else if hasTarget && mountEditor && !editorVisible}
+				{#if hasTarget && mountEditor && !editorVisible}
 					<div class="ml-auto">
 						<Button
 							variant="subtle"
@@ -235,8 +219,9 @@
 					</div>
 				{/if}
 			</header>
-			<div class="flex-1 min-h-0 w-full flex flex-col">
+			<div class="flex-1 min-h-0 w-full flex flex-col {hasFirstUserMessage ? '' : 'pt-8'}">
 				<AIChat
+					bind:this={aiChat}
 					hideInputBorder
 					hideHeader
 					hideModeSelector

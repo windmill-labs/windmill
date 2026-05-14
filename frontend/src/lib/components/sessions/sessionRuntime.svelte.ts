@@ -105,6 +105,11 @@ export interface SessionRuntime {
 	readonly loadingForkComparison: boolean
 	ensureForkComparison(parent: string, fork: string): Promise<void>
 	invalidateForkComparison(): void
+	// Force-refresh against the last (parent, fork) pair the runtime
+	// fetched for. No-op if no comparison has ever been loaded. Useful
+	// for session-activation hooks that need a fresh count regardless of
+	// the dedupe key match.
+	refreshForkComparison(): Promise<void>
 }
 
 const runtimes = new SvelteMap<string, SessionRuntime>()
@@ -381,6 +386,21 @@ function createRuntime(session: Session): SessionRuntime {
 		invalidateForkComparison() {
 			forkComparisonKey = undefined
 			forkComparison.val = undefined
+		},
+
+		async refreshForkComparison() {
+			const key = forkComparisonKey
+			if (!key) return
+			const sep = key.indexOf('|')
+			if (sep < 0) return
+			const parent = key.slice(0, sep)
+			const fork = key.slice(sep + 1)
+			// Clear so the next ensure() round-trips even though the key
+			// is unchanged; this is the only path callers can use to
+			// force a refresh after a known external mutation.
+			forkComparisonKey = undefined
+			forkComparison.val = undefined
+			await this.ensureForkComparison(parent, fork)
 		}
 	}
 }

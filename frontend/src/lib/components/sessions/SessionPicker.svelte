@@ -34,6 +34,16 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { visibleWorkspaceIds } from './sessionScope.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
+	import { userWorkspaces } from '$lib/stores'
+
+	// A session is "in a fork" when its effective workspace has a parent
+	// workspace in the user's list — i.e., it's not the root.
+	function sessionIsFork(session: Session): boolean {
+		const ws = getEffectiveWorkspaceId(session)
+		if (!ws) return false
+		const entry = $userWorkspaces.find((w) => w.id === ws)
+		return !!entry?.parent_workspace_id
+	}
 
 	// Sessions piggyback on the same dev gate as the global AI chat — when
 	// the feature flag is off, the sidebar section is hidden entirely.
@@ -80,6 +90,10 @@
 		// If the session has a committed workspace different from the
 		// active one, switch globally so the editor/forks resolve correctly.
 		syncWorkspaceTo(session.workspace_id)
+		// Refresh the fork diff count — users typically click back into a
+		// session after editing items elsewhere in the SPA, where neither
+		// the visibility-change nor the AI-loading signal would fire.
+		void getRuntime(session.id)?.refreshForkComparison()
 		await goto(`/sessions?session_name=${encodeURIComponent(session.name)}`)
 		if (restoreFocus) {
 			// goto() resets focus to <body> — put it back on the active session button
@@ -194,7 +208,7 @@
 										onClick={() => activate(session)}
 										{item}
 									>
-										<SessionStatusDot {status} />
+										<SessionStatusDot {status} isFork={sessionIsFork(session)} />
 										<span class="truncate flex-1 text-left">
 											{session.summary ?? 'Untitled session'}
 										</span>
@@ -254,7 +268,7 @@
 					>
 						{#if isEditing}
 							<span class="flex flex-row items-center gap-2 flex-1 px-2 py-1 min-w-0">
-								<SessionStatusDot {status} />
+								<SessionStatusDot {status} isFork={sessionIsFork(session)} />
 								<!-- svelte-ignore a11y_autofocus -->
 								<input
 									type="text"
@@ -276,10 +290,10 @@
 								data-session-button
 								role="option"
 								aria-selected={isSelected}
-								onclick={() => activate(session, true)}
+								onclick={() => activate(session)}
 								class="flex flex-row items-center gap-2 text-left text-xs font-normal text-secondary focus:outline-none flex-1 min-w-0 px-2 py-1"
 							>
-								<SessionStatusDot {status} />
+								<SessionStatusDot {status} isFork={sessionIsFork(session)} />
 								<span class="truncate flex-1">{session.summary ?? 'Untitled session'}</span>
 							</button>
 							<div

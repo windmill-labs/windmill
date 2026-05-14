@@ -55,6 +55,27 @@
 		onKeyDown = undefined
 	}: Props = $props()
 
+	// GLOBAL-mode suggestion pool. We pick one at mount-time so each new
+	// session lands on a different prompt; the choice stays stable for
+	// the lifetime of this input so the placeholder doesn't shuffle as
+	// the user is reading it.
+	const GLOBAL_PLACEHOLDER_SUGGESTIONS = [
+		'Write a hello-world flow',
+		'Create a script that lists files in an S3 bucket',
+		'Build a CRUD app for a customer table',
+		'Schedule a daily cleanup of old runs',
+		'Wrap an existing script into a flow with retries',
+		'Add an HTTP trigger to an existing script',
+		'Generate a report from a SQL query and email it',
+		'Create a Postgres resource and a script that queries it',
+		'Refactor a script to add error handling',
+		'List my workspace flows and scripts'
+	]
+	const globalSuggestion =
+		GLOBAL_PLACEHOLDER_SUGGESTIONS[
+			Math.floor(Math.random() * GLOBAL_PLACEHOLDER_SUGGESTIONS.length)
+		]
+
 	// Generate mode-specific placeholder
 	const modePlaceholder = $derived.by(() => {
 		if (!isFirstMessage) {
@@ -77,7 +98,7 @@
 			case AIMode.API:
 				return 'Make API calls...'
 			case AIMode.GLOBAL:
-				return 'Work across workspace items...'
+				return globalSuggestion
 			case AIMode.ASK:
 				return 'Ask questions about Windmill...'
 			default:

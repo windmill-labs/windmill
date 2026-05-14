@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { ArrowRight, GitCompareArrows, GitFork, GitMerge } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
-	import { userWorkspaces } from '$lib/stores'
+	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { goto } from '$lib/navigation'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
+	import { isCloudHosted } from '$lib/cloud'
 	import { sessionState, type Session } from './sessionState.svelte'
 	import { getRuntime } from './sessionRuntime.svelte'
 	import ForkDiffDrawer from './ForkDiffDrawer.svelte'
@@ -21,6 +23,12 @@
 		parentWorkspaceId ? $userWorkspaces.find((w) => w.id === parentWorkspaceId) : undefined
 	)
 	const isFork = $derived(!!parentWorkspaceId)
+
+	// Same gate as the sidebar WorkspaceMenu / SessionWorkspaceBar.
+	// When forking isn't available the diff/review surface is moot.
+	const forksAllowed = $derived(
+		!isCloudHosted() && !isRuleActive('DisableWorkspaceForking') && $workspaceStore !== 'admins'
+	)
 
 	let diffDrawer: ForkDiffDrawer | undefined = $state(undefined)
 
@@ -75,7 +83,7 @@
 	}
 </script>
 
-{#if isFork && sessionWorkspace && parentWorkspace && parentWorkspaceId && committedId}
+{#if forksAllowed && isFork && sessionWorkspace && parentWorkspace && parentWorkspaceId && committedId}
 	<div
 		class="flex flex-row items-center justify-between gap-2 py-2 px-3 text-xs border rounded-md bg-surface-tertiary"
 	>

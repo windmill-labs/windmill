@@ -4,6 +4,7 @@
 	import SessionWrapper from '$lib/components/sessions/SessionWrapper.svelte'
 	import {
 		getEffectiveWorkspaceId,
+		selectSession,
 		sessionState,
 		syncWorkspaceTo
 	} from '$lib/components/sessions/sessionState.svelte'
@@ -47,8 +48,18 @@
 
 	// Touch the runtime for the active session so it gets created on first visit
 	// and the pane shows up. Subsequent renders find it via listRuntimes().
+	// Also refresh the fork diff count: deep-link / back-button navigation
+	// changes the URL but doesn't fire the picker.activate path nor the
+	// visibility-change signal, so this is the only hook that catches a
+	// user returning from another route in the same tab.
 	$effect(() => {
-		if (activeSession) getOrCreateRuntime(activeSession)
+		if (!activeSession) return
+		// Keep currentSessionId in sync with the URL so consumers
+		// (refresh hooks, picker selection) react to deep links the
+		// same way they react to picker clicks.
+		selectSession(activeSession.id)
+		const rt = getOrCreateRuntime(activeSession)
+		void rt.refreshForkComparison()
 	})
 
 	// Warm = has a live runtime (module-scoped) AND its workspace is in scope.

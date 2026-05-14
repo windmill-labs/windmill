@@ -73,6 +73,10 @@
 		aiChatManager.sendRequest(options)
 	}
 
+	export function focusInput() {
+		aiChatDisplay?.focusInput()
+	}
+
 	const historyManager = aiChatManager.historyManager
 
 	let aiChatDisplay: AIChatDisplay | undefined = $state(undefined)
