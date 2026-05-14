@@ -653,6 +653,12 @@ export class AIChatManager {
 		}
 	}
 
+	// Optional pre-flight hook called once per send, after validation but
+	// before any UI state mutates or backend calls go out. Sessions use
+	// this to commit/materialise the workspace (creating a staged fork via
+	// the API) so the first message targets the correct workspace.
+	beforeSend?: () => Promise<void> | void
+
 	sendRequest = async (
 		options: {
 			removeDiff?: boolean
@@ -676,6 +682,13 @@ export class AIChatManager {
 		}
 		if (!this.instructions.trim()) {
 			return
+		}
+		if (this.beforeSend) {
+			try {
+				await this.beforeSend()
+			} catch (e) {
+				console.error('AIChatManager beforeSend hook failed', e)
+			}
 		}
 		try {
 			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []

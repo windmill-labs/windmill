@@ -1,12 +1,20 @@
 <script lang="ts">
-	import { GitFork, GitCompareArrows, GitMerge, ArrowRight } from 'lucide-svelte'
+	import { ArrowRight, GitCompareArrows, GitFork, GitMerge } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { userWorkspaces } from '$lib/stores'
 	import { goto } from '$lib/navigation'
-	import type { Session } from './sessionState.svelte'
+	import type { Session, SessionTarget } from './sessionState.svelte'
+	import { getRuntime } from './sessionRuntime.svelte'
 	import ForkDiffDrawer from './ForkDiffDrawer.svelte'
+	import ForkDiffCountDropdown from './ForkDiffCountDropdown.svelte'
 
-	let { session }: { session: Session } = $props()
+	let {
+		session,
+		onOpenInPanel
+	}: {
+		session: Session
+		onOpenInPanel?: (target: SessionTarget, summary?: string) => void
+	} = $props()
 
 	// The fork bar surfaces a committed workspace relationship — only
 	// visible after the session locked its workspace at first send. Drafts
@@ -22,6 +30,26 @@
 	const isFork = $derived(!!parentWorkspaceId)
 
 	let diffDrawer: ForkDiffDrawer | undefined = $state(undefined)
+
+	// Comparison data lives on the shared SessionRuntime resource so any
+	// future consumer (e.g. the diff drawer, a merge action) reads the
+	// same cache and can invalidate it after mutating the fork.
+	const runtime = $derived(getRuntime(session.id))
+	const comparison = $derived(runtime?.forkComparison.val)
+	const totalDiffs = $derived(comparison?.summary?.total_diffs ?? 0)
+	const diffs = $derived(comparison?.diffs ?? [])
+
+	$effect(() => {
+		if (!runtime || !committedId || !parentWorkspaceId) return
+		void runtime.ensureForkComparison(parentWorkspaceId, committedId)
+	})
+
+	export function refresh() {
+		if (runtime && committedId && parentWorkspaceId) {
+			runtime.invalidateForkComparison()
+			void runtime.ensureForkComparison(parentWorkspaceId, committedId)
+		}
+	}
 
 	function openReview() {
 		if (!committedId) return
@@ -44,10 +72,12 @@
 			</span>
 		</div>
 		<div class="flex items-center gap-1 shrink-0">
+			<ForkDiffCountDropdown {diffs} workspaceId={committedId} {onOpenInPanel} />
 			<Button
 				variant="subtle"
 				unifiedSize="xs"
 				startIcon={{ icon: GitCompareArrows }}
+				disabled={totalDiffs === 0}
 				on:click={() => diffDrawer?.open()}
 			>
 				Diff

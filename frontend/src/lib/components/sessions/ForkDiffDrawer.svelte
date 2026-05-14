@@ -26,6 +26,7 @@
 	import { WorkspaceService, type WorkspaceComparison, type WorkspaceItemDiff } from '$lib/gen'
 	import { getItemValue } from '$lib/utils_workspace_deploy'
 	import { userWorkspaces } from '$lib/stores'
+	import { editUrlFor as buildEditUrl } from './forkEditUrl'
 
 	let {
 		forkWorkspaceId,
@@ -93,17 +94,9 @@
 		return `${d.kind}/${d.path}`
 	}
 
-	/** Editor URL for a diff row, scoped to the fork workspace. Returns
-	 * undefined for kinds we don't have a dedicated editor for (resource,
-	 * variable, schedule, triggers, …). */
+	// Editor URL for a diff row, scoped to the fork workspace.
 	function editUrlFor(d: WorkspaceItemDiff): string | undefined {
-		const ws = encodeURIComponent(forkWorkspaceId)
-		const path = d.path
-		if (d.kind === 'flow') return `/flows/edit/${path}?workspace=${ws}`
-		if (d.kind === 'script') return `/scripts/edit/${path}?workspace=${ws}`
-		if (d.kind === 'app') return `/apps/edit/${path}?workspace=${ws}`
-		if (d.kind === 'raw_app') return `/apps_raw/edit/${path}?workspace=${ws}`
-		return undefined
+		return buildEditUrl(d, forkWorkspaceId)
 	}
 
 	const KIND_LABELS: Record<string, string> = {

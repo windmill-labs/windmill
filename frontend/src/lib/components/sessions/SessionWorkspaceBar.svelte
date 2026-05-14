@@ -1,12 +1,11 @@
 <script lang="ts">
-	import { get } from 'svelte/store'
 	import { userWorkspaces, workspaceStore, type UserWorkspace } from '$lib/stores'
-	import { switchWorkspace } from '$lib/storeUtils'
 	import { findWorkspaceDescendants } from '$lib/utils/workspaceHierarchy'
 	import {
 		getEffectiveWorkspaceId,
 		setSessionPendingFork,
 		setSessionPendingWorkspace,
+		syncWorkspaceTo,
 		type Session
 	} from './sessionState.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -49,9 +48,7 @@
 		// otherwise picking a sibling fork drops it out of
 		// $visibleWorkspaceIds and the session page goes blank.
 		setSessionPendingWorkspace(session.id, id)
-		if (id !== get(workspaceStore)) {
-			switchWorkspace(id)
-		}
+		syncWorkspaceTo(id)
 		dropdownOpen = false
 		creatingFork = false
 	}
@@ -86,7 +83,7 @@
 			id: prefixed,
 			name
 		})
-		if (root.id !== get(workspaceStore)) switchWorkspace(root.id)
+		syncWorkspaceTo(root.id)
 		dropdownOpen = false
 		creatingFork = false
 		newForkName = ''

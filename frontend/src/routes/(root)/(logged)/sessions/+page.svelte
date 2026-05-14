@@ -1,22 +1,19 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
-	import { get } from 'svelte/store'
 	import { page } from '$app/state'
 	import SessionWrapper from '$lib/components/sessions/SessionWrapper.svelte'
 	import {
 		getEffectiveWorkspaceId,
-		sessionState
+		sessionState,
+		syncWorkspaceTo
 	} from '$lib/components/sessions/sessionState.svelte'
 	import {
-		editorWarmIds,
 		getOrCreateRuntime,
 		listRuntimes,
 		promoteEditorWarm
 	} from '$lib/components/sessions/sessionRuntime.svelte'
 	import { visibleWorkspaceIds } from '$lib/components/sessions/sessionScope.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
-	import { workspaceStore } from '$lib/stores'
-	import { switchWorkspace } from '$lib/storeUtils'
 
 	const globalEnabled = isGlobalAiEnabled()
 
@@ -32,11 +29,9 @@
 	// the active one, switch globally so visibility resolves and the
 	// editor loads against the right workspace.
 	$effect(() => {
-		const s = sessionByName
-		if (!s?.workspace_id) return
-		if (s.workspace_id !== get(workspaceStore)) {
-			untrack(() => switchWorkspace(s.workspace_id))
-		}
+		const ws = sessionByName?.workspace_id
+		if (!ws) return
+		untrack(() => syncWorkspaceTo(ws))
 	})
 
 	// Only resolve the active session if its effective workspace is in
@@ -92,7 +87,7 @@
 					: 'z-0 opacity-0 pointer-events-none'}"
 				aria-hidden={s.id !== activeSession?.id}
 			>
-				<SessionWrapper sessionId={s.id} mountEditor={editorWarmIds.has(s.id)} />
+				<SessionWrapper sessionId={s.id} />
 			</div>
 		{/each}
 	</div>

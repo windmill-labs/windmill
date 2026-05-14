@@ -49,9 +49,15 @@ doesn't steal focus from a sibling search input (matches the picker).
 		indent?: number
 		/** Title tooltip shown on hover; defaults to the secondary text. */
 		title?: string
+		/** When set, the row renders as an `<a href target="_blank">` link
+		 * instead of a `<button>`. Used by callers that want native
+		 * new-tab / cmd-click behaviour. `onclick` still forwards. */
+		href?: string
 		onclick?: () => void
 		onmouseenter?: () => void
-		/** Right-side adornments (status dot, badges, …). */
+		/** Right-side adornments (status dot, badges, …). The `group` class
+		 * is always applied to the root so the snippet can use
+		 * `group-hover:*` utilities to reveal hover-only affordances. */
 		extras?: Snippet
 	}
 
@@ -67,40 +73,74 @@ doesn't steal focus from a sibling search input (matches the picker).
 		baseClass = 'py-1.5',
 		indent = 0,
 		title,
+		href,
 		onclick,
 		onmouseenter,
 		extras
 	}: Props = $props()
+
+	const rootClass = $derived(
+		`group w-full text-left flex items-center gap-2 px-3 transition-colors ${baseClass} ${highlighted ? 'bg-surface-hover' : ''} ${current ? 'cursor-default text-emphasis font-medium' : ''}`
+	)
 </script>
 
-<button
-	type="button"
-	{id}
-	role="option"
-	aria-selected={highlighted}
-	aria-current={current ? 'true' : undefined}
-	data-nav-key={navKey}
-	title={title ?? secondary}
-	style={indent ? `padding-left: ${indent}px` : undefined}
-	class="w-full text-left flex items-center gap-2 px-3 transition-colors {baseClass} {highlighted
-		? 'bg-surface-hover'
-		: ''} {current ? 'cursor-default text-emphasis font-medium' : ''}"
-	onmousedown={(e) => e.preventDefault()}
-	{onclick}
-	{onmouseenter}
->
-	<RowIcon {kind} {triggerKind} size={12} />
-	<div class="min-w-0 flex-1">
-		{#if summary}
-			<div class="text-xs text-primary truncate">{summary}</div>
-			<div class="text-2xs text-secondary font-normal font-mono truncate">{secondary}</div>
-		{:else}
-			<div class="text-xs text-primary font-mono truncate">{secondary}</div>
-		{/if}
-	</div>
-	{#if extras}
-		<div class="shrink-0 flex items-center gap-2">
-			{@render extras()}
+{#if href}
+	<a
+		{href}
+		target="_blank"
+		rel="noopener noreferrer"
+		{id}
+		aria-current={current ? 'true' : undefined}
+		data-nav-key={navKey}
+		title={title ?? secondary}
+		style={indent ? `padding-left: ${indent}px` : undefined}
+		class={rootClass}
+		{onclick}
+		{onmouseenter}
+	>
+		<RowIcon {kind} {triggerKind} size={12} />
+		<div class="min-w-0 flex-1">
+			{#if summary}
+				<div class="text-xs text-primary truncate">{summary}</div>
+				<div class="text-2xs text-secondary font-normal font-mono truncate">{secondary}</div>
+			{:else}
+				<div class="text-xs text-primary font-mono truncate">{secondary}</div>
+			{/if}
 		</div>
-	{/if}
-</button>
+		{#if extras}
+			<div class="shrink-0 flex items-center gap-2">
+				{@render extras()}
+			</div>
+		{/if}
+	</a>
+{:else}
+	<button
+		type="button"
+		{id}
+		role="option"
+		aria-selected={highlighted}
+		aria-current={current ? 'true' : undefined}
+		data-nav-key={navKey}
+		title={title ?? secondary}
+		style={indent ? `padding-left: ${indent}px` : undefined}
+		class={rootClass}
+		onmousedown={(e) => e.preventDefault()}
+		{onclick}
+		{onmouseenter}
+	>
+		<RowIcon {kind} {triggerKind} size={12} />
+		<div class="min-w-0 flex-1">
+			{#if summary}
+				<div class="text-xs text-primary truncate">{summary}</div>
+				<div class="text-2xs text-secondary font-normal font-mono truncate">{secondary}</div>
+			{:else}
+				<div class="text-xs text-primary font-mono truncate">{secondary}</div>
+			{/if}
+		</div>
+		{#if extras}
+			<div class="shrink-0 flex items-center gap-2">
+				{@render extras()}
+			</div>
+		{/if}
+	</button>
+{/if}

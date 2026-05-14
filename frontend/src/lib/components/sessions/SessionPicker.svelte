@@ -13,15 +13,13 @@
 	import { goto } from '$lib/navigation'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { slide } from 'svelte/transition'
-	import { get } from 'svelte/store'
-	import { workspaceStore } from '$lib/stores'
-	import { switchWorkspace } from '$lib/storeUtils'
 	import {
 		createSession,
 		getEffectiveWorkspaceId,
 		renameSession,
 		selectSession,
 		sessionState,
+		syncWorkspaceTo,
 		type Session
 	} from './sessionState.svelte'
 	import {
@@ -81,9 +79,7 @@
 		selectSession(session.id)
 		// If the session has a committed workspace different from the
 		// active one, switch globally so the editor/forks resolve correctly.
-		if (session.workspace_id && session.workspace_id !== get(workspaceStore)) {
-			switchWorkspace(session.workspace_id)
-		}
+		syncWorkspaceTo(session.workspace_id)
 		await goto(`/sessions?session_name=${encodeURIComponent(session.name)}`)
 		if (restoreFocus) {
 			// goto() resets focus to <body> — put it back on the active session button

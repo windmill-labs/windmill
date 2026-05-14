@@ -23,13 +23,20 @@
 		getEffectiveWorkspaceId,
 		persistSessions,
 		sessionState,
+		setSessionTarget,
 		type SessionTarget
 	} from './sessionState.svelte'
-	import { getOrCreateRuntime, removeSession } from './sessionRuntime.svelte'
+	import { editorWarmIds, getOrCreateRuntime, removeSession } from './sessionRuntime.svelte'
 	import { goto } from '$lib/navigation'
 	import { slide } from 'svelte/transition'
 
-	let { sessionId, mountEditor = true }: { sessionId: string; mountEditor?: boolean } = $props()
+	let { sessionId }: { sessionId: string } = $props()
+
+	// LRU-warm sessions get their editor pane mounted; others render
+	// chat-only. Reading from the reactive Set keeps SessionWrapper in
+	// sync with promoteEditorWarm without an explicit prop round-trip
+	// through the page route.
+	const mountEditor = $derived(editorWarmIds.has(sessionId))
 
 	// Parent keys by sessionId; this wrapper only mounts when the session exists.
 	// Captured at script-init so we can synchronously bind context.
@@ -89,18 +96,23 @@
 		session ? (getEffectiveWorkspaceId(session) ?? $workspaceStore ?? '') : ''
 	)
 
-	function pickEditorTarget(item: WorkspaceItem) {
+	// Core mutation: assign a target via the canonical setter, then re-open
+	// the editor pane. Shared by every code path that swaps the session's
+	// editor target (drill picker, fork-bar dropdown, …).
+	function applyEditorTarget(target: SessionTarget, summary?: string) {
 		if (!session) return
-		// WorkspaceItem.kind is 'flow'|'script'|'app'; raw apps are flagged via
-		// item.raw_app. Our SessionTarget keeps 'rawapp' as a separate kind so
-		// the wrapper routes to RawAppEditorView.
-		const kind: SessionTarget['kind'] = item.kind === 'app' && item.raw_app ? 'rawapp' : item.kind
-		session.target = { kind, path: item.path }
-		if (!session.summary && item.summary) session.summary = item.summary
-		persistSessions()
+		setSessionTarget(session.id, target, summary)
 		// Picking a target also re-opens the editor pane (the user just chose
 		// what to view).
 		editorVisible = true
+	}
+
+	function pickEditorTarget(item: WorkspaceItem) {
+		// WorkspaceItem.kind is 'flow'|'script'|'app'; raw apps are flagged
+		// via item.raw_app. The diff-API uses 'raw_app' as its kind so we
+		// align SessionTarget on the same canonical string.
+		const kind: SessionTarget['kind'] = item.kind === 'app' && item.raw_app ? 'raw_app' : item.kind
+		applyEditorTarget({ kind, path: item.path }, item.summary)
 	}
 
 	// Editor pane visibility. Toggling this just hides/shows the pane via CSS
@@ -116,7 +128,7 @@
 		session.target?.kind === 'flow' ||
 		session.target?.kind === 'script' ||
 		session.target?.kind === 'app' ||
-		session.target?.kind === 'rawapp'}
+		session.target?.kind === 'raw_app'}
 	{@const hasEditor = mountEditor && hasTarget && editorVisible}
 
 	{#snippet sessionEmptyHint()}
@@ -135,7 +147,7 @@
 		{#if !hasFirstUserMessage}
 			<SessionWorkspaceBar {session} />
 		{/if}
-		<SessionForkBar {session} />
+		<SessionForkBar {session} onOpenInPanel={applyEditorTarget} />
 	{/snippet}
 
 	<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
@@ -260,7 +272,7 @@
 							workspaceId={effectiveWorkspaceId}
 							onNavigate={pickEditorTarget}
 						/>
-					{:else if session.target.kind === 'rawapp'}
+					{:else if session.target.kind === 'raw_app'}
 						<RawAppEditorView
 							{runtime}
 							path={session.target.path}

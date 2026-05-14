@@ -1,19 +1,24 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
+import { get } from 'svelte/store'
 import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 import { initFlow } from '$lib/components/flows/flowStore.svelte'
 import {
 	AppService,
 	FlowService,
 	ScriptService,
+	WorkspaceService,
 	type AppWithLastVersion,
 	type Flow,
 	type NewScript,
-	type NewScriptWithDraft
+	type NewScriptWithDraft,
+	type WorkspaceComparison
 } from '$lib/gen'
 import type { App as AppValue, HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
+import { workspaceStore } from '$lib/stores'
 import { emptySchema, type StateStore } from '$lib/utils'
 import {
+	commitSessionWorkspace,
 	deleteSession as deleteSessionState,
 	ensureChatIdsSeeded,
 	setSessionChatId,
@@ -92,6 +97,14 @@ export interface SessionRuntime {
 	readonly notFoundRawApp: boolean
 	readonly loadedRawAppPath: string | undefined
 	loadRawApp(workspace: string, path: string): Promise<void>
+	// Fork comparison cache: shared between SessionForkBar (count + dropdown)
+	// and any future consumer that needs the parent ↔ fork diff list. Keyed
+	// implicitly by the (parent, fork) pair last passed to ensureForkComparison;
+	// invalidateForkComparison() forces a refresh after a known-mutating action.
+	readonly forkComparison: { val: WorkspaceComparison | undefined }
+	readonly loadingForkComparison: boolean
+	ensureForkComparison(parent: string, fork: string): Promise<void>
+	invalidateForkComparison(): void
 }
 
 const runtimes = new SvelteMap<string, SessionRuntime>()
@@ -117,6 +130,13 @@ function createRuntime(session: Session): SessionRuntime {
 	// global-AI flag, so this is always available here. Mode is locked
 	// and the dropdown is hidden in the chat UI.
 	manager.mode = AIMode.GLOBAL
+	// Pre-flight: commit the session's workspace (materialising a staged
+	// fork if needed) before any send. AIChatManager awaits this so the
+	// first message targets the freshly-committed workspace, not the
+	// parent. Idempotent — bails out once workspace_id is set.
+	manager.beforeSend = async () => {
+		await commitSessionWorkspace(session.id, get(workspaceStore) ?? undefined)
+	}
 
 	const flowStore: StateStore<Flow> = $state({ val: emptyFlow() })
 	const flowStateStore: { val: Record<string, any> } = $state({ val: {} })
@@ -147,6 +167,10 @@ function createRuntime(session: Session): SessionRuntime {
 	let loadingRawApp = $state(false)
 	let notFoundRawApp = $state(false)
 	let loadedRawAppPath = $state<string | undefined>(undefined)
+
+	const forkComparison: { val: WorkspaceComparison | undefined } = $state({ val: undefined })
+	let loadingForkComparison = $state(false)
+	let forkComparisonKey: string | undefined = undefined
 
 	return {
 		sessionId: session.id,
@@ -326,6 +350,37 @@ function createRuntime(session: Session): SessionRuntime {
 			} finally {
 				loadingRawApp = false
 			}
+		},
+
+		forkComparison,
+		get loadingForkComparison() {
+			return loadingForkComparison
+		},
+
+		async ensureForkComparison(parent: string, fork: string) {
+			const key = `${parent}|${fork}`
+			if (forkComparisonKey === key && forkComparison.val) return
+			if (loadingForkComparison && forkComparisonKey === key) return
+			forkComparisonKey = key
+			loadingForkComparison = true
+			try {
+				forkComparison.val = await WorkspaceService.compareWorkspaces({
+					workspace: parent,
+					targetWorkspaceId: fork
+				})
+			} catch (e) {
+				console.error('SessionRuntime: forkComparison fetch failed', e)
+				forkComparison.val = undefined
+				// On error, clear the key so the next call retries.
+				if (forkComparisonKey === key) forkComparisonKey = undefined
+			} finally {
+				loadingForkComparison = false
+			}
+		},
+
+		invalidateForkComparison() {
+			forkComparisonKey = undefined
+			forkComparison.val = undefined
 		}
 	}
 }

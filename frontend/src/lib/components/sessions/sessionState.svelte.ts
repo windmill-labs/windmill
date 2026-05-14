@@ -3,11 +3,30 @@ import { get } from 'svelte/store'
 import { createLongHash } from '$lib/editorLangUtils'
 import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
 import { switchWorkspace } from '$lib/storeUtils'
+
+// Switch the global workspace iff the target differs from the active one
+// and is non-empty. Centralises the "session needs its workspace in focus"
+// rule so picker, deep-link, and workspace-bar paths agree on the same
+// semantic. No-op for `undefined` / empty.
+export function syncWorkspaceTo(workspaceId: string | undefined): void {
+	if (!workspaceId) return
+	if (workspaceId === get(workspaceStore)) return
+	switchWorkspace(workspaceId)
+}
 import { WorkspaceService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import type HistoryManager from '$lib/components/copilot/chat/HistoryManager.svelte'
 
-export type SessionTarget = { kind: 'flow' | 'script' | 'app' | 'rawapp'; path: string }
+export type SessionTarget = { kind: 'flow' | 'script' | 'app' | 'raw_app'; path: string }
+
+// Kinds the in-session editor pane can host. Useful for filtering
+// dropdowns / pickers to "items the side panel can open".
+export const EDITOR_TARGET_KINDS: ReadonlySet<SessionTarget['kind']> = new Set([
+	'flow',
+	'script',
+	'app',
+	'raw_app'
+])
 
 export type PendingFork = {
 	// Existing workspace to fork from (drives routing/scope pre-send).
@@ -68,11 +87,16 @@ function loadSessions(): Session[] {
 			if (Array.isArray(parsed) && parsed.length > 0) {
 				// Drop empty-string workspace_id (older sessions used '' as a
 				// missing-value marker) so the undefined-until-first-send invariant
-				// holds for legacy drafts.
+				// holds for legacy drafts. Also migrate the deprecated
+				// 'rawapp' target.kind to the canonical 'raw_app'.
 				let mutated = false
 				for (const s of parsed) {
 					if (s.workspace_id === '') {
 						delete s.workspace_id
+						mutated = true
+					}
+					if (s.target?.kind === 'rawapp') {
+						s.target.kind = 'raw_app'
 						mutated = true
 					}
 				}
@@ -198,6 +222,17 @@ export async function commitSessionWorkspace(
 // Pending forks route via their parent until creation lands.
 export function getEffectiveWorkspaceId(session: Session): string | undefined {
 	return session.workspace_id ?? session.pending_workspace_id
+}
+
+// Canonical mutation for session.target. Persists, optionally seeds the
+// session summary, and centralises the path so callers don't reach into
+// session.target directly.
+export function setSessionTarget(id: string, target: SessionTarget, summary?: string): void {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s) return
+	s.target = target
+	if (!s.summary && summary) s.summary = summary
+	persistSessions()
 }
 
 export function selectSession(id: string) {
