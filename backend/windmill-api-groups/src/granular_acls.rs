@@ -12,6 +12,8 @@ use axum::{
     Json, Router,
 };
 use windmill_api_auth::require_owner_of_path;
+use windmill_audit::audit_oss::audit_log;
+use windmill_audit::ActionKind;
 use windmill_common::scripts::ScriptHash;
 use windmill_common::DB;
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
@@ -24,6 +26,27 @@ use windmill_common::{
     error::{Error, JsonResult, Result},
     utils::{not_found_if_none, StripPath},
 };
+
+/// Map a granular-ACL kind segment to the audit-log action prefix used by the
+/// per-kind CRUD endpoints (e.g. `flows.update`, `scripts.update`). The
+/// resulting action is suffixed with `.grant_acl` / `.revoke_acl` so the
+/// audit log keeps a per-resource record of every `/acls/*` mutation —
+/// folder/group already log via their dedicated permission-history tables.
+fn audit_action_prefix_for_acl_kind(kind: &str) -> Option<&'static str> {
+    match kind {
+        "script" => Some("scripts"),
+        "flow" => Some("flows"),
+        "app" => Some("apps"),
+        "raw_app" => Some("apps"),
+        "resource" => Some("resources"),
+        "variable" => Some("variables"),
+        "schedule" => Some("schedules"),
+        "http_trigger" | "websocket_trigger" | "kafka_trigger" | "nats_trigger"
+        | "postgres_trigger" | "mqtt_trigger" | "gcp_trigger" | "azure_trigger" | "sqs_trigger"
+        | "email_trigger" => Some("triggers"),
+        _ => None,
+    }
+}
 
 const KINDS: [&str; 20] = [
     "script",
@@ -174,6 +197,34 @@ async fn add_granular_acl(
             &authed.username,
             change_type,
             Some(&owner),
+        )
+        .await?;
+    } else if let Some(prefix) = audit_action_prefix_for_acl_kind(kind) {
+        // Mirror the folder/group permission-history coverage for every other
+        // ACLable kind. Folder/group already wrote a dedicated history row
+        // above; everything else (script/flow/app/raw_app/resource/...) lands
+        // in the general audit_log table here.
+        let access = if write.unwrap_or(false) {
+            "write"
+        } else {
+            "read"
+        };
+        let action = format!("{}.grant_acl", prefix);
+        audit_log(
+            &mut *tx,
+            &authed,
+            action.as_str(),
+            ActionKind::Update,
+            &w_id,
+            Some(path),
+            Some(
+                [
+                    ("kind", kind),
+                    ("owner", owner.as_str()),
+                    ("access", access),
+                ]
+                .into(),
+            ),
         )
         .await?;
     }
@@ -355,6 +406,28 @@ async fn remove_granular_acl(
                 &authed.username,
                 "revoke_admin",
                 Some(&owner),
+            )
+            .await?;
+        } else if let Some(prefix) = audit_action_prefix_for_acl_kind(kind) {
+            // Mirror the add path: standard audit_log row for every kind that
+            // doesn't have a dedicated permission-history table.
+            let access = if write { "write" } else { "read" };
+            let action = format!("{}.revoke_acl", prefix);
+            audit_log(
+                &mut *tx,
+                &authed,
+                action.as_str(),
+                ActionKind::Update,
+                &w_id,
+                Some(path),
+                Some(
+                    [
+                        ("kind", kind),
+                        ("owner", owner.as_str()),
+                        ("access", access),
+                    ]
+                    .into(),
+                ),
             )
             .await?;
         }

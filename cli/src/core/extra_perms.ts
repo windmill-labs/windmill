@@ -7,13 +7,47 @@ export type ExtraPermsKind = AddGranularAclsData["kind"];
 
 type PermsMap = Record<string, boolean>;
 
-function normalize(value: unknown): PermsMap {
-  if (!value || typeof value !== "object") return {};
-  const out: PermsMap = {};
+function normalize(
+  value: unknown,
+  source: string,
+): { perms: PermsMap; invalid: string[] } {
+  const perms: PermsMap = {};
+  const invalid: string[] = [];
+  if (!value || typeof value !== "object") return { perms, invalid };
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof v === "boolean") out[k] = v;
+    if (typeof v === "boolean") {
+      perms[k] = v;
+    } else {
+      invalid.push(k);
+    }
   }
-  return out;
+  if (invalid.length > 0) {
+    log.error(
+      colors.red(
+        `extra_perms: ignoring ${invalid.length} invalid entry/entries in ${source} (non-boolean value): ${invalid.join(", ")}`,
+      ),
+    );
+  }
+  return { perms, invalid };
+}
+
+function formatError(e: unknown): string {
+  if (!e || typeof e !== "object") return String(e);
+  const anyE = e as { body?: unknown; message?: unknown };
+  if (anyE.body !== undefined) {
+    if (typeof anyE.body === "string") return anyE.body;
+    try {
+      return JSON.stringify(anyE.body);
+    } catch {
+      // fall through
+    }
+  }
+  if (typeof anyE.message === "string") return anyE.message;
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return String(e);
+  }
 }
 
 /**
@@ -23,13 +57,20 @@ function normalize(value: unknown): PermsMap {
  * version — perm mutations route through the dedicated granular-ACL endpoints
  * exactly as if the user had clicked through the UI.
  *
+ * **`local === undefined` means "no opinion".** If the yaml does not carry an
+ * `extra_perms` field at all, this function is a no-op — the remote ACLs are
+ * left untouched. This is what prevents a stale local checkout from racing
+ * a concurrent UI grant: only users who explicitly track perms in source (by
+ * writing `extra_perms:` in the yaml, even as `{}`) get destructive sync.
+ *
  * The function is intentionally independent of the surrounding push logic:
  * it has its own log lines and its own non-fatal failure mode. Each grant /
  * revoke is logged as a separate line on success; failures are logged in red
  * but never throw — a stale yaml referencing a deleted user/group surfaces as
- * a red warning, not a hard error that would block the surrounding deploy.
+ * a red error, not a hard error that would block the surrounding deploy.
  *
- * @returns number of /acls/* calls actually issued (0 means perms in sync).
+ * @returns number of /acls/* calls actually issued (0 means perms in sync, or
+ *          the local yaml had no `extra_perms` field).
  */
 export async function applyExtraPermsDiff(
   workspace: string,
@@ -38,8 +79,15 @@ export async function applyExtraPermsDiff(
   local: unknown,
   remote: unknown,
 ): Promise<number> {
-  const localPerms = normalize(local);
-  const remotePerms = normalize(remote);
+  // Absent local field = "no opinion" — never call /acls/* in this case.
+  // Crucially, this protects users who don't track ACLs in source from having
+  // their UI-managed perms silently revoked by a stale CLI push.
+  if (local === undefined || local === null) {
+    return 0;
+  }
+
+  const { perms: localPerms } = normalize(local, "local yaml");
+  const { perms: remotePerms } = normalize(remote, "remote response");
 
   const toGrant: Array<[string, boolean]> = [];
   for (const [owner, write] of Object.entries(localPerms)) {
@@ -75,7 +123,7 @@ export async function applyExtraPermsDiff(
     } catch (e: any) {
       log.error(
         colors.red(
-          `  extra_perms: failed to grant ${access} to ${owner} on ${kind}/${path}: ${e?.body ?? e?.message ?? e}`,
+          `  extra_perms: failed to grant ${access} to ${owner} on ${kind}/${path}: ${formatError(e)}`,
         ),
       );
     }
@@ -96,7 +144,7 @@ export async function applyExtraPermsDiff(
     } catch (e: any) {
       log.error(
         colors.red(
-          `  extra_perms: failed to revoke ${owner} on ${kind}/${path}: ${e?.body ?? e?.message ?? e}`,
+          `  extra_perms: failed to revoke ${owner} on ${kind}/${path}: ${formatError(e)}`,
         ),
       );
     }
