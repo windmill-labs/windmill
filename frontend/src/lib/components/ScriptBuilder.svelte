@@ -1019,6 +1019,15 @@
 	$effect(() => {
 		readFieldsRecursively(script)
 	})
+	// Mirror the draft triggers (held in a separate `triggersState` $state)
+	// back into `script.draft_triggers` so the UserDraft autosave — which
+	// deep-tracks `script` — picks them up. Pre-PR ScriptBuilder ran its own
+	// localStorage autosave that explicitly snapshotted triggersState; the
+	// switch to a unified UserDraft handle dropped that bridge.
+	$effect(() => {
+		readFieldsRecursively(triggersState.triggers)
+		script.draft_triggers = triggersState.getDraftTriggersSnapshot()
+	})
 
 	loadWorkerTags()
 	async function loadWorkerTags() {
