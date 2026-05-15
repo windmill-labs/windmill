@@ -7,7 +7,20 @@ import type { Root as MdastRoot, Link, Text } from 'mdast'
 vi.mock('$lib/gen', () => ({
 	ScriptService: { listScripts: vi.fn() },
 	FlowService: { listFlows: vi.fn() },
-	AppService: { listApps: vi.fn() }
+	AppService: { listApps: vi.fn() },
+	VariableService: { listVariable: vi.fn() },
+	ResourceService: { listResource: vi.fn() },
+	ScheduleService: { listSchedules: vi.fn() },
+	HttpTriggerService: { listHttpTriggers: vi.fn() },
+	WebsocketTriggerService: { listWebsocketTriggers: vi.fn() },
+	KafkaTriggerService: { listKafkaTriggers: vi.fn() },
+	NatsTriggerService: { listNatsTriggers: vi.fn() },
+	PostgresTriggerService: { listPostgresTriggers: vi.fn() },
+	MqttTriggerService: { listMqttTriggers: vi.fn() },
+	SqsTriggerService: { listSqsTriggers: vi.fn() },
+	GcpTriggerService: { listGcpTriggers: vi.fn() },
+	AzureTriggerService: { listAzureTriggers: vi.fn() },
+	EmailTriggerService: { listEmailTriggers: vi.fn() }
 }))
 
 import {
@@ -62,13 +75,48 @@ describe('WINDMILL_PATH_REGEX', () => {
 })
 
 describe('itemHref', () => {
-	it('routes by kind and appends ?workspace when provided', () => {
+	it('routes script/flow/app to /get/{path}', () => {
 		expect(itemHref({ kind: 'script', path: 'f/a/b' })).toBe('/scripts/get/f/a/b')
 		expect(itemHref({ kind: 'flow', path: 'f/a/b' }, 'admins')).toBe(
 			'/flows/get/f/a/b?workspace=admins'
 		)
 		expect(itemHref({ kind: 'app', path: 'u/me/dash' }, 'ws1')).toBe(
 			'/apps/get/u/me/dash?workspace=ws1'
+		)
+	})
+
+	it('routes variable / resource / schedule to list page with hash to pop the drawer', () => {
+		expect(itemHref({ kind: 'variable', path: 'u/me/secret' })).toBe('/variables#u/me/secret')
+		expect(itemHref({ kind: 'resource', path: 'u/me/db' }, 'ws1')).toBe(
+			'/resources?workspace=ws1#/resource/u/me/db'
+		)
+		expect(itemHref({ kind: 'schedule', path: 'f/etl/daily' })).toBe('/schedules#f/etl/daily')
+	})
+
+	it('routes each trigger kind with hash for drawer auto-open', () => {
+		const cases: Array<[WorkspaceItemEntry['kind'], string]> = [
+			['http_trigger', '/routes#f/a/b'],
+			['websocket_trigger', '/websocket_triggers/#f/a/b'],
+			['kafka_trigger', '/kafka_triggers/#f/a/b'],
+			['nats_trigger', '/nats_triggers/#f/a/b'],
+			['postgres_trigger', '/postgres_triggers/#f/a/b'],
+			['mqtt_trigger', '/mqtt_triggers/#f/a/b'],
+			['sqs_trigger', '/sqs_triggers/#f/a/b'],
+			['gcp_trigger', '/gcp_triggers/#f/a/b'],
+			['azure_trigger', '/azure_triggers/#f/a/b'],
+			['email_trigger', '/email_triggers/#f/a/b']
+		]
+		for (const [kind, expected] of cases) {
+			expect(itemHref({ kind, path: 'f/a/b' })).toBe(expected)
+		}
+	})
+
+	it('puts workspace query param before the hash so the router applies it', () => {
+		expect(itemHref({ kind: 'variable', path: 'u/me/secret' }, 'ws1')).toBe(
+			'/variables?workspace=ws1#u/me/secret'
+		)
+		expect(itemHref({ kind: 'http_trigger', path: 'f/a/b' }, 'ws1')).toBe(
+			'/routes?workspace=ws1#f/a/b'
 		)
 	})
 })

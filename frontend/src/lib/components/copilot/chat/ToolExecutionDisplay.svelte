@@ -5,9 +5,8 @@
 		ChevronRight,
 		XCircle,
 		Play,
-		Code2,
-		LayoutDashboard,
-		ExternalLink
+		ExternalLink,
+		PanelRight
 	} from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { aiChatManager } from './AIChatManager.svelte'
@@ -15,10 +14,11 @@
 	import { twMerge } from 'tailwind-merge'
 	import ToolContentDisplay from './ToolContentDisplay.svelte'
 	import ToolMessageActions from './ToolMessageActions.svelte'
-	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
+	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import {
 		extractCandidatePaths,
+		hasInlineDrawer,
 		itemHref,
 		workspaceItemRegistry,
 		type WorkspaceItemEntry
@@ -100,15 +100,17 @@
 	class="bg-surface border border-gray-200 dark:border-gray-700 rounded-md overflow-hidden font-mono text-xs"
 >
 	<!-- Collapsible Header -->
-	<button
+	<div
 		class={twMerge(
-			'w-full p-2 bg-surface-secondary hover:bg-surface-hover transition-colors flex items-center justify-between text-left border-b border-gray-200 dark:border-gray-700',
+			'border-b border-gray-200 dark:border-gray-700 bg-surface-secondary',
 			message.needsConfirmation ? 'opacity-80' : ''
 		)}
-		onclick={() => (isExpanded = !isExpanded)}
-		disabled={!message.showDetails && !message.isStreamingArguments}
 	>
-		<div class="flex items-start gap-2 flex-1 min-w-0">
+		<button
+			class="w-full p-2 hover:bg-surface-hover transition-colors flex items-start gap-2 text-left"
+			onclick={() => (isExpanded = !isExpanded)}
+			disabled={!message.showDetails && !message.isStreamingArguments}
+		>
 			{#if message.showDetails || message.isStreamingArguments}
 				<span class="shrink-0 mt-0.5">
 					{#if isExpanded}
@@ -128,41 +130,51 @@
 					<span class="text-green-500">✓</span>
 				{/if}
 			</span>
-			<div class="flex flex-col gap-1 min-w-0 flex-1">
-				<span class="text-primary font-medium text-2xs">
-					{message.content}
-				</span>
-				{#if referencedItems.length > 0}
-					<div class="flex flex-row flex-wrap items-center gap-1 min-w-0">
-						{#each referencedItems as item (item.path)}
-							<a
-								href={itemHref(item, $workspaceStore ?? undefined)}
-								target="_blank"
-								rel="noopener noreferrer"
-								onclick={(e) => e.stopPropagation()}
-								title={item.summary || item.path}
-								class="group inline-flex items-center gap-1 px-1 py-0.5 rounded hover:bg-surface-hover text-primary no-underline font-mono text-2xs max-w-full min-w-0"
+			<span class="text-primary font-medium text-2xs flex-1 min-w-0">
+				{message.content}
+			</span>
+		</button>
+		{#if referencedItems.length > 0}
+			<!-- Chip row lives outside the toggle button so we can include real <button>s
+				 for the "open in drawer" affordance without nesting interactive elements. -->
+			<div class="flex flex-row flex-wrap items-center gap-1 px-2 pb-2 -mt-1 min-w-0">
+				{#each referencedItems as item (item.path)}
+					<span class="group inline-flex items-center min-w-0 max-w-full">
+						<a
+							href={itemHref(item, $workspaceStore ?? undefined)}
+							target="_blank"
+							rel="noopener noreferrer"
+							title={item.summary || item.path}
+							class="inline-flex items-center gap-1 px-1 py-0.5 rounded hover:bg-surface-hover text-primary no-underline font-mono text-2xs min-w-0"
+						>
+							<span class="inline-flex shrink-0">
+								<RowIcon kind={item.kind} size={12} />
+							</span>
+							<span class="truncate">{item.path}</span>
+							<ExternalLink
+								class="w-2.5 h-2.5 shrink-0 text-tertiary opacity-0 group-hover:opacity-100 transition-opacity"
+							/>
+						</a>
+						{#if hasInlineDrawer(item.kind)}
+							<button
+								type="button"
+								onclick={() =>
+									aiChatManager.toggleWorkspaceItemDrawer({
+										kind: item.kind,
+										path: item.path
+									})}
+								title="Open in drawer"
+								aria-label="Open {item.path} in drawer"
+								class="ml-0.5 inline-flex self-center shrink-0 rounded p-0.5 text-tertiary hover:bg-surface-hover opacity-0 group-hover:opacity-100 transition-opacity"
 							>
-								<span class="inline-flex shrink-0">
-									{#if item.kind === 'script'}
-										<Code2 class="w-3 h-3 text-blue-500" />
-									{:else if item.kind === 'flow'}
-										<BarsStaggered size={12} style="" class="!fill-current text-teal-500" />
-									{:else}
-										<LayoutDashboard class="w-3 h-3 text-orange-500" />
-									{/if}
-								</span>
-								<span class="truncate">{item.path}</span>
-								<ExternalLink
-									class="w-2.5 h-2.5 shrink-0 text-tertiary opacity-0 group-hover:opacity-100 transition-opacity"
-								/>
-							</a>
-						{/each}
-					</div>
-				{/if}
+								<PanelRight class="w-2.5 h-2.5" />
+							</button>
+						{/if}
+					</span>
+				{/each}
 			</div>
-		</div>
-	</button>
+		{/if}
+	</div>
 
 	<!-- Expanded Content -->
 	{#if isExpanded}
