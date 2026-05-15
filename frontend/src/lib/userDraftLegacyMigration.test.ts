@@ -12,6 +12,16 @@ function wrapped<V>(value: V): string {
 	return JSON.stringify({ value })
 }
 
+// Read a migrated entry, strip the GC `lastWrittenAt` stamp so assertions
+// can match the `{ value }` shape regardless of when the migration ran.
+function storedShape(key: string): string | null {
+	const raw = localStorage.getItem(key)
+	if (raw == null) return null
+	const parsed = JSON.parse(raw)
+	delete parsed.lastWrittenAt
+	return JSON.stringify(parsed)
+}
+
 beforeEach(() => {
 	localStorage.clear()
 	__resetUserDraftLegacyMigrationForTesting()
@@ -30,7 +40,7 @@ describe('migrateLegacyUserDrafts', () => {
 		migrateLegacyUserDrafts('main')
 
 		expect(localStorage.getItem('app-u/me/dashboard')).toBeNull()
-		expect(localStorage.getItem('userdraft/w/main/app/u/me/dashboard')).toBe(wrapped(legacyApp))
+		expect(storedShape('userdraft/w/main/app/u/me/dashboard')).toBe(wrapped(legacyApp))
 	})
 
 	it('migrates a legacy empty-path app draft (the `app` literal key)', () => {
@@ -40,7 +50,7 @@ describe('migrateLegacyUserDrafts', () => {
 		migrateLegacyUserDrafts('main')
 
 		expect(localStorage.getItem('app')).toBeNull()
-		expect(localStorage.getItem('userdraft/w/main/app/')).toBe(wrapped(legacyApp))
+		expect(storedShape('userdraft/w/main/app/')).toBe(wrapped(legacyApp))
 	})
 
 	it('migrates a legacy flow draft and strips the view-state envelope', () => {
@@ -59,7 +69,7 @@ describe('migrateLegacyUserDrafts', () => {
 
 		expect(localStorage.getItem('flow-u/me/myflow')).toBeNull()
 		// Only the inner Flow survives; the view-state envelope is dropped.
-		expect(localStorage.getItem('userdraft/w/main/flow/u/me/myflow')).toBe(wrapped(flow))
+		expect(storedShape('userdraft/w/main/flow/u/me/myflow')).toBe(wrapped(flow))
 	})
 
 	it('migrates a legacy raw-app draft, defaulting the new `summary` field', () => {
@@ -73,7 +83,7 @@ describe('migrateLegacyUserDrafts', () => {
 		migrateLegacyUserDrafts('main')
 
 		expect(localStorage.getItem('rawapp-u/me/site')).toBeNull()
-		expect(localStorage.getItem('userdraft/w/main/raw_app/u/me/site')).toBe(
+		expect(storedShape('userdraft/w/main/raw_app/u/me/site')).toBe(
 			wrapped({ ...legacy, summary: '' })
 		)
 	})

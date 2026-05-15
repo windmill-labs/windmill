@@ -590,10 +590,21 @@ export function useLocalStorageValue<T>(
 		 * close drops it.
 		 */
 		debounce?: number
+		/**
+		 * Transform applied to the value just before serialisation, on every
+		 * persist (both setter-driven and deep-mutation-driven). The in-memory
+		 * `$state` is left as-is. Useful for injecting per-write metadata
+		 * (timestamps, counters) that must reflect the actual write time, not
+		 * the last `.val =` assignment — deep mutations don't re-run the
+		 * setter, so a timestamp set via `.val =` would otherwise grow stale
+		 * across long editing sessions.
+		 */
+		transformBeforePersist?: (val: T) => T
 	}
 ): { val: T } {
 	const saveInitialValue = options?.saveInitialValue ?? true
 	const debounceMs = options?.debounce ?? 0
+	const transformBeforePersist = options?.transformBeforePersist
 	const serialize = (val: T) =>
 		typ === 'string' || typ === 'number' || typ === 'boolean' ? String(val) : JSON.stringify(val)
 	const deserialize = (val: string): T => {
@@ -607,7 +618,8 @@ export function useLocalStorageValue<T>(
 			if (val === undefined) {
 				localStorage.removeItem(key)
 			} else {
-				localStorage.setItem(key, serialize(val as T))
+				const toStore = transformBeforePersist ? transformBeforePersist(val as T) : (val as T)
+				localStorage.setItem(key, serialize(toStore))
 			}
 		} catch (e) {
 			console.error('useLocalStorageValue: localStorage write failed', e)

@@ -155,7 +155,12 @@ export function migrateLegacyUserDrafts(workspace: string): void {
 				const value = transformLegacyValue(match.newKind, decoded)
 				const target = newKey(workspace, match.newKind, match.path)
 				if (value !== undefined && localStorage.getItem(target) == null) {
-					localStorage.setItem(target, JSON.stringify({ value }))
+					// `lastWrittenAt` makes the migrated entry visible to
+					// `gcUserDrafts`. We stamp it as "now" so a freshly-migrated
+					// autosave gets the full retention window — sweeping it
+					// immediately on the first GC pass would lose work the
+					// legacy migration just rescued.
+					localStorage.setItem(target, JSON.stringify({ value, lastWrittenAt: Date.now() }))
 				}
 				localStorage.removeItem(key)
 			} catch (e) {

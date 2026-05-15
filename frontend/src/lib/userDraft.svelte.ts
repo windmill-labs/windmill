@@ -73,8 +73,21 @@ export type UserDraftMeta = {
  * The shape of what we actually persist. Wrapping the value lets us add
  * metadata (timestamps, originating user, schema version, ...) later
  * without breaking existing entries.
+ *
+ * `lastWrittenAt` is the unix-ms timestamp of the most recent write
+ * (setter call or deep mutation flush). It's the GC signal —
+ * `gcUserDrafts` sweeps entries that haven't been touched in N days.
+ * Set at every persist via `useLocalStorageValue`'s `transformBeforePersist`,
+ * `UserDraft.save`'s direct-write fallback, and `persistDirect`. Missing
+ * (undefined) on entries written before this field was introduced;
+ * `gcUserDrafts` backfills them on first sighting.
  */
-type StoredDraft<V> = { value: V } & UserDraftMeta
+type StoredDraft<V> = { value: V; lastWrittenAt?: number } & UserDraftMeta
+
+function stamp<V>(stored: StoredDraft<V> | undefined): StoredDraft<V> | undefined {
+	if (stored === undefined) return undefined
+	return { ...stored, lastWrittenAt: Date.now() }
+}
 
 type DraftState<V> = { val: StoredDraft<V> | undefined }
 
@@ -162,7 +175,7 @@ export function checkStaleness(
  */
 function persistDirect<V>(key: string, value: V | undefined, meta: UserDraftMeta): void {
 	try {
-		const next = wrap(value, meta)
+		const next = stamp(wrap(value, meta))
 		if (next === undefined) {
 			localStorage.removeItem(key)
 		} else {
@@ -251,7 +264,7 @@ export const UserDraft = {
 		try {
 			localStorage.setItem(
 				localStorageKey(ws, itemKind, path),
-				JSON.stringify(wrap(value, extractMeta(existing)))
+				JSON.stringify(stamp(wrap(value, extractMeta(existing))))
 			)
 		} catch (e) {
 			console.error('UserDraft.save: localStorage write failed', e)
@@ -444,17 +457,26 @@ function acquireEntry(
 	// reconcile. Wrap the creation in `$effect.root` so the entry's
 	// reactivity lives in its own scope and only the entry's release path
 	// disposes of it.
+	const useLocalStorageOptions = {
+		// The first value to flow into the handle (e.g. a backend load in
+		// the editor route) is the baseline — only persist when the user
+		// actually changes it afterwards. Coalesce a typing storm into one
+		// localStorage write per 500 ms.
+		saveInitialValue: false,
+		debounce: 500,
+		// Stamp every write with `lastWrittenAt` so the periodic GC pass
+		// can sweep entries that haven't been touched in 30 days. Done at
+		// persist time (not via `wrap()`) so deep mutations — which never
+		// re-run the setter — still bump the clock on each flush.
+		transformBeforePersist: stamp<unknown>
+	} as const
 	let stateRef: DraftState<unknown> | undefined
 	const destroyRoot = $effect.root(() => {
 		stateRef = useLocalStorageValue<StoredDraft<unknown> | undefined>(
 			localStorageKey(workspace, itemKind, path),
 			wrap(defaultValue),
 			undefined,
-			// The first value to flow into the handle (e.g. a backend load in
-			// the editor route) is the baseline — only persist when the user
-			// actually changes it afterwards. Coalesce a typing storm into one
-			// localStorage write per 500 ms.
-			{ saveInitialValue: false, debounce: 500 }
+			useLocalStorageOptions
 		)
 	})
 	if (stateRef) {
@@ -471,7 +493,7 @@ function acquireEntry(
 		localStorageKey(workspace, itemKind, path),
 		wrap(defaultValue),
 		undefined,
-		{ saveInitialValue: false, debounce: 500 }
+		useLocalStorageOptions
 	)
 	entries.set(mk, { count: 1, state })
 }
@@ -529,6 +551,54 @@ function makeHandle<V>(
 			if (opts?.force) {
 				persistDirect(localStorageKey(workspace, itemKind, path), current.value, meta)
 			}
+		}
+	}
+}
+
+/**
+ * Default GC retention window: 30 days. Entries that haven't been touched
+ * (no setter call, no deep-mutation persist) for this long are swept on
+ * the next `gcUserDrafts` invocation.
+ */
+export const USER_DRAFT_GC_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
+
+/**
+ * Sweep stale UserDraft entries from localStorage. Walks every
+ * `userdraft/w/...` key, checks its `lastWrittenAt` stamp, and removes
+ * any entry older than `maxAgeMs`.
+ *
+ * Entries written before `lastWrittenAt` was introduced lack the field;
+ * we backfill them to `now()` on first sighting so they participate in
+ * the next sweep cycle rather than getting wiped immediately.
+ *
+ * Safe to call on every load and on a timer (e.g. every 30 min) — live
+ * entries get their stamp refreshed on every persist, so the sweep only
+ * touches truly stale records.
+ */
+export function gcUserDrafts(maxAgeMs: number = USER_DRAFT_GC_MAX_AGE_MS): void {
+	if (typeof localStorage === 'undefined') return
+	const now = Date.now()
+	const cutoff = now - maxAgeMs
+	const keys: string[] = []
+	for (let i = 0; i < localStorage.length; i++) {
+		const k = localStorage.key(i)
+		if (k != null && k.startsWith('userdraft/w/')) keys.push(k)
+	}
+	for (const key of keys) {
+		try {
+			const raw = localStorage.getItem(key)
+			if (raw == null) continue
+			const parsed = JSON.parse(raw)
+			if (parsed == null || typeof parsed !== 'object') continue
+			if (typeof parsed.lastWrittenAt !== 'number') {
+				// Pre-GC-feature entry. Backfill so the next sweep can decide.
+				parsed.lastWrittenAt = now
+				localStorage.setItem(key, JSON.stringify(parsed))
+				continue
+			}
+			if (parsed.lastWrittenAt < cutoff) localStorage.removeItem(key)
+		} catch (e) {
+			console.error('UserDraft GC: failed to inspect', key, e)
 		}
 	}
 }

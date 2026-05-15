@@ -37,6 +37,18 @@ function wrapped<V>(value: V): string {
 	return JSON.stringify({ value })
 }
 
+// Helper: read a localStorage entry, strip the GC `lastWrittenAt` stamp so
+// assertions can stay focused on value + rev metadata. Real entries always
+// carry `lastWrittenAt` once written; the GC tests below assert on it
+// directly via `localStorage.getItem`.
+function storedShape(key: string): string | null {
+	const raw = localStorage.getItem(key)
+	if (raw == null) return null
+	const parsed = JSON.parse(raw)
+	delete parsed.lastWrittenAt
+	return JSON.stringify(parsed)
+}
+
 beforeEach(() => {
 	__resetUserDraftForTesting()
 	onDestroyCallbacks.length = 0
@@ -49,8 +61,7 @@ describe('UserDraft.save / get / remove (no observers)', () => {
 	it('save writes a wrapped { value } payload under the workspace-scoped key', () => {
 		UserDraft.save('flow', 'u/me/myflow', { hello: 'world' })
 
-		const raw = localStorage.getItem('userdraft/w/test_ws/flow/u/me/myflow')
-		expect(raw).toBe(wrapped({ hello: 'world' }))
+		expect(storedShape('userdraft/w/test_ws/flow/u/me/myflow')).toBe(wrapped({ hello: 'world' }))
 	})
 
 	it('get reads from a wrapped localStorage payload when no observer is registered', () => {
@@ -88,7 +99,7 @@ describe('UserDraft.save / get / remove (no observers)', () => {
 	it('uses the workspace from opts when provided', () => {
 		UserDraft.save('flow', 'u/me/f', 1, { workspace: 'other_ws' })
 
-		expect(localStorage.getItem('userdraft/w/other_ws/flow/u/me/f')).toBe(wrapped(1))
+		expect(storedShape('userdraft/w/other_ws/flow/u/me/f')).toBe(wrapped(1))
 		// Default workspace key must remain empty.
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/f')).toBeNull()
 	})
@@ -96,8 +107,9 @@ describe('UserDraft.save / get / remove (no observers)', () => {
 	it('supports trigger kinds as item kinds', () => {
 		UserDraft.save('trigger_kafka', 'u/me/topic1', { brokers: ['localhost:9092'] })
 
-		const raw = localStorage.getItem('userdraft/w/test_ws/trigger_kafka/u/me/topic1')
-		expect(raw).toBe(wrapped({ brokers: ['localhost:9092'] }))
+		expect(storedShape('userdraft/w/test_ws/trigger_kafka/u/me/topic1')).toBe(
+			wrapped({ brokers: ['localhost:9092'] })
+		)
 	})
 
 	it('throws when neither opts.workspace nor $workspaceStore is set', () => {
@@ -140,7 +152,7 @@ describe('UserDraft.use() — observer sync', () => {
 		UserDraft.save('flow', 'u/me/observed', 9)
 		expect(handle.draft).toBe(9)
 		flushPersist()
-		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/observed')).toBe(wrapped(9))
+		expect(storedShape('userdraft/w/test_ws/flow/u/me/observed')).toBe(wrapped(9))
 	})
 
 	it('remove() clears localStorage without touching the in-memory handle', () => {
@@ -168,7 +180,7 @@ describe('UserDraft.use() — observer sync', () => {
 		// Second (and onwards) persists.
 		handle.draft = 'persisted'
 		flushPersist()
-		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/setter')).toBe(wrapped('persisted'))
+		expect(storedShape('userdraft/w/test_ws/flow/u/me/setter')).toBe(wrapped('persisted'))
 	})
 
 	it('setting handle.draft = undefined after edits removes the localStorage entry', () => {
@@ -238,9 +250,7 @@ describe('UserDraft.use() — defaultValue', () => {
 
 		handle.draft = 'modified'
 		flushPersist()
-		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/writeDefault')).toBe(
-			wrapped('modified')
-		)
+		expect(storedShape('userdraft/w/test_ws/flow/u/me/writeDefault')).toBe(wrapped('modified'))
 	})
 })
 
@@ -258,7 +268,7 @@ describe('UserDraft — empty path (new-item drafts persist across reloads)', ()
 		// The "+ Flow / + Script / …" buttons are expected to call
 		// `UserDraft.remove(kind, '')` to wipe before navigating; an
 		// unguarded /add reload therefore restores the previous session.
-		expect(localStorage.getItem('userdraft/w/test_ws/flow/')).toBe(wrapped(100))
+		expect(storedShape('userdraft/w/test_ws/flow/')).toBe(wrapped(100))
 	})
 
 	it('two handles with empty path share state per workspace', () => {
@@ -274,7 +284,7 @@ describe('UserDraft — empty path (new-item drafts persist across reloads)', ()
 
 	it('save() with empty path writes to localStorage when no handle is live', () => {
 		UserDraft.save('flow', '', 5)
-		expect(localStorage.getItem('userdraft/w/test_ws/flow/')).toBe(wrapped(5))
+		expect(storedShape('userdraft/w/test_ws/flow/')).toBe(wrapped(5))
 	})
 
 	it('get() with empty path falls back to localStorage when no handle is live', () => {
@@ -307,8 +317,7 @@ describe('UserDraft — rev metadata for staleness checks', () => {
 		// A subsequent user edit persists *with* the rev metadata.
 		handle.draft = 'userEdit'
 		flushPersist()
-		const raw = localStorage.getItem('userdraft/w/test_ws/flow/u/me/atomic')
-		expect(raw).toBe(
+		expect(storedShape('userdraft/w/test_ws/flow/u/me/atomic')).toBe(
 			JSON.stringify({
 				value: 'userEdit',
 				remoteRev: 42,
@@ -326,7 +335,7 @@ describe('UserDraft — rev metadata for staleness checks', () => {
 		expect(handle.draft).toBe('edited')
 		expect(handle.meta).toEqual({ remoteRev: 2 })
 		flushPersist()
-		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/setmeta')).toBe(
+		expect(storedShape('userdraft/w/test_ws/flow/u/me/setmeta')).toBe(
 			JSON.stringify({ value: 'edited', remoteRev: 2 })
 		)
 	})
@@ -339,7 +348,7 @@ describe('UserDraft — rev metadata for staleness checks', () => {
 
 		expect(handle.meta).toEqual({ remoteRev: 'v1' })
 		flushPersist()
-		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/preserve')).toBe(
+		expect(storedShape('userdraft/w/test_ws/flow/u/me/preserve')).toBe(
 			JSON.stringify({ value: { count: 2 }, remoteRev: 'v1' })
 		)
 	})
@@ -366,7 +375,7 @@ describe('UserDraft — rev metadata for staleness checks', () => {
 		)
 		UserDraft.save('flow', 'u/me/savepreserve', 'new')
 
-		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/savepreserve')).toBe(
+		expect(storedShape('userdraft/w/test_ws/flow/u/me/savepreserve')).toBe(
 			JSON.stringify({ value: 'new', remoteRev: 5 })
 		)
 	})
@@ -394,7 +403,7 @@ describe('UserDraft — rev metadata for staleness checks', () => {
 		handle.setMeta({ remoteRev: 'v2' }, { force: true })
 
 		expect(handle.meta).toEqual({ remoteRev: 'v2' })
-		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/forceack')).toBe(
+		expect(storedShape('userdraft/w/test_ws/flow/u/me/forceack')).toBe(
 			JSON.stringify({ value: 'edited', remoteRev: 'v2' })
 		)
 	})
@@ -465,7 +474,7 @@ describe('UserDraft.use() — reference counting & cleanup', () => {
 		expect(a.draft).toBe(2)
 		// Now persisted (second write after the baseline).
 		flushPersist()
-		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/ref')).toBe(wrapped(2))
+		expect(storedShape('userdraft/w/test_ws/flow/u/me/ref')).toBe(wrapped(2))
 
 		// Releasing the second handle drops the entry; subsequent save()
 		// must go straight to localStorage rather than mutating in-memory
@@ -475,7 +484,7 @@ describe('UserDraft.use() — reference counting & cleanup', () => {
 
 		UserDraft.save('flow', 'u/me/ref', 3)
 		// UserDraft.save without a live entry writes synchronously.
-		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/ref')).toBe(wrapped(3))
+		expect(storedShape('userdraft/w/test_ws/flow/u/me/ref')).toBe(wrapped(3))
 	})
 
 	it('a fresh use() after cleanup re-reads the latest persisted value', () => {
@@ -509,7 +518,7 @@ describe('UserDraft.use() — reference counting & cleanup', () => {
 
 		// After the window elapses, only the latest value lands.
 		vi.advanceTimersByTime(500)
-		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/debounce')).toBe(wrapped('three'))
+		expect(storedShape('userdraft/w/test_ws/flow/u/me/debounce')).toBe(wrapped('three'))
 	})
 })
 
@@ -530,10 +539,74 @@ describe('UserDraft.useMany()', () => {
 		handles[1].draft = 0
 		handles[1].draft = 9
 		flushPersist()
-		expect(localStorage.getItem('userdraft/w/a/flow/u/me/many')).toBe(wrapped(1))
-		expect(localStorage.getItem('userdraft/w/b/flow/u/me/many')).toBe(wrapped(9))
+		expect(storedShape('userdraft/w/a/flow/u/me/many')).toBe(wrapped(1))
+		expect(storedShape('userdraft/w/b/flow/u/me/many')).toBe(wrapped(9))
 
 		// One component-level onDestroy releases every acquired entry.
 		expect(onDestroyCallbacks.length).toBe(1)
+	})
+})
+
+describe('gcUserDrafts', () => {
+	let gcUserDrafts: (maxAgeMs?: number) => void
+	let USER_DRAFT_GC_MAX_AGE_MS: number
+	const DAY = 24 * 60 * 60 * 1000
+
+	beforeEach(async () => {
+		;({ gcUserDrafts, USER_DRAFT_GC_MAX_AGE_MS } = await import('./userDraft.svelte'))
+	})
+
+	it('sweeps entries whose lastWrittenAt is older than the cutoff', () => {
+		vi.setSystemTime(new Date('2026-06-01T00:00:00Z'))
+		const old = Date.now() - 31 * DAY
+		const fresh = Date.now() - 1 * DAY
+		localStorage.setItem(
+			'userdraft/w/test_ws/flow/u/me/old',
+			JSON.stringify({ value: 1, lastWrittenAt: old })
+		)
+		localStorage.setItem(
+			'userdraft/w/test_ws/flow/u/me/fresh',
+			JSON.stringify({ value: 2, lastWrittenAt: fresh })
+		)
+		// Unrelated keys are left alone.
+		localStorage.setItem('some_other_key', 'unrelated')
+
+		gcUserDrafts()
+
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/old')).toBeNull()
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/fresh')).not.toBeNull()
+		expect(localStorage.getItem('some_other_key')).toBe('unrelated')
+	})
+
+	it('backfills lastWrittenAt on entries lacking it, instead of sweeping them immediately', () => {
+		// Pre-GC-feature entry (legacy migration output, or just an old entry
+		// from earlier in this PR's lifecycle): no `lastWrittenAt`. First GC
+		// pass should stamp it as "now" rather than wipe it on sight.
+		localStorage.setItem('userdraft/w/test_ws/flow/u/me/legacy', JSON.stringify({ value: 'data' }))
+		vi.setSystemTime(new Date('2026-06-01T00:00:00Z'))
+
+		gcUserDrafts()
+
+		const raw = localStorage.getItem('userdraft/w/test_ws/flow/u/me/legacy')
+		expect(raw).not.toBeNull()
+		const parsed = JSON.parse(raw!)
+		expect(parsed.lastWrittenAt).toBe(Date.now())
+		expect(parsed.value).toBe('data')
+	})
+
+	it('exposes a 30-day default retention window', () => {
+		expect(USER_DRAFT_GC_MAX_AGE_MS).toBe(30 * 24 * 60 * 60 * 1000)
+	})
+
+	it('respects a custom maxAgeMs', () => {
+		vi.setSystemTime(new Date('2026-06-01T00:00:00Z'))
+		localStorage.setItem(
+			'userdraft/w/test_ws/flow/u/me/two_hours_ago',
+			JSON.stringify({ value: 1, lastWrittenAt: Date.now() - 2 * 60 * 60 * 1000 })
+		)
+
+		gcUserDrafts(60 * 60 * 1000) // 1h cutoff
+
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/two_hours_ago')).toBeNull()
 	})
 })
