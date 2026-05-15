@@ -443,7 +443,7 @@
 	/>
 {/snippet}
 
-<div use:clickOutside class="relative">
+<div use:clickOutside class="relative mt-1">
 	{#if isContextEnabledMode}
 		<div class="relative">
 			<ContextTextarea
