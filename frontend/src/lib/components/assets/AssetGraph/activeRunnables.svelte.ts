@@ -4,6 +4,19 @@ export type RunStatus = 'running' | 'success' | 'failure'
 /** Per-runnable badge state: latest run status + runs observed this session. */
 export type RunnableRunState = { status: RunStatus; runs: number }
 
+export type EventStatus = 'queued' | 'running' | 'success' | 'failure'
+/** One folder activity-log row (a job observed by the poll). */
+export type PipelineEvent = {
+	id: string
+	path: string
+	kind: 'script' | 'flow'
+	status: EventStatus
+	/** What started it, as far as the job listing reveals. */
+	source: 'schedule' | 'run'
+	at: string
+}
+const MAX_EVENTS = 50
+
 /**
  * Tracks which pipeline runnables currently have an in-flight (queued/running)
  * job — plus any that started AND finished since the last poll, so a fast
@@ -26,19 +39,33 @@ export function useActiveRunnableIds(
 	getPathPrefix: () => string | undefined
 ) {
 	const INTERVAL_MS = 3000
+	// Slower cadence when only the activity log is open (passive watching,
+	// nothing launched from here) — keeps the idle observe cost low.
+	const OBSERVE_INTERVAL_MS = 6000
 	const MAX_IDLE_TICKS = 3 // ~9s of no in-flight jobs before disarming
 	const HARD_CAP_MS = 5 * 60_000 // safety: stop a runaway poll loop
 	const PER_PAGE = 50 // folder-scoped + newest-first: plenty for a cascade
 	// Small look-back so a job that finished right after the previous tick
 	// fired (but before its response landed) isn't dropped from catch-up.
 	const CATCHUP_OVERLAP_MS = 4000
+	// Baseline for "this session": runs before the graph was opened are
+	// pre-existing history, not something the user did here — exclude them
+	// from the node run-count and the activity log so both read as "since
+	// you opened this graph".
+	const openedAtIso = new Date().toISOString()
 
 	let ids = $state(new Set<string>())
 	// Per-runnable last-run state + session run count, for the node badge.
 	// Reassigned as a fresh Map each tick (reactive without SvelteMap).
 	let states = $state(new Map<string, RunnableRunState>())
+	// Newest-first capped activity log; reassigned each tick (reactive).
+	let events = $state<PipelineEvent[]>([])
 	let timer: ReturnType<typeof setTimeout> | undefined
 	let running = false
+	// `arm()` opens a self-terminating fast-poll window; `observing` keeps a
+	// slower poll alive while the activity-log panel is open.
+	let observing = false
+	let armedActive = false
 	let idleTicks = 0
 	let startedAtMs = 0
 	let lastPollTs = new Date(0).toISOString()
@@ -50,6 +77,9 @@ export function useActiveRunnableIds(
 		{ runs: number; lastStatus: RunStatus; lastTs: string }
 	>()
 	const countedJobIds = new Set<string>()
+	// jobId → latest known state of that job, for the activity log. Survives
+	// `stop()` (log keeps history while idle); cleared by `dispose()`.
+	const eventsById = new Map<string, PipelineEvent>()
 
 	function idOf(jobKind: string | undefined, path: string | undefined): string | undefined {
 		if (!path || !jobKind) return undefined
@@ -61,6 +91,7 @@ export function useActiveRunnableIds(
 		if (timer !== undefined) clearTimeout(timer)
 		timer = undefined
 		running = false
+		armedActive = false
 		idleTicks = 0
 		if (ids.size > 0) ids = new Set()
 	}
@@ -88,7 +119,10 @@ export function useActiveRunnableIds(
 			for (const j of res.jobs ?? []) {
 				const id = idOf((j as any).job_kind, (j as any).script_path)
 				if (!id) continue
-				if ((j as any).type === 'QueuedJob') {
+				const jobId: string | undefined = (j as any).id
+				const startedTs: string | undefined = (j as any).started_at ?? (j as any).created_at
+				const isQueued = (j as any).type === 'QueuedJob'
+				if (isQueued) {
 					// queued or running — currently active
 					next.add(id)
 					inFlightThisTick.add(id)
@@ -96,23 +130,43 @@ export function useActiveRunnableIds(
 				} else {
 					// completed: catch-up — a hop that started after the last
 					// poll (and already finished) still gets one pulse.
-					const started: string | undefined = (j as any).started_at ?? (j as any).created_at
-					if (started && started >= since) next.add(id)
-					// Tally distinct completed jobs for the node badge. Jobs
-					// come newest-first; only let a strictly newer completion
-					// move the displayed status.
-					const jobId: string | undefined = (j as any).id
-					if (jobId && !countedJobIds.has(jobId)) {
+					if (startedTs && startedTs >= since) next.add(id)
+					// Tally distinct completed jobs for the node badge — only
+					// those since the graph was opened (older = pre-existing
+					// history). Jobs come newest-first; only a strictly newer
+					// completion moves the displayed status.
+					if (jobId && !countedJobIds.has(jobId) && (startedTs ?? '') >= openedAtIso) {
 						countedJobIds.add(jobId)
 						const prev = completedHistory.get(id)
 						const status: RunStatus = (j as any).success === true ? 'success' : 'failure'
-						const ts = started ?? new Date(pollStartedMs).toISOString()
+						const ts = startedTs ?? new Date(pollStartedMs).toISOString()
 						completedHistory.set(id, {
 							runs: (prev?.runs ?? 0) + 1,
 							lastStatus: !prev || ts >= prev.lastTs ? status : prev.lastStatus,
 							lastTs: !prev || ts >= prev.lastTs ? ts : prev.lastTs
 						})
 					}
+				}
+				// Activity-log row: upsert latest known state (a job seen
+				// queued then completed on a later tick updates in place).
+				// In-flight jobs always show (relevant now even if they
+				// started just before open); completed ones only if they ran
+				// since the graph was opened.
+				if (jobId && (isQueued || (startedTs ?? '') >= openedAtIso)) {
+					eventsById.set(jobId, {
+						id: jobId,
+						path: (j as any).script_path ?? '',
+						kind: String((j as any).job_kind ?? '').startsWith('flow') ? 'flow' : 'script',
+						status: isQueued
+							? (j as any).running === true
+								? 'running'
+								: 'queued'
+							: (j as any).success === true
+								? 'success'
+								: 'failure',
+						source: (j as any).schedule_path ? 'schedule' : 'run',
+						at: startedTs ?? new Date(pollStartedMs).toISOString()
+					})
 				}
 			}
 		} catch {
@@ -132,6 +186,13 @@ export function useActiveRunnableIds(
 			if (!snap.has(id)) snap.set(id, { status: 'running', runs: 0 })
 		}
 		states = snap
+		// Activity-log snapshot: newest-first, capped. Prune the backing map
+		// so a long session doesn't grow unbounded.
+		const sorted = Array.from(eventsById.values()).sort((a, b) => b.at.localeCompare(a.at))
+		if (sorted.length > MAX_EVENTS * 4) {
+			for (const e of sorted.slice(MAX_EVENTS * 4)) eventsById.delete(e.id)
+		}
+		events = sorted.slice(0, MAX_EVENTS)
 		// Look back slightly so a job finishing in the request window isn't
 		// missed by the next tick's catch-up comparison.
 		lastPollTs = new Date(pollStartedMs - CATCHUP_OVERLAP_MS).toISOString()
@@ -140,11 +201,14 @@ export function useActiveRunnableIds(
 		else idleTicks++
 
 		const expired = Date.now() - startedAtMs > HARD_CAP_MS
-		if (idleTicks > MAX_IDLE_TICKS || expired) {
+		if (idleTicks > MAX_IDLE_TICKS || expired) armedActive = false
+		// Keep polling while a fast armed window is open OR the activity log
+		// is being watched; otherwise wind down to zero requests.
+		if (!armedActive && !observing) {
 			stop()
 			return
 		}
-		timer = setTimeout(() => void tick(), INTERVAL_MS)
+		timer = setTimeout(() => void tick(), armedActive ? INTERVAL_MS : OBSERVE_INTERVAL_MS)
 	}
 
 	return {
@@ -155,30 +219,58 @@ export function useActiveRunnableIds(
 		get states() {
 			return states
 		},
+		/** Newest-first capped activity log of folder jobs observed. */
+		get events() {
+			return events
+		},
 		/**
-		 * Kick the poll loop (call when a run is launched from this view).
-		 * Idempotent: if already polling, just resets the idle counter so the
-		 * loop keeps going to cover the freshly-launched run + its cascade.
+		 * Kick the fast poll window (call when a run is launched from this
+		 * view). Reopens the self-terminating fast window and polls now;
+		 * upgrades cadence if only the slow observe poll was running.
 		 */
 		arm() {
+			armedActive = true
 			idleTicks = 0
-			if (running) return
-			running = true
 			startedAtMs = Date.now()
 			// Open the catch-up window from now so we don't replay old history.
 			lastPollTs = new Date(Date.now() - CATCHUP_OVERLAP_MS).toISOString()
+			if (timer !== undefined) {
+				clearTimeout(timer)
+				timer = undefined
+			}
+			running = true
 			void tick()
 		},
 		/**
+		 * Toggle the activity-log observe poll. While on, the loop keeps
+		 * polling at the slow cadence even with no run launched here, so the
+		 * log updates live; while off (and no armed window) polling stops.
+		 */
+		setObserving(v: boolean) {
+			observing = v
+			if (v) {
+				if (!running) {
+					running = true
+					lastPollTs = new Date(Date.now() - CATCHUP_OVERLAP_MS).toISOString()
+					void tick()
+				}
+			} else if (!armedActive) {
+				stop()
+			}
+		},
+		/**
 		 * Stop polling and fully reset (call on destroy / folder change).
-		 * Unlike `stop()` this also wipes the persisted badge history so a
+		 * Unlike `stop()` this also wipes the persisted badge/log history so a
 		 * different folder doesn't inherit the previous one's run state.
 		 */
 		dispose() {
+			observing = false
 			stop()
 			completedHistory.clear()
 			countedJobIds.clear()
+			eventsById.clear()
 			if (states.size > 0) states = new Map()
+			if (events.length > 0) events = []
 		}
 	}
 }

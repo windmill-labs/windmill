@@ -14,7 +14,7 @@
 	import TriggerNode, { type TriggerNodeKind } from './TriggerNode.svelte'
 	import AddNode from './AddNode.svelte'
 	import AssetGraphEdge from './AssetGraphEdge.svelte'
-	import { layoutAssetGraph } from './assetGraphLayout'
+	import { layoutAssetGraph, edgeKey } from './assetGraphLayout'
 	import type { AssetGraphResponse, AssetGraphSelection } from './types'
 	import type { RunnableRunState } from './activeRunnables.svelte'
 	import type { AssetKind } from '$lib/gen'
@@ -236,8 +236,19 @@
 			})
 		}
 		for (const r of g.runnables) {
+			const rid = `${r.usage_kind}:${r.path}`
+			// Optimistic badge: the moment a run is launched from this view
+			// `activeRunnable` flips (zero latency), well before the 3s queue
+			// poll observes the job. Show "running" immediately, keeping the
+			// poll's known run count. Falls back to the polled state (which
+			// carries the cascade + the final success/failure) otherwise.
+			const polledRunState = runStates?.get(rid)
+			const runState =
+				activeRunnable && `${activeRunnable.kind}:${activeRunnable.path}` === rid
+					? { status: 'running' as const, runs: polledRunState?.runs ?? 0 }
+					: polledRunState
 			nodes.push({
-				id: `${r.usage_kind}:${r.path}`,
+				id: rid,
 				type: 'runnable',
 				data: {
 					runnable_kind: r.usage_kind,
@@ -261,7 +272,7 @@
 									})
 							: undefined,
 					downstreamCount: downstreamByScript.get(r.path) ?? 0,
-					runState: runStates?.get(`${r.usage_kind}:${r.path}`),
+					runState,
 					onSelectSelf: () =>
 						onselect?.({
 							kind: 'runnable',
@@ -391,8 +402,11 @@
 	// Bound on the outer wrapper; updates on pane resize via $state.
 	let paneWidth = $state(800)
 
-	let positionedNodes = $derived.by(() => {
-		const positions = layoutAssetGraph({
+	// One layout pass → both node positions and Sugiyama-routed edge
+	// waypoints, sharing the exact same pane-centering transform so the
+	// routed polylines line up with the nodes they thread between.
+	let laidOut = $derived.by(() => {
+		const { pos, routes } = layoutAssetGraph({
 			nodes: model.nodes.map((n) => ({ id: n.id, data: n.data })),
 			edges: model.edges.map((e) => ({ source: e.source, target: e.target }))
 		})
@@ -402,14 +416,14 @@
 		// placement — no fitView reshuffling).
 		let minX = Infinity
 		let maxX = -Infinity
-		for (const p of positions.values()) {
+		for (const p of pos.values()) {
 			if (p.x < minX) minX = p.x
 			if (p.x > maxX) maxX = p.x
 		}
 		const bboxWidth = isFinite(minX) ? maxX - minX : 0
 		const xCenter = paneWidth / 2 - bboxWidth / 2
-		return model.nodes.map<Node>((n) => {
-			const p = positions.get(n.id) ?? { x: 0, y: 0 }
+		const nodes = model.nodes.map<Node>((n) => {
+			const p = pos.get(n.id) ?? { x: 0, y: 0 }
 			// Compensate for the + node being narrower than its layout slot
 			// so it visually centers over the node(s) below.
 			const xShift = n.id === ADD_NODE_ID ? (NODE.width - ADD_NODE_WIDTH) / 2 : 0
@@ -427,7 +441,18 @@
 				selectable: n.id !== ADD_NODE_ID && n.type !== 'trigger'
 			}
 		})
+		// Routes in flow coords — same +xCenter/+40 as nodes (no per-node
+		// xShift: that's an ADD-node-only visual nudge, irrelevant to edges).
+		const routePts = new Map<string, Array<{ x: number; y: number }>>()
+		for (const [key, pts] of routes) {
+			routePts.set(
+				key,
+				pts.map((p) => ({ x: p.x + xCenter, y: p.y + 40 }))
+			)
+		}
+		return { nodes, routePts }
 	})
+	let positionedNodes = $derived(laidOut.nodes)
 
 	// Graph-ids of every runnable that's executing right now: the polled
 	// in-flight/just-finished set (cascade) plus the zero-latency hint for
@@ -519,6 +544,10 @@
 					label,
 					labelStyle,
 					labelBgStyle: label ? 'fill: rgb(255 255 255 / 0.9);' : undefined,
+					// Sugiyama-routed waypoints (flow coords) so the edge
+					// threads between nodes instead of cutting across them.
+					// Absent for draft/overlay edges → renderer falls back.
+					data: { routePoints: laidOut.routePts.get(edgeKey(e.source, e.target)) },
 					style,
 					markerEnd: {
 						type: MarkerType.ArrowClosed,

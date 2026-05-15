@@ -6,6 +6,7 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
 	import { useActiveRunnableIds } from '$lib/components/assets/AssetGraph/activeRunnables.svelte'
+	import PipelineEventLog from '$lib/components/assets/AssetGraph/PipelineEventLog.svelte'
 	import AssetGraphDetailsPane from '$lib/components/assets/AssetGraph/AssetGraphDetailsPane.svelte'
 	import PipelinePickerModal from '$lib/components/assets/AssetGraph/PipelinePickerModal.svelte'
 	import type { AssetWithAltAccessType } from '$lib/components/assets/lib'
@@ -1357,6 +1358,10 @@
 									}
 									return jobId
 								}}
+							/>
+							<PipelineEventLog
+								events={activeRunnables.events}
+								onToggle={(o) => activeRunnables.setObserving(o)}
 							/>
 							{#if selection != undefined || activeDraftPath != undefined}
 								<!-- Floating panel toggle, mirrors the app builder's
