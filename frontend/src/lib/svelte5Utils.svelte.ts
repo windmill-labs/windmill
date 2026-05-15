@@ -576,9 +576,24 @@ export function useLocalStorageValue<T>(
 	key: string,
 	defaultValue: T,
 	typ?: 'string' | 'number' | 'boolean',
-	options?: { saveInitialValue?: boolean }
+	options?: {
+		saveInitialValue?: boolean
+		/**
+		 * Coalesce localStorage writes within a sliding window. When set to a
+		 * positive number, repeated mutations within `debounce` ms produce a
+		 * single localStorage write at the end of the window. The in-memory
+		 * `$state` is updated immediately on each change — only the persistence
+		 * side-effect is deferred. Readers of `.val` always see the latest
+		 * value; readers of `localStorage` may see a stale value during the
+		 * window. A pending write fires from a plain `setTimeout`, which
+		 * keeps running across SPA route teardown — only a hard browser tab
+		 * close drops it.
+		 */
+		debounce?: number
+	}
 ): { val: T } {
 	const saveInitialValue = options?.saveInitialValue ?? true
+	const debounceMs = options?.debounce ?? 0
 	const serialize = (val: T) =>
 		typ === 'string' || typ === 'number' || typ === 'boolean' ? String(val) : JSON.stringify(val)
 	const deserialize = (val: string): T => {
@@ -617,6 +632,25 @@ export function useLocalStorageValue<T>(
 	// initial value" rather than a user edit — we update lastSerialized so
 	// future writes are detected, but we don't persist.
 	let skipNextWrite = !saveInitialValue
+
+	// Debounce wrapper. Captures the latest pending value; a follow-up call
+	// within the window replaces the queued payload and resets the timer.
+	let debounceTimer: ReturnType<typeof setTimeout> | undefined
+	let pendingValue: T | undefined
+	const schedulePersist = (val: T | undefined) => {
+		if (debounceMs <= 0) {
+			persist(val)
+			return
+		}
+		pendingValue = val
+		if (debounceTimer != null) clearTimeout(debounceTimer)
+		debounceTimer = setTimeout(() => {
+			debounceTimer = undefined
+			persist(pendingValue)
+			pendingValue = undefined
+		}, debounceMs)
+	}
+
 	$effect(() => {
 		readFieldsRecursively(s)
 		const next = s === undefined ? undefined : serialize(s)
@@ -626,7 +660,7 @@ export function useLocalStorageValue<T>(
 			skipNextWrite = false
 			return
 		}
-		persist(s)
+		schedulePersist(s)
 	})
 
 	return {
@@ -634,16 +668,17 @@ export function useLocalStorageValue<T>(
 			return s
 		},
 		set val(newVal: T) {
-			// Persist synchronously so callers that read localStorage right
-			// after a set see the new value. The effect above stays a no-op
-			// for this change because lastSerialized is kept in sync.
+			// In-memory state is updated synchronously; the localStorage write
+			// is debounced when `options.debounce` is set. Callers that read
+			// `.val` get the latest value either way; only direct localStorage
+			// reads see the stale value during the debounce window.
 			const next = newVal === undefined ? undefined : serialize(newVal as T)
 			if (next !== lastSerialized) {
 				lastSerialized = next
 				if (skipNextWrite) {
 					skipNextWrite = false
 				} else {
-					persist(newVal)
+					schedulePersist(newVal)
 				}
 			}
 			s = newVal

@@ -344,8 +344,9 @@ export const UserDraft = {
 				undefined,
 				// The first value to flow into the handle (e.g. a backend load
 				// in the editor route) is the baseline — only persist when the
-				// user actually changes it afterwards.
-				{ saveInitialValue: false }
+				// user actually changes it afterwards. Coalesce a typing storm
+				// into one localStorage write per 500 ms.
+				{ saveInitialValue: false, debounce: 500 }
 			)
 			entry = { count: 1, state }
 			entries.set(mk, entry)

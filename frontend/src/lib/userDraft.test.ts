@@ -23,6 +23,14 @@ function flushDestroyCallbacks(): void {
 	for (const cb of callbacks) cb()
 }
 
+// UserDraft.use debounces localStorage writes by 500 ms via
+// useLocalStorageValue. Tests assert localStorage state synchronously after
+// writes, so we use fake timers and call this helper to fast-forward past
+// the debounce window before each assertion.
+function flushPersist(): void {
+	vi.runAllTimers()
+}
+
 // Helper: localStorage payloads are always wrapped as { value: <draft> } so
 // future metadata fields can be added without breaking existing entries.
 function wrapped<V>(value: V): string {
@@ -34,6 +42,7 @@ beforeEach(() => {
 	onDestroyCallbacks.length = 0
 	localStorage.clear()
 	workspaceStore.set('test_ws')
+	vi.useFakeTimers()
 })
 
 describe('UserDraft.save / get / remove (no observers)', () => {
@@ -124,11 +133,13 @@ describe('UserDraft.use() — observer sync', () => {
 		// (saveInitialValue=false) and is NOT persisted — observers still see it.
 		UserDraft.save('flow', 'u/me/observed', 7)
 		expect(handle.draft).toBe(7)
+		flushPersist()
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/observed')).toBeNull()
 
 		// Subsequent writes persist.
 		UserDraft.save('flow', 'u/me/observed', 9)
 		expect(handle.draft).toBe(9)
+		flushPersist()
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/observed')).toBe(wrapped(9))
 	})
 
@@ -151,10 +162,12 @@ describe('UserDraft.use() — observer sync', () => {
 
 		// First write is the baseline — not persisted.
 		handle.draft = 'initial'
+		flushPersist()
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/setter')).toBeNull()
 
 		// Second (and onwards) persists.
 		handle.draft = 'persisted'
+		flushPersist()
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/setter')).toBe(wrapped('persisted'))
 	})
 
@@ -162,9 +175,11 @@ describe('UserDraft.use() — observer sync', () => {
 		const handle = UserDraft.use<string>('flow', 'u/me/clear')
 		handle.draft = 'initial' // baseline, not persisted
 		handle.draft = 'edited' // persisted
+		flushPersist()
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/clear')).not.toBeNull()
 
 		handle.draft = undefined
+		flushPersist()
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/clear')).toBeNull()
 		expect(handle.draft).toBeUndefined()
 	})
@@ -218,9 +233,11 @@ describe('UserDraft.use() — defaultValue', () => {
 
 		// First write is the initial-value baseline.
 		handle.draft = 'initial'
+		flushPersist()
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/writeDefault')).toBeNull()
 
 		handle.draft = 'modified'
+		flushPersist()
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/writeDefault')).toBe(
 			wrapped('modified')
 		)
@@ -234,8 +251,10 @@ describe('UserDraft — empty path (new-item drafts persist across reloads)', ()
 		// First write under saveInitialValue=false counts as the baseline and
 		// is skipped — only the user's subsequent edits persist.
 		handle.draft = 99
+		flushPersist()
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/')).toBeNull()
 		handle.draft = 100
+		flushPersist()
 		// The "+ Flow / + Script / …" buttons are expected to call
 		// `UserDraft.remove(kind, '')` to wipe before navigating; an
 		// unguarded /add reload therefore restores the previous session.
@@ -282,10 +301,12 @@ describe('UserDraft — rev metadata for staleness checks', () => {
 		})
 		expect(handle.draft).toBe('backendValue')
 		expect(handle.meta).toEqual({ remoteRev: 42, remoteDraftRev: '2026-01-01T00:00:00Z' })
+		flushPersist()
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/atomic')).toBeNull()
 
 		// A subsequent user edit persists *with* the rev metadata.
 		handle.draft = 'userEdit'
+		flushPersist()
 		const raw = localStorage.getItem('userdraft/w/test_ws/flow/u/me/atomic')
 		expect(raw).toBe(
 			JSON.stringify({
@@ -304,6 +325,7 @@ describe('UserDraft — rev metadata for staleness checks', () => {
 		handle.setMeta({ remoteRev: 2 })
 		expect(handle.draft).toBe('edited')
 		expect(handle.meta).toEqual({ remoteRev: 2 })
+		flushPersist()
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/setmeta')).toBe(
 			JSON.stringify({ value: 'edited', remoteRev: 2 })
 		)
@@ -316,6 +338,7 @@ describe('UserDraft — rev metadata for staleness checks', () => {
 		handle.draft = { count: 2 } // another edit
 
 		expect(handle.meta).toEqual({ remoteRev: 'v1' })
+		flushPersist()
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/preserve')).toBe(
 			JSON.stringify({ value: { count: 2 }, remoteRev: 'v1' })
 		)
@@ -441,6 +464,7 @@ describe('UserDraft.use() — reference counting & cleanup', () => {
 		UserDraft.save('flow', 'u/me/ref', 2)
 		expect(a.draft).toBe(2)
 		// Now persisted (second write after the baseline).
+		flushPersist()
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/ref')).toBe(wrapped(2))
 
 		// Releasing the second handle drops the entry; subsequent save()
@@ -450,19 +474,42 @@ describe('UserDraft.use() — reference counting & cleanup', () => {
 		secondCb()
 
 		UserDraft.save('flow', 'u/me/ref', 3)
+		// UserDraft.save without a live entry writes synchronously.
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/ref')).toBe(wrapped(3))
 	})
 
 	it('a fresh use() after cleanup re-reads the latest persisted value', () => {
 		const a = UserDraft.use<string>('flow', 'u/me/cycle')
 		a.draft = 'initial' // baseline — not persisted
-		a.draft = 'edited' // persisted
+		a.draft = 'edited' // persisted (after debounce)
+		flushPersist()
 		flushDestroyCallbacks()
 
 		// After all handles release, a brand-new use() must pick up the
 		// value persisted to localStorage from the previous round.
 		const b = UserDraft.use<string>('flow', 'u/me/cycle')
 		expect(b.draft).toBe('edited')
+	})
+
+	it('coalesces a typing storm into a single localStorage write per 500 ms window', () => {
+		const handle = UserDraft.use<string>('flow', 'u/me/debounce')
+		handle.draft = 'baseline' // first write — skipped under saveInitialValue=false
+
+		// Three quick edits inside the 500 ms window: in-memory updates every
+		// time, but localStorage stays untouched until the timer fires.
+		handle.draft = 'one'
+		vi.advanceTimersByTime(100)
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/debounce')).toBeNull()
+		handle.draft = 'two'
+		vi.advanceTimersByTime(100)
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/debounce')).toBeNull()
+		handle.draft = 'three'
+		expect(handle.draft).toBe('three')
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/debounce')).toBeNull()
+
+		// After the window elapses, only the latest value lands.
+		vi.advanceTimersByTime(500)
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/debounce')).toBe(wrapped('three'))
 	})
 
 	it('manualRelease=true skips onDestroy registration and gates cleanup behind handle.release()', () => {
