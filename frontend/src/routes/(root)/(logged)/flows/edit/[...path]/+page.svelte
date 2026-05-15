@@ -304,6 +304,11 @@
 		}
 		diffDrawer?.closeDrawer()
 		UserDraft.remove('flow', flowDraftPath)
+		// Drop the in-memory handle state so loadFlow sees no local draft
+		// on the next pass — otherwise the staleness check would compare
+		// the stale in-memory meta against the freshly fetched backend and
+		// fire a spurious modal.
+		flowHandle.setDraftAndMeta(undefined, {})
 		goto(`/flows/edit/${savedFlow.draft.path}`)
 		loadFlow()
 	}
@@ -322,6 +327,7 @@
 			})
 		}
 		UserDraft.remove('flow', flowDraftPath)
+		flowHandle.setDraftAndMeta(undefined, {})
 		goto(`/flows/edit/${savedFlow.path}`)
 		loadFlow()
 	}

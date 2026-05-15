@@ -239,6 +239,12 @@
 		}
 		diffDrawer?.closeDrawer()
 		UserDraft.remove('app', path)
+		// Force AppEditor to unmount so its UserDraft handle releases —
+		// otherwise loadApp's `UserDraft.get` would read the stale autosave
+		// from the still-alive in-memory entry and the staleness check
+		// would fire a spurious "newer version was deployed" modal.
+		app = undefined
+		redraw++
 		goto(`/apps/edit/${savedApp.draft.path}`)
 		await loadApp()
 		redraw++
@@ -258,6 +264,8 @@
 			})
 		}
 		UserDraft.remove('app', path)
+		app = undefined
+		redraw++
 		goto(`/apps/edit/${savedApp.path}`)
 		await loadApp()
 		redraw++

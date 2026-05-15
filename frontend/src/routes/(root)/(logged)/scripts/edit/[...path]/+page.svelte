@@ -299,6 +299,11 @@
 		}
 		diffDrawer?.closeDrawer()
 		UserDraft.remove('script', draftPath)
+		// Drop the in-memory handle state so loadScript sees no local draft
+		// on the next pass — otherwise the staleness check would compare the
+		// stale in-memory meta against the freshly fetched backend and fire
+		// a spurious modal.
+		scriptHandle.setDraftAndMeta(undefined, {})
 		goto(`/scripts/edit/${savedScript.draft.path}`)
 		loadScript()
 	}
@@ -317,6 +322,7 @@
 			})
 		}
 		UserDraft.remove('script', draftPath)
+		scriptHandle.setDraftAndMeta(undefined, {})
 		goto(`/scripts/edit/${savedScript.path}`)
 		loadScript()
 	}

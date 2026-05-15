@@ -278,6 +278,11 @@
 		}
 		diffDrawer?.closeDrawer()
 		UserDraft.remove('raw_app', path)
+		// Drop the in-memory handle state so loadApp sees no local draft
+		// on the next pass — otherwise the staleness check would compare
+		// the stale in-memory meta against the freshly fetched backend and
+		// fire a spurious modal.
+		draftHandle.setDraftAndMeta(undefined, {})
 		goto(`/apps/edit/${savedApp.draft.path}`)
 		await loadApp()
 		redraw++
@@ -297,6 +302,7 @@
 			})
 		}
 		UserDraft.remove('raw_app', path)
+		draftHandle.setDraftAndMeta(undefined, {})
 		goto(`/apps/edit/${savedApp.path}`)
 		await loadApp()
 		redraw++
