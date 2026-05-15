@@ -979,6 +979,10 @@ export class AIChatManager {
 		this.#automaticScroll = false
 	}
 
+	enableAutomaticScroll = () => {
+		this.#automaticScroll = true
+	}
+
 	generateStep = async (moduleId: string, lang: ScriptLang, instructions: string) => {
 		if (!this.flowAiChatHelpers) {
 			throw new Error('No flow helpers found')

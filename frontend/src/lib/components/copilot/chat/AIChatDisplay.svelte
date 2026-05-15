@@ -77,17 +77,31 @@
 	let editingMessageIndex = $state<number | null>(null)
 
 	let scrollEl: HTMLDivElement | undefined = $state()
-	async function scrollDown() {
-		scrollEl?.scrollTo({
-			top: scrollEl.scrollHeight,
-			behavior: 'smooth'
-		})
+	// Instant scroll — smooth would animate every token append, racing with
+	// the next scrollDown and confusing the onscroll bottom-detection below.
+	function scrollDown() {
+		if (!scrollEl) return
+		scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: 'auto' })
 	}
 
 	let height = $state(0)
 	$effect(() => {
 		aiChatManager.automaticScroll && height && scrollDown()
 	})
+
+	// Pixel distance from the bottom under which we treat the user as
+	// "stuck to the bottom" and re-enable automatic scroll. 8px allows for
+	// sub-pixel rounding from scrollTo + the occasional overscroll bounce.
+	const STICK_TO_BOTTOM_PX = 8
+	function onScroll() {
+		if (!scrollEl) return
+		const distance = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight
+		if (distance <= STICK_TO_BOTTOM_PX) {
+			aiChatManager.enableAutomaticScroll()
+		} else {
+			aiChatManager.disableAutomaticScroll()
+		}
+	}
 
 	function submitSuggestion(suggestion: string) {
 		aiChatManager.sendRequest({ instructions: suggestion })
@@ -234,13 +248,7 @@
 	{/if}
 
 	{#if messages.length > 0}
-		<div
-			class="flex-1 min-h-0 overflow-y-scroll pt-2"
-			bind:this={scrollEl}
-			onwheel={() => {
-				aiChatManager.disableAutomaticScroll()
-			}}
-		>
+		<div class="flex-1 min-h-0 overflow-y-scroll pt-2" bind:this={scrollEl} onscroll={onScroll}>
 			<div
 				class={wideLayout
 					? 'w-full max-w-3xl mx-auto px-8 flex flex-col pb-2'
