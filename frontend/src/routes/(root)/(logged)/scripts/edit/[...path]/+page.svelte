@@ -242,7 +242,7 @@
 					const draft = cleanValueProperties(bakedBaseline)
 					sendUserToast('Script loaded from latest saved draft', false, [
 						{
-							label: 'Discard draft reset to deployed version',
+							label: 'Reset to deployed',
 							callback: reloadAction
 						},
 						{
