@@ -1109,7 +1109,11 @@ async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<PulledCode
                 let bytes = attempt_fetch_bytes(os, &path).await?;
                 tracing::info!("loading {bun_cache_path} from object store");
 
-                std::fs::write(&bun_cache_path, &bytes)?;
+                windmill_common::worker::atomic_write_file_bytes(
+                    &bun_cache_path,
+                    bytes.as_ref(),
+                    false,
+                )?;
                 extract_saved_codebase(job_dir, &bun_cache_path, is_tar, &dst, false)?;
             }
         }

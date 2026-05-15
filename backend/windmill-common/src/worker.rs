@@ -970,6 +970,77 @@ pub fn copy_dir_recursively(src: &Path, dst: &Path) -> error::Result<()> {
     Ok(())
 }
 
+/// Write `bytes` to `final_path` atomically: write to a sibling temp file then
+/// `rename` into place. A concurrent reader that gates on `metadata(final_path)`
+/// therefore only ever observes a fully-written file (`rename` is atomic on a
+/// POSIX same-filesystem path). Safe under a thundering herd: concurrent renames
+/// to the same path are last-writer-wins and every writer produces identical
+/// bytes. This prevents the cold-load race where a parallel for-loop spawns N
+/// `//native` sandboxes that each observe a partially-written bundle.
+pub fn atomic_write_file_bytes(
+    final_path: &str,
+    bytes: &[u8],
+    executable: bool,
+) -> error::Result<()> {
+    #[cfg(not(unix))]
+    let _ = executable;
+    let tmp_path = format!("{}.tmp.{}", final_path, Uuid::new_v4());
+    let write = || -> error::Result<()> {
+        let mut file = File::create(&tmp_path)?;
+        file.write_all(bytes)?;
+        #[cfg(unix)]
+        if executable {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(0o755))?;
+        }
+        file.flush()?;
+        Ok(())
+    };
+    if let Err(e) = write() {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(e);
+    }
+    if let Err(e) = fs::rename(&tmp_path, final_path) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(e.into());
+    }
+    Ok(())
+}
+
+/// Copy `origin` to `final_path` atomically via a sibling temp file + `rename`,
+/// preserving `std::fs::copy` permission semantics. Same atomicity guarantee as
+/// [`atomic_write_file_bytes`].
+pub fn atomic_copy_file(origin: &str, final_path: &str) -> error::Result<()> {
+    let tmp_path = format!("{}.tmp.{}", final_path, Uuid::new_v4());
+    if let Err(e) = fs::copy(origin, &tmp_path) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(e.into());
+    }
+    if let Err(e) = fs::rename(&tmp_path, final_path) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(e.into());
+    }
+    Ok(())
+}
+
+/// Publish a fully-populated `tmp_dir` to `final_dir` atomically. If a concurrent
+/// populate already published `final_dir` (rename fails because the destination
+/// exists and is non-empty), discard our byte-identical copy and treat it as a
+/// success so cold-load directory caches are race-free too.
+pub fn atomic_publish_dir(tmp_dir: &str, final_dir: &str) -> error::Result<()> {
+    match fs::rename(tmp_dir, final_dir) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = fs::remove_dir_all(tmp_dir);
+            if Path::new(final_dir).exists() {
+                Ok(())
+            } else {
+                Err(e.into())
+            }
+        }
+    }
+}
+
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub async fn extract_tar(tar: bytes::Bytes, folder: &str) -> error::Result<()> {
     use std::time::Instant;
@@ -997,19 +1068,7 @@ pub async fn extract_tar(tar: bytes::Bytes, folder: &str) -> error::Result<()> {
 }
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub fn write_binary_file(main_path: &str, byts: &mut bytes::Bytes) -> error::Result<()> {
-    use std::fs::File;
-    use std::io::Write;
-
-    let mut file = File::create(main_path)?;
-    file.write_all(byts)?;
-    #[cfg(unix)]
-    {
-        use std::fs::Permissions;
-        use std::os::unix::fs::PermissionsExt;
-        file.set_permissions(Permissions::from_mode(0o755))?;
-    }
-    file.flush()?;
-    Ok(())
+    atomic_write_file_bytes(main_path, byts, true)
 }
 
 #[cfg(not(windows))]
@@ -2289,5 +2348,126 @@ mod tests {
         let content = "//sandbox\nexport function main() {}";
         let annotations = TypeScriptAnnotations::parse(content);
         assert!(annotations.sandbox);
+    }
+
+    // Regression: a parallel for-loop cold-loading a //native bundle spawns
+    // many sandboxes that each gate on `metadata(bundle).is_ok()` then read it.
+    // The pre-fix non-atomic `File::create + write_all` made the path visible
+    // while still empty/truncated, so concurrent readers saw a stub bundle
+    // (`module.main is not a function`) or a truncated one (`Unexpected end of
+    // input`). With atomic temp+rename publish, a visible path is always a
+    // complete file. This test fails against the old non-atomic implementation.
+    #[test]
+    fn test_atomic_write_file_bytes_concurrent_cold_load() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        use std::sync::{Arc, Barrier};
+
+        let dir =
+            std::env::temp_dir().join(format!("wm_atomic_write_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let final_path = dir.join("bundle.js");
+        let final_path_str = final_path.to_str().unwrap().to_string();
+
+        // Wide payload so a hypothetical non-atomic writer has a large
+        // partial-read window for the reader to catch.
+        let payload = vec![b'x'; 4 * 1024 * 1024];
+        let expected_len = payload.len();
+
+        for _ in 0..12 {
+            let _ = std::fs::remove_file(&final_path);
+
+            let stop = Arc::new(AtomicBool::new(false));
+            let partial_reads = Arc::new(AtomicUsize::new(0));
+            let barrier = Arc::new(Barrier::new(2));
+
+            let reader = {
+                let stop = stop.clone();
+                let partial_reads = partial_reads.clone();
+                let barrier = barrier.clone();
+                let path = final_path_str.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    while !stop.load(Ordering::Relaxed) {
+                        if std::fs::metadata(&path).is_ok() {
+                            if let Ok(content) = std::fs::read(&path) {
+                                if content.len() != expected_len {
+                                    partial_reads.fetch_add(1, Ordering::Relaxed);
+                                }
+                            }
+                        }
+                        std::thread::yield_now();
+                    }
+                })
+            };
+
+            barrier.wait();
+            atomic_write_file_bytes(&final_path_str, &payload, false).unwrap();
+            stop.store(true, Ordering::Relaxed);
+            reader.join().unwrap();
+
+            assert_eq!(
+                partial_reads.load(Ordering::Relaxed),
+                0,
+                "a concurrent reader observed a partially-written bundle"
+            );
+            assert_eq!(std::fs::read(&final_path).unwrap().len(), expected_len);
+
+            let leftovers: Vec<_> = std::fs::read_dir(&dir)
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
+                .map(|e| e.path())
+                .collect();
+            assert!(leftovers.is_empty(), "temp files leaked: {:?}", leftovers);
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Under a thundering herd of cold-loads, N populators each build their own
+    // temp dir and publish to the same final dir. Every publish must succeed
+    // (loser-of-the-race discards its byte-identical copy), the final dir must
+    // be complete, and no temp dirs may leak.
+    #[test]
+    fn test_atomic_publish_dir_thundering_herd() {
+        use std::sync::{Arc, Barrier};
+
+        let base =
+            std::env::temp_dir().join(format!("wm_atomic_dir_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&base).unwrap();
+        let final_dir = base.join("cache_dir");
+        let final_dir_str = final_dir.to_str().unwrap().to_string();
+
+        let n = 8;
+        let barrier = Arc::new(Barrier::new(n));
+        let mut handles = vec![];
+        for _ in 0..n {
+            let barrier = barrier.clone();
+            let final_dir_str = final_dir_str.clone();
+            let base = base.clone();
+            handles.push(std::thread::spawn(move || {
+                let tmp = base.join(format!("cache_dir.tmp.{}", uuid::Uuid::new_v4()));
+                std::fs::create_dir_all(&tmp).unwrap();
+                std::fs::write(tmp.join("main.js"), b"export function main() {}").unwrap();
+                std::fs::write(tmp.join("meta.txt"), b"v1").unwrap();
+                barrier.wait();
+                atomic_publish_dir(tmp.to_str().unwrap(), &final_dir_str).unwrap();
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        assert!(final_dir.join("main.js").is_file());
+        assert!(final_dir.join("meta.txt").is_file());
+        let leftovers: Vec<_> = std::fs::read_dir(&base)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
+            .map(|e| e.path())
+            .collect();
+        assert!(leftovers.is_empty(), "temp dirs leaked: {:?}", leftovers);
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 }
