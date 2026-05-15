@@ -316,6 +316,7 @@
 					hideInputBorder
 					hideHeader
 					hideModeSelector
+					wideLayout
 					forceDisabled={isUnavailable}
 					forceDisabledMessage={isUnavailable
 						? 'This session is linked to a workspace that no longer exists. Move it or discard it from the banner above to keep working.'
@@ -344,6 +345,7 @@
 							path={session.target.path}
 							workspaceId={effectiveWorkspaceId}
 							onNavigate={pickEditorTarget}
+							initialTestPanelCollapsed
 						/>
 					{:else if session.target.kind === 'app'}
 						<AppEditorView

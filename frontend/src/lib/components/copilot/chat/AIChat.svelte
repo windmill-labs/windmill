@@ -21,6 +21,7 @@
 		hideModeSelector = false,
 		forceDisabled = false,
 		forceDisabledMessage = '',
+		wideLayout = false,
 		emptyHint,
 		inputPreface
 	}: {
@@ -33,6 +34,10 @@
 		// the session. Wins over the internal disabled derivation.
 		forceDisabled?: boolean
 		forceDisabledMessage?: string
+		// Forwarded to AIChatDisplay. When true, the messages / input
+		// columns are centered in a max-w-3xl px-8 box. Sessions opt
+		// in; the narrow global-chat panel leaves it off.
+		wideLayout?: boolean
 		emptyHint?: import('svelte').Snippet
 		inputPreface?: import('svelte').Snippet
 	} = $props()
@@ -167,6 +172,7 @@
 	{hideInputBorder}
 	{hideHeader}
 	{hideModeSelector}
+	{wideLayout}
 	{emptyHint}
 	{inputPreface}
 ></AIChatDisplay>

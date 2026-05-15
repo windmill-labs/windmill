@@ -162,6 +162,11 @@
 		modules?: { [key: string]: ScriptModule } | null
 		editorBarRight?: import('svelte').Snippet
 		enablePreprocessorSnippet?: boolean
+		// Start with the right-hand test/run panel collapsed. The user can
+		// re-expand it via the toggle in the editor bar. Used by the
+		// session preview where the run pane crowds out the chat-driven
+		// flow. Default: false (panel open at ~30%).
+		initialTestPanelCollapsed?: boolean
 	}
 
 	let {
@@ -195,7 +200,8 @@
 		assets = $bindable(),
 		modules = $bindable(undefined),
 		editorBarRight,
-		enablePreprocessorSnippet = false
+		enablePreprocessorSnippet = false,
+		initialTestPanelCollapsed = false
 	}: Props = $props()
 
 	let initialArgs = structuredClone($state.snapshot(args))
@@ -223,7 +229,24 @@
 		if (activeModuleTab === null && code !== lastSyncedCode) {
 			editorCode = code
 			lastSyncedCode = code
-			untrack(() => inferSchema(code))
+			// Push the new code into Monaco's model — `bind:code={editorCode}`
+			// alone doesn't trigger setValue; the Editor wrapper only reads
+			// `code` on mount and in module-switch paths. Without this call
+			// external mutations (AI write_script via globalDraftStore, copilot
+			// review, template reset) update the prop but the editor pane
+			// keeps showing the previous content.
+			//
+			// IMPORTANT: only call setCode when Monaco's model differs from
+			// the new code. When the change originated from typing in Monaco,
+			// the bind chain re-fires this effect with `code === editor.getCode()`
+			// already — calling setCode would executeEdits over the same text,
+			// clobbering the user's caret and causing input to feel reset.
+			untrack(() => {
+				if (editor && editor.getCode() !== code) {
+					editor.setCode(code)
+				}
+				inferSchema(code)
+			})
 		}
 	})
 
@@ -1312,8 +1335,10 @@
 	// dynamic minimum below — so when the editor shrinks, the displayed test
 	// pane grows to honor the new minimum without needing an effect. The code
 	// pane's size is purely derived from it (100 - test).
-	let rawTestPanelSize = $state(30)
-	let storedTestPanelSize = untrack(() => rawTestPanelSize)
+	let rawTestPanelSize = $state(initialTestPanelCollapsed ? 0 : 30)
+	// When the panel starts collapsed, remember 30 as the size to restore
+	// when the user re-opens it via the toggle.
+	let storedTestPanelSize = untrack(() => (initialTestPanelCollapsed ? 30 : rawTestPanelSize))
 	const testPanelSize = $derived(
 		rawTestPanelSize === 0 ? 0 : Math.max(rawTestPanelSize, testPaneMinPercent)
 	)

@@ -25,6 +25,7 @@ import {
 	setSessionChatId,
 	type Session
 } from './sessionState.svelte'
+import { globalDraftStore } from '$lib/components/copilot/chat/global/draftStore.svelte'
 
 export interface SessionRuntime {
 	readonly sessionId: string
@@ -232,9 +233,33 @@ function createRuntime(session: Session): SessionRuntime {
 			try {
 				const result = await ScriptService.getScriptByPathWithDraft({ workspace, path })
 				savedScript.val = result
-				// Prefer the draft if present, falling back to the deployed version
-				scriptStore.val = (result.draft as NewScript | undefined) ?? (result as NewScript)
-				if (scriptStore.val) scriptStore.val.parent_hash = result.hash
+				// Backend-baseline NewScript: prefer the saved draft, otherwise
+				// the deployed version. Drives the diff drawer via savedScript.val.
+				const baseline = (result.draft as NewScript | undefined) ?? (result as NewScript)
+				baseline.parent_hash = result.hash
+				// Share state with the global AI chat: the in-memory
+				// `globalDraftStore` is the single source of truth for what the
+				// AI and the preview both see. If the AI has already written a
+				// draft for this (workspace, path), overlay its content onto
+				// our baseline; otherwise seed the store with the baseline so
+				// the AI's `loadScriptForEdit` finds the same content the
+				// editor displays.
+				const aiDraft = globalDraftStore.getScriptDraft(workspace, path)
+				if (aiDraft && typeof aiDraft.value === 'string') {
+					baseline.content = aiDraft.value
+					if (aiDraft.language) baseline.language = aiDraft.language
+					if (aiDraft.summary !== undefined) baseline.summary = aiDraft.summary
+				} else {
+					globalDraftStore.setDraft(workspace, {
+						type: 'script',
+						path,
+						language: baseline.language,
+						summary: baseline.summary,
+						value: baseline.content ?? '',
+						isDraft: true
+					})
+				}
+				scriptStore.val = baseline
 				loadedScriptPath = path
 			} catch (err) {
 				console.error('Failed to load script', err)

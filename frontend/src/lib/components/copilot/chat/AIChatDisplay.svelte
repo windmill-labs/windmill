@@ -41,6 +41,7 @@
 		hideInputBorder = false,
 		hideHeader = false,
 		hideModeSelector = false,
+		wideLayout = false,
 		emptyHint,
 		inputPreface
 	}: {
@@ -62,6 +63,12 @@
 		hideInputBorder?: boolean
 		hideHeader?: boolean
 		hideModeSelector?: boolean
+		// Center the messages + input columns inside a max-w-3xl px-8
+		// inner container. The session pane uses this for breathing
+		// room; the right-hand global chat panel is narrow enough that
+		// the inner padding eats too much horizontal space, so it's
+		// off there.
+		wideLayout?: boolean
 		emptyHint?: Snippet
 		inputPreface?: Snippet
 	} = $props()
@@ -234,7 +241,12 @@
 				aiChatManager.disableAutomaticScroll()
 			}}
 		>
-			<div class="w-full max-w-3xl mx-auto px-8 flex flex-col pb-2" bind:clientHeight={height}>
+			<div
+				class={wideLayout
+					? 'w-full max-w-3xl mx-auto px-8 flex flex-col pb-2'
+					: 'w-full flex flex-col pb-2'}
+				bind:clientHeight={height}
+			>
 				{#each messages as message, messageIndex (messageIndex)}
 					<AIChatMessage
 						{message}
@@ -269,7 +281,7 @@
 
 	<div
 		class:border-t={messages.length > 0 && !hideInputBorder}
-		class="relative w-full max-w-3xl mx-auto px-8"
+		class={wideLayout ? 'relative w-full max-w-3xl mx-auto px-8' : 'relative w-full'}
 	>
 		{#if aiChatManager.flowAiChatHelpers?.hasPendingChanges()}
 			<div class="absolute -top-10 w-full flex flex-row justify-center gap-2">
@@ -383,8 +395,8 @@
 					{#each suggestions as suggestion (suggestion)}
 						<Button
 							on:click={() => submitSuggestion(suggestion)}
+							variant="subtle"
 							size="xs2"
-							color="light"
 							btnClasses="whitespace-normal text-center font-normal"
 						>
 							{suggestion}
