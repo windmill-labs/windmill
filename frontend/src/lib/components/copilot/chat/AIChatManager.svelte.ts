@@ -62,6 +62,11 @@ import { getCurrentModel, tryGetCurrentModel, getCombinedCustomPrompt } from '$l
 import type { WorkspaceMutationTarget } from './workspaceTools'
 import { globalTools, prepareGlobalSystemMessage, prepareGlobalUserMessage } from './global/core'
 import { isGlobalAiEnabled } from './global/gate'
+import {
+	resolveMentionedItems,
+	workspaceItemRegistry,
+	type WorkspaceItemEntry
+} from './workspaceItems.svelte'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
@@ -156,6 +161,42 @@ class AIChatManager {
 	})
 
 	open = $derived(chatState.size > 0)
+
+	/**
+	 * Workspace scripts / flows / apps that have been referenced in the conversation.
+	 *
+	 * Computed from assistant message text and tool parameters/results, then resolved
+	 * against the workspace item registry. Useful for picker UIs that want to surface
+	 * "items mentioned in this chat".
+	 *
+	 * Only items currently loaded in the registry are returned — call
+	 * `workspaceItemRegistry.ensureLoaded(workspace)` first if you need full coverage.
+	 */
+	mentionedItems: WorkspaceItemEntry[] = $derived.by(() => {
+		const ws = get(workspaceStore)
+		if (!ws) return []
+		// Touch the registry's reactive state so this $derived re-runs once data lands.
+		workspaceItemRegistry.isLoaded(ws)
+		const texts: string[] = []
+		for (const m of this.displayMessages) {
+			if (m.role === 'assistant' || m.role === 'user') {
+				if (m.content) texts.push(m.content)
+			} else if (m.role === 'tool') {
+				if (m.content) texts.push(m.content)
+				if (m.parameters) {
+					try {
+						texts.push(
+							typeof m.parameters === 'string' ? m.parameters : JSON.stringify(m.parameters)
+						)
+					} catch {}
+				}
+				if (typeof m.result === 'string') {
+					texts.push(m.result)
+				}
+			}
+		}
+		return resolveMentionedItems(texts, ws)
+	})
 
 	checkTokenUsageOverLimit = (messages: ChatCompletionMessageParam[]) => {
 		const estimatedTokens = messages.reduce((acc, message) => {

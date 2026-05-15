@@ -1,11 +1,28 @@
 <script lang="ts">
-	import { Loader2, ChevronDown, ChevronRight, XCircle, Play } from 'lucide-svelte'
+	import {
+		Loader2,
+		ChevronDown,
+		ChevronRight,
+		XCircle,
+		Play,
+		Code2,
+		LayoutDashboard,
+		ExternalLink
+	} from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { aiChatManager } from './AIChatManager.svelte'
 	import type { ToolDisplayMessage } from './shared'
 	import { twMerge } from 'tailwind-merge'
 	import ToolContentDisplay from './ToolContentDisplay.svelte'
 	import ToolMessageActions from './ToolMessageActions.svelte'
+	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
+	import { workspaceStore } from '$lib/stores'
+	import {
+		extractCandidatePaths,
+		itemHref,
+		workspaceItemRegistry,
+		type WorkspaceItemEntry
+	} from './workspaceItems.svelte'
 
 	interface Props {
 		message: ToolDisplayMessage
@@ -28,6 +45,55 @@
 			? message.actions
 			: []
 	)
+
+	$effect(() => {
+		const ws = $workspaceStore
+		if (ws) workspaceItemRegistry.ensureLoaded(ws)
+	})
+
+	/**
+	 * Resolve workspace item paths referenced by the tool's parameters.
+	 *
+	 * Looks at direct string fields (`path`, `script_path`, `flow_path`, `app_path`) first —
+	 * those are the canonical shapes used by tool schemas. Falls back to a regex sweep over
+	 * the stringified parameters to catch tools that embed paths in less obvious fields.
+	 */
+	const referencedItems = $derived.by((): WorkspaceItemEntry[] => {
+		const ws = $workspaceStore
+		if (!ws) return []
+		// Touch reactive state so we re-run when the registry populates.
+		workspaceItemRegistry.isLoaded(ws)
+		const params = message.parameters
+		if (!params || typeof params !== 'object') return []
+
+		const candidates = new Set<string>()
+		const PATH_KEYS = ['path', 'script_path', 'flow_path', 'app_path', 'runnable_path']
+		for (const key of PATH_KEYS) {
+			const value = (params as Record<string, unknown>)[key]
+			if (typeof value === 'string' && value.length > 0) {
+				candidates.add(value)
+			}
+		}
+		// Fallback: sweep stringified params for any path-shaped tokens we may have missed.
+		try {
+			const stringified = JSON.stringify(params)
+			for (const candidate of extractCandidatePaths(stringified)) {
+				candidates.add(candidate)
+			}
+		} catch {}
+
+		const resolved: WorkspaceItemEntry[] = []
+		const seen = new Set<string>()
+		for (const candidate of candidates) {
+			if (seen.has(candidate)) continue
+			const entry = workspaceItemRegistry.resolve(ws, candidate)
+			if (entry) {
+				resolved.push(entry)
+				seen.add(candidate)
+			}
+		}
+		return resolved
+	})
 </script>
 
 <div
@@ -61,6 +127,32 @@
 			<span class="text-primary font-medium text-2xs">
 				{message.content}
 			</span>
+			{#if referencedItems.length > 0}
+				<div class="flex flex-row flex-wrap items-center gap-1 ml-1 min-w-0">
+					{#each referencedItems as item (item.path)}
+						<a
+							href={itemHref(item, $workspaceStore ?? undefined)}
+							target="_blank"
+							rel="noopener noreferrer"
+							onclick={(e) => e.stopPropagation()}
+							title={item.summary || item.path}
+							class="inline-flex items-center gap-1 px-1 py-0.5 rounded bg-surface-secondary hover:bg-surface-hover border border-gray-200 dark:border-gray-700 text-primary no-underline font-mono text-2xs max-w-[14rem] truncate"
+						>
+							<span class="inline-flex shrink-0 text-secondary">
+								{#if item.kind === 'script'}
+									<Code2 class="w-3 h-3" />
+								{:else if item.kind === 'flow'}
+									<BarsStaggered size={12} style="" class="!fill-current" />
+								{:else}
+									<LayoutDashboard class="w-3 h-3" />
+								{/if}
+							</span>
+							<span class="truncate">{item.path}</span>
+							<ExternalLink class="w-2.5 h-2.5 shrink-0 text-tertiary" />
+						</a>
+					{/each}
+				</div>
+			{/if}
 		</div>
 	</button>
 
