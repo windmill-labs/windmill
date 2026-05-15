@@ -146,6 +146,53 @@ class AIChatManager {
 	/** Cached datatables for app context (fetched asynchronously) */
 	cachedDatatables = $state<AppDatatableElement[]>([])
 
+	/**
+	 * Inline-drawer request for a workspace item referenced from a chat message.
+	 *
+	 * Consumed by the drawer host mounted in AiChatLayout, which calls the matching
+	 * editor's open method.
+	 *
+	 * `version` increments on every request so re-clicking after the drawer was closed
+	 * via the X button (which doesn't reset this state) still re-triggers the effect.
+	 */
+	workspaceItemDrawer = $state<
+		| {
+				kind: WorkspaceItemEntry['kind']
+				path: string
+				version: number
+				open: boolean
+		  }
+		| undefined
+	>(undefined)
+
+	/**
+	 * Toggle the inline drawer for a workspace item.
+	 *
+	 * Behavior:
+	 * - If a drawer for the same kind+path is currently open, close it.
+	 * - Otherwise, set up state to open (or re-open) the drawer.
+	 */
+	toggleWorkspaceItemDrawer(target: { kind: WorkspaceItemEntry['kind']; path: string }): void {
+		const cur = this.workspaceItemDrawer
+		const sameTarget = cur?.kind === target.kind && cur.path === target.path
+		if (cur?.open && sameTarget) {
+			this.workspaceItemDrawer = { ...cur, open: false, version: cur.version + 1 }
+			return
+		}
+		this.workspaceItemDrawer = {
+			kind: target.kind,
+			path: target.path,
+			version: (cur?.version ?? 0) + 1,
+			open: true
+		}
+	}
+
+	/** Mark the inline drawer as closed (called by the host when the drawer's own X is hit). */
+	markWorkspaceItemDrawerClosed(): void {
+		if (!this.workspaceItemDrawer?.open) return
+		this.workspaceItemDrawer = { ...this.workspaceItemDrawer, open: false }
+	}
+
 	private confirmationCallback = $state<((value: boolean) => void) | undefined>(undefined)
 	private appDatatablesRefreshTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
