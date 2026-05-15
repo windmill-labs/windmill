@@ -11,6 +11,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Menu } from 'lucide-svelte'
 	import CreatedResourceActionDrawers from './CreatedResourceActionDrawers.svelte'
+	import WorkspaceItemDrawerHost from './WorkspaceItemDrawerHost.svelte'
 
 	interface Props {
 		noPadding?: boolean
@@ -50,6 +51,7 @@
 
 {#if !disableAi}
 	<CreatedResourceActionDrawers />
+	<WorkspaceItemDrawerHost />
 	<Splitpanes horizontal={false} class="flex-1 min-h-0">
 		<Pane size={100 - chatState.size} minSize={50} class="flex flex-col grow min-h-0 ">
 			<div
