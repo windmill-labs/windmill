@@ -415,7 +415,14 @@ export const UserDraft = {
 			// are cached by mapKey, so two reconciles with the same spec set
 			// produce reference-equal arrays. Avoids dirtying downstream
 			// reactive readers on no-op `$effect` re-runs.
-			const unchanged = handles.length === next.length && handles.every((h, i) => h === next[i])
+			//
+			// The read side is wrapped in `untrack` so the effect doesn't
+			// register `handles` as one of its own dependencies; otherwise
+			// the splice below would re-fire the effect, splice again, …
+			// (Svelte raises `effect_update_depth_exceeded`).
+			const unchanged = untrack(
+				() => handles.length === next.length && handles.every((h, i) => h === next[i])
+			)
 			if (!unchanged) handles.splice(0, handles.length, ...next)
 		}
 
