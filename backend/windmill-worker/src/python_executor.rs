@@ -178,6 +178,44 @@ pub fn handle_ephemeral_token(x: String) -> String {
     x
 }
 
+/// Removes lockfile/requirements entries matching the worker's `pip_local_dependencies`
+/// regexes. Those packages are already provided locally (e.g. via `additional_python_paths`),
+/// so installing them again duplicates files and triggers expensive `postinstall` copies on
+/// every job. `#`-prefixed comment lines (e.g. the `# py:` lockfile header) are always kept.
+/// Returns `(kept_lines, ignored_lines)`.
+fn filter_pip_local_dependencies(lines: Vec<String>) -> (Vec<String>, Vec<String>) {
+    let Some(pip_local_dependencies) = WORKER_CONFIG.load().pip_local_dependencies.clone() else {
+        return (lines, vec![]);
+    };
+
+    let compiled_deps = pip_local_dependencies
+        .iter()
+        .filter_map(|dep| match Regex::new(dep) {
+            Ok(r) => Some(r),
+            Err(e) => {
+                tracing::warn!(
+                    "regex compilation failed for Python local dependency: '{}' - it will be ignored",
+                    e
+                );
+                None
+            }
+        })
+        .collect::<Vec<Regex>>();
+
+    filter_lines_by_deps(lines, &compiled_deps)
+}
+
+/// Pure core of [`filter_pip_local_dependencies`]: partitions `lines` into
+/// `(kept, ignored)`. A line is ignored when it is not a `#` comment and matches any of
+/// `compiled_deps`. Kept separate from config/regex loading so it can be unit-tested.
+fn filter_lines_by_deps(lines: Vec<String>, compiled_deps: &[Regex]) -> (Vec<String>, Vec<String>) {
+    let (ignored, kept): (Vec<String>, Vec<String>) = lines
+        .into_iter()
+        .partition(|s| !s.starts_with('#') && compiled_deps.iter().any(|dep| dep.is_match(s)));
+
+    (kept, ignored)
+}
+
 // This function only invoked during deployment of script or test run.
 // And never for already deployed scripts, these have their lockfiles in PostgreSQL
 // thus this function call is skipped.
@@ -200,33 +238,13 @@ pub async fn uv_pip_compile(
     logs.push_str(&format!("\nresolving dependencies..."));
     logs.push_str(&format!("\ncontent of requirements:\n{}\n", requirements));
 
-    let requirements = if let Some(pip_local_dependencies) =
-        WORKER_CONFIG.load().pip_local_dependencies.as_ref()
-    {
-        let deps = pip_local_dependencies.clone();
-        let compiled_deps = deps.iter().map(|dep| {
-            let compiled_dep = Regex::new(dep);
-            match compiled_dep {
-                Ok(compiled_dep) => Some(compiled_dep),
-                Err(e) => {
-                    tracing::warn!("regex compilation failed for Python local dependency: '{}' - it will be ignored", e);
-                    return None;
-                }
-            }
-        }).filter(|dep_maybe| dep_maybe.is_some()).map(|dep| dep.unwrap()).collect::<Vec<Regex>>();
-        requirements
-            .lines()
-            .filter(|s| {
-                if compiled_deps.iter().any(|dep| dep.is_match(s)) {
-                    logs.push_str(&format!("\nignoring local dependency: {}", s));
-                    return false;
-                } else {
-                    return true;
-                }
-            })
-            .join("\n")
-    } else {
-        requirements.to_string()
+    let requirements = {
+        let (kept, ignored) =
+            filter_pip_local_dependencies(requirements.lines().map(str::to_owned).collect());
+        for line in ignored {
+            logs.push_str(&format!("\nignoring local dependency: {}", line));
+        }
+        kept.join("\n")
     };
 
     let uv_index_strategy = UV_INDEX_STRATEGY.read().await.clone();
@@ -1874,6 +1892,24 @@ Returned from server: py_version - {:?}, py_version_v2 - {:?}
         }
     };
 
+    // Filter out packages matched by pip_local_dependencies. For preview runs this is also
+    // handled inside uv_pip_compile, but deployed scripts skip uv_pip_compile entirely and
+    // would otherwise pass every lockfile entry to handle_python_reqs — causing duplicate
+    // installs alongside additional_python_paths and triggering expensive postinstall copies.
+    let resolved_lines = {
+        let (kept, ignored) = filter_pip_local_dependencies(resolved_lines);
+        if !ignored.is_empty() {
+            append_logs(
+                job_id,
+                w_id,
+                format!("\nignoring local dependencies:\n{}\n", ignored.join("\n")),
+                conn,
+            )
+            .await;
+        }
+        kept
+    };
+
     if !resolved_lines.is_empty() {
         let mut venv_path = handle_python_reqs(
             resolved_lines,
@@ -3227,5 +3263,40 @@ mod tests {
         assert!(cg.pre_spread.is_some());
         let pre = cg.pre_spread.as_ref().unwrap();
         assert!(pre.contains("pre_args[\"input\"]"));
+    }
+
+    fn lines(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn test_filter_lines_by_deps_no_deps_keeps_everything() {
+        let (kept, ignored) = filter_lines_by_deps(lines(&["requests==2.0", "numpy==1.0"]), &[]);
+        assert_eq!(kept, lines(&["requests==2.0", "numpy==1.0"]));
+        assert!(ignored.is_empty());
+    }
+
+    #[test]
+    fn test_filter_lines_by_deps_matches_and_partitions() {
+        let deps = vec![Regex::new("^my-local-pkg").unwrap()];
+        let (kept, ignored) = filter_lines_by_deps(
+            lines(&["requests==2.0", "my-local-pkg==1.2.3", "numpy==1.0"]),
+            &deps,
+        );
+        assert_eq!(kept, lines(&["requests==2.0", "numpy==1.0"]));
+        assert_eq!(ignored, lines(&["my-local-pkg==1.2.3"]));
+    }
+
+    #[test]
+    fn test_filter_lines_by_deps_preserves_comment_lines() {
+        // `#` lines (e.g. the `# py: 3.11` lockfile header) must survive even when a
+        // dependency regex would otherwise match them.
+        let deps = vec![Regex::new("py").unwrap()];
+        let (kept, ignored) = filter_lines_by_deps(
+            lines(&["# py: 3.11", "pyyaml==6.0", "requests==2.0"]),
+            &deps,
+        );
+        assert_eq!(kept, lines(&["# py: 3.11", "requests==2.0"]));
+        assert_eq!(ignored, lines(&["pyyaml==6.0"]));
     }
 }
