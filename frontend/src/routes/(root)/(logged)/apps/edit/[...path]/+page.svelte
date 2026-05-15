@@ -204,7 +204,7 @@
 			const draft = cleanValueProperties(app ?? {})
 			sendUserToast('app loaded from latest saved draft', false, [
 				{
-					label: 'Discard draft and load from latest deployed version',
+					label: 'Reset to deployed',
 					callback: reloadAction
 				},
 				{
