@@ -9,7 +9,6 @@
 		readFieldsRecursively,
 		type Value
 	} from '$lib/utils'
-	import { afterNavigate, replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
@@ -55,6 +54,17 @@
 	let redraw = $state(0)
 	let path = page.params.path ?? ''
 
+	// `?nodraft=true` is the callers' way of saying "skip the local autosave
+	// on this load." Wipe the UserDraft entry and strip the flag from the
+	// URL synchronously, before the handle is created. A plain reload (no
+	// nodraft) restores normally.
+	if (page.url.searchParams.get('nodraft') && typeof window !== 'undefined') {
+		UserDraft.remove('raw_app', path)
+		const url = new URL(window.location.href)
+		url.searchParams.delete('nodraft')
+		window.history.replaceState(window.history.state, '', url.toString())
+	}
+
 	const draftHandle = UserDraft.use<RawAppDraft>('raw_app', path)
 
 	// Local-draft staleness modal: opened when the remote has moved on since
@@ -95,16 +105,6 @@
 		readFieldsRecursively(data)
 		void summary
 		draftHandle.draft = { files, runnables, data, summary }
-	})
-
-	let nodraft = page.url.searchParams.get('nodraft')
-
-	afterNavigate(() => {
-		if (nodraft) {
-			let url = new URL(page.url.href)
-			url.search = ''
-			replaceState(url.toString(), page.state)
-		}
 	})
 
 	function extractRawApp(app: any) {

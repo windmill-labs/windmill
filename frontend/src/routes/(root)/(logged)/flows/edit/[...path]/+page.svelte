@@ -13,7 +13,6 @@
 	} from '$lib/utils'
 	import { initFlow } from '$lib/components/flows/flowStore.svelte'
 	import { goto } from '$lib/navigation'
-	import { afterNavigate, replaceState } from '$app/navigation'
 
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
@@ -49,15 +48,19 @@
 		  })
 		| undefined = $state(undefined)
 
-	afterNavigate(() => {
-		if (page.url.searchParams.get('nodraft')) {
-			let url = new URL(page.url.href)
-			url.search = ''
-			replaceState(url.toString(), page.state)
-		}
-	})
-
 	const flowDraftPath = page.params.path ?? ''
+
+	// `?nodraft=true` is the callers' way of saying "skip the local autosave
+	// on this load." Wipe the UserDraft entry and strip the flag from the
+	// URL synchronously, before the handle is created — same pattern as
+	// /flows/add. A plain reload (no nodraft) restores normally.
+	if (page.url.searchParams.get('nodraft') && typeof window !== 'undefined') {
+		UserDraft.remove('flow', flowDraftPath)
+		const url = new URL(window.location.href)
+		url.searchParams.delete('nodraft')
+		window.history.replaceState(window.history.state, '', url.toString())
+	}
+
 	const flowHandle = UserDraft.use<Flow>('flow', flowDraftPath)
 
 	function emptyFlow(): Flow {

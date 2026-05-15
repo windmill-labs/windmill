@@ -8,7 +8,7 @@
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { cleanValueProperties, orderedJsonStringify, type Value } from '$lib/utils'
-	import { afterNavigate, replaceState } from '$app/navigation'
+	import { replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
@@ -67,15 +67,16 @@
 		staleModalOpen = false
 	}
 
-	let nodraft = page.url.searchParams.get('nodraft')
-
-	afterNavigate(() => {
-		if (nodraft) {
-			let url = new URL(page.url.href)
-			url.search = ''
-			replaceState(url.toString(), page.state)
-		}
-	})
+	// `?nodraft=true` is the callers' way of saying "skip the local autosave
+	// on this load." Wipe the UserDraft entry and strip the flag from the
+	// URL synchronously, before any descendant reads it. A plain reload
+	// (no nodraft) restores normally.
+	if (page.url.searchParams.get('nodraft') && typeof window !== 'undefined') {
+		UserDraft.remove('app', path)
+		const url = new URL(window.location.href)
+		url.searchParams.delete('nodraft')
+		window.history.replaceState(window.history.state, '', url.toString())
+	}
 
 	/** Increments per `loadApp` call. Stale loads (e.g. when picker
 	 * navigation races a draft-discard reload) bail at the next checkpoint
