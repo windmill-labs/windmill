@@ -33,7 +33,6 @@
 		  }
 		| undefined = $state(undefined)
 	let redraw = $state(0)
-	let path = page.params.path ?? ''
 
 	let nodraft = page.url.searchParams.get('nodraft')
 
@@ -48,11 +47,17 @@
 	let stateLoadedFromLocalStorage =
 		initialState != undefined ? decodeState(initialState) : undefined
 
+	/** Increments per `loadApp` call. Stale loads (e.g. when picker
+	 * navigation races a draft-discard reload) bail at the next checkpoint
+	 * after their captured token no longer matches. */
+	let loadAppToken = 0
 	async function loadApp(): Promise<void> {
+		const tok = ++loadAppToken
 		const app_w_draft = await AppService.getAppByPathWithDraft({
-			path,
+			path: page.params.path ?? '',
 			workspace: $workspaceStore!
 		})
+		if (tok !== loadAppToken) return
 		const app_w_draft_: AppWithLastVersionWDraft = structuredClone(stateSnapshot(app_w_draft))
 		savedApp = {
 			summary: app_w_draft_.summary,
@@ -160,8 +165,16 @@
 	}
 
 	$effect(() => {
+		// Re-run on workspace OR path change so navigating from one app editor
+		// to another (e.g. via the workspace picker) reloads the new app.
+		const newPath = page.params.path
 		if ($workspaceStore) {
 			untrack(() => {
+				// Clear the app so AppEditor unmounts; it will remount once loadApp
+				// completes with fresh data, re-initializing its internal stores.
+				app = undefined
+				const s = nodraft ? undefined : localStorage.getItem(`app-${newPath}`)
+				stateLoadedFromLocalStorage = s != undefined ? decodeState(s) : undefined
 				loadApp()
 			})
 		}

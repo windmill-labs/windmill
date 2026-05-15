@@ -266,19 +266,32 @@ export async function generateFlowLockInternal(
           return tree.isStale(treePath);
         })
       : changedScripts;
+    const missingFiles: string[] = [];
     await replaceInlineScripts(
       flowValue.value.modules,
       fileReader,
       log,
       folder + SEP!,
       SEP,
-      locksToRemove
+      locksToRemove,
+      missingFiles
     );
     if (flowValue.value.failure_module) {
-      await replaceInlineScripts([flowValue.value.failure_module], fileReader, log, folder + SEP!, SEP, locksToRemove);
+      await replaceInlineScripts([flowValue.value.failure_module], fileReader, log, folder + SEP!, SEP, locksToRemove, missingFiles);
     }
     if (flowValue.value.preprocessor_module) {
-      await replaceInlineScripts([flowValue.value.preprocessor_module], fileReader, log, folder + SEP!, SEP, locksToRemove);
+      await replaceInlineScripts([flowValue.value.preprocessor_module], fileReader, log, folder + SEP!, SEP, locksToRemove, missingFiles);
+    }
+    if (missingFiles.length > 0) {
+      // Abort before updateFlow rather than push the literal `!inline path`
+      // string as rawscript.content (GIT-871 / #9140). Note: at this point
+      // replaceInlineScripts has already mutated `flowValue.value` in place
+      // for the modules that *did* resolve. All current callers re-throw on
+      // this error; do not catch and reuse `flowValue` without re-parsing.
+      throw new Error(
+        `Cannot regenerate lock for flow ${remote_path}: missing inline script file(s): ${missingFiles.join(", ")}. ` +
+        `Either restore the file(s) or remove the !inline reference(s) from flow.yaml before retrying.`
+      );
     }
 
     //removeChangedLocks
@@ -304,18 +317,23 @@ export async function generateFlowLockInternal(
     const lockAssigner = newPathAssigner(opts.defaultTs ?? "bun", {
       skipInlineScriptSuffix: getNonDottedPaths(),
     });
+    // flowValue.value here is the backend's response from updateFlow, so a
+    // rawscript whose content is `!inline ...` is corruption (GIT-871) — fail
+    // fast rather than writing the literal directive back to a script file.
+    const extractOpts = { skipInlineScriptSuffix: getNonDottedPaths(), failOnInlineDirective: true };
     const inlineScripts = extractInlineScriptsForFlows(
       flowValue.value.modules,
       currentMapping,
       SEP,
       opts.defaultTs,
-      lockAssigner
+      lockAssigner,
+      extractOpts
     );
     if (flowValue.value.failure_module) {
-      inlineScripts.push(...extractInlineScriptsForFlows([flowValue.value.failure_module], currentMapping, SEP, opts.defaultTs, lockAssigner));
+      inlineScripts.push(...extractInlineScriptsForFlows([flowValue.value.failure_module], currentMapping, SEP, opts.defaultTs, lockAssigner, extractOpts));
     }
     if (flowValue.value.preprocessor_module) {
-      inlineScripts.push(...extractInlineScriptsForFlows([flowValue.value.preprocessor_module], currentMapping, SEP, opts.defaultTs, lockAssigner));
+      inlineScripts.push(...extractInlineScriptsForFlows([flowValue.value.preprocessor_module], currentMapping, SEP, opts.defaultTs, lockAssigner, extractOpts));
     }
     inlineScripts.forEach((s) => {
       writeIfChanged(process.cwd() + SEP + folder + SEP + s.path, s.content);

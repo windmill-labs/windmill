@@ -7,10 +7,14 @@
 	import Tooltip from '../Tooltip.svelte'
 	import { twMerge } from 'tailwind-merge'
 
+	import type { Snippet } from 'svelte'
+
 	interface Props {
 		selectedScopes?: string[]
 		disabled?: boolean
 		class?: string
+		/** Renders above the scope-list card, below the Selected Scopes summary. */
+		topSlot?: Snippet
 	}
 
 	interface ScopeState {
@@ -30,7 +34,12 @@
 		domains: Record<string, DomainState>
 	}
 
-	let { selectedScopes = $bindable([]), disabled = false, class: className = '' }: Props = $props()
+	let {
+		selectedScopes = $bindable([]),
+		disabled = false,
+		class: className = '',
+		topSlot
+	}: Props = $props()
 
 	let scopeDomains = $state<ScopeDomain[] | null>(null)
 	let loading = $state(false)
@@ -534,6 +543,12 @@
 				</div>
 			{/if}
 		</div>
+
+		{#if topSlot}
+			<div class="mb-3">
+				{@render topSlot()}
+			</div>
+		{/if}
 
 		<div class="max-h-96 overflow-y-auto border rounded-md">
 			{#each scopeDomains as domain}

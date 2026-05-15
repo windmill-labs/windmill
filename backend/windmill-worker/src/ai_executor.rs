@@ -23,6 +23,7 @@ use crate::ai::tools::McpClientStub as McpClient;
 use windmill_ai::{
     ai_providers::AIProvider,
     image_handler::upload_image_to_s3,
+    providers::create_query_builder,
     query_builder::{BuildRequestArgs, ParsedResponse},
     types::*,
     utils::{should_use_structured_output_tool, AI_HTTP_HEADERS},
@@ -44,7 +45,7 @@ use windmill_common::{
 use windmill_queue::{cancel_single_job, CanceledBy, MiniPulledJob};
 
 use crate::{
-    ai::query_builder::{create_query_builder, StreamEventProcessor},
+    ai::query_builder::StreamEventProcessor,
     common::{build_args_map, resolve_job_timeout, OccupancyMetrics, StreamNotifier},
     handle_child::{run_future_with_polling_update_job_poller_graceful, GracefulPollOutcome},
 };
@@ -866,7 +867,7 @@ pub async fn run_agent(
                     .get_region()
                     .unwrap_or(windmill_ai::ai_providers::USE_ENV_REGION);
                 // Use Bedrock SDK via dedicated query builder
-                crate::ai::providers::bedrock::BedrockQueryBuilder::default()
+                windmill_ai::providers::bedrock::BedrockQueryBuilder::default()
                     .execute_request(
                         &messages,
                         tool_defs.as_deref(),

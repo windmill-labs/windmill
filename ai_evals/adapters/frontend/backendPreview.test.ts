@@ -210,8 +210,6 @@ function buildSettings(
 		baseUrl: 'http://backend.test/default',
 		email: 'admin@windmill.dev',
 		password: 'changeme',
-		keepWorkspaces: true,
-		workspacePrefix: 'ai-evals',
 		pollIntervalMs: 1,
 		maxWaitMs: 50,
 		...overrides

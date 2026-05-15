@@ -574,3 +574,68 @@ describe("extractInlineScripts with mapping preserves file paths", () => {
     expect(lockScript!.path).toBe("my.inline_script.lock");
   });
 });
+
+// ---------------------------------------------------------------------------
+// failOnInlineDirective option (GIT-871 / #9140)
+// ---------------------------------------------------------------------------
+
+describe("failOnInlineDirective option", () => {
+  test("default behavior: yaml-parsed module with !inline content extracts without throwing", () => {
+    // Simulates flow_metadata / dev callers: yaml-parsed local flow whose
+    // rawscript.content is the literal `!inline foo.ts` directive (the
+    // legitimate on-disk shape after extraction).
+    const mod = makeRawscriptModule("a", "!inline a.inline_script.ts", "bun");
+    expect(() =>
+      extractInlineScripts([mod], {}, "/", "bun"),
+    ).not.toThrow();
+  });
+
+  test("yaml-parsed !inline content round-trips as the script's body", () => {
+    const mod = makeRawscriptModule("a", "!inline a.inline_script.ts", "bun");
+    const scripts = extractInlineScripts([mod], {}, "/", "bun");
+    const script = scripts.find((s) => !s.is_lock);
+    expect(script).toBeDefined();
+    expect(script!.content).toBe("!inline a.inline_script.ts");
+  });
+
+  test("opt-in: failOnInlineDirective=true throws on !inline content", () => {
+    // Simulates the sync-pull call site: rawscript came from the backend's
+    // flow_version.value, so `!inline ...` content means the row is corrupt.
+    const mod = makeRawscriptModule("failure", "!inline Handle_error.ts", "bun");
+    expect(() =>
+      extractInlineScripts([mod], {}, "/", "bun", undefined, {
+        failOnInlineDirective: true,
+      }),
+    ).toThrow(/corrupted inline script/);
+  });
+
+  test("opt-in: real script content still extracts cleanly", () => {
+    const mod = makeRawscriptModule(
+      "failure",
+      'export function main() { return 1; }',
+      "bun",
+    );
+    expect(() =>
+      extractInlineScripts([mod], {}, "/", "bun", undefined, {
+        failOnInlineDirective: true,
+      }),
+    ).not.toThrow();
+  });
+
+  test("opt-in: throws for nested rawscript inside branchall", () => {
+    const inner = makeRawscriptModule("inner", "!inline poisoned.ts", "bun");
+    const outer: FlowModule = {
+      id: "branch",
+      value: {
+        type: "branchall" as const,
+        branches: [{ summary: "b1", expr: "true", modules: [inner], skip_failure: false, parallel: false }],
+        parallel: false,
+      },
+    };
+    expect(() =>
+      extractInlineScripts([outer], {}, "/", "bun", undefined, {
+        failOnInlineDirective: true,
+      }),
+    ).toThrow(/corrupted inline script/);
+  });
+});

@@ -15,9 +15,27 @@
 		workspaceId: string
 		scope: string
 		initialScope?: string
+		readOnly?: boolean
 	}
 
-	let { workspaceId, scope = $bindable(), initialScope }: Props = $props()
+	let { workspaceId, scope = $bindable(), initialScope, readOnly = false }: Props = $props()
+
+	// Endpoints we can actually advertise to a read-only MCP token. Mirrors the
+	// runner's filter (only GET endpoints).
+	const visibleEndpointTools = $derived(
+		readOnly ? mcpEndpointTools.filter((e) => e.method === 'GET') : mcpEndpointTools
+	)
+
+	// When read-only flips on, prune already-selected non-GET endpoints so the
+	// scope string doesn't keep references to tools the server will reject.
+	$effect(() => {
+		if (!readOnly || selectedEndpoints.length === 0) return
+		const allowed = new Set(visibleEndpointTools.map((e) => e.name))
+		const filtered = selectedEndpoints.filter((n) => allowed.has(n))
+		if (filtered.length !== selectedEndpoints.length) {
+			selectedEndpoints = filtered
+		}
+	})
 
 	const parsedInitial = parseInitialScope(initialScope)
 
@@ -410,7 +428,7 @@
 		selectedFlows = []
 	}
 	function selectAllEndpoints() {
-		selectedEndpoints = [...mcpEndpointTools.map((e) => e.name)]
+		selectedEndpoints = [...visibleEndpointTools.map((e) => e.name)]
 	}
 	function clearAllEndpoints() {
 		selectedEndpoints = []
@@ -529,7 +547,7 @@
 				<div class="flex flex-col gap-2 mt-2">
 					{@render sectionHeader('API Endpoints', selectAllEndpoints, clearAllEndpoints)}
 					<MultiSelect
-						items={safeSelectItems(mcpEndpointTools.map((e) => e.name))}
+						items={safeSelectItems(visibleEndpointTools.map((e) => e.name))}
 						placeholder="Select endpoints"
 						bind:value={selectedEndpoints}
 					/>
@@ -594,29 +612,35 @@
 			</div>
 		{:else}
 			<div class="flex flex-col gap-2">
-				<span class="block text-xs">Scripts & Flows that will be available via MCP</span>
-				<div class="flex flex-wrap gap-1">
-					{#if includedRunnables.length > 0 && includedRunnables.length <= 5}
-						{#each includedRunnables as scriptOrFlow (scriptOrFlow)}
-							<Badge rounded small color="blue">{scriptOrFlow}</Badge>
-						{/each}
-					{:else if includedRunnables.length > 0}
-						{#each includedRunnables.slice(0, 3) as scriptOrFlow (scriptOrFlow)}
-							<Badge rounded small color="blue">{scriptOrFlow}</Badge>
-						{/each}
-						<Badge rounded small color="dark-gray">
-							+{includedRunnables.length - 3} more
-						</Badge>
-					{:else}
-						<p class="text-xs text-primary">
-							{warning}
-						</p>
-					{/if}
-				</div>
+				{#if !readOnly}
+					<span class="block text-xs">Scripts & Flows that will be available via MCP</span>
+					<div class="flex flex-wrap gap-1">
+						{#if includedRunnables.length > 0 && includedRunnables.length <= 5}
+							{#each includedRunnables as scriptOrFlow (scriptOrFlow)}
+								<Badge rounded small color="blue">{scriptOrFlow}</Badge>
+							{/each}
+						{:else if includedRunnables.length > 0}
+							{#each includedRunnables.slice(0, 3) as scriptOrFlow (scriptOrFlow)}
+								<Badge rounded small color="blue">{scriptOrFlow}</Badge>
+							{/each}
+							<Badge rounded small color="dark-gray">
+								+{includedRunnables.length - 3} more
+							</Badge>
+						{:else}
+							<p class="text-xs text-primary">
+								{warning}
+							</p>
+						{/if}
+					</div>
+				{:else}
+					<p class="text-xs text-tertiary">
+						Scripts and flows are hidden because this token is read-only.
+					</p>
+				{/if}
 
 				<span class="block text-xs mt-2">API endpoint tools that will be available via MCP</span>
 				<div class="flex flex-wrap gap-1">
-					{#each mcpEndpointTools as endpoint (endpoint.name)}
+					{#each visibleEndpointTools as endpoint (endpoint.name)}
 						<Popover notClickable>
 							{#snippet text()}
 								<div class="flex flex-col gap-1">

@@ -1,0 +1,3 @@
+-- No-op: clearing a stray `auto_kind = 'lib'` value on failure/trigger/approval
+-- scripts is not reversible (the original NULL/'lib' distinction is lost), and
+-- restoring `'lib'` here would re-hide these scripts from their pickers.

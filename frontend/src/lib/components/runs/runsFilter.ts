@@ -23,14 +23,14 @@ export function buildRunsFilterSearchbarSchema({
 	usernames,
 	folders,
 	jobTriggerKinds,
-	isSuperAdmin,
+	isSuperAdminOrDevops,
 	isAdminsWorkspace
 }: {
 	paths: string[]
 	usernames: string[]
 	folders: string[]
 	jobTriggerKinds: JobTriggerKind[]
-	isSuperAdmin: boolean
+	isSuperAdminOrDevops: boolean
 	isAdminsWorkspace: boolean
 }) {
 	return {
@@ -206,12 +206,12 @@ export function buildRunsFilterSearchbarSchema({
 			label: 'Show future jobs (Default: true)',
 			description: 'Include jobs that are planned later'
 		},
-		...(isSuperAdmin &&
+		...(isSuperAdminOrDevops &&
 			isAdminsWorkspace && {
 				all_workspaces: {
 					type: 'boolean' as const,
 					label: 'All workspaces',
-					description: 'Show jobs of all workspaces (superadmin only)'
+					description: 'Show jobs of all workspaces (superadmin or devops only)'
 				}
 			})
 	} satisfies FilterSchemaRec
@@ -230,16 +230,16 @@ export function allowWildcards(filters: Partial<RunsFilterInstance> | undefined)
 }
 
 export const buildRunsFilterPresets = ({
-	isSuperadmin,
+	isSuperAdminOrDevops,
 	isAdminsWorkspace
 }: {
-	isSuperadmin: boolean
+	isSuperAdminOrDevops: boolean
 	isAdminsWorkspace: boolean
 }) => [
 	{ name: 'Hide schedules', value: 'job_trigger_kind:\\ !schedule' },
 	{ name: 'Hide future jobs', value: 'show_future_jobs:\\ false' },
 	{ name: 'Show skipped', value: 'show_skipped:\\ true' },
-	...(isSuperadmin && isAdminsWorkspace
+	...(isSuperAdminOrDevops && isAdminsWorkspace
 		? [{ name: 'All workspaces', value: 'all_workspaces:\\ true' }]
 		: [])
 ]

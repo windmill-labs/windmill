@@ -1,4 +1,4 @@
-//! AWS Bedrock provider for the AI agent.
+//! AWS Bedrock provider for AI requests.
 //!
 //! Uses shared SDK code from windmill_ai::ai_bedrock for:
 //! - BedrockClient (SDK wrapper with auth)
@@ -6,16 +6,16 @@
 //! - Stream event parsing
 //! - Helper utilities
 
-use std::collections::HashMap;
-use windmill_ai::{
+use crate::{
     image_handler::prepare_messages_for_api,
     query_builder::{ParsedResponse, StreamEventSink},
     types::{OpenAIMessage, StreamingEvent, TokenUsage, ToolDef},
 };
+use std::collections::HashMap;
 use windmill_common::{client::AuthedClient, error::Error};
 
-// Import shared Bedrock helpers for worker-specific orchestration.
-use windmill_ai::ai_bedrock::{
+// Import shared Bedrock helpers for provider orchestration.
+use crate::ai_bedrock::{
     bedrock_model_supports_prompt_caching, bedrock_stream_event_is_block_stop,
     bedrock_stream_event_to_text, bedrock_stream_event_to_tool_delta,
     bedrock_stream_event_to_tool_start, build_tool_config, create_inference_config,
@@ -24,7 +24,7 @@ use windmill_ai::ai_bedrock::{
 };
 
 // ============================================================================
-// Query Builder (Worker-specific orchestration)
+// Query Builder
 // ============================================================================
 
 #[derive(Default)]

@@ -573,8 +573,10 @@ async fn test_promotion_individual_branch_debounces_per_path(
     // Wait for both deployment callbacks to resolve a debounce key. The
     // alpha key is polled first as a warm-up, then we also wait for beta
     // so the assertions don't race the second spawned callback.
-    let expected_alpha = "git_sync:script:f/target/alpha";
-    let expected_beta = "git_sync:script:f/target/beta";
+    // Keys are namespaced by the repo's resource path so multiple promotion
+    // repos don't collide on the same key.
+    let expected_alpha = "git_sync:$res:u/test-user/test_git_repo:script:f/target/alpha";
+    let expected_beta = "git_sync:$res:u/test-user/test_git_repo:script:f/target/beta";
     let _ = wait_for_debounce_key(&db, expected_alpha, Duration::from_secs(5)).await?;
     let keys = wait_for_debounce_key(&db, expected_beta, Duration::from_secs(5)).await?;
     assert!(
@@ -584,6 +586,162 @@ async fn test_promotion_individual_branch_debounces_per_path(
     assert!(
         keys.iter().any(|k| k == expected_beta),
         "expected per-path debounce key {expected_beta} in {keys:?}"
+    );
+
+    Ok(())
+}
+
+/// Create a second git repository resource for multi-repo tests.
+#[allow(dead_code)]
+async fn create_second_git_repo_resource(db: &Pool<Postgres>) -> anyhow::Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO resource (workspace_id, path, value, resource_type, extra_perms, created_by)
+        VALUES ('test-workspace', 'u/test-user/test_git_repo_2', $1::jsonb, 'git_repository', '{}'::jsonb, 'test-user')
+        ON CONFLICT (workspace_id, path) DO NOTHING
+        "#,
+    )
+    .bind(json!({
+        "url": "https://github.com/test/test2.git",
+        "branch": "main",
+        "token": "test-token-2"
+    }))
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Configure git sync with TWO promotion-mode repositories pointing at distinct
+/// git repo resources. Both repos use the same sync script and the same item
+/// filters — they only differ in the repo they target.
+#[allow(dead_code)]
+async fn setup_two_promotion_repos_config(
+    db: &Pool<Postgres>,
+    sync_script_path: &str,
+    group_by_folder: bool,
+) -> anyhow::Result<()> {
+    let git_sync_config = json!({
+        "include_type": ["script"],
+        "include_path": ["**"],
+        "repositories": [
+            {
+                "script_path": sync_script_path,
+                "git_repo_resource_path": "$res:u/test-user/test_git_repo",
+                "use_individual_branch": true,
+                "group_by_folder": group_by_folder
+            },
+            {
+                "script_path": sync_script_path,
+                "git_repo_resource_path": "$res:u/test-user/test_git_repo_2",
+                "use_individual_branch": true,
+                "group_by_folder": group_by_folder
+            }
+        ]
+    });
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
+        git_sync_config,
+        "test-workspace"
+    )
+    .execute(db)
+    .await?;
+
+    Ok(())
+}
+
+/// Regression test for: when two promotion-mode repos are configured with the
+/// same `use_individual_branch=true` settings (i.e. a primary and a secondary
+/// promotion repo), deploying a single script must enqueue ONE deployment
+/// callback per repo. Both callbacks must remain in the queue — neither may
+/// be debounced into oblivion by the other.
+///
+/// The bug this guards against: the debounce key for promotion mode was
+/// derived only from (path_type, path) and omitted any per-repo identifier,
+/// so the second repo's push hit ON CONFLICT in `upsert_debounce_key` and
+/// `complete_debounced_job` flagged the first repo's job as `status='skipped'`
+/// — silently dropping one of the two pushes.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_two_promotion_repos_both_enqueue_callback(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    create_folder(&db, "28103").await?;
+    create_folder(&db, "target").await?;
+    create_git_repo_resource(&db).await?;
+    create_second_git_repo_resource(&db).await?;
+    let sync_script_path = "f/28103/test_sync_two_promotion_repos";
+    create_sync_script(&db, sync_script_path).await?;
+    setup_two_promotion_repos_config(&db, sync_script_path, false).await?;
+
+    let (client, _port, _server) = init_client(db.clone()).await;
+
+    // Deploy a single script — handle_deployment_metadata should iterate
+    // both repos and create one callback job per repo.
+    create_test_script(&client, "f/target/alpha").await?;
+
+    // Both callbacks should reach the queue. With the bug, only one survives
+    // (the other is moved to v2_job_completed with status='skipped').
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let mut last_jobs: Vec<DeploymentCallbackJob> = vec![];
+    loop {
+        last_jobs =
+            get_deployment_callback_jobs(&db, sync_script_path, Duration::from_millis(200)).await?;
+        if last_jobs.len() >= 2 {
+            break;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    // Inspect what landed in v2_job_completed so failure messages explain why.
+    let skipped: Vec<(uuid::Uuid, String)> = sqlx::query_as(
+        r#"
+        SELECT c.id, c.status::text
+        FROM v2_job_completed c
+        JOIN v2_job j ON j.id = c.id
+        WHERE j.runnable_path = $1 AND j.kind = 'deploymentcallback'
+        "#,
+    )
+    .bind(sync_script_path)
+    .fetch_all(&db)
+    .await?;
+
+    assert_eq!(
+        last_jobs.len(),
+        2,
+        "expected 2 deployment callback jobs in v2_job_queue (one per promotion repo), got {} queued + {:?} completed",
+        last_jobs.len(),
+        skipped,
+    );
+
+    // Per-repo args sanity check: the two jobs must target different repos.
+    let mut repo_paths: Vec<String> = last_jobs
+        .iter()
+        .filter_map(|j| {
+            j.args
+                .as_ref()
+                .and_then(|a| a.get("repo_url_resource_path"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
+        .collect();
+    repo_paths.sort();
+    repo_paths.dedup();
+    assert_eq!(
+        repo_paths.len(),
+        2,
+        "expected callbacks to target two distinct repos, got: {:?}",
+        last_jobs.iter().map(|j| &j.args).collect::<Vec<_>>()
+    );
+
+    // No callback should have been silently skipped via debouncing collision.
+    assert!(
+        skipped.iter().all(|(_, s)| s != "skipped"),
+        "no deployment callback should be marked skipped, got: {:?}",
+        skipped,
     );
 
     Ok(())
@@ -615,8 +773,9 @@ async fn test_promotion_group_by_folder_debounces_per_folder(
     // One in a different folder — should get its own key.
     create_test_script(&client, "f/other/gamma").await?;
 
-    let expected_grouped = "git_sync:folder:f/grouped";
-    let expected_other = "git_sync:folder:f/other";
+    // Keys are namespaced by the repo's resource path.
+    let expected_grouped = "git_sync:$res:u/test-user/test_git_repo:folder:f/grouped";
+    let expected_other = "git_sync:$res:u/test-user/test_git_repo:folder:f/other";
     // Wait for BOTH folder keys to appear, not just the first one.
     let keys = wait_for_debounce_key(&db, expected_other, Duration::from_secs(5)).await?;
     assert!(
@@ -629,7 +788,9 @@ async fn test_promotion_group_by_folder_debounces_per_folder(
     );
     // Paths within the same folder must NOT leak as their own keys.
     assert!(
-        !keys.iter().any(|k| k.starts_with("git_sync:script:")),
+        !keys
+            .iter()
+            .any(|k| k.contains(":script:f/grouped/") || k.contains(":script:f/other/")),
         "group_by_folder mode should not emit per-path keys, got: {keys:?}"
     );
 

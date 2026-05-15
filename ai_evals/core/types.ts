@@ -1,7 +1,6 @@
-export const EVAL_MODES = ["cli", "flow", "script", "app"] as const;
+export const EVAL_MODES = ["cli", "flow", "script", "app", "global"] as const;
 
 export type EvalMode = (typeof EVAL_MODES)[number];
-export type FrontendEvalTransport = "direct" | "proxy";
 
 export interface EvalCaseRuntimeBackendPreview {
   args?: Record<string, unknown>;
@@ -109,6 +108,27 @@ export interface AppValidationSpec {
   forbiddenAppContent?: string[];
 }
 
+export interface GlobalDraftRequirement {
+  type: string;
+  path: string;
+  triggerKind?: string;
+  language?: string;
+  summaryIncludes?: string[];
+  valueIncludes?: string[];
+  valueExcludes?: string[];
+}
+
+export interface GlobalValidationSpec {
+  draftCountAtLeast?: number;
+  draftCountExactly?: number;
+  requiredDrafts?: GlobalDraftRequirement[];
+  forbiddenDrafts?: Array<{
+    type: string;
+    path: string;
+    triggerKind?: string;
+  }>;
+}
+
 export interface CliValidationSpec {
   requiredSkills?: string[];
   forbiddenSkills?: string[];
@@ -137,10 +157,11 @@ export interface ToolCallArgumentRule {
 
 export interface ToolValidationSpec {
   requiredToolsUsed?: string[];
+  forbiddenToolsUsed?: string[];
   toolCallArgs?: ToolCallArgumentRule[];
 }
 
-export type EvalValidationSpec = FlowValidationSpec | AppValidationSpec;
+export type EvalValidationSpec = FlowValidationSpec | AppValidationSpec | GlobalValidationSpec;
 
 export interface EvalCase {
   id: string;
@@ -297,7 +318,6 @@ export interface BenchmarkRunResult {
   gitSha: string | null;
   runs: number;
   runModel: string | null;
-  transport: FrontendEvalTransport | null;
   judgeModel: string | null;
   caseCount: number;
   attemptCount: number;

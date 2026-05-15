@@ -26,26 +26,26 @@
 	)
 	let href = $derived(`${base}/api${apiPath}`)
 
-	async function onclick(e: MouseEvent) {
-		if (!shouldDownloadViaClient()) return
-		e.preventDefault()
-		await downloadViaClient(apiPath, filename)
-	}
+	const sharedClass = `relative center-center flex w-full text-center font-normal text-primary text-sm
+border border-dashed border-gray-400 hover:border-blue-500
+focus-within:border-blue-500 hover:bg-blue-50 dark:hover:bg-frost-900 focus-within:bg-blue-50
+duration-200 rounded-lg p-1 gap-2`
 </script>
 
 {#if s3object && s3object?.s3}
-	<a
-		class="relative center-center flex w-full text-center font-normal text-primary text-sm
-border border-dashed border-gray-400 hover:border-blue-500
-focus-within:border-blue-500 hover:bg-blue-50 dark:hover:bg-frost-900 focus-within:bg-blue-50
-duration-200 rounded-lg p-1 gap-2"
-		{href}
-		download={filename}
-		{onclick}
-	>
-		<Download />
-		<span>
-			{s3object?.storage ? `s3://${s3object.storage}/${s3object.s3}` : `s3:///${s3object.s3}`}
-		</span>
-	</a>
+	{#if shouldDownloadViaClient()}
+		<button class={sharedClass} onclick={() => downloadViaClient(apiPath, filename)}>
+			<Download />
+			<span>
+				{s3object?.storage ? `s3://${s3object.storage}/${s3object.s3}` : `s3:///${s3object.s3}`}
+			</span>
+		</button>
+	{:else}
+		<a class={sharedClass} {href} download={filename}>
+			<Download />
+			<span>
+				{s3object?.storage ? `s3://${s3object.storage}/${s3object.s3}` : `s3:///${s3object.s3}`}
+			</span>
+		</a>
+	{/if}
 {/if}

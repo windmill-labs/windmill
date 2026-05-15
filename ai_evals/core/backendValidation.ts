@@ -13,9 +13,7 @@ export interface BackendValidationSettings {
   baseUrl: string;
   email: string;
   password: string;
-  keepWorkspaces: boolean;
   workspaceOverride?: string;
-  workspacePrefix: string;
   pollIntervalMs: number;
   maxWaitMs: number;
 }

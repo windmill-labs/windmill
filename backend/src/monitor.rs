@@ -886,11 +886,13 @@ pub async fn reload_otel_tracing_proxy_setting(conn: &Connection) {
                 let mut current = OTEL_TRACING_PROXY_SETTINGS.write().await;
                 if current.enabled != new_settings.enabled
                     || current.enabled_languages != new_settings.enabled_languages
+                    || current.no_proxy_hosts != new_settings.no_proxy_hosts
                 {
                     tracing::info!(
-                        "OTEL tracing proxy settings changed: enabled={}, languages={:?}",
+                        "OTEL tracing proxy settings changed: enabled={}, languages={:?}, no_proxy_hosts={:?}",
                         new_settings.enabled,
-                        new_settings.enabled_languages
+                        new_settings.enabled_languages,
+                        new_settings.no_proxy_hosts,
                     );
                     *current = new_settings;
                 }

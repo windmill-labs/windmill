@@ -94,6 +94,7 @@ async fn new_webhook_token(
         None,
         Some(scopes),
         Some(workspace_id.to_owned()),
+        None,
     );
     let token = create_token_internal(&mut *tx, &db, &authed, token_config).await?;
 

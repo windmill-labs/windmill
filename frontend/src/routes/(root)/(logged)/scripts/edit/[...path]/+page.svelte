@@ -3,6 +3,7 @@
 
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
+	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
 	import { decodeState, cleanValueProperties, orderedJsonStringify } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { replaceState } from '$app/navigation'
@@ -15,15 +16,12 @@
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
 
-	let initialState = window.location.hash != '' ? window.location.hash.slice(1) : undefined
+	// `initialArgs` is intentionally captured once at mount — it's the
+	// session's initial argument set, not per-script. URL-derived state
+	// (`hash`, `topHash`, fragment autosave) is re-read inside `loadScript`
+	// because picker navigation reuses this component without remounting.
 	let initialArgs = get(initialArgsStore) ?? {}
 	if (get(initialArgsStore)) $initialArgsStore = undefined
-
-	let topHash = page.url.searchParams.get('topHash') ?? undefined
-
-	let hash = page.url.searchParams.get('hash') ?? undefined
-
-	let scriptLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 
 	let script: (NewScript & { draft_triggers?: Trigger[] }) | undefined = $state(undefined)
 
@@ -38,21 +36,36 @@
 
 	let savedPrimarySchedule: ScheduleTrigger | undefined = $state(undefined)
 
+	/** Increments per `loadScript` call. Stale loads (e.g. when picker
+	 * navigation races a draft-discard reload) bail at the next checkpoint
+	 * after their captured token no longer matches. */
+	let loadScriptToken = 0
 	async function loadScript(): Promise<void> {
+		const tok = ++loadScriptToken
 		fullyLoaded = false
+
+		// Re-read URL-derived state on every load. The component doesn't
+		// remount when the picker navigates between scripts, so capturing
+		// these at module init would leave them stale.
+		const urlFragment = window.location.hash != '' ? window.location.hash.slice(1) : undefined
+		const scriptLoadedFromUrl = urlFragment != undefined ? decodeState(urlFragment) : undefined
+		const hash = page.url.searchParams.get('hash') ?? undefined
+		const topHash = page.url.searchParams.get('topHash') ?? undefined
+
 		if (scriptLoadedFromUrl != undefined && scriptLoadedFromUrl.path == page.params.path) {
 			script = scriptLoadedFromUrl
 			reloadAction = async () => {
-				scriptLoadedFromUrl = undefined
 				goto(`/scripts/edit/${script!.path}`)
 				loadScript()
 			}
 
 			async function compareAutosave() {
-				savedScript = await ScriptService.getScriptByPathWithDraft({
+				const sf = await ScriptService.getScriptByPathWithDraft({
 					workspace: $workspaceStore!,
 					path: script!.path
 				})
+				if (tok !== loadScriptToken) return
+				savedScript = sf
 
 				const draftOrDeployed = cleanValueProperties(savedScript?.draft || savedScript)
 				const urlScript = cleanValueProperties(scriptLoadedFromUrl)
@@ -87,6 +100,7 @@
 					workspace: $workspaceStore!,
 					hash
 				})
+				if (tok !== loadScriptToken) return
 				savedScript = structuredClone($state.snapshot(scriptByHash)) as NewScriptWithDraft
 				script = { ...scriptByHash, parent_hash: hash, lock: undefined }
 			} else {
@@ -94,6 +108,7 @@
 					workspace: $workspaceStore!,
 					path: page.params.path ?? ''
 				})
+				if (tok !== loadScriptToken) return
 				savedScript = structuredClone($state.snapshot(scriptWithDraft))
 				if (scriptWithDraft.draft != undefined) {
 					script = scriptWithDraft.draft
@@ -105,7 +120,6 @@
 
 					if (!scriptWithDraft.draft_only) {
 						reloadAction = async () => {
-							scriptLoadedFromUrl = undefined
 							await DraftService.deleteDraft({
 								workspace: $workspaceStore!,
 								kind: 'script',
@@ -164,6 +178,9 @@
 	}
 
 	$effect(() => {
+		// Re-run on workspace OR path change so navigating from one script editor
+		// to another (e.g. via the workspace picker) reloads the new script.
+		page.params.path
 		if ($workspaceStore) {
 			untrack(() => loadScript())
 		}
@@ -178,7 +195,6 @@
 		}
 		diffDrawer?.closeDrawer()
 		goto(`/scripts/edit/${savedScript.draft.path}`)
-		scriptLoadedFromUrl = undefined
 		loadScript()
 	}
 
@@ -196,7 +212,6 @@
 			})
 		}
 		goto(`/scripts/edit/${savedScript.path}`)
-		scriptLoadedFromUrl = undefined
 		loadScript()
 	}
 </script>
@@ -214,14 +229,17 @@
 		{savedPrimarySchedule}
 		searchParams={page.url.searchParams}
 		onDeploy={(e) => {
+			if ($workspaceStore) invalidate($workspaceStore, 'script')
 			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
 		}}
 		onSaveInitial={(e) => {
+			if ($workspaceStore) invalidate($workspaceStore, 'script')
 			goto(`/scripts/edit/${e.path}`)
 		}}
 		onSeeDetails={(e) => {
 			goto(`/scripts/get/${e.path}?workspace=${$workspaceStore}`)
 		}}
+		onNavigate={(item) => goto(editPathFor(item))}
 		replaceStateFn={(path) => {
 			replaceState(path, page.state)
 		}}

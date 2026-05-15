@@ -7,11 +7,8 @@ import type { BenchmarkArtifactFile, ModeRunner } from "../core/types";
 import { runFlowEval } from "../adapters/frontend/core/flow/flowEvalRunner";
 import type { FlowWorkspaceFixtures } from "../adapters/frontend/core/flow/fileHelpers";
 import { BackendPreviewClient } from "../adapters/frontend/backendPreview";
-import {
-  DEFAULT_FRONTEND_EVAL_MODEL,
-  getFrontendApiKey,
-} from "./frontendCommon";
-import type { FrontendEvalTransportSettings } from "../core/frontendTransport";
+import { getFrontendApiKey } from "./frontendCommon";
+import type { WindmillBackendSettings } from "../core/windmillBackendSettings";
 import {
   normalizeFlowInitialFixture,
   normalizeFlowStateFixture,
@@ -19,9 +16,9 @@ import {
 } from "./flowFixtures";
 
 export function createFlowModeRunner(
-  modelConfig: FrontendEvalModelConfig = DEFAULT_FRONTEND_EVAL_MODEL,
-  backendValidation?: BackendValidationSettings,
-  transportSettings?: FrontendEvalTransportSettings,
+  modelConfig: FrontendEvalModelConfig,
+  backendValidation: BackendValidationSettings | undefined,
+  backendSettings: WindmillBackendSettings,
 ): ModeRunner<FlowInitialFixture, FlowState, FlowState> {
   return {
     mode: "flow",
@@ -49,8 +46,7 @@ export function createFlowModeRunner(
           maxIterations: context.evalCase?.runtime?.maxTurns,
           provider: modelConfig.provider,
           model: modelConfig.model,
-          transport: transportSettings?.transport,
-          backend: transportSettings?.backend,
+          backend: backendSettings,
           runContext: context,
         },
       );

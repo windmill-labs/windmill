@@ -12,7 +12,7 @@ import {
   prepareAppUserMessage,
 } from "../../../../../frontend/src/lib/components/copilot/chat/app/core";
 import type { Tool as ProductionTool } from "../../../../../frontend/src/lib/components/copilot/chat/shared";
-import { createAppFileHelpers } from "./fileHelpers";
+import { createAppFileHelpers, type AppEvalChatHelpers } from "./fileHelpers";
 import { runEval } from "../shared";
 import type { AIProvider } from "$lib/gen/types.gen";
 import type {
@@ -22,7 +22,6 @@ import type {
 } from "../../../../core/types";
 import type { TokenUsage } from "../shared/types";
 import type { AppFilesState } from "../../../../core/validators";
-import type { FrontendEvalTransport } from "../../../../core/frontendTransport";
 import type { WindmillBackendSettings } from "../../../../core/windmillBackendSettings";
 import {
   createAppBackendRunnableContextElement,
@@ -49,8 +48,7 @@ export interface AppEvalOptions {
   model?: string;
   maxIterations?: number;
   provider?: AIProvider;
-  transport?: FrontendEvalTransport;
-  backend?: WindmillBackendSettings;
+  backend: WindmillBackendSettings;
   workspaceRoot?: string;
   runContext?: ModeRunContext;
 }
@@ -58,7 +56,7 @@ export interface AppEvalOptions {
 export async function runAppEval(
   userPrompt: string,
   apiKey: string,
-  options?: AppEvalOptions,
+  options: AppEvalOptions,
 ): Promise<AppEvalResult> {
   const workspaceRoot =
     options?.workspaceRoot ??
@@ -101,10 +99,9 @@ export async function runAppEval(
         model,
         workspace: workspaceRoot,
         provider: options?.provider,
-        transport: options?.transport,
-        backend: options?.backend,
-        proxyCaseId: options?.runContext?.caseId,
-        proxyAttempt: options?.runContext?.attempt,
+        backend: options.backend,
+        caseId: options?.runContext?.caseId,
+        attempt: options?.runContext?.attempt,
       },
     });
 
@@ -124,7 +121,7 @@ export async function runAppEval(
 
 async function buildAdditionalContext(
   appContext: EvalCaseRuntimeAppContextSpec | undefined,
-  helpers: AppAIChatHelpers,
+  helpers: AppEvalChatHelpers,
 ): Promise<ContextElement[]> {
   const entries = appContext?.additional ?? [];
   if (entries.length === 0) {
