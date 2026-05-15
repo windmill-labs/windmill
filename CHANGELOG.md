@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.703.0](https://github.com/windmill-labs/windmill/compare/v1.702.1...v1.703.0) (2026-05-15)
+
+
+### Features
+
+* **otel-tracing-proxy:** configurable tracing MITM NO_PROXY hosts ([#9169](https://github.com/windmill-labs/windmill/issues/9169)) ([d48d61c](https://github.com/windmill-labs/windmill/commit/d48d61cc79114f0b36736306d4015789be10c1f4))
+
+
+### Bug Fixes
+
+* aggregate wait time should target the true root job, not flow_innermost_root_job ([#9177](https://github.com/windmill-labs/windmill/issues/9177)) ([e181931](https://github.com/windmill-labs/windmill/commit/e1819313e15766007c959497a84fae5f5c78a46b))
+* apply pip_local_dependencies filtering to deployed scripts with populated lockfiles ([#9178](https://github.com/windmill-labs/windmill/issues/9178)) ([69b3141](https://github.com/windmill-labs/windmill/commit/69b3141e0370b95f2e13987503480d341608dbdf))
+* never mark failure/trigger/approval scripts as auto_kind=lib ([#9168](https://github.com/windmill-labs/windmill/issues/9168)) ([f414ffc](https://github.com/windmill-labs/windmill/commit/f414ffc4849cf4b92fcd5ca9611ecd246e59a7bd))
+
 ## [1.702.1](https://github.com/windmill-labs/windmill/compare/v1.702.0...v1.702.1) (2026-05-14)
 
 
