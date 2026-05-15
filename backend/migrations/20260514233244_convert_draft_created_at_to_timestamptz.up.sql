@@ -1,7 +1,12 @@
 -- `draft.created_at` was originally created as `TIMESTAMP` (no timezone). The
 -- new `*WithDraft` API responses surface it as `chrono::DateTime<Utc>` for the
--- frontend's staleness check, which requires `TIMESTAMPTZ`. Existing values
--- are interpreted as UTC (matching `now()`'s behaviour on a UTC server, the
--- expected deployment for Windmill).
-ALTER TABLE draft
-    ALTER COLUMN created_at TYPE TIMESTAMPTZ USING created_at AT TIME ZONE 'UTC';
+-- frontend's staleness check, which requires `TIMESTAMPTZ`.
+--
+-- We rely on Postgres's default `TIMESTAMP -> TIMESTAMPTZ` cast (no explicit
+-- USING), which interprets each existing wall-clock value in the session's
+-- current timezone. That's the exact semantics under which the original
+-- `INSERT ... DEFAULT now()` values were truncated to TIMESTAMP — so the
+-- conversion is a no-op on UTC servers (the common case) and correctly
+-- recovers the original instant on non-UTC servers, instead of shifting all
+-- pre-migration timestamps by the server's tz offset.
+ALTER TABLE draft ALTER COLUMN created_at TYPE TIMESTAMPTZ;
