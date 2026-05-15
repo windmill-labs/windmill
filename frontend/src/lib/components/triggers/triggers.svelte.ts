@@ -39,16 +39,10 @@ export class Triggers {
 			? this.#triggers[this.#selectedTriggerIndex]
 			: undefined
 	)
-	#updateDraftCallback: (() => void) | undefined = undefined
 
-	constructor(
-		triggers: Trigger[] = [],
-		selectedIndex?: number,
-		updateDraftCallback?: (() => void) | undefined
-	) {
+	constructor(triggers: Trigger[] = [], selectedIndex?: number) {
 		this.#triggers = triggers
 		this.#selectedTriggerIndex = selectedIndex
-		this.#updateDraftCallback = updateDraftCallback
 	}
 
 	get selectedTrigger(): Trigger | undefined {
@@ -65,7 +59,6 @@ export class Triggers {
 		} else {
 			this.#selectedTriggerIndex = index
 		}
-		this.#updateDraftCallback?.()
 	}
 
 	get triggers(): Trigger[] {
@@ -74,7 +67,6 @@ export class Triggers {
 
 	setTriggers(triggers: Trigger[]) {
 		this.#triggers = triggers
-		this.#updateDraftCallback?.()
 	}
 
 	setDraftConfig(triggerIndex: number, draftConfig: Record<string, any> | undefined) {
@@ -83,7 +75,6 @@ export class Triggers {
 			return
 		}
 		this.#triggers[triggerIndex].draftConfig = draftConfig
-		this.#updateDraftCallback?.()
 	}
 
 	getDraftTriggersSnapshot(): Trigger[] | undefined {
@@ -116,7 +107,6 @@ export class Triggers {
 		}
 
 		this.#triggers.push(newTrigger)
-		this.#updateDraftCallback?.()
 
 		updateTriggersCount(triggersCountStore, type, 'add', newTrigger.draftConfig)
 
@@ -135,7 +125,6 @@ export class Triggers {
 		this.#triggers = this.#triggers.filter((_, index) => index !== triggerIndex)
 
 		updateTriggersCount(triggersCountStore, type, 'remove')
-		this.#updateDraftCallback?.()
 	}
 
 	updateTriggers(
@@ -172,7 +161,6 @@ export class Triggers {
 		const newTriggers = sortTriggers([...filteredTriggers, ...backendTriggers])
 		this.#triggers = newTriggers
 
-		this.#updateDraftCallback?.()
 		return newTriggers.filter((t) => t.type === type).length
 	}
 
