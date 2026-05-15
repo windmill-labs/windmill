@@ -418,6 +418,15 @@ const deleteAppRunnableSchema = z.object({
 	key: z.string().describe('Key of the backend runnable to remove.')
 })
 
+const openPreviewSchema = z.object({
+	kind: z
+		.enum(['script', 'flow', 'app', 'raw_app'])
+		.describe(
+			'Item kind to preview. Use "raw_app" for code-based apps (created via init_app); use "app" for the legacy drag-and-drop app builder.'
+		),
+	path: z.string().describe('Workspace path of the item to preview.')
+})
+
 const FRAMEWORK_KEYS = [
 	'react19',
 	'react18',
@@ -486,6 +495,7 @@ Important rules:
 - To create a new raw app, use init_app. Before calling it, confirm framework (react19 / react18 / svelte5 / vue), path, and summary with the user — do not silently default to react19, even though it is the recommended choice.
 - Apps cannot be deployed from chat. The app editor bundles JS/CSS before save; tell the user to open the app editor to deploy app drafts.
 - Keep context targeted. Do not read unrelated items.
+- After writing or substantially editing a script / flow / app draft inside an AI session, offer to open the preview via open_preview(kind, path) — this lets the user see the editor and live preview right next to the chat. open_preview is a no-op outside of sessions and will return an error; don't call it from the regular global side-panel chat.
 - Be explicit with the user when you create or update a draft.`
 
 const DEFAULT_LIST_TYPES = ['script', 'flow'] as const satisfies readonly WorkspaceItemType[]
@@ -1646,6 +1656,17 @@ export const globalTools: Tool<{}>[] = [
 			const parsed = deleteAppRunnableSchema.parse(ctx.args)
 			return deleteAppRunnable(parsed, ctx)
 		}
+	},
+	{
+		def: createToolDef(
+			openPreviewSchema,
+			'open_preview',
+			'Open the live preview / editor for a workspace item in the side panel next to the chat. ONLY works inside an AI session — call this after writing or editing a script, flow, or app to let the user see and interact with it. The path you pass is the path of the item; for raw apps use kind="raw_app" instead of "app". Returns an error if there is no active session.'
+		),
+		fn: async (ctx) => {
+			const parsed = openPreviewSchema.parse(ctx.args)
+			return openSessionPreview(parsed)
+		}
 	}
 ]
 
@@ -1653,6 +1674,29 @@ type WriteDraftCtx = {
 	workspace: string
 	toolId: string
 	toolCallbacks: ToolCallbacks
+}
+
+// Sessions are the only context where `open_preview` makes sense — the global
+// singleton chat in the right side panel has nowhere to mount an editor pane.
+// The session runtime registers a handler at construction time so the tool
+// has somewhere to dispatch. When no session is active the handler is
+// undefined and the tool returns a polite error.
+export type OpenPreviewHandler = (req: {
+	kind: 'script' | 'flow' | 'app' | 'raw_app'
+	path: string
+}) => string
+
+let openPreviewHandler: OpenPreviewHandler | undefined
+
+export function setOpenPreviewHandler(handler: OpenPreviewHandler | undefined): void {
+	openPreviewHandler = handler
+}
+
+function openSessionPreview(args: { kind: 'script' | 'flow' | 'app' | 'raw_app'; path: string }) {
+	if (!openPreviewHandler) {
+		return 'Error: open_preview is only available inside an AI session. Tell the user to switch to a session to view the preview, or describe the item textually.'
+	}
+	return openPreviewHandler(args)
 }
 
 async function loadScriptForEdit(

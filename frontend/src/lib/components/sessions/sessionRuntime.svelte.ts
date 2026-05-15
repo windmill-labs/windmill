@@ -22,8 +22,11 @@ import {
 	deleteSession as deleteSessionState,
 	ensureChatIdsSeeded,
 	materializeTransient,
+	sessionState,
 	setSessionChatId,
-	type Session
+	setSessionTarget,
+	type Session,
+	type SessionTarget
 } from './sessionState.svelte'
 import {
 	globalDraftStore,
@@ -32,6 +35,7 @@ import {
 } from '$lib/components/copilot/chat/global/draftStore.svelte'
 import { applyDraftValueToFlow, flowToDraftValue } from './flowDraftCodec'
 import { applyDraftValueToRawApp, rawAppToDraftValue } from './appDraftCodec'
+import { setOpenPreviewHandler } from '$lib/components/copilot/chat/global/core'
 
 export interface SessionRuntime {
 	readonly sessionId: string
@@ -569,6 +573,22 @@ export function promoteEditorWarm(sessionId: string): void {
 		editorWarmIds.delete(oldest)
 	}
 }
+
+// Register the global open_preview tool handler once at module load. The
+// handler dispatches to the currently active session — if no session is
+// active (chat is in the right side panel singleton), the tool returns an
+// error message via `setOpenPreviewHandler(undefined)`-style guard inside
+// core.ts.
+setOpenPreviewHandler(({ kind, path }) => {
+	const sessionId = sessionState.currentSessionId
+	if (!sessionId) {
+		return 'Error: no active session to open the preview in.'
+	}
+	const target: SessionTarget = { kind, path }
+	setSessionTarget(sessionId, target)
+	promoteEditorWarm(sessionId)
+	return `Opened ${kind} preview for ${path} in the side panel.`
+})
 
 export function getSessionChatStatus(runtime: SessionRuntime): SessionChatStatus {
 	const m = runtime.manager
