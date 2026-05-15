@@ -1000,7 +1000,10 @@ pub fn write_binary_file(main_path: &str, byts: &mut bytes::Bytes) -> error::Res
     use std::fs::File;
     use std::io::Write;
 
-    let mut file = File::create(main_path)?;
+    // Write to a temp file in the same directory then atomically rename, so that
+    // concurrent readers never observe a partially-written file.
+    let tmp_path = format!("{}.tmp.{}", main_path, Uuid::new_v4());
+    let mut file = File::create(&tmp_path)?;
     file.write_all(byts)?;
     #[cfg(unix)]
     {
@@ -1009,6 +1012,11 @@ pub fn write_binary_file(main_path: &str, byts: &mut bytes::Bytes) -> error::Res
         file.set_permissions(Permissions::from_mode(0o755))?;
     }
     file.flush()?;
+    drop(file);
+    if let Err(e) = std::fs::rename(&tmp_path, main_path) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(e.into());
+    }
     Ok(())
 }
 

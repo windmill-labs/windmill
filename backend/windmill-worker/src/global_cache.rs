@@ -273,7 +273,14 @@ pub async fn save_cache(
                 &PathBuf::from(local_cache_path),
             )?;
         } else {
-            std::fs::copy(origin, local_cache_path)?;
+            // Copy to a temp file in the same directory then atomically rename, so that
+            // a concurrent `load_cache` never sees a partially-written file via metadata().
+            let tmp_path = format!("{}.tmp.{}", local_cache_path, uuid::Uuid::new_v4());
+            std::fs::copy(origin, &tmp_path)?;
+            if let Err(e) = std::fs::rename(&tmp_path, local_cache_path) {
+                let _ = std::fs::remove_file(&tmp_path);
+                return Err(e.into());
+            }
         }
         Ok(format!(
             "\nwrote cached binary: {} (backed by EE distributed object store: {_cached_to_s3})\n",
