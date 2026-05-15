@@ -57,8 +57,15 @@
 			staleModalOpen = false
 			return
 		}
-		UserDraft.remove('app', path)
-		UserDraft.saveMeta('app', path, pendingBaseline.revs)
+		// `discard` (not `remove`) so the entry's in-memory state.val is
+		// cleared synchronously. `redraw++` remounts AppEditor on the next
+		// microtask, but Svelte may mount the new instance before the old
+		// one's onDestroy releases its handle — the new instance would
+		// then re-acquire the SAME entry whose state.val still has the
+		// stale autosave, ignoring the just-emptied LS. Same reason every
+		// "reset" path below uses discard.
+		UserDraft.discard('app', path, undefined)
+		currentRevs = pendingBaseline.revs
 		app = pendingBaseline.baseline
 		pendingBaseline = undefined
 		staleModalOpen = false
@@ -159,8 +166,8 @@
 				const hasBackendDraft = app_w_draft.draft != undefined
 				notifyRestoredFromLocal(hasBackendDraft, !app_w_draft.draft_only, {
 					onResetToSavedDraft: () => {
-						UserDraft.remove('app', path)
-						UserDraft.saveMeta('app', path, newRevs)
+						UserDraft.discard('app', path, undefined)
+						currentRevs = newRevs
 						app = backendApp
 						redraw++
 					},
@@ -172,14 +179,7 @@
 								path: appPath
 							})
 						}
-						UserDraft.remove('app', path)
-						// The AppEditor child holds the UserDraft handle for this path.
-						// UserDraft.remove only cleared localStorage; the entry's
-						// in-memory state would otherwise shadow the empty LS and
-						// loadApp would re-fire the same toast. Force AppEditor to
-						// unmount so its handle releases and the entry is destroyed.
-						app = undefined
-						redraw++
+						UserDraft.discard('app', path, undefined)
 						goto(`/apps/edit/${appPath}`)
 						await loadApp()
 						redraw++
@@ -245,13 +245,7 @@
 			return
 		}
 		diffDrawer?.closeDrawer()
-		UserDraft.remove('app', path)
-		// Force AppEditor to unmount so its UserDraft handle releases —
-		// otherwise loadApp's `UserDraft.get` would read the stale autosave
-		// from the still-alive in-memory entry and the staleness check
-		// would fire a spurious "newer version was deployed" modal.
-		app = undefined
-		redraw++
+		UserDraft.discard('app', path, undefined)
 		goto(`/apps/edit/${savedApp.draft.path}`)
 		await loadApp()
 		redraw++
@@ -270,9 +264,7 @@
 				path: savedApp.path
 			})
 		}
-		UserDraft.remove('app', path)
-		app = undefined
-		redraw++
+		UserDraft.discard('app', path, undefined)
 		goto(`/apps/edit/${savedApp.path}`)
 		await loadApp()
 		redraw++
