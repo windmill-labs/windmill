@@ -1874,6 +1874,40 @@ Returned from server: py_version - {:?}, py_version_v2 - {:?}
         }
     };
 
+    // Filter out packages matched by pip_local_dependencies. For preview runs this is also
+    // handled inside uv_pip_compile, but deployed scripts skip uv_pip_compile entirely and
+    // would otherwise pass every lockfile entry to handle_python_reqs — causing duplicate
+    // installs alongside additional_python_paths and triggering expensive postinstall copies.
+    let resolved_lines = if let Some(pip_local_dependencies) =
+        WORKER_CONFIG.load().pip_local_dependencies.as_ref()
+    {
+        let deps = pip_local_dependencies.clone();
+        let compiled_deps: Vec<Regex> = deps
+            .iter()
+            .filter_map(|dep| match Regex::new(dep) {
+                Ok(r) => Some(r),
+                Err(e) => {
+                    tracing::warn!(
+                        "regex compilation failed for pip_local_dependency: '{}' - it will be ignored",
+                        e
+                    );
+                    None
+                }
+            })
+            .collect();
+        resolved_lines
+            .into_iter()
+            .filter(|s| {
+                if s.starts_with('#') {
+                    return true;
+                }
+                !compiled_deps.iter().any(|dep| dep.is_match(s))
+            })
+            .collect()
+    } else {
+        resolved_lines
+    };
+
     if !resolved_lines.is_empty() {
         let mut venv_path = handle_python_reqs(
             resolved_lines,
