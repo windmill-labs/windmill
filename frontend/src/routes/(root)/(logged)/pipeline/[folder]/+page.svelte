@@ -53,7 +53,7 @@
 	import { fade } from 'svelte/transition'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
-	import { inferArgs } from '$lib/infer'
+	import { inferArgs, inferAssets } from '$lib/infer'
 
 	// Variables and resources are declarative config, not pipeline assets —
 	// they're hub-shaped (referenced by most runnables) and would swamp the
@@ -1082,6 +1082,64 @@
 			return (await res.json()) as AssetGraphResponse
 		}
 	)
+
+	// On pipeline load, eagerly infer body assets for EVERY persisted script
+	// in the folder and seed the same `inferredWritesByPath` overlay the
+	// open-script live path uses. Without this, a script whose persisted
+	// asset rows are missing (e.g. object-form writeS3File the server parser
+	// didn't extract) has no edges until you click it — which visibly
+	// re-layouts the graph. Doing it up-front makes the graph complete and
+	// layout-stable from first paint, independent of the stale `asset` table.
+	//
+	// One-shot per (workspace, base-graph) load — deps are only those; the
+	// drafts/inferred maps are read via `untrack` so a keystroke or a new
+	// draft doesn't re-trigger the sweep. Generation token cancels a stale
+	// sweep if the folder/graph changes mid-flight. Pool-capped fetches.
+	let assetPrefetchGen = 0
+	$effect(() => {
+		const ws = $workspaceStore
+		const g = graphRes.current
+		if (!ws || !g) return
+		const gen = ++assetPrefetchGen
+		const targets = untrack(() =>
+			g.runnables
+				.filter((r) => r.usage_kind === 'script')
+				.map((r) => r.path)
+				.filter((p) => !drafts.has(p) && !inferredWritesByPath.has(p))
+		)
+		if (targets.length === 0) return
+		let i = 0
+		const POOL = 6
+		const worker = async () => {
+			while (i < targets.length && gen === assetPrefetchGen) {
+				const path = targets[i++]
+				try {
+					const s = await ScriptService.getScriptByPath({ workspace: ws, path })
+					if (gen !== assetPrefetchGen) return
+					const res = await inferAssets(s.language, s.content ?? '')
+					if (gen !== assetPrefetchGen) return
+					const writes = ((res?.assets ?? []) as AssetWithAltAccessType[])
+						.filter((a) => {
+							const at = a.access_type ?? a.alt_access_type
+							return at === 'w' || at === 'rw'
+						})
+						.map((a) => ({ kind: a.kind, path: a.path }))
+					if (writes.length > 0) {
+						untrack(() => {
+							// A live edit / prior sweep may have filled it meanwhile.
+							if (inferredWritesByPath.has(path)) return
+							const next = new Map(inferredWritesByPath)
+							next.set(path, writes)
+							inferredWritesByPath = next
+						})
+					}
+				} catch {
+					// Skip — that node just falls back to base-graph edges.
+				}
+			}
+		}
+		for (let k = 0; k < Math.min(POOL, targets.length); k++) void worker()
+	})
 
 	function pluralize(n: number, singular: string): string {
 		return `${n} ${singular}${n === 1 ? '' : 's'}`
