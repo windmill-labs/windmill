@@ -169,6 +169,36 @@ describe('UserDraft.use() — observer sync', () => {
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/removed')).toBeNull()
 	})
 
+	it('discard() clears LS, resets the handle to the fallback, and does NOT re-persist', () => {
+		// Seed: handle holds a divergent local autosave.
+		localStorage.setItem('userdraft/w/test_ws/flow/u/me/discard', wrapped('local-edit'))
+		const handle = UserDraft.use<string>('flow', 'u/me/discard')
+		expect(handle.draft).toBe('local-edit')
+
+		// Reset to a known backend baseline.
+		UserDraft.discard('flow', 'u/me/discard', 'backend-baseline')
+		flushPersist()
+
+		// In-memory handle reflects the fallback immediately.
+		expect(handle.draft).toBe('backend-baseline')
+		// LS is cleared and stays cleared — the fallback must NOT round-trip
+		// back into storage (that would make the next reload "restore" the
+		// fallback as if it were a real autosave).
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/discard')).toBeNull()
+	})
+
+	it('discard() with undefined fallback clears both LS and in-memory state', () => {
+		localStorage.setItem('userdraft/w/test_ws/flow/u/me/wipe', wrapped('local-edit'))
+		const handle = UserDraft.use<string>('flow', 'u/me/wipe')
+		expect(handle.draft).toBe('local-edit')
+
+		UserDraft.discard('flow', 'u/me/wipe', undefined)
+		flushPersist()
+
+		expect(handle.draft).toBeUndefined()
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/wipe')).toBeNull()
+	})
+
 	it('the second write through the handle setter persists to localStorage', () => {
 		const handle = UserDraft.use<string>('flow', 'u/me/setter')
 

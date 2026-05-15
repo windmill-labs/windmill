@@ -137,7 +137,7 @@
 				if (persisted !== undefined && !deepEqual(persisted, s)) {
 					notifyRestoredFromLocal(false, true, {
 						onResetToDeployed: () => {
-							UserDraft.save('variable', p, s, { workspace: ws })
+							UserDraft.discard('variable', p, s, { workspace: ws })
 						}
 					})
 				}

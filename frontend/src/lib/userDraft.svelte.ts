@@ -89,7 +89,10 @@ function stamp<V>(stored: StoredDraft<V> | undefined): StoredDraft<V> | undefine
 	return { ...stored, lastWrittenAt: Date.now() }
 }
 
-type DraftState<V> = { val: StoredDraft<V> | undefined }
+type DraftState<V> = {
+	val: StoredDraft<V> | undefined
+	skipNextWriteOnce(): void
+}
 
 type DraftEntry = {
 	count: number
@@ -347,6 +350,46 @@ export const UserDraft = {
 			localStorage.removeItem(localStorageKey(ws, itemKind, path))
 		} catch (e) {
 			console.error('UserDraft.remove: localStorage remove failed', e)
+		}
+	},
+
+	/**
+	 * Discard the local autosave and reset any live handle's `draft` to
+	 * `fallback`. Differs from `remove` in two ways:
+	 *
+	 * 1. The in-memory cell is updated, so consumers reactively reading
+	 *    `handle.draft` immediately see the fallback instead of the
+	 *    stale local autosave.
+	 * 2. The in-memory reset is marked to skip the next persist, so the
+	 *    fallback value does NOT round-trip back into localStorage. The
+	 *    LS slot stays empty until the user makes a real edit.
+	 *
+	 * Used by route editors' "Reset to deployed" flow: pass the backend
+	 * baseline as `fallback` so the form repaints against deployed state
+	 * without leaving a duplicate-of-backend LS entry behind.
+	 */
+	discard<V>(
+		itemKind: UserDraftItemKind,
+		path: string,
+		fallback: V | undefined,
+		opts?: UserDraftOptions
+	): void {
+		const ws = resolveWorkspace(opts)
+		const mk = mapKey(ws, itemKind, path)
+		const entry = entries.get(mk)
+		if (entry) {
+			// Arm the skip BEFORE the cell write so `useLocalStorageValue`'s
+			// setter consumes it and suppresses the would-be persist. The
+			// explicit `localStorage.removeItem` below is what actually
+			// clears the slot (and also covers the case where no live
+			// handle exists).
+			entry.state.skipNextWriteOnce()
+			entry.state.val = wrap(fallback) as StoredDraft<unknown> | undefined
+		}
+		try {
+			localStorage.removeItem(localStorageKey(ws, itemKind, path))
+		} catch (e) {
+			console.error('UserDraft.discard: localStorage remove failed', e)
 		}
 	},
 

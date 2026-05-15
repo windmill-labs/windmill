@@ -216,7 +216,7 @@
 				if (persisted !== undefined && !deepEqual(persisted, s)) {
 					notifyRestoredFromLocal(false, true, {
 						onResetToDeployed: () => {
-							UserDraft.save('resource', initialPath ?? '', s, { workspace: ws })
+							UserDraft.discard('resource', initialPath ?? '', s, { workspace: ws })
 						}
 					})
 				}
