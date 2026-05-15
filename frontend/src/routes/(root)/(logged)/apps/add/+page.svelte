@@ -60,6 +60,10 @@
 
 	async function loadApp() {
 		if (importRaw) {
+			// Import/template/hub loads are an explicit "start fresh from this
+			// content" — drop any previous empty-path autosave so it doesn't
+			// shadow the imported value on AppEditor mount.
+			UserDraft.remove('app', '')
 			sendUserToast('Loaded from YAML/JSON')
 			if ('value' in importRaw) {
 				summary = importRaw.summary
@@ -69,6 +73,7 @@
 				value = importRaw
 			}
 		} else if (templatePath) {
+			UserDraft.remove('app', '')
 			const template = await AppService.getAppByPath({
 				workspace: $workspaceStore!,
 				path: templatePath
@@ -77,6 +82,7 @@
 			sendUserToast('App loaded from template')
 			goto('?', { replaceState: true })
 		} else if (templateId) {
+			UserDraft.remove('app', '')
 			const template = await AppService.getAppByVersion({
 				workspace: $workspaceStore!,
 				id: parseInt(templateId)
@@ -85,6 +91,7 @@
 			sendUserToast('App loaded from template')
 			goto('?', { replaceState: true })
 		} else if (hubId) {
+			UserDraft.remove('app', '')
 			const hub = await AppService.getHubAppById({ id: Number(hubId) })
 			value = {
 				hiddenInlineScripts: [],

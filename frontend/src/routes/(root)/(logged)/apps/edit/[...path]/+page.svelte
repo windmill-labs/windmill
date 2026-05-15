@@ -46,6 +46,12 @@
 		| { baseline: AppWithLastVersion & { draft_only?: boolean; value: any }; revs: UserDraftMeta }
 		| undefined = undefined
 
+	// Backend revs at the most recent `loadApp` — handed to AppEditor as
+	// `initialRevs` so the very first local autosave persists with a meta
+	// stamp. Without it the next reload's staleness check has nothing to
+	// compare against and the first external deploy/draft slips through.
+	let currentRevs = $state<UserDraftMeta | undefined>(undefined)
+
 	function onStaleLoadLatest(): void {
 		if (!pendingBaseline) {
 			staleModalOpen = false
@@ -133,6 +139,7 @@
 				: undefined,
 			remoteDraftRev: app_w_draft.draft_created_at
 		}
+		currentRevs = newRevs
 		if (
 			localDraftValue != undefined &&
 			orderedJsonStringify(cleanValueProperties(localDraftValue)) !==
@@ -316,6 +323,7 @@
 				{diffDrawer}
 				version={app.versions ? app.versions[app.versions.length - 1] : undefined}
 				newApp={false}
+				initialRevs={currentRevs}
 				replaceStateFn={(path) => replaceState(path, page.state)}
 				gotoFn={(path, opt) => goto(path, opt)}
 			>
