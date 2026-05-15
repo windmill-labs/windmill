@@ -124,6 +124,40 @@ describe('migrateLegacyUserDrafts', () => {
 		expect(localStorage.getItem('app-u/me/garbled')).toBe('not-base64!!!')
 	})
 
+	it('leaves keys whose path does not match the legacy `u|f/owner/name` shape alone', () => {
+		// A future feature or neighbouring code might pick a key like
+		// `app-recent` for its own purposes. The path doesn't look like a
+		// Windmill item path, so the migration must skip it.
+		localStorage.setItem('app-recent', 'whatever')
+		localStorage.setItem('app-some_other_app', 'whatever')
+		// `flow-u/me/foo` matches the shape and would be migrated, but the
+		// payload also needs to look like a Windmill draft (asserted below).
+		localStorage.setItem('flow-u/me/foo', encodeLegacy({ flow: { value: { modules: [] } } }))
+
+		migrateLegacyUserDrafts('main')
+
+		expect(localStorage.getItem('app-recent')).toBe('whatever')
+		expect(localStorage.getItem('app-some_other_app')).toBe('whatever')
+		expect(localStorage.getItem('userdraft/w/main/flow/u/me/foo')).not.toBeNull()
+	})
+
+	it('skips legacy-shaped keys whose payload does not look like a Windmill draft', () => {
+		// `app-u/me/dash` matches LEGACY_PATH_SHAPE and decodes to valid JSON,
+		// but none of the App-shape fields (summary/value/policy/path) are
+		// present. Treat it as unrelated and leave it untouched.
+		const unrelated = encodeLegacy({ random: 'data', count: 7 })
+		localStorage.setItem('app-u/me/dash', unrelated)
+		const unrelatedFlow = encodeLegacy({ stepsState: {} })
+		localStorage.setItem('flow-u/me/bar', unrelatedFlow)
+
+		migrateLegacyUserDrafts('main')
+
+		expect(localStorage.getItem('app-u/me/dash')).toBe(unrelated)
+		expect(localStorage.getItem('userdraft/w/main/app/u/me/dash')).toBeNull()
+		expect(localStorage.getItem('flow-u/me/bar')).toBe(unrelatedFlow)
+		expect(localStorage.getItem('userdraft/w/main/flow/u/me/bar')).toBeNull()
+	})
+
 	it('migrates multiple legacy entries in a single invocation', () => {
 		localStorage.setItem(
 			'app-u/me/a',

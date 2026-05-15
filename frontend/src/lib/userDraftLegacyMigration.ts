@@ -36,13 +36,24 @@ const LEGACY_PREFIXES: ReadonlyArray<{ prefix: string; newKind: LegacyKind }> = 
 	{ prefix: 'app', newKind: 'app' }
 ]
 
+/**
+ * A Windmill item path: `u/<owner>/<name…>` or `f/<folder>/<name…>`. The
+ * `<name…>` segment may itself contain slashes, so we don't constrain it
+ * past requiring at least one character. Used to reject incidentally-named
+ * localStorage keys (e.g. `app-recent` from a future feature, or a
+ * neighbouring app's data) before treating them as Windmill drafts.
+ */
+const LEGACY_PATH_SHAPE = /^[uf]\/[^/]+\/.+$/
+
 function matchLegacyKey(
 	key: string
 ): { prefix: string; newKind: LegacyKind; path: string } | undefined {
 	for (const { prefix, newKind } of LEGACY_PREFIXES) {
 		if (key === prefix) return { prefix, newKind, path: '' }
 		if (key.startsWith(prefix + '-')) {
-			return { prefix, newKind, path: key.slice(prefix.length + 1) }
+			const path = key.slice(prefix.length + 1)
+			if (!LEGACY_PATH_SHAPE.test(path)) return undefined
+			return { prefix, newKind, path }
 		}
 	}
 	return undefined
@@ -53,6 +64,33 @@ function decodeLegacyState(raw: string): unknown {
 		return JSON.parse(decodeURIComponent(atob(raw)))
 	} catch {
 		return undefined
+	}
+}
+
+/**
+ * Per-kind shape gate. The legacy keys (`app-foo`, `flow-foo`, ...) are
+ * unusual enough that nothing else in the codebase has used them, but
+ * matching `LEGACY_PATH_SHAPE` doesn't prove the payload is actually a
+ * Windmill draft (any base64-of-JSON could pass). Promoting a stray payload
+ * would silently surface as a phantom "Restored from local storage" toast
+ * on the next edit, so we reject anything that doesn't carry the fields the
+ * legacy writers actually produced.
+ */
+function isPlausibleLegacyValue(kind: LegacyKind, decoded: unknown): boolean {
+	if (decoded == null || typeof decoded !== 'object') return false
+	const obj = decoded as Record<string, unknown>
+	switch (kind) {
+		case 'flow':
+			// Legacy FlowBuilder wrote { flow, path, selectedId, draft_triggers, ... }.
+			return obj.flow != null && typeof obj.flow === 'object'
+		case 'app':
+			// Legacy AppEditor wrote the App object directly. It carries summary,
+			// value, policy, and path among other fields — any one of those is a
+			// strong signal it's actually a Windmill app payload.
+			return 'summary' in obj || 'value' in obj || 'policy' in obj || 'path' in obj
+		case 'raw_app':
+			// Legacy RawAppEditor wrote { files, runnables, data }.
+			return 'files' in obj || 'runnables' in obj || 'data' in obj
 	}
 }
 
@@ -113,7 +151,7 @@ export function migrateLegacyUserDrafts(workspace: string): void {
 
 			try {
 				const decoded = decodeLegacyState(raw)
-				if (decoded == null || typeof decoded !== 'object') continue
+				if (!isPlausibleLegacyValue(match.newKind, decoded)) continue
 				const value = transformLegacyValue(match.newKind, decoded)
 				const target = newKey(workspace, match.newKind, match.path)
 				if (value !== undefined && localStorage.getItem(target) == null) {
