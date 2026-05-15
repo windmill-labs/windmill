@@ -371,7 +371,20 @@
 							</Button>
 						</div>
 					{:else if hasEditor}
-						<div class="ml-auto">
+						<div class="ml-auto flex flex-row items-center gap-1">
+							<button
+								type="button"
+								onclick={() => (editorFullWidth = !editorFullWidth)}
+								title={editorFullWidth ? 'Restore chat panel' : 'Full-width editor'}
+								aria-label={editorFullWidth ? 'Restore chat panel' : 'Expand editor to full width'}
+								class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
+							>
+								{#if editorFullWidth}
+									<Minimize2 size={14} />
+								{:else}
+									<Maximize2 size={14} />
+								{/if}
+							</button>
 							<button
 								type="button"
 								onclick={() => (editorVisible = false)}
@@ -407,19 +420,20 @@
 					transition:slide={{ axis: 'x', duration: 200 }}
 					class="flex flex-col flex-1 min-h-0 rounded-md border border-light overflow-hidden relative"
 				>
-					<button
-						type="button"
-						class="absolute top-1 right-1 z-10 p-1 rounded text-tertiary hover:bg-surface-hover hover:text-primary bg-surface/80 backdrop-blur"
-						title={editorFullWidth ? 'Restore chat panel' : 'Full-width editor'}
-						aria-label={editorFullWidth ? 'Restore chat panel' : 'Expand editor to full width'}
-						onclick={() => (editorFullWidth = !editorFullWidth)}
-					>
-						{#if editorFullWidth}
+					{#if editorFullWidth}
+						<!-- Chat pane is hidden in full-width mode, so the toggle in
+						     the chat header isn't reachable — surface a restore
+						     button here as the only way back to the split view. -->
+						<button
+							type="button"
+							class="absolute top-1 right-1 z-10 p-1 rounded text-tertiary hover:bg-surface-hover hover:text-primary bg-surface/80 backdrop-blur"
+							title="Restore chat panel"
+							aria-label="Restore chat panel"
+							onclick={() => (editorFullWidth = false)}
+						>
 							<Minimize2 size={14} />
-						{:else}
-							<Maximize2 size={14} />
-						{/if}
-					</button>
+						</button>
+					{/if}
 					{#if session.target.kind === 'flow'}
 						<FlowEditorView
 							{runtime}

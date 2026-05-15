@@ -1,6 +1,4 @@
 <script lang="ts">
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import AvailableContextList from './AvailableContextList.svelte'
 	import AppAvailableContextList from './AppAvailableContextList.svelte'
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import ContextTextarea from './ContextTextarea.svelte'
@@ -469,30 +467,8 @@
 				{@render sendStopButton()}
 			</div>
 		</div>
-		{#if showContext}
+		{#if showContext && selectedContext.length > 0}
 			<div class="flex flex-row items-center gap-1 mt-1 overflow-scroll no-scrollbar">
-				<Popover>
-					{#snippet trigger()}
-						<div
-							class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
-							>@</div
-						>
-					{/snippet}
-					{#snippet content({ close })}
-						<AvailableContextList
-							{availableContext}
-							{selectedContext}
-							onSelect={(element) => {
-								void addContextToSelection(element)
-								close()
-							}}
-							onSelectWorkspaceItem={(element) => {
-								void addContextToSelection(element)
-								close()
-							}}
-						/>
-					{/snippet}
-				</Popover>
 				{#each selectedContext as element (element.type + '-' + element.title)}
 					<ContextElementBadge
 						contextElement={element}
@@ -543,26 +519,8 @@
 				{@render sendStopButton()}
 			</div>
 		</div>
-		{#if showContext}
+		{#if showContext && selectedContext.length > 0}
 			<div class="flex flex-row items-center gap-1 mt-1 overflow-scroll no-scrollbar">
-				<Popover>
-					{#snippet trigger()}
-						<div
-							class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
-							>@</div
-						>
-					{/snippet}
-					{#snippet content({ close })}
-						<AppAvailableContextList
-							{availableContext}
-							{selectedContext}
-							onSelect={(element) => {
-								void addContextToSelection(element)
-								close()
-							}}
-						/>
-					{/snippet}
-				</Popover>
 				{#each selectedContext as element (element.type + '-' + element.title)}
 					<ContextElementBadge
 						contextElement={element}
