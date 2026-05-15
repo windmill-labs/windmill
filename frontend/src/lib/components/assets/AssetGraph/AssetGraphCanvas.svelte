@@ -142,6 +142,12 @@
 		unsaved?: boolean
 	}
 
+	// Graph-id of the script the user just launched (zero-latency hint),
+	// computed once and reused by the optimistic badge + the active-edge set.
+	let activeRunnableNodeId = $derived(
+		activeRunnable ? `${activeRunnable.kind}:${activeRunnable.path}` : undefined
+	)
+
 	// Lineage edges (parsed r/w usages): writer → asset, asset → reader.
 	// Trigger edges (`// on <x>`): asset → script or schedule → script. The
 	// lineage subgraph is informational; the trigger subgraph is executable.
@@ -243,10 +249,10 @@
 			// poll's known run count. Falls back to the polled state (which
 			// carries the cascade + the final success/failure) otherwise.
 			const polledRunState = runStates?.get(rid)
-			const runState =
-				activeRunnable && `${activeRunnable.kind}:${activeRunnable.path}` === rid
-					? { status: 'running' as const, runs: polledRunState?.runs ?? 0 }
-					: polledRunState
+			let runState = polledRunState
+			if (activeRunnableNodeId === rid) {
+				runState = { status: 'running' as const, runs: polledRunState?.runs ?? 0 }
+			}
 			nodes.push({
 				id: rid,
 				type: 'runnable',
@@ -462,7 +468,7 @@
 	let activeRunnableIdSet = $derived(
 		new Set<string>([
 			...(activeRunnableIds ?? []),
-			...(activeRunnable ? [`${activeRunnable.kind}:${activeRunnable.path}`] : [])
+			...(activeRunnableNodeId ? [activeRunnableNodeId] : [])
 		])
 	)
 	let flowEdges = $derived.by(() =>

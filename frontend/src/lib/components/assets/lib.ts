@@ -112,6 +112,18 @@ export function getAccessType(asset: AssetWithAltAccessType): AssetUsageAccessTy
 	if (asset.alt_access_type) return asset.alt_access_type
 }
 
+/** Write/rw assets reduced to their `{ kind, path }` identity. */
+export function extractWrites(
+	assets: AssetWithAltAccessType[]
+): Array<{ kind: AssetKind; path: string }> {
+	return assets
+		.filter((a) => {
+			const at = getAccessType(a)
+			return at === 'w' || at === 'rw'
+		})
+		.map((a) => ({ kind: a.kind, path: a.path }))
+}
+
 export function getFlowModuleAssets(
 	flowModuleValue: FlowModule,
 	additionalAssetsMap?: Record<string, AssetWithAccessType[]>

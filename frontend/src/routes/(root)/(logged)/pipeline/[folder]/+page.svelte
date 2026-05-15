@@ -9,7 +9,7 @@
 	import PipelineEventLog from '$lib/components/assets/AssetGraph/PipelineEventLog.svelte'
 	import AssetGraphDetailsPane from '$lib/components/assets/AssetGraph/AssetGraphDetailsPane.svelte'
 	import PipelinePickerModal from '$lib/components/assets/AssetGraph/PipelinePickerModal.svelte'
-	import type { AssetWithAltAccessType } from '$lib/components/assets/lib'
+	import { extractWrites, type AssetWithAltAccessType } from '$lib/components/assets/lib'
 	import type {
 		AssetGraphResponse,
 		AssetGraphSelection
@@ -194,12 +194,7 @@
 		// re-opens the draft and types something new.
 		const liveWritesSnapshot =
 			liveBodyAssets.scriptPath != undefined && drafts.has(liveBodyAssets.scriptPath)
-				? liveBodyAssets.assets
-						.filter((a) => {
-							const at = a.access_type ?? a.alt_access_type
-							return at === 'w' || at === 'rw'
-						})
-						.map((a) => ({ kind: a.kind, path: a.path }))
+				? extractWrites(liveBodyAssets.assets)
 				: undefined
 		const liveWritesPath = liveBodyAssets.scriptPath
 		const serialized = Array.from(drafts.entries()).map(([p, d]) => {
@@ -619,12 +614,7 @@
 		// registers it as a dep, and writing the new Map immediately
 		// re-fires the effect → infinite loop.
 		if (scriptPath) {
-			const writes = assets
-				.filter((a) => {
-					const at = a.access_type ?? a.alt_access_type
-					return at === 'w' || at === 'rw'
-				})
-				.map((a) => ({ kind: a.kind, path: a.path }))
+			const writes = extractWrites(assets)
 			untrack(() => {
 				const next = new Map(inferredWritesByPath)
 				if (writes.length > 0) next.set(scriptPath, writes)
@@ -709,10 +699,7 @@
 			const liveForThisDraft = liveBodyAssets.scriptPath === path
 			const writeOuts: Array<{ kind: AssetKind; path: string }> = []
 			if (liveForThisDraft) {
-				for (const a of liveBodyAssets.assets) {
-					const at = a.access_type ?? a.alt_access_type
-					if (at === 'w' || at === 'rw') writeOuts.push({ kind: a.kind, path: a.path })
-				}
+				writeOuts.push(...extractWrites(liveBodyAssets.assets))
 			} else if (d.outputAssets) {
 				writeOuts.push(...d.outputAssets)
 			}
@@ -1083,18 +1070,12 @@
 		}
 	)
 
-	// On pipeline load, eagerly infer body assets for EVERY persisted script
-	// in the folder and seed the same `inferredWritesByPath` overlay the
-	// open-script live path uses. Without this, a script whose persisted
-	// asset rows are missing (e.g. object-form writeS3File the server parser
-	// didn't extract) has no edges until you click it — which visibly
-	// re-layouts the graph. Doing it up-front makes the graph complete and
-	// layout-stable from first paint, independent of the stale `asset` table.
-	//
-	// One-shot per (workspace, base-graph) load — deps are only those; the
-	// drafts/inferred maps are read via `untrack` so a keystroke or a new
-	// draft doesn't re-trigger the sweep. Generation token cancels a stale
-	// sweep if the folder/graph changes mid-flight. Pool-capped fetches.
+	// Eagerly infer every folder script's writes on load and seed the same
+	// `inferredWritesByPath` overlay the open-script path uses — otherwise a
+	// script whose persisted asset rows are missing only gets edges when
+	// clicked, which re-layouts the graph. WHY untrack: deps must stay
+	// (workspace, base-graph) only so a keystroke/new draft doesn't re-sweep;
+	// the generation token cancels an in-flight sweep on folder change.
 	let assetPrefetchGen = 0
 	$effect(() => {
 		const ws = $workspaceStore
@@ -1118,12 +1099,7 @@
 					if (gen !== assetPrefetchGen) return
 					const res = await inferAssets(s.language, s.content ?? '')
 					if (gen !== assetPrefetchGen) return
-					const writes = ((res?.assets ?? []) as AssetWithAltAccessType[])
-						.filter((a) => {
-							const at = a.access_type ?? a.alt_access_type
-							return at === 'w' || at === 'rw'
-						})
-						.map((a) => ({ kind: a.kind, path: a.path }))
+					const writes = extractWrites((res?.assets ?? []) as AssetWithAltAccessType[])
 					if (writes.length > 0) {
 						untrack(() => {
 							// A live edit / prior sweep may have filled it meanwhile.

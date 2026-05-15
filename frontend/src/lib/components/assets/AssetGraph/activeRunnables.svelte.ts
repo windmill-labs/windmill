@@ -17,22 +17,39 @@ export type PipelineEvent = {
 }
 const MAX_EVENTS = 50
 
+// Equality guards so an unchanged poll tick doesn't reassign the reactive
+// state — a no-op `states`/`ids` reassignment would otherwise re-derive the
+// whole canvas (full d3-dag Sugiyama layout + edge re-route) every 3–6s.
+function setEq(a: Set<string>, b: Set<string>): boolean {
+	if (a.size !== b.size) return false
+	for (const v of a) if (!b.has(v)) return false
+	return true
+}
+function statesEq(a: Map<string, RunnableRunState>, b: Map<string, RunnableRunState>): boolean {
+	if (a.size !== b.size) return false
+	for (const [k, v] of a) {
+		const w = b.get(k)
+		if (!w || w.status !== v.status || w.runs !== v.runs) return false
+	}
+	return true
+}
+function eventsEq(a: PipelineEvent[], b: PipelineEvent[]): boolean {
+	if (a.length !== b.length) return false
+	for (let i = 0; i < a.length; i++) {
+		if (a[i].id !== b[i].id || a[i].status !== b[i].status) return false
+	}
+	return true
+}
+
 /**
- * Tracks which pipeline runnables currently have an in-flight (queued/running)
- * job — plus any that started AND finished since the last poll, so a fast
- * cascade hop that completes between two ticks still pulses once. Returns a
- * reactive `Set<string>` of `${kind}:${path}` ids (matching the graph's
- * runnable node ids) for the canvas to animate.
+ * Polls folder jobs and exposes, as reactive `${kind}:${path}`-keyed state:
+ * the in-flight set (`ids`, incl. a one-tick pulse for hops that start and
+ * finish between ticks), per-runnable badge state (`states`), and a capped
+ * activity log (`events`).
  *
- * Cost model — deliberately cheap:
- *  - ZERO requests while idle. Polling only runs after `arm()` (a user-
- *    initiated run) and self-sustains only while jobs are in flight.
- *  - One folder-scoped, `perPage`-capped `listExtendedJobs` request per tick.
- *  - Auto-disarms after `MAX_IDLE_TICKS` consecutive empty ticks (rides the
- *    brief gaps between cascade hops), with a hard total-duration cap.
- *
- * Read-only (`listExtendedJobs` is a read endpoint, no editor dependency), so
- * a future read-only / operator pipeline view can reuse this as-is.
+ * Zero requests while idle: polling only runs after `arm()` (a launched run)
+ * or while `setObserving(true)` (log open), and self-disarms when idle.
+ * Read-only (`listExtendedJobs`), so a future operator view can reuse it.
  */
 export function useActiveRunnableIds(
 	getWorkspace: () => string | undefined,
@@ -174,10 +191,9 @@ export function useActiveRunnableIds(
 			next = ids
 			anyInFlight = ids.size > 0
 		}
-		ids = next
+		if (!setEq(ids, next)) ids = next
 		// Rebuild the badge snapshot: in-flight wins (spinner), otherwise the
-		// last completed status. Fresh Map each tick → reactive without
-		// SvelteMap. completedHistory persists across `stop()`.
+		// last completed status. completedHistory persists across `stop()`.
 		const snap = new Map<string, RunnableRunState>()
 		for (const [id, h] of completedHistory) {
 			snap.set(id, { status: inFlightThisTick.has(id) ? 'running' : h.lastStatus, runs: h.runs })
@@ -185,14 +201,17 @@ export function useActiveRunnableIds(
 		for (const id of inFlightThisTick) {
 			if (!snap.has(id)) snap.set(id, { status: 'running', runs: 0 })
 		}
-		states = snap
+		if (!statesEq(states, snap)) states = snap
 		// Activity-log snapshot: newest-first, capped. Prune the backing map
-		// so a long session doesn't grow unbounded.
+		// (and the dedup set in lockstep) so a long session stays bounded.
 		const sorted = Array.from(eventsById.values()).sort((a, b) => b.at.localeCompare(a.at))
 		if (sorted.length > MAX_EVENTS * 4) {
 			for (const e of sorted.slice(MAX_EVENTS * 4)) eventsById.delete(e.id)
+			countedJobIds.clear()
+			for (const id of eventsById.keys()) countedJobIds.add(id)
 		}
-		events = sorted.slice(0, MAX_EVENTS)
+		const nextEvents = sorted.slice(0, MAX_EVENTS)
+		if (!eventsEq(events, nextEvents)) events = nextEvents
 		// Look back slightly so a job finishing in the request window isn't
 		// missed by the next tick's catch-up comparison.
 		lastPollTs = new Date(pollStartedMs - CATCHUP_OVERLAP_MS).toISOString()
