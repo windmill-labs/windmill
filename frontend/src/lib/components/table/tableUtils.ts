@@ -8,7 +8,10 @@ export function isEmail(value: string) {
 	return value?.includes('@')
 }
 
-export function computeStructuredObjectsAndHeaders(objects: Array<Record<string, any>>): [
+export function computeStructuredObjectsAndHeaders(
+	objects: Array<Record<string, any>>,
+	explicitHeaders?: string[]
+): [
 	string[],
 	{
 		_id: number
@@ -18,7 +21,7 @@ export function computeStructuredObjectsAndHeaders(objects: Array<Record<string,
 	if (Array.isArray(objects)) {
 		let nextId = 1
 
-		let hds: string[] = []
+		let hds: string[] = explicitHeaders ? [...explicitHeaders] : []
 		let objs = objects.map((obj) => {
 			let rowData = obj && typeof obj == 'object' ? obj : {}
 			if (Array.isArray(rowData)) {
