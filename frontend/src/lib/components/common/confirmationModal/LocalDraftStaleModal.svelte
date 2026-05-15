@@ -43,8 +43,8 @@
 	)
 	const body = $derived(
 		cause === 'draft'
-			? "Someone else (or another tab) pushed a draft for this item while you were editing locally. Your local autosave is now older than what's on the server."
-			: "A new version was deployed for this item while you were editing locally. Your local autosave is now older than what's deployed."
+			? "The editor is showing your local autosave. Someone else (or another tab) pushed a newer draft to the server while you were editing — your copy is now behind. Load latest replaces what's on screen; Keep current leaves it alone."
+			: "The editor is showing your local autosave. A newer version was deployed while you were editing — your copy is now behind. Load latest replaces what's on screen; Keep current leaves it alone."
 	)
 </script>
 
