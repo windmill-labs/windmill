@@ -1,13 +1,33 @@
 <script lang="ts">
 	import AIChatDisplay from './AIChatDisplay.svelte'
-	import { untrack } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { type ScriptLang } from '$lib/gen'
 	import { dbSchemas, userStore, workspaceStore } from '$lib/stores'
-	import { aiChatManager, AIMode } from './AIChatManager.svelte'
+	import {
+		AIChatManager,
+		aiChatManager as singletonAiChatManager,
+		AIMode
+	} from './AIChatManager.svelte'
+
+	const aiChatManager = getContext<AIChatManager>('aiChatManager') ?? singletonAiChatManager
 	import { base } from '$lib/base'
 	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './script/core'
 	import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
+
+	let {
+		hideInputBorder = false,
+		hideHeader = false,
+		hideModeSelector = false,
+		emptyHint,
+		inputPreface
+	}: {
+		hideInputBorder?: boolean
+		hideHeader?: boolean
+		hideModeSelector?: boolean
+		emptyHint?: import('svelte').Snippet
+		inputPreface?: import('svelte').Snippet
+	} = $props()
 
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const hasCopilot = $derived($copilotInfo.enabled)
@@ -120,7 +140,6 @@
 	loadPastChat={(id) => {
 		aiChatManager.loadPastChat(id)
 	}}
-	cancel={aiChatManager.cancel}
 	askAi={aiChatManager.askAi}
 	{headerLeft}
 	hasDiff={aiChatManager.scriptEditorOptions &&
@@ -130,4 +149,9 @@
 	{disabled}
 	{disabledMessage}
 	{suggestions}
+	{hideInputBorder}
+	{hideHeader}
+	{hideModeSelector}
+	{emptyHint}
+	{inputPreface}
 ></AIChatDisplay>

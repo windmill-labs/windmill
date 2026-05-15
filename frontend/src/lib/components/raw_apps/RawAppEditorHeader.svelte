@@ -51,7 +51,12 @@
 	import AppEditorHeaderDeploy from '../apps/editor/AppEditorHeaderDeploy.svelte'
 	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 	import { updateRawAppPolicy } from './rawAppPolicy'
-	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
+	import { aiChatManager, type AIChatManager } from '../copilot/chat/AIChatManager.svelte'
+	import { getContext } from 'svelte'
+
+	// When rendered inside a session pane, the session provides its own AI
+	// chat — hide the per-editor AI button to avoid two competing entry points.
+	const inSessionPane = !!getContext<AIChatManager>('aiChatManager')
 	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
 	import type { RawAppData } from './dataTableRefUtils'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
@@ -109,6 +114,7 @@
 		onUndo?: () => void
 		onRedo?: () => void
 		onOpenYamlEditor?: () => void
+		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
 	}
 
 	let {
@@ -130,7 +136,8 @@
 		canRedo = false,
 		onUndo = undefined,
 		onRedo = undefined,
-		onOpenYamlEditor = undefined
+		onOpenYamlEditor = undefined,
+		onNavigate
 	}: Props = $props()
 
 	let newEditedPath = $state(
@@ -163,6 +170,10 @@
 	let publishToHubDrawerOpen = $state(false)
 	let publishingToHub = $state(false)
 	let deploymentMsg: string | undefined = $state(undefined)
+
+	// Top-bar responsive collapse — container width, not viewport.
+	let topbarWidth = $state(0)
+	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
 
 	async function publishToHub() {
 		if (!app) return
@@ -851,16 +862,17 @@
 />
 
 <div
+	bind:clientWidth={topbarWidth}
 	class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto max-h-12 h-12 shrink-0"
 >
-	<div class="flex flex-row gap-2 items-center">
+	<div class="flex flex-row gap-2 items-center min-w-[200px]">
 		<EditorHeader
 			bind:summary
 			bind:path={newEditedPath}
 			savedPath={appPath || newPath || undefined}
 			kind="app"
 			raw_app
-			onNavigate={(item) => goto(editPathFor(item))}
+			onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
 		/>
 		<div></div>
 	</div>
@@ -881,7 +893,7 @@
 			{/snippet}
 		</DropdownV2>
 
-		<div class="hidden md:inline relative overflow-visible">
+		<div class="{compactTopbar ? 'hidden' : 'hidden md:inline'} relative overflow-visible">
 			<Button
 				on:click={() => {
 					jobsDrawerOpen = true
@@ -902,53 +914,60 @@
 			</Button>
 		</div>
 		<AppExportButton bind:this={appExport} />
-		<Button
-			unifiedSize="md"
-			variant="default"
-			onClick={() => aiChatManager.toggleOpen()}
-			startIcon={{ icon: WandSparkles }}
-			iconOnly
-			btnClasses={AIBtnClasses('default')}
-		>
-			AI
-		</Button>
-		<Button
-			loading={loading.save}
-			startIcon={{ icon: Save }}
-			on:click={() => saveDraft()}
-			unifiedSize="md"
-			variant="default"
-			disabled={!newApp && !savedApp}
-			shortCut={{ key: 'S' }}
-		>
-			Draft
-		</Button>
+		{#if !inSessionPane}
+			<Button
+				unifiedSize="md"
+				variant="default"
+				onClick={() => aiChatManager.toggleOpen()}
+				startIcon={{ icon: WandSparkles }}
+				iconOnly
+				btnClasses={AIBtnClasses('default')}
+			>
+				AI
+			</Button>
+		{/if}
+		{#if !compactTopbar}
+			<Button
+				loading={loading.save}
+				startIcon={{ icon: Save }}
+				on:click={() => saveDraft()}
+				unifiedSize="md"
+				variant="default"
+				disabled={!newApp && !savedApp}
+				shortCut={{ key: 'S' }}
+			>
+				Draft
+			</Button>
+		{/if}
 		<Button
 			loading={loading.save}
 			startIcon={{ icon: Save }}
 			on:click={save}
 			unifiedSize="md"
 			variant="accent"
-			dropdownItems={appPath != ''
-				? () => [
-						{
-							label: 'Fork',
-							onClick: () => {
-								window.open(`/apps/add?template=${appPath}`)
-							}
-						},
-						...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
-							? [
-									{
-										label: 'Edit in workspace fork',
-										onClick: () => {
-											window.open(buildForkEditUrl('raw_app', appPath))
+			dropdownItems={() => [
+				...(compactTopbar ? [{ label: 'Save draft', onClick: () => saveDraft() }] : []),
+				...(appPath != ''
+					? [
+							{
+								label: 'Fork',
+								onClick: () => {
+									window.open(`/apps/add?template=${appPath}`)
+								}
+							},
+							...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
+								? [
+										{
+											label: 'Edit in workspace fork',
+											onClick: () => {
+												window.open(buildForkEditUrl('raw_app', appPath))
+											}
 										}
-									}
-								]
-							: [])
-					]
-				: undefined}
+									]
+								: [])
+						]
+					: [])
+			]}
 		>
 			Deploy
 		</Button>

@@ -3,7 +3,10 @@
 	import type { DisplayMessage, ToolDisplayMessage } from './shared'
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import AssistantMessage from './AssistantMessage.svelte'
-	import { aiChatManager } from './AIChatManager.svelte'
+	import { getContext } from 'svelte'
+	import { AIChatManager, aiChatManager as singletonAiChatManager } from './AIChatManager.svelte'
+
+	const aiChatManager = getContext<AIChatManager>('aiChatManager') ?? singletonAiChatManager
 	import { Button } from '$lib/components/common'
 	import { RefreshCwIcon, Undo2Icon } from 'lucide-svelte'
 	import AIChatInput from './AIChatInput.svelte'
@@ -36,8 +39,8 @@
 
 <div
 	class={twMerge(
-		message.role === 'user' && messageIndex > 0 && 'mt-6',
 		'mb-2',
+		message.role === 'user' && messageIndex > 0 && 'mt-6 mb-6',
 		message.role !== 'user' ? 'cursor-default' : 'cursor-pointer'
 	)}
 	role="button"
@@ -53,7 +56,7 @@
 		</div>
 	{/if}
 	{#if message.role === 'user' && editingMessageIndex === messageIndex}
-		<div class="px-2">
+		<div class="px-2 max-w-lg">
 			<AIChatInput
 				{availableContext}
 				bind:selectedContext
@@ -73,7 +76,7 @@
 			class={twMerge(
 				'text-sm py-1 mx-2',
 				message.role === 'user' &&
-					'px-2 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 rounded-lg relative group',
+					'text-xs px-3 py-2 w-fit max-w-lg bg-surface-accent-selected text-accent rounded-lg relative group',
 				(message.role === 'assistant' || message.role === 'tool') && 'px-[1px]',
 				message.role === 'tool' && 'text-primary'
 			)}

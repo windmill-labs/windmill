@@ -62,6 +62,7 @@
 			  }
 			| undefined
 		diffDrawer?: DiffDrawer | undefined
+		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
 	}
 
 	let {
@@ -74,7 +75,8 @@
 		path,
 		newPath = undefined,
 		savedApp = $bindable(undefined),
-		diffDrawer = undefined
+		diffDrawer = undefined,
+		onNavigate
 	}: Props = $props()
 	export const version: number | undefined = undefined
 
@@ -927,6 +929,7 @@
 		{data}
 		{runnables}
 		{getBundle}
+		{onNavigate}
 		canUndo={historyManager.canUndo}
 		canRedo={historyManager.canRedo}
 		onUndo={handleUndo}

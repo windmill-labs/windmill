@@ -17,6 +17,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	import { ChevronLeft, ChevronRight, Folder, Layers, Loader2, User } from 'lucide-svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
+	import WorkspaceItemRow from '$lib/components/WorkspaceItemRow.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import { onMount, untrack } from 'svelte'
 	import {
@@ -528,32 +529,18 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 
 {#snippet leafRow(it: Item, secondary: string, baseClass: string)}
 	{@const key = leafKey(it)}
-	{@const isHl = key === highlightedKey}
-	{@const isCur = isCurrent(it)}
-	<button
-		type="button"
+	<WorkspaceItemRow
+		kind={it.kind}
+		summary={it.summary}
+		{secondary}
+		highlighted={key === highlightedKey}
+		current={isCurrent(it)}
 		id={idFor(key)}
-		role="option"
-		aria-selected={isHl}
-		data-nav-key={key}
-		aria-current={isCur ? 'true' : undefined}
-		class="w-full text-left flex items-center gap-2 px-3 transition-colors {baseClass} {isHl
-			? 'bg-surface-hover'
-			: ''} {isCur ? 'cursor-default text-emphasis font-medium' : ''}"
-		onmousedown={(e) => e.preventDefault()}
+		navKey={key}
+		{baseClass}
 		onclick={() => pick(it)}
 		onmouseenter={() => setHoverHighlight(key)}
-	>
-		<RowIcon kind={it.kind} size={12} />
-		<div class="min-w-0 flex-1">
-			{#if it.summary}
-				<div class="text-xs text-primary truncate">{it.summary}</div>
-				<div class="text-2xs text-secondary font-normal font-mono truncate">{secondary}</div>
-			{:else}
-				<div class="text-xs text-primary font-mono truncate">{secondary}</div>
-			{/if}
-		</div>
-	</button>
+	/>
 {/snippet}
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->

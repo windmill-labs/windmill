@@ -164,6 +164,8 @@ export interface AppEditorProps {
 	gotoFn?: (path: string, opt?: Record<string, any> | undefined) => void
 	unsavedConfirmationModal?: import('svelte').Snippet<[any]>
 	onSavedNewAppPath?: (path: string) => void
+	/** Override breadcrumb-picker navigation. Defaults to goto(editPathFor(item)). */
+	onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
 }
 
 export type App = {

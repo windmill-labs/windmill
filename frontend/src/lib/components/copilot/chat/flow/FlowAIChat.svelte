@@ -6,7 +6,9 @@
 	import type { FlowAIChatHelpers } from './core'
 	import { createInlineScriptSession } from './inlineScriptsUtils'
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
-	import { aiChatManager } from '../AIChatManager.svelte'
+	import { AIChatManager, aiChatManager as singletonAiChatManager } from '../AIChatManager.svelte'
+
+	const aiChatManager = getContext<AIChatManager>('aiChatManager') ?? singletonAiChatManager
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import type { FlowCopilotContext } from '../../flow'
 	import type { ScriptLintResult } from '../shared'

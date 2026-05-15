@@ -6,12 +6,19 @@
 	import ContextTextarea from './ContextTextarea.svelte'
 	import autosize from '$lib/autosize'
 	import type { ContextElement } from './context'
-	import { aiChatManager, AIMode } from './AIChatManager.svelte'
+	import {
+		AIChatManager,
+		aiChatManager as singletonAiChatManager,
+		AIMode
+	} from './AIChatManager.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { Snippet } from 'svelte'
+	import { getContext, tick, untrack, type Snippet } from 'svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
-	import { tick, untrack } from 'svelte'
+	import { ArrowUp, Square } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
+
+	const aiChatManager = getContext<AIChatManager>('aiChatManager') ?? singletonAiChatManager
 	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
@@ -389,10 +396,52 @@
 	})
 </script>
 
+{#snippet sendStopButton()}
+	{@const isLoading = aiChatManager.loading}
+	{@const sendDisabled = disabled || instructions.trim().length === 0}
+	<Button
+		variant="subtle"
+		unifiedSize="md"
+		iconOnly
+		title={isLoading ? 'Stop' : 'Send'}
+		startIcon={{ icon: isLoading ? Square : ArrowUp }}
+		disabled={!isLoading && sendDisabled}
+		on:click={() => {
+			if (isLoading) {
+				aiChatManager.cancel()
+			} else if (!sendDisabled) {
+				onSendRequest ? onSendRequest(instructions) : sendRequest()
+			}
+		}}
+	/>
+{/snippet}
+
 <div use:clickOutside class="relative">
 	{#if aiChatManager.mode === AIMode.SCRIPT || aiChatManager.mode === AIMode.FLOW}
+		<div class="relative">
+			<ContextTextarea
+				bind:this={contextTextareaComponent}
+				bind:value={instructions}
+				{availableContext}
+				{selectedContext}
+				{isFirstMessage}
+				placeholder={modePlaceholder}
+				onAddContext={(contextElement) => void addContextToSelection(contextElement)}
+				onSendRequest={() => {
+					if (disabled) {
+						return
+					}
+					onSendRequest ? onSendRequest(instructions) : sendRequest()
+				}}
+				{disabled}
+				{onKeyDown}
+			/>
+			<div class="absolute bottom-1 right-1">
+				{@render sendStopButton()}
+			</div>
+		</div>
 		{#if showContext}
-			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
+			<div class="flex flex-row items-center gap-1 mt-1 overflow-scroll no-scrollbar">
 				<Popover>
 					{#snippet trigger()}
 						<div
@@ -428,26 +477,45 @@
 				{/each}
 			</div>
 		{/if}
-		<ContextTextarea
-			bind:this={contextTextareaComponent}
-			bind:value={instructions}
-			{availableContext}
-			{selectedContext}
-			{isFirstMessage}
-			placeholder={modePlaceholder}
-			onAddContext={(contextElement) => void addContextToSelection(contextElement)}
-			onSendRequest={() => {
-				if (disabled) {
-					return
-				}
-				onSendRequest ? onSendRequest(instructions) : sendRequest()
-			}}
-			{disabled}
-			{onKeyDown}
-		/>
 	{:else if aiChatManager.mode === AIMode.APP}
+		<div class={twMerge('relative w-full scroll-pb-2', className)}>
+			<textarea
+				bind:this={instructionsTextareaComponent}
+				bind:value={instructions}
+				use:autosize
+				oninput={handleAppInput}
+				onblur={() => {
+					setTimeout(() => {
+						showAppContextTooltip = false
+					}, 200)
+				}}
+				onkeydown={(e) => {
+					if (onKeyDown) {
+						onKeyDown(e)
+					}
+					if (showAppContextTooltip) {
+						// avoid new line after Enter in the tooltip
+						if (e.key === 'Enter') {
+							e.preventDefault()
+						}
+						return
+					}
+					if (e.key === 'Enter' && !e.shiftKey) {
+						e.preventDefault()
+						sendRequest()
+					}
+				}}
+				rows={1}
+				placeholder={modePlaceholder}
+				class="resize-none !pl-3 !pr-10 !py-2"
+				{disabled}
+			></textarea>test
+			<div class="absolute bottom-1 right-1">
+				{@render sendStopButton()}
+			</div>
+		</div>
 		{#if showContext}
-			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
+			<div class="flex flex-row items-center gap-1 mt-1 overflow-scroll no-scrollbar">
 				<Popover>
 					{#snippet trigger()}
 						<div
@@ -479,39 +547,6 @@
 				{/each}
 			</div>
 		{/if}
-		<div class={twMerge('relative w-full scroll-pb-2', className)}>
-			<textarea
-				bind:this={instructionsTextareaComponent}
-				bind:value={instructions}
-				use:autosize
-				oninput={handleAppInput}
-				onblur={() => {
-					setTimeout(() => {
-						showAppContextTooltip = false
-					}, 200)
-				}}
-				onkeydown={(e) => {
-					if (onKeyDown) {
-						onKeyDown(e)
-					}
-					if (showAppContextTooltip) {
-						// avoid new line after Enter in the tooltip
-						if (e.key === 'Enter') {
-							e.preventDefault()
-						}
-						return
-					}
-					if (e.key === 'Enter' && !e.shiftKey) {
-						e.preventDefault()
-						sendRequest()
-					}
-				}}
-				rows={3}
-				placeholder={modePlaceholder}
-				class="resize-none"
-				{disabled}
-			></textarea>
-		</div>
 		{#if showAppContextTooltip}
 			<Portal target="body">
 				<div
@@ -552,15 +587,18 @@
 						sendRequest()
 					}
 				}}
-				rows={3}
+				rows={1}
 				placeholder={modePlaceholder}
-				class="resize-none"
+				class="resize-none !pl-3 !pr-10 !py-2"
 				{disabled}
 			></textarea>
+			<div class="absolute bottom-1 right-1">
+				{@render sendStopButton()}
+			</div>
 		</div>
 	{/if}
 	{#if bottomRightSnippet}
-		<div class="absolute bottom-2 right-2">
+		<div class="absolute bottom-1 right-1">
 			{@render bottomRightSnippet()}
 		</div>
 	{/if}

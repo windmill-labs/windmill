@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { Loader2, ChevronDown, ChevronRight, XCircle, Play } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
-	import { aiChatManager } from './AIChatManager.svelte'
+	import { getContext } from 'svelte'
+	import { AIChatManager, aiChatManager as singletonAiChatManager } from './AIChatManager.svelte'
+
+	const aiChatManager = getContext<AIChatManager>('aiChatManager') ?? singletonAiChatManager
 	import type { ToolDisplayMessage } from './shared'
 	import { twMerge } from 'tailwind-merge'
 	import ToolContentDisplay from './ToolContentDisplay.svelte'
@@ -30,13 +33,11 @@
 	)
 </script>
 
-<div
-	class="bg-surface border border-gray-200 dark:border-gray-700 rounded-md overflow-hidden font-mono text-xs"
->
+<div class="bg-surface border border-border-light rounded-md overflow-hidden font-mono text-xs">
 	<!-- Collapsible Header -->
 	<button
 		class={twMerge(
-			'w-full p-2 bg-surface-secondary hover:bg-surface-hover transition-colors flex items-center justify-between text-left border-b border-gray-200 dark:border-gray-700',
+			'w-full p-2 bg-surface-secondary/30 hover:bg-surface-hover transition-colors flex items-center justify-between text-left border-b border-border-light',
 			message.needsConfirmation ? 'opacity-80' : ''
 		)}
 		onclick={() => (isExpanded = !isExpanded)}
@@ -85,7 +86,7 @@
 				<div
 					class={twMerge(
 						'mt-3 pt-3 flex flex-row items-center justify-end gap-2',
-						hasParameters ? 'border-t border-gray-200 dark:border-gray-700' : ''
+						hasParameters ? 'border-t border-border-light' : ''
 					)}
 				>
 					<Button
