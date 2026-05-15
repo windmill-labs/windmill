@@ -132,7 +132,8 @@ use crate::{
     bun_executor::handle_bun_job,
     common::{
         build_args_map, cached_result_path, get_cached_resource_value_if_valid,
-        get_reserved_variables, update_worker_ping_for_failed_init_script, OccupancyMetrics,
+        get_reserved_variables, get_root_job_id, update_worker_ping_for_failed_init_script,
+        OccupancyMetrics,
     },
     csharp_executor::handle_csharp_job,
     deno_executor::handle_deno_job,
@@ -1351,11 +1352,10 @@ fn add_outstanding_wait_time(
     }
 
     let job_id = queued_job.id;
-    let root_job_id = queued_job
-        .root_job
-        .or(queued_job.flow_innermost_root_job)
-        .or(queued_job.parent_job)
-        .filter(|&id| id != queued_job.id);
+    // Aggregate onto the true top-level root (root_job → flow_innermost_root_job → parent_job).
+    // `get_root_job_id` falls back to the job's own id when none are set; filter that out so
+    // standalone scripts (no parent flow) skip the aggregate insertion.
+    let root_job_id = Some(get_root_job_id(queued_job)).filter(|&id| id != job_id);
     let conn = conn.clone();
 
     if let Some(db) = conn.as_sql() {
