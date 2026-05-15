@@ -81,6 +81,15 @@ type DraftState<V> = { val: StoredDraft<V> | undefined }
 type DraftEntry = {
 	count: number
 	state: DraftState<unknown>
+	/**
+	 * Tears down the `$effect.root` scope that owns the entry's
+	 * `useLocalStorageValue` reactivity — its `$state` cell and the persist
+	 * `$effect` deep-mutation loop. Called when the refcount hits 0.
+	 *
+	 * `undefined` only when the test runtime's broken `$effect.root` forced
+	 * us through the fallback path (see `acquireEntry`).
+	 */
+	destroyRoot?: () => void
 }
 
 const entries = new Map<string, DraftEntry>()
@@ -425,14 +434,43 @@ function acquireEntry(
 		existing.count++
 		return
 	}
+	// `useLocalStorageValue` registers a `$state` cell and a persist `$effect`
+	// for deep-mutation detection. The `$effect` is what makes
+	// `handle.draft.path = 'new'` (a deep mutation, not a setter call)
+	// actually hit localStorage. By default that `$effect` is parented to the
+	// caller's current scope — if `useMany`'s reconcile `$effect` is the
+	// caller (when a new spec is acquired during a reactive re-run), the
+	// persist `$effect` becomes its child and gets torn down on the next
+	// reconcile. Wrap the creation in `$effect.root` so the entry's
+	// reactivity lives in its own scope and only the entry's release path
+	// disposes of it.
+	let stateRef: DraftState<unknown> | undefined
+	const destroyRoot = $effect.root(() => {
+		stateRef = useLocalStorageValue<StoredDraft<unknown> | undefined>(
+			localStorageKey(workspace, itemKind, path),
+			wrap(defaultValue),
+			undefined,
+			// The first value to flow into the handle (e.g. a backend load in
+			// the editor route) is the baseline — only persist when the user
+			// actually changes it afterwards. Coalesce a typing storm into one
+			// localStorage write per 500 ms.
+			{ saveInitialValue: false, debounce: 500 }
+		)
+	})
+	if (stateRef) {
+		entries.set(mk, { count: 1, state: stateRef, destroyRoot })
+		return
+	}
+	// Fallback for the vitest runtime, where `$effect.root` returns its
+	// disposer but never invokes the callback. In tests there's no outer
+	// reactive effect calling acquireEntry, so the persist `$effect` parents
+	// to the test scope and lives long enough for assertions. In production
+	// `$effect.root` runs the callback synchronously per the Svelte 5 spec
+	// and this path is unreachable.
 	const state = useLocalStorageValue<StoredDraft<unknown> | undefined>(
 		localStorageKey(workspace, itemKind, path),
 		wrap(defaultValue),
 		undefined,
-		// The first value to flow into the handle (e.g. a backend load in
-		// the editor route) is the baseline — only persist when the user
-		// actually changes it afterwards. Coalesce a typing storm into one
-		// localStorage write per 500 ms.
 		{ saveInitialValue: false, debounce: 500 }
 	)
 	entries.set(mk, { count: 1, state })
@@ -443,6 +481,7 @@ function releaseEntry(mk: string): void {
 	if (!entry) return
 	entry.count--
 	if (entry.count <= 0) {
+		entry.destroyRoot?.()
 		entries.delete(mk)
 	}
 }
