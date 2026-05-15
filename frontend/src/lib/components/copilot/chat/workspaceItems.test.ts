@@ -1,4 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
+import { unified } from 'unified'
+import remarkParse from 'remark-parse'
+import remarkRehype from 'remark-rehype'
+import type { Root as MdastRoot, Link, Text } from 'mdast'
 
 vi.mock('$lib/gen', () => ({
 	ScriptService: { listScripts: vi.fn() },
@@ -6,7 +10,13 @@ vi.mock('$lib/gen', () => ({
 	AppService: { listApps: vi.fn() }
 }))
 
-import { extractCandidatePaths, WINDMILL_PATH_REGEX } from './workspaceItems.svelte'
+import {
+	extractCandidatePaths,
+	itemHref,
+	remarkWindmillPaths,
+	WINDMILL_PATH_REGEX,
+	type WorkspaceItemEntry
+} from './workspaceItems.svelte'
 
 describe('WINDMILL_PATH_REGEX', () => {
 	it('matches simple folder and user paths', () => {
@@ -48,5 +58,184 @@ describe('WINDMILL_PATH_REGEX', () => {
 
 	it('exposes a global regex', () => {
 		expect(WINDMILL_PATH_REGEX.global).toBe(true)
+	})
+})
+
+describe('itemHref', () => {
+	it('routes by kind and appends ?workspace when provided', () => {
+		expect(itemHref({ kind: 'script', path: 'f/a/b' })).toBe('/scripts/get/f/a/b')
+		expect(itemHref({ kind: 'flow', path: 'f/a/b' }, 'admins')).toBe(
+			'/flows/get/f/a/b?workspace=admins'
+		)
+		expect(itemHref({ kind: 'app', path: 'u/me/dash' }, 'ws1')).toBe(
+			'/apps/get/u/me/dash?workspace=ws1'
+		)
+	})
+})
+
+const SAMPLE_ENTRIES: Record<string, WorkspaceItemEntry> = {
+	'f/marketing/send_email': {
+		kind: 'script',
+		path: 'f/marketing/send_email',
+		summary: 'Send marketing email'
+	},
+	'u/admin/cleanup_old_jobs': {
+		kind: 'flow',
+		path: 'u/admin/cleanup_old_jobs',
+		summary: 'Cleanup old jobs'
+	},
+	'f/ops/dashboard': { kind: 'app', path: 'f/ops/dashboard', summary: 'Ops dashboard' }
+}
+
+function buildProcessor(workspace?: string) {
+	return unified()
+		.use(remarkParse)
+		.use(remarkWindmillPaths({ resolve: (p) => SAMPLE_ENTRIES[p], workspace }))
+}
+
+function findLinks(tree: MdastRoot): Link[] {
+	const out: Link[] = []
+	const walk = (node: any) => {
+		if (!node) return
+		if (node.type === 'link') out.push(node as Link)
+		if (Array.isArray(node.children)) node.children.forEach(walk)
+	}
+	walk(tree)
+	return out
+}
+
+function findText(tree: MdastRoot): Text[] {
+	const out: Text[] = []
+	const walk = (node: any) => {
+		if (!node) return
+		if (node.type === 'text') out.push(node as Text)
+		if (Array.isArray(node.children)) node.children.forEach(walk)
+	}
+	walk(tree)
+	return out
+}
+
+describe('remarkWindmillPaths (mdast)', () => {
+	it('rewrites known script / flow / app paths to link nodes with hProperties', () => {
+		const processor = buildProcessor('admins')
+		const tree = processor.runSync(
+			processor.parse(
+				'Use f/marketing/send_email and u/admin/cleanup_old_jobs, also try f/ops/dashboard.'
+			)
+		) as MdastRoot
+
+		const links = findLinks(tree)
+		expect(links).toHaveLength(3)
+
+		const byPath = Object.fromEntries(
+			links.map((l) => [(l.children[0] as Text).value, l])
+		) as Record<string, Link>
+
+		expect(byPath['f/marketing/send_email'].url).toBe(
+			'/scripts/get/f/marketing/send_email?workspace=admins'
+		)
+		expect(byPath['u/admin/cleanup_old_jobs'].url).toBe(
+			'/flows/get/u/admin/cleanup_old_jobs?workspace=admins'
+		)
+		expect(byPath['f/ops/dashboard'].url).toBe('/apps/get/f/ops/dashboard?workspace=admins')
+
+		expect(byPath['f/marketing/send_email'].title).toBe('Send marketing email')
+
+		const props = byPath['f/marketing/send_email'].data?.hProperties as Record<string, string>
+		expect(props['data-wm-kind']).toBe('script')
+		expect(props['data-wm-path']).toBe('f/marketing/send_email')
+		expect(props.target).toBe('_blank')
+		expect(props.rel).toBe('noopener noreferrer')
+	})
+
+	it('leaves unknown paths as plain text', () => {
+		const processor = buildProcessor()
+		const tree = processor.runSync(
+			processor.parse('Looking for f/nope/missing or u/ghost/script')
+		) as MdastRoot
+		expect(findLinks(tree)).toHaveLength(0)
+		const joined = findText(tree)
+			.map((t) => t.value)
+			.join('')
+		expect(joined).toContain('f/nope/missing')
+		expect(joined).toContain('u/ghost/script')
+	})
+
+	it('rewrites standalone inline-code paths into link pills', () => {
+		const processor = buildProcessor('admins')
+		const tree = processor.runSync(
+			processor.parse('Open `f/marketing/send_email` to see it.')
+		) as MdastRoot
+		const links = findLinks(tree)
+		expect(links).toHaveLength(1)
+		expect(links[0].url).toBe('/scripts/get/f/marketing/send_email?workspace=admins')
+		expect((links[0].data?.hProperties as Record<string, string>)['data-wm-kind']).toBe('script')
+	})
+
+	it('leaves inline code alone when it contains more than just a path', () => {
+		const processor = buildProcessor()
+		const tree = processor.runSync(
+			processor.parse('Like `f/marketing/send_email and friends` should stay code.')
+		) as MdastRoot
+		expect(findLinks(tree)).toHaveLength(0)
+	})
+
+	it('does not rewrite paths inside fenced code blocks', () => {
+		const processor = buildProcessor()
+		const tree = processor.runSync(
+			processor.parse('```\nf/marketing/send_email stays in the block\n```\n')
+		) as MdastRoot
+		expect(findLinks(tree)).toHaveLength(0)
+	})
+
+	it('leaves inline code untouched when the wrapped path is unknown', () => {
+		const processor = buildProcessor()
+		const tree = processor.runSync(processor.parse('Try `f/nope/missing` instead.')) as MdastRoot
+		expect(findLinks(tree)).toHaveLength(0)
+	})
+
+	it('does not rewrite paths inside existing links (e.g. autolinked URLs)', () => {
+		const processor = buildProcessor()
+		// Markdown-explicit link with a URL containing what looks like a Windmill path.
+		const tree = processor.runSync(
+			processor.parse('See [docs](https://example.com/f/marketing/send_email).')
+		) as MdastRoot
+		const links = findLinks(tree)
+		expect(links).toHaveLength(1)
+		// Original docs link preserved, no synthetic Windmill link added.
+		expect(links[0].url).toBe('https://example.com/f/marketing/send_email')
+		expect(links[0].data?.hProperties).toBeUndefined()
+	})
+
+	it('handles bold / italic wrapped paths', () => {
+		const processor = buildProcessor()
+		const tree = processor.runSync(
+			processor.parse('Run **f/marketing/send_email** today, or _u/admin/cleanup_old_jobs_.')
+		) as MdastRoot
+		const links = findLinks(tree)
+		expect(links).toHaveLength(2)
+		expect(new Set(links.map((l) => (l.children[0] as Text).value))).toEqual(
+			new Set(['f/marketing/send_email', 'u/admin/cleanup_old_jobs'])
+		)
+	})
+
+	it('preserves data attributes through remark-rehype', () => {
+		const processor = buildProcessor('admins').use(remarkRehype, { allowDangerousHtml: true })
+		const hast: any = processor.runSync(processor.parse('Use f/marketing/send_email today.'))
+		// Walk hast tree to find <a> element.
+		const links: any[] = []
+		const walk = (node: any) => {
+			if (!node) return
+			if (node.type === 'element' && node.tagName === 'a') links.push(node)
+			if (Array.isArray(node.children)) node.children.forEach(walk)
+		}
+		walk(hast)
+		expect(links).toHaveLength(1)
+		expect(links[0].properties.href).toBe('/scripts/get/f/marketing/send_email?workspace=admins')
+		// hast normalizes target/rel as standard attrs; data-* stays kebab-case.
+		expect(links[0].properties['dataWmKind'] ?? links[0].properties['data-wm-kind']).toBe('script')
+		expect(links[0].properties['dataWmPath'] ?? links[0].properties['data-wm-path']).toBe(
+			'f/marketing/send_email'
+		)
 	})
 })

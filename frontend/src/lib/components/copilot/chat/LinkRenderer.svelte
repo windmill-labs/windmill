@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte'
-	import { Code2, LayoutDashboard } from 'lucide-svelte'
+	import { Code2, ExternalLink, LayoutDashboard } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import type { WindmillItemKind } from './workspaceItems.svelte'
 
@@ -32,18 +32,23 @@
 			target="_blank"
 			rel="noopener noreferrer"
 			title={title || href}
-			class="inline-flex items-baseline gap-1 px-1 rounded bg-surface-secondary hover:bg-surface-hover border border-gray-200 dark:border-gray-700 text-primary no-underline font-mono text-[0.9em] align-baseline"
+			class="group inline-flex items-baseline gap-1 px-1 rounded hover:bg-surface-hover text-primary no-underline font-mono text-[0.9em] align-baseline"
 		>
-			<span class="inline-flex self-center shrink-0 text-secondary">
+			<span class="inline-flex self-center shrink-0">
 				{#if kind === 'script'}
-					<Code2 size={12} />
+					<Code2 size={12} class="text-blue-500" />
 				{:else if kind === 'flow'}
-					<BarsStaggered size={12} style="" class="!fill-current" />
+					<BarsStaggered size={12} style="" class="!fill-current text-teal-500" />
 				{:else if kind === 'app'}
-					<LayoutDashboard size={12} />
+					<LayoutDashboard size={12} class="text-orange-500" />
 				{/if}
 			</span>
 			{@render children?.()}
+			<span
+				class="inline-flex self-center shrink-0 text-tertiary opacity-0 group-hover:opacity-100 transition-opacity"
+			>
+				<ExternalLink size={10} />
+			</span>
 		</a>
 	{:else}
 		<a {href} target="_blank" rel="noopener noreferrer" {title}>
