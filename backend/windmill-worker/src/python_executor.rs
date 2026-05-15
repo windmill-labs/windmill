@@ -202,6 +202,13 @@ fn filter_pip_local_dependencies(lines: Vec<String>) -> (Vec<String>, Vec<String
         })
         .collect::<Vec<Regex>>();
 
+    filter_lines_by_deps(lines, &compiled_deps)
+}
+
+/// Pure core of [`filter_pip_local_dependencies`]: partitions `lines` into
+/// `(kept, ignored)`. A line is ignored when it is not a `#` comment and matches any of
+/// `compiled_deps`. Kept separate from config/regex loading so it can be unit-tested.
+fn filter_lines_by_deps(lines: Vec<String>, compiled_deps: &[Regex]) -> (Vec<String>, Vec<String>) {
     let (ignored, kept): (Vec<String>, Vec<String>) = lines
         .into_iter()
         .partition(|s| !s.starts_with('#') && compiled_deps.iter().any(|dep| dep.is_match(s)));
@@ -3256,5 +3263,40 @@ mod tests {
         assert!(cg.pre_spread.is_some());
         let pre = cg.pre_spread.as_ref().unwrap();
         assert!(pre.contains("pre_args[\"input\"]"));
+    }
+
+    fn lines(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn test_filter_lines_by_deps_no_deps_keeps_everything() {
+        let (kept, ignored) = filter_lines_by_deps(lines(&["requests==2.0", "numpy==1.0"]), &[]);
+        assert_eq!(kept, lines(&["requests==2.0", "numpy==1.0"]));
+        assert!(ignored.is_empty());
+    }
+
+    #[test]
+    fn test_filter_lines_by_deps_matches_and_partitions() {
+        let deps = vec![Regex::new("^my-local-pkg").unwrap()];
+        let (kept, ignored) = filter_lines_by_deps(
+            lines(&["requests==2.0", "my-local-pkg==1.2.3", "numpy==1.0"]),
+            &deps,
+        );
+        assert_eq!(kept, lines(&["requests==2.0", "numpy==1.0"]));
+        assert_eq!(ignored, lines(&["my-local-pkg==1.2.3"]));
+    }
+
+    #[test]
+    fn test_filter_lines_by_deps_preserves_comment_lines() {
+        // `#` lines (e.g. the `# py: 3.11` lockfile header) must survive even when a
+        // dependency regex would otherwise match them.
+        let deps = vec![Regex::new("py").unwrap()];
+        let (kept, ignored) = filter_lines_by_deps(
+            lines(&["# py: 3.11", "pyyaml==6.0", "requests==2.0"]),
+            &deps,
+        );
+        assert_eq!(kept, lines(&["# py: 3.11", "requests==2.0"]));
+        assert_eq!(ignored, lines(&["pyyaml==6.0"]));
     }
 }
