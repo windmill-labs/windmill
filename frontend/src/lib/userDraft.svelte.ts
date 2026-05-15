@@ -252,8 +252,11 @@ export const UserDraft = {
 		if (entry) {
 			// Update the shared reactive state so all observers are notified.
 			// The underlying useLocalStorageValue setter persists the wrapped
-			// value. Preserve any existing rev metadata on the entry.
-			const current = entry.state.val as StoredDraft<unknown> | undefined
+			// value. Preserve any existing rev metadata on the entry. The
+			// meta-preservation read runs under `untrack` for the same reason
+			// as `UserDraftHandle.set draft` — defensive against being called
+			// from inside an effect.
+			const current = untrack(() => entry.state.val as StoredDraft<unknown> | undefined)
 			entry.state.val = wrap(value, extractMeta(current))
 			return
 		}
@@ -303,7 +306,7 @@ export const UserDraft = {
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) {
-			const current = entry.state.val as StoredDraft<unknown> | undefined
+			const current = untrack(() => entry.state.val as StoredDraft<unknown> | undefined)
 			if (current === undefined) return
 			entry.state.val = wrap(current.value, meta)
 		}
@@ -539,9 +542,15 @@ function makeHandle<V>(
 			// value (e.g. typing in the editor). useLocalStorageValue's
 			// setter writes synchronously and removes the localStorage
 			// entry when value is undefined.
+			//
+			// `state.val` must be read under `untrack` — callers commonly
+			// invoke this setter from inside a `$effect` that mirrors a
+			// reactive `$state` into the handle. A tracked read here would
+			// subscribe that effect to the entry's `$state` cell that we're
+			// about to write, creating an effect_update_depth_exceeded loop.
 			const state = stateOf()
 			if (!state) return
-			const current = state.val as StoredDraft<V> | undefined
+			const current = untrack(() => state.val as StoredDraft<V> | undefined)
 			state.val = wrap(value, extractMeta(current))
 		},
 		get meta(): UserDraftMeta {
@@ -553,9 +562,11 @@ function makeHandle<V>(
 			state.val = wrap(value, meta)
 		},
 		setMeta(meta: UserDraftMeta, opts?: { force?: boolean }): void {
+			// Read under `untrack` for the same reason as `set draft` above —
+			// avoid making any surrounding effect re-fire on the write below.
 			const state = stateOf()
 			if (!state) return
-			const current = state.val as StoredDraft<V> | undefined
+			const current = untrack(() => state.val as StoredDraft<V> | undefined)
 			if (current === undefined) return
 			state.val = wrap(current.value, meta)
 			if (opts?.force) {
