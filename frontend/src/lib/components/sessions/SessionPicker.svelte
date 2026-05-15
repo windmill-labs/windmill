@@ -45,7 +45,9 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { visibleWorkspaceIds } from './sessionScope.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
-	import { userWorkspaces } from '$lib/stores'
+	import { userWorkspaces, usersWorkspaceStore } from '$lib/stores'
+	import { WorkspaceService } from '$lib/gen'
+	import { sendUserToast } from '$lib/toast'
 
 	// Look up the cached fork comparison for a session through its runtime
 	// (if any). The deriveForkStatus helper handles the "no runtime yet"
@@ -217,13 +219,34 @@
 	}
 
 	let pendingDelete: Session | undefined = $state(undefined)
+	let deleteAlsoFork = $state(false)
+	// Fork workspace tied to `pendingDelete`, if any, and still accessible.
+	const pendingDeleteForkId = $derived.by(() => {
+		const wsId = pendingDelete?.workspace_id
+		if (!wsId || !wsId.startsWith('wm-fork-')) return undefined
+		const ws = $userWorkspaces.find((w) => w.id === wsId)
+		if (!ws || !ws.parent_workspace_id) return undefined
+		return wsId
+	})
+
 	async function handleConfirmedDelete() {
 		const session = pendingDelete
+		const forkToDelete = deleteAlsoFork ? pendingDeleteForkId : undefined
 		pendingDelete = undefined
+		deleteAlsoFork = false
 		if (!session) return
 		const wasActive = sessionState.currentSessionId === session.id
 		removeSession(session.id)
 		forgetSessionSeen(session.id)
+		if (forkToDelete) {
+			try {
+				await WorkspaceService.deleteWorkspace({ workspace: forkToDelete })
+				sendUserToast(`Deleted forked workspace ${forkToDelete}`)
+				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+			} catch (e: any) {
+				sendUserToast(`Failed to delete fork ${forkToDelete}: ${e?.body ?? e}`, true)
+			}
+		}
 		if (wasActive) {
 			const next = sessionState.sessions[0]
 			if (next) await activate(next)
@@ -536,11 +559,29 @@
 	title="Delete session"
 	confirmationText="Delete"
 	onConfirmed={handleConfirmedDelete}
-	onCanceled={() => (pendingDelete = undefined)}
+	onCanceled={() => {
+		pendingDelete = undefined
+		deleteAlsoFork = false
+	}}
 >
-	<p>
-		Delete session <span class="font-medium text-primary"
-			>{pendingDelete?.summary ?? pendingDelete?.name}</span
-		>? This cannot be undone.
-	</p>
+	<div class="flex flex-col gap-3">
+		<p>
+			Delete session <span class="font-medium text-primary"
+				>{pendingDelete?.summary ?? pendingDelete?.name}</span
+			>? This cannot be undone.
+		</p>
+		{#if pendingDeleteForkId}
+			<div class="flex items-start gap-2 border rounded-md p-3 bg-surface-secondary">
+				<Toggle size="xs" bind:checked={deleteAlsoFork} />
+				<div class="flex flex-col">
+					<span class="text-xs font-medium text-primary"
+						>Also delete forked workspace <span class="font-mono">{pendingDeleteForkId}</span></span
+					>
+					<span class="text-3xs text-tertiary"
+						>The fork won't be reachable from any other session — leaving it would orphan it.</span
+					>
+				</div>
+			</div>
+		{/if}
+	</div>
 </ConfirmationModal>

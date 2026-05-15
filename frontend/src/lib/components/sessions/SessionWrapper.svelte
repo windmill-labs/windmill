@@ -7,7 +7,10 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { AIChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
-	import { userWorkspaces, workspaceStore } from '$lib/stores'
+	import { userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { WorkspaceService } from '$lib/gen'
+	import { sendUserToast } from '$lib/toast'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import { copilotInfo, loadCopilot } from '$lib/aiStore'
 	import {
 		Archive,
@@ -81,16 +84,80 @@
 		await goto(`/sessions?session_name=${encodeURIComponent(fresh.name)}`)
 	}
 
+	// If the session targets a forked workspace that's still accessible,
+	// offer to delete / archive the fork alongside the session — otherwise
+	// the fork lingers as an orphan whose only purpose was this session.
+	const sessionForkId = $derived.by(() => {
+		const wsId = session?.workspace_id
+		if (!wsId || !wsId.startsWith('wm-fork-')) return undefined
+		const ws = $userWorkspaces.find((w) => w.id === wsId)
+		// Don't offer the option if the fork is gone or not user-accessible.
+		if (!ws || !ws.parent_workspace_id) return undefined
+		return wsId
+	})
+
 	let deleteConfirmOpen = $state(false)
+	let deleteAlsoFork = $state(false)
+	let archiveConfirmOpen = $state(false)
+	let archiveAlsoFork = $state(false)
+
+	async function refreshWorkspaceList() {
+		// Match the SidebarContent.deleteFork pattern: replace the in-memory
+		// list rather than nulling it. See B1 fix.
+		try {
+			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+		} catch (e) {
+			console.error('Failed to refresh workspaces', e)
+		}
+	}
+
 	async function handleConfirmedDelete() {
 		deleteConfirmOpen = false
 		if (!session) return
+		const forkToDelete = deleteAlsoFork ? sessionForkId : undefined
+		deleteAlsoFork = false
 		removeSession(session.id)
+		if (forkToDelete) {
+			try {
+				await WorkspaceService.deleteWorkspace({ workspace: forkToDelete })
+				sendUserToast(`Deleted forked workspace ${forkToDelete}`)
+				await refreshWorkspaceList()
+			} catch (e: any) {
+				sendUserToast(`Failed to delete fork ${forkToDelete}: ${e?.body ?? e}`, true)
+			}
+		}
 		await resetToNewSession()
 	}
 
+	async function handleConfirmedArchive() {
+		archiveConfirmOpen = false
+		if (!session) return
+		const forkToArchive = archiveAlsoFork ? sessionForkId : undefined
+		archiveAlsoFork = false
+		setSessionArchived(session.id, true)
+		if (forkToArchive) {
+			try {
+				await WorkspaceService.archiveWorkspace({ workspace: forkToArchive })
+				sendUserToast(`Archived forked workspace ${forkToArchive}`)
+				await refreshWorkspaceList()
+			} catch (e: any) {
+				sendUserToast(`Failed to archive fork ${forkToArchive}: ${e?.body ?? e}`, true)
+			}
+		}
+		await resetToNewSession()
+	}
+
+	// Kept for the "Archive" entry that doesn't go through the confirmation
+	// modal — when the session isn't in a fork, no extra question to ask.
 	async function archiveAndReset() {
 		if (!session) return
+		// If the session is in a fork, route through the confirm modal so the
+		// user can opt into archiving the fork. Otherwise skip the modal.
+		if (sessionForkId) {
+			archiveAlsoFork = false
+			archiveConfirmOpen = true
+			return
+		}
 		setSessionArchived(session.id, true)
 		await resetToNewSession()
 	}
@@ -372,13 +439,63 @@
 		title="Delete session"
 		confirmationText="Delete"
 		onConfirmed={handleConfirmedDelete}
-		onCanceled={() => (deleteConfirmOpen = false)}
+		onCanceled={() => {
+			deleteConfirmOpen = false
+			deleteAlsoFork = false
+		}}
 	>
-		<p>
-			Delete session <span class="font-medium text-primary"
-				>{session?.summary ?? session?.name}</span
-			>? This cannot be undone.
-		</p>
+		<div class="flex flex-col gap-3">
+			<p>
+				Delete session <span class="font-medium text-primary"
+					>{session?.summary ?? session?.name}</span
+				>? This cannot be undone.
+			</p>
+			{#if sessionForkId}
+				<div class="flex items-start gap-2 border rounded-md p-3 bg-surface-secondary">
+					<Toggle size="xs" bind:checked={deleteAlsoFork} />
+					<div class="flex flex-col">
+						<span class="text-xs font-medium text-primary"
+							>Also delete forked workspace <span class="font-mono">{sessionForkId}</span></span
+						>
+						<span class="text-3xs text-tertiary"
+							>The fork won't be reachable from any other session — leaving it would orphan it.</span
+						>
+					</div>
+				</div>
+			{/if}
+		</div>
+	</ConfirmationModal>
+
+	<ConfirmationModal
+		open={archiveConfirmOpen}
+		title="Archive session"
+		confirmationText="Archive"
+		onConfirmed={handleConfirmedArchive}
+		onCanceled={() => {
+			archiveConfirmOpen = false
+			archiveAlsoFork = false
+		}}
+	>
+		<div class="flex flex-col gap-3">
+			<p>
+				Archive session <span class="font-medium text-primary"
+					>{session?.summary ?? session?.name}</span
+				>? You can restore it later from the archived list.
+			</p>
+			{#if sessionForkId}
+				<div class="flex items-start gap-2 border rounded-md p-3 bg-surface-secondary">
+					<Toggle size="xs" bind:checked={archiveAlsoFork} />
+					<div class="flex flex-col">
+						<span class="text-xs font-medium text-primary"
+							>Also archive forked workspace <span class="font-mono">{sessionForkId}</span></span
+						>
+						<span class="text-3xs text-tertiary"
+							>Archived workspaces can be unarchived later from instance settings.</span
+						>
+					</div>
+				</div>
+			{/if}
+		</div>
 	</ConfirmationModal>
 {/if}
 
