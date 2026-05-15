@@ -89,7 +89,12 @@
 	let selectedTriggerIndexFromUrl: number | undefined = $state(undefined)
 	async function loadFlow() {
 		loading = true
-		let flow: Flow = emptyFlow()
+		// Start from the persisted autosave, not a fresh `emptyFlow()`. The
+		// branches below override `flow` when the user explicitly asked for a
+		// different starting point (import/fork/URL state/template/hub); a
+		// plain reload of /flows/add (no query params) falls through with
+		// the LS value intact so the user's last session is restored.
+		let flow: Flow = flowHandle.draft ?? emptyFlow()
 
 		let state = forkState
 		const initialStateQuery = page.url.hash != '' ? page.url.hash.slice(1) : undefined
@@ -126,6 +131,10 @@
 						path: templatePath
 					})
 				}
+				// Template/hub flows are an explicit "start fresh from this
+				// content" — drop any previous empty-path autosave and use
+				// the freshly built flow as the baseline.
+				flow = emptyFlow()
 				Object.assign(flow, template)
 				const oldPath = templatePath.split('/')
 				initialPath = `u/${$userStore?.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')}/${
@@ -139,6 +148,7 @@
 				initialPath = `u/${$userStore?.username
 					.split('@')[0]
 					.replace(/[^a-zA-Z0-9_]/g, '')}/flow_${hubId}`
+				flow = emptyFlow()
 				Object.assign(flow, hub.flow)
 				if (flow.value.preprocessor_module?.value.type === 'rawscript') {
 					flow.value.preprocessor_module.value.content = replaceScriptPlaceholderWithItsValues(
