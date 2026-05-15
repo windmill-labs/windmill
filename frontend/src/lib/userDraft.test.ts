@@ -511,26 +511,29 @@ describe('UserDraft.use() — reference counting & cleanup', () => {
 		vi.advanceTimersByTime(500)
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/debounce')).toBe(wrapped('three'))
 	})
+})
 
-	it('manualRelease=true skips onDestroy registration and gates cleanup behind handle.release()', () => {
-		// Caller opts out of the auto-onDestroy — used by routes that create
-		// handles dynamically (e.g. ResourceEditor's per-workspace handles).
-		const h = UserDraft.use<string>('flow', 'u/me/manual', { manualRelease: true })
-		expect(onDestroyCallbacks.length).toBe(0)
-		h.draft = 'initial' // baseline
-		h.draft = 'edited' // persisted
+describe('UserDraft.useMany()', () => {
+	it('acquires one handle per spec in the synchronous initial reconcile', () => {
+		// `useMany`'s sync reconcile populates handles[0..] before returning,
+		// so callers (and `use()`'s 1-len wrapper) can use them immediately
+		// without waiting for an `$effect` tick.
+		const handles = UserDraft.useMany<number>(() => [
+			{ itemKind: 'flow', path: 'u/me/many', workspace: 'a' },
+			{ itemKind: 'flow', path: 'u/me/many', workspace: 'b' }
+		])
+		expect(handles.length).toBe(2)
 
-		// Without release(), the entry stays alive — a co-resident handle
-		// sees the same in-memory state.
-		const h2 = UserDraft.use<string>('flow', 'u/me/manual', { manualRelease: true })
-		expect(h2.draft).toBe('edited')
-		h.release()
-		// h2 still holds the entry. Releasing both clears it.
-		UserDraft.save('flow', 'u/me/manual', 'edited2')
-		expect(h2.draft).toBe('edited2')
+		// Each spec gets its own entry in the workspace-keyed store.
+		handles[0].draft = 0 // baseline
+		handles[0].draft = 1 // persisted
+		handles[1].draft = 0
+		handles[1].draft = 9
+		flushPersist()
+		expect(localStorage.getItem('userdraft/w/a/flow/u/me/many')).toBe(wrapped(1))
+		expect(localStorage.getItem('userdraft/w/b/flow/u/me/many')).toBe(wrapped(9))
 
-		h2.release()
-		// Second release on the same handle is a no-op — refcount stays at 0.
-		h2.release()
+		// One component-level onDestroy releases every acquired entry.
+		expect(onDestroyCallbacks.length).toBe(1)
 	})
 })

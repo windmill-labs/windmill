@@ -2,7 +2,7 @@
 	import type { Schema } from '$lib/common'
 	import { ResourceService, WorkspaceService, type Resource, type ResourceType } from '$lib/gen'
 	import { canWrite } from '$lib/utils'
-	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
@@ -49,32 +49,41 @@
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
 	let initialPath = path
 
-	// Per-workspace handles. Each workspace's autosave lives at its own
-	// localStorage key (`userdraft/w/{ws}/resource/{initialPath}`) so editing
-	// the same path across two workspaces stays cleanly separated.
-	let states: Record<string, UserDraftHandle<ResourceState>> = $state({})
+	// Per-workspace handles are driven by `useMany`. We track the workspace
+	// IDs (and their seeded defaults) in a parallel `$state` array; on every
+	// mutation `useMany` reconciles, acquiring entries for new workspaces and
+	// releasing them on component teardown. `states` indexes the resulting
+	// handles by workspace ID for ergonomic lookup downstream.
+	let workspaceSpecs = $state<Array<{ ws: string; defaultValue: ResourceState }>>([])
 	let initialStates: Record<string, ResourceState> = $state({})
 	let existedInitially: Record<string, boolean> = $state({})
 	let fetchedResources: Record<string, Resource> = $state({})
 	let perWsUser: Record<string, UserExt | undefined> = $state({})
 
-	onDestroy(() => {
-		for (const h of Object.values(states)) h.release()
+	const handlesArray = UserDraft.useMany<ResourceState>(() =>
+		workspaceSpecs.map((s) => ({
+			itemKind: 'resource' as const,
+			path: initialPath ?? '',
+			workspace: s.ws,
+			defaultValue: s.defaultValue
+		}))
+	)
+	const states = $derived.by(() => {
+		const out: Record<string, UserDraftHandle<ResourceState>> = {}
+		for (let i = 0; i < workspaceSpecs.length; i++) {
+			const handle = handlesArray[i]
+			if (handle) out[workspaceSpecs[i].ws] = handle
+		}
+		return out
 	})
 
-	/** Create (or reuse) a per-workspace handle. `defaultValue` is what the
-	 * handle reports when no autosave is persisted; an existing autosave
-	 * always wins. The default itself never round-trips to localStorage — only
-	 * the user's first real edit triggers a write. */
-	function ensureHandle(ws: string, defaultValue: ResourceState): UserDraftHandle<ResourceState> {
-		if (states[ws]) return states[ws]
-		const h = UserDraft.use<ResourceState>('resource', initialPath ?? '', {
-			workspace: ws,
-			defaultValue,
-			manualRelease: true
-		})
-		states[ws] = h
-		return h
+	/** Register a workspace so `useMany` acquires (or reuses) its handle.
+	 * `defaultValue` is what the handle reports when no autosave is persisted;
+	 * an existing autosave always wins. The default itself never round-trips
+	 * to localStorage — only the user's first real edit triggers a write. */
+	function ensureHandle(ws: string, defaultValue: ResourceState): void {
+		if (workspaceSpecs.some((s) => s.ws === ws)) return
+		workspaceSpecs.push({ ws, defaultValue })
 	}
 
 	let isValid = $state(true)

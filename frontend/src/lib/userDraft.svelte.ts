@@ -1,5 +1,5 @@
 import { get } from 'svelte/store'
-import { onDestroy } from 'svelte'
+import { onDestroy, untrack } from 'svelte'
 import { workspaceStore } from './stores'
 import { useLocalStorageValue } from './svelte5Utils.svelte'
 
@@ -40,14 +40,18 @@ export type UserDraftUseOptions<V> = UserDraftOptions & {
 	 * actual mutation is what writes to localStorage.
 	 */
 	defaultValue?: V
-	/**
-	 * When `true`, skip the automatic `onDestroy` registration. The caller is
-	 * responsible for invoking `handle.release()` to decrement the entry's
-	 * refcount. Useful when handles are created dynamically (e.g. inside an
-	 * effect) where `onDestroy` can no longer be called — Svelte 5 only
-	 * accepts lifecycle hooks during component initialization.
-	 */
-	manualRelease?: boolean
+}
+
+/**
+ * A single (kind, path, workspace) tuple that `useMany` should hold a handle
+ * for. The shape mirrors `use()`'s arguments, just bundled into one object
+ * so a getter can return a list of them.
+ */
+export type UserDraftSpec<V> = {
+	itemKind: UserDraftItemKind
+	path: string
+	workspace?: string
+	defaultValue?: V
 }
 
 /**
@@ -216,12 +220,6 @@ export type UserDraftHandle<V> = {
 	 * just acknowledged it.
 	 */
 	setMeta(meta: UserDraftMeta, opts?: { force?: boolean }): void
-	/**
-	 * Manually decrement the entry's refcount. Only required when `use()` was
-	 * called with `manualRelease: true` — otherwise an `onDestroy` is already
-	 * wired in. Calling this more than once for the same handle is a no-op.
-	 */
-	release(): void
 }
 
 export const UserDraft = {
@@ -332,73 +330,166 @@ export const UserDraft = {
 		path: string,
 		opts?: UserDraftUseOptions<V>
 	): UserDraftHandle<V> {
-		const ws = resolveWorkspace(opts)
-		const mk = mapKey(ws, itemKind, path)
-		const wrappedDefault = wrap(opts?.defaultValue)
-
-		let entry = entries.get(mk)
-		if (!entry) {
-			const state = useLocalStorageValue<StoredDraft<unknown> | undefined>(
-				localStorageKey(ws, itemKind, path),
-				wrappedDefault,
-				undefined,
-				// The first value to flow into the handle (e.g. a backend load
-				// in the editor route) is the baseline — only persist when the
-				// user actually changes it afterwards. Coalesce a typing storm
-				// into one localStorage write per 500 ms.
-				{ saveInitialValue: false, debounce: 500 }
-			)
-			entry = { count: 1, state }
-			entries.set(mk, entry)
-		} else {
-			entry.count++
-		}
-
-		const sharedEntry = entry
-
-		let released = false
-		const release = (): void => {
-			if (released) return
-			released = true
-			const e = entries.get(mk)
-			if (!e) return
-			e.count--
-			if (e.count <= 0) {
-				entries.delete(mk)
-			}
-		}
-
-		if (!opts?.manualRelease) {
-			onDestroy(release)
-		}
-
-		return {
-			get draft(): V | undefined {
-				return unwrap(sharedEntry.state.val as StoredDraft<V> | undefined)
-			},
-			set draft(value: V | undefined) {
-				// Preserve existing rev metadata when the user just edits the
-				// value (e.g. typing in the editor). useLocalStorageValue's
-				// setter writes synchronously and removes the localStorage
-				// entry when value is undefined.
-				const current = sharedEntry.state.val as StoredDraft<V> | undefined
-				sharedEntry.state.val = wrap(value, extractMeta(current))
-			},
-			get meta(): UserDraftMeta {
-				return extractMeta(sharedEntry.state.val as StoredDraft<unknown> | undefined)
-			},
-			setDraftAndMeta(value: V | undefined, meta: UserDraftMeta): void {
-				sharedEntry.state.val = wrap(value, meta)
-			},
-			setMeta(meta: UserDraftMeta, opts?: { force?: boolean }): void {
-				const current = sharedEntry.state.val as StoredDraft<V> | undefined
-				if (current === undefined) return
-				sharedEntry.state.val = wrap(current.value, meta)
-				if (opts?.force) {
-					persistDirect(localStorageKey(ws, itemKind, path), current.value, meta)
+		// `use()` is a single-spec wrapper around `useMany`. We untrack the
+		// getter so that reactive opts (e.g. `$workspaceStore`) are captured
+		// once at call time — the current `use()` contract is "the handle
+		// stays bound to this workspace until the component unmounts." Use
+		// `useMany` directly if you want spec changes to release/acquire
+		// entries as you go.
+		const handles = UserDraft.useMany<V>(() =>
+			untrack(() => [
+				{
+					itemKind,
+					path,
+					workspace: opts?.workspace,
+					defaultValue: opts?.defaultValue
 				}
-			},
-			release
+			])
+		)
+		return handles[0]
+	},
+
+	useMany<V = unknown>(getSpecs: () => UserDraftSpec<V>[]): UserDraftHandle<V>[] {
+		// Reactive handles array, reconciled against the latest `getSpecs()`
+		// output. Indices line up with the spec array. Handles for the same
+		// (workspace, kind, path) tuple are reused across reconciles so
+		// callers can capture a reference and keep it alive — only the
+		// underlying entry's refcount moves.
+		const handles = $state<UserDraftHandle<V>[]>([])
+		const acquired = new Set<string>()
+		const handleCache = new Map<string, UserDraftHandle<V>>()
+
+		function reconcile() {
+			const specs = getSpecs()
+			const seen = new Set<string>()
+			const next: UserDraftHandle<V>[] = []
+
+			for (const spec of specs) {
+				const ws = spec.workspace ?? resolveWorkspace()
+				const mk = mapKey(ws, spec.itemKind, spec.path)
+				seen.add(mk)
+
+				if (!acquired.has(mk)) {
+					acquireEntry(ws, spec.itemKind, spec.path, spec.defaultValue)
+					acquired.add(mk)
+				}
+				let handle = handleCache.get(mk)
+				if (!handle) {
+					handle = makeHandle<V>(ws, spec.itemKind, spec.path)
+					handleCache.set(mk, handle)
+				}
+				next.push(handle)
+			}
+
+			for (const mk of [...acquired]) {
+				if (!seen.has(mk)) {
+					releaseEntry(mk)
+					acquired.delete(mk)
+					handleCache.delete(mk)
+				}
+			}
+
+			// Skip the mutation when specs are structurally unchanged — handles
+			// are cached by mapKey, so two reconciles with the same spec set
+			// produce reference-equal arrays. Avoids dirtying downstream
+			// reactive readers on no-op `$effect` re-runs.
+			const unchanged = handles.length === next.length && handles.every((h, i) => h === next[i])
+			if (!unchanged) handles.splice(0, handles.length, ...next)
+		}
+
+		// Synchronous initial reconcile so single-spec callers (`use()`) get a
+		// populated `handles[0]` before the function returns. Reactive reads
+		// inside `getSpecs()` here are intentionally not tracked — the
+		// `$effect` below picks up any subsequent dependency changes.
+		untrack(reconcile)
+		$effect(reconcile)
+		onDestroy(() => {
+			for (const mk of acquired) releaseEntry(mk)
+			acquired.clear()
+			handleCache.clear()
+		})
+
+		return handles
+	}
+}
+
+function acquireEntry(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string,
+	defaultValue: unknown
+): void {
+	const mk = mapKey(workspace, itemKind, path)
+	const existing = entries.get(mk)
+	if (existing) {
+		existing.count++
+		return
+	}
+	const state = useLocalStorageValue<StoredDraft<unknown> | undefined>(
+		localStorageKey(workspace, itemKind, path),
+		wrap(defaultValue),
+		undefined,
+		// The first value to flow into the handle (e.g. a backend load in
+		// the editor route) is the baseline — only persist when the user
+		// actually changes it afterwards. Coalesce a typing storm into one
+		// localStorage write per 500 ms.
+		{ saveInitialValue: false, debounce: 500 }
+	)
+	entries.set(mk, { count: 1, state })
+}
+
+function releaseEntry(mk: string): void {
+	const entry = entries.get(mk)
+	if (!entry) return
+	entry.count--
+	if (entry.count <= 0) {
+		entries.delete(mk)
+	}
+}
+
+function makeHandle<V>(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string
+): UserDraftHandle<V> {
+	// The handle reads `entries.get(mk)` on every access. The entry it points
+	// at is stable as long as the refcount stays > 0 (which `useMany` keeps
+	// the case for as long as a spec references it). If the refcount drops to
+	// 0 and the entry is destroyed, reads return `undefined` rather than
+	// throwing — the consumer should already have been torn down by that point.
+	const mk = mapKey(workspace, itemKind, path)
+	const stateOf = (): DraftState<unknown> | undefined => entries.get(mk)?.state
+	return {
+		get draft(): V | undefined {
+			return unwrap(stateOf()?.val as StoredDraft<V> | undefined)
+		},
+		set draft(value: V | undefined) {
+			// Preserve existing rev metadata when the user just edits the
+			// value (e.g. typing in the editor). useLocalStorageValue's
+			// setter writes synchronously and removes the localStorage
+			// entry when value is undefined.
+			const state = stateOf()
+			if (!state) return
+			const current = state.val as StoredDraft<V> | undefined
+			state.val = wrap(value, extractMeta(current))
+		},
+		get meta(): UserDraftMeta {
+			return extractMeta(stateOf()?.val as StoredDraft<unknown> | undefined)
+		},
+		setDraftAndMeta(value: V | undefined, meta: UserDraftMeta): void {
+			const state = stateOf()
+			if (!state) return
+			state.val = wrap(value, meta)
+		},
+		setMeta(meta: UserDraftMeta, opts?: { force?: boolean }): void {
+			const state = stateOf()
+			if (!state) return
+			const current = state.val as StoredDraft<V> | undefined
+			if (current === undefined) return
+			state.val = wrap(current.value, meta)
+			if (opts?.force) {
+				persistDirect(localStorageKey(workspace, itemKind, path), current.value, meta)
+			}
 		}
 	}
 }

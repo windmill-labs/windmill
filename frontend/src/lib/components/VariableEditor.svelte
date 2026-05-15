@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { VariableService, WorkspaceService } from '$lib/gen'
-	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
@@ -28,10 +28,12 @@
 
 	let editPath: string | undefined = $state(undefined)
 
-	// Per-workspace handles. Each workspace's autosave lives at its own
-	// localStorage key (`userdraft/w/{ws}/variable/{editPath}`) so editing the
-	// same path across two workspaces stays cleanly separated.
-	let states: Record<string, UserDraftHandle<VariableState>> = $state({})
+	// Per-workspace handles are driven by `useMany`. We track the workspace
+	// IDs (and their seeded defaults) in a parallel `$state` array; on every
+	// mutation `useMany` reconciles, acquiring entries for new workspaces and
+	// releasing them on component teardown. `states` indexes the resulting
+	// handles by workspace ID for ergonomic lookup downstream.
+	let workspaceSpecs = $state<Array<{ ws: string; defaultValue: VariableState }>>([])
 	let initialStates: Record<string, VariableState> = $state({})
 	let existedInitially: Record<string, boolean> = $state({})
 	let extraPerms: Record<string, Record<string, boolean>> = $state({})
@@ -39,23 +41,30 @@
 	let selected: string | undefined = $state(undefined)
 	let pathError = $state('')
 
-	onDestroy(() => {
-		for (const h of Object.values(states)) h.release()
+	const handlesArray = UserDraft.useMany<VariableState>(() =>
+		workspaceSpecs.map((s) => ({
+			itemKind: 'variable' as const,
+			path: editPath ?? '',
+			workspace: s.ws,
+			defaultValue: s.defaultValue
+		}))
+	)
+	const states = $derived.by(() => {
+		const out: Record<string, UserDraftHandle<VariableState>> = {}
+		for (let i = 0; i < workspaceSpecs.length; i++) {
+			const handle = handlesArray[i]
+			if (handle) out[workspaceSpecs[i].ws] = handle
+		}
+		return out
 	})
 
-	/** Create (or reuse) a per-workspace handle. `defaultValue` is what the
-	 * handle reports when no autosave is persisted; an existing autosave
-	 * always wins. The default itself never round-trips to localStorage — only
-	 * the user's first real edit triggers a write. */
-	function ensureHandle(ws: string, defaultValue: VariableState): UserDraftHandle<VariableState> {
-		if (states[ws]) return states[ws]
-		const h = UserDraft.use<VariableState>('variable', editPath ?? '', {
-			workspace: ws,
-			defaultValue,
-			manualRelease: true
-		})
-		states[ws] = h
-		return h
+	/** Register a workspace so `useMany` acquires (or reuses) its handle.
+	 * `defaultValue` is what the handle reports when no autosave is persisted;
+	 * an existing autosave always wins. The default itself never round-trips
+	 * to localStorage — only the user's first real edit triggers a write. */
+	function ensureHandle(ws: string, defaultValue: VariableState): void {
+		if (workspaceSpecs.some((s) => s.ws === ws)) return
+		workspaceSpecs.push({ ws, defaultValue })
 	}
 
 	let drawer: Drawer | undefined = $state()
@@ -130,8 +139,9 @@
 	})
 
 	function reset() {
-		for (const h of Object.values(states)) h.release()
-		states = {}
+		// Clearing workspaceSpecs triggers useMany's reconcile to release
+		// every acquired entry. The $derived `states` then collapses to {}.
+		workspaceSpecs = []
 		initialStates = {}
 		existedInitially = {}
 		extraPerms = {}
