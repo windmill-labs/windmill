@@ -13,6 +13,7 @@
 	import { getUserExt } from '$lib/user'
 	import type { UserExt } from '$lib/stores'
 	import { UserDraft, type UserDraftHandle } from '$lib/userDraft.svelte'
+	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 
 	interface Props {
 		canSave?: boolean
@@ -203,6 +204,21 @@
 					args: (r.value ?? {}) as any,
 					labels: r.labels ?? undefined,
 					wsSpecific: r.ws_specific ?? false
+				}
+				// Surface the local autosave-vs-backend divergence before the
+				// handle is registered, so the user knows the form is showing
+				// their unsaved work. The "Reset to deployed" action drops the
+				// LS entry and re-seeds the handle from the just-fetched
+				// backend state.
+				const persisted = UserDraft.get<ResourceState>('resource', initialPath ?? '', {
+					workspace: ws
+				})
+				if (persisted !== undefined && !deepEqual(persisted, s)) {
+					notifyRestoredFromLocal(false, true, {
+						onResetToDeployed: () => {
+							UserDraft.save('resource', initialPath ?? '', s, { workspace: ws })
+						}
+					})
 				}
 				ensureHandle(ws, s)
 				initialStates[ws] = structuredClone(s)

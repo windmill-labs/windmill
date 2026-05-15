@@ -16,6 +16,7 @@
 	import { getUserExt } from '$lib/user'
 	import type { UserExt } from '$lib/stores'
 	import { UserDraft, type UserDraftHandle } from '$lib/userDraft.svelte'
+	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 
 	const dispatch = createEventDispatcher()
 
@@ -128,6 +129,17 @@
 					},
 					labels: v.labels ?? undefined,
 					wsSpecific: v.ws_specific ?? false
+				}
+				// See ResourceEditor for the same pattern: tell the user the
+				// form is showing their local autosave (not the backend),
+				// with a one-click "Reset to deployed" escape.
+				const persisted = UserDraft.get<VariableState>('variable', p, { workspace: ws })
+				if (persisted !== undefined && !deepEqual(persisted, s)) {
+					notifyRestoredFromLocal(false, true, {
+						onResetToDeployed: () => {
+							UserDraft.save('variable', p, s, { workspace: ws })
+						}
+					})
 				}
 				ensureHandle(ws, s)
 				initialStates[ws] = structuredClone(s)
