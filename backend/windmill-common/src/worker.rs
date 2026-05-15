@@ -1002,6 +1002,14 @@ pub fn atomic_write_file_bytes(
     }
     if let Err(e) = fs::rename(&tmp_path, final_path) {
         let _ = fs::remove_file(&tmp_path);
+        // Content-addressed cache: if the destination now exists, a concurrent
+        // publisher already wrote byte-identical content via its own
+        // tmp+rename, so the cache is correct. This also covers Windows, where
+        // `rename` can refuse to replace a destination that an in-flight reader
+        // has open even though that destination is already valid.
+        if Path::new(final_path).exists() {
+            return Ok(());
+        }
         return Err(e.into());
     }
     Ok(())
@@ -1018,79 +1026,48 @@ pub fn atomic_copy_file(origin: &str, final_path: &str) -> error::Result<()> {
     }
     if let Err(e) = fs::rename(&tmp_path, final_path) {
         let _ = fs::remove_file(&tmp_path);
+        // See `atomic_write_file_bytes`: a content-addressed destination that
+        // now exists is already correct (peer publish / Windows open-file).
+        if Path::new(final_path).exists() {
+            return Ok(());
+        }
         return Err(e.into());
     }
     Ok(())
 }
 
-/// Publish a fully-populated `tmp_dir` to `final_dir`, always ending with a
-/// complete freshly-built directory at `final_dir` and never exposing a
-/// partially-populated one to a concurrent reader gating on
-/// `metadata(final_dir)`.
+/// Publish a fully-populated `tmp_dir` to `final_dir` via a single atomic
+/// `rename`, so a concurrent reader gating on `metadata(final_dir)` never
+/// observes a half-populated directory: `final_dir` is only ever absent or
+/// complete (we never extract/copy in place).
 ///
-/// These dir caches are content-addressed (the path embeds a hash of the
-/// inputs), so every concurrent publisher writes byte-identical content and a
-/// *complete* `final_dir` is immutable-correct. The hard part is a *stale or
-/// partial* `final_dir` left behind by a populate that was hard-killed on a
-/// pre-atomic binary: POSIX `rename` cannot replace a non-empty directory, so a
-/// naive "trust whatever is there" would serve that partial dir forever (no
-/// self-heal). Instead we move the stale dir aside and swap our complete copy
-/// in, so we are strictly safer than an in-place re-extract in every case.
+/// These dir caches are content-addressed (PHP `vendor/{hash}`, Java deps —
+/// the path embeds a hash of the inputs), so every concurrent publisher builds
+/// byte-identical content. If `rename` fails and `final_dir` already exists, a
+/// peer published the identical content (or, on Windows, `rename` refused to
+/// replace an existing directory that is nonetheless already valid): treat the
+/// existing dir as the correct cache.
 ///
-/// Invariants for a concurrent reader: `final_dir` is only ever observed as
-/// (a) absent, (b) the *unchanged* pre-existing dir, or (c) a complete fresh
-/// publish. We never mutate `final_dir` in place, so a reader can never see a
-/// newly-created partial. The brief window where the stale dir is moved aside
-/// makes `final_dir` momentarily absent — that degrades to a benign cache miss
-/// (re-pull/recompute), never to reading corrupt or partial content.
+/// Deliberately simple — no destroy-then-recreate swap. The accepted residual
+/// is that a *stale partial* `final_dir` left by a populate hard-killed on a
+/// pre-atomic binary is trusted rather than rebuilt. That is a finite,
+/// self-draining migration hazard (post-fix code only ever renames a complete
+/// `tmp_dir` into place, so it cannot create that state), it is confined to the
+/// PHP/Java dependency caches (never the `//native` path this PR targets), and
+/// it clears on cache eviction. A swap that rebuilds it introduces
+/// concurrent-publisher edge cases that are a worse trade on a critical path.
 pub fn atomic_publish_dir(tmp_dir: &str, final_dir: &str) -> error::Result<()> {
-    // Fast path: nothing at `final_dir` yet (the common cold-load case). A
-    // single atomic rename; also succeeds if `final_dir` is an empty dir.
-    if fs::rename(tmp_dir, final_dir).is_ok() {
-        return Ok(());
+    match fs::rename(tmp_dir, final_dir) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = fs::remove_dir_all(tmp_dir);
+            if Path::new(final_dir).exists() {
+                Ok(())
+            } else {
+                Err(e.into())
+            }
+        }
     }
-
-    // `final_dir` does not exist and the rename failed for a real reason
-    // (ENOSPC, EACCES, EROFS, ...). There is nothing safe to fall back to.
-    if !Path::new(final_dir).exists() {
-        let _ = fs::remove_dir_all(tmp_dir);
-        return Err(error::Error::ExecutionErr(format!(
-            "could not publish cache dir {final_dir}: no destination and rename failed"
-        )));
-    }
-
-    // `final_dir` is non-empty: either a complete prior/peer publish (identical
-    // content) or a stale partial. We can't cheaply tell them apart, so always
-    // replace it with our known-complete copy. Move the old dir aside first so
-    // the swap is two renames with no in-place mutation.
-    let bak_dir = format!("{}.bak.{}", final_dir, Uuid::new_v4());
-    if fs::rename(final_dir, &bak_dir).is_err() {
-        // A concurrent publisher moved `final_dir` in the same window. Content
-        // is identical; trust the peer's result if it has reappeared.
-        let _ = fs::remove_dir_all(tmp_dir);
-        return if Path::new(final_dir).exists() {
-            Ok(())
-        } else {
-            Err(error::Error::ExecutionErr(format!(
-                "could not publish cache dir {final_dir}: lost swap race and destination vanished"
-            )))
-        };
-    }
-
-    if let Err(e) = fs::rename(tmp_dir, final_dir) {
-        // Publishing the fresh copy failed (e.g. disk full). Restore the dir we
-        // moved aside so we never leave `final_dir` missing on our account.
-        let _ = fs::rename(&bak_dir, final_dir);
-        let _ = fs::remove_dir_all(tmp_dir);
-        let _ = fs::remove_dir_all(&bak_dir);
-        return Err(e.into());
-    }
-
-    // Fresh copy is live at `final_dir`; drop the stale one. Best-effort: a
-    // leftover `*.bak.*` is inert disk junk, never read (consumers address the
-    // exact `final_dir`), same as a leftover `*.tmp.*`.
-    let _ = fs::remove_dir_all(&bak_dir);
-    Ok(())
 }
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
@@ -2531,41 +2508,54 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
     }
 
-    // R1 regression: a *pre-existing, partial* `final_dir` (the state a populate
-    // hard-killed on a pre-atomic binary leaves behind) must be REPLACED by the
-    // complete fresh copy, not trusted. Guards the one real downside identified
-    // for the dir-cache paths (PHP `vendor/`, Java deps): without trust-but-
-    // replace this dir would be served incomplete forever, until cache clear.
+    // Contract guard: when `final_dir` ALREADY exists (a complete prior/peer
+    // publish — content-addressed, so identical bytes), concurrent publishers
+    // must all return Ok via the exists-fallback and must never corrupt or
+    // partially-overwrite the existing dir. Covers the preexisting+concurrent
+    // case; documents the accepted simple-form behavior (an existing dir is
+    // trusted, not rebuilt).
     #[test]
-    fn test_atomic_publish_dir_replaces_stale_partial() {
+    fn test_atomic_publish_dir_existing_is_trusted_not_corrupted() {
+        use std::sync::{Arc, Barrier};
+
         let base =
-            std::env::temp_dir().join(format!("wm_atomic_stale_test_{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("wm_atomic_exist_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&base).unwrap();
         let final_dir = base.join("cache_dir");
+        let final_dir_str = final_dir.to_str().unwrap().to_string();
 
-        // Simulate a crashed pre-atomic populate: a non-empty but incomplete dir
-        // (only main.js, missing meta.txt) sitting at the final path.
+        // A complete dir already published at the final path.
         std::fs::create_dir_all(&final_dir).unwrap();
-        std::fs::write(final_dir.join("main.js"), b"PARTIAL").unwrap();
+        std::fs::write(final_dir.join("main.js"), b"export function main() {}").unwrap();
+        std::fs::write(final_dir.join("meta.txt"), b"v1").unwrap();
 
-        // A fresh, complete temp dir.
-        let tmp = base.join(format!("cache_dir.tmp.{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&tmp).unwrap();
-        std::fs::write(tmp.join("main.js"), b"export function main() {}").unwrap();
-        std::fs::write(tmp.join("meta.txt"), b"v1").unwrap();
+        let n = 8;
+        let barrier = Arc::new(Barrier::new(n));
+        let mut handles = vec![];
+        for _ in 0..n {
+            let barrier = barrier.clone();
+            let final_dir_str = final_dir_str.clone();
+            let base = base.clone();
+            handles.push(std::thread::spawn(move || {
+                let tmp = base.join(format!("cache_dir.tmp.{}", uuid::Uuid::new_v4()));
+                std::fs::create_dir_all(&tmp).unwrap();
+                std::fs::write(tmp.join("main.js"), b"export function main() {}").unwrap();
+                std::fs::write(tmp.join("meta.txt"), b"v1").unwrap();
+                barrier.wait();
+                // Every publisher must succeed (exists-fallback), none error.
+                atomic_publish_dir(tmp.to_str().unwrap(), &final_dir_str).unwrap();
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
 
-        atomic_publish_dir(tmp.to_str().unwrap(), final_dir.to_str().unwrap()).unwrap();
-
-        // The stale partial must be gone: complete content present, and the old
-        // truncated main.js overwritten.
-        assert!(
-            final_dir.join("meta.txt").is_file(),
-            "stale partial was trusted instead of replaced"
-        );
+        // Existing dir intact and complete — never partially overwritten.
         assert_eq!(
             std::fs::read(final_dir.join("main.js")).unwrap(),
             b"export function main() {}"
         );
+        assert_eq!(std::fs::read(final_dir.join("meta.txt")).unwrap(), b"v1");
         let leftovers: Vec<_> = std::fs::read_dir(&base)
             .unwrap()
             .filter_map(|e| e.ok())
