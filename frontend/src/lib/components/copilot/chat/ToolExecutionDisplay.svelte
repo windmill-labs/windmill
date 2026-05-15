@@ -108,51 +108,59 @@
 		onclick={() => (isExpanded = !isExpanded)}
 		disabled={!message.showDetails && !message.isStreamingArguments}
 	>
-		<div class="flex items-center gap-2 flex-1">
+		<div class="flex items-start gap-2 flex-1 min-w-0">
 			{#if message.showDetails || message.isStreamingArguments}
-				{#if isExpanded}
-					<ChevronDown class="w-3 h-3 text-secondary" />
-				{:else}
-					<ChevronRight class="w-3 h-3 text-secondary" />
-				{/if}
+				<span class="shrink-0 mt-0.5">
+					{#if isExpanded}
+						<ChevronDown class="w-3 h-3 text-secondary" />
+					{:else}
+						<ChevronRight class="w-3 h-3 text-secondary" />
+					{/if}
+				</span>
 			{/if}
 
-			{#if message.isLoading && !message.needsConfirmation}
-				<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500" />
-			{:else if message.error}
-				<span class="text-red-500">✗</span>
-			{:else if !message.isLoading && !message.error}
-				<span class="text-green-500">✓</span>
-			{/if}
-			<span class="text-primary font-medium text-2xs">
-				{message.content}
+			<span class="shrink-0 mt-0.5">
+				{#if message.isLoading && !message.needsConfirmation}
+					<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500" />
+				{:else if message.error}
+					<span class="text-red-500">✗</span>
+				{:else if !message.isLoading && !message.error}
+					<span class="text-green-500">✓</span>
+				{/if}
 			</span>
-			{#if referencedItems.length > 0}
-				<div class="flex flex-row flex-wrap items-center gap-1 ml-1 min-w-0">
-					{#each referencedItems as item (item.path)}
-						<a
-							href={itemHref(item, $workspaceStore ?? undefined)}
-							target="_blank"
-							rel="noopener noreferrer"
-							onclick={(e) => e.stopPropagation()}
-							title={item.summary || item.path}
-							class="inline-flex items-center gap-1 px-1 py-0.5 rounded bg-surface-secondary hover:bg-surface-hover border border-gray-200 dark:border-gray-700 text-primary no-underline font-mono text-2xs max-w-[14rem] truncate"
-						>
-							<span class="inline-flex shrink-0 text-secondary">
-								{#if item.kind === 'script'}
-									<Code2 class="w-3 h-3" />
-								{:else if item.kind === 'flow'}
-									<BarsStaggered size={12} style="" class="!fill-current" />
-								{:else}
-									<LayoutDashboard class="w-3 h-3" />
-								{/if}
-							</span>
-							<span class="truncate">{item.path}</span>
-							<ExternalLink class="w-2.5 h-2.5 shrink-0 text-tertiary" />
-						</a>
-					{/each}
-				</div>
-			{/if}
+			<div class="flex flex-col gap-1 min-w-0 flex-1">
+				<span class="text-primary font-medium text-2xs">
+					{message.content}
+				</span>
+				{#if referencedItems.length > 0}
+					<div class="flex flex-row flex-wrap items-center gap-1 min-w-0">
+						{#each referencedItems as item (item.path)}
+							<a
+								href={itemHref(item, $workspaceStore ?? undefined)}
+								target="_blank"
+								rel="noopener noreferrer"
+								onclick={(e) => e.stopPropagation()}
+								title={item.summary || item.path}
+								class="group inline-flex items-center gap-1 px-1 py-0.5 rounded hover:bg-surface-hover text-primary no-underline font-mono text-2xs max-w-full min-w-0"
+							>
+								<span class="inline-flex shrink-0">
+									{#if item.kind === 'script'}
+										<Code2 class="w-3 h-3 text-blue-500" />
+									{:else if item.kind === 'flow'}
+										<BarsStaggered size={12} style="" class="!fill-current text-teal-500" />
+									{:else}
+										<LayoutDashboard class="w-3 h-3 text-orange-500" />
+									{/if}
+								</span>
+								<span class="truncate">{item.path}</span>
+								<ExternalLink
+									class="w-2.5 h-2.5 shrink-0 text-tertiary opacity-0 group-hover:opacity-100 transition-opacity"
+								/>
+							</a>
+						{/each}
+					</div>
+				{/if}
+			</div>
 		</div>
 	</button>
 

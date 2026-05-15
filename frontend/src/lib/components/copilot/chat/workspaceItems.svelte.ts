@@ -1,6 +1,7 @@
 import { AppService, FlowService, ScriptService } from '$lib/gen'
 import { findAndReplace } from 'mdast-util-find-and-replace'
-import type { Root } from 'mdast'
+import { visit } from 'unist-util-visit'
+import type { Root, InlineCode, Link } from 'mdast'
 
 export type WindmillItemKind = 'script' | 'flow' | 'app'
 
@@ -22,6 +23,12 @@ export interface WorkspaceItemEntry {
  */
 export const WINDMILL_PATH_REGEX =
 	/(?<![A-Za-z0-9/_.\-])([uf]\/[A-Za-z0-9_.\-]+\/[A-Za-z0-9_./\-]*[A-Za-z0-9_\-])/g
+
+/**
+ * Anchored variant of {@link WINDMILL_PATH_REGEX} for use against a whole string —
+ * matches when the entire input is exactly a path (after trimming).
+ */
+const WINDMILL_PATH_EXACT_REGEX = /^[uf]\/[A-Za-z0-9_.\-]+\/[A-Za-z0-9_./\-]*[A-Za-z0-9_\-]$/
 
 const itemKindToRoute: Record<WindmillItemKind, string> = {
 	script: '/scripts/get',
@@ -144,12 +151,41 @@ export function resolveMentionedItems(
 	return [...seen.values()]
 }
 
+/** Build the link node used to replace a resolved path token. */
+function buildPathLinkNode(
+	entry: WorkspaceItemEntry,
+	displayPath: string,
+	workspace: string | undefined
+): Link {
+	return {
+		type: 'link',
+		url: itemHref(entry, workspace),
+		title: entry.summary || null,
+		data: {
+			hProperties: {
+				'data-wm-kind': entry.kind,
+				'data-wm-path': entry.path,
+				target: '_blank',
+				rel: 'noopener noreferrer'
+			}
+		},
+		children: [{ type: 'text', value: displayPath }]
+	}
+}
+
 /**
  * Remark plugin that rewrites Windmill path tokens (`u/...`, `f/...`) into link nodes,
  * but only when the path resolves to a known workspace item.
  *
- * Skips text inside link / inline code / code nodes (find-and-replace only visits Text nodes,
- * which already excludes inlineCode/code; the explicit `ignore` covers links).
+ * Handles two cases:
+ * 1. Bare path tokens in regular text — handled by `findAndReplace`, which only visits Text
+ *    nodes (so fenced code and inline code are naturally skipped). We additionally `ignore`
+ *    existing `link` nodes so we don't break autolinked URLs.
+ * 2. Inline-code spans whose entire content is a single path — handled by a second pass via
+ *    `unist-util-visit`. LLMs often wrap identifiers in backticks (`` `u/admin/foo` ``);
+ *    when the inline code is *just* a path we treat the backticks as styling and replace
+ *    the node with a link pill. Mixed inline-code content (e.g. `` `f/foo + extra text` ``)
+ *    is left untouched.
  */
 export function remarkWindmillPaths(options: {
 	resolve: (path: string) => WorkspaceItemEntry | undefined
@@ -163,23 +199,19 @@ export function remarkWindmillPaths(options: {
 				(_match: string, path: string) => {
 					const entry = options.resolve(path)
 					if (!entry) return false
-					return {
-						type: 'link',
-						url: itemHref(entry, options.workspace),
-						title: entry.summary || null,
-						data: {
-							hProperties: {
-								'data-wm-kind': entry.kind,
-								'data-wm-path': entry.path,
-								target: '_blank',
-								rel: 'noopener noreferrer'
-							}
-						},
-						children: [{ type: 'text', value: path }]
-					}
+					return buildPathLinkNode(entry, path, options.workspace)
 				}
 			],
 			{ ignore: ['link', 'linkReference'] }
 		)
+
+		visit(tree, 'inlineCode', (node: InlineCode, index, parent) => {
+			if (!parent || typeof index !== 'number') return
+			const value = node.value.trim()
+			if (!WINDMILL_PATH_EXACT_REGEX.test(value)) return
+			const entry = options.resolve(value)
+			if (!entry) return
+			parent.children[index] = buildPathLinkNode(entry, value, options.workspace) as any
+		})
 	}
 }
