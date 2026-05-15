@@ -3,7 +3,7 @@
 
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
-	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
+	import { editPathFor } from '$lib/components/workspacePicker'
 	import { decodeState, cleanValueProperties, orderedJsonStringify } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { replaceState } from '$app/navigation'
@@ -229,11 +229,9 @@
 		{savedPrimarySchedule}
 		searchParams={page.url.searchParams}
 		onDeploy={(e) => {
-			if ($workspaceStore) invalidate($workspaceStore, 'script')
 			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
 		}}
 		onSaveInitial={(e) => {
-			if ($workspaceStore) invalidate($workspaceStore, 'script')
 			goto(`/scripts/edit/${e.path}`)
 		}}
 		onSeeDetails={(e) => {

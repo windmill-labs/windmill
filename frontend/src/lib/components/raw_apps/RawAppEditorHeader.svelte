@@ -2,7 +2,7 @@
 	import { Drawer, DrawerContent } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { isMac, userPathPrefix } from '$lib/utils'
-	import { editPathFor, invalidate as invalidatePicker } from '$lib/components/workspacePicker'
+	import { editPathFor } from '$lib/components/workspacePicker'
 
 	import { AppService, DraftService, type Policy } from '$lib/gen'
 	import { rawAppToHubUrl } from '$lib/hub'
@@ -352,7 +352,6 @@
 				css
 			}
 		})
-		invalidatePicker($workspaceStore!, 'app')
 		savedApp = {
 			summary: summary,
 			value: structuredClone(stateSnapshot(app)),

@@ -56,7 +56,7 @@
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
 
 	import EditorHeader from '$lib/components/EditorHeader.svelte'
-	import { editPathFor, invalidate as invalidatePicker } from '$lib/components/workspacePicker'
+	import { editPathFor } from '$lib/components/workspacePicker'
 	import { goto } from '$app/navigation'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
@@ -307,7 +307,6 @@
 				preserve_on_behalf_of: preserveOnBehalfOf || undefined
 			}
 		})
-		invalidatePicker($workspaceStore!, 'app')
 		savedApp = {
 			summary: $summary,
 			value: structuredClone($state.snapshot($app)),
