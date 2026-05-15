@@ -479,8 +479,8 @@ Path conventions:
 
 Important rules:
 - write_{script,flow,schedule,trigger,resource,variable} create or overwrite drafts. They do not save, deploy, or mutate workspace items.
-- edit_script and patch_flow_json apply small exact-text edits and save the result as a draft. Prefer them for localized changes; use write_* for large rewrites.
-- For flows specifically: read_workspace_item and patch_flow_json work on a COMPACT view where rawscript module bodies are replaced with the placeholder "inline_script.<moduleId>". Use read_flow_module_code / set_flow_module_code to inspect or overwrite an inline script body; use patch_flow_json for structural edits.
+- edit_script applies small exact-text edits to a script and saves the result as a draft. Prefer it for localized script changes; use write_script for large rewrites.
+- For flows: PREFER write_flow over patch_flow_json. write_flow takes the full structured flow (modules, schema, preprocessor_module, failure_module, groups) and replaces the draft atomically. patch_flow_json operates on a textual COMPACT JSON view (rawscript bodies are placeholders "inline_script.<moduleId>") and is harder to get right for non-trivial changes — reserve it for narrow structural tweaks on very large flows where re-emitting the full flow would be wasteful. Almost everything users ask for in chat (renaming modules, adding/removing steps, retargeting branches, editing input_transforms, swapping the preprocessor) is faster and safer via write_flow. Use read_flow_module_code / set_flow_module_code to read or overwrite an inline rawscript body regardless of which structural tool you use.
 - deploy_workspace_item persists a draft to the workspace via the real backend create/update API and removes the draft. Only call after the user has reviewed the draft and explicitly asked to deploy — don't call it on your own initiative.
 - delete_workspace_item permanently removes a workspace item (and any matching draft). Irreversible. Requires user confirmation. Only call when the user has explicitly asked to delete.
 - Use list_workspace_items before broad reads.
