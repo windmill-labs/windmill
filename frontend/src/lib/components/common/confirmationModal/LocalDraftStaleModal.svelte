@@ -1,4 +1,16 @@
 <script lang="ts">
+	/**
+	 * Modal shown when the four route-level editors detect that the
+	 * remote state has moved on since the local autosave was captured —
+	 * either a teammate (or another tab) pushed a fresh "Save as draft"
+	 * via `DraftService` (`cause = 'draft'`), or the deployed version
+	 * changed (`cause = 'version'`).
+	 *
+	 * Sits above the per-browser `UserDraft` autosave layer and is
+	 * separate from the backend `DraftService` flow. The actual reset
+	 * actions live at each call site; this modal just owns the
+	 * "Load latest version" vs "Keep current draft" decision.
+	 */
 	import { classNames } from '$lib/utils'
 	import { fade } from 'svelte/transition'
 	import Button from '../button/Button.svelte'

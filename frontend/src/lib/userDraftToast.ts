@@ -1,3 +1,23 @@
+/**
+ * Toast used by the four route-level editors (scripts, flows, apps,
+ * raw_apps) when they reopen on a local autosave that diverges from the
+ * backend. Sits at the layer above `UserDraft` (the per-browser autosave
+ * store) and is separate from the backend's `DraftService` (the
+ * server-side "saved draft" feature, surfaced as `script.draft` /
+ * `flow.draft` / `app.draft`):
+ *
+ * - DraftService writes go through a "Save as draft" button and produce a
+ *   shared, server-persisted draft visible to other users / tabs / CLI.
+ * - UserDraft writes are this-browser autosave for in-flight edits,
+ *   debounced into localStorage by `useLocalStorageValue`.
+ *
+ * The toast lets the user reconcile their local autosave with the two
+ * server states (saved draft + deployed version) by offering up to two
+ * reset actions. The actual reset side-effects live at each call site
+ * because they touch route-specific state (UserDraft handle, redraw
+ * counters, loadXxx helpers); this helper just owns the toast title +
+ * label wording + per-state inclusion logic.
+ */
 import { sendUserToast } from '$lib/toast'
 
 export type RestoreFromLocalActions = {
