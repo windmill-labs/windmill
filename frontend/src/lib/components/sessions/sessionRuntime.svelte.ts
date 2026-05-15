@@ -25,7 +25,11 @@ import {
 	setSessionChatId,
 	type Session
 } from './sessionState.svelte'
-import { globalDraftStore } from '$lib/components/copilot/chat/global/draftStore.svelte'
+import {
+	globalDraftStore,
+	type FlowDraftValue
+} from '$lib/components/copilot/chat/global/draftStore.svelte'
+import { applyDraftValueToFlow, flowToDraftValue } from './flowDraftCodec'
 
 export interface SessionRuntime {
 	readonly sessionId: string
@@ -203,7 +207,29 @@ function createRuntime(session: Session): SessionRuntime {
 			try {
 				const result = await FlowService.getFlowByPathWithDraft({ workspace, path })
 				savedFlow.val = result
-				const flow: Flow = (result.draft as Flow | undefined) ?? (result as Flow)
+				let flow: Flow = (result.draft as Flow | undefined) ?? (result as Flow)
+				// Single source of truth with the global AI chat: if it has
+				// already written a draft for this (workspace, path) overlay
+				// it onto the backend baseline; otherwise seed the store with
+				// the baseline so the AI's loadFlowDraftValue picks up the
+				// same content the editor displays.
+				const aiDraft = globalDraftStore.getFlowDraft(workspace, path)
+				if (
+					aiDraft &&
+					aiDraft.value &&
+					typeof aiDraft.value === 'object' &&
+					'value' in aiDraft.value
+				) {
+					flow = applyDraftValueToFlow(flow, aiDraft.value as FlowDraftValue)
+				} else {
+					globalDraftStore.setDraft(workspace, {
+						type: 'flow',
+						path,
+						summary: flow.summary,
+						value: flowToDraftValue(flow),
+						isDraft: true
+					})
+				}
 				await initFlow(flow, flowStore, flowStateStore)
 				loadedPath = path
 			} catch (err) {
