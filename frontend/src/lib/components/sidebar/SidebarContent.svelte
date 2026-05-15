@@ -4,6 +4,7 @@
 		superadmin,
 		usedTriggerKinds,
 		userStore,
+		usersWorkspaceStore,
 		userWorkspaces,
 		workspaceStore,
 		isCriticalAlertsUIOpen,
@@ -147,11 +148,18 @@
 
 		await WorkspaceService.deleteWorkspace({ workspace })
 		sendUserToast('You deleted the workspace')
-		clearStores()
 		if (parentStillAccessible && parentId) {
+			// Refresh the workspace list before landing on the parent.
+			// `clearStores()` would null `usersWorkspaceStore`, which the
+			// sidebar's `visibleSessions` filter reads via `$userWorkspaces`
+			// — with an empty list, every committed session falls into the
+			// "workspace_id set but not in user's list" branch and renders
+			// as "Fork — no longer available" until a hard reload.
+			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
 			switchWorkspace(parentId)
 			await goto('/')
 		} else {
+			clearStores()
 			await goto('/user/workspaces')
 		}
 	}
