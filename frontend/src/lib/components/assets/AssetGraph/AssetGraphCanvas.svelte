@@ -16,6 +16,7 @@
 	import AssetGraphEdge from './AssetGraphEdge.svelte'
 	import { layoutAssetGraph } from './assetGraphLayout'
 	import type { AssetGraphResponse, AssetGraphSelection } from './types'
+	import type { RunnableRunState } from './activeRunnables.svelte'
 	import type { AssetKind } from '$lib/gen'
 	import { NODE } from '$lib/components/graph/util'
 
@@ -91,9 +92,19 @@
 		}) => void
 		// Runnable currently executing — its incoming asset/trigger edges and
 		// outgoing write edges get an animated stroke to convey "this is
-		// running right now". Cleared by the page when the run reaches a
-		// terminal state. Future: same hook for live pipeline status.
+		// running right now". Zero-latency hint for the script the user just
+		// launched (set/cleared by the page from the in-pane Test state).
 		activeRunnable?: { kind: 'script' | 'flow'; path: string } | undefined
+		// `${kind}:${path}` ids of every pipeline runnable with an in-flight
+		// (or just-finished) job, from the folder-scoped queue poll. This is
+		// what lights up the *downstream cascade* (jobs the user didn't launch
+		// directly). Merged with `activeRunnable` so the launched script lights
+		// instantly while cascade hops light as the poll observes them.
+		activeRunnableIds?: ReadonlySet<string>
+		// `${kind}:${path}` → last-run status + session run count, rendered as
+		// a small badge on each runnable node. Same poll source as
+		// `activeRunnableIds`; persists the last status while idle.
+		runStates?: ReadonlyMap<string, RunnableRunState>
 	}
 	let {
 		graph,
@@ -106,7 +117,9 @@
 		defaultScheduleCron = '',
 		onRunProducer,
 		onRunnableMenuRemove,
-		activeRunnable
+		activeRunnable,
+		activeRunnableIds,
+		runStates
 	}: Props = $props()
 
 	const ADD_NODE_ID = '__add__'
@@ -248,6 +261,7 @@
 									})
 							: undefined,
 					downstreamCount: downstreamByScript.get(r.path) ?? 0,
+					runState: runStates?.get(`${r.usage_kind}:${r.path}`),
 					onSelectSelf: () =>
 						onselect?.({
 							kind: 'runnable',
@@ -415,11 +429,16 @@
 		})
 	})
 
-	// Runnable graph-id, if a job is currently running for it. Used below
-	// to animate the edges into and out of that node — keeps the static
-	// graph quiet and reserves animation as an "is happening now" signal.
-	let activeRunnableId = $derived(
-		activeRunnable ? `${activeRunnable.kind}:${activeRunnable.path}` : undefined
+	// Graph-ids of every runnable that's executing right now: the polled
+	// in-flight/just-finished set (cascade) plus the zero-latency hint for
+	// the script the user just launched. Edges into/out of any of these get
+	// the animated stroke — animation stays reserved as an "is happening
+	// now" signal and the static graph stays quiet when nothing runs.
+	let activeRunnableIdSet = $derived(
+		new Set<string>([
+			...(activeRunnableIds ?? []),
+			...(activeRunnable ? [`${activeRunnable.kind}:${activeRunnable.path}`] : [])
+		])
 	)
 	let flowEdges = $derived.by(() =>
 		model.edges
@@ -427,8 +446,8 @@
 			.filter((e) => e.kind !== 'add-anchor')
 			.map<Edge>((e) => {
 				const touchesActiveRunnable =
-					activeRunnableId !== undefined &&
-					(e.source === activeRunnableId || e.target === activeRunnableId)
+					activeRunnableIdSet.size > 0 &&
+					(activeRunnableIdSet.has(e.source) || activeRunnableIdSet.has(e.target))
 				let style: string
 				let animated = false
 				let markerColor: string | undefined = undefined
@@ -476,10 +495,16 @@
 				// parsed, not persisted. Lineage edges from base graph data
 				// don't carry `unsaved`, only those synthesized by the draft
 				// overlay (e.g. the random output asset).
+				//
+				// `animated` is intentionally NOT cleared here: a live-parsed
+				// output edge still belongs to a script that can be run, and
+				// the run feedback (flow animation toward its output assets)
+				// is exactly what the user expects while it executes. The
+				// dashed+dimmed treatment already conveys "not persisted";
+				// it composes fine with the active-run animation.
 				if (e.unsaved) {
 					strokeDasharray = '3 3'
 					style = `${style} opacity: 0.7;`
-					animated = false
 					if (label) label = `${label} (unsaved)`
 				}
 				if (strokeDasharray) {
@@ -553,7 +578,6 @@
 		defaultEdgeOptions={{ type: 'asset' }}
 		proOptions={{ hideAttribution: true }}
 		onnodeclick={handleNodeClick}
-		onpaneclick={() => onselect?.(undefined)}
 		--background-color={false}
 	>
 		<div class="absolute inset-0 !bg-surface-secondary h-full"></div>

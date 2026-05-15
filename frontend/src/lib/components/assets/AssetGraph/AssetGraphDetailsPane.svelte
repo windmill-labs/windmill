@@ -190,17 +190,50 @@
 	// runs initiated from the graph, not just the in-pane Test button.
 	let scriptEditorRef: { runTest: (opts?: { cascade?: boolean }) => Promise<unknown> } | undefined =
 		$state(undefined)
+	// Run-bridge: fire `ScriptEditor.runTest()` exactly once per distinct
+	// signal-counter value the page sends (canvas Run targeting the open
+	// script), on the editor that actually corresponds to the run target.
+	//   1. A plain node selection or a save must never trigger a run — they
+	//      bump no counter, so the last-handled guard keeps the effect inert
+	//      even though selecting/saving reassigns `scriptEditorRef`.
+	//   2. The Run button selects the node first, so the ScriptEditor is
+	//      usually still (re)mounting when the counter bumps. We must NOT
+	//      run yet — and must NOT mark the signal handled — so the effect
+	//      re-runs and fires once the editor settles.
+	//   3. `scriptRes` is stale-while-revalidate: right after selection the
+	//      PREVIOUS script's ScriptEditor is still mounted. Firing then runs
+	//      the wrong script. `editorReadyForTarget` gates on the mounted
+	//      editor being settled on the run-target path before we fire.
+	let lastHandledRunSig = 0
+	let lastHandledCascadeSig = 0
+	let runTargetPath = $derived.by(() =>
+		isDraft
+			? draftScript?.path
+			: selection?.kind === 'runnable' && selection.runnable_kind === 'script'
+				? selection.path
+				: undefined
+	)
+	let editorReadyForTarget = $derived.by(
+		() =>
+			!!scriptEditorRef &&
+			runTargetPath !== undefined &&
+			script?.path === runTargetPath &&
+			(isDraft || (!scriptRes.loading && scriptRes.current?.path === runTargetPath))
+	)
 	$effect(() => {
-		// Track the counter; ignore the initial 0/undefined.
 		const sig = requestRunSignal
-		if (sig === undefined || sig === 0) return
+		if (sig === undefined || sig === 0 || sig === lastHandledRunSig) return
+		if (!editorReadyForTarget) return
+		lastHandledRunSig = sig
 		void scriptEditorRef?.runTest()
 	})
 	$effect(() => {
 		// Cascade-explicit sister signal: same pattern, but forces the
 		// runTest call to opt into the asset-trigger cascade for this run.
 		const sig = requestRunCascadeSignal
-		if (sig === undefined || sig === 0) return
+		if (sig === undefined || sig === 0 || sig === lastHandledCascadeSig) return
+		if (!editorReadyForTarget) return
+		lastHandledCascadeSig = sig
 		void scriptEditorRef?.runTest({ cascade: true })
 	})
 

@@ -5,6 +5,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
+	import { useActiveRunnableIds } from '$lib/components/assets/AssetGraph/activeRunnables.svelte'
 	import AssetGraphDetailsPane from '$lib/components/assets/AssetGraph/AssetGraphDetailsPane.svelte'
 	import PipelinePickerModal from '$lib/components/assets/AssetGraph/PipelinePickerModal.svelte'
 	import type { AssetWithAltAccessType } from '$lib/components/assets/lib'
@@ -917,6 +918,20 @@
 	// AssetRunsPanel reports the run is done. The same hook will later
 	// be reused for live pipeline status.
 	let activeRunnable = $state<{ kind: 'script' | 'flow'; path: string } | undefined>(undefined)
+	// Folder-scoped poll of in-flight (and just-finished) pipeline jobs. This
+	// is what lights up the *downstream cascade* on the canvas — jobs the user
+	// didn't launch directly. `arm()` is called when a run is launched from
+	// this view; it polls only while jobs are in flight and stops when idle
+	// (zero requests at rest). Re-scoped/torn down when the folder changes or
+	// the page unmounts.
+	const activeRunnables = useActiveRunnableIds(
+		() => $workspaceStore,
+		() => pathPrefix
+	)
+	$effect(() => {
+		pathPrefix // re-scope poll to the current folder
+		return () => activeRunnables.dispose()
+	})
 	// Counter bumped when the canvas Run button targets the currently-open
 	// script — the pane intercepts and routes through ScriptEditor.runTest
 	// so logs/result/cancel land in the test panel instead of going off
@@ -1215,6 +1230,8 @@
 								graph={graphWithDraft}
 								selection={effectiveSelection}
 								{activeRunnable}
+								activeRunnableIds={activeRunnables.ids}
+								runStates={activeRunnables.states}
 								{pathPrefix}
 								defaultPathSuffix={DEFAULT_PATH_SUFFIX}
 								defaultScheduleCron={DEFAULT_SCHEDULE_CRON}
@@ -1286,6 +1303,10 @@
 									// immediately — its background poll only kicks in
 									// for already-listed in-flight jobs.
 									if (!$workspaceStore || producer.kind !== 'script') return undefined
+									// Start the folder-scoped poll so the downstream
+									// asset-trigger cascade (jobs not launched here)
+									// lights up its edges as it fans out.
+									activeRunnables.arm()
 									// Cascade default: same as the Test button — `cascade`
 									// undefined / false skips the asset-trigger dispatch
 									// via `_wmill_skip_asset_dispatch`; explicit `true`
