@@ -27,9 +27,11 @@ import {
 } from './sessionState.svelte'
 import {
 	globalDraftStore,
+	type AppDraftValue,
 	type FlowDraftValue
 } from '$lib/components/copilot/chat/global/draftStore.svelte'
 import { applyDraftValueToFlow, flowToDraftValue } from './flowDraftCodec'
+import { applyDraftValueToRawApp, rawAppToDraftValue } from './appDraftCodec'
 
 export interface SessionRuntime {
 	readonly sessionId: string
@@ -393,7 +395,7 @@ function createRuntime(session: Session): SessionRuntime {
 				} else if (sourceValue?.datatables) {
 					data = { ...DEFAULT_DATA, tables: sourceValue.datatables }
 				}
-				rawApp.val = {
+				let runtimeValue = {
 					files: (sourceValue?.files ?? {}) as Record<string, string>,
 					runnables: (sourceValue?.runnables ?? {}) as Record<string, any>,
 					data,
@@ -401,6 +403,29 @@ function createRuntime(session: Session): SessionRuntime {
 					summary: result.summary ?? '',
 					path: result.path
 				}
+				// Single source of truth with the global AI chat. If the AI
+				// has already written a draft for this (workspace, path)
+				// overlay it onto the backend baseline; otherwise seed the
+				// store with the baseline so the AI's loadAppDraftValue
+				// picks up the same content the editor displays.
+				const aiDraft = globalDraftStore.getAppDraft(workspace, path)
+				if (
+					aiDraft &&
+					aiDraft.value &&
+					typeof aiDraft.value === 'object' &&
+					'files' in (aiDraft.value as object)
+				) {
+					runtimeValue = applyDraftValueToRawApp(runtimeValue, aiDraft.value as AppDraftValue)
+				} else {
+					globalDraftStore.setDraft(workspace, {
+						type: 'app',
+						path,
+						summary: runtimeValue.summary,
+						value: rawAppToDraftValue(runtimeValue),
+						isDraft: true
+					})
+				}
+				rawApp.val = runtimeValue
 				loadedRawAppPath = path
 			} catch (err) {
 				console.error('Failed to load raw app', err)
