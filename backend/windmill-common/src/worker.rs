@@ -1023,22 +1023,74 @@ pub fn atomic_copy_file(origin: &str, final_path: &str) -> error::Result<()> {
     Ok(())
 }
 
-/// Publish a fully-populated `tmp_dir` to `final_dir` atomically. If a concurrent
-/// populate already published `final_dir` (rename fails because the destination
-/// exists and is non-empty), discard our byte-identical copy and treat it as a
-/// success so cold-load directory caches are race-free too.
+/// Publish a fully-populated `tmp_dir` to `final_dir`, always ending with a
+/// complete freshly-built directory at `final_dir` and never exposing a
+/// partially-populated one to a concurrent reader gating on
+/// `metadata(final_dir)`.
+///
+/// These dir caches are content-addressed (the path embeds a hash of the
+/// inputs), so every concurrent publisher writes byte-identical content and a
+/// *complete* `final_dir` is immutable-correct. The hard part is a *stale or
+/// partial* `final_dir` left behind by a populate that was hard-killed on a
+/// pre-atomic binary: POSIX `rename` cannot replace a non-empty directory, so a
+/// naive "trust whatever is there" would serve that partial dir forever (no
+/// self-heal). Instead we move the stale dir aside and swap our complete copy
+/// in, so we are strictly safer than an in-place re-extract in every case.
+///
+/// Invariants for a concurrent reader: `final_dir` is only ever observed as
+/// (a) absent, (b) the *unchanged* pre-existing dir, or (c) a complete fresh
+/// publish. We never mutate `final_dir` in place, so a reader can never see a
+/// newly-created partial. The brief window where the stale dir is moved aside
+/// makes `final_dir` momentarily absent — that degrades to a benign cache miss
+/// (re-pull/recompute), never to reading corrupt or partial content.
 pub fn atomic_publish_dir(tmp_dir: &str, final_dir: &str) -> error::Result<()> {
-    match fs::rename(tmp_dir, final_dir) {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            let _ = fs::remove_dir_all(tmp_dir);
-            if Path::new(final_dir).exists() {
-                Ok(())
-            } else {
-                Err(e.into())
-            }
-        }
+    // Fast path: nothing at `final_dir` yet (the common cold-load case). A
+    // single atomic rename; also succeeds if `final_dir` is an empty dir.
+    if fs::rename(tmp_dir, final_dir).is_ok() {
+        return Ok(());
     }
+
+    // `final_dir` does not exist and the rename failed for a real reason
+    // (ENOSPC, EACCES, EROFS, ...). There is nothing safe to fall back to.
+    if !Path::new(final_dir).exists() {
+        let _ = fs::remove_dir_all(tmp_dir);
+        return Err(error::Error::ExecutionErr(format!(
+            "could not publish cache dir {final_dir}: no destination and rename failed"
+        )));
+    }
+
+    // `final_dir` is non-empty: either a complete prior/peer publish (identical
+    // content) or a stale partial. We can't cheaply tell them apart, so always
+    // replace it with our known-complete copy. Move the old dir aside first so
+    // the swap is two renames with no in-place mutation.
+    let bak_dir = format!("{}.bak.{}", final_dir, Uuid::new_v4());
+    if fs::rename(final_dir, &bak_dir).is_err() {
+        // A concurrent publisher moved `final_dir` in the same window. Content
+        // is identical; trust the peer's result if it has reappeared.
+        let _ = fs::remove_dir_all(tmp_dir);
+        return if Path::new(final_dir).exists() {
+            Ok(())
+        } else {
+            Err(error::Error::ExecutionErr(format!(
+                "could not publish cache dir {final_dir}: lost swap race and destination vanished"
+            )))
+        };
+    }
+
+    if let Err(e) = fs::rename(tmp_dir, final_dir) {
+        // Publishing the fresh copy failed (e.g. disk full). Restore the dir we
+        // moved aside so we never leave `final_dir` missing on our account.
+        let _ = fs::rename(&bak_dir, final_dir);
+        let _ = fs::remove_dir_all(tmp_dir);
+        let _ = fs::remove_dir_all(&bak_dir);
+        return Err(e.into());
+    }
+
+    // Fresh copy is live at `final_dir`; drop the stale one. Best-effort: a
+    // leftover `*.bak.*` is inert disk junk, never read (consumers address the
+    // exact `final_dir`), same as a leftover `*.tmp.*`.
+    let _ = fs::remove_dir_all(&bak_dir);
+    Ok(())
 }
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
@@ -2463,10 +2515,72 @@ mod tests {
         let leftovers: Vec<_> = std::fs::read_dir(&base)
             .unwrap()
             .filter_map(|e| e.ok())
-            .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
+            .filter(|e| {
+                let n = e.file_name();
+                let n = n.to_string_lossy();
+                n.contains(".tmp.") || n.contains(".bak.")
+            })
             .map(|e| e.path())
             .collect();
-        assert!(leftovers.is_empty(), "temp dirs leaked: {:?}", leftovers);
+        assert!(
+            leftovers.is_empty(),
+            "temp/bak dirs leaked: {:?}",
+            leftovers
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // R1 regression: a *pre-existing, partial* `final_dir` (the state a populate
+    // hard-killed on a pre-atomic binary leaves behind) must be REPLACED by the
+    // complete fresh copy, not trusted. Guards the one real downside identified
+    // for the dir-cache paths (PHP `vendor/`, Java deps): without trust-but-
+    // replace this dir would be served incomplete forever, until cache clear.
+    #[test]
+    fn test_atomic_publish_dir_replaces_stale_partial() {
+        let base =
+            std::env::temp_dir().join(format!("wm_atomic_stale_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&base).unwrap();
+        let final_dir = base.join("cache_dir");
+
+        // Simulate a crashed pre-atomic populate: a non-empty but incomplete dir
+        // (only main.js, missing meta.txt) sitting at the final path.
+        std::fs::create_dir_all(&final_dir).unwrap();
+        std::fs::write(final_dir.join("main.js"), b"PARTIAL").unwrap();
+
+        // A fresh, complete temp dir.
+        let tmp = base.join(format!("cache_dir.tmp.{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("main.js"), b"export function main() {}").unwrap();
+        std::fs::write(tmp.join("meta.txt"), b"v1").unwrap();
+
+        atomic_publish_dir(tmp.to_str().unwrap(), final_dir.to_str().unwrap()).unwrap();
+
+        // The stale partial must be gone: complete content present, and the old
+        // truncated main.js overwritten.
+        assert!(
+            final_dir.join("meta.txt").is_file(),
+            "stale partial was trusted instead of replaced"
+        );
+        assert_eq!(
+            std::fs::read(final_dir.join("main.js")).unwrap(),
+            b"export function main() {}"
+        );
+        let leftovers: Vec<_> = std::fs::read_dir(&base)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let n = e.file_name();
+                let n = n.to_string_lossy();
+                n.contains(".tmp.") || n.contains(".bak.")
+            })
+            .map(|e| e.path())
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "temp/bak dirs leaked: {:?}",
+            leftovers
+        );
 
         let _ = std::fs::remove_dir_all(&base);
     }
