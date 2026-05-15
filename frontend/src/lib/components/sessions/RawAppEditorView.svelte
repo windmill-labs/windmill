@@ -117,5 +117,7 @@
 		newApp={false}
 		{diffDrawer}
 		{onNavigate}
+		defaultSidebarCollapsed
+		sidebarStorageKey="raw-app-sidebar-collapsed-preview"
 	/>
 {/if}

@@ -13,6 +13,8 @@
 	// import { addWmillClient } from './utils'
 	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
+	import { PanelLeft, PanelLeftClose } from 'lucide-svelte'
 	import { genWmillTs, type Runnable } from './utils'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import RawAppSidebar from './RawAppSidebar.svelte'
@@ -63,6 +65,16 @@
 			| undefined
 		diffDrawer?: DiffDrawer | undefined
 		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
+		/** Initial collapsed state for the file/runnable sidebar. The user's
+		 * toggled preference is persisted under `sidebarStorageKey`; this prop
+		 * only seeds the very first open. */
+		defaultSidebarCollapsed?: boolean
+		/** localStorage key for the persisted sidebar state. Pass a different
+		 * key when the editor is rendered in a context that wants its own
+		 * preference (e.g. the session preview pane defaults to collapsed but
+		 * the standalone editor defaults to expanded — sharing one key would
+		 * make whichever opens first override the other). */
+		sidebarStorageKey?: string
 	}
 
 	let {
@@ -76,7 +88,9 @@
 		newPath = undefined,
 		savedApp = $bindable(undefined),
 		diffDrawer = undefined,
-		onNavigate
+		onNavigate,
+		defaultSidebarCollapsed = false,
+		sidebarStorageKey = 'raw-app-sidebar-collapsed'
 	}: Props = $props()
 	export const version: number | undefined = undefined
 
@@ -194,6 +208,16 @@
 	let yamlEditorDrawer: Drawer | undefined = $state(undefined)
 
 	let sidebarPanelSize = $state(15)
+
+	// Persisted across opens. Seeded with `defaultSidebarCollapsed` only when
+	// localStorage has no entry yet — callers (like the session preview pane)
+	// can default the initial state without overriding a user who has already
+	// expressed a preference.
+	const sidebarCollapsed = useLocalStorageValue(
+		sidebarStorageKey,
+		defaultSidebarCollapsed,
+		'boolean'
+	)
 
 	function handleYamlApply(update: RawAppYamlUpdate) {
 		if (update.summary !== undefined) {
@@ -947,57 +971,77 @@
 	/>
 
 	<Splitpanes id="o2" class="grow min-h-0 border-t">
-		<Pane bind:size={sidebarPanelSize} maxSize={20} class="h-full overflow-y-auto">
-			<RawAppSidebar
-				bind:files={
-					() => files,
-					(newFiles) => {
-						files = newFiles
-						setFilesInIframe(newFiles ?? {})
+		{#if !sidebarCollapsed.val}
+			<Pane bind:size={sidebarPanelSize} maxSize={20} class="h-full overflow-y-auto relative">
+				<button
+					type="button"
+					class="absolute top-1 right-1 z-10 p-1 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
+					title="Collapse file sidebar"
+					onclick={() => (sidebarCollapsed.val = true)}
+				>
+					<PanelLeftClose size={14} />
+				</button>
+				<RawAppSidebar
+					bind:files={
+						() => files,
+						(newFiles) => {
+							files = newFiles
+							setFilesInIframe(newFiles ?? {})
+						}
 					}
-				}
-				onSelectFile={handleSelectFile}
-				bind:selectedRunnable
-				bind:selectedDocument
-				dataTableRefs={dataTableRefsObjects}
-				onDataTableRefsChange={(newRefs) => {
-					data.tables = newRefs.map(formatDataTableRef)
-					saveFrontendDraft()
-				}}
-				defaultDatatable={data.datatable}
-				defaultSchema={data.schema}
-				onDefaultChange={(datatable, schema) => {
-					data.datatable = datatable
-					data.schema = schema
-					// Also sync to aiChatManager
-					aiChatManager.datatableCreationPolicy = {
-						...aiChatManager.datatableCreationPolicy,
-						datatable,
-						schema
-					}
-					saveFrontendDraft()
-				}}
-				{runnables}
-				{modules}
-				{historyManager}
-				historySelectedId={historyManager.selectedEntryId}
-				onHistorySelect={handleHistorySelect}
-				onHistorySelectCurrent={() => {
-					// Restore the temporary current state if it exists
-					const tempState = historyManager.getAndClearTemporaryState()
-					if (tempState) {
-						applyEntry(tempState)
-					}
-					// Clear selection to indicate we're at current state
-					historyManager.clearSelection()
-				}}
-				onManualSnapshot={() => {
-					historyManager.manualSnapshot(files ?? {}, runnables, summary, data, true)
-				}}
-			></RawAppSidebar>
-		</Pane>
+					onSelectFile={handleSelectFile}
+					bind:selectedRunnable
+					bind:selectedDocument
+					dataTableRefs={dataTableRefsObjects}
+					onDataTableRefsChange={(newRefs) => {
+						data.tables = newRefs.map(formatDataTableRef)
+						saveFrontendDraft()
+					}}
+					defaultDatatable={data.datatable}
+					defaultSchema={data.schema}
+					onDefaultChange={(datatable, schema) => {
+						data.datatable = datatable
+						data.schema = schema
+						// Also sync to aiChatManager
+						aiChatManager.datatableCreationPolicy = {
+							...aiChatManager.datatableCreationPolicy,
+							datatable,
+							schema
+						}
+						saveFrontendDraft()
+					}}
+					{runnables}
+					{modules}
+					{historyManager}
+					historySelectedId={historyManager.selectedEntryId}
+					onHistorySelect={handleHistorySelect}
+					onHistorySelectCurrent={() => {
+						// Restore the temporary current state if it exists
+						const tempState = historyManager.getAndClearTemporaryState()
+						if (tempState) {
+							applyEntry(tempState)
+						}
+						// Clear selection to indicate we're at current state
+						historyManager.clearSelection()
+					}}
+					onManualSnapshot={() => {
+						historyManager.manualSnapshot(files ?? {}, runnables, summary, data, true)
+					}}
+				></RawAppSidebar>
+			</Pane>
+		{/if}
 		<Pane>
-			<div class="h-full w-full">
+			<div class="h-full w-full relative">
+				{#if sidebarCollapsed.val}
+					<button
+						type="button"
+						class="absolute top-1 left-1 z-10 p-1 rounded text-tertiary hover:bg-surface-hover hover:text-primary bg-surface/80 backdrop-blur"
+						title="Expand file sidebar"
+						onclick={() => (sidebarCollapsed.val = false)}
+					>
+						<PanelLeft size={14} />
+					</button>
+				{/if}
 				<iframe
 					bind:this={iframe}
 					title="UI builder"
