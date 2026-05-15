@@ -543,7 +543,7 @@ export class AIChatManager {
 					} else if (this.mode === AIMode.NAVIGATOR) {
 						return prepareNavigatorUserMessage(pendingPrompt)
 					} else if (this.mode === AIMode.GLOBAL) {
-						return prepareGlobalUserMessage(pendingPrompt)
+						return prepareGlobalUserMessage(pendingPrompt, this.contextManager.getSelectedContext())
 					}
 					return undefined
 				},
@@ -692,7 +692,7 @@ export class AIChatManager {
 		}
 		try {
 			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []
-			if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
+			if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW || this.mode === AIMode.GLOBAL) {
 				this.contextManager?.updateContextOnRequest(options)
 			}
 			this.loading = true
@@ -733,7 +733,7 @@ export class AIChatManager {
 					role: 'user',
 					content: this.instructions,
 					contextElements:
-						this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW
+						this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW || this.mode === AIMode.GLOBAL
 							? oldSelectedContext
 							: undefined,
 					snapshot,
@@ -773,7 +773,7 @@ export class AIChatManager {
 					userMessage = prepareApiUserMessage(oldInstructions)
 					break
 				case AIMode.GLOBAL:
-					userMessage = prepareGlobalUserMessage(oldInstructions)
+					userMessage = prepareGlobalUserMessage(oldInstructions, oldSelectedContext)
 					break
 				case AIMode.APP:
 					userMessage = prepareAppUserMessage(

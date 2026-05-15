@@ -48,6 +48,7 @@ import type {
 } from 'openai/resources/chat/completions.mjs'
 import { z } from 'zod'
 import {
+	buildContextString,
 	createToolDef,
 	findAndReplace,
 	type CreatedResourceTriggerKind,
@@ -55,6 +56,7 @@ import {
 	type ToolCallbacks,
 	type ToolDisplayAction
 } from '../shared'
+import type { ContextElement } from '../context'
 import {
 	resourceRequestSchema,
 	scheduleRequestSchema,
@@ -2419,9 +2421,14 @@ export function prepareGlobalSystemMessage(
 	}
 }
 
-export function prepareGlobalUserMessage(instructions: string): ChatCompletionUserMessageParam {
+export function prepareGlobalUserMessage(
+	instructions: string,
+	selectedContext: ContextElement[] = []
+): ChatCompletionUserMessageParam {
+	const content =
+		selectedContext.length > 0 ? instructions + buildContextString(selectedContext) : instructions
 	return {
 		role: 'user',
-		content: instructions
+		content
 	}
 }

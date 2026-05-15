@@ -117,8 +117,16 @@
 	let appTooltipElement = $state<HTMLDivElement | undefined>(undefined)
 	let appTooltipCurrentViewNumber = $state(0)
 
+	// Modes that show the rich textarea with @-context support (workspace
+	// scripts, workspace flows, code blocks, DBs, etc.).
+	const isContextEnabledMode = $derived(
+		aiChatManager.mode === AIMode.SCRIPT ||
+			aiChatManager.mode === AIMode.FLOW ||
+			aiChatManager.mode === AIMode.GLOBAL
+	)
+
 	export function focusInput() {
-		if (aiChatManager.mode === AIMode.SCRIPT || aiChatManager.mode === AIMode.FLOW) {
+		if (isContextEnabledMode) {
 			contextTextareaComponent?.focus()
 		} else {
 			instructionsTextareaComponent?.focus()
@@ -438,7 +446,7 @@
 {/snippet}
 
 <div use:clickOutside class="relative">
-	{#if aiChatManager.mode === AIMode.SCRIPT || aiChatManager.mode === AIMode.FLOW}
+	{#if isContextEnabledMode}
 		<div class="relative">
 			<ContextTextarea
 				bind:this={contextTextareaComponent}
