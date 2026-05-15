@@ -235,6 +235,14 @@
 							path: bakedBaseline.path
 						})
 						UserDraft.remove('script', draftPath)
+						// UserDraft.remove only clears localStorage. The
+						// scriptHandle's in-memory state still holds the now-
+						// deleted DB draft + its meta — loadScript would treat
+						// it as a local autosave and the staleness check
+						// would fire a spurious "newer version was deployed"
+						// modal because remoteDraftRev moved from "defined"
+						// to "undefined". Drop the in-memory state first.
+						scriptHandle.setDraftAndMeta(undefined, {})
 						goto(`/scripts/edit/${bakedBaseline.path}`)
 						loadScript()
 					}

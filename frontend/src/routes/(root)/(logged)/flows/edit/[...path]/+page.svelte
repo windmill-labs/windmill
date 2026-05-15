@@ -244,6 +244,14 @@
 						path: flow.path
 					})
 					UserDraft.remove('flow', flowDraftPath)
+					// UserDraft.remove only clears localStorage. The
+					// flowHandle's in-memory state still holds the now-
+					// deleted DB draft + its meta — loadFlow would treat it
+					// as a local autosave and the staleness check would fire
+					// a spurious "newer version was deployed" modal because
+					// remoteDraftRev moved from "defined" to "undefined".
+					// Drop the in-memory state first.
+					flowHandle.setDraftAndMeta(undefined, {})
 					nobackenddraft = true
 					loadFlow()
 				}
