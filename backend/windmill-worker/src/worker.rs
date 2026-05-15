@@ -1320,8 +1320,6 @@ async fn insert_wait_time(
             .await?;
 
     if let Some(root_id) = root_job_id {
-        // TODO: queued_job.root_job is not guaranteed to be the true root job (e.g. parallel flow
-        // subflows). So this is currently incorrect for those cases
         sqlx::query!(
             "INSERT INTO outstanding_wait_time(job_id, aggregate_wait_time_ms) VALUES ($1, $2)
                 ON CONFLICT (job_id) DO UPDATE SET aggregate_wait_time_ms =
@@ -1353,7 +1351,11 @@ fn add_outstanding_wait_time(
     }
 
     let job_id = queued_job.id;
-    let root_job_id = queued_job.flow_innermost_root_job;
+    let root_job_id = queued_job
+        .root_job
+        .or(queued_job.flow_innermost_root_job)
+        .or(queued_job.parent_job)
+        .filter(|&id| id != queued_job.id);
     let conn = conn.clone();
 
     if let Some(db) = conn.as_sql() {
