@@ -84,10 +84,19 @@ function isPlausibleLegacyValue(kind: LegacyKind, decoded: unknown): boolean {
 			// Legacy FlowBuilder wrote { flow, path, selectedId, draft_triggers, ... }.
 			return obj.flow != null && typeof obj.flow === 'object'
 		case 'app':
-			// Legacy AppEditor wrote the App object directly. It carries summary,
-			// value, policy, and path among other fields — any one of those is a
-			// strong signal it's actually a Windmill app payload.
-			return 'summary' in obj || 'value' in obj || 'policy' in obj || 'path' in obj
+			// Legacy AppEditor wrote `encodeState($appStore)`, i.e. the inner App
+			// value (see `frontend/src/lib/components/apps/types.ts`) — NOT the
+			// wrapping AppWithLastVersion. It carries `grid`, `fullscreen`,
+			// `theme`, `unusedInlineScripts`, `hiddenInlineScripts` among other
+			// fields — any one of those is a strong signal it's actually a
+			// Windmill app payload.
+			return (
+				'grid' in obj ||
+				'fullscreen' in obj ||
+				'theme' in obj ||
+				'unusedInlineScripts' in obj ||
+				'hiddenInlineScripts' in obj
+			)
 		case 'raw_app':
 			// Legacy RawAppEditor wrote { files, runnables, data }.
 			return 'files' in obj || 'runnables' in obj || 'data' in obj

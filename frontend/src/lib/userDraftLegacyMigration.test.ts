@@ -29,11 +29,14 @@ beforeEach(() => {
 
 describe('migrateLegacyUserDrafts', () => {
 	it('migrates a legacy app draft to the workspace-scoped key with a { value } wrapper', () => {
+		// Shape mirrors what the legacy AppEditor wrote: `encodeState($appStore)`,
+		// i.e. the inner App value, not the wrapping AppWithLastVersion.
 		const legacyApp = {
-			summary: 'my app',
-			value: { foo: 'bar' },
-			policy: {},
-			path: 'u/me/dashboard'
+			grid: [],
+			fullscreen: false,
+			theme: undefined,
+			unusedInlineScripts: [],
+			hiddenInlineScripts: []
 		}
 		localStorage.setItem('app-u/me/dashboard', encodeLegacy(legacyApp))
 
@@ -44,7 +47,12 @@ describe('migrateLegacyUserDrafts', () => {
 	})
 
 	it('migrates a legacy empty-path app draft (the `app` literal key)', () => {
-		const legacyApp = { summary: '', value: {}, policy: {}, path: '' }
+		const legacyApp = {
+			grid: [],
+			fullscreen: false,
+			unusedInlineScripts: [],
+			hiddenInlineScripts: []
+		}
 		localStorage.setItem('app', encodeLegacy(legacyApp))
 
 		migrateLegacyUserDrafts('main')
@@ -91,7 +99,15 @@ describe('migrateLegacyUserDrafts', () => {
 	it('preserves an existing new-format entry instead of overwriting it', () => {
 		// Old and new both exist for the same item — the new one is presumed
 		// fresher.
-		localStorage.setItem('app-u/me/dash', encodeLegacy({ value: 'old' }))
+		localStorage.setItem(
+			'app-u/me/dash',
+			encodeLegacy({
+				grid: [],
+				fullscreen: false,
+				unusedInlineScripts: [],
+				hiddenInlineScripts: []
+			})
+		)
 		const existingNew = wrapped({ value: 'new' })
 		localStorage.setItem('userdraft/w/main/app/u/me/dash', existingNew)
 
@@ -104,7 +120,12 @@ describe('migrateLegacyUserDrafts', () => {
 	it('is idempotent — the second invocation is a no-op', () => {
 		localStorage.setItem(
 			'app-u/me/dash',
-			encodeLegacy({ summary: '', value: {}, policy: {}, path: 'u/me/dash' })
+			encodeLegacy({
+				grid: [],
+				fullscreen: false,
+				unusedInlineScripts: [],
+				hiddenInlineScripts: []
+			})
 		)
 		migrateLegacyUserDrafts('main')
 		expect(localStorage.getItem('userdraft/w/main/app/u/me/dash')).not.toBeNull()
@@ -120,7 +141,12 @@ describe('migrateLegacyUserDrafts', () => {
 	it('skips entirely when no workspace is available', () => {
 		localStorage.setItem(
 			'app-u/me/dash',
-			encodeLegacy({ summary: '', value: {}, policy: {}, path: 'u/me/dash' })
+			encodeLegacy({
+				grid: [],
+				fullscreen: false,
+				unusedInlineScripts: [],
+				hiddenInlineScripts: []
+			})
 		)
 		migrateLegacyUserDrafts('')
 
@@ -153,8 +179,9 @@ describe('migrateLegacyUserDrafts', () => {
 
 	it('skips legacy-shaped keys whose payload does not look like a Windmill draft', () => {
 		// `app-u/me/dash` matches LEGACY_PATH_SHAPE and decodes to valid JSON,
-		// but none of the App-shape fields (summary/value/policy/path) are
-		// present. Treat it as unrelated and leave it untouched.
+		// but none of the App-shape fields (grid/fullscreen/theme/
+		// unusedInlineScripts/hiddenInlineScripts) are present. Treat it as
+		// unrelated and leave it untouched.
 		const unrelated = encodeLegacy({ random: 'data', count: 7 })
 		localStorage.setItem('app-u/me/dash', unrelated)
 		const unrelatedFlow = encodeLegacy({ stepsState: {} })
@@ -171,7 +198,12 @@ describe('migrateLegacyUserDrafts', () => {
 	it('migrates multiple legacy entries in a single invocation', () => {
 		localStorage.setItem(
 			'app-u/me/a',
-			encodeLegacy({ summary: '', value: {}, policy: {}, path: 'u/me/a' })
+			encodeLegacy({
+				grid: [],
+				fullscreen: false,
+				unusedInlineScripts: [],
+				hiddenInlineScripts: []
+			})
 		)
 		localStorage.setItem(
 			'flow-u/me/b',
