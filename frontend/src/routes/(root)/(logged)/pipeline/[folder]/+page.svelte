@@ -9,7 +9,11 @@
 	import PipelineEventLog from '$lib/components/assets/AssetGraph/PipelineEventLog.svelte'
 	import AssetGraphDetailsPane from '$lib/components/assets/AssetGraph/AssetGraphDetailsPane.svelte'
 	import PipelinePickerModal from '$lib/components/assets/AssetGraph/PipelinePickerModal.svelte'
-	import { extractWrites, type AssetWithAltAccessType } from '$lib/components/assets/lib'
+	import {
+		extractWrites,
+		extractReads,
+		type AssetWithAltAccessType
+	} from '$lib/components/assets/lib'
 	import type {
 		AssetGraphResponse,
 		AssetGraphSelection
@@ -266,6 +270,11 @@
 	let inferredWritesByPath = $state<Map<string, Array<{ kind: AssetKind; path: string }>>>(
 		new Map()
 	)
+	// Same sticky cache for read usages (e.g. duckdb `read_parquet('s3://…')`,
+	// loadS3File). Keeps the asset → reader lineage edge live as the body is
+	// edited / across selection, instead of only after Save re-derives the
+	// persisted asset rows.
+	let inferredReadsByPath = $state<Map<string, Array<{ kind: AssetKind; path: string }>>>(new Map())
 
 	// Build a runnable Script from picked language / triggers / output.
 	// Delegates to the shared template generator (pipelineTemplates.ts) so
@@ -615,11 +624,16 @@
 		// re-fires the effect → infinite loop.
 		if (scriptPath) {
 			const writes = extractWrites(assets)
+			const reads = extractReads(assets)
 			untrack(() => {
-				const next = new Map(inferredWritesByPath)
-				if (writes.length > 0) next.set(scriptPath, writes)
-				else next.delete(scriptPath)
-				inferredWritesByPath = next
+				const nextW = new Map(inferredWritesByPath)
+				if (writes.length > 0) nextW.set(scriptPath, writes)
+				else nextW.delete(scriptPath)
+				inferredWritesByPath = nextW
+				const nextR = new Map(inferredReadsByPath)
+				if (reads.length > 0) nextR.set(scriptPath, reads)
+				else nextR.delete(scriptPath)
+				inferredReadsByPath = nextR
 			})
 		}
 	}
@@ -845,42 +859,47 @@
 			}
 		}
 
-		// Live body-asset writes for any persisted script we've inferred
-		// at least once this session — the source-of-truth Map is filled
-		// by `handleAssetsChange`. Drafts are handled by the loop above
-		// (via `liveForThisDraft` / `d.outputAssets`). For persisted
-		// scripts whose deploy didn't extract their body assets (e.g.
-		// older WASM at save time), this is what keeps the write edge
-		// on the canvas across selection changes — not just while the
-		// script is selected.
-		for (const [scriptPath, writes] of inferredWritesByPath) {
-			if (drafts.has(scriptPath)) continue
-			const persistedWriteKeys = new Set(
-				base.edges
-					.filter(
-						(e) =>
-							e.runnable_path === scriptPath &&
-							e.runnable_kind === 'script' &&
-							(e.access_type === 'w' || e.access_type === 'rw')
-					)
-					.map((e) => `${e.asset_kind}:${e.asset_path}`)
-			)
-			for (const a of writes) {
-				const key = `${a.kind}:${a.path}`
-				if (persistedWriteKeys.has(key)) continue
-				if (!assets.some((x) => x.kind === a.kind && x.path === a.path)) {
-					assets.push({ kind: a.kind, path: a.path })
+		// Live body-asset lineage for any persisted script inferred at least
+		// once this session (maps filled by `handleAssetsChange` + the load
+		// prefetch). Drafts are handled by the loop above. For scripts whose
+		// deploy didn't persist their body assets (e.g. older WASM at save
+		// time, or object-form writeS3File), this keeps the lineage edge on
+		// the canvas across selection changes — not just while selected.
+		const overlayLineage = (
+			byPath: Map<string, Array<{ kind: AssetKind; path: string }>>,
+			access: 'w' | 'r'
+		) => {
+			for (const [scriptPath, refs] of byPath) {
+				if (drafts.has(scriptPath)) continue
+				const persisted = new Set(
+					base.edges
+						.filter(
+							(e) =>
+								e.runnable_path === scriptPath &&
+								e.runnable_kind === 'script' &&
+								(e.access_type === access || e.access_type === 'rw')
+						)
+						.map((e) => `${e.asset_kind}:${e.asset_path}`)
+				)
+				for (const a of refs) {
+					const key = `${a.kind}:${a.path}`
+					if (persisted.has(key)) continue
+					if (!assets.some((x) => x.kind === a.kind && x.path === a.path)) {
+						assets.push({ kind: a.kind, path: a.path })
+					}
+					edges.push({
+						runnable_path: scriptPath,
+						runnable_kind: 'script',
+						asset_kind: a.kind,
+						asset_path: a.path,
+						access_type: access,
+						unsaved: true
+					})
 				}
-				edges.push({
-					runnable_path: scriptPath,
-					runnable_kind: 'script',
-					asset_kind: a.kind,
-					asset_path: a.path,
-					access_type: 'w',
-					unsaved: true
-				})
 			}
 		}
+		overlayLineage(inferredWritesByPath, 'w')
+		overlayLineage(inferredReadsByPath, 'r')
 
 		return { ...base, assets, runnables, edges, triggers: [...base.triggers, ...extraTriggers] }
 	})
@@ -1086,7 +1105,9 @@
 			g.runnables
 				.filter((r) => r.usage_kind === 'script')
 				.map((r) => r.path)
-				.filter((p) => !drafts.has(p) && !inferredWritesByPath.has(p))
+				.filter(
+					(p) => !drafts.has(p) && !inferredWritesByPath.has(p) && !inferredReadsByPath.has(p)
+				)
 		)
 		if (targets.length === 0) return
 		let i = 0
@@ -1099,16 +1120,22 @@
 					if (gen !== assetPrefetchGen) return
 					const res = await inferAssets(s.language, s.content ?? '')
 					if (gen !== assetPrefetchGen) return
-					const writes = extractWrites((res?.assets ?? []) as AssetWithAltAccessType[])
-					if (writes.length > 0) {
-						untrack(() => {
-							// A live edit / prior sweep may have filled it meanwhile.
-							if (inferredWritesByPath.has(path)) return
+					const inferred = (res?.assets ?? []) as AssetWithAltAccessType[]
+					const writes = extractWrites(inferred)
+					const reads = extractReads(inferred)
+					untrack(() => {
+						// A live edit / prior sweep may have filled either meanwhile.
+						if (writes.length > 0 && !inferredWritesByPath.has(path)) {
 							const next = new Map(inferredWritesByPath)
 							next.set(path, writes)
 							inferredWritesByPath = next
-						})
-					}
+						}
+						if (reads.length > 0 && !inferredReadsByPath.has(path)) {
+							const next = new Map(inferredReadsByPath)
+							next.set(path, reads)
+							inferredReadsByPath = next
+						}
+					})
 				} catch {
 					// Skip — that node just falls back to base-graph edges.
 				}
