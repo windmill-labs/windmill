@@ -70,7 +70,6 @@ export class Triggers {
 	}
 
 	setDraftConfig(triggerIndex: number, draftConfig: Record<string, any> | undefined) {
-		console.log('setDraftConfig', triggerIndex, draftConfig)
 		if (triggerIndex === undefined || triggerIndex < 0 || triggerIndex >= this.#triggers.length) {
 			return
 		}
