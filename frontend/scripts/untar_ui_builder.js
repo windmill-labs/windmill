@@ -1,55 +1,50 @@
-import path from 'path'
-import fs from 'fs'
+import { createHash } from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
 
+import artifact from './ui_builder_artifact.json' with { type: 'json' }
 
-// Check if we're in node_modules (installed as dependency)
+// Skip when installed as a dependency or outside the root project
 if (process.cwd().includes('node_modules')) {
-	console.log('Skipping postinstall - running as dependency');
-	process.exit(0);
+	console.log('Skipping postinstall - running as dependency')
+	process.exit(0)
 }
-
-// Check if we're in the root project
 if (process.env.INIT_CWD && process.env.INIT_CWD !== process.cwd()) {
-	console.log('Skipping postinstall - not root project');
-	process.exit(0);
+	console.log('Skipping postinstall - not root project')
+	process.exit(0)
 }
 
-// Your actual postinstall logic here
-console.log('Running postinstall for root project');
+console.log('Running postinstall for root project')
 
+const tarUrl = `${artifact.baseUrl}/ui_builder-${artifact.version}.tar.gz`
+const response = await fetch(tarUrl)
+if (!response.ok) {
+	throw new Error(`Failed to download ${tarUrl}: ${response.status} ${response.statusText}`)
+}
 
-import { x } from 'tar'
+const buffer = Buffer.from(await response.arrayBuffer())
+const sha256 = createHash('sha256').update(buffer).digest('hex')
+if (sha256 !== artifact.sha256) {
+	throw new Error(
+		`UI builder artifact checksum mismatch: expected ${artifact.sha256}, got ${sha256}`
+	)
+}
 
-const tarUrl = 'https://pub-06154ed168a24e73a86ab84db6bf15d8.r2.dev/ui_builder-6715153.tar.gz'
 const outputTarPath = path.join(process.cwd(), 'ui_builder.tar.gz')
 const extractTo = path.join(process.cwd(), 'static/ui_builder/')
 
-import { fileURLToPath } from 'url'
-import { dirname } from 'path'
+await fs.promises.mkdir(extractTo, { recursive: true })
+await fs.promises.writeFile(outputTarPath, buffer)
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
-
-// Download the tar file
-const response = await fetch(tarUrl)
-const buffer = await response.arrayBuffer()
-await fs.promises.writeFile(outputTarPath, Buffer.from(buffer))
-
-
-// Create extract directory if it doesn't exist
+const { x } = await import('tar')
 try {
-	await fs.promises.mkdir(extractTo, { recursive: true })
-} catch (err) {
-	if (err.code !== 'EEXIST') {
-		throw err
-	}
+	await x({
+		file: outputTarPath,
+		cwd: extractTo,
+		sync: false,
+		gzip: true,
+		preservePaths: false
+	})
+} finally {
+	await fs.promises.rm(outputTarPath, { force: true })
 }
-
-await x({
-	file: outputTarPath,
-	cwd: extractTo,
-	sync: false,
-	gzip: true
-})
-
-await fs.promises.unlink(outputTarPath)
