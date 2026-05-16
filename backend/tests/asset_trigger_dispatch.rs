@@ -12,6 +12,7 @@ use serde_json::json;
 use sqlx::{Pool, Postgres};
 use uuid::Uuid;
 use windmill_common::jobs::{JobKind, JobPayload};
+use windmill_common::runnable_settings::prefetch_cached_from_handle;
 use windmill_common::scripts::{ScriptHash, ScriptLang};
 use windmill_queue::asset_dispatch::dispatch_asset_triggers;
 use windmill_queue::MiniCompletedJob;
@@ -151,6 +152,27 @@ async fn seed_subscription_and(
     .bind(WS)
     .bind(subscriber_path)
     .bind(trigger_ref)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Seed an asset subscription with an opt-in debounce window (seconds).
+async fn seed_subscription_debounced(
+    db: &Pool<Postgres>,
+    subscriber_path: &str,
+    trigger_ref: &str,
+    debounce_s: i32,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        r#"INSERT INTO script_trigger
+             (workspace_id, runnable_kind, runnable_path, trigger_kind, trigger_ref, debounce_s)
+           VALUES ($1, 'script'::asset_usage_kind, $2, 'asset'::script_trigger_kind, $3, $4)"#,
+    )
+    .bind(WS)
+    .bind(subscriber_path)
+    .bind(trigger_ref)
+    .bind(debounce_s)
     .execute(db)
     .await?;
     Ok(())
@@ -493,6 +515,63 @@ async fn and_join_waits_for_all_partition_inputs(db: Pool<Postgres>) -> anyhow::
     assert!(
         r.dispatched.is_empty(),
         "slot was cleared on fire; single input must not re-fire"
+    );
+
+    Ok(())
+}
+
+/// Stage E3: a subscriber whose edge has a debounce window gets real
+/// DebouncingSettings (delay + a (subscriber, partition) key) on the
+/// dispatched job; an undebounced subscriber on the same asset gets none
+/// (fan-out, unchanged). Asserts the wiring fetch→push→payload→handle;
+/// the actual window-collapse is the queue subsystem's own concern.
+#[sqlx::test(fixtures("base"))]
+async fn debounce_setting_applied_to_dispatched_subscriber(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    seed_script(&db, SUB_S3, "echo debounced", "bash").await?;
+    seed_script(&db, SUB_RES, "echo plain", "bash").await?;
+    seed_asset_write(&db, PRODUCER, "s3object", "f/blob").await?;
+    seed_subscription_debounced(&db, SUB_S3, "s3://f/blob", 30).await?;
+    seed_subscription(&db, SUB_RES, "script", "s3://f/blob").await?;
+
+    let id = seed_producer_job(&db, json!({})).await?;
+    let r = dispatch_asset_triggers(&db, &make_mini(id, PRODUCER)).await;
+    assert_eq!(r.dispatched.len(), 2, "both subscribers dispatched");
+
+    async fn debounce_of(
+        db: &Pool<Postgres>,
+        path: &str,
+    ) -> anyhow::Result<(Option<i32>, Option<String>)> {
+        let handle = sqlx::query_scalar!(
+            r#"SELECT q.runnable_settings_handle
+                 FROM v2_job j JOIN v2_job_queue q ON q.id = j.id
+                 WHERE j.workspace_id = $1 AND j.runnable_path = $2
+                   AND j.trigger_kind = 'asset'"#,
+            WS,
+            path,
+        )
+        .fetch_one(db)
+        .await?;
+        let (deb, _conc) = prefetch_cached_from_handle(handle, db).await?;
+        Ok((deb.debounce_delay_s, deb.debounce_key))
+    }
+
+    let (deb_delay, deb_key) = debounce_of(&db, SUB_S3).await?;
+    assert_eq!(deb_delay, Some(30), "debounced edge → 30s window");
+    assert!(
+        deb_key
+            .as_deref()
+            .is_some_and(|k| k.starts_with("asset-cascade:")),
+        "debounce key is scoped to the (subscriber, partition) cascade slot, got {deb_key:?}"
+    );
+
+    let (plain_delay, _) = debounce_of(&db, SUB_RES).await?;
+    assert_eq!(
+        plain_delay, None,
+        "undebounced edge → no debounce (fan-out)"
     );
 
     Ok(())

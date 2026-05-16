@@ -130,7 +130,7 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
         };
         let trigger_ref = format!("{}{}", prefix, asset_path);
         let subs = fetch_subscribers(db, &job.workspace_id, &trigger_ref).await?;
-        for (sub_path, join_all) in subs {
+        for (sub_path, join_all, debounce_s) in subs {
             if sub_path == runnable_path {
                 continue;
             }
@@ -177,6 +177,7 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
                 runnable_path,
                 depth + 1,
                 partition.as_deref(),
+                debounce_s,
             )
             .await
             {
@@ -309,14 +310,15 @@ async fn fetch_subscribers(
     db: &Pool<Postgres>,
     workspace_id: &str,
     trigger_ref: &str,
-) -> Result<Vec<(String, bool)>> {
+) -> Result<Vec<(String, bool, Option<i32>)>> {
     // V1: script subscribers only. Flow subscribers (`runnable_kind = 'flow'`)
     // are intentionally excluded — wiring them is straightforward but the
     // payload shape and permissioning need their own pass.
-    // `join_all` is the subscriber's `// trigger all` (AND join) flag.
+    // `join_all` = `// trigger all` (AND join); `debounce_s` = the opt-in
+    // debounce window resolved at deploy (NULL = fan-out, the default).
     let rows = sqlx::query!(
         r#"
-        SELECT runnable_path AS "runnable_path!", join_all AS "join_all!"
+        SELECT runnable_path AS "runnable_path!", join_all AS "join_all!", debounce_s
         FROM script_trigger
         WHERE workspace_id = $1
           AND trigger_kind = 'asset'
@@ -338,7 +340,7 @@ async fn fetch_subscribers(
     }
     Ok(rows
         .into_iter()
-        .map(|r| (r.runnable_path, r.join_all))
+        .map(|r| (r.runnable_path, r.join_all, r.debounce_s))
         .collect())
 }
 
@@ -435,6 +437,7 @@ async fn push_subscriber(
     producer_path: &str,
     depth: i64,
     partition: Option<&str>,
+    debounce_s: Option<i32>,
 ) -> Result<Uuid> {
     let (
         hash,
@@ -465,11 +468,23 @@ async fn push_subscriber(
         language,
         priority,
         apply_preprocessor: false,
-        // V1: skip debouncing/concurrency for asset-triggered runs. The
-        // trigger fan-out is the user's intent — we don't want a noisy
-        // upstream's writes to silently drop downstream runs because a
-        // debounce key collides. Revisit if we see lots of dups.
-        debouncing_settings: DebouncingSettings::default(),
+        // Debounce is opt-in per subscriber edge (`// debounce` /
+        // `// on … debounce=`). Default = none (fan-out — the user's
+        // intent unless they ask otherwise). When set, the window is
+        // keyed by (subscriber, partition) so distinct partitions never
+        // collapse and "latest within the window" falls out for free.
+        debouncing_settings: match debounce_s {
+            Some(s) if s > 0 => DebouncingSettings {
+                debounce_key: Some(format!(
+                    "asset-cascade:{}:{}",
+                    subscriber_path,
+                    partition.unwrap_or("")
+                )),
+                debounce_delay_s: Some(s),
+                ..DebouncingSettings::default()
+            },
+            _ => DebouncingSettings::default(),
+        },
         concurrency_settings: ConcurrencySettings::default(),
         labels,
     };
