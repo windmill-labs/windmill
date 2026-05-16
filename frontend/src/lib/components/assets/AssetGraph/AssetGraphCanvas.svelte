@@ -598,7 +598,7 @@
 		--background-color={false}
 	>
 		<div class="absolute inset-0 !bg-surface-secondary h-full"></div>
-		<Controls position="top-right" orientation="horizontal" showLock={false} />
+		<Controls position="top-right" orientation="horizontal" showLock={false} class="!mr-10" />
 		<MiniMap
 			pannable
 			zoomable
