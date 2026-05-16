@@ -46,6 +46,7 @@ pub fn parse_assets(code: &str) -> anyhow::Result<ParseAssetsOutput> {
         triggers: pipeline.triggers,
         partition: pipeline.partition,
         freshness: pipeline.freshness,
+        join_mode: pipeline.join_mode,
     })
 }
 

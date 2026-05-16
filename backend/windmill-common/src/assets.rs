@@ -196,6 +196,9 @@ pub async fn delete_managed_pipeline_schedule<'e>(
 }
 
 // Insert a single trigger declaration. Caller is expected to wipe first.
+// `join_all` is the script-level `// trigger all` flag (AND join barrier);
+// it is the same for every row of a given runnable but stored per-row to
+// keep the wipe-and-reinsert pattern and a single-query subscriber lookup.
 pub async fn insert_script_trigger<'e>(
     executor: impl PgExecutor<'e>,
     workspace_id: &str,
@@ -203,16 +206,18 @@ pub async fn insert_script_trigger<'e>(
     runnable_path: &str,
     trigger_kind: ScriptTriggerKind,
     trigger_ref: &str,
+    join_all: bool,
 ) -> error::Result<()> {
     sqlx::query!(
         r#"INSERT INTO script_trigger
-             (workspace_id, runnable_kind, runnable_path, trigger_kind, trigger_ref)
-           VALUES ($1, $2, $3, $4, $5)"#,
+             (workspace_id, runnable_kind, runnable_path, trigger_kind, trigger_ref, join_all)
+           VALUES ($1, $2, $3, $4, $5, $6)"#,
         workspace_id,
         runnable_kind as AssetUsageKind,
         runnable_path,
         trigger_kind as ScriptTriggerKind,
         trigger_ref,
+        join_all,
     )
     .execute(executor)
     .await?;

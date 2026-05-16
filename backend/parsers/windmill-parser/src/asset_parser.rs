@@ -83,6 +83,11 @@ pub struct ParseAssetsOutput {
     // applies regardless of which trigger last fired.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub freshness: Option<FreshnessSpec>,
+    // `// trigger all` → AND join barrier; default (`any`) = OR (current
+    // behaviour). Threaded to the deploy path which persists it on the
+    // subscriber's trigger rows.
+    #[serde(skip_serializing_if = "JoinMode::is_any", default)]
+    pub join_mode: JoinMode,
 }
 
 #[derive(Serialize, Debug, PartialEq, Clone)]
@@ -107,6 +112,17 @@ pub enum TriggerSpec {
     Postgres { path: String },
     Sqs { path: String },
     Gcp { path: String },
+}
+
+impl TriggerSpec {
+    // A `// on <asset>` whose declared path contains the `{partition}`
+    // token is *partition-bearing*: in an AND join its concrete partition
+    // value is the join key. Non-asset triggers and assets without the
+    // token are reference/presence-only inputs that never define the
+    // partition (the case-3 guard).
+    pub fn is_partition_bearing(&self) -> bool {
+        matches!(self, TriggerSpec::Asset { path, .. } if path.contains(PARTITION_TOKEN))
+    }
 }
 
 // Partitioning declaration for a pipeline script. `daily`/`hourly`/`weekly`/
@@ -147,6 +163,24 @@ pub struct FreshnessSpec {
     pub duration: String,
 }
 
+// `// trigger any` (default) vs `// trigger all`. `Any` = OR: any trigger
+// firing runs the script (current behaviour). `All` = AND: the script
+// runs only once every partition-bearing input has materialized at the
+// same partition (plus every reference input exists) — the join barrier.
+#[derive(Serialize, Debug, PartialEq, Eq, Clone, Copy, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum JoinMode {
+    #[default]
+    Any,
+    All,
+}
+
+impl JoinMode {
+    pub fn is_any(&self) -> bool {
+        matches!(self, JoinMode::Any)
+    }
+}
+
 // All pipeline-level annotations parsed off a script's source. Returned by
 // `parse_pipeline_annotations` and forwarded into `ParseAssetsOutput`.
 #[derive(Default, Debug, PartialEq, Clone)]
@@ -155,6 +189,7 @@ pub struct PipelineAnnotations {
     pub triggers: Vec<TriggerSpec>,
     pub partition: Option<PartitionSpec>,
     pub freshness: Option<FreshnessSpec>,
+    pub join_mode: JoinMode,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -412,6 +447,19 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
             continue;
         }
 
+        if let Some(after_kw) = rest.strip_prefix("trigger") {
+            if !after_kw.starts_with(|c: char| c.is_whitespace()) {
+                continue;
+            }
+            match after_kw.trim() {
+                "all" => out.join_mode = JoinMode::All,
+                "any" => out.join_mode = JoinMode::Any,
+                // Unknown value — leave the default rather than guess.
+                _ => {}
+            }
+            continue;
+        }
+
         if let Some(after_kw) = rest.strip_prefix("on") {
             if !after_kw.starts_with(|c: char| c.is_whitespace()) {
                 continue;
@@ -585,6 +633,61 @@ mod pipeline_annotation_tests {
     fn rejects_unknown_trigger_spec() {
         let out = parse_pipeline_annotations("// on unknown://nope\n# schedule");
         assert!(out.triggers.is_empty());
+    }
+
+    #[test]
+    fn join_mode_defaults_to_any() {
+        let out = parse_pipeline_annotations("// on s3://a/b");
+        assert_eq!(out.join_mode, JoinMode::Any);
+        assert!(out.join_mode.is_any());
+    }
+
+    #[test]
+    fn trigger_all_sets_and_mode() {
+        let out = parse_pipeline_annotations(
+            "// pipeline\n// on s3://lake/{partition}/x\n// trigger all",
+        );
+        assert_eq!(out.join_mode, JoinMode::All);
+        assert!(!out.join_mode.is_any());
+    }
+
+    #[test]
+    fn trigger_any_explicit_and_other_prefixes() {
+        // explicit `any`, plus `#` / `--` comment prefixes are accepted.
+        assert_eq!(
+            parse_pipeline_annotations("# trigger all\n-- trigger any").join_mode,
+            JoinMode::Any
+        );
+        assert_eq!(
+            parse_pipeline_annotations("-- trigger all").join_mode,
+            JoinMode::All
+        );
+    }
+
+    #[test]
+    fn trigger_unknown_or_glued_keeps_default() {
+        // unknown value, and `triggerall` (no whitespace) must not match.
+        assert_eq!(
+            parse_pipeline_annotations("// trigger bogus").join_mode,
+            JoinMode::Any
+        );
+        assert_eq!(
+            parse_pipeline_annotations("// triggerall").join_mode,
+            JoinMode::Any
+        );
+    }
+
+    #[test]
+    fn is_partition_bearing_only_for_tokened_assets() {
+        let out = parse_pipeline_annotations(
+            "// on s3://lake/raw/{partition}/events.parquet\n\
+             // on s3://lake/dim/customers.parquet\n\
+             // schedule \"@daily\"",
+        );
+        assert_eq!(out.triggers.len(), 3);
+        assert!(out.triggers[0].is_partition_bearing());
+        assert!(!out.triggers[1].is_partition_bearing());
+        assert!(!out.triggers[2].is_partition_bearing());
     }
 
     #[test]

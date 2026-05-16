@@ -1240,6 +1240,8 @@ async fn create_script_internal<'c>(
     // them in auto_kind itself).
     let pipeline_annotations = parse_pipeline_annotations(&ns.content);
     let in_pipeline = pipeline_annotations.in_pipeline;
+    // `// trigger all` → AND join barrier (else OR, the default).
+    let pipeline_join_all = !pipeline_annotations.join_mode.is_any();
     let pipeline_triggers = pipeline_annotations.triggers;
     let auto_kind = if in_pipeline {
         Some("pipeline".to_string())
@@ -1566,6 +1568,7 @@ async fn create_script_internal<'c>(
             &ns.path,
             trigger_kind,
             &trigger_ref,
+            pipeline_join_all,
         )
         .await?;
     }
