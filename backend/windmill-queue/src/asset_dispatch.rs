@@ -53,6 +53,7 @@ use windmill_common::assets::{parse_asset_trigger_ref, AssetKind};
 use windmill_common::error::{self, Result};
 use windmill_common::get_latest_hash_for_path;
 use windmill_common::jobs::{JobKind, JobPayload, JobTriggerKind};
+use windmill_common::partition::PARTITION_ARG;
 use windmill_common::runnable_settings::{ConcurrencySettings, DebouncingSettings};
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::users::username_to_permissioned_as;
@@ -105,6 +106,7 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
         return Ok(DispatchResult::default());
     }
     let depth = read_chain_depth(args.as_ref());
+    let partition = read_partition(args.as_ref());
     if depth >= MAX_CHAIN_DEPTH {
         tracing::warn!(
             "asset-trigger dispatch skipped: chain depth {} >= cap {} (job {}, path {})",
@@ -140,6 +142,7 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
                 &asset_path,
                 runnable_path,
                 depth + 1,
+                partition.as_deref(),
             )
             .await
             {
@@ -212,6 +215,23 @@ fn read_chain_depth(args: Option<&HashMap<String, Box<RawValue>>>) -> i64 {
     map.get(CHAIN_DEPTH_KEY)
         .and_then(|v| serde_json::from_str::<i64>(v.get()).ok())
         .unwrap_or(0)
+}
+
+/// The partition value the producer ran with, if any. Resolved once at the
+/// top of a chain (run-start) and threaded down here so every cascaded job
+/// materializes the same partition without re-resolving. Top-level
+/// `partition` arg (run-start injection) takes precedence over the
+/// `trigger.partition` carried from an upstream cascade hop.
+fn read_partition(args: Option<&HashMap<String, Box<RawValue>>>) -> Option<String> {
+    let args = args?;
+    if let Some(v) = args.get(PARTITION_ARG) {
+        if let Ok(s) = serde_json::from_str::<String>(v.get()) {
+            return Some(s);
+        }
+    }
+    let trigger = args.get("trigger")?;
+    let map = serde_json::from_str::<HashMap<String, Box<RawValue>>>(trigger.get()).ok()?;
+    serde_json::from_str::<String>(map.get(PARTITION_ARG)?.get()).ok()
 }
 
 fn prefix_for(kind: AssetKind) -> Option<&'static str> {
@@ -292,6 +312,7 @@ async fn push_subscriber(
     asset_path: &str,
     producer_path: &str,
     depth: i64,
+    partition: Option<&str>,
 ) -> Result<Uuid> {
     let (
         hash,
@@ -352,8 +373,16 @@ async fn push_subscriber(
         "producer_path": producer_path,
         "producer_job_id": producer.id.to_string(),
         CHAIN_DEPTH_KEY: depth,
+        PARTITION_ARG: partition,
     });
     args.insert("trigger".to_string(), to_raw_value(&trigger_payload));
+    // Carry the producer's resolved partition forward as a top-level arg so
+    // the subscriber's body can read it and the next cascade hop's
+    // `read_partition` picks it up — keeps the whole chain on one partition,
+    // resolved once at the top. Omitted entirely for non-partitioned chains.
+    if let Some(p) = partition {
+        args.insert(PARTITION_ARG.to_string(), to_raw_value(&p));
+    }
 
     // Attribute the dispatched run to a synthetic user so audit logs reflect
     // it came from the asset cascade, not the original human runner.
@@ -398,4 +427,3 @@ async fn push_subscriber(
     tx.commit().await?;
     Ok(id)
 }
-
