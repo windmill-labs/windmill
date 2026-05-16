@@ -1096,6 +1096,10 @@
 	// (workspace, base-graph) only so a keystroke/new draft doesn't re-sweep;
 	// the generation token cancels an in-flight sweep on folder change.
 	let assetPrefetchGen = 0
+	// True while the load-time sweep above is still parsing scripts — drives
+	// a small "parsing assets…" hint so the user knows the graph is still
+	// settling (edges may still appear) rather than already complete.
+	let prefetchingAssets = $state(false)
 	$effect(() => {
 		const ws = $workspaceStore
 		const g = graphRes.current
@@ -1141,7 +1145,13 @@
 				}
 			}
 		}
-		for (let k = 0; k < Math.min(POOL, targets.length); k++) void worker()
+		prefetchingAssets = true
+		const pool = Array.from({ length: Math.min(POOL, targets.length) }, () => worker())
+		void Promise.all(pool).then(() => {
+			// Only clear for the sweep still current — a folder change starts
+			// a new gen (and its own true) that this stale resolve mustn't undo.
+			if (gen === assetPrefetchGen) prefetchingAssets = false
+		})
 	})
 
 	function pluralize(n: number, singular: string): string {
@@ -1424,6 +1434,15 @@
 								events={activeRunnables.events}
 								onToggle={(o) => activeRunnables.setObserving(o)}
 							/>
+							{#if prefetchingAssets}
+								<div
+									class="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-2 py-1 rounded-md bg-surface/95 backdrop-blur-sm border border-gray-200 dark:border-gray-700 text-2xs text-secondary shadow-sm"
+									title="Inferring assets for every script in this folder so the graph is complete"
+								>
+									<Loader2 size={11} class="animate-spin" />
+									Parsing assets…
+								</div>
+							{/if}
 							{#if selection != undefined || activeDraftPath != undefined}
 								<!-- Floating panel toggle, mirrors the app builder's
 								     hide-bar pattern. Anchored to the canvas (not the
