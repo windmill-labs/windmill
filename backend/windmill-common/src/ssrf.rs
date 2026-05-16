@@ -50,6 +50,10 @@ impl std::fmt::Display for SsrfValidationError {
     }
 }
 
+// Enables `?` from `validate_url_for_ssrf` in functions returning
+// `anyhow::Result` (e.g. the EE SAML metadata loader).
+impl std::error::Error for SsrfValidationError {}
+
 impl From<SsrfValidationError> for Error {
     fn from(e: SsrfValidationError) -> Self {
         Error::BadRequest(e.to_string())
