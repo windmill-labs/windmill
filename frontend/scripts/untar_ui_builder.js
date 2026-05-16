@@ -1,55 +1,96 @@
-import path from 'path'
-import fs from 'fs'
+import { createHash } from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
+import artifact from './ui_builder_artifact.json' with { type: 'json' }
 
-// Check if we're in node_modules (installed as dependency)
-if (process.cwd().includes('node_modules')) {
-	console.log('Skipping postinstall - running as dependency');
-	process.exit(0);
+export function shouldSkipPostinstall(cwd = process.cwd(), initCwd = process.env.INIT_CWD ?? '') {
+	if (cwd.includes('node_modules')) {
+		return true
+	}
+
+	return Boolean(initCwd && initCwd !== cwd)
 }
 
-// Check if we're in the root project
-if (process.env.INIT_CWD && process.env.INIT_CWD !== process.cwd()) {
-	console.log('Skipping postinstall - not root project');
-	process.exit(0);
+export function getTarballName(selectedArtifact = artifact) {
+	return `ui_builder-${selectedArtifact.version}.tar.gz`
 }
 
-// Your actual postinstall logic here
-console.log('Running postinstall for root project');
+export function getTarballUrl(selectedArtifact = artifact) {
+	return `${selectedArtifact.baseUrl}/${getTarballName(selectedArtifact)}`
+}
 
+export async function computeSha256(buffer) {
+	return createHash('sha256').update(buffer).digest('hex')
+}
 
-import { x } from 'tar'
-
-const tarUrl = 'https://pub-06154ed168a24e73a86ab84db6bf15d8.r2.dev/ui_builder-6715153.tar.gz'
-const outputTarPath = path.join(process.cwd(), 'ui_builder.tar.gz')
-const extractTo = path.join(process.cwd(), 'static/ui_builder/')
-
-import { fileURLToPath } from 'url'
-import { dirname } from 'path'
-
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
-
-// Download the tar file
-const response = await fetch(tarUrl)
-const buffer = await response.arrayBuffer()
-await fs.promises.writeFile(outputTarPath, Buffer.from(buffer))
-
-
-// Create extract directory if it doesn't exist
-try {
-	await fs.promises.mkdir(extractTo, { recursive: true })
-} catch (err) {
-	if (err.code !== 'EEXIST') {
-		throw err
+export async function verifyArtifactIntegrity(buffer, selectedArtifact = artifact) {
+	const actualSha256 = await computeSha256(buffer)
+	if (actualSha256 !== selectedArtifact.sha256) {
+		throw new Error(
+			`UI builder artifact checksum mismatch: expected ${selectedArtifact.sha256}, got ${actualSha256}`
+		)
 	}
 }
 
-await x({
-	file: outputTarPath,
-	cwd: extractTo,
-	sync: false,
-	gzip: true
-})
+async function downloadArtifact(fetchImpl = fetch, selectedArtifact = artifact) {
+	const tarballUrl = getTarballUrl(selectedArtifact)
+	const response = await fetchImpl(tarballUrl)
 
-await fs.promises.unlink(outputTarPath)
+	if (!response.ok) {
+		throw new Error(`Failed to download UI builder artifact from ${tarballUrl}: ${response.status} ${response.statusText}`)
+	}
+
+	const buffer = Buffer.from(await response.arrayBuffer())
+	await verifyArtifactIntegrity(buffer, selectedArtifact)
+	return buffer
+}
+
+async function extractArtifact(buffer, cwd = process.cwd()) {
+	const { x } = await import('tar')
+	const outputTarPath = path.join(cwd, 'ui_builder.tar.gz')
+	const extractTo = path.join(cwd, 'static/ui_builder/')
+
+	await fs.promises.mkdir(extractTo, { recursive: true })
+	await fs.promises.writeFile(outputTarPath, buffer)
+
+	try {
+		await x({
+			file: outputTarPath,
+			cwd: extractTo,
+			sync: false,
+			gzip: true,
+			preservePaths: false
+		})
+	} finally {
+		await fs.promises.rm(outputTarPath, { force: true })
+	}
+}
+
+export async function installUiBuilder(fetchImpl = fetch, cwd = process.cwd(), selectedArtifact = artifact) {
+	const buffer = await downloadArtifact(fetchImpl, selectedArtifact)
+	await extractArtifact(buffer, cwd)
+}
+
+async function main() {
+	if (shouldSkipPostinstall()) {
+		if (process.cwd().includes('node_modules')) {
+			console.log('Skipping postinstall - running as dependency')
+			return
+		}
+
+		console.log('Skipping postinstall - not root project')
+		return
+	}
+
+	console.log('Running postinstall for root project')
+	await installUiBuilder()
+}
+
+const entrypoint = process.argv[1] ? path.resolve(process.argv[1]) : null
+const isMainModule = entrypoint === fileURLToPath(import.meta.url)
+
+if (isMainModule) {
+	await main()
+}
