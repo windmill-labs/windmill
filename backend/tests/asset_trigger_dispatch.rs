@@ -114,6 +114,48 @@ async fn seed_producer_job(db: &Pool<Postgres>, args: serde_json::Value) -> anyh
     Ok(id)
 }
 
+/// Like `seed_producer_job` but for an arbitrary runnable path (the
+/// AND-join test needs two distinct producers).
+async fn seed_producer_job_path(
+    db: &Pool<Postgres>,
+    path: &str,
+    args: serde_json::Value,
+) -> anyhow::Result<Uuid> {
+    let id = Uuid::new_v4();
+    sqlx::query!(
+        r#"INSERT INTO v2_job (id, workspace_id, kind, runnable_path, args, created_by,
+                                permissioned_as, permissioned_as_email, tag, script_lang)
+           VALUES ($1, $2, 'script'::job_kind, $3, $4, 'test-user',
+                   'u/test-user', 'test@windmill.dev', 'deno', 'bash'::script_lang)"#,
+        id,
+        WS,
+        path,
+        args,
+    )
+    .execute(db)
+    .await?;
+    Ok(id)
+}
+
+/// Seed an asset subscription flagged as an AND join (`// trigger all`).
+async fn seed_subscription_and(
+    db: &Pool<Postgres>,
+    subscriber_path: &str,
+    trigger_ref: &str,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        r#"INSERT INTO script_trigger
+             (workspace_id, runnable_kind, runnable_path, trigger_kind, trigger_ref, join_all)
+           VALUES ($1, 'script'::asset_usage_kind, $2, 'asset'::script_trigger_kind, $3, TRUE)"#,
+    )
+    .bind(WS)
+    .bind(subscriber_path)
+    .bind(trigger_ref)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 fn make_mini(id: Uuid, runnable_path: &str) -> MiniCompletedJob {
     MiniCompletedJob {
         id,
@@ -385,6 +427,72 @@ async fn partition_dynamic_resolved_persisted_and_propagated(
         args["trigger"]["partition"],
         json!("acme"),
         "subscriber gets trigger.partition"
+    );
+
+    Ok(())
+}
+
+/// Stage D: an AND-join subscriber (`// trigger all`) with two
+/// partition-bearing inputs must NOT dispatch until both inputs have
+/// arrived for the *same* partition; then it fires exactly once. Slots
+/// are per-partition and cleared on fire (re-accumulate, no double-fire).
+#[sqlx::test(fixtures("base"))]
+async fn and_join_waits_for_all_partition_inputs(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    const PROD_A: &str = "u/test-user/prod-a";
+    const PROD_B: &str = "u/test-user/prod-b";
+    const SUB_J: &str = "u/test-user/sub-join";
+
+    seed_script(&db, SUB_J, "echo join-subscriber", "bash").await?;
+    // Two partition-bearing producers, one input each (literal token form).
+    seed_asset_write(&db, PROD_A, "s3object", "lake/{partition}/a").await?;
+    seed_asset_write(&db, PROD_B, "s3object", "lake/{partition}/b").await?;
+    seed_subscription_and(&db, SUB_J, "s3://lake/{partition}/a").await?;
+    seed_subscription_and(&db, SUB_J, "s3://lake/{partition}/b").await?;
+
+    // Input A for partition "acme" → slot 1/2, must NOT dispatch.
+    let a_acme = seed_producer_job_path(&db, PROD_A, json!({ "partition": "acme" })).await?;
+    let r = dispatch_asset_triggers(&db, &make_mini(a_acme, PROD_A)).await;
+    assert!(
+        r.dispatched.is_empty(),
+        "AND join must wait: only 1 of 2 inputs present"
+    );
+    assert!(
+        fetch_dispatched(&db).await?.is_empty(),
+        "no subscriber job pushed yet"
+    );
+
+    // A different partition for input B must open its OWN slot, not
+    // complete acme's.
+    let b_globex = seed_producer_job_path(&db, PROD_B, json!({ "partition": "globex" })).await?;
+    let r = dispatch_asset_triggers(&db, &make_mini(b_globex, PROD_B)).await;
+    assert!(
+        r.dispatched.is_empty(),
+        "different partition opens a separate slot, does not complete acme"
+    );
+
+    // Input B for "acme" → acme slot now 2/2 → dispatch exactly once.
+    let b_acme = seed_producer_job_path(&db, PROD_B, json!({ "partition": "acme" })).await?;
+    let r = dispatch_asset_triggers(&db, &make_mini(b_acme, PROD_B)).await;
+    assert_eq!(r.dispatched.len(), 1, "AND join fires once both inputs in");
+
+    let rows = fetch_dispatched(&db).await?;
+    assert_eq!(rows.len(), 1);
+    let sub = &rows[0];
+    assert_eq!(sub.0, SUB_J);
+    let args = sub.2.as_ref().unwrap();
+    assert_eq!(args["partition"], json!("acme"));
+    assert_eq!(args["trigger"]["partition"], json!("acme"));
+
+    // Slot cleared on fire: re-arrival of A/acme alone is 1/2 again, no
+    // double-fire.
+    clear_dispatched(&db).await?;
+    let a_acme2 = seed_producer_job_path(&db, PROD_A, json!({ "partition": "acme" })).await?;
+    let r = dispatch_asset_triggers(&db, &make_mini(a_acme2, PROD_A)).await;
+    assert!(
+        r.dispatched.is_empty(),
+        "slot was cleared on fire; single input must not re-fire"
     );
 
     Ok(())

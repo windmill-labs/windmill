@@ -49,7 +49,7 @@ use sqlx::types::Json;
 use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
 use uuid::Uuid;
-use windmill_common::assets::{parse_asset_trigger_ref, AssetKind};
+use windmill_common::assets::{parse_asset_trigger_ref, AssetKind, PARTITION_TOKEN};
 use windmill_common::error::{self, Result};
 use windmill_common::get_latest_hash_for_path;
 use windmill_common::jobs::{JobKind, JobPayload, JobTriggerKind};
@@ -130,9 +130,43 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
         };
         let trigger_ref = format!("{}{}", prefix, asset_path);
         let subs = fetch_subscribers(db, &job.workspace_id, &trigger_ref).await?;
-        for sub_path in subs {
+        for (sub_path, join_all) in subs {
             if sub_path == runnable_path {
                 continue;
+            }
+            if join_all {
+                // AND join barrier. Only a partition-bearing input
+                // (`// on …/{partition}/…`) carrying a concrete partition
+                // advances the join — a reference input or an
+                // unpartitioned producer must never fire a partitioned
+                // join (the case-3 silent-wrong guard).
+                if !is_partition_bearing_ref(&trigger_ref) {
+                    tracing::debug!(
+                        "AND subscriber {}: non-partition-bearing input {} does not fire the join",
+                        sub_path,
+                        trigger_ref
+                    );
+                    continue;
+                }
+                let Some(pv) = partition.as_deref() else {
+                    tracing::warn!(
+                        "AND subscriber {}: partition-bearing input {} arrived with no resolved \
+                         partition; not dispatching (case-3 guard)",
+                        sub_path,
+                        trigger_ref
+                    );
+                    continue;
+                };
+                match record_and_check_join_slot(db, &job.workspace_id, &sub_path, pv, &trigger_ref)
+                    .await
+                {
+                    Ok(false) => continue, // slot incomplete — wait for the rest
+                    Ok(true) => {}         // all inputs present for this partition
+                    Err(e) => {
+                        tracing::error!("join-slot check failed for {}: {e:#}", sub_path);
+                        continue;
+                    }
+                }
             }
             match push_subscriber(
                 db,
@@ -275,13 +309,14 @@ async fn fetch_subscribers(
     db: &Pool<Postgres>,
     workspace_id: &str,
     trigger_ref: &str,
-) -> Result<Vec<String>> {
+) -> Result<Vec<(String, bool)>> {
     // V1: script subscribers only. Flow subscribers (`runnable_kind = 'flow'`)
     // are intentionally excluded — wiring them is straightforward but the
     // payload shape and permissioning need their own pass.
+    // `join_all` is the subscriber's `// trigger all` (AND join) flag.
     let rows = sqlx::query!(
         r#"
-        SELECT runnable_path AS "runnable_path!"
+        SELECT runnable_path AS "runnable_path!", join_all AS "join_all!"
         FROM script_trigger
         WHERE workspace_id = $1
           AND trigger_kind = 'asset'
@@ -301,7 +336,94 @@ async fn fetch_subscribers(
             trigger_ref
         );
     }
-    Ok(rows.into_iter().map(|r| r.runnable_path).collect())
+    Ok(rows
+        .into_iter()
+        .map(|r| (r.runnable_path, r.join_all))
+        .collect())
+}
+
+/// A `// on <asset>` whose stored ref carries the literal `{partition}`
+/// token is partition-bearing — its concrete partition is the AND-join
+/// key. Non-token asset refs are reference/presence-only inputs.
+fn is_partition_bearing_ref(trigger_ref: &str) -> bool {
+    trigger_ref.contains(PARTITION_TOKEN)
+}
+
+/// Distinct partition-bearing asset inputs an AND subscriber declares
+/// (its `{partition}`-token `// on` lines). Reference inputs (no token)
+/// and non-asset triggers are presence-only and do not gate the join in
+/// v1, so they are excluded from the required set.
+async fn count_required_join_inputs(
+    db: &DB,
+    workspace_id: &str,
+    subscriber_path: &str,
+) -> Result<i64> {
+    let n = sqlx::query_scalar!(
+        r#"SELECT count(DISTINCT trigger_ref) AS "n!"
+           FROM script_trigger
+           WHERE workspace_id = $1
+             AND runnable_path = $2
+             AND trigger_kind = 'asset'
+             AND runnable_kind = 'script'
+             AND trigger_ref LIKE '%' || $3 || '%'"#,
+        workspace_id,
+        subscriber_path,
+        PARTITION_TOKEN,
+    )
+    .fetch_one(db)
+    .await?;
+    Ok(n)
+}
+
+/// Record an AND input arrival for `(subscriber, partition)` and report
+/// whether every partition-bearing input is now present for that
+/// partition. Idempotent per input (PK conflict ignored), so a re-fired
+/// upstream doesn't double-count. On completion the slot is cleared so
+/// later writes re-accumulate and can re-materialize the partition.
+async fn record_and_check_join_slot(
+    db: &DB,
+    workspace_id: &str,
+    subscriber_path: &str,
+    partition: &str,
+    trigger_ref: &str,
+) -> Result<bool> {
+    sqlx::query!(
+        r#"INSERT INTO join_pending_inputs
+             (workspace_id, subscriber_path, partition, trigger_ref)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT DO NOTHING"#,
+        workspace_id,
+        subscriber_path,
+        partition,
+        trigger_ref,
+    )
+    .execute(db)
+    .await?;
+    let required = count_required_join_inputs(db, workspace_id, subscriber_path).await?;
+    let received = sqlx::query_scalar!(
+        r#"SELECT count(DISTINCT trigger_ref) AS "n!"
+           FROM join_pending_inputs
+           WHERE workspace_id = $1 AND subscriber_path = $2 AND partition = $3"#,
+        workspace_id,
+        subscriber_path,
+        partition,
+    )
+    .fetch_one(db)
+    .await?;
+    if required > 0 && received >= required {
+        sqlx::query!(
+            r#"DELETE FROM join_pending_inputs
+               WHERE workspace_id = $1 AND subscriber_path = $2 AND partition = $3"#,
+            workspace_id,
+            subscriber_path,
+            partition,
+        )
+        .execute(db)
+        .await?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
 }
 
 async fn push_subscriber(
