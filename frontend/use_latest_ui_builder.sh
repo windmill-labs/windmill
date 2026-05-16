@@ -19,15 +19,12 @@ else
 fi
 echo "Using UI Builder sha256: ${SHA256}"
 
-python3 - "$HASH" "$SHA256" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-version, sha256 = sys.argv[1], sys.argv[2]
-artifact_path = Path("../windmill/frontend/scripts/ui_builder_artifact.json")
-artifact = json.loads(artifact_path.read_text())
-artifact["version"] = version
-artifact["sha256"] = sha256
-artifact_path.write_text(json.dumps(artifact, indent="\t") + "\n")
-PY
+node -e '
+const fs = require("fs")
+const [version, sha256] = process.argv.slice(1)
+const artifactPath = "../windmill/frontend/scripts/ui_builder_artifact.json"
+const artifact = JSON.parse(fs.readFileSync(artifactPath, "utf8"))
+artifact.version = version
+artifact.sha256 = sha256
+fs.writeFileSync(artifactPath, JSON.stringify(artifact, null, "\t") + "\n")
+' "$HASH" "$SHA256"
