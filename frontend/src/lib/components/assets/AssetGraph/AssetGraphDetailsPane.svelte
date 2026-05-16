@@ -448,6 +448,23 @@
 		isDraft || (selection?.kind === 'runnable' && selection.runnable_kind === 'script')
 	)
 
+	// A persisted script with no edits vs its loaded version is already at
+	// its latest save point — hide Save for it. Drafts are never "saved"
+	// (always show Create). Unknown/loading → treat as dirty so Save isn't
+	// hidden when there might be changes.
+	let atLatestSavePoint = $derived.by(() => {
+		if (isDraft || !script) return false
+		const orig = scriptRes.current
+		if (!orig) return false
+		return (
+			script.content === orig.content &&
+			(script.tag ?? '') === (orig.tag ?? '') &&
+			(script.summary ?? '') === (orig.summary ?? '') &&
+			(script.description ?? '') === (orig.description ?? '') &&
+			JSON.stringify(script.schema ?? null) === JSON.stringify(orig.schema ?? null)
+		)
+	})
+
 	// Suffix editor for the draft-path popover. Seeded from the current
 	// path each time the popover opens so the user starts with what they
 	// see, not stale state from an earlier rename.
@@ -663,7 +680,7 @@
 					title="Open in full editor"
 				/>
 			{/if}
-			{#if isScriptView && script}
+			{#if isScriptView && script && !atLatestSavePoint}
 				<Button
 					variant="accent"
 					unifiedSize="sm"

@@ -598,11 +598,11 @@
 		--background-color={false}
 	>
 		<div class="absolute inset-0 !bg-surface-secondary h-full"></div>
-		<Controls />
+		<Controls position="top-right" orientation="horizontal" showLock={false} />
 		<MiniMap
 			pannable
 			zoomable
-			class="!bg-surface"
+			class="!bg-surface !mb-10"
 			nodeColor={(n) =>
 				n.type === 'asset'
 					? 'rgb(96 165 250 / 0.5)'
