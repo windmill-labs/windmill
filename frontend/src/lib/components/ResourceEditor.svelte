@@ -299,8 +299,11 @@
 					})
 				}
 				// Saved on the backend — drop the local autosave for this
-				// workspace and refresh the dirty baseline.
-				initialStates[ws] = structuredClone(s)
+				// workspace and refresh the dirty baseline. `s` is the
+				// UserDraft handle's draft, a Svelte $state proxy;
+				// `structuredClone` can't clone a proxy, so snapshot it to a
+				// plain object first.
+				initialStates[ws] = $state.snapshot(s) as ResourceState
 				UserDraft.remove('resource', initialPath ?? '', { workspace: ws })
 			}
 			sendUserToast(
