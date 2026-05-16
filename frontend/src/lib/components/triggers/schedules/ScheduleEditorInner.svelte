@@ -40,6 +40,7 @@
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { deepEqual } from 'fast-equals'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
@@ -149,7 +150,16 @@
 			}
 			const localCfg = UserDraft.get<Record<string, any>>('trigger_schedule', ePath)
 			if (localCfg && !deepEqual(localCfg, getScheduleCfg())) {
+				// Snapshot the just-loaded backend config so "Reset to
+				// deployed" can re-apply it, then overlay the local autosave.
+				const deployedCfg = structuredClone($state.snapshot(getScheduleCfg()))
 				await loadScheduleCfg(localCfg)
+				notifyRestoredFromLocal(false, true, {
+					onResetToDeployed: async () => {
+						UserDraft.remove('trigger_schedule', ePath)
+						await loadScheduleCfg(deployedCfg)
+					}
+				})
 			}
 		} finally {
 			clearTimeout(loadingTimeout)

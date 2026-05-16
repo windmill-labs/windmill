@@ -32,6 +32,7 @@
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 
 	interface Props {
 		useDrawer?: boolean
@@ -137,7 +138,14 @@
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			const localCfg = UserDraft.get<Record<string, any>>('trigger_sqs', ePath)
 			if (localCfg && !deepEqual(localCfg, getSaveCfg())) {
+				const deployedCfg = structuredClone($state.snapshot(getSaveCfg()))
 				loadTriggerConfig(localCfg)
+				notifyRestoredFromLocal(false, true, {
+					onResetToDeployed: () => {
+						UserDraft.remove('trigger_sqs', ePath)
+						loadTriggerConfig(deployedCfg)
+					}
+				})
 			}
 		} catch (err) {
 			sendUserToast(`Could not load sqs trigger: ${err.body}`, true)

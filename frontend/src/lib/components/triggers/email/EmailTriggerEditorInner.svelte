@@ -30,6 +30,7 @@
 	import { saveEmailTriggerFromCfg } from './utils'
 	import { deepEqual } from 'fast-equals'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 
@@ -128,7 +129,14 @@
 			originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
 			const localCfg = UserDraft.get<Record<string, any>>('trigger_email', ePath)
 			if (localCfg && !deepEqual(localCfg, getEmailTriggerConfig())) {
+				const deployedCfg = structuredClone($state.snapshot(getEmailTriggerConfig()))
 				loadTriggerConfig(localCfg as Partial<EmailTrigger>)
+				notifyRestoredFromLocal(false, true, {
+					onResetToDeployed: () => {
+						UserDraft.remove('trigger_email', ePath)
+						loadTriggerConfig(deployedCfg as Partial<EmailTrigger>)
+					}
+				})
 			}
 		} catch (err) {
 			sendUserToast(`Could not load email trigger: ${err}`, true)

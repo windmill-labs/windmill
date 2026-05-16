@@ -46,6 +46,7 @@
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 	import { capitalize } from '$lib/utils'
 
 	interface Props {
@@ -246,7 +247,14 @@
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			const localCfg = UserDraft.get<Record<string, any>>('trigger_postgres', ePath)
 			if (localCfg && !deepEqual(localCfg, getSaveCfg())) {
+				const deployedCfg = structuredClone($state.snapshot(getSaveCfg()))
 				await loadTriggerConfig(localCfg)
+				notifyRestoredFromLocal(false, true, {
+					onResetToDeployed: async () => {
+						UserDraft.remove('trigger_postgres', ePath)
+						await loadTriggerConfig(deployedCfg)
+					}
+				})
 			}
 		} catch (err) {
 			sendUserToast(`Could not load postgres trigger: ${err.body}`, true)

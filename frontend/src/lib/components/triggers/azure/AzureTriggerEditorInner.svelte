@@ -26,6 +26,7 @@
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import { deepEqual } from 'fast-equals'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { base } from '$lib/base'
@@ -131,7 +132,14 @@
 			originalConfig = structuredClone($state.snapshot(getAzureConfig()))
 			const localCfg = UserDraft.get<Record<string, any>>('trigger_azure', ePath)
 			if (localCfg && !deepEqual(localCfg, getAzureConfig())) {
+				const deployedCfg = structuredClone($state.snapshot(getAzureConfig()))
 				await loadTriggerConfig(localCfg)
+				notifyRestoredFromLocal(false, true, {
+					onResetToDeployed: async () => {
+						UserDraft.remove('trigger_azure', ePath)
+						await loadTriggerConfig(deployedCfg)
+					}
+				})
 			}
 		} catch (err) {
 			sendUserToast(`Could not load Azure trigger: ${err.body}`, true)

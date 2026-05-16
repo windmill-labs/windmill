@@ -28,6 +28,7 @@
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import { deepEqual } from 'fast-equals'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { base } from '$lib/base'
@@ -133,7 +134,14 @@
 			originalConfig = structuredClone($state.snapshot(getGcpConfig()))
 			const localCfg = UserDraft.get<Record<string, any>>('trigger_gcp', ePath)
 			if (localCfg && !deepEqual(localCfg, getGcpConfig())) {
+				const deployedCfg = structuredClone($state.snapshot(getGcpConfig()))
 				await loadTriggerConfig(localCfg)
+				notifyRestoredFromLocal(false, true, {
+					onResetToDeployed: async () => {
+						UserDraft.remove('trigger_gcp', ePath)
+						await loadTriggerConfig(deployedCfg)
+					}
+				})
 			}
 		} catch (err) {
 			sendUserToast(`Could not load GCP Pub/Sub trigger: ${err.body}`, true)

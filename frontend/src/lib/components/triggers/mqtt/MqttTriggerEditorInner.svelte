@@ -40,6 +40,7 @@
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 
 	interface Props {
 		useDrawer?: boolean
@@ -151,7 +152,14 @@
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			const localCfg = UserDraft.get<Record<string, any>>('trigger_mqtt', ePath)
 			if (localCfg && !deepEqual(localCfg, getSaveCfg())) {
+				const deployedCfg = structuredClone($state.snapshot(getSaveCfg()))
 				await loadTriggerConfig(localCfg)
+				notifyRestoredFromLocal(false, true, {
+					onResetToDeployed: async () => {
+						UserDraft.remove('trigger_mqtt', ePath)
+						await loadTriggerConfig(deployedCfg)
+					}
+				})
 			}
 		} catch (err) {
 			sendUserToast(`Could not load mqtt trigger: ${err.body}`, true)

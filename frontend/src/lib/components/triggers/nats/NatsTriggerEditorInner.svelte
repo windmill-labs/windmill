@@ -24,6 +24,7 @@
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 
@@ -139,7 +140,14 @@
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			const localCfg = UserDraft.get<Record<string, any>>('trigger_nats', ePath)
 			if (localCfg && !deepEqual(localCfg, getSaveCfg())) {
+				const deployedCfg = structuredClone($state.snapshot(getSaveCfg()))
 				await loadTriggerConfig(localCfg)
+				notifyRestoredFromLocal(false, true, {
+					onResetToDeployed: async () => {
+						UserDraft.remove('trigger_nats', ePath)
+						await loadTriggerConfig(deployedCfg)
+					}
+				})
 			}
 		} catch (err) {
 			sendUserToast(`Could not load nats trigger: ${err}`, true)

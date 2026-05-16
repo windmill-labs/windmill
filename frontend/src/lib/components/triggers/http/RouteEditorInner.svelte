@@ -56,6 +56,7 @@
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import UserSettings from '$lib/components/UserSettings.svelte'
@@ -227,7 +228,14 @@
 			originalConfig = structuredClone($state.snapshot(getRouteConfig()))
 			const localCfg = UserDraft.get<Record<string, any>>('trigger_http', ePath)
 			if (localCfg && !deepEqual(localCfg, getRouteConfig())) {
+				const deployedCfg = structuredClone($state.snapshot(getRouteConfig()))
 				loadTriggerConfig(localCfg as Partial<HttpTrigger>)
+				notifyRestoredFromLocal(false, true, {
+					onResetToDeployed: () => {
+						UserDraft.remove('trigger_http', ePath)
+						loadTriggerConfig(deployedCfg as Partial<HttpTrigger>)
+					}
+				})
 			}
 		} catch (err) {
 			sendUserToast(`Could not load route: ${err}`, true)

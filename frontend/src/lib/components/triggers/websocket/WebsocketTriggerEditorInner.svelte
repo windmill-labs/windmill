@@ -43,6 +43,7 @@
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { capitalize } from '$lib/utils'
@@ -183,7 +184,14 @@
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			const localCfg = UserDraft.get<Record<string, any>>('trigger_websocket', ePath)
 			if (localCfg && !deepEqual(localCfg, getSaveCfg())) {
+				const deployedCfg = structuredClone($state.snapshot(getSaveCfg()))
 				loadTriggerConfig(localCfg)
+				notifyRestoredFromLocal(false, true, {
+					onResetToDeployed: () => {
+						UserDraft.remove('trigger_websocket', ePath)
+						loadTriggerConfig(deployedCfg)
+					}
+				})
 			}
 		} catch (err) {
 			sendUserToast(`Could not load websocket trigger: ${err}`, true)
