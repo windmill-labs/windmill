@@ -12,8 +12,9 @@
 	import { deepEqual } from 'fast-equals'
 	import { getUserExt } from '$lib/user'
 	import type { UserExt } from '$lib/stores'
-	import { UserDraft, type UserDraftHandle } from '$lib/userDraft.svelte'
+	import { UserDraft, checkStaleness, type UserDraftHandle } from '$lib/userDraft.svelte'
 	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
+	import LocalDraftStaleModal from './common/confirmationModal/LocalDraftStaleModal.svelte'
 
 	interface Props {
 		canSave?: boolean
@@ -60,6 +61,46 @@
 	let existedInitially: Record<string, boolean> = $state({})
 	let fetchedResources: Record<string, Resource> = $state({})
 	let perWsUser: Record<string, UserExt | undefined> = $state({})
+	// Backend `edited_at` per workspace — the rev the staleness check
+	// compares the local autosave's recorded rev against. Resources have
+	// no DB-draft concept, so only `remoteRev` is ever populated.
+	let fetchedRev: Record<string, string | undefined> = $state({})
+
+	// Local-draft staleness modal: opened when the backend resource moved
+	// on (someone else edited it) since the local autosave was written.
+	let staleModalOpen = $state(false)
+	let pendingStale: { ws: string; backend: ResourceState } | undefined = undefined
+
+	function onStaleLoadLatest(): void {
+		if (!pendingStale) {
+			staleModalOpen = false
+			return
+		}
+		const { ws, backend } = pendingStale
+		// Drop the divergent autosave and reset the handle to the freshly
+		// fetched backend state. A later edit re-creates the autosave and
+		// the seeding effect records the new rev.
+		UserDraft.discard('resource', initialPath ?? '', backend, { workspace: ws })
+		initialStates[ws] = $state.snapshot(backend) as ResourceState
+		pendingStale = undefined
+		staleModalOpen = false
+	}
+
+	function onStaleKeepDraft(): void {
+		if (pendingStale) {
+			const { ws } = pendingStale
+			// Ack the new backend rev so the modal doesn't fire again until
+			// the backend moves once more. Keeps the local autosave intact.
+			UserDraft.saveMeta(
+				'resource',
+				initialPath ?? '',
+				{ remoteRev: fetchedRev[ws] },
+				{ workspace: ws }
+			)
+		}
+		pendingStale = undefined
+		staleModalOpen = false
+	}
 
 	const handlesArray = UserDraft.useMany<ResourceState>(() =>
 		workspaceSpecs.map((s) => ({
@@ -198,6 +239,7 @@
 				getUserExt(ws)
 			]).then(([r, user]) => {
 				fetchedResources[ws] = r
+				fetchedRev[ws] = r.edited_at
 				const s: ResourceState = {
 					path: r.path,
 					description: r.description ?? '',
@@ -205,20 +247,38 @@
 					labels: r.labels ?? undefined,
 					wsSpecific: r.ws_specific ?? false
 				}
-				// Surface the local autosave-vs-backend divergence before the
-				// handle is registered, so the user knows the form is showing
-				// their unsaved work. The "Reset to deployed" action drops the
-				// LS entry and re-seeds the handle from the just-fetched
-				// backend state.
+				// Reconcile the local autosave with the backend before the
+				// handle is registered. If the backend moved on since the
+				// autosave was written (recorded rev != current rev) surface
+				// the staleness modal; otherwise the form is just showing the
+				// user's unsaved work — a toast with a "Reset to deployed"
+				// escape is enough.
 				const persisted = UserDraft.get<ResourceState>('resource', initialPath ?? '', {
 					workspace: ws
 				})
+				const previousMeta = UserDraft.getMeta('resource', initialPath ?? '', { workspace: ws })
 				if (persisted !== undefined && !deepEqual(persisted, s)) {
-					notifyRestoredFromLocal(false, true, {
-						onResetToDeployed: () => {
-							UserDraft.discard('resource', initialPath ?? '', s, { workspace: ws })
+					const cause = checkStaleness(previousMeta, r.edited_at)
+					if (cause) {
+						pendingStale = { ws, backend: s }
+						staleModalOpen = true
+					} else {
+						if (previousMeta.remoteRev === undefined && previousMeta.remoteDraftRev === undefined) {
+							// Legacy autosave (no rev recorded) — backfill so the
+							// next backend change is detectable as drift.
+							UserDraft.saveMeta(
+								'resource',
+								initialPath ?? '',
+								{ remoteRev: r.edited_at },
+								{ workspace: ws }
+							)
 						}
-					})
+						notifyRestoredFromLocal(false, true, {
+							onResetToDeployed: () => {
+								UserDraft.discard('resource', initialPath ?? '', s, { workspace: ws })
+							}
+						})
+					}
 				}
 				ensureHandle(ws, s)
 				initialStates[ws] = structuredClone(s)
@@ -230,6 +290,25 @@
 				}
 			})
 		})
+	})
+
+	// Seed the staleness rev the moment a real autosave appears. Until the
+	// user's first edit diverges the handle's draft from the backend
+	// baseline there's no autosave to attach a rev to; once it does, record
+	// the backend rev captured at fetch time so a later external edit is
+	// detectable as drift on the next open. Self-limiting: after the write
+	// `meta.remoteRev` is set so the guard fails on the re-run.
+	$effect(() => {
+		for (const ws of Object.keys(states)) {
+			const h = states[ws]
+			const rev = fetchedRev[ws]
+			const baseline = initialStates[ws]
+			if (!h || rev === undefined || baseline === undefined) continue
+			const draft = h.draft
+			if (draft === undefined || deepEqual(draft, baseline)) continue
+			if (h.meta.remoteRev !== undefined || h.meta.remoteDraftRev !== undefined) continue
+			untrack(() => h.setMeta({ remoteRev: rev }))
+		}
 	})
 
 	// Keep current.path bound to the outer `path` prop for consumers
@@ -315,6 +394,13 @@
 		}
 	}
 </script>
+
+<LocalDraftStaleModal
+	open={staleModalOpen}
+	cause="version"
+	onLoadLatest={onStaleLoadLatest}
+	onKeepDraft={onStaleKeepDraft}
+/>
 
 <div>
 	<div class="flex flex-col gap-6 py-2">
