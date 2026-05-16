@@ -12,6 +12,7 @@
 	import FileEditorIcon from '$lib/components/raw_apps/FileEditorIcon.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { readFieldsRecursively } from '$lib/utils'
+	import { untrack } from 'svelte'
 	import {
 		react18Template,
 		react19Template,
@@ -73,17 +74,19 @@
 		}
 	}
 
-	let summary = $state('')
-	let files: Record<string, string> = $state(react19Template)
-	let policy: Policy = $state({
-		on_behalf_of: $userStore?.username.includes('@')
-			? $userStore?.username
-			: `u/${$userStore?.username}`,
-		on_behalf_of_email: $userStore?.email,
-		execution_mode: 'publisher'
-	})
+	const draftHandle = UserDraft.use<{
+		files: Record<string, string>
+		runnables: Record<string, Runnable>
+		data: RawAppData
+		summary: string
+	}>('raw_app', '')
+	// Restore the persisted autosave so a plain reload of /apps_raw/add
+	// resumes the last session. Captured once; the $effect below mirrors
+	// later edits back. Import/template/hub flows in loadApp() wipe the
+	// entry first (`UserDraft.remove`) for "start fresh" semantics.
+	const restoredDraft = untrack(() => draftHandle.draft)
 
-	let runnables: Record<string, Runnable> = $state({
+	const defaultRunnables: Record<string, Runnable> = {
 		a: {
 			name: 'a',
 			fields: {},
@@ -107,22 +110,42 @@
 				}
 			}
 		}
-	})
-	/** Data configuration including tables and creation policy */
-	let data: RawAppData = $state({ ...DEFAULT_DATA })
+	}
 
-	const draftHandle = UserDraft.use<{
-		files: Record<string, string>
-		runnables: Record<string, Runnable>
-		data: RawAppData
-		summary: string
-	}>('raw_app', '')
+	let summary = $state(restoredDraft?.summary ?? '')
+	let files: Record<string, string> = $state(restoredDraft?.files ?? react19Template)
+	let policy: Policy = $state({
+		on_behalf_of: $userStore?.username.includes('@')
+			? $userStore?.username
+			: `u/${$userStore?.username}`,
+		on_behalf_of_email: $userStore?.email,
+		execution_mode: 'publisher'
+	})
+
+	let runnables: Record<string, Runnable> = $state(restoredDraft?.runnables ?? defaultRunnables)
+	/** Data configuration including tables and creation policy */
+	let data: RawAppData = $state(restoredDraft?.data ?? { ...DEFAULT_DATA })
+
+	// `useLocalStorageValue`'s saveInitialValue=false skips the first
+	// persist that differs from the loaded LS state. When the editor is
+	// seeded FROM that LS state the first divergent write is the user's
+	// first edit, which would be silently dropped. Consume the skip slot
+	// up-front with a wipe (clears in-memory only — the would-be LS delete
+	// is itself the skip side-effect) then restore. See AppEditor for the
+	// same reasoning.
+	let firstMirror = true
 	$effect(() => {
 		readFieldsRecursively(files)
 		readFieldsRecursively(runnables)
 		readFieldsRecursively(data)
 		void summary
-		draftHandle.draft = { files, runnables, data, summary }
+		untrack(() => {
+			if (firstMirror) {
+				firstMirror = false
+				draftHandle.setDraftAndMeta(undefined, {})
+			}
+			draftHandle.draft = { files, runnables, data, summary }
+		})
 	})
 
 	loadApp()
@@ -149,6 +172,10 @@
 	}
 	async function loadApp() {
 		if (importRaw) {
+			// Import/template/hub loads are an explicit "start fresh from this
+			// content" — drop the restored empty-path autosave so it doesn't
+			// linger as the next plain reload's baseline.
+			UserDraft.remove('raw_app', '')
 			sendUserToast('Loaded from YAML/JSON')
 			if ('value' in importRaw) {
 				summary = importRaw.summary
@@ -160,6 +187,7 @@
 			}
 			console.log('importRaw', importRaw)
 		} else if (templatePath) {
+			UserDraft.remove('raw_app', '')
 			const template = await AppService.getAppByPath({
 				workspace: $workspaceStore!,
 				path: templatePath
@@ -169,6 +197,7 @@
 			sendUserToast('App loaded from template path')
 			goto('?', { replaceState: true })
 		} else if (templateId) {
+			UserDraft.remove('raw_app', '')
 			const template = await AppService.getAppByVersion({
 				workspace: $workspaceStore!,
 				id: parseInt(templateId)
@@ -178,6 +207,7 @@
 			sendUserToast('App loaded from template')
 			goto('?', { replaceState: true })
 		} else if (hubId) {
+			UserDraft.remove('raw_app', '')
 			const hub = await AppService.getHubRawAppById({ id: Number(hubId) })
 			if (hub.app?.value) {
 				extractValue(hub.app.value)
