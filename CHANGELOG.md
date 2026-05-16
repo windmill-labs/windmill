@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.703.1](https://github.com/windmill-labs/windmill/compare/v1.703.0...v1.703.1) (2026-05-16)
+
+
+### Bug Fixes
+
+* actionable error when a custom_path is taken by an app in another workspace ([#9190](https://github.com/windmill-labs/windmill/issues/9190)) ([dfeed9c](https://github.com/windmill-labs/windmill/commit/dfeed9c5c2e39bf3e10eea4f69ea140ee9e7832f))
+* atomic bundle cache writes to prevent parallel cold-load race ([#9186](https://github.com/windmill-labs/windmill/issues/9186)) ([81b5736](https://github.com/windmill-labs/windmill/commit/81b573610692b386e4861ef989fa7698b53fc861))
+* detect S3 assets passed as SDK object arg in ts parser ([#9181](https://github.com/windmill-labs/windmill/issues/9181)) ([6a334e9](https://github.com/windmill-labs/windmill/commit/6a334e9a07a7d0cffabde48be75263b0844d586c))
+* don't show ALLOW_PRIVATE_AI_BASE_URLS hint for malformed AI base URLs ([#9188](https://github.com/windmill-labs/windmill/issues/9188)) ([4e25954](https://github.com/windmill-labs/windmill/commit/4e259547225e13e5b51a166a84cdbbbfa35c3264))
+* reset parent_hash in auto_parent when all versions at path are archived ([#9172](https://github.com/windmill-labs/windmill/issues/9172)) ([52960ca](https://github.com/windmill-labs/windmill/commit/52960ca30ab9c019186a28b3ab054a1dfe72f451))
+
 ## [1.703.0](https://github.com/windmill-labs/windmill/compare/v1.702.1...v1.703.0) (2026-05-15)
 
 
