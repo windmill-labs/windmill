@@ -246,7 +246,7 @@
 			UserDraft.remove('raw_app', path)
 			dispatch('savedNewAppPath', path)
 		} catch (e) {
-			sendUserToast('Error creating app', e)
+			sendUserToast(`Error creating app: ${e.body ?? e.message}`, true)
 		}
 	}
 
@@ -439,7 +439,7 @@
 			UserDraft.remove('raw_app', appPath)
 			dispatch('savedNewAppPath', newEditedPath)
 		} catch (e) {
-			sendUserToast('Error saving initial draft', e)
+			sendUserToast(`Error saving initial draft: ${e.body ?? e.message}`, true)
 		}
 		draftDrawerOpen = false
 	}
