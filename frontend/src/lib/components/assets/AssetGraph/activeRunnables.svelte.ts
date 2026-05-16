@@ -94,6 +94,11 @@ export function useActiveRunnableIds(
 		{ runs: number; lastStatus: RunStatus; lastTs: string }
 	>()
 	const countedJobIds = new Set<string>()
+	// Job ids we've observed in-flight at least once. The catch-up pulse is
+	// only for jobs whose whole start→finish fell between two polls (never
+	// seen running); re-pulsing a job we already animated while it ran just
+	// keeps its edges lit ~one extra poll interval after it finished.
+	const seenInFlightJobIds = new Set<string>()
 	// jobId → latest known state of that job, for the activity log. Survives
 	// `stop()` (log keeps history while idle); cleared by `dispose()`.
 	const eventsById = new Map<string, PipelineEvent>()
@@ -144,10 +149,15 @@ export function useActiveRunnableIds(
 					next.add(id)
 					inFlightThisTick.add(id)
 					anyInFlight = true
+					if (jobId) seenInFlightJobIds.add(jobId)
 				} else {
-					// completed: catch-up — a hop that started after the last
-					// poll (and already finished) still gets one pulse.
-					if (startedTs && startedTs >= since) next.add(id)
+					// completed: catch-up — a hop whose whole lifetime fell
+					// between two polls (never observed in-flight) still gets
+					// one pulse. Jobs we already animated while running are
+					// NOT re-pulsed, else their edges linger ~a poll interval
+					// past completion.
+					if (startedTs && startedTs >= since && (!jobId || !seenInFlightJobIds.has(jobId)))
+						next.add(id)
 					// Tally distinct completed jobs for the node badge — only
 					// those since the graph was opened (older = pre-existing
 					// history). Jobs come newest-first; only a strictly newer
@@ -208,7 +218,11 @@ export function useActiveRunnableIds(
 		if (sorted.length > MAX_EVENTS * 4) {
 			for (const e of sorted.slice(MAX_EVENTS * 4)) eventsById.delete(e.id)
 			countedJobIds.clear()
-			for (const id of eventsById.keys()) countedJobIds.add(id)
+			seenInFlightJobIds.clear()
+			for (const id of eventsById.keys()) {
+				countedJobIds.add(id)
+				seenInFlightJobIds.add(id)
+			}
 		}
 		const nextEvents = sorted.slice(0, MAX_EVENTS)
 		if (!eventsEq(events, nextEvents)) events = nextEvents
@@ -287,6 +301,7 @@ export function useActiveRunnableIds(
 			stop()
 			completedHistory.clear()
 			countedJobIds.clear()
+			seenInFlightJobIds.clear()
 			eventsById.clear()
 			if (states.size > 0) states = new Map()
 			if (events.length > 0) events = []
