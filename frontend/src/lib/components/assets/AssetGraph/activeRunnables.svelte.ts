@@ -99,6 +99,12 @@ export function useActiveRunnableIds(
 	// seen running); re-pulsing a job we already animated while it ran just
 	// keeps its edges lit ~one extra poll interval after it finished.
 	const seenInFlightJobIds = new Set<string>()
+	// Runnable ids launched from this view (via `arm(id)`). Their run is
+	// already animated zero-latency by the page's `activeRunnable` hint, so
+	// the catch-up pulse must not re-flash them after completion even if the
+	// poll never sampled their in-flight window. Cascade hops have different
+	// ids and still pulse. Cleared when the poll fully stops.
+	const launchedIds = new Set<string>()
 	// jobId → latest known state of that job, for the activity log. Survives
 	// `stop()` (log keeps history while idle); cleared by `dispose()`.
 	const eventsById = new Map<string, PipelineEvent>()
@@ -115,6 +121,7 @@ export function useActiveRunnableIds(
 		running = false
 		armedActive = false
 		idleTicks = 0
+		launchedIds.clear()
 		if (ids.size > 0) ids = new Set()
 	}
 
@@ -156,7 +163,12 @@ export function useActiveRunnableIds(
 					// one pulse. Jobs we already animated while running are
 					// NOT re-pulsed, else their edges linger ~a poll interval
 					// past completion.
-					if (startedTs && startedTs >= since && (!jobId || !seenInFlightJobIds.has(jobId)))
+					if (
+						startedTs &&
+						startedTs >= since &&
+						(!jobId || !seenInFlightJobIds.has(jobId)) &&
+						!launchedIds.has(id)
+					)
 						next.add(id)
 					// Tally distinct completed jobs for the node badge — only
 					// those since the graph was opened (older = pre-existing
@@ -260,8 +272,12 @@ export function useActiveRunnableIds(
 		 * Kick the fast poll window (call when a run is launched from this
 		 * view). Reopens the self-terminating fast window and polls now;
 		 * upgrades cadence if only the slow observe poll was running.
+		 * `launchedId` (`${kind}:${path}`) marks the runnable the page
+		 * animates zero-latency itself, so the catch-up pulse won't re-flash
+		 * it after completion.
 		 */
-		arm() {
+		arm(launchedId?: string) {
+			if (launchedId) launchedIds.add(launchedId)
 			armedActive = true
 			idleTicks = 0
 			startedAtMs = Date.now()

@@ -1155,8 +1155,11 @@
 									if (!$workspaceStore || producer.kind !== 'script') return undefined
 									// Start the folder-scoped poll so the downstream
 									// asset-trigger cascade (jobs not launched here)
-									// lights up its edges as it fans out.
-									activeRunnables.arm()
+									// lights up its edges as it fans out. Pass the
+									// launched id so the catch-up pulse doesn't
+									// re-flash it (the page already animates it
+									// zero-latency via `activeRunnable`).
+									activeRunnables.arm(`${producer.kind}:${producer.path}`)
 									// Cascade default: same as the Test button — `cascade`
 									// undefined / false skips the asset-trigger dispatch
 									// via `_wmill_skip_asset_dispatch`; explicit `true`
