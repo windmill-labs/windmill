@@ -801,13 +801,16 @@
 							disableTracing: true,
 							disableTriggerCaptures: true,
 							disableJsonView: true,
-							// Pipeline scripts in this view are dispatched without
-							// args (the page's runScriptByPath / runScriptPreview
-							// passes `{}`), so the SchemaForm column is dead
-							// space. Drop it, render the LogPanel full-width with
+							// Drop the full args column (most pipeline scripts take
+							// no inputs), render the LogPanel full-width with
 							// logs|result side by side, and float the Test/Cancel
-							// button onto the editor band above.
+							// button onto the editor band above. But when the
+							// script *does* declare inputs (e.g. a partitioned
+							// script that needs a `partition` arg to run), show a
+							// compact SchemaForm between the Test button and the
+							// logs so the run can actually be parameterised.
 							hideArgs: true,
+							argsAboveLogs: true,
 							logsResultSideBySide: true,
 							downstreamSubscribers
 						}

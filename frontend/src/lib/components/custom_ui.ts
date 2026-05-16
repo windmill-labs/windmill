@@ -78,6 +78,12 @@ export type PreviewPanelUi = {
 	// downstream" that lets the asset-dispatch hook fire downstream jobs.
 	// Undefined or 0 → plain Test button (no cascade UI).
 	downstreamSubscribers?: number
+	// Pairs with `hideArgs`: still hide the full args column, but when the
+	// script actually declares inputs render a compact SchemaForm between
+	// the floating Test button and the logs/result panel (e.g. a
+	// partitioned pipeline script that needs a `partition` arg to run).
+	// No-op when the script has no input properties.
+	argsAboveLogs?: boolean
 }
 
 export type EditorBarUi = {

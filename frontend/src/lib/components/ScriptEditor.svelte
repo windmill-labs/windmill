@@ -1349,6 +1349,36 @@
 		}
 	}
 
+	// When the compact preview shows a SchemaForm above the logs
+	// (`argsAboveLogs`), give the preview pane extra height so the args
+	// form doesn't shrink the logs/result area. This is a deliberate
+	// $effect (not $derived): the schema loads async and the same
+	// code/test sizes are two-way bound to the splitpane drag handle, so
+	// the offset is folded into the user-resizable state once on the
+	// has-args transition — manual resizing still works afterwards.
+	let hasArgsAboveLogs = $derived(
+		customUi?.previewPanel?.argsAboveLogs === true &&
+			!!schema?.properties &&
+			Object.keys(schema.properties).length > 0
+	)
+	let argsHeightBonus = $state(0)
+	$effect(() => {
+		const want = hasArgsAboveLogs ? 18 : 0
+		untrack(() => {
+			const delta = want - argsHeightBonus
+			if (delta === 0) return
+			if (testPanelSize > 0) {
+				testPanelSize += delta
+				codePanelSize -= delta
+			} else {
+				// preview collapsed — bake the bonus into the size it
+				// restores to so it lands correctly on expand.
+				storedTestPanelSize += delta
+			}
+			argsHeightBonus = want
+		})
+	})
+
 	function getError(job: Job | undefined) {
 		if (job != undefined && job.type === 'CompletedJob' && !job.success) {
 			return getStringError(job.result)
@@ -1682,7 +1712,7 @@
 						     now positioned inside the panel — `top-1` keeps
 						     it visually pinned to the top edge without
 						     relying on cross-browser overflow behaviour. -->
-						<div class="relative h-full pt-9">
+						<div class="relative h-full pt-9 flex flex-col">
 							<div class="absolute top-1 left-2 z-10">
 								{#if testIsLoading}
 									<Button on:click={jobLoader?.cancelJob} unifiedSize="sm" btnClasses="shadow-md">
@@ -1808,44 +1838,68 @@
 									</Button>
 								{/if}
 							</div>
-							<LogPanel
-								bind:this={logPanel}
-								{lang}
-								previewJob={debugMode
-									? ({
-											id: 'debug',
-											logs: $debugState.logs,
-											result: $debugState.result,
-											success: !$debugState.error,
-											type: hasDebugResult ? 'CompletedJob' : 'QueuedJob'
-										} as any)
-									: testJob}
-								{pastPreviews}
-								onTabChange={(tab) => {
-									historyTabActive = tab === 'history'
-									if (historyTabActive) {
-										loadPastTests()
-									}
-								}}
-								previewIsLoading={debugMode
-									? $debugState.running && !$debugState.stopped
-									: testIsLoading}
-								{editor}
-								{diffEditor}
-								args={activeModuleTab !== null ? testPanelArgs : args}
-								{showCaptures}
-								customUi={customUi?.previewPanel}
-								showCustomResultPanel={showDebugPanel}
-							>
-								{#if scriptProgress && !debugMode}
-									<JobProgressBar
-										job={testJob}
-										{scriptProgress}
-										bind:this={jobProgressBar}
-										compact={true}
-									/>
-								{/if}
-							</LogPanel>
+							{#if customUi?.previewPanel?.argsAboveLogs && schema?.properties && Object.keys(schema.properties).length > 0}
+								<div
+									class="shrink-0 overflow-auto max-h-[45%] border-b border-gray-200 dark:border-gray-700 px-4 py-3"
+								>
+									{#key argsRender}
+										<SchemaForm
+											helperScript={{
+												source: 'inline',
+												code,
+												//@ts-ignore
+												lang
+											}}
+											compact
+											{schema}
+											bind:args
+											bind:isValid
+											noVariablePicker={customUi?.previewPanel?.disableVariablePicker === true}
+											showSchemaExplorer
+										/>
+									{/key}
+								</div>
+							{/if}
+							<div class="grow min-h-0">
+								<LogPanel
+									bind:this={logPanel}
+									{lang}
+									previewJob={debugMode
+										? ({
+												id: 'debug',
+												logs: $debugState.logs,
+												result: $debugState.result,
+												success: !$debugState.error,
+												type: hasDebugResult ? 'CompletedJob' : 'QueuedJob'
+											} as any)
+										: testJob}
+									{pastPreviews}
+									onTabChange={(tab) => {
+										historyTabActive = tab === 'history'
+										if (historyTabActive) {
+											loadPastTests()
+										}
+									}}
+									previewIsLoading={debugMode
+										? $debugState.running && !$debugState.stopped
+										: testIsLoading}
+									{editor}
+									{diffEditor}
+									args={activeModuleTab !== null ? testPanelArgs : args}
+									{showCaptures}
+									customUi={customUi?.previewPanel}
+									showCustomResultPanel={showDebugPanel}
+								>
+									{#if scriptProgress && !debugMode}
+										<JobProgressBar
+											job={testJob}
+											{scriptProgress}
+											bind:this={jobProgressBar}
+											compact={true}
+										/>
+									{/if}
+								</LogPanel>
+							</div>
 						</div>
 					{:else}
 						{#key previewLayout}
