@@ -307,3 +307,85 @@ async fn end_to_end_asset_dispatch(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// Stage C: a `// partitioned dynamic` producer run through a real worker
+/// must (1) resolve the partition off its triggering payload at execution
+/// time, (2) persist it back into its own `v2_job.args` so the cascade
+/// reads it, and (3) propagate the same value into the dispatched
+/// subscriber's args + `trigger.partition`.
+#[sqlx::test(fixtures("base"))]
+async fn partition_dynamic_resolved_persisted_and_propagated(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // Producer declares a dynamic partition keyed off the run payload.
+    // (Bash uses `#` comments — the annotation parser accepts `#`/`--`/`//`.)
+    let producer_hash = seed_script(
+        &db,
+        PRODUCER,
+        "# pipeline\n# partitioned dynamic key=\"$.tenant_id\"\necho producer",
+        "bash",
+    )
+    .await?;
+    seed_script(&db, SUB_S3, "echo s3-subscriber", "bash").await?;
+    seed_asset_write(&db, PRODUCER, "s3object", "f/blob").await?;
+    seed_subscription(&db, SUB_S3, "script", "s3://f/blob").await?;
+
+    let job = JobPayload::ScriptHash {
+        path: PRODUCER.to_string(),
+        hash: ScriptHash(producer_hash),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        language: ScriptLang::Bash,
+        priority: None,
+        apply_preprocessor: false,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        labels: None,
+    };
+    let completed = RunJob::from(job)
+        .arg("tenant_id", json!("acme"))
+        .run_until_complete(&db, false, port)
+        .await;
+    assert!(completed.success, "partitioned producer must succeed");
+
+    // (2) resolved value persisted back into the producer's own args.
+    let prod = sqlx::query!(
+        r#"SELECT args AS "args: sqlx::types::Json<serde_json::Value>"
+             FROM v2_job
+             WHERE workspace_id = $1 AND runnable_path = $2 AND trigger_kind IS NULL"#,
+        WS,
+        PRODUCER,
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        prod.args.unwrap().0["partition"],
+        json!("acme"),
+        "Stage C must persist the resolved partition into v2_job.args"
+    );
+
+    // (3) propagated into the dispatched subscriber.
+    let rows = fetch_dispatched(&db).await?;
+    let sub = rows
+        .iter()
+        .find(|r| r.0 == SUB_S3)
+        .expect("subscriber must be dispatched");
+    let args = sub.2.as_ref().unwrap();
+    assert_eq!(
+        args["partition"],
+        json!("acme"),
+        "subscriber gets top-level partition arg"
+    );
+    assert_eq!(
+        args["trigger"]["partition"],
+        json!("acme"),
+        "subscriber gets trigger.partition"
+    );
+
+    Ok(())
+}
