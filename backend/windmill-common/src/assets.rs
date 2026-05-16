@@ -207,21 +207,74 @@ pub async fn insert_script_trigger<'e>(
     trigger_kind: ScriptTriggerKind,
     trigger_ref: &str,
     join_all: bool,
+    debounce_s: Option<i32>,
 ) -> error::Result<()> {
     sqlx::query!(
         r#"INSERT INTO script_trigger
-             (workspace_id, runnable_kind, runnable_path, trigger_kind, trigger_ref, join_all)
-           VALUES ($1, $2, $3, $4, $5, $6)"#,
+             (workspace_id, runnable_kind, runnable_path, trigger_kind, trigger_ref, join_all,
+              debounce_s)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)"#,
         workspace_id,
         runnable_kind as AssetUsageKind,
         runnable_path,
         trigger_kind as ScriptTriggerKind,
         trigger_ref,
         join_all,
+        debounce_s,
     )
     .execute(executor)
     .await?;
     Ok(())
+}
+
+/// Parse a debounce duration into whole seconds. Accepts a bare integer
+/// (seconds) or an `<n>` with an `s`/`m`/`h`/`d` suffix (e.g. `30s`,
+/// `5m`, `2h`, `1d`). Returns `None` for empty / malformed / non-positive
+/// input — the caller treats `None` as "no debounce" (fan-out), so a typo
+/// fails safe rather than silently debouncing.
+pub fn parse_duration_secs(s: &str) -> Option<i32> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let (num, mult): (&str, i64) = match s.as_bytes().last() {
+        Some(b's') => (&s[..s.len() - 1], 1),
+        Some(b'm') => (&s[..s.len() - 1], 60),
+        Some(b'h') => (&s[..s.len() - 1], 3600),
+        Some(b'd') => (&s[..s.len() - 1], 86400),
+        Some(c) if c.is_ascii_digit() => (s, 1),
+        _ => return None,
+    };
+    let n: i64 = num.trim().parse().ok()?;
+    let secs = n.checked_mul(mult)?;
+    if secs <= 0 || secs > i32::MAX as i64 {
+        return None;
+    }
+    Some(secs as i32)
+}
+
+#[cfg(test)]
+mod debounce_duration_tests {
+    use super::parse_duration_secs;
+
+    #[test]
+    fn parses_units_and_bare_seconds() {
+        assert_eq!(parse_duration_secs("60"), Some(60));
+        assert_eq!(parse_duration_secs("30s"), Some(30));
+        assert_eq!(parse_duration_secs("5m"), Some(300));
+        assert_eq!(parse_duration_secs("2h"), Some(7200));
+        assert_eq!(parse_duration_secs(" 1d "), Some(86400));
+    }
+
+    #[test]
+    fn rejects_garbage_and_nonpositive() {
+        assert_eq!(parse_duration_secs(""), None);
+        assert_eq!(parse_duration_secs("abc"), None);
+        assert_eq!(parse_duration_secs("0"), None);
+        assert_eq!(parse_duration_secs("-5"), None);
+        assert_eq!(parse_duration_secs("10x"), None);
+        assert_eq!(parse_duration_secs("s"), None);
+    }
 }
 
 // Inverse of trigger_spec_to_row for the Asset variant: parses a stored
@@ -238,7 +291,7 @@ pub fn parse_asset_trigger_ref(s: &str) -> Option<(AssetKind, String)> {
 // trigger_ref matches what downstream lookups expect.
 pub fn trigger_spec_to_row(spec: &TriggerSpec) -> (ScriptTriggerKind, String) {
     match spec {
-        TriggerSpec::Asset { asset_kind, path } => {
+        TriggerSpec::Asset { asset_kind, path, .. } => {
             let prefix = match asset_kind {
                 windmill_parser::asset_parser::AssetKind::S3Object => "s3://",
                 windmill_parser::asset_parser::AssetKind::Resource => "$res:",

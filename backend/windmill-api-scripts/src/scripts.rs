@@ -45,8 +45,8 @@ use windmill_common::{
     assets::{
         clear_script_triggers, clear_static_asset_usage, clear_static_asset_usage_by_script_hash,
         delete_managed_pipeline_schedule, insert_script_trigger, insert_static_asset_usage,
-        parse_pipeline_annotations, reconcile_pipeline_schedule, trigger_spec_to_row,
-        AssetUsageKind, AssetWithAltAccessType, TriggerSpec,
+        parse_duration_secs, parse_pipeline_annotations, reconcile_pipeline_schedule,
+        trigger_spec_to_row, AssetUsageKind, AssetWithAltAccessType, TriggerSpec,
     },
     error::{self, to_anyhow},
     min_version::{MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2},
@@ -1242,6 +1242,9 @@ async fn create_script_internal<'c>(
     let in_pipeline = pipeline_annotations.in_pipeline;
     // `// trigger all` → AND join barrier (else OR, the default).
     let pipeline_join_all = !pipeline_annotations.join_mode.is_any();
+    // Script-level `// debounce <dur>` default; a per-`// on debounce=`
+    // overrides it (precedence resolved per edge below).
+    let pipeline_debounce_default = pipeline_annotations.debounce_default.clone();
     let pipeline_triggers = pipeline_annotations.triggers;
     let auto_kind = if in_pipeline {
         Some("pipeline".to_string())
@@ -1561,6 +1564,16 @@ async fn create_script_internal<'c>(
     clear_script_triggers(&mut *tx, &w_id, &ns.path, AssetUsageKind::Script).await?;
     for spec in &pipeline_triggers {
         let (trigger_kind, trigger_ref) = trigger_spec_to_row(spec);
+        // Effective debounce for this edge: per-`// on debounce=` wins,
+        // else the script-level `// debounce` default. Debounce only
+        // applies to asset-cascade edges; other trigger kinds get none.
+        let debounce_s = match spec {
+            TriggerSpec::Asset { debounce: Some(d), .. } => parse_duration_secs(d),
+            TriggerSpec::Asset { .. } => pipeline_debounce_default
+                .as_deref()
+                .and_then(parse_duration_secs),
+            _ => None,
+        };
         insert_script_trigger(
             &mut *tx,
             &w_id,
@@ -1569,6 +1582,7 @@ async fn create_script_internal<'c>(
             trigger_kind,
             &trigger_ref,
             pipeline_join_all,
+            debounce_s,
         )
         .await?;
     }

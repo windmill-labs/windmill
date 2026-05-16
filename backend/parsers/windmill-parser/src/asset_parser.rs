@@ -88,30 +88,62 @@ pub struct ParseAssetsOutput {
     // subscriber's trigger rows.
     #[serde(skip_serializing_if = "JoinMode::is_any", default)]
     pub join_mode: JoinMode,
+    // `// debounce <dur>` — script-level default debounce window for this
+    // script's asset inputs. A per-`// on … debounce=` overrides it. Raw
+    // duration string, parsed to seconds at deploy (parser-light, like
+    // freshness). Absent = no debounce (fan-out, current behaviour).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub debounce_default: Option<String>,
 }
 
 #[derive(Serialize, Debug, PartialEq, Clone)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum TriggerSpec {
     // Refresh when `<asset>` changes. Kind comes from parse_asset_syntax so
-    // it matches the `asset` table.
-    Asset { asset_kind: AssetKind, path: String },
+    // it matches the `asset` table. `debounce` is the optional per-input
+    // `// on … debounce=<dur>` override (raw duration string); it takes
+    // precedence over the script-level `// debounce` default, resolved at
+    // deploy.
+    Asset {
+        asset_kind: AssetKind,
+        path: String,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        debounce: Option<String>,
+    },
     // Refresh on cron. The raw expression is passed through as-is so the
     // existing schedule subsystem can validate it.
-    Schedule { cron: String },
+    Schedule {
+        cron: String,
+    },
     // `// on <kind> <path>` style. The `path` is a workspace-relative
     // reference to a trigger row already configured in the corresponding
     // trigger table (http_trigger, email_trigger, kafka_trigger, …). Keeps
     // the annotation terse; auth/broker/topic details live in the trigger's
     // own UI.
-    Webhook { path: String },
-    Email { path: String },
-    Kafka { path: String },
-    Mqtt { path: String },
-    Nats { path: String },
-    Postgres { path: String },
-    Sqs { path: String },
-    Gcp { path: String },
+    Webhook {
+        path: String,
+    },
+    Email {
+        path: String,
+    },
+    Kafka {
+        path: String,
+    },
+    Mqtt {
+        path: String,
+    },
+    Nats {
+        path: String,
+    },
+    Postgres {
+        path: String,
+    },
+    Sqs {
+        path: String,
+    },
+    Gcp {
+        path: String,
+    },
 }
 
 impl TriggerSpec {
@@ -190,6 +222,7 @@ pub struct PipelineAnnotations {
     pub partition: Option<PartitionSpec>,
     pub freshness: Option<FreshnessSpec>,
     pub join_mode: JoinMode,
+    pub debounce_default: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -310,6 +343,34 @@ fn unquote(s: &str) -> Option<&str> {
 // values run until the next whitespace; quoted values consume until the
 // matching quote. Malformed pairs (missing `=` or empty key) are skipped
 // rather than aborting the whole annotation.
+// Split a `// on` right-hand side into the trigger ref and any trailing
+// `key=value` opts. The opts section starts at the first whitespace token
+// shaped like `<ident>=…` (e.g. `debounce=60s`); everything before is the
+// asset/kind ref. Asset refs aren't expected to contain a space then an
+// `ident=` token — the same assumption `// partitioned` already makes.
+fn split_trailing_kv_opts(s: &str) -> (&str, BTreeMap<String, String>) {
+    let mut split_at: Option<usize> = None;
+    let mut pos = 0usize;
+    for tok in s.split_whitespace() {
+        let tok_start = s[pos..].find(tok).map(|o| pos + o).unwrap_or(pos);
+        pos = tok_start + tok.len();
+        if let Some(eq) = tok.find('=') {
+            let key = &tok[..eq];
+            if !key.is_empty()
+                && key.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+                && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            {
+                split_at = Some(tok_start);
+                break;
+            }
+        }
+    }
+    match split_at {
+        Some(i) => (s[..i].trim_end(), parse_kv_opts(&s[i..])),
+        None => (s.trim_end(), BTreeMap::new()),
+    }
+}
+
 fn parse_kv_opts(s: &str) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     let mut chars = s.chars().peekable();
@@ -460,6 +521,17 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
             continue;
         }
 
+        if let Some(after_kw) = rest.strip_prefix("debounce") {
+            if !after_kw.starts_with(|c: char| c.is_whitespace()) {
+                continue;
+            }
+            let dur = after_kw.trim();
+            if !dur.is_empty() && out.debounce_default.is_none() {
+                out.debounce_default = Some(dur.to_string());
+            }
+            continue;
+        }
+
         if let Some(after_kw) = rest.strip_prefix("on") {
             if !after_kw.starts_with(|c: char| c.is_whitespace()) {
                 continue;
@@ -468,7 +540,18 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
             if spec_text.is_empty() {
                 continue;
             }
-            if let Some(trig) = parse_trigger_spec(spec_text) {
+            // Split off trailing `key=value` opts (e.g. `debounce=60s`)
+            // from the asset/kind ref. The per-input debounce override is
+            // only meaningful for asset inputs (cascade fan-out); other
+            // trigger kinds ignore it.
+            let (ref_part, opts) = split_trailing_kv_opts(spec_text);
+            if let Some(mut trig) = parse_trigger_spec(ref_part) {
+                if let TriggerSpec::Asset { debounce, .. } = &mut trig {
+                    *debounce = opts
+                        .get("debounce")
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty());
+                }
                 if !out.triggers.contains(&trig) {
                     out.triggers.push(trig);
                 }
@@ -545,7 +628,8 @@ fn parse_trigger_spec(s: &str) -> Option<TriggerSpec> {
     }
 
     let (kind, path) = parse_asset_syntax(s, false)?;
-    Some(TriggerSpec::Asset { asset_kind: kind, path: path.to_string() })
+    // `debounce` is attached by the caller from the `// on` line's opts.
+    Some(TriggerSpec::Asset { asset_kind: kind, path: path.to_string(), debounce: None })
 }
 
 #[cfg(test)]
@@ -688,6 +772,62 @@ mod pipeline_annotation_tests {
         assert!(out.triggers[0].is_partition_bearing());
         assert!(!out.triggers[1].is_partition_bearing());
         assert!(!out.triggers[2].is_partition_bearing());
+    }
+
+    fn asset_debounce(t: &TriggerSpec) -> Option<&str> {
+        match t {
+            TriggerSpec::Asset { debounce, .. } => debounce.as_deref(),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn debounce_none_by_default() {
+        let out = parse_pipeline_annotations("// on s3://a/b");
+        assert_eq!(out.debounce_default, None);
+        assert_eq!(asset_debounce(&out.triggers[0]), None);
+    }
+
+    #[test]
+    fn script_level_debounce_default() {
+        let out = parse_pipeline_annotations("// debounce 30s\n// on s3://a/b");
+        assert_eq!(out.debounce_default.as_deref(), Some("30s"));
+        // Per-edge override absent — precedence (edge ?? default) is
+        // resolved at deploy, so the Asset itself stays None here.
+        assert_eq!(asset_debounce(&out.triggers[0]), None);
+    }
+
+    #[test]
+    fn on_level_debounce_override() {
+        let out = parse_pipeline_annotations(
+            "// debounce 30s\n\
+             // on s3://lake/{partition}/raw.parquet debounce=60s\n\
+             // on $res:f/cfg",
+        );
+        assert_eq!(out.debounce_default.as_deref(), Some("30s"));
+        assert_eq!(out.triggers.len(), 2);
+        assert_eq!(asset_debounce(&out.triggers[0]), Some("60s"));
+        // ref still parses correctly with the trailing opt stripped.
+        assert!(out.triggers[0].is_partition_bearing());
+        assert_eq!(asset_debounce(&out.triggers[1]), None);
+    }
+
+    #[test]
+    fn debounce_keyword_strictness_and_first_wins() {
+        // `debounced` (no space) must not match; empty ignored; first wins.
+        let out = parse_pipeline_annotations(
+            "// debounced nope\n// debounce\n// debounce 1m\n// debounce 5m",
+        );
+        assert_eq!(out.debounce_default.as_deref(), Some("1m"));
+    }
+
+    #[test]
+    fn on_kv_split_preserves_non_asset_and_spaced_refs() {
+        // `<kind> <path>` ref with a trailing opt still parses; the opt is
+        // simply not carried for non-asset triggers.
+        let out = parse_pipeline_annotations("// on webhook f/foo debounce=30s");
+        assert_eq!(out.triggers.len(), 1);
+        assert!(matches!(out.triggers[0], TriggerSpec::Webhook { .. }));
     }
 
     #[test]
