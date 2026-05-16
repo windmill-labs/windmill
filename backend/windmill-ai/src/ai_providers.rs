@@ -2,9 +2,9 @@
  * This file contains shared AI provider utilities used by both the API and worker.
  */
 
+use serde::{Deserialize, Deserializer, Serialize};
 use windmill_common::db::DB;
 use windmill_common::error::{Error, Result};
-use serde::{Deserialize, Deserializer, Serialize};
 
 /// Deserializes an Option<String> where empty strings become None.
 /// Use with `#[serde(default, deserialize_with = "empty_string_as_none")]`
@@ -65,13 +65,19 @@ impl AIProvider {
     pub async fn get_base_url(&self, resource_base_url: Option<String>, db: &DB) -> Result<String> {
         if let Some(base_url) = resource_base_url {
             if !*ALLOW_PRIVATE_AI_BASE_URLS {
+                use windmill_common::ssrf::SsrfValidationError;
                 windmill_common::ssrf::validate_url_for_ssrf(&base_url)
                     .await
-                    .map_err(|e| {
-                        Error::BadRequest(format!(
+                    .map_err(|e| match e {
+                        // The env-var hint is only actionable when the URL is
+                        // well-formed but blocked for targeting a private
+                        // address. For a malformed URL or bad scheme, surface
+                        // the real error so users fix the URL (issue #9171).
+                        e @ SsrfValidationError::Private { .. } => Error::BadRequest(format!(
                             "{e}. If you need to use private/internal AI endpoints, \
-                         set the ALLOW_PRIVATE_AI_BASE_URLS=true environment variable"
-                        ))
+                             set the ALLOW_PRIVATE_AI_BASE_URLS=true environment variable"
+                        )),
+                        e => Error::from(e),
                     })?;
             }
             return Ok(base_url);
