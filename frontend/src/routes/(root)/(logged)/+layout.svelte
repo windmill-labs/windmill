@@ -824,6 +824,7 @@
 				{children}
 				noPadding={devOnly}
 				{isCollapsed}
+				isMobile={innerWidth < 768}
 				onMenuOpen={() => {
 					menuOpen = true
 				}}
