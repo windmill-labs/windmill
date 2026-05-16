@@ -17,6 +17,7 @@
 		"generate-backend-client-mac": "openapi-ts --input ../backend/windmill-api/openapi.yaml --output ./src/lib/gen --useOptions --enums javascript",
 		"pretest": "tsc --incremental -p tests/tsconfig.json",
 		"filter-classes": "node filterTailwindClasses.js",
+		"test:ui-builder-bootstrap": "node --test scripts/untar_ui_builder.test.js",
 		"test:unit": "vitest",
 		"test:e2e": "playwright test"
 	},
