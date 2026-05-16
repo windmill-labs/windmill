@@ -29,5 +29,5 @@ artifact_path = Path("../windmill/frontend/scripts/ui_builder_artifact.json")
 artifact = json.loads(artifact_path.read_text())
 artifact["version"] = version
 artifact["sha256"] = sha256
-artifact_path.write_text(json.dumps(artifact, indent=2) + "\n")
+artifact_path.write_text(json.dumps(artifact, indent="\t") + "\n")
 PY
