@@ -1543,6 +1543,55 @@ pub fn get_flow_version_info_from_version<
     }
 }
 
+/// Resolve a `flow_version.id` to its flow path while enforcing the caller's
+/// folder-level ACL. The `flow_version` table has no row-level security, so the
+/// authorization gate is an RLS-filtered lookup against the `flow` table through
+/// `user_db`. Mirrors the "exists but not authorized -> NotAuthorized" semantics
+/// of [`get_latest_flow_version_id_for_path`] so version-keyed run routes are
+/// gated identically to their path-keyed siblings.
+pub async fn get_flow_path_for_version_authed(
+    db_authed: &UserDbWithAuthed<'_, AuthedRef<'_>>,
+    db: &DB,
+    version: i64,
+    w_id: &str,
+) -> error::Result<String> {
+    let mut conn = db_authed.acquire().await?;
+    let authed_path = sqlx::query_scalar!(
+        "SELECT flow_version.path FROM flow_version
+         INNER JOIN flow
+            ON flow.path = flow_version.path AND
+               flow.workspace_id = flow_version.workspace_id
+         WHERE flow_version.id = $1 AND flow_version.workspace_id = $2",
+        version,
+        w_id,
+    )
+    .fetch_optional(&mut *conn)
+    .await?;
+
+    if let Some(path) = authed_path {
+        return Ok(path);
+    }
+
+    let raw_path = sqlx::query_scalar!(
+        "SELECT path FROM flow_version WHERE id = $1 AND workspace_id = $2",
+        version,
+        w_id,
+    )
+    .fetch_optional(db)
+    .await?;
+
+    if let Some(path) = raw_path {
+        return Err(Error::NotAuthorized(format!(
+            "You are not authorized to access this flow: {path} (but it exists). Your permissions are: {:?}",
+            db_authed.authed
+        )));
+    }
+
+    Err(Error::NotFound(format!(
+        "flow_version not found at id {version}"
+    )))
+}
+
 pub async fn get_latest_flow_version_info_for_path<'e>(
     db_authed: Option<UserDbWithAuthed<'e, AuthedRef<'e>>>,
     db: &DB,
