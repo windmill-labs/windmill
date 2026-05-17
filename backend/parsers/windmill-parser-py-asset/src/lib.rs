@@ -29,16 +29,11 @@ pub fn parse_assets(input: &str) -> anyhow::Result<ParseAssetsOutput> {
     }
 
     let pipeline = parse_pipeline_annotations(input);
-    Ok(ParseAssetsOutput {
-        assets: merge_assets(assets_finder.assets),
-        in_pipeline: pipeline.in_pipeline,
-        triggers: pipeline.triggers,
-        partition: pipeline.partition,
-        freshness: pipeline.freshness,
-        join_mode: pipeline.join_mode,
-        debounce_default: pipeline.debounce_default,
-        ..Default::default()
-    })
+    Ok(ParseAssetsOutput::new(
+        merge_assets(assets_finder.assets),
+        Vec::new(),
+        pipeline,
+    ))
 }
 
 type VarAssetName = String;

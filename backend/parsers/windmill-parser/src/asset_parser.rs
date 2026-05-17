@@ -225,6 +225,29 @@ pub struct PipelineAnnotations {
     pub debounce_default: Option<String>,
 }
 
+impl ParseAssetsOutput {
+    /// Build from detected assets/queries plus the script's parsed
+    /// pipeline annotations, so each language asset-parser does not
+    /// re-list the per-annotation fields (one call site instead of six
+    /// lines kept in lockstep across the parser crates).
+    pub fn new(
+        assets: Vec<ParseAssetsResult>,
+        sql_queries: Vec<SqlQueryDetails>,
+        pipeline: PipelineAnnotations,
+    ) -> Self {
+        ParseAssetsOutput {
+            assets,
+            sql_queries,
+            in_pipeline: pipeline.in_pipeline,
+            triggers: pipeline.triggers,
+            partition: pipeline.partition,
+            freshness: pipeline.freshness,
+            join_mode: pipeline.join_mode,
+            debounce_default: pipeline.debounce_default,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct DelegateToGitRepoDetails {
     pub resource: String,

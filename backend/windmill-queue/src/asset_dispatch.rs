@@ -64,6 +64,10 @@ use windmill_common::DB;
 /// Set by the test panel when the user opts out of the cascade.
 pub const SKIP_ASSET_DISPATCH_ARG: &str = "_wmill_skip_asset_dispatch";
 
+/// Arg key holding the cascade trigger object (carries `depth`, `partition`,
+/// producer metadata) injected into every dispatched subscriber.
+const TRIGGER_ARG: &str = "trigger";
+
 /// Reserved arg key (under `trigger.depth`) that carries cascade depth.
 const CHAIN_DEPTH_KEY: &str = "depth";
 
@@ -105,8 +109,14 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
     if read_skip_arg(args.as_ref()) {
         return Ok(DispatchResult::default());
     }
-    let depth = read_chain_depth(args.as_ref());
-    let partition = read_partition(args.as_ref());
+    // Parse the cascade `trigger` object once; both depth and the
+    // propagated partition are read from it.
+    let trigger_map = args
+        .as_ref()
+        .and_then(|a| a.get(TRIGGER_ARG))
+        .and_then(|t| serde_json::from_str::<HashMap<String, Box<RawValue>>>(t.get()).ok());
+    let depth = read_chain_depth(trigger_map.as_ref());
+    let partition = read_partition(args.as_ref(), trigger_map.as_ref());
     if depth >= MAX_CHAIN_DEPTH {
         tracing::warn!(
             "asset-trigger dispatch skipped: chain depth {} >= cap {} (job {}, path {})",
@@ -237,17 +247,9 @@ fn read_skip_arg(args: Option<&HashMap<String, Box<RawValue>>>) -> bool {
         .unwrap_or(false)
 }
 
-fn read_chain_depth(args: Option<&HashMap<String, Box<RawValue>>>) -> i64 {
-    let Some(args) = args else {
-        return 0;
-    };
-    let Some(trigger) = args.get("trigger") else {
-        return 0;
-    };
-    let Ok(map) = serde_json::from_str::<HashMap<String, Box<RawValue>>>(trigger.get()) else {
-        return 0;
-    };
-    map.get(CHAIN_DEPTH_KEY)
+fn read_chain_depth(trigger_map: Option<&HashMap<String, Box<RawValue>>>) -> i64 {
+    trigger_map
+        .and_then(|m| m.get(CHAIN_DEPTH_KEY))
         .and_then(|v| serde_json::from_str::<i64>(v.get()).ok())
         .unwrap_or(0)
 }
@@ -257,16 +259,16 @@ fn read_chain_depth(args: Option<&HashMap<String, Box<RawValue>>>) -> i64 {
 /// materializes the same partition without re-resolving. Top-level
 /// `partition` arg (run-start injection) takes precedence over the
 /// `trigger.partition` carried from an upstream cascade hop.
-fn read_partition(args: Option<&HashMap<String, Box<RawValue>>>) -> Option<String> {
-    let args = args?;
-    if let Some(v) = args.get(PARTITION_ARG) {
+fn read_partition(
+    args: Option<&HashMap<String, Box<RawValue>>>,
+    trigger_map: Option<&HashMap<String, Box<RawValue>>>,
+) -> Option<String> {
+    if let Some(v) = args.and_then(|a| a.get(PARTITION_ARG)) {
         if let Ok(s) = serde_json::from_str::<String>(v.get()) {
             return Some(s);
         }
     }
-    let trigger = args.get("trigger")?;
-    let map = serde_json::from_str::<HashMap<String, Box<RawValue>>>(trigger.get()).ok()?;
-    serde_json::from_str::<String>(map.get(PARTITION_ARG)?.get()).ok()
+    serde_json::from_str::<String>(trigger_map?.get(PARTITION_ARG)?.get()).ok()
 }
 
 fn prefix_for(kind: AssetKind) -> Option<&'static str> {
@@ -517,7 +519,7 @@ async fn push_subscriber(
         CHAIN_DEPTH_KEY: depth,
         PARTITION_ARG: partition,
     });
-    args.insert("trigger".to_string(), to_raw_value(&trigger_payload));
+    args.insert(TRIGGER_ARG.to_string(), to_raw_value(&trigger_payload));
     // Carry the producer's resolved partition forward as a top-level arg so
     // the subscriber's body can read it and the next cascade hop's
     // `read_partition` picks it up — keeps the whole chain on one partition,

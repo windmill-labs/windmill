@@ -1244,7 +1244,7 @@ async fn create_script_internal<'c>(
     let pipeline_join_all = !pipeline_annotations.join_mode.is_any();
     // Script-level `// debounce <dur>` default; a per-`// on debounce=`
     // overrides it (precedence resolved per edge below).
-    let pipeline_debounce_default = pipeline_annotations.debounce_default.clone();
+    let pipeline_debounce_default = pipeline_annotations.debounce_default;
     let pipeline_triggers = pipeline_annotations.triggers;
     let auto_kind = if in_pipeline {
         Some("pipeline".to_string())
