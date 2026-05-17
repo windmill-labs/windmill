@@ -96,24 +96,6 @@
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
 	import OnBehalfOfSelector, { type OnBehalfOfChoice } from './OnBehalfOfSelector.svelte'
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
-	import Modal from './common/modal/Modal.svelte'
-
-	const WAC_ALPHA_ACK_KEY = 'windmill_wac_alpha_ack'
-	let wacAlphaModalOpen = $state(false)
-
-	function showWacAlphaModalIfNeeded() {
-		if (
-			typeof sessionStorage !== 'undefined' &&
-			sessionStorage.getItem(WAC_ALPHA_ACK_KEY) !== 'true'
-		) {
-			wacAlphaModalOpen = true
-		}
-	}
-
-	function acknowledgeWacAlpha() {
-		sessionStorage.setItem(WAC_ALPHA_ACK_KEY, 'true')
-		wacAlphaModalOpen = false
-	}
 
 	let {
 		script = $bindable(),
@@ -378,7 +360,6 @@
 					language: 'python3'
 				}
 			}
-			showWacAlphaModalIfNeeded()
 		} else if (template === 'wac_typescript') {
 			script.modules = {
 				'helper.ts': {
@@ -386,7 +367,6 @@
 					language: 'bun'
 				}
 			}
-			showWacAlphaModalIfNeeded()
 		}
 		initContent(script.language, script.kind, template)
 	}
@@ -1268,9 +1248,6 @@
 															} as ButtonType.Icon}
 														>
 															<span class="truncate">{label}</span>
-															{#if lang === 'rlang'}
-																<span class="text-primary !text-xs"> BETA </span>
-															{/if}
 														</Button>
 														{#snippet text()}
 															{label} is only available with an enterprise license
@@ -1318,7 +1295,6 @@
 														}
 													}
 													initContent('bun', script.kind, template)
-													showWacAlphaModalIfNeeded()
 												}}
 											>
 												WAC TypeScript
@@ -1343,7 +1319,6 @@
 														}
 													}
 													initContent('python3', script.kind, template)
-													showWacAlphaModalIfNeeded()
 												}}
 											>
 												WAC Python
@@ -2085,26 +2060,3 @@
 {/if}
 
 <WacExportDrawer bind:this={wacExportDrawer} />
-
-<Modal bind:open={wacAlphaModalOpen} title="Workflow-as-Code (Alpha)" kind="X">
-	<div class="flex flex-col gap-4 pr-4">
-		<p class="text-sm text-secondary">
-			Workflow-as-Code is in <strong>alpha</strong> — use in production at your own risk. It is an
-			alternative to the Flow editor for advanced users. Feedback welcome on
-			<a
-				href="https://github.com/windmill-labs/windmill/issues"
-				target="_blank"
-				class="text-blue-600 dark:text-blue-400 hover:underline">GitHub</a
-			>
-			or
-			<a
-				href="https://discord.com/invite/V7PM2YHsPB"
-				target="_blank"
-				class="text-blue-600 dark:text-blue-400 hover:underline">Discord</a
-			>.
-		</p>
-		<div class="flex justify-end">
-			<Button size="sm" on:click={acknowledgeWacAlpha}>Acknowledge</Button>
-		</div>
-	</div>
-</Modal>
