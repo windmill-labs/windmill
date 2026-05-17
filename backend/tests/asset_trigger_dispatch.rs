@@ -14,7 +14,7 @@ use uuid::Uuid;
 use windmill_common::jobs::{JobKind, JobPayload};
 use windmill_common::runnable_settings::prefetch_cached_from_handle;
 use windmill_common::scripts::{ScriptHash, ScriptLang};
-use windmill_queue::asset_dispatch::dispatch_asset_triggers;
+use windmill_queue::asset_dispatch::{dispatch_asset_triggers, reap_stale_join_slots};
 use windmill_queue::MiniCompletedJob;
 use windmill_test_utils::{initialize_tracing, ApiServer, RunJob};
 
@@ -763,6 +763,114 @@ async fn fuller_partitioned_join_multihop_pipeline(db: Pool<Postgres>) -> anyhow
     assert!(
         r.dispatched.is_empty(),
         "day2 is a separate slot; J must not fire from day1's completion"
+    );
+
+    Ok(())
+}
+
+/// The TTL reaper deletes abandoned AND-join slots, but keyed on the
+/// slot's MOST RECENT row: a slot still receiving input (newest row
+/// fresh) is never reaped even if it also has rows older than the TTL.
+/// This per-slot (not per-row) property is the correctness point — it
+/// prevents corrupting a join whose inputs trickle in slowly.
+#[sqlx::test(fixtures("base"))]
+async fn reaper_clears_only_stale_join_slots(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    // Seed a join_pending_inputs row with an explicit age (days old).
+    async fn seed_slot_row(
+        db: &Pool<Postgres>,
+        sub: &str,
+        part: &str,
+        tref: &str,
+        age_days: i64,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"INSERT INTO join_pending_inputs
+                 (workspace_id, subscriber_path, partition, trigger_ref, received_at)
+               VALUES ($1, $2, $3, $4, now() - ($5::bigint::text || ' d')::interval)"#,
+        )
+        .bind(WS)
+        .bind(sub)
+        .bind(part)
+        .bind(tref)
+        .bind(age_days)
+        .execute(db)
+        .await?;
+        Ok(())
+    }
+    async fn slot_count(db: &Pool<Postgres>, sub: &str) -> anyhow::Result<i64> {
+        Ok(sqlx::query_scalar!(
+            r#"SELECT count(*) AS "n!" FROM join_pending_inputs
+               WHERE workspace_id = $1 AND subscriber_path = $2"#,
+            WS,
+            sub,
+        )
+        .fetch_one(db)
+        .await?)
+    }
+
+    // Stale: every row older than the 60d TTL → reaped.
+    seed_slot_row(
+        &db,
+        "u/test-user/sub-stale",
+        "p1",
+        "s3://x/{partition}/a",
+        61,
+    )
+    .await?;
+    seed_slot_row(
+        &db,
+        "u/test-user/sub-stale",
+        "p1",
+        "s3://x/{partition}/b",
+        90,
+    )
+    .await?;
+    // Fresh: recent → kept.
+    seed_slot_row(
+        &db,
+        "u/test-user/sub-fresh",
+        "p1",
+        "s3://y/{partition}/a",
+        0,
+    )
+    .await?;
+    // Mixed: one ancient row + one fresh row in the SAME slot. max(received_at)
+    // is fresh, so the whole slot must be kept (the correctness property).
+    seed_slot_row(
+        &db,
+        "u/test-user/sub-mixed",
+        "p1",
+        "s3://z/{partition}/a",
+        120,
+    )
+    .await?;
+    seed_slot_row(
+        &db,
+        "u/test-user/sub-mixed",
+        "p1",
+        "s3://z/{partition}/b",
+        0,
+    )
+    .await?;
+
+    reap_stale_join_slots(&db).await?;
+
+    assert_eq!(
+        slot_count(&db, "u/test-user/sub-stale").await?,
+        0,
+        "stale slot reaped"
+    );
+    assert_eq!(
+        slot_count(&db, "u/test-user/sub-fresh").await?,
+        1,
+        "fresh slot kept"
+    );
+    assert_eq!(
+        slot_count(&db, "u/test-user/sub-mixed").await?,
+        2,
+        "slot with a recent row must be kept entirely (per-slot, not per-row)"
     );
 
     Ok(())

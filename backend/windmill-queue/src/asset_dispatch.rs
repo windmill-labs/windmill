@@ -435,6 +435,37 @@ async fn record_and_check_join_slot(
     Ok(fire)
 }
 
+/// Default time a partial AND-join slot may sit with no new input before
+/// it is abandoned. A slot is normally cleared the moment the join fires;
+/// this only reaps slots whose inputs never all arrive (an upstream was
+/// removed/renamed, a one-off `dynamic` partition key, permanent skew).
+/// Conservative so a legitimately slow join is never reaped; a per-join
+/// configurable TTL via the annotation is a planned follow-up.
+pub const JOIN_SLOT_TTL_SECS: i64 = 60 * 24 * 60 * 60; // 60 days
+
+/// Reap abandoned AND-join slots. Keyed on the *slot's most recent row*
+/// (`HAVING max(received_at)`), never per-row, so a join whose inputs
+/// trickle in over a window longer than one input's age is not corrupted
+/// mid-accumulation. Called periodically from the monitor loop.
+pub async fn reap_stale_join_slots(db: &DB) -> Result<()> {
+    sqlx::query!(
+        "DELETE FROM join_pending_inputs jpi
+         USING (
+             SELECT workspace_id, subscriber_path, partition
+             FROM join_pending_inputs
+             GROUP BY workspace_id, subscriber_path, partition
+             HAVING max(received_at) <= now() - ($1::bigint::text || ' s')::interval
+         ) stale
+         WHERE jpi.workspace_id = stale.workspace_id
+           AND jpi.subscriber_path = stale.subscriber_path
+           AND jpi.partition = stale.partition",
+        JOIN_SLOT_TTL_SECS,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 async fn push_subscriber(
     db: &DB,
     producer: &MiniCompletedJob,

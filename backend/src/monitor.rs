@@ -1133,6 +1133,10 @@ pub async fn delete_expired_items(db: &DB) -> () {
         tracing::error!("Error deleting autoscaling event on CE: {:?}", e);
     }
 
+    if let Err(e) = windmill_queue::asset_dispatch::reap_stale_join_slots(db).await {
+        tracing::error!("Error reaping stale join_pending_inputs slots: {:?}", e);
+    }
+
     match sqlx::query_scalar!(
         "DELETE FROM agent_token_blacklist WHERE expires_at <= now() RETURNING token",
     )
