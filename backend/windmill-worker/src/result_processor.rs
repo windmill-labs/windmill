@@ -763,9 +763,20 @@ pub async fn process_completed_job(
                 ))
             })?;
         } else if let Some(preprocessed_args) = preprocessed_args {
-            // Update script args to preprocessed args
+            // Update script args to preprocessed args, but preserve a
+            // resolved pipeline `partition` (injected before the body ran
+            // by resolve_partition_for_job). Run identity is immutable —
+            // the preprocessor must not change or drop it, or the asset
+            // cascade would read no partition for this producer.
             sqlx::query!(
-                "UPDATE v2_job SET args = $1, preprocessed = TRUE WHERE id = $2",
+                "UPDATE v2_job
+                 SET args = CASE
+                              WHEN args ? 'partition'
+                              THEN $1 || jsonb_build_object('partition', args -> 'partition')
+                              ELSE $1
+                            END,
+                     preprocessed = TRUE
+                 WHERE id = $2",
                 Json(preprocessed_args) as Json<HashMap<String, Box<RawValue>>>,
                 job.id
             )

@@ -4193,8 +4193,11 @@ async fn resolve_partition_for_job(
     use windmill_common::partition::{resolve_partition, PARTITION_ARG};
     use windmill_parser::asset_parser::PartitionKind;
 
-    // Only deployed scripts participate in asset pipelines.
-    if !matches!(job.kind, JobKind::Script) {
+    // Only deployed scripts participate in asset pipelines. Cheap
+    // substring guard so the overwhelming majority of script jobs (no
+    // `// partitioned` line) skip the full annotation scan on the hot
+    // path; a false positive only costs one extra parse, never wrong.
+    if !matches!(job.kind, JobKind::Script) || !code.contains("partitioned") {
         return Ok(None);
     }
     let Some(spec) = windmill_parser::asset_parser::parse_pipeline_annotations(code).partition

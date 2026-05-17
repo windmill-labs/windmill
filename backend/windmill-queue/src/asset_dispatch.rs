@@ -351,16 +351,49 @@ fn is_partition_bearing_ref(trigger_ref: &str) -> bool {
     trigger_ref.contains(PARTITION_TOKEN)
 }
 
-/// Distinct partition-bearing asset inputs an AND subscriber declares
-/// (its `{partition}`-token `// on` lines). Reference inputs (no token)
-/// and non-asset triggers are presence-only and do not gate the join in
-/// v1, so they are excluded from the required set.
-async fn count_required_join_inputs(
+/// Record an AND input arrival for `(subscriber, partition)` and report
+/// whether every partition-bearing input is now present for that
+/// partition. The record -> count -> clear sequence runs in one
+/// transaction guarded by a transaction-scoped advisory lock keyed on the
+/// slot: the same subscriber's last two partition-bearing inputs can
+/// complete concurrently on different workers, and a check-then-act on a
+/// pooled connection would let both observe "complete" and dispatch
+/// twice. Serializing per `(workspace, subscriber, partition)` makes the
+/// gate fire exactly once; the lock is released on commit/rollback.
+/// Idempotent per input (PK conflict ignored); the slot is cleared on
+/// fire so later writes re-accumulate and can re-materialize.
+///
+/// `required` = the distinct partition-bearing inputs the subscriber
+/// declares (its `{partition}`-token `// on` lines). Reference inputs
+/// (no token) and non-asset triggers are presence-only and excluded.
+async fn record_and_check_join_slot(
     db: &DB,
     workspace_id: &str,
     subscriber_path: &str,
-) -> Result<i64> {
-    let n = sqlx::query_scalar!(
+    partition: &str,
+    trigger_ref: &str,
+) -> Result<bool> {
+    let mut tx = db.begin().await?;
+    let lock_key = format!("{workspace_id}|{subscriber_path}|{partition}");
+    sqlx::query!(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        lock_key,
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        r#"INSERT INTO join_pending_inputs
+             (workspace_id, subscriber_path, partition, trigger_ref)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT DO NOTHING"#,
+        workspace_id,
+        subscriber_path,
+        partition,
+        trigger_ref,
+    )
+    .execute(&mut *tx)
+    .await?;
+    let required = sqlx::query_scalar!(
         r#"SELECT count(DISTINCT trigger_ref) AS "n!"
            FROM script_trigger
            WHERE workspace_id = $1
@@ -372,36 +405,8 @@ async fn count_required_join_inputs(
         subscriber_path,
         PARTITION_TOKEN,
     )
-    .fetch_one(db)
+    .fetch_one(&mut *tx)
     .await?;
-    Ok(n)
-}
-
-/// Record an AND input arrival for `(subscriber, partition)` and report
-/// whether every partition-bearing input is now present for that
-/// partition. Idempotent per input (PK conflict ignored), so a re-fired
-/// upstream doesn't double-count. On completion the slot is cleared so
-/// later writes re-accumulate and can re-materialize the partition.
-async fn record_and_check_join_slot(
-    db: &DB,
-    workspace_id: &str,
-    subscriber_path: &str,
-    partition: &str,
-    trigger_ref: &str,
-) -> Result<bool> {
-    sqlx::query!(
-        r#"INSERT INTO join_pending_inputs
-             (workspace_id, subscriber_path, partition, trigger_ref)
-           VALUES ($1, $2, $3, $4)
-           ON CONFLICT DO NOTHING"#,
-        workspace_id,
-        subscriber_path,
-        partition,
-        trigger_ref,
-    )
-    .execute(db)
-    .await?;
-    let required = count_required_join_inputs(db, workspace_id, subscriber_path).await?;
     let received = sqlx::query_scalar!(
         r#"SELECT count(DISTINCT trigger_ref) AS "n!"
            FROM join_pending_inputs
@@ -410,9 +415,10 @@ async fn record_and_check_join_slot(
         subscriber_path,
         partition,
     )
-    .fetch_one(db)
+    .fetch_one(&mut *tx)
     .await?;
-    if required > 0 && received >= required {
+    let fire = required > 0 && received >= required;
+    if fire {
         sqlx::query!(
             r#"DELETE FROM join_pending_inputs
                WHERE workspace_id = $1 AND subscriber_path = $2 AND partition = $3"#,
@@ -420,12 +426,11 @@ async fn record_and_check_join_slot(
             subscriber_path,
             partition,
         )
-        .execute(db)
+        .execute(&mut *tx)
         .await?;
-        Ok(true)
-    } else {
-        Ok(false)
     }
+    tx.commit().await?;
+    Ok(fire)
 }
 
 async fn push_subscriber(

@@ -34,3 +34,4 @@ backend/chrome_profiler.json
 __pycache__/
 .playwright-mcp/
 .codex
+.claude/scheduled_tasks.lock
