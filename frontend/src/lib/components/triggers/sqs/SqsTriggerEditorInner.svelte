@@ -31,7 +31,7 @@
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraft, localDraftDiffers } from '$lib/userDraft.svelte'
 	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 
 	interface Props {
@@ -137,7 +137,7 @@
 			}
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			const localCfg = UserDraft.get<Record<string, any>>('trigger_sqs', ePath)
-			if (localCfg && !deepEqual(localCfg, getSaveCfg())) {
+			if (localDraftDiffers(localCfg, getSaveCfg())) {
 				const deployedCfg = structuredClone($state.snapshot(getSaveCfg()))
 				loadTriggerConfig(localCfg)
 				notifyRestoredFromLocal(false, true, {
@@ -332,7 +332,7 @@
 	// a path (no localStorage write would happen anyway).
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		UserDraft.save('trigger_sqs', initialPath, sqsConfig)
+		UserDraft.saveIfChanged('trigger_sqs', initialPath, sqsConfig, originalConfig)
 	})
 </script>
 

@@ -1,5 +1,6 @@
 import { get } from 'svelte/store'
 import { onDestroy, untrack } from 'svelte'
+import { deepEqual } from 'fast-equals'
 import { workspaceStore } from './stores'
 import { useLocalStorageValue } from './svelte5Utils.svelte'
 
@@ -247,6 +248,50 @@ export type UserDraftHandle<V> = {
 	setMeta(meta: UserDraftMeta, opts?: { force?: boolean }): void
 }
 
+/**
+ * JSON round-trip normalization. localStorage persistence stringifies the
+ * draft, which silently drops keys whose value is `undefined`, turns `Date`
+ * into a string, etc. A freshly-built config object (e.g. a trigger editor's
+ * `getXConfig()`) keeps those `undefined`-valued keys, so a raw
+ * `deepEqual(persistedDraft, freshConfig)` reports spurious differences
+ * (`{ a: undefined }` ≠ `{}`). Normalize BOTH sides through the same
+ * round-trip before comparing. Returns the input unchanged if it can't be
+ * serialized (e.g. a cyclic structure) — better a false "differs" than a
+ * throw inside a load/effect path.
+ */
+export function normalizeForCompare<V>(value: V | undefined): V | undefined {
+	if (value === undefined) return undefined
+	try {
+		return JSON.parse(JSON.stringify(value)) as V
+	} catch {
+		return value
+	}
+}
+
+/**
+ * Whether the persisted local autosave (`localDraft`, as returned by
+ * `UserDraft.get`) meaningfully differs from the freshly-built
+ * `currentConfig`. Editor restore guards use this to decide whether to
+ * overlay the local autosave and toast.
+ *
+ * Returns `false` when there is no local draft. Normalizes both sides (see
+ * `normalizeForCompare`) so a draft that round-trips equal to the deployed
+ * config — e.g. one written by merely opening then closing the editor with
+ * no edits — is correctly treated as "no meaningful draft" instead of
+ * spuriously triggering a restore on every reopen.
+ *
+ * Typed as a guard: a `true` result narrows `localDraft` to non-nullish
+ * `V`, mirroring the `localCfg && …` narrowing it replaces so call sites
+ * can pass the draft straight into `loadXConfig(...)` without re-checking.
+ */
+export function localDraftDiffers<V>(
+	localDraft: V | undefined | null,
+	currentConfig: V
+): localDraft is V {
+	if (localDraft === undefined || localDraft === null) return false
+	return !deepEqual(normalizeForCompare(localDraft), normalizeForCompare(currentConfig))
+}
+
 export const UserDraft = {
 	save<V>(itemKind: UserDraftItemKind, path: string, value: V, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
@@ -274,6 +319,33 @@ export const UserDraft = {
 			)
 		} catch (e) {
 			console.error('UserDraft.save: localStorage write failed', e)
+		}
+	},
+
+	/**
+	 * Autosave gate. Persists `value` as the local draft only when it
+	 * differs (after `normalizeForCompare`) from `deployed` — the backend
+	 * baseline the editor loaded and keeps in sync across saves (the same
+	 * value the editor's own `hasChanged` / dirty signal compares against).
+	 * When equal, removes any existing draft instead.
+	 *
+	 * Without this, an editor's autosave `$effect` fires once as soon as it
+	 * finishes loading (the `drawerLoading` flag flips and the just-loaded
+	 * config counts as a "change" to the effect), so merely opening and
+	 * closing an editor with no edits would leave a no-op draft behind that
+	 * `has()` / restore guards then treat as unsaved work forever.
+	 */
+	saveIfChanged<V>(
+		itemKind: UserDraftItemKind,
+		path: string,
+		value: V,
+		deployed: V | undefined,
+		opts?: UserDraftOptions
+	): void {
+		if (deepEqual(normalizeForCompare(value), normalizeForCompare(deployed))) {
+			UserDraft.remove(itemKind, path, opts)
+		} else {
+			UserDraft.save(itemKind, path, value, opts)
 		}
 	},
 

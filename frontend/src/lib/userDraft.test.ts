@@ -15,7 +15,8 @@ vi.mock('svelte', async (importOriginal) => {
 })
 
 // Imported AFTER vi.mock so the module sees the mocked onDestroy.
-const { UserDraft, __resetUserDraftForTesting } = await import('./userDraft.svelte')
+const { UserDraft, normalizeForCompare, localDraftDiffers, __resetUserDraftForTesting } =
+	await import('./userDraft.svelte')
 const { workspaceStore } = await import('./stores')
 
 function flushDestroyCallbacks(): void {
@@ -638,5 +639,83 @@ describe('gcUserDrafts', () => {
 		gcUserDrafts(60 * 60 * 1000) // 1h cutoff
 
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/two_hours_ago')).toBeNull()
+	})
+})
+
+describe('normalizeForCompare', () => {
+	it('returns undefined for undefined input', () => {
+		expect(normalizeForCompare(undefined)).toBeUndefined()
+	})
+
+	it('drops keys whose value is undefined (mirrors JSON.stringify persistence)', () => {
+		const out = normalizeForCompare({ a: 1, b: undefined, c: { d: undefined, e: 2 } })
+		expect(out).toEqual({ a: 1, c: { e: 2 } })
+		expect(Object.keys(out as object)).not.toContain('b')
+		expect(Object.keys((out as any).c)).not.toContain('d')
+	})
+
+	it('falls back to the original value when not serializable (cyclic)', () => {
+		const cyclic: any = { a: 1 }
+		cyclic.self = cyclic
+		expect(normalizeForCompare(cyclic)).toBe(cyclic)
+	})
+})
+
+describe('localDraftDiffers', () => {
+	it('returns false when there is no local draft', () => {
+		expect(localDraftDiffers(undefined, { a: 1 })).toBe(false)
+		expect(localDraftDiffers(null, { a: 1 })).toBe(false)
+	})
+
+	it('treats a draft that round-trips equal to the config as NOT differing', () => {
+		// The Schedule bug: getXCfg() emits conditionally-undefined keys, but
+		// the persisted draft went through JSON.stringify which dropped them.
+		const freshCfg = { path: 'u/me/s', schedule: '0 0 * * *', on_failure: undefined }
+		const persisted = JSON.parse(JSON.stringify(freshCfg)) // { path, schedule }
+		expect(localDraftDiffers(persisted, freshCfg)).toBe(false)
+	})
+
+	it('returns true for a genuine difference', () => {
+		expect(localDraftDiffers({ a: 1 }, { a: 2 })).toBe(true)
+		expect(localDraftDiffers({ a: 1, extra: 'x' }, { a: 1 })).toBe(true)
+	})
+})
+
+describe('UserDraft.saveIfChanged', () => {
+	const KEY = 'userdraft/w/test_ws/trigger_schedule/u/me/s'
+
+	it('does not persist a draft equal to the deployed baseline', () => {
+		const deployed = { path: 'u/me/s', schedule: '0 0 * * *', on_failure: undefined }
+		// value is the post-load reactive cfg — same shape, undefined keys present
+		UserDraft.saveIfChanged('trigger_schedule', 'u/me/s', { ...deployed }, deployed)
+		expect(localStorage.getItem(KEY)).toBeNull()
+	})
+
+	it('treats a value that round-trips equal to deployed as unchanged', () => {
+		const deployed = { path: 'u/me/s', schedule: '0 0 * * *', on_failure: undefined }
+		const value = JSON.parse(JSON.stringify(deployed)) // { path, schedule }
+		UserDraft.saveIfChanged('trigger_schedule', 'u/me/s', value, deployed)
+		expect(localStorage.getItem(KEY)).toBeNull()
+	})
+
+	it('persists when the value differs from the deployed baseline', () => {
+		const deployed = { path: 'u/me/s', schedule: '0 0 * * *' }
+		const value = { path: 'u/me/s', schedule: '5 0 * * *' }
+		UserDraft.saveIfChanged('trigger_schedule', 'u/me/s', value, deployed)
+		expect(storedShape(KEY)).toBe(wrapped(value))
+	})
+
+	it('removes a pre-existing draft once the value reverts to deployed', () => {
+		const deployed = { path: 'u/me/s', schedule: '0 0 * * *' }
+		UserDraft.save('trigger_schedule', 'u/me/s', { path: 'u/me/s', schedule: '5 0 * * *' })
+		expect(localStorage.getItem(KEY)).not.toBeNull()
+		UserDraft.saveIfChanged('trigger_schedule', 'u/me/s', { ...deployed }, deployed)
+		expect(localStorage.getItem(KEY)).toBeNull()
+	})
+
+	it('persists when there is no deployed baseline (undefined)', () => {
+		const value = { path: 'u/me/s', schedule: '0 0 * * *' }
+		UserDraft.saveIfChanged('trigger_schedule', 'u/me/s', value, undefined)
+		expect(storedShape(KEY)).toBe(wrapped(value))
 	})
 })

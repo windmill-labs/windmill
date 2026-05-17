@@ -27,7 +27,7 @@
 	import { saveGcpTriggerFromCfg } from './utils'
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import { deepEqual } from 'fast-equals'
-	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraft, localDraftDiffers } from '$lib/userDraft.svelte'
 	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
@@ -133,7 +133,7 @@
 			}
 			originalConfig = structuredClone($state.snapshot(getGcpConfig()))
 			const localCfg = UserDraft.get<Record<string, any>>('trigger_gcp', ePath)
-			if (localCfg && !deepEqual(localCfg, getGcpConfig())) {
+			if (localDraftDiffers(localCfg, getGcpConfig())) {
 				const deployedCfg = structuredClone($state.snapshot(getGcpConfig()))
 				await loadTriggerConfig(localCfg)
 				notifyRestoredFromLocal(false, true, {
@@ -331,7 +331,7 @@
 
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		gcpConfig && UserDraft.save('trigger_gcp', initialPath, gcpConfig)
+		gcpConfig && UserDraft.saveIfChanged('trigger_gcp', initialPath, gcpConfig, originalConfig)
 	})
 </script>
 

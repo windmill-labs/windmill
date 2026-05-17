@@ -25,7 +25,7 @@
 	import { saveAzureTriggerFromCfg } from './utils'
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import { deepEqual } from 'fast-equals'
-	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraft, localDraftDiffers } from '$lib/userDraft.svelte'
 	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
@@ -131,7 +131,7 @@
 			}
 			originalConfig = structuredClone($state.snapshot(getAzureConfig()))
 			const localCfg = UserDraft.get<Record<string, any>>('trigger_azure', ePath)
-			if (localCfg && !deepEqual(localCfg, getAzureConfig())) {
+			if (localDraftDiffers(localCfg, getAzureConfig())) {
 				const deployedCfg = structuredClone($state.snapshot(getAzureConfig()))
 				await loadTriggerConfig(localCfg)
 				notifyRestoredFromLocal(false, true, {
@@ -314,7 +314,8 @@
 
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		azureConfig && UserDraft.save('trigger_azure', initialPath, azureConfig)
+		azureConfig &&
+			UserDraft.saveIfChanged('trigger_azure', initialPath, azureConfig, originalConfig)
 	})
 </script>
 

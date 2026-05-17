@@ -45,7 +45,7 @@
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraft, localDraftDiffers } from '$lib/userDraft.svelte'
 	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 	import { capitalize } from '$lib/utils'
 
@@ -246,7 +246,7 @@
 			}
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			const localCfg = UserDraft.get<Record<string, any>>('trigger_postgres', ePath)
-			if (localCfg && !deepEqual(localCfg, getSaveCfg())) {
+			if (localDraftDiffers(localCfg, getSaveCfg())) {
 				const deployedCfg = structuredClone($state.snapshot(getSaveCfg()))
 				await loadTriggerConfig(localCfg)
 				notifyRestoredFromLocal(false, true, {
@@ -496,7 +496,8 @@
 
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		postgresConfig && UserDraft.save('trigger_postgres', initialPath, postgresConfig)
+		postgresConfig &&
+			UserDraft.saveIfChanged('trigger_postgres', initialPath, postgresConfig, originalConfig)
 	})
 
 	$effect(() => {

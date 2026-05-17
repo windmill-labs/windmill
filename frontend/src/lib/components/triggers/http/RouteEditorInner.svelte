@@ -55,7 +55,7 @@
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraft, localDraftDiffers } from '$lib/userDraft.svelte'
 	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
@@ -227,7 +227,7 @@
 			}
 			originalConfig = structuredClone($state.snapshot(getRouteConfig()))
 			const localCfg = UserDraft.get<Record<string, any>>('trigger_http', ePath)
-			if (localCfg && !deepEqual(localCfg, getRouteConfig())) {
+			if (localDraftDiffers(localCfg, getRouteConfig())) {
 				const deployedCfg = structuredClone($state.snapshot(getRouteConfig()))
 				loadTriggerConfig(localCfg as Partial<HttpTrigger>)
 				notifyRestoredFromLocal(false, true, {
@@ -465,7 +465,7 @@
 
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		UserDraft.save('trigger_http', initialPath, routeConfig)
+		UserDraft.saveIfChanged('trigger_http', initialPath, routeConfig, originalConfig)
 	})
 </script>
 

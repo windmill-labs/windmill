@@ -29,7 +29,7 @@
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { saveEmailTriggerFromCfg } from './utils'
 	import { deepEqual } from 'fast-equals'
-	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraft, localDraftDiffers } from '$lib/userDraft.svelte'
 	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
@@ -128,7 +128,7 @@
 			}
 			originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
 			const localCfg = UserDraft.get<Record<string, any>>('trigger_email', ePath)
-			if (localCfg && !deepEqual(localCfg, getEmailTriggerConfig())) {
+			if (localDraftDiffers(localCfg, getEmailTriggerConfig())) {
 				const deployedCfg = structuredClone($state.snapshot(getEmailTriggerConfig()))
 				loadTriggerConfig(localCfg as Partial<EmailTrigger>)
 				notifyRestoredFromLocal(false, true, {
@@ -311,7 +311,7 @@
 
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		UserDraft.save('trigger_email', initialPath, emailConfig)
+		UserDraft.saveIfChanged('trigger_email', initialPath, emailConfig, originalConfig)
 	})
 </script>
 

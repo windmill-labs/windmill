@@ -39,7 +39,7 @@
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraft, localDraftDiffers } from '$lib/userDraft.svelte'
 	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 
 	interface Props {
@@ -151,7 +151,7 @@
 			}
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			const localCfg = UserDraft.get<Record<string, any>>('trigger_mqtt', ePath)
-			if (localCfg && !deepEqual(localCfg, getSaveCfg())) {
+			if (localDraftDiffers(localCfg, getSaveCfg())) {
 				const deployedCfg = structuredClone($state.snapshot(getSaveCfg()))
 				await loadTriggerConfig(localCfg)
 				notifyRestoredFromLocal(false, true, {
@@ -355,7 +355,7 @@
 
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		UserDraft.save('trigger_mqtt', initialPath, mqttConfig)
+		UserDraft.saveIfChanged('trigger_mqtt', initialPath, mqttConfig, originalConfig)
 	})
 </script>
 
