@@ -5666,6 +5666,11 @@ async fn run_preview_script(
             "Operators cannot run preview jobs for security reasons".to_string(),
         ));
     }
+    // Preview runs arbitrary, request-supplied code. require_path_read_access_for_preview
+    // only checks folder/namespace *read* access (and is a no-op when path is null), so a
+    // token scoped to a specific script/flow could otherwise escape its scope and run any
+    // code. Require the broad jobs:run scope, like other arbitrary-execution endpoints.
+    check_scopes(&authed, || format!("jobs:run"))?;
     require_path_read_access_for_preview(&authed, &preview.path)?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(preview.tag.clone());
@@ -5996,6 +6001,9 @@ async fn run_bundle_preview_script(
             "Operators cannot run preview jobs for security reasons".to_string(),
         ));
     }
+    // Bundle preview runs arbitrary, request-supplied code; require the broad jobs:run
+    // scope so a narrowly-scoped token cannot escape its scope. See run_preview_script.
+    check_scopes(&authed, || format!("jobs:run"))?;
 
     let mut job_id = None;
     let mut tx = None;
@@ -6663,6 +6671,9 @@ async fn run_preview_flow_job(
             "Operators cannot run preview jobs for security reasons".to_string(),
         ));
     }
+    // Flow preview runs an arbitrary, request-supplied flow definition; require the broad
+    // jobs:run scope so a narrowly-scoped token cannot escape its scope. See run_preview_script.
+    check_scopes(&authed, || format!("jobs:run"))?;
     require_path_read_access_for_preview(&authed, &raw_flow.path)?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(raw_flow.tag.clone());
@@ -6857,6 +6868,10 @@ async fn run_dynamic_select(
             }
         },
         DynamicSelectRunnableRef::Inline { code, lang: language } => {
+            // Inline dynamic select runs arbitrary, request-supplied code; require the broad
+            // jobs:run scope so a narrowly-scoped token cannot escape its scope. The Deployed
+            // branches resolve a path and are scope-checked by their own runnable handlers.
+            check_scopes(&authed, || format!("jobs:run"))?;
             dynamic_input = DynamicInput {
                 x_windmill_dyn_select_code: code,
                 x_windmill_dyn_select_lang: language.unwrap_or_default(),
