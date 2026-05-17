@@ -108,10 +108,53 @@ async fn broad_jobs_run_token_not_blocked_on_preview(db: Pool<Postgres>) -> anyh
         .send()
         .await?;
 
-    assert_ne!(
+    assert!(
+        resp.status().is_success(),
+        "a token with the broad jobs:run scope must be allowed to run preview \
+         (expected 2xx), got {}",
+        resp.status()
+    );
+
+    Ok(())
+}
+
+/// A token scoped to a specific flow clears the route middleware for the flow
+/// preview route (route kind = flows) but must still be denied by the in-handler
+/// `check_scopes("jobs:run")` because flow preview runs an arbitrary flow.
+#[sqlx::test(fixtures("base"))]
+async fn flow_scoped_token_cannot_run_arbitrary_preview_flow(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    insert_scoped_token(&db, "POC_FLOW_TOKEN", &["jobs:run:flows:f/locked/onlyflow"]).await;
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "POC_FLOW_TOKEN".to_string(),
+    );
+
+    let resp = client
+        .client()
+        .post(format!(
+            "{}/w/test-workspace/jobs/run/preview_flow",
+            client.baseurl()
+        ))
+        .json(&json!({ "value": { "modules": [] }, "path": null, "args": {} }))
+        .send()
+        .await?;
+
+    assert_eq!(
         resp.status(),
         reqwest::StatusCode::FORBIDDEN,
-        "a token with the broad jobs:run scope must not be blocked on /jobs/run/preview"
+        "a flow-scoped token must be denied (403) on /jobs/run/preview_flow, got {}",
+        resp.status()
+    );
+    let body = resp.text().await?;
+    assert!(
+        body.contains("jobs:run"),
+        "403 should reference the required jobs:run scope, body: {body}"
     );
 
     Ok(())

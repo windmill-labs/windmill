@@ -5752,6 +5752,9 @@ async fn run_inline_preview_script(
     Path(w_id): Path<String>,
     Json(preview): Json<PreviewInline>,
 ) -> error::Result<Response> {
+    // Same arbitrary-code class as run_preview_script: a narrowly-scoped token
+    // must not be able to run request-supplied code through inline preview.
+    check_scopes(&authed, || format!("jobs:run"))?;
     if let Some(job_id) = job_id {
         register_potential_assets_on_inline_execution(job_id, &w_id, &preview);
     }
@@ -6821,6 +6824,11 @@ async fn run_dynamic_select(
                 return Ok((StatusCode::CREATED, uuid.to_string()).into_response());
             }
             RunnableKind::Flow => {
+                // Runs the deployed flow's dynamic-select code. Enforce the same
+                // path-scoped check the script branch gets via
+                // push_script_job_by_path_into_queue, so a token not scoped to this
+                // flow cannot trigger its code through dynamic select.
+                check_scopes(&authed, || format!("jobs:run:flows:{path}"))?;
                 let mut conn = user_db.clone().begin(&authed).await?;
 
                 let dynamic_input_res = match DYNAMIC_INPUT_CACHE.get(&format!("{}:{}", w_id, path))
@@ -6870,7 +6878,8 @@ async fn run_dynamic_select(
         DynamicSelectRunnableRef::Inline { code, lang: language } => {
             // Inline dynamic select runs arbitrary, request-supplied code; require the broad
             // jobs:run scope so a narrowly-scoped token cannot escape its scope. The Deployed
-            // branches resolve a path and are scope-checked by their own runnable handlers.
+            // branches are path-scoped instead (scripts via push_script_job_by_path_into_queue,
+            // flows via the check_scopes above).
             check_scopes(&authed, || format!("jobs:run"))?;
             dynamic_input = DynamicInput {
                 x_windmill_dyn_select_code: code,
