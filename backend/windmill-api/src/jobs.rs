@@ -112,9 +112,9 @@ use windmill_common::{
 };
 
 use windmill_common::{
-    get_flow_version_info_from_version, get_latest_deployed_hash_for_path,
-    get_latest_flow_version_info_for_path, get_script_info_for_hash, utils::empty_as_none,
-    ScriptHashInfo, BASE_URL,
+    get_flow_path_for_version_authed, get_flow_version_info_from_version,
+    get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
+    get_script_info_for_hash, utils::empty_as_none, ScriptHashInfo, BASE_URL,
 };
 use windmill_queue::{
     get_result_and_success_by_id_from_flow, job_is_complete, push, PushArgs, PushArgsOwned,
@@ -4048,21 +4048,8 @@ pub async fn run_flow_by_version_inner(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let flow_path = sqlx::query_scalar!(
-        r#"
-            SELECT
-                path
-            FROM
-                flow_version
-            WHERE
-                id = $1 AND
-                workspace_id = $2
-            "#,
-        version,
-        &w_id
-    )
-    .fetch_one(&db)
-    .await?;
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+    let flow_path = get_flow_path_for_version_authed(&userdb_authed, &db, version, &w_id).await?;
 
     check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
 
@@ -5550,13 +5537,8 @@ pub async fn run_wait_result_flow_by_version_get(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let flow_path = sqlx::query_scalar!(
-        "SELECT path FROM flow_version WHERE id = $1 AND workspace_id = $2",
-        version,
-        &w_id
-    )
-    .fetch_one(&db)
-    .await?;
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+    let flow_path = get_flow_path_for_version_authed(&userdb_authed, &db, version, &w_id).await?;
 
     check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
 
@@ -5606,21 +5588,8 @@ pub async fn run_wait_result_flow_by_version(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let flow_path = sqlx::query_scalar!(
-        r#"
-                SELECT
-                    path
-                FROM
-                    flow_version
-                WHERE
-                    id = $1 AND
-                    workspace_id = $2
-            "#,
-        version,
-        &w_id
-    )
-    .fetch_one(&db)
-    .await?;
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+    let flow_path = get_flow_path_for_version_authed(&userdb_authed, &db, version, &w_id).await?;
 
     check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
 
