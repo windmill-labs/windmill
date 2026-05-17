@@ -229,6 +229,18 @@ lazy_static::lazy_static! {
     pub static ref CUSTOM_ENVS_CACHE: Cache<String, (i64, Vec<(String, String)>)> = Cache::new(100);
     pub static ref WORKSPACE_CRYPT_CACHE: Cache<String, (i64, MagicCrypt256)> = Cache::new(1000);
 
+    static ref VALID_WORKSPACE_ENV_NAME: regex::Regex =
+        regex::Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*$").unwrap();
+}
+
+/// Workspace custom environment variable names are interpolated verbatim into
+/// generated worker code (e.g. the NativeTS/bunnative `const <name> = ...;`
+/// prologue). A name MUST therefore be restricted to a conventional identifier
+/// so an attacker-controlled name cannot break out of the declaration into
+/// arbitrary worker-process JavaScript. This subset is also a valid POSIX
+/// environment variable name.
+pub fn is_valid_workspace_env_name(name: &str) -> bool {
+    name.len() <= 255 && VALID_WORKSPACE_ENV_NAME.is_match(name)
 }
 
 pub async fn get_reserved_variables(
@@ -465,6 +477,23 @@ async fn get_cached_workspace_envs(conn: &Connection, w_id: &str) -> Vec<(String
                 .await
                 .unwrap_or_default(),
         };
+        // Defense-in-depth: never expose a custom env whose name is not a
+        // valid identifier. Names are interpolated verbatim into generated
+        // worker code; this neutralizes any malicious row that may already be
+        // persisted from before name validation was enforced at write time.
+        let custom_envs = custom_envs
+            .into_iter()
+            .filter(|(name, _)| {
+                let valid = is_valid_workspace_env_name(name);
+                if !valid {
+                    tracing::warn!(
+                        workspace_id = %w_id,
+                        "Ignoring workspace env variable with invalid name: {name:?}"
+                    );
+                }
+                valid
+            })
+            .collect::<Vec<(String, String)>>();
         CUSTOM_ENVS_CACHE.insert(
             w_id.to_string(),
             (chrono::Utc::now().timestamp(), custom_envs.clone()),
@@ -554,5 +583,44 @@ pub async fn get_variable_or_self_as<T: Authable + Sync>(
             "Variable not found when resolving `$var:{}`",
             var_path
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_valid_workspace_env_name;
+
+    #[test]
+    fn valid_env_names_are_accepted() {
+        for name in ["FOO", "foo_bar", "_private", "API_KEY_2", "a", "X1"] {
+            assert!(is_valid_workspace_env_name(name), "expected {name:?} valid");
+        }
+    }
+
+    #[test]
+    fn malicious_env_names_are_rejected() {
+        // Regression for GHSA-5f5q-2vg2-r2x4: a workspace env variable name is
+        // interpolated verbatim into the NativeTS/bunnative `const <name> = ...;`
+        // worker prologue. Any name that is not a strict identifier could break
+        // out of the declaration into attacker-controlled worker JavaScript.
+        for name in [
+            "INJ = (globalThis.x = 1); let _y", // breaks out of `const <name> ='...'`
+            "x'];globalThis.y=1;//",            // breaks out of `process.env['<name>']`
+            "1FOO",                             // starts with a digit
+            "FOO-BAR",                          // hyphen
+            "FOO BAR",                          // space
+            "FOO;BAR",
+            "FOO.BAR",
+            "$FOO",
+            "FOO\n BAR",
+            "",
+        ] {
+            assert!(
+                !is_valid_workspace_env_name(name),
+                "expected {name:?} to be rejected"
+            );
+        }
+        // Over-long names are rejected (DB column is varchar(255)).
+        assert!(!is_valid_workspace_env_name(&"A".repeat(256)));
     }
 }

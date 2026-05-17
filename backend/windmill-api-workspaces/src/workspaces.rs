@@ -33,7 +33,7 @@ use windmill_common::db::UserDB;
 use windmill_common::global_settings::HTTP_ROUTE_WORKSPACED_ROUTE;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{
-    build_crypt, decrypt, encrypt, SECRET_SALT, WORKSPACE_CRYPT_CACHE,
+    build_crypt, decrypt, encrypt, is_valid_workspace_env_name, SECRET_SALT, WORKSPACE_CRYPT_CACHE,
 };
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::workspaces::GitRepositorySettings;
@@ -3298,6 +3298,15 @@ async fn set_environment_variable(
 
     match value {
         Some(value) => {
+            // The name is interpolated verbatim into generated worker code
+            // (e.g. the NativeTS/bunnative `const <name> = ...;` prologue), so
+            // it must be a strict identifier to prevent code injection.
+            if !is_valid_workspace_env_name(&name) {
+                return Err(Error::BadRequest(format!(
+                    "Invalid environment variable name {name:?}: must match ^[A-Za-z_][A-Za-z0-9_]*$ \
+                     (letters, digits and underscores, not starting with a digit)"
+                )));
+            }
             sqlx::query!(
                 "INSERT INTO workspace_env (workspace_id, name, value) VALUES ($1, $2, $3) ON CONFLICT (workspace_id, name) DO UPDATE SET value = EXCLUDED.value",
                 &w_id,
