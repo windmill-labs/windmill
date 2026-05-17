@@ -78,6 +78,11 @@ mount {
 	is_bind: true
 }
 
+# Shadow kubelet-injected /etc submounts with read-only file binds. The /etc
+# bind above is read-only, but on Kubernetes /etc/hosts, /etc/resolv.conf and
+# /etc/hostname are separate bind-mounts layered on /etc, and nsjail's
+# read-only remount is non-recursive, leaving them writable (cross-tenant DNS
+# poisoning). Load-bearing despite the /etc bind above -- do not remove.
 mount {
     src: "/etc/resolv.conf"
     dst: "/etc/resolv.conf"
