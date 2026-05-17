@@ -644,3 +644,126 @@ async fn and_join_fires_once_under_concurrent_completion(db: Pool<Postgres>) -> 
 
     Ok(())
 }
+
+/// Fuller pipeline: a partitioned chain that fans in through an AND-join
+/// and then fans out over several more hops. Asserts the resolved
+/// partition propagates unchanged at every hop, the chain depth
+/// increments per hop, the AND barrier fires once, and a different
+/// partition opens an independent slot (no cross-partition bleed) across
+/// the whole multi-hop graph.
+///
+/// Shape: A,B (partitioned producers) ─┐
+///                                     ├─▶ J (// trigger all) ─▶ C ─▶ D
+///        A,B ─────────────────────────┘
+#[sqlx::test(fixtures("base"))]
+async fn fuller_partitioned_join_multihop_pipeline(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    const PA: &str = "u/test-user/p-a";
+    const PB: &str = "u/test-user/p-b";
+    const JN: &str = "u/test-user/p-join";
+    const CN: &str = "u/test-user/p-c";
+    const DN: &str = "u/test-user/p-d";
+
+    for p in [JN, CN, DN] {
+        seed_script(&db, p, "echo step", "bash").await?;
+    }
+    seed_asset_write(&db, PA, "s3object", "lake/{partition}/a").await?;
+    seed_asset_write(&db, PB, "s3object", "lake/{partition}/b").await?;
+    seed_asset_write(&db, JN, "s3object", "lake/{partition}/j").await?;
+    seed_asset_write(&db, CN, "s3object", "lake/{partition}/c").await?;
+    // J is an AND join over both partition-bearing inputs.
+    seed_subscription_and(&db, JN, "s3://lake/{partition}/a").await?;
+    seed_subscription_and(&db, JN, "s3://lake/{partition}/b").await?;
+    seed_subscription(&db, CN, "script", "s3://lake/{partition}/j").await?;
+    seed_subscription(&db, DN, "script", "s3://lake/{partition}/c").await?;
+
+    // Helper: assert exactly one dispatch to `path` carrying partition
+    // `part` at chain depth `depth`.
+    async fn assert_hop(
+        db: &Pool<Postgres>,
+        path: &str,
+        part: &str,
+        depth: i64,
+    ) -> anyhow::Result<()> {
+        let rows = fetch_dispatched(db).await?;
+        let hits: Vec<_> = rows.iter().filter(|r| r.0 == path).collect();
+        assert_eq!(hits.len(), 1, "expected exactly one dispatch to {path}");
+        let args = hits[0].2.as_ref().unwrap();
+        assert_eq!(args["partition"], json!(part), "{path} top-level partition");
+        assert_eq!(
+            args["trigger"]["partition"],
+            json!(part),
+            "{path} trigger.partition"
+        );
+        assert_eq!(
+            args["trigger"]["depth"].as_i64(),
+            Some(depth),
+            "{path} chain depth"
+        );
+        Ok(())
+    }
+
+    // day1: A arrives → J waits (1/2 partition-bearing inputs).
+    let pa = seed_producer_job_path(
+        &db,
+        PA,
+        json!({ "partition": "day1", "trigger": { "depth": 1 } }),
+    )
+    .await?;
+    let r = dispatch_asset_triggers(&db, &make_mini(pa, PA)).await;
+    assert!(r.dispatched.is_empty(), "J must wait: only A present");
+    assert!(fetch_dispatched(&db).await?.is_empty());
+
+    // day1: B arrives → J fires once for day1 at depth 2.
+    let pb = seed_producer_job_path(
+        &db,
+        PB,
+        json!({ "partition": "day1", "trigger": { "depth": 1 } }),
+    )
+    .await?;
+    let r = dispatch_asset_triggers(&db, &make_mini(pb, PB)).await;
+    assert_eq!(r.dispatched.len(), 1, "J fires once when both inputs in");
+    assert_hop(&db, JN, "day1", 2).await?;
+    clear_dispatched(&db).await?;
+
+    // J completes for day1 → C runs for day1 at depth 3.
+    let jn = seed_producer_job_path(
+        &db,
+        JN,
+        json!({ "partition": "day1", "trigger": { "depth": 2 } }),
+    )
+    .await?;
+    let r = dispatch_asset_triggers(&db, &make_mini(jn, JN)).await;
+    assert_eq!(r.dispatched.len(), 1);
+    assert_hop(&db, CN, "day1", 3).await?;
+    clear_dispatched(&db).await?;
+
+    // C completes for day1 → D (leaf) runs for day1 at depth 4.
+    let cn = seed_producer_job_path(
+        &db,
+        CN,
+        json!({ "partition": "day1", "trigger": { "depth": 3 } }),
+    )
+    .await?;
+    let r = dispatch_asset_triggers(&db, &make_mini(cn, CN)).await;
+    assert_eq!(r.dispatched.len(), 1);
+    assert_hop(&db, DN, "day1", 4).await?;
+    clear_dispatched(&db).await?;
+
+    // A different partition opens an independent J slot — no bleed from
+    // the completed day1 run.
+    let pa2 = seed_producer_job_path(
+        &db,
+        PA,
+        json!({ "partition": "day2", "trigger": { "depth": 1 } }),
+    )
+    .await?;
+    let r = dispatch_asset_triggers(&db, &make_mini(pa2, PA)).await;
+    assert!(
+        r.dispatched.is_empty(),
+        "day2 is a separate slot; J must not fire from day1's completion"
+    );
+
+    Ok(())
+}
