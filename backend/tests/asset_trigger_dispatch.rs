@@ -576,3 +576,71 @@ async fn debounce_setting_applied_to_dispatched_subscriber(
 
     Ok(())
 }
+
+/// Regression for the AND-join check-then-act race: when a subscriber's
+/// last partition-bearing inputs complete concurrently (different workers
+/// finishing different upstream producers at once), the barrier must
+/// still fire the subscriber exactly once for the partition. Fires all N
+/// producers' dispatch simultaneously (a barrier releases them together)
+/// and asserts a single dispatch and a cleared slot. This invariant holds
+/// for the transactional, advisory-locked gate regardless of interleaving;
+/// a regression to a non-atomic check-then-act fails it.
+#[sqlx::test(fixtures("base"))]
+async fn and_join_fires_once_under_concurrent_completion(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    const SUB_J: &str = "u/test-user/sub-join-conc";
+    const N: usize = 5;
+
+    seed_script(&db, SUB_J, "echo join", "bash").await?;
+    let mut producers = Vec::new();
+    for i in 0..N {
+        let prod = format!("u/test-user/prod-conc-{i}");
+        seed_asset_write(&db, &prod, "s3object", &format!("lake/{{partition}}/i{i}")).await?;
+        seed_subscription_and(&db, SUB_J, &format!("s3://lake/{{partition}}/i{i}")).await?;
+        let id = seed_producer_job_path(&db, &prod, json!({ "partition": "acme" })).await?;
+        producers.push((id, prod));
+    }
+
+    let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(N));
+    let mut set = tokio::task::JoinSet::new();
+    for (id, prod) in producers {
+        let db = db.clone();
+        let barrier = barrier.clone();
+        set.spawn(async move {
+            barrier.wait().await;
+            dispatch_asset_triggers(&db, &make_mini(id, &prod))
+                .await
+                .dispatched
+                .len()
+        });
+    }
+    let mut total = 0usize;
+    while let Some(r) = set.join_next().await {
+        total += r?;
+    }
+
+    assert_eq!(
+        total, 1,
+        "AND join must dispatch the subscriber exactly once under concurrent completion"
+    );
+    let fires = fetch_dispatched(&db)
+        .await?
+        .iter()
+        .filter(|r| r.0 == SUB_J)
+        .count();
+    assert_eq!(fires, 1, "exactly one subscriber job pushed");
+
+    let leftover = sqlx::query_scalar!(
+        r#"SELECT count(*) AS "n!"
+           FROM join_pending_inputs
+           WHERE workspace_id = $1 AND subscriber_path = $2"#,
+        WS,
+        SUB_J,
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(leftover, 0, "join slot cleared after fire");
+
+    Ok(())
+}
