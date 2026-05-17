@@ -201,7 +201,7 @@ jobs:
           cd integration_tests && ../.venv/bin/python -m unittest -v test.git_sync_test
 
       - name: Archive logs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: Git Sync Integration Tests Logs
