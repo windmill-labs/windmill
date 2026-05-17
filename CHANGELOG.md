@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.703.2](https://github.com/windmill-labs/windmill/compare/v1.703.1...v1.703.2) (2026-05-17)
+
+
+### Bug Fixes
+
+* prevent cross-tenant DNS poisoning via writable /etc in nsjail ([#9194](https://github.com/windmill-labs/windmill/issues/9194)) ([f8467f3](https://github.com/windmill-labs/windmill/commit/f8467f38c8a053117ce62f96684cfb15ef792f08))
+
 ## [1.703.1](https://github.com/windmill-labs/windmill/compare/v1.703.0...v1.703.1) (2026-05-16)
 
 

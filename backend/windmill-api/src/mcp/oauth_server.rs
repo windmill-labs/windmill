@@ -285,6 +285,34 @@ pub async fn protected_resource_metadata_by_path(
     ))
 }
 
+/// Schemes that a browser executes as script or uses to read local content. The
+/// consent page navigates the user's browser to the registered redirect_uri
+/// (`window.location` / anchor `href`), so accepting any of these turns dynamic
+/// client registration into a stored-XSS / token-exfiltration primitive.
+const DISALLOWED_REDIRECT_URI_SCHEMES: &[&str] =
+    &["javascript", "data", "vbscript", "blob", "file"];
+
+/// Validate a dynamically-registered redirect_uri.
+///
+/// RFC 7591 dynamic client registration is intentionally unauthenticated for MCP
+/// interoperability, so the redirect_uri is the security boundary: it must be an
+/// absolute URI (RFC 6749 §3.1.2) and must not use a browser-executable scheme.
+fn validate_redirect_uri(uri: &str) -> Result<()> {
+    let parsed = url::Url::parse(uri).map_err(|_| {
+        Error::BadRequest(format!(
+            "Invalid redirect_uri (must be an absolute URI): {uri}"
+        ))
+    })?;
+    // `url` normalizes the scheme to lowercase ASCII.
+    if DISALLOWED_REDIRECT_URI_SCHEMES.contains(&parsed.scheme()) {
+        return Err(Error::BadRequest(format!(
+            "redirect_uri scheme '{}' is not allowed",
+            parsed.scheme()
+        )));
+    }
+    Ok(())
+}
+
 /// POST /api/mcp/oauth/server/register - dynamic client registration
 pub async fn oauth_register(
     Extension(db): Extension<DB>,
@@ -294,6 +322,10 @@ pub async fn oauth_register(
         return Err(Error::BadRequest(
             "At least one redirect_uri is required".to_string(),
         ));
+    }
+
+    for uri in &req.redirect_uris {
+        validate_redirect_uri(uri)?;
     }
 
     let client_id = format!("mcp-client-{}", rd_string(16));
@@ -991,4 +1023,47 @@ pub fn gateway_unauthed_service() -> Router {
 /// Mounted at /api/mcp/gateway/oauth/server (inside authenticated section)
 pub fn gateway_authed_service() -> Router {
     Router::new().route("/approve", post(gateway_oauth_approve))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_redirect_uri;
+
+    #[test]
+    fn accepts_legitimate_redirect_uris() {
+        for uri in [
+            "https://app.example.com/oauth/callback",
+            "http://localhost:9876/callback",
+            "http://127.0.0.1:33418/oauth/callback",
+            // Native/editor MCP clients use private-use URI schemes (RFC 8252).
+            "vscode://anthropic.claude/oauth/callback",
+            "cursor://anysphere.cursor/callback",
+        ] {
+            assert!(
+                validate_redirect_uri(uri).is_ok(),
+                "expected {uri} to be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_browser_executable_and_relative_redirect_uris() {
+        for uri in [
+            // GHSA-q9xg-f2v2-695g: stored-XSS / token exfiltration via consent page.
+            "javascript:fetch('/api/w/admins/tokens/create',{method:'POST'})//",
+            "JavaScript:alert(document.domain)",
+            "data:text/html,<script>alert(1)</script>",
+            "vbscript:msgbox(1)",
+            "blob:https://example.com/uuid",
+            "file:///etc/passwd",
+            // Not an absolute URI (RFC 6749 §3.1.2).
+            "/relative/callback",
+            "not a uri",
+        ] {
+            assert!(
+                validate_redirect_uri(uri).is_err(),
+                "expected {uri} to be rejected"
+            );
+        }
+    }
 }
