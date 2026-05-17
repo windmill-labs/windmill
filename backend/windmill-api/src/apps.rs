@@ -899,9 +899,13 @@ async fn get_public_resource(
 ) -> JsonResult<Option<serde_json::Value>> {
     let path = path.to_path();
 
+    // This endpoint is unauthenticated (anonymous public apps must fetch their
+    // theme and form schemas). Both branches MUST stay tightly constrained to
+    // the non-sensitive resource types they serve, otherwise an unauthenticated
+    // caller could read the raw value of any resource at the given path.
     let res = if path.starts_with("f/app_themes/") {
         sqlx::query_scalar!(
-            "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
+            "SELECT value from resource WHERE path = $1 AND workspace_id = $2 AND resource_type = 'app_theme'",
             path.to_owned(),
             &w_id
         )
