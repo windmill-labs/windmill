@@ -1572,19 +1572,23 @@ pub async fn get_flow_path_for_version_authed(
         return Ok(path);
     }
 
-    let raw_path = sqlx::query_scalar!(
-        "SELECT path FROM flow_version WHERE id = $1 AND workspace_id = $2",
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM flow_version WHERE id = $1 AND workspace_id = $2)",
         version,
         w_id,
     )
-    .fetch_optional(db)
-    .await?;
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
 
-    if let Some(path) = raw_path {
-        return Err(Error::NotAuthorized(format!(
-            "You are not authorized to access this flow: {path} (but it exists). Your permissions are: {:?}",
-            db_authed.authed
-        )));
+    if exists {
+        // Unlike the path-keyed sibling (where the caller already supplied the
+        // path), here the caller only supplied an opaque version id. Echoing
+        // back the resolved path would disclose an id->path mapping for a flow
+        // they cannot access, so the message is intentionally generic.
+        return Err(Error::NotAuthorized(
+            "You are not authorized to run this flow version".to_string(),
+        ));
     }
 
     Err(Error::NotFound(format!(

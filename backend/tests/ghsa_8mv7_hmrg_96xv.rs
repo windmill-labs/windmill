@@ -91,6 +91,12 @@ async fn test_fv_version_route_enforces_folder_acl(db: Pool<Postgres>) -> anyhow
         status, 401,
         "member must NOT be able to run a folder-scoped flow by version id: {body}"
     );
+    // The caller supplied only an opaque version id; the rejection must not
+    // disclose the resolved flow path back to them.
+    assert!(
+        !body.contains(flow_path),
+        "rejection must not leak the resolved flow path: {body}"
+    );
 
     // 4. Same gate on the run_wait_result version routes (POST and GET).
     let resp = authed(
