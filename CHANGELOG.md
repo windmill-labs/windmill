@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.703.3](https://github.com/windmill-labs/windmill/compare/v1.703.2...v1.703.3) (2026-05-18)
+
+
+### Bug Fixes
+
+* constrain unauthenticated get_public_resource to app_theme resources ([#9203](https://github.com/windmill-labs/windmill/issues/9203)) ([24eedef](https://github.com/windmill-labs/windmill/commit/24eedef918376d9d401335b6fada577916f8cc0e))
+* enforce folder ACL on flow run-by-version routes ([#9202](https://github.com/windmill-labs/windmill/issues/9202)) ([ab11c77](https://github.com/windmill-labs/windmill/commit/ab11c7747a9076e8121fcea6eafb8e88079ac987))
+* enforce jobs:run scope on job preview and inline endpoints ([#9198](https://github.com/windmill-labs/windmill/issues/9198)) ([664edcd](https://github.com/windmill-labs/windmill/commit/664edcdfb746f6c8513e2b487383b5d9ab9f5434))
+* **mcp:** validate oauth dynamic client registration redirect_uris ([#9197](https://github.com/windmill-labs/windmill/issues/9197)) ([8bc2295](https://github.com/windmill-labs/windmill/commit/8bc2295b94df159a7c8630cdbe02953b8b7c13a1))
+* validate entrypoint override to prevent worker code injection (GHSA-wxjq-w5pj-jqhx) ([#9204](https://github.com/windmill-labs/windmill/issues/9204)) ([bd05bca](https://github.com/windmill-labs/windmill/commit/bd05bcadde06b65fc4b732f576d89aae908b5a3f))
+
 ## [1.703.2](https://github.com/windmill-labs/windmill/compare/v1.703.1...v1.703.2) (2026-05-17)
 
 
