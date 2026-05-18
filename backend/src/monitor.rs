@@ -1112,15 +1112,29 @@ pub async fn delete_expired_items(db: &DB) -> () {
     let audit_retention_days = audit_log_retention_days().await;
     let audit_retention_secs: i64 = audit_retention_days * 60 * 60 * 24;
 
-    // Clean up old (non-partitioned) audit table — will eventually be empty and dropped
-    if let Err(e) = sqlx::query_scalar!(
-        "DELETE FROM audit WHERE timestamp <= now() - ($1::bigint::text || ' s')::interval",
-        audit_retention_secs,
-    )
-    .fetch_all(db)
-    .await
-    {
-        tracing::error!("Error deleting audit log: {:?}", e);
+    // Clean up old (non-partitioned) audit table — will eventually be empty and dropped.
+    // Batched to avoid excessive DB load on instances with very large legacy audit tables.
+    let mut total_deleted_audit: i64 = 0;
+    loop {
+        match sqlx::query_scalar!(
+            "DELETE FROM audit WHERE ctid IN (SELECT ctid FROM audit WHERE timestamp <= now() - ($1::bigint::text || ' s')::interval LIMIT 10000) RETURNING id",
+            audit_retention_secs,
+        )
+        .fetch_all(db)
+        .await
+        {
+            Ok(rows) if rows.is_empty() => break,
+            Ok(rows) => {
+                total_deleted_audit += rows.len() as i64;
+                if total_deleted_audit >= 100000 {
+                    break;
+                }
+            }
+            Err(e) => {
+                tracing::error!("Error deleting audit log: {:?}", e);
+                break;
+            }
+        }
     }
 
     if let Err(e) = sqlx::query_scalar!(
