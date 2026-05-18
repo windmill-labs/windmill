@@ -19,7 +19,8 @@ import {
 	type DisplayMessage,
 	type Tool,
 	type ToolCallbacks,
-	type ToolDisplayMessage
+	type ToolDisplayMessage,
+	type UserQuestionChoice
 } from './shared'
 import type {
 	ChatCompletionMessageParam,
@@ -142,6 +143,10 @@ class AIChatManager {
 	cachedDatatables = $state<AppDatatableElement[]>([])
 
 	private confirmationCallback = $state<((value: boolean) => void) | undefined>(undefined)
+	private userQuestionCallbacks = new Map<
+		string,
+		(choice: UserQuestionChoice | undefined) => void
+	>()
 	private appDatatablesRefreshTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
 	allowedModes: Record<AIMode, boolean> = $derived({
@@ -226,6 +231,40 @@ class AIChatManager {
 			this.confirmationCallback(confirmed)
 			this.confirmationCallback = undefined
 		}
+	}
+
+	requestUserQuestion = (
+		toolId: string,
+		_question: { question: string; choices: UserQuestionChoice[] }
+	): Promise<UserQuestionChoice | undefined> => {
+		return new Promise((resolve) => {
+			this.userQuestionCallbacks.set(toolId, resolve)
+		})
+	}
+
+	handleUserQuestionAnswer = (toolId: string, choice: UserQuestionChoice) => {
+		const callback = this.userQuestionCallbacks.get(toolId)
+		if (!callback) {
+			return
+		}
+
+		this.displayMessages = this.displayMessages.map((message) => {
+			if (message.role === 'tool' && message.tool_call_id === toolId && message.userQuestion) {
+				return {
+					...message,
+					content: 'User answered question',
+					isLoading: false,
+					userQuestion: {
+						...message.userQuestion,
+						selectedChoiceId: choice.id
+					}
+				}
+			}
+			return message
+		})
+
+		callback(choice)
+		this.userQuestionCallbacks.delete(toolId)
 	}
 
 	setAiChatInput(aiChatInput: AIChatInput | null) {
@@ -838,7 +877,8 @@ class AIChatManager {
 							this.displayMessages = [...this.displayMessages]
 						}
 					},
-					requestConfirmation: this.requestConfirmation
+					requestConfirmation: this.requestConfirmation,
+					requestUserQuestion: this.requestUserQuestion
 				}
 			}
 
@@ -869,6 +909,10 @@ class AIChatManager {
 			this.confirmationCallback(false)
 			this.confirmationCallback = undefined
 		}
+		for (const resolveQuestion of this.userQuestionCallbacks.values()) {
+			resolveQuestion(undefined)
+		}
+		this.userQuestionCallbacks.clear()
 		const cancelReason = reason ?? 'user_cancelled'
 		console.log('cancelling request:', {
 			reason: cancelReason,
@@ -1207,7 +1251,10 @@ class AIChatManager {
 					...message,
 					isLoading: false,
 					content: messageText,
-					error: messageText
+					error: messageText,
+					userQuestion: message.userQuestion
+						? { ...message.userQuestion, canceled: true }
+						: undefined
 				}
 			}
 			return message

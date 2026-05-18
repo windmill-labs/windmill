@@ -485,6 +485,20 @@ export type CreatedResourceAction = {
 
 export type ToolDisplayAction = CreatedResourceAction
 
+export type UserQuestionChoice = {
+	id: string
+	label: string
+	value?: string
+	description?: string
+}
+
+export type UserQuestionDisplay = {
+	question: string
+	choices: UserQuestionChoice[]
+	selectedChoiceId?: string
+	canceled?: boolean
+}
+
 export type ToolDisplayMessage = {
 	role: 'tool'
 	tool_call_id: string
@@ -500,6 +514,7 @@ export type ToolDisplayMessage = {
 	toolName?: string
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
+	userQuestion?: UserQuestionDisplay
 }
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {
@@ -684,6 +699,10 @@ export interface ToolCallbacks {
 	setToolStatus: (id: string, metadata?: Partial<ToolDisplayMessage>) => void
 	removeToolStatus: (id: string) => void
 	requestConfirmation?: (toolId: string) => Promise<boolean>
+	requestUserQuestion?: (
+		toolId: string,
+		question: UserQuestionDisplay
+	) => Promise<UserQuestionChoice | undefined>
 }
 
 export function createToolDef(
