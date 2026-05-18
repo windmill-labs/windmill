@@ -45,8 +45,7 @@
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { UserDraft, localDraftDiffers } from '$lib/userDraft.svelte'
-	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
+	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
 	import { capitalize } from '$lib/utils'
 
 	interface Props {
@@ -165,16 +164,15 @@
 
 	const postgresConfig = $derived.by(getSaveCfg)
 
-	// Live, refcounted UserDraft handle keyed reactively on (workspace,
-	// path) so an external UserDraft.save('trigger_postgres', …) propagates
-	// into this open editor (apply-effect below reflects it into the form;
-	// the persist-effect writes form edits back through it).
-	const postgresDraftHandles = UserDraft.useMany<Record<string, any>>(() =>
-		initialPath && $workspaceStore
-			? [{ itemKind: 'trigger_postgres', path: initialPath, workspace: $workspaceStore }]
-			: []
-	)
-	const postgresDraftHandle = $derived(postgresDraftHandles[0])
+	const draftSync = useTriggerDraftSync({
+		itemKind: 'trigger_postgres',
+		path: () => initialPath,
+		workspace: () => $workspaceStore,
+		drawerLoading: () => drawerLoading,
+		getCfg: () => postgresConfig,
+		applyCfg: loadTriggerConfig,
+		deployed: () => originalConfig
+	})
 	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 
 	const saveDisabled = $derived(
@@ -256,19 +254,7 @@
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-			const localCfg = postgresDraftHandle?.draft
-			if (localDraftDiffers(localCfg, getSaveCfg())) {
-				const deployedCfg = structuredClone($state.snapshot(getSaveCfg()))
-				await loadTriggerConfig(localCfg)
-				notifyRestoredFromLocal(false, true, {
-					onResetToDeployed: async () => {
-						UserDraft.discard('trigger_postgres', ePath, deployedCfg, {
-							workspace: $workspaceStore ?? undefined
-						})
-						await loadTriggerConfig(deployedCfg)
-					}
-				})
-			}
+			await draftSync.maybeRestore(ePath)
 		} catch (err) {
 			sendUserToast(`Could not load postgres trigger: ${err.body}`, true)
 		} finally {
@@ -436,9 +422,7 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
-			UserDraft.discard('trigger_postgres', previousPath, getSaveCfg(), {
-				workspace: $workspaceStore ?? undefined
-			})
+			draftSync.discard(previousPath, getSaveCfg())
 			onUpdate?.(path)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			initialPath = cfg.path
@@ -507,40 +491,6 @@
 		if (!drawerLoading) {
 			handleConfigChange(postgresConfig, initialConfig, saveDisabled, edit, onConfigChange)
 		}
-	})
-
-	// Reflect external handle.draft changes (programmatic UserDraft.save,
-	// another tab, …) into the form. The untracked body + localDraftDiffers
-	// idempotence keep this from looping with the persist effect below.
-	$effect(() => {
-		const d = postgresDraftHandle?.draft
-		if (drawerLoading || d == null) return
-		untrack(() => {
-			if (localDraftDiffers(d, getSaveCfg())) {
-				loadTriggerConfig(d)
-			}
-		})
-	})
-
-	// Persist form edits through the live handle. Drops the draft when the
-	// form is back at the deployed baseline (preserves "open + close with no
-	// edits ⇒ no draft"); only writes when the value actually changed vs
-	// what the handle holds, so it can't ping-pong with the apply-effect.
-	$effect(() => {
-		if (drawerLoading || !initialPath) return
-		const cfg = postgresConfig
-		if (cfg == null) return
-		untrack(() => {
-			const h = postgresDraftHandle
-			if (!h) return
-			if (localDraftDiffers(cfg, originalConfig)) {
-				if (localDraftDiffers(cfg, h.draft)) h.draft = cfg
-			} else {
-				UserDraft.discard('trigger_postgres', initialPath, originalConfig, {
-					workspace: $workspaceStore ?? undefined
-				})
-			}
-		})
 	})
 
 	$effect(() => {

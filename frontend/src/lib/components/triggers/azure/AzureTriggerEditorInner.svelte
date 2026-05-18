@@ -25,8 +25,7 @@
 	import { saveAzureTriggerFromCfg } from './utils'
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import { deepEqual } from 'fast-equals'
-	import { UserDraft, localDraftDiffers } from '$lib/userDraft.svelte'
-	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
+	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { base } from '$lib/base'
@@ -109,16 +108,15 @@
 	let hasChanged = $derived(!deepEqual(getAzureConfig(), originalConfig ?? {}))
 	const azureConfig = $derived.by(getAzureConfig)
 
-	// Live, refcounted UserDraft handle keyed reactively on (workspace,
-	// path) so an external UserDraft.save('trigger_azure', …) propagates
-	// into this open editor (apply-effect below reflects it into the form;
-	// the persist-effect writes form edits back through it).
-	const azureDraftHandles = UserDraft.useMany<Record<string, any>>(() =>
-		initialPath && $workspaceStore
-			? [{ itemKind: 'trigger_azure', path: initialPath, workspace: $workspaceStore }]
-			: []
-	)
-	const azureDraftHandle = $derived(azureDraftHandles[0])
+	const draftSync = useTriggerDraftSync({
+		itemKind: 'trigger_azure',
+		path: () => initialPath,
+		workspace: () => $workspaceStore,
+		drawerLoading: () => drawerLoading,
+		getCfg: () => azureConfig,
+		applyCfg: loadTriggerConfig,
+		deployed: () => originalConfig
+	})
 	const saveDisabled = $derived(
 		pathError != '' || emptyString(script_path) || !isValid || !can_write || !hasChanged
 	)
@@ -141,19 +139,7 @@
 				initialConfig = structuredClone($state.snapshot(getAzureConfig()))
 			}
 			originalConfig = structuredClone($state.snapshot(getAzureConfig()))
-			const localCfg = azureDraftHandle?.draft
-			if (localDraftDiffers(localCfg, getAzureConfig())) {
-				const deployedCfg = structuredClone($state.snapshot(getAzureConfig()))
-				await loadTriggerConfig(localCfg)
-				notifyRestoredFromLocal(false, true, {
-					onResetToDeployed: async () => {
-						UserDraft.discard('trigger_azure', ePath, deployedCfg, {
-							workspace: $workspaceStore ?? undefined
-						})
-						await loadTriggerConfig(deployedCfg)
-					}
-				})
-			}
+			await draftSync.maybeRestore(ePath)
 		} catch (err) {
 			sendUserToast(`Could not load Azure trigger: ${err.body}`, true)
 		} finally {
@@ -247,9 +233,7 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
-			UserDraft.discard('trigger_azure', previousPath, getAzureConfig(), {
-				workspace: $workspaceStore ?? undefined
-			})
+			draftSync.discard(previousPath, getAzureConfig())
 			onUpdate?.(cfg.path)
 			originalConfig = structuredClone($state.snapshot(getAzureConfig()))
 			initialPath = cfg.path
@@ -325,40 +309,6 @@
 	$effect(() => {
 		const args = [captureConfig, isValid] as const
 		untrack(() => onCaptureConfigChange?.(...args))
-	})
-
-	// Reflect external handle.draft changes (programmatic UserDraft.save,
-	// another tab, …) into the form. The untracked body + localDraftDiffers
-	// idempotence keep this from looping with the persist effect below.
-	$effect(() => {
-		const d = azureDraftHandle?.draft
-		if (drawerLoading || d == null) return
-		untrack(() => {
-			if (localDraftDiffers(d, getAzureConfig())) {
-				loadTriggerConfig(d)
-			}
-		})
-	})
-
-	// Persist form edits through the live handle. Drops the draft when the
-	// form is back at the deployed baseline (preserves "open + close with no
-	// edits ⇒ no draft"); only writes when the value actually changed vs
-	// what the handle holds, so it can't ping-pong with the apply-effect.
-	$effect(() => {
-		if (drawerLoading || !initialPath) return
-		const cfg = azureConfig
-		if (cfg == null) return
-		untrack(() => {
-			const h = azureDraftHandle
-			if (!h) return
-			if (localDraftDiffers(cfg, originalConfig)) {
-				if (localDraftDiffers(cfg, h.draft)) h.draft = cfg
-			} else {
-				UserDraft.discard('trigger_azure', initialPath, originalConfig, {
-					workspace: $workspaceStore ?? undefined
-				})
-			}
-		})
 	})
 </script>
 

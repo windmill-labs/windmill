@@ -29,8 +29,7 @@
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { saveEmailTriggerFromCfg } from './utils'
 	import { deepEqual } from 'fast-equals'
-	import { UserDraft, localDraftDiffers } from '$lib/userDraft.svelte'
-	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
+	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 
@@ -91,16 +90,15 @@
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const emailConfig = $derived.by(getEmailTriggerConfig)
 
-	// Live, refcounted UserDraft handle keyed reactively on (workspace,
-	// path) so an external UserDraft.save('trigger_email', …) propagates
-	// into this open editor (apply-effect below reflects it into the form;
-	// the persist-effect writes form edits back through it).
-	const emailDraftHandles = UserDraft.useMany<Record<string, any>>(() =>
-		initialPath && $workspaceStore
-			? [{ itemKind: 'trigger_email', path: initialPath, workspace: $workspaceStore }]
-			: []
-	)
-	const emailDraftHandle = $derived(emailDraftHandles[0])
+	const draftSync = useTriggerDraftSync({
+		itemKind: 'trigger_email',
+		path: () => initialPath,
+		workspace: () => $workspaceStore,
+		drawerLoading: () => drawerLoading,
+		getCfg: () => emailConfig,
+		applyCfg: (c) => loadTriggerConfig(c as Partial<EmailTrigger>),
+		deployed: () => originalConfig
+	})
 	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 	const saveDisabled = $derived(
 		drawerLoading ||
@@ -138,19 +136,7 @@
 				initialConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
 			}
 			originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
-			const localCfg = emailDraftHandle?.draft
-			if (localDraftDiffers(localCfg, getEmailTriggerConfig())) {
-				const deployedCfg = structuredClone($state.snapshot(getEmailTriggerConfig()))
-				loadTriggerConfig(localCfg as Partial<EmailTrigger>)
-				notifyRestoredFromLocal(false, true, {
-					onResetToDeployed: () => {
-						UserDraft.discard('trigger_email', ePath, deployedCfg, {
-							workspace: $workspaceStore ?? undefined
-						})
-						loadTriggerConfig(deployedCfg as Partial<EmailTrigger>)
-					}
-				})
-			}
+			await draftSync.maybeRestore(ePath)
 		} catch (err) {
 			sendUserToast(`Could not load email trigger: ${err}`, true)
 		} finally {
@@ -250,9 +236,7 @@
 				usedTriggerKinds
 			)
 			if (isSaved) {
-				UserDraft.discard('trigger_email', previousPath, getEmailTriggerConfig(), {
-					workspace: $workspaceStore ?? undefined
-				})
+				draftSync.discard(previousPath, getEmailTriggerConfig())
 				onUpdate(saveCfg.path)
 				originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
 				initialPath = saveCfg.path
@@ -322,40 +306,6 @@
 		if (!drawerLoading) {
 			handleConfigChange(emailConfig, initialConfig, saveDisabled, edit, onConfigChange)
 		}
-	})
-
-	// Reflect external handle.draft changes (programmatic UserDraft.save,
-	// another tab, …) into the form. The untracked body + localDraftDiffers
-	// idempotence keep this from looping with the persist effect below.
-	$effect(() => {
-		const d = emailDraftHandle?.draft
-		if (drawerLoading || d == null) return
-		untrack(() => {
-			if (localDraftDiffers(d, getEmailTriggerConfig())) {
-				loadTriggerConfig(d as Partial<EmailTrigger>)
-			}
-		})
-	})
-
-	// Persist form edits through the live handle. Drops the draft when the
-	// form is back at the deployed baseline (preserves "open + close with no
-	// edits ⇒ no draft"); only writes when the value actually changed vs
-	// what the handle holds, so it can't ping-pong with the apply-effect.
-	$effect(() => {
-		if (drawerLoading || !initialPath) return
-		const cfg = emailConfig
-		if (cfg == null) return
-		untrack(() => {
-			const h = emailDraftHandle
-			if (!h) return
-			if (localDraftDiffers(cfg, originalConfig)) {
-				if (localDraftDiffers(cfg, h.draft)) h.draft = cfg
-			} else {
-				UserDraft.discard('trigger_email', initialPath, originalConfig, {
-					workspace: $workspaceStore ?? undefined
-				})
-			}
-		})
 	})
 </script>
 

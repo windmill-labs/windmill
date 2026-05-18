@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { untrack } from 'svelte'
 	import { Alert, Badge, Button, ButtonType, Tab, Tabs } from '$lib/components/common'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
@@ -39,8 +38,7 @@
 	import { runScheduleNow } from '../scheduled/utils'
 	import { handleConfigChange } from '../utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
-	import { UserDraft, localDraftDiffers } from '$lib/userDraft.svelte'
-	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
+	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
@@ -133,18 +131,15 @@
 	)
 	const scheduleCfg = $derived.by(getScheduleCfg)
 
-	// Live, refcounted UserDraft handle keyed reactively on (workspace,
-	// path). Holding a live handle is what makes an external
-	// `UserDraft.save('trigger_schedule', path, …)` (e.g. another tab, or a
-	// programmatic write) propagate into this open editor — the apply-effect
-	// below reflects handle.draft changes into the form, and the persist
-	// effect writes form edits back through it.
-	const scheduleDraftHandles = UserDraft.useMany<Record<string, any>>(() =>
-		initialPath && $workspaceStore
-			? [{ itemKind: 'trigger_schedule', path: initialPath, workspace: $workspaceStore }]
-			: []
-	)
-	const scheduleDraftHandle = $derived(scheduleDraftHandles[0])
+	const draftSync = useTriggerDraftSync({
+		itemKind: 'trigger_schedule',
+		path: () => initialPath,
+		workspace: () => $workspaceStore,
+		drawerLoading: () => drawerLoading,
+		getCfg: () => scheduleCfg,
+		applyCfg: loadScheduleCfg,
+		deployed: () => initialConfig
+	})
 
 	export async function openEdit(ePath: string, isFlow: boolean, defaultCfg?: Record<string, any>) {
 		let loadingTimeout = setTimeout(() => {
@@ -161,25 +156,7 @@
 			if (!defaultCfg) {
 				initialConfig = structuredClone($state.snapshot(getScheduleCfg()))
 			}
-			const localCfg = scheduleDraftHandle?.draft
-			if (localDraftDiffers(localCfg, getScheduleCfg())) {
-				// Snapshot the just-loaded backend config so "Reset to
-				// deployed" can re-apply it, then overlay the local autosave.
-				const deployedCfg = structuredClone($state.snapshot(getScheduleCfg()))
-				await loadScheduleCfg(localCfg)
-				notifyRestoredFromLocal(false, true, {
-					onResetToDeployed: async () => {
-						// discard (not remove) so the live handle's in-memory
-						// cell resets to the deployed config too — otherwise
-						// the apply-effect would bounce the form back to the
-						// just-discarded draft.
-						UserDraft.discard('trigger_schedule', ePath, deployedCfg, {
-							workspace: $workspaceStore ?? undefined
-						})
-						await loadScheduleCfg(deployedCfg)
-					}
-				})
-			}
+			await draftSync.maybeRestore(ePath)
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -567,12 +544,7 @@
 		deploymentLoading = true
 		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, $workspaceStore!)
 		if (isSaved) {
-			// discard (not remove): reset the live handle's in-memory cell to
-			// the just-deployed config too, so reopening doesn't surface the
-			// now-stale local draft via the handle.
-			UserDraft.discard('trigger_schedule', previousPath, scheduleCfg, {
-				workspace: $workspaceStore ?? undefined
-			})
+			draftSync.discard(previousPath, scheduleCfg)
 			onUpdate?.(scheduleCfg.path)
 			drawer?.closeDrawer()
 		}
@@ -695,44 +667,6 @@
 		if (!drawerLoading) {
 			handleConfigChange(scheduleCfg, initialConfig, saveDisabled, edit, onConfigChange)
 		}
-	})
-
-	// Reflect external handle.draft changes into the form (programmatic
-	// `UserDraft.save`, another tab, …). The body is untracked so reading
-	// `getScheduleCfg()` / writing form $state via `loadScheduleCfg` does
-	// not subscribe this effect to itself — only `scheduleDraftHandle.draft`
-	// and `drawerLoading` are dependencies. `localDraftDiffers` makes it
-	// idempotent, which (with the gated write below) breaks the apply⇄write
-	// feedback loop.
-	$effect(() => {
-		const d = scheduleDraftHandle?.draft
-		if (drawerLoading || d == null) return
-		untrack(() => {
-			if (localDraftDiffers(d, getScheduleCfg())) {
-				loadScheduleCfg(d)
-			}
-		})
-	})
-
-	// Persist form edits through the live handle. Gated so it (a) drops the
-	// draft when the form is back at the deployed baseline — preserving
-	// "open + close with no edits leaves no draft" — and (b) only writes
-	// when the value actually changed vs what the handle already holds, so
-	// it doesn't ping-pong with the apply-effect above.
-	$effect(() => {
-		if (drawerLoading || !initialPath) return
-		const cfg = scheduleCfg
-		untrack(() => {
-			const h = scheduleDraftHandle
-			if (!h) return
-			if (localDraftDiffers(cfg, initialConfig)) {
-				if (localDraftDiffers(cfg, h.draft)) h.draft = cfg
-			} else {
-				UserDraft.discard('trigger_schedule', initialPath, initialConfig, {
-					workspace: $workspaceStore ?? undefined
-				})
-			}
-		})
 	})
 </script>
 

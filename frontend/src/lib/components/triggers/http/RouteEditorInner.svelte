@@ -55,8 +55,7 @@
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { UserDraft, localDraftDiffers } from '$lib/userDraft.svelte'
-	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
+	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import UserSettings from '$lib/components/UserSettings.svelte'
@@ -140,16 +139,15 @@
 
 	const routeConfig = $derived.by(getRouteConfig)
 
-	// Live, refcounted UserDraft handle keyed reactively on (workspace,
-	// path) so an external UserDraft.save('trigger_http', …) propagates
-	// into this open editor (apply-effect below reflects it into the form;
-	// the persist-effect writes form edits back through it).
-	const routeDraftHandles = UserDraft.useMany<Record<string, any>>(() =>
-		initialPath && $workspaceStore
-			? [{ itemKind: 'trigger_http', path: initialPath, workspace: $workspaceStore }]
-			: []
-	)
-	const routeDraftHandle = $derived(routeDraftHandles[0])
+	const draftSync = useTriggerDraftSync({
+		itemKind: 'trigger_http',
+		path: () => initialPath,
+		workspace: () => $workspaceStore,
+		drawerLoading: () => drawerLoading,
+		getCfg: () => routeConfig,
+		applyCfg: (c) => loadTriggerConfig(c as Partial<HttpTrigger>),
+		deployed: () => originalConfig
+	})
 	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 	const saveDisabled = $derived(
 		drawerLoading ||
@@ -237,19 +235,7 @@
 				initialConfig = structuredClone($state.snapshot(getRouteConfig()))
 			}
 			originalConfig = structuredClone($state.snapshot(getRouteConfig()))
-			const localCfg = routeDraftHandle?.draft
-			if (localDraftDiffers(localCfg, getRouteConfig())) {
-				const deployedCfg = structuredClone($state.snapshot(getRouteConfig()))
-				loadTriggerConfig(localCfg as Partial<HttpTrigger>)
-				notifyRestoredFromLocal(false, true, {
-					onResetToDeployed: () => {
-						UserDraft.discard('trigger_http', ePath, deployedCfg, {
-							workspace: $workspaceStore ?? undefined
-						})
-						loadTriggerConfig(deployedCfg as Partial<HttpTrigger>)
-					}
-				})
-			}
+			await draftSync.maybeRestore(ePath)
 		} catch (err) {
 			sendUserToast(`Could not load route: ${err}`, true)
 		} finally {
@@ -383,9 +369,7 @@
 				usedTriggerKinds
 			)
 			if (isSaved) {
-				UserDraft.discard('trigger_http', previousPath, getRouteConfig(), {
-					workspace: $workspaceStore ?? undefined
-				})
+				draftSync.discard(previousPath, getRouteConfig())
 				onUpdate(saveCfg.path)
 				originalConfig = structuredClone($state.snapshot(getRouteConfig()))
 				initialPath = saveCfg.path
@@ -476,40 +460,6 @@
 		if (!drawerLoading) {
 			handleConfigChange(routeConfig, initialConfig, saveDisabled, edit, onConfigChange)
 		}
-	})
-
-	// Reflect external handle.draft changes (programmatic UserDraft.save,
-	// another tab, …) into the form. The untracked body + localDraftDiffers
-	// idempotence keep this from looping with the persist effect below.
-	$effect(() => {
-		const d = routeDraftHandle?.draft
-		if (drawerLoading || d == null) return
-		untrack(() => {
-			if (localDraftDiffers(d, getRouteConfig())) {
-				loadTriggerConfig(d as Partial<HttpTrigger>)
-			}
-		})
-	})
-
-	// Persist form edits through the live handle. Drops the draft when the
-	// form is back at the deployed baseline (preserves "open + close with no
-	// edits ⇒ no draft"); only writes when the value actually changed vs
-	// what the handle holds, so it can't ping-pong with the apply-effect.
-	$effect(() => {
-		if (drawerLoading || !initialPath) return
-		const cfg = routeConfig
-		if (cfg == null) return
-		untrack(() => {
-			const h = routeDraftHandle
-			if (!h) return
-			if (localDraftDiffers(cfg, originalConfig)) {
-				if (localDraftDiffers(cfg, h.draft)) h.draft = cfg
-			} else {
-				UserDraft.discard('trigger_http', initialPath, originalConfig, {
-					workspace: $workspaceStore ?? undefined
-				})
-			}
-		})
 	})
 </script>
 
