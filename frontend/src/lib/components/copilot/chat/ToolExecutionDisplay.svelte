@@ -66,30 +66,33 @@
 		const params = message.parameters
 		if (!params || typeof params !== 'object') return []
 
-		const candidates = new Set<string>()
+		const candidates: string[] = []
+		const addCandidate = (value: string) => {
+			if (!candidates.includes(value)) candidates.push(value)
+		}
 		const PATH_KEYS = ['path', 'script_path', 'flow_path', 'app_path', 'runnable_path']
 		for (const key of PATH_KEYS) {
 			const value = (params as Record<string, unknown>)[key]
 			if (typeof value === 'string' && value.length > 0) {
-				candidates.add(value)
+				addCandidate(value)
 			}
 		}
 		// Fallback: sweep stringified params for any path-shaped tokens we may have missed.
 		try {
 			const stringified = JSON.stringify(params)
 			for (const candidate of extractCandidatePaths(stringified)) {
-				candidates.add(candidate)
+				addCandidate(candidate)
 			}
 		} catch {}
 
 		const resolved: WorkspaceItemEntry[] = []
-		const seen = new Set<string>()
+		const seen: string[] = []
 		for (const candidate of candidates) {
-			if (seen.has(candidate)) continue
+			if (seen.includes(candidate)) continue
 			const entry = workspaceItemRegistry.resolve(ws, candidate)
 			if (entry) {
 				resolved.push(entry)
-				seen.add(candidate)
+				seen.push(candidate)
 			}
 		}
 		return resolved

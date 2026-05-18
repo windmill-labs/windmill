@@ -16,6 +16,7 @@ import {
 	VariableService,
 	WebsocketTriggerService
 } from '$lib/gen'
+import { itemHref as offboardingItemHref } from '$lib/components/offboarding-utils'
 import { findAndReplace } from 'mdast-util-find-and-replace'
 import { visit } from 'unist-util-visit'
 import type { Root, InlineCode, Link } from 'mdast'
@@ -63,32 +64,23 @@ export const WINDMILL_PATH_REGEX =
  */
 const WINDMILL_PATH_EXACT_REGEX = /^[uf]\/[A-Za-z0-9_.\-]+\/[A-Za-z0-9_./\-]*[A-Za-z0-9_\-]$/
 
-/**
- * URL builder per kind.
- *
- * - For scripts/flows/apps we link to the dedicated `/get/{path}` page.
- * - For everything else, link to the relevant list page with a hash fragment that the
- *   list page reads on mount to pop the editor drawer open. Hash format mirrors what
- *   each list page already expects (`#<path>` for most, `#/resource/<path>` for the
- *   resources page).
- */
-const itemKindToHref: Record<WindmillItemKind, (path: string) => string> = {
-	script: (p) => `/scripts/get/${p}`,
-	flow: (p) => `/flows/get/${p}`,
-	app: (p) => `/apps/get/${p}`,
-	variable: (p) => `/variables#${p}`,
-	resource: (p) => `/resources#/resource/${p}`,
-	schedule: (p) => `/schedules#${p}`,
-	http_trigger: (p) => `/routes#${p}`,
-	websocket_trigger: (p) => `/websocket_triggers/#${p}`,
-	kafka_trigger: (p) => `/kafka_triggers/#${p}`,
-	nats_trigger: (p) => `/nats_triggers/#${p}`,
-	postgres_trigger: (p) => `/postgres_triggers/#${p}`,
-	mqtt_trigger: (p) => `/mqtt_triggers/#${p}`,
-	sqs_trigger: (p) => `/sqs_triggers/#${p}`,
-	gcp_trigger: (p) => `/gcp_triggers/#${p}`,
-	azure_trigger: (p) => `/azure_triggers/#${p}`,
-	email_trigger: (p) => `/email_triggers/#${p}`
+const itemKindToOffboardingKind: Record<WindmillItemKind, string> = {
+	script: 'scripts',
+	flow: 'flows',
+	app: 'apps',
+	variable: 'variables',
+	resource: 'resources',
+	schedule: 'schedules',
+	http_trigger: 'http_trigger',
+	websocket_trigger: 'websocket_trigger',
+	kafka_trigger: 'kafka_trigger',
+	nats_trigger: 'nats_trigger',
+	postgres_trigger: 'postgres_trigger',
+	mqtt_trigger: 'mqtt_trigger',
+	sqs_trigger: 'sqs_trigger',
+	gcp_trigger: 'gcp_trigger',
+	azure_trigger: 'azure_trigger',
+	email_trigger: 'email_trigger'
 }
 
 /** Kinds whose items can be opened in an inline drawer from the chat. */
@@ -107,7 +99,7 @@ export function hasInlineDrawer(kind: WindmillItemKind): boolean {
  * matching drawer.
  */
 export function itemHref(entry: WorkspaceItemEntry, workspace?: string): string {
-	const raw = itemKindToHref[entry.kind](entry.path)
+	const raw = offboardingItemHref(itemKindToOffboardingKind[entry.kind], entry.path) ?? '#'
 	if (!workspace) return raw
 	const hashIdx = raw.indexOf('#')
 	if (hashIdx === -1) {
@@ -119,8 +111,49 @@ export function itemHref(entry: WorkspaceItemEntry, workspace?: string): string 
 	return `${pathPart}${sep}workspace=${workspace}${hashPart}`
 }
 
+type WorkspaceItemListResult = Array<{ path: string; summary?: string | null }>
+
+const workspaceItemLoaders: Array<{
+	kind: WindmillItemKind
+	list: (workspace: string) => Promise<WorkspaceItemListResult>
+}> = [
+	// First writer wins on path collisions. Keep resources before variables because
+	// Windmill creates a companion variable for each resource at the same path.
+	{ kind: 'script', list: (workspace) => ScriptService.listScripts({ workspace }) },
+	{ kind: 'flow', list: (workspace) => FlowService.listFlows({ workspace }) },
+	{ kind: 'app', list: (workspace) => AppService.listApps({ workspace }) },
+	{ kind: 'resource', list: (workspace) => ResourceService.listResource({ workspace }) },
+	{ kind: 'variable', list: (workspace) => VariableService.listVariable({ workspace }) },
+	{ kind: 'schedule', list: (workspace) => ScheduleService.listSchedules({ workspace }) },
+	{ kind: 'http_trigger', list: (workspace) => HttpTriggerService.listHttpTriggers({ workspace }) },
+	{
+		kind: 'websocket_trigger',
+		list: (workspace) => WebsocketTriggerService.listWebsocketTriggers({ workspace })
+	},
+	{
+		kind: 'kafka_trigger',
+		list: (workspace) => KafkaTriggerService.listKafkaTriggers({ workspace })
+	},
+	{ kind: 'nats_trigger', list: (workspace) => NatsTriggerService.listNatsTriggers({ workspace }) },
+	{
+		kind: 'postgres_trigger',
+		list: (workspace) => PostgresTriggerService.listPostgresTriggers({ workspace })
+	},
+	{ kind: 'mqtt_trigger', list: (workspace) => MqttTriggerService.listMqttTriggers({ workspace }) },
+	{ kind: 'sqs_trigger', list: (workspace) => SqsTriggerService.listSqsTriggers({ workspace }) },
+	{ kind: 'gcp_trigger', list: (workspace) => GcpTriggerService.listGcpTriggers({ workspace }) },
+	{
+		kind: 'azure_trigger',
+		list: (workspace) => AzureTriggerService.listAzureTriggers({ workspace })
+	},
+	{
+		kind: 'email_trigger',
+		list: (workspace) => EmailTriggerService.listEmailTriggers({ workspace })
+	}
+]
+
 /**
- * Reactive registry that caches script/flow/app paths per workspace.
+ * Reactive registry that caches workspace item paths per workspace.
  *
  * - Loads lazily on first call to `ensureLoaded`
  * - Dedups concurrent in-flight loads
@@ -131,78 +164,21 @@ class WorkspaceItemRegistry {
 	#inflight: Map<string, Promise<void>> = new Map()
 
 	private async load(workspace: string): Promise<void> {
-		// Fire every list endpoint in parallel. `.catch(() => [])` keeps a single failing
-		// endpoint from poisoning the whole snapshot — the registry just records empty
-		// for that kind, the rest still resolve.
-		const [
-			scripts,
-			flows,
-			apps,
-			variables,
-			resources,
-			schedules,
-			httpTriggers,
-			wsTriggers,
-			kafkaTriggers,
-			natsTriggers,
-			pgTriggers,
-			mqttTriggers,
-			sqsTriggers,
-			gcpTriggers,
-			azureTriggers,
-			emailTriggers
-		] = await Promise.all([
-			ScriptService.listScripts({ workspace }).catch(() => []),
-			FlowService.listFlows({ workspace }).catch(() => []),
-			AppService.listApps({ workspace }).catch(() => []),
-			VariableService.listVariable({ workspace }).catch(() => []),
-			ResourceService.listResource({ workspace }).catch(() => []),
-			ScheduleService.listSchedules({ workspace }).catch(() => []),
-			HttpTriggerService.listHttpTriggers({ workspace }).catch(() => []),
-			WebsocketTriggerService.listWebsocketTriggers({ workspace }).catch(() => []),
-			KafkaTriggerService.listKafkaTriggers({ workspace }).catch(() => []),
-			NatsTriggerService.listNatsTriggers({ workspace }).catch(() => []),
-			PostgresTriggerService.listPostgresTriggers({ workspace }).catch(() => []),
-			MqttTriggerService.listMqttTriggers({ workspace }).catch(() => []),
-			SqsTriggerService.listSqsTriggers({ workspace }).catch(() => []),
-			GcpTriggerService.listGcpTriggers({ workspace }).catch(() => []),
-			AzureTriggerService.listAzureTriggers({ workspace }).catch(() => []),
-			EmailTriggerService.listEmailTriggers({ workspace }).catch(() => [])
-		])
+		const loadedItems = await Promise.all(
+			workspaceItemLoaders.map(async ({ kind, list }) => ({
+				kind,
+				items: await list(workspace).catch(() => [])
+			}))
+		)
 
 		const map = new Map<string, WorkspaceItemEntry>()
-		const add = (
-			items: Array<{ path: string; summary?: string | null }>,
-			kind: WindmillItemKind
-		) => {
+		for (const { kind, items } of loadedItems) {
 			for (const it of items) {
-				// First writer wins — scripts/flows/apps are checked first so they win over
-				// triggers if a path collides (extremely unlikely but possible across kinds).
 				if (!map.has(it.path)) {
 					map.set(it.path, { kind, path: it.path, summary: it.summary ?? undefined })
 				}
 			}
 		}
-		// Order matters because of first-writer-wins on path collisions. Resources are
-		// added before variables: Windmill auto-creates a companion variable at the same
-		// path for every resource, and a path written by the user almost always means the
-		// resource, not the hidden variable.
-		add(scripts, 'script')
-		add(flows, 'flow')
-		add(apps, 'app')
-		add(resources, 'resource')
-		add(variables, 'variable')
-		add(schedules, 'schedule')
-		add(httpTriggers, 'http_trigger')
-		add(wsTriggers, 'websocket_trigger')
-		add(kafkaTriggers, 'kafka_trigger')
-		add(natsTriggers, 'nats_trigger')
-		add(pgTriggers, 'postgres_trigger')
-		add(mqttTriggers, 'mqtt_trigger')
-		add(sqsTriggers, 'sqs_trigger')
-		add(gcpTriggers, 'gcp_trigger')
-		add(azureTriggers, 'azure_trigger')
-		add(emailTriggers, 'email_trigger')
 
 		// Build a new outer map to trigger reactivity on consumers using $derived.
 		const next = new Map(this.#byWorkspace)
@@ -262,26 +238,6 @@ export function extractCandidatePaths(text: string | undefined | null): string[]
 		seen.add(match[1])
 	}
 	return [...seen]
-}
-
-/**
- * Resolve every Windmill path mentioned in the given texts against the registry.
- * Returns deduped entries (one per unique path).
- */
-export function resolveMentionedItems(
-	texts: Array<string | undefined | null>,
-	workspace: string
-): WorkspaceItemEntry[] {
-	if (!workspace) return []
-	const seen = new Map<string, WorkspaceItemEntry>()
-	for (const text of texts) {
-		for (const candidate of extractCandidatePaths(text)) {
-			if (seen.has(candidate)) continue
-			const entry = workspaceItemRegistry.resolve(workspace, candidate)
-			if (entry) seen.set(candidate, entry)
-		}
-	}
-	return [...seen.values()]
 }
 
 /** Build the link node used to replace a resolved path token. */

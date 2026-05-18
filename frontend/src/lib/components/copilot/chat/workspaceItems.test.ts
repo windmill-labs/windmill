@@ -96,15 +96,15 @@ describe('itemHref', () => {
 	it('routes each trigger kind with hash for drawer auto-open', () => {
 		const cases: Array<[WorkspaceItemEntry['kind'], string]> = [
 			['http_trigger', '/routes#f/a/b'],
-			['websocket_trigger', '/websocket_triggers/#f/a/b'],
-			['kafka_trigger', '/kafka_triggers/#f/a/b'],
-			['nats_trigger', '/nats_triggers/#f/a/b'],
-			['postgres_trigger', '/postgres_triggers/#f/a/b'],
-			['mqtt_trigger', '/mqtt_triggers/#f/a/b'],
-			['sqs_trigger', '/sqs_triggers/#f/a/b'],
-			['gcp_trigger', '/gcp_triggers/#f/a/b'],
-			['azure_trigger', '/azure_triggers/#f/a/b'],
-			['email_trigger', '/email_triggers/#f/a/b']
+			['websocket_trigger', '/websocket_triggers#f/a/b'],
+			['kafka_trigger', '/kafka_triggers#f/a/b'],
+			['nats_trigger', '/nats_triggers#f/a/b'],
+			['postgres_trigger', '/postgres_triggers#f/a/b'],
+			['mqtt_trigger', '/mqtt_triggers#f/a/b'],
+			['sqs_trigger', '/sqs_triggers#f/a/b'],
+			['gcp_trigger', '/gcp_triggers#f/a/b'],
+			['azure_trigger', '/azure_triggers#f/a/b'],
+			['email_trigger', '/email_triggers#f/a/b']
 		]
 		for (const [kind, expected] of cases) {
 			expect(itemHref({ kind, path: 'f/a/b' })).toBe(expected)
