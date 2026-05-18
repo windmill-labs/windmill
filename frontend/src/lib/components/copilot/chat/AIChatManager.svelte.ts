@@ -573,7 +573,7 @@ class AIChatManager {
 					} else if (this.mode === AIMode.NAVIGATOR) {
 						return prepareNavigatorUserMessage(pendingPrompt)
 					} else if (this.mode === AIMode.GLOBAL) {
-						return prepareGlobalUserMessage(pendingPrompt)
+						return prepareGlobalUserMessage(pendingPrompt, this.contextManager.getSelectedContext())
 					}
 					return undefined
 				},
@@ -750,7 +750,7 @@ class AIChatManager {
 					role: 'user',
 					content: this.instructions,
 					contextElements:
-						this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW
+						this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW || this.mode === AIMode.GLOBAL
 							? oldSelectedContext
 							: undefined,
 					snapshot,
@@ -790,7 +790,7 @@ class AIChatManager {
 					userMessage = prepareApiUserMessage(oldInstructions)
 					break
 				case AIMode.GLOBAL:
-					userMessage = prepareGlobalUserMessage(oldInstructions)
+					userMessage = prepareGlobalUserMessage(oldInstructions, oldSelectedContext)
 					break
 				case AIMode.APP:
 					userMessage = prepareAppUserMessage(
@@ -1033,6 +1033,11 @@ class AIChatManager {
 				dbSchemas,
 				workspaceStore ?? '',
 				!copilotSessionModel?.model.endsWith('/thinking'),
+				untrack(() => this.contextManager.getSelectedContext())
+			)
+		} else if (this.mode === AIMode.GLOBAL) {
+			this.contextManager.updateAvailableContextForGlobal(
+				workspaceStore ?? '',
 				untrack(() => this.contextManager.getSelectedContext())
 			)
 		}

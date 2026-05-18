@@ -51,7 +51,7 @@ vi.mock('$lib/gen', async () => {
 	}
 })
 
-import { globalTools } from './core'
+import { globalTools, prepareGlobalUserMessage } from './core'
 import { globalDraftStore } from './draftStore.svelte'
 import type { Tool, ToolCallbacks } from '../shared'
 
@@ -236,5 +236,37 @@ describe('global AI tools', () => {
 				userQuestion: expect.objectContaining({ selectedChoice: 'python3' })
 			})
 		)
+	})
+})
+
+describe('prepareGlobalUserMessage', () => {
+	it('includes selected workspace item references without contents', () => {
+		const message = prepareGlobalUserMessage('Update these items', [
+			{
+				type: 'workspace_script',
+				path: 'f/scripts/report',
+				title: 'f/scripts/report',
+				summary: 'Report script'
+			},
+			{
+				type: 'workspace_flow',
+				path: 'f/flows/reporting',
+				title: 'f/flows/reporting',
+				summary: 'Reporting flow'
+			}
+		])
+
+		expect(message.content).toContain('## SELECTED CONTEXT')
+		expect(message.content).toContain('- type: script, path: f/scripts/report')
+		expect(message.content).toContain('- type: flow, path: f/flows/reporting')
+		expect(message.content).toContain('## INSTRUCTIONS:\nUpdate these items')
+		expect(message.content).not.toContain('Report script')
+		expect(message.content).not.toContain('Reporting flow')
+	})
+
+	it('omits selected context section when no workspace item is selected', () => {
+		const message = prepareGlobalUserMessage('Create a draft')
+
+		expect(message.content).toBe('## INSTRUCTIONS:\nCreate a draft')
 	})
 })

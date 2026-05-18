@@ -410,21 +410,15 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 			hasFlowModule = true
 			flowModuleContext += `${context.id}\n`
 		} else if (context.type === 'workspace_script') {
-			workspaceItemsContext += `\nWORKSPACE SCRIPT (${context.path}):\n`
-			workspaceItemsContext += `Summary: ${context.summary}\n`
-			workspaceItemsContext += `Language: ${context.language}\n`
-			if (context.schema) {
-				workspaceItemsContext += `Inputs: ${JSON.stringify(context.schema)}\n`
+			if (!workspaceItemsContext) {
+				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
 			}
-			workspaceItemsContext += `Code:\n${context.content}\n`
+			workspaceItemsContext += `- type: script, path: ${context.path}\n`
 		} else if (context.type === 'workspace_flow') {
-			workspaceItemsContext += `\nWORKSPACE FLOW (${context.path}):\n`
-			workspaceItemsContext += `Summary: ${context.summary}\n`
-			workspaceItemsContext += `Description: ${context.description}\n`
-			if (context.schema) {
-				workspaceItemsContext += `Inputs: ${JSON.stringify(context.schema)}\n`
+			if (!workspaceItemsContext) {
+				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
 			}
-			workspaceItemsContext += `Value:\n${context.value}\n`
+			workspaceItemsContext += `- type: flow, path: ${context.path}\n`
 		}
 	}
 

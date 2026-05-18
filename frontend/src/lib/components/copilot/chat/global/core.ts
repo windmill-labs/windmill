@@ -60,6 +60,7 @@ import {
 	type ToolCallbacks,
 	type ToolDisplayAction
 } from '../shared'
+import type { ContextElement } from '../context'
 import {
 	resourceRequestSchema,
 	scheduleRequestSchema,
@@ -2480,9 +2481,27 @@ export function prepareGlobalSystemMessage(
 	}
 }
 
-export function prepareGlobalUserMessage(instructions: string): ChatCompletionUserMessageParam {
+export function prepareGlobalUserMessage(
+	instructions: string,
+	selectedContext: ContextElement[] = []
+): ChatCompletionUserMessageParam {
+	const selectedWorkspaceItems = selectedContext.filter(
+		(context) => context.type === 'workspace_script' || context.type === 'workspace_flow'
+	)
+	let content = ''
+
+	if (selectedWorkspaceItems.length > 0) {
+		content += '## SELECTED CONTEXT\n'
+		for (const context of selectedWorkspaceItems) {
+			content += `- type: ${context.type === 'workspace_script' ? 'script' : 'flow'}, path: ${context.path}\n`
+		}
+		content += '\n'
+	}
+
+	content += `## INSTRUCTIONS:\n${instructions}`
+
 	return {
 		role: 'user',
-		content: instructions
+		content
 	}
 }

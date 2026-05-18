@@ -119,6 +119,35 @@ describe('createToolDef', () => {
 	})
 })
 
+describe('buildContextString', () => {
+	it('serializes selected workspace items as references only', async () => {
+		const { buildContextString } = await import('./shared')
+
+		const context = buildContextString([
+			{
+				type: 'workspace_script',
+				path: 'f/scripts/report',
+				title: 'f/scripts/report',
+				summary: 'Report script'
+			},
+			{
+				type: 'workspace_flow',
+				path: 'f/flows/reporting',
+				title: 'f/flows/reporting',
+				summary: 'Reporting flow'
+			}
+		])
+
+		expect(context).toContain('SELECTED WORKSPACE ITEMS:')
+		expect(context).toContain('- type: script, path: f/scripts/report')
+		expect(context).toContain('- type: flow, path: f/flows/reporting')
+		expect(context).not.toContain('Report script')
+		expect(context).not.toContain('Reporting flow')
+		expect(context).not.toContain('Code:')
+		expect(context).not.toContain('Value:')
+	})
+})
+
 describe('processToolCall', () => {
 	it('returns pre-confirmation validation errors without asking for confirmation', async () => {
 		const { createToolDef, processToolCall } = await import('./shared')
