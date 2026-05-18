@@ -899,9 +899,13 @@ async fn get_public_resource(
 ) -> JsonResult<Option<serde_json::Value>> {
     let path = path.to_path();
 
+    // This endpoint is unauthenticated (anonymous public apps must fetch their
+    // theme and form schemas). Both branches MUST stay tightly constrained to
+    // the non-sensitive resource types they serve, otherwise an unauthenticated
+    // caller could read the raw value of any resource at the given path.
     let res = if path.starts_with("f/app_themes/") {
         sqlx::query_scalar!(
-            "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
+            "SELECT value from resource WHERE path = $1 AND workspace_id = $2 AND resource_type = 'app_theme'",
             path.to_owned(),
             &w_id
         )
@@ -1213,6 +1217,32 @@ async fn create_app(
     Ok((StatusCode::CREATED, path))
 }
 
+/// Actionable error when a custom path is already taken. In global mode (not
+/// CLOUD_HOSTED and `app_workspaced_route` off) custom paths are unique across
+/// the whole instance, so the conflicting copy may live in another workspace
+/// (e.g. the same app deployed/git-synced to staging and prod) — name it so
+/// the operator knows exactly what to remove.
+fn custom_path_conflict_error(
+    custom_path: &str,
+    conflict_path: &str,
+    conflict_workspace: &str,
+    scoped: bool,
+) -> Error {
+    if scoped {
+        Error::BadRequest(format!(
+            "Custom path '{}' is already used by app '{}' in this workspace",
+            custom_path, conflict_path
+        ))
+    } else {
+        Error::BadRequest(format!(
+            "Custom path '{}' is already used by app '{}' in workspace '{}'. \
+             Custom paths must be unique across the whole instance unless the \
+             'app_workspaced_route' instance setting is enabled.",
+            custom_path, conflict_path, conflict_workspace
+        ))
+    }
+}
+
 async fn create_app_internal<'a>(
     authed: ApiAuthed,
     db: sqlx::Pool<sqlx::Postgres>,
@@ -1284,21 +1314,24 @@ async fn create_app_internal<'a>(
     }
     if let Some(custom_path) = &app.custom_path {
         require_admin(authed.is_admin, &authed.username)?;
-        let as_workspaced_route = APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
+        let scoped =
+            *CLOUD_HOSTED || APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
 
-        let exists = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2))",
+        let conflict = sqlx::query!(
+            "SELECT workspace_id, path FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2) LIMIT 1",
             custom_path,
-            if *CLOUD_HOSTED || as_workspaced_route { Some(w_id) } else { None }
+            if scoped { Some(w_id) } else { None }
         )
-        .fetch_one(&mut *tx)
-        .await?.unwrap_or(false);
+        .fetch_optional(&mut *tx)
+        .await?;
 
-        if exists {
-            return Err(Error::BadRequest(format!(
-                "App with custom path {} already exists",
-                custom_path
-            )));
+        if let Some(conflict) = conflict {
+            return Err(custom_path_conflict_error(
+                custom_path,
+                &conflict.path,
+                &conflict.workspace_id,
+                scoped,
+            ));
         }
     }
     sqlx::query!(
@@ -1781,27 +1814,34 @@ async fn update_app_internal<'a>(
 
         if let Some(ncustom_path) = &ns.custom_path {
             require_admin(authed.is_admin, &authed.username)?;
-            let as_workspaced_route =
-                APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
+            let scoped =
+                *CLOUD_HOSTED || APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
 
             if ncustom_path.is_empty() {
                 sqlb.set("custom_path", "NULL");
             } else {
-                let exists = sqlx::query_scalar!(
-                    "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2) AND NOT (path = $3 AND workspace_id = $4))",
+                // Same predicate as before (the check is correct): the app's
+                // own row in this workspace is excluded, so a single-workspace
+                // edit still works. In global mode a copy of this app in
+                // another workspace is a genuine conflict (one global route) —
+                // surface which workspace so it can be resolved.
+                let conflict = sqlx::query!(
+                    "SELECT workspace_id, path FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2) AND NOT (path = $3 AND workspace_id = $4) LIMIT 1",
                     ncustom_path,
-                    if *CLOUD_HOSTED || as_workspaced_route { Some(w_id) } else { None },
+                    if scoped { Some(w_id) } else { None },
                     path,
                     w_id
                 )
-                .fetch_one(&mut *tx)
-                .await?.unwrap_or(false);
+                .fetch_optional(&mut *tx)
+                .await?;
 
-                if exists {
-                    return Err(Error::BadRequest(format!(
-                        "App with custom path {} already exists",
-                        ncustom_path
-                    )));
+                if let Some(conflict) = conflict {
+                    return Err(custom_path_conflict_error(
+                        ncustom_path,
+                        &conflict.path,
+                        &conflict.workspace_id,
+                        scoped,
+                    ));
                 }
                 sqlb.set_str("custom_path", ncustom_path);
             }

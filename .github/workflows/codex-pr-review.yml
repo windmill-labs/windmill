@@ -20,6 +20,8 @@ on:
         type: string
         default: ''
     secrets:
+      OPENAI_API_KEY:
+        required: false
       CODEX_AUTH_JSON:
         required: false
       WINDMILL_EE_PRIVATE_ACCESS:
@@ -60,13 +62,18 @@ jobs:
       - name: Check Codex configuration
         id: codex_config
         env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
         run: |
-          if [ -n "$CODEX_AUTH_JSON" ]; then
+          if [ -n "$OPENAI_API_KEY" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "auth_mode=api_key" >> "$GITHUB_OUTPUT"
+          elif [ -n "$CODEX_AUTH_JSON" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "auth_mode=oauth_json" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "CODEX_AUTH_JSON is not configured; skipping Codex review."
+            echo "Codex auth is not configured; set OPENAI_API_KEY or CODEX_AUTH_JSON to enable Codex review."
           fi
 
       - name: Resolve PR metadata
@@ -169,9 +176,10 @@ jobs:
         if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
         run: npm install --global @openai/codex@0.128.0
 
-      - name: Configure file-backed Codex auth
+      - name: Configure Codex auth
         if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
         env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
         run: |
           CODEX_HOME="$HOME/.codex"
@@ -181,9 +189,13 @@ jobs:
           cat > "$CODEX_HOME/config.toml" <<'EOF'
           cli_auth_credentials_store = "file"
           EOF
-          printf '%s' "$CODEX_AUTH_JSON" > "$CODEX_HOME/auth.json"
-          chmod 600 "$CODEX_HOME/auth.json"
-          node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$CODEX_HOME/auth.json"
+          if [ -n "$OPENAI_API_KEY" ]; then
+            printf '%s' "$OPENAI_API_KEY" | codex login --with-api-key
+          else
+            printf '%s' "$CODEX_AUTH_JSON" > "$CODEX_HOME/auth.json"
+            chmod 600 "$CODEX_HOME/auth.json"
+            node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$CODEX_HOME/auth.json"
+          fi
 
       - name: Pre-fetch base and head refs for the PR
         if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
