@@ -1,6 +1,7 @@
 use crate::{
     ai_providers::AIProvider,
     image_handler::prepare_messages_for_api,
+    proxy::{build_openai_compatible_proxy_request, ProxyBuildArgs, ProxyRequest},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
     types::*,
 };
@@ -70,6 +71,10 @@ impl QueryBuilder for OpenRouterQueryBuilder {
     fn supports_tools_with_output_type(&self, _output_type: &OutputType) -> bool {
         // OpenRouter supports tools for both text and image output (via OpenAI-compatible API)
         true
+    }
+
+    fn build_proxy_request(&self, args: &ProxyBuildArgs<'_>) -> Result<ProxyRequest, Error> {
+        build_openai_compatible_proxy_request(args)
     }
 
     async fn build_request(

@@ -19,6 +19,10 @@ use windmill_ai::ai_cache::current_instance_ai_config_revision;
 use windmill_ai::ai_providers::{
     empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel,
 };
+use windmill_ai::providers::create_proxy_query_builder;
+use windmill_ai::proxy::{
+    supports_openai_compatible_proxy, ProviderCredentials, ProxyBuildArgs, ProxyRequest,
+};
 use windmill_ai::utils::AI_HTTP_HEADERS;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::db::UserDB;
@@ -372,19 +376,22 @@ impl AIRequestConfig {
         headers: HeaderMap,
         body: Bytes,
     ) -> Result<RequestBuilder> {
-        let body = if let Some(user) = self.user {
-            Self::add_user_to_body(body, user)?
+        let credentials = self.into_provider_credentials(provider.clone());
+
+        let body = if let Some(user) = credentials.user.as_ref() {
+            Self::add_user_to_body(body, user.clone())?
         } else {
             body
         };
 
-        let base_url = self.base_url.trim_end_matches('/');
+        let base_url = credentials.base_url.trim_end_matches('/');
 
-        let is_azure = provider.is_azure_openai(base_url);
-        let is_anthropic = matches!(provider, AIProvider::Anthropic);
-        let is_anthropic_vertex = is_anthropic && self.platform == AIPlatform::GoogleVertexAi;
+        let is_azure = credentials.provider.is_azure_openai(base_url);
+        let is_anthropic = credentials.provider == AIProvider::Anthropic;
+        let is_anthropic_vertex =
+            is_anthropic && credentials.platform == AIPlatform::GoogleVertexAi;
         let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
-        let is_google_ai = matches!(provider, AIProvider::GoogleAI);
+        let is_google_ai = credentials.provider == AIProvider::GoogleAI;
 
         let base_url = base_url.to_string();
         let base_url = base_url.as_str();
@@ -423,12 +430,12 @@ impl AIRequestConfig {
             }
         }
 
-        if is_anthropic_sdk && self.enable_1m_context {
+        if is_anthropic_sdk && credentials.enable_1m_context {
             request = request.header("anthropic-beta", "context-1m-2025-08-07");
         }
 
         // Add authentication headers
-        if let Some(api_key) = self.api_key {
+        if let Some(api_key) = credentials.api_key {
             if is_azure {
                 request = request.header("api-key", api_key.clone())
             } else if is_google_ai {
@@ -445,13 +452,13 @@ impl AIRequestConfig {
             }
         }
 
-        if let Some(access_token) = self.access_token {
+        if let Some(access_token) = credentials.access_token {
             request = request.header("authorization", format!("Bearer {}", access_token))
         }
 
         request = request.body(body);
 
-        if let Some(org_id) = self.organization_id {
+        if let Some(org_id) = credentials.organization_id {
             request = request.header("OpenAI-Organization", org_id);
         }
 
@@ -461,11 +468,29 @@ impl AIRequestConfig {
         }
 
         // Apply custom headers from the resource
-        for (header_name, header_value) in &self.custom_headers {
+        for (header_name, header_value) in &credentials.custom_headers {
             request = request.header(header_name.as_str(), header_value.as_str());
         }
 
         Ok(request)
+    }
+
+    fn into_provider_credentials(self, provider: AIProvider) -> ProviderCredentials {
+        ProviderCredentials {
+            provider,
+            base_url: self.base_url,
+            api_key: self.api_key,
+            access_token: self.access_token,
+            organization_id: self.organization_id,
+            user: self.user,
+            region: self.region,
+            aws_access_key_id: self.aws_access_key_id,
+            aws_secret_access_key: self.aws_secret_access_key,
+            aws_session_token: self.aws_session_token,
+            platform: self.platform,
+            enable_1m_context: self.enable_1m_context,
+            custom_headers: self.custom_headers,
+        }
     }
 
     fn add_user_to_body(body: Bytes, user: String) -> Result<Bytes> {
@@ -641,6 +666,14 @@ fn is_sse_response(headers: &HeaderMap) -> bool {
         .unwrap_or(false)
 }
 
+fn proxy_request_to_request_builder(proxy_request: ProxyRequest) -> RequestBuilder {
+    let mut request = HTTP_CLIENT.request(proxy_request.method.clone(), &proxy_request.url);
+    for (header_name, header_value) in &proxy_request.headers {
+        request = request.header(header_name.as_str(), header_value.as_str());
+    }
+    request.body(proxy_request.body)
+}
+
 pub(crate) fn inject_keepalives<S>(
     upstream: S,
     interval: Duration,
@@ -693,37 +726,64 @@ async fn global_proxy(
 
     let base_url = provider.get_base_url(None, &db).await?;
 
-    let is_anthropic = provider.is_anthropic();
-    let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
-
-    let url = if is_anthropic_sdk {
-        let truncated_base_url = base_url.trim_end_matches("/v1");
-        format!("{}/{}", truncated_base_url, ai_path)
+    let request = if supports_openai_compatible_proxy(&provider) {
+        let credentials = ProviderCredentials {
+            provider: provider.clone(),
+            base_url,
+            api_key: Some(api_key.clone()),
+            access_token: None,
+            organization_id: None,
+            user: None,
+            region: None,
+            aws_access_key_id: None,
+            aws_secret_access_key: None,
+            aws_session_token: None,
+            platform: AIPlatform::Standard,
+            enable_1m_context: false,
+            custom_headers: HashMap::new(),
+        };
+        let query_builder = create_proxy_query_builder(&credentials);
+        let proxy_request = query_builder.build_proxy_request(&ProxyBuildArgs {
+            method: &method,
+            path: &ai_path,
+            headers: &headers,
+            body: &body,
+            credentials: &credentials,
+        })?;
+        proxy_request_to_request_builder(proxy_request)
     } else {
-        format!("{}/{}", base_url, ai_path)
-    };
+        let is_anthropic = provider.is_anthropic();
+        let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
 
-    let mut request = HTTP_CLIENT
-        .request(method, url)
-        .header("content-type", "application/json")
-        .header("Authorization", format!("Bearer {}", &api_key));
+        let url = if is_anthropic_sdk {
+            let truncated_base_url = base_url.trim_end_matches("/v1");
+            format!("{}/{}", truncated_base_url, ai_path)
+        } else {
+            format!("{}/{}", base_url, ai_path)
+        };
 
-    if is_anthropic {
-        request = request.header("X-API-Key", &api_key);
-    }
+        let mut request = HTTP_CLIENT
+            .request(method, url)
+            .header("content-type", "application/json")
+            .header("Authorization", format!("Bearer {}", &api_key));
 
-    for (header_name, header_value) in headers.iter() {
-        if header_name.to_string().starts_with("anthropic-") {
-            request = request.header(header_name, header_value);
+        if is_anthropic {
+            request = request.header("X-API-Key", &api_key);
         }
-    }
 
-    // Apply custom headers from AI_HTTP_HEADERS environment variable
-    for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
-        request = request.header(header_name.as_str(), header_value.as_str());
-    }
+        for (header_name, header_value) in headers.iter() {
+            if header_name.to_string().starts_with("anthropic-") {
+                request = request.header(header_name, header_value);
+            }
+        }
 
-    let request = request.body(body);
+        // Apply custom headers from AI_HTTP_HEADERS environment variable
+        for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
+            request = request.header(header_name.as_str(), header_value.as_str());
+        }
+
+        request.body(body)
+    };
 
     let response = request.send().await.map_err(to_anyhow)?;
 
@@ -1040,7 +1100,20 @@ async fn proxy(
         ));
     }
 
-    let request = request_config.prepare_request(&provider, &ai_path, method, headers, body)?;
+    let request = if supports_openai_compatible_proxy(&provider) {
+        let credentials = request_config.into_provider_credentials(provider.clone());
+        let query_builder = create_proxy_query_builder(&credentials);
+        let proxy_request = query_builder.build_proxy_request(&ProxyBuildArgs {
+            method: &method,
+            path: &ai_path,
+            headers: &headers,
+            body: &body,
+            credentials: &credentials,
+        })?;
+        proxy_request_to_request_builder(proxy_request)
+    } else {
+        request_config.prepare_request(&provider, &ai_path, method, headers, body)?
+    };
 
     let response = request.send().await.map_err(to_anyhow)?;
 
@@ -1101,6 +1174,55 @@ mod tests {
             enable_1m_context: false,
             custom_headers: HashMap::new(),
         }
+    }
+
+    #[test]
+    fn maps_request_config_to_provider_credentials() {
+        let mut custom_headers = HashMap::new();
+        custom_headers.insert("X-Test".to_string(), "yes".to_string());
+
+        let config = AIRequestConfig {
+            base_url: "https://example.com".to_string(),
+            api_key: Some("api-key".to_string()),
+            access_token: Some("access-token".to_string()),
+            organization_id: Some("org-id".to_string()),
+            user: Some("user-id".to_string()),
+            region: Some("us-east-1".to_string()),
+            aws_access_key_id: Some("aws-access-key".to_string()),
+            aws_secret_access_key: Some("aws-secret-key".to_string()),
+            aws_session_token: Some("aws-session-token".to_string()),
+            platform: AIPlatform::GoogleVertexAi,
+            enable_1m_context: true,
+            custom_headers,
+        };
+
+        let credentials = config.into_provider_credentials(AIProvider::Anthropic);
+
+        assert_eq!(credentials.provider, AIProvider::Anthropic);
+        assert_eq!(credentials.base_url, "https://example.com");
+        assert_eq!(credentials.api_key.as_deref(), Some("api-key"));
+        assert_eq!(credentials.access_token.as_deref(), Some("access-token"));
+        assert_eq!(credentials.organization_id.as_deref(), Some("org-id"));
+        assert_eq!(credentials.user.as_deref(), Some("user-id"));
+        assert_eq!(credentials.region.as_deref(), Some("us-east-1"));
+        assert_eq!(
+            credentials.aws_access_key_id.as_deref(),
+            Some("aws-access-key")
+        );
+        assert_eq!(
+            credentials.aws_secret_access_key.as_deref(),
+            Some("aws-secret-key")
+        );
+        assert_eq!(
+            credentials.aws_session_token.as_deref(),
+            Some("aws-session-token")
+        );
+        assert_eq!(credentials.platform, AIPlatform::GoogleVertexAi);
+        assert!(credentials.enable_1m_context);
+        assert_eq!(
+            credentials.custom_headers.get("X-Test").map(String::as_str),
+            Some("yes")
+        );
     }
 
     #[test]
