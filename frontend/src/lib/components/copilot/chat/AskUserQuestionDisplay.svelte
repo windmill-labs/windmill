@@ -67,7 +67,10 @@
 	}
 </script>
 
-<div class="rounded-md border border-gray-200 bg-surface p-3 text-sm dark:border-gray-700">
+<div
+	class="rounded-md border border-gray-200 bg-surface p-3 text-sm dark:border-gray-700"
+	data-chat-keyboard-scope="ask-user-question"
+>
 	<div class="flex items-start gap-2">
 		{#if userQuestion.canceled}
 			<XCircle class="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
