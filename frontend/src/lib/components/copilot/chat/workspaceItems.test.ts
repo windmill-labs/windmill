@@ -85,7 +85,7 @@ describe('itemHref', () => {
 		)
 	})
 
-	it('routes variable / resource / schedule to list page with hash to pop the drawer', () => {
+	it('routes variable / resource / schedule to list page with hash fragment', () => {
 		expect(itemHref({ kind: 'variable', path: 'u/me/secret' })).toBe('/variables#u/me/secret')
 		expect(itemHref({ kind: 'resource', path: 'u/me/db' }, 'ws1')).toBe(
 			'/resources?workspace=ws1#/resource/u/me/db'
@@ -93,7 +93,7 @@ describe('itemHref', () => {
 		expect(itemHref({ kind: 'schedule', path: 'f/etl/daily' })).toBe('/schedules#f/etl/daily')
 	})
 
-	it('routes each trigger kind with hash for drawer auto-open', () => {
+	it('routes each trigger kind with hash fragment', () => {
 		const cases: Array<[WorkspaceItemEntry['kind'], string]> = [
 			['http_trigger', '/routes#f/a/b'],
 			['websocket_trigger', '/websocket_triggers#f/a/b'],

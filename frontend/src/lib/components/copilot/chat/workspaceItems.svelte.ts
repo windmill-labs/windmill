@@ -87,8 +87,7 @@ const itemKindToOffboardingKind: Record<WindmillItemKind, string> = {
  * Build the in-app URL for a resolved workspace item.
  *
  * The workspace query param goes before the hash so the SvelteKit router still applies
- * it; the hash fragment is consumed client-side by the list page on mount to open the
- * matching drawer.
+ * it; the hash fragment is preserved for destination pages that consume it.
  */
 export function itemHref(entry: WorkspaceItemEntry, workspace?: string): string {
 	const raw = offboardingItemHref(itemKindToOffboardingKind[entry.kind], entry.path) ?? '#'
@@ -199,24 +198,6 @@ class WorkspaceItemRegistry {
 	/** Whether the registry has data for the given workspace. */
 	isLoaded(workspace: string): boolean {
 		return this.#byWorkspace.has(workspace)
-	}
-
-	/** Drop the cached data for a workspace (or all workspaces). */
-	invalidate(workspace?: string): void {
-		if (workspace) {
-			if (!this.#byWorkspace.has(workspace)) return
-			const next = new Map(this.#byWorkspace)
-			next.delete(workspace)
-			this.#byWorkspace = next
-		} else {
-			this.#byWorkspace = new Map()
-		}
-	}
-
-	/** All items known for the workspace; empty if not yet loaded. */
-	items(workspace: string): WorkspaceItemEntry[] {
-		const map = this.#byWorkspace.get(workspace)
-		return map ? [...map.values()] : []
 	}
 }
 

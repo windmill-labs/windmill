@@ -37,11 +37,11 @@
 		if (!ws || candidatePaths.length === 0) {
 			return [gfmPlugin(), rendererPlugin]
 		}
-		// Subscribe to the registry's reactive state so this derivation re-runs once the
-		// workspace items finish loading — otherwise messages that mounted before the load
-		// completed would stay as plain text forever (the underlying `parse` in
-		// svelte-exmarkdown only re-runs when the `plugins` reference changes).
-		workspaceItemRegistry.isLoaded(ws)
+
+		if (!workspaceItemRegistry.isLoaded(ws)) {
+			return [gfmPlugin(), rendererPlugin]
+		}
+
 		return [
 			gfmPlugin(),
 			{
