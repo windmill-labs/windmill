@@ -2,6 +2,7 @@ use crate::{
     ai_providers::AIProvider,
     ai_types::OpenAIToolCall,
     image_handler::{prepare_messages_for_api, s3_object_to_content_part},
+    proxy::{build_openai_compatible_proxy_request, ProxyBuildArgs, ProxyRequest},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
     sse::{OpenAIResponsesSSEParser, SSEParser},
     types::*,
@@ -477,6 +478,10 @@ impl QueryBuilder for OpenAIQueryBuilder {
     fn supports_tools_with_output_type(&self, _output_type: &OutputType) -> bool {
         // OpenAI supports tools for both text and image output
         true
+    }
+
+    fn build_proxy_request(&self, args: &ProxyBuildArgs<'_>) -> Result<ProxyRequest, Error> {
+        build_openai_compatible_proxy_request(args)
     }
 
     async fn parse_streaming_response(

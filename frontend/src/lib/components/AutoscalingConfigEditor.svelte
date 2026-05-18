@@ -14,7 +14,6 @@
 	import { ConfigService } from '$lib/gen'
 	import Select from './select/Select.svelte'
 	import ScriptPicker from './ScriptPicker.svelte'
-	import Badge from './common/badge/Badge.svelte'
 	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
@@ -66,9 +65,6 @@
 	description="Autoscaling automatically adjusts the number of workers based on your workload demands."
 	{eeOnly}
 >
-	{#snippet labelExtra()}
-		<Badge color="gray">Beta</Badge>
-	{/snippet}
 	{#snippet header()}
 		<div class="ml-2">
 			<Toggle
