@@ -33,7 +33,8 @@ use windmill_common::db::UserDbWithAuthed;
 use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
-    format_completed_job_result, format_result, DynamicInput, ENTRYPOINT_OVERRIDE,
+    format_completed_job_result, format_result, is_valid_entrypoint_name, DynamicInput,
+    ENTRYPOINT_OVERRIDE,
 };
 #[cfg(feature = "run_inline")]
 use windmill_common::jobs::{
@@ -4527,6 +4528,13 @@ pub async fn run_workflow_as_code(
     check_tag_available_for_workspace(&db, &w_id, &run_query.tag, &authed).await?;
     check_scopes(&authed, || format!("jobs:run"))?;
 
+    if !is_valid_entrypoint_name(&entrypoint) {
+        return Err(error::Error::BadRequest(format!(
+            "Invalid entrypoint {entrypoint:?}: must match ^[A-Za-z_][A-Za-z0-9_]*$ \
+             (letters, digits and underscores, not starting with a digit)"
+        )));
+    }
+
     let mut i = 1;
 
     if *CLOUD_HOSTED {
@@ -6786,6 +6794,14 @@ async fn run_dynamic_select(
     match request.runnable_ref {
         DynamicSelectRunnableRef::Deployed { path, runnable_kind } => match runnable_kind {
             RunnableKind::Script => {
+                if !is_valid_entrypoint_name(&request.entrypoint_function) {
+                    return Err(error::Error::BadRequest(format!(
+                        "Invalid entrypoint_function {:?}: must match \
+                         ^[A-Za-z_][A-Za-z0-9_]*$ (letters, digits and underscores, \
+                         not starting with a digit)",
+                        request.entrypoint_function
+                    )));
+                }
                 let mut script_args = request.args.unwrap_or_default();
                 script_args.insert(
                     "_ENTRYPOINT_OVERRIDE".to_string(),
