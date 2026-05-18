@@ -16,8 +16,6 @@
 		Archive,
 		ArchiveRestore,
 		EllipsisVertical,
-		Maximize2,
-		Minimize2,
 		PanelRightClose,
 		PanelRightOpen,
 		Pencil,
@@ -215,10 +213,6 @@
 	// — the editor stays mounted, so re-opening doesn't pay a remount cost
 	// and xy-flow / Monaco keep their viewport state.
 	let editorVisible = $state(true)
-	// When true the editor occupies the full session width and the chat pane
-	// is hidden. The user can collapse the chat to focus on the editor and
-	// restore it again from the editor header.
-	let editorFullWidth = $state(false)
 
 	// Focus the chat input whenever this session is the active one.
 	// The textarea is disabled until copilotInfo loads (otherwise focus is
@@ -284,156 +278,127 @@
 	{#snippet sessionEmptyHint()}{/snippet}
 
 	<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
-		{#if !editorFullWidth || !hasEditor}
-			<Pane size={hasEditor ? 50 : 100} minSize={25} class="flex flex-col min-h-0 pb-2">
-				<header class="flex flex-row items-center gap-1 pl-4 pr-4 py-2 shrink-0">
-					<EditableInput
-						bind:this={summaryInput}
-						value={session.summary ?? ''}
-						placeholder="Untitled session"
-						onSave={(v) => {
-							session.summary = v
-							persistSessions()
-						}}
-						class="text-sm font-semibold"
-						inputClass="!text-sm !font-semibold"
-					/>
-					<DropdownV2
-						fixedHeight={false}
-						placement="bottom-start"
-						items={[
-							{
-								displayName: 'Rename',
-								icon: Pencil,
-								action: () => summaryInput?.edit()
-							},
-							session.archived
-								? {
-										displayName: 'Unarchive',
-										icon: ArchiveRestore,
-										action: () => setSessionArchived(session.id, false)
-									}
-								: {
-										displayName: 'Archive',
-										icon: Archive,
-										action: () => archiveAndReset()
-									},
-							{
-								displayName: 'Delete',
-								icon: Trash2,
-								type: 'delete',
-								action: () => (deleteConfirmOpen = true)
-							}
-						]}
-					>
-						{#snippet buttonReplacement()}
-							<span
-								class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
-								title="More"
-							>
-								<EllipsisVertical size={14} />
-							</span>
-						{/snippet}
-					</DropdownV2>
-					{#if !session.target && hasFirstUserMessage}
-						<!-- Drill-picker for sessions that have started but haven't
-					     picked an editor target yet. Hidden on fresh sessions
-					     (no messages yet) — the workspace bar is the only
-					     header affordance during the empty state. -->
-						<div class="ml-auto">
-							<Popover
-								placement="bottom-end"
-								usePointerDownOutside
-								disableFocusTrap
-								class="inline-flex"
-							>
-								{#snippet trigger()}
-									<Button variant="default" unifiedSize="xs" startIcon={{ icon: PanelRightOpen }}>
-										Open editor
-									</Button>
-								{/snippet}
-								{#snippet content()}
-									<WorkspaceItemDrillPicker
-										onPick={(item: WorkspaceItem) => pickEditorTarget(item)}
-									/>
-								{/snippet}
-							</Popover>
-						</div>
-					{:else if hasTarget && mountEditor && !editorVisible}
-						<div class="ml-auto">
-							<Button
-								variant="subtle"
-								unifiedSize="xs"
-								startIcon={{ icon: PanelRightOpen }}
-								on:click={() => (editorVisible = true)}
-							>
-								Show editor
-							</Button>
-						</div>
-					{:else if hasEditor}
-						<div class="ml-auto flex flex-row items-center gap-1">
-							<button
-								type="button"
-								onclick={() => (editorFullWidth = !editorFullWidth)}
-								title={editorFullWidth ? 'Restore chat panel' : 'Full-width editor'}
-								aria-label={editorFullWidth ? 'Restore chat panel' : 'Expand editor to full width'}
-								class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
-							>
-								{#if editorFullWidth}
-									<Minimize2 size={14} />
-								{:else}
-									<Maximize2 size={14} />
-								{/if}
-							</button>
-							<button
-								type="button"
-								onclick={() => (editorVisible = false)}
-								title="Close editor"
-								aria-label="Close editor"
-								class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
-							>
-								<PanelRightClose size={14} />
-							</button>
-						</div>
-					{/if}
-				</header>
-				<div class="flex-1 min-h-0 w-full flex flex-col {hasFirstUserMessage ? '' : 'pt-8'}">
-					<AIChat
-						bind:this={aiChat}
-						hideInputBorder
-						hideHeader
-						hideModeSelector
-						wideLayout
-						forceDisabled={isUnavailable}
-						forceDisabledMessage={isUnavailable
-							? 'This session is linked to a workspace that no longer exists. Move it or discard it from the banner above to keep working.'
-							: ''}
-						emptyHint={sessionEmptyHint}
-						{inputPreface}
-					/>
-				</div>
-			</Pane>
-		{/if}
+		<Pane size={hasEditor ? 50 : 100} minSize={25} class="flex flex-col min-h-0 pb-2">
+			<header class="flex flex-row items-center gap-1 pl-4 pr-4 py-2 shrink-0">
+				<EditableInput
+					bind:this={summaryInput}
+					value={session.summary ?? ''}
+					placeholder="Untitled session"
+					onSave={(v) => {
+						session.summary = v
+						persistSessions()
+					}}
+					class="text-sm font-semibold"
+					inputClass="!text-sm !font-semibold"
+				/>
+				<DropdownV2
+					fixedHeight={false}
+					placement="bottom-start"
+					items={[
+						{
+							displayName: 'Rename',
+							icon: Pencil,
+							action: () => summaryInput?.edit()
+						},
+						session.archived
+							? {
+									displayName: 'Unarchive',
+									icon: ArchiveRestore,
+									action: () => setSessionArchived(session.id, false)
+								}
+							: {
+									displayName: 'Archive',
+									icon: Archive,
+									action: () => archiveAndReset()
+								},
+						{
+							displayName: 'Delete',
+							icon: Trash2,
+							type: 'delete',
+							action: () => (deleteConfirmOpen = true)
+						}
+					]}
+				>
+					{#snippet buttonReplacement()}
+						<span
+							class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
+							title="More"
+						>
+							<EllipsisVertical size={14} />
+						</span>
+					{/snippet}
+				</DropdownV2>
+				{#if !session.target && hasFirstUserMessage}
+					<!-- Drill-picker for sessions that have started but haven't
+				     picked an editor target yet. Hidden on fresh sessions
+				     (no messages yet) — the workspace bar is the only
+				     header affordance during the empty state. -->
+					<div class="ml-auto">
+						<Popover
+							placement="bottom-end"
+							usePointerDownOutside
+							disableFocusTrap
+							class="inline-flex"
+						>
+							{#snippet trigger()}
+								<Button variant="default" unifiedSize="xs" startIcon={{ icon: PanelRightOpen }}>
+									Open editor
+								</Button>
+							{/snippet}
+							{#snippet content()}
+								<WorkspaceItemDrillPicker
+									onPick={(item: WorkspaceItem) => pickEditorTarget(item)}
+								/>
+							{/snippet}
+						</Popover>
+					</div>
+				{:else if hasTarget && mountEditor && !editorVisible}
+					<div class="ml-auto">
+						<Button
+							variant="subtle"
+							unifiedSize="xs"
+							startIcon={{ icon: PanelRightOpen }}
+							on:click={() => (editorVisible = true)}
+						>
+							Show editor
+						</Button>
+					</div>
+				{:else if hasEditor}
+					<div class="ml-auto flex flex-row items-center gap-1">
+						<button
+							type="button"
+							onclick={() => (editorVisible = false)}
+							title="Close editor"
+							aria-label="Close editor"
+							class="inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
+						>
+							<PanelRightClose size={14} />
+						</button>
+					</div>
+				{/if}
+			</header>
+			<div class="flex-1 min-h-0 w-full flex flex-col {hasFirstUserMessage ? '' : 'pt-8'}">
+				<AIChat
+					bind:this={aiChat}
+					hideInputBorder
+					hideHeader
+					hideModeSelector
+					wideLayout
+					forceDisabled={isUnavailable}
+					forceDisabledMessage={isUnavailable
+						? 'This session is linked to a workspace that no longer exists. Move it or discard it from the banner above to keep working.'
+						: ''}
+					emptyHint={sessionEmptyHint}
+					{inputPreface}
+				/>
+			</div>
+		</Pane>
 		{#if hasEditor && session.target}
-			<Pane size={editorFullWidth ? 100 : 50} minSize={30} class="flex flex-col min-h-0 p-2 pl-0">
+			<Pane size={50} minSize={30} class="flex flex-col min-h-0 p-2 pl-0">
 				<div
 					transition:slide={{ axis: 'x', duration: 200 }}
 					class="flex flex-col flex-1 min-h-0 rounded-md border border-light overflow-hidden relative"
 				>
-					{#if editorFullWidth}
-						<!-- Chat pane is hidden in full-width mode, so the toggle in
-						     the chat header isn't reachable — surface a restore
-						     button here as the only way back to the split view. -->
-						<button
-							type="button"
-							class="absolute top-1 right-1 z-10 p-1 rounded text-tertiary hover:bg-surface-hover hover:text-primary bg-surface/80 backdrop-blur"
-							title="Restore chat panel"
-							aria-label="Restore chat panel"
-							onclick={() => (editorFullWidth = false)}
-						>
-							<Minimize2 size={14} />
-						</button>
-					{/if}
 					{#if session.target.kind === 'flow'}
 						<FlowEditorView
 							{runtime}
