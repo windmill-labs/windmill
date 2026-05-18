@@ -263,6 +263,57 @@ fn get_original_name(renamed_key: &str, field_renames: &Option<Value>) -> String
         .unwrap_or_else(|| renamed_key.to_string())
 }
 
+/// Reject path parameter values that could alter the URL structure of the
+/// internal backend request (path traversal, scheme/authority/query/fragment
+/// injection, percent-encoded bypasses).
+///
+/// MCP endpoint tools build internal API URLs by string-substituting these
+/// values into a fixed path template. A value containing `..` segments would
+/// let a narrowly-scoped tool reach unrelated same-method endpoints once the
+/// HTTP client normalizes the URL (e.g. `scripts/get/p/../../../resources/...`
+/// collapses to `resources/...`). Windmill resource/script/flow paths only ever
+/// contain `[A-Za-z0-9_-]` segments joined by `/`, so this rejects anything
+/// that isn't a clean relative path.
+fn validate_path_param_value(param_name: &str, value: &str) -> BackendResult<()> {
+    let reject = |reason: &str| {
+        tracing::warn!(
+            "Rejected MCP endpoint path parameter '{}': {}",
+            param_name,
+            reason
+        );
+        Err(ErrorData::invalid_params(
+            format!("Invalid path parameter '{}': {}", param_name, reason),
+            None,
+        ))
+    };
+
+    if value.is_empty() {
+        return reject("must not be empty");
+    }
+
+    // Disallowed characters: control/whitespace, backslash, percent-encoding
+    // (would let `%2e%2e%2f` decode to `../` server-side), and the URL
+    // delimiters that would let the value escape the path component entirely.
+    if let Some(bad) = value.chars().find(|c| {
+        c.is_control() || c.is_whitespace() || matches!(*c, '\\' | '%' | '?' | '#' | ':' | '@')
+    }) {
+        return reject(&format!("contains disallowed character {:?}", bad));
+    }
+
+    // No leading/trailing slash, no empty/dot/dot-dot segments. Splitting on
+    // `/` keeps legitimate Windmill paths (`u/alice/db`, `f/folder/name`)
+    // valid while catching `..`, `.`, `//`, leading and trailing `/`.
+    for segment in value.split('/') {
+        match segment {
+            "" => return reject("contains an empty path segment or leading/trailing slash"),
+            "." | ".." => return reject("contains a '.' or '..' path segment"),
+            _ => {}
+        }
+    }
+
+    Ok(())
+}
+
 /// Substitute path parameters in the URL template
 pub fn substitute_path_params(
     path: &str,
@@ -282,6 +333,7 @@ pub fn substitute_path_params(
                 match args_map.get(param_name) {
                     Some(param_value) => {
                         if let Some(str_val) = param_value.as_str() {
+                            validate_path_param_value(&original_name, str_val)?;
                             path_template = path_template.replace(&placeholder, str_val);
                         }
                     }
@@ -441,4 +493,100 @@ pub async fn parse_response_body(response: Response<Body>) -> BackendResult<Valu
     })?;
 
     Ok(serde_json::from_str(&body_str).unwrap_or_else(|_| Value::String(body_str)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn validate_path_param_value_accepts_legitimate_windmill_paths() {
+        for ok in [
+            "u/alice/prod_db",
+            "f/folder/sub/my-script",
+            "g/all",
+            "myscript",
+            "01h00000-0000-0000-0000-000000000000",
+            "123",
+        ] {
+            assert!(
+                validate_path_param_value("path", ok).is_ok(),
+                "expected {ok:?} to be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_path_param_value_rejects_traversal_and_injection() {
+        for bad in [
+            "../../../resources/get/u/alice/prod_db", // path traversal (the report PoC)
+            "..",
+            ".",
+            "a/../b",
+            "a/./b",
+            "/leading",
+            "trailing/",
+            "double//slash",
+            "",
+            "back\\slash",
+            "has space",
+            "with\nnewline",
+            "query?x=1",
+            "frag#ment",
+            "pct%2e%2e%2fencoded", // percent-encoded `../`
+            "scheme:authority",
+            "user@host",
+        ] {
+            assert!(
+                validate_path_param_value("path", bad).is_err(),
+                "expected {bad:?} to be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn substitute_path_params_blocks_cross_endpoint_traversal() {
+        let path_schema = Some(json!({
+            "type": "object",
+            "properties": { "path": { "type": "string" } }
+        }));
+        let mut args = serde_json::Map::new();
+        args.insert(
+            "path".to_string(),
+            json!("../../../resources/get/u/alice/prod_db"),
+        );
+
+        let result = substitute_path_params(
+            "/w/{workspace}/scripts/get/p/{path}",
+            "dev",
+            &args,
+            &path_schema,
+            &None,
+        );
+        assert!(
+            result.is_err(),
+            "traversal payload must be rejected before URL substitution"
+        );
+    }
+
+    #[test]
+    fn substitute_path_params_allows_normal_path() {
+        let path_schema = Some(json!({
+            "type": "object",
+            "properties": { "path": { "type": "string" } }
+        }));
+        let mut args = serde_json::Map::new();
+        args.insert("path".to_string(), json!("u/alice/my_script"));
+
+        let result = substitute_path_params(
+            "/w/{workspace}/scripts/get/p/{path}",
+            "dev",
+            &args,
+            &path_schema,
+            &None,
+        )
+        .expect("legitimate path should substitute");
+        assert_eq!(result, "/w/dev/scripts/get/p/u/alice/my_script");
+    }
 }
