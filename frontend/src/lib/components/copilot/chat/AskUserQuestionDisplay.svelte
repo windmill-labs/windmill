@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount, tick } from 'svelte'
 	import { CheckCircle2, CircleHelp, Loader2, XCircle } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { aiChatManager } from './AIChatManager.svelte'
@@ -12,6 +13,8 @@
 
 	let { toolCallId, userQuestion, disabled = false }: Props = $props()
 
+	let choiceButtons = $state<(HTMLButtonElement | undefined)[]>([])
+
 	const selectedChoice = $derived(
 		userQuestion.selectedChoiceId
 			? userQuestion.choices.find((choice) => choice.id === userQuestion.selectedChoiceId)
@@ -20,11 +23,51 @@
 	const isComplete = $derived(Boolean(selectedChoice) || Boolean(userQuestion.canceled))
 	const optionsDisabled = $derived(disabled || isComplete)
 
+	onMount(() => {
+		if (optionsDisabled || userQuestion.choices.length === 0) {
+			return
+		}
+
+		void tick().then(() => {
+			focusChoice(0)
+		})
+	})
+
+	function focusChoice(index: number) {
+		choiceButtons[index]?.focus()
+	}
+
 	function selectChoice(choice: UserQuestionChoice) {
 		if (optionsDisabled) {
 			return
 		}
 		aiChatManager.handleUserQuestionAnswer(toolCallId, choice)
+	}
+
+	function handleChoiceKeydown(event: KeyboardEvent, choice: UserQuestionChoice, index: number) {
+		if (optionsDisabled) {
+			return
+		}
+
+		if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
+			event.preventDefault()
+			event.stopPropagation()
+			focusChoice((index + 1) % userQuestion.choices.length)
+			return
+		}
+
+		if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
+			event.preventDefault()
+			event.stopPropagation()
+			focusChoice((index - 1 + userQuestion.choices.length) % userQuestion.choices.length)
+			return
+		}
+
+		if (event.key === 'Enter') {
+			event.preventDefault()
+			event.stopPropagation()
+			selectChoice(choice)
+		}
 	}
 </script>
 
@@ -43,14 +86,16 @@
 	</div>
 
 	<div class="mt-3 flex flex-col gap-2">
-		{#each userQuestion.choices as choice (choice.id)}
+		{#each userQuestion.choices as choice, index (choice.id)}
 			{@const isSelected = selectedChoice?.id === choice.id}
 			<Button
 				variant="default"
 				unifiedSize="sm"
+				bind:element={choiceButtons[index]}
 				selected={isSelected}
 				disabled={optionsDisabled}
 				onClick={() => selectChoice(choice)}
+				onkeydown={(event) => handleChoiceKeydown(event, choice, index)}
 				startIcon={isSelected ? { icon: CheckCircle2 } : undefined}
 				btnClasses="!h-auto min-h-[40px] !items-start !justify-start !px-3 !py-2 !text-left !whitespace-normal"
 			>
