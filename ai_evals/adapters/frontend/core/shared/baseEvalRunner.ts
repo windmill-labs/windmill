@@ -236,7 +236,8 @@ function toFrontendEvalProvider(
   if (
     provider === "anthropic" ||
     provider === "openai" ||
-    provider === "googleai"
+    provider === "googleai" ||
+    provider === "deepseek"
   ) {
     return provider;
   }
