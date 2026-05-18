@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
+	import { untrack } from 'svelte'
 
 	import { AppService, DraftService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -17,7 +18,12 @@
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { page } from '$app/state'
 	import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
-	import { UserDraft, checkStaleness, type UserDraftMeta } from '$lib/userDraft.svelte'
+	import {
+		UserDraft,
+		checkStaleness,
+		localDraftDiffers,
+		type UserDraftMeta
+	} from '$lib/userDraft.svelte'
 	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
 
@@ -105,6 +111,25 @@
 		readFieldsRecursively(data)
 		void summary
 		draftHandle.draft = { files, runnables, data, summary }
+	})
+
+	// Reflect an external UserDraft.save('raw_app', path) (programmatic
+	// write, another tab) into the form in real time. The `!files` guard
+	// covers the run()→loadApp() reload window (files is set undefined then
+	// re-populated at the end of reconciliation); untracked body +
+	// localDraftDiffers idempotence break the loop with the persist effect
+	// above.
+	$effect(() => {
+		const d = draftHandle.draft
+		if (d == null || !files) return
+		untrack(() => {
+			if (localDraftDiffers(d, { files, runnables, data, summary })) {
+				files = d.files
+				runnables = d.runnables
+				data = d.data
+				summary = d.summary
+			}
+		})
 	})
 
 	function extractRawApp(app: any) {

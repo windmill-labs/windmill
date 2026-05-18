@@ -10,7 +10,7 @@
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import FileEditorIcon from '$lib/components/raw_apps/FileEditorIcon.svelte'
-	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraft, localDraftDiffers } from '$lib/userDraft.svelte'
 	import { readFieldsRecursively } from '$lib/utils'
 	import { untrack } from 'svelte'
 	import {
@@ -55,7 +55,7 @@
 	// freshly-started draft. A plain reload of /apps_raw/add (no nodraft)
 	// instead restores the previous session.
 	if (nodraft && typeof window !== 'undefined') {
-		UserDraft.remove('raw_app', '')
+		UserDraft.discard('raw_app', '', undefined)
 		const url = new URL(window.location.href)
 		url.searchParams.delete('nodraft')
 		window.history.replaceState(window.history.state, '', url.toString())
@@ -148,6 +148,25 @@
 		})
 	})
 
+	// Reflect an external UserDraft.save('raw_app', '') (programmatic write,
+	// another tab) into the form in real time. untracked body +
+	// localDraftDiffers idempotence break the loop with the mirror effect
+	// above; the d == null guard covers the "start fresh" discards in
+	// loadApp() so imported/template content isn't clobbered by a stale
+	// in-memory draft.
+	$effect(() => {
+		const d = draftHandle.draft
+		if (d == null) return
+		untrack(() => {
+			if (localDraftDiffers(d, { files, runnables, data, summary })) {
+				files = d.files
+				runnables = d.runnables
+				data = d.data
+				summary = d.summary
+			}
+		})
+	})
+
 	loadApp()
 
 	function extractValue(value: any) {
@@ -175,7 +194,7 @@
 			// Import/template/hub loads are an explicit "start fresh from this
 			// content" — drop the restored empty-path autosave so it doesn't
 			// linger as the next plain reload's baseline.
-			UserDraft.remove('raw_app', '')
+			UserDraft.discard('raw_app', '', undefined)
 			sendUserToast('Loaded from YAML/JSON')
 			if ('value' in importRaw) {
 				summary = importRaw.summary
@@ -187,7 +206,7 @@
 			}
 			console.log('importRaw', importRaw)
 		} else if (templatePath) {
-			UserDraft.remove('raw_app', '')
+			UserDraft.discard('raw_app', '', undefined)
 			const template = await AppService.getAppByPath({
 				workspace: $workspaceStore!,
 				path: templatePath
@@ -197,7 +216,7 @@
 			sendUserToast('App loaded from template path')
 			goto('?', { replaceState: true })
 		} else if (templateId) {
-			UserDraft.remove('raw_app', '')
+			UserDraft.discard('raw_app', '', undefined)
 			const template = await AppService.getAppByVersion({
 				workspace: $workspaceStore!,
 				id: parseInt(templateId)
@@ -207,7 +226,7 @@
 			sendUserToast('App loaded from template')
 			goto('?', { replaceState: true })
 		} else if (hubId) {
-			UserDraft.remove('raw_app', '')
+			UserDraft.discard('raw_app', '', undefined)
 			const hub = await AppService.getHubRawAppById({ id: Number(hubId) })
 			if (hub.app?.value) {
 				extractValue(hub.app.value)
