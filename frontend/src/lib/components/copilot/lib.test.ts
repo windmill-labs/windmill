@@ -1,5 +1,18 @@
+import type {
+	ChatCompletionChunk,
+	ChatCompletionMessageFunctionToolCall,
+	ChatCompletionMessageParam
+} from 'openai/resources/index.mjs'
 import { describe, expect, it } from 'vitest'
+import { buildAssistantToolCallMessage, getReasoningContentDelta } from './chat/openaiReasoning'
 import { getDefaultChatTemperature, modelDisallowsSamplingParams } from './modelConfig'
+
+type AssistantMessageWithReasoning = ChatCompletionMessageParam & {
+	role: 'assistant'
+	content?: string
+	reasoning_content?: string
+	tool_calls?: ChatCompletionMessageFunctionToolCall[]
+}
 
 describe('modelConfig', () => {
 	it('flags Opus 4.7 model IDs via includes matching', () => {
@@ -23,5 +36,71 @@ describe('modelConfig', () => {
 
 	it('keeps deterministic temperature for older Anthropic models', () => {
 		expect(getDefaultChatTemperature({ provider: 'anthropic', model: 'claude-sonnet-4-6' })).toBe(0)
+	})
+})
+
+describe('openaiReasoning', () => {
+	it('reads provider-specific reasoning_content deltas', () => {
+		expect(
+			getReasoningContentDelta({
+				reasoning_content: 'thinking'
+			} as ChatCompletionChunk.Choice.Delta & { reasoning_content: string })
+		).toBe('thinking')
+	})
+
+	it('preserves DeepSeek reasoning_content on assistant tool-call messages', () => {
+		const toolCalls: ChatCompletionMessageFunctionToolCall[] = [
+			{
+				id: 'call_1',
+				type: 'function',
+				function: {
+					name: 'lookup',
+					arguments: '{"query":"docs"}'
+				}
+			}
+		]
+
+		const assistantMessage = buildAssistantToolCallMessage({
+			content: 'I will look that up.',
+			reasoning: {
+				hasReasoningContent: true,
+				reasoningContent: 'First, I need a lookup.'
+			},
+			toolCalls
+		}) as AssistantMessageWithReasoning
+
+		expect(assistantMessage).toMatchObject({
+			role: 'assistant',
+			content: 'I will look that up.',
+			reasoning_content: 'First, I need a lookup.',
+			tool_calls: [
+				{
+					id: 'call_1',
+					type: 'function',
+					function: {
+						name: 'lookup',
+						arguments: '{"query":"docs"}'
+					}
+				}
+			]
+		})
+	})
+
+	it('keeps empty reasoning_content when the provider emitted the field', () => {
+		const assistantMessage = buildAssistantToolCallMessage({
+			content: '',
+			reasoning: {
+				hasReasoningContent: true,
+				reasoningContent: ''
+			},
+			toolCalls: []
+		}) as AssistantMessageWithReasoning
+
+		expect(assistantMessage).toMatchObject({
+			role: 'assistant',
+			content: '',
+			reasoning_content: '',
+			tool_calls: []
+		})
 	})
 })
