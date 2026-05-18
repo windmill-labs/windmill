@@ -56,9 +56,9 @@
 		if (!url) {
 			return null
 		}
-		for (const [key, value] of params) {
+		params.forEach((value, key) => {
 			url.searchParams.set(key, value)
-		}
+		})
 		return url.toString()
 	}
 
