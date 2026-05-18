@@ -1081,10 +1081,7 @@ export async function parseOpenAICompletion(
 	) as ChatCompletionMessageFunctionToolCall[]
 
 	if (answer && toolCalls.length === 0) {
-		const toAdd = buildAssistantTextMessage(answer, {
-			hasReasoningContent,
-			reasoningContent
-		})
+		const toAdd = buildAssistantTextMessage(answer)
 		addedMessages.push(toAdd)
 		messages.push(toAdd)
 	}

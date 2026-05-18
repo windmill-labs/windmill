@@ -25,13 +25,11 @@ export function getReasoningContentDelta(
 }
 
 export function buildAssistantTextMessage(
-	content: string,
-	reasoning: ReasoningContentState
+	content: string
 ): ChatCompletionAssistantMessageWithReasoning {
 	return {
 		role: 'assistant',
-		content,
-		...(reasoning.hasReasoningContent ? { reasoning_content: reasoning.reasoningContent } : {})
+		content
 	}
 }
 

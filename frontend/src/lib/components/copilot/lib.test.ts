@@ -4,7 +4,11 @@ import type {
 	ChatCompletionMessageParam
 } from 'openai/resources/index.mjs'
 import { describe, expect, it } from 'vitest'
-import { buildAssistantToolCallMessage, getReasoningContentDelta } from './chat/openaiReasoning'
+import {
+	buildAssistantTextMessage,
+	buildAssistantToolCallMessage,
+	getReasoningContentDelta
+} from './chat/openaiReasoning'
 import { getDefaultChatTemperature, modelDisallowsSamplingParams } from './modelConfig'
 
 type AssistantMessageWithReasoning = ChatCompletionMessageParam & {
@@ -83,6 +87,13 @@ describe('openaiReasoning', () => {
 					}
 				}
 			]
+		})
+	})
+
+	it('does not preserve reasoning_content on text-only assistant messages', () => {
+		expect(buildAssistantTextMessage('done')).toEqual({
+			role: 'assistant',
+			content: 'done'
 		})
 	})
 
