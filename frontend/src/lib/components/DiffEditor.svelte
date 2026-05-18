@@ -8,6 +8,7 @@
 	import { editor as meditor, KeyMod, KeyCode } from 'monaco-editor'
 
 	import { initializeVscode } from './vscode'
+	import { registerWebviewPaste } from '$lib/editorUtils'
 	import EditorTheme from './EditorTheme.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -47,6 +48,7 @@
 
 	let diffEditor: meditor.IStandaloneDiffEditor | undefined = $state(undefined)
 	let diffDivEl: HTMLDivElement | null = $state(null)
+	let pasteCleanup: (() => void) | undefined = undefined
 	let editorWidth: number = $state(SIDE_BY_SIDE_MIN_WIDTH)
 
 	async function loadDiffEditor() {
@@ -81,25 +83,10 @@
 			modifiedEditor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyX, function () {
 				document.execCommand('cut')
 			})
-			modifiedEditor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyV, async function () {
-				try {
-					const text = await navigator.clipboard.readText()
-					if (text) {
-						const selection = modifiedEditor.getSelection()
-						if (selection) {
-							modifiedEditor.executeEdits('paste', [
-								{
-									range: selection,
-									text: text,
-									forceMoveMarkers: true
-								}
-							])
-						}
-					}
-				} catch (e) {
-					document.execCommand('paste')
-				}
-			})
+			// Paste is scoped to this editor's container instead of a global
+			// Ctrl+V keybinding, which would leak across editor instances.
+			pasteCleanup?.()
+			pasteCleanup = registerWebviewPaste(diffDivEl, () => diffEditor?.getModifiedEditor())
 		}
 
 		if (
@@ -234,6 +221,7 @@
 	onMount(() => {
 		if (BROWSER) {
 			return () => {
+				pasteCleanup?.()
 				diffEditor?.dispose()
 			}
 		}

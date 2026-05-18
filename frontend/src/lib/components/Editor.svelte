@@ -39,7 +39,7 @@
 		relativeLineNumbers
 	} from '$lib/stores'
 
-	import { editorConfig, updateOptions } from '$lib/editorUtils'
+	import { editorConfig, registerWebviewPaste, updateOptions } from '$lib/editorUtils'
 	import { createHash as randomHash } from '$lib/editorLangUtils'
 	import { workspaceStore } from '$lib/stores'
 	import {
@@ -112,6 +112,7 @@
 
 	let divEl: HTMLDivElement | null = $state(null)
 	let editor: meditor.IStandaloneCodeEditor | null = $state(null)
+	let pasteCleanup: (() => void) | undefined = undefined
 
 	interface Props {
 		code?: string
@@ -1399,27 +1400,10 @@
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyX, function () {
 				document.execCommand('cut')
 			})
-			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyV, async function () {
-				try {
-					// Use Clipboard API to read text, then insert via Monaco's API
-					const text = await navigator.clipboard.readText()
-					if (text && editor) {
-						const selection = editor.getSelection()
-						if (selection) {
-							editor.executeEdits('paste', [
-								{
-									range: selection,
-									text: text,
-									forceMoveMarkers: true
-								}
-							])
-						}
-					}
-				} catch (e) {
-					// Clipboard API failed, try execCommand as fallback
-					document.execCommand('paste')
-				}
-			})
+			// Paste is scoped to this editor's container instead of a global
+			// Ctrl+V keybinding, which would leak across editor instances.
+			pasteCleanup?.()
+			pasteCleanup = registerWebviewPaste(divEl, () => editor)
 		}
 
 		// updateEditorKeybindingsMode(editor, 'vim', undefined)
@@ -1772,6 +1756,7 @@
 	onDestroy(() => {
 		console.log('destroying editor')
 		valueAfterDispose = getCode()
+		pasteCleanup?.()
 		destroyed = true
 		disposeMethod && disposeMethod()
 		websocketInterval && clearInterval(websocketInterval)

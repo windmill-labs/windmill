@@ -371,32 +371,25 @@
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyX, function () {
 				document.execCommand('cut')
 			})
-			// Paste is handled by a listener scoped to THIS editor's DOM node.
-			// `editor.addCommand` registers a *global* keybinding in the shared
-			// standalone services, so with multiple SimpleEditor instances the
-			// last-registered handler wins and paste lands in the wrong editor.
+			// Paste is intercepted via a keydown listener scoped to THIS editor's
+			// DOM node. `editor.addCommand` registers a *global* keybinding in the
+			// shared standalone services, so with multiple SimpleEditor instances
+			// the last-registered handler wins and paste lands in the wrong editor.
+			// The native `paste` event can't be used either: in the VSCode webview
+			// `clipboardData` is empty, so the only way to read the clipboard is to
+			// focus a real <input> and run `document.execCommand('paste')`.
 			const pasteTarget = divEl
-			const onPaste = (e: ClipboardEvent) => {
+			const onPasteKeydown = (e: KeyboardEvent) => {
+				const isPaste = (e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'v' || e.key === 'V')
+				if (!isPaste) return
 				if (!editor || !editor.hasTextFocus()) return
-				const text = e.clipboardData?.getData('text/plain')
-				if (!text) return
 				e.preventDefault()
 				e.stopPropagation()
-				editor.executeEdits('paste', [
-					{
-						range: editor.getSelection() ?? {
-							startLineNumber: 1,
-							startColumn: 1,
-							endLineNumber: 1,
-							endColumn: 1
-						},
-						text,
-						forceMoveMarkers: true
-					}
-				])
+				inputEl?.focus()
+				document.execCommand('paste')
 			}
-			pasteTarget?.addEventListener('paste', onPaste, true)
-			pasteListenerCleanup = () => pasteTarget?.removeEventListener('paste', onPaste, true)
+			pasteTarget?.addEventListener('keydown', onPasteKeydown, true)
+			pasteListenerCleanup = () => pasteTarget?.removeEventListener('keydown', onPasteKeydown, true)
 		}
 
 		let timeoutModel: number | undefined = undefined
@@ -623,8 +616,42 @@
 	}
 
 	updatePlaceholderVisibility(code ?? '')
+
+	// Hidden input used as the paste sink in the VSCode webview: focusing it and
+	// running `document.execCommand('paste')` fills `pasteValue`, which is then
+	// inserted into this editor's model below.
+	let inputEl = $state<HTMLInputElement | null>(null)
+	let pasteValue = $state('')
+	$effect(() => {
+		if (inputEl && pasteValue) {
+			untrack(() => {
+				editor?.executeEdits('paste', [
+					{
+						range: editor?.getSelection() ?? {
+							startLineNumber: 1,
+							startColumn: 1,
+							endLineNumber: 1,
+							endColumn: 1
+						},
+						text: pasteValue,
+						forceMoveMarkers: true
+					}
+				])
+				pasteValue = ''
+				editor?.focus()
+			})
+		}
+	})
 </script>
 
+{#if parent.window !== window}
+	<input
+		style="height: 0; width: 0; opacity: 0; position: absolute; top: 0; left: 0; z-index: -1;"
+		type="text"
+		bind:this={inputEl}
+		bind:value={pasteValue}
+	/>
+{/if}
 <EditorTheme />
 {#if !editor || suggestion}
 	<FakeMonacoPlaceHolder

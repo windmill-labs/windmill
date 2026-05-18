@@ -17,7 +17,7 @@ export function editorConfig(
 		fixedOverflowWidgets,
 		lineDecorationsWidth: 10,
 		lineNumbersMinChars: 3,
-		lineNumbers: (relativeLineNumbers ?? false) ? 'relative' as const : 'on' as const,
+		lineNumbers: (relativeLineNumbers ?? false) ? ('relative' as const) : ('on' as const),
 		scrollbar: { alwaysConsumeMouseWheel: false },
 		folding: false,
 		scrollBeyondLastLine: false,
@@ -138,4 +138,72 @@ export function displayPartsToString(displayParts: any | undefined): string {
 		return displayParts.map((displayPart) => displayPart.text).join('')
 	}
 	return ''
+}
+
+// In the VSCode webview (iframe), Monaco's clipboard access is restricted:
+// `navigator.clipboard.readText()` and the native `paste` event's
+// `clipboardData` are both empty. The only reliable way to read the clipboard
+// is to focus a real <input> and run `document.execCommand('paste')`.
+//
+// Registering paste via `editor.addCommand(Ctrl+V)` is also broken with
+// multiple editors: standalone editors share a global keybinding registry, so
+// the last-registered handler wins and paste lands in the wrong editor.
+// Instead, scope a keydown listener to the editor's own container element and
+// insert into whichever editor currently has text focus.
+//
+// No-op (returns an empty cleanup) when not running inside a webview iframe.
+export function registerWebviewPaste(
+	container: HTMLElement | null | undefined,
+	getEditor: () => meditor.ICodeEditor | null | undefined
+): () => void {
+	if (!container || typeof window === 'undefined' || window.parent === window) {
+		return () => {}
+	}
+
+	const input = document.createElement('input')
+	input.type = 'text'
+	input.tabIndex = -1
+	input.setAttribute('aria-hidden', 'true')
+	input.style.cssText = 'height:0;width:0;opacity:0;position:absolute;top:0;left:0;z-index:-1;'
+	document.body.appendChild(input)
+
+	const onInput = () => {
+		const text = input.value
+		input.value = ''
+		if (!text) return
+		const editor = getEditor()
+		if (!editor) return
+		editor.executeEdits('paste', [
+			{
+				range: editor.getSelection() ?? {
+					startLineNumber: 1,
+					startColumn: 1,
+					endLineNumber: 1,
+					endColumn: 1
+				},
+				text,
+				forceMoveMarkers: true
+			}
+		])
+		editor.focus()
+	}
+	input.addEventListener('input', onInput)
+
+	const onKeydown = (e: KeyboardEvent) => {
+		const isPaste = (e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'v' || e.key === 'V')
+		if (!isPaste) return
+		const editor = getEditor()
+		if (!editor || !editor.hasTextFocus()) return
+		e.preventDefault()
+		e.stopPropagation()
+		input.focus()
+		document.execCommand('paste')
+	}
+	container.addEventListener('keydown', onKeydown, true)
+
+	return () => {
+		container.removeEventListener('keydown', onKeydown, true)
+		input.removeEventListener('input', onInput)
+		input.remove()
+	}
 }
