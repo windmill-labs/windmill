@@ -144,6 +144,16 @@
 				</div>
 				<ObjectViewer json={contextElement.columns} pureViewer collapseLevel={1} />
 			</div>
+		{:else if contextElement.type === 'workspace_script' || contextElement.type === 'workspace_flow'}
+			<div class="p-2 max-w-96 max-h-[300px] text-xs overflow-auto">
+				<div class="text-tertiary text-xs mb-1">
+					{contextElement.type === 'workspace_script' ? 'script' : 'flow'}
+				</div>
+				<div class="text-primary">{contextElement.path}</div>
+				{#if contextElement.summary}
+					<div class="text-secondary mt-1">{contextElement.summary}</div>
+				{/if}
+			</div>
 		{/if}
 	{/snippet}
 </Popover>

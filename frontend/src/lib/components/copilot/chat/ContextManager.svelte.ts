@@ -66,6 +66,19 @@ export default class ContextManager {
 		)
 	}
 
+	updateAvailableContextForGlobal(workspace: string, currentlySelectedContext: ContextElement[]) {
+		this.availableContext = []
+		if (!workspace || (this.workspace !== undefined && this.workspace !== workspace)) {
+			this.workspace = workspace
+			this.selectedContext = []
+			return
+		}
+		this.workspace = workspace
+		this.selectedContext = currentlySelectedContext.filter(
+			(context) => context.type === 'workspace_script' || context.type === 'workspace_flow'
+		)
+	}
+
 	async updateAvailableContextForFlow(
 		flowOptions: FlowOptions,
 		dbSchemas: DBSchemas,

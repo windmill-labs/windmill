@@ -358,7 +358,7 @@
 >
 	{#if stringSearch.length > 0}
 		<!-- Search view - show flat list -->
-		{#each filteredAvailableContext as element, i}
+		{#each filteredAvailableContext as element, i (element.type + '-' + element.title)}
 			{@const Icon = ContextIconMap[element.type]}
 			<button
 				class="hover:bg-surface-hover rounded-md p-1 text-left flex flex-row gap-1 items-center font-normal transition-colors {i ===
@@ -386,7 +386,7 @@
 		{/if}
 	{:else if currentView === 'categories'}
 		<!-- Categories view -->
-		{#each availableCategories as category, i}
+		{#each availableCategories as category, i (category.id)}
 			{@const Icon = category.icon}
 			<button
 				class="hover:bg-surface-hover rounded-md p-1 pr-0 text-left flex flex-row gap-1 items-center font-normal transition-colors {i ===
@@ -432,7 +432,7 @@
 				No results found
 			</div>
 		{:else}
-			{#each workspaceSearchResults as item, i}
+			{#each workspaceSearchResults as item, i (currentView + '-' + item.path)}
 				{@const isAlreadySelected = selectedContext.some(
 					(c) =>
 						((c.type === 'workspace_script' && currentView === 'scripts') ||
@@ -478,7 +478,7 @@
 		{#if currentCategoryItems.length === 0}
 			<div class="text-center text-primary text-xs py-2">No items in this category</div>
 		{:else}
-			{#each currentCategoryItems as element, i}
+			{#each currentCategoryItems as element, i (element.type + '-' + element.title)}
 				{@const Icon = ContextIconMap[element.type]}
 				<button
 					class="hover:bg-surface-hover rounded-md p-1 text-left flex flex-row gap-1 items-center font-normal transition-colors {i ===
