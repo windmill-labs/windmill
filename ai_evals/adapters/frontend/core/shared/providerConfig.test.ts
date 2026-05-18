@@ -27,6 +27,13 @@ describe("resolveEvalModelProvider", () => {
     });
   });
 
+  it("infers deepseek from DeepSeek model ids", () => {
+    expect(resolveEvalModelProvider("deepseek-v4-flash")).toEqual({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+    });
+  });
+
   it("preserves an explicit provider", () => {
     expect(resolveEvalModelProvider("gemini-2.5-pro", "googleai")).toEqual({
       provider: "googleai",

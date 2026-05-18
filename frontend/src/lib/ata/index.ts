@@ -136,7 +136,7 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 					: '/' + config.scriptPath + (f.raw.startsWith('../') ? '/../' : '/.') + f.raw
 				let url = config.root + path
 				let localPath = f.raw
-				if (f.raw.startsWith('.') && !f.raw.endsWith('.ts')) {
+				if ((f.raw.startsWith('.') || f.raw.startsWith('/')) && !f.raw.endsWith('.ts')) {
 					url += '.ts'
 					localPath += '.ts'
 				}
