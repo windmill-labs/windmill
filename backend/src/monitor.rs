@@ -4090,6 +4090,23 @@ async fn audit_log_retention_days() -> i64 {
 /// `audit_log()` hot path: a single bounded, server-side-aggregated query plus
 /// one object PUT per day-batch, on a single server (advisory lock), on a timer.
 /// There is zero added overhead on the request path.
+///
+/// Exactly-once / no-loss is guaranteed by two predicates working together:
+///   * `id > last_id` — strictly advancing, disjoint id ranges across batches.
+///   * `xmin::text::bigint < txid_snapshot_xmin(txid_current_snapshot())` — a
+///     row is only eligible once its inserting transaction *and every
+///     transaction older than it* have finished. `audit_log()` is commonly
+///     called with the caller's `&mut tx`, and `audit_partitioned.id` is a
+///     sequence value consumed at INSERT time while the row only becomes
+///     visible at the caller's COMMIT. A naive wall-clock watermark would
+///     advance `last_id` past a fast-committing high id while a slow
+///     transaction still holds a lower, not-yet-visible id, dropping that row
+///     forever. Gating on the snapshot xmin makes a row eligible only when no
+///     older transaction (which could still own a lower id) is in flight, so
+///     the exported prefix is always gap-free. Tradeoff: a long-running
+///     transaction (of any kind) holds the snapshot xmin back and stalls
+///     export progress until it ends — this is bounded lag that self-heals,
+///     never loss.
 #[cfg(feature = "parquet")]
 async fn export_audit_logs_to_object_store(db: &DB) {
     use std::sync::atomic::Ordering;
@@ -4105,7 +4122,11 @@ async fn export_audit_logs_to_object_store(db: &DB) {
     // Dedicated transaction-scoped advisory lock so only one server exports at a
     // time in an HA deployment. It is held for the whole read→upload→checkpoint
     // critical section and auto-released when the transaction ends, so an early
-    // return or panic can never leak it.
+    // return or panic can never leak it. Holding the transaction open across the
+    // object-store PUTs keeps a pooled connection checked out (idle-in-tx) for
+    // the upload duration; acceptable given the single-server, once-per-~60s,
+    // `BATCH_LIMIT`-bounded cadence, and required for the read→checkpoint
+    // critical section to be atomic under the lock.
     const AUDIT_S3_EXPORT_LOCK_ID: i64 = 4_011_990_017;
     // Bounded per run so a large backlog drains over successive ticks instead of
     // one huge query/upload.
@@ -4131,10 +4152,13 @@ async fn export_audit_logs_to_object_store(db: &DB) {
         return;
     }
 
-    let checkpoint = load_value_from_global_settings(
-        db,
-        windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING,
+    // Read the checkpoint inside the locked transaction so read→decide→write is
+    // one atomic, lock-protected unit.
+    let checkpoint = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING
     )
+    .fetch_optional(&mut *tx)
     .await
     .ok()
     .flatten();
@@ -4177,25 +4201,25 @@ async fn export_audit_logs_to_object_store(db: &DB) {
         }
     };
 
-    // `id > last_id` is what guarantees exactly-once export. `timestamp >=
-    // last_ts - 1 day` only constrains partition pruning (steady state touches
-    // ~1-2 daily partitions). `timestamp < now() - 10s` skips rows whose
-    // inserting transaction may not have committed yet, preventing
-    // sequence-gap row loss.
+    // `id > last_id` + the snapshot-xmin settled gate guarantee exactly-once,
+    // gap-free export (see the doc comment). `timestamp >= last_ts - 7 days`
+    // only constrains partition pruning; the 7-day slack is far larger than any
+    // realistic audit-writing transaction (Postgres would have aborted it via
+    // statement/idle-in-transaction timeouts long before), so it cannot
+    // re-introduce loss while still pruning to a handful of daily partitions.
     let rows = match sqlx::query!(
         r#"WITH batch AS (
             SELECT workspace_id, id, timestamp, username, operation,
                    action_kind::text AS action_kind, resource, parameters, email, span
             FROM audit_partitioned
-            WHERE timestamp >= $1::timestamptz - interval '1 day'
+            WHERE timestamp >= $1::timestamptz - interval '7 days'
               AND id > $2::bigint
-              AND timestamp < now() - interval '10 seconds'
+              AND xmin::text::bigint < txid_snapshot_xmin(txid_current_snapshot())
             ORDER BY id
             LIMIT $3::bigint
         )
         SELECT to_char(timestamp AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS "day!",
                string_agg(row_to_json(batch)::text, E'\n' ORDER BY id) AS "ndjson!",
-               min(id) AS "min_id!",
                max(id) AS "max_id!",
                max(timestamp) AS "max_ts!"
         FROM batch
@@ -4219,28 +4243,35 @@ async fn export_audit_logs_to_object_store(db: &DB) {
         return;
     }
 
-    // Stable, contiguous id range for this batch so object keys are
-    // deterministic: a retry of the same batch overwrites the same objects
-    // with identical content (idempotent), and successive batches never
-    // overlap (each id satisfies `id > last_id` exactly once).
-    let batch_min_id = rows.iter().map(|r| r.min_id).min().unwrap_or(last_id);
     let batch_max_id = rows.iter().map(|r| r.max_id).max().unwrap_or(last_id);
-    let batch_max_ts = rows.iter().map(|r| r.max_ts).max().unwrap_or(last_ts);
+    // Never let the pruning floor regress.
+    let batch_max_ts = rows
+        .iter()
+        .map(|r| r.max_ts)
+        .max()
+        .unwrap_or(last_ts)
+        .max(last_ts);
 
     for row in &rows {
+        // Key by the *exclusive lower bound* of this batch. The id ranges
+        // (last_id, batch_max_id] are disjoint and contiguous across successive
+        // batches, so each id lands in exactly one object. On a retry after a
+        // failed PUT the checkpoint was not advanced, so `last_id` — and hence
+        // the key — is unchanged: the object is overwritten in place (no
+        // orphan, no duplicate) even if more rows have since settled into this
+        // batch.
         let object_path = windmill_object_store::object_store_reexports::Path::from(format!(
-            "{}dt={}/audit_{}_{}.ndjson",
+            "{}dt={}/audit_from_{}.ndjson",
             windmill_common::tracing_init::LOGS_AUDIT,
             row.day,
-            batch_min_id,
-            batch_max_id
+            last_id
         ));
         if let Err(e) = os
             .put(&object_path, row.ndjson.clone().into_bytes().into())
             .await
         {
-            // Don't advance the checkpoint: the whole batch is retried (and
-            // re-uploaded idempotently) on the next tick.
+            // Don't advance the checkpoint: the whole batch is retried on the
+            // next tick against the same `last_id`, overwriting the same keys.
             tracing::error!(
                 "audit s3 export: failed to upload {object_path}: {e:#}. \
                  Retrying whole batch from last checkpoint next run."
@@ -4270,7 +4301,7 @@ async fn export_audit_logs_to_object_store(db: &DB) {
     tracing::info!(
         "Exported {} audit log day-batch(es) (ids {}..={}) to object store",
         rows.len(),
-        batch_min_id,
+        last_id + 1,
         batch_max_id
     );
 }
