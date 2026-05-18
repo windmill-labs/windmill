@@ -247,6 +247,8 @@ lazy_static::lazy_static! {
 
     pub static ref MONITOR_LOGS_ON_OBJECT_STORE: AtomicBool = AtomicBool::new(false);
 
+    pub static ref STORE_AUDIT_LOGS_S3: AtomicBool = AtomicBool::new(false);
+
     pub static ref INSTANCE_NAME: String = rd_string(5);
 
     pub static ref DEPLOYED_SCRIPT_HASH_CACHE: Cache<(String, String), ExpiringLatestVersionId> = Cache::new(1000);

@@ -66,7 +66,8 @@ use windmill_common::{
         POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING,
         REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
         RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
-        TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING,
+        STORE_AUDIT_LOGS_S3_SETTING, TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING,
+        UV_INDEX_STRATEGY_SETTING,
     },
     indexer::load_indexer_config,
     jwt::JWT_SECRET,
@@ -88,7 +89,7 @@ use windmill_common::{
     CRITICAL_ALERTS_ON_TOKEN_EXPIRY, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB,
     DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
     MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED,
-    SERVICE_LOG_RETENTION_SECS,
+    SERVICE_LOG_RETENTION_SECS, STORE_AUDIT_LOGS_S3,
 };
 use windmill_common::{
     client::AuthedClient,
@@ -352,6 +353,7 @@ pub async fn initial_load(
     if server_mode {
         reload_retention_period_setting(&conn).await;
         reload_audit_log_retention_days_setting(&conn).await;
+        reload_store_audit_logs_s3_setting(&conn).await;
         reload_request_size(&conn).await;
         reload_saml_metadata_setting(&conn).await;
         reload_scim_token_setting(&conn).await;
@@ -1841,6 +1843,21 @@ pub async fn reload_delete_logs_periodically_setting(conn: &Connection) {
     }
 }
 
+pub async fn reload_store_audit_logs_s3_setting(conn: &Connection) {
+    match load_setting_value::<bool>(
+        conn,
+        STORE_AUDIT_LOGS_S3_SETTING,
+        "STORE_AUDIT_LOGS_S3",
+        false,
+        |x| x,
+    )
+    .await
+    {
+        Ok(v) => STORE_AUDIT_LOGS_S3.store(v, Ordering::Relaxed),
+        Err(e) => tracing::error!("Error reloading store_audit_logs_s3 setting: {:?}", e),
+    }
+}
+
 pub async fn reload_job_default_timeout_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
         conn,
@@ -2520,6 +2537,16 @@ pub async fn monitor_db(
         }
     };
 
+    // run every ~60s (2 iterations * 30s)
+    let export_audit_logs_to_object_store_f = async {
+        #[cfg(feature = "parquet")]
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(2) {
+            if let Some(db) = conn.as_sql() {
+                export_audit_logs_to_object_store(&db).await;
+            }
+        }
+    };
+
     let cleanup_scheduled_job_deletions_f = async {
         #[cfg(feature = "enterprise")]
         if server_mode && !initial_load {
@@ -2553,6 +2580,7 @@ pub async fn monitor_db(
         cleanup_notify_events_f,
         check_expiring_tokens_f,
         manage_audit_partitions_f,
+        export_audit_logs_to_object_store_f,
         cleanup_scheduled_job_deletions_f,
     );
 }
@@ -4053,6 +4081,198 @@ async fn audit_log_retention_days() -> i64 {
     } else {
         14
     }
+}
+
+/// Incrementally exports audit logs to a dedicated `logs/audit/` folder in the
+/// instance object store as newline-delimited JSON.
+///
+/// Audit rows are already durable in Postgres, so this runs entirely off the
+/// `audit_log()` hot path: a single bounded, server-side-aggregated query plus
+/// one object PUT per day-batch, on a single server (advisory lock), on a timer.
+/// There is zero added overhead on the request path.
+#[cfg(feature = "parquet")]
+async fn export_audit_logs_to_object_store(db: &DB) {
+    use std::sync::atomic::Ordering;
+
+    if !STORE_AUDIT_LOGS_S3.load(Ordering::Relaxed) {
+        return;
+    }
+
+    let Some(os) = windmill_object_store::get_object_store().await else {
+        return;
+    };
+
+    // Dedicated transaction-scoped advisory lock so only one server exports at a
+    // time in an HA deployment. It is held for the whole read→upload→checkpoint
+    // critical section and auto-released when the transaction ends, so an early
+    // return or panic can never leak it.
+    const AUDIT_S3_EXPORT_LOCK_ID: i64 = 4_011_990_017;
+    // Bounded per run so a large backlog drains over successive ticks instead of
+    // one huge query/upload.
+    const BATCH_LIMIT: i64 = 50_000;
+
+    let mut tx = match db.begin().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            tracing::error!("audit s3 export: failed to begin tx: {e:#}");
+            return;
+        }
+    };
+
+    let locked = sqlx::query_scalar!(
+        "SELECT pg_try_advisory_xact_lock($1) AS \"locked!\"",
+        AUDIT_S3_EXPORT_LOCK_ID
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap_or(false);
+
+    if !locked {
+        return;
+    }
+
+    let checkpoint = load_value_from_global_settings(
+        db,
+        windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING,
+    )
+    .await
+    .ok()
+    .flatten();
+
+    let (last_id, last_ts): (i64, DateTime<Utc>) = match checkpoint {
+        Some(v) => {
+            let last_id = v.get("last_id").and_then(|x| x.as_i64()).unwrap_or(0);
+            let last_ts = v
+                .get("last_ts")
+                .and_then(|x| x.as_str())
+                .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                .map(|d| d.with_timezone(&Utc))
+                .unwrap_or_else(|| DateTime::<Utc>::from_timestamp(0, 0).unwrap());
+            (last_id, last_ts)
+        }
+        None => {
+            // First run: anchor to the current head so only audit logs created
+            // after the feature was enabled are exported (no historical
+            // backfill; older logs remain in Postgres and service logs).
+            let head = sqlx::query_scalar!(
+                "SELECT COALESCE(max(id), 0) AS \"head!\" FROM audit_partitioned"
+            )
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap_or(0);
+            if let Err(e) = sqlx::query!(
+                "INSERT INTO global_settings (name, value) VALUES ($1, $2)
+                 ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
+                windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING,
+                serde_json::json!({ "last_id": head, "last_ts": Utc::now().to_rfc3339() })
+            )
+            .execute(&mut *tx)
+            .await
+            {
+                tracing::error!("audit s3 export: failed to init checkpoint: {e:#}");
+                return;
+            }
+            let _ = tx.commit().await;
+            return;
+        }
+    };
+
+    // `id > last_id` is what guarantees exactly-once export. `timestamp >=
+    // last_ts - 1 day` only constrains partition pruning (steady state touches
+    // ~1-2 daily partitions). `timestamp < now() - 10s` skips rows whose
+    // inserting transaction may not have committed yet, preventing
+    // sequence-gap row loss.
+    let rows = match sqlx::query!(
+        r#"WITH batch AS (
+            SELECT workspace_id, id, timestamp, username, operation,
+                   action_kind::text AS action_kind, resource, parameters, email, span
+            FROM audit_partitioned
+            WHERE timestamp >= $1::timestamptz - interval '1 day'
+              AND id > $2::bigint
+              AND timestamp < now() - interval '10 seconds'
+            ORDER BY id
+            LIMIT $3::bigint
+        )
+        SELECT to_char(timestamp AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS "day!",
+               string_agg(row_to_json(batch)::text, E'\n' ORDER BY id) AS "ndjson!",
+               min(id) AS "min_id!",
+               max(id) AS "max_id!",
+               max(timestamp) AS "max_ts!"
+        FROM batch
+        GROUP BY 1
+        ORDER BY 1"#,
+        last_ts,
+        last_id,
+        BATCH_LIMIT
+    )
+    .fetch_all(&mut *tx)
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("audit s3 export: query failed: {e:#}");
+            return;
+        }
+    };
+
+    if rows.is_empty() {
+        return;
+    }
+
+    // Stable, contiguous id range for this batch so object keys are
+    // deterministic: a retry of the same batch overwrites the same objects
+    // with identical content (idempotent), and successive batches never
+    // overlap (each id satisfies `id > last_id` exactly once).
+    let batch_min_id = rows.iter().map(|r| r.min_id).min().unwrap_or(last_id);
+    let batch_max_id = rows.iter().map(|r| r.max_id).max().unwrap_or(last_id);
+    let batch_max_ts = rows.iter().map(|r| r.max_ts).max().unwrap_or(last_ts);
+
+    for row in &rows {
+        let object_path = windmill_object_store::object_store_reexports::Path::from(format!(
+            "{}dt={}/audit_{}_{}.ndjson",
+            windmill_common::tracing_init::LOGS_AUDIT,
+            row.day,
+            batch_min_id,
+            batch_max_id
+        ));
+        if let Err(e) = os
+            .put(&object_path, row.ndjson.clone().into_bytes().into())
+            .await
+        {
+            // Don't advance the checkpoint: the whole batch is retried (and
+            // re-uploaded idempotently) on the next tick.
+            tracing::error!(
+                "audit s3 export: failed to upload {object_path}: {e:#}. \
+                 Retrying whole batch from last checkpoint next run."
+            );
+            return;
+        }
+    }
+
+    if let Err(e) = sqlx::query!(
+        "INSERT INTO global_settings (name, value) VALUES ($1, $2)
+         ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
+        windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING,
+        serde_json::json!({ "last_id": batch_max_id, "last_ts": batch_max_ts.to_rfc3339() })
+    )
+    .execute(&mut *tx)
+    .await
+    {
+        tracing::error!("audit s3 export: failed to persist checkpoint: {e:#}");
+        return;
+    }
+
+    if let Err(e) = tx.commit().await {
+        tracing::error!("audit s3 export: failed to commit checkpoint: {e:#}");
+        return;
+    }
+
+    tracing::info!(
+        "Exported {} audit log day-batch(es) (ids {}..={}) to object store",
+        rows.len(),
+        batch_min_id,
+        batch_max_id
+    );
 }
 
 async fn manage_audit_partitions(db: &DB, retention_days: i64) {

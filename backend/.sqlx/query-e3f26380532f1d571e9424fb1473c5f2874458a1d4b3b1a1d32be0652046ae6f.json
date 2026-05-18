@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH batch AS (\n            SELECT workspace_id, id, timestamp, username, operation,\n                   action_kind::text AS action_kind, resource, parameters, email, span\n            FROM audit_partitioned\n            WHERE timestamp >= $1::timestamptz - interval '1 day'\n              AND id > $2::bigint\n              AND timestamp < now() - interval '10 seconds'\n            ORDER BY id\n            LIMIT $3::bigint\n        )\n        SELECT to_char(timestamp AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS \"day!\",\n               string_agg(row_to_json(batch)::text, E'\\n' ORDER BY id) AS \"ndjson!\",\n               min(id) AS \"min_id!\",\n               max(id) AS \"max_id!\",\n               max(timestamp) AS \"max_ts!\"\n        FROM batch\n        GROUP BY 1\n        ORDER BY 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "day!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "ndjson!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "min_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "max_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "max_ts!",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "e3f26380532f1d571e9424fb1473c5f2874458a1d4b3b1a1d32be0652046ae6f"
+}
