@@ -132,6 +132,17 @@
 
 	let hasChanged = $derived(!deepEqual(getSaveCfg(), originalConfig ?? {}))
 	const websocketCfg = $derived.by(getSaveCfg)
+
+	// Live, refcounted UserDraft handle keyed reactively on (workspace,
+	// path) so an external UserDraft.save('trigger_websocket', …) propagates
+	// into this open editor (apply-effect below reflects it into the form;
+	// the persist-effect writes form edits back through it).
+	const websocketDraftHandles = UserDraft.useMany<Record<string, any>>(() =>
+		initialPath && $workspaceStore
+			? [{ itemKind: 'trigger_websocket', path: initialPath, workspace: $workspaceStore }]
+			: []
+	)
+	const websocketDraftHandle = $derived(websocketDraftHandles[0])
 	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 	const saveDisabled = $derived.by(() => {
 		const invalidInitialMessages = initial_messages.some((v) => {
@@ -182,13 +193,15 @@
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-			const localCfg = UserDraft.get<Record<string, any>>('trigger_websocket', ePath)
+			const localCfg = websocketDraftHandle?.draft
 			if (localDraftDiffers(localCfg, getSaveCfg())) {
 				const deployedCfg = structuredClone($state.snapshot(getSaveCfg()))
 				loadTriggerConfig(localCfg)
 				notifyRestoredFromLocal(false, true, {
 					onResetToDeployed: () => {
-						UserDraft.remove('trigger_websocket', ePath)
+						UserDraft.discard('trigger_websocket', ePath, deployedCfg, {
+							workspace: $workspaceStore ?? undefined
+						})
 						loadTriggerConfig(deployedCfg)
 					}
 				})
@@ -365,7 +378,9 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
-			UserDraft.remove('trigger_websocket', previousPath)
+			UserDraft.discard('trigger_websocket', previousPath, getSaveCfg(), {
+				workspace: $workspaceStore ?? undefined
+			})
 			onUpdate?.(saveCfg.path)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			initialPath = saveCfg.path
@@ -421,9 +436,38 @@
 		}
 	})
 
+	// Reflect external handle.draft changes (programmatic UserDraft.save,
+	// another tab, …) into the form. The untracked body + localDraftDiffers
+	// idempotence keep this from looping with the persist effect below.
+	$effect(() => {
+		const d = websocketDraftHandle?.draft
+		if (drawerLoading || d == null) return
+		untrack(() => {
+			if (localDraftDiffers(d, getSaveCfg())) {
+				loadTriggerConfig(d)
+			}
+		})
+	})
+
+	// Persist form edits through the live handle. Drops the draft when the
+	// form is back at the deployed baseline (preserves "open + close with no
+	// edits ⇒ no draft"); only writes when the value actually changed vs
+	// what the handle holds, so it can't ping-pong with the apply-effect.
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		UserDraft.saveIfChanged('trigger_websocket', initialPath, websocketCfg, originalConfig)
+		const cfg = websocketCfg
+		if (cfg == null) return
+		untrack(() => {
+			const h = websocketDraftHandle
+			if (!h) return
+			if (localDraftDiffers(cfg, originalConfig)) {
+				if (localDraftDiffers(cfg, h.draft)) h.draft = cfg
+			} else {
+				UserDraft.discard('trigger_websocket', initialPath, originalConfig, {
+					workspace: $workspaceStore ?? undefined
+				})
+			}
+		})
 	})
 </script>
 

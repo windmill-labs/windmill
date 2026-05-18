@@ -112,6 +112,17 @@
 		pathError != '' || emptyString(script_path) || !can_write || !isValid || !hasChanged
 	)
 	const natsConfig = $derived.by(getSaveCfg)
+
+	// Live, refcounted UserDraft handle keyed reactively on (workspace,
+	// path) so an external UserDraft.save('trigger_nats', …) propagates
+	// into this open editor (apply-effect below reflects it into the form;
+	// the persist-effect writes form edits back through it).
+	const natsDraftHandles = UserDraft.useMany<Record<string, any>>(() =>
+		initialPath && $workspaceStore
+			? [{ itemKind: 'trigger_nats', path: initialPath, workspace: $workspaceStore }]
+			: []
+	)
+	const natsDraftHandle = $derived(natsDraftHandles[0])
 	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 
 	$effect(() => {
@@ -138,13 +149,15 @@
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-			const localCfg = UserDraft.get<Record<string, any>>('trigger_nats', ePath)
+			const localCfg = natsDraftHandle?.draft
 			if (localDraftDiffers(localCfg, getSaveCfg())) {
 				const deployedCfg = structuredClone($state.snapshot(getSaveCfg()))
 				await loadTriggerConfig(localCfg)
 				notifyRestoredFromLocal(false, true, {
 					onResetToDeployed: async () => {
-						UserDraft.remove('trigger_nats', ePath)
+						UserDraft.discard('trigger_nats', ePath, deployedCfg, {
+							workspace: $workspaceStore ?? undefined
+						})
 						await loadTriggerConfig(deployedCfg)
 					}
 				})
@@ -271,7 +284,9 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
-			UserDraft.remove('trigger_nats', previousPath)
+			UserDraft.discard('trigger_nats', previousPath, getSaveCfg(), {
+				workspace: $workspaceStore ?? undefined
+			})
 			onUpdate?.(cfg.path)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			initialPath = cfg.path
@@ -337,9 +352,38 @@
 			handleConfigChange(natsConfig, initialConfig, saveDisabled, edit, onConfigChange)
 	})
 
+	// Reflect external handle.draft changes (programmatic UserDraft.save,
+	// another tab, …) into the form. The untracked body + localDraftDiffers
+	// idempotence keep this from looping with the persist effect below.
+	$effect(() => {
+		const d = natsDraftHandle?.draft
+		if (drawerLoading || d == null) return
+		untrack(() => {
+			if (localDraftDiffers(d, getSaveCfg())) {
+				loadTriggerConfig(d)
+			}
+		})
+	})
+
+	// Persist form edits through the live handle. Drops the draft when the
+	// form is back at the deployed baseline (preserves "open + close with no
+	// edits ⇒ no draft"); only writes when the value actually changed vs
+	// what the handle holds, so it can't ping-pong with the apply-effect.
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		UserDraft.saveIfChanged('trigger_nats', initialPath, natsConfig, originalConfig)
+		const cfg = natsConfig
+		if (cfg == null) return
+		untrack(() => {
+			const h = natsDraftHandle
+			if (!h) return
+			if (localDraftDiffers(cfg, originalConfig)) {
+				if (localDraftDiffers(cfg, h.draft)) h.draft = cfg
+			} else {
+				UserDraft.discard('trigger_nats', initialPath, originalConfig, {
+					workspace: $workspaceStore ?? undefined
+				})
+			}
+		})
 	})
 </script>
 

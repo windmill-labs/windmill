@@ -104,6 +104,17 @@
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
 
 	const sqsConfig = $derived.by(getSaveCfg)
+
+	// Live, refcounted UserDraft handle keyed reactively on (workspace,
+	// path) so an external UserDraft.save('trigger_sqs', …) propagates
+	// into this open editor (apply-effect below reflects it into the form;
+	// the persist-effect writes form edits back through it).
+	const sqsDraftHandles = UserDraft.useMany<Record<string, any>>(() =>
+		initialPath && $workspaceStore
+			? [{ itemKind: 'trigger_sqs', path: initialPath, workspace: $workspaceStore }]
+			: []
+	)
+	const sqsDraftHandle = $derived(sqsDraftHandles[0])
 	const captureConfig = $derived.by(getCaptureConfig)
 	const hasChanged = $derived(!deepEqual(sqsConfig, originalConfig ?? {}))
 	const saveDisabled = $derived(
@@ -136,13 +147,15 @@
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-			const localCfg = UserDraft.get<Record<string, any>>('trigger_sqs', ePath)
+			const localCfg = sqsDraftHandle?.draft
 			if (localDraftDiffers(localCfg, getSaveCfg())) {
 				const deployedCfg = structuredClone($state.snapshot(getSaveCfg()))
 				loadTriggerConfig(localCfg)
 				notifyRestoredFromLocal(false, true, {
 					onResetToDeployed: () => {
-						UserDraft.remove('trigger_sqs', ePath)
+						UserDraft.discard('trigger_sqs', ePath, deployedCfg, {
+							workspace: $workspaceStore ?? undefined
+						})
 						loadTriggerConfig(deployedCfg)
 					}
 				})
@@ -293,7 +306,9 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
-			UserDraft.remove('trigger_sqs', previousPath)
+			UserDraft.discard('trigger_sqs', previousPath, getSaveCfg(), {
+				workspace: $workspaceStore ?? undefined
+			})
 			onUpdate?.(cfg.path)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			initialPath = cfg.path
@@ -330,9 +345,38 @@
 	// in-progress work. Skipped while the drawer is loading (the freshly
 	// loaded backend value isn't a user edit) and for new triggers without
 	// a path (no localStorage write would happen anyway).
+	// Reflect external handle.draft changes (programmatic UserDraft.save,
+	// another tab, …) into the form. The untracked body + localDraftDiffers
+	// idempotence keep this from looping with the persist effect below.
+	$effect(() => {
+		const d = sqsDraftHandle?.draft
+		if (drawerLoading || d == null) return
+		untrack(() => {
+			if (localDraftDiffers(d, getSaveCfg())) {
+				loadTriggerConfig(d)
+			}
+		})
+	})
+
+	// Persist form edits through the live handle. Drops the draft when the
+	// form is back at the deployed baseline (preserves "open + close with no
+	// edits ⇒ no draft"); only writes when the value actually changed vs
+	// what the handle holds, so it can't ping-pong with the apply-effect.
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		UserDraft.saveIfChanged('trigger_sqs', initialPath, sqsConfig, originalConfig)
+		const cfg = sqsConfig
+		if (cfg == null) return
+		untrack(() => {
+			const h = sqsDraftHandle
+			if (!h) return
+			if (localDraftDiffers(cfg, originalConfig)) {
+				if (localDraftDiffers(cfg, h.draft)) h.draft = cfg
+			} else {
+				UserDraft.discard('trigger_sqs', initialPath, originalConfig, {
+					workspace: $workspaceStore ?? undefined
+				})
+			}
+		})
 	})
 </script>
 

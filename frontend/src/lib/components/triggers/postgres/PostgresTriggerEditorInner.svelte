@@ -164,6 +164,17 @@
 	)
 
 	const postgresConfig = $derived.by(getSaveCfg)
+
+	// Live, refcounted UserDraft handle keyed reactively on (workspace,
+	// path) so an external UserDraft.save('trigger_postgres', …) propagates
+	// into this open editor (apply-effect below reflects it into the form;
+	// the persist-effect writes form edits back through it).
+	const postgresDraftHandles = UserDraft.useMany<Record<string, any>>(() =>
+		initialPath && $workspaceStore
+			? [{ itemKind: 'trigger_postgres', path: initialPath, workspace: $workspaceStore }]
+			: []
+	)
+	const postgresDraftHandle = $derived(postgresDraftHandles[0])
 	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 
 	const saveDisabled = $derived(
@@ -245,13 +256,15 @@
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-			const localCfg = UserDraft.get<Record<string, any>>('trigger_postgres', ePath)
+			const localCfg = postgresDraftHandle?.draft
 			if (localDraftDiffers(localCfg, getSaveCfg())) {
 				const deployedCfg = structuredClone($state.snapshot(getSaveCfg()))
 				await loadTriggerConfig(localCfg)
 				notifyRestoredFromLocal(false, true, {
 					onResetToDeployed: async () => {
-						UserDraft.remove('trigger_postgres', ePath)
+						UserDraft.discard('trigger_postgres', ePath, deployedCfg, {
+							workspace: $workspaceStore ?? undefined
+						})
 						await loadTriggerConfig(deployedCfg)
 					}
 				})
@@ -423,7 +436,9 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
-			UserDraft.remove('trigger_postgres', previousPath)
+			UserDraft.discard('trigger_postgres', previousPath, getSaveCfg(), {
+				workspace: $workspaceStore ?? undefined
+			})
 			onUpdate?.(path)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			initialPath = cfg.path
@@ -494,10 +509,38 @@
 		}
 	})
 
+	// Reflect external handle.draft changes (programmatic UserDraft.save,
+	// another tab, …) into the form. The untracked body + localDraftDiffers
+	// idempotence keep this from looping with the persist effect below.
+	$effect(() => {
+		const d = postgresDraftHandle?.draft
+		if (drawerLoading || d == null) return
+		untrack(() => {
+			if (localDraftDiffers(d, getSaveCfg())) {
+				loadTriggerConfig(d)
+			}
+		})
+	})
+
+	// Persist form edits through the live handle. Drops the draft when the
+	// form is back at the deployed baseline (preserves "open + close with no
+	// edits ⇒ no draft"); only writes when the value actually changed vs
+	// what the handle holds, so it can't ping-pong with the apply-effect.
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		postgresConfig &&
-			UserDraft.saveIfChanged('trigger_postgres', initialPath, postgresConfig, originalConfig)
+		const cfg = postgresConfig
+		if (cfg == null) return
+		untrack(() => {
+			const h = postgresDraftHandle
+			if (!h) return
+			if (localDraftDiffers(cfg, originalConfig)) {
+				if (localDraftDiffers(cfg, h.draft)) h.draft = cfg
+			} else {
+				UserDraft.discard('trigger_postgres', initialPath, originalConfig, {
+					workspace: $workspaceStore ?? undefined
+				})
+			}
+		})
 	})
 
 	$effect(() => {

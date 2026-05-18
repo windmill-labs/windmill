@@ -108,6 +108,17 @@
 
 	let hasChanged = $derived(!deepEqual(getAzureConfig(), originalConfig ?? {}))
 	const azureConfig = $derived.by(getAzureConfig)
+
+	// Live, refcounted UserDraft handle keyed reactively on (workspace,
+	// path) so an external UserDraft.save('trigger_azure', …) propagates
+	// into this open editor (apply-effect below reflects it into the form;
+	// the persist-effect writes form edits back through it).
+	const azureDraftHandles = UserDraft.useMany<Record<string, any>>(() =>
+		initialPath && $workspaceStore
+			? [{ itemKind: 'trigger_azure', path: initialPath, workspace: $workspaceStore }]
+			: []
+	)
+	const azureDraftHandle = $derived(azureDraftHandles[0])
 	const saveDisabled = $derived(
 		pathError != '' || emptyString(script_path) || !isValid || !can_write || !hasChanged
 	)
@@ -130,13 +141,15 @@
 				initialConfig = structuredClone($state.snapshot(getAzureConfig()))
 			}
 			originalConfig = structuredClone($state.snapshot(getAzureConfig()))
-			const localCfg = UserDraft.get<Record<string, any>>('trigger_azure', ePath)
+			const localCfg = azureDraftHandle?.draft
 			if (localDraftDiffers(localCfg, getAzureConfig())) {
 				const deployedCfg = structuredClone($state.snapshot(getAzureConfig()))
 				await loadTriggerConfig(localCfg)
 				notifyRestoredFromLocal(false, true, {
 					onResetToDeployed: async () => {
-						UserDraft.remove('trigger_azure', ePath)
+						UserDraft.discard('trigger_azure', ePath, deployedCfg, {
+							workspace: $workspaceStore ?? undefined
+						})
 						await loadTriggerConfig(deployedCfg)
 					}
 				})
@@ -234,7 +247,9 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
-			UserDraft.remove('trigger_azure', previousPath)
+			UserDraft.discard('trigger_azure', previousPath, getAzureConfig(), {
+				workspace: $workspaceStore ?? undefined
+			})
 			onUpdate?.(cfg.path)
 			originalConfig = structuredClone($state.snapshot(getAzureConfig()))
 			initialPath = cfg.path
@@ -312,10 +327,38 @@
 		untrack(() => onCaptureConfigChange?.(...args))
 	})
 
+	// Reflect external handle.draft changes (programmatic UserDraft.save,
+	// another tab, …) into the form. The untracked body + localDraftDiffers
+	// idempotence keep this from looping with the persist effect below.
+	$effect(() => {
+		const d = azureDraftHandle?.draft
+		if (drawerLoading || d == null) return
+		untrack(() => {
+			if (localDraftDiffers(d, getAzureConfig())) {
+				loadTriggerConfig(d)
+			}
+		})
+	})
+
+	// Persist form edits through the live handle. Drops the draft when the
+	// form is back at the deployed baseline (preserves "open + close with no
+	// edits ⇒ no draft"); only writes when the value actually changed vs
+	// what the handle holds, so it can't ping-pong with the apply-effect.
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		azureConfig &&
-			UserDraft.saveIfChanged('trigger_azure', initialPath, azureConfig, originalConfig)
+		const cfg = azureConfig
+		if (cfg == null) return
+		untrack(() => {
+			const h = azureDraftHandle
+			if (!h) return
+			if (localDraftDiffers(cfg, originalConfig)) {
+				if (localDraftDiffers(cfg, h.draft)) h.draft = cfg
+			} else {
+				UserDraft.discard('trigger_azure', initialPath, originalConfig, {
+					workspace: $workspaceStore ?? undefined
+				})
+			}
+		})
 	})
 </script>
 

@@ -110,6 +110,17 @@
 
 	let hasChanged = $derived(!deepEqual(getGcpConfig(), originalConfig ?? {}))
 	const gcpConfig = $derived.by(getGcpConfig)
+
+	// Live, refcounted UserDraft handle keyed reactively on (workspace,
+	// path) so an external UserDraft.save('trigger_gcp', …) propagates
+	// into this open editor (apply-effect below reflects it into the form;
+	// the persist-effect writes form edits back through it).
+	const gcpDraftHandles = UserDraft.useMany<Record<string, any>>(() =>
+		initialPath && $workspaceStore
+			? [{ itemKind: 'trigger_gcp', path: initialPath, workspace: $workspaceStore }]
+			: []
+	)
+	const gcpDraftHandle = $derived(gcpDraftHandles[0])
 	const saveDisabled = $derived(
 		pathError != '' || emptyString(script_path) || !isValid || !can_write || !hasChanged
 	)
@@ -132,13 +143,15 @@
 				initialConfig = structuredClone($state.snapshot(getGcpConfig()))
 			}
 			originalConfig = structuredClone($state.snapshot(getGcpConfig()))
-			const localCfg = UserDraft.get<Record<string, any>>('trigger_gcp', ePath)
+			const localCfg = gcpDraftHandle?.draft
 			if (localDraftDiffers(localCfg, getGcpConfig())) {
 				const deployedCfg = structuredClone($state.snapshot(getGcpConfig()))
 				await loadTriggerConfig(localCfg)
 				notifyRestoredFromLocal(false, true, {
 					onResetToDeployed: async () => {
-						UserDraft.remove('trigger_gcp', ePath)
+						UserDraft.discard('trigger_gcp', ePath, deployedCfg, {
+							workspace: $workspaceStore ?? undefined
+						})
 						await loadTriggerConfig(deployedCfg)
 					}
 				})
@@ -243,7 +256,9 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
-			UserDraft.remove('trigger_gcp', previousPath)
+			UserDraft.discard('trigger_gcp', previousPath, getGcpConfig(), {
+				workspace: $workspaceStore ?? undefined
+			})
 			onUpdate?.(cfg.path)
 			originalConfig = structuredClone($state.snapshot(getGcpConfig()))
 			initialPath = cfg.path
@@ -329,9 +344,38 @@
 		}
 	})
 
+	// Reflect external handle.draft changes (programmatic UserDraft.save,
+	// another tab, …) into the form. The untracked body + localDraftDiffers
+	// idempotence keep this from looping with the persist effect below.
+	$effect(() => {
+		const d = gcpDraftHandle?.draft
+		if (drawerLoading || d == null) return
+		untrack(() => {
+			if (localDraftDiffers(d, getGcpConfig())) {
+				loadTriggerConfig(d)
+			}
+		})
+	})
+
+	// Persist form edits through the live handle. Drops the draft when the
+	// form is back at the deployed baseline (preserves "open + close with no
+	// edits ⇒ no draft"); only writes when the value actually changed vs
+	// what the handle holds, so it can't ping-pong with the apply-effect.
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		gcpConfig && UserDraft.saveIfChanged('trigger_gcp', initialPath, gcpConfig, originalConfig)
+		const cfg = gcpConfig
+		if (cfg == null) return
+		untrack(() => {
+			const h = gcpDraftHandle
+			if (!h) return
+			if (localDraftDiffers(cfg, originalConfig)) {
+				if (localDraftDiffers(cfg, h.draft)) h.draft = cfg
+			} else {
+				UserDraft.discard('trigger_gcp', initialPath, originalConfig, {
+					workspace: $workspaceStore ?? undefined
+				})
+			}
+		})
 	})
 </script>
 

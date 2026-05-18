@@ -139,6 +139,17 @@
 	let scopes = $derived(['http_triggers:read:' + path])
 
 	const routeConfig = $derived.by(getRouteConfig)
+
+	// Live, refcounted UserDraft handle keyed reactively on (workspace,
+	// path) so an external UserDraft.save('trigger_http', …) propagates
+	// into this open editor (apply-effect below reflects it into the form;
+	// the persist-effect writes form edits back through it).
+	const routeDraftHandles = UserDraft.useMany<Record<string, any>>(() =>
+		initialPath && $workspaceStore
+			? [{ itemKind: 'trigger_http', path: initialPath, workspace: $workspaceStore }]
+			: []
+	)
+	const routeDraftHandle = $derived(routeDraftHandles[0])
 	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 	const saveDisabled = $derived(
 		drawerLoading ||
@@ -226,13 +237,15 @@
 				initialConfig = structuredClone($state.snapshot(getRouteConfig()))
 			}
 			originalConfig = structuredClone($state.snapshot(getRouteConfig()))
-			const localCfg = UserDraft.get<Record<string, any>>('trigger_http', ePath)
+			const localCfg = routeDraftHandle?.draft
 			if (localDraftDiffers(localCfg, getRouteConfig())) {
 				const deployedCfg = structuredClone($state.snapshot(getRouteConfig()))
 				loadTriggerConfig(localCfg as Partial<HttpTrigger>)
 				notifyRestoredFromLocal(false, true, {
 					onResetToDeployed: () => {
-						UserDraft.remove('trigger_http', ePath)
+						UserDraft.discard('trigger_http', ePath, deployedCfg, {
+							workspace: $workspaceStore ?? undefined
+						})
 						loadTriggerConfig(deployedCfg as Partial<HttpTrigger>)
 					}
 				})
@@ -370,7 +383,9 @@
 				usedTriggerKinds
 			)
 			if (isSaved) {
-				UserDraft.remove('trigger_http', previousPath)
+				UserDraft.discard('trigger_http', previousPath, getRouteConfig(), {
+					workspace: $workspaceStore ?? undefined
+				})
 				onUpdate(saveCfg.path)
 				originalConfig = structuredClone($state.snapshot(getRouteConfig()))
 				initialPath = saveCfg.path
@@ -463,9 +478,38 @@
 		}
 	})
 
+	// Reflect external handle.draft changes (programmatic UserDraft.save,
+	// another tab, …) into the form. The untracked body + localDraftDiffers
+	// idempotence keep this from looping with the persist effect below.
+	$effect(() => {
+		const d = routeDraftHandle?.draft
+		if (drawerLoading || d == null) return
+		untrack(() => {
+			if (localDraftDiffers(d, getRouteConfig())) {
+				loadTriggerConfig(d as Partial<HttpTrigger>)
+			}
+		})
+	})
+
+	// Persist form edits through the live handle. Drops the draft when the
+	// form is back at the deployed baseline (preserves "open + close with no
+	// edits ⇒ no draft"); only writes when the value actually changed vs
+	// what the handle holds, so it can't ping-pong with the apply-effect.
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		UserDraft.saveIfChanged('trigger_http', initialPath, routeConfig, originalConfig)
+		const cfg = routeConfig
+		if (cfg == null) return
+		untrack(() => {
+			const h = routeDraftHandle
+			if (!h) return
+			if (localDraftDiffers(cfg, originalConfig)) {
+				if (localDraftDiffers(cfg, h.draft)) h.draft = cfg
+			} else {
+				UserDraft.discard('trigger_http', initialPath, originalConfig, {
+					workspace: $workspaceStore ?? undefined
+				})
+			}
+		})
 	})
 </script>
 

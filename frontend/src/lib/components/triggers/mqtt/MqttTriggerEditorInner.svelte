@@ -117,6 +117,17 @@
 
 	let hasChanged = $derived(!deepEqual(getSaveCfg(), originalConfig ?? {}))
 	const mqttConfig = $derived.by(getSaveCfg)
+
+	// Live, refcounted UserDraft handle keyed reactively on (workspace,
+	// path) so an external UserDraft.save('trigger_mqtt', …) propagates
+	// into this open editor (apply-effect below reflects it into the form;
+	// the persist-effect writes form edits back through it).
+	const mqttDraftHandles = UserDraft.useMany<Record<string, any>>(() =>
+		initialPath && $workspaceStore
+			? [{ itemKind: 'trigger_mqtt', path: initialPath, workspace: $workspaceStore }]
+			: []
+	)
+	const mqttDraftHandle = $derived(mqttDraftHandles[0])
 	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 	const saveDisabled = $derived(
 		pathError != '' || emptyString(script_path) || !can_write || !isValid || !hasChanged
@@ -150,13 +161,15 @@
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-			const localCfg = UserDraft.get<Record<string, any>>('trigger_mqtt', ePath)
+			const localCfg = mqttDraftHandle?.draft
 			if (localDraftDiffers(localCfg, getSaveCfg())) {
 				const deployedCfg = structuredClone($state.snapshot(getSaveCfg()))
 				await loadTriggerConfig(localCfg)
 				notifyRestoredFromLocal(false, true, {
 					onResetToDeployed: async () => {
-						UserDraft.remove('trigger_mqtt', ePath)
+						UserDraft.discard('trigger_mqtt', ePath, deployedCfg, {
+							workspace: $workspaceStore ?? undefined
+						})
 						await loadTriggerConfig(deployedCfg)
 					}
 				})
@@ -305,7 +318,9 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
-			UserDraft.remove('trigger_mqtt', previousPath)
+			UserDraft.discard('trigger_mqtt', previousPath, getSaveCfg(), {
+				workspace: $workspaceStore ?? undefined
+			})
 			onUpdate?.(cfg.path)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			initialPath = cfg.path
@@ -353,9 +368,38 @@
 		}
 	})
 
+	// Reflect external handle.draft changes (programmatic UserDraft.save,
+	// another tab, …) into the form. The untracked body + localDraftDiffers
+	// idempotence keep this from looping with the persist effect below.
+	$effect(() => {
+		const d = mqttDraftHandle?.draft
+		if (drawerLoading || d == null) return
+		untrack(() => {
+			if (localDraftDiffers(d, getSaveCfg())) {
+				loadTriggerConfig(d)
+			}
+		})
+	})
+
+	// Persist form edits through the live handle. Drops the draft when the
+	// form is back at the deployed baseline (preserves "open + close with no
+	// edits ⇒ no draft"); only writes when the value actually changed vs
+	// what the handle holds, so it can't ping-pong with the apply-effect.
 	$effect(() => {
 		if (drawerLoading || !initialPath) return
-		UserDraft.saveIfChanged('trigger_mqtt', initialPath, mqttConfig, originalConfig)
+		const cfg = mqttConfig
+		if (cfg == null) return
+		untrack(() => {
+			const h = mqttDraftHandle
+			if (!h) return
+			if (localDraftDiffers(cfg, originalConfig)) {
+				if (localDraftDiffers(cfg, h.draft)) h.draft = cfg
+			} else {
+				UserDraft.discard('trigger_mqtt', initialPath, originalConfig, {
+					workspace: $workspaceStore ?? undefined
+				})
+			}
+		})
 	})
 </script>
 
