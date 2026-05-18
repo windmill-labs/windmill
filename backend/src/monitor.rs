@@ -4363,3 +4363,177 @@ async fn manage_audit_partitions(db: &DB, retention_days: i64) {
         Err(e) => tracing::error!("Error listing audit partitions: {e:?}"),
     }
 }
+
+#[cfg(all(test, feature = "parquet"))]
+mod audit_s3_export_tests {
+    use super::*;
+    use futures::StreamExt;
+    use std::sync::atomic::Ordering;
+    use std::sync::Arc;
+    use windmill_object_store::object_store_reexports::{InMemory, ObjectStore, Path as OsPath};
+    use windmill_object_store::{ExpirableObjectStore, OBJECT_STORE_SETTINGS};
+
+    async fn install_in_memory_store() -> Arc<InMemory> {
+        let store = Arc::new(InMemory::new());
+        let dynstore: Arc<dyn ObjectStore> = store.clone();
+        let mut settings = OBJECT_STORE_SETTINGS.write().await;
+        *settings = Some(ExpirableObjectStore::from(dynstore));
+        store
+    }
+
+    async fn clear_store() {
+        let mut settings = OBJECT_STORE_SETTINGS.write().await;
+        *settings = None;
+    }
+
+    async fn insert_audit<'e, E>(executor: E, operation: &str) -> i64
+    where
+        E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+    {
+        sqlx::query_scalar::<_, i64>(
+            "INSERT INTO audit_partitioned
+                 (workspace_id, username, operation, action_kind, parameters)
+             VALUES ('test-ws', 'tester', $1, 'create'::action_kind, '{}'::jsonb)
+             RETURNING id",
+        )
+        .bind(operation)
+        .fetch_one(executor)
+        .await
+        .expect("insert audit row")
+    }
+
+    /// All exported audit records across every object under `logs/audit/`,
+    /// flattened and sorted by id.
+    async fn exported_ids(store: &InMemory) -> Vec<i64> {
+        let prefix = OsPath::from("logs/audit");
+        let metas = store
+            .list(Some(&prefix))
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .map(|m| m.expect("list object"))
+            .collect::<Vec<_>>();
+        let mut ids = Vec::new();
+        for meta in metas {
+            let bytes = store
+                .get(&meta.location)
+                .await
+                .expect("get object")
+                .bytes()
+                .await
+                .expect("read object bytes");
+            for line in std::str::from_utf8(&bytes).unwrap().lines() {
+                if line.is_empty() {
+                    continue;
+                }
+                let v: serde_json::Value = serde_json::from_str(line).expect("valid ndjson line");
+                ids.push(v.get("id").and_then(|x| x.as_i64()).expect("row has id"));
+            }
+        }
+        ids.sort();
+        ids
+    }
+
+    async fn checkpoint_last_id(db: &DB) -> Option<i64> {
+        sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT value FROM global_settings WHERE name = $1",
+        )
+        .bind(windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING)
+        .fetch_optional(db)
+        .await
+        .unwrap()
+        .and_then(|v| v.get("last_id").and_then(|x| x.as_i64()))
+    }
+
+    // Covers, in one DB so global object-store state can't race across tests:
+    //  - first run anchors the checkpoint and does NOT backfill history
+    //  - steady state exports new rows exactly once, checkpoint advances
+    //  - re-run with no new rows is a no-op (idempotent)
+    //  - P0 regression: a row written by a still-open (older) transaction is
+    //    never skipped — the export must not advance past it.
+    #[sqlx::test(migrations = "./migrations")]
+    async fn audit_export_end_to_end(db: DB) -> anyhow::Result<()> {
+        STORE_AUDIT_LOGS_S3.store(true, Ordering::Relaxed);
+        let store = install_in_memory_store().await;
+
+        // --- rows that exist before the feature was enabled ---
+        let _pre1 = insert_audit(&db, "pre.1").await;
+        let pre2 = insert_audit(&db, "pre.2").await;
+
+        // First run only anchors; nothing is backfilled.
+        export_audit_logs_to_object_store(&db).await;
+        assert!(
+            exported_ids(&store).await.is_empty(),
+            "first run must not backfill pre-existing rows"
+        );
+        assert_eq!(
+            checkpoint_last_id(&db).await,
+            Some(pre2),
+            "first run anchors checkpoint at current head"
+        );
+
+        // --- steady state: rows created after enabling ---
+        let a = insert_audit(&db, "a").await;
+        let b = insert_audit(&db, "b").await;
+        export_audit_logs_to_object_store(&db).await;
+        assert_eq!(
+            exported_ids(&store).await,
+            vec![a, b],
+            "only post-enable rows, each exactly once, in id order"
+        );
+        assert_eq!(
+            checkpoint_last_id(&db).await,
+            Some(b),
+            "checkpoint advances monotonically to the batch max id"
+        );
+
+        // --- idempotent: nothing new -> no-op ---
+        export_audit_logs_to_object_store(&db).await;
+        assert_eq!(
+            exported_ids(&store).await,
+            vec![a, b],
+            "re-run with no new rows must not duplicate"
+        );
+        assert_eq!(checkpoint_last_id(&db).await, Some(b));
+
+        // --- P0 regression: older transaction still open ---
+        let mut slow = db.begin().await?;
+        let slow_id = insert_audit(&mut *slow, "slow").await; // id assigned, NOT committed
+        let c = insert_audit(&db, "c").await; // committed, higher id
+        let d = insert_audit(&db, "d").await; // committed, higher id
+        assert!(slow_id < c && c < d);
+
+        export_audit_logs_to_object_store(&db).await;
+        let after = exported_ids(&store).await;
+        assert!(
+            !after.contains(&c) && !after.contains(&d) && !after.contains(&slow_id),
+            "must not export past a row owned by an older in-flight transaction"
+        );
+        assert_eq!(
+            checkpoint_last_id(&db).await,
+            Some(b),
+            "checkpoint must not advance while an older transaction is in flight"
+        );
+
+        // Once the slow transaction commits, every row settles and is exported.
+        slow.commit().await?;
+        export_audit_logs_to_object_store(&db).await;
+        let final_ids = exported_ids(&store).await;
+        for id in [a, b, slow_id, c, d] {
+            assert!(
+                final_ids.contains(&id),
+                "id {id} must be exported (no loss): got {final_ids:?}"
+            );
+        }
+        let mut deduped = final_ids.clone();
+        deduped.dedup();
+        assert_eq!(
+            deduped, final_ids,
+            "each id exported exactly once: {final_ids:?}"
+        );
+
+        clear_store().await;
+        STORE_AUDIT_LOGS_S3.store(false, Ordering::Relaxed);
+        Ok(())
+    }
+}
