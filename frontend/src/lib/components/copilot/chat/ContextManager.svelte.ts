@@ -34,6 +34,7 @@ export default class ContextManager {
 	private availableContext: ContextElement[] = $state([])
 
 	private workspace: string | undefined = undefined
+	private dbResourcesWorkspace: string | undefined = undefined
 	private dbResources: ListResourceResponse = []
 	private scriptOptions: ScriptOptions | undefined = undefined
 
@@ -42,6 +43,7 @@ export default class ContextManager {
 			workspace: workspace,
 			resourceType: SQLSchemaLanguages.join(',')
 		})
+		this.dbResourcesWorkspace = workspace
 	}
 
 	private getSelectedDBSchema(scriptOptions: ScriptOptions, dbSchemas: DBSchemas) {
@@ -87,10 +89,10 @@ export default class ContextManager {
 		currentlySelectedContext: ContextElement[]
 	) {
 		try {
-			if (this.workspace !== workspace) {
+			if (this.dbResourcesWorkspace !== workspace) {
 				await this.refreshDbResources(workspace)
-				this.workspace = workspace
 			}
+			this.workspace = workspace
 
 			let newAvailableContext: ContextElement[] = []
 
@@ -174,10 +176,10 @@ export default class ContextManager {
 		currentlySelectedContext: ContextElement[]
 	) {
 		try {
-			if (this.workspace !== workspace) {
+			if (this.dbResourcesWorkspace !== workspace) {
 				await this.refreshDbResources(workspace)
-				this.workspace = workspace
 			}
+			this.workspace = workspace
 			let newAvailableContext: ContextElement[] = [
 				{
 					type: 'code',
