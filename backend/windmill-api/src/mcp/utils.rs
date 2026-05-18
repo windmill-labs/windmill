@@ -264,16 +264,20 @@ fn get_original_name(renamed_key: &str, field_renames: &Option<Value>) -> String
 }
 
 /// Reject path parameter values that could alter the URL structure of the
-/// internal backend request (path traversal, scheme/authority/query/fragment
-/// injection, percent-encoded bypasses).
+/// internal backend request (path traversal, query/fragment injection,
+/// percent-encoded and backslash bypasses).
 ///
 /// MCP endpoint tools build internal API URLs by string-substituting these
 /// values into a fixed path template. A value containing `..` segments would
 /// let a narrowly-scoped tool reach unrelated same-method endpoints once the
 /// HTTP client normalizes the URL (e.g. `scripts/get/p/../../../resources/...`
-/// collapses to `resources/...`). Windmill resource/script/flow paths only ever
-/// contain `[A-Za-z0-9_-]` segments joined by `/`, so this rejects anything
-/// that isn't a clean relative path.
+/// collapses to `resources/...`).
+///
+/// Only structural escapes are rejected — not every character the backend
+/// happens not to use. Windmill paths legitimately contain spaces (app paths)
+/// and `@` (email-style usernames, e.g. `u/admin@windmill.dev/...`); those are
+/// ordinary path-segment data in an absolute URL and cannot redirect the
+/// request, so rejecting them would regress valid MCP calls.
 fn validate_path_param_value(param_name: &str, value: &str) -> BackendResult<()> {
     let reject = |reason: &str| {
         tracing::warn!(
@@ -291,12 +295,18 @@ fn validate_path_param_value(param_name: &str, value: &str) -> BackendResult<()>
         return reject("must not be empty");
     }
 
-    // Disallowed characters: control/whitespace, backslash, percent-encoding
-    // (would let `%2e%2e%2f` decode to `../` server-side), and the URL
-    // delimiters that would let the value escape the path component entirely.
-    if let Some(bad) = value.chars().find(|c| {
-        c.is_control() || c.is_whitespace() || matches!(*c, '\\' | '%' | '?' | '#' | ':' | '@')
-    }) {
+    // Structurally dangerous characters only:
+    // - control chars (incl. tab/CR/LF): the WHATWG URL parser strips these,
+    //   so `.<TAB>.` could be reassembled into `..`
+    // - `\`: WHATWG converts it to `/` for http(s), enabling `..\..\` traversal
+    // - `%`: would let `%2e%2e%2f` decode to `../` server-side
+    // - `?` / `#`: query/fragment delimiters that truncate or redirect the path
+    // A literal space is *not* rejected: the URL crate percent-encodes it
+    // (`%20`) so it cannot alter routing, and app paths legitimately use it.
+    if let Some(bad) = value
+        .chars()
+        .find(|c| c.is_control() || matches!(*c, '\\' | '%' | '?' | '#'))
+    {
         return reject(&format!("contains disallowed character {:?}", bad));
     }
 
@@ -509,6 +519,9 @@ mod tests {
             "myscript",
             "01h00000-0000-0000-0000-000000000000",
             "123",
+            "u/admin/My App",         // app paths legitimately contain spaces
+            "u/admin@windmill.dev/x", // email-style usernames contain '@'
+            "f/folder/tag:v1",        // ':' is valid path-segment data
         ] {
             assert!(
                 validate_path_param_value("path", ok).is_ok(),
@@ -529,14 +542,12 @@ mod tests {
             "trailing/",
             "double//slash",
             "",
-            "back\\slash",
-            "has space",
-            "with\nnewline",
-            "query?x=1",
-            "frag#ment",
+            "back\\slash",         // WHATWG converts '\' -> '/'
+            "with\nnewline",       // control char (stripped by URL parser)
+            "tab\there",           // control char
+            "query?x=1",           // query delimiter truncates the path
+            "frag#ment",           // fragment delimiter truncates the path
             "pct%2e%2e%2fencoded", // percent-encoded `../`
-            "scheme:authority",
-            "user@host",
         ] {
             assert!(
                 validate_path_param_value("path", bad).is_err(),
