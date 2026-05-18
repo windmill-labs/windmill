@@ -1521,6 +1521,61 @@ async function preview(
   const codebase =
     language == "bun" ? findCodebase(filePath, codebases) : undefined;
 
+  // Resolve relative imports from local (not-yet-deployed) content so previewing
+  // a script that imports other locally-edited scripts uses the local versions
+  // instead of the deployed ones. Mirrors the dependency-tree upload used by
+  // metadata generation; degrades gracefully on older backends.
+  let tempScriptRefs: Record<string, string> | undefined = undefined;
+  try {
+    const { DoubleLinkedDependencyTree, uploadScripts } = await import(
+      "../../utils/dependency_tree.ts"
+    );
+    const rawWorkspaceDependencies = await getRawWorkspaceDependencies(true);
+    const tree = new DoubleLinkedDependencyTree();
+    tree.setWorkspaceDeps(rawWorkspaceDependencies);
+    const ignore = await ignoreF(opts);
+    const elems = await elementsToMap(
+      await FSFSElement(process.cwd(), codebases, false),
+      (p, isD) =>
+        (!isD && !exts.some((ext) => p.endsWith(ext))) ||
+        ignore(p, isD) ||
+        isFlowPath(p) ||
+        isAppPath(p) ||
+        isRawAppPath(p) ||
+        (isScriptModulePath(p) && !isModuleEntryPoint(p)),
+      false,
+      {}
+    );
+    for (const e of Object.keys(elems)) {
+      await generateScriptMetadataInternal(
+        e,
+        workspace,
+        opts,
+        true, // dryRun: only populate the tree
+        true, // noStaleMessage
+        rawWorkspaceDependencies,
+        codebases,
+        false,
+        tree
+      );
+    }
+    tree.propagateStaleness();
+    await uploadScripts(tree, workspace);
+    const refs = tree.getTempScriptRefs(scriptPathToRemotePath(filePath));
+    if (refs && Object.keys(refs).length > 0) {
+      tempScriptRefs = refs;
+    }
+  } catch (e) {
+    if (!opts.silent) {
+      log.warn(
+        colors.yellow(
+          `Could not resolve local relative imports for preview (backend may be too old): ${e}. ` +
+            `Relative imports will use deployed script versions.`
+        )
+      );
+    }
+  }
+
   let bundledContent: string | Blob | undefined = undefined;
   let isTar = false;
 
@@ -1616,6 +1671,7 @@ async function preview(
       language: language,
       kind: isTar ? "tarbundle" : "bundle",
       format: codebase?.format ?? "cjs",
+      temp_script_refs: tempScriptRefs,
     };
     form.append("preview", JSON.stringify(previewPayload));
     form.append(
@@ -1683,6 +1739,7 @@ async function preview(
         args: input,
         language: language as any,
         modules: modules ?? undefined,
+        temp_script_refs: tempScriptRefs,
       },
     });
 
