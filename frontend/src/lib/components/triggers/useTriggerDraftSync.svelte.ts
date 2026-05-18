@@ -69,11 +69,7 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 		})
 	}
 
-	// Reflect external handle.draft changes into the form. The body is
-	// untracked so reading getCfg() / writing form state via applyCfg does
-	// not subscribe this effect to itself — only handle.draft and
-	// drawerLoading are dependencies. localDraftDiffers makes it idempotent,
-	// which (with the gated write below) breaks the apply⇄persist loop.
+	// apply-effect: external handle.draft → form.
 	$effect(() => {
 		const d = handle?.draft
 		if (opts.drawerLoading() || d == null) return
@@ -84,10 +80,8 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 		})
 	})
 
-	// Persist form edits through the live handle. Gated so it (a) drops the
-	// draft when the form is back at the deployed baseline — preserving
-	// "open + close with no edits leaves no draft" — and (b) only writes
-	// when the value actually changed vs what the handle already holds.
+	// persist-effect: form edits → handle; drop the draft when back at the
+	// deployed baseline.
 	$effect(() => {
 		if (opts.drawerLoading() || !opts.path()) return
 		const cfg = opts.getCfg()

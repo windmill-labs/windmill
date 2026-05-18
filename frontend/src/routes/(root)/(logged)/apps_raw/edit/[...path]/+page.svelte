@@ -113,12 +113,8 @@
 		draftHandle.draft = { files, runnables, data, summary }
 	})
 
-	// Reflect an external UserDraft.save('raw_app', path) (programmatic
-	// write, another tab) into the form in real time. The `!files` guard
-	// covers the run()→loadApp() reload window (files is set undefined then
-	// re-populated at the end of reconciliation); untracked body +
-	// localDraftDiffers idempotence break the loop with the persist effect
-	// above.
+	// Reflect an external UserDraft.save into the form. Idempotent; the
+	// `!files` guard skips the reload window so it doesn't fight loadApp.
 	$effect(() => {
 		const d = draftHandle.draft
 		if (d == null || !files) return

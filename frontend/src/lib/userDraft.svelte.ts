@@ -171,11 +171,8 @@ export function checkStaleness(
 }
 
 /**
- * Synchronously write to localStorage, bypassing the entry's setter. Used by
- * `setMeta({ force: true })` so a "Keep current draft" modal acknowledgement
- * persists even when it happens to be the first state mutation of the entry
- * (which `useLocalStorageValue`'s `saveInitialValue: false` contract would
- * otherwise skip).
+ * Synchronous localStorage write, bypassing the entry's debounced setter
+ * and its first-write skip. See `setMeta({ force: true })`.
  */
 function persistDirect<V>(key: string, value: V | undefined, meta: UserDraftMeta): void {
 	try {
@@ -195,9 +192,7 @@ function readPersisted<V>(key: string): StoredDraft<V> | undefined {
 		const raw = localStorage.getItem(key)
 		if (raw == null || raw === 'undefined') return undefined
 		const parsed = JSON.parse(raw)
-		// Defensive: drop entries written before the wrapping migration. Their
-		// raw payload doesn't have a `.value` and would surface as undefined
-		// anyway — we just don't want to confuse `has()` callers.
+		// Defensive: ignore pre-wrapping payloads (no `.value`).
 		if (parsed == null || typeof parsed !== 'object' || !('value' in parsed)) return undefined
 		return parsed as StoredDraft<V>
 	} catch (e) {
@@ -223,27 +218,14 @@ export type UserDraftHandle<V> = {
 	 */
 	get meta(): UserDraftMeta
 	/**
-	 * Atomically set the draft value AND its rev metadata in a single write.
-	 *
-	 * Used by editor routes to record the backend rev at load time without
-	 * triggering an extra persist (combined with the value write, the
-	 * underlying useLocalStorageValue's saveInitialValue=false dedup skips
-	 * it). Subsequent `handle.draft = X` writes only mutate `value` and
-	 * preserve whatever rev metadata is in place.
+	 * Set value AND rev metadata in one write (no extra persist). Later
+	 * `draft = X` writes preserve the rev metadata.
 	 */
 	setDraftAndMeta(value: V | undefined, meta: UserDraftMeta): void
 	/**
-	 * Update the rev metadata in place without touching the draft value.
-	 * Used after the "Keep current draft" modal action to ack the new remote
-	 * rev so the staleness modal doesn't fire again until the remote moves
-	 * further.
-	 *
-	 * Pass `{ force: true }` to also persist the new meta to localStorage
-	 * synchronously, bypassing `saveInitialValue: false`'s skip of the first
-	 * state mutation. Without `force`, an ack that happens to be the first
-	 * write on the entry would only update in-memory state and be lost on
-	 * next mount — re-triggering the staleness modal even after the user
-	 * just acknowledged it.
+	 * Update rev metadata without touching the value. `{ force: true }` also
+	 * persists synchronously — use when this may be the entry's first write,
+	 * else the ack is lost on remount.
 	 */
 	setMeta(meta: UserDraftMeta, opts?: { force?: boolean }): void
 }
@@ -298,19 +280,14 @@ export const UserDraft = {
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) {
-			// Update the shared reactive state so all observers are notified.
-			// The underlying useLocalStorageValue setter persists the wrapped
-			// value. Preserve any existing rev metadata on the entry. The
-			// meta-preservation read runs under `untrack` for the same reason
-			// as `UserDraftHandle.set draft` — defensive against being called
-			// from inside an effect.
+			// Notify observers; preserve existing rev metadata. `untrack`ed
+			// read — see `set draft` below for why.
 			const current = untrack(() => entry.state.val as StoredDraft<unknown> | undefined)
 			entry.state.val = wrap(value, extractMeta(current))
 			return
 		}
-		// External save without a live handle: preserve any persisted meta
-		// so the staleness signal isn't lost just because the editor wasn't
-		// open while we wrote.
+		// No live handle: preserve any persisted meta so the staleness
+		// signal survives a write while the editor is closed.
 		const existing = readPersisted<unknown>(localStorageKey(ws, itemKind, path))
 		try {
 			localStorage.setItem(
@@ -323,17 +300,11 @@ export const UserDraft = {
 	},
 
 	/**
-	 * Autosave gate. Persists `value` as the local draft only when it
-	 * differs (after `normalizeForCompare`) from `deployed` — the backend
-	 * baseline the editor loaded and keeps in sync across saves (the same
-	 * value the editor's own `hasChanged` / dirty signal compares against).
-	 * When equal, removes any existing draft instead.
-	 *
-	 * Without this, an editor's autosave `$effect` fires once as soon as it
-	 * finishes loading (the `drawerLoading` flag flips and the just-loaded
-	 * config counts as a "change" to the effect), so merely opening and
-	 * closing an editor with no edits would leave a no-op draft behind that
-	 * `has()` / restore guards then treat as unsaved work forever.
+	 * Autosave gate: persist `value` only when it differs (after
+	 * `normalizeForCompare`) from the `deployed` baseline; otherwise remove
+	 * any draft. Without this, opening and closing an editor with no edits
+	 * would leave a no-op draft that `has()` / restore guards treat as
+	 * unsaved work.
 	 */
 	saveIfChanged<V>(
 		itemKind: UserDraftItemKind,
@@ -426,19 +397,10 @@ export const UserDraft = {
 	},
 
 	/**
-	 * Discard the local autosave and reset any live handle's `draft` to
-	 * `fallback`. Differs from `remove` in two ways:
-	 *
-	 * 1. The in-memory cell is updated, so consumers reactively reading
-	 *    `handle.draft` immediately see the fallback instead of the
-	 *    stale local autosave.
-	 * 2. The in-memory reset is marked to skip the next persist, so the
-	 *    fallback value does NOT round-trip back into localStorage. The
-	 *    LS slot stays empty until the user makes a real edit.
-	 *
-	 * Used by route editors' "Reset to deployed" flow: pass the backend
-	 * baseline as `fallback` so the form repaints against deployed state
-	 * without leaving a duplicate-of-backend LS entry behind.
+	 * Like `remove`, but also resets any live handle's `draft` to
+	 * `fallback` in-memory (so reactive readers see it immediately) and
+	 * skips re-persisting it, leaving the LS slot empty until the next real
+	 * edit. Pass the deployed baseline as `fallback`.
 	 */
 	discard<V>(
 		itemKind: UserDraftItemKind,
@@ -450,11 +412,8 @@ export const UserDraft = {
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) {
-			// Arm the skip BEFORE the cell write so `useLocalStorageValue`'s
-			// setter consumes it and suppresses the would-be persist. The
-			// explicit `localStorage.removeItem` below is what actually
-			// clears the slot (and also covers the case where no live
-			// handle exists).
+			// Arm the skip before the cell write so the setter suppresses
+			// the persist; the removeItem below actually clears the slot.
 			entry.state.skipNextWriteOnce()
 			entry.state.val = wrap(fallback) as StoredDraft<unknown> | undefined
 		}
@@ -529,18 +488,11 @@ export const UserDraft = {
 				}
 			}
 
-			// Skip the mutation when specs are structurally unchanged — handles
-			// are cached by mapKey, so two reconciles with the same spec set
-			// produce reference-equal arrays. Avoids dirtying downstream
-			// reactive readers on no-op `$effect` re-runs.
-			//
-			// Both the comparison reads AND the splice's own `.length` read
-			// run under `untrack` so the effect doesn't register `handles`
-			// as one of its own dependencies — otherwise the splice would
-			// re-fire the effect, splice again, … (Svelte raises
-			// `effect_update_depth_exceeded`). The splice's downstream
-			// notification still propagates; `untrack` only suppresses the
-			// dependency subscription on the producer side.
+			// Skip no-op mutations (handles are cached by mapKey, so an
+			// unchanged spec set yields reference-equal arrays). `untrack` so
+			// this effect doesn't subscribe to its own `handles` write —
+			// otherwise it self-loops (`effect_update_depth_exceeded`).
+			// Downstream notification still propagates.
 			untrack(() => {
 				const unchanged = handles.length === next.length && handles.every((h, i) => h === next[i])
 				if (!unchanged) handles.splice(0, handles.length, ...next)
@@ -575,27 +527,16 @@ function acquireEntry(
 		existing.count++
 		return
 	}
-	// `useLocalStorageValue` registers a `$state` cell and a persist `$effect`
-	// for deep-mutation detection. The `$effect` is what makes
-	// `handle.draft.path = 'new'` (a deep mutation, not a setter call)
-	// actually hit localStorage. By default that `$effect` is parented to the
-	// caller's current scope — if `useMany`'s reconcile `$effect` is the
-	// caller (when a new spec is acquired during a reactive re-run), the
-	// persist `$effect` becomes its child and gets torn down on the next
-	// reconcile. Wrap the creation in `$effect.root` so the entry's
-	// reactivity lives in its own scope and only the entry's release path
-	// disposes of it.
+	// `useLocalStorageValue`'s internal persist `$effect` would otherwise
+	// parent to `useMany`'s reconcile effect and be torn down on the next
+	// reconcile. `$effect.root` gives the entry its own scope, disposed only
+	// by `releaseEntry`.
 	const useLocalStorageOptions = {
-		// The first value to flow into the handle (e.g. a backend load in
-		// the editor route) is the baseline — only persist when the user
-		// actually changes it afterwards. Coalesce a typing storm into one
-		// localStorage write per 500 ms.
+		// First value is the baseline (don't persist it); coalesce edits.
 		saveInitialValue: false,
 		debounce: 500,
-		// Stamp every write with `lastWrittenAt` so the periodic GC pass
-		// can sweep entries that haven't been touched in 30 days. Done at
-		// persist time (not via `wrap()`) so deep mutations — which never
-		// re-run the setter — still bump the clock on each flush.
+		// Stamp `lastWrittenAt` at persist time so deep mutations also bump
+		// the GC clock (the setter doesn't re-run for those).
 		transformBeforePersist: stamp<unknown>
 	} as const
 	let stateRef: DraftState<unknown> | undefined
@@ -611,12 +552,8 @@ function acquireEntry(
 		entries.set(mk, { count: 1, state: stateRef, destroyRoot })
 		return
 	}
-	// Fallback for the vitest runtime, where `$effect.root` returns its
-	// disposer but never invokes the callback. In tests there's no outer
-	// reactive effect calling acquireEntry, so the persist `$effect` parents
-	// to the test scope and lives long enough for assertions. In production
-	// `$effect.root` runs the callback synchronously per the Svelte 5 spec
-	// and this path is unreachable.
+	// Fallback for the vitest runtime where `$effect.root`'s callback isn't
+	// invoked. Unreachable in production (Svelte runs it synchronously).
 	const state = useLocalStorageValue<StoredDraft<unknown> | undefined>(
 		localStorageKey(workspace, itemKind, path),
 		wrap(defaultValue),
@@ -653,16 +590,11 @@ function makeHandle<V>(
 			return unwrap(stateOf()?.val as StoredDraft<V> | undefined)
 		},
 		set draft(value: V | undefined) {
-			// Preserve existing rev metadata when the user just edits the
-			// value (e.g. typing in the editor). useLocalStorageValue's
-			// setter writes synchronously and removes the localStorage
-			// entry when value is undefined.
-			//
-			// `state.val` must be read under `untrack` — callers commonly
-			// invoke this setter from inside a `$effect` that mirrors a
-			// reactive `$state` into the handle. A tracked read here would
-			// subscribe that effect to the entry's `$state` cell that we're
-			// about to write, creating an effect_update_depth_exceeded loop.
+			// Preserve existing rev metadata on a value edit. `untrack` the
+			// read: callers often set this from inside a `$effect` mirroring
+			// `$state` into the handle; a tracked read would subscribe that
+			// effect to the cell it's about to write (self-loop →
+			// effect_update_depth_exceeded).
 			const state = stateOf()
 			if (!state) return
 			const current = untrack(() => state.val as StoredDraft<V> | undefined)

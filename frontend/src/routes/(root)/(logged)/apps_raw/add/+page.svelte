@@ -126,13 +126,8 @@
 	/** Data configuration including tables and creation policy */
 	let data: RawAppData = $state(restoredDraft?.data ?? { ...DEFAULT_DATA })
 
-	// `useLocalStorageValue`'s saveInitialValue=false skips the first
-	// persist that differs from the loaded LS state. When the editor is
-	// seeded FROM that LS state the first divergent write is the user's
-	// first edit, which would be silently dropped. Consume the skip slot
-	// up-front with a wipe (clears in-memory only — the would-be LS delete
-	// is itself the skip side-effect) then restore. See AppEditor for the
-	// same reasoning.
+	// First mirror consumes the handle's first-write skip up-front (wipe
+	// then restore) so the user's first real edit isn't the one dropped.
 	let firstMirror = true
 	$effect(() => {
 		readFieldsRecursively(files)
@@ -148,12 +143,9 @@
 		})
 	})
 
-	// Reflect an external UserDraft.save('raw_app', '') (programmatic write,
-	// another tab) into the form in real time. untracked body +
-	// localDraftDiffers idempotence break the loop with the mirror effect
-	// above; the d == null guard covers the "start fresh" discards in
-	// loadApp() so imported/template content isn't clobbered by a stale
-	// in-memory draft.
+	// Reflect an external UserDraft.save into the form. Idempotent + the
+	// d == null guard keeps it from looping with the mirror above or
+	// clobbering "start fresh" loads (which discard the in-memory draft).
 	$effect(() => {
 		const d = draftHandle.draft
 		if (d == null) return
