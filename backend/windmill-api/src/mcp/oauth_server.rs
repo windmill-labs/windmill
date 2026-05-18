@@ -9,6 +9,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::FromRow;
+use url::{Host, Url};
 use windmill_common::{
     auth::{hash_token, TOKEN_PREFIX_LEN},
     error::{Error, Result},
@@ -296,6 +297,10 @@ pub async fn oauth_register(
         ));
     }
 
+    for redirect_uri in &req.redirect_uris {
+        validate_redirect_uri(redirect_uri)?;
+    }
+
     let client_id = format!("mcp-client-{}", rd_string(16));
 
     sqlx::query!(
@@ -374,6 +379,12 @@ async fn handle_authorization_code_grant(
 
     if auth_code.redirect_uri != req.redirect_uri {
         return Err(OAuthTokenError::invalid_grant("redirect_uri mismatch"));
+    }
+
+    if validate_redirect_uri(&auth_code.redirect_uri).is_err() {
+        return Err(OAuthTokenError::invalid_grant(
+            "redirect_uri bound to this code is not allowed",
+        ));
     }
 
     let challenge = auth_code.code_challenge.as_ref().ok_or_else(|| {
@@ -646,6 +657,13 @@ async fn oauth_authorize_inner(
         .into_response();
     }
 
+    // Re-validate even though it is registered: a client registered before
+    // redirect_uri validation existed may carry an unsafe (poisoned) URI.
+    // Respond with JSON, never a redirect, since the target itself is unsafe.
+    if let Err(e) = validate_redirect_uri(&params.redirect_uri) {
+        return OAuthJsonError::new("invalid_request", Some(&e.to_string())).into_response();
+    }
+
     if params.response_type != "code" {
         return OAuthErrorRedirect::new(
             &params.redirect_uri,
@@ -762,6 +780,11 @@ async fn oauth_approve_inner(
         ));
     }
 
+    // Re-validate registered URI in case the client predates redirect_uri
+    // validation (poisoned row) — prevents issuing a code bound to an
+    // unsafe redirect target.
+    validate_redirect_uri(&form.redirect_uri)?;
+
     if form.code_challenge.is_empty() {
         return Err(Error::BadRequest(
             "PKCE required: code_challenge is mandatory".to_string(),
@@ -834,6 +857,60 @@ pub async fn workspaced_oauth_approve(
     oauth_approve_inner(&db, &authed, &workspace_id, form).await
 }
 
+/// Validates an OAuth redirect URI to prevent open-redirect and
+/// `javascript:`/`data:` same-origin script execution.
+///
+/// Allowed: absolute `https://` URIs, and `http://` only for loopback hosts
+/// (`localhost`, `127.0.0.0/8`, `[::1]`) per RFC 8252 §7.3 native-app guidance.
+/// Rejected: any other scheme (`javascript:`, `data:`, `file:`, custom schemes),
+/// fragments, and embedded credentials (userinfo) per OAuth 2.0 Security BCP.
+///
+/// Applied at registration *and* re-applied at every authorize/approve/token
+/// boundary so clients registered before this check (poisoned rows) can never
+/// reach a redirect sink.
+fn validate_redirect_uri(redirect_uri: &str) -> Result<()> {
+    let url = Url::parse(redirect_uri)
+        .map_err(|_| Error::BadRequest("redirect_uri is not a valid absolute URI".to_string()))?;
+
+    if url.fragment().is_some() {
+        return Err(Error::BadRequest(
+            "redirect_uri must not contain a fragment".to_string(),
+        ));
+    }
+
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(Error::BadRequest(
+            "redirect_uri must not contain embedded credentials".to_string(),
+        ));
+    }
+
+    match url.scheme() {
+        "https" => Ok(()),
+        "http" => {
+            let is_loopback = match url.host() {
+                Some(Host::Domain(d)) => d == "localhost",
+                Some(Host::Ipv4(ip)) => ip.is_loopback(),
+                Some(Host::Ipv6(ip)) => ip.is_loopback(),
+                None => false,
+            };
+            if is_loopback {
+                Ok(())
+            } else {
+                Err(Error::BadRequest(
+                    "redirect_uri with http scheme is only allowed for loopback hosts \
+                     (localhost, 127.0.0.0/8, [::1])"
+                        .to_string(),
+                ))
+            }
+        }
+        scheme => Err(Error::BadRequest(format!(
+            "redirect_uri scheme '{}:' is not allowed; must be https \
+             (or http for loopback hosts)",
+            scheme
+        ))),
+    }
+}
+
 /// PKCE validation (S256 only)
 fn validate_pkce_s256(verifier: &str, challenge: &str) -> bool {
     let mut hasher = Sha256::new();
@@ -882,6 +959,12 @@ impl OAuthErrorRedirect {
 
 impl IntoResponse for OAuthErrorRedirect {
     fn into_response(self) -> axum::response::Response {
+        // Never emit a Location header to an unsafe target, even on error
+        // paths. Callers validate upstream; this is the last line of defense.
+        if validate_redirect_uri(&self.redirect_uri).is_err() {
+            return OAuthJsonError::new(&self.error, self.error_description.as_deref())
+                .into_response();
+        }
         let mut url = format!("{}?error={}", self.redirect_uri, self.error);
         if let Some(desc) = &self.error_description {
             url.push_str(&format!("&error_description={}", urlencoding::encode(desc)));
@@ -991,4 +1074,59 @@ pub fn gateway_unauthed_service() -> Router {
 /// Mounted at /api/mcp/gateway/oauth/server (inside authenticated section)
 pub fn gateway_authed_service() -> Router {
     Router::new().route("/approve", post(gateway_oauth_approve))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_redirect_uri;
+
+    #[test]
+    fn accepts_https() {
+        assert!(validate_redirect_uri("https://example.com/oauth/callback").is_ok());
+        assert!(validate_redirect_uri("https://example.com:8443/cb?x=1").is_ok());
+    }
+
+    #[test]
+    fn accepts_http_loopback() {
+        assert!(validate_redirect_uri("http://localhost/cb").is_ok());
+        assert!(validate_redirect_uri("http://localhost:1455/cb").is_ok());
+        assert!(validate_redirect_uri("http://127.0.0.1:8080/cb").is_ok());
+        assert!(validate_redirect_uri("http://127.0.0.2/cb").is_ok());
+        assert!(validate_redirect_uri("http://[::1]:9000/cb").is_ok());
+    }
+
+    #[test]
+    fn rejects_javascript_scheme() {
+        // The core exploit: javascript: that survives `?code=` concatenation.
+        assert!(validate_redirect_uri("javascript:fetch('/api/users/tokens/create')//").is_err());
+        assert!(validate_redirect_uri("JavaScript:alert(1)").is_err());
+    }
+
+    #[test]
+    fn rejects_other_unsafe_schemes() {
+        assert!(validate_redirect_uri("data:text/html,<script>1</script>").is_err());
+        assert!(validate_redirect_uri("file:///etc/passwd").is_err());
+        assert!(validate_redirect_uri("vbscript:msgbox(1)").is_err());
+        assert!(validate_redirect_uri("com.evil.app:/cb").is_err());
+    }
+
+    #[test]
+    fn rejects_non_loopback_http() {
+        assert!(validate_redirect_uri("http://example.com/cb").is_err());
+        assert!(validate_redirect_uri("http://169.254.169.254/cb").is_err());
+    }
+
+    #[test]
+    fn rejects_fragment_and_credentials() {
+        assert!(validate_redirect_uri("https://example.com/cb#frag").is_err());
+        assert!(validate_redirect_uri("https://user:pass@example.com/cb").is_err());
+        assert!(validate_redirect_uri("https://user@example.com/cb").is_err());
+    }
+
+    #[test]
+    fn rejects_relative_and_garbage() {
+        assert!(validate_redirect_uri("/relative/path").is_err());
+        assert!(validate_redirect_uri("not a url").is_err());
+        assert!(validate_redirect_uri("").is_err());
+    }
 }

@@ -19,6 +19,38 @@
 	let codeChallenge = page.url.searchParams.get('code_challenge') || ''
 	let codeChallengeMethod = page.url.searchParams.get('code_challenge_method') || ''
 
+	// Loopback hosts allowed over http per RFC 8252 §7.3 (native apps).
+	const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
+
+	// Parse and scheme-check the redirect URI. `new URL()` alone is NOT a
+	// safety check: `new URL('javascript:fetch(1)')` parses successfully with
+	// protocol 'javascript:'. The protocol allowlist is what blocks the
+	// same-origin script-execution vector.
+	function parseSafeRedirectUri(raw: string): URL | null {
+		let url: URL
+		try {
+			url = new URL(raw)
+		} catch {
+			return null
+		}
+		const isHttps = url.protocol === 'https:'
+		const isLoopbackHttp = url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname)
+		return isHttps || isLoopbackHttp ? url : null
+	}
+
+	function buildSafeRedirectUrl(raw: string, params: URLSearchParams): string | null {
+		const url = parseSafeRedirectUri(raw)
+		if (!url) {
+			return null
+		}
+		for (const [key, value] of params) {
+			url.searchParams.set(key, value)
+		}
+		return url.toString()
+	}
+
+	let redirectUriValid = $derived(parseSafeRedirectUri(redirectUri) !== null)
+
 	let loading = $state(false)
 	let success = $state(false)
 	let successRedirectUrl = $state('')
@@ -59,7 +91,15 @@
 		if (oauthState) {
 			params.set('state', oauthState)
 		}
-		window.location.href = `${redirectUri}?${params.toString()}`
+		const url = buildSafeRedirectUrl(redirectUri, params)
+		if (!url) {
+			sendUserToast(
+				'Refusing to redirect: the redirect URI is invalid or uses an unsafe scheme',
+				true
+			)
+			return
+		}
+		window.location.href = url
 	}
 
 	async function onApprove() {
@@ -103,7 +143,15 @@
 				if (data.state) {
 					params.set('state', data.state)
 				}
-				const url = `${redirectUri}?${params.toString()}`
+				const url = buildSafeRedirectUrl(redirectUri, params)
+				if (!url) {
+					sendUserToast(
+						'Authorization granted but the redirect URI is invalid or uses an unsafe scheme; not redirecting',
+						true
+					)
+					loading = false
+					return
+				}
 				success = true
 				successRedirectUrl = url
 				loading = false
@@ -121,7 +169,12 @@
 	}
 </script>
 
-{#if !isGateway && !workspaceId}
+{#if !redirectUriValid}
+	<p class="text-center text-sm text-primary mb-6">
+		Error: the redirect URI is missing, malformed, or uses an unsafe scheme. This authorization
+		request cannot be completed.
+	</p>
+{:else if !isGateway && !workspaceId}
 	<p class="text-center text-sm text-primary mb-6">Error: missing workspace_id</p>
 {:else}
 	<CenteredModal title={success ? 'Authorization Approved' : 'Authorization Request'}>
