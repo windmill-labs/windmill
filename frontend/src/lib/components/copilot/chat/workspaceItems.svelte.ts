@@ -83,14 +83,6 @@ const itemKindToOffboardingKind: Record<WindmillItemKind, string> = {
 	email_trigger: 'email_trigger'
 }
 
-/** Kinds whose items can be opened in an inline drawer from the chat. */
-const DRAWERABLE_KINDS = new Set<WindmillItemKind>(['variable', 'resource'])
-
-/** Whether the chat pill should expose an "open in drawer" affordance for this kind. */
-export function hasInlineDrawer(kind: WindmillItemKind): boolean {
-	return DRAWERABLE_KINDS.has(kind)
-}
-
 /**
  * Build the in-app URL for a resolved workspace item.
  *

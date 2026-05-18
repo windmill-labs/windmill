@@ -31,10 +31,6 @@
 		drawer?.openDrawer?.()
 	}
 
-	export function closeDrawer(): void {
-		drawer?.closeDrawer?.()
-	}
-
 	export async function initNew(
 		resourceType: string,
 		nDefaultValues?: Record<string, any>
@@ -49,10 +45,10 @@
 	let mode: 'edit' | 'new' = $derived(!path ? 'new' : 'edit')
 </script>
 
-<Drawer bind:this={drawer} size="50rem" {disableChatOffset} on:close>
+<Drawer bind:this={drawer} size="50rem" {disableChatOffset}>
 	<DrawerContent
 		title={mode == 'edit' ? 'Edit ' + path : 'Add a resource'}
-		on:close={() => drawer?.closeDrawer()}
+		on:close={drawer?.closeDrawer}
 	>
 		{#await import('./ResourceEditor.svelte')}
 			<Loader2 class="animate-spin" />

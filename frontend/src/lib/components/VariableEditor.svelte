@@ -136,10 +136,6 @@
 		drawer?.openDrawer()
 	}
 
-	export function closeDrawer(): void {
-		drawer?.closeDrawer()
-	}
-
 	async function loadSecret(): Promise<void> {
 		if (!editPath || !selected) return
 		const getV = await VariableService.getVariable({
@@ -200,10 +196,10 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="50rem" on:close>
+<Drawer bind:this={drawer} size="50rem">
 	<DrawerContent
 		title={edit ? `Update variable at ${initialPath}` : 'Add a variable'}
-		on:close={() => drawer?.closeDrawer()}
+		on:close={drawer?.closeDrawer}
 	>
 		<div class="flex flex-col gap-8">
 			{#if !can_write}

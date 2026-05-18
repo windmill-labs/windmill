@@ -1,9 +1,8 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte'
-	import { ExternalLink, PanelRight } from 'lucide-svelte'
+	import { ExternalLink } from 'lucide-svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
-	import { aiChatManager } from './AIChatManager.svelte'
-	import { hasInlineDrawer, type WindmillItemKind } from './workspaceItems.svelte'
+	import type { WindmillItemKind } from './workspaceItems.svelte'
 
 	type Props = {
 		href?: string
@@ -24,7 +23,6 @@
 		if (href.startsWith('/apps/get/')) return 'app'
 		return undefined
 	})
-	const drawerable = $derived(kind ? hasInlineDrawer(kind) : false)
 </script>
 
 {#if href}
@@ -47,17 +45,6 @@
 					<ExternalLink size={10} />
 				</span>
 			</a>
-			{#if drawerable && wmPath}
-				<button
-					type="button"
-					onclick={() => aiChatManager.toggleWorkspaceItemDrawer({ kind, path: wmPath })}
-					title="Open in drawer"
-					aria-label="Open {wmPath} in drawer"
-					class="ml-0.5 inline-flex self-center shrink-0 rounded p-0.5 text-tertiary hover:bg-surface-hover opacity-0 group-hover:opacity-100 transition-opacity"
-				>
-					<PanelRight size={11} />
-				</button>
-			{/if}
 		</span>
 	{:else}
 		<a {href} target="_blank" rel="noopener noreferrer" {title}>
