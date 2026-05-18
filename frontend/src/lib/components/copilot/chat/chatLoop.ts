@@ -1,5 +1,5 @@
-import OpenAI from 'openai'
-import Anthropic from '@anthropic-ai/sdk'
+import type OpenAI from 'openai'
+import type Anthropic from '@anthropic-ai/sdk'
 import type {
 	ChatCompletionMessageParam,
 	ChatCompletionSystemMessageParam,
@@ -8,20 +8,13 @@ import type {
 import type { AIProviderModel } from '$lib/gen'
 import { getCompletion, parseOpenAICompletion } from '../lib'
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
-import {
-	getOpenAIResponsesCompletion,
-	parseOpenAIResponsesCompletion
-} from './openai-responses'
+import { getOpenAIResponsesCompletion, parseOpenAIResponsesCompletion } from './openai-responses'
 import type { Tool, ToolCallbacks } from './shared'
-import {
-	addChatTokenUsage,
-	emptyChatTokenUsage,
-	type ChatTokenUsage
-} from './tokenUsage'
+import { addChatTokenUsage, emptyChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
 
 export interface ChatClients {
-	openai: OpenAI
-	anthropic: Anthropic
+	openai: Promise<OpenAI>
+	anthropic: Promise<Anthropic>
 }
 
 export interface ChatLoopConfig {
@@ -137,10 +130,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 						break
 					}
 				} catch (err) {
-					console.warn(
-						'OpenAI Responses API failed, falling back to Completions API:',
-						err
-					)
+					console.warn('OpenAI Responses API failed, falling back to Completions API:', err)
 					const errorMessage = err instanceof Error ? err.message : String(err)
 					if (errorMessage.includes('Responses API is not enabled')) {
 						skipResponsesApi = true
@@ -172,15 +162,10 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 				}
 			}
 		} else if (isAnthropic) {
-			const completion = await getAnthropicCompletion(
-				messageParams,
-				abortController,
-				toolDefs,
-				{
-					forceModelProvider: modelProvider,
-					anthropicClient: clients.anthropic
-				}
-			)
+			const completion = await getAnthropicCompletion(messageParams, abortController, toolDefs, {
+				forceModelProvider: modelProvider,
+				anthropicClient: clients.anthropic
+			})
 			if (completion) {
 				const continueCompletion = await parseAnthropicCompletion(
 					completion,

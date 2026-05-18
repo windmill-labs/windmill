@@ -1,4 +1,5 @@
-import OpenAI, { OpenAIError } from 'openai'
+import type OpenAI from 'openai'
+import type { OpenAIError } from 'openai'
 import type {
 	ChatCompletionMessageParam,
 	ChatCompletionMessageFunctionToolCall,
@@ -14,10 +15,7 @@ import {
 import { processToolCall, type Tool, type ToolCallbacks } from './shared'
 import type { ResponseStream } from 'openai/lib/responses/ResponseStream.mjs'
 import type { AIProviderModel } from '$lib/gen'
-import {
-	openAIResponsesUsageToChatTokenUsage,
-	type ChatTokenUsage
-} from './tokenUsage'
+import { openAIResponsesUsageToChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
 
 interface ParsedCompletionResult {
 	shouldContinue: boolean
@@ -137,7 +135,7 @@ export async function getOpenAIResponsesCompletion(
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[],
 	options?: {
 		forceModelProvider?: AIProviderModel
-		openaiClient?: OpenAI
+		openaiClient?: OpenAI | Promise<OpenAI>
 	}
 ) {
 	const { provider, config } = getProviderAndCompletionConfig({
@@ -149,7 +147,7 @@ export async function getOpenAIResponsesCompletion(
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
 	const responsesConfig = convertCompletionConfigToResponsesConfig(config)
 
-	const client = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
+	const client = await (options?.openaiClient ?? workspaceAIClients.getOpenaiClient())
 
 	const runner = client.responses.stream(
 		{
@@ -168,17 +166,20 @@ export async function getOpenAIResponsesCompletion(
 	return runner
 }
 
-// Wrapper that converts ResponseStream to ChatCompletionChunk format for lib.ts usage
-export async function* getOpenAIResponsesCompletionStream(
+// Wrapper that converts ResponseStream to ChatCompletionChunk format for lib.ts usage.
+// Returns an AsyncIterable so setup failures (SDK dynamic import, client construction,
+// responses.stream() request) surface at the await in the caller and the caller can
+// fall back to the Completions API.
+export async function getOpenAIResponsesCompletionStream(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
-): AsyncGenerator<OpenAI.Chat.Completions.ChatCompletionChunk> {
+): Promise<AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>> {
 	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
 	const responsesConfig = convertCompletionConfigToResponsesConfig(config)
 
-	const openaiClient = workspaceAIClients.getOpenaiClient()
+	const openaiClient = await workspaceAIClients.getOpenaiClient()
 
 	const runner = openaiClient.responses.stream(
 		{
@@ -194,27 +195,31 @@ export async function* getOpenAIResponsesCompletionStream(
 		}
 	)
 
-	// Convert ResponseStream events to ChatCompletionChunk format
-	for await (const event of runner) {
-		if (event.type === 'response.output_text.delta') {
-			// Yield text chunks in ChatCompletionChunk format
-			yield {
-				id: 'chatcmpl-' + Date.now(),
-				object: 'chat.completion.chunk',
-				created: Date.now(),
-				model: responsesConfig.model,
-				choices: [
-					{
-						index: 0,
-						delta: {
-							content: event.delta || ''
-						},
-						finish_reason: null
-					}
-				]
-			} as OpenAI.Chat.Completions.ChatCompletionChunk
+	async function* iterate() {
+		// Convert ResponseStream events to ChatCompletionChunk format
+		for await (const event of runner) {
+			if (event.type === 'response.output_text.delta') {
+				// Yield text chunks in ChatCompletionChunk format
+				yield {
+					id: 'chatcmpl-' + Date.now(),
+					object: 'chat.completion.chunk',
+					created: Date.now(),
+					model: responsesConfig.model,
+					choices: [
+						{
+							index: 0,
+							delta: {
+								content: event.delta || ''
+							},
+							finish_reason: null
+						}
+					]
+				} as OpenAI.Chat.Completions.ChatCompletionChunk
+			}
 		}
 	}
+
+	return iterate()
 }
 
 export async function parseOpenAIResponsesCompletion(
@@ -417,11 +422,11 @@ export async function getNonStreamingOpenAIResponsesCompletion(
 		}
 	}
 
-	const openaiClient = testOptions?.apiKey
+	const openaiClient = await (testOptions?.apiKey
 		? createOpenAIProxyClient(getAiProxyBaseURL())
 		: testOptions?.workspace
 			? workspaceAIClients.createOpenaiClient(testOptions.workspace)
-			: workspaceAIClients.getOpenaiClient()
+			: workspaceAIClients.getOpenaiClient())
 
 	const response = await openaiClient.responses.create(
 		{
