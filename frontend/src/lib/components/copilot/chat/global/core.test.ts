@@ -203,7 +203,7 @@ describe('global AI tools', () => {
 		expect(item.value.value).toBeUndefined()
 	})
 
-	it('asks the user a multiple-choice question and returns the selected choice', async () => {
+	it('asks the user a multiple-choice question and returns the selected answer', async () => {
 		const callbacks: ToolCallbacks = {
 			setToolStatus: vi.fn(),
 			removeToolStatus: vi.fn(),
@@ -214,40 +214,26 @@ describe('global AI tools', () => {
 			'askUserQuestion',
 			{
 				question: 'Which script language should be used?',
-				choices: [
-					{ label: 'TypeScript', value: 'bun', description: 'Use Bun runtime.' },
-					{ label: 'Python', value: 'python3', description: 'Use Python 3.' }
-				]
+				choices: ['bun', 'python3']
 			},
 			callbacks
 		)
 
-		expect(JSON.parse(raw)).toEqual({
-			success: true,
-			answer: 'python3',
-			choice: {
-				id: 'python3',
-				label: 'Python',
-				value: 'python3',
-				description: 'Use Python 3.'
-			}
-		})
+		expect(raw).toBe('python3')
 		expect(callbacks.requestUserQuestion).toHaveBeenCalledWith(
 			'test-askUserQuestion',
 			expect.objectContaining({
 				question: 'Which script language should be used?',
-				choices: expect.arrayContaining([
-					expect.objectContaining({ id: 'bun', label: 'TypeScript' }),
-					expect.objectContaining({ id: 'python3', label: 'Python' })
-				])
+				choices: ['bun', 'python3']
 			})
 		)
 		expect(callbacks.setToolStatus).toHaveBeenLastCalledWith(
 			'test-askUserQuestion',
 			expect.objectContaining({
-				content: 'User answered question',
+				content: 'User answered question: python3',
 				isLoading: false,
-				userQuestion: expect.objectContaining({ selectedChoiceId: 'python3' })
+				result: 'python3',
+				userQuestion: expect.objectContaining({ selectedChoice: 'python3' })
 			})
 		)
 	})

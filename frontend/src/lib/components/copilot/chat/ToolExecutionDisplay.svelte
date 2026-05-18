@@ -31,7 +31,7 @@
 	)
 
 	const activeUserQuestion = $derived(
-		message.userQuestion && !message.userQuestion.selectedChoiceId && !message.userQuestion.canceled
+		message.userQuestion && !message.userQuestion.selectedChoice && !message.userQuestion.canceled
 			? message.userQuestion
 			: undefined
 	)

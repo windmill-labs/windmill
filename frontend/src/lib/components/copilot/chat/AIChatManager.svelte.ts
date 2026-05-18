@@ -19,8 +19,7 @@ import {
 	type DisplayMessage,
 	type Tool,
 	type ToolCallbacks,
-	type ToolDisplayMessage,
-	type UserQuestionChoice
+	type ToolDisplayMessage
 } from './shared'
 import type {
 	ChatCompletionMessageParam,
@@ -143,10 +142,7 @@ class AIChatManager {
 	cachedDatatables = $state<AppDatatableElement[]>([])
 
 	private confirmationCallback = $state<((value: boolean) => void) | undefined>(undefined)
-	private userQuestionCallbacks = new Map<
-		string,
-		(choice: UserQuestionChoice | undefined) => void
-	>()
+	private userQuestionCallbacks = new Map<string, (choice: string | undefined) => void>()
 	private appDatatablesRefreshTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
 	allowedModes: Record<AIMode, boolean> = $derived({
@@ -235,14 +231,14 @@ class AIChatManager {
 
 	requestUserQuestion = (
 		toolId: string,
-		_question: { question: string; choices: UserQuestionChoice[] }
-	): Promise<UserQuestionChoice | undefined> => {
+		_question: { question: string; choices: string[] }
+	): Promise<string | undefined> => {
 		return new Promise((resolve) => {
 			this.userQuestionCallbacks.set(toolId, resolve)
 		})
 	}
 
-	handleUserQuestionAnswer = (toolId: string, choice: UserQuestionChoice) => {
+	handleUserQuestionAnswer = (toolId: string, choice: string) => {
 		const callback = this.userQuestionCallbacks.get(toolId)
 		if (!callback) {
 			return
@@ -252,11 +248,11 @@ class AIChatManager {
 			if (message.role === 'tool' && message.tool_call_id === toolId && message.userQuestion) {
 				return {
 					...message,
-					content: 'User answered question',
+					content: `User answered question: ${choice}`,
 					isLoading: false,
 					userQuestion: {
 						...message.userQuestion,
-						selectedChoiceId: choice.id
+						selectedChoice: choice
 					}
 				}
 			}

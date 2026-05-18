@@ -58,8 +58,7 @@ import {
 	type CreatedResourceTriggerKind,
 	type Tool,
 	type ToolCallbacks,
-	type ToolDisplayAction,
-	type UserQuestionChoice
+	type ToolDisplayAction
 } from '../shared'
 import {
 	resourceRequestSchema,
@@ -118,25 +117,10 @@ const askUserQuestionSchema = z.object({
 		.min(1)
 		.describe('The concise question to show to the user before continuing.'),
 	choices: z
-		.array(
-			z.object({
-				id: z.string().min(1).optional().describe('Optional stable identifier for this choice.'),
-				label: z.string().min(1).describe('Short option text shown to the user.'),
-				value: z
-					.string()
-					.min(1)
-					.optional()
-					.describe('Optional value returned to the assistant. Defaults to label.'),
-				description: z
-					.string()
-					.min(1)
-					.optional()
-					.describe('Optional one-sentence detail shown under the label.')
-			})
-		)
+		.array(z.string().min(1).describe('Short answer text shown to the user and returned as-is.'))
 		.min(2)
 		.max(6)
-		.describe('Two to six mutually exclusive choices.')
+		.describe('Two to six mutually exclusive answer strings.')
 })
 
 const listWorkspaceItemsSchema = z.object({
@@ -497,7 +481,7 @@ Important rules:
 - Use search_resource_types before write_resource to discover the resource_type name and the JSON Schema its value must match.
 - Use get_instructions before writing a script, flow, resource, or app. For scripts, pass the target language; when modifying, use the language from the item you read.
 - Schedules, triggers, and variables do not need get_instructions — their tool schemas describe every field.
-- When a required decision is ambiguous, use askUserQuestion with two to six clear choices instead of guessing.
+- When a required decision is ambiguous, use askUserQuestion with two to six clear answer strings instead of guessing.
 - A workspace item is { type, path, summary?, language?, triggerKind?, value, isDraft }. For scripts, value is the source code string. For flows, read_workspace_item returns value as the compact flow object { modules, schema, preprocessor_module, failure_module, groups }; write_flow takes the same flow fields as top-level tool arguments plus path/summary. For schedules/triggers/resources/variables, value is the full request body for that type. For apps, value is { files, runnables, data?, policy?, custom_path? } with frontend file contents and backend runnable definitions.
 - Apps (raw apps): use list_workspace_items with types: ['app'] to find them, read_workspace_item with type 'app' for a metadata summary (file paths + runnable list, no contents), then read_app_file to read individual files. Edit with write_app_file / patch_app_file / delete_app_file for frontend files and write_app_runnable / delete_app_runnable for backend runnables. Frontend file paths start with "/" (e.g. /index.tsx). Backend inline runnables are addressed as "backend/<key>/main.{ts|py}". /wmill.d.ts is generated and cannot be written.
 - To create a new raw app, use init_app. Before calling it, confirm framework (react19 / react18 / svelte5 / vue), path, and summary with the user — do not silently default to react19, even though it is the recommended choice.
@@ -509,29 +493,6 @@ const DEFAULT_LIST_TYPES = ['script', 'flow'] as const satisfies readonly Worksp
 
 function getRequestedTypes(types: WorkspaceItemType[] | undefined): WorkspaceItemType[] {
 	return types && types.length > 0 ? types : [...DEFAULT_LIST_TYPES]
-}
-
-function normalizeUserQuestionChoices(
-	choices: z.infer<typeof askUserQuestionSchema>['choices']
-): UserQuestionChoice[] {
-	const seen = new Set<string>()
-	return choices.map((choice, index) => {
-		const fallbackId = choice.value ?? choice.label ?? `choice_${index + 1}`
-		const baseId = (choice.id ?? fallbackId).trim().replace(/\s+/g, '_') || `choice_${index + 1}`
-		let id = baseId
-		let suffix = 2
-		while (seen.has(id)) {
-			id = `${baseId}_${suffix}`
-			suffix += 1
-		}
-		seen.add(id)
-		return {
-			id,
-			label: choice.label,
-			value: choice.value,
-			description: choice.description
-		}
-	})
 }
 
 function itemMatches(
@@ -1267,7 +1228,7 @@ export const globalTools: Tool<{}>[] = [
 			const parsed = askUserQuestionSchema.parse(args)
 			const userQuestion = {
 				question: parsed.question,
-				choices: normalizeUserQuestionChoices(parsed.choices)
+				choices: parsed.choices
 			}
 
 			toolCallbacks.setToolStatus(toolId, {
@@ -1299,21 +1260,16 @@ export const globalTools: Tool<{}>[] = [
 				return JSON.stringify({ success: false, error: message })
 			}
 
-			const result = {
-				success: true,
-				answer: selectedChoice.value ?? selectedChoice.label,
-				choice: selectedChoice
-			}
 			toolCallbacks.setToolStatus(toolId, {
-				content: 'User answered question',
+				content: `User answered question: ${selectedChoice}`,
 				userQuestion: {
 					...userQuestion,
-					selectedChoiceId: selectedChoice.id
+					selectedChoice
 				},
-				result,
+				result: selectedChoice,
 				isLoading: false
 			})
-			return JSON.stringify(result)
+			return selectedChoice
 		}
 	},
 	{

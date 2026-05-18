@@ -485,17 +485,10 @@ export type CreatedResourceAction = {
 
 export type ToolDisplayAction = CreatedResourceAction
 
-export type UserQuestionChoice = {
-	id: string
-	label: string
-	value?: string
-	description?: string
-}
-
 export type UserQuestionDisplay = {
 	question: string
-	choices: UserQuestionChoice[]
-	selectedChoiceId?: string
+	choices: string[]
+	selectedChoice?: string
 	canceled?: boolean
 }
 
@@ -702,7 +695,7 @@ export interface ToolCallbacks {
 	requestUserQuestion?: (
 		toolId: string,
 		question: UserQuestionDisplay
-	) => Promise<UserQuestionChoice | undefined>
+	) => Promise<string | undefined>
 }
 
 export function createToolDef(
