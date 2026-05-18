@@ -15,6 +15,7 @@
 		editorConfig,
 		updateOptions
 	} from '$lib/editorUtils'
+	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { createHash } from '$lib/editorLangUtils'
 
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
@@ -398,10 +399,12 @@
 		extraLib = '',
 		autoHeight = true,
 		fixedOverflowWidgets = true,
-		fontSize = 12,
+		fontSize,
 		loadAsync = false,
 		class: clazz = ''
 	}: Props = $props()
+
+	let effectiveFontSize = $derived(fontSize ?? editorFontSize.regular)
 
 	let yPadding = MONACO_Y_PADDING
 
@@ -470,7 +473,7 @@
 				// lineNumbers: 'on',
 				lineDecorationsWidth: 0,
 				lineNumbersMinChars: 2,
-				fontSize,
+				fontSize: effectiveFontSize,
 				suggestOnTriggerCharacters: true,
 				renderLineHighlight: 'none',
 				lineNumbers: 'off',
@@ -700,6 +703,13 @@
 	$effect(() => {
 		mounted && extraLib && initialized && untrack(() => loadExtraLib())
 	})
+
+	$effect(() => {
+		const next = effectiveFontSize
+		if (editor) {
+			editor.updateOptions({ fontSize: next })
+		}
+	})
 </script>
 
 <EditorTheme />
@@ -708,7 +718,7 @@
 	class={twMerge(inputBorderClass({ forceFocus: isFocus }), 'rounded-md overflow-auto pl-2', clazz)}
 >
 	{#if !editor}
-		<FakeMonacoPlaceHolder autoheight showNumbers={false} {code} {fontSize} />
+		<FakeMonacoPlaceHolder autoheight showNumbers={false} {code} fontSize={effectiveFontSize} />
 	{/if}
 	<div
 		bind:this={divEl}
