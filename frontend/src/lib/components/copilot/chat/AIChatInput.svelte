@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import AvailableContextList from './AvailableContextList.svelte'
+	import ChatContextPicker from './ChatContextPicker.svelte'
 	import AppAvailableContextList from './AppAvailableContextList.svelte'
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import ContextTextarea from './ContextTextarea.svelte'
@@ -401,7 +401,7 @@
 						>
 					{/snippet}
 					{#snippet content({ close })}
-						<AvailableContextList
+						<ChatContextPicker
 							{availableContext}
 							{selectedContext}
 							onSelect={(element) => {
@@ -411,6 +411,9 @@
 							onSelectWorkspaceItem={(element) => {
 								void addContextToSelection(element)
 								close()
+							}}
+							setShowing={(showing) => {
+								if (!showing) close()
 							}}
 						/>
 					{/snippet}
