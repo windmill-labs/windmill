@@ -173,14 +173,13 @@ export function registerWebviewPaste(
 		if (!text) return
 		const editor = getEditor()
 		if (!editor) return
+		// Bail rather than fall back to {1,1,1,1}: pasting at document start
+		// would silently corrupt the document if the selection is ever lost.
+		const selection = editor.getSelection()
+		if (!selection) return
 		editor.executeEdits('paste', [
 			{
-				range: editor.getSelection() ?? {
-					startLineNumber: 1,
-					startColumn: 1,
-					endLineNumber: 1,
-					endColumn: 1
-				},
+				range: selection,
 				text,
 				forceMoveMarkers: true
 			}

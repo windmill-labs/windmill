@@ -619,26 +619,27 @@
 
 	// Hidden input used as the paste sink in the VSCode webview: focusing it and
 	// running `document.execCommand('paste')` fills `pasteValue`, which is then
-	// inserted into this editor's model below.
+	// inserted into this editor's model below. This is an inline equivalent of
+	// `registerWebviewPaste` in $lib/editorUtils (used by Editor/TemplateEditor/
+	// DiffEditor) — kept inline here because it relies on Svelte bindings; keep
+	// the two implementations in sync.
 	let inputEl = $state<HTMLInputElement | null>(null)
 	let pasteValue = $state('')
 	$effect(() => {
 		if (inputEl && pasteValue) {
 			untrack(() => {
-				editor?.executeEdits('paste', [
-					{
-						range: editor?.getSelection() ?? {
-							startLineNumber: 1,
-							startColumn: 1,
-							endLineNumber: 1,
-							endColumn: 1
-						},
-						text: pasteValue,
-						forceMoveMarkers: true
-					}
-				])
+				const selection = editor?.getSelection()
+				if (editor && selection) {
+					editor.executeEdits('paste', [
+						{
+							range: selection,
+							text: pasteValue,
+							forceMoveMarkers: true
+						}
+					])
+					editor.focus()
+				}
 				pasteValue = ''
-				editor?.focus()
 			})
 		}
 	})
