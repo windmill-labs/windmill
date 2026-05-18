@@ -20,7 +20,20 @@
 	let codeChallengeMethod = page.url.searchParams.get('code_challenge_method') || ''
 
 	// Loopback hosts allowed over http per RFC 8252 §7.3 (native apps).
-	const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
+	// Must mirror the backend `validate_redirect_uri` exactly: `localhost`,
+	// the whole IPv4 `127.0.0.0/8` block (Rust `Ipv4Addr::is_loopback`), and
+	// IPv6 `::1` (which `new URL()` normalizes to the bracketed `[::1]`).
+	function isLoopbackHost(hostname: string): boolean {
+		if (hostname === 'localhost' || hostname === '[::1]') {
+			return true
+		}
+		const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname)
+		if (!m) {
+			return false
+		}
+		const octets = m.slice(1).map(Number)
+		return octets.every((o) => o <= 255) && octets[0] === 127
+	}
 
 	// Parse and scheme-check the redirect URI. `new URL()` alone is NOT a
 	// safety check: `new URL('javascript:fetch(1)')` parses successfully with
@@ -34,7 +47,7 @@
 			return null
 		}
 		const isHttps = url.protocol === 'https:'
-		const isLoopbackHttp = url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname)
+		const isLoopbackHttp = url.protocol === 'http:' && isLoopbackHost(url.hostname)
 		return isHttps || isLoopbackHttp ? url : null
 	}
 
