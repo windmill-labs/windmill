@@ -1662,6 +1662,7 @@
 			}
 
 			const addLocalFile = async (code: string, _path: string) => {
+				if (destroyed) return
 				let p = new URL(_path, uri).href
 				let nuri = mUri.parse(p)
 				console.log('adding local file', _path, nuri.toString())
