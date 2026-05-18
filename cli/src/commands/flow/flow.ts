@@ -618,6 +618,22 @@ async function preview(
     await replaceAllPathScriptsWithLocal(localFlow.value, localScriptReader, log);
   }
 
+  // Resolve relative imports in inline scripts from local (not-yet-deployed)
+  // content so previewing a flow uses locally-edited dependency scripts.
+  let tempScriptRefs: Record<string, string> | undefined = undefined;
+  if (useLocalPathScripts) {
+    const { buildPreviewTempScriptRefs } = await import(
+      "../generate-metadata/generate-metadata.ts"
+    );
+    const resolvedCodebases = (await Promise.resolve(codebases)) as SyncCodebase[];
+    tempScriptRefs = await buildPreviewTempScriptRefs(
+      workspace,
+      opts,
+      resolvedCodebases,
+      { kind: "flow", folder: flowPath }
+    );
+  }
+
   const input = opts.data ? await resolve(opts.data) : {};
 
   if (!opts.silent) {
@@ -633,6 +649,7 @@ async function preview(
       value: localFlow.value,
       path: flowPath.substring(0, flowPath.indexOf(".flow")).replaceAll(SEP, "/"),
       args: input,
+      temp_script_refs: tempScriptRefs,
     },
   });
 

@@ -4061,7 +4061,7 @@ async fn push_next_flow_job(
             _ => nargs,
         };
 
-        let push_args;
+        let mut push_args;
         let err;
         let ov;
 
@@ -4076,6 +4076,16 @@ async fn push_next_flow_job(
                 err = Some(e);
             }
         };
+
+        // Propagate temp script refs from the flow preview job to each step so
+        // relative imports in inline scripts resolve from not-yet-deployed local
+        // content (uploaded to raw_script_temp) instead of the deployed script.
+        if let Some(temp_script_refs) = arc_flow_job_args.as_ref().get("_TEMP_SCRIPT_REFS") {
+            push_args
+                .extra
+                .get_or_insert_with(HashMap::new)
+                .insert("_TEMP_SCRIPT_REFS".to_string(), temp_script_refs.clone());
+        }
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed args for job {i} of {len}");
 
