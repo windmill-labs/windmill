@@ -8,7 +8,10 @@ export function isEmail(value: string) {
 	return value?.includes('@')
 }
 
-export function computeStructuredObjectsAndHeaders(objects: Array<Record<string, any>>): [
+export function computeStructuredObjectsAndHeaders(
+	objects: Array<Record<string, any>>,
+	headersOverride?: string[]
+): [
 	string[],
 	{
 		_id: number
@@ -18,7 +21,10 @@ export function computeStructuredObjectsAndHeaders(objects: Array<Record<string,
 	if (Array.isArray(objects)) {
 		let nextId = 1
 
-		let hds: string[] = []
+		// `Object.keys` reorders integer-like keys (e.g. "1234") ahead of
+		// insertion-ordered keys, so an explicit column order must be passed in
+		// rather than re-derived from the row objects.
+		let hds: string[] = headersOverride ? [...headersOverride] : []
 		let objs = objects.map((obj) => {
 			let rowData = obj && typeof obj == 'object' ? obj : {}
 			if (Array.isArray(rowData)) {

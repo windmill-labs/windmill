@@ -378,7 +378,10 @@
 		}
 	}
 
-	function handleArrayOfObjectsHeaders(json: any) {
+	function handleArrayOfObjectsHeaders(json: any): {
+		objects: any
+		headersOverride: string[] | undefined
+	} {
 		// handle possible a first row of headers
 		if (
 			Array.isArray(json) &&
@@ -401,10 +404,10 @@
 				rows[i - 1] = obj
 			}
 
-			return rows
+			return { objects: rows, headersOverride: headers }
 		}
 
-		return json
+		return { objects: json, headersOverride: undefined }
 	}
 
 	type InputObject = { [key: string]: number[] }
@@ -432,7 +435,10 @@
 		return result
 	}
 
-	function arrayOfRowsToObjects(input: any) {
+	function arrayOfRowsToObjects(input: any): {
+		objects: any
+		headersOverride: string[] | undefined
+	} {
 		if (Array.isArray(input) && input.length > 0) {
 			// handle possible first row of headers
 			if (
@@ -444,20 +450,23 @@
 				const headers = input[0]
 				const rows = input.slice(1)
 
-				return rows.map((row) => {
-					const obj: { [key: string]: string } = {}
+				return {
+					objects: rows.map((row) => {
+						const obj: { [key: string]: string } = {}
 
-					for (let i = 0; i < headers.length; i++) {
-						obj[headers[i]] = row[i]
-					}
+						for (let i = 0; i < headers.length; i++) {
+							obj[headers[i]] = row[i]
+						}
 
-					return obj
-				})
+						return obj
+					}),
+					headersOverride: headers
+				}
 			} else {
-				return input
+				return { objects: input, headersOverride: undefined }
 			}
 		}
-		return []
+		return { objects: [], headersOverride: undefined }
 	}
 
 	export function openDrawer() {
@@ -624,22 +633,26 @@
 				{:else if !forceJson && resultKind === 'table-row'}
 					{@const data =
 						typeof result === 'object' && 'table-row' in result ? result['table-row'] : result}
+					{@const tableData = arrayOfRowsToObjects(data)}
 					<AutoDataTable
 						class={fixTableSizingToParent
 							? 'absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]'
 							: ''}
-						objects={arrayOfRowsToObjects(data)}
+						objects={tableData.objects}
+						headersOverride={tableData.headersOverride}
 					/>
 				{:else if !forceJson && resultKind === 'table-row-object'}
 					{@const data =
 						typeof result === 'object' && 'table-row-object' in result
 							? result['table-row-object']
 							: result}
+					{@const tableData = handleArrayOfObjectsHeaders(data)}
 					<AutoDataTable
 						class={fixTableSizingToParent
 							? 'absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]'
 							: ''}
-						objects={handleArrayOfObjectsHeaders(data)}
+						objects={tableData.objects}
+						headersOverride={tableData.headersOverride}
 					/>
 				{:else if !forceJson && resultKind === 'html'}
 					<div class="h-full">
@@ -1016,9 +1029,7 @@
 						{#if largeObject}
 							<div class="text-xs text-emphasis"
 								>{#if resultApiPath && shouldDownloadViaClient()}
-									<button
-										onclick={() => downloadViaClient(resultApiPath!, resultDownloadName)}
-									>
+									<button onclick={() => downloadViaClient(resultApiPath!, resultDownloadName)}>
 										Download {filename ? '' : 'as JSON'}
 									</button>
 								{:else}
