@@ -379,6 +379,6 @@
 		white-space: pre-wrap;
 		word-break: break-words;
 		width: 100%;
-		min-height: 3rem;
+		min-height: 2.25rem;
 	}
 </style>

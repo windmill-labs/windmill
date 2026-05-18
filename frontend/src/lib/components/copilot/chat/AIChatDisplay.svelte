@@ -262,6 +262,7 @@
 						{availableContext}
 						bind:selectedContext
 						bind:editingMessageIndex
+						isLast={messageIndex === messages.length - 1}
 					/>
 				{/each}
 				{#if aiChatManager.loading}

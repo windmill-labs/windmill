@@ -19,6 +19,7 @@
 		message: DisplayMessage
 		messageIndex: number
 		editingMessageIndex: number | null
+		isLast?: boolean
 	}
 
 	let {
@@ -26,7 +27,8 @@
 		messageIndex,
 		availableContext,
 		selectedContext = $bindable(),
-		editingMessageIndex = $bindable(null)
+		editingMessageIndex = $bindable(null),
+		isLast = false
 	}: Props = $props()
 
 	function editMessage() {
@@ -40,7 +42,8 @@
 <div
 	class={twMerge(
 		'mb-2',
-		message.role === 'user' && messageIndex > 0 && 'mt-6 mb-6',
+		message.role === 'user' && messageIndex > 0 && 'mt-4 mb-6',
+		isLast && '!mb-12',
 		message.role !== 'user' ? 'cursor-default' : 'cursor-pointer'
 	)}
 	role="button"
