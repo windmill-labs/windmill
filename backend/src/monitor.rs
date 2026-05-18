@@ -4114,12 +4114,14 @@ async fn audit_log_retention_days() -> i64 {
 ///     wraparound (a raw 32-bit `xmin` vs 64-bit `txid_snapshot_xmin` compare
 ///     would silently become always-true after 2^32 txns).
 ///
-/// Tradeoffs (bounded lag, never loss; both self-heal):
-///   * A long-running transaction of any kind holds snapshot xmin back and
-///     stalls export progress until it ends.
-///   * After such a stall the next run exports the whole accumulated interval
-///     in one batch (bounded by the audit volume that built up during the
-///     stall — the data that must be shipped regardless).
+/// Each run is bounded to at most `MAX_XID_INTERVAL` xids (`eff_cur`), so a
+/// backlog (e.g. after a prolonged object-store outage) drains over successive
+/// ticks rather than one unbounded aggregate; the checkpoint only ever advances
+/// to the exported boundary, so the tail is never skipped.
+///
+/// Tradeoff (bounded lag, never loss; self-heals): a long-running transaction
+/// of any kind holds snapshot xmin back and stalls export progress until it
+/// ends.
 #[cfg(feature = "parquet")]
 async fn export_audit_logs_to_object_store(db: &DB) {
     use std::sync::atomic::Ordering;
@@ -4141,6 +4143,15 @@ async fn export_audit_logs_to_object_store(db: &DB) {
     // cadence, and required for the read→checkpoint section to be atomic under
     // the lock.
     const AUDIT_S3_EXPORT_LOCK_ID: i64 = 4_011_990_017;
+    // Cap the xid span exported per run. Any value `<= cur_xmin` is itself a
+    // fully-settled boundary (every xid below the snapshot xmin is settled), so
+    // capping `cur` to `prev + MAX_XID_INTERVAL` stays correct while bounding a
+    // single run's query/result set. Steady-state intervals are a few seconds
+    // of xids — far below this cap, so normal operation exports the full
+    // interval unchanged; only a large backlog (e.g. after a prolonged
+    // object-store outage) is drained over successive ticks instead of one
+    // unbounded aggregate.
+    const MAX_XID_INTERVAL: i64 = 500_000;
 
     let mut tx = match db.begin().await {
         Ok(tx) => tx,
@@ -4221,7 +4232,13 @@ async fn export_audit_logs_to_object_store(db: &DB) {
         }
     };
 
-    // Export the rows whose inserting xid is in `[prev, cur)`:
+    // Bound this run to at most `MAX_XID_INTERVAL` xids. `eff_cur <= cur_xmin`
+    // so every xid `< eff_cur` is still fully settled; the checkpoint advances
+    // exactly to `eff_cur`, so the un-exported tail `[eff_cur, cur_xmin)` is
+    // simply picked up on the next tick — no loss, bounded work per run.
+    let eff_cur_xmin = cur_xmin.min(prev_xmin.saturating_add(MAX_XID_INTERVAL));
+
+    // Export the rows whose inserting xid is in `[prev, eff_cur)`:
     //   * `age(xmin) > age(cur_xid)`  → settled now (strictly older than the
     //     current snapshot xmin; wraparound-safe via `age()`).
     //   * `age(xmin) <= age(prev_xid)` → was not yet settled at the previous
@@ -4254,7 +4271,7 @@ async fn export_audit_logs_to_object_store(db: &DB) {
         ORDER BY 1"#,
         last_ts,
         prev_xmin,
-        cur_xmin
+        eff_cur_xmin
     )
     .fetch_all(&mut *tx)
     .await
@@ -4306,7 +4323,7 @@ async fn export_audit_logs_to_object_store(db: &DB) {
         "INSERT INTO global_settings (name, value) VALUES ($1, $2)
          ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
         windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING,
-        serde_json::json!({ "last_xmin": cur_xmin, "last_ts": batch_max_ts.to_rfc3339() })
+        serde_json::json!({ "last_xmin": eff_cur_xmin, "last_ts": batch_max_ts.to_rfc3339() })
     )
     .execute(&mut *tx)
     .await
@@ -4325,7 +4342,7 @@ async fn export_audit_logs_to_object_store(db: &DB) {
             "Exported {} audit log day-batch(es) (xid interval [{}, {}), up to id {}) to object store",
             rows.len(),
             prev_xmin,
-            cur_xmin,
+            eff_cur_xmin,
             max_id
         );
     }

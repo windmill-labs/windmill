@@ -938,6 +938,13 @@ pub const HIDDEN_SETTINGS: &[&str] = &[
     // every bulk InstanceSettings save via `GlobalSettings::extra`. Hiding it
     // on read + rejecting it in `diff_global_settings` breaks that loop.
     "worker_configs",
+    // Runtime cursor for the audit-log → object-store exporter (xid interval +
+    // timestamp). Internal state, never operator-facing. Hiding it keeps it out
+    // of config exports AND protects it from Replace-mode deletion: losing it
+    // would re-anchor the exporter at the current snapshot xmin and silently
+    // skip every audit row between the lost cursor and the new head.
+    // Keep in sync with `global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING`.
+    "audit_logs_s3_checkpoint",
 ];
 
 /// Top-level settings whose entire value is sensitive and must be fully redacted in logs.
@@ -1891,6 +1898,31 @@ mod tests {
                 "Protected key {key} should not be in deletes"
             );
         }
+    }
+
+    #[test]
+    fn diff_global_settings_replace_keeps_audit_s3_checkpoint() {
+        // The audit→object-store exporter cursor is internal runtime state. A
+        // Replace-mode sync from a config that omits it (static template, hand-
+        // written YAML) must NOT delete it — otherwise the next export run
+        // re-anchors and silently skips audit rows.
+        let mut current = BTreeMap::new();
+        current.insert(
+            crate::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING.to_string(),
+            serde_json::json!({"last_xmin": 12345, "last_ts": "2026-05-18T00:00:00Z"}),
+        );
+        current.insert("store_audit_logs_s3".to_string(), serde_json::json!(true));
+
+        let mut desired = BTreeMap::new();
+        desired.insert("store_audit_logs_s3".to_string(), serde_json::json!(true));
+
+        let diff = diff_global_settings(&current, &desired, ApplyMode::Replace);
+        assert!(
+            !diff
+                .deletes
+                .contains(&crate::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING.to_string()),
+            "audit checkpoint cursor must never be deleted by config sync"
+        );
     }
 
     #[test]
