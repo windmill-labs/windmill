@@ -1,7 +1,7 @@
 import type { EvalMode } from "./types";
 
 export interface FrontendEvalModelConfig {
-  provider: "anthropic" | "openai" | "googleai";
+  provider: "anthropic" | "openai" | "googleai" | "deepseek";
   model: string;
 }
 
@@ -117,15 +117,40 @@ export const EVAL_MODELS: EvalModelSpec[] = [
   {
     id: "gemini-3.1-pro-preview",
     label: "Gemini 3.1 Pro Preview",
-    aliases: ["gemini-3.1-pro-preview", "gemini-3.1-pro", "gemini-3-pro-preview"],
+    aliases: [
+      "gemini-3.1-pro-preview",
+      "gemini-3.1-pro",
+      "gemini-3-pro-preview",
+    ],
     frontend: {
       provider: "googleai",
       model: "gemini-3.1-pro-preview",
     },
   },
+  {
+    id: "deepseek-v4-flash",
+    label: "DeepSeek V4 Flash",
+    aliases: ["deepseek", "deepseek-v4", "deepseek-v4-flash"],
+    frontend: {
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+    },
+  },
+  {
+    id: "deepseek-v4-pro",
+    label: "DeepSeek V4 Pro",
+    aliases: ["deepseek-pro", "deepseek-v4-pro"],
+    frontend: {
+      provider: "deepseek",
+      model: "deepseek-v4-pro",
+    },
+  },
 ];
 
-export function resolveEvalModel(mode: EvalMode, alias?: string): EvalModelSpec {
+export function resolveEvalModel(
+  mode: EvalMode,
+  alias?: string,
+): EvalModelSpec {
   const spec = alias ? findEvalModel(alias) : getDefaultEvalModel(mode);
   if (!spec) {
     throw new Error(`Unknown model: ${alias}`);
@@ -152,14 +177,19 @@ export function getEvalModelHelpText(): string {
   }).join("\n");
 }
 
-export function formatRunModelLabel(mode: EvalMode, model: EvalModelSpec): string {
+export function formatRunModelLabel(
+  mode: EvalMode,
+  model: EvalModelSpec,
+): string {
   if (mode === "cli") {
     return `${model.cli!.provider}:${model.cli!.model}`;
   }
   return `${model.frontend!.provider}:${model.frontend!.model}`;
 }
 
-export function getFrontendEvalModel(model: EvalModelSpec): FrontendEvalModelConfig {
+export function getFrontendEvalModel(
+  model: EvalModelSpec,
+): FrontendEvalModelConfig {
   if (!model.frontend) {
     throw new Error(`Model ${model.id} does not support frontend evals`);
   }
@@ -180,6 +210,8 @@ function getDefaultEvalModel(mode: EvalMode): EvalModelSpec {
 function findEvalModel(alias: string): EvalModelSpec | undefined {
   const normalized = alias.trim().toLowerCase();
   return EVAL_MODELS.find((model) =>
-    [model.id, ...model.aliases].some((candidate) => candidate.toLowerCase() === normalized)
+    [model.id, ...model.aliases].some(
+      (candidate) => candidate.toLowerCase() === normalized,
+    ),
   );
 }

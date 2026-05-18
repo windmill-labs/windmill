@@ -11,19 +11,34 @@ describe("resolveEvalModel", () => {
       provider: "googleai",
       model: "gemini-2.5-pro",
     });
-    expect(resolveEvalModel("script", "gemini-3-flash-preview").frontend).toEqual({
+    expect(
+      resolveEvalModel("script", "gemini-3-flash-preview").frontend,
+    ).toEqual({
       provider: "googleai",
       model: "gemini-3-flash-preview",
     });
-    expect(resolveEvalModel("flow", "gemini-3.1-pro-preview").frontend).toEqual({
-      provider: "googleai",
-      model: "gemini-3.1-pro-preview",
+    expect(resolveEvalModel("flow", "gemini-3.1-pro-preview").frontend).toEqual(
+      {
+        provider: "googleai",
+        model: "gemini-3.1-pro-preview",
+      },
+    );
+  });
+
+  it("supports DeepSeek aliases for frontend evals", () => {
+    expect(resolveEvalModel("flow", "deepseek").frontend).toEqual({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+    });
+    expect(resolveEvalModel("script", "deepseek-v4-pro").frontend).toEqual({
+      provider: "deepseek",
+      model: "deepseek-v4-pro",
     });
   });
 
   it("rejects Gemini aliases for cli evals", () => {
     expect(() => resolveEvalModel("cli", "gemini")).toThrow(
-      "Model gemini-flash is not supported for cli mode"
+      "Model gemini-flash is not supported for cli mode",
     );
   });
 });
