@@ -83,6 +83,9 @@ export function resolveEvalModelProvider(
   if (model.startsWith("gemini")) {
     return { provider: "googleai", model };
   }
+  if (model.startsWith("deepseek")) {
+    return { provider: "deepseek", model };
+  }
   if (model.startsWith("gpt") || model.startsWith("o")) {
     return { provider: "openai", model };
   }

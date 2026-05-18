@@ -1094,7 +1094,7 @@
 									left: '',
 									right: 'bundle relative paths for preview',
 									rightTooltip:
-										'(Beta) Instead of only sending the current file for preview and rely on already deployed code for the common logic, bundle all code that is imported in relative paths'
+										'Instead of only sending the current file for preview and rely on already deployed code for the common logic, bundle all code that is imported in relative paths'
 								}}
 							/>
 						{:else if currentScript?.language == 'python3'}
