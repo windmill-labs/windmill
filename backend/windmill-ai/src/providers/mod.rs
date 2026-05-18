@@ -6,7 +6,10 @@ pub mod openai;
 pub mod openrouter;
 pub mod other;
 
-use crate::{ai_providers::AIProvider, query_builder::QueryBuilder, types::ProviderWithResource};
+use crate::{
+    ai_providers::AIProvider, proxy::ProviderCredentials, query_builder::QueryBuilder,
+    types::ProviderWithResource,
+};
 
 use self::{
     anthropic::AnthropicQueryBuilder, google_ai::GoogleAIQueryBuilder, openai::OpenAIQueryBuilder,
@@ -27,5 +30,20 @@ pub fn create_query_builder(provider: &ProviderWithResource) -> Box<dyn QueryBui
         )),
         AIProvider::OpenRouter => Box::new(OpenRouterQueryBuilder::new()),
         _ => Box::new(OtherQueryBuilder::new(provider.kind.clone())),
+    }
+}
+
+/// Factory function to create the appropriate query builder from resolved proxy credentials.
+pub fn create_proxy_query_builder(credentials: &ProviderCredentials) -> Box<dyn QueryBuilder> {
+    match credentials.provider {
+        AIProvider::GoogleAI => Box::new(GoogleAIQueryBuilder::new(credentials.platform.clone())),
+        AIProvider::OpenAI => Box::new(OpenAIQueryBuilder::new(credentials.provider.clone())),
+        AIProvider::Anthropic => Box::new(AnthropicQueryBuilder::new(
+            credentials.provider.clone(),
+            credentials.platform.clone(),
+            credentials.enable_1m_context,
+        )),
+        AIProvider::OpenRouter => Box::new(OpenRouterQueryBuilder::new()),
+        _ => Box::new(OtherQueryBuilder::new(credentials.provider.clone())),
     }
 }
