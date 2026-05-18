@@ -709,7 +709,7 @@ export function createToolDef(
 	delete parameters.$schema
 	if (!parameters.required) parameters.required = []
 	normalizeToolParameterSchema(parameters)
-	const effectiveStrict = strict && !hasOptionalObjectProperties(parameters)
+	const effectiveStrict = strict && !hasOptionalProperties(parameters)
 
 	return {
 		type: 'function',
@@ -722,7 +722,7 @@ export function createToolDef(
 	}
 }
 
-function hasOptionalObjectProperties(schema: Record<string, any> | undefined): boolean {
+function hasOptionalProperties(schema: Record<string, any> | undefined): boolean {
 	if (!schema || typeof schema !== 'object') {
 		return false
 	}
@@ -734,7 +734,7 @@ function hasOptionalObjectProperties(schema: Record<string, any> | undefined): b
 			return true
 		}
 		for (const key of propertyKeys) {
-			if (hasOptionalObjectProperties(schema.properties[key])) {
+			if (hasOptionalProperties(schema.properties[key])) {
 				return true
 			}
 		}
@@ -742,10 +742,10 @@ function hasOptionalObjectProperties(schema: Record<string, any> | undefined): b
 
 	if (schema.items) {
 		if (Array.isArray(schema.items)) {
-			if (schema.items.some((item) => hasOptionalObjectProperties(item))) {
+			if (schema.items.some((item) => hasOptionalProperties(item))) {
 				return true
 			}
-		} else if (hasOptionalObjectProperties(schema.items)) {
+		} else if (hasOptionalProperties(schema.items)) {
 			return true
 		}
 	}
@@ -753,7 +753,7 @@ function hasOptionalObjectProperties(schema: Record<string, any> | undefined): b
 	if (
 		schema.additionalProperties &&
 		typeof schema.additionalProperties === 'object' &&
-		hasOptionalObjectProperties(schema.additionalProperties)
+		hasOptionalProperties(schema.additionalProperties)
 	) {
 		return true
 	}
@@ -761,7 +761,7 @@ function hasOptionalObjectProperties(schema: Record<string, any> | undefined): b
 	for (const key of ['allOf', 'anyOf', 'oneOf']) {
 		if (
 			Array.isArray(schema[key]) &&
-			schema[key].some((subSchema: Record<string, any>) => hasOptionalObjectProperties(subSchema))
+			schema[key].some((subSchema: Record<string, any>) => hasOptionalProperties(subSchema))
 		) {
 			return true
 		}

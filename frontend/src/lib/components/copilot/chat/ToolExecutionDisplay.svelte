@@ -31,18 +31,18 @@
 	)
 
 	const activeUserQuestion = $derived(
-		message.userQuestion && !message.userQuestion.selectedChoice && !message.userQuestion.canceled
+		message.userQuestion &&
+			message.isLoading &&
+			!message.error &&
+			!message.userQuestion.selectedChoice &&
+			!message.userQuestion.canceled
 			? message.userQuestion
 			: undefined
 	)
 </script>
 
 {#if activeUserQuestion}
-	<AskUserQuestionDisplay
-		toolCallId={message.tool_call_id}
-		userQuestion={activeUserQuestion}
-		disabled={!message.isLoading || Boolean(message.error)}
-	/>
+	<AskUserQuestionDisplay toolCallId={message.tool_call_id} userQuestion={activeUserQuestion} />
 {:else}
 	<div
 		class="bg-surface border border-gray-200 dark:border-gray-700 rounded-md overflow-hidden font-mono text-xs"

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte'
-	import { CheckCircle2, CircleHelp, Loader2, XCircle } from 'lucide-svelte'
+	import { CircleHelp } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { aiChatManager } from './AIChatManager.svelte'
 	import type { UserQuestionDisplay } from './shared'
@@ -8,19 +8,14 @@
 	interface Props {
 		toolCallId: string
 		userQuestion: UserQuestionDisplay
-		disabled?: boolean
 	}
 
-	let { toolCallId, userQuestion, disabled = false }: Props = $props()
+	let { toolCallId, userQuestion }: Props = $props()
 
 	let choiceButtons = $state<(HTMLButtonElement | undefined)[]>([])
 
-	const selectedChoice = $derived(userQuestion.selectedChoice)
-	const isComplete = $derived(Boolean(selectedChoice) || Boolean(userQuestion.canceled))
-	const optionsDisabled = $derived(disabled || isComplete)
-
 	onMount(() => {
-		if (optionsDisabled || userQuestion.choices.length === 0) {
+		if (userQuestion.choices.length === 0) {
 			return
 		}
 
@@ -34,17 +29,10 @@
 	}
 
 	function selectChoice(choice: string) {
-		if (optionsDisabled) {
-			return
-		}
 		aiChatManager.handleUserQuestionAnswer(toolCallId, choice)
 	}
 
 	function handleChoiceKeydown(event: KeyboardEvent, choice: string, index: number) {
-		if (optionsDisabled) {
-			return
-		}
-
 		if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
 			event.preventDefault()
 			event.stopPropagation()
@@ -72,13 +60,7 @@
 	data-chat-keyboard-scope="ask-user-question"
 >
 	<div class="flex items-start gap-2">
-		{#if userQuestion.canceled}
-			<XCircle class="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
-		{:else if selectedChoice}
-			<CheckCircle2 class="mt-0.5 h-4 w-4 shrink-0 text-green-500" />
-		{:else}
-			<CircleHelp class="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
-		{/if}
+		<CircleHelp class="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
 		<p class="min-w-0 flex-1 whitespace-pre-wrap text-xs font-medium text-primary"
 			>{userQuestion.question}</p
 		>
@@ -86,16 +68,12 @@
 
 	<div class="mt-3 flex flex-col gap-2">
 		{#each userQuestion.choices as choice, index (index)}
-			{@const isSelected = selectedChoice === choice}
 			<Button
 				variant="default"
 				unifiedSize="sm"
 				bind:element={choiceButtons[index]}
-				selected={isSelected}
-				disabled={optionsDisabled}
 				onClick={() => selectChoice(choice)}
 				onkeydown={(event) => handleChoiceKeydown(event, choice, index)}
-				startIcon={isSelected ? { icon: CheckCircle2 } : undefined}
 				btnClasses="!h-auto min-h-[40px] !items-start !justify-start !px-3 !py-2 !text-left !whitespace-normal"
 			>
 				<span class="flex min-w-0 flex-col items-start gap-0.5">
@@ -104,13 +82,4 @@
 			</Button>
 		{/each}
 	</div>
-
-	{#if userQuestion.canceled}
-		<div class="mt-2 text-xs text-secondary">Canceled</div>
-	{:else if disabled}
-		<div class="mt-2 flex items-center gap-1.5 text-xs text-secondary">
-			<Loader2 class="h-3 w-3 animate-spin" />
-			Waiting for selection
-		</div>
-	{/if}
 </div>
