@@ -190,7 +190,8 @@
 		<div
 			contenteditable={!disabled}
 			role="textbox"
-			tabindex="0"
+			aria-disabled={disabled}
+			tabindex={disabled ? -1 : 0}
 			{id}
 			style={containerStyle}
 			class={twMerge(
