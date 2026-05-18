@@ -372,7 +372,7 @@
 				/>
 				<ToggleButton
 					value="HashiCorpVault"
-					label="HashiCorp Vault (Beta)"
+					label="HashiCorp Vault"
 					tooltip={vaultDisabled
 						? 'Requires Enterprise Edition'
 						: 'Store secrets in HashiCorp Vault'}
@@ -390,7 +390,7 @@
 				/>
 				<ToggleButton
 					value="AwsSecretsManager"
-					label="AWS Secrets Manager (Beta)"
+					label="AWS Secrets Manager"
 					tooltip={vaultDisabled
 						? 'Requires Enterprise Edition'
 						: 'Store secrets in AWS Secrets Manager'}
@@ -422,12 +422,7 @@
 			<div class="flex items-center gap-2 mb-4">
 				<Lock class="text-primary" size={20} />
 				<div>
-					<p class="text-sm font-medium text-emphasis"
-						>HashiCorp Vault Configuration <span
-							class="ml-2 px-1.5 py-0.5 text-2xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 rounded"
-							>Beta</span
-						></p
-					>
+					<p class="text-sm font-medium text-emphasis">HashiCorp Vault Configuration</p>
 					<p class="text-xs text-secondary"
 						>Store secrets in an external HashiCorp Vault instance.</p
 					>
@@ -766,12 +761,7 @@ vault write auth/{jwtMount}/role/{$values['secret_backend']?.jwt_role || 'windmi
 			<div class="flex items-center gap-2 mb-4">
 				<Cloud class="text-primary" size={20} />
 				<div>
-					<p class="text-sm font-medium text-emphasis"
-						>AWS Secrets Manager Configuration <span
-							class="ml-2 px-1.5 py-0.5 text-2xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 rounded"
-							>Beta</span
-						></p
-					>
+					<p class="text-sm font-medium text-emphasis">AWS Secrets Manager Configuration</p>
 					<p class="text-xs text-secondary">Store secrets in AWS Secrets Manager.</p>
 				</div>
 			</div>
