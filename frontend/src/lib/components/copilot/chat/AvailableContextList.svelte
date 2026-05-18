@@ -3,7 +3,7 @@
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import type { FlowModule } from '$lib/gen/types.gen'
 	import { workspaceStore } from '$lib/stores'
-	import { workspaceRunnablesSearch, MAX_RUNNABLE_CONTENT_LENGTH } from './shared'
+	import { workspaceRunnablesSearch } from './shared'
 	import {
 		ContextIconMap,
 		type ContextElement,
@@ -167,54 +167,31 @@
 		}, 300)
 	}
 
-	async function handleWorkspaceItemSelect(path: string) {
-		const workspace = $workspaceStore
-		if (!workspace || !onSelectWorkspaceItem) return
+	function handleWorkspaceItemSelect(item: { path: string; summary?: string }) {
+		if (!onSelectWorkspaceItem) return
 
-		try {
-			if (currentView === 'scripts') {
-				const script = await workspaceRunnablesSearch.getScript(path, workspace)
-				const content = script.content ?? ''
-				const truncatedContent =
-					content.length > MAX_RUNNABLE_CONTENT_LENGTH
-						? content.slice(0, MAX_RUNNABLE_CONTENT_LENGTH) + '\n... (truncated)'
-						: content
-				const element: WorkspaceScriptElement & { deletable: boolean } = {
-					type: 'workspace_script',
-					path: script.path,
-					title: script.path,
-					summary: script.summary,
-					language: script.language,
-					content: truncatedContent,
-					schema: script.schema,
-					deletable: true
-				}
-				onSelectWorkspaceItem(element)
-			} else if (currentView === 'flows') {
-				const flow = await workspaceRunnablesSearch.getFlow(path, workspace)
-				const flowValue = JSON.stringify(flow.value, null, 2)
-				const truncatedValue =
-					flowValue.length > MAX_RUNNABLE_CONTENT_LENGTH
-						? flowValue.slice(0, MAX_RUNNABLE_CONTENT_LENGTH) + '\n... (truncated)'
-						: flowValue
-				const element: WorkspaceFlowElement & { deletable: boolean } = {
-					type: 'workspace_flow',
-					path: flow.path,
-					title: flow.path,
-					summary: flow.summary,
-					description: flow.description || '',
-					value: truncatedValue,
-					schema: flow.schema,
-					deletable: true
-				}
-				onSelectWorkspaceItem(element)
+		if (currentView === 'scripts') {
+			const element: WorkspaceScriptElement & { deletable: boolean } = {
+				type: 'workspace_script',
+				path: item.path,
+				title: item.path,
+				summary: item.summary,
+				deletable: true
 			}
-			currentView = 'categories'
-			workspaceSearchQuery = ''
-			workspaceSearchResults = []
-		} catch (err) {
-			console.error('Error fetching workspace item', err)
+			onSelectWorkspaceItem(element)
+		} else if (currentView === 'flows') {
+			const element: WorkspaceFlowElement & { deletable: boolean } = {
+				type: 'workspace_flow',
+				path: item.path,
+				title: item.path,
+				summary: item.summary,
+				deletable: true
+			}
+			onSelectWorkspaceItem(element)
 		}
+		currentView = 'categories'
+		workspaceSearchQuery = ''
+		workspaceSearchResults = []
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
@@ -241,7 +218,7 @@
 					e.stopPropagation()
 					const selectedItem = workspaceSearchResults[itemSelectedIndex]
 					if (selectedItem) {
-						handleWorkspaceItemSelect(selectedItem.path)
+						handleWorkspaceItemSelect(selectedItem)
 					}
 				}
 			} else if (e.key === 'Escape') {
@@ -446,7 +423,7 @@
 						: ''} {isAlreadySelected ? 'opacity-50' : ''}"
 					onclick={() => {
 						if (!isAlreadySelected) {
-							handleWorkspaceItemSelect(item.path)
+							handleWorkspaceItemSelect(item)
 						}
 					}}
 					disabled={isAlreadySelected}

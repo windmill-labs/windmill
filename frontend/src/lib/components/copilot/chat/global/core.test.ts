@@ -207,17 +207,13 @@ describe('prepareGlobalUserMessage', () => {
 				type: 'workspace_script',
 				path: 'f/scripts/report',
 				title: 'f/scripts/report',
-				content: 'secret script body',
-				summary: 'Report script',
-				language: 'bun'
+				summary: 'Report script'
 			},
 			{
 				type: 'workspace_flow',
 				path: 'f/flows/reporting',
 				title: 'f/flows/reporting',
-				value: '{"modules":[]}',
-				summary: 'Reporting flow',
-				description: 'Reporting flow description'
+				summary: 'Reporting flow'
 			}
 		])
 
@@ -225,10 +221,8 @@ describe('prepareGlobalUserMessage', () => {
 		expect(message.content).toContain('- type: script, path: f/scripts/report')
 		expect(message.content).toContain('- type: flow, path: f/flows/reporting')
 		expect(message.content).toContain('## INSTRUCTIONS:\nUpdate these items')
-		expect(message.content).not.toContain('secret script body')
-		expect(message.content).not.toContain('{"modules":[]}')
 		expect(message.content).not.toContain('Report script')
-		expect(message.content).not.toContain('Reporting flow description')
+		expect(message.content).not.toContain('Reporting flow')
 	})
 
 	it('omits selected context section when no workspace item is selected', () => {
