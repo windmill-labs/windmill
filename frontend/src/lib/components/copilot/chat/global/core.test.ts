@@ -70,12 +70,16 @@ function getGlobalTool(name: string): Tool<{}> {
 	return tool
 }
 
-async function callGlobalTool(name: string, args: Record<string, unknown>): Promise<string> {
+async function callGlobalTool(
+	name: string,
+	args: Record<string, unknown>,
+	callbacks: ToolCallbacks = toolCallbacks
+): Promise<string> {
 	return getGlobalTool(name).fn({
 		args,
 		workspace: WORKSPACE,
 		helpers: {},
-		toolCallbacks,
+		toolCallbacks: callbacks,
 		toolId: `test-${name}`
 	})
 }
@@ -197,5 +201,40 @@ describe('global AI tools', () => {
 			groups: [{ summary: 'Main', start_id: 'start', end_id: 'start' }]
 		})
 		expect(item.value.value).toBeUndefined()
+	})
+
+	it('asks the user a multiple-choice question and returns the selected answer', async () => {
+		const callbacks: ToolCallbacks = {
+			setToolStatus: vi.fn(),
+			removeToolStatus: vi.fn(),
+			requestUserQuestion: vi.fn(async (_toolId, question) => question.choices[1])
+		}
+
+		const raw = await callGlobalTool(
+			'askUserQuestion',
+			{
+				question: 'Which script language should be used?',
+				choices: ['bun', 'python3']
+			},
+			callbacks
+		)
+
+		expect(raw).toBe('python3')
+		expect(callbacks.requestUserQuestion).toHaveBeenCalledWith(
+			'test-askUserQuestion',
+			expect.objectContaining({
+				question: 'Which script language should be used?',
+				choices: ['bun', 'python3']
+			})
+		)
+		expect(callbacks.setToolStatus).toHaveBeenLastCalledWith(
+			'test-askUserQuestion',
+			expect.objectContaining({
+				content: 'User answered question: python3',
+				isLoading: false,
+				result: 'python3',
+				userQuestion: expect.objectContaining({ selectedChoice: 'python3' })
+			})
+		)
 	})
 })
