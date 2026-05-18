@@ -86,7 +86,7 @@
 		"@anthropic-ai/sdk": "^0.60.0",
 		"@aws-crypto/sha256-js": "^4.0.0",
 		"@codingame/monaco-vscode-editor-api": "=25.0.0",
-		"@codingame/monaco-vscode-languages-service-override": "=25.0.0",
+		"@codingame/monaco-vscode-languages-service-override": "27.0.0",
 		"@codingame/monaco-vscode-standalone-css-language-features": "=25.0.0",
 		"@codingame/monaco-vscode-standalone-html-language-features": "=25.0.0",
 		"@codingame/monaco-vscode-standalone-json-language-features": "=25.0.0",
