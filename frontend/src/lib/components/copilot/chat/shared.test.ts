@@ -68,6 +68,39 @@ describe('createToolDef', () => {
 		expect(parameters?.properties?.config?.anyOf?.length).toBeGreaterThan(1)
 	})
 
+	it('disables strict mode for schemas with optional properties', async () => {
+		const { createToolDef } = await import('./shared')
+		const toolDef = createToolDef(
+			z.object({
+				subject: z.string(),
+				language: z.string().optional()
+			}),
+			'get_instructions',
+			'Get instructions'
+		)
+
+		const parameters = toolDef.function.parameters as any
+		expect(toolDef.function.strict).toBe(false)
+		expect(parameters.required).toEqual(['subject'])
+		expect(parameters.properties.language.type).toBe('string')
+	})
+
+	it('keeps strict mode for schemas without optional properties', async () => {
+		const { createToolDef } = await import('./shared')
+		const toolDef = createToolDef(
+			z.object({
+				question: z.string(),
+				choices: z.array(z.string())
+			}),
+			'askUserQuestion',
+			'Ask a question'
+		)
+
+		const parameters = toolDef.function.parameters as any
+		expect(toolDef.function.strict).toBe(true)
+		expect(parameters.required).toEqual(['question', 'choices'])
+	})
+
 	it('does not expose runnable target fields on workspace mutation tools', async () => {
 		const { createWorkspaceMutationTools } = await import('./workspaceTools')
 		const [scheduleTool, triggerTool] = createWorkspaceMutationTools()

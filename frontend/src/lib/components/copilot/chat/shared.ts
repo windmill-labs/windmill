@@ -709,16 +709,65 @@ export function createToolDef(
 	delete parameters.$schema
 	if (!parameters.required) parameters.required = []
 	normalizeToolParameterSchema(parameters)
+	const effectiveStrict = strict && !hasOptionalObjectProperties(parameters)
 
 	return {
 		type: 'function',
 		function: {
-			strict,
+			strict: effectiveStrict,
 			name,
 			description,
 			parameters
 		}
 	}
+}
+
+function hasOptionalObjectProperties(schema: Record<string, any> | undefined): boolean {
+	if (!schema || typeof schema !== 'object') {
+		return false
+	}
+
+	if (schema.properties && typeof schema.properties === 'object') {
+		const required = new Set(Array.isArray(schema.required) ? schema.required : [])
+		const propertyKeys = Object.keys(schema.properties)
+		if (propertyKeys.some((key) => !required.has(key))) {
+			return true
+		}
+		for (const key of propertyKeys) {
+			if (hasOptionalObjectProperties(schema.properties[key])) {
+				return true
+			}
+		}
+	}
+
+	if (schema.items) {
+		if (Array.isArray(schema.items)) {
+			if (schema.items.some((item) => hasOptionalObjectProperties(item))) {
+				return true
+			}
+		} else if (hasOptionalObjectProperties(schema.items)) {
+			return true
+		}
+	}
+
+	if (
+		schema.additionalProperties &&
+		typeof schema.additionalProperties === 'object' &&
+		hasOptionalObjectProperties(schema.additionalProperties)
+	) {
+		return true
+	}
+
+	for (const key of ['allOf', 'anyOf', 'oneOf']) {
+		if (
+			Array.isArray(schema[key]) &&
+			schema[key].some((subSchema: Record<string, any>) => hasOptionalObjectProperties(subSchema))
+		) {
+			return true
+		}
+	}
+
+	return false
 }
 
 const searchHubScriptsSchema = z.object({
