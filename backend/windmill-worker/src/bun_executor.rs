@@ -1333,6 +1333,15 @@ pub async fn handle_bun_job(
 ) -> error::Result<Box<RawValue>> {
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
+    // Preview jobs may carry _TEMP_SCRIPT_REFS so relative imports resolve from
+    // not-yet-deployed local content uploaded to raw_script_temp. Extracted up
+    // front so it reaches both lockfile generation and the runtime loader.
+    let temp_script_refs: Option<HashMap<String, String>> = job
+        .args
+        .as_ref()
+        .and_then(|x| x.get("_TEMP_SCRIPT_REFS"))
+        .and_then(|v| serde_json::from_str(v.get()).ok());
+
     if annotation.sandbox && NSJAIL_AVAILABLE.is_none() {
         return Err(error::Error::ExecutionErr(
             "Script has //sandbox annotation but nsjail is not available on this worker. \
@@ -1512,7 +1521,7 @@ pub async fn handle_bun_job(
                     workspace_dependencies,
                     annotation.npm,
                     &mut Some(occupancy_metrics),
-                    &None,
+                    &temp_script_refs,
                     wac_replay_info.is_some(),
                 )
                 .await?;
@@ -1870,14 +1879,6 @@ try {{
         && !*DISABLE_BUNDLING
         && !codebase.is_some()
         && (maybe_lock.get_lock().is_some() || annotation.native);
-
-    // Preview jobs may carry _TEMP_SCRIPT_REFS so relative imports resolve from
-    // not-yet-deployed local content uploaded to raw_script_temp.
-    let temp_script_refs: Option<HashMap<String, String>> = job
-        .args
-        .as_ref()
-        .and_then(|x| x.get("_TEMP_SCRIPT_REFS"))
-        .and_then(|v| serde_json::from_str(v.get()).ok());
 
     let write_loader_f = async {
         if build_cache {
