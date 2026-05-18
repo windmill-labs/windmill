@@ -204,6 +204,7 @@
 	let lastWsAttempt: Date = new Date()
 	let nbWsAttempt = 0
 	let disposeMethod: (() => void) | undefined
+	const absolutePathExtraLibs = new Map<string, { dispose: () => void }>()
 	const dispatch = createEventDispatcher()
 	// let graphqlService: MonacoGraphQLAPI | undefined = undefined
 
@@ -1644,6 +1645,8 @@
 			(scriptLang == 'bun' || scriptLang == 'tsx' || scriptLang == 'bunnative') &&
 			ata == undefined
 		) {
+			absolutePathExtraLibs.forEach((d) => d.dispose())
+			absolutePathExtraLibs.clear()
 			const hostname = getHostname()
 
 			const addLibraryToRuntime = async (code: string, _path: string) => {
@@ -1658,7 +1661,6 @@
 				}
 			}
 
-			const absolutePathExtraLibs = new Map<string, { dispose: () => void }>()
 			const addLocalFile = async (code: string, _path: string) => {
 				let p = new URL(_path, uri).href
 				let nuri = mUri.parse(p)
@@ -1788,6 +1790,8 @@
 		timeoutModel && clearTimeout(timeoutModel)
 		loadTimeout && clearTimeout(loadTimeout)
 		aiChatEditorHandler?.clear()
+		absolutePathExtraLibs.forEach((d) => d.dispose())
+		absolutePathExtraLibs.clear()
 	})
 
 	async function genRoot(hostname: string) {
