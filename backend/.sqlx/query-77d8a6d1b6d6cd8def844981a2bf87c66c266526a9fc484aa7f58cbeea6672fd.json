@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT COALESCE(max(id), 0) AS \"head!\" FROM audit_partitioned",
+  "query": "SELECT txid_snapshot_xmin(txid_current_snapshot())::bigint AS \"x!\"",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "head!",
+        "name": "x!",
         "type_info": "Int8"
       }
     ],
@@ -16,5 +16,5 @@
       null
     ]
   },
-  "hash": "56a4c0393081024e8c858c1cff512d8e7a79b7352c73d58af05b5a1b703fac25"
+  "hash": "77d8a6d1b6d6cd8def844981a2bf87c66c266526a9fc484aa7f58cbeea6672fd"
 }

@@ -4087,26 +4087,39 @@ async fn audit_log_retention_days() -> i64 {
 /// instance object store as newline-delimited JSON.
 ///
 /// Audit rows are already durable in Postgres, so this runs entirely off the
-/// `audit_log()` hot path: a single bounded, server-side-aggregated query plus
-/// one object PUT per day-batch, on a single server (advisory lock), on a timer.
-/// There is zero added overhead on the request path.
+/// `audit_log()` hot path: one server-side-aggregated query plus one object PUT
+/// per day-batch, on a single server (advisory lock), on a timer. There is zero
+/// added overhead on the request path.
 ///
-/// Exactly-once / no-loss is guaranteed by two predicates working together:
-///   * `id > last_id` — strictly advancing, disjoint id ranges across batches.
-///   * `xmin::text::bigint < txid_snapshot_xmin(txid_current_snapshot())` — a
-///     row is only eligible once its inserting transaction *and every
-///     transaction older than it* have finished. `audit_log()` is commonly
-///     called with the caller's `&mut tx`, and `audit_partitioned.id` is a
-///     sequence value consumed at INSERT time while the row only becomes
-///     visible at the caller's COMMIT. A naive wall-clock watermark would
-///     advance `last_id` past a fast-committing high id while a slow
-///     transaction still holds a lower, not-yet-visible id, dropping that row
-///     forever. Gating on the snapshot xmin makes a row eligible only when no
-///     older transaction (which could still own a lower id) is in flight, so
-///     the exported prefix is always gap-free. Tradeoff: a long-running
-///     transaction (of any kind) holds the snapshot xmin back and stalls
-///     export progress until it ends — this is bounded lag that self-heals,
-///     never loss.
+/// **Exactly-once / no-loss** is achieved by cursoring on the transaction
+/// snapshot *xmin* (xid space), not on `id`:
+///   * `audit_log()` is commonly called with the caller's `&mut tx`, so a
+///     row's `xmin` is the caller transaction's xid (assigned at that
+///     transaction's first write — frequently an earlier, non-audit
+///     statement). `audit_partitioned.id` is a sequence value consumed at the
+///     audit INSERT and only visible at the caller's COMMIT. `id` order and
+///     `xid`/commit order are therefore decoupled, *and* an in-flight
+///     transaction's low `id` is entirely invisible — so no `id`-based cursor
+///     can be safe.
+///   * Each run captures the snapshot xmin `cur`. Every xid `< cur` is settled
+///     (committed or aborted) by definition of snapshot xmin. The checkpoint
+///     stores the previous run's `cur` as `prev`. We export exactly the rows
+///     whose inserting xid lies in the half-open interval `[prev, cur)`
+///     (settled now, not settled at the previous run). Snapshot xmin is
+///     monotonic, so these intervals are disjoint and cover every transaction
+///     exactly once — invisible in-flight rows simply fall into a later
+///     interval once their transaction settles. No loss regardless of
+///     `id`/`xid` divergence.
+///   * Interval membership uses `age()` so it stays correct across xid
+///     wraparound (a raw 32-bit `xmin` vs 64-bit `txid_snapshot_xmin` compare
+///     would silently become always-true after 2^32 txns).
+///
+/// Tradeoffs (bounded lag, never loss; both self-heal):
+///   * A long-running transaction of any kind holds snapshot xmin back and
+///     stalls export progress until it ends.
+///   * After such a stall the next run exports the whole accumulated interval
+///     in one batch (bounded by the audit volume that built up during the
+///     stall — the data that must be shipped regardless).
 #[cfg(feature = "parquet")]
 async fn export_audit_logs_to_object_store(db: &DB) {
     use std::sync::atomic::Ordering;
@@ -4124,13 +4137,10 @@ async fn export_audit_logs_to_object_store(db: &DB) {
     // critical section and auto-released when the transaction ends, so an early
     // return or panic can never leak it. Holding the transaction open across the
     // object-store PUTs keeps a pooled connection checked out (idle-in-tx) for
-    // the upload duration; acceptable given the single-server, once-per-~60s,
-    // `BATCH_LIMIT`-bounded cadence, and required for the read→checkpoint
-    // critical section to be atomic under the lock.
+    // the upload duration; acceptable given the single-server, once-per-~60s
+    // cadence, and required for the read→checkpoint section to be atomic under
+    // the lock.
     const AUDIT_S3_EXPORT_LOCK_ID: i64 = 4_011_990_017;
-    // Bounded per run so a large backlog drains over successive ticks instead of
-    // one huge query/upload.
-    const BATCH_LIMIT: i64 = 50_000;
 
     let mut tx = match db.begin().await {
         Ok(tx) => tx,
@@ -4152,6 +4162,21 @@ async fn export_audit_logs_to_object_store(db: &DB) {
         return;
     }
 
+    // Capture the snapshot xmin once so the stored checkpoint and the export
+    // predicate use the exact same boundary.
+    let cur_xmin = match sqlx::query_scalar!(
+        "SELECT txid_snapshot_xmin(txid_current_snapshot())::bigint AS \"x!\""
+    )
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("audit s3 export: failed to read snapshot xmin: {e:#}");
+            return;
+        }
+    };
+
     // Read the checkpoint inside the locked transaction so read→decide→write is
     // one atomic, lock-protected unit.
     let checkpoint = sqlx::query_scalar!(
@@ -4163,32 +4188,27 @@ async fn export_audit_logs_to_object_store(db: &DB) {
     .ok()
     .flatten();
 
-    let (last_id, last_ts): (i64, DateTime<Utc>) = match checkpoint {
+    let (prev_xmin, last_ts): (i64, DateTime<Utc>) = match checkpoint {
         Some(v) => {
-            let last_id = v.get("last_id").and_then(|x| x.as_i64()).unwrap_or(0);
+            let prev_xmin = v.get("last_xmin").and_then(|x| x.as_i64()).unwrap_or(0);
             let last_ts = v
                 .get("last_ts")
                 .and_then(|x| x.as_str())
                 .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
                 .map(|d| d.with_timezone(&Utc))
                 .unwrap_or_else(|| DateTime::<Utc>::from_timestamp(0, 0).unwrap());
-            (last_id, last_ts)
+            (prev_xmin, last_ts)
         }
         None => {
-            // First run: anchor to the current head so only audit logs created
-            // after the feature was enabled are exported (no historical
-            // backfill; older logs remain in Postgres and service logs).
-            let head = sqlx::query_scalar!(
-                "SELECT COALESCE(max(id), 0) AS \"head!\" FROM audit_partitioned"
-            )
-            .fetch_one(&mut *tx)
-            .await
-            .unwrap_or(0);
+            // First run: anchor at the current snapshot xmin so only audit logs
+            // from transactions that settle *after* the feature was enabled are
+            // exported (no historical backfill; older logs remain in Postgres
+            // and service logs).
             if let Err(e) = sqlx::query!(
                 "INSERT INTO global_settings (name, value) VALUES ($1, $2)
                  ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
                 windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING,
-                serde_json::json!({ "last_id": head, "last_ts": Utc::now().to_rfc3339() })
+                serde_json::json!({ "last_xmin": cur_xmin, "last_ts": Utc::now().to_rfc3339() })
             )
             .execute(&mut *tx)
             .await
@@ -4201,22 +4221,29 @@ async fn export_audit_logs_to_object_store(db: &DB) {
         }
     };
 
-    // `id > last_id` + the snapshot-xmin settled gate guarantee exactly-once,
-    // gap-free export (see the doc comment). `timestamp >= last_ts - 7 days`
-    // only constrains partition pruning; the 7-day slack is far larger than any
-    // realistic audit-writing transaction (Postgres would have aborted it via
-    // statement/idle-in-transaction timeouts long before), so it cannot
-    // re-introduce loss while still pruning to a handful of daily partitions.
+    // Export the rows whose inserting xid is in `[prev, cur)`:
+    //   * `age(xmin) > age(cur_xid)`  → settled now (strictly older than the
+    //     current snapshot xmin; wraparound-safe via `age()`).
+    //   * `age(xmin) <= age(prev_xid)` → was not yet settled at the previous
+    //     run, so it has not been exported before.
+    // `timestamp >= last_ts - 7 days` only constrains partition pruning; the
+    // 7-day slack far exceeds any realistic audit-writing transaction (Postgres
+    // aborts via statement/idle-in-transaction timeouts long before), so it
+    // cannot drop a settling row.
     let rows = match sqlx::query!(
-        r#"WITH batch AS (
+        r#"WITH bounds AS (
+            SELECT ($2::bigint % 4294967296)::text::xid AS prev_xid,
+                   ($3::bigint % 4294967296)::text::xid AS cur_xid,
+                   $1::timestamptz - interval '7 days' AS ts_floor
+        ),
+        batch AS (
             SELECT workspace_id, id, timestamp, username, operation,
                    action_kind::text AS action_kind, resource, parameters, email, span
-            FROM audit_partitioned
-            WHERE timestamp >= $1::timestamptz - interval '7 days'
-              AND id > $2::bigint
-              AND xmin::text::bigint < txid_snapshot_xmin(txid_current_snapshot())
+            FROM audit_partitioned, bounds b
+            WHERE timestamp >= b.ts_floor
+              AND age(xmin) > age(b.cur_xid)
+              AND age(xmin) <= age(b.prev_xid)
             ORDER BY id
-            LIMIT $3::bigint
         )
         SELECT to_char(timestamp AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS "day!",
                string_agg(row_to_json(batch)::text, E'\n' ORDER BY id) AS "ndjson!",
@@ -4226,8 +4253,8 @@ async fn export_audit_logs_to_object_store(db: &DB) {
         GROUP BY 1
         ORDER BY 1"#,
         last_ts,
-        last_id,
-        BATCH_LIMIT
+        prev_xmin,
+        cur_xmin
     )
     .fetch_all(&mut *tx)
     .await
@@ -4239,39 +4266,34 @@ async fn export_audit_logs_to_object_store(db: &DB) {
         }
     };
 
-    if rows.is_empty() {
-        return;
-    }
-
-    let batch_max_id = rows.iter().map(|r| r.max_id).max().unwrap_or(last_id);
-    // Never let the pruning floor regress.
-    let batch_max_ts = rows
-        .iter()
-        .map(|r| r.max_ts)
-        .max()
-        .unwrap_or(last_ts)
-        .max(last_ts);
-
+    // Even with no rows, advance the checkpoint: the `[prev, cur)` xid interval
+    // has been fully processed (it may legitimately contain no audit rows), and
+    // not advancing would re-scan an ever-growing interval.
+    let mut batch_max_id: Option<i64> = None;
+    let mut batch_max_ts = last_ts;
     for row in &rows {
-        // Key by the *exclusive lower bound* of this batch. The id ranges
-        // (last_id, batch_max_id] are disjoint and contiguous across successive
-        // batches, so each id lands in exactly one object. On a retry after a
-        // failed PUT the checkpoint was not advanced, so `last_id` — and hence
-        // the key — is unchanged: the object is overwritten in place (no
-        // orphan, no duplicate) even if more rows have since settled into this
-        // batch.
+        batch_max_id = Some(batch_max_id.map_or(row.max_id, |m| m.max(row.max_id)));
+        batch_max_ts = batch_max_ts.max(row.max_ts);
+
+        // Key by the interval's lower bound `prev_xmin`. Across successful runs
+        // the intervals are disjoint (snapshot xmin is monotonic), so each
+        // transaction's rows land in exactly one object. On a retry after a
+        // failed PUT the checkpoint was not advanced, so `prev_xmin` — and the
+        // key — are unchanged: the object is overwritten in place (no orphan,
+        // no duplicate).
         let object_path = windmill_object_store::object_store_reexports::Path::from(format!(
-            "{}dt={}/audit_from_{}.ndjson",
+            "{}dt={}/audit_xmin_{}.ndjson",
             windmill_common::tracing_init::LOGS_AUDIT,
             row.day,
-            last_id
+            prev_xmin
         ));
         if let Err(e) = os
             .put(&object_path, row.ndjson.clone().into_bytes().into())
             .await
         {
-            // Don't advance the checkpoint: the whole batch is retried on the
-            // next tick against the same `last_id`, overwriting the same keys.
+            // Don't advance the checkpoint: the whole interval is retried on
+            // the next tick against the same `prev_xmin`, overwriting the same
+            // keys.
             tracing::error!(
                 "audit s3 export: failed to upload {object_path}: {e:#}. \
                  Retrying whole batch from last checkpoint next run."
@@ -4284,7 +4306,7 @@ async fn export_audit_logs_to_object_store(db: &DB) {
         "INSERT INTO global_settings (name, value) VALUES ($1, $2)
          ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
         windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING,
-        serde_json::json!({ "last_id": batch_max_id, "last_ts": batch_max_ts.to_rfc3339() })
+        serde_json::json!({ "last_xmin": cur_xmin, "last_ts": batch_max_ts.to_rfc3339() })
     )
     .execute(&mut *tx)
     .await
@@ -4298,12 +4320,15 @@ async fn export_audit_logs_to_object_store(db: &DB) {
         return;
     }
 
-    tracing::info!(
-        "Exported {} audit log day-batch(es) (ids {}..={}) to object store",
-        rows.len(),
-        last_id + 1,
-        batch_max_id
-    );
+    if let Some(max_id) = batch_max_id {
+        tracing::info!(
+            "Exported {} audit log day-batch(es) (xid interval [{}, {}), up to id {}) to object store",
+            rows.len(),
+            prev_xmin,
+            cur_xmin,
+            max_id
+        );
+    }
 }
 
 async fn manage_audit_partitions(db: &DB, retention_days: i64) {
@@ -4434,7 +4459,7 @@ mod audit_s3_export_tests {
         ids
     }
 
-    async fn checkpoint_last_id(db: &DB) -> Option<i64> {
+    async fn checkpoint_last_xmin(db: &DB) -> Option<i64> {
         sqlx::query_scalar::<_, serde_json::Value>(
             "SELECT value FROM global_settings WHERE name = $1",
         )
@@ -4442,34 +4467,36 @@ mod audit_s3_export_tests {
         .fetch_optional(db)
         .await
         .unwrap()
-        .and_then(|v| v.get("last_id").and_then(|x| x.as_i64()))
+        .and_then(|v| v.get("last_xmin").and_then(|x| x.as_i64()))
     }
 
     // Covers, in one DB so global object-store state can't race across tests:
-    //  - first run anchors the checkpoint and does NOT backfill history
-    //  - steady state exports new rows exactly once, checkpoint advances
-    //  - re-run with no new rows is a no-op (idempotent)
-    //  - P0 regression: a row written by a still-open (older) transaction is
-    //    never skipped — the export must not advance past it.
+    //  - first run anchors the xid checkpoint and does NOT backfill history
+    //  - steady state exports new rows exactly once
+    //  - re-run with no newly-settled transactions is a no-op (idempotent)
+    //  - no-loss when an older transaction stays open across a run
+    //  - no-loss under divergent xid/id ordering: a lower id from a
+    //    higher-xid still-open txn is not lost even though a higher id from a
+    //    lower-xid txn committed and was exported (and the checkpoint
+    //    advanced) first — the exact CI-found P0.
     #[sqlx::test(migrations = "./migrations")]
     async fn audit_export_end_to_end(db: DB) -> anyhow::Result<()> {
         STORE_AUDIT_LOGS_S3.store(true, Ordering::Relaxed);
         let store = install_in_memory_store().await;
 
         // --- rows that exist before the feature was enabled ---
-        let _pre1 = insert_audit(&db, "pre.1").await;
+        let pre1 = insert_audit(&db, "pre.1").await;
         let pre2 = insert_audit(&db, "pre.2").await;
 
-        // First run only anchors; nothing is backfilled.
+        // First run only anchors the xid cursor; nothing is backfilled.
         export_audit_logs_to_object_store(&db).await;
         assert!(
             exported_ids(&store).await.is_empty(),
             "first run must not backfill pre-existing rows"
         );
-        assert_eq!(
-            checkpoint_last_id(&db).await,
-            Some(pre2),
-            "first run anchors checkpoint at current head"
+        assert!(
+            checkpoint_last_xmin(&db).await.is_some(),
+            "first run anchors the xid checkpoint"
         );
 
         // --- steady state: rows created after enabling ---
@@ -4481,38 +4508,32 @@ mod audit_s3_export_tests {
             vec![a, b],
             "only post-enable rows, each exactly once, in id order"
         );
-        assert_eq!(
-            checkpoint_last_id(&db).await,
-            Some(b),
-            "checkpoint advances monotonically to the batch max id"
+        assert!(
+            !exported_ids(&store).await.contains(&pre1)
+                && !exported_ids(&store).await.contains(&pre2),
+            "pre-existing rows are never backfilled"
         );
 
-        // --- idempotent: nothing new -> no-op ---
+        // --- idempotent: no newly-settled txns -> no-op ---
         export_audit_logs_to_object_store(&db).await;
         assert_eq!(
             exported_ids(&store).await,
             vec![a, b],
-            "re-run with no new rows must not duplicate"
+            "re-run with nothing newly settled must not duplicate"
         );
-        assert_eq!(checkpoint_last_id(&db).await, Some(b));
 
-        // --- P0 regression: older transaction still open ---
+        // --- no-loss: older transaction stays open across a run ---
         let mut slow = db.begin().await?;
-        let slow_id = insert_audit(&mut *slow, "slow").await; // id assigned, NOT committed
-        let c = insert_audit(&db, "c").await; // committed, higher id
-        let d = insert_audit(&db, "d").await; // committed, higher id
+        let slow_id = insert_audit(&mut *slow, "slow").await; // not committed
+        let c = insert_audit(&db, "c").await; // committed, higher id & xid
+        let d = insert_audit(&db, "d").await;
         assert!(slow_id < c && c < d);
 
         export_audit_logs_to_object_store(&db).await;
         let after = exported_ids(&store).await;
         assert!(
             !after.contains(&c) && !after.contains(&d) && !after.contains(&slow_id),
-            "must not export past a row owned by an older in-flight transaction"
-        );
-        assert_eq!(
-            checkpoint_last_id(&db).await,
-            Some(b),
-            "checkpoint must not advance while an older transaction is in flight"
+            "rows whose xid >= the open txn's are not yet settled, so not exported"
         );
 
         // Once the slow transaction commits, every row settles and is exported.
@@ -4531,6 +4552,60 @@ mod audit_s3_export_tests {
             deduped, final_ids,
             "each id exported exactly once: {final_ids:?}"
         );
+
+        // --- P0 regression (CI-found): divergent xid/id ordering ---
+        // t_fast acquires a LOW xid via a non-audit write, then audit-inserts a
+        // HIGHER id and commits. t_slow audit-inserts a LOWER id as its first
+        // write (-> a HIGHER xid) and stays open. An id-based cursor would
+        // export the higher id, advance past it, and permanently lose the
+        // lower id once t_slow commits. The xid-interval cursor must still
+        // capture the lower id.
+        let before = exported_ids(&store).await;
+
+        let mut t_fast = db.begin().await?;
+        // Non-audit write -> assigns t_fast's (low) xid before any audit row.
+        sqlx::query("SELECT txid_current()")
+            .execute(&mut *t_fast)
+            .await?;
+
+        let mut t_slow = db.begin().await?;
+        let low_id = insert_audit(&mut *t_slow, "divergent.slow.low").await; // xid_slow > xid_fast
+
+        let high_id = insert_audit(&mut *t_fast, "divergent.fast.high").await; // id later, xid_fast
+        assert!(low_id < high_id);
+        t_fast.commit().await?;
+
+        // t_fast is fully settled (xid below snapshot xmin), so its higher id
+        // is exported now; t_slow is still open so its lower id is not — and
+        // the checkpoint advances to t_slow's xid, NOT past it.
+        export_audit_logs_to_object_store(&db).await;
+        let mid = exported_ids(&store).await;
+        assert!(
+            mid.contains(&high_id),
+            "settled higher id (lower xid) is exported: {mid:?}"
+        );
+        assert!(
+            !mid.contains(&low_id),
+            "lower id from the still-open higher-xid txn is not yet exported"
+        );
+        for id in &before {
+            let n = mid.iter().filter(|x| *x == id).count();
+            assert_eq!(n, 1, "id {id} still exactly once after partial export");
+        }
+
+        // Once t_slow commits, the previously-skipped LOWER id must still be
+        // exported (this is the regression: an id-cursor would have lost it).
+        t_slow.commit().await?;
+        export_audit_logs_to_object_store(&db).await;
+        let done = exported_ids(&store).await;
+        assert!(
+            done.contains(&low_id),
+            "lower id (higher xid) must NOT be lost once its txn settles: {done:?}"
+        );
+        assert!(done.contains(&high_id));
+        let mut done_dedup = done.clone();
+        done_dedup.dedup();
+        assert_eq!(done_dedup, done, "still exactly once overall: {done:?}");
 
         clear_store().await;
         STORE_AUDIT_LOGS_S3.store(false, Ordering::Relaxed);
