@@ -5,7 +5,11 @@
 	import CodeDisplay from './script/CodeDisplay.svelte'
 	import LinkRenderer from './LinkRenderer.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { remarkWindmillPaths, workspaceItemRegistry } from './workspaceItems.svelte'
+	import {
+		extractCandidatePaths,
+		remarkWindmillPaths,
+		workspaceItemRegistry
+	} from './workspaceItems.svelte'
 
 	interface Props {
 		message: DisplayMessage
@@ -13,15 +17,26 @@
 
 	let { message }: Props = $props()
 
-	// Trigger the lazy load once we mount in a workspace context. The registry dedups
-	// concurrent calls across messages, so this is cheap to call repeatedly.
+	const candidatePaths = $derived(extractCandidatePaths(message.content))
+	const rendererPlugin = {
+		renderer: {
+			pre: CodeDisplay,
+			a: LinkRenderer
+		}
+	}
+
+	// Only populate the registry for messages that contain path-shaped tokens. The
+	// registry still dedups concurrent calls across messages and workspaces.
 	$effect(() => {
 		const ws = $workspaceStore
-		if (ws) workspaceItemRegistry.ensureLoaded(ws)
+		if (ws && candidatePaths.length > 0) workspaceItemRegistry.ensureLoaded(ws)
 	})
 
 	const plugins = $derived.by(() => {
 		const ws = $workspaceStore ?? ''
+		if (!ws || candidatePaths.length === 0) {
+			return [gfmPlugin(), rendererPlugin]
+		}
 		// Subscribe to the registry's reactive state so this derivation re-runs once the
 		// workspace items finish loading — otherwise messages that mounted before the load
 		// completed would stay as plain text forever (the underlying `parse` in
@@ -36,12 +51,7 @@
 				}),
 				renderer: {}
 			},
-			{
-				renderer: {
-					pre: CodeDisplay,
-					a: LinkRenderer
-				}
-			}
+			rendererPlugin
 		]
 	})
 </script>
