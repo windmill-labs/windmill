@@ -20,6 +20,7 @@ import { itemHref as offboardingItemHref } from '$lib/components/offboarding-uti
 import { findAndReplace } from 'mdast-util-find-and-replace'
 import { visit } from 'unist-util-visit'
 import type { Root, InlineCode, Link } from 'mdast'
+import type { CreatedResourceTriggerKind, ToolDisplayAction } from './shared'
 
 export type WindmillItemKind =
 	| 'script'
@@ -43,7 +44,10 @@ export interface WorkspaceItemEntry {
 	kind: WindmillItemKind
 	path: string
 	summary?: string
+	targetKind?: WorkspaceItemTargetKind
 }
+
+export type WorkspaceItemTargetKind = 'script' | 'flow'
 
 /**
  * Matches Windmill paths of the form `u/<owner>/<path>` or `f/<folder>/<path>`.
@@ -83,6 +87,21 @@ const itemKindToOffboardingKind: Record<WindmillItemKind, string> = {
 	email_trigger: 'email_trigger'
 }
 
+const triggerKindByWorkspaceItemKind: Partial<
+	Record<WindmillItemKind, CreatedResourceTriggerKind>
+> = {
+	http_trigger: 'http',
+	websocket_trigger: 'websocket',
+	kafka_trigger: 'kafka',
+	nats_trigger: 'nats',
+	postgres_trigger: 'postgres',
+	mqtt_trigger: 'mqtt',
+	sqs_trigger: 'sqs',
+	gcp_trigger: 'gcp',
+	azure_trigger: 'azure',
+	email_trigger: 'email'
+}
+
 /**
  * Build the in-app URL for a resolved workspace item.
  *
@@ -102,7 +121,11 @@ export function itemHref(entry: WorkspaceItemEntry, workspace?: string): string 
 	return `${pathPart}${sep}workspace=${workspace}${hashPart}`
 }
 
-type WorkspaceItemListResult = Array<{ path: string; summary?: string | null }>
+type WorkspaceItemListResult = Array<{
+	path: string
+	summary?: string | null
+	is_flow?: boolean | null
+}>
 
 const workspaceItemLoaders: Array<{
 	kind: WindmillItemKind
@@ -166,7 +189,13 @@ class WorkspaceItemRegistry {
 		for (const { kind, items } of loadedItems) {
 			for (const it of items) {
 				if (!map.has(it.path)) {
-					map.set(it.path, { kind, path: it.path, summary: it.summary ?? undefined })
+					map.set(it.path, {
+						kind,
+						path: it.path,
+						summary: it.summary ?? undefined,
+						targetKind:
+							typeof it.is_flow === 'boolean' ? (it.is_flow ? 'flow' : 'script') : undefined
+					})
 				}
 			}
 		}
@@ -213,23 +242,55 @@ export function extractCandidatePaths(text: string | undefined | null): string[]
 	return [...seen]
 }
 
+export function workspaceItemAction(
+	kind: WindmillItemKind | undefined,
+	path: string | undefined,
+	targetKind?: WorkspaceItemTargetKind
+): ToolDisplayAction | undefined {
+	if (!kind || !path) return undefined
+
+	const base = {
+		id: `open_workspace_item:${kind}:${path}`,
+		type: 'open_created_resource' as const,
+		label: `Open ${path}`,
+		path
+	}
+
+	if (kind === 'resource' || kind === 'variable') {
+		return { ...base, resource: kind }
+	}
+
+	if (kind === 'schedule') {
+		return targetKind ? { ...base, resource: 'schedule', targetKind } : undefined
+	}
+
+	const triggerKind = triggerKindByWorkspaceItemKind[kind]
+	if (!triggerKind || !targetKind) return undefined
+	return { ...base, resource: 'trigger', triggerKind, targetKind }
+}
+
 /** Build the link node used to replace a resolved path token. */
 function buildPathLinkNode(
 	entry: WorkspaceItemEntry,
 	displayPath: string,
 	workspace: string | undefined
 ): Link {
+	const hProperties: Record<string, string> = {
+		'data-wm-kind': entry.kind,
+		'data-wm-path': entry.path,
+		target: '_blank',
+		rel: 'noopener noreferrer'
+	}
+	if (entry.targetKind) {
+		hProperties['data-wm-target-kind'] = entry.targetKind
+	}
+
 	return {
 		type: 'link',
 		url: itemHref(entry, workspace),
 		title: entry.summary || null,
 		data: {
-			hProperties: {
-				'data-wm-kind': entry.kind,
-				'data-wm-path': entry.path,
-				target: '_blank',
-				rel: 'noopener noreferrer'
-			}
+			hProperties
 		},
 		children: [{ type: 'text', value: displayPath }]
 	}

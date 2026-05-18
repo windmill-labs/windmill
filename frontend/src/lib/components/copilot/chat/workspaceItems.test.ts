@@ -28,6 +28,7 @@ import {
 	itemHref,
 	remarkWindmillPaths,
 	WINDMILL_PATH_REGEX,
+	workspaceItemAction,
 	type WorkspaceItemEntry
 } from './workspaceItems.svelte'
 
@@ -121,6 +122,46 @@ describe('itemHref', () => {
 	})
 })
 
+describe('workspaceItemAction', () => {
+	it('creates drawer actions for variables and resources', () => {
+		expect(workspaceItemAction('variable', 'u/me/secret')).toMatchObject({
+			type: 'open_created_resource',
+			resource: 'variable',
+			path: 'u/me/secret'
+		})
+		expect(workspaceItemAction('resource', 'u/me/db')).toMatchObject({
+			type: 'open_created_resource',
+			resource: 'resource',
+			path: 'u/me/db'
+		})
+	})
+
+	it('creates drawer actions for schedules and triggers when target kind is known', () => {
+		expect(workspaceItemAction('schedule', 'f/etl/daily', 'flow')).toMatchObject({
+			resource: 'schedule',
+			targetKind: 'flow'
+		})
+		expect(workspaceItemAction('http_trigger', 'f/api/route', 'script')).toMatchObject({
+			resource: 'trigger',
+			triggerKind: 'http',
+			targetKind: 'script'
+		})
+		expect(workspaceItemAction('email_trigger', 'f/mail/inbox', 'script')).toMatchObject({
+			resource: 'trigger',
+			triggerKind: 'email',
+			targetKind: 'script'
+		})
+	})
+
+	it('skips non-drawerable items and trigger items without target kind', () => {
+		expect(workspaceItemAction('script', 'f/a/b')).toBeUndefined()
+		expect(workspaceItemAction('flow', 'f/a/b')).toBeUndefined()
+		expect(workspaceItemAction('app', 'f/a/b')).toBeUndefined()
+		expect(workspaceItemAction('schedule', 'f/a/b')).toBeUndefined()
+		expect(workspaceItemAction('http_trigger', 'f/a/b')).toBeUndefined()
+	})
+})
+
 const SAMPLE_ENTRIES: Record<string, WorkspaceItemEntry> = {
 	'f/marketing/send_email': {
 		kind: 'script',
@@ -132,7 +173,13 @@ const SAMPLE_ENTRIES: Record<string, WorkspaceItemEntry> = {
 		path: 'u/admin/cleanup_old_jobs',
 		summary: 'Cleanup old jobs'
 	},
-	'f/ops/dashboard': { kind: 'app', path: 'f/ops/dashboard', summary: 'Ops dashboard' }
+	'f/ops/dashboard': { kind: 'app', path: 'f/ops/dashboard', summary: 'Ops dashboard' },
+	'f/etl/daily': {
+		kind: 'schedule',
+		path: 'f/etl/daily',
+		summary: 'Daily ETL',
+		targetKind: 'flow'
+	}
 }
 
 function buildProcessor(workspace?: string) {
@@ -194,6 +241,17 @@ describe('remarkWindmillPaths (mdast)', () => {
 		expect(props['data-wm-path']).toBe('f/marketing/send_email')
 		expect(props.target).toBe('_blank')
 		expect(props.rel).toBe('noopener noreferrer')
+	})
+
+	it('adds target kind metadata when a drawer action needs it', () => {
+		const processor = buildProcessor('admins')
+		const tree = processor.runSync(processor.parse('Open f/etl/daily.')) as MdastRoot
+		const links = findLinks(tree)
+		expect(links).toHaveLength(1)
+		const props = links[0].data?.hProperties as Record<string, string>
+		expect(props['data-wm-kind']).toBe('schedule')
+		expect(props['data-wm-path']).toBe('f/etl/daily')
+		expect(props['data-wm-target-kind']).toBe('flow')
 	})
 
 	it('leaves unknown paths as plain text', () => {

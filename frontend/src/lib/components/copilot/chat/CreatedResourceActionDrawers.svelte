@@ -81,6 +81,10 @@
 		azure: {
 			label: 'Azure Event Grid trigger',
 			load: () => import('$lib/components/triggers/azure/AzureTriggerEditorInner.svelte')
+		},
+		email: {
+			label: 'Email trigger',
+			load: () => import('$lib/components/triggers/email/EmailTriggerEditorInner.svelte')
 		}
 	}
 

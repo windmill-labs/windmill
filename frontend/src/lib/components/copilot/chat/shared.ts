@@ -472,6 +472,7 @@ export type CreatedResourceTriggerKind =
 	| 'sqs'
 	| 'gcp'
 	| 'azure'
+	| 'email'
 
 export type CreatedResourceAction = {
 	id: string
