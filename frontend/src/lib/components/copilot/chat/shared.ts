@@ -485,6 +485,20 @@ export type CreatedResourceAction = {
 
 export type ToolDisplayAction = CreatedResourceAction
 
+// A multiple-choice question the assistant put to the user via the
+// `ask_user_question` tool. While `pendingQuestion` is set the tool
+// call is paused — the UI renders the options and clicking one resolves
+// the tool's awaiting promise with the selected value.
+export type ToolQuestionOption = {
+	label: string
+	value: string
+	description?: string
+}
+export type ToolPendingQuestion = {
+	question: string
+	options: ToolQuestionOption[]
+}
+
 export type ToolDisplayMessage = {
 	role: 'tool'
 	tool_call_id: string
@@ -495,6 +509,8 @@ export type ToolDisplayMessage = {
 	isLoading?: boolean
 	error?: string
 	needsConfirmation?: boolean
+	pendingQuestion?: ToolPendingQuestion
+	answeredValue?: string
 	showDetails?: boolean
 	isStreamingArguments?: boolean
 	toolName?: string
@@ -684,6 +700,10 @@ export interface ToolCallbacks {
 	setToolStatus: (id: string, metadata?: Partial<ToolDisplayMessage>) => void
 	removeToolStatus: (id: string) => void
 	requestConfirmation?: (toolId: string) => Promise<boolean>
+	// Used by the `ask_user_question` tool. Suspends the tool until the
+	// user picks one of the supplied options. Resolves with the chosen
+	// value string, or empty string when the user cancels.
+	requestAnswer?: (toolId: string, question: ToolPendingQuestion) => Promise<string>
 }
 
 export function createToolDef(

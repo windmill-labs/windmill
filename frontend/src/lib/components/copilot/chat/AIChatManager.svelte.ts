@@ -228,6 +228,24 @@ class AIChatManager {
 		}
 	}
 
+	// Pending resolver for `ask_user_question`. Same shape as
+	// confirmationCallback but resolves with the chosen option value
+	// (a string) instead of a boolean.
+	private answerCallback = $state<((value: string) => void) | undefined>(undefined)
+
+	requestAnswer = (_toolId: string): Promise<string> => {
+		return new Promise((resolve) => {
+			this.answerCallback = resolve
+		})
+	}
+
+	handleToolAnswer = (_toolId: string, value: string) => {
+		if (this.answerCallback) {
+			this.answerCallback(value)
+			this.answerCallback = undefined
+		}
+	}
+
 	setAiChatInput(aiChatInput: AIChatInput | null) {
 		this.aiChatInput = aiChatInput
 	}
@@ -838,7 +856,8 @@ class AIChatManager {
 							this.displayMessages = [...this.displayMessages]
 						}
 					},
-					requestConfirmation: this.requestConfirmation
+					requestConfirmation: this.requestConfirmation,
+					requestAnswer: this.requestAnswer
 				}
 			}
 
@@ -868,6 +887,13 @@ class AIChatManager {
 		if (this.confirmationCallback) {
 			this.confirmationCallback(false)
 			this.confirmationCallback = undefined
+		}
+		if (this.answerCallback) {
+			// Resolve with empty string so the awaiting tool fn returns
+			// gracefully; the cancelLoadingTools sweep below will then
+			// flag the message as cancelled.
+			this.answerCallback('')
+			this.answerCallback = undefined
 		}
 		const cancelReason = reason ?? 'user_cancelled'
 		console.log('cancelling request:', {
