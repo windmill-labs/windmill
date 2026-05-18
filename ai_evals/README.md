@@ -1,11 +1,12 @@
 # AI Evals
 
-Small benchmark runner for the four Windmill AI generation modes:
+Small benchmark runner for the Windmill AI generation modes:
 
 - `cli`
 - `flow`
 - `script`
 - `app`
+- `global`
 
 The benchmark always tests the current production prompts, tools, and guidance in this checkout.
 
@@ -55,8 +56,9 @@ bun run cli -- run flow flow-test4-order-processing-loop --model opus
 bun run cli -- run flow flow-test0-sum-two-numbers --models haiku,opus,4o
 bun run cli -- run flow flow-test0-sum-two-numbers --runs 3 --verbose
 bun run cli -- run flow --record
-GEMINI_API_KEY=... bun run cli -- run app app-test1-counter-create --model gemini-pro --transport proxy
+GEMINI_API_KEY=... bun run cli -- run app app-test1-counter-create --model gemini-pro
 WMILL_AI_EVAL_BACKEND_URL=http://127.0.0.1:8000 bun run cli -- run flow --backend-validation preview
+bun run cli -- run global global-test1-script-create
 bun run cli -- run cli bun-hello-script
 ```
 
@@ -72,7 +74,6 @@ Public CLI surface:
 - `--output <path>`: custom result JSON path
 - `--model <alias>`: choose the model under test
 - `--models <a,b,c>`: run the same cases sequentially against several model aliases
-- `--transport <mode>`: frontend request transport (`direct` by default, `proxy` to exercise `/api/w/{workspace}/ai/proxy`)
 - `--verbose`: stream assistant output for frontend runs
 - `--record`: append a compact tracked summary line to `ai_evals/history/<mode>.jsonl` for full-suite runs only
 - `--backend-validation <mode>`: optional backend smoke validation (`off` or `preview`) for `script` and `flow` evals
@@ -95,7 +96,7 @@ Today:
 Notes:
 
 - the command also prints accepted alias spellings such as `gpt-4o`, `claude-opus-4.6`, and `claude-haiku-4.5`
-- frontend modes (`flow`, `script`, `app`) can use Anthropic, OpenAI, and Gemini-backed aliases
+- frontend modes (`flow`, `script`, `app`, `global`) can use Anthropic, OpenAI, and Gemini-backed aliases
 - `cli` mode always uses the Anthropic agent SDK, so only Anthropic aliases are valid there
 - the judge model is separate and currently defaults to `claude-sonnet-4-6`
 
@@ -134,6 +135,13 @@ For `app` mode, `validate` can express narrow hard requirements such as:
 - minimum datatable / datatable-table counts
 - specific required datatable tables
 
+For `global` mode, `validate` can express draft-level requirements such as:
+
+- required draft type/path/language
+- required or forbidden snippets in draft values
+- required or forbidden draft counts
+- forbidden draft paths
+
 App fixtures can also include an optional `datatables.json` file at the fixture root.
 
 For `flow` mode, an `initial` fixture can also include a benchmark workspace catalog of
@@ -145,26 +153,23 @@ If `--backend-validation preview` is enabled:
 - `script` evals run a real backend script preview in an isolated temp workspace
 - `flow` evals run a real backend flow preview only for cases that define `runtime.backendPreview`
 - `flow` cases with `initial.workspace` fixtures seed those scripts and flows into the preview workspace before preview
-- when `WMILL_AI_EVAL_BACKEND_WORKSPACE` is set, `ai_evals` treats that workspace as a dedicated test workspace, clears managed eval assets under `f/evals/*` before each preview run, and then reseeds the current case fixtures
+- when `WMILL_AI_EVAL_BACKEND_WORKSPACE` is set, `ai_evals` creates or reuses that workspace as a dedicated test workspace, clears managed eval assets under `f/evals/*` before each preview run, and then reseeds the current case fixtures
 
-Supported backend validation env vars:
+Supported backend env vars:
 
 - `WMILL_AI_EVAL_BACKEND_VALIDATION=preview`
 - `WMILL_AI_EVAL_BACKEND_URL=http://127.0.0.1:8000`
 - `WMILL_AI_EVAL_BACKEND_EMAIL=admin@windmill.dev`
 - `WMILL_AI_EVAL_BACKEND_PASSWORD=changeme`
 - `WMILL_AI_EVAL_BACKEND_WORKSPACE=integration-tests` to reuse an existing workspace on CE installs with low workspace limits
-- `WMILL_AI_EVAL_KEEP_WORKSPACES=1`
-- `WMILL_AI_EVAL_WORKSPACE_PREFIX=ai-evals`
 
-Frontend proxy transport uses the same backend auth/workspace env vars.
+Frontend modes require a reachable Windmill backend and send model requests through the workspace AI proxy at `/api/w/{workspace}/ai/proxy`. At startup, `ai_evals` checks the resolved backend URL and fails early with setup guidance if the backend cannot be reached or login fails.
 
-When `--transport proxy` is set:
+For frontend modes:
 
-- `ai_evals` creates or reuses a backend workspace
+- `ai_evals` creates a temporary backend workspace, or creates/reuses `WMILL_AI_EVAL_BACKEND_WORKSPACE` when it is set
 - it upserts a provider resource under `f/evals/ai/<provider>`
 - frontend requests go through `/api/w/{workspace}/ai/proxy`
-- result JSON and history records include `transport` so direct vs proxy runs stay distinguishable
 
 ## Results And Artifacts
 
@@ -178,11 +183,12 @@ If `--record` is used, the CLI also appends one compact JSON line to:
 - `ai_evals/history/flow.jsonl`
 - `ai_evals/history/script.jsonl`
 - `ai_evals/history/app.jsonl`
+- `ai_evals/history/global.jsonl`
 - `ai_evals/history/cli.jsonl`
 
 Each recorded line contains:
 
-- run metadata (`createdAt`, `gitSha`, `mode`, `runModel`, `transport`, `judgeModel`)
+- run metadata (`createdAt`, `gitSha`, `mode`, `runModel`, `judgeModel`)
 - suite totals (`caseCount`, `attemptCount`, `passedAttempts`, `passRate`, `averageDurationMs`, `averageJudgeScore`)
 - average token usage (`averageTokenUsagePerAttempt`)
 - per-case metrics under `cases[]` (`averageDurationMs`, `averageJudgeScore`, `averageTokenUsagePerAttempt`, pass rate)
@@ -198,6 +204,7 @@ Typical artifacts by mode:
 - `flow`: `flow.json`
 - `script`: `script.json` plus the generated script file
 - `app`: `app.json` plus frontend/backend files
+- `global`: `global-drafts.json`
 - `cli`: `assistant-output.txt`, `trace.json`, `wmill-invocations.jsonl`, plus generated workspace files
 - backend-validated attempts also include `backend-preview.json`
 
@@ -213,6 +220,7 @@ Typical artifacts by mode:
 ## Notes
 
 - Frontend modes reuse the production frontend chat code through the Vitest bridge.
+- Global mode evaluates the production global AI tools and validates the resulting AI draft store.
 - CLI mode creates an isolated workspace, writes the current checkout guidance into it, and benchmarks the real skills / `AGENTS.md` flow.
 - CLI mode now also records a structured trace of invoked skills, tool calls, proposed `wmill` commands, and any attempted `wmill` executions.
 - Frontend progress streams live while the benchmark is running.

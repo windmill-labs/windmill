@@ -20,6 +20,8 @@ on:
         type: string
         default: ''
     secrets:
+      OPENAI_API_KEY:
+        required: false
       CODEX_AUTH_JSON:
         required: false
       WINDMILL_EE_PRIVATE_ACCESS:
@@ -60,13 +62,18 @@ jobs:
       - name: Check Codex configuration
         id: codex_config
         env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
         run: |
-          if [ -n "$CODEX_AUTH_JSON" ]; then
+          if [ -n "$OPENAI_API_KEY" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "auth_mode=api_key" >> "$GITHUB_OUTPUT"
+          elif [ -n "$CODEX_AUTH_JSON" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "auth_mode=oauth_json" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "CODEX_AUTH_JSON is not configured; skipping Codex review."
+            echo "Codex auth is not configured; set OPENAI_API_KEY or CODEX_AUTH_JSON to enable Codex review."
           fi
 
       - name: Resolve PR metadata
@@ -82,10 +89,11 @@ jobs:
           EVENT_TITLE: ${{ github.event.pull_request.title }}
           EVENT_BODY: ${{ github.event.pull_request.body }}
           EVENT_FORK: ${{ github.event.pull_request.head.repo.fork }}
+          EVENT_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           if [ -n "$INPUT_PR_NUMBER" ]; then
             PR_JSON=$(gh pr view "$INPUT_PR_NUMBER" --repo "${{ github.repository }}" \
-              --json number,baseRefName,baseRefOid,headRefOid,title,body,isCrossRepository)
+              --json number,baseRefName,baseRefOid,headRefOid,title,body,isCrossRepository,author)
             PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
             BASE_REF=$(echo "$PR_JSON" | jq -r '.baseRefName')
             BASE_SHA=$(echo "$PR_JSON" | jq -r '.baseRefOid')
@@ -93,6 +101,7 @@ jobs:
             PR_TITLE=$(echo "$PR_JSON" | jq -r '.title')
             PR_BODY=$(echo "$PR_JSON" | jq -r '.body // ""')
             IS_FORK=$(echo "$PR_JSON" | jq -r '.isCrossRepository')
+            PR_AUTHOR=$(echo "$PR_JSON" | jq -r '.author.login // ""')
           else
             PR_NUMBER="$EVENT_PR_NUMBER"
             BASE_REF="$EVENT_BASE_REF"
@@ -101,6 +110,7 @@ jobs:
             PR_TITLE="$EVENT_TITLE"
             PR_BODY="$EVENT_BODY"
             IS_FORK="$EVENT_FORK"
+            PR_AUTHOR="$EVENT_AUTHOR"
           fi
           if [ "$IS_FORK" = "true" ]; then
             echo "Skipping Codex review for fork PR."
@@ -113,6 +123,7 @@ jobs:
             echo "base_ref=$BASE_REF"
             echo "base_sha=$BASE_SHA"
             echo "head_sha=$HEAD_SHA"
+            echo "pr_author=$PR_AUTHOR"
             echo 'title<<PR_TITLE_EOF'
             printf '%s\n' "$PR_TITLE"
             echo 'PR_TITLE_EOF'
@@ -165,9 +176,10 @@ jobs:
         if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
         run: npm install --global @openai/codex@0.128.0
 
-      - name: Configure file-backed Codex auth
+      - name: Configure Codex auth
         if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
         env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
         run: |
           CODEX_HOME="$HOME/.codex"
@@ -177,9 +189,13 @@ jobs:
           cat > "$CODEX_HOME/config.toml" <<'EOF'
           cli_auth_credentials_store = "file"
           EOF
-          printf '%s' "$CODEX_AUTH_JSON" > "$CODEX_HOME/auth.json"
-          chmod 600 "$CODEX_HOME/auth.json"
-          node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$CODEX_HOME/auth.json"
+          if [ -n "$OPENAI_API_KEY" ]; then
+            printf '%s' "$OPENAI_API_KEY" | codex login --with-api-key
+          else
+            printf '%s' "$CODEX_AUTH_JSON" > "$CODEX_HOME/auth.json"
+            chmod 600 "$CODEX_HOME/auth.json"
+            node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$CODEX_HOME/auth.json"
+          fi
 
       - name: Pre-fetch base and head refs for the PR
         if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
@@ -211,6 +227,7 @@ jobs:
           PR_HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
           PR_TITLE: ${{ steps.pr.outputs.title }}
           PR_BODY: ${{ steps.pr.outputs.body }}
+          PR_AUTHOR: ${{ steps.pr.outputs.pr_author }}
           EXTRA_PROMPT: ${{ inputs.extra_prompt }}
         run: |
           mkdir -p .github/codex
@@ -219,6 +236,11 @@ jobs:
           const lines = [
             `Repository: ${process.env.PR_REPOSITORY}`,
             `PR number: ${process.env.PR_NUMBER}`,
+          ];
+          if (process.env.PR_AUTHOR) {
+            lines.push(`PR AUTHOR: ${process.env.PR_AUTHOR}`);
+          }
+          lines.push(
             `Base SHA: ${process.env.PR_BASE_SHA}`,
             `Head SHA: ${process.env.PR_HEAD_SHA}`,
             '',
@@ -236,7 +258,7 @@ jobs:
             '',
             'Full review diff command:',
             `git diff --unified=0 ${process.env.PR_BASE_SHA}...${process.env.PR_HEAD_SHA}`
-          ];
+          );
           if (process.env.EXTRA_PROMPT && process.env.EXTRA_PROMPT.trim()) {
             lines.push('', 'Additional reviewer instructions:', process.env.EXTRA_PROMPT.trim());
           }

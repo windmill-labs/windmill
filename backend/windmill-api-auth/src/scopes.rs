@@ -686,6 +686,19 @@ fn scope_grants_access(
     Ok(true)
 }
 
+/// Enforces a token's `read_only` flag: only methods classified as `Read`
+/// (GET/HEAD/OPTIONS) are allowed. Run actions and mutating methods are
+/// rejected. Independent of `scopes`.
+pub fn check_read_only_for_route(route_path: &str, http_method: &str) -> Result<()> {
+    if map_http_method_to_action(http_method, route_path) == ScopeAction::Read {
+        Ok(())
+    } else {
+        Err(Error::PermissionDenied(
+            "Token is read-only. Mutating endpoints are not allowed.".to_string(),
+        ))
+    }
+}
+
 /// Helper function to check if scopes allow access to a route
 pub fn check_scopes_for_route(
     token_scopes: Option<&[String]>,
@@ -776,6 +789,34 @@ mod tests {
         assert_eq!(domain, ScopeDomain::FlowConversations);
         assert_eq!(kind, None);
         assert_eq!(route_suffix, Some("flow_conversations/list".to_string()));
+    }
+
+    #[test]
+    fn test_check_read_only_for_route() {
+        // Plain GETs pass.
+        assert!(check_read_only_for_route("/api/w/x/scripts/list", "GET").is_ok());
+        assert!(check_read_only_for_route("/api/w/x/scripts/get/foo", "HEAD").is_ok());
+        assert!(check_read_only_for_route("/api/w/x/anything", "OPTIONS").is_ok());
+
+        // Mutating methods are rejected.
+        assert!(check_read_only_for_route("/api/w/x/scripts/create", "POST").is_err());
+        assert!(check_read_only_for_route("/api/w/x/scripts/update", "PUT").is_err());
+        assert!(check_read_only_for_route("/api/w/x/scripts/delete", "DELETE").is_err());
+        assert!(check_read_only_for_route("/api/w/x/scripts/patch", "PATCH").is_err());
+
+        // Run paths are rejected even on GET (map_http_method_to_action elevates
+        // them to Run via RUN_PATH_ACTIONS).
+        assert!(check_read_only_for_route("/api/w/x/jobs/run/p/f/foo", "GET").is_err());
+        assert!(check_read_only_for_route("/api/w/x/jobs/run/p/f/foo", "POST").is_err());
+
+        // OAuth/registration endpoints under /api/mcp/* must NOT be exempted by
+        // the auth middleware — they go through this check on the gateway side
+        // because they can mint non-read-only tokens. The middleware decides
+        // which paths to exempt; this helper is method-only, so we just assert
+        // that mutating methods still fail.
+        assert!(
+            check_read_only_for_route("/api/mcp/gateway/oauth/server/approve", "POST").is_err()
+        );
     }
 
     #[test]

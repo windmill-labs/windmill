@@ -19,6 +19,7 @@ import { createBundle, detectFrameworks } from "./bundle.ts";
 import { APP_BACKEND_FOLDER } from "./app_metadata.ts";
 import { writeIfChanged } from "../../utils/utils.ts";
 import { yamlOptions } from "../sync/sync.ts";
+import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
 import {
   EXTENSION_TO_LANGUAGE,
   getLanguageFromExtension,
@@ -35,6 +36,10 @@ export interface AppFile {
     datatable?: string;
     schema?: string;
   };
+  // Mirrors granular ACLs on the raw_app path. Synced via /acls/* by
+  // applyExtraPermsDiff — never through update_app_raw — so a perm-only
+  // change never bumps the app version. Stripped from the yaml when empty.
+  extra_perms?: Record<string, boolean>;
 }
 
 // Match siblings of a YAML metadata file case-insensitively. A buggy CLI
@@ -431,35 +436,45 @@ export async function pushRawApp(
     value.data = localApp.data;
   }
 
+  // extra_perms is synced independently via /acls/* — strip from the
+  // up-to-date comparison so a perm-only edit doesn't trigger a rebuild +
+  // new app_version. The kind segment is "raw_app" so git-sync writes back
+  // to `<path>.raw_app.json`, not `<path>.app.json`. The backend granular_acls
+  // handler routes "raw_app" to the `app` table (where v2 raw apps actually
+  // live) while still dispatching DeployedObject::RawApp for git-sync.
+  const { extra_perms: localPerms, ...localAppNoPerms } = localApp as AppFile & {
+    extra_perms?: Record<string, boolean>;
+  };
+
   if (app) {
     // Check both metadata/runnables AND files for changes
     // Files need separate comparison because isSuperset only checks if local keys exist in remote
-    const metadataUpToDate = isSuperset({ ...localApp, runnables }, app);
+    const metadataUpToDate = isSuperset({ ...localAppNoPerms, runnables }, app);
     const filesUpToDate = deepEqual(files, app.value?.files);
     if (metadataUpToDate && filesUpToDate) {
       log.info(colors.green(`App ${remotePath} is up to date`));
-      return;
-    }
-    const { js, css } = await createBundleRaw();
-    log.info(colors.bold.yellow(`Updating app ${remotePath}...`));
-    await wmill.updateAppRaw({
-      workspace,
-      path: remotePath,
-      formData: {
-        app: {
-          value,
-          path: remotePath,
-          summary: localApp.summary,
-          policy: appForPolicy.policy,
-          deployment_message: message,
-          ...(localApp.custom_path
-            ? { custom_path: localApp.custom_path }
-            : {}),
+    } else {
+      const { js, css } = await createBundleRaw();
+      log.info(colors.bold.yellow(`Updating app ${remotePath}...`));
+      await wmill.updateAppRaw({
+        workspace,
+        path: remotePath,
+        formData: {
+          app: {
+            value,
+            path: remotePath,
+            summary: localApp.summary,
+            policy: appForPolicy.policy,
+            deployment_message: message,
+            ...(localApp.custom_path
+              ? { custom_path: localApp.custom_path }
+              : {}),
+          },
+          js,
+          css,
         },
-        js,
-        css,
-      },
-    });
+      });
+    }
   } else {
     const { js, css } = await createBundleRaw();
     await wmill.createAppRaw({
@@ -480,6 +495,16 @@ export async function pushRawApp(
       },
     });
   }
+
+  // No refetch needed: folder perms are never merged into item.extra_perms,
+  // and the body sent to update_app_raw / create_app_raw omits the field.
+  await applyExtraPermsDiff(
+    workspace,
+    "raw_app",
+    remotePath,
+    localPerms,
+    (app as any)?.extra_perms,
+  );
 }
 
 export async function generatingPolicy(

@@ -1,6 +1,5 @@
 import { loadSelectedCases } from "../../core/cases";
 import { resolveBackendValidationSettings } from "../../core/backendValidation";
-import { resolveFrontendEvalTransportSettings } from "../../core/frontendTransport";
 import {
   formatRunModelLabel,
   getFrontendEvalModel,
@@ -9,13 +8,15 @@ import {
 import { buildRunResult } from "../../core/results";
 import { runSuite } from "../../core/runSuite";
 import type { BenchmarkRunResult, ModeRunner } from "../../core/types";
+import { resolveWindmillBackendSettings } from "../../core/windmillBackendSettings";
 import { emitFrontendBenchmarkProgress } from "./progress";
 import { createAppModeRunner } from "../../modes/app";
 import { createFlowModeRunner } from "../../modes/flow";
+import { createGlobalModeRunner } from "../../modes/global";
 import { createScriptModeRunner } from "../../modes/script";
 import { DEFAULT_JUDGE_MODEL } from "../../core/judge";
 
-export type FrontendBenchmarkMode = "flow" | "app" | "script";
+export type FrontendBenchmarkMode = "flow" | "app" | "script" | "global";
 
 export async function runFrontendBenchmarkFromEnv(): Promise<BenchmarkRunResult> {
   const mode = parseMode(process.env.WMILL_FRONTEND_AI_EVAL_MODE);
@@ -36,17 +37,14 @@ export async function runFrontendBenchmarkFromEnv(): Promise<BenchmarkRunResult>
     evalMode: mode,
     requestedMode: process.env.WMILL_FRONTEND_AI_EVAL_BACKEND_VALIDATION,
   });
-  const transportSettings = resolveFrontendEvalTransportSettings({
-    evalMode: mode,
-    requestedTransport: process.env.WMILL_FRONTEND_AI_EVAL_TRANSPORT,
-  });
+  const backendSettings = resolveWindmillBackendSettings();
 
   const selectedCases = await loadSelectedCases(mode, caseIds);
   const modeRunner = getModeRunner(
     mode,
     getFrontendEvalModel(model),
     backendValidation,
-    transportSettings,
+    backendSettings,
   );
   const runModel = formatRunModelLabel(mode, model);
   const caseResults = await runSuite({
@@ -66,7 +64,6 @@ export async function runFrontendBenchmarkFromEnv(): Promise<BenchmarkRunResult>
     mode,
     runs,
     runModel,
-    transport: transportSettings.transport,
     judgeModel: DEFAULT_JUDGE_MODEL,
     caseResults,
   });
@@ -76,24 +73,26 @@ function getModeRunner(
   mode: FrontendBenchmarkMode,
   model: ReturnType<typeof getFrontendEvalModel>,
   backendValidation: ReturnType<typeof resolveBackendValidationSettings>,
-  transportSettings: ReturnType<typeof resolveFrontendEvalTransportSettings>,
+  backendSettings: ReturnType<typeof resolveWindmillBackendSettings>,
 ): ModeRunner<any, any, any> {
   switch (mode) {
     case "flow":
-      return createFlowModeRunner(model, backendValidation, transportSettings);
+      return createFlowModeRunner(model, backendValidation, backendSettings);
     case "app":
-      return createAppModeRunner(model, transportSettings);
+      return createAppModeRunner(model, backendSettings);
     case "script":
       return createScriptModeRunner(
         model,
         backendValidation,
-        transportSettings,
+        backendSettings,
       );
+    case "global":
+      return createGlobalModeRunner(model, backendSettings);
   }
 }
 
 function parseMode(value: string | undefined): FrontendBenchmarkMode {
-  if (value === "flow" || value === "app" || value === "script") {
+  if (value === "flow" || value === "app" || value === "script" || value === "global") {
     return value;
   }
   throw new Error(`Unsupported frontend benchmark mode: ${String(value)}`);

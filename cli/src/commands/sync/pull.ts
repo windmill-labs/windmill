@@ -98,12 +98,16 @@ export async function downloadZip(
   }
 
   const includeWorkspaceDependenciesValue = !(skipWorkspaceDependencies ?? false);
+  // `preserve_extra_perms=true` opts the tarball into surfacing granular ACLs
+  // on flow / script / app rows. Default-off on the server protects cross-
+  // workspace tarball imports from carrying ACLs that reference identities
+  // missing in the target workspace; the CLI sync flow explicitly wants them.
   const baseParams = `&plain_secret=${plainSecrets ?? false
     }&skip_variables=${skipVariables ?? false}&skip_resources=${skipResources ?? false
     }&skip_secrets=${skipSecrets ?? false}&include_schedules=${includeSchedules ?? false
     }&include_triggers=${includeTriggers ?? false}&include_users=${includeUsers ?? false
     }&include_groups=${includeGroups ?? false}&include_settings=${includeSettings ?? false
-    }&include_key=${includeKey ?? false}&include_workspace_dependencies=${includeWorkspaceDependenciesValue}&default_ts=${defaultTs ?? "bun"}&skip_resource_types=${skipResourceTypes ?? false}&settings_version=v2`;
+    }&include_key=${includeKey ?? false}&include_workspace_dependencies=${includeWorkspaceDependenciesValue}&default_ts=${defaultTs ?? "bun"}&skip_resource_types=${skipResourceTypes ?? false}&settings_version=v2&preserve_extra_perms=true`;
 
   const baseUrl = workspace.remote + "api/w/" + workspace.workspaceId + "/workspaces/tarball?";
 
@@ -152,7 +156,7 @@ export async function downloadZip(
 function stub(_opts: GlobalOptions & { override: boolean }, _dir: string) {
   console.log(
     colors.red.underline(
-      'Pull is deprecated. Use "sync pull --raw" instead. See <TODO_LINK_HERE> for more information.'
+      'Pull is deprecated. Use "sync pull --raw" instead. See https://www.windmill.dev/docs/advanced/cli/sync for more information.'
     )
   );
 }

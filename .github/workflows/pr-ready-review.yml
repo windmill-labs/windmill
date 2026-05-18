@@ -90,14 +90,21 @@ jobs:
       - name: Resolve PR number
         id: resolve
         env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
           INPUT_PR_NUMBER: ${{ inputs.pr_number }}
           EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
+          EVENT_PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           if [ -n "$INPUT_PR_NUMBER" ]; then
-            echo "pr_number=$INPUT_PR_NUMBER" >> "$GITHUB_OUTPUT"
+            PR_NUMBER="$INPUT_PR_NUMBER"
+            PR_AUTHOR=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.user.login')
           else
-            echo "pr_number=$EVENT_PR_NUMBER" >> "$GITHUB_OUTPUT"
+            PR_NUMBER="$EVENT_PR_NUMBER"
+            PR_AUTHOR="$EVENT_PR_AUTHOR"
           fi
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "pr_author=$PR_AUTHOR" >> "$GITHUB_OUTPUT"
 
       - name: Fetch prior PR discussion
         id: prior
@@ -148,6 +155,7 @@ jobs:
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ steps.resolve.outputs.pr_number }}
+            PR AUTHOR: ${{ steps.resolve.outputs.pr_author }}
 
             ${{ env.REVIEW_PROMPT }}
           claude_args: |

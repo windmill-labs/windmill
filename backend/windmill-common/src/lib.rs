@@ -121,6 +121,36 @@ pub const PRIVATE_HUB_MIN_VERSION: i32 = 10_000_000;
 pub const SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 14; // 2 weeks retention period for logs
 pub const WM_DEPLOYERS_GROUP: &str = "wm_deployers";
 
+/// Canonical form of a base URL, used as one of the inputs to the offline-license
+/// instance hash (`compute_instance_hash`).
+///
+/// Rules: lowercase scheme and host, drop default ports (80/443), strip path/query/fragment,
+/// strip trailing slash. If URL parsing fails, falls back to a best-effort lowercase +
+/// trailing-slash strip so two semantically-equivalent inputs still produce the same
+/// canonical form.
+pub fn canonical_base_url(input: &str) -> String {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    match url::Url::parse(trimmed) {
+        Ok(u) => {
+            let scheme = u.scheme().to_ascii_lowercase();
+            let host = u
+                .host_str()
+                .map(|h| h.to_ascii_lowercase())
+                .unwrap_or_default();
+            let port = match (u.port(), scheme.as_str()) {
+                (Some(80), "http") | (Some(443), "https") => String::new(),
+                (Some(p), _) => format!(":{p}"),
+                (None, _) => String::new(),
+            };
+            format!("{scheme}://{host}{port}")
+        }
+        Err(_) => trimmed.trim_end_matches('/').to_ascii_lowercase(),
+    }
+}
+
 /// Checks if the user is allowed to preserve on_behalf_of values (admin or deployer).
 pub fn can_preserve_on_behalf_of(authed: &impl db::Authable) -> bool {
     authed.is_admin() || authed.groups().iter().any(|g| g == &WM_DEPLOYERS_GROUP)
@@ -1511,6 +1541,59 @@ pub fn get_flow_version_info_from_version<
             }
         }
     }
+}
+
+/// Resolve a `flow_version.id` to its flow path while enforcing the caller's
+/// folder-level ACL. The `flow_version` table has no row-level security, so the
+/// authorization gate is an RLS-filtered lookup against the `flow` table through
+/// `user_db`. Mirrors the "exists but not authorized -> NotAuthorized" semantics
+/// of [`get_latest_flow_version_id_for_path`] so version-keyed run routes are
+/// gated identically to their path-keyed siblings.
+pub async fn get_flow_path_for_version_authed(
+    db_authed: &UserDbWithAuthed<'_, AuthedRef<'_>>,
+    db: &DB,
+    version: i64,
+    w_id: &str,
+) -> error::Result<String> {
+    let mut conn = db_authed.acquire().await?;
+    let authed_path = sqlx::query_scalar!(
+        "SELECT flow_version.path FROM flow_version
+         INNER JOIN flow
+            ON flow.path = flow_version.path AND
+               flow.workspace_id = flow_version.workspace_id
+         WHERE flow_version.id = $1 AND flow_version.workspace_id = $2",
+        version,
+        w_id,
+    )
+    .fetch_optional(&mut *conn)
+    .await?;
+
+    if let Some(path) = authed_path {
+        return Ok(path);
+    }
+
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM flow_version WHERE id = $1 AND workspace_id = $2)",
+        version,
+        w_id,
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+
+    if exists {
+        // Unlike the path-keyed sibling (where the caller already supplied the
+        // path), here the caller only supplied an opaque version id. Echoing
+        // back the resolved path would disclose an id->path mapping for a flow
+        // they cannot access, so the message is intentionally generic.
+        return Err(Error::NotAuthorized(
+            "You are not authorized to run this flow version".to_string(),
+        ));
+    }
+
+    Err(Error::NotFound(format!(
+        "flow_version not found at id {version}"
+    )))
 }
 
 pub async fn get_latest_flow_version_info_for_path<'e>(

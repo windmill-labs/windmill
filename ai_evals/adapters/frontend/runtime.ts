@@ -16,14 +16,13 @@ const FRONTEND_BENCHMARK_TEST =
 const FRONTEND_BENCHMARK_CONFIG =
   "../ai_evals/adapters/frontend/vitest.config.ts";
 
-export type FrontendMode = "flow" | "app" | "script";
+export type FrontendMode = "flow" | "app" | "script" | "global";
 
 export async function runFrontendBenchmarkAdapter(input: {
   mode: FrontendMode;
   caseIds: string[];
   runs: number;
   model?: string;
-  transport?: string;
   verbose?: boolean;
   backendValidation?: string;
 }): Promise<BenchmarkRunResult> {
@@ -43,10 +42,6 @@ export async function runFrontendBenchmarkAdapter(input: {
     WMILL_FRONTEND_AI_EVAL_VERBOSE: input.verbose ? "1" : "0",
     WMILL_FRONTEND_AI_EVAL_BACKEND_VALIDATION: input.backendValidation ?? "",
   };
-
-  if (input.transport) {
-    env.WMILL_FRONTEND_AI_EVAL_TRANSPORT = input.transport;
-  }
 
   try {
     await runVitestBenchmark(

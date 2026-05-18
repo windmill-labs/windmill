@@ -14,7 +14,6 @@ import { createScriptFileHelpers, type ScriptEvalState } from "./fileHelpers";
 import { runEval } from "../shared";
 import type { ModeRunContext } from "../../../../core/types";
 import type { TokenUsage, ToolCallDetail } from "../shared/types";
-import type { FrontendEvalTransport } from "../../../../core/frontendTransport";
 import type { WindmillBackendSettings } from "../../../../core/windmillBackendSettings";
 
 export interface ScriptEvalResult {
@@ -33,8 +32,7 @@ export interface ScriptEvalOptions {
   model?: string;
   maxIterations?: number;
   provider?: AIProvider;
-  transport?: FrontendEvalTransport;
-  backend?: WindmillBackendSettings;
+  backend: WindmillBackendSettings;
   workspaceRoot?: string;
   runContext?: ModeRunContext;
 }
@@ -98,10 +96,9 @@ export async function runScriptEval(
         model,
         workspace: workspaceRoot,
         provider: modelProvider.provider,
-        transport: options.transport,
         backend: options.backend,
-        proxyCaseId: options.runContext?.caseId,
-        proxyAttempt: options.runContext?.attempt,
+        caseId: options.runContext?.caseId,
+        attempt: options.runContext?.attempt,
       },
     });
 

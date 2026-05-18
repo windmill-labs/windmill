@@ -1,6 +1,15 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { Calendar, Database, Route, SquarePen, Unplug, Webhook } from 'lucide-svelte'
+	import {
+		Calendar,
+		Database,
+		KeyRound,
+		Package,
+		Route,
+		SquarePen,
+		Unplug,
+		Webhook
+	} from 'lucide-svelte'
 	import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
 	import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
 	import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
@@ -14,7 +23,7 @@
 		actions: ToolDisplayAction[]
 	}
 
-	type ActionCardKey = 'schedule' | CreatedResourceTriggerKind
+	type ActionCardKey = 'schedule' | 'resource' | 'variable' | CreatedResourceTriggerKind
 	type ActionCardConfig = {
 		title: string
 		icon: any
@@ -25,6 +34,8 @@
 
 	const actionCardConfigs: Record<ActionCardKey, ActionCardConfig> = {
 		schedule: { title: 'Schedule', icon: Calendar },
+		resource: { title: 'Resource', icon: Package },
+		variable: { title: 'Variable', icon: KeyRound },
 		http: { title: 'HTTP trigger', icon: Route },
 		websocket: { title: 'WebSocket trigger', icon: Unplug },
 		postgres: { title: 'Postgres trigger', icon: Database },
@@ -37,7 +48,8 @@
 	}
 
 	function getActionCardConfig(action: ToolDisplayAction): ActionCardConfig {
-		const key = action.resource === 'schedule' ? 'schedule' : action.triggerKind
+		const key: ActionCardKey | undefined =
+			action.resource === 'trigger' ? action.triggerKind : action.resource
 		return key
 			? actionCardConfigs[key]
 			: { title: action.label.replace(/^Open\s+/i, ''), icon: Webhook }

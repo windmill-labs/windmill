@@ -326,8 +326,10 @@ pub fn json_to_document(value: serde_json::Value) -> aws_smithy_types::Document 
         }
         Value::Array(arr) => Document::Array(arr.into_iter().map(json_to_document).collect()),
         Value::Number(num) => {
-            if let Some(i) = num.as_i64() {
-                Document::Number(aws_smithy_types::Number::PosInt(i as u64))
+            if let Some(u) = num.as_u64() {
+                Document::Number(aws_smithy_types::Number::PosInt(u))
+            } else if let Some(i) = num.as_i64() {
+                Document::Number(aws_smithy_types::Number::NegInt(i))
             } else if let Some(f) = num.as_f64() {
                 Document::Number(aws_smithy_types::Number::Float(f))
             } else {
@@ -842,6 +844,36 @@ mod tests {
                 .expect("valid raw json"),
             },
         }
+    }
+
+    #[test]
+    fn json_to_document_preserves_negative_integers() {
+        let value = serde_json::json!(-1);
+        let doc = json_to_document(value);
+        assert!(matches!(
+            doc,
+            aws_smithy_types::Document::Number(aws_smithy_types::Number::NegInt(-1))
+        ));
+    }
+
+    #[test]
+    fn json_to_document_handles_large_u64_above_i64_max() {
+        let value = serde_json::json!(u64::MAX);
+        let doc = json_to_document(value);
+        assert!(matches!(
+            doc,
+            aws_smithy_types::Document::Number(aws_smithy_types::Number::PosInt(u)) if u == u64::MAX
+        ));
+    }
+
+    #[test]
+    fn json_to_document_handles_positive_integers() {
+        let value = serde_json::json!(42);
+        let doc = json_to_document(value);
+        assert!(matches!(
+            doc,
+            aws_smithy_types::Document::Number(aws_smithy_types::Number::PosInt(42))
+        ));
     }
 
     #[test]

@@ -556,10 +556,85 @@ pub struct OnBehalfOf {
 }
 
 pub const ENTRYPOINT_OVERRIDE: &str = "_ENTRYPOINT_OVERRIDE";
+
+/// The entrypoint override (`_ENTRYPOINT_OVERRIDE` job arg ->
+/// `v2_job.script_entrypoint_override`) is interpolated verbatim into
+/// generated worker wrappers in a code position (e.g. the NativeTS
+/// `import(...).then(m => m.<name>(...))` glue, the bun `Main.<name>(...)`
+/// call, the deno `import { <name> } from "./main.ts"` line, the PHP
+/// `<name>(...)` call and the Python `inner_script.<name>(**args)` call).
+/// A caller only needs `jobs:run` to set it, so it MUST be restricted to a
+/// conventional identifier or an attacker who can merely run a deployed
+/// script could break out of the call expression into arbitrary
+/// worker-process code. This ASCII subset is a valid function name in every
+/// language Windmill wraps this way (JS/TS, Python, PHP).
+pub fn is_valid_entrypoint_name(name: &str) -> bool {
+    if name.is_empty() || name.len() > 255 {
+        return false;
+    }
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        return false;
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
 pub const LARGE_LOG_THRESHOLD_SIZE: usize = 9000;
 pub const EMAIL_ERROR_HANDLER_USER_EMAIL: &str = "email_error_handler@windmill.dev";
 
 #[inline(always)]
 pub fn generate_dynamic_input_key(workspace_id: &str, path: &str) -> String {
     format!("{workspace_id}:{path}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_valid_entrypoint_name;
+
+    #[test]
+    fn valid_entrypoint_names_are_accepted() {
+        for name in [
+            "main",
+            "preprocessor",
+            "my_helper",
+            "_private",
+            "fn2",
+            "a",
+            "MixedCase",
+        ] {
+            assert!(is_valid_entrypoint_name(name), "expected {name:?} valid");
+        }
+    }
+
+    #[test]
+    fn malicious_entrypoint_names_are_rejected() {
+        // Regression for GHSA-wxjq-w5pj-jqhx: the entrypoint override is
+        // interpolated verbatim into a code position of generated worker
+        // wrappers (e.g. bun `Main.<name>(...)`, nativets
+        // `m.<name>(...)`, python `inner_script.<name>(**args)`). Any value
+        // that is not a strict identifier could break out of the call
+        // expression into attacker-controlled worker code.
+        for name in [
+            "main(); globalThis.x = 1; //", // breaks out of `Main.<name>(...)`
+            "x); require('child_process').execSync('id'); (",
+            "1main",     // starts with a digit
+            "my-fn",     // hyphen
+            "my fn",     // space
+            "my.fn",     // member access
+            "$fn",       // dollar
+            "fn\nother", // newline
+            "fn;other",
+            "",
+        ] {
+            assert!(
+                !is_valid_entrypoint_name(name),
+                "expected {name:?} to be rejected"
+            );
+        }
+        // Over-long names are rejected.
+        assert!(!is_valid_entrypoint_name(&"a".repeat(256)));
+    }
 }

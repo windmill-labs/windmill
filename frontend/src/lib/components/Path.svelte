@@ -30,7 +30,7 @@
 	import { writable } from 'svelte/store'
 	import { Alert, Button } from './common'
 	import { random_adj } from './random_positive_adjetive'
-	import { ChevronDown, Loader2, SearchCode } from 'lucide-svelte'
+	import { ChevronDown, SearchCode } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { tick } from 'svelte'
 	import FolderPicker from './FolderPicker.svelte'
@@ -42,6 +42,7 @@
 	} from './text_input/TextInput.svelte'
 	import Select from './select/Select.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import InputError from './InputError.svelte'
 
 	type PathKind =
 		| 'resource'
@@ -356,6 +357,19 @@
 		!dirty && (dirty = true)
 	}
 
+	$effect(() => {
+		if (
+			path !== undefined &&
+			path !== '' &&
+			initialPath &&
+			!initialPath.startsWith('tmp/') &&
+			path !== initialPath &&
+			!dirty
+		) {
+			dirty = true
+		}
+	})
+
 	const openSearchWithPrefilledText: (t?: string) => void = getContext(
 		'openSearchWithPrefilledText'
 	)
@@ -508,10 +522,10 @@
 		{/if}
 	</div>
 
+	<InputError {error} />
+
 	{#if pathUsageInFlowsPromise || pathUsageInAppsPromise || pathUsageInScriptsPromise}
-		{#await Promise.all( [pathUsageInAppsPromise, pathUsageInFlowsPromise, pathUsageInScriptsPromise] )}
-			<Loader2 class="animate-spin" size={16} />
-		{:then [apps, flows, scripts]}
+		{#await Promise.all( [pathUsageInAppsPromise, pathUsageInFlowsPromise, pathUsageInScriptsPromise] ) then [apps, flows, scripts]}
 			{#if (apps && apps.length) || (flows && flows.length) || (scripts && scripts.length)}
 				<p class="text-xs">
 					Used by {localeConcatAnd([

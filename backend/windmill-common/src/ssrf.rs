@@ -2,37 +2,89 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use crate::error::Error;
 
+/// Why a URL failed SSRF validation.
+///
+/// The distinction matters for callers that gate private endpoints behind a
+/// flag (e.g. `ALLOW_PRIVATE_AI_BASE_URLS`): a "set this env var" hint is only
+/// actionable for [`SsrfValidationError::Private`]. Surfacing that hint for a
+/// malformed URL or bad scheme sends users down the wrong path (see #9171).
+#[derive(Debug)]
+pub enum SsrfValidationError {
+    /// The URL could not be parsed (e.g. missing `http://` scheme).
+    InvalidUrl(String),
+    /// Scheme is not `http`/`https`.
+    DisallowedScheme(String),
+    /// No host in the URL.
+    MissingHost,
+    /// DNS resolution failed for the host.
+    ResolutionFailed { host: String, source: String },
+    /// Host did not resolve to any address.
+    NoAddresses(String),
+    /// The URL targets (or resolves to) a private/internal address. `resolved`
+    /// is true when the host was a DNS name that resolved to a private IP.
+    Private { resolved: bool },
+}
+
+impl std::fmt::Display for SsrfValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SsrfValidationError::InvalidUrl(e) => write!(f, "Invalid URL: {e}"),
+            SsrfValidationError::DisallowedScheme(s) => write!(
+                f,
+                "URL scheme '{s}' is not allowed, only http and https are permitted"
+            ),
+            SsrfValidationError::MissingHost => write!(f, "URL must have a host"),
+            SsrfValidationError::ResolutionFailed { host, source } => {
+                write!(f, "Failed to resolve host '{host}': {source}")
+            }
+            SsrfValidationError::NoAddresses(host) => {
+                write!(f, "Host '{host}' did not resolve to any addresses")
+            }
+            SsrfValidationError::Private { resolved: false } => {
+                write!(f, "URL targets a private/internal IP address")
+            }
+            SsrfValidationError::Private { resolved: true } => {
+                write!(f, "URL resolves to a private/internal IP address")
+            }
+        }
+    }
+}
+
+// Enables `?` from `validate_url_for_ssrf` in functions returning
+// `anyhow::Result` (e.g. the EE SAML metadata loader).
+impl std::error::Error for SsrfValidationError {}
+
+impl From<SsrfValidationError> for Error {
+    fn from(e: SsrfValidationError) -> Self {
+        Error::BadRequest(e.to_string())
+    }
+}
+
 /// Validates that a URL is safe to fetch server-side (not targeting private/internal networks).
 ///
 /// Checks:
 /// 1. Scheme must be http or https
 /// 2. Host must be present and not a private/loopback/link-local IP
 /// 3. DNS resolution is checked to prevent DNS rebinding to internal IPs
-pub async fn validate_url_for_ssrf(url: &str) -> Result<(), Error> {
+pub async fn validate_url_for_ssrf(url: &str) -> Result<(), SsrfValidationError> {
     let parsed =
-        url::Url::parse(url).map_err(|e| Error::BadRequest(format!("Invalid URL: {e}")))?;
+        url::Url::parse(url).map_err(|e| SsrfValidationError::InvalidUrl(e.to_string()))?;
 
     // 1. Scheme check
     match parsed.scheme() {
         "http" | "https" => {}
         scheme => {
-            return Err(Error::BadRequest(format!(
-                "URL scheme '{scheme}' is not allowed, only http and https are permitted"
-            )));
+            return Err(SsrfValidationError::DisallowedScheme(scheme.to_string()));
         }
     }
 
     // 2. Host check
-    let host = parsed
-        .host_str()
-        .ok_or_else(|| Error::BadRequest("URL must have a host".to_string()))?;
+    let host = parsed.host_str().ok_or(SsrfValidationError::MissingHost)?;
 
     // 3. If the host is an IP literal, check it directly
     if let Ok(ip) = host.parse::<IpAddr>() {
         if is_private_ip(&ip) {
-            return Err(Error::BadRequest(
-                "URL targets a private/internal IP address".to_string(),
-            ));
+            return Err(SsrfValidationError::Private { resolved: false });
         }
         return Ok(());
     }
@@ -45,20 +97,19 @@ pub async fn validate_url_for_ssrf(url: &str) -> Result<(), Error> {
     let resolve_target = format!("{host}:{port}");
     let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host(&resolve_target)
         .await
-        .map_err(|e| Error::BadRequest(format!("Failed to resolve host '{host}': {e}")))?
+        .map_err(|e| SsrfValidationError::ResolutionFailed {
+            host: host.to_string(),
+            source: e.to_string(),
+        })?
         .collect();
 
     if addrs.is_empty() {
-        return Err(Error::BadRequest(format!(
-            "Host '{host}' did not resolve to any addresses"
-        )));
+        return Err(SsrfValidationError::NoAddresses(host.to_string()));
     }
 
     for addr in &addrs {
         if is_private_ip(&addr.ip()) {
-            return Err(Error::BadRequest(
-                "URL resolves to a private/internal IP address".to_string(),
-            ));
+            return Err(SsrfValidationError::Private { resolved: true });
         }
     }
 
@@ -147,5 +198,33 @@ mod tests {
     async fn test_validate_url_allows_public() {
         // This resolves to a public IP
         assert!(validate_url_for_ssrf("https://google.com").await.is_ok());
+    }
+
+    /// Regression for #9171: a malformed base URL (missing scheme) must report
+    /// `InvalidUrl`/`DisallowedScheme`, not `Private` — only `Private` gets the
+    /// "set ALLOW_PRIVATE_AI_BASE_URLS" hint, which is misleading for a typo'd
+    /// URL and sent the issue reporter down the wrong path.
+    #[tokio::test]
+    async fn test_error_variants_are_discriminated() {
+        // No scheme and no colon → the exact "relative URL without a base"
+        // error from the issue.
+        assert!(matches!(
+            validate_url_for_ssrf("api.example.com/v1").await,
+            Err(SsrfValidationError::InvalidUrl(_))
+        ));
+        // `localhost:11434/v1` parses with `localhost` as the scheme — a very
+        // common Ollama misconfiguration.
+        assert!(matches!(
+            validate_url_for_ssrf("localhost:11434/v1").await,
+            Err(SsrfValidationError::DisallowedScheme(s)) if s == "localhost"
+        ));
+        assert!(matches!(
+            validate_url_for_ssrf("ftp://example.com/foo").await,
+            Err(SsrfValidationError::DisallowedScheme(_))
+        ));
+        assert!(matches!(
+            validate_url_for_ssrf("http://127.0.0.1/foo").await,
+            Err(SsrfValidationError::Private { resolved: false })
+        ));
     }
 }

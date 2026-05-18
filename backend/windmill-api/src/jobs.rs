@@ -33,7 +33,8 @@ use windmill_common::db::UserDbWithAuthed;
 use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
-    format_completed_job_result, format_result, DynamicInput, ENTRYPOINT_OVERRIDE,
+    format_completed_job_result, format_result, is_valid_entrypoint_name, DynamicInput,
+    ENTRYPOINT_OVERRIDE,
 };
 #[cfg(feature = "run_inline")]
 use windmill_common::jobs::{
@@ -112,9 +113,9 @@ use windmill_common::{
 };
 
 use windmill_common::{
-    get_flow_version_info_from_version, get_latest_deployed_hash_for_path,
-    get_latest_flow_version_info_for_path, get_script_info_for_hash, utils::empty_as_none,
-    ScriptHashInfo, BASE_URL,
+    get_flow_path_for_version_authed, get_flow_version_info_from_version,
+    get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
+    get_script_info_for_hash, utils::empty_as_none, ScriptHashInfo, BASE_URL,
 };
 use windmill_queue::{
     get_result_and_success_by_id_from_flow, job_is_complete, push, PushArgs, PushArgsOwned,
@@ -1067,10 +1068,15 @@ impl<'a> GetQuery<'a> {
                 .ok()
                 .inspect(|data| job.raw_flow = Some(sqlx::types::Json(data.raw_flow.clone())));
         }
-        if self.with_code && job.job_kind() == &JobKind::Preview {
+        if self.with_code
+            && matches!(
+                job.job_kind(),
+                JobKind::Preview | JobKind::FlowScript | JobKind::AppScript
+            )
+        {
             // Try to fetch the code from the cache, fallback to the preview code.
-            // NOTE: This could check for the job kinds instead of the `or_else` but it's not
-            // necessary as `fetch_script` return early if the job kind is not a preview one.
+            // `fetch_script` resolves FlowScript / AppScript via their runnable_id; for
+            // Preview jobs it returns early and we fall through to `fetch_preview_script`.
             let conn = Connection::from(db.clone());
             cache::job::fetch_script(db.clone(), job.job_kind(), hash)
                 .or_else(|_| cache::job::fetch_preview_script(&conn, &id, raw_lock, raw_code))
@@ -4043,21 +4049,8 @@ pub async fn run_flow_by_version_inner(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let flow_path = sqlx::query_scalar!(
-        r#"
-            SELECT
-                path
-            FROM
-                flow_version
-            WHERE
-                id = $1 AND
-                workspace_id = $2
-            "#,
-        version,
-        &w_id
-    )
-    .fetch_one(&db)
-    .await?;
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+    let flow_path = get_flow_path_for_version_authed(&userdb_authed, &db, version, &w_id).await?;
 
     check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
 
@@ -4521,6 +4514,13 @@ pub async fn run_workflow_as_code(
     check_license_key_valid().await?;
     check_tag_available_for_workspace(&db, &w_id, &run_query.tag, &authed).await?;
     check_scopes(&authed, || format!("jobs:run"))?;
+
+    if !is_valid_entrypoint_name(&entrypoint) {
+        return Err(error::Error::BadRequest(format!(
+            "Invalid entrypoint {entrypoint:?}: must match ^[A-Za-z_][A-Za-z0-9_]*$ \
+             (letters, digits and underscores, not starting with a digit)"
+        )));
+    }
 
     let mut i = 1;
 
@@ -5545,13 +5545,8 @@ pub async fn run_wait_result_flow_by_version_get(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let flow_path = sqlx::query_scalar!(
-        "SELECT path FROM flow_version WHERE id = $1 AND workspace_id = $2",
-        version,
-        &w_id
-    )
-    .fetch_one(&db)
-    .await?;
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+    let flow_path = get_flow_path_for_version_authed(&userdb_authed, &db, version, &w_id).await?;
 
     check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
 
@@ -5601,21 +5596,8 @@ pub async fn run_wait_result_flow_by_version(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let flow_path = sqlx::query_scalar!(
-        r#"
-                SELECT
-                    path
-                FROM
-                    flow_version
-                WHERE
-                    id = $1 AND
-                    workspace_id = $2
-            "#,
-        version,
-        &w_id
-    )
-    .fetch_one(&db)
-    .await?;
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+    let flow_path = get_flow_path_for_version_authed(&userdb_authed, &db, version, &w_id).await?;
 
     check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
 
@@ -5661,6 +5643,11 @@ async fn run_preview_script(
             "Operators cannot run preview jobs for security reasons".to_string(),
         ));
     }
+    // Preview runs arbitrary, request-supplied code. require_path_read_access_for_preview
+    // only checks folder/namespace *read* access (and is a no-op when path is null), so a
+    // token scoped to a specific script/flow could otherwise escape its scope and run any
+    // code. Require the broad jobs:run scope, like other arbitrary-execution endpoints.
+    check_scopes(&authed, || format!("jobs:run"))?;
     require_path_read_access_for_preview(&authed, &preview.path)?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(preview.tag.clone());
@@ -5742,6 +5729,9 @@ async fn run_inline_preview_script(
     Path(w_id): Path<String>,
     Json(preview): Json<PreviewInline>,
 ) -> error::Result<Response> {
+    // Same arbitrary-code class as run_preview_script: a narrowly-scoped token
+    // must not be able to run request-supplied code through inline preview.
+    check_scopes(&authed, || format!("jobs:run"))?;
     if let Some(job_id) = job_id {
         register_potential_assets_on_inline_execution(job_id, &w_id, &preview);
     }
@@ -5991,6 +5981,9 @@ async fn run_bundle_preview_script(
             "Operators cannot run preview jobs for security reasons".to_string(),
         ));
     }
+    // Bundle preview runs arbitrary, request-supplied code; require the broad jobs:run
+    // scope so a narrowly-scoped token cannot escape its scope. See run_preview_script.
+    check_scopes(&authed, || format!("jobs:run"))?;
 
     let mut job_id = None;
     let mut tx = None;
@@ -6658,6 +6651,9 @@ async fn run_preview_flow_job(
             "Operators cannot run preview jobs for security reasons".to_string(),
         ));
     }
+    // Flow preview runs an arbitrary, request-supplied flow definition; require the broad
+    // jobs:run scope so a narrowly-scoped token cannot escape its scope. See run_preview_script.
+    check_scopes(&authed, || format!("jobs:run"))?;
     require_path_read_access_for_preview(&authed, &raw_flow.path)?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(raw_flow.tag.clone());
@@ -6781,6 +6777,14 @@ async fn run_dynamic_select(
     match request.runnable_ref {
         DynamicSelectRunnableRef::Deployed { path, runnable_kind } => match runnable_kind {
             RunnableKind::Script => {
+                if !is_valid_entrypoint_name(&request.entrypoint_function) {
+                    return Err(error::Error::BadRequest(format!(
+                        "Invalid entrypoint_function {:?}: must match \
+                         ^[A-Za-z_][A-Za-z0-9_]*$ (letters, digits and underscores, \
+                         not starting with a digit)",
+                        request.entrypoint_function
+                    )));
+                }
                 let mut script_args = request.args.unwrap_or_default();
                 script_args.insert(
                     "_ENTRYPOINT_OVERRIDE".to_string(),
@@ -6805,6 +6809,11 @@ async fn run_dynamic_select(
                 return Ok((StatusCode::CREATED, uuid.to_string()).into_response());
             }
             RunnableKind::Flow => {
+                // Runs the deployed flow's dynamic-select code. Enforce the same
+                // path-scoped check the script branch gets via
+                // push_script_job_by_path_into_queue, so a token not scoped to this
+                // flow cannot trigger its code through dynamic select.
+                check_scopes(&authed, || format!("jobs:run:flows:{path}"))?;
                 let mut conn = user_db.clone().begin(&authed).await?;
 
                 let dynamic_input_res = match DYNAMIC_INPUT_CACHE.get(&format!("{}:{}", w_id, path))
@@ -6852,6 +6861,11 @@ async fn run_dynamic_select(
             }
         },
         DynamicSelectRunnableRef::Inline { code, lang: language } => {
+            // Inline dynamic select runs arbitrary, request-supplied code; require the broad
+            // jobs:run scope so a narrowly-scoped token cannot escape its scope. The Deployed
+            // branches are path-scoped instead (scripts via push_script_job_by_path_into_queue,
+            // flows via the check_scopes above).
+            check_scopes(&authed, || format!("jobs:run"))?;
             dynamic_input = DynamicInput {
                 x_windmill_dyn_select_code: code,
                 x_windmill_dyn_select_lang: language.unwrap_or_default(),

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.699.0
+  version: 1.703.3
   title: Windmill API
 
   contact:
@@ -1778,6 +1778,63 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /settings/offline_license_status:
+    get:
+      summary: get cap-usage status for the currently-loaded offline license
+      description: |
+        Returns the live cap status (seats used vs cap, current CU vs cap) for
+        the offline license key currently in use. Returns `null` if no offline
+        license is loaded. Super-admin only.
+      operationId: getOfflineLicenseStatus
+      tags:
+        - setting
+      responses:
+        "200":
+          description: cap status (or null when no offline license)
+          content:
+            application/json:
+              schema:
+                type: object
+                nullable: true
+                properties:
+                  seats_used:
+                    type: number
+                    description: Author-equivalent seats consumed (authors + 0.5 × operators)
+                  seats_cap:
+                    type: integer
+                  author_count:
+                    type: integer
+                  operator_count:
+                    type: integer
+                  current_cu:
+                    type: number
+                    description: Sum of CU rate across workers that pinged in the last 2 minutes.
+                  cu_cap:
+                    type: number
+                  cu_over_cap:
+                    type: boolean
+
+  /settings/instance_hash:
+    get:
+      summary: per-instance binding hash for offline license issuance
+      description: |
+        Returns the hash a superadmin shares with Windmill support when
+        requesting an offline license. Super-admin only.
+      operationId: getInstanceHash
+      tags:
+        - setting
+      responses:
+        '200':
+          description: instance hash
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  instance_hash:
+                    type: string
+                    nullable: true
 
   /settings/customer_portal:
     post:
@@ -20963,6 +21020,9 @@ components:
         jwt_role:
           type: string
           description: Vault JWT auth role name for Windmill (optional, if not provided token auth is used)
+        jwt_mount_path:
+          type: string
+          description: Mount path for the JWT auth method in Vault (optional, defaults to "jwt"). Set this when the JWT auth method is mounted at a non-default path, e.g. via `vault auth enable -path=<mount> jwt`.
         namespace:
           type: string
           description: Vault Enterprise namespace (optional)
@@ -22571,10 +22631,13 @@ components:
           type: string
         workspace_id:
           type: string
+        read_only:
+          type: boolean
       required:
         - token_prefix
         - created_at
         - last_used_at
+        - read_only
 
     ExternalJwtToken:
       type: object
@@ -22623,6 +22686,12 @@ components:
             type: string
         workspace_id:
           type: string
+        read_only:
+          type: boolean
+          description: |
+            If true, the token is restricted to read-only HTTP methods
+            (GET/HEAD/OPTIONS). Mutating endpoints and job-run actions are
+            rejected with 403, regardless of the scopes attached.
 
     NewTokenImpersonate:
       type: object
@@ -26294,7 +26363,7 @@ components:
           type: string
         login_type:
           type: string
-          enum: ["password", "github"]
+          enum: ["password", "github", "service_account"]
         super_admin:
           type: boolean
         devops:
@@ -26313,9 +26382,11 @@ components:
           type: boolean
         role_source:
           type: string
-          enum: ["manual", "instance_group"]
+          enum: ["manual", "instance_group", "service_account"]
         disabled:
           type: boolean
+        workspace_id:
+          type: string
 
       required:
         - email

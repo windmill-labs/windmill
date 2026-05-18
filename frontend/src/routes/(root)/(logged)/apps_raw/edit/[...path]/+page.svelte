@@ -37,7 +37,6 @@
 		  }
 		| undefined = $state(undefined)
 	let redraw = $state(0)
-	let path = page.params.path ?? ''
 
 	let nodraft = page.url.searchParams.get('nodraft')
 
@@ -78,11 +77,17 @@
 	let stateLoadedFromLocalStorage =
 		initialState != undefined ? decodeState(initialState) : undefined
 
+	/** Increments per `loadApp` call. Stale loads (e.g. when picker
+	 * navigation races a draft-discard reload) bail at the next checkpoint
+	 * after their captured token no longer matches. */
+	let loadAppToken = 0
 	async function loadApp(): Promise<void> {
+		const tok = ++loadAppToken
 		const app_w_draft = await AppService.getAppByPathWithDraft({
-			path,
+			path: page.params.path ?? '',
 			workspace: $workspaceStore!
 		})
+		if (tok !== loadAppToken) return
 		const app_w_draft_ = structuredClone(stateSnapshot(app_w_draft))
 		savedApp = {
 			summary: app_w_draft_.summary,
@@ -128,9 +133,7 @@
 			}
 			sendUserToast('App restored from browser storage', false, actions)
 			app_w_draft.value = stateLoadedFromLocalStorage
-			const rawValue = app_w_draft.value as any
-			files = rawValue.files as any
-			runnables = rawValue.runnables as any
+			extractRawApp(app_w_draft)
 			redraw += 1
 		} else if (app_w_draft.draft) {
 			extractRawApp(app_w_draft.draft)
@@ -170,7 +173,15 @@
 	}
 
 	run(() => {
+		// Re-run on workspace OR path change so navigating from one raw app editor
+		// to another (e.g. via the workspace picker) reloads the new app.
+		const newPath = page.params.path
 		if ($workspaceStore) {
+			// Clear files so RawAppEditor unmounts; it will remount when loadApp
+			// completes with fresh data, re-initializing its internal stores.
+			files = undefined
+			const s = nodraft ? undefined : localStorage.getItem(`rawapp-${newPath}`)
+			stateLoadedFromLocalStorage = s != undefined ? decodeState(s) : undefined
 			loadApp()
 		}
 	})

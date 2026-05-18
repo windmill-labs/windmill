@@ -145,100 +145,109 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
             parse_mcp_scopes(scopes).map_err(|e| ErrorData::internal_error(e, None))?;
 
         let favorites_only = scope_config.favorites;
-
-        // Fetch all items concurrently
-        let (scripts, flows, resource_types, hub_scripts) = tokio::try_join!(
-            self.backend
-                .list_scripts(&auth, &workspace_id, favorites_only, None),
-            self.backend
-                .list_flows(&auth, &workspace_id, favorites_only, None),
-            self.backend.list_resource_types(&auth, &workspace_id),
-            async {
-                if let Some(ref apps) = scope_config.hub_apps {
-                    self.backend.list_hub_scripts(Some(apps)).await
-                } else {
-                    Ok(vec![])
-                }
-            }
-        )?;
-
-        // Filter items based on scope
-        let filtered_scripts: Vec<_> = scripts
-            .into_iter()
-            .filter(|s| !scope_config.granular || scope_config.is_allowed("script", &s.path))
-            .collect();
-
-        let filtered_flows: Vec<_> = flows
-            .into_iter()
-            .filter(|f| !scope_config.granular || scope_config.is_allowed("flow", &f.path))
-            .collect();
-
-        // Collect all needed resource types from all schemas
-        let mut needed_resource_types: HashSet<String> = HashSet::new();
-        for script in &filtered_scripts {
-            needed_resource_types.extend(extract_resource_types_from_schema(&script.get_schema()));
-        }
-        for flow in &filtered_flows {
-            needed_resource_types.extend(extract_resource_types_from_schema(&flow.get_schema()));
-        }
-        for hub_script in &hub_scripts {
-            needed_resource_types
-                .extend(extract_resource_types_from_schema(&hub_script.get_schema()));
-        }
-
-        // Pre-fetch all resources
-        let resource_futures: Vec<_> = needed_resource_types
-            .into_iter()
-            .map(|rt| {
-                let backend = self.backend.clone();
-                let auth = auth.clone();
-                let workspace_id = workspace_id.clone();
-                async move {
-                    backend
-                        .list_resources(&auth, &workspace_id, &rt)
-                        .await
-                        .map(|resources| (rt, resources))
-                }
-            })
-            .collect();
-
-        let resource_results = futures::future::try_join_all(resource_futures).await?;
-        let resources_cache: HashMap<String, Vec<ResourceInfo>> =
-            resource_results.into_iter().collect();
+        let read_only = auth.read_only();
 
         let mut tools = Vec::new();
 
-        for script in &filtered_scripts {
-            tools.push(create_tool_from_item(
-                script,
-                self.backend.as_ref(),
-                &resources_cache,
-                &resource_types,
-            ));
-        }
+        // Read-only tokens cannot run scripts/flows/hub-scripts (running is a
+        // mutating action), so skip the script/flow/hub/resource fetches
+        // entirely — they would only be discarded below.
+        if !read_only {
+            let (scripts, flows, resource_types, hub_scripts) = tokio::try_join!(
+                self.backend
+                    .list_scripts(&auth, &workspace_id, favorites_only, None),
+                self.backend
+                    .list_flows(&auth, &workspace_id, favorites_only, None),
+                self.backend.list_resource_types(&auth, &workspace_id),
+                async {
+                    if let Some(ref apps) = scope_config.hub_apps {
+                        self.backend.list_hub_scripts(Some(apps)).await
+                    } else {
+                        Ok(vec![])
+                    }
+                }
+            )?;
 
-        for flow in &filtered_flows {
-            tools.push(create_tool_from_item(
-                flow,
-                self.backend.as_ref(),
-                &resources_cache,
-                &resource_types,
-            ));
-        }
+            let filtered_scripts: Vec<_> = scripts
+                .into_iter()
+                .filter(|s| !scope_config.granular || scope_config.is_allowed("script", &s.path))
+                .collect();
 
-        for hub_script in &hub_scripts {
-            tools.push(create_tool_from_item(
-                hub_script,
-                self.backend.as_ref(),
-                &resources_cache,
-                &resource_types,
-            ));
+            let filtered_flows: Vec<_> = flows
+                .into_iter()
+                .filter(|f| !scope_config.granular || scope_config.is_allowed("flow", &f.path))
+                .collect();
+
+            // Collect all needed resource types from all schemas
+            let mut needed_resource_types: HashSet<String> = HashSet::new();
+            for script in &filtered_scripts {
+                needed_resource_types
+                    .extend(extract_resource_types_from_schema(&script.get_schema()));
+            }
+            for flow in &filtered_flows {
+                needed_resource_types
+                    .extend(extract_resource_types_from_schema(&flow.get_schema()));
+            }
+            for hub_script in &hub_scripts {
+                needed_resource_types
+                    .extend(extract_resource_types_from_schema(&hub_script.get_schema()));
+            }
+
+            // Pre-fetch all resources
+            let resource_futures: Vec<_> = needed_resource_types
+                .into_iter()
+                .map(|rt| {
+                    let backend = self.backend.clone();
+                    let auth = auth.clone();
+                    let workspace_id = workspace_id.clone();
+                    async move {
+                        backend
+                            .list_resources(&auth, &workspace_id, &rt)
+                            .await
+                            .map(|resources| (rt, resources))
+                    }
+                })
+                .collect();
+
+            let resource_results = futures::future::try_join_all(resource_futures).await?;
+            let resources_cache: HashMap<String, Vec<ResourceInfo>> =
+                resource_results.into_iter().collect();
+
+            for script in &filtered_scripts {
+                tools.push(create_tool_from_item(
+                    script,
+                    self.backend.as_ref(),
+                    &resources_cache,
+                    &resource_types,
+                ));
+            }
+
+            for flow in &filtered_flows {
+                tools.push(create_tool_from_item(
+                    flow,
+                    self.backend.as_ref(),
+                    &resources_cache,
+                    &resource_types,
+                ));
+            }
+
+            for hub_script in &hub_scripts {
+                tools.push(create_tool_from_item(
+                    hub_script,
+                    self.backend.as_ref(),
+                    &resources_cache,
+                    &resource_types,
+                ));
+            }
         }
 
         // Add endpoint tools from the generated MCP tools, filtered by scope
         let endpoint_tools = self.backend.all_endpoint_tools();
         for endpoint_tool in endpoint_tools {
             if scope_config.granular && !scope_config.is_allowed("endpoint", &endpoint_tool.name) {
+                continue;
+            }
+            if read_only && !crate::server::is_endpoint_read_only(&endpoint_tool) {
                 continue;
             }
 
@@ -259,6 +268,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         let scopes = auth.scopes().unwrap_or(&[]);
         let scope_config =
             parse_mcp_scopes(scopes).map_err(|e| ErrorData::internal_error(e, None))?;
+        let read_only = auth.read_only();
 
         let args = request.arguments.map(Value::Object).unwrap_or(Value::Null);
 
@@ -278,6 +288,15 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
                         None,
                     ));
                 }
+                if read_only && !crate::server::is_endpoint_read_only(endpoint_tool) {
+                    return Err(ErrorData::internal_error(
+                        format!(
+                            "Access denied: endpoint '{}' is not read-only and this token is restricted to read-only operations",
+                            endpoint_tool.name
+                        ),
+                        None,
+                    ));
+                }
 
                 // This is an endpoint tool, call via backend
                 let result = self
@@ -292,6 +311,18 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
                     ),
                 )]));
             }
+        }
+
+        // Anything below this point runs a script or flow, which is a mutating
+        // action and must be denied for read-only tokens.
+        if read_only {
+            return Err(ErrorData::internal_error(
+                format!(
+                    "Access denied: tool '{}' runs a script/flow and this token is restricted to read-only operations",
+                    request.name
+                ),
+                None,
+            ));
         }
 
         // Resolve the tool name to (type, path, is_hub)

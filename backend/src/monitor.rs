@@ -886,11 +886,13 @@ pub async fn reload_otel_tracing_proxy_setting(conn: &Connection) {
                 let mut current = OTEL_TRACING_PROXY_SETTINGS.write().await;
                 if current.enabled != new_settings.enabled
                     || current.enabled_languages != new_settings.enabled_languages
+                    || current.no_proxy_hosts != new_settings.no_proxy_hosts
                 {
                     tracing::info!(
-                        "OTEL tracing proxy settings changed: enabled={}, languages={:?}",
+                        "OTEL tracing proxy settings changed: enabled={}, languages={:?}, no_proxy_hosts={:?}",
                         new_settings.enabled,
-                        new_settings.enabled_languages
+                        new_settings.enabled_languages,
+                        new_settings.no_proxy_hosts,
                     );
                     *current = new_settings;
                 }
@@ -2373,7 +2375,19 @@ pub async fn monitor_db(
     let verify_license_key_f = async {
         #[cfg(feature = "enterprise")]
         if !initial_load {
-            verify_license_key().await;
+            verify_license_key(conn.as_sql()).await;
+        }
+    };
+
+    let enforce_offline_caps_f = async {
+        #[cfg(feature = "enterprise")]
+        if server_mode && !initial_load {
+            if let Some(db) = conn.as_sql() {
+                // Cheap: one query for workers active in the last 2 minutes.
+                if let Err(e) = windmill_common::ee_oss::enforce_offline_caps(db).await {
+                    tracing::error!("Failed to enforce offline license caps: {e:#}");
+                }
+            }
         }
     };
 
@@ -2522,6 +2536,7 @@ pub async fn monitor_db(
         vacuum_queue_f,
         expose_queue_metrics_f,
         verify_license_key_f,
+        enforce_offline_caps_f,
         worker_groups_alerts_f,
         jobs_waiting_alerts_f,
         low_disk_alerts_f,
@@ -2852,6 +2867,11 @@ pub async fn reload_base_url_setting(conn: &Connection) -> error::Result<()> {
     }
 
     IS_SECURE.store(is_secure, Ordering::Relaxed);
+
+    #[cfg(feature = "enterprise")]
+    {
+        crate::ee_oss::verify_license_key(conn.as_sql()).await;
+    }
 
     Ok(())
 }

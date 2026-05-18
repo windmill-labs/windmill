@@ -7,6 +7,7 @@
 	import { enterpriseLicense } from '$lib/stores'
 	import Button from './common/button/Button.svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import Password from './Password.svelte'
 	import SettingCard from './instanceSettings/SettingCard.svelte'
 
 	interface Props {
@@ -121,11 +122,12 @@
 					bind:value={value['id']}
 				/>
 			</label>
-			<label class="flex flex-col gap-1">
+			<label for="{name}_client_secret" class="flex flex-col gap-1">
 				<span class="text-emphasis font-semibold text-xs">Client Secret</span>
-				<TextInput
-					inputProps={{ type: 'text', placeholder: 'Client Secret' }}
-					bind:value={value['secret']}
+				<Password
+					id="{name}_client_secret"
+					placeholder="Client Secret"
+					bind:password={value['secret']}
 				/>
 			</label>
 			{#if name == 'microsoft' || name == 'teams'}
