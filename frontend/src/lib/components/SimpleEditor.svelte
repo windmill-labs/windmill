@@ -61,6 +61,7 @@
 	let divEl: HTMLDivElement | null = null
 	let editor = $state<meditor.IStandaloneCodeEditor | null>(null)
 	let model: meditor.ITextModel
+	let pasteListenerCleanup: (() => void) | undefined = undefined
 
 	let statusDiv = $state<Element | null>(null)
 	let width = $state(0)
@@ -370,10 +371,32 @@
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyX, function () {
 				document.execCommand('cut')
 			})
-			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyV, async function () {
-				inputEl?.focus()
-				document.execCommand('paste')
-			})
+			// Paste is handled by a listener scoped to THIS editor's DOM node.
+			// `editor.addCommand` registers a *global* keybinding in the shared
+			// standalone services, so with multiple SimpleEditor instances the
+			// last-registered handler wins and paste lands in the wrong editor.
+			const pasteTarget = divEl
+			const onPaste = (e: ClipboardEvent) => {
+				if (!editor || !editor.hasTextFocus()) return
+				const text = e.clipboardData?.getData('text/plain')
+				if (!text) return
+				e.preventDefault()
+				e.stopPropagation()
+				editor.executeEdits('paste', [
+					{
+						range: editor.getSelection() ?? {
+							startLineNumber: 1,
+							startColumn: 1,
+							endLineNumber: 1,
+							endColumn: 1
+						},
+						text,
+						forceMoveMarkers: true
+					}
+				])
+			}
+			pasteTarget?.addEventListener('paste', onPaste, true)
+			pasteListenerCleanup = () => pasteTarget?.removeEventListener('paste', onPaste, true)
 		}
 
 		let timeoutModel: number | undefined = undefined
@@ -583,6 +606,7 @@
 	onDestroy(() => {
 		try {
 			valueAfterDispose = getCode()
+			pasteListenerCleanup?.()
 			vimDisposable?.dispose()
 			model && model.dispose()
 			editor && editor.dispose()
@@ -599,38 +623,8 @@
 	}
 
 	updatePlaceholderVisibility(code ?? '')
-
-	let inputEl = $state<HTMLInputElement | null>(null)
-	let pasteValue = $state('')
-	$effect(() => {
-		if (inputEl && pasteValue) {
-			untrack(() => {
-				editor?.executeEdits('paste', [
-					{
-						range: editor?.getSelection() ?? {
-							startLineNumber: 1,
-							startColumn: 1,
-							endLineNumber: 1,
-							endColumn: 1
-						},
-						text: pasteValue,
-						forceMoveMarkers: true
-					}
-				])
-				pasteValue = ''
-			})
-		}
-	})
 </script>
 
-{#if parent.window !== window}
-	<input
-		style="height: 0; width: 0; opacity: 0; position: absolute; top: 0; left: 0; z-index: -1;"
-		type="text"
-		bind:this={inputEl}
-		bind:value={pasteValue}
-	/>
-{/if}
 <EditorTheme />
 {#if !editor || suggestion}
 	<FakeMonacoPlaceHolder
