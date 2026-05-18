@@ -3632,6 +3632,10 @@ struct Preview {
     format: Option<String>,
     flow_path: Option<String>,
     modules: Option<HashMap<String, ScriptModule>>,
+    /// Map of relative-import script path -> temp storage hash. When set, the
+    /// preview job resolves those imports from not-yet-deployed local content
+    /// (uploaded to raw_script_temp) instead of the deployed script.
+    temp_script_refs: Option<HashMap<String, String>>,
 }
 
 #[cfg(feature = "run_inline")]
@@ -5679,6 +5683,12 @@ async fn run_preview_script(
     }
     if let Some(ref modules) = preview.modules {
         extra.insert("_MODULES".to_string(), to_raw_value(modules));
+    }
+    if let Some(ref temp_script_refs) = preview.temp_script_refs {
+        extra.insert(
+            "_TEMP_SCRIPT_REFS".to_string(),
+            to_raw_value(temp_script_refs),
+        );
     }
     let extra = if extra.is_empty() { None } else { Some(extra) };
     let push_args = PushArgs { extra, args: &preview_args };

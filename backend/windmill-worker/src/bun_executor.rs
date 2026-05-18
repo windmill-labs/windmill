@@ -1871,6 +1871,14 @@ try {{
         && !codebase.is_some()
         && (maybe_lock.get_lock().is_some() || annotation.native);
 
+    // Preview jobs may carry _TEMP_SCRIPT_REFS so relative imports resolve from
+    // not-yet-deployed local content uploaded to raw_script_temp.
+    let temp_script_refs: Option<HashMap<String, String>> = job
+        .args
+        .as_ref()
+        .and_then(|x| x.get("_TEMP_SCRIPT_REFS"))
+        .and_then(|v| serde_json::from_str(v.get()).ok());
+
     let write_loader_f = async {
         if build_cache {
             build_loader(
@@ -1886,7 +1894,7 @@ try {{
                 } else {
                     LoaderMode::BunBundle
                 },
-                &None,
+                &temp_script_refs,
             )
             .await?;
 
@@ -1903,7 +1911,7 @@ try {{
                 } else {
                     LoaderMode::Bun
                 },
-                &None,
+                &temp_script_refs,
             )
             .await
         } else {

@@ -643,6 +643,14 @@ pub async fn handle_python_job(
         ));
     }
 
+    // Preview jobs may carry _TEMP_SCRIPT_REFS so relative imports resolve from
+    // not-yet-deployed local content uploaded to raw_script_temp.
+    let temp_script_refs: Option<HashMap<String, String>> = job
+        .args
+        .as_ref()
+        .and_then(|x| x.get("_TEMP_SCRIPT_REFS"))
+        .and_then(|v| serde_json::from_str(v.get()).ok());
+
     let (py_version, mut additional_python_paths) = handle_python_deps(
         job_dir,
         requirements_o,
@@ -658,6 +666,7 @@ pub async fn handle_python_job(
         &mut Some(occupancy_metrics),
         precomputed_agent_info,
         annotations.clone(),
+        &temp_script_refs,
     )
     .await?;
 
@@ -1768,6 +1777,7 @@ pub(crate) async fn handle_python_deps(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     annotations: PythonAnnotations,
+    temp_script_refs: &Option<HashMap<String, String>>,
 ) -> error::Result<(PyV, Vec<String>)> {
     create_dependencies_dir(job_dir).await;
 
@@ -1796,7 +1806,7 @@ pub(crate) async fn handle_python_deps(
                         &mut version_specifiers,
                         &mut locked_v,
                         &None,
-                        &None, // temp_script_refs: only used during CLI lock generation
+                        temp_script_refs,
                     ))
                     .await?;
 
@@ -3087,6 +3097,7 @@ pub async fn start_worker(
         &mut None,
         None,
         annotations,
+        &None, // dedicated worker runs deployed scripts only
     )
     .await?;
 
