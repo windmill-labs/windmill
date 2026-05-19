@@ -282,6 +282,9 @@ describe('global AI tools', () => {
 			})
 		])
 
+		UserDraft.get<any>('script', '', { workspace: WORKSPACE }).uncloneable = () =>
+			'runtime-only editor field'
+
 		await callGlobalTool('edit_script', {
 			path: 'u/admin/assigned_script',
 			old_string: 'return 1',
@@ -294,6 +297,37 @@ describe('global AI tools', () => {
 		)
 		expect(
 			UserDraft.get<any>('script', 'u/admin/assigned_script', { workspace: WORKSPACE })
+		).toBeUndefined()
+	})
+
+	it('edits a new script draft stored under the empty add-editor key before listing it', async () => {
+		const content = 'export async function main() {\n\treturn 1\n}'
+		const handle = UserDraft.use<any>('script', '', { workspace: WORKSPACE })
+		handle.setDraftAndMeta(
+			{
+				path: 'u/admin/direct_edit_script',
+				summary: '',
+				language: 'bun',
+				content
+			},
+			{}
+		)
+
+		UserDraft.get<any>('script', '', { workspace: WORKSPACE }).uncloneable = () =>
+			'runtime-only editor field'
+
+		await callGlobalTool('edit_script', {
+			path: 'u/admin/direct_edit_script',
+			old_string: 'return 1',
+			new_string: 'return 2',
+			replace_all: false
+		})
+
+		expect(UserDraft.get<any>('script', '', { workspace: WORKSPACE })?.content).toContain(
+			'return 2'
+		)
+		expect(
+			UserDraft.get<any>('script', 'u/admin/direct_edit_script', { workspace: WORKSPACE })
 		).toBeUndefined()
 	})
 
