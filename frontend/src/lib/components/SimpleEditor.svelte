@@ -649,6 +649,8 @@
 	<input
 		style="height: 0; width: 0; opacity: 0; position: absolute; top: 0; left: 0; z-index: -1;"
 		type="text"
+		aria-hidden="true"
+		tabindex="-1"
 		bind:this={inputEl}
 		bind:value={pasteValue}
 	/>
