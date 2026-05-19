@@ -1853,20 +1853,7 @@ pub async fn reload_store_audit_logs_s3_setting(conn: &Connection) {
     )
     .await
     {
-        Ok(v) => {
-            STORE_AUDIT_LOGS_S3.store(v, Ordering::Relaxed);
-            // Anchor the export cursor at *enable* time, not lazily on the
-            // first export tick (~60s later). Otherwise audit rows created in
-            // that window get xids below the first-tick anchor and are silently
-            // skipped, breaking the "logs created after enabling are exported"
-            // guarantee.
-            #[cfg(feature = "parquet")]
-            if v {
-                if let Some(db) = conn.as_sql() {
-                    anchor_audit_logs_s3_checkpoint(db).await;
-                }
-            }
-        }
+        Ok(v) => STORE_AUDIT_LOGS_S3.store(v, Ordering::Relaxed),
         Err(e) => tracing::error!("Error reloading store_audit_logs_s3 setting: {:?}", e),
     }
 }
@@ -4096,35 +4083,6 @@ async fn audit_log_retention_days() -> i64 {
     }
 }
 
-/// Anchors the export cursor when the feature is enabled, so audit rows
-/// created between the operator flipping `store_audit_logs_s3` on and the
-/// first export tick (~60s later) are still mirrored.
-///
-/// Captures the current snapshot xmin: transactions in-flight or newer at this
-/// moment have xid >= it and fall into a future export interval; only
-/// already-committed (pre-enable) rows sit below it and are intentionally not
-/// backfilled. `ON CONFLICT DO NOTHING` makes this idempotent and HA-safe (the
-/// first server to react wins; the exporter's own first-run anchor remains the
-/// fallback if this never runs, e.g. enabled via env var). It also self-heals
-/// if the row is ever absent while enabled, and — since it never overwrites —
-/// a disable/re-enable resumes from the preserved cursor.
-#[cfg(feature = "parquet")]
-async fn anchor_audit_logs_s3_checkpoint(db: &DB) {
-    if let Err(e) = sqlx::query!(
-        "INSERT INTO global_settings (name, value)
-         VALUES ($1, jsonb_build_object(
-                    'last_xmin', txid_snapshot_xmin(txid_current_snapshot())::bigint,
-                    'last_ts', now()::text))
-         ON CONFLICT (name) DO NOTHING",
-        windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING
-    )
-    .execute(db)
-    .await
-    {
-        tracing::error!("audit s3 export: failed to anchor checkpoint on enable: {e:#}");
-    }
-}
-
 /// Incrementally exports audit logs to a dedicated `logs/audit/` folder in the
 /// instance object store as newline-delimited JSON.
 ///
@@ -4155,6 +4113,13 @@ async fn anchor_audit_logs_s3_checkpoint(db: &DB) {
 ///   * Interval membership uses `age()` so it stays correct across xid
 ///     wraparound (a raw 32-bit `xmin` vs 64-bit `txid_snapshot_xmin` compare
 ///     would silently become always-true after 2^32 txns).
+///   * On the very first run (no checkpoint) `prev` is the `xmin` of the
+///     `store_audit_logs_s3` settings row — the enable transaction's own xid,
+///     fixed atomically by the write that flipped the toggle on. So every
+///     transaction that committed after enabling is exported regardless of how
+///     long after the enable write the first tick runs; pre-enable rows are
+///     not backfilled. Falls back to the current snapshot xmin when there is
+///     no settings row (env-var enable).
 ///
 /// Each run is bounded to at most `MAX_XID_INTERVAL` xids (`eff_cur`), so a
 /// backlog (e.g. after a prolonged object-store outage) drains over successive
@@ -4241,7 +4206,7 @@ async fn export_audit_logs_to_object_store(db: &DB) {
     .ok()
     .flatten();
 
-    let (prev_xmin, last_ts): (i64, DateTime<Utc>) = match checkpoint {
+    let (prev_xmin, last_ts, first_run): (i64, DateTime<Utc>, bool) = match checkpoint {
         Some(v) => {
             let prev_xmin = v.get("last_xmin").and_then(|x| x.as_i64()).unwrap_or(0);
             let last_ts = v
@@ -4250,35 +4215,43 @@ async fn export_audit_logs_to_object_store(db: &DB) {
                 .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
                 .map(|d| d.with_timezone(&Utc))
                 .unwrap_or_else(|| DateTime::<Utc>::from_timestamp(0, 0).unwrap());
-            (prev_xmin, last_ts)
+            (prev_xmin, last_ts, false)
         }
         None => {
-            // First run: anchor at the current snapshot xmin so only audit logs
-            // from transactions that settle *after* the feature was enabled are
-            // exported (no historical backfill; older logs remain in Postgres
-            // and service logs).
-            if let Err(e) = sqlx::query!(
-                "INSERT INTO global_settings (name, value) VALUES ($1, $2)
-                 ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
-                windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING,
-                serde_json::json!({ "last_xmin": cur_xmin, "last_ts": Utc::now().to_rfc3339() })
+            // First run: anchor the lower bound at the *enable transaction's
+            // own xid* — the `xmin` of the `store_audit_logs_s3` settings row.
+            // That boundary is fixed atomically by the write that flipped the
+            // toggle on, so every transaction that committed after enabling is
+            // exported no matter how long after the enable write this first
+            // tick runs (closes the enable→first-tick race). Pre-enable rows
+            // (xid below it) are intentionally not backfilled. Fallback to the
+            // current snapshot xmin when there is no settings row (enabled via
+            // env var — no precise enable event exists then).
+            let enable_xid = sqlx::query_scalar!(
+                "SELECT xmin::text::bigint AS \"x!\" FROM global_settings WHERE name = $1",
+                windmill_common::global_settings::STORE_AUDIT_LOGS_S3_SETTING
             )
-            .execute(&mut *tx)
+            .fetch_optional(&mut *tx)
             .await
-            {
-                tracing::error!("audit s3 export: failed to init checkpoint: {e:#}");
-                return;
-            }
-            let _ = tx.commit().await;
-            return;
+            .ok()
+            .flatten();
+            (enable_xid.unwrap_or(cur_xmin), Utc::now(), true)
         }
     };
 
     // Bound this run to at most `MAX_XID_INTERVAL` xids. `eff_cur <= cur_xmin`
     // so every xid `< eff_cur` is still fully settled; the checkpoint advances
     // exactly to `eff_cur`, so the un-exported tail `[eff_cur, cur_xmin)` is
-    // simply picked up on the next tick — no loss, bounded work per run.
-    let eff_cur_xmin = cur_xmin.min(prev_xmin.saturating_add(MAX_XID_INTERVAL));
+    // picked up on the next tick — no loss, bounded work per run. Skipped on
+    // the first run: `prev_xmin` there is a raw 32-bit xid (settings-row xmin),
+    // not the 64-bit `txid` scale `cur_xmin` uses, so the cap arithmetic would
+    // be meaningless; the first run is bounded instead by the (short)
+    // enable→first-tick volume.
+    let eff_cur_xmin = if first_run {
+        cur_xmin
+    } else {
+        cur_xmin.min(prev_xmin.saturating_add(MAX_XID_INTERVAL))
+    };
 
     // Export the rows whose inserting xid is in `[prev, eff_cur)`:
     //   * `age(xmin) > age(cur_xid)`  → settled now (strictly older than the
@@ -4538,8 +4511,10 @@ mod audit_s3_export_tests {
     //    higher-xid still-open txn is not lost even though a higher id from a
     //    lower-xid txn committed and was exported (and the checkpoint
     //    advanced) first — the exact CI-found P0.
-    //  - enable-flow: anchoring at enable time exports rows created before the
-    //    first export tick (CI-found first-enable skip).
+    //  - enable-flow: with the first-run boundary = the enable txn's xid,
+    //    rows committed after the setting write but before the first export
+    //    tick are exported, and pre-enable rows are not (CI-found
+    //    first-enable skip).
     #[sqlx::test(migrations = "./migrations")]
     async fn audit_export_end_to_end(db: DB) -> anyhow::Result<()> {
         STORE_AUDIT_LOGS_S3.store(true, Ordering::Relaxed);
@@ -4668,11 +4643,11 @@ mod audit_s3_export_tests {
         done_dedup.dedup();
         assert_eq!(done_dedup, done, "still exactly once overall: {done:?}");
 
-        // --- enable-flow regression (CI-found): anchor at enable, not at the
-        // first export tick. Simulate a fresh enable: drop the checkpoint and
-        // anchor as the settings-reload path does. Rows created AFTER enable
-        // but BEFORE the first export tick must still be exported (lazy
-        // first-tick anchoring would skip them).
+        // --- enable-flow regression (CI-found): the first-run boundary is the
+        // enable transaction's own xid, so rows committed AFTER the operator
+        // wrote the setting but BEFORE the (possibly much later) first export
+        // tick are still exported, and pre-enable rows are not backfilled.
+        // Simulate a fresh enable: no checkpoint yet.
         sqlx::query("DELETE FROM global_settings WHERE name = $1")
             .bind(windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING)
             .execute(&db)
@@ -4680,20 +4655,30 @@ mod audit_s3_export_tests {
         clear_store().await;
         let store = install_in_memory_store().await;
 
-        anchor_audit_logs_s3_checkpoint(&db).await; // operator enables -> anchor now
-        assert!(
-            checkpoint_last_xmin(&db).await.is_some(),
-            "checkpoint anchored at enable time, before the first export tick"
-        );
+        let pre_enable = insert_audit(&db, "pre.enable").await; // committed BEFORE enable
 
-        let e1 = insert_audit(&db, "enable.window.1").await;
-        let e2 = insert_audit(&db, "enable.window.2").await;
+        // The write that flips the toggle on (sets the row's xmin = this txn).
+        sqlx::query(
+            "INSERT INTO global_settings (name, value) VALUES ($1, 'true'::jsonb)
+             ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
+        )
+        .bind(windmill_common::global_settings::STORE_AUDIT_LOGS_S3_SETTING)
+        .execute(&db)
+        .await?;
 
-        export_audit_logs_to_object_store(&db).await; // first tick
+        // Rows committed after enable but before the first export tick.
+        let w1 = insert_audit(&db, "enable.window.1").await;
+        let w2 = insert_audit(&db, "enable.window.2").await;
+
+        export_audit_logs_to_object_store(&db).await; // first tick (no checkpoint)
         let got = exported_ids(&store).await;
         assert!(
-            got.contains(&e1) && got.contains(&e2),
-            "rows created after enable but before the first tick must be exported: {got:?}"
+            got.contains(&w1) && got.contains(&w2),
+            "rows committed after enable but before the first tick must be exported: {got:?}"
+        );
+        assert!(
+            !got.contains(&pre_enable),
+            "rows committed before the enable write must NOT be backfilled: {got:?}"
         );
 
         clear_store().await;
