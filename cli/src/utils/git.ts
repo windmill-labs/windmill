@@ -168,6 +168,104 @@ export function composeGitSyncCommitHeader(
   return header;
 }
 
+// Mirrors the hub script's regexFromPath: the include glob(s) that select an
+// object's files for `wmill sync pull --extra-includes`. Some types expand to
+// two comma-separated patterns (dotted + double-underscore folder layouts).
+export function gitSyncIncludePattern(
+  pathType: string,
+  path: string,
+): string {
+  switch (pathType) {
+    case "flow":
+      return `${path}.flow/*,${path}__flow/*`;
+    case "app":
+      return `${path}.app/*,${path}__app/*`;
+    case "raw_app":
+      return `${path}.raw_app/**,${path}__raw_app/**`;
+    case "folder":
+      return `${path}/folder.meta.*`;
+    case "resourcetype":
+      return `${path}.resource-type.*`;
+    case "resource":
+      return `${path}.resource.*`;
+    case "variable":
+      return `${path}.variable.*`;
+    case "schedule":
+      return `${path}.schedule.*`;
+    case "user":
+      return `${path}.user.*`;
+    case "group":
+      return `${path}.group.*`;
+    case "httptrigger":
+      return `${path}.http_trigger.*`;
+    case "websockettrigger":
+      return `${path}.websocket_trigger.*`;
+    case "kafkatrigger":
+      return `${path}.kafka_trigger.*`;
+    case "natstrigger":
+      return `${path}.nats_trigger.*`;
+    case "postgrestrigger":
+      return `${path}.postgres_trigger.*`;
+    case "mqtttrigger":
+      return `${path}.mqtt_trigger.*`;
+    case "sqstrigger":
+      return `${path}.sqs_trigger.*`;
+    case "gcptrigger":
+      return `${path}.gcp_trigger.*`;
+    case "azuretrigger":
+      return `${path}.azure_trigger.*`;
+    case "emailtrigger":
+      return `${path}.email_trigger.*`;
+    default:
+      return `${path}.*`;
+  }
+}
+
+export interface GitSyncDeployIncludes {
+  extraIncludes: string[];
+  includeSchedules: boolean;
+  includeGroups: boolean;
+  includeUsers: boolean;
+  includeTriggers: boolean;
+  includeSettings: boolean;
+  includeKey: boolean;
+}
+
+// Mirrors the hub script's wmill_sync_pull include-derivation: build the
+// --extra-includes set from the deployed items, and (only in workspace-wide
+// mode — never with --use-individual-branch) opt object kinds that are
+// excluded by default back in. Replaces the script's regexFromPath +
+// per-kind --include-* construction so the hub script can drop both.
+export function deriveGitSyncDeployIncludes(
+  items: GitSyncDeployItem[],
+  useIndividualBranch: boolean,
+): GitSyncDeployIncludes {
+  const extraIncludes: string[] = [];
+  for (const { path_type, path, parent_path } of items) {
+    if (path) {
+      extraIncludes.push(...gitSyncIncludePattern(path_type, path).split(","));
+    }
+    if (parent_path) {
+      extraIncludes.push(
+        ...gitSyncIncludePattern(path_type, parent_path).split(","),
+      );
+    }
+  }
+
+  const has = (pred: (t: string) => boolean) =>
+    !useIndividualBranch && items.some((i) => pred(i.path_type));
+
+  return {
+    extraIncludes,
+    includeSchedules: has((t) => t === "schedule"),
+    includeGroups: has((t) => t === "group"),
+    includeUsers: has((t) => t === "user"),
+    includeTriggers: has((t) => t.includes("trigger")),
+    includeSettings: has((t) => t === "settings"),
+    includeKey: has((t) => t === "key"),
+  };
+}
+
 function git(
   args: string[],
   opts?: { allowFail?: boolean },

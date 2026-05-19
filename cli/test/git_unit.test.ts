@@ -10,6 +10,8 @@ import {
   computeGitSyncDeployBranch,
   composeGitSyncCommitHeader,
   forkBranchName,
+  gitSyncIncludePattern,
+  deriveGitSyncDeployIncludes,
 } from "../src/utils/git.ts";
 
 // =============================================================================
@@ -206,5 +208,82 @@ describe("composeGitSyncCommitHeader", () => {
         { path_type: "variable", path: "f" },
       ])
     ).toBe("[WM]: Deployed 2 scripts, 1 flow, 1 app and 2 other objects");
+  });
+});
+
+// =============================================================================
+// gitSyncIncludePattern / deriveGitSyncDeployIncludes — replaces the hub
+// script's regexFromPath + wmill_sync_pull include-derivation.
+// =============================================================================
+
+describe("gitSyncIncludePattern", () => {
+  test("script falls through to <path>.*", () => {
+    expect(gitSyncIncludePattern("script", "f/foo/bar")).toBe("f/foo/bar.*");
+  });
+  test("flow/app expand to dotted + __ folder patterns", () => {
+    expect(gitSyncIncludePattern("flow", "f/x")).toBe("f/x.flow/*,f/x__flow/*");
+    expect(gitSyncIncludePattern("app", "f/x")).toBe("f/x.app/*,f/x__app/*");
+    expect(gitSyncIncludePattern("raw_app", "f/x")).toBe(
+      "f/x.raw_app/**,f/x__raw_app/**"
+    );
+  });
+  test("folder and triggers", () => {
+    expect(gitSyncIncludePattern("folder", "f/x")).toBe("f/x/folder.meta.*");
+    expect(gitSyncIncludePattern("httptrigger", "f/t")).toBe(
+      "f/t.http_trigger.*"
+    );
+    expect(gitSyncIncludePattern("gcptrigger", "f/t")).toBe(
+      "f/t.gcp_trigger.*"
+    );
+  });
+});
+
+describe("deriveGitSyncDeployIncludes", () => {
+  test("splits multi-pattern includes (flow) and includes parent_path", () => {
+    const r = deriveGitSyncDeployIncludes(
+      [{ path_type: "flow", path: "f/a", parent_path: "f/b" }],
+      false
+    );
+    expect(r.extraIncludes).toEqual([
+      "f/a.flow/*",
+      "f/a__flow/*",
+      "f/b.flow/*",
+      "f/b__flow/*",
+    ]);
+  });
+
+  test("workspace-wide mode opts excluded kinds back in", () => {
+    const r = deriveGitSyncDeployIncludes(
+      [
+        { path_type: "schedule", path: "f/s" },
+        { path_type: "group", path: "g/g" },
+        { path_type: "httptrigger", path: "f/t" },
+        { path_type: "settings", path: "" },
+        { path_type: "key", path: "" },
+        { path_type: "user", path: "u/u" },
+      ],
+      false
+    );
+    expect(r.includeSchedules).toBe(true);
+    expect(r.includeGroups).toBe(true);
+    expect(r.includeTriggers).toBe(true);
+    expect(r.includeSettings).toBe(true);
+    expect(r.includeKey).toBe(true);
+    expect(r.includeUsers).toBe(true);
+  });
+
+  test("individual-branch mode NEVER sets include flags (matches hub script)", () => {
+    const r = deriveGitSyncDeployIncludes(
+      [
+        { path_type: "schedule", path: "f/s" },
+        { path_type: "kafkatrigger", path: "f/t" },
+      ],
+      true
+    );
+    expect(r.includeSchedules).toBe(false);
+    expect(r.includeTriggers).toBe(false);
+    // extra-includes are still derived regardless of branch mode
+    expect(r.extraIncludes).toContain("f/s.schedule.*");
+    expect(r.extraIncludes).toContain("f/t.kafka_trigger.*");
   });
 });

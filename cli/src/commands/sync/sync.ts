@@ -74,6 +74,7 @@ import {
   computeGitSyncDeployBranch,
   checkoutGitSyncDeployBranch,
   gitSyncDeployPush,
+  deriveGitSyncDeployIncludes,
   type GitSyncDeployItem,
 } from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
@@ -2995,12 +2996,48 @@ export async function gitDeploy(
       groupByFolder?: boolean;
       onlyCreateBranch?: boolean;
       parentWorkspaceId?: string;
+      skipSecrets?: boolean;
     },
 ) {
+  let items: GitSyncDeployItem[] = [];
+  if (opts.gitDeployItems !== undefined) {
+    try {
+      items = JSON.parse(opts.gitDeployItems);
+    } catch (e) {
+      log.error(`Invalid --git-deploy-items JSON: ${e}`);
+      process.exit(1);
+    }
+  }
+
+  const useIndividualBranch = !!opts.useIndividualBranch;
+
+  // Derive the include filters from the deployed items (replaces the hub
+  // script's regexFromPath + per-kind --include-* construction).
+  const includes = deriveGitSyncDeployIncludes(items, useIndividualBranch);
+
+  // Promotion: in individual-branch mode, apply promotionOverrides from the
+  // base branch the repo was cloned on (read now, before `pull` checks out
+  // the wm_deploy branch). Mirrors the hub script's `--promotion <branch>`.
+  const promotion =
+    useIndividualBranch && !opts.promotion
+      ? getCurrentGitBranch() ?? undefined
+      : opts.promotion;
+
   await pull({
     ...opts,
     yes: true,
     skipBranchValidation: true,
+    extraIncludes: [
+      ...(opts.extraIncludes ?? []),
+      ...includes.extraIncludes,
+    ],
+    includeSchedules: opts.includeSchedules || includes.includeSchedules,
+    includeGroups: opts.includeGroups || includes.includeGroups,
+    includeUsers: opts.includeUsers || includes.includeUsers,
+    includeTriggers: opts.includeTriggers || includes.includeTriggers,
+    includeSettings: opts.includeSettings || includes.includeSettings,
+    includeKey: opts.includeKey || includes.includeKey,
+    promotion,
   } as any);
 }
 
@@ -4686,6 +4723,7 @@ const command = new Command()
     "--parent-workspace-id <id:string>",
     "Parent workspace id, used to root a fork-of-a-fork branch",
   )
+  .option("--skip-secrets", "Skip syncing only secrets variables")
   .action(gitDeploy as any);
 
 export default command;
