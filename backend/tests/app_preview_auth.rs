@@ -97,9 +97,11 @@ async fn test_app_preview_authorization(db: Pool<Postgres>) -> anyhow::Result<()
         "successful preview must return a job UUID, got: {body}"
     );
 
-    // 3. Defense-in-depth: preview is confined to paths the caller can read.
-    //    A non-operator previewing in *another* user's namespace is rejected
-    //    (mirrors require_path_read_access_for_preview on /jobs/run/preview).
+    // 3. Inline `raw_code` preview is deliberately NOT path-gated: a
+    //    non-operator can already run arbitrary inline code via
+    //    `/jobs/run/preview`, so the app URL path string is irrelevant for the
+    //    inline case. This pins that decision so an over-restrictive path check
+    //    is not re-added for inline previews.
     let resp = authed(
         client().post(format!("{base}/u/test-user/secretapp")),
         "SECRET_TOKEN_2",
@@ -109,9 +111,13 @@ async fn test_app_preview_authorization(db: Pool<Postgres>) -> anyhow::Result<()
     .await?;
     let status = resp.status();
     let body = resp.text().await?;
-    assert_eq!(
-        status, 400,
-        "cross-namespace preview must be rejected by the path check (got {status}): {body}"
+    assert!(
+        status.is_success(),
+        "inline raw_code preview must not be path-gated (got {status}): {body}"
+    );
+    assert!(
+        uuid::Uuid::parse_str(body.trim()).is_ok(),
+        "inline preview should enqueue a job UUID, got: {body}"
     );
 
     // 4. Run mode (no `force_viewer_static_fields`) is unaffected by the new
