@@ -80,6 +80,7 @@ import {
 	deleteGlobalDraft,
 	getGlobalCurrentItem,
 	getGlobalDraft,
+	getGlobalDraftStoragePath,
 	listGlobalCurrentItems,
 	triggerKindToUserDraftKind
 } from './userDraftAdapter'
@@ -644,11 +645,11 @@ function buildPersistedRunnable(
 ): PersistedRunnable {
 	const fields = input.staticInputs
 		? Object.fromEntries(
-			Object.entries(input.staticInputs).map(([k, v]) => [
-				k,
-				{ type: 'static', value: v, fieldType: 'object' }
-			])
-		)
+				Object.entries(input.staticInputs).map(([k, v]) => [
+					k,
+					{ type: 'static', value: v, fieldType: 'object' }
+				])
+			)
 		: (existing?.fields ?? {})
 
 	if (input.type === 'inline') {
@@ -1627,7 +1628,8 @@ async function writeScriptDraft(
 	const { workspace } = ctx
 	startDraftWrite(ctx, 'script', args.path)
 
-	const existingDraft = UserDraft.get<NewScript>('script', args.path, { workspace })
+	const draftStoragePath = getGlobalDraftStoragePath(workspace, 'script', args.path) ?? args.path
+	const existingDraft = UserDraft.get<NewScript>('script', draftStoragePath, { workspace })
 	const backendExists = existingDraft
 		? false
 		: await ScriptService.existsScriptByPath({ workspace, path: args.path })
@@ -1664,7 +1666,7 @@ async function writeScriptDraft(
 		}
 	}
 
-	UserDraft.save('script', args.path, draft, { workspace })
+	UserDraft.save('script', draftStoragePath, draft, { workspace })
 	return finishDraftWrite(
 		getRequiredGlobalDraft(workspace, 'script', args.path),
 		existingDraft !== undefined || backendExists,
@@ -1679,13 +1681,14 @@ async function writeFlowDraft(
 	const { workspace } = ctx
 	startDraftWrite(ctx, 'flow', args.path)
 
+	const draftStoragePath = getGlobalDraftStoragePath(workspace, 'flow', args.path) ?? args.path
 	const draftValue = args.flow
 	const value = structuredClone(draftValue.value)
 	if (draftValue.groups !== undefined && draftValue.groups !== null) {
 		value.groups = structuredClone(draftValue.groups)
 	}
 
-	const existingDraft = UserDraft.get<Flow>('flow', args.path, { workspace })
+	const existingDraft = UserDraft.get<Flow>('flow', draftStoragePath, { workspace })
 	const backendExists = existingDraft
 		? false
 		: await FlowService.existsFlowByPath({ workspace, path: args.path })
@@ -1721,7 +1724,7 @@ async function writeFlowDraft(
 		}
 	}
 
-	UserDraft.save('flow', args.path, draft, { workspace })
+	UserDraft.save('flow', draftStoragePath, draft, { workspace })
 	return finishDraftWrite(
 		getRequiredGlobalDraft(workspace, 'flow', args.path),
 		existingDraft !== undefined || backendExists,

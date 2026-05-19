@@ -149,7 +149,19 @@ function getItemSummary(value: unknown): string | undefined {
 	return ((value as { summary?: string | null } | undefined)?.summary ?? undefined) || undefined
 }
 
-function scriptDraftToWorkspaceItem(path: string, draft: NewScript, isDraft = true): WorkspaceItem {
+function getItemPath(storagePath: string, value: unknown): string | undefined {
+	const valuePath = (value as { path?: string | null } | undefined)?.path
+	return valuePath?.trim() || storagePath || undefined
+}
+
+function scriptDraftToWorkspaceItem(
+	storagePath: string,
+	draft: NewScript,
+	isDraft = true
+): WorkspaceItem | undefined {
+	const path = getItemPath(storagePath, draft)
+	if (!path) return undefined
+
 	return {
 		type: 'script',
 		path,
@@ -174,7 +186,7 @@ function getFlowSchema(value: unknown): Record<string, any> | null {
 }
 
 function flowDraftToWorkspaceItem(
-	path: string,
+	storagePath: string,
 	draft: unknown,
 	isDraft = true
 ): WorkspaceItem | undefined {
@@ -182,6 +194,8 @@ function flowDraftToWorkspaceItem(
 
 	const value = getFlowValue(draft.value) ?? getFlowValue(draft)
 	if (!value) return undefined
+	const path = getItemPath(storagePath, draft)
+	if (!path) return undefined
 
 	return {
 		type: 'flow',
@@ -199,11 +213,14 @@ function flowDraftToWorkspaceItem(
 }
 
 function appDraftToWorkspaceItem(
-	path: string,
+	storagePath: string,
 	draft: AppDraftValue,
 	isDraft = true
-): WorkspaceItem {
+): WorkspaceItem | undefined {
 	const value = normalizeAppDraftValue(draft)
+	const path = getItemPath(storagePath, value)
+	if (!path) return undefined
+
 	return {
 		type: 'app',
 		path,
@@ -214,10 +231,13 @@ function appDraftToWorkspaceItem(
 }
 
 function scheduleDraftToWorkspaceItem(
-	path: string,
+	storagePath: string,
 	draft: NewSchedule,
 	isDraft = true
-): WorkspaceItem {
+): WorkspaceItem | undefined {
+	const path = getItemPath(storagePath, draft)
+	if (!path) return undefined
+
 	return {
 		type: 'schedule',
 		path,
@@ -229,10 +249,13 @@ function scheduleDraftToWorkspaceItem(
 
 function triggerDraftToWorkspaceItem(
 	kind: TriggerKind,
-	path: string,
+	storagePath: string,
 	draft: TriggerRequestBody,
 	isDraft = true
-): WorkspaceItem {
+): WorkspaceItem | undefined {
+	const path = getItemPath(storagePath, draft)
+	if (!path) return undefined
+
 	return {
 		type: 'trigger',
 		triggerKind: kind,
@@ -244,10 +267,13 @@ function triggerDraftToWorkspaceItem(
 }
 
 function resourceDraftToWorkspaceItem(
-	path: string,
+	storagePath: string,
 	draft: CreateResource,
 	isDraft = true
-): WorkspaceItem {
+): WorkspaceItem | undefined {
+	const path = getItemPath(storagePath, draft)
+	if (!path) return undefined
+
 	return {
 		type: 'resource',
 		path,
@@ -258,10 +284,13 @@ function resourceDraftToWorkspaceItem(
 }
 
 function variableDraftToWorkspaceItem(
-	path: string,
+	storagePath: string,
 	draft: CreateVariable,
 	isDraft = true
-): WorkspaceItem {
+): WorkspaceItem | undefined {
+	const path = getItemPath(storagePath, draft)
+	if (!path) return undefined
+
 	return {
 		type: 'variable',
 		path,
@@ -301,6 +330,32 @@ function sharedDraftEntryToWorkspaceItem(
 	}
 }
 
+type SharedDraftLookup = {
+	storagePath: string
+	value: unknown
+}
+
+function findSharedDraft(
+	workspace: string,
+	type: SharedWorkspaceItemType,
+	path: string,
+	triggerKind?: TriggerKind
+): SharedDraftLookup | undefined {
+	const itemKind = sharedDraftKind(type, triggerKind)
+	if (!itemKind) return undefined
+
+	const direct = UserDraft.get(itemKind, path, { workspace })
+	if (direct !== undefined) return { storagePath: path, value: direct }
+
+	for (const entry of UserDraft.list({ workspace, itemKinds: [itemKind] })) {
+		if (getItemPath(entry.path, entry.value) === path) {
+			return { storagePath: entry.path, value: entry.value }
+		}
+	}
+
+	return undefined
+}
+
 function getSharedDraft(
 	workspace: string,
 	type: SharedWorkspaceItemType,
@@ -308,28 +363,31 @@ function getSharedDraft(
 	triggerKind?: TriggerKind,
 	isDraft = true
 ): WorkspaceItem | undefined {
-	const itemKind = sharedDraftKind(type, triggerKind)
-	if (!itemKind) return undefined
-	const draft = UserDraft.get(itemKind, path, { workspace })
-	if (draft === undefined) return undefined
+	const draft = findSharedDraft(workspace, type, path, triggerKind)
+	if (!draft) return undefined
 
 	switch (type) {
 		case 'script':
-			return scriptDraftToWorkspaceItem(path, draft as NewScript, isDraft)
+			return scriptDraftToWorkspaceItem(draft.storagePath, draft.value as NewScript, isDraft)
 		case 'flow':
-			return flowDraftToWorkspaceItem(path, draft, isDraft)
+			return flowDraftToWorkspaceItem(draft.storagePath, draft.value, isDraft)
 		case 'app':
-			return appDraftToWorkspaceItem(path, draft as AppDraftValue, isDraft)
+			return appDraftToWorkspaceItem(draft.storagePath, draft.value as AppDraftValue, isDraft)
 		case 'schedule':
-			return scheduleDraftToWorkspaceItem(path, draft as NewSchedule, isDraft)
+			return scheduleDraftToWorkspaceItem(draft.storagePath, draft.value as NewSchedule, isDraft)
 		case 'trigger':
 			return triggerKind
-				? triggerDraftToWorkspaceItem(triggerKind, path, draft as TriggerRequestBody, isDraft)
+				? triggerDraftToWorkspaceItem(
+						triggerKind,
+						draft.storagePath,
+						draft.value as TriggerRequestBody,
+						isDraft
+					)
 				: undefined
 		case 'resource':
-			return resourceDraftToWorkspaceItem(path, draft as CreateResource, isDraft)
+			return resourceDraftToWorkspaceItem(draft.storagePath, draft.value as CreateResource, isDraft)
 		case 'variable':
-			return variableDraftToWorkspaceItem(path, draft as CreateVariable, isDraft)
+			return variableDraftToWorkspaceItem(draft.storagePath, draft.value as CreateVariable, isDraft)
 	}
 }
 
@@ -341,7 +399,8 @@ function deleteSharedDraft(
 ): void {
 	const itemKind = sharedDraftKind(type, triggerKind)
 	if (!itemKind) return
-	UserDraft.remove(itemKind, path, { workspace })
+	const draft = findSharedDraft(workspace, type, path, triggerKind)
+	UserDraft.remove(itemKind, draft?.storagePath ?? path, { workspace })
 }
 
 export function getGlobalDraft(
@@ -369,6 +428,18 @@ export function getGlobalCurrentItem(
 ): WorkspaceItem | undefined {
 	if (isSharedWorkspaceItemType(type)) {
 		return getSharedDraft(workspace, type, path, triggerKind, false)
+	}
+	return undefined
+}
+
+export function getGlobalDraftStoragePath(
+	workspace: string,
+	type: WorkspaceItemType,
+	path: string,
+	triggerKind?: TriggerKind
+): string | undefined {
+	if (isSharedWorkspaceItemType(type)) {
+		return findSharedDraft(workspace, type, path, triggerKind)?.storagePath
 	}
 	return undefined
 }
