@@ -1,4 +1,4 @@
-use std::{collections::HashMap, pin::Pin, sync::Arc};
+use std::{collections::HashMap, pin::Pin, sync::Arc, time::Duration};
 
 use bytes::{BufMut, Bytes, BytesMut};
 use chrono::TimeZone;
@@ -23,7 +23,7 @@ use super::{
     relation::RelationConverter,
     replication_message::{
         LogicalReplicationMessage::{Begin, Commit, Delete, Insert, Relation, Type, Update},
-        PrimaryKeepAliveBody, ReplicationMessage,
+        ReplicationMessage,
     },
     resolve_postgres_resource, Postgres, PostgresConfig, PostgresTrigger,
     ERROR_PUBLICATION_NAME_NOT_EXISTS,
@@ -100,10 +100,11 @@ impl PostgresSimpleClient {
         ))
     }
 
-    async fn send_status_update(
-        primary_keep_alive: PrimaryKeepAliveBody,
-        copy_both_stream: &mut Pin<&mut CopyBothDuplex<Bytes>>,
-    ) {
+    /// Sends a Standby Status Update ('r') reporting `lsn` as the WAL position
+    /// written, flushed and applied. Postgres only advances the replication
+    /// slot's `confirmed_flush_lsn`/`restart_lsn` (and releases retained WAL)
+    /// when it receives this with a flushed LSN past the current position.
+    async fn send_status_update(lsn: u64, copy_both_stream: &mut Pin<&mut CopyBothDuplex<Bytes>>) {
         let mut buf = BytesMut::new();
         let ts = chrono::Utc.with_ymd_and_hms(2000, 1, 1, 0, 0, 0).unwrap();
         let ts = chrono::Utc::now()
@@ -112,13 +113,16 @@ impl PostgresSimpleClient {
             .unwrap_or(0);
 
         buf.put_u8(b'r');
-        buf.put_u64(primary_keep_alive.wal_end);
-        buf.put_u64(primary_keep_alive.wal_end);
-        buf.put_u64(primary_keep_alive.wal_end);
+        buf.put_u64(lsn);
+        buf.put_u64(lsn);
+        buf.put_u64(lsn);
         buf.put_i64(ts);
         buf.put_u8(0);
-        copy_both_stream.send(buf.freeze()).await.unwrap();
-        tracing::debug!("Send update status message");
+        if let Err(err) = copy_both_stream.send(buf.freeze()).await {
+            tracing::warn!("Failed to send standby status update to postgres: {err}");
+        } else {
+            tracing::debug!("Sent standby status update with lsn {lsn}");
+        }
     }
 }
 
@@ -212,8 +216,35 @@ impl Listener for PostgresTrigger {
             "Starting to listen for postgres trigger {}",
             &listening_trigger.path
         );
+
+        // Highest WAL position received (and processed) so far. Reported back
+        // to Postgres via standby status updates so the replication slot can
+        // advance and retained WAL gets released. Without periodic updates the
+        // slot's LSNs stay frozen and WAL grows unbounded.
+        let mut last_lsn: u64 = 0;
+        let mut status_interval = tokio::time::interval(Duration::from_secs(10));
+        status_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // First tick resolves immediately; consume it so the periodic cadence
+        // starts one full interval from now.
+        status_interval.tick().await;
+
         loop {
-            let message = logical_replication_stream.next().await;
+            let next = tokio::select! {
+                _ = status_interval.tick() => None,
+                message = logical_replication_stream.next() => Some(message),
+            };
+
+            let message = match next {
+                None => {
+                    PostgresSimpleClient::send_status_update(
+                        last_lsn,
+                        &mut logical_replication_stream,
+                    )
+                    .await;
+                    continue;
+                }
+                Some(message) => message,
+            };
             let message = match message {
                 Some(message) => message,
                 None => {
@@ -264,15 +295,17 @@ impl Listener for PostgresTrigger {
 
             match logical_message {
                 ReplicationMessage::PrimaryKeepAlive(primary_keep_alive) => {
+                    last_lsn = last_lsn.max(primary_keep_alive.wal_end);
                     if primary_keep_alive.reply {
                         PostgresSimpleClient::send_status_update(
-                            primary_keep_alive,
+                            last_lsn,
                             &mut logical_replication_stream,
                         )
                         .await;
                     }
                 }
                 ReplicationMessage::XLogData(x_log_data) => {
+                    last_lsn = last_lsn.max(x_log_data.wal_end);
                     let logical_replication_message = match x_log_data
                         .parse(&logical_replication_settings)
                     {
