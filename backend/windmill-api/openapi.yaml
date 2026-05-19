@@ -10665,6 +10665,12 @@ paths:
                 run_query_params:
                   type: object
                   description: Runnable query parameters
+                temp_script_refs:
+                  type: object
+                  nullable: true
+                  description: "Map of relative-import script path -> temp storage hash. Only honored for inline-script (raw_code) execution so app dev resolves those imports from not-yet-deployed local content."
+                  additionalProperties:
+                    type: string
               required:
                 - args
                 - component

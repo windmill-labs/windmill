@@ -28,7 +28,8 @@ import * as wmill from "../../../gen/services.gen.ts";
 import { logQueueStatus } from "../../utils/job_polling.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
-import { GLOBAL_CONFIG_OPT } from "../../core/conf.ts";
+import { GLOBAL_CONFIG_OPT, mergeConfigWithConfigFile } from "../../core/conf.ts";
+import { listSyncCodebases } from "../../utils/codebase.ts";
 import { replaceInlineScripts, repopulateFields } from "./app.ts";
 import { Runnable } from "./metadata.ts";
 import {
@@ -385,6 +386,27 @@ async function dev(opts: DevOptions, appFolder?: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const workspaceId = workspace.workspaceId;
+
+  // Resolve relative imports in app inline scripts from local (not-yet-deployed)
+  // content so previews use locally-edited workspace libs instead of deployed.
+  // Computed here from the workspace root (before the chdir below) — a snapshot
+  // taken at startup; re-run `wmill app dev` to pick up later edits to imported
+  // workspace scripts. Degrades gracefully (undefined) on older backends.
+  let appTempRefs: Record<string, string> | undefined = undefined;
+  {
+    const relAppFolder = path.relative(originalCwd, targetDir) || ".";
+    const mergedOpts = await mergeConfigWithConfigFile(opts);
+    const codebases = await listSyncCodebases(mergedOpts);
+    const { buildPreviewTempScriptRefs } = await import(
+      "../generate-metadata/generate-metadata.ts"
+    );
+    appTempRefs = await buildPreviewTempScriptRefs(
+      workspace,
+      mergedOpts as any,
+      codebases,
+      { kind: "app", folder: relAppFolder, rawApp: true },
+    );
+  }
 
   // Change to target directory for the rest of the command
   if (appFolder) {
@@ -941,6 +963,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
             appPath,
             runnableId,
             args,
+            appTempRefs,
           );
           log.info(colors.gray(`[backend] Job started: ${uuid}`));
 
@@ -987,6 +1010,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
                 appPath,
                 runnable_id,
                 v,
+                appTempRefs,
               );
               log.info(colors.gray(`[backendAsync] Job started: ${uuid}`));
 
@@ -1563,6 +1587,7 @@ async function executeRunnable(
   appPath: string,
   runnableId: string,
   args: any,
+  tempScriptRefs?: Record<string, string>,
 ): Promise<string> {
   const requestBody: any = {
     component: runnableId,
@@ -1602,6 +1627,9 @@ async function executeRunnable(
       lock: inlineScript.id === undefined ? inlineScript.lock : undefined,
       cache_ttl: inlineScript.cache_ttl,
     };
+    if (inlineScript.id === undefined && tempScriptRefs) {
+      requestBody.temp_script_refs = tempScriptRefs;
+    }
   } else if (
     (runnable.type === "path" || runnable.type === "runnableByPath") &&
     runnable.runType &&
