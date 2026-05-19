@@ -120,8 +120,9 @@ export async function pushProtectionRules(
   if (opts.jsonOutput && opts.dryRun) {
     console.log(
       JSON.stringify({
-        success: true,
+        success: !hadError,
         dryRun: true,
+        partialFailure: hadError,
         hasChanges: changed.length > 0,
         workspaces: Object.fromEntries(
           wsPlans.map((w) => [w.ws, structuredPlan(w.plan)]),
@@ -137,13 +138,23 @@ export async function pushProtectionRules(
   }
 
   if (changed.length === 0) {
+    if (hadError) {
+      // A workspace failed to resolve/fetch — don't claim success while
+      // exiting non-zero.
+      outputResult(opts, {
+        success: false,
+        error:
+          "One or more workspaces failed (see errors above); the rest are in sync",
+        partialFailure: true,
+      });
+      process.exit(1);
+    }
     if (!opts.dryRun) {
       outputResult(opts, {
         success: true,
         message: "No changes to push - all targeted workspaces are in sync",
       });
     }
-    if (hadError) process.exit(1);
     return;
   }
 
@@ -227,10 +238,20 @@ export async function pushProtectionRules(
     });
   }
 
+  if (hadError) {
+    // Reconcile of resolvable workspaces succeeded, but some --all targets
+    // failed earlier. Status must reflect the non-zero exit.
+    outputResult(opts, {
+      success: false,
+      error: `Pushed (created ${applied.created}, updated ${applied.updated}, deleted ${applied.deleted}) across ${changed.length} workspace(s), but one or more workspaces failed (see errors above)`,
+      partialFailure: true,
+      ...applied,
+    });
+    process.exit(1);
+  }
   outputResult(opts, {
     success: true,
     message: `Pushed protection rules (created ${applied.created}, updated ${applied.updated}, deleted ${applied.deleted}) across ${changed.length} workspace(s)`,
     ...applied,
   });
-  if (hadError) process.exit(1);
 }

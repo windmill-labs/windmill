@@ -6952,7 +6952,7 @@ Validate Windmill flow, schedule, and trigger YAML files in a directory
   - \`--all\` - Pull every workspace defined in wmill.yaml
   - \`--dry-run\` - Show what would change without writing the file
   - \`--json-output\` - Output in JSON format
-- \`protection-rules push [workspace:string]\`
+- \`protection-rules push [workspace:string]\` - Push protection rules from protection-rules.yaml to Windmill for a workspace (full reconcile: creates, updates, and deletes)
   - \`--all\` - Push every workspace defined in protection-rules.yaml
   - \`--dry-run\` - Show what would change without applying
   - \`--json-output\` - Output in JSON format

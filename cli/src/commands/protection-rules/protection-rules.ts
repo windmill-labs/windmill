@@ -4,8 +4,7 @@ import { pushProtectionRules } from "./push.ts";
 
 const command = new Command()
   .description(
-    "Sync workspace protection rules between protection-rules.yaml and Windmill. " +
-      "The file is keyed by workspace name; keys must match wmill.yaml 'workspaces'.",
+    "Sync workspace protection rules between protection-rules.yaml and Windmill. The file is keyed by workspace name; keys must match wmill.yaml 'workspaces'.",
   )
   .command("pull")
   .description(
@@ -18,8 +17,7 @@ const command = new Command()
   .action(pullProtectionRules as any)
   .command("push")
   .description(
-    "Push protection rules from protection-rules.yaml to Windmill for a workspace " +
-      "(full reconcile: creates, updates, and deletes)",
+    "Push protection rules from protection-rules.yaml to Windmill for a workspace (full reconcile: creates, updates, and deletes)",
   )
   .arguments("[workspace:string]")
   .option("--all", "Push every workspace defined in protection-rules.yaml")

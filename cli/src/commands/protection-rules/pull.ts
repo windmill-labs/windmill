@@ -102,9 +102,15 @@ export async function pullProtectionRules(
   if (opts.dryRun) {
     if (opts.jsonOutput) {
       console.log(
-        JSON.stringify({ success: true, dryRun: true, hasChanges: anyChange, workspaces: perWs }),
+        JSON.stringify({
+          success: !hadError,
+          dryRun: true,
+          partialFailure: hadError,
+          hasChanges: anyChange,
+          workspaces: perWs,
+        }),
       );
-    } else if (!anyChange) {
+    } else if (!hadError && !anyChange) {
       log.info(colors.green("All targeted workspaces are in sync"));
     }
     if (hadError) process.exit(1);
@@ -112,12 +118,21 @@ export async function pullProtectionRules(
   }
 
   await writeProtectionRulesFile(prPath!, file as ProtectionRulesFile);
+  const n = Object.keys(perWs).length;
+  if (hadError) {
+    // Some --all workspaces failed: status must not say success while we
+    // exit non-zero.
+    outputResult(opts, {
+      success: false,
+      error: `Pulled ${n} workspace(s) into ${PROTECTION_RULES_FILENAME}, but one or more workspaces failed (see errors above)`,
+      partialFailure: true,
+      workspaces: perWs,
+    });
+    process.exit(1);
+  }
   outputResult(opts, {
     success: true,
-    message: `Pulled protection rules for ${
-      Object.keys(perWs).length
-    } workspace(s) into ${PROTECTION_RULES_FILENAME}`,
+    message: `Pulled protection rules for ${n} workspace(s) into ${PROTECTION_RULES_FILENAME}`,
     workspaces: perWs,
   });
-  if (hadError) process.exit(1);
 }
