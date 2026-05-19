@@ -251,6 +251,13 @@
               },
               "description": "Trigger path patterns to sync per-workspace"
             },
+            "schedules": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Schedule path patterns to sync per-workspace"
+            },
             "folders": {
               "type": "array",
               "items": {
@@ -313,6 +320,13 @@
                   "type": "string"
                 },
                 "description": "Trigger path patterns to sync per-workspace"
+              },
+              "schedules": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Schedule path patterns to sync per-workspace"
               },
               "folders": {
                 "type": "array",
@@ -361,6 +375,13 @@
               },
               "description": "Trigger path patterns to sync per-workspace"
             },
+            "schedules": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Schedule path patterns to sync per-workspace"
+            },
             "folders": {
               "type": "array",
               "items": {
@@ -423,6 +444,13 @@
                   "type": "string"
                 },
                 "description": "Trigger path patterns to sync per-workspace"
+              },
+              "schedules": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Schedule path patterns to sync per-workspace"
               },
               "folders": {
                 "type": "array",
@@ -471,6 +499,13 @@
               },
               "description": "Trigger path patterns to sync per-workspace"
             },
+            "schedules": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Schedule path patterns to sync per-workspace"
+            },
             "folders": {
               "type": "array",
               "items": {
@@ -533,6 +568,13 @@
                   "type": "string"
                 },
                 "description": "Trigger path patterns to sync per-workspace"
+              },
+              "schedules": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Schedule path patterns to sync per-workspace"
               },
               "folders": {
                 "type": "array",
