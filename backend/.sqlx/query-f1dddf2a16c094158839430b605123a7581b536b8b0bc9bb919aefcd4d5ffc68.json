@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO global_settings (name, value)\n         VALUES ($1, jsonb_build_object(\n                    'last_xmin', txid_snapshot_xmin(txid_current_snapshot())::bigint,\n                    'last_ts', now()::text))\n         ON CONFLICT (name) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f1dddf2a16c094158839430b605123a7581b536b8b0bc9bb919aefcd4d5ffc68"
+}

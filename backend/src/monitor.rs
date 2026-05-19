@@ -1853,7 +1853,20 @@ pub async fn reload_store_audit_logs_s3_setting(conn: &Connection) {
     )
     .await
     {
-        Ok(v) => STORE_AUDIT_LOGS_S3.store(v, Ordering::Relaxed),
+        Ok(v) => {
+            STORE_AUDIT_LOGS_S3.store(v, Ordering::Relaxed);
+            // Anchor the export cursor at *enable* time, not lazily on the
+            // first export tick (~60s later). Otherwise audit rows created in
+            // that window get xids below the first-tick anchor and are silently
+            // skipped, breaking the "logs created after enabling are exported"
+            // guarantee.
+            #[cfg(feature = "parquet")]
+            if v {
+                if let Some(db) = conn.as_sql() {
+                    anchor_audit_logs_s3_checkpoint(db).await;
+                }
+            }
+        }
         Err(e) => tracing::error!("Error reloading store_audit_logs_s3 setting: {:?}", e),
     }
 }
@@ -4083,6 +4096,35 @@ async fn audit_log_retention_days() -> i64 {
     }
 }
 
+/// Anchors the export cursor when the feature is enabled, so audit rows
+/// created between the operator flipping `store_audit_logs_s3` on and the
+/// first export tick (~60s later) are still mirrored.
+///
+/// Captures the current snapshot xmin: transactions in-flight or newer at this
+/// moment have xid >= it and fall into a future export interval; only
+/// already-committed (pre-enable) rows sit below it and are intentionally not
+/// backfilled. `ON CONFLICT DO NOTHING` makes this idempotent and HA-safe (the
+/// first server to react wins; the exporter's own first-run anchor remains the
+/// fallback if this never runs, e.g. enabled via env var). It also self-heals
+/// if the row is ever absent while enabled, and — since it never overwrites —
+/// a disable/re-enable resumes from the preserved cursor.
+#[cfg(feature = "parquet")]
+async fn anchor_audit_logs_s3_checkpoint(db: &DB) {
+    if let Err(e) = sqlx::query!(
+        "INSERT INTO global_settings (name, value)
+         VALUES ($1, jsonb_build_object(
+                    'last_xmin', txid_snapshot_xmin(txid_current_snapshot())::bigint,
+                    'last_ts', now()::text))
+         ON CONFLICT (name) DO NOTHING",
+        windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("audit s3 export: failed to anchor checkpoint on enable: {e:#}");
+    }
+}
+
 /// Incrementally exports audit logs to a dedicated `logs/audit/` folder in the
 /// instance object store as newline-delimited JSON.
 ///
@@ -4496,6 +4538,8 @@ mod audit_s3_export_tests {
     //    higher-xid still-open txn is not lost even though a higher id from a
     //    lower-xid txn committed and was exported (and the checkpoint
     //    advanced) first — the exact CI-found P0.
+    //  - enable-flow: anchoring at enable time exports rows created before the
+    //    first export tick (CI-found first-enable skip).
     #[sqlx::test(migrations = "./migrations")]
     async fn audit_export_end_to_end(db: DB) -> anyhow::Result<()> {
         STORE_AUDIT_LOGS_S3.store(true, Ordering::Relaxed);
@@ -4623,6 +4667,34 @@ mod audit_s3_export_tests {
         let mut done_dedup = done.clone();
         done_dedup.dedup();
         assert_eq!(done_dedup, done, "still exactly once overall: {done:?}");
+
+        // --- enable-flow regression (CI-found): anchor at enable, not at the
+        // first export tick. Simulate a fresh enable: drop the checkpoint and
+        // anchor as the settings-reload path does. Rows created AFTER enable
+        // but BEFORE the first export tick must still be exported (lazy
+        // first-tick anchoring would skip them).
+        sqlx::query("DELETE FROM global_settings WHERE name = $1")
+            .bind(windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING)
+            .execute(&db)
+            .await?;
+        clear_store().await;
+        let store = install_in_memory_store().await;
+
+        anchor_audit_logs_s3_checkpoint(&db).await; // operator enables -> anchor now
+        assert!(
+            checkpoint_last_xmin(&db).await.is_some(),
+            "checkpoint anchored at enable time, before the first export tick"
+        );
+
+        let e1 = insert_audit(&db, "enable.window.1").await;
+        let e2 = insert_audit(&db, "enable.window.2").await;
+
+        export_audit_logs_to_object_store(&db).await; // first tick
+        let got = exported_ids(&store).await;
+        assert!(
+            got.contains(&e1) && got.contains(&e2),
+            "rows created after enable but before the first tick must be exported: {got:?}"
+        );
 
         clear_store().await;
         STORE_AUDIT_LOGS_S3.store(false, Ordering::Relaxed);
