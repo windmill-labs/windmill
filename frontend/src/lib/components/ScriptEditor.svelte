@@ -84,12 +84,12 @@
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './copilot/chat/script/core'
 	import { getStringError } from './copilot/chat/utils'
 	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
-	import { aiChatManager, AIMode, type AIChatManager } from './copilot/chat/AIChatManager.svelte'
+	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
 
 	// When the script editor is rendered inside a session pane, the session
 	// owns the AI chat — hide the per-editor VS Code button to keep the
 	// narrow top bar uncluttered.
-	const inSessionPane = !!getContext<AIChatManager>('aiChatManager')
+	const inSessionPane = !!getContext('aiChatManager')
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import AssetsDropdownButton from './assets/AssetsDropdownButton.svelte'
 	import { canHavePreprocessor } from '$lib/script_helpers'

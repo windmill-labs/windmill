@@ -51,12 +51,12 @@
 	import AppEditorHeaderDeploy from '../apps/editor/AppEditorHeaderDeploy.svelte'
 	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 	import { updateRawAppPolicy } from './rawAppPolicy'
-	import { aiChatManager, type AIChatManager } from '../copilot/chat/AIChatManager.svelte'
+	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
 	import { getContext } from 'svelte'
 
 	// When rendered inside a session pane, the session provides its own AI
 	// chat — hide the per-editor AI button to avoid two competing entry points.
-	const inSessionPane = !!getContext<AIChatManager>('aiChatManager')
+	const inSessionPane = !!getContext('aiChatManager')
 	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
 	import type { RawAppData } from './dataTableRefUtils'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
