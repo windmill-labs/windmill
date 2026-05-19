@@ -33,6 +33,13 @@
 		showContext?: boolean
 		bottomRightSnippet?: Snippet
 		onKeyDown?: (e: KeyboardEvent) => void
+		// When provided, overrides `aiChatManager.loading` for the send/stop
+		// button — useful for callers driving their own request lifecycle
+		// (e.g. the inline ⌘K widget runs requests outside the global
+		// `aiChatManager.loading` flag).
+		loading?: boolean
+		// Called when the user clicks Stop. Defaults to `aiChatManager.cancel()`.
+		onCancel?: () => void
 	}
 
 	let {
@@ -49,7 +56,9 @@
 		onSendRequest = undefined,
 		showContext = true,
 		bottomRightSnippet,
-		onKeyDown = undefined
+		onKeyDown = undefined,
+		loading,
+		onCancel
 	}: Props = $props()
 
 	// GLOBAL-mode suggestion pool. We pick one at mount-time so each new
@@ -423,7 +432,7 @@
 </script>
 
 {#snippet sendStopButton()}
-	{@const isLoading = aiChatManager.loading}
+	{@const isLoading = loading ?? aiChatManager.loading}
 	{@const sendDisabled = disabled || instructions.trim().length === 0}
 	<Button
 		variant="subtle"
@@ -434,7 +443,7 @@
 		disabled={!isLoading && sendDisabled}
 		on:click={() => {
 			if (isLoading) {
-				aiChatManager.cancel()
+				onCancel ? onCancel() : aiChatManager.cancel()
 			} else if (!sendDisabled) {
 				onSendRequest ? onSendRequest(instructions) : sendRequest()
 			}
@@ -523,9 +532,11 @@
 				{disabled}
 				{onKeyDown}
 			/>
-			<div class="absolute bottom-1 right-1">
-				{@render sendStopButton()}
-			</div>
+			{#if !bottomRightSnippet}
+				<div class="absolute bottom-1 right-1">
+					{@render sendStopButton()}
+				</div>
+			{/if}
 		</div>
 		{#if showContext}
 			{@render contextPickerRow()}
@@ -563,9 +574,11 @@
 				class={twMerge('resize-none', CHAT_INPUT_PADDING)}
 				{disabled}
 			></textarea>
-			<div class="absolute bottom-1 right-1">
-				{@render sendStopButton()}
-			</div>
+			{#if !bottomRightSnippet}
+				<div class="absolute bottom-1 right-1">
+					{@render sendStopButton()}
+				</div>
+			{/if}
 		</div>
 		{#if showContext}
 			{@render contextPickerRow()}
@@ -615,9 +628,11 @@
 				class={twMerge('resize-none', CHAT_INPUT_PADDING)}
 				{disabled}
 			></textarea>
-			<div class="absolute bottom-1 right-1">
-				{@render sendStopButton()}
-			</div>
+			{#if !bottomRightSnippet}
+				<div class="absolute bottom-1 right-1">
+					{@render sendStopButton()}
+				</div>
+			{/if}
 		</div>
 	{/if}
 	{#if bottomRightSnippet}

@@ -83,10 +83,20 @@
 	let editingMessageIndex = $state<number | null>(null)
 
 	let scrollEl: HTMLDivElement | undefined = $state()
+	// Programmatic-scroll guard. `scrollDown()` triggers an async `scroll`
+	// event; if a token-append between the scrollTo and the dispatch makes
+	// scrollHeight grow, the gap can briefly exceed STICK_TO_BOTTOM_PX and
+	// disengage auto-scroll mid-stream. A short cooldown after our own
+	// scroll swallows that spurious event without affecting genuine user
+	// scrolls (wheel/touch/keyboard are reaction-time orders of magnitude
+	// slower than the cooldown).
+	const PROGRAMMATIC_SCROLL_COOLDOWN_MS = 120
+	let programmaticScrollAt: number | undefined
 	// Instant scroll — smooth would animate every token append, racing with
 	// the next scrollDown and confusing the onscroll bottom-detection below.
 	function scrollDown() {
 		if (!scrollEl) return
+		programmaticScrollAt = Date.now()
 		scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: 'auto' })
 	}
 
@@ -106,6 +116,12 @@
 	let showScrollToLatest = $state(false)
 	function onScroll() {
 		if (!scrollEl) return
+		if (
+			programmaticScrollAt !== undefined &&
+			Date.now() - programmaticScrollAt < PROGRAMMATIC_SCROLL_COOLDOWN_MS
+		) {
+			return
+		}
 		const distance = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight
 		if (distance <= STICK_TO_BOTTOM_PX) {
 			aiChatManager.enableAutomaticScroll()

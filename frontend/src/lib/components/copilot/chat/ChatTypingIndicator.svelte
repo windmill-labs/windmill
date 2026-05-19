@@ -1,5 +1,5 @@
 <script lang="ts">
-	let { loading }: { loading: boolean } = $props()
+	let { loading, compact = false }: { loading: boolean; compact?: boolean } = $props()
 
 	// Wall-clock for the typing-dots indicator. Starts on the rising edge of
 	// `loading`, ticks once a second, frozen on the last value when loading
@@ -32,15 +32,27 @@
 </script>
 
 <span
-	class="inline-flex items-center gap-2 px-2 py-1 rounded-md bg-surface/80 backdrop-blur"
+	class={compact
+		? 'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-surface/80 backdrop-blur'
+		: 'inline-flex items-center gap-2 px-2 py-1 rounded-md bg-surface/80 backdrop-blur'}
 	aria-label="AI is generating a response"
 >
-	<span class="inline-flex items-end gap-1">
-		<span class="w-1.5 h-1.5 rounded-full bg-blue-500 chat-typing-dot"></span>
-		<span class="w-1.5 h-1.5 rounded-full bg-blue-500 chat-typing-dot chat-typing-dot-2"></span>
-		<span class="w-1.5 h-1.5 rounded-full bg-blue-500 chat-typing-dot chat-typing-dot-3"></span>
+	<span class={compact ? 'inline-flex items-end gap-0.5' : 'inline-flex items-end gap-1'}>
+		<span
+			class={(compact ? 'w-1 h-1' : 'w-1.5 h-1.5') + ' rounded-full bg-blue-500 chat-typing-dot'}
+		></span>
+		<span
+			class={(compact ? 'w-1 h-1' : 'w-1.5 h-1.5') +
+				' rounded-full bg-blue-500 chat-typing-dot chat-typing-dot-2'}
+		></span>
+		<span
+			class={(compact ? 'w-1 h-1' : 'w-1.5 h-1.5') +
+				' rounded-full bg-blue-500 chat-typing-dot chat-typing-dot-3'}
+		></span>
 	</span>
-	<span class="text-2xs text-tertiary tabular-nums">{formatElapsed(loadingElapsedMs)}</span>
+	<span class={(compact ? 'text-[10px]' : 'text-2xs') + ' text-tertiary tabular-nums leading-none'}
+		>{formatElapsed(loadingElapsedMs)}</span
+	>
 </span>
 
 <style>
