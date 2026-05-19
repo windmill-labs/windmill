@@ -12,9 +12,6 @@ import { existsSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { execSync } from "node:child_process";
 import { setNonDottedPaths } from "../utils/resource_folders.ts";
-import type { ProtectionRuleKind } from "../../gen/types.gen.ts";
-
-export type { ProtectionRuleKind };
 
 export let showDiffs = false;
 export function setShowDiffs(value: boolean) {
@@ -98,7 +95,6 @@ export interface SyncOptions {
   excludes?: string[];
   defaultTs?: "bun" | "deno";
   codebases?: Codebase[];
-  protectionRules?: ProtectionRuleEntry[];
   parallel?: number;
   jsonOutput?: boolean;
   nonDottedPaths?: boolean;
@@ -112,16 +108,6 @@ export interface SyncOptions {
   lint?: boolean;
   locksRequired?: boolean;
   syncBehavior?: string;
-}
-
-// A single workspace protection ruleset, as stored in wmill.yaml.
-// Mirrors the backend ProtectionRuleset shape (sans workspace_id, which is
-// implied by the synced workspace).
-export interface ProtectionRuleEntry {
-  name: string;
-  rules: ProtectionRuleKind[];
-  bypass_groups: string[];
-  bypass_users: string[];
 }
 
 export interface Codebase {

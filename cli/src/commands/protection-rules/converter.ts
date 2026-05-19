@@ -1,7 +1,7 @@
-import { ProtectionRuleEntry } from "../../core/conf.ts";
+import { ProtectionRuleEntry } from "./types.ts";
 import { ProtectionRuleset } from "../../../gen/types.gen.ts";
 
-// Reconciliation plan produced by diffing the wmill.yaml protection rules
+// Reconciliation plan produced by diffing the local protection rules
 // against the backend list. `toDelete` holds names present on the backend but
 // absent from wmill.yaml (full-reconcile semantics).
 export interface ProtectionRulesPlan {

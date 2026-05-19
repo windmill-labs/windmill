@@ -1,154 +1,192 @@
 import process from "node:process";
+import { existsSync } from "node:fs";
 
 import { colors } from "@cliffy/ansi/colors";
 import { Confirm } from "@cliffy/prompt/confirm";
 
 import * as log from "../../core/log.ts";
 import { GlobalOptions } from "../../types.ts";
-import { requireLogin } from "../../core/auth.ts";
-import { resolveWorkspace } from "../../core/context.ts";
 import * as wmill from "../../../gen/services.gen.ts";
-import {
-  ProtectionRuleEntry,
-  readConfigFile,
-  validateBranchConfiguration,
-  getEffectiveSettings,
-  getWmillYamlPath,
-} from "../../core/conf.ts";
+import { readConfigFile } from "../../core/conf.ts";
 
-import { ProtectionRulesConverter } from "./converter.ts";
+import { ProtectionRulesConverter, ProtectionRulesPlan } from "./converter.ts";
+import {
+  getProtectionRulesPath,
+  readProtectionRulesFile,
+  WorkspaceResolver,
+  configureClientForWorkspace,
+} from "./file.ts";
 import { outputResult, fail, displayPlan, structuredPlan } from "./utils.ts";
 
+type PushOpts = GlobalOptions & {
+  all?: boolean;
+  dryRun?: boolean;
+  jsonOutput?: boolean;
+  yes?: boolean;
+};
+
+interface WsPlan {
+  ws: string;
+  wsId: string;
+  plan: ProtectionRulesPlan;
+  wipesAll: boolean;
+}
+
 export async function pushProtectionRules(
-  opts: GlobalOptions & {
-    diff?: boolean;
-    jsonOutput?: boolean;
-    yes?: boolean;
-    promotion?: string;
-  },
+  opts: PushOpts,
+  workspaceArg?: string,
 ) {
-  try {
-    await validateBranchConfiguration({ yes: opts.yes });
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("overrides")) {
-      log.error(error.message);
-      process.exit(1);
-    }
-    throw error;
+  const prPath = getProtectionRulesPath();
+  if (!prPath) {
+    fail(opts, {
+      error:
+        "No wmill.yaml found. Run 'wmill init' first — protection-rules.yaml lives next to it.",
+    });
+  }
+  if (!existsSync(prPath!)) {
+    fail(opts, {
+      error:
+        "No protection-rules.yaml found. Run 'wmill protection-rules pull' first.",
+    });
   }
 
-  const workspace = await resolveWorkspace(opts);
-  await requireLogin(opts);
+  const config = await readConfigFile();
+  const resolver = WorkspaceResolver.fromConfig(config);
+  const file = await readProtectionRulesFile(prPath!);
 
-  try {
-    const wmillYamlPath = getWmillYamlPath();
-    if (!wmillYamlPath) {
+  let targets: string[];
+  if (opts.all) {
+    targets = Object.keys(file).sort();
+    if (targets.length === 0) {
+      fail(opts, { error: "protection-rules.yaml defines no workspaces." });
+    }
+  } else if (workspaceArg) {
+    if (!(workspaceArg in file)) {
       fail(opts, {
-        error:
-          "No wmill.yaml file found. Run 'wmill protection-rules pull' or 'wmill init' first.",
+        error: `Workspace '${workspaceArg}' is not defined in protection-rules.yaml.`,
       });
     }
+    targets = [workspaceArg];
+  } else {
+    fail(opts, { error: "Specify a workspace name or use --all." });
+  }
 
-    const localConfig = await readConfigFile();
-    const effectiveSettings = await getEffectiveSettings(
-      localConfig,
-      opts.promotion,
-      true,
-      opts.jsonOutput,
-    );
-    const localRules: ProtectionRuleEntry[] | undefined =
-      effectiveSettings.protectionRules;
-
-    if (localRules === undefined) {
-      fail(opts, {
-        error:
-          "No protectionRules defined in wmill.yaml. Nothing to push (use 'pull' first to seed them).",
-      });
-    }
-
-    let backendRules: ProtectionRuleEntry[];
+  // Phase 1: resolve + diff every target before mutating anything.
+  const wsPlans: WsPlan[] = [];
+  let hadError = false;
+  for (const ws of targets) {
+    let wsId: string;
     try {
-      const response = await wmill.listProtectionRules({
-        workspace: workspace.workspaceId,
-      });
-      backendRules = ProtectionRulesConverter.fromBackend(response);
-    } catch (apiError) {
-      const msg = apiError instanceof Error ? apiError.message : String(apiError);
+      wsId = await configureClientForWorkspace(opts, ws, resolver);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (opts.all) {
+        log.error(colors.red(msg));
+        hadError = true;
+        continue;
+      }
+      fail(opts, { error: msg });
+    }
+
+    let backend;
+    try {
+      backend = ProtectionRulesConverter.fromBackend(
+        await wmill.listProtectionRules({ workspace: wsId }),
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (opts.all) {
+        log.error(colors.red(`[${ws}] failed to fetch: ${msg}`));
+        hadError = true;
+        continue;
+      }
       fail(opts, { error: `Failed to fetch protection rules: ${msg}` });
     }
 
-    // Full reconcile: backend must end up matching wmill.yaml exactly.
-    const plan = ProtectionRulesConverter.computePlan(localRules, backendRules);
-    const hasChanges = ProtectionRulesConverter.planHasChanges(plan);
+    const local = ProtectionRulesConverter.normalizeList(file[ws]);
+    const plan = ProtectionRulesConverter.computePlan(local, backend);
+    wsPlans.push({
+      ws,
+      wsId,
+      plan,
+      wipesAll: local.length === 0 && plan.toDelete.length > 0,
+    });
+  }
 
-    if (opts.diff) {
-      if (opts.jsonOutput) {
-        console.log(
-          JSON.stringify({
-            success: true,
-            hasChanges,
-            local: ProtectionRulesConverter.normalizeList(localRules),
-            backend: backendRules,
-            diff: structuredPlan(plan),
-          }),
-        );
-      } else if (hasChanges) {
-        log.info("Changes that would be pushed to Windmill:");
-        displayPlan(plan);
-      } else {
-        log.info(colors.green("No changes to push"));
-      }
-      return;
-    }
+  const changed = wsPlans.filter((w) =>
+    ProtectionRulesConverter.planHasChanges(w.plan)
+  );
 
-    if (!hasChanges) {
+  if (opts.jsonOutput && opts.dryRun) {
+    console.log(
+      JSON.stringify({
+        success: true,
+        dryRun: true,
+        hasChanges: changed.length > 0,
+        workspaces: Object.fromEntries(
+          wsPlans.map((w) => [w.ws, structuredPlan(w.plan)]),
+        ),
+      }),
+    );
+    if (hadError) process.exit(1);
+    return;
+  }
+
+  if (!opts.jsonOutput) {
+    for (const w of wsPlans) displayPlan(w.ws, w.plan);
+  }
+
+  if (changed.length === 0) {
+    if (!opts.dryRun) {
       outputResult(opts, {
         success: true,
-        message: "No changes to push - protection rules are already in sync",
+        message: "No changes to push - all targeted workspaces are in sync",
       });
-      return;
     }
+    if (hadError) process.exit(1);
+    return;
+  }
 
-    if (!opts.jsonOutput) {
-      log.info("Changes that would be pushed to Windmill:");
-      displayPlan(plan);
-    }
+  if (opts.dryRun) {
+    if (hadError) process.exit(1);
+    return;
+  }
 
-    // Pushing an empty protectionRules wipes every backend rule under
-    // full-reconcile semantics — loud about it even in --yes/non-TTY runs.
-    const wipesAll =
-      localRules.length === 0 && plan.toDelete.length > 0;
-    if (wipesAll) {
+  // Pushing an empty list wipes a workspace's rules — be loud even with --yes.
+  for (const w of wsPlans) {
+    if (w.wipesAll) {
       log.warn(
         colors.red(
-          `WARNING: wmill.yaml defines an empty protectionRules list — this will DELETE ALL ${plan.toDelete.length} protection rule(s) on the backend.`,
+          `WARNING: '${w.ws}' has an empty rule list — this DELETES ALL ${w.plan.toDelete.length} backend rule(s) for that workspace.`,
         ),
       );
     }
+  }
 
-    if (!opts.yes && !!process.stdin.isTTY) {
-      const confirmed = await Confirm.prompt({
-        message: plan.toDelete.length > 0
-          ? `This will DELETE ${plan.toDelete.length} protection rule(s) on the backend. Continue?`
-          : `Apply these changes to the remote?`,
-        default: plan.toDelete.length === 0,
-      });
-      if (!confirmed) {
-        log.info("Operation cancelled");
-        return;
-      }
+  const totalDeletes = changed.reduce((n, w) => n + w.plan.toDelete.length, 0);
+  if (!opts.yes && !!process.stdin.isTTY) {
+    const confirmed = await Confirm.prompt({
+      message: totalDeletes > 0
+        ? `Apply these changes? This DELETES ${totalDeletes} protection rule(s) across ${changed.length} workspace(s).`
+        : `Apply these changes to ${changed.length} workspace(s)?`,
+      default: totalDeletes === 0,
+    });
+    if (!confirmed) {
+      log.info("Operation cancelled");
+      return;
     }
+  }
 
-    // The reconcile is N independent API calls with no transaction. Track
-    // applied ops so a mid-loop failure reports how far it got (the backend
-    // is left partially reconciled; re-running push is idempotent).
-    const ws = workspace.workspaceId;
-    const applied = { created: 0, updated: 0, deleted: 0 };
-    try {
-      for (const entry of plan.toCreate) {
+  // Phase 2: apply. Track progress so a mid-run failure reports how far it got.
+  const applied = { created: 0, updated: 0, deleted: 0 };
+  try {
+    for (const w of changed) {
+      // Re-point the client at this workspace (phase 1 left it on the last one).
+      await configureClientForWorkspace(opts, w.ws, resolver);
+      for (const entry of w.plan.toCreate) {
         const n = ProtectionRulesConverter.normalizeEntry(entry);
         await wmill.createProtectionRule({
-          workspace: ws,
+          workspace: w.wsId,
           requestBody: {
             name: n.name,
             rules: n.rules,
@@ -158,10 +196,10 @@ export async function pushProtectionRules(
         });
         applied.created++;
       }
-      for (const entry of plan.toUpdate) {
+      for (const entry of w.plan.toUpdate) {
         const n = ProtectionRulesConverter.normalizeEntry(entry);
         await wmill.updateProtectionRule({
-          workspace: ws,
+          workspace: w.wsId,
           ruleName: n.name,
           requestBody: {
             rules: n.rules,
@@ -171,31 +209,28 @@ export async function pushProtectionRules(
         });
         applied.updated++;
       }
-      for (const name of plan.toDelete) {
-        await wmill.deleteProtectionRule({ workspace: ws, ruleName: name });
+      for (const name of w.plan.toDelete) {
+        await wmill.deleteProtectionRule({
+          workspace: w.wsId,
+          ruleName: name,
+        });
         applied.deleted++;
       }
-    } catch (applyError) {
-      const msg =
-        applyError instanceof Error ? applyError.message : String(applyError);
-      fail(opts, {
-        error:
-          `Push partially failed after applying ${applied.created}/${plan.toCreate.length} create, ` +
-          `${applied.updated}/${plan.toUpdate.length} update, ${applied.deleted}/${plan.toDelete.length} delete: ${msg}. ` +
-          `The backend is partially reconciled; re-run push to converge.`,
-        applied,
-      });
     }
-
-    outputResult(opts, {
-      success: true,
-      message: `Protection rules pushed successfully (created ${applied.created}, updated ${applied.updated}, deleted ${applied.deleted})`,
-      created: applied.created,
-      updated: applied.updated,
-      deleted: applied.deleted,
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    fail(opts, {
+      error:
+        `Push partially failed after ${applied.created} create, ${applied.updated} update, ` +
+        `${applied.deleted} delete: ${msg}. Backend is partially reconciled; re-run push to converge.`,
+      applied,
     });
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    fail(opts, { error: `Failed to push protection rules: ${msg}` });
   }
+
+  outputResult(opts, {
+    success: true,
+    message: `Pushed protection rules (created ${applied.created}, updated ${applied.updated}, deleted ${applied.deleted}) across ${changed.length} workspace(s)`,
+    ...applied,
+  });
+  if (hadError) process.exit(1);
 }

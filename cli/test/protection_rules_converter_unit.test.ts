@@ -1,16 +1,21 @@
 /**
- * Unit tests for ProtectionRulesConverter.
- * Covers normalization, order-insensitive equality, and the
- * create/update/delete reconciliation plan used by pull/push.
+ * Unit tests for the protection-rules feature: the reconciliation converter,
+ * the WorkspaceResolver (protection-rules.yaml key -> backend id via
+ * wmill.yaml), and protection-rules.yaml read/write round-tripping.
  */
 
 import { expect, test, describe } from "bun:test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { mkdtempSync, rmSync } from "node:fs";
 import { ProtectionRulesConverter } from "../src/commands/protection-rules/converter.ts";
 import {
-  applyRulesToBranchOverride,
-  clearRuleOverride,
-} from "../src/commands/protection-rules/utils.ts";
-import { ProtectionRuleEntry, SyncOptions } from "../src/core/conf.ts";
+  WorkspaceResolver,
+  readProtectionRulesFile,
+  writeProtectionRulesFile,
+} from "../src/commands/protection-rules/file.ts";
+import { ProtectionRuleEntry } from "../src/commands/protection-rules/types.ts";
+import { SyncOptions } from "../src/core/conf.ts";
 
 const rule = (
   name: string,
@@ -178,69 +183,58 @@ describe("computePlan (full reconcile)", () => {
   });
 });
 
-describe("applyRulesToBranchOverride", () => {
-  test("writes under the given resolved workspace key, not a raw branch", () => {
-    // workspaces.prod maps to git branch main; the override MUST land on
-    // `prod` (the key getEffectiveSettings resolves), not `main`.
-    const config: SyncOptions = {
-      workspaces: { prod: { gitBranch: "main" } } as any,
-    };
-    const out = applyRulesToBranchOverride(config, "prod", [
-      rule("r", ["DisableDirectDeployment"]),
-    ]);
-    expect((out.workspaces as any).prod.overrides.protectionRules).toEqual([
-      rule("r", ["DisableDirectDeployment"]),
-    ]);
-    expect((out.workspaces as any).main).toBeUndefined();
+describe("WorkspaceResolver", () => {
+  const config: SyncOptions = {
+    workspaces: {
+      prod: { workspaceId: "acme-prod" },
+      dev: {},
+      commonSpecificItems: { settings: true },
+    } as any,
+  };
+  const r = WorkspaceResolver.fromConfig(config);
+
+  test("knownNames excludes reserved keys", () => {
+    expect(r.knownNames().sort()).toEqual(["dev", "prod"]);
   });
 
-  test("creates the workspace entry if missing", () => {
-    const out = applyRulesToBranchOverride({}, "feature", [rule("a", [])]);
-    expect((out.workspaces as any).feature.overrides.protectionRules).toEqual([
-      rule("a", []),
-    ]);
+  test("backendId uses workspaceId when set, else the key name", () => {
+    expect(r.backendId("prod")).toBe("acme-prod");
+    expect(r.backendId("dev")).toBe("dev");
   });
 
-  test("writes into promotionOverrides when block is promotionOverrides", () => {
-    const out = applyRulesToBranchOverride(
-      { workspaces: { prod: { gitBranch: "main" } } as any },
-      "prod",
-      [rule("r", ["DisableDirectDeployment"])],
-      "promotionOverrides",
-    );
-    expect(
-      (out.workspaces as any).prod.promotionOverrides.protectionRules,
-    ).toEqual([rule("r", ["DisableDirectDeployment"])]);
-    expect((out.workspaces as any).prod.overrides).toBeUndefined();
+  test("backendId throws for a key absent from wmill.yaml", () => {
+    expect(() => r.backendId("ghost")).toThrow(/not defined in wmill\.yaml/);
+  });
+
+  test("has reflects membership", () => {
+    expect(r.has("prod")).toBe(true);
+    expect(r.has("ghost")).toBe(false);
+  });
+
+  test("empty config resolves to no workspaces", () => {
+    expect(WorkspaceResolver.fromConfig({}).knownNames()).toEqual([]);
   });
 });
 
-describe("clearRuleOverride", () => {
-  test("removes protectionRules from overrides and promotionOverrides", () => {
-    const config: SyncOptions = {
-      workspaces: {
-        prod: {
-          gitBranch: "main",
-          overrides: { protectionRules: [rule("a", [])], skipScripts: true },
-          promotionOverrides: { protectionRules: [rule("b", [])] },
-        },
-      } as any,
-    };
-    expect(clearRuleOverride(config, "prod")).toBe(true);
-    expect(
-      "protectionRules" in (config.workspaces as any).prod.overrides,
-    ).toBe(false);
-    // unrelated override keys are preserved
-    expect((config.workspaces as any).prod.overrides.skipScripts).toBe(true);
-    expect(
-      "protectionRules" in (config.workspaces as any).prod.promotionOverrides,
-    ).toBe(false);
-  });
+describe("protection-rules.yaml read/write", () => {
+  test("round-trips and sorts workspace keys deterministically", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "prfile-"));
+    const path = join(dir, "protection-rules.yaml");
+    try {
+      expect(await readProtectionRulesFile(path)).toEqual({});
 
-  test("returns false when there is nothing to clear", () => {
-    expect(clearRuleOverride({ workspaces: { prod: {} } as any }, "prod")).toBe(
-      false,
-    );
-    expect(clearRuleOverride({}, "missing")).toBe(false);
+      await writeProtectionRulesFile(path, {
+        prod: [rule("p", ["DisableDirectDeployment"], ["g/a"])],
+        dev: [],
+      });
+      const back = await readProtectionRulesFile(path);
+      expect(Object.keys(back)).toEqual(["dev", "prod"]);
+      expect(back.prod).toEqual([
+        rule("p", ["DisableDirectDeployment"], ["g/a"]),
+      ]);
+      expect(back.dev).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

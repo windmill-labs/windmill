@@ -6946,23 +6946,17 @@ Validate Windmill flow, schedule, and trigger YAML files in a directory
 
 ### protection-rules
 
-Manage workspace protection rules between local wmill.yaml and Windmill backend
-
 **Subcommands:**
 
-- \`protection-rules pull\` - Pull protection rules from Windmill backend into local wmill.yaml
-  - \`--default\` - Write to top-level protectionRules instead of overrides
-  - \`--replace\` - Replace existing protection rules (non-interactive)
-  - \`--override\` - Add branch-specific override (non-interactive)
-  - \`--diff\` - Show differences without applying changes
+- \`protection-rules pull [workspace:string]\` - Pull protection rules from Windmill into protection-rules.yaml for a workspace
+  - \`--all\` - Pull every workspace defined in wmill.yaml
+  - \`--dry-run\` - Show what would change without writing the file
   - \`--json-output\` - Output in JSON format
-  - \`--yes\` - Skip interactive prompts and use default behavior
-  - \`--promotion <branch:string>\` - Use promotionOverrides from the specified branch instead of regular overrides
-- \`protection-rules push\` - Push protection rules from local wmill.yaml to Windmill backend (full reconcile: creates, updates, and deletes)
-  - \`--diff\` - Show what would be pushed without applying changes
+- \`protection-rules push [workspace:string]\`
+  - \`--all\` - Push every workspace defined in protection-rules.yaml
+  - \`--dry-run\` - Show what would change without applying
   - \`--json-output\` - Output in JSON format
-  - \`--yes\` - Skip interactive prompts and confirmations
-  - \`--promotion <branch:string>\` - Use promotionOverrides from the specified branch instead of regular overrides
+  - \`--yes\` - Skip the confirmation prompt (including deletions)
 
 ### queues
 
