@@ -46,7 +46,6 @@
 		disabled = false,
 		disabledMessage = '',
 		suggestions = [],
-		hideInputBorder = false,
 		hideHeader = false,
 		hideModeSelector = false,
 		wideLayout = false,
@@ -68,7 +67,6 @@
 		disabled?: boolean
 		disabledMessage?: string
 		suggestions?: string[]
-		hideInputBorder?: boolean
 		hideHeader?: boolean
 		hideModeSelector?: boolean
 		// Center the messages + input columns inside a max-w-3xl px-8
@@ -240,7 +238,7 @@
 				<div
 					class={wideLayout
 						? 'w-full max-w-3xl mx-auto px-7 flex flex-col pb-2'
-						: 'w-full flex flex-col pb-2'}
+						: 'w-full max-w-2xl mx-auto px-4 flex flex-col pb-2'}
 					bind:clientHeight={height}
 				>
 					{#each messages as message, messageIndex (messageIndex)}
@@ -283,8 +281,9 @@
 	{/if}
 
 	<div
-		class:border-t={messages.length > 0 && !hideInputBorder}
-		class={wideLayout ? 'relative w-full max-w-3xl mx-auto px-6' : 'relative w-full px-2'}
+		class={wideLayout
+			? 'relative w-full max-w-3xl mx-auto px-6'
+			: 'relative w-full max-w-2xl mx-auto px-3'}
 	>
 		{#if aiChatManager.flowAiChatHelpers?.hasPendingChanges()}
 			<div class="absolute -top-10 w-full flex flex-row justify-center gap-2">
