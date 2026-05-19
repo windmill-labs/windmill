@@ -205,6 +205,7 @@
 	let lastWsAttempt: Date = new Date()
 	let nbWsAttempt = 0
 	let disposeMethod: (() => void) | undefined
+	const absolutePathExtraLibs = new Map<string, { dispose: () => void }>()
 	const dispatch = createEventDispatcher()
 	// let graphqlService: MonacoGraphQLAPI | undefined = undefined
 
@@ -1628,6 +1629,8 @@
 			(scriptLang == 'bun' || scriptLang == 'tsx' || scriptLang == 'bunnative') &&
 			ata == undefined
 		) {
+			absolutePathExtraLibs.forEach((d) => d.dispose())
+			absolutePathExtraLibs.clear()
 			const hostname = getHostname()
 
 			const addLibraryToRuntime = async (code: string, _path: string) => {
@@ -1643,12 +1646,17 @@
 			}
 
 			const addLocalFile = async (code: string, _path: string) => {
+				if (destroyed) return
 				let p = new URL(_path, uri).href
-				// if (_path?.startsWith('/')) {
-				// 	p = 'file://' + p
-				// }
 				let nuri = mUri.parse(p)
 				console.log('adding local file', _path, nuri.toString())
+				// Monaco's TS service resolves relative imports against the importer's URI (finding the
+				// model), but absolute paths like "/u/admin/foo" are looked up as raw paths and miss the
+				// `file://` model. Register them as extra libs so TS can resolve them.
+				if (_path.startsWith('/')) {
+					absolutePathExtraLibs.get(_path)?.dispose()
+					absolutePathExtraLibs.set(_path, typescriptDefaults.addExtraLib(code, _path))
+				}
 				if (editor) {
 					let localModel = meditor.getModel(nuri)
 					if (localModel) {
@@ -1768,6 +1776,8 @@
 		timeoutModel && clearTimeout(timeoutModel)
 		loadTimeout && clearTimeout(loadTimeout)
 		aiChatEditorHandler?.clear()
+		absolutePathExtraLibs.forEach((d) => d.dispose())
+		absolutePathExtraLibs.clear()
 	})
 
 	async function genRoot(hostname: string) {

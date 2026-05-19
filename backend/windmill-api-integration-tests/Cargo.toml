@@ -15,6 +15,7 @@ enterprise = ["windmill-test-utils/enterprise", "dep:base64", "windmill-git-sync
 deno_core = ["windmill-test-utils/deno_core"]
 mcp = ["windmill-test-utils/mcp", "dep:rmcp"]
 run_inline = ["dep:windmill-worker", "windmill-test-utils/run_inline", "windmill-test-utils/duckdb"]
+postgres_trigger = ["windmill-test-utils/postgres_trigger"]
 
 [dependencies]
 windmill-test-utils.workspace = true

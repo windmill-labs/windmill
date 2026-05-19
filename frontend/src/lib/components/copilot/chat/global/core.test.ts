@@ -51,7 +51,7 @@ vi.mock('$lib/gen', async () => {
 	}
 })
 
-import { globalTools } from './core'
+import { globalTools, prepareGlobalUserMessage } from './core'
 import { globalDraftStore } from './draftStore.svelte'
 import type { Tool, ToolCallbacks } from '../shared'
 
@@ -70,12 +70,16 @@ function getGlobalTool(name: string): Tool<{}> {
 	return tool
 }
 
-async function callGlobalTool(name: string, args: Record<string, unknown>): Promise<string> {
+async function callGlobalTool(
+	name: string,
+	args: Record<string, unknown>,
+	callbacks: ToolCallbacks = toolCallbacks
+): Promise<string> {
 	return getGlobalTool(name).fn({
 		args,
 		workspace: WORKSPACE,
 		helpers: {},
-		toolCallbacks,
+		toolCallbacks: callbacks,
 		toolId: `test-${name}`
 	})
 }
@@ -197,5 +201,72 @@ describe('global AI tools', () => {
 			groups: [{ summary: 'Main', start_id: 'start', end_id: 'start' }]
 		})
 		expect(item.value.value).toBeUndefined()
+	})
+
+	it('asks the user a multiple-choice question and returns the selected answer', async () => {
+		const callbacks: ToolCallbacks = {
+			setToolStatus: vi.fn(),
+			removeToolStatus: vi.fn(),
+			requestUserQuestion: vi.fn(async (_toolId, question) => question.choices[1])
+		}
+
+		const raw = await callGlobalTool(
+			'askUserQuestion',
+			{
+				question: 'Which script language should be used?',
+				choices: ['bun', 'python3']
+			},
+			callbacks
+		)
+
+		expect(raw).toBe('python3')
+		expect(callbacks.requestUserQuestion).toHaveBeenCalledWith(
+			'test-askUserQuestion',
+			expect.objectContaining({
+				question: 'Which script language should be used?',
+				choices: ['bun', 'python3']
+			})
+		)
+		expect(callbacks.setToolStatus).toHaveBeenLastCalledWith(
+			'test-askUserQuestion',
+			expect.objectContaining({
+				content: 'User answered question: python3',
+				isLoading: false,
+				result: 'python3',
+				userQuestion: expect.objectContaining({ selectedChoice: 'python3' })
+			})
+		)
+	})
+})
+
+describe('prepareGlobalUserMessage', () => {
+	it('includes selected workspace item references without contents', () => {
+		const message = prepareGlobalUserMessage('Update these items', [
+			{
+				type: 'workspace_script',
+				path: 'f/scripts/report',
+				title: 'f/scripts/report',
+				summary: 'Report script'
+			},
+			{
+				type: 'workspace_flow',
+				path: 'f/flows/reporting',
+				title: 'f/flows/reporting',
+				summary: 'Reporting flow'
+			}
+		])
+
+		expect(message.content).toContain('## SELECTED CONTEXT')
+		expect(message.content).toContain('- type: script, path: f/scripts/report')
+		expect(message.content).toContain('- type: flow, path: f/flows/reporting')
+		expect(message.content).toContain('## INSTRUCTIONS:\nUpdate these items')
+		expect(message.content).not.toContain('Report script')
+		expect(message.content).not.toContain('Reporting flow')
+	})
+
+	it('omits selected context section when no workspace item is selected', () => {
+		const message = prepareGlobalUserMessage('Create a draft')
+
+		expect(message.content).toBe('## INSTRUCTIONS:\nCreate a draft')
 	})
 })
