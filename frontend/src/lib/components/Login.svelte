@@ -414,8 +414,30 @@
 			sendUserToast('No SAML login available', true)
 			return false
 		}
-		persistRd()
-		window.location.href = saml
+		let target = saml
+		let relayStateSet = false
+		// Carry the SP-initiated deep link through the IdP round-trip via SAML
+		// RelayState so the ACS redirects straight back to it (bypassing
+		// /user/login). Only same-origin relative paths are passed; the backend
+		// re-validates. Absolute `rd` still relies on the localStorage fallback.
+		if (rd && rd.startsWith('/') && !rd.startsWith('//')) {
+			try {
+				const url = new URL(saml)
+				url.searchParams.set('RelayState', rd)
+				target = url.toString()
+				relayStateSet = true
+			} catch (e) {
+				console.error('Could not set SAML RelayState', e)
+			}
+		}
+		// Only use the localStorage fallback when RelayState is NOT carrying the
+		// deep link. With RelayState the ACS redirects straight to the target and
+		// /user/login never consumes/clears the key, so a persisted value would
+		// go stale and hijack a later plain visit to /user/login.
+		if (!relayStateSet) {
+			persistRd()
+		}
+		window.location.href = target
 		return true
 	}
 
