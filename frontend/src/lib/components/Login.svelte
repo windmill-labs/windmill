@@ -415,7 +415,21 @@
 			return false
 		}
 		persistRd()
-		window.location.href = saml
+		let target = saml
+		// Carry the SP-initiated deep link through the IdP round-trip via SAML
+		// RelayState so the ACS redirects straight back to it (bypassing
+		// /user/login). Only same-origin relative paths are passed; the backend
+		// re-validates. Absolute `rd` still relies on the localStorage fallback.
+		if (rd && rd.startsWith('/') && !rd.startsWith('//')) {
+			try {
+				const url = new URL(saml)
+				url.searchParams.set('RelayState', rd)
+				target = url.toString()
+			} catch (e) {
+				console.error('Could not set SAML RelayState', e)
+			}
+		}
+		window.location.href = target
 		return true
 	}
 
