@@ -77,6 +77,7 @@
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import DeployButton from './DeployButton.svelte'
+	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import type { FlowWithDraftAndDraftTriggers, Trigger } from './triggers/utils'
 	import {
 		deployTriggers,
@@ -559,6 +560,10 @@
 					}
 				})
 			}
+
+			// New/updated path now exists server-side — drop the autocomplete
+			// cache so it shows up immediately instead of after the 60s TTL.
+			invalidateWorkspacePaths($workspaceStore!)
 
 			const { draft_triggers: _, ...newSavedFlow } = flowStore.val as OpenFlow & {
 				draft_triggers: Trigger[]

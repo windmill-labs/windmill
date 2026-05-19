@@ -37,14 +37,38 @@
 		md: twMerge(ButtonType.UnifiedSizingClasses.md, ButtonType.UnifiedMinHeightClasses.md, 'px-2'),
 		lg: twMerge(ButtonType.UnifiedSizingClasses.lg, ButtonType.UnifiedMinHeightClasses.lg, 'px-2')
 	}
+
+	// Base leading == (unified height − vertical padding) so a single-line
+	// contenteditable div centers its text the way a native <input> does.
+	//
+	// In "large mode" (viewport ≥ 1760px, where app.css bumps :root to 18px →
+	// font 13.5px) headless-Chromium ink measurement showed the text sitting
+	// ~1px low with the base leading. The residual is a fixed ~2px of line box,
+	// so the exact centered value there is (content-box height − 2px). Scoped to
+	// the same 1760px breakpoint as the font-size bump; small mode is unchanged.
+	export const inputLeadingClasses: Record<ButtonType.UnifiedSize, string> = {
+		xs: 'leading-4 min-[1760px]:leading-[calc(1rem_-_2px)]', // h-5 − py-0.5 → 1rem
+		sm: 'leading-6 min-[1760px]:leading-[calc(1.5rem_-_2px)]', // h-7 − py-0.5 → 1.5rem
+		md: 'leading-8 min-[1760px]:leading-[calc(2rem_-_2px)]', // h-8, no py → 2rem
+		lg: 'leading-10 min-[1760px]:leading-[calc(2.5rem_-_2px)]' // h-10, no py → 2.5rem
+	}
 </script>
 
-<script lang="ts" generics="UnderlyingInputElT extends 'input' | 'textarea' = 'input'">
-	import type { HTMLInputAttributes, HTMLTextareaAttributes } from 'svelte/elements'
+<script lang="ts" generics="UnderlyingInputElT extends 'input' | 'textarea' | 'div' = 'input'">
+	import type { HTMLAttributes, HTMLInputAttributes, HTMLTextareaAttributes } from 'svelte/elements'
 	import { twMerge } from 'tailwind-merge'
 
-	type Props<UnderlyingInputElT extends 'input' | 'textarea'> = {
-		inputProps?: UnderlyingInputElT extends 'input' ? HTMLInputAttributes : HTMLTextareaAttributes
+	type DivInputProps = HTMLAttributes<HTMLDivElement> & {
+		disabled?: boolean
+		placeholder?: string
+	}
+
+	type Props<UnderlyingInputElT extends 'input' | 'textarea' | 'div'> = {
+		inputProps?: UnderlyingInputElT extends 'input'
+			? HTMLInputAttributes
+			: UnderlyingInputElT extends 'textarea'
+				? HTMLTextareaAttributes
+				: DivInputProps
 		value?: string | number
 		class?: string
 		error?: string | boolean
@@ -58,10 +82,18 @@
 	}
 
 	export function select() {
-		inputEl?.select()
+		if (inputEl instanceof HTMLDivElement) {
+			const range = document.createRange()
+			range.selectNodeContents(inputEl)
+			const sel = window.getSelection()
+			sel?.removeAllRanges()
+			sel?.addRange(range)
+		} else {
+			inputEl?.select()
+		}
 	}
 
-	let inputEl: HTMLInputElement | HTMLTextAreaElement | undefined = $state()
+	let inputEl: HTMLInputElement | HTMLTextAreaElement | HTMLDivElement | undefined = $state()
 
 	let {
 		inputProps: _inputProps,
@@ -75,6 +107,8 @@
 
 	let underlyingInputEl = $derived(_underlyingInputEl ?? ('input' as const))
 	let inputProps = $derived(_inputProps as any)
+	let isDiv = $derived(underlyingInputEl === 'div')
+	let divDisabled = $derived(isDiv && Boolean(inputProps?.disabled))
 
 	let fullClassName = $derived(
 		twMerge(
@@ -84,9 +118,23 @@
 			inputBorderClass({ error: !!error }),
 			unifiedHeight ? ButtonType.UnifiedHeightClasses[size] : '',
 			'w-full',
+			isDiv &&
+				`whitespace-pre overflow-hidden ${inputLeadingClasses[size]} focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 empty:before:content-[attr(data-placeholder)] empty:before:text-hint`,
+			divDisabled && '!bg-surface-disabled !border-transparent !text-disabled cursor-not-allowed',
 			className
 		)
 	)
+
+	// contenteditable is mutated by the browser as the user types — a templated
+	// `>{value}</div>` would race with that and produce duplicated text. Sync
+	// imperatively, with an equality guard so user input doesn't echo back.
+	$effect(() => {
+		if (underlyingInputEl !== 'div' || !inputEl) return
+		const target = value == null ? '' : String(value)
+		if (inputEl.textContent !== target) {
+			inputEl.textContent = target
+		}
+	})
 </script>
 
 {#if underlyingInputEl === 'textarea'}
@@ -108,4 +156,24 @@
 		bind:this={inputEl}
 		bind:value
 	/>
+{:else if underlyingInputEl === 'div'}
+	{@const { disabled, placeholder, ...divProps } = (inputProps ?? {}) as DivInputProps}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		role="textbox"
+		aria-disabled={disabled}
+		tabindex={disabled ? -1 : 0}
+		contenteditable={!disabled}
+		onkeydown={(e) => {
+			if (e.key === 'Enter') e.preventDefault()
+		}}
+		{...divProps}
+		class={fullClassName}
+		data-placeholder={placeholder ?? ''}
+		onpointerdown={(e) => e.stopImmediatePropagation()}
+		oninput={(e) => {
+			value = e.currentTarget.textContent ?? ''
+		}}
+		bind:this={inputEl}
+	></div>
 {/if}
