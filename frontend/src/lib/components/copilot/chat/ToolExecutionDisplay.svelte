@@ -134,6 +134,7 @@
 						content={message.logs}
 						loading={message.isLoading}
 						showWhileLoading={false}
+						showFade={message.showFade}
 					/>
 
 					{#if visibleActions.length > 0}
@@ -144,6 +145,7 @@
 							content={message.result}
 							error={message.error}
 							loading={message.isLoading}
+							showFade={message.showFade}
 						/>
 					{/if}
 				{/if}
