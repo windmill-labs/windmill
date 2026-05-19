@@ -2154,7 +2154,22 @@ async fn execute_component(
             ));
         }
         check_scopes(authed, || format!("jobs:run"))?;
-        require_path_read_access_for_preview(authed, &Some(path.to_string()))?;
+        // Guard the *runnable* being previewed, not just the app URL path: a
+        // preview can target an existing deployed script/flow via `payload.path`
+        // (resolved later with the root DB handle, bypassing the policy's
+        // triggerables), so a caller could otherwise pair an allowed app path
+        // with `path: script/u/<other>/private` to run a runnable they cannot
+        // read. For inline `raw_code` the runnable lives under the app
+        // namespace, so the app URL path is the correct thing to check.
+        let preview_path = match payload.path.as_deref() {
+            Some(p) => p
+                .strip_prefix("script/")
+                .or_else(|| p.strip_prefix("flow/"))
+                .unwrap_or(p)
+                .to_string(),
+            None => path.to_string(),
+        };
+        require_path_read_access_for_preview(authed, &Some(preview_path))?;
         Some(authed.clone())
     } else {
         None
@@ -2363,6 +2378,11 @@ async fn execute_component(
         ),
         _ => unreachable!(),
     };
+    // Preview honors the client-supplied inline tag (`resolved_inline_tag`), so
+    // — like `/jobs/run/preview` — confine it to worker tags the caller may use.
+    if let Some(authed) = preview_authed.as_ref() {
+        crate::jobs::check_tag_available_for_workspace(&db, &w_id, &tag, authed).await?;
+    }
     // Preview jobs run as the requesting user, so enqueue with their own
     // permissions (like `/jobs/run/preview`). Run mode keeps the root isolation
     // because the job is pushed on-behalf-of the policy's deployed identity.

@@ -140,5 +140,30 @@ async fn test_app_preview_authorization(db: Pool<Postgres>) -> anyhow::Result<()
         "run mode must be unchanged (deployed app lookup -> 404, not the preview guard); got {status}: {body}"
     );
 
+    // 5. Defense-in-depth: the guard must check the *runnable* being previewed,
+    //    not just the app URL path. A caller pairs an allowed app path
+    //    (`u/test-user-2/myapp`, own namespace) with a `path` pointing at a
+    //    deployed runnable in another user's namespace. Without checking the
+    //    runnable path this would resolve `script/u/test-user/private` with the
+    //    root DB handle and enqueue it; it must be rejected by the path check.
+    let resp = authed(
+        client().post(format!("{base}/u/test-user-2/myapp")),
+        "SECRET_TOKEN_2",
+    )
+    .json(&json!({
+        "args": {},
+        "component": "comp",
+        "path": "script/u/test-user/private",
+        "force_viewer_static_fields": {}
+    }))
+    .send()
+    .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(
+        status, 400,
+        "preview targeting a runnable outside the caller's namespace must be rejected even with an allowed app path (got {status}): {body}"
+    );
+
     Ok(())
 }
