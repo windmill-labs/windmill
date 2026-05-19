@@ -43,7 +43,6 @@ export type WindmillItemKind =
 export interface WorkspaceItemEntry {
 	kind: WindmillItemKind
 	path: string
-	summary?: string
 	targetKind?: WorkspaceItemTargetKind
 }
 
@@ -94,7 +93,6 @@ export function itemHref(entry: WorkspaceItemEntry, workspace?: string): string 
 
 type WorkspaceItemListResult = Array<{
 	path: string
-	summary?: string | null
 	is_flow?: boolean | null
 }>
 
@@ -163,7 +161,6 @@ class WorkspaceItemRegistry {
 					map.set(it.path, {
 						kind,
 						path: it.path,
-						summary: it.summary ?? undefined,
 						targetKind:
 							typeof it.is_flow === 'boolean' ? (it.is_flow ? 'flow' : 'script') : undefined
 					})
@@ -259,7 +256,7 @@ function buildPathLinkNode(
 	return {
 		type: 'link',
 		url: itemHref(entry, workspace),
-		title: entry.summary || null,
+		title: null,
 		data: {
 			hProperties
 		},

@@ -165,19 +165,16 @@ describe('workspaceItemAction', () => {
 const SAMPLE_ENTRIES: Record<string, WorkspaceItemEntry> = {
 	'f/marketing/send_email': {
 		kind: 'script',
-		path: 'f/marketing/send_email',
-		summary: 'Send marketing email'
+		path: 'f/marketing/send_email'
 	},
 	'u/admin/cleanup_old_jobs': {
 		kind: 'flow',
-		path: 'u/admin/cleanup_old_jobs',
-		summary: 'Cleanup old jobs'
+		path: 'u/admin/cleanup_old_jobs'
 	},
-	'f/ops/dashboard': { kind: 'app', path: 'f/ops/dashboard', summary: 'Ops dashboard' },
+	'f/ops/dashboard': { kind: 'app', path: 'f/ops/dashboard' },
 	'f/etl/daily': {
 		kind: 'schedule',
 		path: 'f/etl/daily',
-		summary: 'Daily ETL',
 		targetKind: 'flow'
 	}
 }
@@ -234,7 +231,7 @@ describe('remarkWindmillPaths (mdast)', () => {
 		)
 		expect(byPath['f/ops/dashboard'].url).toBe('/apps/get/f/ops/dashboard?workspace=admins')
 
-		expect(byPath['f/marketing/send_email'].title).toBe('Send marketing email')
+		expect(byPath['f/marketing/send_email'].title).toBeNull()
 
 		const props = byPath['f/marketing/send_email'].data?.hProperties as Record<string, string>
 		expect(props['data-wm-kind']).toBe('script')
