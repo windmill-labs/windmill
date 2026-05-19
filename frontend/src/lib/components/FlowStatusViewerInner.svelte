@@ -895,6 +895,9 @@
 		if (id && ((mod.flow_jobs ?? []).length == 0 || force)) {
 			// console.debug('onJobsLoadedInner', id, job.id, force)
 			if (flowStateStore) {
+				// previewLogs left undefined when the nested viewer fetched with
+				// noLogs=true acts as the "logs were skipped" signal — OutputPickerInner
+				// lazily fetches them when the user opens the module.
 				flowStateStore[buildSubflowKey(id, prefix)] = {
 					...(flowStateStore?.[buildSubflowKey(id, prefix)] ?? {}),
 					previewResult: job['result'],

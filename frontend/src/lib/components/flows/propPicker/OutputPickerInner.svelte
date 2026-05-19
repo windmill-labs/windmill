@@ -22,7 +22,7 @@
 	import { Popover } from '$lib/components/meltComponents'
 	import { getContext, untrack } from 'svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
-	import type { Job } from '$lib/gen'
+	import { JobService, type Job } from '$lib/gen'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import OutputBadge from './OutputBadge.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -30,6 +30,7 @@
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import { base } from '$lib/base'
 	import { fade } from 'svelte/transition'
+	import { workspaceStore } from '$lib/stores'
 	import type { FlowEditorContext, OutputViewerJob } from '../types'
 
 	interface Props {
@@ -231,6 +232,42 @@
 
 	const lastJob = $derived.by(updateLastJob)
 
+	// During "Test flow", nested FlowStatusViewerInners fetch each module job with
+	// noLogs=true (unless the user actively selected that node), so flowStateStore's
+	// previewLogs stays undefined for completed module jobs. Lazily fetch the logs
+	// once the user opens the module in the editor — keyed by jobId so we only do it
+	// once per job, and only when logs are genuinely missing (vs. a job with empty logs).
+	// Gated on `getLogs` so we only fetch in callers that actually render the log
+	// viewer (ModulePreviewResultViewer), not on every graph node's inline picker.
+	let fetchedLogsForJobId: string | undefined = $state(undefined)
+	$effect(() => {
+		const jobId = lastJob?.id
+		if (
+			!getLogs ||
+			!flowStateStore ||
+			!moduleId ||
+			!jobId ||
+			lastJob?.type !== 'CompletedJob' ||
+			lastJob['logs'] !== undefined ||
+			fetchedLogsForJobId === jobId
+		) {
+			return
+		}
+		fetchedLogsForJobId = jobId
+		untrack(() => {
+			JobService.getJob({ workspace: $workspaceStore ?? '', id: jobId })
+				.then((fullJob) => {
+					if (flowStateStore && moduleId && flowStateStore.val[moduleId]?.previewJobId === jobId) {
+						flowStateStore.val[moduleId] = {
+							...flowStateStore.val[moduleId],
+							previewLogs: fullJob['logs'] ?? ''
+						}
+					}
+				})
+				.catch((e) => console.error('Failed to fetch preview logs', e))
+		})
+	})
+
 	export function setJobPreview() {
 		if (mock?.enabled) {
 			preview = 'job'
@@ -367,7 +404,9 @@
 						)}
 					/>
 				{:else if isLoadingAndNotMock && !mock?.enabled}
-					<div class="flex flex-row w-fit items-center justify-between gap-2 rounded-md bg-surface-secondary p-1 px-2 min-w-16 min-h-[23px]">
+					<div
+						class="flex flex-row w-fit items-center justify-between gap-2 rounded-md bg-surface-secondary p-1 px-2 min-w-16 min-h-[23px]"
+					>
 						<Loader2 size={12} class="animate-spin text-secondary shrink-0" />
 						<span class="text-xs text-secondary w-[56px]">&nbsp;</span>
 					</div>
@@ -527,7 +566,10 @@
 							size="xs2"
 							color="light"
 							variant="contained"
-							btnClasses={twMerge('h-[27px]', showLogs ? 'bg-blue-500/10 text-blue-800 dark:text-blue-200' : 'bg-transparent')}
+							btnClasses={twMerge(
+								'h-[27px]',
+								showLogs ? 'bg-blue-500/10 text-blue-800 dark:text-blue-200' : 'bg-transparent'
+							)}
 							startIcon={{ icon: ScrollText }}
 							on:click={() => {
 								showLogs = !showLogs
