@@ -21,7 +21,7 @@ use windmill_ai::ai_providers::{
 };
 use windmill_ai::providers::create_proxy_query_builder;
 use windmill_ai::proxy::{
-    supports_openai_compatible_proxy, ProviderCredentials, ProxyBuildArgs, ProxyRequest,
+    supports_query_builder_proxy, ProviderCredentials, ProxyBuildArgs, ProxyRequest,
 };
 use windmill_ai::utils::AI_HTTP_HEADERS;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
@@ -373,7 +373,7 @@ impl AIRequestConfig {
         provider: &AIProvider,
         path: &str,
         method: Method,
-        headers: HeaderMap,
+        _headers: HeaderMap,
         body: Bytes,
     ) -> Result<RequestBuilder> {
         let credentials = self.into_provider_credentials(provider.clone());
@@ -387,30 +387,18 @@ impl AIRequestConfig {
         let base_url = credentials.base_url.trim_end_matches('/');
 
         let is_azure = credentials.provider.is_azure_openai(base_url);
-        let is_anthropic = credentials.provider == AIProvider::Anthropic;
-        let is_anthropic_vertex =
-            is_anthropic && credentials.platform == AIPlatform::GoogleVertexAi;
-        let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
         let is_google_ai = credentials.provider == AIProvider::GoogleAI;
 
         let base_url = base_url.to_string();
         let base_url = base_url.as_str();
 
         // Build URL based on provider
-        let (url, body) = if is_anthropic_vertex && method != Method::GET {
-            let (model, transformed_body) = transform_anthropic_for_vertex(&body)?;
-            let vertex_url = format!("{}/{}:streamRawPredict", base_url, model);
-            (vertex_url, transformed_body)
-        } else if is_azure {
+        let url = if is_azure {
             let azure_url = AIProvider::build_azure_openai_url(base_url, path);
-            (azure_url, body)
-        } else if is_anthropic_sdk {
-            let truncated_base_url = base_url.trim_end_matches("/v1");
-            let anthropic_url = format!("{}/{}", truncated_base_url, path);
-            (anthropic_url, body)
+            azure_url
         } else {
             let default_url = format!("{}/{}", base_url, path);
-            (default_url, body)
+            default_url
         };
 
         tracing::debug!("AI request URL: {}", url);
@@ -418,21 +406,6 @@ impl AIRequestConfig {
         let mut request = HTTP_CLIENT
             .request(method.clone(), &url)
             .header("content-type", "application/json");
-
-        for (header_name, header_value) in headers.iter() {
-            // Forward anthropic-* headers, but skip anthropic-version for Vertex AI
-            // (Vertex AI requires anthropic_version in the request body, not as a header)
-            if header_name.to_string().starts_with("anthropic-") {
-                if is_anthropic_vertex && header_name.as_str() == "anthropic-version" {
-                    continue;
-                }
-                request = request.header(header_name, header_value);
-            }
-        }
-
-        if is_anthropic_sdk && credentials.enable_1m_context {
-            request = request.header("anthropic-beta", "context-1m-2025-08-07");
-        }
 
         // Add authentication headers
         if let Some(api_key) = credentials.api_key {
@@ -445,10 +418,6 @@ impl AIRequestConfig {
                 request = request.header("x-goog-api-key", api_key.clone())
             } else {
                 request = request.header("authorization", format!("Bearer {}", api_key.clone()))
-            }
-            // For standard Anthropic API, also add X-API-Key header (but not for Vertex AI)
-            if is_anthropic && !is_anthropic_vertex {
-                request = request.header("X-API-Key", api_key);
             }
         }
 
@@ -556,36 +525,6 @@ impl AIConfig {
             .as_ref()
             .is_some_and(|providers| !providers.is_empty())
     }
-}
-
-/// Anthropic API version for Google Vertex AI
-const ANTHROPIC_VERSION_VERTEX: &str = "vertex-2023-10-16";
-
-/// Transforms an Anthropic request for Google Vertex AI:
-/// - Extracts the model from the body (needed for the URL)
-/// - Adds anthropic_version to the body
-fn transform_anthropic_for_vertex(body: &Bytes) -> Result<(String, Bytes)> {
-    let mut json_body: HashMap<String, serde_json::Value> = serde_json::from_slice(body)
-        .map_err(|e| Error::internal_err(format!("Failed to parse Anthropic request: {}", e)))?;
-
-    // Extract and remove model from body
-    let model = json_body
-        .remove("model")
-        .and_then(|v| v.as_str().map(|s| s.to_string()))
-        .ok_or_else(|| {
-            Error::BadRequest("Missing 'model' field in Anthropic request".to_string())
-        })?;
-
-    // Add anthropic_version to body (required for Vertex AI)
-    json_body.insert(
-        "anthropic_version".to_string(),
-        serde_json::Value::String(ANTHROPIC_VERSION_VERTEX.to_string()),
-    );
-
-    let transformed_body = serde_json::to_vec(&json_body)
-        .map_err(|e| Error::internal_err(format!("Failed to serialize Vertex request: {}", e)))?;
-
-    Ok((model, Bytes::from(transformed_body)))
 }
 
 // FIM (Fill-in-the-Middle) simulation for providers that don't support native FIM
@@ -726,7 +665,7 @@ async fn global_proxy(
 
     let base_url = provider.get_base_url(None, &db).await?;
 
-    let request = if supports_openai_compatible_proxy(&provider) {
+    let request = if supports_query_builder_proxy(&provider) {
         let credentials = ProviderCredentials {
             provider: provider.clone(),
             base_url,
@@ -752,30 +691,11 @@ async fn global_proxy(
         })?;
         proxy_request_to_request_builder(proxy_request)
     } else {
-        let is_anthropic = provider.is_anthropic();
-        let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
-
-        let url = if is_anthropic_sdk {
-            let truncated_base_url = base_url.trim_end_matches("/v1");
-            format!("{}/{}", truncated_base_url, ai_path)
-        } else {
-            format!("{}/{}", base_url, ai_path)
-        };
-
+        let url = format!("{}/{}", base_url, ai_path);
         let mut request = HTTP_CLIENT
             .request(method, url)
             .header("content-type", "application/json")
             .header("Authorization", format!("Bearer {}", &api_key));
-
-        if is_anthropic {
-            request = request.header("X-API-Key", &api_key);
-        }
-
-        for (header_name, header_value) in headers.iter() {
-            if header_name.to_string().starts_with("anthropic-") {
-                request = request.header(header_name, header_value);
-            }
-        }
 
         // Apply custom headers from AI_HTTP_HEADERS environment variable
         for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
@@ -1100,7 +1020,7 @@ async fn proxy(
         ));
     }
 
-    let request = if supports_openai_compatible_proxy(&provider) {
+    let request = if supports_query_builder_proxy(&provider) {
         let credentials = request_config.into_provider_credentials(provider.clone());
         let query_builder = create_proxy_query_builder(&credentials);
         let proxy_request = query_builder.build_proxy_request(&ProxyBuildArgs {

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO background_task_state (name, value)\n             SELECT $1, jsonb_build_object(\n                        'last_xmin', txid_snapshot_xmin(txid_current_snapshot())::bigint,\n                        'last_ts', '1970-01-01T00:00:00+00:00')\n             WHERE NOT EXISTS (SELECT 1 FROM global_settings WHERE name = $2)\n             ON CONFLICT (name) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8192986cd6106ed060b3d68dbc21e5bb34f5e68a5c6ac455a9d423188af77b23"
+}

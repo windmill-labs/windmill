@@ -123,11 +123,19 @@
 
 	export async function openCustomerPortal() {
 		opening = true
+		const newWindow = window.open('', '_blank')
 		try {
 			const url = await SettingService.createCustomerPortalSession({
 				licenseKey: $values['license_key'] || undefined
 			})
-			window.open(url, '_blank')
+			if (newWindow) {
+				newWindow.location.href = url
+			} else {
+				window.location.href = url
+			}
+		} catch (err) {
+			newWindow?.close()
+			throw err
 		} finally {
 			opening = false
 		}
