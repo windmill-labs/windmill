@@ -3633,6 +3633,10 @@ struct Preview {
     format: Option<String>,
     flow_path: Option<String>,
     modules: Option<HashMap<String, ScriptModule>>,
+    /// Map of relative-import script path -> temp storage hash. When set, the
+    /// preview job resolves those imports from not-yet-deployed local content
+    /// (uploaded to raw_script_temp) instead of the deployed script.
+    temp_script_refs: Option<HashMap<String, String>>,
 }
 
 #[cfg(feature = "run_inline")]
@@ -3661,6 +3665,10 @@ struct PreviewFlow {
     args: Option<HashMap<String, Box<JsonRawValue>>>,
     tag: Option<String>,
     restarted_from: Option<RestartedFrom>,
+    /// Map of relative-import script path -> temp storage hash. Propagated to
+    /// each flow step so inline-script relative imports resolve from
+    /// not-yet-deployed local content instead of the deployed script.
+    temp_script_refs: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -5662,6 +5670,12 @@ async fn run_preview_script(
     if let Some(ref modules) = preview.modules {
         extra.insert("_MODULES".to_string(), to_raw_value(modules));
     }
+    if let Some(ref temp_script_refs) = preview.temp_script_refs {
+        extra.insert(
+            "_TEMP_SCRIPT_REFS".to_string(),
+            to_raw_value(temp_script_refs),
+        );
+    }
     let extra = if extra.is_empty() { None } else { Some(extra) };
     let push_args = PushArgs { extra, args: &preview_args };
 
@@ -6668,6 +6682,14 @@ async fn run_preview_flow_job(
         .and_then(|args| args.get("user_message"))
         .cloned();
 
+    let mut flow_args = raw_flow.args.unwrap_or_default();
+    if let Some(ref temp_script_refs) = raw_flow.temp_script_refs {
+        flow_args.insert(
+            "_TEMP_SCRIPT_REFS".to_string(),
+            to_raw_value(temp_script_refs),
+        );
+    }
+
     let (uuid, mut tx) = push(
         &db,
         tx,
@@ -6677,7 +6699,7 @@ async fn run_preview_flow_job(
             path: raw_flow.path,
             restarted_from: raw_flow.restarted_from,
         },
-        PushArgs::from(&raw_flow.args.unwrap_or_default()),
+        PushArgs::from(&flow_args),
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
