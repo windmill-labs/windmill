@@ -891,22 +891,71 @@ mod tests {
         assert_eq!(sql_single_quote("'; DROP"), "''; DROP");
     }
 
-    // End-to-end: the generated SQL must be accepted by the bundled DuckDB
-    // version, and the no-spill behavior must actually hold — an oversized
-    // query must fail as a job-scoped error, not silently spill to disk.
-    // This test owns DUCKDB_MEMORY_LIMIT (no other test reads it).
+    // Integration: showcases the fix WITH vs WITHOUT, holding everything
+    // constant except whether `configure_duckdb_resource_limits` ran. Same
+    // tight memory_limit and same oversized query in both branches, so the
+    // ONLY variable is the spill-disable + allocator levers the fix adds. This
+    // isolates exactly what the fix changes about an oversized query's
+    // outcome; the cgroup-derived limit value itself is covered by the
+    // `duckdb_memory_limit_*` unit tests.
+    //
+    // This test owns DUCKDB_MEMORY_LIMIT and runs both branches sequentially
+    // (single owner) so parallel test execution can't race on the env var.
+    //
+    // Deliberately NOT asserted: actual RSS reclamation from
+    // `allocator_background_threads` is timing/OS-dependent and would be
+    // flaky — we assert the setting is enabled only with the fix; the
+    // RSS-plateau check is a manual/field step (see the PR test plan).
     #[test]
-    fn configure_resource_limits_applies_to_real_connection() {
+    fn no_spill_fix_works_with_and_not_without() {
+        // A 6M-row equi-join: its hash table is well over 100 MiB, far above
+        // the 64 MiB limit, so it cannot complete without either spilling to
+        // disk or erroring — making the with/without outcomes diverge.
+        const OVERSIZED: &str = "SELECT count(*) FROM range(6000000) t1(a) \
+             JOIN range(6000000) t2(b) ON t1.a = t2.b";
+        fn run_oversized(conn: &duckdb::Connection) -> duckdb::Result<i64> {
+            conn.query_row(OVERSIZED, [], |r| r.get::<_, i64>(0))
+        }
+
+        // ---- WITHOUT the fix: DuckDB's default spill-enabled behavior ----
+        // Same tight memory_limit, but spill still on (DuckDB defaults an
+        // in-memory DB at `.tmp`; pointed at a tempdir only to avoid CWD
+        // pollution — semantically the un-fixed default).
+        let spill_dir = std::env::temp_dir().join("wm_duckdb_without_fix_spill");
+        let _ = std::fs::create_dir_all(&spill_dir);
+        {
+            let conn = duckdb::Connection::open_in_memory().unwrap();
+            conn.execute_batch(&format!(
+                "SET memory_limit='64MiB'; SET temp_directory='{}';",
+                spill_dir.to_string_lossy()
+            ))
+            .unwrap();
+
+            let alloc: String = conn
+                .query_row(
+                    "SELECT current_setting('allocator_background_threads')::VARCHAR",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(alloc, "false", "baseline: allocator release should be off");
+
+            // The same oversized query SUCCEEDS — because it silently spills.
+            let n = run_oversized(&conn)
+                .expect("without the fix the oversized query should spill and succeed");
+            assert_eq!(n, 6_000_000, "spilled query should still be correct");
+        }
+        let _ = std::fs::remove_dir_all(&spill_dir);
+
+        // ---- WITH the fix: configure_duckdb_resource_limits ----
         unsafe {
             std::env::set_var("DUCKDB_MEMORY_LIMIT", "64MiB");
         }
-
         let conn = duckdb::Connection::open_in_memory().unwrap();
         configure_duckdb_resource_limits(&conn)
             .expect("DuckDB rejected the generated resource-limit SQL");
 
-        // The allocator-release lever must be accepted by this DuckDB version
-        // and actually enabled (cast to VARCHAR: it is a BOOLEAN setting).
+        // All three levers flip on only with the fix.
         let alloc: String = conn
             .query_row(
                 "SELECT current_setting('allocator_background_threads')::VARCHAR",
@@ -914,7 +963,10 @@ mod tests {
                 |r| r.get(0),
             )
             .expect("allocator_background_threads not supported by bundled DuckDB");
-        assert_eq!(alloc, "true", "allocator_background_threads not enabled");
+        assert_eq!(
+            alloc, "true",
+            "allocator release must be enabled with the fix"
+        );
 
         let mem: String = conn
             .query_row("SELECT current_setting('memory_limit')", [], |r| r.get(0))
@@ -924,8 +976,6 @@ mod tests {
             "unexpected memory_limit: {mem}"
         );
 
-        // Spill must be disabled: temp_directory cleared to empty (this DuckDB
-        // version otherwise defaults an in-memory DB to `.tmp`).
         let temp_dir: String = conn
             .query_row("SELECT current_setting('temp_directory')", [], |r| r.get(0))
             .unwrap();
@@ -934,16 +984,10 @@ mod tests {
             "temp_directory must be empty (spill disabled)"
         );
 
-        // Behavioral proof: a query whose hash table far exceeds 64 MiB must
-        // ERROR (job-scoped) rather than succeed by spilling to disk.
-        let oversized = conn.query_row(
-            "SELECT count(*) FROM range(20000000) t1(a) \
-             JOIN range(20000000) t2(b) ON t1.a = t2.b",
-            [],
-            |r| r.get::<_, i64>(0),
-        );
-        let err = oversized
-            .expect_err("oversized query unexpectedly succeeded — it spilled to disk?")
+        // The SAME oversized query now FAILS as a job-scoped error instead of
+        // silently spilling — the worker survives, only this query dies.
+        let err = run_oversized(&conn)
+            .expect_err("with the fix the oversized query must error, not spill")
             .to_string()
             .to_lowercase();
         assert!(
