@@ -27,6 +27,11 @@ export async function pullProtectionRules(
   opts: PullOpts,
   workspaceArg?: string,
 ) {
+  // In JSON mode stdout must be exactly one JSON payload. Silence human logs
+  // (log.info/warn → stdout) here, before anything that logs (readConfigFile,
+  // workspace resolution). log.error still goes to stderr.
+  if (opts.jsonOutput) log.setSilent(true);
+
   const prPath = getProtectionRulesPath();
   if (!prPath) {
     fail(opts, {
