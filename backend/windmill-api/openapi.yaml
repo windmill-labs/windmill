@@ -21064,6 +21064,9 @@ components:
         mount_path:
           type: string
           description: KV v2 secrets engine mount path (e.g., windmill)
+        kv_secret_path_prefix:
+          type: string
+          description: Optional path prefix inserted between the KV data/metadata segment and the workspace id (e.g., "apps/windmill"). When set, secrets are stored at `<mount>/data/<prefix>/<workspace>/<secret>`, allowing a Vault policy scoped to exactly `<mount>/data/<prefix>/*`.
         jwt_role:
           type: string
           description: Vault JWT auth role name for Windmill (optional, if not provided token auth is used)
