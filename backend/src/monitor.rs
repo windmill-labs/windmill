@@ -354,6 +354,16 @@ pub async fn initial_load(
         reload_retention_period_setting(&conn).await;
         reload_audit_log_retention_days_setting(&conn).await;
         reload_store_audit_logs_s3_setting(&conn).await;
+        // Env-var enable has no settings-row xmin and no runtime enable event;
+        // anchor the export cursor at startup so rows committed before the
+        // first export tick are not skipped (no-op when a settings row exists
+        // or a checkpoint is already present).
+        #[cfg(feature = "parquet")]
+        if STORE_AUDIT_LOGS_S3.load(std::sync::atomic::Ordering::Relaxed) {
+            if let Some(db) = conn.as_sql() {
+                anchor_audit_logs_s3_checkpoint_env_var(&db).await;
+            }
+        }
         reload_request_size(&conn).await;
         reload_saml_metadata_setting(&conn).await;
         reload_scim_token_setting(&conn).await;
@@ -4083,6 +4093,38 @@ async fn audit_log_retention_days() -> i64 {
     }
 }
 
+/// Anchors the export cursor at process startup for the **env-var enable**
+/// path only (`STORE_AUDIT_LOGS_S3=true` with no `store_audit_logs_s3`
+/// settings row). There is no settings-row xmin to anchor from and no runtime
+/// enable event, so without this the exporter's first tick would fall back to
+/// the *current* snapshot xmin and skip every audit row committed between
+/// process start and that first (~60s-later, or longer if object storage is
+/// down) tick.
+///
+/// The `WHERE NOT EXISTS (store_audit_logs_s3)` guard means this never fires
+/// when the setting is persisted (UI/API enable) — there the exporter's
+/// first-run uses the precise settings-row xmin instead. `ON CONFLICT DO
+/// NOTHING` makes it idempotent / HA-safe (first node wins) and it never
+/// overwrites, so a disable/re-enable still resumes from the preserved cursor.
+#[cfg(feature = "parquet")]
+async fn anchor_audit_logs_s3_checkpoint_env_var(db: &DB) {
+    if let Err(e) = sqlx::query!(
+        "INSERT INTO global_settings (name, value)
+         SELECT $1, jsonb_build_object(
+                    'last_xmin', txid_snapshot_xmin(txid_current_snapshot())::bigint,
+                    'last_ts', now()::text)
+         WHERE NOT EXISTS (SELECT 1 FROM global_settings WHERE name = $2)
+         ON CONFLICT (name) DO NOTHING",
+        windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING,
+        windmill_common::global_settings::STORE_AUDIT_LOGS_S3_SETTING
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("audit s3 export: failed to anchor checkpoint at startup: {e:#}");
+    }
+}
+
 /// Incrementally exports audit logs to a dedicated `logs/audit/` folder in the
 /// instance object store as newline-delimited JSON.
 ///
@@ -4529,7 +4571,11 @@ mod audit_s3_export_tests {
     //  - enable-flow: with the first-run boundary = the enable txn's xid,
     //    rows committed after the setting write but before the first export
     //    tick are exported, and pre-enable rows are not (CI-found
-    //    first-enable skip).
+    //    first-enable skip); incl. an old-timestamped backlog row that the
+    //    pruning floor must not drop.
+    //  - env-var enable: with no settings row, the startup anchor exports
+    //    rows committed after startup but before the first tick (CI-found
+    //    env-var skip).
     #[sqlx::test(migrations = "./migrations")]
     async fn audit_export_end_to_end(db: DB) -> anyhow::Result<()> {
         STORE_AUDIT_LOGS_S3.store(true, Ordering::Relaxed);
@@ -4721,6 +4767,42 @@ mod audit_s3_export_tests {
         assert!(
             !got.contains(&pre_enable),
             "rows committed before the enable write must NOT be backfilled: {got:?}"
+        );
+
+        // --- env-var enable regression (CI-found): no settings row, anchor at
+        // startup so rows committed before the first export tick aren't lost.
+        sqlx::query("DELETE FROM global_settings WHERE name = ANY($1)")
+            .bind(vec![
+                windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING.to_string(),
+                windmill_common::global_settings::STORE_AUDIT_LOGS_S3_SETTING.to_string(),
+            ])
+            .execute(&db)
+            .await?;
+        clear_store().await;
+        let store = install_in_memory_store().await;
+
+        let before_startup = insert_audit(&db, "envvar.before.startup").await;
+
+        // Process startup with STORE_AUDIT_LOGS_S3=true and no settings row.
+        anchor_audit_logs_s3_checkpoint_env_var(&db).await;
+        assert!(
+            checkpoint_last_xmin(&db).await.is_some(),
+            "env-var startup anchors the checkpoint (no settings row present)"
+        );
+
+        // Rows committed after startup but before the first export tick.
+        let s1 = insert_audit(&db, "envvar.after.startup.1").await;
+        let s2 = insert_audit(&db, "envvar.after.startup.2").await;
+
+        export_audit_logs_to_object_store(&db).await;
+        let got = exported_ids(&store).await;
+        assert!(
+            got.contains(&s1) && got.contains(&s2),
+            "env-var: rows committed after startup but before first tick must be exported: {got:?}"
+        );
+        assert!(
+            !got.contains(&before_startup),
+            "env-var: rows committed before the startup anchor must NOT be backfilled: {got:?}"
         );
 
         clear_store().await;
