@@ -60,6 +60,7 @@ import {
 	type ToolCallbacks,
 	type ToolDisplayAction
 } from '../shared'
+import type { ContextElement } from '../context'
 import {
 	resourceRequestSchema,
 	scheduleRequestSchema,
@@ -109,6 +110,18 @@ const getInstructionsSchema = z.object({
 		.describe(
 			'Required when subject is script. Use the existing script language when modifying, or the requested target language when creating.'
 		)
+})
+
+const askUserQuestionSchema = z.object({
+	question: z
+		.string()
+		.min(1)
+		.describe('The concise question to show to the user before continuing.'),
+	choices: z
+		.array(z.string().min(1).describe('Short answer text shown to the user and returned as-is.'))
+		.min(2)
+		.max(6)
+		.describe('Two to six mutually exclusive answer strings.')
 })
 
 const listWorkspaceItemsSchema = z.object({
@@ -469,6 +482,7 @@ Important rules:
 - Use search_resource_types before write_resource to discover the resource_type name and the JSON Schema its value must match.
 - Use get_instructions before writing a script, flow, resource, or app. For scripts, pass the target language; when modifying, use the language from the item you read.
 - Schedules, triggers, and variables do not need get_instructions — their tool schemas describe every field.
+- When a required decision is ambiguous, use askUserQuestion with two to six clear answer strings instead of guessing.
 - A workspace item is { type, path, summary?, language?, triggerKind?, value, isDraft }. For scripts, value is the source code string. For flows, read_workspace_item returns value as the compact flow object { modules, schema, preprocessor_module, failure_module, groups }; write_flow takes the same flow fields as top-level tool arguments plus path/summary. For schedules/triggers/resources/variables, value is the full request body for that type. For apps, value is { files, runnables, data?, policy?, custom_path? } with frontend file contents and backend runnable definitions.
 - Apps (raw apps): use list_workspace_items with types: ['app'] to find them, read_workspace_item with type 'app' for a metadata summary (file paths + runnable list, no contents), then read_app_file to read individual files. Edit with write_app_file / patch_app_file / delete_app_file for frontend files and write_app_runnable / delete_app_runnable for backend runnables. Frontend file paths start with "/" (e.g. /index.tsx). Backend inline runnables are addressed as "backend/<key>/main.{ts|py}". /wmill.d.ts is generated and cannot be written.
 - To create a new raw app, use init_app. Before calling it, confirm framework (react19 / react18 / svelte5 / vue), path, and summary with the user — do not silently default to react19, even though it is the recommended choice.
@@ -1203,6 +1217,60 @@ export const globalTools: Tool<{}>[] = [
 					: parsed.subject
 			toolCallbacks.setToolStatus(toolId, { content: `Loaded ${label} instructions` })
 			return getInstructions(parsed.subject, parsed.language)
+		}
+	},
+	{
+		def: createToolDef(
+			askUserQuestionSchema,
+			'askUserQuestion',
+			'Ask the user a multiple-choice question and wait for their selection before continuing.'
+		),
+		fn: async ({ args, toolId, toolCallbacks }) => {
+			const parsed = askUserQuestionSchema.parse(args)
+			const userQuestion = {
+				question: parsed.question,
+				choices: parsed.choices
+			}
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: parsed.question,
+				userQuestion,
+				isLoading: true
+			})
+
+			if (!toolCallbacks.requestUserQuestion) {
+				const message = 'This chat context cannot ask interactive questions.'
+				toolCallbacks.setToolStatus(toolId, {
+					content: message,
+					userQuestion: { ...userQuestion, canceled: true },
+					isLoading: false,
+					error: message
+				})
+				return JSON.stringify({ success: false, error: message })
+			}
+
+			const selectedChoice = await toolCallbacks.requestUserQuestion(toolId, userQuestion)
+			if (!selectedChoice) {
+				const message = 'Question cancelled by user'
+				toolCallbacks.setToolStatus(toolId, {
+					content: message,
+					userQuestion: { ...userQuestion, canceled: true },
+					isLoading: false,
+					error: message
+				})
+				return JSON.stringify({ success: false, error: message })
+			}
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: `User answered question: ${selectedChoice}`,
+				userQuestion: {
+					...userQuestion,
+					selectedChoice
+				},
+				result: selectedChoice,
+				isLoading: false
+			})
+			return selectedChoice
 		}
 	},
 	{
@@ -2413,9 +2481,27 @@ export function prepareGlobalSystemMessage(
 	}
 }
 
-export function prepareGlobalUserMessage(instructions: string): ChatCompletionUserMessageParam {
+export function prepareGlobalUserMessage(
+	instructions: string,
+	selectedContext: ContextElement[] = []
+): ChatCompletionUserMessageParam {
+	const selectedWorkspaceItems = selectedContext.filter(
+		(context) => context.type === 'workspace_script' || context.type === 'workspace_flow'
+	)
+	let content = ''
+
+	if (selectedWorkspaceItems.length > 0) {
+		content += '## SELECTED CONTEXT\n'
+		for (const context of selectedWorkspaceItems) {
+			content += `- type: ${context.type === 'workspace_script' ? 'script' : 'flow'}, path: ${context.path}\n`
+		}
+		content += '\n'
+	}
+
+	content += `## INSTRUCTIONS:\n${instructions}`
+
 	return {
 		role: 'user',
-		content: instructions
+		content
 	}
 }

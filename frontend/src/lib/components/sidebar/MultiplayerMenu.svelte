@@ -15,6 +15,14 @@
 	let wsProvider: WebsocketProvider | undefined = undefined
 
 	let connected = $state(false)
+
+	function updateLocalState() {
+		if (!awareness || !$userStore?.username) return
+		awareness.setLocalState({
+			name: $userStore.username,
+			url: $page.url.pathname
+		})
+	}
 	async function connectWorkspace(workspace: string) {
 		let token: string | undefined
 		try {
@@ -34,15 +42,14 @@
 
 		awareness = wsProvider.awareness
 
-		awareness?.setLocalState({
-			name: $userStore?.username,
-			url: $page.url.pathname
-		})
+		updateLocalState()
 
 		function setPeers() {
 			if (!awareness) return
 			$awarenessStore = Object.fromEntries(
-				Array.from(awareness.getStates().values()).map((x) => [x.name, x.url])
+				Array.from(awareness.getStates().values())
+					.filter((x) => x.name)
+					.map((x) => [x.name, x.url])
 			)
 		}
 
@@ -53,14 +60,17 @@
 		})
 	}
 	run(() => {
-		awareness?.setLocalState({
-			name: $userStore?.username,
-			url: $page.url.pathname
-		})
+		updateLocalState()
 	})
 	run(() => {
 		$enterpriseLicense && $workspaceStore && connectWorkspace($workspaceStore)
 	})
+
+	let peers = $derived(
+		Object.entries($awarenessStore ?? {}).filter(
+			([user]) => user && user !== 'undefined' && user !== 'null'
+		)
+	)
 
 	function showActivity(url: string) {
 		if (url.startsWith('/scripts/add')) {
@@ -97,7 +107,7 @@
 	<div class="divide-gray-100 border-t" role="none">
 		<div class="px-2 text-xs text-secondary font-normal mt-1">Live activity</div>
 		<div class="py-1 flex flex-col gap-y-1 max-h-48 overflow-auto" transition:slide>
-			{#each Object.entries($awarenessStore ?? {}) as [user, url]}
+			{#each peers as [user, url] (user)}
 				<div class="inline-flex gap-2 px-2 items-center">
 					<span
 						class="inline-flex h-6 w-6 px-1 items-center justify-center rounded-full ring-2 ring-white bg-gray-600"
