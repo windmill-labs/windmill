@@ -1,23 +1,22 @@
 <script lang="ts">
 	import AppAvailableContextList from './AppAvailableContextList.svelte'
+	import AvailableContextList from './AvailableContextList.svelte'
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import ContextTextarea from './ContextTextarea.svelte'
 	import autosize from '$lib/autosize'
 	import type { ContextElement } from './context'
-	import {
-		AIChatManager,
-		aiChatManager as singletonAiChatManager,
-		AIMode
-	} from './AIChatManager.svelte'
+	import { AIMode } from './AIChatManager.svelte'
+	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
 	import { twMerge } from 'tailwind-merge'
-	import { getContext, tick, untrack, type Snippet } from 'svelte'
+	import { tick, untrack, type Snippet } from 'svelte'
 	import Portal from '$lib/components/Portal.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import { ArrowUp, Square } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
-
-	const aiChatManager = getContext<AIChatManager>('aiChatManager') ?? singletonAiChatManager
 	import { sendUserToast } from '$lib/toast'
+
+	const aiChatManager = getAiChatManager()
 
 	interface Props {
 		availableContext: ContextElement[]
@@ -443,6 +442,57 @@
 	/>
 {/snippet}
 
+{#snippet contextPickerRow()}
+	<div class="flex flex-row items-center gap-1 mt-1 overflow-scroll no-scrollbar">
+		<Popover>
+			{#snippet trigger()}
+				<div
+					class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
+					title="Add context"
+				>
+					@
+				</div>
+			{/snippet}
+			{#snippet content({ close })}
+				{#if isContextEnabledMode}
+					<AvailableContextList
+						{availableContext}
+						{selectedContext}
+						onSelect={(element) => {
+							void addContextToSelection(element)
+							close()
+						}}
+						onSelectWorkspaceItem={(element) => {
+							void addContextToSelection(element)
+							close()
+						}}
+					/>
+				{:else}
+					<AppAvailableContextList
+						{availableContext}
+						{selectedContext}
+						onSelect={(element) => {
+							void addContextToSelection(element)
+							close()
+						}}
+					/>
+				{/if}
+			{/snippet}
+		</Popover>
+		{#each selectedContext as element (element.type + '-' + element.title)}
+			<ContextElementBadge
+				contextElement={element}
+				deletable
+				onDelete={() => {
+					selectedContext = selectedContext?.filter(
+						(c) => c.type !== element.type || c.title !== element.title
+					)
+				}}
+			/>
+		{/each}
+	</div>
+{/snippet}
+
 <div use:clickOutside class="relative mt-1">
 	{#if isContextEnabledMode}
 		<div class="relative">
@@ -467,20 +517,8 @@
 				{@render sendStopButton()}
 			</div>
 		</div>
-		{#if showContext && selectedContext.length > 0}
-			<div class="flex flex-row items-center gap-1 mt-1 overflow-scroll no-scrollbar">
-				{#each selectedContext as element (element.type + '-' + element.title)}
-					<ContextElementBadge
-						contextElement={element}
-						deletable
-						onDelete={() => {
-							selectedContext = selectedContext?.filter(
-								(c) => c.type !== element.type || c.title !== element.title
-							)
-						}}
-					/>
-				{/each}
-			</div>
+		{#if showContext}
+			{@render contextPickerRow()}
 		{/if}
 	{:else if aiChatManager.mode === AIMode.APP}
 		<div class={twMerge('relative w-full scroll-pb-2', className)}>
@@ -512,27 +550,15 @@
 				}}
 				rows={1}
 				placeholder={modePlaceholder}
-				class="resize-none !pl-3 !pr-10 !py-2"
+				class={twMerge('resize-none', CHAT_INPUT_PADDING)}
 				{disabled}
-			></textarea>test
+			></textarea>
 			<div class="absolute bottom-1 right-1">
 				{@render sendStopButton()}
 			</div>
 		</div>
-		{#if showContext && selectedContext.length > 0}
-			<div class="flex flex-row items-center gap-1 mt-1 overflow-scroll no-scrollbar">
-				{#each selectedContext as element (element.type + '-' + element.title)}
-					<ContextElementBadge
-						contextElement={element}
-						deletable
-						onDelete={() => {
-							selectedContext = selectedContext?.filter(
-								(c) => c.type !== element.type || c.title !== element.title
-							)
-						}}
-					/>
-				{/each}
-			</div>
+		{#if showContext}
+			{@render contextPickerRow()}
 		{/if}
 		{#if showAppContextTooltip}
 			<Portal target="body">
@@ -576,7 +602,7 @@
 				}}
 				rows={1}
 				placeholder={modePlaceholder}
-				class="resize-none !pl-3 !pr-10 !py-2"
+				class={twMerge('resize-none', CHAT_INPUT_PADDING)}
 				{disabled}
 			></textarea>
 			<div class="absolute bottom-1 right-1">

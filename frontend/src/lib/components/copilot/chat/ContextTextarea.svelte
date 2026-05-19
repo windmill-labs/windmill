@@ -6,6 +6,7 @@
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import { twMerge } from 'tailwind-merge'
+	import { CHAT_INPUT_PADDING } from './aiChatManagerContext'
 
 	interface Props {
 		value: string
@@ -302,7 +303,8 @@
 <div class="relative w-full scroll-pb-2 bg-surface">
 	<div
 		class={twMerge(
-			'textarea-input absolute top-0 left-0 pointer-events-none !pl-3 !pr-10 !py-2',
+			'textarea-input absolute top-0 left-0 pointer-events-none',
+			CHAT_INPUT_PADDING,
 			className
 		)}
 	>
@@ -328,7 +330,8 @@
 		}}
 		{placeholder}
 		class={twMerge(
-			'textarea-input resize-none bg-transparent caret-black dark:caret-white overflow-clip !pl-3 !pr-10 !py-2',
+			'textarea-input resize-none bg-transparent caret-black dark:caret-white overflow-clip',
+			CHAT_INPUT_PADDING,
 			className
 		)}
 		style={value.length > 0 ? 'color: transparent; -webkit-text-fill-color: transparent;' : ''}

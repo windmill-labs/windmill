@@ -14,15 +14,11 @@
 		typescript,
 		yaml
 	} from 'svelte-highlight/languages'
-	import { getContext } from 'svelte'
-	import {
-		AIChatManager,
-		aiChatManager as singletonAiChatManager,
-		AIMode
-	} from '../AIChatManager.svelte'
+	import { AIMode } from '../AIChatManager.svelte'
+	import { getAiChatManager } from '../aiChatManagerContext'
 	import { Check, Play } from 'lucide-svelte'
 
-	const aiChatManager = getContext<AIChatManager>('aiChatManager') ?? singletonAiChatManager
+	const aiChatManager = getAiChatManager()
 
 	const astNode = getAstNode()
 
