@@ -515,7 +515,7 @@ async fn route_job(
     match trigger.request_type {
         RequestType::SyncSse => {
             // Trigger the job (always async when streaming)
-            let (uuid, _, early_return, _) = trigger_runnable_inner(
+            let (uuid, _, early_return, has_failure_module, _) = trigger_runnable_inner(
                 &db,
                 None,
                 Some(user_db.clone()),
@@ -564,6 +564,7 @@ async fn route_job(
                 tx,
                 None,
                 early_return,
+                has_failure_module,
             );
 
             let body = axum::body::Body::from_stream(
