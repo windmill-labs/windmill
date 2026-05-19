@@ -369,6 +369,11 @@
 			} catch (e) {
 				const message = e?.body ?? e?.message ?? 'Unknown error'
 				searchError = message
+				// Drop any results from a previous successful search so the error
+				// isn't shown alongside stale matches/counts for the old query.
+				logs = undefined
+				countsPerHost = undefined
+				sumOtherDocCount = 0
 				sendUserToast('Service logs search failed: ' + message, true)
 				console.error(e)
 			} finally {

@@ -61,9 +61,14 @@
 		text: string
 		hint?: string
 	} {
-		// Fall back to is_alive for backends that predate the `state` field.
-		const state = entry?.state ?? (entry?.is_alive ? 'running' : undefined)
-		switch (state) {
+		// Backends that predate the `state` field only report `is_alive`: keep the
+		// prior Running / Stopped signal instead of falling through to "Unknown".
+		if (entry?.state == null) {
+			return entry?.is_alive
+				? { label: 'Running', dot: 'bg-green-500', text: 'text-green-600 dark:text-green-400' }
+				: { label: 'Stopped', dot: 'bg-red-500', text: 'text-red-600 dark:text-red-400' }
+		}
+		switch (entry.state) {
 			case 'running':
 				return { label: 'Running', dot: 'bg-green-500', text: 'text-green-600 dark:text-green-400' }
 			case 'stale':
