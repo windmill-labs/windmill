@@ -86,6 +86,7 @@
 
 <script lang="ts">
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { untrack } from 'svelte'
 
@@ -361,18 +362,17 @@
 				{cycleMode ? 'Tab to cycle' : 'Tab'}
 			</span>
 			{#each displayedOptions as opt, i (opt.name)}
-				<button
+				<Badge
+					clickable
+					selected={i === displayedActiveIndex}
+					class="font-mono transition-colors"
 					type="button"
-					tabindex="-1"
-					onmousedown={(e) => e.preventDefault()}
+					tabindex={-1}
+					onmousedown={(e: MouseEvent) => e.preventDefault()}
 					onclick={() => selectOption(opt)}
-					class="px-1.5 py-0 rounded border text-[11px] font-mono leading-5 transition-colors
-						{i === displayedActiveIndex
-						? 'border-border-selected bg-surface-selected text-primary'
-						: 'border-border-light bg-surface-secondary text-secondary hover:border-border-selected'}"
 				>
 					{opt.name}/
-				</button>
+				</Badge>
 			{/each}
 		</div>
 	{/if}
