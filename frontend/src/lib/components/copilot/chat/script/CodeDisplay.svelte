@@ -14,8 +14,15 @@
 		typescript,
 		yaml
 	} from 'svelte-highlight/languages'
-	import { aiChatManager, AIMode } from '../AIChatManager.svelte'
+	import { getContext } from 'svelte'
+	import {
+		AIChatManager,
+		aiChatManager as singletonAiChatManager,
+		AIMode
+	} from '../AIChatManager.svelte'
 	import { Check, Play } from 'lucide-svelte'
+
+	const aiChatManager = getContext<AIChatManager>('aiChatManager') ?? singletonAiChatManager
 
 	const astNode = getAstNode()
 
@@ -101,7 +108,7 @@
 	}
 </script>
 
-<div class="flex flex-col gap-0.5 rounded-lg relative not-prose">
+<div class="flex flex-col gap-0.5 rounded-lg relative not-prose !text-xs">
 	<div
 		class="relative w-full border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden"
 	>
