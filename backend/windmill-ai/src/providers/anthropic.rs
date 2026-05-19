@@ -1,13 +1,15 @@
 use crate::{
     ai_google::parse_data_url,
-    ai_providers::AIProvider,
+    ai_providers::{AIPlatform, AIProvider},
     image_handler::prepare_messages_for_api,
+    proxy::{add_user_to_body, ProxyBuildArgs, ProxyRequest},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
     sse::{AnthropicSSEParser, SSEParser},
     types::*,
-    utils::{extract_text_content, should_use_structured_output_tool},
+    utils::{extract_text_content, should_use_structured_output_tool, AI_HTTP_HEADERS},
 };
 use async_trait::async_trait;
+use http::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use windmill_common::{client::AuthedClient, error::Error};
@@ -379,6 +381,117 @@ impl AnthropicQueryBuilder {
         self.platform == AIPlatform::GoogleVertexAi
     }
 
+    fn transform_proxy_body_for_vertex(body: &[u8]) -> Result<(String, Vec<u8>), Error> {
+        let mut json_body: std::collections::HashMap<String, serde_json::Value> =
+            serde_json::from_slice(body).map_err(|e| {
+                Error::internal_err(format!("Failed to parse Anthropic request: {}", e))
+            })?;
+
+        let model = json_body
+            .remove("model")
+            .and_then(|v| v.as_str().map(str::to_string))
+            .ok_or_else(|| {
+                Error::BadRequest("Missing 'model' field in Anthropic request".to_string())
+            })?;
+
+        json_body.insert(
+            "anthropic_version".to_string(),
+            serde_json::Value::String(ANTHROPIC_VERSION_VERTEX.to_string()),
+        );
+
+        let transformed_body = serde_json::to_vec(&json_body).map_err(|e| {
+            Error::internal_err(format!("Failed to serialize Vertex request: {}", e))
+        })?;
+
+        Ok((model, transformed_body))
+    }
+
+    fn build_anthropic_proxy_request(
+        &self,
+        args: &ProxyBuildArgs<'_>,
+    ) -> Result<ProxyRequest, Error> {
+        let credentials = args.credentials;
+        let body = if let Some(user) = credentials.user.as_ref() {
+            add_user_to_body(args.body, user)?
+        } else {
+            args.body.to_vec()
+        };
+
+        let base_url = credentials.base_url.trim_end_matches('/');
+        let is_vertex = self.is_vertex();
+        let is_anthropic_sdk = args.headers.get("X-Anthropic-SDK").is_some();
+
+        let (url, body) = if is_vertex && *args.method != Method::GET {
+            let (model, transformed_body) = Self::transform_proxy_body_for_vertex(&body)?;
+            (
+                format!("{}/{}:streamRawPredict", base_url, model),
+                transformed_body,
+            )
+        } else if is_anthropic_sdk {
+            let truncated_base_url = base_url.trim_end_matches("/v1");
+            (format!("{}/{}", truncated_base_url, args.path), body)
+        } else {
+            (format!("{}/{}", base_url, args.path), body)
+        };
+
+        let mut headers = vec![("content-type".to_string(), "application/json".to_string())];
+
+        for (header_name, header_value) in args.headers.iter() {
+            if header_name.as_str().starts_with("anthropic-") {
+                if is_vertex && header_name.as_str() == "anthropic-version" {
+                    continue;
+                }
+                headers.push((
+                    header_name.as_str().to_string(),
+                    header_value
+                        .to_str()
+                        .map_err(|e| {
+                            Error::BadRequest(format!(
+                                "Invalid Anthropic header value for {}: {}",
+                                header_name, e
+                            ))
+                        })?
+                        .to_string(),
+                ));
+            }
+        }
+
+        if is_anthropic_sdk && credentials.enable_1m_context {
+            headers.push((
+                "anthropic-beta".to_string(),
+                "context-1m-2025-08-07".to_string(),
+            ));
+        }
+
+        if let Some(api_key) = credentials.api_key.as_ref() {
+            headers.push(("authorization".to_string(), format!("Bearer {}", api_key)));
+            if !is_vertex {
+                headers.push(("X-API-Key".to_string(), api_key.clone()));
+            }
+        }
+
+        if let Some(access_token) = credentials.access_token.as_ref() {
+            headers.push((
+                "authorization".to_string(),
+                format!("Bearer {}", access_token),
+            ));
+        }
+
+        if let Some(org_id) = credentials.organization_id.as_ref() {
+            headers.push(("OpenAI-Organization".to_string(), org_id.clone()));
+        }
+
+        for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
+            headers.push((header_name.clone(), header_value.clone()));
+        }
+
+        for (header_name, header_value) in &credentials.custom_headers {
+            headers.push((header_name.clone(), header_value.clone()));
+        }
+
+        Ok(ProxyRequest { method: args.method.clone(), url, headers, body })
+    }
+
     async fn build_text_request(
         &self,
         args: &BuildRequestArgs<'_>,
@@ -510,6 +623,10 @@ impl QueryBuilder for AnthropicQueryBuilder {
         matches!(_output_type, OutputType::Text)
     }
 
+    fn build_proxy_request(&self, args: &ProxyBuildArgs<'_>) -> Result<ProxyRequest, Error> {
+        self.build_anthropic_proxy_request(args)
+    }
+
     async fn build_request(
         &self,
         args: &BuildRequestArgs<'_>,
@@ -605,5 +722,171 @@ impl QueryBuilder for AnthropicQueryBuilder {
             }
             headers
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        proxy::{ProviderCredentials, ProxyBuildArgs},
+        query_builder::QueryBuilder,
+    };
+    use http::{HeaderMap, HeaderValue, Method};
+    use std::collections::HashMap;
+
+    fn credentials(platform: AIPlatform) -> ProviderCredentials {
+        ProviderCredentials {
+            provider: AIProvider::Anthropic,
+            base_url: "https://api.anthropic.com/v1".to_string(),
+            api_key: Some("api-key".to_string()),
+            access_token: None,
+            organization_id: None,
+            user: None,
+            region: None,
+            aws_access_key_id: None,
+            aws_secret_access_key: None,
+            aws_session_token: None,
+            platform,
+            enable_1m_context: false,
+            custom_headers: HashMap::new(),
+        }
+    }
+
+    fn has_header(headers: &[(String, String)], name: &str, value: &str) -> bool {
+        headers
+            .iter()
+            .any(|(header_name, header_value)| header_name == name && header_value == value)
+    }
+
+    #[test]
+    fn builds_standard_anthropic_proxy_request() {
+        let credentials = credentials(AIPlatform::Standard);
+        let builder =
+            AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::Standard, false);
+        let method = Method::POST;
+        let mut headers = HeaderMap::new();
+        headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
+        let body = br#"{"model":"claude-sonnet-4","messages":[]}"#;
+
+        let request = builder
+            .build_proxy_request(&ProxyBuildArgs {
+                method: &method,
+                path: "messages",
+                headers: &headers,
+                body,
+                credentials: &credentials,
+            })
+            .unwrap();
+
+        assert_eq!(request.method, Method::POST);
+        assert_eq!(request.url, "https://api.anthropic.com/v1/messages");
+        assert_eq!(request.body, body.to_vec());
+        assert!(has_header(
+            &request.headers,
+            "authorization",
+            "Bearer api-key"
+        ));
+        assert!(has_header(&request.headers, "X-API-Key", "api-key"));
+        assert!(has_header(
+            &request.headers,
+            "anthropic-version",
+            "2023-06-01"
+        ));
+    }
+
+    #[test]
+    fn builds_anthropic_sdk_proxy_request_with_context_beta() {
+        let mut credentials = credentials(AIPlatform::Standard);
+        credentials.enable_1m_context = true;
+        let builder = AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::Standard, true);
+        let method = Method::POST;
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Anthropic-SDK", HeaderValue::from_static("typescript"));
+        let body = br#"{"model":"claude-sonnet-4","messages":[]}"#;
+
+        let request = builder
+            .build_proxy_request(&ProxyBuildArgs {
+                method: &method,
+                path: "v1/messages",
+                headers: &headers,
+                body,
+                credentials: &credentials,
+            })
+            .unwrap();
+
+        assert_eq!(request.url, "https://api.anthropic.com/v1/messages");
+        assert!(has_header(
+            &request.headers,
+            "anthropic-beta",
+            "context-1m-2025-08-07"
+        ));
+    }
+
+    #[test]
+    fn builds_vertex_anthropic_proxy_request() {
+        let mut credentials = credentials(AIPlatform::GoogleVertexAi);
+        credentials.base_url = "https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/anthropic/models".to_string();
+        credentials.user = Some("user-1".to_string());
+        let builder =
+            AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::GoogleVertexAi, false);
+        let method = Method::POST;
+        let mut headers = HeaderMap::new();
+        headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
+        headers.insert("anthropic-beta", HeaderValue::from_static("some-beta"));
+
+        let request = builder
+            .build_proxy_request(&ProxyBuildArgs {
+                method: &method,
+                path: "messages",
+                headers: &headers,
+                body: br#"{"model":"claude-sonnet-4","messages":[]}"#,
+                credentials: &credentials,
+            })
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+
+        assert_eq!(
+            request.url,
+            "https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/anthropic/models/claude-sonnet-4:streamRawPredict"
+        );
+        assert_eq!(body["anthropic_version"], ANTHROPIC_VERSION_VERTEX);
+        assert_eq!(body["user"], "user-1");
+        assert!(body.get("model").is_none());
+        assert!(has_header(
+            &request.headers,
+            "authorization",
+            "Bearer api-key"
+        ));
+        assert!(!request
+            .headers
+            .iter()
+            .any(|(header_name, _)| header_name == "X-API-Key"));
+        assert!(!request
+            .headers
+            .iter()
+            .any(|(header_name, _)| header_name == "anthropic-version"));
+        assert!(has_header(&request.headers, "anthropic-beta", "some-beta"));
+    }
+
+    #[test]
+    fn rejects_vertex_proxy_request_without_model() {
+        let credentials = credentials(AIPlatform::GoogleVertexAi);
+        let builder =
+            AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::GoogleVertexAi, false);
+        let method = Method::POST;
+        let headers = HeaderMap::new();
+
+        let err = builder
+            .build_proxy_request(&ProxyBuildArgs {
+                method: &method,
+                path: "messages",
+                headers: &headers,
+                body: br#"{"messages":[]}"#,
+                credentials: &credentials,
+            })
+            .unwrap_err();
+
+        assert!(matches!(err, Error::BadRequest(message) if message.contains("Missing 'model'")));
     }
 }
