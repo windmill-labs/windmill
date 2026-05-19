@@ -1,7 +1,7 @@
 import type {
 	CreateResource,
 	CreateVariable,
-	Flow,
+	FlowValue,
 	NewSchedule,
 	NewScript
 } from '$lib/gen/types.gen'
@@ -71,6 +71,10 @@ function clone<T>(value: T): T {
 	return structuredClone(value) as T
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
 function isSharedWorkspaceItemType(type: WorkspaceItemType): type is SharedWorkspaceItemType {
 	return (
 		type === 'script' ||
@@ -103,6 +107,35 @@ function sharedDraftKind(
 	}
 }
 
+function sharedDraftKindsForTypes(types?: readonly WorkspaceItemType[]): UserDraftItemKind[] {
+	if (!types) return [...SHARED_DRAFT_KINDS]
+
+	const itemKinds = new Set<UserDraftItemKind>()
+	for (const type of types) {
+		switch (type) {
+			case 'script':
+			case 'flow':
+			case 'resource':
+			case 'variable':
+				itemKinds.add(type)
+				break
+			case 'app':
+				itemKinds.add('raw_app')
+				break
+			case 'schedule':
+				itemKinds.add('trigger_schedule')
+				break
+			case 'trigger':
+				for (const itemKind of Object.values(TRIGGER_DRAFT_KIND_BY_TRIGGER_KIND)) {
+					itemKinds.add(itemKind)
+				}
+				break
+		}
+	}
+
+	return [...itemKinds]
+}
+
 function normalizeAppDraftValue(value: AppDraftValue): AppDraftValue {
 	return {
 		...value,
@@ -127,15 +160,39 @@ function scriptDraftToWorkspaceItem(path: string, draft: NewScript, isDraft = tr
 	}
 }
 
-function flowDraftToWorkspaceItem(path: string, draft: Flow, isDraft = true): WorkspaceItem {
+function getFlowValue(value: unknown): FlowValue | undefined {
+	if (!isRecord(value) || !Array.isArray(value.modules)) return undefined
+	return clone(value as FlowValue)
+}
+
+function getFlowGroups(value: FlowValue): FlowValue['groups'] | null {
+	return Array.isArray(value.groups) ? clone(value.groups) : null
+}
+
+function getFlowSchema(value: unknown): Record<string, any> | null {
+	return isRecord(value) ? clone(value as Record<string, any>) : null
+}
+
+function flowDraftToWorkspaceItem(
+	path: string,
+	draft: unknown,
+	isDraft = true
+): WorkspaceItem | undefined {
+	if (!isRecord(draft)) return undefined
+
+	const value = getFlowValue(draft.value) ?? getFlowValue(draft)
+	if (!value) return undefined
+
 	return {
 		type: 'flow',
 		path,
-		summary: draft.summary,
+		summary: typeof draft.summary === 'string' ? draft.summary : undefined,
 		value: {
-			value: draft.value,
-			schema: draft.schema ?? null,
-			groups: draft.value.groups ?? null
+			value,
+			schema: getFlowSchema(draft.schema),
+			groups: Array.isArray(draft.groups)
+				? clone(draft.groups as FlowValue['groups'])
+				: getFlowGroups(value)
 		},
 		isDraft
 	}
@@ -222,7 +279,7 @@ function sharedDraftEntryToWorkspaceItem(
 		case 'script':
 			return scriptDraftToWorkspaceItem(entry.path, entry.value as NewScript, isDraft)
 		case 'flow':
-			return flowDraftToWorkspaceItem(entry.path, entry.value as Flow, isDraft)
+			return flowDraftToWorkspaceItem(entry.path, entry.value, isDraft)
 		case 'raw_app':
 			return appDraftToWorkspaceItem(entry.path, entry.value as AppDraftValue, isDraft)
 		case 'trigger_schedule':
@@ -260,7 +317,7 @@ function getSharedDraft(
 		case 'script':
 			return scriptDraftToWorkspaceItem(path, draft as NewScript, isDraft)
 		case 'flow':
-			return flowDraftToWorkspaceItem(path, draft as Flow, isDraft)
+			return flowDraftToWorkspaceItem(path, draft, isDraft)
 		case 'app':
 			return appDraftToWorkspaceItem(path, draft as AppDraftValue, isDraft)
 		case 'schedule':
@@ -332,10 +389,16 @@ export function listGlobalDrafts(workspace: string): WorkspaceItem[] {
  * Lists local/current entries for AI context. Entries are not marked as
  * `isDraft` because UserDraft.list can include clean live editor baselines.
  */
-export function listGlobalCurrentItems(workspace: string): WorkspaceItem[] {
+export function listGlobalCurrentItems(
+	workspace: string,
+	types?: readonly WorkspaceItemType[]
+): WorkspaceItem[] {
 	const items = new Map<string, WorkspaceItem>()
 
-	for (const entry of UserDraft.list({ workspace, itemKinds: [...SHARED_DRAFT_KINDS] })) {
+	for (const entry of UserDraft.list({
+		workspace,
+		itemKinds: sharedDraftKindsForTypes(types)
+	})) {
 		const item = sharedDraftEntryToWorkspaceItem(entry, false)
 		if (!item) continue
 		items.set(getWorkspaceItemKey(item.type, item.path, item.triggerKind), item)
