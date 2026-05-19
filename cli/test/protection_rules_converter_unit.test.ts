@@ -200,6 +200,19 @@ describe("applyRulesToBranchOverride", () => {
       rule("a", []),
     ]);
   });
+
+  test("writes into promotionOverrides when block is promotionOverrides", () => {
+    const out = applyRulesToBranchOverride(
+      { workspaces: { prod: { gitBranch: "main" } } as any },
+      "prod",
+      [rule("r", ["DisableDirectDeployment"])],
+      "promotionOverrides",
+    );
+    expect(
+      (out.workspaces as any).prod.promotionOverrides.protectionRules,
+    ).toEqual([rule("r", ["DisableDirectDeployment"])]);
+    expect((out.workspaces as any).prod.overrides).toBeUndefined();
+  });
 });
 
 describe("clearRuleOverride", () => {

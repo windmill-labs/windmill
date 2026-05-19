@@ -26,6 +26,7 @@ import {
   structuredLocalPlan,
   applyRulesToBranchOverride,
   clearRuleOverride,
+  OverrideBlock,
 } from "./utils.ts";
 
 type WriteMode = "replace" | "override";
@@ -59,6 +60,45 @@ export async function pullProtectionRules(
     const wmillYamlPath = getWmillYamlPath();
     const wmillYamlExists = wmillYamlPath !== null;
 
+    const localConfig: SyncOptions = wmillYamlExists
+      ? await readConfigFile()
+      : {};
+    const currentSettings = wmillYamlExists
+      ? await getEffectiveSettings(
+          localConfig,
+          opts.promotion,
+          true,
+          opts.jsonOutput,
+        )
+      : {};
+    const currentRules = currentSettings.protectionRules;
+
+    // Plan describes how the local file would change to match the backend.
+    const plan = ProtectionRulesConverter.computePlan(backendRules, currentRules);
+    const hasChanges = ProtectionRulesConverter.planHasChanges(plan);
+
+    // --diff is a dry run: report and return BEFORE any write (including the
+    // no-wmill.yaml bootstrap below), so it never mutates the working tree.
+    if (opts.diff) {
+      if (opts.jsonOutput) {
+        console.log(
+          JSON.stringify({
+            success: true,
+            hasChanges,
+            local: ProtectionRulesConverter.normalizeList(currentRules),
+            backend: backendRules,
+            diff: structuredLocalPlan(plan),
+          }),
+        );
+      } else if (hasChanges) {
+        log.info("Changes that would be applied locally:");
+        displayPlan(plan);
+      } else {
+        log.info(colors.green("No differences found"));
+      }
+      return;
+    }
+
     // No wmill.yaml yet: create one carrying the backend protection rules.
     if (!wmillYamlExists) {
       const newConfig: SyncOptions = { protectionRules: backendRules };
@@ -78,39 +118,6 @@ export async function pullProtectionRules(
         message: "wmill.yaml created with backend protection rules",
         count: backendRules.length,
       });
-      return;
-    }
-
-    const localConfig = await readConfigFile();
-    const currentSettings = await getEffectiveSettings(
-      localConfig,
-      opts.promotion,
-      true,
-      opts.jsonOutput,
-    );
-    const currentRules = currentSettings.protectionRules;
-
-    // Plan describes how the local file would change to match the backend.
-    const plan = ProtectionRulesConverter.computePlan(backendRules, currentRules);
-    const hasChanges = ProtectionRulesConverter.planHasChanges(plan);
-
-    if (opts.diff) {
-      if (opts.jsonOutput) {
-        console.log(
-          JSON.stringify({
-            success: true,
-            hasChanges,
-            local: ProtectionRulesConverter.normalizeList(currentRules),
-            backend: backendRules,
-            diff: structuredLocalPlan(plan),
-          }),
-        );
-      } else if (hasChanges) {
-        log.info("Changes that would be applied locally:");
-        displayPlan(plan);
-      } else {
-        log.info(colors.green("No differences found"));
-      }
       return;
     }
 
@@ -187,12 +194,25 @@ export async function pullProtectionRules(
       return;
     }
 
-    const branch = isGitRepository() ? getCurrentGitBranch() : null;
-    // The config key getEffectiveSettings would resolve for this branch may
-    // differ from the raw branch name (e.g. workspaces.prod.gitBranch=main).
-    const resolvedWsKey = branch
-      ? findWorkspaceByGitBranch(localConfig.workspaces, branch)?.[0] ?? branch
-      : null;
+    // The write target MUST match what getEffectiveSettings read above so the
+    // pulled rules are actually effective. With --promotion it read the
+    // promotion target's promotionOverrides; otherwise the current branch's
+    // resolved entry overrides. findWorkspaceByGitBranch maps a branch to its
+    // config key (which may differ, e.g. workspaces.prod.gitBranch=main).
+    let resolvedWsKey: string | null;
+    let overrideBlock: OverrideBlock;
+    if (opts.promotion) {
+      resolvedWsKey =
+        findWorkspaceByGitBranch(localConfig.workspaces, opts.promotion)?.[0] ??
+          opts.promotion;
+      overrideBlock = "promotionOverrides";
+    } else {
+      const branch = isGitRepository() ? getCurrentGitBranch() : null;
+      resolvedWsKey = branch
+        ? findWorkspaceByGitBranch(localConfig.workspaces, branch)?.[0] ?? branch
+        : null;
+      overrideBlock = "overrides";
+    }
 
     let updatedConfig: SyncOptions;
     if (writeMode === "replace") {
@@ -202,9 +222,9 @@ export async function pullProtectionRules(
         if (!(updatedConfig.workspaces as any)[resolvedWsKey]) {
           (updatedConfig.workspaces as any)[resolvedWsKey] = {};
         }
-        // A branch override would otherwise shadow the new top-level value
-        // (getEffectiveSettings applies overrides last), making replace a
-        // no-op and pull --diff loop forever.
+        // An override (regular or promotion) would otherwise shadow the new
+        // top-level value (getEffectiveSettings applies overrides last),
+        // making replace a no-op and pull --diff loop forever.
         if (clearRuleOverride(updatedConfig, resolvedWsKey)) {
           log.info(
             colors.yellow(
@@ -217,16 +237,17 @@ export async function pullProtectionRules(
       if (!resolvedWsKey) {
         fail(opts, {
           error:
-            "--override requires a git repository with a current branch. Use --replace instead.",
+            "--override requires a git repository with a current branch (or --promotion). Use --replace instead.",
         });
       }
       log.info(
-        `Writing protection rules to workspace override: ${resolvedWsKey}`,
+        `Writing protection rules to workspace '${resolvedWsKey}' ${overrideBlock}`,
       );
       updatedConfig = applyRulesToBranchOverride(
         localConfig,
         resolvedWsKey,
         backendRules,
+        overrideBlock,
       );
     }
 
@@ -239,7 +260,7 @@ export async function pullProtectionRules(
       success: true,
       message:
         writeMode === "override"
-          ? `Protection rules pulled into workspace '${resolvedWsKey}' override`
+          ? `Protection rules pulled into workspace '${resolvedWsKey}' ${overrideBlock}`
           : `Protection rules pulled into top-level configuration`,
       count: backendRules.length,
     });

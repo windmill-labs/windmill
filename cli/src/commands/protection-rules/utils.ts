@@ -85,16 +85,19 @@ export function structuredLocalPlan(plan: ProtectionRulesPlan) {
   };
 }
 
+export type OverrideBlock = "overrides" | "promotionOverrides";
+
 // Write protectionRules into a workspace entry's override block, creating the
 // entry if needed. `wsKey` MUST be the resolved workspace-config key (the key
-// getEffectiveSettings/findWorkspaceByGitBranch would select for the current
-// branch) — NOT the raw git branch name. Writing under the raw branch when a
-// differently-named entry maps to it (e.g. workspaces.prod.gitBranch=main)
-// would leave the override inert.
+// getEffectiveSettings/findWorkspaceByGitBranch would select) — NOT the raw
+// git branch name. `block` MUST match the block getEffectiveSettings reads for
+// the same invocation: `promotionOverrides` when --promotion is used,
+// `overrides` otherwise. A mismatch leaves the written rules inert.
 export function applyRulesToBranchOverride(
   config: SyncOptions,
   wsKey: string,
   rules: ProtectionRuleEntry[],
+  block: OverrideBlock = "overrides",
 ): SyncOptions {
   const updated: SyncOptions = { ...config };
   if (!updated.workspaces) {
@@ -104,10 +107,10 @@ export function applyRulesToBranchOverride(
     (updated.workspaces as any)[wsKey] = {};
   }
   const entry = (updated.workspaces as any)[wsKey];
-  if (!entry.overrides) {
-    entry.overrides = {};
+  if (!entry[block]) {
+    entry[block] = {};
   }
-  entry.overrides.protectionRules = rules;
+  entry[block].protectionRules = rules;
   return updated;
 }
 
