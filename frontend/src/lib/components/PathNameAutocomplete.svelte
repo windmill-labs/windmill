@@ -19,18 +19,31 @@
 	 * the same page reuse a single fetch per workspace. */
 	const pathListCache = new Map<string, Entry>()
 
+	/** Workspaces whose next fetch must bypass the server-side cache. Set by
+	 * invalidateWorkspacePaths (e.g. after a deploy) and cleared once a forced
+	 * fetch succeeds, so a just-created path shows up immediately instead of
+	 * after the backend's 60s TTL. */
+	const forceNextFetch = new Set<string>()
+
 	export async function fetchWorkspacePaths(workspace: string): Promise<string[]> {
+		const force = forceNextFetch.has(workspace)
 		const now = Date.now()
 		const existing = pathListCache.get(workspace)
-		if (existing) {
+		// When forcing, ignore any cached/in-flight entry — it may predate the
+		// deploy (or have been written by a fetch that hit the stale backend
+		// cache) and would otherwise mask the new path.
+		if (existing && !force) {
 			if (existing.paths && now - existing.at < PATH_LIST_TTL_MS) return existing.paths
 			if (existing.pending) return existing.pending
 		}
 		const pending = (async () => {
 			try {
-				const res = await PathAutocompleteService.listPathAutocompletePaths({ workspace })
+				const res = await PathAutocompleteService.listPathAutocompletePaths({ workspace, force })
 				const paths = res.paths ?? []
 				pathListCache.set(workspace, { at: Date.now(), paths, pending: null })
+				// Only clear the force flag once a forced fetch has actually
+				// landed fresh data, so a failed retry still forces.
+				forceNextFetch.delete(workspace)
 				return paths
 			} catch (_e) {
 				pathListCache.delete(workspace)
@@ -43,6 +56,7 @@
 
 	export function invalidateWorkspacePaths(workspace: string) {
 		pathListCache.delete(workspace)
+		forceNextFetch.add(workspace)
 	}
 
 	/** Derive the set of path segments that exist directly under a given folder

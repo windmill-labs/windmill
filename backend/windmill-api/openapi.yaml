@@ -9789,6 +9789,13 @@ paths:
         - path_autocomplete
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: force
+          description: |
+            bypass the server-side cache and re-query the DB, refreshing the
+            cache. Used right after a deploy so the new path appears immediately.
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: deduplicated path list, sorted lexicographically
