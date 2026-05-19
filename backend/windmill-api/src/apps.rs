@@ -2139,14 +2139,18 @@ async fn execute_component(
     let is_preview = payload.force_viewer_static_fields.is_some();
 
     // Preview mode runs request-supplied code as a `Viewer`-mode job (the
-    // app-editor equivalent of `/jobs/run/preview`). The core guard is that the
-    // caller is an authenticated non-Operator: Operators must never run preview
-    // jobs, and a non-operator member can already run arbitrary inline code via
-    // `/jobs/run/preview`, so inline `raw_code` preview needs no further gate.
-    // A preview can also *reference* an existing runnable the caller may not be
-    // allowed to read — a deployed script/flow via `payload.path` or a persisted
-    // `app_script` via `payload.id`, both resolved with the root DB handle — so
-    // those (and only those) are confined to paths the caller can read.
+    // app-editor equivalent of `/jobs/run/preview`), so it enforces the same
+    // guards. Operators must never run preview jobs. `jobs:run` is required
+    // because this route is reachable with an `apps:run`-scoped token (the
+    // route maps to the `apps` scope domain), which must not be able to escalate
+    // to arbitrary code execution. The client-supplied inline `raw_code.tag`
+    // must stay within the caller's allowed worker tags. A preview can also
+    // *reference* an existing runnable the caller may not be allowed to read — a
+    // deployed script/flow via `payload.path` or a persisted `app_script` via
+    // `payload.id`, both resolved with the root DB handle — so those (and only
+    // those) are confined to paths the caller can read. Inline `raw_code` is not
+    // path-gated: a non-operator member can already run arbitrary inline code
+    // via `/jobs/run/preview`.
     if is_preview {
         let authed = opt_authed.as_ref().ok_or_else(|| {
             Error::NotAuthorized("App component preview requires authentication".to_string())
@@ -2156,6 +2160,7 @@ async fn execute_component(
                 "Operators cannot run preview jobs for security reasons".to_string(),
             ));
         }
+        check_scopes(authed, || format!("jobs:run"))?;
         if let Some(p) = payload.path.as_deref() {
             let runnable_path = p
                 .strip_prefix("script/")
@@ -2384,11 +2389,20 @@ async fn execute_component(
         ),
         _ => unreachable!(),
     };
+    // Preview honors the client-supplied inline tag (`resolved_inline_tag`), so
+    // — like `/jobs/run/preview` — confine it to worker tags the caller may use
+    // (a `if_jobs:filter_tags`-restricted token must not escape its filter).
+    // `is_preview` implies an authed caller (the guard above returns otherwise).
+    if is_preview {
+        if let Some(authed) = opt_authed.as_ref() {
+            crate::jobs::check_tag_available_for_workspace(&db, &w_id, &tag, authed).await?;
+        }
+    }
     // Identity is already resolved to the requesting user in preview mode (the
     // policy is forced to `ExecutionMode::Viewer`, so the job runs as the
     // caller). The enqueue stays root-isolated as before — switching the insert
-    // to user-RLS is not what contains the bypass (the auth guard above is) and
-    // would add unnecessary breakage risk to the legitimate editor flow.
+    // to user-RLS is not what contains the bypass (the auth guards above are)
+    // and would add unnecessary breakage risk to the legitimate editor flow.
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
 
     let (email, permissioned_as) = if let Some(on_behalf_of) = on_behalf_of.as_ref() {

@@ -230,5 +230,29 @@ async fn test_app_preview_authorization(db: Pool<Postgres>) -> anyhow::Result<()
         "successful persisted preview must return a job UUID, got: {body}"
     );
 
+    // 8. Scope escalation: a token scoped to `apps:run` (but not `jobs:run`)
+    //    can reach this route (it maps to the `apps` scope domain) and is not an
+    //    Operator, but must NOT be able to enqueue arbitrary preview `raw_code`.
+    //    `/jobs/run/preview` requires `jobs:run` for exactly this reason; the
+    //    app preview path must enforce the same. Without the `jobs:run` check
+    //    this enqueues a job (returns a UUID); with it, it is rejected (403).
+    let resp = authed(
+        client().post(format!("{base}/u/test-user-2/myapp")),
+        "APPS_RUN_TOKEN",
+    )
+    .json(&preview_body("u/test-user-2/myapp"))
+    .send()
+    .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(
+        status, 403,
+        "apps:run-scoped token must not escalate to arbitrary preview code (got {status}): {body}"
+    );
+    assert!(
+        body.contains("jobs:run"),
+        "rejection must be the jobs:run scope gate, got: {body}"
+    );
+
     Ok(())
 }

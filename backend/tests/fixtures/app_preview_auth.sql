@@ -13,6 +13,12 @@ INSERT INTO usr(workspace_id, email, username, is_admin, operator, role) VALUES
 INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin) VALUES
 	(encode(sha256('OPERATOR_TOKEN'::bytea), 'hex'), 'OPERATOR_T', 'OPERATOR_TOKEN', 'operator@windmill.dev', 'operator token', false);
 
+-- A non-operator token scoped to `apps:run` but NOT `jobs:run`. It can reach
+-- the `apps_u/execute_component` route (route maps to the `apps` scope domain)
+-- but must not be able to enqueue arbitrary preview `raw_code`.
+INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, scopes) VALUES
+	(encode(sha256('APPS_RUN_TOKEN'::bytea), 'hex'), 'APPS_RUN_T', 'APPS_RUN_TOKEN', 'test2@windmill.dev', 'apps:run scoped token', false, '{apps:run}');
+
 -- A private app owned by `test-user` with a persisted inline script. Used to
 -- assert that `test-user-2` cannot preview-execute another app's app_script id.
 INSERT INTO app (id, workspace_id, path, summary, policy, versions) VALUES
