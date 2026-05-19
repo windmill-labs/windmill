@@ -5,6 +5,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AppService, DraftService, type Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history.svelte'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { isMac, type Item, userPathPrefix } from '$lib/utils'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
@@ -213,11 +214,7 @@
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
-			try {
-				localStorage.removeItem(`app-${path}`)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
+			UserDraft.remove('app', path)
 			onSavedNewAppPath?.(path)
 		} catch (e) {
 			sendUserToast('Error creating app', e)
@@ -317,12 +314,8 @@
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
+		UserDraft.remove('app', $appPath)
 		if ($appPath !== npath) {
-			try {
-				localStorage.removeItem(`app-${appPath}`)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
 			onSavedNewAppPath?.(npath)
 		}
 	}
@@ -394,6 +387,10 @@
 			}
 
 			draftDrawerOpen = false
+			// The initial draft was promoted to a real path on the backend —
+			// drop the autosave keyed on the prior (possibly empty) path so
+			// a future "+ App" click opens on a clean slate.
+			UserDraft.remove('app', $appPath)
 			onSavedNewAppPath?.(newEditedPath)
 		} catch (e) {
 			sendUserToast('Error saving initial draft', e)
@@ -484,11 +481,7 @@
 			}
 
 			sendUserToast('Draft saved')
-			try {
-				localStorage.removeItem(`app-${path}`)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
+			UserDraft.remove('app', path)
 			loading.saveDraft = false
 			if (newApp || savedApp.draft_only) {
 				onSavedNewAppPath?.(newEditedPath || path)

@@ -32,7 +32,6 @@ export interface ScriptBuilderProps {
 	savedScript?: NewScriptWithDraftAndDraftTriggers | undefined
 	searchParams?: URLSearchParams
 	disableHistoryChange?: boolean
-	replaceStateFn?: (url: string) => void
 	customUi?: ScriptBuilderWhitelabelCustomUi
 	savedPrimarySchedule?: ScheduleTrigger | undefined
 	functionExports?: ((exports: ScriptBuilderFunctionExports) => void) | undefined

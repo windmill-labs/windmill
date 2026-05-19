@@ -217,6 +217,9 @@ pub struct AppWithLastVersionAndDraft {
     pub draft: Option<sqlx::types::Json<Box<RawValue>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
+    /// Timestamp at which the most recent DB draft was created.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_created_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Serialize)]
@@ -642,29 +645,30 @@ async fn get_app_w_draft(
 
     let app_o = sqlx::query_as::<_, AppWithLastVersionAndDraft>(
         r#"
-        SELECT 
-            app.id, 
-            app.path, 
-            app.summary, 
-            app.versions, 
-            app.policy, 
+        SELECT
+            app.id,
+            app.path,
+            app.summary,
+            app.versions,
+            app.policy,
             app.custom_path,
-            app.extra_perms, 
+            app.extra_perms,
             app_version.value,
-            app_version.created_at, 
+            app_version.created_at,
             app_version.created_by,
             app.draft_only,
             draft.value AS "draft",
+            draft.created_at AS "draft_created_at",
             app_version.raw_app,
             app.labels
         FROM app
-        INNER JOIN app_version 
+        INNER JOIN app_version
             ON app_version.id = app.versions[array_upper(app.versions, 1)]
-        LEFT JOIN draft 
-            ON app.path = draft.path 
-        AND draft.workspace_id = $2 
+        LEFT JOIN draft
+            ON app.path = draft.path
+        AND draft.workspace_id = $2
         AND draft.typ = 'app'
-        WHERE app.path = $1 
+        WHERE app.path = $1
         AND app.workspace_id = $2
     "#,
     )

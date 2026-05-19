@@ -8,7 +8,6 @@
 	import type { Schema } from '$lib/common'
 	import { decodeState, emptySchema, emptyString, sendUserToast } from '$lib/utils'
 	import { goto } from '$lib/navigation'
-	import { replaceState } from '$app/navigation'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 	import type { Trigger } from '$lib/components/triggers/utils'
@@ -17,6 +16,7 @@
 	import ScriptEditorSkeleton from '$lib/components/ScriptEditorSkeleton.svelte'
 	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
 	import { isWorkflowAsCode } from '$lib/components/graph/wacToFlow'
+	import { UserDraft } from '$lib/userDraft.svelte'
 
 	type Script = NewScript & {
 		draft_triggers?: Trigger[]
@@ -35,24 +35,45 @@
 	const wacParam = page.url.searchParams.get('wac')
 	const importParam = page.url.searchParams.get('import')
 
+	/** Some pages (run/[...run]'s "Fork" action, workspace_settings'
+	 * error/success-handler template buttons) base64-JSON-encode a NewScript
+	 * payload into the URL hash. That value is an explicit "open this script"
+	 * intent and wins over local autosave, templates, hubs, and YAML imports.
+	 *
+	 * We can't use `decodeState` from utils.ts directly — it fires its own
+	 * "Impossible to parse state" toast on failure, which would noise up the
+	 * UI when the hash isn't a script payload at all (e.g. a route anchor).
+	 */
+	function decodeUrlScript(): Partial<Script> | undefined {
+		const fragment = page.url.hash.startsWith('#') ? page.url.hash.slice(1) : ''
+		if (!fragment) return undefined
+		try {
+			const decoded = JSON.parse(decodeURIComponent(atob(fragment)))
+			if (decoded && typeof decoded === 'object') return decoded as Partial<Script>
+		} catch {
+			// Hash isn't a valid encoded script — ignore.
+		}
+		return undefined
+	}
+	const urlScript = decodeUrlScript()
+	// "+ Script" buttons navigate with ?nodraft=true to signal "start fresh".
+	// Wipe the persisted empty-path autosave and strip the flag from the URL
+	// synchronously so a reload doesn't wipe the freshly-started draft. A
+	// plain reload of /scripts/add (no nodraft) instead restores the
+	// previous session.
+	if (page.url.searchParams.get('nodraft') && typeof window !== 'undefined') {
+		UserDraft.remove('script', '')
+		const url = new URL(window.location.href)
+		url.searchParams.delete('nodraft')
+		window.history.replaceState(window.history.state, '', url.toString())
+	}
+
 	let initialArgs = urlArgs ? decodeState(urlArgs) : (get(initialArgsStore) ?? {})
 	if (get(initialArgsStore)) $initialArgsStore = undefined
 
 	const path = page.url.searchParams.get('path')
 
-	const initialState = page.url.hash != '' ? page.url.hash.slice(1) : undefined
-
 	let scriptBuilder: ScriptBuilder | undefined = $state(undefined)
-
-	function decodeStateAndHandleError(state) {
-		try {
-			const decoded = decodeState(state)
-			return decoded
-		} catch (e) {
-			console.error('Error decoding state', e)
-			return defaultScript()
-		}
-	}
 
 	function defaultScript(): Script {
 		return {
@@ -74,22 +95,35 @@
 		}
 	}
 
-	let script: Script | undefined = $state(
-		templatePath || hubPath
-			? undefined
-			: !path && initialState != undefined
-				? decodeStateAndHandleError(initialState)
-				: defaultScript()
-	)
+	// templatePath/hubPath/import/url-hash flows replace the value before
+	// render, so defaultValue is left undefined for those to avoid flashing a
+	// blank editor.
+	const scriptHandle = UserDraft.use<Script>('script', '', {
+		defaultValue: templatePath || hubPath || urlScript ? undefined : defaultScript()
+	})
+
+	if (urlScript) {
+		scriptHandle.draft = { ...defaultScript(), ...urlScript }
+		sendUserToast('Loaded from URL')
+		// Consume-once: strip the hash so a reload restores the user's
+		// autosave instead of re-applying the seed (which would clobber
+		// any edits they made).
+		if (typeof window !== 'undefined') {
+			const url = new URL(window.location.href)
+			url.hash = ''
+			window.history.replaceState(window.history.state, '', url.toString())
+		}
+	}
 
 	async function loadTemplate(): Promise<void> {
+		if (urlScript) return
 		if (templatePath) {
 			try {
 				const template = await ScriptService.getScriptByPath({
 					workspace: $workspaceStore!,
 					path: templatePath
 				})
-				script = {
+				scriptHandle.draft = {
 					...defaultScript(),
 					summary: !emptyString(template.summary) ? `Copy of ${template.summary}` : '',
 					description: template.description,
@@ -99,7 +133,7 @@
 					path: template.path + '_fork'
 				}
 			} catch (err) {
-				script = defaultScript()
+				scriptHandle.draft = defaultScript()
 				console.error('Error loading template', err)
 				sendUserToast('Error loading template: ' + err.message, true)
 			}
@@ -107,12 +141,13 @@
 	}
 
 	async function loadHub(): Promise<void> {
+		if (urlScript) return
 		if (hubPath) {
 			try {
 				const { content, language, summary } = await ScriptService.getHubScriptByPath({
 					path: hubPath
 				})
-				script = {
+				scriptHandle.draft = {
 					...defaultScript(),
 					description: `Fork of ${hubPath}`,
 					content: replaceScriptPlaceholderWithItsValues(hubPath, content),
@@ -121,7 +156,7 @@
 					path: hubPath + '_fork'
 				}
 			} catch (err) {
-				script = defaultScript()
+				scriptHandle.draft = defaultScript()
 				console.error('Error loading script from hub', err)
 				sendUserToast('Error loading script from hub: ' + err.message, true)
 			}
@@ -131,11 +166,11 @@
 	loadHub()
 
 	let importedWacTemplate: 'wac_python' | 'wac_typescript' | undefined = undefined
-	if (importParam && $importScriptStore) {
+	if (!urlScript && importParam && $importScriptStore) {
 		const imported = $importScriptStore
 		$importScriptStore = undefined
 		const isWac = isWorkflowAsCode(imported.content ?? '', imported.language ?? '')
-		script = {
+		scriptHandle.draft = {
 			...defaultScript(),
 			...imported,
 			path: path ?? '',
@@ -157,7 +192,7 @@
 	})
 </script>
 
-{#if script}
+{#if scriptHandle.draft}
 	<ScriptBuilder
 		{initialArgs}
 		bind:this={scriptBuilder}
@@ -178,9 +213,8 @@
 		}}
 		onNavigate={(item) => goto(editPathFor(item))}
 		searchParams={page.url.searchParams}
-		bind:script
+		bind:script={scriptHandle.draft}
 		{showMeta}
-		replaceStateFn={(path) => replaceState(path, page.state)}
 	>
 		<UnsavedConfirmationModal
 			getInitialAndModifiedValues={scriptBuilder?.getInitialAndModifiedValues}

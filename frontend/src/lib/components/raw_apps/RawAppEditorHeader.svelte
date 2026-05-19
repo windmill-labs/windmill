@@ -5,6 +5,7 @@
 	import { editPathFor, invalidate as invalidatePicker } from '$lib/components/workspacePicker'
 
 	import { AppService, DraftService, type Policy } from '$lib/gen'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import { rawAppToHubUrl } from '$lib/hub'
 	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
 	import YAML from 'yaml'
@@ -242,14 +243,10 @@
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
-			try {
-				localStorage.removeItem(`rawapp-${path}`)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
+			UserDraft.remove('raw_app', path)
 			dispatch('savedNewAppPath', path)
 		} catch (e) {
-			sendUserToast('Error creating app', e)
+			sendUserToast(`Error creating app: ${e.body ?? e.message}`, true)
 		}
 	}
 
@@ -357,12 +354,8 @@
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
+		UserDraft.remove('raw_app', appPath)
 		if (appPath !== npath) {
-			try {
-				localStorage.removeItem(`rawapp-${appPath}`)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
 			dispatch('savedNewAppPath', npath)
 		}
 	}
@@ -440,9 +433,13 @@
 			}
 
 			draftDrawerOpen = false
+			// The initial draft was promoted to a real path on the backend —
+			// drop the autosave keyed on the prior (possibly empty) path so
+			// a future "+ App" click opens on a clean slate.
+			UserDraft.remove('raw_app', appPath)
 			dispatch('savedNewAppPath', newEditedPath)
 		} catch (e) {
-			sendUserToast('Error saving initial draft', e)
+			sendUserToast(`Error saving initial draft: ${e.body ?? e.message}`, true)
 		}
 		draftDrawerOpen = false
 	}
@@ -540,11 +537,7 @@
 			}
 
 			sendUserToast('Draft saved')
-			try {
-				localStorage.removeItem(`rawapp-${path}`)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
+			UserDraft.remove('raw_app', path)
 			loading.saveDraft = false
 			if (newApp || savedApp.draft_only) {
 				dispatch('savedNewAppPath', newEditedPath || path)
