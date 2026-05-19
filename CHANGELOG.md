@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.705.0](https://github.com/windmill-labs/windmill/compare/v1.704.1...v1.705.0) (2026-05-19)
+
+
+### Features
+
+* add flow_user_state(key) to QuickJS input transform sandbox (WIN-1947) ([#9093](https://github.com/windmill-labs/windmill/issues/9093)) ([88c1493](https://github.com/windmill-labs/windmill/commit/88c149314576789f46feb5c7e1af3225b061f0c6))
+* add wmill protection-rules pull/push CLI commands ([#9240](https://github.com/windmill-labs/windmill/issues/9240)) ([01bad16](https://github.com/windmill-labs/windmill/commit/01bad16c0cc40fa64b2a72ccb8ded487c729cf35))
+* export audit logs to a dedicated object store folder ([#9207](https://github.com/windmill-labs/windmill/issues/9207)) ([ba6fb70](https://github.com/windmill-labs/windmill/commit/ba6fb7021b5a720bff8e86b4741031902cf1c267))
+* **git-sync:** hidden `sync git-deploy` owns wm_deploy branch + e2e regression tests ([#9230](https://github.com/windmill-labs/windmill/issues/9230)) ([07202fd](https://github.com/windmill-labs/windmill/commit/07202fd048c999c9d32f3feee94a08625050283d))
+* **indexer:** observability for unavailable search index (WIN-1956) ([#9239](https://github.com/windmill-labs/windmill/issues/9239)) ([285a787](https://github.com/windmill-labs/windmill/commit/285a78752a23aa467f9a82868d784599793d3a1f))
+
+
+### Bug Fixes
+
+* **autoscaling:** full-scale below min_workers on large backlog ([#9234](https://github.com/windmill-labs/windmill/issues/9234)) ([a4d59a8](https://github.com/windmill-labs/windmill/commit/a4d59a81dfb6fffbd185a3aa009eb90c160bf42b))
+* bound resource/variable interpolation recursion depth (WIN-1957) ([#9243](https://github.com/windmill-labs/windmill/issues/9243)) ([26f3cbe](https://github.com/windmill-labs/windmill/commit/26f3cbef259e643c6d79be893701eec70b7c0501))
+* enable jemalloc background_thread to prevent worker RSS growth ([#9236](https://github.com/windmill-labs/windmill/issues/9236)) ([a974ff6](https://github.com/windmill-labs/windmill/commit/a974ff68e00278ccaf441b0567cd46e2b5067fdd))
+* enforce auth guards on app component preview execution ([#9235](https://github.com/windmill-labs/windmill/issues/9235)) ([4b1bea8](https://github.com/windmill-labs/windmill/commit/4b1bea8aed51eb9e24940d89d984ce32f375ab0c))
+* **frontend:** open customer portal in popup synchronously to bypass Safari blocker ([#9242](https://github.com/windmill-labs/windmill/issues/9242)) ([f51b51a](https://github.com/windmill-labs/windmill/commit/f51b51a9a1aee5183fa597cf93ff14fbaddaffa9))
+* prevent undefined user flickering in multiplayer presence list ([#9231](https://github.com/windmill-labs/windmill/issues/9231)) ([8c1f6cc](https://github.com/windmill-labs/windmill/commit/8c1f6ccc5d22e657a83831eb5f37a9516cdec10a))
+* scope VSCode webview clipboard paste to focused editor ([#9221](https://github.com/windmill-labs/windmill/issues/9221)) ([bd06282](https://github.com/windmill-labs/windmill/commit/bd062825a255da364c1590820ead65172e835d13))
+
 ## [1.704.1](https://github.com/windmill-labs/windmill/compare/v1.704.0...v1.704.1) (2026-05-19)
 
 
