@@ -6,7 +6,11 @@
 
 import { expect, test, describe } from "bun:test";
 import { ProtectionRulesConverter } from "../src/commands/protection-rules/converter.ts";
-import { ProtectionRuleEntry } from "../src/core/conf.ts";
+import {
+  applyRulesToBranchOverride,
+  clearRuleOverride,
+} from "../src/commands/protection-rules/utils.ts";
+import { ProtectionRuleEntry, SyncOptions } from "../src/core/conf.ts";
 
 const rule = (
   name: string,
@@ -171,5 +175,59 @@ describe("computePlan (full reconcile)", () => {
       [rule("p", ["DisableDirectDeployment", "DisableWorkspaceForking"], ["g/a", "g/b"])],
     );
     expect(ProtectionRulesConverter.planHasChanges(plan)).toBe(false);
+  });
+});
+
+describe("applyRulesToBranchOverride", () => {
+  test("writes under the given resolved workspace key, not a raw branch", () => {
+    // workspaces.prod maps to git branch main; the override MUST land on
+    // `prod` (the key getEffectiveSettings resolves), not `main`.
+    const config: SyncOptions = {
+      workspaces: { prod: { gitBranch: "main" } } as any,
+    };
+    const out = applyRulesToBranchOverride(config, "prod", [
+      rule("r", ["DisableDirectDeployment"]),
+    ]);
+    expect((out.workspaces as any).prod.overrides.protectionRules).toEqual([
+      rule("r", ["DisableDirectDeployment"]),
+    ]);
+    expect((out.workspaces as any).main).toBeUndefined();
+  });
+
+  test("creates the workspace entry if missing", () => {
+    const out = applyRulesToBranchOverride({}, "feature", [rule("a", [])]);
+    expect((out.workspaces as any).feature.overrides.protectionRules).toEqual([
+      rule("a", []),
+    ]);
+  });
+});
+
+describe("clearRuleOverride", () => {
+  test("removes protectionRules from overrides and promotionOverrides", () => {
+    const config: SyncOptions = {
+      workspaces: {
+        prod: {
+          gitBranch: "main",
+          overrides: { protectionRules: [rule("a", [])], skipScripts: true },
+          promotionOverrides: { protectionRules: [rule("b", [])] },
+        },
+      } as any,
+    };
+    expect(clearRuleOverride(config, "prod")).toBe(true);
+    expect(
+      "protectionRules" in (config.workspaces as any).prod.overrides,
+    ).toBe(false);
+    // unrelated override keys are preserved
+    expect((config.workspaces as any).prod.overrides.skipScripts).toBe(true);
+    expect(
+      "protectionRules" in (config.workspaces as any).prod.promotionOverrides,
+    ).toBe(false);
+  });
+
+  test("returns false when there is nothing to clear", () => {
+    expect(clearRuleOverride({ workspaces: { prod: {} } as any }, "prod")).toBe(
+      false,
+    );
+    expect(clearRuleOverride({}, "missing")).toBe(false);
   });
 });

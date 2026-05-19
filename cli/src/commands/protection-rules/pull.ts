@@ -21,9 +21,11 @@ import { getCurrentGitBranch, isGitRepository } from "../../utils/git.ts";
 import { ProtectionRulesConverter } from "./converter.ts";
 import {
   outputResult,
+  fail,
   displayPlan,
   structuredLocalPlan,
   applyRulesToBranchOverride,
+  clearRuleOverride,
 } from "./utils.ts";
 
 type WriteMode = "replace" | "override";
@@ -51,11 +53,7 @@ export async function pullProtectionRules(
       backendRules = ProtectionRulesConverter.fromBackend(response);
     } catch (apiError) {
       const msg = apiError instanceof Error ? apiError.message : String(apiError);
-      outputResult(opts, {
-        success: false,
-        error: `Failed to fetch protection rules: ${msg}`,
-      });
-      return;
+      fail(opts, { error: `Failed to fetch protection rules: ${msg}` });
     }
 
     const wmillYamlPath = getWmillYamlPath();
@@ -148,13 +146,11 @@ export async function pullProtectionRules(
         ),
       );
     } else {
-      outputResult(opts, {
-        success: false,
+      fail(opts, {
         error:
           "Protection rules conflict detected. Use --replace or --override to resolve.",
         hasConflict: true,
       });
-      return;
     }
 
     if (!hasChanges) {
@@ -191,32 +187,45 @@ export async function pullProtectionRules(
       return;
     }
 
+    const branch = isGitRepository() ? getCurrentGitBranch() : null;
+    // The config key getEffectiveSettings would resolve for this branch may
+    // differ from the raw branch name (e.g. workspaces.prod.gitBranch=main).
+    const resolvedWsKey = branch
+      ? findWorkspaceByGitBranch(localConfig.workspaces, branch)?.[0] ?? branch
+      : null;
+
     let updatedConfig: SyncOptions;
     if (writeMode === "replace") {
       updatedConfig = { ...localConfig, protectionRules: backendRules };
-      if (isGitRepository()) {
-        const branch = getCurrentGitBranch();
-        if (branch) {
-          if (!updatedConfig.workspaces) updatedConfig.workspaces = {} as any;
-          if (!(updatedConfig.workspaces as any)[branch]) {
-            (updatedConfig.workspaces as any)[branch] = {};
-          }
+      if (resolvedWsKey) {
+        if (!updatedConfig.workspaces) updatedConfig.workspaces = {} as any;
+        if (!(updatedConfig.workspaces as any)[resolvedWsKey]) {
+          (updatedConfig.workspaces as any)[resolvedWsKey] = {};
+        }
+        // A branch override would otherwise shadow the new top-level value
+        // (getEffectiveSettings applies overrides last), making replace a
+        // no-op and pull --diff loop forever.
+        if (clearRuleOverride(updatedConfig, resolvedWsKey)) {
+          log.info(
+            colors.yellow(
+              `Cleared a shadowing protectionRules override on workspace '${resolvedWsKey}' so the top-level value takes effect`,
+            ),
+          );
         }
       }
     } else {
-      const branch = isGitRepository() ? getCurrentGitBranch() : null;
-      if (!branch) {
-        outputResult(opts, {
-          success: false,
+      if (!resolvedWsKey) {
+        fail(opts, {
           error:
             "--override requires a git repository with a current branch. Use --replace instead.",
         });
-        return;
       }
-      log.info(`Writing protection rules to branch override: ${branch}`);
+      log.info(
+        `Writing protection rules to workspace override: ${resolvedWsKey}`,
+      );
       updatedConfig = applyRulesToBranchOverride(
         localConfig,
-        branch,
+        resolvedWsKey,
         backendRules,
       );
     }
@@ -230,15 +239,12 @@ export async function pullProtectionRules(
       success: true,
       message:
         writeMode === "override"
-          ? `Protection rules pulled into branch override`
+          ? `Protection rules pulled into workspace '${resolvedWsKey}' override`
           : `Protection rules pulled into top-level configuration`,
       count: backendRules.length,
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    outputResult(opts, {
-      success: false,
-      error: `Failed to pull protection rules: ${msg}`,
-    });
+    fail(opts, { error: `Failed to pull protection rules: ${msg}` });
   }
 }

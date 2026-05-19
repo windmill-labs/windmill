@@ -1,3 +1,5 @@
+import process from "node:process";
+
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
 import { ProtectionRuleEntry, SyncOptions } from "../../core/conf.ts";
@@ -19,6 +21,17 @@ export function outputResult(
   } else if (!result.success && result.error) {
     log.error(colors.red(result.error));
   }
+}
+
+// Report a genuine failure and exit non-zero so CI / scripted callers detect
+// it. outputResult alone only logs, which would let `--yes` pushes mask a
+// failed (possibly partial) reconcile behind exit code 0.
+export function fail(
+  opts: { jsonOutput?: boolean },
+  result: { error: string; [key: string]: any },
+): never {
+  outputResult(opts, { ...result, success: false });
+  process.exit(1);
 }
 
 function describeEntry(entry: ProtectionRuleEntry): string {
@@ -72,25 +85,47 @@ export function structuredLocalPlan(plan: ProtectionRulesPlan) {
   };
 }
 
-// Write protectionRules into a branch/workspace override block, creating the
-// workspace entry if needed. Mirrors the override mechanics used by
-// gitsync-settings but scoped to the single protectionRules field.
+// Write protectionRules into a workspace entry's override block, creating the
+// entry if needed. `wsKey` MUST be the resolved workspace-config key (the key
+// getEffectiveSettings/findWorkspaceByGitBranch would select for the current
+// branch) — NOT the raw git branch name. Writing under the raw branch when a
+// differently-named entry maps to it (e.g. workspaces.prod.gitBranch=main)
+// would leave the override inert.
 export function applyRulesToBranchOverride(
   config: SyncOptions,
-  branchName: string,
+  wsKey: string,
   rules: ProtectionRuleEntry[],
 ): SyncOptions {
   const updated: SyncOptions = { ...config };
   if (!updated.workspaces) {
     updated.workspaces = {} as any;
   }
-  if (!(updated.workspaces as any)[branchName]) {
-    (updated.workspaces as any)[branchName] = {};
+  if (!(updated.workspaces as any)[wsKey]) {
+    (updated.workspaces as any)[wsKey] = {};
   }
-  const entry = (updated.workspaces as any)[branchName];
+  const entry = (updated.workspaces as any)[wsKey];
   if (!entry.overrides) {
     entry.overrides = {};
   }
   entry.overrides.protectionRules = rules;
   return updated;
+}
+
+// Remove any protectionRules override (regular + promotion) on a workspace
+// entry so a top-level protectionRules value is no longer shadowed by it.
+// Returns true if anything was cleared.
+export function clearRuleOverride(
+  config: SyncOptions,
+  wsKey: string,
+): boolean {
+  const entry = (config.workspaces as any)?.[wsKey];
+  if (!entry) return false;
+  let cleared = false;
+  for (const block of ["overrides", "promotionOverrides"] as const) {
+    if (entry[block] && "protectionRules" in entry[block]) {
+      delete entry[block].protectionRules;
+      cleared = true;
+    }
+  }
+  return cleared;
 }
