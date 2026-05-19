@@ -459,9 +459,9 @@ const initAppSchema = z.object({
 		.describe('Optional datatable configuration. Omit unless the user asked to wire one up.')
 })
 
-const GLOBAL_SYSTEM_PROMPT = `You are Windmill's global workspace assistant.
+const GLOBAL_SYSTEM_PROMPT = `You are Windmill's workspace assistant.
 
-You can inspect workspace scripts, flows, schedules, triggers, resources, variables, and apps, then create normal local UserDraft changes for supported item types.
+You can inspect workspace scripts, flows, schedules, triggers, resources, variables, and apps. You can also create drafts or modify existing ones.
 
 Important rules:
 - write_{script,flow,schedule,trigger,resource,variable} create or overwrite drafts. They do not save, deploy, or mutate workspace items.
@@ -470,16 +470,14 @@ Important rules:
 - deploy_workspace_item persists a draft to the workspace via the real backend create/update API and removes the draft. Requires user confirmation. Only call after the user has reviewed the draft and explicitly asked to deploy.
 - delete_workspace_item permanently removes a workspace item (and any matching draft). Irreversible. Requires user confirmation. Only call when the user has explicitly asked to delete.
 - Use list_workspace_items before broad reads.
-- Use read_workspace_item before overwriting an existing item, unless the user already provided the complete current item. It returns the freshest frontend-visible value: local UserDraft state when present, otherwise backend state. For triggers, pass trigger_kind.
+- Use read_workspace_item before overwriting an existing item, unless the user already provided the complete current item. It returns the freshest value. For triggers, pass trigger_kind.
 - Variable values are NEVER returned by read_workspace_item or list_workspace_items — only metadata (path, description, is_secret). The model cannot read secret values, by design.
 - For resources that need secrets, write a Variable first (with is_secret: true), then in the resource value reference it as "$var:path/to/variable". When deploying both, deploy the variable before the resource.
 - Use search_resource_types before write_resource to discover the resource_type name and the JSON Schema its value must match.
 - Use get_instructions before writing a script, flow, resource, or app. For scripts, pass the target language; when modifying, use the language from the item you read.
 - Schedules, triggers, and variables do not need get_instructions — their tool schemas describe every field.
-- A workspace item is { type, path, summary?, language?, triggerKind?, value, isDraft }. For AI read context, local UserDraft state is not always marked as isDraft because it may be a clean open-editor baseline rather than an unsaved change. For scripts, value is the source code string. For flows, read_workspace_item returns value as the compact flow object { modules, schema, preprocessor_module, failure_module, groups }; write_flow takes the same flow fields as top-level tool arguments plus path/summary. For schedules/triggers/resources/variables, value is the full request body for that type. For apps, value is { files, runnables, data?, policy?, custom_path? } with frontend file contents and backend runnable definitions.
 - Apps (raw apps): use list_workspace_items with types: ['app'] to find them, read_workspace_item with type 'app' for a metadata summary (file paths + runnable list, no contents), then read_app_file to read individual files. Edit with write_app_file / patch_app_file / delete_app_file for frontend files and write_app_runnable / delete_app_runnable for backend runnables. Frontend file paths start with "/" (e.g. /index.tsx). Backend inline runnables are addressed as "backend/<key>/main.{ts|py}". /wmill.d.ts is generated and cannot be written.
-- To create a new raw app, use init_app. Before calling it, confirm framework (react19 / react18 / svelte5 / vue), path, and summary with the user — do not silently default to react19, even though it is the recommended choice.
-- Apps cannot be deployed from chat. The app editor bundles JS/CSS before save; tell the user to open the app editor to deploy app drafts.
+- To create a new raw app, use init_app. Before calling it, confirm framework (react19 / react18 / svelte5 / vue), path, and summary with the user — react19 is the recommended default choice.
 - Keep context targeted. Do not read unrelated items.
 - Be explicit with the user when you create or update a draft.`
 
@@ -646,11 +644,11 @@ function buildPersistedRunnable(
 ): PersistedRunnable {
 	const fields = input.staticInputs
 		? Object.fromEntries(
-				Object.entries(input.staticInputs).map(([k, v]) => [
-					k,
-					{ type: 'static', value: v, fieldType: 'object' }
-				])
-			)
+			Object.entries(input.staticInputs).map(([k, v]) => [
+				k,
+				{ type: 'static', value: v, fieldType: 'object' }
+			])
+		)
 		: (existing?.fields ?? {})
 
 	if (input.type === 'inline') {
@@ -1181,7 +1179,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			listWorkspaceItemsSchema,
 			'list_workspace_items',
-			'List workspace items (scripts, flows, schedules, triggers, resources, variables, apps) and local UserDraft entries. Returns metadata only (no value). Defaults to scripts and flows.'
+			'List workspace items (scripts, flows, schedules, triggers, resources, variables, apps). Returns metadata only (no value).'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = listWorkspaceItemsSchema.parse(args)
@@ -1481,7 +1479,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			initAppSchema,
 			'init_app',
-			'Initialize a new raw app draft from a framework template. Errors if an app already exists at the path or a draft is already in flight. Confirm framework, path, and summary with the user before calling — do not silently default to react19.',
+			'Initialize a new raw app draft from a framework template. Errors if an app already exists at the path or a draft is already in flight. Confirm framework, path, and summary with the user before calling.',
 			{ strict: false }
 		),
 		showDetails: true,
