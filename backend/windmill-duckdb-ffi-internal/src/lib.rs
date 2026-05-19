@@ -175,12 +175,147 @@ pub extern "C" fn prepare_duckdb_ffi(
     })
 }
 
+/// Above this, the cgroup memory limit is effectively unlimited: kernels report
+/// page-aligned huge numbers (cgroup v1) or the literal "max" (cgroup v2) when
+/// no limit is enforced. Same 1 PiB guard as
+/// `windmill-common::worker::get_memory`.
+///
+/// Note: unlike `get_memory`, when no cgroup limit is enforced we deliberately
+/// do NOT fall back to `/proc/meminfo`. DuckDB's own default already caps at a
+/// fraction of detected physical RAM, which is the correct behavior on an
+/// uncapped host — the bug this targets is specifically a cgroup cap smaller
+/// than host RAM, which DuckDB is not aware of.
+const CGROUP_UNLIMITED_THRESHOLD: i64 = 1024 * 1024 * 1024 * 1024 * 1024;
+
+/// Fraction of the detected cgroup memory limit DuckDB may use. Set high on
+/// purpose: a job should be free to use most of the container's memory. The
+/// ~20% headroom is what makes the failure mode correct — DuckDB is in-process
+/// in the worker, so the kernel OOM killer cannot kill "the job", only the
+/// whole worker. The headroom (Rust runtime baseline + DuckDB's untracked
+/// allocations) lets DuckDB hit its own `memory_limit` and abort *that query*
+/// with a graceful error *before* the process total reaches the cgroup cap and
+/// the kernel SIGKILLs the entire worker. Mirrors DuckDB's own default ratio
+/// (80% of detected RAM), but cgroup-aware. Overridable via
+/// `DUCKDB_MEMORY_LIMIT`.
+const DEFAULT_CGROUP_MEMORY_FRACTION: f64 = 0.8;
+
+// cgroup v2: `0::<path>` line in /proc/self/cgroup. Same regex as
+// windmill-common::worker::CGROUP_V2_PATH_RE.
+static CGROUP_V2_PATH_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?m)^0::(/.*)$"#).expect("invalid regex"));
+
+/// Parse a raw cgroup `memory.max` / `memory.limit_in_bytes` value into a real
+/// byte limit, or `None` when there is effectively no enforced limit.
+fn parse_cgroup_memory_value(raw: &str) -> Option<i64> {
+    let raw = raw.trim();
+    if raw == "max" {
+        return None;
+    }
+    let bytes = raw.parse::<i64>().ok()?;
+    if bytes <= 0 || bytes >= CGROUP_UNLIMITED_THRESHOLD {
+        None
+    } else {
+        Some(bytes)
+    }
+}
+
+/// Value to pass to `SET memory_limit` given a real cgroup limit in bytes.
+/// Floored at 64 MiB so a tiny cgroup never yields an unusable 0-byte limit.
+fn duckdb_memory_limit_for_cgroup(cgroup_bytes: i64) -> String {
+    let mib = ((cgroup_bytes as f64 * DEFAULT_CGROUP_MEMORY_FRACTION) as i64) / (1024 * 1024);
+    format!("{}MiB", mib.max(64))
+}
+
+/// Best-effort detection of the container/cgroup memory limit in bytes.
+/// `None` means no enforced limit (or detection failed) — we then leave
+/// DuckDB's default behavior in place rather than guessing.
+#[cfg(not(windows))]
+fn detect_cgroup_memory_limit() -> Option<i64> {
+    let raw = if std::path::Path::new("/sys/fs/cgroup/memory/memory.limit_in_bytes").exists() {
+        // cgroup v1
+        std::fs::read_to_string("/sys/fs/cgroup/memory/memory.limit_in_bytes").ok()?
+    } else {
+        // cgroup v2
+        let cgroup = std::fs::read_to_string("/proc/self/cgroup").ok()?;
+        let path = CGROUP_V2_PATH_RE
+            .captures(&cgroup)
+            .map(|c| format!("/sys/fs/cgroup{}/memory.max", c.get(1).unwrap().as_str()))?;
+        std::fs::read_to_string(&path).ok()?
+    };
+    parse_cgroup_memory_value(&raw)
+}
+
+#[cfg(windows)]
+fn detect_cgroup_memory_limit() -> Option<i64> {
+    None
+}
+
+/// Resolve the `SET memory_limit` value, or `None` to keep DuckDB's default.
+///
+/// 1. `DUCKDB_MEMORY_LIMIT` env var, used verbatim (e.g. `512MB`, `2GB`, `60%`)
+/// 2. 80% of the detected cgroup limit
+/// 3. `None` — no container limit detected, keep DuckDB's own default (which is
+///    already 80% of detected physical RAM, the correct behavior off-container)
+fn resolve_memory_limit() -> Option<String> {
+    if let Ok(v) = std::env::var("DUCKDB_MEMORY_LIMIT") {
+        let v = v.trim();
+        if !v.is_empty() {
+            return Some(v.to_string());
+        }
+    }
+    detect_cgroup_memory_limit().map(duckdb_memory_limit_for_cgroup)
+}
+
+/// Escape a value for inclusion inside a single-quoted DuckDB SQL string
+/// literal (env-var-provided values are operator-controlled but still escaped).
+fn sql_single_quote(s: &str) -> String {
+    s.replace('\'', "''")
+}
+
+/// Configure DuckDB so a long-lived worker running DuckDB queries cannot get
+/// OOM-killed. Must run before any other statement on the connection. Three
+/// levers:
+/// - `allocator_background_threads`: makes DuckDB's bundled jemalloc return
+///   freed memory to the OS after each job (fixes the steady-state RSS ratchet
+///   over the worker's uptime; the per-job connection is already dropped, but
+///   jemalloc retains pages otherwise).
+/// - `memory_limit`: bounds a single query's tracked working set. Because
+///   DuckDB runs in-process, the kernel OOM killer can only kill the whole
+///   worker, never the job — so this limit is what converts an oversized
+///   query into a graceful "exceeds memory limit" error scoped to that one
+///   job, leaving the worker and its other jobs alive.
+/// - `temp_directory=''`: deliberately DISABLES disk spill. This DuckDB
+///   version defaults an in-memory database's temp_directory to `.tmp` (spill
+///   on), so we must explicitly clear it: an oversized query should fail fast
+///   and loudly as a job-scoped error, not silently degrade the node by
+///   streaming gigabytes to disk.
+fn configure_duckdb_resource_limits(conn: &duckdb::Connection) -> Result<(), String> {
+    // Always on: independent of any cgroup/env detection, this is what stops
+    // RSS from climbing over the worker's uptime.
+    let mut config_sql =
+        String::from("SET allocator_background_threads=true;\nSET temp_directory='';\n");
+    if let Some(mem) = resolve_memory_limit() {
+        config_sql.push_str(&format!("SET memory_limit='{}';\n", sql_single_quote(&mem)));
+    }
+    conn.execute_batch(&config_sql).map_err(|e| {
+        format!(
+            "Error configuring DuckDB resource limits: {}",
+            e.to_string()
+        )
+    })
+}
+
 fn setup_duckdb_connection(
     conn: &duckdb::Connection,
     token: &str,
     base_internal_url: &str,
     w_id: &str,
 ) -> Result<(), String> {
+    // Bound RAM and enable allocator memory release before anything else runs
+    // on this connection (otherwise in-memory DuckDB has no cgroup-derived
+    // limit and its allocator ratchets the worker's RSS to the cgroup cap).
+    configure_duckdb_resource_limits(conn)?;
+
     let (s3_access_key, s3_secret_key) = token.rsplit_once('.').unwrap_or(("", token));
     let (s3_endpoint_ssl, s3_endpoint) = base_internal_url
         .split_once("://")
@@ -700,4 +835,124 @@ fn string_to_duckdb_time(s: &str) -> Result<duckdb::types::Value, String> {
         TimeUnit::Microsecond,
         time.num_seconds_from_midnight() as i64,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_cgroup_memory_value_handles_unlimited() {
+        // cgroup v2 unlimited sentinel
+        assert_eq!(parse_cgroup_memory_value("max"), None);
+        assert_eq!(parse_cgroup_memory_value("  max\n"), None);
+        // cgroup v1 unlimited: page-aligned ~i64::MAX, well above 1 PiB
+        assert_eq!(parse_cgroup_memory_value("9223372036854771712"), None);
+        // non-positive / unparseable
+        assert_eq!(parse_cgroup_memory_value("0"), None);
+        assert_eq!(parse_cgroup_memory_value("-1"), None);
+        assert_eq!(parse_cgroup_memory_value("notanumber"), None);
+    }
+
+    #[test]
+    fn parse_cgroup_memory_value_accepts_real_limits() {
+        assert_eq!(parse_cgroup_memory_value("1073741824"), Some(1073741824));
+        // trailing newline as written by the kernel
+        assert_eq!(parse_cgroup_memory_value("536870912\n"), Some(536870912));
+        // just below the unlimited threshold is still a real limit
+        assert_eq!(
+            parse_cgroup_memory_value(&(CGROUP_UNLIMITED_THRESHOLD - 1).to_string()),
+            Some(CGROUP_UNLIMITED_THRESHOLD - 1)
+        );
+    }
+
+    #[test]
+    fn duckdb_memory_limit_is_fraction_of_cgroup() {
+        // 1 GiB cgroup -> 80% -> 819 MiB
+        assert_eq!(duckdb_memory_limit_for_cgroup(1024 * 1024 * 1024), "819MiB");
+        // 4 GiB cgroup -> 3276 MiB
+        assert_eq!(
+            duckdb_memory_limit_for_cgroup(4 * 1024 * 1024 * 1024),
+            "3276MiB"
+        );
+    }
+
+    #[test]
+    fn duckdb_memory_limit_is_floored() {
+        // A tiny cgroup must not produce a 0 / unusable limit.
+        assert_eq!(duckdb_memory_limit_for_cgroup(1024 * 1024), "64MiB");
+        assert_eq!(duckdb_memory_limit_for_cgroup(1), "64MiB");
+    }
+
+    #[test]
+    fn sql_single_quote_escapes() {
+        assert_eq!(sql_single_quote("512MB"), "512MB");
+        assert_eq!(sql_single_quote("a'b"), "a''b");
+        assert_eq!(sql_single_quote("'; DROP"), "''; DROP");
+    }
+
+    // End-to-end: the generated SQL must be accepted by the bundled DuckDB
+    // version, and the no-spill behavior must actually hold — an oversized
+    // query must fail as a job-scoped error, not silently spill to disk.
+    // This test owns DUCKDB_MEMORY_LIMIT (no other test reads it).
+    #[test]
+    fn configure_resource_limits_applies_to_real_connection() {
+        unsafe {
+            std::env::set_var("DUCKDB_MEMORY_LIMIT", "64MiB");
+        }
+
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        configure_duckdb_resource_limits(&conn)
+            .expect("DuckDB rejected the generated resource-limit SQL");
+
+        // The allocator-release lever must be accepted by this DuckDB version
+        // and actually enabled (cast to VARCHAR: it is a BOOLEAN setting).
+        let alloc: String = conn
+            .query_row(
+                "SELECT current_setting('allocator_background_threads')::VARCHAR",
+                [],
+                |r| r.get(0),
+            )
+            .expect("allocator_background_threads not supported by bundled DuckDB");
+        assert_eq!(alloc, "true", "allocator_background_threads not enabled");
+
+        let mem: String = conn
+            .query_row("SELECT current_setting('memory_limit')", [], |r| r.get(0))
+            .unwrap();
+        assert!(
+            mem.contains("64.0 MiB") || mem.contains("64MiB") || mem.contains("67.1 MB"),
+            "unexpected memory_limit: {mem}"
+        );
+
+        // Spill must be disabled: temp_directory cleared to empty (this DuckDB
+        // version otherwise defaults an in-memory DB to `.tmp`).
+        let temp_dir: String = conn
+            .query_row("SELECT current_setting('temp_directory')", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            temp_dir, "",
+            "temp_directory must be empty (spill disabled)"
+        );
+
+        // Behavioral proof: a query whose hash table far exceeds 64 MiB must
+        // ERROR (job-scoped) rather than succeed by spilling to disk.
+        let oversized = conn.query_row(
+            "SELECT count(*) FROM range(20000000) t1(a) \
+             JOIN range(20000000) t2(b) ON t1.a = t2.b",
+            [],
+            |r| r.get::<_, i64>(0),
+        );
+        let err = oversized
+            .expect_err("oversized query unexpectedly succeeded — it spilled to disk?")
+            .to_string()
+            .to_lowercase();
+        assert!(
+            err.contains("memory"),
+            "expected an out-of-memory error, got: {err}"
+        );
+
+        unsafe {
+            std::env::remove_var("DUCKDB_MEMORY_LIMIT");
+        }
+    }
 }
