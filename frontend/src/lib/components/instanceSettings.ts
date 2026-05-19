@@ -308,7 +308,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Store audit logs in object storage',
 			description:
-				'When enabled and instance object storage is configured, audit logs are also exported as newline-delimited JSON to the dedicated logs/audit/ folder (partitioned by day). Export is incremental and runs off the hot path; only audit logs created after enabling are exported.',
+				'When enabled and instance object storage is configured, audit logs are also exported as newline-delimited JSON to the dedicated logs/audit/ folder (partitioned by day). Export is incremental and runs off the hot path. Pre-existing history is not backfilled: export starts from when the setting is enabled (transactions in flight at that moment may include a bounded set of just-prior rows). No audit log committed after enabling is ever skipped.',
 			key: 'store_audit_logs_s3',
 			fieldType: 'boolean',
 			storage: 'setting',
