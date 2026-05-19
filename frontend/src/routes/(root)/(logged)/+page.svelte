@@ -120,7 +120,8 @@
 			setTimeout(() => {
 				workspaceTutorials?.runTutorialById('workspace-onboarding')
 			}, 500)
-		} else if (tutorialParam === 'workspace-onboarding-operator') { // Small delay to ensure page is fully loaded
+		} else if (tutorialParam === 'workspace-onboarding-operator') {
+			// Small delay to ensure page is fully loaded
 			setTimeout(() => {
 				workspaceTutorials?.runTutorialById('workspace-onboarding-operator')
 			}, 500)
@@ -306,7 +307,7 @@
 
 		<TutorialBanner />
 
-		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => showCreateButtons = v}/>
+		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
 
 		{#if !$userStore?.operator}
 			<div class="flex w-full items-center gap-3 pb-2">

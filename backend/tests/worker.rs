@@ -4909,6 +4909,7 @@ async fn test_workflow_as_code(db: Pool<Postgres>) -> anyhow::Result<()> {
                     language: ScriptLang::Python3,
                     content: WORKFLOW_AS_CODE.into(),
                     ..RawCode::default()
+                    tag: None,
                 }))
                 .arg("n", json!(3))
                 .run_until_complete(db, false, port),

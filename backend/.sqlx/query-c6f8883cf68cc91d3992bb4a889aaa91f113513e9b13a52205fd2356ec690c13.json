@@ -1,0 +1,49 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO script_trigger\n             (workspace_id, runnable_kind, runnable_path, trigger_kind, trigger_ref, join_all,\n              debounce_s)\n           VALUES ($1, $2, $3, $4, $5, $6, $7)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        {
+          "Custom": {
+            "name": "asset_usage_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "flow",
+                "job"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        {
+          "Custom": {
+            "name": "script_trigger_kind",
+            "kind": {
+              "Enum": [
+                "asset",
+                "schedule",
+                "webhook",
+                "email",
+                "kafka",
+                "mqtt",
+                "nats",
+                "postgres",
+                "sqs",
+                "gcp"
+              ]
+            }
+          }
+        },
+        "Text",
+        "Bool",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c6f8883cf68cc91d3992bb4a889aaa91f113513e9b13a52205fd2356ec690c13"
+}

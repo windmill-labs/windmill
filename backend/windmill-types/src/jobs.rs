@@ -43,6 +43,9 @@ pub enum JobTriggerKind {
     #[serde(rename = "ci_test")]
     #[sqlx(rename = "ci_test")]
     CiTest,
+    // A run dispatched because an upstream pipeline script wrote an asset
+    // this runnable subscribes to via `// on s3://...` annotations.
+    Asset,
 }
 
 impl std::fmt::Display for JobTriggerKind {
@@ -64,6 +67,7 @@ impl std::fmt::Display for JobTriggerKind {
             JobTriggerKind::Google => "google",
             JobTriggerKind::Github => "github",
             JobTriggerKind::CiTest => "ci_test",
+            JobTriggerKind::Asset => "asset",
         };
         write!(f, "{}", kind)
     }

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            substring(path from '^f/([^/]+)/') AS \"folder!\",\n            COUNT(*) AS \"script_count!\"\n        FROM script\n        WHERE workspace_id = $1\n          AND auto_kind = 'pipeline'\n          AND archived = false\n          AND deleted = false\n          AND path LIKE 'f/%'\n        GROUP BY substring(path from '^f/([^/]+)/')\n        ORDER BY substring(path from '^f/([^/]+)/')\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "folder!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "script_count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "abb36bfddf707c7897b3936e982725f973eeb6ba5abbd61416060fb7d675593b"
+}

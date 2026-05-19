@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT runnable_path AS \"runnable_path!\", join_all AS \"join_all!\", debounce_s\n        FROM script_trigger\n        WHERE workspace_id = $1\n          AND trigger_kind = 'asset'\n          AND trigger_ref = $2\n          AND runnable_kind = 'script'\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "runnable_path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "join_all!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "debounce_s",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "fdbbbe58fe7ca2a4dee3ef2da6b90fb73b3155b5f8b1cdfa422725b57d9115d0"
+}

@@ -41,6 +41,7 @@ def main(name: str):
         language: ScriptLang::Python3,
         modules: Some(modules),
         ..RawCode::default()
+        tag: None,
     });
 
     let result = RunJob::from(job)
@@ -93,6 +94,7 @@ def main(a: int, b: int):
         language: ScriptLang::Python3,
         modules: Some(modules),
         ..RawCode::default()
+        tag: None,
     });
 
     let result = RunJob::from(job)
@@ -144,6 +146,7 @@ export function main(name: string) {
         language: ScriptLang::Bun,
         modules: Some(modules),
         ..RawCode::default()
+        tag: None,
     });
 
     let result = RunJob::from(job)

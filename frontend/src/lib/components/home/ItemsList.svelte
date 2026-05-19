@@ -9,8 +9,10 @@
 		type Script,
 		ScriptService,
 		type Flow,
-		type ListableRawApp
+		type ListableRawApp,
+		OpenAPI
 	} from '$lib/gen'
+	import { resource } from 'runed'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
@@ -43,6 +45,8 @@
 	import { getContext, tick, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
+	import { NetworkIcon } from 'lucide-svelte'
+	import { base } from '$lib/base'
 	interface Props {
 		filter?: string
 		subtab?: 'flow' | 'script' | 'app'
@@ -69,6 +73,25 @@
 	type TableFlow = TableItem<Flow, 'flow'>
 	type TableApp = TableItem<ListableApp, 'app'>
 	type TableRawApp = TableItem<ListableRawApp, 'raw_app'>
+
+	// Folders with ≥1 pipeline script (auto_kind='pipeline'). Used by
+	// TreeView to surface a "Pipeline" entry inside those folders. Cheap
+	// thanks to the partial index on script.auto_kind.
+	let pipelineFoldersRes = resource(
+		() => $workspaceStore,
+		async (ws, _prev, { signal }) => {
+			if (!ws) return new Set<string>()
+			const base_url = OpenAPI.BASE ?? ''
+			const res = await fetch(`${base_url}/w/${ws}/assets/pipelines`, {
+				credentials: 'include',
+				signal
+			})
+			if (!res.ok) return new Set<string>()
+			const rows = (await res.json()) as Array<{ folder: string }>
+			return new Set(rows.map((r) => r.folder))
+		}
+	)
+	let pipelineFolders = $derived(pipelineFoldersRes.current ?? new Set<string>())
 
 	let scripts: TableScript[] | undefined = $state()
 	let flows: TableFlow[] | undefined = $state()
@@ -800,6 +823,7 @@
 				{items}
 				{nbDisplayed}
 				{collapseAll}
+				{pipelineFolders}
 				isSearching={filter !== ''}
 				on:scriptChanged={() => loadScripts(includeWithoutMain)}
 				on:flowChanged={loadFlows}
@@ -815,6 +839,17 @@
 			/>
 		{:else}
 			<div class="border rounded-md bg-surface-tertiary">
+				{#if filter === ''}
+					{#each [...pipelineFolders].sort() as folder (folder)}
+						<a
+							href="{base}/pipeline/{encodeURIComponent(folder)}"
+							class="w-full inline-flex items-center gap-4 px-4 py-3 border-b last:border-b-0 hover:bg-surface-hover transition-colors text-sm first-of-type:rounded-t-md"
+						>
+							<NetworkIcon size={16} class="text-emerald-600 dark:text-emerald-400" />
+							<span class="text-xs font-medium text-emphasis truncate">Pipeline · f/{folder}</span>
+						</a>
+					{/each}
+				{/if}
 				{#each displayedItems as item, i (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
 					<Item
 						{item}

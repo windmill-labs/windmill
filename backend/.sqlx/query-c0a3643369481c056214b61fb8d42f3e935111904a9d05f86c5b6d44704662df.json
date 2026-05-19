@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO schedule (\n                    workspace_id, path, schedule, timezone, edited_by, script_path,\n                    is_flow, enabled, email, permissioned_as,\n                    ws_error_handler_muted, no_flow_overlap, cron_version,\n                    managed_by_runnable_path\n                )\n                VALUES ($1, $2, $3, 'UTC', $4, $2, $5, true, $6, $7, false, false, 'v2', $2)\n                ON CONFLICT (workspace_id, path) DO UPDATE\n                SET schedule = EXCLUDED.schedule,\n                    edited_at = now(),\n                    edited_by = EXCLUDED.edited_by,\n                    managed_by_runnable_path = EXCLUDED.managed_by_runnable_path\n                WHERE schedule.managed_by_runnable_path = EXCLUDED.managed_by_runnable_path\n                   OR schedule.managed_by_runnable_path IS NULL AND schedule.script_path = EXCLUDED.script_path\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c0a3643369481c056214b61fb8d42f3e935111904a9d05f86c5b6d44704662df"
+}
