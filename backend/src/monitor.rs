@@ -4168,14 +4168,14 @@ async fn anchor_audit_logs_s3_checkpoint_env_var(db: &DB) {
 ///     snapshot xmin and cause a bounded over-export of recently-committed
 ///     rows — never loss, never full-history backfill).
 ///
-/// Steady-state runs are bounded to at most `MAX_XID_INTERVAL` xids
-/// (`eff_cur`), so a backlog (e.g. after a prolonged object-store outage)
-/// drains over successive ticks rather than one unbounded aggregate; the
-/// checkpoint only ever advances to the exported boundary, so the tail is
-/// never skipped. The first run is uncapped and uses an epoch timestamp floor
-/// so it cannot drop an arbitrarily-old post-enable backlog (correctness over
-/// memory for that one-time / rare delayed-first-export recovery; the xid
-/// predicate still restricts the scan to post-enable rows).
+/// *Every* run (bootstrap included) is bounded to at most `MAX_XID_INTERVAL`
+/// xids (`eff_cur`), so a backlog (e.g. after a prolonged object-store outage,
+/// whether before or after the first export) drains over successive ticks
+/// rather than one unbounded aggregate; the checkpoint only ever advances to
+/// the exported boundary, so the tail is never skipped. Bootstrap runs keep an
+/// epoch timestamp floor (so an arbitrarily-old post-anchor backlog is not
+/// pruned away) and stay in bootstrap, one bounded slice per tick, until the
+/// whole backlog is drained.
 ///
 /// Tradeoff (bounded lag, never loss; self-heals): a long-running transaction
 /// of any kind holds snapshot xmin back and stalls export progress until it
@@ -4302,23 +4302,24 @@ async fn export_audit_logs_to_object_store(db: &DB) {
     // `last_ts == epoch` is the "anchored, nothing exported yet" sentinel
     // (written by the trigger / startup anchor). Bootstrap runs use an epoch
     // timestamp floor (no partition pruning, so an arbitrarily-old/delayed
-    // backlog since the anchor is not dropped) and are uncapped; once they
-    // drain everything below `cur` they record a real `last_ts` and
-    // steady-state pruning + the per-run xid cap take over.
+    // backlog since the anchor is not dropped); they stay in bootstrap, one
+    // bounded `MAX_XID_INTERVAL` slice per tick, until the whole post-anchor
+    // backlog is drained, then record a real `last_ts` so steady-state pruning
+    // takes over.
     let bootstrap = last_ts <= DateTime::<Utc>::from_timestamp(0, 0).unwrap();
 
-    // Bound steady-state runs to at most `MAX_XID_INTERVAL` xids. `eff_cur <=
-    // cur_xmin` so every xid `< eff_cur` is still fully settled; the checkpoint
-    // advances exactly to `eff_cur`, so the un-exported tail `[eff_cur,
-    // cur_xmin)` is picked up on the next tick — no loss, bounded work per run.
-    // Bootstrap runs are uncapped: they must drain the full post-anchor backlog
-    // (correctness over memory for that one-time / rare recovery; the xid
-    // predicate still restricts the scan to post-anchor rows).
-    let eff_cur_xmin = if bootstrap {
-        cur_xmin
-    } else {
-        cur_xmin.min(prev_xmin.saturating_add(MAX_XID_INTERVAL))
-    };
+    // Bound *every* run to at most `MAX_XID_INTERVAL` xids. `prev_xmin` and
+    // `cur_xmin` are both 64-bit `txid` values (the checkpoint is written by
+    // the trigger/anchor as `txid_snapshot_xmin`, same scale as `cur_xmin`), so
+    // the cap is meaningful on the bootstrap path too. `eff_cur <= cur_xmin` so
+    // every xid `< eff_cur` is still fully settled; the checkpoint advances
+    // exactly to `eff_cur`, and the tail `[eff_cur, cur_xmin)` is picked up on
+    // the next tick — no loss, bounded work per run even when a large backlog
+    // accumulated under the bootstrap sentinel (object store down after
+    // enable).
+    let eff_cur_xmin = cur_xmin.min(prev_xmin.saturating_add(MAX_XID_INTERVAL));
+    // Still draining the bootstrap backlog if the cap clipped this run.
+    let bootstrap_drained = bootstrap && eff_cur_xmin >= cur_xmin;
 
     // Export the rows whose inserting xid is in `[prev, eff_cur)`:
     //   * `age(xmin) > age(cur_xid)`  → settled now (strictly older than the
@@ -4415,13 +4416,22 @@ async fn export_audit_logs_to_object_store(db: &DB) {
         "INSERT INTO global_settings (name, value) VALUES ($1, $2)
          ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
         windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING,
-        // Bootstrap drained everything below `cur`, so a real (recent) floor is
-        // safe and exits bootstrap. Steady state keeps `batch_max_ts` (frozen
-        // when no rows, so a long-txn stall can't advance the floor past an
-        // un-exported in-interval row).
+        // Only leave bootstrap once the whole post-anchor backlog is drained
+        // (this slice reached `cur_xmin`): then a real (recent) floor is safe.
+        // While a capped tail remains, keep the epoch sentinel so the next tick
+        // continues the bootstrap (epoch floor) for the rest of the old
+        // backlog. Steady state keeps `batch_max_ts` (frozen when no rows, so a
+        // long-txn stall can't advance the floor past an un-exported row).
         serde_json::json!({
             "last_xmin": eff_cur_xmin,
-            "last_ts": if bootstrap { Utc::now() } else { batch_max_ts }.to_rfc3339()
+            "last_ts": if bootstrap_drained {
+                Utc::now()
+            } else if bootstrap {
+                DateTime::<Utc>::from_timestamp(0, 0).unwrap()
+            } else {
+                batch_max_ts
+            }
+            .to_rfc3339()
         })
     )
     .execute(&mut *tx)
