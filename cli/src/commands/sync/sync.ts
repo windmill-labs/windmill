@@ -75,6 +75,7 @@ import {
   checkoutGitSyncDeployBranch,
   gitSyncDeployPush,
   deriveGitSyncDeployIncludes,
+  isForkWorkspace,
   type GitSyncDeployItem,
 } from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
@@ -2398,6 +2399,8 @@ export async function pull(
       gitDeployItems?: string;
       onlyCreateBranch?: boolean;
       parentWorkspaceId?: string;
+      gitCommitterEmail?: string;
+      gitCommitterName?: string;
     },
 ) {
   if ((opts as any).jsonOutput) log.setSilent(true);
@@ -2464,14 +2467,23 @@ export async function pull(
     }
     const clonedBranchName = getCurrentGitBranch() ?? "main";
 
-    // Fork-of-a-fork: the parent fork branch must exist as the root for the
-    // new branch (mirrors the hub script's parent_workspace_id handling).
-    if (opts.parentWorkspaceId) {
+    // Fork workspaces force-disable use_individual_branch / group_by_folder
+    // (1:1 with the hub script's inner()).
+    const targetIsFork = isForkWorkspace(workspace.workspaceId);
+    const useIndividualBranch = targetIsFork
+      ? false
+      : !!opts.useIndividualBranch;
+    const groupByFolder = targetIsFork ? false : !!opts.groupByFolder;
+
+    // Fork-of-a-fork: only when the parent workspace is itself a fork, root
+    // the new branch on the parent's fork branch (mirrors the hub script's
+    // `parent_workspace_id?.startsWith(FORKED_…)` gate).
+    if (opts.parentWorkspaceId && isForkWorkspace(opts.parentWorkspaceId)) {
       const parentBranch = computeGitSyncDeployBranch({
         workspaceId: opts.parentWorkspaceId,
         items: deployItems,
-        useIndividualBranch: !!opts.useIndividualBranch,
-        groupByFolder: !!opts.groupByFolder,
+        useIndividualBranch,
+        groupByFolder,
         clonedBranchName,
       });
       if (parentBranch && parentBranch !== clonedBranchName) {
@@ -2482,8 +2494,8 @@ export async function pull(
     const deployBranch = computeGitSyncDeployBranch({
       workspaceId: workspace.workspaceId,
       items: deployItems,
-      useIndividualBranch: !!opts.useIndividualBranch,
-      groupByFolder: !!opts.groupByFolder,
+      useIndividualBranch,
+      groupByFolder,
       clonedBranchName,
     });
     if (deployBranch && deployBranch !== clonedBranchName) {
@@ -2495,6 +2507,8 @@ export async function pull(
         items: deployItems,
         authorName: process.env["WM_USERNAME"] || "windmill",
         authorEmail: process.env["WM_EMAIL"] || "windmill@windmill.dev",
+        committerName: opts.gitCommitterName,
+        committerEmail: opts.gitCommitterEmail,
         onlyCreateBranch: true,
       });
       return;
@@ -2977,6 +2991,8 @@ export async function pull(
       items: deployItems,
       authorName: process.env["WM_USERNAME"] || "windmill",
       authorEmail: process.env["WM_EMAIL"] || "windmill@windmill.dev",
+      committerName: opts.gitCommitterName,
+      committerEmail: opts.gitCommitterEmail,
     });
   }
 }
@@ -2997,6 +3013,8 @@ export async function gitDeploy(
       onlyCreateBranch?: boolean;
       parentWorkspaceId?: string;
       skipSecrets?: boolean;
+      gitCommitterEmail?: string;
+      gitCommitterName?: string;
     },
 ) {
   let items: GitSyncDeployItem[] = [];
@@ -3009,7 +3027,12 @@ export async function gitDeploy(
     }
   }
 
-  const useIndividualBranch = !!opts.useIndividualBranch;
+  // Fork workspaces force-disable use_individual_branch / group_by_folder
+  // (1:1 with the hub script's inner()): a fork always syncs to its own
+  // wm-fork/<branch>/<id> branch, and — critically — that disabling also
+  // flips the include/promotion derivation below.
+  const isFork = isForkWorkspace(opts.workspace ?? "");
+  const useIndividualBranch = isFork ? false : !!opts.useIndividualBranch;
 
   // Derive the include filters from the deployed items (replaces the hub
   // script's regexFromPath + per-kind --include-* construction).
@@ -4724,6 +4747,14 @@ const command = new Command()
     "Parent workspace id, used to root a fork-of-a-fork branch",
   )
   .option("--skip-secrets", "Skip syncing only secrets variables")
+  .option(
+    "--git-committer-email <email:string>",
+    "Committer email for the deploy commit (GPG-signed repos pass the GPG key email; defaults to WM_EMAIL)",
+  )
+  .option(
+    "--git-committer-name <name:string>",
+    "Committer name for the deploy commit (defaults to WM_USERNAME)",
+  )
   .action(gitDeploy as any);
 
 export default command;

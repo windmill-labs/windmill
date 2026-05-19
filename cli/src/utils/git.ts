@@ -80,6 +80,15 @@ export interface GitSyncDeployItem {
   commit_msg?: string;
 }
 
+// A workspace id of the form "wm-fork-<id>" is a fork workspace. The hub
+// script force-disables use_individual_branch / group_by_folder for forks
+// (a fork always syncs to its own wm-fork/<branch>/<id> branch), and that
+// disabling also changes the include/promotion derivation — so callers must
+// apply it BEFORE deriving includes, not just for branch naming.
+export function isForkWorkspace(workspaceId: string): boolean {
+  return workspaceId.startsWith(FORK_WORKSPACE_PREFIX);
+}
+
 // Mirrors the hub script's get_fork_branch_name: "wm-fork-<id>" becomes
 // "wm-fork/<originalBranch>/<id>".
 export function forkBranchName(
@@ -166,6 +175,28 @@ export function composeGitSyncCommitHeader(
     header += ` and ${othersCount} other object${othersCount > 1 ? "s" : ""}`;
   }
   return header;
+}
+
+// Mirrors the hub script's git_push commit-message construction EXACTLY,
+// including its quirks: it pushes `commit_msg` once per item unconditionally
+// (so the array length equals items.length even when some msgs are empty),
+// uses the single message verbatim when there is exactly one item, otherwise
+// the composed header + newline-joined descriptions, and falls back to
+// "no commit msg" when the chosen header is empty/undefined. join() coerces
+// undefined entries to "" just like the original.
+export function gitSyncCommitMessage(items: GitSyncDeployItem[]): {
+  header: string;
+  description: string;
+} {
+  const descs = items.map((i) => i.commit_msg);
+  const [h, d] =
+    descs.length === 1
+      ? [descs[0], ""]
+      : [composeGitSyncCommitHeader(items), descs.join("\n")];
+  return {
+    header: h === undefined || h === "" ? "no commit msg" : h,
+    description: d ?? "",
+  };
 }
 
 // Mirrors the hub script's regexFromPath: the include glob(s) that select an
@@ -305,33 +336,39 @@ export function gitSyncDeployPush(params: {
   items: GitSyncDeployItem[];
   authorName: string;
   authorEmail: string;
+  // Committer identity (git config user.*). Defaults to the author identity,
+  // matching the hub script's non-GPG branch. For GPG-signed repos the hub
+  // sets the committer email to the GPG key's email — the caller passes that
+  // through here so the committed identity stays 1:1.
+  committerName?: string;
+  committerEmail?: string;
   onlyCreateBranch?: boolean;
 }): { pushed: boolean } {
   const { items, authorName, authorEmail, onlyCreateBranch } = params;
+  const committerName = params.committerName ?? authorName;
+  const committerEmail = params.committerEmail ?? authorEmail;
 
-  git(["config", "user.email", authorEmail]);
-  git(["config", "user.name", authorName]);
+  git(["config", "user.email", committerEmail]);
+  git(["config", "user.name", committerName]);
 
-  // only_create_branch: publish the (possibly empty) branch ref and stop,
-  // mirroring the hub script's early `git push --porcelain`.
+  // only_create_branch: publish the (possibly empty) branch ref and stop.
+  // Mirrors the hub script's early `git push --porcelain` (NOT swallowed —
+  // a failure here fails the job, exactly as in the hub).
   if (onlyCreateBranch) {
-    git(["push", "--porcelain"], { allowFail: true });
+    git(["push", "--porcelain"]);
     return { pushed: true };
   }
 
-  // Staged separately (not `git add wmill-lock.yaml <path>**` in one call):
-  // `git add a b` aborts entirely if `a` matches nothing, which would drop the
-  // object files whenever wmill-lock.yaml is absent.
-  git(["add", "wmill-lock.yaml"], { allowFail: true });
-  const commitMsgs: string[] = [];
-  for (const { path, parent_path, commit_msg } of items) {
+  // 1:1 with the hub script: `git add wmill-lock.yaml <path>**` as a single
+  // command per item, failure swallowed (its try/catch). `commit_msg` is
+  // collected once per item unconditionally — see gitSyncCommitMessage.
+  for (const { path, parent_path } of items) {
     if (path) {
-      git(["add", `${path}**`], { allowFail: true });
+      git(["add", "wmill-lock.yaml", `${path}**`], { allowFail: true });
     }
     if (parent_path) {
-      git(["add", `${parent_path}**`], { allowFail: true });
+      git(["add", "wmill-lock.yaml", `${parent_path}**`], { allowFail: true });
     }
-    if (commit_msg) commitMsgs.push(commit_msg);
   }
 
   // `git diff --cached --quiet` exits 1 iff there is something staged.
@@ -341,17 +378,14 @@ export function gitSyncDeployPush(params: {
     return { pushed: false };
   }
 
-  const [header, description] =
-    commitMsgs.length === 1
-      ? [commitMsgs[0], ""]
-      : [composeGitSyncCommitHeader(items), commitMsgs.join("\n")];
+  const { header, description } = gitSyncCommitMessage(items);
 
   git([
     "commit",
     "--author",
     `${authorName} <${authorEmail}>`,
     "-m",
-    header && header.length > 0 ? header : "no commit msg",
+    header,
     "-m",
     description,
   ]);

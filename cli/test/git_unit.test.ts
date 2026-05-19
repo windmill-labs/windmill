@@ -12,6 +12,8 @@ import {
   forkBranchName,
   gitSyncIncludePattern,
   deriveGitSyncDeployIncludes,
+  gitSyncCommitMessage,
+  isForkWorkspace,
 } from "../src/utils/git.ts";
 
 // =============================================================================
@@ -285,5 +287,43 @@ describe("deriveGitSyncDeployIncludes", () => {
     // extra-includes are still derived regardless of branch mode
     expect(r.extraIncludes).toContain("f/s.schedule.*");
     expect(r.extraIncludes).toContain("f/t.kafka_trigger.*");
+  });
+});
+
+// =============================================================================
+// isForkWorkspace + gitSyncCommitMessage — 1:1 fidelity with the hub script.
+// =============================================================================
+
+describe("isForkWorkspace", () => {
+  test("true only for the wm-fork- workspace-id prefix", () => {
+    expect(isForkWorkspace("wm-fork-abc")).toBe(true);
+    expect(isForkWorkspace("prod")).toBe(false);
+    // "wm-fork" without the trailing dash is the BRANCH prefix, not a ws id
+    expect(isForkWorkspace("wm-fork")).toBe(false);
+  });
+});
+
+describe("gitSyncCommitMessage (mirrors hub git_push quirks)", () => {
+  test("single item: uses its commit_msg verbatim, empty description", () => {
+    expect(
+      gitSyncCommitMessage([{ path_type: "script", path: "a", commit_msg: "msg" }])
+    ).toEqual({ header: "msg", description: "" });
+  });
+
+  test("single item with NO commit_msg -> 'no commit msg' (hub fallback)", () => {
+    expect(
+      gitSyncCommitMessage([{ path_type: "script", path: "a" }])
+    ).toEqual({ header: "no commit msg", description: "" });
+  });
+
+  test("multi item: composed header + newline-joined msgs, undefined -> ''", () => {
+    // hub pushes commit_msg once per item UNCONDITIONALLY, so the second
+    // (missing) entry joins as an empty string -> "first\n".
+    expect(
+      gitSyncCommitMessage([
+        { path_type: "script", path: "a", commit_msg: "first" },
+        { path_type: "flow", path: "b" },
+      ])
+    ).toEqual({ header: "[WM]: Deployed 1 script, 1 flow", description: "first\n" });
   });
 });
