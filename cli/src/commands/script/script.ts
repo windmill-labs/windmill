@@ -1525,15 +1525,28 @@ async function preview(
   // a script that imports other locally-edited scripts uses the local versions
   // instead of the deployed ones. Shared with `wmill flow preview` so both
   // entry points behave identically; degrades gracefully on older backends.
-  const { buildPreviewTempScriptRefs } = await import(
-    "../generate-metadata/generate-metadata.ts"
+  // Short-circuit when the script has no relative imports: the full-workspace
+  // dependency walk + diff round-trip is pure overhead in that (common) case.
+  let tempScriptRefs: Record<string, string> | undefined = undefined;
+  const { extractRelativeImports } = await import(
+    "../../utils/relative_imports.ts"
   );
-  const tempScriptRefs = await buildPreviewTempScriptRefs(
-    workspace,
-    opts,
-    codebases,
-    { kind: "script", path: filePath }
+  const relImports = await extractRelativeImports(
+    content,
+    scriptPathToRemotePath(filePath),
+    language
   );
+  if (relImports.length > 0) {
+    const { buildPreviewTempScriptRefs } = await import(
+      "../generate-metadata/generate-metadata.ts"
+    );
+    tempScriptRefs = await buildPreviewTempScriptRefs(
+      workspace,
+      opts,
+      codebases,
+      { kind: "script", path: filePath }
+    );
+  }
 
   let bundledContent: string | Blob | undefined = undefined;
   let isTar = false;

@@ -164,7 +164,11 @@ export async function buildPreviewTempScriptRefs(
     // NOT mask the real error: only the missing-/raw_temp-endpoint case is an
     // expected old-backend incompatibility — anything else is surfaced verbatim.
     const msg = e instanceof Error ? e.message : String(e);
-    const isOldBackend = /\b40[45]\b|not found|raw_temp/i.test(msg);
+    // Narrow: only the missing raw_temp endpoint is the expected old-backend
+    // signal. A bare 404/"not found" matches far too much (module/command/
+    // ENOENT "not found", "Script X not found", …) and would mislabel real
+    // bugs as a backend-too-old issue.
+    const isOldBackend = /raw_temp|raw_script_temp/i.test(msg);
     if (!(opts as { silent?: boolean }).silent) {
       log.warn(
         colors.yellow(
