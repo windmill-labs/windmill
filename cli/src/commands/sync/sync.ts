@@ -2980,6 +2980,30 @@ export async function pull(
   }
 }
 
+// Internal git-sync deployment-callback entrypoint. Invoked only by the
+// git-sync hub script (not user-facing — see the hidden `git-deploy`
+// subcommand). Runs inside an existing clone of the repo: switches to the
+// wm_deploy/fork branch when applicable, pulls the workspace content, then
+// commits and pushes. Delegates to `pull` with deploy options set;
+// non-interactive and branch-validation-free since there is no TTY.
+export async function gitDeploy(
+  opts: GlobalOptions &
+    SyncOptions & {
+      repository?: string;
+      gitDeployItems?: string;
+      useIndividualBranch?: boolean;
+      groupByFolder?: boolean;
+      onlyCreateBranch?: boolean;
+      parentWorkspaceId?: string;
+    },
+) {
+  await pull({
+    ...opts,
+    yes: true,
+    skipBranchValidation: true,
+  } as any);
+}
+
 function prettyChanges(
   changes: Change[],
   specificItems?: SpecificItemsConfig,
@@ -4563,26 +4587,6 @@ const command = new Command()
     "--branch, --env <branch:string>",
     "[Deprecated: use --workspace] Override the current git branch/environment",
   )
-  .option(
-    "--git-deploy-items <json:string>",
-    "Git-sync deployment-callback mode (used by the git-sync hub script): JSON array of {path_type,path,parent_path,commit_msg}. Runs inside an existing clone, switches to the wm_deploy/fork branch, then commits and pushes.",
-  )
-  .option(
-    "--use-individual-branch",
-    "Git-sync: push each deployed object to its own wm_deploy/<workspace>/<...> branch instead of the base branch",
-  )
-  .option(
-    "--group-by-folder",
-    "Git-sync: with --use-individual-branch, group deployed objects per folder branch",
-  )
-  .option(
-    "--only-create-branch",
-    "Git-sync: only create/push the deploy branch, skip pulling and committing files",
-  )
-  .option(
-    "--parent-workspace-id <id:string>",
-    "Git-sync: parent workspace id, used to root a fork-of-a-fork branch",
-  )
   .action(pull as any)
   .command("push")
   .description("Push any local changes and apply them remotely.")
@@ -4650,6 +4654,38 @@ const command = new Command()
     "--accept-overriding-permissioned-as-with-self",
     "Accept that items with a different permissioned_as will be updated with your own user",
   )
-  .action(push as any);
+  .action(push as any)
+  // Internal: invoked only by the git-sync hub script. Hidden from help and
+  // the generated agent system prompts (see system_prompts/generate.py).
+  .command("git-deploy")
+  .hidden()
+  .description(
+    "Internal git-sync deployment-callback step (used by the git-sync hub script). Runs inside an existing clone: switches to the wm_deploy/fork branch when applicable, pulls workspace content, then commits and pushes.",
+  )
+  .option(
+    "--repository <repo:string>",
+    "Repository resource path (e.g. u/user/repo)",
+  )
+  .option(
+    "--git-deploy-items <json:string>",
+    "JSON array of {path_type,path,parent_path,commit_msg} being deployed",
+  )
+  .option(
+    "--use-individual-branch",
+    "Push each deployed object to its own wm_deploy/<workspace>/<...> branch",
+  )
+  .option(
+    "--group-by-folder",
+    "With --use-individual-branch, group deployed objects per folder branch",
+  )
+  .option(
+    "--only-create-branch",
+    "Only create/push the deploy branch, skip pulling and committing files",
+  )
+  .option(
+    "--parent-workspace-id <id:string>",
+    "Parent workspace id, used to root a fork-of-a-fork branch",
+  )
+  .action(gitDeploy as any);
 
 export default command;

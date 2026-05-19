@@ -131,9 +131,7 @@ test.skipIf(shouldSkipOnCI())(
       const resA = await backend.runCLICommand(
         [
           "sync",
-          "pull",
-          "--yes",
-          "--skip-branch-validation",
+          "git-deploy",
           "--repository",
           "u/test/promo_repo",
           "--use-individual-branch",
@@ -160,9 +158,7 @@ test.skipIf(shouldSkipOnCI())(
       const resB = await backend.runCLICommand(
         [
           "sync",
-          "pull",
-          "--yes",
-          "--skip-branch-validation",
+          "git-deploy",
           "--repository",
           "u/test/promo_repo",
           "--git-deploy-items",
