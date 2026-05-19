@@ -82,26 +82,48 @@ export class WorkspaceResolver {
   }
 }
 
-// Point the API client at the backend for a single wmill.yaml workspace key
-// (its baseUrl + the matching stored profile's token), then return the
-// backend workspace id to use as the path param. Throws a clean error if the
-// key is unknown or no profile/baseUrl resolves it — callers decide whether to
-// skip (--all) or fail (named arg).
+// Point the API client at the backend for a single wmill.yaml workspace key,
+// then return the backend workspace id to use as the path param. The backend
+// id always comes from the wmill.yaml mapping (the feature's invariant);
+// credentials are resolved with the same precedence as every other command:
+//
+//   1. explicit --base-url + --token  -> used as-is (stateless CI; no profile
+//      or wmill.yaml baseUrl required)
+//   2. otherwise, the stored profile matching wmill.yaml workspaces.<ws>
+//      (its baseUrl + token), with an explicit --token overriding the
+//      stored token
+//
+// Throws a clean error if the key is unknown or nothing resolves it — callers
+// decide whether to skip (--all) or fail (named arg).
 export async function configureClientForWorkspace(
   opts: GlobalOptions,
   ws: string,
   resolver: WorkspaceResolver,
 ): Promise<string> {
   const wsId = resolver.backendId(ws); // throws if not in wmill.yaml
-  // Fresh opts so resolveWorkspace's per-call cache can't bleed across keys.
+
+  // 1. Explicit credentials — honor them directly, like other commands do.
+  if (opts.baseUrl) {
+    if (!opts.token) {
+      throw new Error(
+        "When --base-url is set, --token is required for protection-rules.",
+      );
+    }
+    setClient(opts.token, opts.baseUrl.replace(/\/+$/, ""));
+    return wsId;
+  }
+
+  // 2. Stored-profile resolution. Fresh opts so resolveWorkspace's per-call
+  // cache can't bleed across keys.
   const resolved = await tryResolveBranchWorkspace({ ...opts }, ws);
   if (!resolved) {
     throw new Error(
-      `Could not resolve a profile for workspace '${ws}'. Ensure wmill.yaml ` +
-        `workspaces.${ws} has a baseUrl and you've run 'wmill workspace add' ` +
-        `for it (or pass --base-url/--token).`,
+      `Could not resolve credentials for workspace '${ws}'. Either pass ` +
+        `--base-url and --token, or ensure wmill.yaml workspaces.${ws} has a ` +
+        `baseUrl and you've run 'wmill workspace add' for it.`,
     );
   }
-  setClient(resolved.token, resolved.remote.replace(/\/+$/, ""));
+  // An explicit --token overrides the stored profile's token.
+  setClient(opts.token ?? resolved.token, resolved.remote.replace(/\/+$/, ""));
   return wsId;
 }
