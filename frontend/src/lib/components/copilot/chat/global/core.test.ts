@@ -257,6 +257,46 @@ describe('global AI tools', () => {
 		expect(localStorage.getItem(`userdraft/w/${WORKSPACE}/script/f/scripts/open-editor`)).toBeNull()
 	})
 
+	it('lists and edits a new script draft stored under the empty add-editor key by its assigned path', async () => {
+		const content = 'export async function main() {\n\treturn 1\n}'
+		const handle = UserDraft.use<any>('script', '', { workspace: WORKSPACE })
+		handle.setDraftAndMeta(
+			{
+				path: 'u/admin/assigned_script',
+				summary: '',
+				language: 'bun',
+				content
+			},
+			{}
+		)
+
+		const raw = await callGlobalTool('list_workspace_items', {
+			types: ['script']
+		})
+
+		expect(JSON.parse(raw)).toEqual([
+			expect.objectContaining({
+				type: 'script',
+				path: 'u/admin/assigned_script',
+				isDraft: false
+			})
+		])
+
+		await callGlobalTool('edit_script', {
+			path: 'u/admin/assigned_script',
+			old_string: 'return 1',
+			new_string: 'return 2',
+			replace_all: false
+		})
+
+		expect(UserDraft.get<any>('script', '', { workspace: WORKSPACE })?.content).toContain(
+			'return 2'
+		)
+		expect(
+			UserDraft.get<any>('script', 'u/admin/assigned_script', { workspace: WORKSPACE })
+		).toBeUndefined()
+	})
+
 	it('overlays shared UserDraft entries in list_workspace_items', async () => {
 		await callGlobalTool('write_script', {
 			path: 'f/scripts/listed',
