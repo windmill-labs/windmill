@@ -20,7 +20,7 @@ import { itemHref as offboardingItemHref } from '$lib/components/offboarding-uti
 import { findAndReplace } from 'mdast-util-find-and-replace'
 import { visit } from 'unist-util-visit'
 import type { Root, InlineCode, Link } from 'mdast'
-import type { CreatedResourceTriggerKind, ToolDisplayAction } from './shared'
+import type { ToolDisplayAction } from './shared'
 
 export type WindmillItemKind =
 	| 'script'
@@ -68,38 +68,9 @@ export const WINDMILL_PATH_REGEX =
  */
 const WINDMILL_PATH_EXACT_REGEX = /^[uf]\/[A-Za-z0-9_.\-]+\/[A-Za-z0-9_./\-]*[A-Za-z0-9_\-]$/
 
-const itemKindToOffboardingKind: Record<WindmillItemKind, string> = {
-	script: 'scripts',
-	flow: 'flows',
-	app: 'apps',
-	variable: 'variables',
-	resource: 'resources',
-	schedule: 'schedules',
-	http_trigger: 'http_trigger',
-	websocket_trigger: 'websocket_trigger',
-	kafka_trigger: 'kafka_trigger',
-	nats_trigger: 'nats_trigger',
-	postgres_trigger: 'postgres_trigger',
-	mqtt_trigger: 'mqtt_trigger',
-	sqs_trigger: 'sqs_trigger',
-	gcp_trigger: 'gcp_trigger',
-	azure_trigger: 'azure_trigger',
-	email_trigger: 'email_trigger'
-}
-
-const triggerKindByWorkspaceItemKind: Partial<
-	Record<WindmillItemKind, CreatedResourceTriggerKind>
-> = {
-	http_trigger: 'http',
-	websocket_trigger: 'websocket',
-	kafka_trigger: 'kafka',
-	nats_trigger: 'nats',
-	postgres_trigger: 'postgres',
-	mqtt_trigger: 'mqtt',
-	sqs_trigger: 'sqs',
-	gcp_trigger: 'gcp',
-	azure_trigger: 'azure',
-	email_trigger: 'email'
+function workspaceItemTriggerKind(kind: WindmillItemKind): ToolDisplayAction['triggerKind'] {
+	if (!kind.endsWith('_trigger')) return undefined
+	return kind.slice(0, -'_trigger'.length) as ToolDisplayAction['triggerKind']
 }
 
 /**
@@ -109,7 +80,7 @@ const triggerKindByWorkspaceItemKind: Partial<
  * it; the hash fragment is preserved for destination pages that consume it.
  */
 export function itemHref(entry: WorkspaceItemEntry, workspace?: string): string {
-	const raw = offboardingItemHref(itemKindToOffboardingKind[entry.kind], entry.path) ?? '#'
+	const raw = offboardingItemHref(entry.kind, entry.path) ?? '#'
 	if (!workspace) return raw
 	const hashIdx = raw.indexOf('#')
 	if (hashIdx === -1) {
@@ -264,7 +235,7 @@ export function workspaceItemAction(
 		return targetKind ? { ...base, resource: 'schedule', targetKind } : undefined
 	}
 
-	const triggerKind = triggerKindByWorkspaceItemKind[kind]
+	const triggerKind = workspaceItemTriggerKind(kind)
 	if (!triggerKind || !targetKind) return undefined
 	return { ...base, resource: 'trigger', triggerKind, targetKind }
 }
