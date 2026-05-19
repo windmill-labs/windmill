@@ -378,7 +378,10 @@
 		}
 	}
 
-	function handleArrayOfObjectsHeaders(json: any) {
+	function handleArrayOfObjectsHeaders(json: any): {
+		rows: any[]
+		explicitHeaders?: string[]
+	} {
 		// handle possible a first row of headers
 		if (
 			Array.isArray(json) &&
@@ -401,10 +404,10 @@
 				rows[i - 1] = obj
 			}
 
-			return rows
+			return { rows, explicitHeaders: headers }
 		}
 
-		return json
+		return { rows: json }
 	}
 
 	type InputObject = { [key: string]: number[] }
@@ -635,11 +638,13 @@
 						typeof result === 'object' && 'table-row-object' in result
 							? result['table-row-object']
 							: result}
+					{@const { rows, explicitHeaders } = handleArrayOfObjectsHeaders(data)}
 					<AutoDataTable
 						class={fixTableSizingToParent
 							? 'absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]'
 							: ''}
-						objects={handleArrayOfObjectsHeaders(data)}
+						objects={rows}
+						{explicitHeaders}
 					/>
 				{:else if !forceJson && resultKind === 'html'}
 					<div class="h-full">
