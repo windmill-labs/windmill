@@ -143,13 +143,23 @@
 			throw new Error('Missing trigger kind')
 		}
 
+		if (activeDrawer?.key === key && activeDrawer.path === action.path && drawer?.isOpen()) {
+			drawer.closeDrawer()
+			return
+		}
+
 		const config = drawerConfigs[key]
 		const promise = activeDrawer?.key === key ? activeDrawer.promise : config.load()
 		if (activeDrawer?.key !== key) {
 			editor = undefined
 		}
 
-		const request: ActiveDrawerState = { id: nextActiveDrawerId++, key, path: action.path, promise }
+		const request: ActiveDrawerState = {
+			id: nextActiveDrawerId++,
+			key,
+			path: action.path,
+			promise
+		}
 		activeDrawer = request
 		drawer?.openDrawer()
 
