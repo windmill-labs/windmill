@@ -4121,10 +4121,14 @@ async fn audit_log_retention_days() -> i64 {
 ///     not backfilled. Falls back to the current snapshot xmin when there is
 ///     no settings row (env-var enable).
 ///
-/// Each run is bounded to at most `MAX_XID_INTERVAL` xids (`eff_cur`), so a
-/// backlog (e.g. after a prolonged object-store outage) drains over successive
-/// ticks rather than one unbounded aggregate; the checkpoint only ever advances
-/// to the exported boundary, so the tail is never skipped.
+/// Steady-state runs are bounded to at most `MAX_XID_INTERVAL` xids
+/// (`eff_cur`), so a backlog (e.g. after a prolonged object-store outage)
+/// drains over successive ticks rather than one unbounded aggregate; the
+/// checkpoint only ever advances to the exported boundary, so the tail is
+/// never skipped. The first run is uncapped and uses an epoch timestamp floor
+/// so it cannot drop an arbitrarily-old post-enable backlog (correctness over
+/// memory for that one-time / rare delayed-first-export recovery; the xid
+/// predicate still restricts the scan to post-enable rows).
 ///
 /// Tradeoff (bounded lag, never loss; self-heals): a long-running transaction
 /// of any kind holds snapshot xmin back and stalls export progress until it
@@ -4258,15 +4262,26 @@ async fn export_audit_logs_to_object_store(db: &DB) {
     //     current snapshot xmin; wraparound-safe via `age()`).
     //   * `age(xmin) <= age(prev_xid)` → was not yet settled at the previous
     //     run, so it has not been exported before.
-    // `timestamp >= last_ts - 7 days` only constrains partition pruning; the
-    // 7-day slack far exceeds any realistic audit-writing transaction (Postgres
-    // aborts via statement/idle-in-transaction timeouts long before), so it
-    // cannot drop a settling row.
+    // `timestamp >= ts_floor` only constrains partition pruning and must never
+    // gate correctness (the xid interval is the cursor). Steady state: 7 days
+    // before the last exported timestamp — far exceeds any realistic
+    // audit-writing transaction (Postgres aborts via statement/idle-in-
+    // transaction timeouts long before), so it cannot drop a row in the xid
+    // interval. First run: epoch (no pruning) — the post-enable backlog can be
+    // arbitrarily old if the first successful export is delayed (object store
+    // down for days), and pruning it would let the xid cursor advance past
+    // those rows and lose them permanently. First run is a one-time / rare
+    // recovery scan; the xid predicate still restricts it to post-enable rows.
+    let ts_floor = if first_run {
+        DateTime::<Utc>::from_timestamp(0, 0).unwrap()
+    } else {
+        last_ts - chrono::Duration::days(7)
+    };
     let rows = match sqlx::query!(
         r#"WITH bounds AS (
             SELECT ($2::bigint % 4294967296)::text::xid AS prev_xid,
                    ($3::bigint % 4294967296)::text::xid AS cur_xid,
-                   $1::timestamptz - interval '7 days' AS ts_floor
+                   $1::timestamptz AS ts_floor
         ),
         batch AS (
             SELECT workspace_id, id, timestamp, username, operation,
@@ -4284,7 +4299,7 @@ async fn export_audit_logs_to_object_store(db: &DB) {
         FROM batch
         GROUP BY 1
         ORDER BY 1"#,
-        last_ts,
+        ts_floor,
         prev_xmin,
         eff_cur_xmin
     )
@@ -4670,11 +4685,38 @@ mod audit_s3_export_tests {
         let w1 = insert_audit(&db, "enable.window.1").await;
         let w2 = insert_audit(&db, "enable.window.2").await;
 
+        // A post-enable row with an OLD timestamp (>7 days), simulating a first
+        // export delayed past the steady-state pruning window (e.g. object
+        // store down for days). The first-run epoch floor must still export it;
+        // a `now() - 7 days` floor would silently drop it and the xid cursor
+        // would advance past it (permanent loss).
+        sqlx::query(
+            "DO $$ DECLARE d date := current_date - 10; BEGIN \
+             EXECUTE format('CREATE TABLE IF NOT EXISTS %I PARTITION OF audit_partitioned \
+             FOR VALUES FROM (%L) TO (%L)', 'audit_'||to_char(d,'YYYYMMDD'), d, d + 1); END $$;",
+        )
+        .execute(&db)
+        .await?;
+        let old_backlog: i64 = sqlx::query_scalar(
+            "INSERT INTO audit_partitioned
+                 (workspace_id, username, operation, action_kind, parameters, timestamp)
+             VALUES ('test-ws','tester','old.backlog','create'::action_kind,'{}'::jsonb,
+                     now() - interval '10 days')
+             RETURNING id",
+        )
+        .fetch_one(&db)
+        .await?;
+
         export_audit_logs_to_object_store(&db).await; // first tick (no checkpoint)
         let got = exported_ids(&store).await;
         assert!(
             got.contains(&w1) && got.contains(&w2),
             "rows committed after enable but before the first tick must be exported: {got:?}"
+        );
+        assert!(
+            got.contains(&old_backlog),
+            "old-timestamped post-enable backlog must be exported on first run \
+             (pruning floor must not gate correctness): {got:?}"
         );
         assert!(
             !got.contains(&pre_enable),
