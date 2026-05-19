@@ -22,7 +22,7 @@ import { ProtectionRulesConverter } from "./converter.ts";
 import {
   outputResult,
   displayPlan,
-  structuredPlan,
+  structuredLocalPlan,
   applyRulesToBranchOverride,
 } from "./utils.ts";
 
@@ -104,7 +104,7 @@ export async function pullProtectionRules(
             hasChanges,
             local: ProtectionRulesConverter.normalizeList(currentRules),
             backend: backendRules,
-            diff: structuredPlan(plan),
+            diff: structuredLocalPlan(plan),
           }),
         );
       } else if (hasChanges) {

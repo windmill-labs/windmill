@@ -50,11 +50,24 @@ export function displayPlan(plan: ProtectionRulesPlan): void {
   }
 }
 
+// push direction: the plan describes operations applied to the backend.
 export function structuredPlan(plan: ProtectionRulesPlan) {
   return {
     create: plan.toCreate.map((e) => e.name),
     update: plan.toUpdate.map((e) => e.name),
     delete: plan.toDelete,
+    unchanged: plan.unchanged,
+  };
+}
+
+// pull direction: the plan describes how the local wmill.yaml would change.
+// Keys are named for the local-file delta to avoid ambiguity with the
+// conventional create/delete framing used by push.
+export function structuredLocalPlan(plan: ProtectionRulesPlan) {
+  return {
+    addedLocally: plan.toCreate.map((e) => e.name),
+    updatedLocally: plan.toUpdate.map((e) => e.name),
+    removedLocally: plan.toDelete,
     unchanged: plan.unchanged,
   };
 }
