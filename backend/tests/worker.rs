@@ -4783,6 +4783,7 @@ async fn test_result_format(db: Pool<Postgres>) -> anyhow::Result<()> {
         Uuid::parse_str(ordered_result_job_id).unwrap(),
         "test-workspace",
         None,
+        false,
         "test-user",
     )
     .await
