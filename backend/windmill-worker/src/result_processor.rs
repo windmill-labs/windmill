@@ -683,6 +683,19 @@ pub async fn handle_receive_completed_job(
     .await;
 
     match processed_completed_job {
+        // The job was already completed by another worker (e.g. this worker was
+        // declared a zombie and the job restarted+finished elsewhere, then this
+        // worker caught up). The job genuinely succeeded; routing this through
+        // `handle_job_error` would propagate a spurious "AlreadyCompleted"
+        // failure up the parent flow. Drop it instead, mirroring the
+        // `JobOutcome::AlreadyCompleted` guard on the execution path.
+        Err(err @ Error::AlreadyCompleted(_)) => {
+            tracing::info!(
+                job_id = %job.id,
+                "job already completed by another worker, skipping result processing: {err:#}"
+            );
+            None
+        }
         Err(err) => {
             handle_job_error(
                 db,

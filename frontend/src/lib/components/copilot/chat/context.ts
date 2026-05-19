@@ -9,7 +9,7 @@ import {
 	Table2
 } from 'lucide-svelte'
 import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
-import type { ScriptLang, Script, OpenFlow } from '$lib/gen/types.gen'
+import type { ScriptLang } from '$lib/gen/types.gen'
 import { type DBSchema } from '$lib/stores'
 import { type Change } from 'diff'
 import type { AppDatatableMetadata, BackendRunnable, SelectedContext } from './app/core'
@@ -213,20 +213,19 @@ export function flattenDatatablesToAppContextElements(
 }
 
 /** Workspace script context element — reference to a script in the workspace */
-export interface WorkspaceScriptElement
-	extends Pick<Script, 'path' | 'summary' | 'language' | 'content' | 'schema'> {
+export interface WorkspaceScriptElement {
 	type: 'workspace_script'
+	path: string
 	title: string
+	summary?: string
 }
 
 /** Workspace flow context element — reference to a flow in the workspace */
-export interface WorkspaceFlowElement extends Pick<OpenFlow, 'summary' | 'schema'> {
+export interface WorkspaceFlowElement {
 	type: 'workspace_flow'
 	path: string
 	title: string
-	description: string
-	/** Full flow value, JSON-stringified and possibly truncated */
-	value: string
+	summary?: string
 }
 
 export type ContextElement = (

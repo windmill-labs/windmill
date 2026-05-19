@@ -4558,6 +4558,21 @@ pub async fn run_language_executor(
     modules: &Option<std::collections::HashMap<String, ScriptModule>>,
     run_inline: bool,
 ) -> error::Result<Box<RawValue>> {
+    // Defense-in-depth (GHSA-wxjq-w5pj-jqhx): the entrypoint override is
+    // interpolated verbatim into a code position of the generated language
+    // wrappers below. It originates from the `_ENTRYPOINT_OVERRIDE` job arg,
+    // which any caller with `jobs:run` can set on a deployed script, so reject
+    // anything that is not a strict identifier before it reaches any wrapper.
+    if let Some(entrypoint) = job.script_entrypoint_override.as_deref() {
+        if !windmill_common::jobs::is_valid_entrypoint_name(entrypoint) {
+            return Err(Error::BadRequest(format!(
+                "Invalid entrypoint override {entrypoint:?}: must match \
+                 ^[A-Za-z_][A-Za-z0-9_]*$ (letters, digits and underscores, \
+                 not starting with a digit)"
+            )));
+        }
+    }
+
     // Expand WM_INTERNAL_DB markers into real SQL before dispatching
     let expanded_code: String;
     let mut language = language;

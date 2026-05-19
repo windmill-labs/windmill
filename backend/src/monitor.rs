@@ -66,7 +66,8 @@ use windmill_common::{
         POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING,
         REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
         RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
-        TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING,
+        STORE_AUDIT_LOGS_S3_SETTING, TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING,
+        UV_INDEX_STRATEGY_SETTING,
     },
     indexer::load_indexer_config,
     jwt::JWT_SECRET,
@@ -88,7 +89,7 @@ use windmill_common::{
     CRITICAL_ALERTS_ON_TOKEN_EXPIRY, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB,
     DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
     MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED,
-    SERVICE_LOG_RETENTION_SECS,
+    SERVICE_LOG_RETENTION_SECS, STORE_AUDIT_LOGS_S3,
 };
 use windmill_common::{
     client::AuthedClient,
@@ -352,6 +353,24 @@ pub async fn initial_load(
     if server_mode {
         reload_retention_period_setting(&conn).await;
         reload_audit_log_retention_days_setting(&conn).await;
+        reload_store_audit_logs_s3_setting(&conn).await;
+        // Env-var enable has no settings-row xmin and no runtime enable event;
+        // anchor the export cursor at startup so rows committed before the
+        // first export tick are not skipped (no-op when a settings row exists
+        // or a checkpoint is already present). Audit-log S3 export is an
+        // Enterprise feature; the core logic lives in `crate::ee` (OSS gets a
+        // no-op), gated here on a valid Enterprise license.
+        #[cfg(feature = "parquet")]
+        if STORE_AUDIT_LOGS_S3.load(std::sync::atomic::Ordering::Relaxed)
+            && matches!(
+                windmill_common::ee_oss::get_license_plan().await,
+                windmill_common::ee_oss::LicensePlan::Enterprise
+            )
+        {
+            if let Some(db) = conn.as_sql() {
+                crate::ee_oss::anchor_audit_logs_s3_checkpoint_env_var(&db).await;
+            }
+        }
         reload_request_size(&conn).await;
         reload_saml_metadata_setting(&conn).await;
         reload_scim_token_setting(&conn).await;
@@ -1845,6 +1864,21 @@ pub async fn reload_delete_logs_periodically_setting(conn: &Connection) {
     }
 }
 
+pub async fn reload_store_audit_logs_s3_setting(conn: &Connection) {
+    match load_setting_value::<bool>(
+        conn,
+        STORE_AUDIT_LOGS_S3_SETTING,
+        "STORE_AUDIT_LOGS_S3",
+        false,
+        |x| x,
+    )
+    .await
+    {
+        Ok(v) => STORE_AUDIT_LOGS_S3.store(v, Ordering::Relaxed),
+        Err(e) => tracing::error!("Error reloading store_audit_logs_s3 setting: {:?}", e),
+    }
+}
+
 pub async fn reload_job_default_timeout_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
         conn,
@@ -2524,6 +2558,23 @@ pub async fn monitor_db(
         }
     };
 
+    // run every ~60s (2 iterations * 30s). Enterprise feature: core logic is
+    // in `crate::ee` (OSS gets a no-op stub); gated on a valid Enterprise
+    // license, mirroring how `audit_log()` itself is license-aware.
+    let export_audit_logs_to_object_store_f = async {
+        #[cfg(feature = "parquet")]
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(2) {
+            if let Some(db) = conn.as_sql() {
+                if matches!(
+                    windmill_common::ee_oss::get_license_plan().await,
+                    windmill_common::ee_oss::LicensePlan::Enterprise
+                ) {
+                    crate::ee_oss::export_audit_logs_to_object_store(&db).await;
+                }
+            }
+        }
+    };
+
     let cleanup_scheduled_job_deletions_f = async {
         #[cfg(feature = "enterprise")]
         if server_mode && !initial_load {
@@ -2557,6 +2608,7 @@ pub async fn monitor_db(
         cleanup_notify_events_f,
         check_expiring_tokens_f,
         manage_audit_partitions_f,
+        export_audit_logs_to_object_store_f,
         cleanup_scheduled_job_deletions_f,
     );
 }

@@ -159,7 +159,16 @@ pub async fn load_cache(bin_path: &str, _remote_path: &str, is_dir: bool) -> (bo
 
             if let Ok(mut x) = windmill_object_store::attempt_fetch_bytes(os, _remote_path).await {
                 if is_dir {
-                    if let Err(e) = windmill_common::worker::extract_tar(x, bin_path).await {
+                    // Extract into a sibling temp dir then atomically publish it,
+                    // so a concurrent cold-load gating on metadata(bin_path) never
+                    // observes a half-extracted cache directory.
+                    let tmp_dir = format!("{}.tmp.{}", bin_path, uuid::Uuid::new_v4());
+                    let res = match windmill_common::worker::extract_tar(x, &tmp_dir).await {
+                        Ok(()) => windmill_common::worker::atomic_publish_dir(&tmp_dir, bin_path),
+                        Err(e) => Err(e),
+                    };
+                    if let Err(e) = res {
+                        let _ = tokio::fs::remove_dir_all(&tmp_dir).await;
                         tracing::error!("could not write tar archive locally: {e:?}");
                         return (
                             false,
@@ -268,12 +277,21 @@ pub async fn save_cache(
 
     if true {
         if is_dir {
-            windmill_common::worker::copy_dir_recursively(
+            // Populate a sibling temp dir then atomically publish it, so a
+            // concurrent `load_cache`/`exists_in_cache` metadata() check never
+            // observes a half-copied cache directory.
+            let tmp_dir = format!("{}.tmp.{}", local_cache_path, uuid::Uuid::new_v4());
+            if let Err(e) = windmill_common::worker::copy_dir_recursively(
                 &PathBuf::from(origin),
-                &PathBuf::from(local_cache_path),
-            )?;
+                &PathBuf::from(&tmp_dir),
+            )
+            .and_then(|_| windmill_common::worker::atomic_publish_dir(&tmp_dir, local_cache_path))
+            {
+                let _ = std::fs::remove_dir_all(&tmp_dir);
+                return Err(e);
+            }
         } else {
-            std::fs::copy(origin, local_cache_path)?;
+            windmill_common::worker::atomic_copy_file(origin, local_cache_path)?;
         }
         Ok(format!(
             "\nwrote cached binary: {} (backed by EE distributed object store: {_cached_to_s3})\n",

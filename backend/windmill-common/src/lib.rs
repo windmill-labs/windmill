@@ -248,6 +248,8 @@ lazy_static::lazy_static! {
 
     pub static ref MONITOR_LOGS_ON_OBJECT_STORE: AtomicBool = AtomicBool::new(false);
 
+    pub static ref STORE_AUDIT_LOGS_S3: AtomicBool = AtomicBool::new(false);
+
     pub static ref INSTANCE_NAME: String = rd_string(5);
 
     pub static ref DEPLOYED_SCRIPT_HASH_CACHE: Cache<(String, String), ExpiringLatestVersionId> = Cache::new(1000);
@@ -1542,6 +1544,59 @@ pub fn get_flow_version_info_from_version<
             }
         }
     }
+}
+
+/// Resolve a `flow_version.id` to its flow path while enforcing the caller's
+/// folder-level ACL. The `flow_version` table has no row-level security, so the
+/// authorization gate is an RLS-filtered lookup against the `flow` table through
+/// `user_db`. Mirrors the "exists but not authorized -> NotAuthorized" semantics
+/// of [`get_latest_flow_version_id_for_path`] so version-keyed run routes are
+/// gated identically to their path-keyed siblings.
+pub async fn get_flow_path_for_version_authed(
+    db_authed: &UserDbWithAuthed<'_, AuthedRef<'_>>,
+    db: &DB,
+    version: i64,
+    w_id: &str,
+) -> error::Result<String> {
+    let mut conn = db_authed.acquire().await?;
+    let authed_path = sqlx::query_scalar!(
+        "SELECT flow_version.path FROM flow_version
+         INNER JOIN flow
+            ON flow.path = flow_version.path AND
+               flow.workspace_id = flow_version.workspace_id
+         WHERE flow_version.id = $1 AND flow_version.workspace_id = $2",
+        version,
+        w_id,
+    )
+    .fetch_optional(&mut *conn)
+    .await?;
+
+    if let Some(path) = authed_path {
+        return Ok(path);
+    }
+
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM flow_version WHERE id = $1 AND workspace_id = $2)",
+        version,
+        w_id,
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+
+    if exists {
+        // Unlike the path-keyed sibling (where the caller already supplied the
+        // path), here the caller only supplied an opaque version id. Echoing
+        // back the resolved path would disclose an id->path mapping for a flow
+        // they cannot access, so the message is intentionally generic.
+        return Err(Error::NotAuthorized(
+            "You are not authorized to run this flow version".to_string(),
+        ));
+    }
+
+    Err(Error::NotFound(format!(
+        "flow_version not found at id {version}"
+    )))
 }
 
 pub async fn get_latest_flow_version_info_for_path<'e>(

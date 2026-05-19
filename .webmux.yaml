@@ -106,3 +106,4 @@ integrations:
         dir: ../windmill-ee-private__worktrees
   linear:
     enabled: true
+    watchTeams: [WIN,GIT]
