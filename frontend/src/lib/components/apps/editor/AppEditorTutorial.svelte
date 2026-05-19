@@ -1,12 +1,6 @@
 <script lang="ts">
-	import Button from '$lib/components/common/button/Button.svelte'
 	import AppTutorials from '../../AppTutorials.svelte'
-	import { BookOpen, CheckCircle, Circle, RefreshCw, CheckCheck } from 'lucide-svelte'
-	import Dropdown from '$lib/components/DropdownV2.svelte'
-	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
-	import { tutorialsToDo } from '$lib/stores'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import { getTutorialIndex } from '$lib/tutorials/config'
 
 	let appTutorials: AppTutorials | undefined = $state(undefined)
 	let targetTutorial: string | undefined = $state(undefined)
@@ -14,53 +8,7 @@
 	export function runTutorialById(id: string, options?: { skipStepsCount?: number }) {
 		appTutorials?.runTutorialById(id, options)
 	}
-
-	async function getTutorialItems() {
-		const backgroundRunnablesIndex = getTutorialIndex('backgroundrunnables')
-		const connectionIndex = getTutorialIndex('connection')
-		
-		return [
-			{
-				displayName: 'Background runnables',
-				action: () => appTutorials?.runTutorialById('backgroundrunnables'),
-				index: backgroundRunnablesIndex,
-				icon: $tutorialsToDo.includes(backgroundRunnablesIndex) ? Circle : CheckCircle,
-				iconColor: $tutorialsToDo.includes(backgroundRunnablesIndex) ? undefined : 'green'
-			},
-			{
-				displayName: 'Connection',
-				action: () => appTutorials?.runTutorialById('connection'),
-				index: connectionIndex,
-				icon: $tutorialsToDo.includes(connectionIndex) ? Circle : CheckCircle,
-				iconColor: $tutorialsToDo.includes(connectionIndex) ? undefined : 'green'
-			},
-			{
-				displayName: 'Reset tutorials',
-				action: () => resetAllTodos(),
-				icon: RefreshCw
-			},
-			{
-				displayName: 'Skip tutorials',
-				action: () => skipAllTodos(),
-				icon: CheckCheck
-			}
-		]
-	}
 </script>
-
-{#key $tutorialsToDo}
-	<Dropdown items={getTutorialItems}>
-		{#snippet buttonReplacement()}
-			<Button
-				nonCaptureEvent
-				unifiedSize="md"
-				variant="subtle"
-				iconOnly
-				startIcon={{ icon: BookOpen }}
-			/>
-		{/snippet}
-	</Dropdown>
-{/key}
 
 <AppTutorials
 	bind:this={appTutorials}

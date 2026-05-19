@@ -20,10 +20,13 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import PowerShellCommonParams from './PowerShellCommonParams.svelte'
 	import LogPanel from './scriptEditor/LogPanel.svelte'
-	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from './EditorBar.svelte'
+	import EditorBar, {
+		EDITOR_BAR_WIDTH_THRESHOLD,
+		EDITOR_BAR_HELPERS_COMPACT_THRESHOLD
+	} from './EditorBar.svelte'
 	import JobLoader from './JobLoader.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
-	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, onMount, untrack } from 'svelte'
 	import { Button } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
 	import WindmillIcon from './icons/WindmillIcon.svelte'
@@ -82,6 +85,11 @@
 	import { getStringError } from './copilot/chat/utils'
 	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
 	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
+
+	// When the script editor is rendered inside a session pane, the session
+	// owns the AI chat — hide the per-editor VS Code button to keep the
+	// narrow top bar uncluttered.
+	const inSessionPane = !!getContext('aiChatManager')
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import AssetsDropdownButton from './assets/AssetsDropdownButton.svelte'
 	import { canHavePreprocessor } from '$lib/script_helpers'
@@ -1270,18 +1278,33 @@
 
 	setContext('disableTooltips', untrack(() => customUi)?.disableTooltips === true)
 
-	let codePanelSize = $state(70)
-	let testPanelSize = $state(30)
-	let storedTestPanelSize = untrack(() => testPanelSize)
+	// Pixel minimum width for the test pane while open. The pane's `minSize`
+	// is a percentage, so we derive it from the live splitpane container
+	// width (Svelte wires a ResizeObserver for bind:clientWidth).
+	let splitContainerWidth = $state(0)
+	const TEST_PANE_MIN_PX = 400
+	const testPaneMinPercent = $derived(
+		splitContainerWidth > 0 ? Math.min(80, (TEST_PANE_MIN_PX / splitContainerWidth) * 100) : 0
+	)
+
+	// Raw user-controlled test size (what the splitter wrote, or what the
+	// toggle set). The size we actually pass to <Pane> is clamped to the
+	// dynamic minimum below — so when the editor shrinks, the displayed test
+	// pane grows to honor the new minimum without needing an effect. The code
+	// pane's size is purely derived from it (100 - test).
+	let rawTestPanelSize = $state(30)
+	let storedTestPanelSize = untrack(() => rawTestPanelSize)
+	const testPanelSize = $derived(
+		rawTestPanelSize === 0 ? 0 : Math.max(rawTestPanelSize, testPaneMinPercent)
+	)
+	const codePanelSize = $derived(100 - testPanelSize)
 
 	function toggleTestPanel() {
 		if (testPanelSize > 0) {
 			storedTestPanelSize = testPanelSize
-			codePanelSize += testPanelSize
-			testPanelSize = 0
+			rawTestPanelSize = 0
 		} else {
-			codePanelSize -= storedTestPanelSize
-			testPanelSize = storedTestPanelSize
+			rawTestPanelSize = Math.max(storedTestPanelSize, testPaneMinPercent)
 		}
 	}
 
@@ -1388,6 +1411,7 @@
 				{collabMode}
 				{validCode}
 				iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD}
+				compactHelpers={width < EDITOR_BAR_HELPERS_COMPACT_THRESHOLD}
 				on:collabPopup={() => (showCollabPopup = true)}
 				{editor}
 				{lang}
@@ -1410,14 +1434,15 @@
 				{/snippet}
 			</EditorBar>
 		{/if}
-		{#if !noSyncFromGithub && customUi?.editorBar?.useVsCode != false}
+		{#if !noSyncFromGithub && customUi?.editorBar?.useVsCode != false && !inSessionPane}
 			<div class="py-1">
 				<Button
 					target="_blank"
 					href="https://www.windmill.dev/docs/cli_local_dev/vscode-extension"
 					variant="subtle"
 					unifiedSize="md"
-					btnClasses="hidden lg:flex"
+					iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD}
+					title="Use VS Code"
 					startIcon={{
 						icon: Github
 					}}
@@ -1429,290 +1454,297 @@
 	</div>
 </div>
 <SplitPanesWrapper>
-	<Splitpanes class="!overflow-visible">
-		<Pane bind:size={codePanelSize} minSize={10} class="!overflow-visible">
-			{#if lang === 'ansible' && ansibleAlternativeExecutionMode != null}
-				<!-- Vertical split for ansible with assets -->
-				<Splitpanes horizontal class="!overflow-visible h-full">
-					<Pane size={60} minSize={30} class="!overflow-visible">
-						{@render editorContent()}
-					</Pane>
-					<Pane size={40} minSize={20} class="!overflow-visible">
-						<div
-							class="h-full flex flex-col bg-surface border-l border-gray-200 dark:border-gray-700"
-						>
-							<div class="p-3 border-b border-gray-200 dark:border-gray-700">
-								<h4 class="text-sm font-semibold text-primary">File Browser</h4>
-							</div>
-							<GitRepoViewer
-								gitRepoResourcePath={ansibleAlternativeExecutionMode?.resource || ''}
-								gitSshIdentity={ansibleGitSshIdentity}
-								bind:commitHashInput={commitHashForGitRepo}
-							/>
-						</div>
-					</Pane>
-				</Splitpanes>
-			{:else}
-				<!-- Original single editor layout -->
-				{@render editorContent()}
-			{/if}
-		</Pane>
-		<Pane bind:size={testPanelSize} minSize={0}>
-			<div class="flex flex-col h-full">
-				{#if showTabs}
-					<div transition:slide={{ duration: 200 }}>
-						<Tabs bind:selected={selectedTab}>
-							<Tab value="main" label="Main" />
-							{#if hasPreprocessor}
-								<div transition:slide={{ duration: 200, axis: 'x' }}>
-									<Tab value="preprocessor" label="Preprocessor" />
-								</div>
-							{/if}
-							{#if isWac}
-								<div transition:slide={{ duration: 200, axis: 'x' }}>
-									<Tab value="diagram" label="Diagram" />
-								</div>
-							{/if}
-						</Tabs>
-					</div>
-				{/if}
-
-				{#if debugMode && isDebuggableScript}
-					<div transition:slide={{ duration: 200 }}>
-						<DebugToolbar
-							connected={$debugState.connected}
-							running={$debugState.running}
-							stopped={$debugState.stopped}
-							breakpointCount={debugBreakpoints.size}
-							onStart={startDebugging}
-							onStop={stopDebugging}
-							onContinue={continueExecution}
-							onStepOver={stepOver}
-							onStepIn={stepIn}
-							onStepOut={stepOut}
-							onClearBreakpoints={clearAllBreakpoints}
-						/>
-					</div>
-				{/if}
-
-				{#if selectedTab === 'diagram'}
-					<div class="flex-1 min-h-0">
-						<WacDiagram {code} language={lang ?? ''} />
-					</div>
-				{:else}
-					<div class="flex justify-center pt-1 relative">
-						<div class="absolute top-2 left-2">
-							<HideButton
-								hidden={false}
-								direction="right"
-								panelName="Test"
-								shortcut="U"
-								size="md"
-								on:click={() => {
-									toggleTestPanel()
-								}}
-							/>
-						</div>
-						{#if !(debugMode && isDebuggableScript)}
-							<div class="flex flex-row gap-2">
-								<div
-									class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch"
-								>
-									{#if testIsLoading}
-										<Button on:click={jobLoader?.cancelJob} btnClasses="w-full" unifiedSize="md">
-											<WindmillIcon
-												white={true}
-												class="mr-2 text-white"
-												height="16px"
-												width="20px"
-												spin="fast"
-											/>
-											Cancel
-										</Button>
-									{:else}
-										{@const disableTriggerButton =
-											customUi?.previewPanel?.disableTriggerButton === true}
-										<Button
-											on:click={() => runTest()}
-											unifiedSize="md"
-											btnClasses="w-full {!disableTriggerButton ? 'rounded-r-none' : ''}"
-											variant="accent-secondary"
-											startIcon={{ icon: Play, classes: 'animate-none' }}
-											shortCut={{ Icon: CornerDownLeft }}
-										>
-											Test
-										</Button>
-										{#if !disableTriggerButton}
-											<CaptureButton on:openTriggers />
-										{/if}
-									{/if}
-								</div>
-								{#if lastRecording}
-									<Button
-										on:click={downloadRecording}
-										unifiedSize="md"
-										startIcon={{ icon: Download }}
-										iconOnly
-										title="Download recording"
-									/>
-								{/if}
-							</div>
-						{/if}
-						<div class="absolute top-2 right-2 flex items-center gap-2">
-							<Toggle size="2xs" bind:checked={jsonView} options={{ right: 'JSON' }} />
-							<DropdownV2
-								size="xs"
-								items={[
-									{
-										displayName: 'Test & record',
-										icon: Disc,
-										action: () => recordAndTest()
-									}
-								]}
-							/>
-						</div>
-					</div>
-					<Splitpanes
-						horizontal
-						class="!max-h-[calc(100%-{debugMode && isDebuggableScript ? '83' : '43'}px)]"
-					>
-						<Pane size={33}>
-							{#if jsonView}
-								<div
-									class="py-2"
-									style="height: {!schemaHeight || schemaHeight < 600 ? 600 : schemaHeight}px"
-									data-schema-picker
-								>
-									<JsonInputs
-										on:select={(e) => {
-											if (e.detail) {
-												if (activeModuleTab !== null) {
-													testPanelArgs = e.detail
-												} else {
-													args = e.detail
-												}
-											}
-										}}
-										updateOnBlur={false}
-										placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
-									/>
-								</div>
-							{:else}
-								<div class="px-4">
-									<div class="break-words relative font-sans" bind:clientHeight={schemaHeight}>
-										{#key argsRender}
-											{#if activeModuleTab !== null}
-												<SchemaForm
-													helperScript={{
-														source: 'inline',
-														code: editorCode,
-														//@ts-ignore
-														lang: effectiveLang
-													}}
-													compact
-													schema={testPanelSchema}
-													bind:args={testPanelArgs}
-													bind:isValid
-													noVariablePicker={customUi?.previewPanel?.disableVariablePicker === true}
-													showSchemaExplorer
-												/>
-											{:else}
-												<SchemaForm
-													helperScript={{
-														source: 'inline',
-														code,
-														//@ts-ignore
-														lang
-													}}
-													compact
-													{schema}
-													bind:args
-													bind:isValid
-													noVariablePicker={customUi?.previewPanel?.disableVariablePicker === true}
-													showSchemaExplorer
-												/>
-											{/if}
-										{/key}
-										{#if showPsCommonParams}
-											<div class="mt-2">
-												<PowerShellCommonParams bind:args={psCommonParams} />
-											</div>
-										{/if}
-									</div>
-								</div>
-							{/if}
+	<div bind:clientWidth={splitContainerWidth} class="h-full">
+		<Splitpanes class="!overflow-visible">
+			<Pane size={codePanelSize} minSize={0} class="!overflow-visible">
+				{#if lang === 'ansible' && ansibleAlternativeExecutionMode != null}
+					<!-- Vertical split for ansible with assets -->
+					<Splitpanes horizontal class="!overflow-visible h-full">
+						<Pane size={60} minSize={30} class="!overflow-visible">
+							{@render editorContent()}
 						</Pane>
-						<Pane size={67} class="relative">
-							<LogPanel
-								bind:this={logPanel}
-								{lang}
-								previewJob={debugMode
-									? ({
-											id: 'debug',
-											logs: $debugState.logs,
-											result: $debugState.result,
-											success: !$debugState.error,
-											type: hasDebugResult ? 'CompletedJob' : 'QueuedJob'
-										} as any)
-									: testJob}
-								{pastPreviews}
-								onTabChange={(tab) => {
-									historyTabActive = tab === 'history'
-									if (historyTabActive) {
-										loadPastTests()
-									}
-								}}
-								previewIsLoading={debugMode
-									? $debugState.running && !$debugState.stopped
-									: testIsLoading}
-								{editor}
-								{diffEditor}
-								args={activeModuleTab !== null ? testPanelArgs : args}
-								{showCaptures}
-								customUi={customUi?.previewPanel}
-								showCustomResultPanel={showDebugPanel}
+						<Pane size={40} minSize={20} class="!overflow-visible">
+							<div
+								class="h-full flex flex-col bg-surface border-l border-gray-200 dark:border-gray-700"
 							>
-								{#if scriptProgress && !debugMode}
-									<!-- Put to the slot in logpanel -->
-									<JobProgressBar
-										job={testJob}
-										{scriptProgress}
-										bind:this={jobProgressBar}
-										compact={true}
-									/>
-								{/if}
-								{#snippet capturesTab()}
-									<div class="h-full p-2">
-										<CaptureTable
-											bind:this={captureTable}
-											{hasPreprocessor}
-											canHavePreprocessor={canHavePreprocessor(lang)}
-											isFlow={false}
-											path={stablePathForCaptures}
-											canEdit={true}
-											on:applyArgs
-											on:updateSchema
-											on:addPreprocessor
-										/>
-									</div>
-								{/snippet}
-								{#snippet customResultPanel()}
-									<DebugPanel
-										stackFrames={$debugState.stackFrames}
-										scopes={$debugState.scopes}
-										variables={$debugState.variables}
-										client={dapClient}
-										bind:selectedFrameId={selectedDebugFrameId}
-									/>
-								{/snippet}
-							</LogPanel>
+								<div class="p-3 border-b border-gray-200 dark:border-gray-700">
+									<h4 class="text-sm font-semibold text-primary">File Browser</h4>
+								</div>
+								<GitRepoViewer
+									gitRepoResourcePath={ansibleAlternativeExecutionMode?.resource || ''}
+									gitSshIdentity={ansibleGitSshIdentity}
+									bind:commitHashInput={commitHashForGitRepo}
+								/>
+							</div>
 						</Pane>
 					</Splitpanes>
+				{:else}
+					<!-- Original single editor layout -->
+					{@render editorContent()}
 				{/if}
-			</div>
-		</Pane>
-	</Splitpanes>
-</SplitPanesWrapper>
+			</Pane>
+			<Pane
+				bind:size={() => testPanelSize, (v) => (rawTestPanelSize = v)}
+				minSize={testPaneMinPercent}
+			>
+				<div class="flex flex-col h-full">
+					{#if showTabs}
+						<div transition:slide={{ duration: 200 }}>
+							<Tabs bind:selected={selectedTab}>
+								<Tab value="main" label="Main" />
+								{#if hasPreprocessor}
+									<div transition:slide={{ duration: 200, axis: 'x' }}>
+										<Tab value="preprocessor" label="Preprocessor" />
+									</div>
+								{/if}
+								{#if isWac}
+									<div transition:slide={{ duration: 200, axis: 'x' }}>
+										<Tab value="diagram" label="Diagram" />
+									</div>
+								{/if}
+							</Tabs>
+						</div>
+					{/if}
+
+					{#if debugMode && isDebuggableScript}
+						<div transition:slide={{ duration: 200 }}>
+							<DebugToolbar
+								connected={$debugState.connected}
+								running={$debugState.running}
+								stopped={$debugState.stopped}
+								breakpointCount={debugBreakpoints.size}
+								onStart={startDebugging}
+								onStop={stopDebugging}
+								onContinue={continueExecution}
+								onStepOver={stepOver}
+								onStepIn={stepIn}
+								onStepOut={stepOut}
+								onClearBreakpoints={clearAllBreakpoints}
+							/>
+						</div>
+					{/if}
+
+					{#if selectedTab === 'diagram'}
+						<div class="flex-1 min-h-0">
+							<WacDiagram {code} language={lang ?? ''} />
+						</div>
+					{:else}
+						<div class="flex justify-center pt-1 relative">
+							<div class="absolute top-2 left-2">
+								<HideButton
+									hidden={false}
+									direction="right"
+									panelName="test"
+									shortcut="U"
+									size="md"
+									on:click={() => {
+										toggleTestPanel()
+									}}
+								/>
+							</div>
+							{#if !(debugMode && isDebuggableScript)}
+								<div class="flex flex-row gap-2">
+									<div
+										class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch"
+									>
+										{#if testIsLoading}
+											<Button on:click={jobLoader?.cancelJob} btnClasses="w-full" unifiedSize="md">
+												<WindmillIcon
+													white={true}
+													class="mr-2 text-white"
+													height="16px"
+													width="20px"
+													spin="fast"
+												/>
+												Cancel
+											</Button>
+										{:else}
+											{@const disableTriggerButton =
+												customUi?.previewPanel?.disableTriggerButton === true}
+											<Button
+												on:click={() => runTest()}
+												unifiedSize="md"
+												btnClasses="w-full {!disableTriggerButton ? 'rounded-r-none' : ''}"
+												variant="accent-secondary"
+												startIcon={{ icon: Play, classes: 'animate-none' }}
+												shortCut={{ Icon: CornerDownLeft }}
+											>
+												Test
+											</Button>
+											{#if !disableTriggerButton}
+												<CaptureButton on:openTriggers />
+											{/if}
+										{/if}
+									</div>
+									{#if lastRecording}
+										<Button
+											on:click={downloadRecording}
+											unifiedSize="md"
+											startIcon={{ icon: Download }}
+											iconOnly
+											title="Download recording"
+										/>
+									{/if}
+								</div>
+							{/if}
+							<div class="absolute top-2 right-2 flex items-center gap-2">
+								<Toggle size="2xs" bind:checked={jsonView} options={{ right: 'JSON' }} />
+								<DropdownV2
+									size="xs"
+									items={[
+										{
+											displayName: 'Test & record',
+											icon: Disc,
+											action: () => recordAndTest()
+										}
+									]}
+								/>
+							</div>
+						</div>
+						<Splitpanes
+							horizontal
+							class="!max-h-[calc(100%-{debugMode && isDebuggableScript ? '83' : '43'}px)]"
+						>
+							<Pane size={33}>
+								{#if jsonView}
+									<div
+										class="py-2"
+										style="height: {!schemaHeight || schemaHeight < 600 ? 600 : schemaHeight}px"
+										data-schema-picker
+									>
+										<JsonInputs
+											on:select={(e) => {
+												if (e.detail) {
+													if (activeModuleTab !== null) {
+														testPanelArgs = e.detail
+													} else {
+														args = e.detail
+													}
+												}
+											}}
+											updateOnBlur={false}
+											placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
+										/>
+									</div>
+								{:else}
+									<div class="px-4">
+										<div class="break-words relative font-sans" bind:clientHeight={schemaHeight}>
+											{#key argsRender}
+												{#if activeModuleTab !== null}
+													<SchemaForm
+														helperScript={{
+															source: 'inline',
+															code: editorCode,
+															//@ts-ignore
+															lang: effectiveLang
+														}}
+														compact
+														schema={testPanelSchema}
+														bind:args={testPanelArgs}
+														bind:isValid
+														noVariablePicker={customUi?.previewPanel?.disableVariablePicker ===
+															true}
+														showSchemaExplorer
+													/>
+												{:else}
+													<SchemaForm
+														helperScript={{
+															source: 'inline',
+															code,
+															//@ts-ignore
+															lang
+														}}
+														compact
+														{schema}
+														bind:args
+														bind:isValid
+														noVariablePicker={customUi?.previewPanel?.disableVariablePicker ===
+															true}
+														showSchemaExplorer
+													/>
+												{/if}
+											{/key}
+											{#if showPsCommonParams}
+												<div class="mt-2">
+													<PowerShellCommonParams bind:args={psCommonParams} />
+												</div>
+											{/if}
+										</div>
+									</div>
+								{/if}
+							</Pane>
+							<Pane size={67} class="relative">
+								<LogPanel
+									bind:this={logPanel}
+									{lang}
+									previewJob={debugMode
+										? ({
+												id: 'debug',
+												logs: $debugState.logs,
+												result: $debugState.result,
+												success: !$debugState.error,
+												type: hasDebugResult ? 'CompletedJob' : 'QueuedJob'
+											} as any)
+										: testJob}
+									{pastPreviews}
+									onTabChange={(tab) => {
+										historyTabActive = tab === 'history'
+										if (historyTabActive) {
+											loadPastTests()
+										}
+									}}
+									previewIsLoading={debugMode
+										? $debugState.running && !$debugState.stopped
+										: testIsLoading}
+									{editor}
+									{diffEditor}
+									args={activeModuleTab !== null ? testPanelArgs : args}
+									{showCaptures}
+									customUi={customUi?.previewPanel}
+									showCustomResultPanel={showDebugPanel}
+								>
+									{#if scriptProgress && !debugMode}
+										<!-- Put to the slot in logpanel -->
+										<JobProgressBar
+											job={testJob}
+											{scriptProgress}
+											bind:this={jobProgressBar}
+											compact={true}
+										/>
+									{/if}
+									{#snippet capturesTab()}
+										<div class="h-full p-2">
+											<CaptureTable
+												bind:this={captureTable}
+												{hasPreprocessor}
+												canHavePreprocessor={canHavePreprocessor(lang)}
+												isFlow={false}
+												path={stablePathForCaptures}
+												canEdit={true}
+												on:applyArgs
+												on:updateSchema
+												on:addPreprocessor
+											/>
+										</div>
+									{/snippet}
+									{#snippet customResultPanel()}
+										<DebugPanel
+											stackFrames={$debugState.stackFrames}
+											scopes={$debugState.scopes}
+											variables={$debugState.variables}
+											client={dapClient}
+											bind:selectedFrameId={selectedDebugFrameId}
+										/>
+									{/snippet}
+								</LogPanel>
+							</Pane>
+						</Splitpanes>
+					{/if}
+				</div>
+			</Pane>
+		</Splitpanes>
+	</div></SplitPanesWrapper
+>
 
 {#snippet addModuleForm(close: () => void)}
 	<div class="flex flex-col gap-2">
@@ -1902,31 +1934,29 @@
 			</div>
 		{/if}
 		<div class="relative flex-1 !overflow-visible">
-			<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
+			<div class="absolute bg-surface top-2 right-4 z-10 flex flex-row gap-2">
 				{#if assets?.length}
 					<AssetsDropdownButton {assets} />
 				{/if}
+
 				{#if isDebuggableScript && customUi?.editorBar?.debug != false}
 					<Button
 						variant={debugMode ? 'accent' : 'default'}
-						size="xs"
+						unifiedSize="sm"
 						onclick={toggleDebugMode}
 						startIcon={{ icon: Bug }}
-						btnClasses={debugMode
-							? ''
-							: 'bg-surface hover:bg-surface-hover border border-tertiary/30'}
 						title="Toggle Debug Mode"
+						destructive={debugMode}
 					>
-						{debugMode ? 'Exit Debug' : 'Debug'}
+						{debugMode ? 'Exit debug' : 'Debug'}
 					</Button>
 				{/if}
 				{#if showDebugPanel && !showDebugConsole}
 					<Button
 						variant="default"
-						size="xs"
+						unifiedSize="sm"
 						onclick={() => (showDebugConsole = true)}
 						startIcon={{ icon: Terminal }}
-						btnClasses="bg-surface hover:bg-surface-hover border border-tertiary/30"
 						title="Show Debug Console"
 					>
 						Console
@@ -1935,10 +1965,9 @@
 				{#if lang === 'ansible' && hasDelegateToGitRepo}
 					<Button
 						variant="default"
-						size="xs"
+						unifiedSize="sm"
 						onclick={() => (gitRepoResourcePickerOpen = true)}
 						startIcon={{ icon: GitBranch }}
-						btnClasses="bg-surface hover:bg-surface-hover border border-tertiary/30"
 					>
 						Delegating to git repo
 					</Button>
@@ -1947,8 +1976,9 @@
 					<HideButton
 						hidden={true}
 						direction="right"
-						size="md"
-						panelName="Test"
+						unifiedSize="sm"
+						variant="accent-secondary"
+						panelName="test"
 						shortcut="U"
 						customHiddenIcon={{
 							icon: PlayIcon
@@ -1956,23 +1986,22 @@
 						on:click={() => {
 							toggleTestPanel()
 						}}
-						btnClasses="bg-marine-400 hover:bg-marine-200 !text-primary-inverse hover:!text-primary-inverse hover:dark:!text-primary-inverse dark:bg-marine-50 dark:hover:bg-marine-50/70"
-						color="marine"
 					/>
 				{/if}
-				{#if !aiChatManager.open && !disableAi}
+				{#if !aiChatManager.open && !disableAi && !inSessionPane}
 					{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
 						<HideButton
 							hidden={true}
 							direction="right"
 							panelName="AI"
 							shortcut="L"
-							size="md"
+							unifiedSize="sm"
 							usePopoverOverride={!$copilotInfo.enabled}
 							customHiddenIcon={{
 								icon: WandSparkles
 							}}
-							btnClasses="!text-ai border border-gray-200 dark:border-gray-600 bg-surface"
+							btnClasses="!text-ai"
+							variant="default"
 							on:click={() => {
 								if (!aiChatManager.open) {
 									aiChatManager.changeMode(AIMode.SCRIPT)

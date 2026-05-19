@@ -52,6 +52,11 @@
 	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 	import { updateRawAppPolicy } from './rawAppPolicy'
 	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
+	import { getContext } from 'svelte'
+
+	// When rendered inside a session pane, the session provides its own AI
+	// chat — hide the per-editor AI button to avoid two competing entry points.
+	const inSessionPane = !!getContext('aiChatManager')
 	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
 	import type { RawAppData } from './dataTableRefUtils'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
@@ -163,6 +168,10 @@
 	let publishToHubDrawerOpen = $state(false)
 	let publishingToHub = $state(false)
 	let deploymentMsg: string | undefined = $state(undefined)
+
+	// Top-bar responsive collapse — container width, not viewport.
+	let topbarWidth = $state(0)
+	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
 
 	async function publishToHub() {
 		if (!app) return
@@ -575,6 +584,23 @@
 	const mod = isMac() ? '⌘' : 'Ctrl+'
 
 	let moreItems = $derived([
+		...(compactTopbar
+			? [
+					{
+						displayName: 'Save draft',
+						icon: Save,
+						action: () => saveDraft(),
+						shortcut: `${mod}S`,
+						disabled: !newApp && !savedApp
+					},
+					{
+						displayName: `Jobs (${jobs?.length > 99 ? '99+' : (jobs?.length ?? 0)})`,
+						icon: Bug,
+						action: () => (jobsDrawerOpen = true),
+						separatorBottom: true
+					}
+				]
+			: []),
 		{
 			displayName: 'Undo',
 			icon: Undo,
@@ -851,9 +877,10 @@
 />
 
 <div
+	bind:clientWidth={topbarWidth}
 	class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto max-h-12 h-12 shrink-0"
 >
-	<div class="flex flex-row gap-2 items-center">
+	<div class="flex flex-row gap-2 items-center min-w-[200px]">
 		<EditorHeader
 			bind:summary
 			bind:path={newEditedPath}
@@ -881,7 +908,7 @@
 			{/snippet}
 		</DropdownV2>
 
-		<div class="hidden md:inline relative overflow-visible">
+		<div class="{compactTopbar ? 'hidden' : 'hidden md:inline'} relative overflow-visible">
 			<Button
 				on:click={() => {
 					jobsDrawerOpen = true
@@ -902,27 +929,31 @@
 			</Button>
 		</div>
 		<AppExportButton bind:this={appExport} />
-		<Button
-			unifiedSize="md"
-			variant="default"
-			onClick={() => aiChatManager.toggleOpen()}
-			startIcon={{ icon: WandSparkles }}
-			iconOnly
-			btnClasses={AIBtnClasses('default')}
-		>
-			AI
-		</Button>
-		<Button
-			loading={loading.save}
-			startIcon={{ icon: Save }}
-			on:click={() => saveDraft()}
-			unifiedSize="md"
-			variant="default"
-			disabled={!newApp && !savedApp}
-			shortCut={{ key: 'S' }}
-		>
-			Draft
-		</Button>
+		{#if !inSessionPane}
+			<Button
+				unifiedSize="md"
+				variant="default"
+				onClick={() => aiChatManager.toggleOpen()}
+				startIcon={{ icon: WandSparkles }}
+				iconOnly
+				btnClasses={AIBtnClasses('default')}
+			>
+				AI
+			</Button>
+		{/if}
+		{#if !compactTopbar}
+			<Button
+				loading={loading.save}
+				startIcon={{ icon: Save }}
+				on:click={() => saveDraft()}
+				unifiedSize="md"
+				variant="default"
+				disabled={!newApp && !savedApp}
+				shortCut={{ key: 'S' }}
+			>
+				Draft
+			</Button>
+		{/if}
 		<Button
 			loading={loading.save}
 			startIcon={{ icon: Save }}
