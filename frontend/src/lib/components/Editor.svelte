@@ -39,7 +39,7 @@
 		relativeLineNumbers
 	} from '$lib/stores'
 
-	import { editorConfig, updateOptions } from '$lib/editorUtils'
+	import { editorConfig, registerWebviewPaste, updateOptions } from '$lib/editorUtils'
 	import { createHash as randomHash } from '$lib/editorLangUtils'
 	import { workspaceStore } from '$lib/stores'
 	import {
@@ -112,6 +112,7 @@
 
 	let divEl: HTMLDivElement | null = $state(null)
 	let editor: meditor.IStandaloneCodeEditor | null = $state(null)
+	let pasteCleanup: (() => void) | undefined = undefined
 
 	interface Props {
 		code?: string
@@ -204,6 +205,7 @@
 	let lastWsAttempt: Date = new Date()
 	let nbWsAttempt = 0
 	let disposeMethod: (() => void) | undefined
+	const absolutePathExtraLibs = new Map<string, { dispose: () => void }>()
 	const dispatch = createEventDispatcher()
 	// let graphqlService: MonacoGraphQLAPI | undefined = undefined
 
@@ -1399,27 +1401,10 @@
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyX, function () {
 				document.execCommand('cut')
 			})
-			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyV, async function () {
-				try {
-					// Use Clipboard API to read text, then insert via Monaco's API
-					const text = await navigator.clipboard.readText()
-					if (text && editor) {
-						const selection = editor.getSelection()
-						if (selection) {
-							editor.executeEdits('paste', [
-								{
-									range: selection,
-									text: text,
-									forceMoveMarkers: true
-								}
-							])
-						}
-					}
-				} catch (e) {
-					// Clipboard API failed, try execCommand as fallback
-					document.execCommand('paste')
-				}
-			})
+			// Paste is scoped to this editor's container instead of a global
+			// Ctrl+V keybinding, which would leak across editor instances.
+			pasteCleanup?.()
+			pasteCleanup = registerWebviewPaste(divEl, () => editor)
 		}
 
 		// updateEditorKeybindingsMode(editor, 'vim', undefined)
@@ -1644,6 +1629,8 @@
 			(scriptLang == 'bun' || scriptLang == 'tsx' || scriptLang == 'bunnative') &&
 			ata == undefined
 		) {
+			absolutePathExtraLibs.forEach((d) => d.dispose())
+			absolutePathExtraLibs.clear()
 			const hostname = getHostname()
 
 			const addLibraryToRuntime = async (code: string, _path: string) => {
@@ -1659,12 +1646,17 @@
 			}
 
 			const addLocalFile = async (code: string, _path: string) => {
+				if (destroyed) return
 				let p = new URL(_path, uri).href
-				// if (_path?.startsWith('/')) {
-				// 	p = 'file://' + p
-				// }
 				let nuri = mUri.parse(p)
 				console.log('adding local file', _path, nuri.toString())
+				// Monaco's TS service resolves relative imports against the importer's URI (finding the
+				// model), but absolute paths like "/u/admin/foo" are looked up as raw paths and miss the
+				// `file://` model. Register them as extra libs so TS can resolve them.
+				if (_path.startsWith('/')) {
+					absolutePathExtraLibs.get(_path)?.dispose()
+					absolutePathExtraLibs.set(_path, typescriptDefaults.addExtraLib(code, _path))
+				}
 				if (editor) {
 					let localModel = meditor.getModel(nuri)
 					if (localModel) {
@@ -1772,6 +1764,7 @@
 	onDestroy(() => {
 		console.log('destroying editor')
 		valueAfterDispose = getCode()
+		pasteCleanup?.()
 		destroyed = true
 		disposeMethod && disposeMethod()
 		websocketInterval && clearInterval(websocketInterval)
@@ -1783,6 +1776,8 @@
 		timeoutModel && clearTimeout(timeoutModel)
 		loadTimeout && clearTimeout(loadTimeout)
 		aiChatEditorHandler?.clear()
+		absolutePathExtraLibs.forEach((d) => d.dispose())
+		absolutePathExtraLibs.clear()
 	})
 
 	async function genRoot(hostname: string) {

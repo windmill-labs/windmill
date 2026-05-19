@@ -145,6 +145,14 @@ jobs:
           RUST_LOG_STYLE: never
           CARGO_NET_GIT_FETCH_WITH_CLI: true
           CARGO_BUILD_JOBS: 12
+          # backend/Cargo.toml sets split-debuginfo = "unpacked", which on
+          # windows-msvc is coerced to "packed": every test-binary link spawns
+          # the mspdbsrv.exe PDB type server and writes a large .pdb. With 12
+          # parallel link jobs this races the type-server cap (LNK1318 "LIMIT
+          # (12)") and exhausts the runner disk (LNK1180). CI needs no debug
+          # info, so disable PDB generation for the dev/test profiles here.
+          CARGO_PROFILE_DEV_SPLIT_DEBUGINFO: "off"
+          CARGO_PROFILE_TEST_SPLIT_DEBUGINFO: "off"
           # Tests' poll-time stack frames (deep nested async fn chains in
           # debug builds) reach ~1.8MB. 4MB gives ~2x headroom against flaky
           # overflows under parallel-test contention.

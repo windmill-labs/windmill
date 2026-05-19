@@ -1001,6 +1001,8 @@ async fn create_script_internal<'c>(
     if ns.auto_parent.unwrap_or(false) {
         if let Some(ref cs) = clashing_script {
             ns.parent_hash = Some(cs.hash.clone());
+        } else {
+            ns.parent_hash = None;
         }
     }
 

@@ -156,7 +156,7 @@ export async function downloadZip(
 function stub(_opts: GlobalOptions & { override: boolean }, _dir: string) {
   console.log(
     colors.red.underline(
-      'Pull is deprecated. Use "sync pull --raw" instead. See <TODO_LINK_HERE> for more information.'
+      'Pull is deprecated. Use "sync pull --raw" instead. See https://www.windmill.dev/docs/advanced/cli/sync for more information.'
     )
   );
 }

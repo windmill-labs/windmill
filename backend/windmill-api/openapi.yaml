@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.702.1
+  version: 1.704.1
   title: Windmill API
 
   contact:
@@ -1679,6 +1679,53 @@ paths:
                   - orphans_scanned
                   - orphans_deleted
                   - errors
+
+  /settings/audit_logs_s3_status:
+    get:
+      summary: get status of the audit-log object-store export cursor
+      operationId: getAuditLogsS3Status
+      tags:
+        - setting
+      responses:
+        "200":
+          description: current export status (null if the feature was never enabled)
+          content:
+            application/json:
+              schema:
+                nullable: true
+                type: object
+                properties:
+                  last_xmin:
+                    type: integer
+                    format: int64
+                  last_ts:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  bootstrapping:
+                    type: boolean
+                  last_exported_audit_ts:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  last_run_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  last_run_exported:
+                    type: integer
+                    format: int64
+                  updated_at:
+                    type: string
+                    format: date-time
+                  owner:
+                    type: string
+                    nullable: true
+                required:
+                  - last_xmin
+                  - bootstrapping
+                  - last_run_exported
+                  - updated_at
 
   /settings/send_stats:
     post:

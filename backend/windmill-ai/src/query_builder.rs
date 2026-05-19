@@ -3,6 +3,7 @@ use windmill_common::{client::AuthedClient, error::Error};
 use windmill_types::s3::S3Object;
 
 use crate::ai_types::OpenAIToolCall;
+use crate::proxy::{ProxyBuildArgs, ProxyRequest};
 use crate::types::*;
 
 /// Arguments for building an AI request
@@ -71,6 +72,14 @@ pub trait QueryBuilder: Send + Sync {
     /// Only OtherQueryBuilder (OpenAI-compatible providers) needs this
     fn supports_retry_without_usage(&self) -> bool {
         false
+    }
+
+    /// Build a provider-specific request from an OpenAI-compatible proxy request.
+    fn build_proxy_request(&self, args: &ProxyBuildArgs<'_>) -> Result<ProxyRequest, Error> {
+        Err(Error::BadRequest(format!(
+            "Proxy request building is not supported for provider {:?}",
+            args.credentials.provider
+        )))
     }
 
     /// Parse the image response from the provider

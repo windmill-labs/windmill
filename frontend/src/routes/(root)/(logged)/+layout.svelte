@@ -613,7 +613,7 @@
 						id="sidebar"
 						class={classNames(
 							'flex flex-col fixed inset-y-0 transition-all ease-in-out duration-200 z-40 ',
-							isCollapsed ? 'md:w-12' : 'md:w-40',
+							isCollapsed ? 'w-12' : 'w-40',
 							devOnly ? '!hidden' : ''
 						)}
 					>
@@ -839,6 +839,7 @@
 				{children}
 				noPadding={devOnly}
 				{isCollapsed}
+				isMobile={innerWidth < 768}
 				onMenuOpen={() => {
 					menuOpen = true
 				}}

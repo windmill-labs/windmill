@@ -142,13 +142,6 @@
 				onmouseenter={() => (wacHovered = true)}
 				onmouseleave={() => (wacHovered = false)}
 			>
-				<!-- Alpha badge -->
-				<div
-					class="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-full bg-purple-500 text-white text-2xs font-bold uppercase tracking-wide"
-				>
-					Alpha
-				</div>
-
 				<!-- Default state -->
 				<div
 					class="flex flex-col items-center gap-3 p-6 absolute inset-0 transition-all duration-300"
