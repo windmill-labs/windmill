@@ -4102,20 +4102,21 @@ async fn audit_log_retention_days() -> i64 {
 /// down) tick.
 ///
 /// The `WHERE NOT EXISTS (store_audit_logs_s3)` guard means this never fires
-/// when the setting is persisted (UI/API enable) — there the exporter's
-/// first-run uses the precise settings-row xmin instead. `ON CONFLICT DO
-/// NOTHING` makes it idempotent / HA-safe (first node wins) and it never
-/// overwrites, so a disable/re-enable still resumes from the preserved cursor.
+/// when the setting is persisted (UI/API enable) — there the enabling
+/// transaction's trigger anchors with the precise snapshot xmin instead. `ON
+/// CONFLICT DO NOTHING` makes it idempotent / HA-safe (first node wins) and it
+/// never overwrites, so a disable/re-enable still resumes from the preserved
+/// cursor.
 #[cfg(feature = "parquet")]
 async fn anchor_audit_logs_s3_checkpoint_env_var(db: &DB) {
     if let Err(e) = sqlx::query!(
-        "INSERT INTO global_settings (name, value)
+        "INSERT INTO background_task_state (name, value)
          SELECT $1, jsonb_build_object(
                     'last_xmin', txid_snapshot_xmin(txid_current_snapshot())::bigint,
                     'last_ts', '1970-01-01T00:00:00+00:00')
          WHERE NOT EXISTS (SELECT 1 FROM global_settings WHERE name = $2)
          ON CONFLICT (name) DO NOTHING",
-        windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING,
+        windmill_common::global_settings::AUDIT_LOGS_S3_EXPORT_TASK,
         windmill_common::global_settings::STORE_AUDIT_LOGS_S3_SETTING
     )
     .execute(db)
@@ -4246,11 +4247,12 @@ async fn export_audit_logs_to_object_store(db: &DB) {
         }
     };
 
-    // Read the checkpoint inside the locked transaction so read→decide→write is
-    // one atomic, lock-protected unit.
+    // Read the checkpoint (runtime task state, not instance config) inside the
+    // locked transaction so read→decide→write is one atomic, lock-protected
+    // unit.
     let checkpoint = sqlx::query_scalar!(
-        "SELECT value FROM global_settings WHERE name = $1",
-        windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING
+        "SELECT value FROM background_task_state WHERE name = $1",
+        windmill_common::global_settings::AUDIT_LOGS_S3_EXPORT_TASK
     )
     .fetch_optional(&mut *tx)
     .await
@@ -4264,7 +4266,7 @@ async fn export_audit_logs_to_object_store(db: &DB) {
     // correctly includes transactions already in flight at enable (their xid
     // >= the snapshot xmin even if it was acquired before the enable), so a
     // caller-`&mut tx` audit row committed after enable is not skipped.
-    let (prev_xmin, last_ts) = match checkpoint {
+    let (prev_xmin, last_ts, prev_exported_audit_ts) = match checkpoint {
         Some(v) => {
             let prev_xmin = v.get("last_xmin").and_then(|x| x.as_i64()).unwrap_or(0);
             let last_ts = v
@@ -4273,7 +4275,12 @@ async fn export_audit_logs_to_object_store(db: &DB) {
                 .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
                 .map(|d| d.with_timezone(&Utc))
                 .unwrap_or_else(|| DateTime::<Utc>::from_timestamp(0, 0).unwrap());
-            (prev_xmin, last_ts)
+            let prev_exported_audit_ts = v
+                .get("last_exported_audit_ts")
+                .and_then(|x| x.as_str())
+                .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                .map(|d| d.with_timezone(&Utc));
+            (prev_xmin, last_ts, prev_exported_audit_ts)
         }
         None => {
             // Edge: enabled but neither the trigger nor the startup anchor
@@ -4283,9 +4290,9 @@ async fn export_audit_logs_to_object_store(db: &DB) {
             // exports from there. ON CONFLICT DO NOTHING keeps it HA-safe and
             // lets a real (trigger) anchor win if it lands first.
             if let Err(e) = sqlx::query!(
-                "INSERT INTO global_settings (name, value) VALUES ($1, $2)
+                "INSERT INTO background_task_state (name, value) VALUES ($1, $2)
                  ON CONFLICT (name) DO NOTHING",
-                windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING,
+                windmill_common::global_settings::AUDIT_LOGS_S3_EXPORT_TASK,
                 serde_json::json!({ "last_xmin": cur_xmin, "last_ts": "1970-01-01T00:00:00+00:00" })
             )
             .execute(&mut *tx)
@@ -4381,9 +4388,16 @@ async fn export_audit_logs_to_object_store(db: &DB) {
     // not advancing would re-scan an ever-growing interval.
     let mut batch_max_id: Option<i64> = None;
     let mut batch_max_ts = last_ts;
+    // Observability only (surfaced by the status endpoint): the max audit-row
+    // timestamp actually uploaded so far, monotonic, advanced only when rows
+    // are really written — distinct from `last_ts` (a pruning floor / sentinel).
+    let mut exported_audit_ts = prev_exported_audit_ts;
+    let mut exported_this_run: i64 = 0;
     for row in &rows {
         batch_max_id = Some(batch_max_id.map_or(row.max_id, |m| m.max(row.max_id)));
         batch_max_ts = batch_max_ts.max(row.max_ts);
+        exported_this_run += row.ndjson.lines().count() as i64;
+        exported_audit_ts = Some(exported_audit_ts.map_or(row.max_ts, |t| t.max(row.max_ts)));
 
         // Key by the interval's lower bound `prev_xmin`. Across successful runs
         // the intervals are disjoint (snapshot xmin is monotonic), so each
@@ -4412,27 +4426,38 @@ async fn export_audit_logs_to_object_store(db: &DB) {
         }
     }
 
+    // `last_ts`: only leave bootstrap once the whole post-anchor backlog is
+    // drained (this slice reached `cur_xmin`) — then a real (recent) floor is
+    // safe. While a capped tail remains, keep the epoch sentinel so the next
+    // tick continues bootstrap (epoch floor). Steady state keeps `batch_max_ts`
+    // (frozen when no rows, so a long-txn stall can't advance the floor past an
+    // un-exported row). The other fields are operator-facing observability,
+    // surfaced by GET /settings/audit_logs_s3_status.
+    let now = Utc::now();
+    let new_last_ts = if bootstrap_drained {
+        now
+    } else if bootstrap {
+        DateTime::<Utc>::from_timestamp(0, 0).unwrap()
+    } else {
+        batch_max_ts
+    };
+    let value = serde_json::json!({
+        "last_xmin": eff_cur_xmin,
+        "last_ts": new_last_ts.to_rfc3339(),
+        "last_exported_audit_ts": exported_audit_ts.map(|t| t.to_rfc3339()),
+        "last_run_at": now.to_rfc3339(),
+        "last_run_exported": exported_this_run,
+    });
     if let Err(e) = sqlx::query!(
-        "INSERT INTO global_settings (name, value) VALUES ($1, $2)
-         ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
-        windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING,
-        // Only leave bootstrap once the whole post-anchor backlog is drained
-        // (this slice reached `cur_xmin`): then a real (recent) floor is safe.
-        // While a capped tail remains, keep the epoch sentinel so the next tick
-        // continues the bootstrap (epoch floor) for the rest of the old
-        // backlog. Steady state keeps `batch_max_ts` (frozen when no rows, so a
-        // long-txn stall can't advance the floor past an un-exported row).
-        serde_json::json!({
-            "last_xmin": eff_cur_xmin,
-            "last_ts": if bootstrap_drained {
-                Utc::now()
-            } else if bootstrap {
-                DateTime::<Utc>::from_timestamp(0, 0).unwrap()
-            } else {
-                batch_max_ts
-            }
-            .to_rfc3339()
-        })
+        "INSERT INTO background_task_state
+             (name, value, running, owner, started_at, finished_at, updated_at)
+         VALUES ($1, $2, false, $3, now(), now(), now())
+         ON CONFLICT (name) DO UPDATE SET
+             value = $2, running = false, owner = $3,
+             finished_at = now(), updated_at = now()",
+        windmill_common::global_settings::AUDIT_LOGS_S3_EXPORT_TASK,
+        value,
+        windmill_common::INSTANCE_NAME.as_str()
     )
     .execute(&mut *tx)
     .await
@@ -4587,9 +4612,9 @@ mod audit_s3_export_tests {
 
     async fn checkpoint_last_xmin(db: &DB) -> Option<i64> {
         sqlx::query_scalar::<_, serde_json::Value>(
-            "SELECT value FROM global_settings WHERE name = $1",
+            "SELECT value FROM background_task_state WHERE name = $1",
         )
-        .bind(windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING)
+        .bind(windmill_common::global_settings::AUDIT_LOGS_S3_EXPORT_TASK)
         .fetch_optional(db)
         .await
         .unwrap()
@@ -4749,8 +4774,8 @@ mod audit_s3_export_tests {
         // transaction. Rows committed after the write but before the (possibly
         // much later) first export tick are still exported, and pre-enable rows
         // are not backfilled.
-        sqlx::query("DELETE FROM global_settings WHERE name = $1")
-            .bind(windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING)
+        sqlx::query("DELETE FROM background_task_state WHERE name = $1")
+            .bind(windmill_common::global_settings::AUDIT_LOGS_S3_EXPORT_TASK)
             .execute(&db)
             .await?;
         clear_store().await;
@@ -4821,11 +4846,12 @@ mod audit_s3_export_tests {
         // transaction's *snapshot* xmin (it was in flight). Anchoring on the
         // snapshot xmin (trigger) must export it; anchoring on the settings
         // row's xid would lose it.
-        sqlx::query("DELETE FROM global_settings WHERE name = ANY($1)")
-            .bind(vec![
-                windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING.to_string(),
-                windmill_common::global_settings::STORE_AUDIT_LOGS_S3_SETTING.to_string(),
-            ])
+        sqlx::query("DELETE FROM background_task_state WHERE name = $1")
+            .bind(windmill_common::global_settings::AUDIT_LOGS_S3_EXPORT_TASK)
+            .execute(&db)
+            .await?;
+        sqlx::query("DELETE FROM global_settings WHERE name = $1")
+            .bind(windmill_common::global_settings::STORE_AUDIT_LOGS_S3_SETTING)
             .execute(&db)
             .await?;
         clear_store().await;
@@ -4868,11 +4894,12 @@ mod audit_s3_export_tests {
 
         // --- env-var enable regression (CI-found): no settings row, anchor at
         // startup so rows committed before the first export tick aren't lost.
-        sqlx::query("DELETE FROM global_settings WHERE name = ANY($1)")
-            .bind(vec![
-                windmill_common::global_settings::AUDIT_LOGS_S3_CHECKPOINT_SETTING.to_string(),
-                windmill_common::global_settings::STORE_AUDIT_LOGS_S3_SETTING.to_string(),
-            ])
+        sqlx::query("DELETE FROM background_task_state WHERE name = $1")
+            .bind(windmill_common::global_settings::AUDIT_LOGS_S3_EXPORT_TASK)
+            .execute(&db)
+            .await?;
+        sqlx::query("DELETE FROM global_settings WHERE name = $1")
+            .bind(windmill_common::global_settings::STORE_AUDIT_LOGS_S3_SETTING)
             .execute(&db)
             .await?;
         clear_store().await;

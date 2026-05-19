@@ -11,7 +11,11 @@ pub const AI_CONFIG_SETTING: &str = "ai_config";
 pub const RETENTION_PERIOD_SECS_SETTING: &str = "retention_period_secs";
 pub const AUDIT_LOG_RETENTION_DAYS_SETTING: &str = "audit_log_retention_days";
 pub const STORE_AUDIT_LOGS_S3_SETTING: &str = "store_audit_logs_s3";
-pub const AUDIT_LOGS_S3_CHECKPOINT_SETTING: &str = "audit_logs_s3_checkpoint";
+/// `background_task_state.name` for the audit-log → object-store export cursor.
+/// NOT a global setting — runtime task state lives in `background_task_state`
+/// (see the migration `audit_logs_s3_anchor_on_enable`), so it is never part
+/// of instance config / config sync. Keep in sync with the trigger SQL literal.
+pub const AUDIT_LOGS_S3_EXPORT_TASK: &str = "audit_logs_s3_export";
 pub const MONITOR_LOGS_ON_OBJECT_STORE_SETTING: &str = "monitor_logs_on_s3";
 pub const JOB_DEFAULT_TIMEOUT_SECS_SETTING: &str = "job_default_timeout";
 pub const REQUEST_SIZE_LIMIT_SETTING: &str = "request_size_limit_mb";
