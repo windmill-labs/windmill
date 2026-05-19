@@ -89,6 +89,17 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
+// jemalloc defaults (background_thread:false, dirty_decay_ms:10000) never purge
+// idle arenas once a long-lived worker goes quiet after a burst, so RSS sticks
+// at the high-water mark and eventually OOMs under a hard cgroup limit. Enabling
+// the background purge thread plus shorter decay returns freed pages to the OS.
+// jemalloc applies the _RJEM_MALLOC_CONF env var after this symbol, so operators
+// can still override any of these (or add prof:* for profiling).
+#[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
+#[allow(non_upper_case_globals)]
+#[export_name = "_rjem_malloc_conf"]
+pub static malloc_conf: &[u8] = b"background_thread:true,dirty_decay_ms:5000,muzzy_decay_ms:5000\0";
+
 #[cfg(feature = "parquet")]
 use windmill_common::global_settings::OBJECT_STORE_CONFIG_SETTING;
 
