@@ -18,6 +18,7 @@ mcp = ["windmill-api/mcp"]
 agent_worker_server = ["dep:windmill-api-agent-workers"]
 run_inline = ["windmill-api/run_inline"]
 duckdb = ["windmill-worker/duckdb"]
+postgres_trigger = ["windmill-api/postgres_trigger"]
 
 [dependencies]
 windmill-api = { workspace = true, default-features = false }
