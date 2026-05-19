@@ -12,3 +12,17 @@ INSERT INTO usr(workspace_id, email, username, is_admin, operator, role) VALUES
 
 INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin) VALUES
 	(encode(sha256('OPERATOR_TOKEN'::bytea), 'hex'), 'OPERATOR_T', 'OPERATOR_TOKEN', 'operator@windmill.dev', 'operator token', false);
+
+-- A private app owned by `test-user` with a persisted inline script. Used to
+-- assert that `test-user-2` cannot preview-execute another app's app_script id.
+INSERT INTO app (id, workspace_id, path, summary, policy, versions) VALUES
+	(999001, 'test-workspace', 'u/test-user/private', 'private app', '{}'::jsonb, '{}');
+INSERT INTO app_script (id, app, hash, code, code_sha256) VALUES
+	(999777, 999001, repeat('a', 64), 'export function main(){ return "secret" }', repeat('b', 64));
+
+-- An app owned by `test-user-2` with its own persisted inline script, to assert
+-- the id-ownership check does not over-block a legitimate persisted preview.
+INSERT INTO app (id, workspace_id, path, summary, policy, versions) VALUES
+	(999002, 'test-workspace', 'u/test-user-2/ownapp', 'own app', '{}'::jsonb, '{}');
+INSERT INTO app_script (id, app, hash, code, code_sha256) VALUES
+	(999778, 999002, repeat('c', 64), 'export function main(){ return "ok" }', repeat('d', 64));

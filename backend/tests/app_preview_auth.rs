@@ -165,5 +165,64 @@ async fn test_app_preview_authorization(db: Pool<Postgres>) -> anyhow::Result<()
         "preview targeting a runnable outside the caller's namespace must be rejected even with an allowed app path (got {status}): {body}"
     );
 
+    // 6. Defense-in-depth: a persisted inline-script preview selects code by the
+    //    caller-controlled `app_script` id. Pairing an allowed app path with an
+    //    id owned by another (private) app must be rejected — without the
+    //    id-ownership check the worker would fetch and run that app's code.
+    let resp = authed(
+        client().post(format!("{base}/u/test-user-2/myapp")),
+        "SECRET_TOKEN_2",
+    )
+    .json(&json!({
+        "args": {},
+        "component": "comp",
+        "id": 999777,
+        "raw_code": {
+            "language": "deno",
+            "content": "export function main() { return 1; }",
+            "path": "u/test-user-2/myapp/comp"
+        },
+        "force_viewer_static_fields": {}
+    }))
+    .send()
+    .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(
+        status, 400,
+        "preview with an app_script id owned by another app must be rejected (got {status}): {body}"
+    );
+
+    // 7. The id-ownership check must NOT over-block a legitimate persisted
+    //    inline-script preview: an id owned by an app in the caller's own
+    //    namespace passes the guard and enqueues (returns a job UUID).
+    let resp = authed(
+        client().post(format!("{base}/u/test-user-2/ownapp")),
+        "SECRET_TOKEN_2",
+    )
+    .json(&json!({
+        "args": {},
+        "component": "comp",
+        "id": 999778,
+        "raw_code": {
+            "language": "deno",
+            "content": "export function main() { return 1; }",
+            "path": "u/test-user-2/ownapp/comp"
+        },
+        "force_viewer_static_fields": {}
+    }))
+    .send()
+    .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert!(
+        status.is_success(),
+        "persisted preview for an app the caller owns must still succeed (got {status}): {body}"
+    );
+    assert!(
+        uuid::Uuid::parse_str(body.trim()).is_ok(),
+        "successful persisted preview must return a job UUID, got: {body}"
+    );
+
     Ok(())
 }

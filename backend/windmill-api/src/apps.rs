@@ -2170,6 +2170,27 @@ async fn execute_component(
             None => path.to_string(),
         };
         require_path_read_access_for_preview(authed, &Some(preview_path))?;
+        // Persisted inline scripts are selected by the caller-controlled
+        // `payload.id`; the worker fetches `app_script` content by id alone, so
+        // a caller could pair an allowed app path with another (private) app's
+        // `app_script` id. Confine the id to an app in this workspace whose path
+        // the caller can read.
+        if let Some(id) = payload.id {
+            let owner_path = sqlx::query_scalar!(
+                "SELECT a.path FROM app_script s JOIN app a ON a.id = s.app
+                 WHERE s.id = $1 AND a.workspace_id = $2",
+                id,
+                &w_id,
+            )
+            .fetch_optional(&db)
+            .await?
+            .ok_or_else(|| {
+                Error::NotAuthorized(format!(
+                    "App script {id} does not belong to an app in this workspace"
+                ))
+            })?;
+            require_path_read_access_for_preview(authed, &Some(owner_path))?;
+        }
         Some(authed.clone())
     } else {
         None
@@ -2383,13 +2404,12 @@ async fn execute_component(
     if let Some(authed) = preview_authed.as_ref() {
         crate::jobs::check_tag_available_for_workspace(&db, &w_id, &tag, authed).await?;
     }
-    // Preview jobs run as the requesting user, so enqueue with their own
-    // permissions (like `/jobs/run/preview`). Run mode keeps the root isolation
-    // because the job is pushed on-behalf-of the policy's deployed identity.
-    let tx = match preview_authed {
-        Some(authed) => PushIsolationLevel::Isolated(user_db.clone(), authed.into()),
-        None => PushIsolationLevel::IsolatedRoot(db.clone()),
-    };
+    // Identity is already resolved to the requesting user in preview mode (the
+    // policy is forced to `ExecutionMode::Viewer`, so the job runs as the
+    // caller). The enqueue stays root-isolated as before — switching the insert
+    // to user-RLS is not what contains the bypass (the auth guards above are)
+    // and would add unnecessary breakage risk to the legitimate editor flow.
+    let tx = PushIsolationLevel::IsolatedRoot(db.clone());
 
     let (email, permissioned_as) = if let Some(on_behalf_of) = on_behalf_of.as_ref() {
         (
