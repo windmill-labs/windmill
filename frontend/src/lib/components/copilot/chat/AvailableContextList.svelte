@@ -3,7 +3,7 @@
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import type { FlowModule } from '$lib/gen/types.gen'
 	import { workspaceStore } from '$lib/stores'
-	import { workspaceRunnablesSearch, MAX_RUNNABLE_CONTENT_LENGTH } from './shared'
+	import { workspaceRunnablesSearch } from './shared'
 	import {
 		ContextIconMap,
 		type ContextElement,
@@ -167,54 +167,31 @@
 		}, 300)
 	}
 
-	async function handleWorkspaceItemSelect(path: string) {
-		const workspace = $workspaceStore
-		if (!workspace || !onSelectWorkspaceItem) return
+	function handleWorkspaceItemSelect(item: { path: string; summary?: string }) {
+		if (!onSelectWorkspaceItem) return
 
-		try {
-			if (currentView === 'scripts') {
-				const script = await workspaceRunnablesSearch.getScript(path, workspace)
-				const content = script.content ?? ''
-				const truncatedContent =
-					content.length > MAX_RUNNABLE_CONTENT_LENGTH
-						? content.slice(0, MAX_RUNNABLE_CONTENT_LENGTH) + '\n... (truncated)'
-						: content
-				const element: WorkspaceScriptElement & { deletable: boolean } = {
-					type: 'workspace_script',
-					path: script.path,
-					title: script.path,
-					summary: script.summary,
-					language: script.language,
-					content: truncatedContent,
-					schema: script.schema,
-					deletable: true
-				}
-				onSelectWorkspaceItem(element)
-			} else if (currentView === 'flows') {
-				const flow = await workspaceRunnablesSearch.getFlow(path, workspace)
-				const flowValue = JSON.stringify(flow.value, null, 2)
-				const truncatedValue =
-					flowValue.length > MAX_RUNNABLE_CONTENT_LENGTH
-						? flowValue.slice(0, MAX_RUNNABLE_CONTENT_LENGTH) + '\n... (truncated)'
-						: flowValue
-				const element: WorkspaceFlowElement & { deletable: boolean } = {
-					type: 'workspace_flow',
-					path: flow.path,
-					title: flow.path,
-					summary: flow.summary,
-					description: flow.description || '',
-					value: truncatedValue,
-					schema: flow.schema,
-					deletable: true
-				}
-				onSelectWorkspaceItem(element)
+		if (currentView === 'scripts') {
+			const element: WorkspaceScriptElement & { deletable: boolean } = {
+				type: 'workspace_script',
+				path: item.path,
+				title: item.path,
+				summary: item.summary,
+				deletable: true
 			}
-			currentView = 'categories'
-			workspaceSearchQuery = ''
-			workspaceSearchResults = []
-		} catch (err) {
-			console.error('Error fetching workspace item', err)
+			onSelectWorkspaceItem(element)
+		} else if (currentView === 'flows') {
+			const element: WorkspaceFlowElement & { deletable: boolean } = {
+				type: 'workspace_flow',
+				path: item.path,
+				title: item.path,
+				summary: item.summary,
+				deletable: true
+			}
+			onSelectWorkspaceItem(element)
 		}
+		currentView = 'categories'
+		workspaceSearchQuery = ''
+		workspaceSearchResults = []
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
@@ -241,7 +218,7 @@
 					e.stopPropagation()
 					const selectedItem = workspaceSearchResults[itemSelectedIndex]
 					if (selectedItem) {
-						handleWorkspaceItemSelect(selectedItem.path)
+						handleWorkspaceItemSelect(selectedItem)
 					}
 				}
 			} else if (e.key === 'Escape') {
@@ -358,7 +335,7 @@
 >
 	{#if stringSearch.length > 0}
 		<!-- Search view - show flat list -->
-		{#each filteredAvailableContext as element, i}
+		{#each filteredAvailableContext as element, i (element.type + '-' + element.title)}
 			{@const Icon = ContextIconMap[element.type]}
 			<button
 				class="hover:bg-surface-hover rounded-md p-1 text-left flex flex-row gap-1 items-center font-normal transition-colors {i ===
@@ -386,7 +363,7 @@
 		{/if}
 	{:else if currentView === 'categories'}
 		<!-- Categories view -->
-		{#each availableCategories as category, i}
+		{#each availableCategories as category, i (category.id)}
 			{@const Icon = category.icon}
 			<button
 				class="hover:bg-surface-hover rounded-md p-1 pr-0 text-left flex flex-row gap-1 items-center font-normal transition-colors {i ===
@@ -432,7 +409,7 @@
 				No results found
 			</div>
 		{:else}
-			{#each workspaceSearchResults as item, i}
+			{#each workspaceSearchResults as item, i (currentView + '-' + item.path)}
 				{@const isAlreadySelected = selectedContext.some(
 					(c) =>
 						((c.type === 'workspace_script' && currentView === 'scripts') ||
@@ -446,7 +423,7 @@
 						: ''} {isAlreadySelected ? 'opacity-50' : ''}"
 					onclick={() => {
 						if (!isAlreadySelected) {
-							handleWorkspaceItemSelect(item.path)
+							handleWorkspaceItemSelect(item)
 						}
 					}}
 					disabled={isAlreadySelected}
@@ -478,7 +455,7 @@
 		{#if currentCategoryItems.length === 0}
 			<div class="text-center text-primary text-xs py-2">No items in this category</div>
 		{:else}
-			{#each currentCategoryItems as element, i}
+			{#each currentCategoryItems as element, i (element.type + '-' + element.title)}
 				{@const Icon = ContextIconMap[element.type]}
 				<button
 					class="hover:bg-surface-hover rounded-md p-1 text-left flex flex-row gap-1 items-center font-normal transition-colors {i ===

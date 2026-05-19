@@ -170,5 +170,12 @@
       "full_api_access"
     ],
     "extra_params": {}
+  },
+  "docusign": {
+    "auth_url": "https://account.docusign.com/oauth/auth",
+    "token_url": "https://account.docusign.com/oauth/token",
+    "scopes": [
+      "signature"
+    ]
   }
 }

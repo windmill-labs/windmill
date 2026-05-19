@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.704.1](https://github.com/windmill-labs/windmill/compare/v1.704.0...v1.704.1) (2026-05-19)
+
+
+### Bug Fixes
+
+* fix git sync ([ff1deaa](https://github.com/windmill-labs/windmill/commit/ff1deaa7e2f3f1f650861c1e2a0f663e597d501c))
+* honor SAML RelayState to redirect to deep link after SSO login ([#9225](https://github.com/windmill-labs/windmill/issues/9225)) ([89306d7](https://github.com/windmill-labs/windmill/commit/89306d7dbc96d0c7dfe2c6025cefc2d72e4f224e))
+* revert git sync script bump ([0f54ecd](https://github.com/windmill-labs/windmill/commit/0f54ecd34cf1ac86ded9305bc84a044eb6a86e72))
+
+## [1.704.0](https://github.com/windmill-labs/windmill/compare/v1.703.3...v1.704.0) (2026-05-18)
+
+
+### Features
+
+* add global ask user question tool ([#9217](https://github.com/windmill-labs/windmill/issues/9217)) ([f965512](https://github.com/windmill-labs/windmill/commit/f965512c7a9aca32c252ca0cda7ec00ab08a38e0))
+* add global chat selected context ([#9216](https://github.com/windmill-labs/windmill/issues/9216)) ([49ebf6f](https://github.com/windmill-labs/windmill/commit/49ebf6f8ba0ea55ea7987f40ecdd32738241a3f2))
+* show job status in favicon on the run page ([#9206](https://github.com/windmill-labs/windmill/issues/9206)) ([2e05bdd](https://github.com/windmill-labs/windmill/commit/2e05bdd73a664ddeec513653ab74e8c696ea1cfd))
+
+
+### Bug Fixes
+
+* don't fail flow on AlreadyCompleted after zombie restart ([#9214](https://github.com/windmill-labs/windmill/issues/9214)) ([8b7f7b3](https://github.com/windmill-labs/windmill/commit/8b7f7b37bdb91449cbd868bd3ee33a0ccbaf288f))
+* **git-sync:** bump default sync script to hub/28229 for extra_perms support ([#9223](https://github.com/windmill-labs/windmill/issues/9223)) ([0538412](https://github.com/windmill-labs/windmill/commit/0538412f1c370981be1915d8c724879d2c54fb83))
+* preserve ai reasoning content ([#9208](https://github.com/windmill-labs/windmill/issues/9208)) ([fec4008](https://github.com/windmill-labs/windmill/commit/fec40086961174fea25b4e1f796991152b84b211))
+* reject path traversal in MCP endpoint path parameters ([#9211](https://github.com/windmill-labs/windmill/issues/9211)) ([ad5ec29](https://github.com/windmill-labs/windmill/commit/ad5ec293b5a189135faea21e0d9c93637b77670f))
+* resolve absolute-path imports in monaco ts editor ([#9213](https://github.com/windmill-labs/windmill/issues/9213)) ([156eb0b](https://github.com/windmill-labs/windmill/commit/156eb0b045171e8d6990af9eeab752071bf7097b))
+
 ## [1.703.3](https://github.com/windmill-labs/windmill/compare/v1.703.2...v1.703.3) (2026-05-18)
 
 
