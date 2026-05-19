@@ -56,8 +56,9 @@ use windmill_common::{
         POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RESTART_COORDINATION_SETTING,
         RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING, SAML_METADATA_SETTING,
-        SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
-        UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING, WORKSPACE_REGISTRIES_SETTING,
+        SCIM_TOKEN_SETTING, SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING, TEAMS_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING,
+        WORKSPACE_REGISTRIES_SETTING,
     },
     scripts::ScriptLang,
     stats_oss::schedule_stats,
@@ -89,6 +90,20 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
+// Stock jemalloc only purges freed pages during alloc/free calls on app
+// threads, so a long-lived worker that goes quiet after a burst never runs the
+// purge: RSS freezes at the high-water mark and eventually OOMs under a hard
+// cgroup limit. Enabling the background thread makes the decay run on idle,
+// returning pages to the OS; the decay windows are left at jemalloc defaults
+// (dirty 10s, muzzy 0) on purpose — over a worker's months-long lifetime there
+// is no benefit to reclaiming more aggressively than that. jemalloc applies the
+// _RJEM_MALLOC_CONF env var after this symbol, so operators can still tune
+// decay or add prof:* for profiling.
+#[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
+#[allow(non_upper_case_globals)]
+#[export_name = "_rjem_malloc_conf"]
+pub static malloc_conf: &[u8] = b"background_thread:true\0";
+
 #[cfg(feature = "parquet")]
 use windmill_common::global_settings::OBJECT_STORE_CONFIG_SETTING;
 
@@ -114,8 +129,8 @@ use crate::monitor::{
     reload_job_default_timeout_setting, reload_job_isolation_setting, reload_jwt_secret_setting,
     reload_license_key, reload_npm_config_registry_setting, reload_otel_tracing_proxy_setting,
     reload_pip_index_url_setting, reload_retention_period_setting, reload_scim_token_setting,
-    reload_smtp_config, reload_uv_exclude_newer_setting, reload_uv_index_strategy_setting,
-    reload_worker_config, MonitorIteration,
+    reload_smtp_config, reload_store_audit_logs_s3_setting, reload_uv_exclude_newer_setting,
+    reload_uv_index_strategy_setting, reload_worker_config, MonitorIteration,
 };
 
 #[cfg(feature = "parquet")]
@@ -1764,6 +1779,7 @@ async fn process_notify_event(
                 MONITOR_LOGS_ON_OBJECT_STORE_SETTING => {
                     reload_delete_logs_periodically_setting(conn).await
                 }
+                STORE_AUDIT_LOGS_S3_SETTING => reload_store_audit_logs_s3_setting(conn).await,
                 JOB_DEFAULT_TIMEOUT_SECS_SETTING => reload_job_default_timeout_setting(conn).await,
                 JOB_ISOLATION_SETTING => reload_job_isolation_setting(conn).await,
                 #[cfg(feature = "parquet")]

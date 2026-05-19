@@ -60,6 +60,10 @@ pub fn supports_openai_compatible_proxy(provider: &AIProvider) -> bool {
     )
 }
 
+pub fn supports_query_builder_proxy(provider: &AIProvider) -> bool {
+    supports_openai_compatible_proxy(provider) || matches!(provider, AIProvider::Anthropic)
+}
+
 pub fn build_openai_compatible_proxy_request(args: &ProxyBuildArgs<'_>) -> Result<ProxyRequest> {
     let credentials = args.credentials;
     let body = if let Some(user) = credentials.user.as_ref() {
@@ -108,7 +112,7 @@ pub fn build_openai_compatible_proxy_request(args: &ProxyBuildArgs<'_>) -> Resul
     Ok(ProxyRequest { method: args.method.clone(), url, headers, body })
 }
 
-fn add_user_to_body(body: &[u8], user: &str) -> Result<Vec<u8>> {
+pub(crate) fn add_user_to_body(body: &[u8], user: &str) -> Result<Vec<u8>> {
     tracing::debug!("Adding user to request body");
     let mut json_body: HashMap<String, Box<RawValue>> = serde_json::from_slice(body)
         .map_err(|e| Error::internal_err(format!("Failed to parse request body: {}", e)))?;
@@ -172,6 +176,14 @@ mod tests {
         assert!(request
             .headers
             .contains(&("OpenAI-Organization".to_string(), "org-id".to_string())));
+    }
+
+    #[test]
+    fn query_builder_proxy_support_includes_anthropic() {
+        assert!(supports_query_builder_proxy(&AIProvider::OpenAI));
+        assert!(supports_query_builder_proxy(&AIProvider::Anthropic));
+        assert!(!supports_query_builder_proxy(&AIProvider::GoogleAI));
+        assert!(!supports_query_builder_proxy(&AIProvider::AWSBedrock));
     }
 
     #[test]
