@@ -1198,7 +1198,7 @@ export const globalTools: Tool<{}>[] = [
 				byKey.set(getWorkspaceItemKey(item.type, item.path, item.triggerKind), item)
 			}
 
-			for (const currentItem of listGlobalCurrentItems(workspace)) {
+			for (const currentItem of listGlobalCurrentItems(workspace, types)) {
 				if (!types.includes(currentItem.type)) continue
 				byKey.set(
 					getWorkspaceItemKey(currentItem.type, currentItem.path, currentItem.triggerKind),

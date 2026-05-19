@@ -275,6 +275,44 @@ describe('global AI tools', () => {
 		])
 	})
 
+	it('does not inspect unrelated partial flow UserDraft entries when listing scripts', async () => {
+		UserDraft.save<any>('flow', 'f/flows/partial', {}, { workspace: WORKSPACE })
+
+		const raw = await callGlobalTool('list_workspace_items', {
+			types: ['script']
+		})
+
+		expect(JSON.parse(raw)).toEqual([])
+	})
+
+	it('lists legacy top-level flow UserDraft values without crashing', async () => {
+		UserDraft.save<any>(
+			'flow',
+			'f/flows/legacy',
+			{
+				modules: [
+					{
+						id: 'start',
+						value: { type: 'identity' }
+					}
+				]
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		const raw = await callGlobalTool('list_workspace_items', {
+			types: ['flow']
+		})
+
+		expect(JSON.parse(raw)).toEqual([
+			expect.objectContaining({
+				type: 'flow',
+				path: 'f/flows/legacy',
+				isDraft: false
+			})
+		])
+	})
+
 	it('writes schedule drafts into the shared UserDraft store', async () => {
 		await callGlobalTool('write_schedule', {
 			path: 'f/schedules/daily',
