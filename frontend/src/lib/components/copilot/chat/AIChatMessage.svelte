@@ -40,7 +40,7 @@
 
 <div
 	class={twMerge(
-		'mb-2',
+		'mb-2 min-w-0',
 		message.role === 'user' && messageIndex > 0 && 'mt-4 mb-6',
 		isLast && '!mb-12',
 		message.role !== 'user' ? 'cursor-default' : 'cursor-pointer'
@@ -74,21 +74,17 @@
 			/>
 		</div>
 	{:else}
-		<div
-			class={twMerge(
-				'text-sm py-1 mx-2',
-				message.role === 'user' &&
-					'text-xs px-3 py-2 w-fit max-w-lg bg-surface-accent-selected text-accent rounded-lg relative group',
-				(message.role === 'assistant' || message.role === 'tool') && 'px-[1px]',
-				message.role === 'tool' && 'text-primary'
-			)}
-		>
+		<div class={twMerge('text-sm py-1 px-2', message.role === 'tool' && 'text-primary')}>
 			{#if message.role === 'assistant'}
-				<AssistantMessage {message} />
+				<div class="px-[1px]"><AssistantMessage {message} /></div>
 			{:else if message.role === 'tool'}
-				<ToolExecutionDisplay message={message as ToolDisplayMessage} />
+				<div class="px-[1px]"><ToolExecutionDisplay message={message as ToolDisplayMessage} /></div>
 			{:else}
-				<span class="whitespace-pre-wrap">{message.content}</span>
+				<div
+					class="text-xs px-3 py-2 w-fit max-w-[min(32rem,100%)] bg-surface-accent-selected text-accent rounded-lg relative group break-words"
+				>
+					<span class="whitespace-pre-wrap">{message.content}</span>
+				</div>
 			{/if}
 		</div>
 	{/if}
