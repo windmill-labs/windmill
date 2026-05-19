@@ -154,6 +154,7 @@ no_auth = ["windmill-api/no_auth"]
 operator = ["dep:windmill-operator"]
 test_job_debouncing = []
 private_registry_test = []
+dev_override = ["windmill-common/dev_override"]
 # Languages
 python = ["windmill-worker/python", "windmill-api/python", "windmill-test-utils/python"]
 rust = ["windmill-worker/rust"]
