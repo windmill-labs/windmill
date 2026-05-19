@@ -102,7 +102,17 @@
 
 	let height = $state(0)
 	$effect(() => {
-		aiChatManager.automaticScroll && height && scrollDown()
+		if (aiChatManager.automaticScroll && height) {
+			scrollDown()
+		}
+		// Recompute the scroll-to-latest visibility on every content-height
+		// change. `onScroll` only fires for actual scroll events, so without
+		// this the arrow can go stale when content grows past the threshold
+		// while auto-scroll is disabled (user scrolled up mid-stream).
+		if (scrollEl && height) {
+			const distance = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight
+			showScrollToLatest = distance > SCROLL_TO_LATEST_THRESHOLD_PX
+		}
 	})
 
 	// Pixel distance from the bottom under which we treat the user as
@@ -116,19 +126,23 @@
 	let showScrollToLatest = $state(false)
 	function onScroll() {
 		if (!scrollEl) return
+		const distance = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight
+		// Always refresh the arrow visibility — even during the cooldown,
+		// because clicking the arrow itself triggers a programmatic scroll
+		// whose only event would otherwise be swallowed, leaving the arrow
+		// stuck visible after we already reached the bottom.
+		showScrollToLatest = distance > SCROLL_TO_LATEST_THRESHOLD_PX
 		if (
 			programmaticScrollAt !== undefined &&
 			Date.now() - programmaticScrollAt < PROGRAMMATIC_SCROLL_COOLDOWN_MS
 		) {
 			return
 		}
-		const distance = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight
 		if (distance <= STICK_TO_BOTTOM_PX) {
 			aiChatManager.enableAutomaticScroll()
 		} else {
 			aiChatManager.disableAutomaticScroll()
 		}
-		showScrollToLatest = distance > SCROLL_TO_LATEST_THRESHOLD_PX
 	}
 
 	function submitSuggestion(suggestion: string) {

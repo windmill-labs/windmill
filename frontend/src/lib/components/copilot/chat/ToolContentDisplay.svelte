@@ -87,12 +87,19 @@
 		}
 		canScrollDown = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight > 1
 	}
+
+	// Mount-time + content-change measurement via ResizeObserver. The
+	// observer fires on initial observe (catches first paint) and on every
+	// size change of the scroll container or its content (catches streaming
+	// JSON growing past max-h-28). User scrolls fire `onscroll` directly.
 	$effect(() => {
-		// Re-measure when the content changes or the box mounts.
-		void content
-		void hasContent
 		if (!scrollEl) return
-		requestAnimationFrame(updateCanScrollDown)
+		updateCanScrollDown()
+		const ro = new ResizeObserver(updateCanScrollDown)
+		ro.observe(scrollEl)
+		const inner = scrollEl.firstElementChild
+		if (inner) ro.observe(inner)
+		return () => ro.disconnect()
 	})
 </script>
 
