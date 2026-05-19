@@ -93,11 +93,11 @@
 		</div>
 	{/if}
 	{#if message.role === 'user' && message.snapshot}
-		<div class="mx-2 text-sm text-primary flex flex-row items-center justify-between gap-2 mt-2">
+		<div class="mx-2 text-2xs text-tertiary flex flex-row items-center justify-between gap-2 mt-2">
 			Saved {message.snapshot.type === 'flow' ? 'a flow' : 'an app'} snapshot
 			<Button
-				size="xs2"
-				variant="default"
+				unifiedSize="xs"
+				variant="subtle"
 				on:click={() => {
 					if (message.snapshot) {
 						if (message.snapshot.type === 'flow') {

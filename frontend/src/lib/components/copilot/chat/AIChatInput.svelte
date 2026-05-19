@@ -493,7 +493,17 @@
 	</div>
 {/snippet}
 
-<div use:clickOutside class="relative mt-1">
+<div
+	use:clickOutside
+	class="relative mt-1"
+	role="presentation"
+	onkeydown={(e) => {
+		if (e.key === 'Escape' && aiChatManager.loading) {
+			e.preventDefault()
+			aiChatManager.cancel()
+		}
+	}}
+>
 	{#if isContextEnabledMode}
 		<div class="relative">
 			<ContextTextarea
