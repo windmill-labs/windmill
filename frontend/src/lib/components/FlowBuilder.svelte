@@ -1294,6 +1294,9 @@
 					/>
 				</div>
 			</div>
+			<!-- Rendered either inline in the top bar (wide) or as a graph overlay
+			     (compactTopbar). Crossing the 720px threshold remounts
+			     FlowPreviewButtons; any open preview state will reset. -->
 			{#snippet previewButtons()}
 				<FlowPreviewButtons
 					{suspendStatus}

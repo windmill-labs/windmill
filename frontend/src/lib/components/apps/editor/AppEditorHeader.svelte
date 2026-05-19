@@ -1161,7 +1161,7 @@
 				></span>
 			{/if}
 		</div>
-		<AppEditorTutorial bind:this={appEditorTutorial} hideButton />
+		<AppEditorTutorial bind:this={appEditorTutorial} />
 
 		<div class="{compactTopbar ? 'hidden' : 'hidden md:inline'} relative overflow-visible shrink-0">
 			{#if hasErrors}
