@@ -11,7 +11,7 @@ use crate::{
     auth::{get_end_user_email, OptTokened},
     db::{ApiAuthed, DB},
     jobs::RunJobQuery,
-    users::{require_owner_of_path, OptAuthed},
+    users::{require_owner_of_path, require_path_read_access_for_preview, OptAuthed},
     utils::{check_scopes, WithStarredInfoQuery},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
@@ -2138,6 +2138,28 @@ async fn execute_component(
     // tag from the deployed policy and ignore the request body.
     let is_preview = payload.force_viewer_static_fields.is_some();
 
+    // Preview mode runs arbitrary, request-supplied `raw_code` as a `Viewer`-mode
+    // job: it is the app-editor equivalent of `/jobs/run/preview` and must enforce
+    // the same guards. `force_viewer_static_fields` is client-controlled, so
+    // without this an Operator or a narrowly-scoped token could enqueue arbitrary
+    // worker code through this otherwise on-behalf-of app endpoint, bypassing the
+    // restriction that Operators cannot run preview jobs. See `run_preview_script`.
+    let preview_authed = if is_preview {
+        let authed = opt_authed.as_ref().ok_or_else(|| {
+            Error::NotAuthorized("App component preview requires authentication".to_string())
+        })?;
+        if authed.is_operator {
+            return Err(Error::NotAuthorized(
+                "Operators cannot run preview jobs for security reasons".to_string(),
+            ));
+        }
+        check_scopes(authed, || format!("jobs:run"))?;
+        require_path_read_access_for_preview(authed, &Some(path.to_string()))?;
+        Some(authed.clone())
+    } else {
+        None
+    };
+
     // Two cases here:
     // 1. The component is executed from the editor (i.e. in "preview" mode), then:
     //    - The policy is set to default (in `Viewer` execution mode).
@@ -2341,7 +2363,13 @@ async fn execute_component(
         ),
         _ => unreachable!(),
     };
-    let tx = PushIsolationLevel::IsolatedRoot(db.clone());
+    // Preview jobs run as the requesting user, so enqueue with their own
+    // permissions (like `/jobs/run/preview`). Run mode keeps the root isolation
+    // because the job is pushed on-behalf-of the policy's deployed identity.
+    let tx = match preview_authed {
+        Some(authed) => PushIsolationLevel::Isolated(user_db.clone(), authed.into()),
+        None => PushIsolationLevel::IsolatedRoot(db.clone()),
+    };
 
     let (email, permissioned_as) = if let Some(on_behalf_of) = on_behalf_of.as_ref() {
         (
