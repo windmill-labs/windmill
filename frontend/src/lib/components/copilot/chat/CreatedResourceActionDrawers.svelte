@@ -144,6 +144,8 @@
 		}
 
 		if (activeDrawer?.key === key && activeDrawer.path === action.path && drawer?.isOpen()) {
+			activeDrawer = undefined
+			editor = undefined
 			drawer.closeDrawer()
 			return
 		}

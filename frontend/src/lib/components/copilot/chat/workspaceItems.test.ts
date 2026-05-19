@@ -236,8 +236,6 @@ describe('remarkWindmillPaths (mdast)', () => {
 		const props = byPath['f/marketing/send_email'].data?.hProperties as Record<string, string>
 		expect(props['data-wm-kind']).toBe('script')
 		expect(props['data-wm-path']).toBe('f/marketing/send_email')
-		expect(props.target).toBe('_blank')
-		expect(props.rel).toBe('noopener noreferrer')
 	})
 
 	it('adds target kind metadata when a drawer action needs it', () => {
@@ -335,7 +333,7 @@ describe('remarkWindmillPaths (mdast)', () => {
 		walk(hast)
 		expect(links).toHaveLength(1)
 		expect(links[0].properties.href).toBe('/scripts/get/f/marketing/send_email?workspace=admins')
-		// hast normalizes target/rel as standard attrs; data-* stays kebab-case.
+		// data-* may be normalized by the mdast/hast bridge.
 		expect(links[0].properties['dataWmKind'] ?? links[0].properties['data-wm-kind']).toBe('script')
 		expect(links[0].properties['dataWmPath'] ?? links[0].properties['data-wm-path']).toBe(
 			'f/marketing/send_email'

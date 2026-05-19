@@ -245,9 +245,7 @@ function buildPathLinkNode(
 ): Link {
 	const hProperties: Record<string, string> = {
 		'data-wm-kind': entry.kind,
-		'data-wm-path': entry.path,
-		target: '_blank',
-		rel: 'noopener noreferrer'
+		'data-wm-path': entry.path
 	}
 	if (entry.targetKind) {
 		hProperties['data-wm-target-kind'] = entry.targetKind
