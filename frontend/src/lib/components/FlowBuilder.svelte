@@ -1269,6 +1269,9 @@
 							Diff
 						</Button>
 					{/if}
+					{#if !compactTopbar}
+						{@render previewButtons()}
+					{/if}
 					{#if customUi?.topBar?.draft !== false && !compactTopbar}
 						<Button
 							loading={loadingDraft}
@@ -1291,7 +1294,7 @@
 					/>
 				</div>
 			</div>
-			{#snippet previewButtonsOverlay()}
+			{#snippet previewButtons()}
 				<FlowPreviewButtons
 					{suspendStatus}
 					on:openTriggers={(e) => {
@@ -1316,7 +1319,7 @@
 			{#if flowStateStore.val}
 				<FlowEditor
 					bind:this={flowEditor}
-					graphOverlay={previewButtonsOverlay}
+					graphOverlay={compactTopbar ? previewButtons : undefined}
 					{disabledFlowInputs}
 					disableAi={disableAi || customUi?.stepInputs?.ai == false}
 					disableSettings={customUi?.settingsPanel === false}

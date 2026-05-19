@@ -8,6 +8,8 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { getTutorialIndex } from '$lib/tutorials/config'
 
+	let { hideButton = false }: { hideButton?: boolean } = $props()
+
 	let appTutorials: AppTutorials | undefined = $state(undefined)
 	let targetTutorial: string | undefined = $state(undefined)
 
@@ -18,7 +20,7 @@
 	async function getTutorialItems() {
 		const backgroundRunnablesIndex = getTutorialIndex('backgroundrunnables')
 		const connectionIndex = getTutorialIndex('connection')
-		
+
 		return [
 			{
 				displayName: 'Background runnables',
@@ -48,19 +50,21 @@
 	}
 </script>
 
-{#key $tutorialsToDo}
-	<Dropdown items={getTutorialItems}>
-		{#snippet buttonReplacement()}
-			<Button
-				nonCaptureEvent
-				unifiedSize="md"
-				variant="subtle"
-				iconOnly
-				startIcon={{ icon: BookOpen }}
-			/>
-		{/snippet}
-	</Dropdown>
-{/key}
+{#if !hideButton}
+	{#key $tutorialsToDo}
+		<Dropdown items={getTutorialItems}>
+			{#snippet buttonReplacement()}
+				<Button
+					nonCaptureEvent
+					unifiedSize="md"
+					variant="subtle"
+					iconOnly
+					startIcon={{ icon: BookOpen }}
+				/>
+			{/snippet}
+		</Dropdown>
+	{/key}
+{/if}
 
 <AppTutorials
 	bind:this={appTutorials}

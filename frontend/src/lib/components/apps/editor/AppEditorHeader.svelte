@@ -5,13 +5,19 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AppService, DraftService, type Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history.svelte'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, tutorialsToDo, userStore, workspaceStore } from '$lib/stores'
 	import { isMac, type Item, userPathPrefix } from '$lib/utils'
+	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
+	import { getTutorialIndex } from '$lib/tutorials/config'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 	import {
 		AlignHorizontalSpaceAround,
 		BellOff,
+		BookOpen,
 		Bug,
+		CheckCheck,
+		CheckCircle,
+		Circle,
 		DiffIcon,
 		Expand,
 		FileJson,
@@ -19,6 +25,7 @@
 		FormInput,
 		History,
 		Laptop2,
+		RefreshCw,
 		Save,
 		Smartphone,
 		FileClock,
@@ -590,6 +597,28 @@
 	}
 
 	let moreItems = $derived([
+		...(compactTopbar
+			? [
+					{
+						displayName: 'Save draft',
+						icon: Save,
+						action: () => saveDraft(),
+						shortcut: `${mod}S`,
+						disabled: !newApp && !savedApp
+					},
+					{
+						displayName: `Debug runs (${$jobs?.length > 99 ? '99+' : ($jobs?.length ?? 0)})`,
+						icon: Bug,
+						action: () => {
+							if (selectedJobId == undefined && $jobs.length > 0) {
+								selectedJobId = $jobs[$jobs.length - 1]
+							}
+							$jobsDrawerOpen = true
+						},
+						separatorBottom: true
+					}
+				]
+			: []),
 		{
 			displayName: 'Undo',
 			icon: Undo,
@@ -703,6 +732,40 @@
 			action: () => {
 				appExport?.open(toStatic($app, $staticExporter, $summary).app)
 			}
+		},
+		{
+			displayName: 'Tutorials',
+			icon: BookOpen,
+			separatorTop: true,
+			submenuItems: [
+				{
+					displayName: 'Background runnables',
+					action: () => appEditorTutorial?.runTutorialById('backgroundrunnables'),
+					icon: $tutorialsToDo.includes(getTutorialIndex('backgroundrunnables'))
+						? Circle
+						: CheckCircle,
+					iconColor: $tutorialsToDo.includes(getTutorialIndex('backgroundrunnables'))
+						? undefined
+						: 'green'
+				},
+				{
+					displayName: 'Connection',
+					action: () => appEditorTutorial?.runTutorialById('connection'),
+					icon: $tutorialsToDo.includes(getTutorialIndex('connection')) ? Circle : CheckCircle,
+					iconColor: $tutorialsToDo.includes(getTutorialIndex('connection')) ? undefined : 'green'
+				},
+				{
+					displayName: 'Reset tutorials',
+					action: () => resetAllTodos(),
+					icon: RefreshCw,
+					separatorTop: true
+				},
+				{
+					displayName: 'Skip tutorials',
+					action: () => skipAllTodos(),
+					icon: CheckCheck
+				}
+			]
 		}
 	]) as Item[]
 
@@ -1090,8 +1153,15 @@
 		<Awareness />
 	{/if}
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
-		<Dropdown items={moreItems} />
-		<AppEditorTutorial bind:this={appEditorTutorial} />
+		<div class="relative">
+			<Dropdown items={moreItems} />
+			{#if $tutorialsToDo.includes(getTutorialIndex('backgroundrunnables')) || $tutorialsToDo.includes(getTutorialIndex('connection'))}
+				<span
+					class="absolute top-0.5 right-0.5 block w-2 h-2 rounded-full bg-surface-accent-primary pointer-events-none"
+				></span>
+			{/if}
+		</div>
+		<AppEditorTutorial bind:this={appEditorTutorial} hideButton />
 
 		<div class="{compactTopbar ? 'hidden' : 'hidden md:inline'} relative overflow-visible shrink-0">
 			{#if hasErrors}
@@ -1152,29 +1222,26 @@
 			startIcon={{ icon: Save }}
 			on:click={save}
 			unifiedSize="md"
-			dropdownItems={() => [
-				...(compactTopbar ? [{ label: 'Save draft', onClick: () => saveDraft() }] : []),
-				...($appPath != ''
-					? [
-							{
-								label: 'Fork',
-								onClick: () => {
-									window.open(`/apps/add?template=${appPath}`)
-								}
-							},
-							...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
-								? [
-										{
-											label: 'Edit in workspace fork',
-											onClick: () => {
-												window.open(buildForkEditUrl('app', $appPath))
-											}
+			dropdownItems={$appPath != ''
+				? () => [
+						{
+							label: 'Fork',
+							onClick: () => {
+								window.open(`/apps/add?template=${appPath}`)
+							}
+						},
+						...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
+							? [
+									{
+										label: 'Edit in workspace fork',
+										onClick: () => {
+											window.open(buildForkEditUrl('app', $appPath))
 										}
-									]
-								: [])
-						]
-					: [])
-			]}
+									}
+								]
+							: [])
+					]
+				: undefined}
 		>
 			Deploy
 		</Button>

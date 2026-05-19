@@ -584,6 +584,23 @@
 	const mod = isMac() ? '⌘' : 'Ctrl+'
 
 	let moreItems = $derived([
+		...(compactTopbar
+			? [
+					{
+						displayName: 'Save draft',
+						icon: Save,
+						action: () => saveDraft(),
+						shortcut: `${mod}S`,
+						disabled: !newApp && !savedApp
+					},
+					{
+						displayName: `Jobs (${jobs?.length > 99 ? '99+' : (jobs?.length ?? 0)})`,
+						icon: Bug,
+						action: () => (jobsDrawerOpen = true),
+						separatorBottom: true
+					}
+				]
+			: []),
 		{
 			displayName: 'Undo',
 			icon: Undo,
@@ -943,29 +960,26 @@
 			on:click={save}
 			unifiedSize="md"
 			variant="accent"
-			dropdownItems={() => [
-				...(compactTopbar ? [{ label: 'Save draft', onClick: () => saveDraft() }] : []),
-				...(appPath != ''
-					? [
-							{
-								label: 'Fork',
-								onClick: () => {
-									window.open(`/apps/add?template=${appPath}`)
-								}
-							},
-							...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
-								? [
-										{
-											label: 'Edit in workspace fork',
-											onClick: () => {
-												window.open(buildForkEditUrl('raw_app', appPath))
-											}
+			dropdownItems={appPath != ''
+				? () => [
+						{
+							label: 'Fork',
+							onClick: () => {
+								window.open(`/apps/add?template=${appPath}`)
+							}
+						},
+						...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
+							? [
+									{
+										label: 'Edit in workspace fork',
+										onClick: () => {
+											window.open(buildForkEditUrl('raw_app', appPath))
 										}
-									]
-								: [])
-						]
-					: [])
-			]}
+									}
+								]
+							: [])
+					]
+				: undefined}
 		>
 			Deploy
 		</Button>
