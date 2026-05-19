@@ -238,7 +238,7 @@
 				<div
 					class={wideLayout
 						? 'w-full max-w-3xl mx-auto px-7 flex flex-col pb-2'
-						: 'w-full max-w-2xl mx-auto px-4 flex flex-col pb-2'}
+						: 'w-full max-w-2xl mx-auto px-3 flex flex-col pb-2'}
 					bind:clientHeight={height}
 				>
 					{#each messages as message, messageIndex (messageIndex)}
@@ -283,7 +283,7 @@
 	<div
 		class={wideLayout
 			? 'relative w-full max-w-3xl mx-auto px-6'
-			: 'relative w-full max-w-2xl mx-auto px-3'}
+			: 'relative w-full max-w-2xl mx-auto px-2'}
 	>
 		{#if aiChatManager.flowAiChatHelpers?.hasPendingChanges()}
 			<div class="absolute -top-10 w-full flex flex-row justify-center gap-2">
