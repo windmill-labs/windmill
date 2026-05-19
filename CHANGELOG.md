@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.704.1](https://github.com/windmill-labs/windmill/compare/v1.704.0...v1.704.1) (2026-05-19)
+
+
+### Bug Fixes
+
+* fix git sync ([ff1deaa](https://github.com/windmill-labs/windmill/commit/ff1deaa7e2f3f1f650861c1e2a0f663e597d501c))
+* honor SAML RelayState to redirect to deep link after SSO login ([#9225](https://github.com/windmill-labs/windmill/issues/9225)) ([89306d7](https://github.com/windmill-labs/windmill/commit/89306d7dbc96d0c7dfe2c6025cefc2d72e4f224e))
+* revert git sync script bump ([0f54ecd](https://github.com/windmill-labs/windmill/commit/0f54ecd34cf1ac86ded9305bc84a044eb6a86e72))
+
 ## [1.704.0](https://github.com/windmill-labs/windmill/compare/v1.703.3...v1.704.0) (2026-05-18)
 
 
