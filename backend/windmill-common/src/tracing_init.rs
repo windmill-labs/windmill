@@ -63,6 +63,7 @@ fn create_targets_filter(default_env_filter: LevelFilter) -> Targets {
 }
 
 pub const LOGS_SERVICE: &str = "logs/services/";
+pub const LOGS_AUDIT: &str = "logs/audit/";
 
 lazy_static::lazy_static! {
     pub static ref TMP_WINDMILL_LOGS_SERVICE: String = format!("{}/{}", *crate::worker::WINDMILL_DIR, LOGS_SERVICE);

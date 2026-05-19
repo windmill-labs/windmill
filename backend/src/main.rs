@@ -56,8 +56,9 @@ use windmill_common::{
         POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RESTART_COORDINATION_SETTING,
         RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING, SAML_METADATA_SETTING,
-        SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
-        UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING, WORKSPACE_REGISTRIES_SETTING,
+        SCIM_TOKEN_SETTING, SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING, TEAMS_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING,
+        WORKSPACE_REGISTRIES_SETTING,
     },
     scripts::ScriptLang,
     stats_oss::schedule_stats,
@@ -128,8 +129,8 @@ use crate::monitor::{
     reload_job_default_timeout_setting, reload_job_isolation_setting, reload_jwt_secret_setting,
     reload_license_key, reload_npm_config_registry_setting, reload_otel_tracing_proxy_setting,
     reload_pip_index_url_setting, reload_retention_period_setting, reload_scim_token_setting,
-    reload_smtp_config, reload_uv_exclude_newer_setting, reload_uv_index_strategy_setting,
-    reload_worker_config, MonitorIteration,
+    reload_smtp_config, reload_store_audit_logs_s3_setting, reload_uv_exclude_newer_setting,
+    reload_uv_index_strategy_setting, reload_worker_config, MonitorIteration,
 };
 
 #[cfg(feature = "parquet")]
@@ -1778,6 +1779,7 @@ async fn process_notify_event(
                 MONITOR_LOGS_ON_OBJECT_STORE_SETTING => {
                     reload_delete_logs_periodically_setting(conn).await
                 }
+                STORE_AUDIT_LOGS_S3_SETTING => reload_store_audit_logs_s3_setting(conn).await,
                 JOB_DEFAULT_TIMEOUT_SECS_SETTING => reload_job_default_timeout_setting(conn).await,
                 JOB_ISOLATION_SETTING => reload_job_isolation_setting(conn).await,
                 #[cfg(feature = "parquet")]
