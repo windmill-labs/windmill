@@ -6944,6 +6944,26 @@ Validate Windmill flow, schedule, and trigger YAML files in a directory
 - \`--locks-required\` - Fail if scripts or flow inline scripts that need locks have no locks
 - \`-w, --watch\` - Watch for file changes and re-lint automatically
 
+### protection-rules
+
+Manage workspace protection rules between local wmill.yaml and Windmill backend
+
+**Subcommands:**
+
+- \`protection-rules pull\` - Pull protection rules from Windmill backend into local wmill.yaml
+  - \`--default\` - Write to top-level protectionRules instead of overrides
+  - \`--replace\` - Replace existing protection rules (non-interactive)
+  - \`--override\` - Add branch-specific override (non-interactive)
+  - \`--diff\` - Show differences without applying changes
+  - \`--json-output\` - Output in JSON format
+  - \`--yes\` - Skip interactive prompts and use default behavior
+  - \`--promotion <branch:string>\` - Use promotionOverrides from the specified branch instead of regular overrides
+- \`protection-rules push\` - Push protection rules from local wmill.yaml to Windmill backend (full reconcile: creates, updates, and deletes)
+  - \`--diff\` - Show what would be pushed without applying changes
+  - \`--json-output\` - Output in JSON format
+  - \`--yes\` - Skip interactive prompts and confirmations
+  - \`--promotion <branch:string>\` - Use promotionOverrides from the specified branch instead of regular overrides
+
 ### queues
 
 List all queues with their metrics
