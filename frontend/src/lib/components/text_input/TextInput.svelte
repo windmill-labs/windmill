@@ -38,15 +38,19 @@
 		lg: twMerge(ButtonType.UnifiedSizingClasses.lg, ButtonType.UnifiedMinHeightClasses.lg, 'px-2')
 	}
 
-	// Matches each unified height *minus the !py-0.5 in inputSizeClasses* so a
-	// single-line contenteditable div centers its text the way an <input> does
-	// natively. Use exactly (h − vertical padding) — anything larger and the
-	// line box overflows the content area and the text drops below center.
+	// Base leading == (unified height − vertical padding) so a single-line
+	// contenteditable div centers its text the way a native <input> does.
+	//
+	// In "large mode" (viewport ≥ 1760px, where app.css bumps :root to 18px →
+	// font 13.5px) headless-Chromium ink measurement showed the text sitting
+	// ~1px low with the base leading. The residual is a fixed ~2px of line box,
+	// so the exact centered value there is (content-box height − 2px). Scoped to
+	// the same 1760px breakpoint as the font-size bump; small mode is unchanged.
 	export const inputLeadingClasses: Record<ButtonType.UnifiedSize, string> = {
-		xs: 'leading-4', // h-5 (20px) − py-0.5 (4px) = 16px
-		sm: 'leading-6', // h-7 (28px) − py-0.5 (4px) = 24px
-		md: 'leading-8', // h-8 (32px), no py
-		lg: 'leading-10' // h-10 (40px), no py
+		xs: 'leading-4 min-[1760px]:leading-[calc(1rem_-_2px)]', // h-5 − py-0.5 → 1rem
+		sm: 'leading-6 min-[1760px]:leading-[calc(1.5rem_-_2px)]', // h-7 − py-0.5 → 1.5rem
+		md: 'leading-8 min-[1760px]:leading-[calc(2rem_-_2px)]', // h-8, no py → 2rem
+		lg: 'leading-10 min-[1760px]:leading-[calc(2.5rem_-_2px)]' // h-10, no py → 2.5rem
 	}
 </script>
 
