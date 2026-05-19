@@ -464,6 +464,11 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--repository <repo:string>` - Specify repository path (e.g., u/user/repo) when multiple repositories exist
   - `--promotion <branch:string>` - Use promotionOverrides from the specified branch instead of regular overrides
   - `--branch, --env <branch:string>` - [Deprecated: use --workspace] Override the current git branch/environment
+  - `--git-deploy-items <json:string>` - Git-sync deployment-callback mode (used by the git-sync hub script): JSON array of {path_type,path,parent_path,commit_msg}. Runs inside an existing clone, switches to the wm_deploy/fork branch, then commits and pushes.
+  - `--use-individual-branch` - Git-sync: push each deployed object to its own wm_deploy/<workspace>/<...> branch instead of the base branch
+  - `--group-by-folder` - Git-sync: with --use-individual-branch, group deployed objects per folder branch
+  - `--only-create-branch` - Git-sync: only create/push the deploy branch, skip pulling and committing files
+  - `--parent-workspace-id <id:string>` - Git-sync: parent workspace id, used to root a fork-of-a-fork branch
 - `sync push` - Push any local changes and apply them remotely.
   - `--yes` - Push without needing confirmation
   - `--dry-run` - Show changes that would be pushed without actually pushing

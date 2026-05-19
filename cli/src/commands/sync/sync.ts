@@ -68,7 +68,14 @@ import {
   isSpecificItem,
   SpecificItemsConfig,
 } from "../../core/specific_items.ts";
-import { getCurrentGitBranch, isGitRepository } from "../../utils/git.ts";
+import {
+  getCurrentGitBranch,
+  isGitRepository,
+  computeGitSyncDeployBranch,
+  checkoutGitSyncDeployBranch,
+  gitSyncDeployPush,
+  type GitSyncDeployItem,
+} from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
 import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
@@ -2381,7 +2388,16 @@ async function pushParentScriptForModule(
 
 export async function pull(
   opts: GlobalOptions &
-    SyncOptions & { repository?: string; promotion?: string; branch?: string },
+    SyncOptions & {
+      repository?: string;
+      promotion?: string;
+      branch?: string;
+      useIndividualBranch?: boolean;
+      groupByFolder?: boolean;
+      gitDeployItems?: string;
+      onlyCreateBranch?: boolean;
+      parentWorkspaceId?: string;
+    },
 ) {
   if ((opts as any).jsonOutput) log.setSilent(true);
   const originalCliOpts = { ...opts };
@@ -2431,6 +2447,58 @@ export async function pull(
 
   const workspace = await resolveWorkspace(opts, wsNameForConfig);
   await requireLogin(opts);
+
+  // Git-sync deployment-callback mode: when invoked from the git-sync hub
+  // script with --git-deploy-items, the CWD is an existing clone of the repo.
+  // Switch to the dedicated wm_deploy/fork branch (when applicable) BEFORE any
+  // files are written so the deploy lands on the right branch instead of the
+  // protected base branch.
+  if (opts.gitDeployItems !== undefined) {
+    let deployItems: GitSyncDeployItem[];
+    try {
+      deployItems = JSON.parse(opts.gitDeployItems);
+    } catch (e) {
+      log.error(`Invalid --git-deploy-items JSON: ${e}`);
+      process.exit(1);
+    }
+    const clonedBranchName = getCurrentGitBranch() ?? "main";
+
+    // Fork-of-a-fork: the parent fork branch must exist as the root for the
+    // new branch (mirrors the hub script's parent_workspace_id handling).
+    if (opts.parentWorkspaceId) {
+      const parentBranch = computeGitSyncDeployBranch({
+        workspaceId: opts.parentWorkspaceId,
+        items: deployItems,
+        useIndividualBranch: !!opts.useIndividualBranch,
+        groupByFolder: !!opts.groupByFolder,
+        clonedBranchName,
+      });
+      if (parentBranch && parentBranch !== clonedBranchName) {
+        checkoutGitSyncDeployBranch(parentBranch);
+      }
+    }
+
+    const deployBranch = computeGitSyncDeployBranch({
+      workspaceId: workspace.workspaceId,
+      items: deployItems,
+      useIndividualBranch: !!opts.useIndividualBranch,
+      groupByFolder: !!opts.groupByFolder,
+      clonedBranchName,
+    });
+    if (deployBranch && deployBranch !== clonedBranchName) {
+      checkoutGitSyncDeployBranch(deployBranch);
+    }
+
+    if (opts.onlyCreateBranch) {
+      gitSyncDeployPush({
+        items: deployItems,
+        authorName: process.env["WM_USERNAME"] || "windmill",
+        authorEmail: process.env["WM_EMAIL"] || "windmill@windmill.dev",
+        onlyCreateBranch: true,
+      });
+      return;
+    }
+  }
 
   // If wsNameForConfig wasn't set from flags, infer from the resolved profile
   if (!wsNameForConfig) {
@@ -2897,6 +2965,18 @@ export async function pull(
     await pullSharedUi(workspace.workspaceId);
   } catch (e) {
     log.warn(`Failed to pull shared UI folder: ${e}`);
+  }
+
+  // Git-sync deployment-callback mode: commit the pulled files and push the
+  // current branch (the wm_deploy/fork branch checked out above, or the base
+  // branch in workspace-wide mode).
+  if (opts.gitDeployItems !== undefined && !opts.onlyCreateBranch) {
+    const deployItems: GitSyncDeployItem[] = JSON.parse(opts.gitDeployItems);
+    gitSyncDeployPush({
+      items: deployItems,
+      authorName: process.env["WM_USERNAME"] || "windmill",
+      authorEmail: process.env["WM_EMAIL"] || "windmill@windmill.dev",
+    });
   }
 }
 
@@ -4482,6 +4562,26 @@ const command = new Command()
   .option(
     "--branch, --env <branch:string>",
     "[Deprecated: use --workspace] Override the current git branch/environment",
+  )
+  .option(
+    "--git-deploy-items <json:string>",
+    "Git-sync deployment-callback mode (used by the git-sync hub script): JSON array of {path_type,path,parent_path,commit_msg}. Runs inside an existing clone, switches to the wm_deploy/fork branch, then commits and pushes.",
+  )
+  .option(
+    "--use-individual-branch",
+    "Git-sync: push each deployed object to its own wm_deploy/<workspace>/<...> branch instead of the base branch",
+  )
+  .option(
+    "--group-by-folder",
+    "Git-sync: with --use-individual-branch, group deployed objects per folder branch",
+  )
+  .option(
+    "--only-create-branch",
+    "Git-sync: only create/push the deploy branch, skip pulling and committing files",
+  )
+  .option(
+    "--parent-workspace-id <id:string>",
+    "Git-sync: parent workspace id, used to root a fork-of-a-fork branch",
   )
   .action(pull as any)
   .command("push")

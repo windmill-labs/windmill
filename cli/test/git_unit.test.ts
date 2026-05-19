@@ -7,6 +7,9 @@ import { expect, test, describe } from "bun:test";
 import {
   getOriginalBranchForWorkspaceForks,
   getWorkspaceIdForWorkspaceForkFromBranchName,
+  computeGitSyncDeployBranch,
+  composeGitSyncCommitHeader,
+  forkBranchName,
 } from "../src/utils/git.ts";
 
 // =============================================================================
@@ -69,5 +72,139 @@ describe("getWorkspaceIdForWorkspaceForkFromBranchName", () => {
     expect(
       getWorkspaceIdForWorkspaceForkFromBranchName("wm-fork/feature/cool/ws-id")
     ).toBe("wm-fork-ws-id");
+  });
+});
+
+// =============================================================================
+// computeGitSyncDeployBranch — the regression guard.
+//
+// hub/28229 dropped this logic and pushed every deploy straight to the cloned
+// base branch (e.g. protected `main`), breaking promotion. These pin the
+// hub/28217 / hub/28230 branch-selection semantics.
+// =============================================================================
+
+describe("computeGitSyncDeployBranch", () => {
+  const base = {
+    workspaceId: "prod",
+    clonedBranchName: "main",
+    groupByFolder: false,
+  };
+
+  test("use_individual_branch=true -> dedicated wm_deploy branch (NOT main)", () => {
+    const branch = computeGitSyncDeployBranch({
+      ...base,
+      useIndividualBranch: true,
+      items: [{ path_type: "script", path: "f/foo/bar" }],
+    });
+    expect(branch).toBe("wm_deploy/prod/script/f__foo__bar");
+    expect(branch).not.toBe("main");
+  });
+
+  test("use_individual_branch=false -> null (stay on base/main, workspace-wide mode)", () => {
+    expect(
+      computeGitSyncDeployBranch({
+        ...base,
+        useIndividualBranch: false,
+        items: [{ path_type: "script", path: "f/foo/bar" }],
+      })
+    ).toBeNull();
+  });
+
+  test("group_by_folder=true -> per-folder wm_deploy branch (first 2 path segments)", () => {
+    expect(
+      computeGitSyncDeployBranch({
+        ...base,
+        useIndividualBranch: true,
+        groupByFolder: true,
+        items: [{ path_type: "script", path: "f/team_a/deep/nested" }],
+      })
+    ).toBe("wm_deploy/prod/f__team_a");
+  });
+
+  test("falls back to parent_path when path is absent", () => {
+    expect(
+      computeGitSyncDeployBranch({
+        ...base,
+        useIndividualBranch: true,
+        items: [{ path_type: "flow", path: null, parent_path: "f/x/y" }],
+      })
+    ).toBe("wm_deploy/prod/flow/f__x__y");
+  });
+
+  test("user/group objects never get a dedicated branch", () => {
+    expect(
+      computeGitSyncDeployBranch({
+        ...base,
+        useIndividualBranch: true,
+        items: [{ path_type: "user", path: "u/alice" }],
+      })
+    ).toBeNull();
+    expect(
+      computeGitSyncDeployBranch({
+        ...base,
+        useIndividualBranch: true,
+        items: [{ path_type: "group", path: "g/admins" }],
+      })
+    ).toBeNull();
+  });
+
+  test("empty items -> null", () => {
+    expect(
+      computeGitSyncDeployBranch({
+        ...base,
+        useIndividualBranch: true,
+        items: [],
+      })
+    ).toBeNull();
+  });
+
+  test("fork workspace -> wm-fork/<clonedBranch>/<id> regardless of individual-branch", () => {
+    expect(
+      computeGitSyncDeployBranch({
+        workspaceId: "wm-fork-myfork",
+        clonedBranchName: "main",
+        groupByFolder: false,
+        useIndividualBranch: false,
+        items: [{ path_type: "script", path: "f/foo/bar" }],
+      })
+    ).toBe("wm-fork/main/myfork");
+  });
+});
+
+describe("forkBranchName", () => {
+  test("maps wm-fork-<id> to wm-fork/<branch>/<id>", () => {
+    expect(forkBranchName("wm-fork-abc", "main")).toBe("wm-fork/main/abc");
+  });
+});
+
+describe("composeGitSyncCommitHeader", () => {
+  test("single type", () => {
+    expect(
+      composeGitSyncCommitHeader([{ path_type: "script", path: "a" }])
+    ).toBe("[WM]: Deployed 1 script");
+  });
+
+  test("exactly 3 types: pluralises, orders by count, joins last with 'and'", () => {
+    expect(
+      composeGitSyncCommitHeader([
+        { path_type: "script", path: "a" },
+        { path_type: "script", path: "b" },
+        { path_type: "flow", path: "c" },
+        { path_type: "app", path: "d" },
+      ])
+    ).toBe("[WM]: Deployed 2 scripts, 1 flow, and 1 app");
+  });
+
+  test("4+ types: overflow collapses into 'other objects'", () => {
+    expect(
+      composeGitSyncCommitHeader([
+        { path_type: "script", path: "a" },
+        { path_type: "script", path: "b" },
+        { path_type: "flow", path: "c" },
+        { path_type: "app", path: "d" },
+        { path_type: "resource", path: "e" },
+        { path_type: "variable", path: "f" },
+      ])
+    ).toBe("[WM]: Deployed 2 scripts, 1 flow, 1 app and 2 other objects");
   });
 });
