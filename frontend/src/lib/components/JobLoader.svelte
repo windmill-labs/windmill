@@ -15,6 +15,7 @@
 		type OpenFlow
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { WM_LOGS_SKIPPED } from '$lib/consts'
 	import { getContext, onDestroy, tick, untrack } from 'svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
@@ -500,6 +501,17 @@
 			callbacks?.change?.(job)
 		}
 	}
+	// When a job is fetched with no_logs=true the server omits logs entirely.
+	// Flag it with a sentinel so consumers (the log panel) can tell "logs were
+	// intentionally skipped" apart from "job genuinely produced no logs", and
+	// lazily resolve the real logs on demand.
+	function flagSkippedLogs<T extends Job>(j: T, effectiveNoLogs: boolean): T {
+		if (effectiveNoLogs && !(j as Job & { logs?: string }).logs) {
+			;(j as Job & { logs?: string }).logs = WM_LOGS_SKIPPED
+		}
+		return j
+	}
+
 	async function loadTestJob(id: string, callbacks?: Callbacks): Promise<boolean> {
 		let isCompleted = false
 		if (isCurrentJob(id)) {
@@ -519,23 +531,29 @@
 					})
 
 					if ((previewJobUpdates.running ?? false) || (previewJobUpdates.completed ?? false)) {
-						job = await JobService.getJob({
-							workspace: workspace!,
-							id,
-							noCode,
-							noLogs: onlyResult || noLogs
-						})
+						job = flagSkippedLogs(
+							await JobService.getJob({
+								workspace: workspace!,
+								id,
+								noCode,
+								noLogs: onlyResult || noLogs
+							}),
+							onlyResult || noLogs
+						)
 						callbacks?.change?.(job)
 					}
 
 					updateJobFromProgress(previewJobUpdates, job, callbacks)
 				} else {
-					job = await JobService.getJob({
-						workspace: workspace!,
-						id,
-						noLogs: onlyResult || noLogs,
-						noCode
-					})
+					job = flagSkippedLogs(
+						await JobService.getJob({
+							workspace: workspace!,
+							id,
+							noLogs: onlyResult || noLogs,
+							noCode
+						}),
+						onlyResult || noLogs
+					)
 				}
 				jobUpdateLastFetch = new Date()
 
@@ -628,12 +646,15 @@
 			try {
 				// First load the job to get initial state
 				if ((!job || job.id == '') && !onlyResult) {
-					job = await JobService.getJob({
-						workspace: workspace!,
-						id,
-						noLogs: noLogs,
-						noCode
-					})
+					job = flagSkippedLogs(
+						await JobService.getJob({
+							workspace: workspace!,
+							id,
+							noLogs: noLogs,
+							noCode
+						}),
+						noLogs
+					)
 
 					callbacks?.change?.(job)
 					getActiveRecording()?.recordInitialJob(id, job)

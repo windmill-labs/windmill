@@ -21,6 +21,7 @@
 	import { AnsiUp } from 'ansi_up'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
 	import { JobService } from '$lib/gen'
+	import { WM_LOGS_SKIPPED } from '$lib/consts'
 	import Tooltip from './Tooltip.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import QueuePosition from './QueuePosition.svelte'
@@ -42,6 +43,10 @@
 		tagLabel?: string
 		noPadding?: boolean
 		navigationId?: string
+		/** Called once after we resolve a WM_LOGS_SKIPPED sentinel by fetching the
+		 * full job. Use this to write the real logs back into the source of truth
+		 * (e.g. flowStateStore) so subsequent mounts don't refetch. */
+		onLogsResolved?: (logs: string) => void
 	}
 
 	let {
@@ -60,7 +65,8 @@
 		customEmptyMessage = 'No logs are available yet',
 		tagLabel = undefined,
 		noPadding = false,
-		navigationId = undefined
+		navigationId = undefined,
+		onLogsResolved
 	}: Props = $props()
 
 	// @ts-ignore
@@ -79,6 +85,34 @@
 	let lastJobId = $state(untrack(() => jobId))
 
 	let loadedFromObjectStore = $state('')
+
+	// `content` is the WM_LOGS_SKIPPED sentinel when the job was fetched with
+	// no_logs=true. In that case we resolve the real logs by jobId and render
+	// those instead, showing a loader while the fetch is in flight.
+	let isLogsSkipped = $derived(content === WM_LOGS_SKIPPED)
+	let resolvedSkippedLogs: string | undefined = $state(undefined)
+	let fetchedSkippedJobId: string | undefined = $state(undefined)
+	let effectiveContent = $derived(isLogsSkipped ? resolvedSkippedLogs : content)
+	let resolvingSkippedLogs = $derived(isLogsSkipped && !!jobId && resolvedSkippedLogs === undefined)
+
+	$effect(() => {
+		if (!isLogsSkipped || !jobId || fetchedSkippedJobId === jobId) {
+			return
+		}
+		const id = jobId
+		fetchedSkippedJobId = id
+		untrack(() => {
+			JobService.getJob({ workspace: $workspaceStore ?? '', id })
+				.then((j) => {
+					if (fetchedSkippedJobId === id) {
+						const logs = (j as { logs?: string })['logs'] ?? ''
+						resolvedSkippedLogs = logs
+						onLogsResolved?.(logs)
+					}
+				})
+				.catch((e) => console.error('Failed to resolve skipped logs', e))
+		})
+	})
 
 	function findPrefixInfo(
 		truncateContent: string
@@ -181,7 +215,7 @@
 			})) as string
 			LOG_LIMIT += Math.min(LOG_INC, res.length)
 			loadedFromObjectStore = res + loadedFromObjectStore
-			let newC = truncateContent(content, loadedFromObjectStore, LOG_LIMIT)
+			let newC = truncateContent(effectiveContent, loadedFromObjectStore, LOG_LIMIT)
 			LOG_LIMIT -= newC.indexOf('\n') + 1
 		} else {
 			console.error('No file detected to download from')
@@ -191,7 +225,7 @@
 	function showMoreTruncate(len: number) {
 		scroll = false
 		LOG_LIMIT += LOG_INC
-		let newC = truncateContent(content, loadedFromObjectStore, LOG_LIMIT)
+		let newC = truncateContent(effectiveContent, loadedFromObjectStore, LOG_LIMIT)
 		let newlineIndex = newC.indexOf('\n') + 1
 		if (newlineIndex < LOG_INC / 2) {
 			LOG_LIMIT -= newlineIndex
@@ -203,12 +237,16 @@
 			loadedFromObjectStore = ''
 			LOG_LIMIT = LOG_INC
 			scroll = true
+			resolvedSkippedLogs = undefined
+			fetchedSkippedJobId = undefined
 		}
 	})
 	let logsApiPath = $derived(`/w/${$workspaceStore}/jobs_u/get_logs/${jobId}`)
 	let downloadHref = $derived(withExternalDomain(`${base}/api${logsApiPath}`))
 	let downloadName = $derived(`windmill_logs_${jobId}.txt`)
-	let truncatedContent = $derived(truncateContent(content, loadedFromObjectStore, LOG_LIMIT))
+	let truncatedContent = $derived(
+		truncateContent(effectiveContent, loadedFromObjectStore, LOG_LIMIT)
+	)
 	let prefixInfo = $derived(findPrefixInfo(truncatedContent))
 	let downloadStartUrl = $derived(findStartUrl(truncatedContent, prefixInfo))
 	$effect.pre(() => {
@@ -274,7 +312,7 @@
 			{/if}
 
 			<Button
-				on:click={() => copyToClipboard(content)}
+				on:click={() => copyToClipboard(effectiveContent)}
 				color="light"
 				size="xs"
 				startIcon={{
@@ -287,8 +325,11 @@
 		<div>
 			<pre
 				class="bg-surface-secondary text-primary text-xs w-full p-2 whitespace-pre-wrap border rounded-md"
-				>{#if content}{@const len =
-						(content?.length ?? 0) +
+				>{#if resolvingSkippedLogs}<Loader2
+						class="animate-spin"
+						size={14}
+					/>{:else if effectiveContent}{@const len =
+						(effectiveContent?.length ?? 0) +
 						(loadedFromObjectStore?.length ?? 0)}{#if splitHtml}{@html splitHtml.before}<button
 							onclick={getStoreLogs}
 							>Show more... <Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
@@ -387,9 +428,11 @@
 					small ? '!text-2xs' : '!text-xs',
 					noPadding ? '' : 'p-2'
 				)}
-				>{#if content}{@const len =
-						(content?.length ?? 0) + (loadedFromObjectStore?.length ?? 0)}{#if splitHtml}<span
-							>{@html splitHtml.before}</span
+				>{#if resolvingSkippedLogs}<span class="flex p-2"
+						><Loader2 class="animate-spin" size={14} /></span
+					>{:else if effectiveContent}{@const len =
+						(effectiveContent?.length ?? 0) +
+						(loadedFromObjectStore?.length ?? 0)}{#if splitHtml}<span>{@html splitHtml.before}</span
 						><button onclick={getStoreLogs}
 							>Show more... &nbsp;<Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
 						><span>{@html splitHtml.after}</span>{:else if downloadStartUrl}<button
