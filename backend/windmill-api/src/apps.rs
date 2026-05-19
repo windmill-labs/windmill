@@ -2115,11 +2115,14 @@ async fn execute_component(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(mut payload): Json<ExecuteApp>,
 ) -> Result<String> {
-    // Only honor temp_script_refs for the inline-script preview path
-    // (raw_code present, no deployed app_script id) — `wmill app dev`.
+    // Only honor temp_script_refs for the inline-script preview path:
+    // preview/editor mode (force_viewer_static_fields set, == `is_preview`),
+    // raw_code present, and no deployed app_script id — i.e. `wmill app dev`.
     let temp_script_refs = payload.temp_script_refs.take();
-    let inject_temp_refs =
-        temp_script_refs.is_some() && payload.raw_code.is_some() && payload.id.is_none();
+    let inject_temp_refs = temp_script_refs.is_some()
+        && payload.force_viewer_static_fields.is_some()
+        && payload.raw_code.is_some()
+        && payload.id.is_none();
     match (payload.path.is_some(), payload.raw_code.is_some()) {
         (false, false) => {
             return Err(Error::BadRequest(

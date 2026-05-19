@@ -1160,8 +1160,15 @@ pub async fn prebundle_bun_script(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     temp_script_refs: &Option<HashMap<String, String>>,
 ) -> Result<()> {
-    let (local_path, remote_path) =
-        compute_bundle_local_and_remote_path(inner_content, lock, script_path, db, w_id).await;
+    let (local_path, remote_path) = compute_bundle_local_and_remote_path(
+        inner_content,
+        lock,
+        script_path,
+        db,
+        w_id,
+        temp_script_refs,
+    )
+    .await;
     if exists_in_cache(&local_path, &remote_path).await {
         return Ok(());
     }
@@ -1252,6 +1259,7 @@ pub async fn compute_bundle_local_and_remote_path(
     script_path: &str,
     db: Option<&DB>,
     w_id: &str,
+    temp_script_refs: &Option<HashMap<String, String>>,
 ) -> (String, String) {
     let mut input_src = format!("{inner_content}{lock}",);
 
@@ -1268,6 +1276,18 @@ pub async fn compute_bundle_local_and_remote_path(
             }
         }
     };
+
+    // Keep temp-script-ref (preview) bundles in a distinct cache slot: their
+    // imports come from not-yet-deployed local content, so they must neither
+    // reuse a deployed-content bundle nor be saved under the deployed key.
+    if let Some(refs) = temp_script_refs {
+        let mut entries: Vec<(&String, &String)> = refs.iter().collect();
+        entries.sort();
+        for (path, hash) in entries {
+            input_src.push_str(path);
+            input_src.push_str(hash);
+        }
+    }
 
     let ws_suffix = crate::workspace_registry_cache_suffix(w_id).await;
     input_src.push_str(&ws_suffix);
@@ -1362,6 +1382,7 @@ pub async fn handle_bun_job(
                     job.runnable_path(),
                     Some(db),
                     &job.workspace_id,
+                    &temp_script_refs,
                 )
                 .await
             }

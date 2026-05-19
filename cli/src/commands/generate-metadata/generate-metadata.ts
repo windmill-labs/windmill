@@ -160,11 +160,20 @@ export async function buildPreviewTempScriptRefs(
     const refs = tree.getTempScriptRefs(nodePath);
     return refs && Object.keys(refs).length > 0 ? refs : undefined;
   } catch (e) {
+    // Degrade gracefully (preview still runs against deployed versions) but do
+    // NOT mask the real error: only the missing-/raw_temp-endpoint case is an
+    // expected old-backend incompatibility — anything else is surfaced verbatim.
+    const msg = e instanceof Error ? e.message : String(e);
+    const isOldBackend = /\b40[45]\b|not found|raw_temp/i.test(msg);
     if (!(opts as { silent?: boolean }).silent) {
       log.warn(
         colors.yellow(
-          `Could not resolve local relative imports for preview (backend may be too old): ${e}. ` +
-            `Relative imports will use deployed script versions.`,
+          isOldBackend
+            ? `Backend does not support local-import resolution for preview ` +
+                `(requires the /raw_temp endpoints); relative imports will use ` +
+                `deployed script versions.`
+            : `Failed to resolve local relative imports for preview: ${msg}. ` +
+                `Falling back to deployed script versions.`,
         ),
       );
     }
