@@ -1621,6 +1621,79 @@ function normalizeAppDraftValue(value: AppDraftValue): AppDraftValue {
 	}
 }
 
+function cloneIfDefined<T>(value: T | undefined): T | undefined {
+	if (value === undefined) return undefined
+	if (value === null || typeof value !== 'object') return value
+	try {
+		return structuredClone(value)
+	} catch {
+		return undefined
+	}
+}
+
+function buildScriptDraftFromBase(
+	base: Partial<NewScript>,
+	args: { path: string; summary?: string; language: ScriptLang; content: string },
+	overrides: Partial<NewScript> = {}
+): NewScript {
+	const draft: NewScript = {
+		path: args.path,
+		summary: args.summary ?? base.summary ?? '',
+		description: base.description ?? '',
+		content: args.content,
+		schema: cloneIfDefined(base.schema) ?? emptySchema(),
+		is_template: base.is_template ?? false,
+		language: args.language,
+		kind: base.kind ?? 'script'
+	}
+
+	const optionalKeys: (keyof NewScript)[] = [
+		'parent_hash',
+		'lock',
+		'tag',
+		'draft_only',
+		'envs',
+		'concurrent_limit',
+		'concurrency_time_window_s',
+		'cache_ttl',
+		'cache_ignore_s3_path',
+		'dedicated_worker',
+		'ws_error_handler_muted',
+		'priority',
+		'restart_unless_cancelled',
+		'timeout',
+		'delete_after_secs',
+		'deployment_message',
+		'concurrency_key',
+		'debounce_key',
+		'debounce_delay_s',
+		'debounce_args_to_accumulate',
+		'max_total_debouncing_time',
+		'max_total_debounces_amount',
+		'visible_to_runner_only',
+		'auto_kind',
+		'codebase',
+		'has_preprocessor',
+		'on_behalf_of_email',
+		'preserve_on_behalf_of',
+		'assets',
+		'modules',
+		'labels'
+	]
+
+	for (const key of optionalKeys) {
+		const cloned = cloneIfDefined(base[key] as never)
+		if (cloned !== undefined) {
+			;(draft as Record<string, unknown>)[key] = cloned
+		}
+	}
+
+	return {
+		...draft,
+		...overrides
+	}
+}
+
 async function writeScriptDraft(
 	args: { path: string; summary?: string; language: ScriptLang; content: string },
 	ctx: WriteDraftCtx
@@ -1636,23 +1709,10 @@ async function writeScriptDraft(
 
 	let draft: NewScript
 	if (existingDraft) {
-		draft = {
-			...structuredClone(existingDraft),
-			path: args.path,
-			summary: args.summary ?? existingDraft.summary,
-			content: args.content,
-			language: args.language
-		}
+		draft = buildScriptDraftFromBase(existingDraft, args)
 	} else if (backendExists) {
 		const existing = await ScriptService.getScriptByPath({ workspace, path: args.path })
-		draft = {
-			...structuredClone(existing),
-			parent_hash: existing.hash,
-			path: args.path,
-			summary: args.summary ?? existing.summary,
-			content: args.content,
-			language: args.language
-		}
+		draft = buildScriptDraftFromBase(existing, args, { parent_hash: existing.hash })
 	} else {
 		draft = {
 			path: args.path,

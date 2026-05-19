@@ -66,6 +66,7 @@ const SHARED_DRAFT_KINDS = [
 	'variable'
 ] as const satisfies UserDraftItemKind[]
 const DEFAULT_APP_DATA = { tables: [], datatable: undefined, schema: undefined }
+const storagePathByVisibleItem = new Map<string, string>()
 
 function clone<T>(value: T): T {
 	return structuredClone(value) as T
@@ -147,6 +148,31 @@ function normalizeAppDraftValue(value: AppDraftValue): AppDraftValue {
 
 function getItemSummary(value: unknown): string | undefined {
 	return ((value as { summary?: string | null } | undefined)?.summary ?? undefined) || undefined
+}
+
+function storagePathCacheKey(
+	workspace: string,
+	type: WorkspaceItemType,
+	path: string,
+	triggerKind?: TriggerKind
+): string {
+	return `${workspace}:${getWorkspaceItemKey(type, path, triggerKind)}`
+}
+
+function rememberStoragePath(workspace: string, item: WorkspaceItem, storagePath: string): void {
+	storagePathByVisibleItem.set(
+		storagePathCacheKey(workspace, item.type, item.path, item.triggerKind),
+		storagePath
+	)
+}
+
+function forgetStoragePath(
+	workspace: string,
+	type: WorkspaceItemType,
+	path: string,
+	triggerKind?: TriggerKind
+): void {
+	storagePathByVisibleItem.delete(storagePathCacheKey(workspace, type, path, triggerKind))
 }
 
 function getItemPath(storagePath: string, value: unknown): string | undefined {
@@ -344,8 +370,24 @@ function findSharedDraft(
 	const itemKind = sharedDraftKind(type, triggerKind)
 	if (!itemKind) return undefined
 
+	const cachedStoragePath = storagePathByVisibleItem.get(
+		storagePathCacheKey(workspace, type, path, triggerKind)
+	)
+	if (cachedStoragePath !== undefined) {
+		const cached = UserDraft.get(itemKind, cachedStoragePath, { workspace })
+		if (cached !== undefined) return { storagePath: cachedStoragePath, value: cached }
+		forgetStoragePath(workspace, type, path, triggerKind)
+	}
+
 	const direct = UserDraft.get(itemKind, path, { workspace })
 	if (direct !== undefined) return { storagePath: path, value: direct }
+
+	if (path !== '') {
+		const addEditorDraft = UserDraft.get(itemKind, '', { workspace })
+		if (addEditorDraft !== undefined && getItemPath('', addEditorDraft) === path) {
+			return { storagePath: '', value: addEditorDraft }
+		}
+	}
 
 	for (const entry of UserDraft.list({ workspace, itemKinds: [itemKind] })) {
 		if (getItemPath(entry.path, entry.value) === path) {
@@ -450,6 +492,7 @@ export function listGlobalDrafts(workspace: string): WorkspaceItem[] {
 	for (const entry of UserDraft.list({ workspace, itemKinds: [...SHARED_DRAFT_KINDS] })) {
 		const draft = sharedDraftEntryToWorkspaceItem(entry)
 		if (!draft) continue
+		rememberStoragePath(workspace, draft, entry.path)
 		drafts.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), draft)
 	}
 
@@ -472,6 +515,7 @@ export function listGlobalCurrentItems(
 	})) {
 		const item = sharedDraftEntryToWorkspaceItem(entry, false)
 		if (!item) continue
+		rememberStoragePath(workspace, item, entry.path)
 		items.set(getWorkspaceItemKey(item.type, item.path, item.triggerKind), item)
 	}
 
