@@ -16,7 +16,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import { copyToClipboard, scroll_into_view_if_needed_polyfill, truncateRev } from '$lib/utils'
 	import LogSnippetViewer from './LogSnippetViewer.svelte'
-	import { Button, Drawer, DrawerContent } from './common'
+	import { Alert, Button, Drawer, DrawerContent } from './common'
 	import ClipboardCopy from 'lucide-svelte/icons/clipboard-copy'
 	import { AnsiUp } from 'ansi_up'
 	import SplitPanesOrColumnOnMobile from './splitPanes/SplitPanesOrColumnOnMobile.svelte'
@@ -303,6 +303,7 @@
 
 	let countsPerHost: any = $state()
 	let sumOtherDocCount: number = $state(0)
+	let searchError: string | undefined = $state(undefined)
 
 	async function searchLogs(
 		searchTerm: string,
@@ -324,6 +325,7 @@
 			sumOtherDocCount = 0
 			loadingLogs = false
 			loadingLogCounts = false
+			searchError = undefined
 			return
 		}
 		timeout && clearTimeout(timeout)
@@ -332,39 +334,47 @@
 		loadingLogs = true
 		debounceTimeout && clearTimeout(debounceTimeout)
 		debounceTimeout = setTimeout(async () => {
-			if (allLogs) {
-				const countLogsResponse = await IndexSearchService.countSearchLogsIndex({
-					searchQuery: searchTerm,
-					minTs,
-					maxTs
-				})
-				const res = (countLogsResponse.count_per_host as any)['count_per_host']
-				const buckets = res['buckets']
-				sumOtherDocCount = res['sum_other_doc_count']
-				countsPerHost = new Map(buckets.map(({ key, doc_count }) => [key, doc_count]))
-				countsPerHost = buckets.reduce(
-					(acc: any, { key, doc_count }) => {
-						acc[key] = { doc_count }
-						return acc
-					},
-					{} as Record<string, number>
-				)
-				queryParseErrors = countLogsResponse.query_parse_errors ?? []
+			searchError = undefined
+			try {
+				if (allLogs) {
+					const countLogsResponse = await IndexSearchService.countSearchLogsIndex({
+						searchQuery: searchTerm,
+						minTs,
+						maxTs
+					})
+					const res = (countLogsResponse.count_per_host as any)['count_per_host']
+					const buckets = res['buckets']
+					sumOtherDocCount = res['sum_other_doc_count']
+					countsPerHost = new Map(buckets.map(({ key, doc_count }) => [key, doc_count]))
+					countsPerHost = buckets.reduce(
+						(acc: any, { key, doc_count }) => {
+							acc[key] = { doc_count }
+							return acc
+						},
+						{} as Record<string, number>
+					)
+					queryParseErrors = countLogsResponse.query_parse_errors ?? []
+				}
+
+				if (selected) {
+					logs = await IndexSearchService.searchLogsIndex({
+						searchQuery: searchTerm,
+						mode: selected.mode,
+						workerGroup: selected.workerGroup != '' ? selected.workerGroup : undefined,
+						hostname: selected.hostname,
+						minTs,
+						maxTs
+					})
+				}
+			} catch (e) {
+				const message = e?.body ?? e?.message ?? 'Unknown error'
+				searchError = message
+				sendUserToast('Service logs search failed: ' + message, true)
+				console.error(e)
+			} finally {
+				loadingLogs = false
 				loadingLogCounts = false
 			}
-
-			if (selected) {
-				logs = await IndexSearchService.searchLogsIndex({
-					searchQuery: searchTerm,
-					mode: selected.mode,
-					workerGroup: selected.workerGroup != '' ? selected.workerGroup : undefined,
-					hostname: selected.hostname,
-					minTs,
-					maxTs
-				})
-			}
-
-			loadingLogs = false
 		}, debouncePeriod)
 	}
 
@@ -520,14 +530,21 @@
 					options={{ right: 'auto-refresh' }}
 				/></div
 			>
+			{#if searchError}
+				<div class="pb-4">
+					<Alert type="warning" title="Service logs search unavailable" size="xs">
+						{searchError}
+					</Alert>
+				</div>
+			{/if}
 			{#if allLogs == undefined}
 				<div class="text-center pb-2"><Loader2 class="animate-spin" /></div>
 			{:else if Object.keys(allLogs).length == 0}
 				<div class="flex flex-col justify-center items-center h-full gap-2">
 					<span>No logs</span>
 					<span class="text-2xs text-tertiary"
-						>Search only covers a recent time window, configurable in instance settings
-						under Indexer.</span
+						>Search only covers a recent time window, configurable in instance settings under
+						Indexer.</span
 					>
 				</div>
 			{:else if minTs && maxTs}

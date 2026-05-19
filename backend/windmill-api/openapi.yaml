@@ -19791,6 +19791,12 @@ paths:
                     properties:
                       is_alive:
                         type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - running
+                          - stale
+                          - never_started
                       last_locked_at:
                         type: string
                         format: date-time
@@ -19812,6 +19818,12 @@ paths:
                     properties:
                       is_alive:
                         type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - running
+                          - stale
+                          - never_started
                       last_locked_at:
                         type: string
                         format: date-time
