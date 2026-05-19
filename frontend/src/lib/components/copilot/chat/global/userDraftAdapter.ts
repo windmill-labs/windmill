@@ -1,4 +1,10 @@
-import type { Flow, NewSchedule, NewScript } from '$lib/gen/types.gen'
+import type {
+	CreateResource,
+	CreateVariable,
+	Flow,
+	NewSchedule,
+	NewScript
+} from '$lib/gen/types.gen'
 import { UserDraft, type UserDraftItemKind, type UserDraftListEntry } from '$lib/userDraft.svelte'
 import {
 	getWorkspaceItemKey,
@@ -9,7 +15,14 @@ import {
 	type WorkspaceItemType
 } from './workspaceItems'
 
-type SharedWorkspaceItemType = 'script' | 'flow' | 'app' | 'schedule' | 'trigger'
+type SharedWorkspaceItemType =
+	| 'script'
+	| 'flow'
+	| 'app'
+	| 'schedule'
+	| 'trigger'
+	| 'resource'
+	| 'variable'
 
 const TRIGGER_DRAFT_KIND_BY_TRIGGER_KIND = {
 	http: 'trigger_http',
@@ -48,14 +61,11 @@ const SHARED_DRAFT_KINDS = [
 	'trigger_mqtt',
 	'trigger_sqs',
 	'trigger_gcp',
-	'trigger_azure'
+	'trigger_azure',
+	'resource',
+	'variable'
 ] as const satisfies UserDraftItemKind[]
 const DEFAULT_APP_DATA = { tables: [], datatable: undefined, schema: undefined }
-
-// TODO: Add resource and variable here only after their editor-native
-// UserDraft contracts are self-contained. Resource drafts currently need
-// resource_type outside the draft value, and new variable drafts do not have
-// a complete persisted/live empty-path contract.
 
 function clone<T>(value: T): T {
 	return structuredClone(value) as T
@@ -67,7 +77,9 @@ function isSharedWorkspaceItemType(type: WorkspaceItemType): type is SharedWorks
 		type === 'flow' ||
 		type === 'app' ||
 		type === 'schedule' ||
-		type === 'trigger'
+		type === 'trigger' ||
+		type === 'resource' ||
+		type === 'variable'
 	)
 }
 
@@ -85,6 +97,9 @@ function sharedDraftKind(
 			return 'trigger_schedule'
 		case 'trigger':
 			return triggerKind ? TRIGGER_DRAFT_KIND_BY_TRIGGER_KIND[triggerKind] : undefined
+		case 'resource':
+		case 'variable':
+			return type
 	}
 }
 
@@ -101,18 +116,18 @@ function getItemSummary(value: unknown): string | undefined {
 	return ((value as { summary?: string | null } | undefined)?.summary ?? undefined) || undefined
 }
 
-function scriptDraftToWorkspaceItem(path: string, draft: NewScript): WorkspaceItem {
+function scriptDraftToWorkspaceItem(path: string, draft: NewScript, isDraft = true): WorkspaceItem {
 	return {
 		type: 'script',
 		path,
 		summary: draft.summary,
 		language: draft.language,
 		value: draft.content,
-		isDraft: true
+		isDraft
 	}
 }
 
-function flowDraftToWorkspaceItem(path: string, draft: Flow): WorkspaceItem {
+function flowDraftToWorkspaceItem(path: string, draft: Flow, isDraft = true): WorkspaceItem {
 	return {
 		type: 'flow',
 		path,
@@ -122,35 +137,44 @@ function flowDraftToWorkspaceItem(path: string, draft: Flow): WorkspaceItem {
 			schema: draft.schema ?? null,
 			groups: draft.value.groups ?? null
 		},
-		isDraft: true
+		isDraft
 	}
 }
 
-function appDraftToWorkspaceItem(path: string, draft: AppDraftValue): WorkspaceItem {
+function appDraftToWorkspaceItem(
+	path: string,
+	draft: AppDraftValue,
+	isDraft = true
+): WorkspaceItem {
 	const value = normalizeAppDraftValue(draft)
 	return {
 		type: 'app',
 		path,
 		summary: value.summary,
 		value,
-		isDraft: true
+		isDraft
 	}
 }
 
-function scheduleDraftToWorkspaceItem(path: string, draft: NewSchedule): WorkspaceItem {
+function scheduleDraftToWorkspaceItem(
+	path: string,
+	draft: NewSchedule,
+	isDraft = true
+): WorkspaceItem {
 	return {
 		type: 'schedule',
 		path,
 		summary: draft.summary ?? undefined,
 		value: clone(draft),
-		isDraft: true
+		isDraft
 	}
 }
 
 function triggerDraftToWorkspaceItem(
 	kind: TriggerKind,
 	path: string,
-	draft: TriggerRequestBody
+	draft: TriggerRequestBody,
+	isDraft = true
 ): WorkspaceItem {
 	return {
 		type: 'trigger',
@@ -158,24 +182,64 @@ function triggerDraftToWorkspaceItem(
 		path,
 		summary: getItemSummary(draft),
 		value: clone(draft),
-		isDraft: true
+		isDraft
 	}
 }
 
-function sharedDraftEntryToWorkspaceItem(entry: UserDraftListEntry): WorkspaceItem | undefined {
+function resourceDraftToWorkspaceItem(
+	path: string,
+	draft: CreateResource,
+	isDraft = true
+): WorkspaceItem {
+	return {
+		type: 'resource',
+		path,
+		summary: draft.description ?? undefined,
+		value: clone(draft),
+		isDraft
+	}
+}
+
+function variableDraftToWorkspaceItem(
+	path: string,
+	draft: CreateVariable,
+	isDraft = true
+): WorkspaceItem {
+	return {
+		type: 'variable',
+		path,
+		summary: draft.description ?? undefined,
+		value: clone(draft),
+		isDraft
+	}
+}
+
+function sharedDraftEntryToWorkspaceItem(
+	entry: UserDraftListEntry,
+	isDraft = true
+): WorkspaceItem | undefined {
 	switch (entry.itemKind) {
 		case 'script':
-			return scriptDraftToWorkspaceItem(entry.path, entry.value as NewScript)
+			return scriptDraftToWorkspaceItem(entry.path, entry.value as NewScript, isDraft)
 		case 'flow':
-			return flowDraftToWorkspaceItem(entry.path, entry.value as Flow)
+			return flowDraftToWorkspaceItem(entry.path, entry.value as Flow, isDraft)
 		case 'raw_app':
-			return appDraftToWorkspaceItem(entry.path, entry.value as AppDraftValue)
+			return appDraftToWorkspaceItem(entry.path, entry.value as AppDraftValue, isDraft)
 		case 'trigger_schedule':
-			return scheduleDraftToWorkspaceItem(entry.path, entry.value as NewSchedule)
+			return scheduleDraftToWorkspaceItem(entry.path, entry.value as NewSchedule, isDraft)
+		case 'resource':
+			return resourceDraftToWorkspaceItem(entry.path, entry.value as CreateResource, isDraft)
+		case 'variable':
+			return variableDraftToWorkspaceItem(entry.path, entry.value as CreateVariable, isDraft)
 		default:
 			const triggerKind = TRIGGER_KIND_BY_DRAFT_KIND[entry.itemKind]
 			return triggerKind
-				? triggerDraftToWorkspaceItem(triggerKind, entry.path, entry.value as TriggerRequestBody)
+				? triggerDraftToWorkspaceItem(
+						triggerKind,
+						entry.path,
+						entry.value as TriggerRequestBody,
+						isDraft
+					)
 				: undefined
 	}
 }
@@ -184,7 +248,8 @@ function getSharedDraft(
 	workspace: string,
 	type: SharedWorkspaceItemType,
 	path: string,
-	triggerKind?: TriggerKind
+	triggerKind?: TriggerKind,
+	isDraft = true
 ): WorkspaceItem | undefined {
 	const itemKind = sharedDraftKind(type, triggerKind)
 	if (!itemKind) return undefined
@@ -193,17 +258,21 @@ function getSharedDraft(
 
 	switch (type) {
 		case 'script':
-			return scriptDraftToWorkspaceItem(path, draft as NewScript)
+			return scriptDraftToWorkspaceItem(path, draft as NewScript, isDraft)
 		case 'flow':
-			return flowDraftToWorkspaceItem(path, draft as Flow)
+			return flowDraftToWorkspaceItem(path, draft as Flow, isDraft)
 		case 'app':
-			return appDraftToWorkspaceItem(path, draft as AppDraftValue)
+			return appDraftToWorkspaceItem(path, draft as AppDraftValue, isDraft)
 		case 'schedule':
-			return scheduleDraftToWorkspaceItem(path, draft as NewSchedule)
+			return scheduleDraftToWorkspaceItem(path, draft as NewSchedule, isDraft)
 		case 'trigger':
 			return triggerKind
-				? triggerDraftToWorkspaceItem(triggerKind, path, draft as TriggerRequestBody)
+				? triggerDraftToWorkspaceItem(triggerKind, path, draft as TriggerRequestBody, isDraft)
 				: undefined
+		case 'resource':
+			return resourceDraftToWorkspaceItem(path, draft as CreateResource, isDraft)
+		case 'variable':
+			return variableDraftToWorkspaceItem(path, draft as CreateVariable, isDraft)
 	}
 }
 
@@ -230,6 +299,23 @@ export function getGlobalDraft(
 	return undefined
 }
 
+/**
+ * Returns the freshest frontend-visible value for AI context. This may be a
+ * real local draft, an AI-written UserDraft, or a clean live editor baseline.
+ * Therefore the returned item is intentionally not marked as `isDraft`.
+ */
+export function getGlobalCurrentItem(
+	workspace: string,
+	type: WorkspaceItemType,
+	path: string,
+	triggerKind?: TriggerKind
+): WorkspaceItem | undefined {
+	if (isSharedWorkspaceItemType(type)) {
+		return getSharedDraft(workspace, type, path, triggerKind, false)
+	}
+	return undefined
+}
+
 export function listGlobalDrafts(workspace: string): WorkspaceItem[] {
 	const drafts = new Map<string, WorkspaceItem>()
 
@@ -240,6 +326,22 @@ export function listGlobalDrafts(workspace: string): WorkspaceItem[] {
 	}
 
 	return Array.from(drafts.values())
+}
+
+/**
+ * Lists local/current entries for AI context. Entries are not marked as
+ * `isDraft` because UserDraft.list can include clean live editor baselines.
+ */
+export function listGlobalCurrentItems(workspace: string): WorkspaceItem[] {
+	const items = new Map<string, WorkspaceItem>()
+
+	for (const entry of UserDraft.list({ workspace, itemKinds: [...SHARED_DRAFT_KINDS] })) {
+		const item = sharedDraftEntryToWorkspaceItem(entry, false)
+		if (!item) continue
+		items.set(getWorkspaceItemKey(item.type, item.path, item.triggerKind), item)
+	}
+
+	return Array.from(items.values())
 }
 
 export function deleteGlobalDraft(

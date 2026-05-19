@@ -26,6 +26,14 @@ vi.mock('@codingame/monaco-vscode-languages-service-override', () => ({
 
 vi.mock('$lib/components/vscode', () => ({}))
 
+vi.mock('svelte', async (importOriginal) => {
+	const actual = (await importOriginal()) as Record<string, unknown>
+	return {
+		...actual,
+		onDestroy: vi.fn()
+	}
+})
+
 vi.mock('$lib/gen', async () => {
 	const actual = await vi.importActual<any>('$lib/gen')
 
@@ -93,6 +101,11 @@ vi.mock('$lib/gen', async () => {
 		AppService: wrapService(actual.AppService, {
 			existsApp: vi.fn(async () => false)
 		}),
+		ResourceService: wrapService(actual.ResourceService, {
+			existsResource: vi.fn(async () => false),
+			listResource: vi.fn(async () => []),
+			queryResourceTypes: vi.fn(async () => [])
+		}),
 		VariableService: wrapService(actual.VariableService, {
 			existsVariable: vi.fn(async () => false),
 			getVariable: vi.fn(async ({ path }: { path: string }) => ({
@@ -142,11 +155,40 @@ describe('global AI tools', () => {
 		vi.clearAllMocks()
 	})
 
-	it('does not expose resource or variable draft writers until their UserDraft contracts are complete', () => {
-		const toolNames = globalTools.map((tool) => tool.def.function.name)
+	it('writes resource and variable drafts into the shared UserDraft store', async () => {
+		await callGlobalTool('write_variable', {
+			path: 'f/secrets/api_key',
+			value: 'secret',
+			is_secret: true,
+			description: 'API key'
+		})
+		await callGlobalTool('write_resource', {
+			path: 'f/resources/api',
+			resource_type: 'http',
+			description: 'API resource',
+			value: {
+				token: '$var:f/secrets/api_key'
+			}
+		})
 
-		expect(toolNames).not.toContain('write_resource')
-		expect(toolNames).not.toContain('write_variable')
+		expect(
+			UserDraft.get<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
+		).toMatchObject({
+			path: 'f/secrets/api_key',
+			value: 'secret',
+			is_secret: true,
+			description: 'API key'
+		})
+		expect(
+			UserDraft.get<any>('resource', 'f/resources/api', { workspace: WORKSPACE })
+		).toMatchObject({
+			path: 'f/resources/api',
+			resource_type: 'http',
+			description: 'API resource',
+			value: {
+				token: '$var:f/secrets/api_key'
+			}
+		})
 	})
 
 	it('writes script drafts into the shared UserDraft store', async () => {
@@ -178,8 +220,37 @@ describe('global AI tools', () => {
 			summary: 'Hello script',
 			language: 'bun',
 			value: content,
-			isDraft: true
+			isDraft: false
 		})
+	})
+
+	it('reads a live UserDraft editor baseline as current context without marking it draft', async () => {
+		const content = 'export async function main() {\n\treturn "open editor"\n}'
+		const handle = UserDraft.use<any>('script', 'f/scripts/open-editor', { workspace: WORKSPACE })
+		handle.setDraftAndMeta(
+			{
+				path: 'f/scripts/open-editor',
+				summary: 'Open editor baseline',
+				language: 'bun',
+				content
+			},
+			{ remoteRev: 'v1' }
+		)
+
+		const raw = await callGlobalTool('read_workspace_item', {
+			type: 'script',
+			path: 'f/scripts/open-editor'
+		})
+
+		expect(JSON.parse(raw)).toMatchObject({
+			type: 'script',
+			path: 'f/scripts/open-editor',
+			summary: 'Open editor baseline',
+			language: 'bun',
+			value: content,
+			isDraft: false
+		})
+		expect(localStorage.getItem(`userdraft/w/${WORKSPACE}/script/f/scripts/open-editor`)).toBeNull()
 	})
 
 	it('overlays shared UserDraft entries in list_workspace_items', async () => {
@@ -199,7 +270,7 @@ describe('global AI tools', () => {
 				type: 'script',
 				path: 'f/scripts/listed',
 				summary: 'Listed script',
-				isDraft: true
+				isDraft: false
 			})
 		])
 	})
@@ -238,7 +309,7 @@ describe('global AI tools', () => {
 				schedule: '0 0 12 * * *',
 				timezone: 'UTC'
 			}),
-			isDraft: true
+			isDraft: false
 		})
 	})
 
@@ -276,7 +347,7 @@ describe('global AI tools', () => {
 				triggerKind: 'http',
 				path: 'f/triggers/hook',
 				summary: 'Hook trigger',
-				isDraft: true
+				isDraft: false
 			})
 		])
 	})
@@ -401,6 +472,7 @@ describe('global AI tools', () => {
 		})
 		const item = JSON.parse(raw)
 
+		expect(item.isDraft).toBe(false)
 		expect(item.value).toMatchObject({
 			modules: [
 				{
