@@ -3,12 +3,14 @@
 	import type { DisplayMessage, ToolDisplayMessage } from './shared'
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import AssistantMessage from './AssistantMessage.svelte'
-	import { aiChatManager } from './AIChatManager.svelte'
+	import { getAiChatManager } from './aiChatManagerContext'
 	import { Button } from '$lib/components/common'
 	import { RefreshCwIcon, Undo2Icon } from 'lucide-svelte'
 	import AIChatInput from './AIChatInput.svelte'
 	import type { ContextElement } from './context'
 	import ToolExecutionDisplay from './ToolExecutionDisplay.svelte'
+
+	const aiChatManager = getAiChatManager()
 
 	interface Props {
 		availableContext: ContextElement[]
@@ -16,6 +18,7 @@
 		message: DisplayMessage
 		messageIndex: number
 		editingMessageIndex: number | null
+		isLast?: boolean
 	}
 
 	let {
@@ -23,7 +26,8 @@
 		messageIndex,
 		availableContext,
 		selectedContext = $bindable(),
-		editingMessageIndex = $bindable(null)
+		editingMessageIndex = $bindable(null),
+		isLast = false
 	}: Props = $props()
 
 	function editMessage() {
@@ -36,8 +40,9 @@
 
 <div
 	class={twMerge(
-		message.role === 'user' && messageIndex > 0 && 'mt-6',
-		'mb-2',
+		'mb-2 min-w-0',
+		message.role === 'user' && messageIndex > 0 && 'mt-4 mb-6',
+		isLast && '!mb-12',
 		message.role !== 'user' ? 'cursor-default' : 'cursor-pointer'
 	)}
 	role="button"
@@ -53,7 +58,7 @@
 		</div>
 	{/if}
 	{#if message.role === 'user' && editingMessageIndex === messageIndex}
-		<div class="px-2">
+		<div class="px-2 max-w-lg">
 			<AIChatInput
 				{availableContext}
 				bind:selectedContext
@@ -69,30 +74,26 @@
 			/>
 		</div>
 	{:else}
-		<div
-			class={twMerge(
-				'text-sm py-1 mx-2',
-				message.role === 'user' &&
-					'px-2 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 rounded-lg relative group',
-				(message.role === 'assistant' || message.role === 'tool') && 'px-[1px]',
-				message.role === 'tool' && 'text-primary'
-			)}
-		>
+		<div class={twMerge('text-sm py-1 px-2', message.role === 'tool' && 'text-primary')}>
 			{#if message.role === 'assistant'}
-				<AssistantMessage {message} />
+				<div class="px-[1px]"><AssistantMessage {message} /></div>
 			{:else if message.role === 'tool'}
-				<ToolExecutionDisplay message={message as ToolDisplayMessage} />
+				<div class="px-[1px]"><ToolExecutionDisplay message={message as ToolDisplayMessage} /></div>
 			{:else}
-				<span class="whitespace-pre-wrap">{message.content}</span>
+				<div
+					class="text-xs px-3 py-2 w-fit max-w-[min(32rem,100%)] bg-surface-accent-selected text-accent rounded-lg relative group break-words"
+				>
+					<span class="whitespace-pre-wrap">{message.content}</span>
+				</div>
 			{/if}
 		</div>
 	{/if}
 	{#if message.role === 'user' && message.snapshot}
-		<div class="mx-2 text-sm text-primary flex flex-row items-center justify-between gap-2 mt-2">
+		<div class="mx-2 text-2xs text-tertiary flex flex-row items-center justify-between gap-2 mt-2">
 			Saved {message.snapshot.type === 'flow' ? 'a flow' : 'an app'} snapshot
 			<Button
-				size="xs2"
-				variant="default"
+				unifiedSize="xs"
+				variant="subtle"
 				on:click={() => {
 					if (message.snapshot) {
 						if (message.snapshot.type === 'flow') {

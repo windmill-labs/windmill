@@ -11,7 +11,7 @@ use crate::{
     auth::{get_end_user_email, OptTokened},
     db::{ApiAuthed, DB},
     jobs::RunJobQuery,
-    users::{require_owner_of_path, OptAuthed},
+    users::{require_owner_of_path, require_path_read_access_for_preview, OptAuthed},
     utils::{check_scopes, WithStarredInfoQuery},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
@@ -2043,6 +2043,10 @@ pub struct ExecuteApp {
     pub force_viewer_delete_after_secs: Option<i32>,
     /// Runnable query parameters (e.g., memory_id for chat-enabled flows)
     pub run_query_params: Option<RunJobQuery>,
+    /// Map of relative-import script path -> temp storage hash. Only honored for
+    /// inline-script (raw_code, preview) execution so `wmill app dev` resolves
+    /// those imports from not-yet-deployed local content instead of deployed.
+    pub temp_script_refs: Option<HashMap<String, String>>,
 }
 
 fn digest(code: &str) -> String {
@@ -2117,8 +2121,16 @@ async fn execute_component(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Json(payload): Json<ExecuteApp>,
+    Json(mut payload): Json<ExecuteApp>,
 ) -> Result<String> {
+    // Only honor temp_script_refs for the inline-script preview path:
+    // preview/editor mode (force_viewer_static_fields set, == `is_preview`),
+    // raw_code present, and no deployed app_script id — i.e. `wmill app dev`.
+    let temp_script_refs = payload.temp_script_refs.take();
+    let inject_temp_refs = temp_script_refs.is_some()
+        && payload.force_viewer_static_fields.is_some()
+        && payload.raw_code.is_some()
+        && payload.id.is_none();
     match (payload.path.is_some(), payload.raw_code.is_some()) {
         (false, false) => {
             return Err(Error::BadRequest(
@@ -2141,6 +2153,54 @@ async fn execute_component(
     // on the inline script is honored. In any other case we must read the
     // tag from the deployed policy and ignore the request body.
     let is_preview = payload.force_viewer_static_fields.is_some();
+
+    // Preview mode runs request-supplied code as a `Viewer`-mode job (the
+    // app-editor equivalent of `/jobs/run/preview`), so it enforces the same
+    // guards. Operators must never run preview jobs. `jobs:run` is required
+    // because this route is reachable with an `apps:run`-scoped token (the
+    // route maps to the `apps` scope domain), which must not be able to escalate
+    // to arbitrary code execution. The client-supplied inline `raw_code.tag`
+    // must stay within the caller's allowed worker tags. A preview can also
+    // *reference* an existing runnable the caller may not be allowed to read — a
+    // deployed script/flow via `payload.path` or a persisted `app_script` via
+    // `payload.id`, both resolved with the root DB handle — so those (and only
+    // those) are confined to paths the caller can read. Inline `raw_code` is not
+    // path-gated: a non-operator member can already run arbitrary inline code
+    // via `/jobs/run/preview`.
+    if is_preview {
+        let authed = opt_authed.as_ref().ok_or_else(|| {
+            Error::NotAuthorized("App component preview requires authentication".to_string())
+        })?;
+        if authed.is_operator {
+            return Err(Error::NotAuthorized(
+                "Operators cannot run preview jobs for security reasons".to_string(),
+            ));
+        }
+        check_scopes(authed, || format!("jobs:run"))?;
+        if let Some(p) = payload.path.as_deref() {
+            let runnable_path = p
+                .strip_prefix("script/")
+                .or_else(|| p.strip_prefix("flow/"))
+                .unwrap_or(p);
+            require_path_read_access_for_preview(authed, &Some(runnable_path.to_string()))?;
+        }
+        if let Some(id) = payload.id {
+            let owner_path = sqlx::query_scalar!(
+                "SELECT a.path FROM app_script s JOIN app a ON a.id = s.app
+                 WHERE s.id = $1 AND a.workspace_id = $2",
+                id,
+                &w_id,
+            )
+            .fetch_optional(&db)
+            .await?
+            .ok_or_else(|| {
+                Error::NotAuthorized(format!(
+                    "App script {id} does not belong to an app in this workspace"
+                ))
+            })?;
+            require_path_read_access_for_preview(authed, &Some(owner_path))?;
+        }
+    }
 
     // Two cases here:
     // 1. The component is executed from the editor (i.e. in "preview" mode), then:
@@ -2299,7 +2359,7 @@ async fn execute_component(
     let resolved_delete_secs =
         resolve_delete_after_secs(None, policy_triggerables.delete_after_secs);
 
-    let (args, job_id) = build_args(
+    let (mut args, job_id) = build_args(
         policy,
         policy_triggerables,
         payload.args,
@@ -2309,6 +2369,14 @@ async fn execute_component(
         &w_id,
     )
     .await?;
+
+    if inject_temp_refs {
+        if let Some(refs) = temp_script_refs {
+            args.extra
+                .get_or_insert_with(HashMap::new)
+                .insert("_TEMP_SCRIPT_REFS".to_string(), to_raw_value(&refs));
+        }
+    }
 
     let is_flow = payload
         .path
@@ -2345,6 +2413,20 @@ async fn execute_component(
         ),
         _ => unreachable!(),
     };
+    // Preview honors the client-supplied inline tag (`resolved_inline_tag`), so
+    // — like `/jobs/run/preview` — confine it to worker tags the caller may use
+    // (a `if_jobs:filter_tags`-restricted token must not escape its filter).
+    // `is_preview` implies an authed caller (the guard above returns otherwise).
+    if is_preview {
+        if let Some(authed) = opt_authed.as_ref() {
+            crate::jobs::check_tag_available_for_workspace(&db, &w_id, &tag, authed).await?;
+        }
+    }
+    // Identity is already resolved to the requesting user in preview mode (the
+    // policy is forced to `ExecutionMode::Viewer`, so the job runs as the
+    // caller). The enqueue stays root-isolated as before — switching the insert
+    // to user-RLS is not what contains the bypass (the auth guards above are)
+    // and would add unnecessary breakage risk to the legitimate editor flow.
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
 
     let (email, permissioned_as) = if let Some(on_behalf_of) = on_behalf_of.as_ref() {

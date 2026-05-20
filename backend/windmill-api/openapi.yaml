@@ -9840,6 +9840,13 @@ paths:
         - path_autocomplete
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: force
+          description: |
+            bypass the server-side cache and re-query the DB, refreshing the
+            cache. Used right after a deploy so the new path appears immediately.
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: deduplicated path list, sorted lexicographically
@@ -10716,6 +10723,12 @@ paths:
                 run_query_params:
                   type: object
                   description: Runnable query parameters
+                temp_script_refs:
+                  type: object
+                  nullable: true
+                  description: "Map of relative-import script path -> temp storage hash. Only honored for inline-script (raw_code) execution so app dev resolves those imports from not-yet-deployed local content."
+                  additionalProperties:
+                    type: string
               required:
                 - args
                 - component
@@ -19842,6 +19855,12 @@ paths:
                     properties:
                       is_alive:
                         type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - running
+                          - stale
+                          - never_started
                       last_locked_at:
                         type: string
                         format: date-time
@@ -19863,6 +19882,12 @@ paths:
                     properties:
                       is_alive:
                         type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - running
+                          - stale
+                          - never_started
                       last_locked_at:
                         type: string
                         format: date-time
@@ -21068,6 +21093,9 @@ components:
         mount_path:
           type: string
           description: KV v2 secrets engine mount path (e.g., windmill)
+        kv_secret_path_prefix:
+          type: string
+          description: Optional path prefix inserted between the KV data/metadata segment and the workspace id (e.g., "apps/windmill"). When set, secrets are stored at `<mount>/data/<prefix>/<workspace>/<secret>`, allowing a Vault policy scoped to exactly `<mount>/data/<prefix>/*`.
         jwt_role:
           type: string
           description: Vault JWT auth role name for Windmill (optional, if not provided token auth is used)
@@ -23218,6 +23246,12 @@ components:
           description: "Additional script modules keyed by relative file path"
           additionalProperties:
             $ref: "#/components/schemas/ScriptModule"
+        temp_script_refs:
+          type: object
+          nullable: true
+          description: "Map of relative-import script path -> temp storage hash so the preview job resolves those imports from not-yet-deployed local content instead of the deployed script"
+          additionalProperties:
+            type: string
       required:
         - args
 
@@ -26564,6 +26598,12 @@ components:
           type: string
         restarted_from:
           $ref: "#/components/schemas/RestartedFrom"
+        temp_script_refs:
+          type: object
+          nullable: true
+          description: "Map of relative-import script path -> temp storage hash, propagated to each flow step so inline-script relative imports resolve from not-yet-deployed local content instead of the deployed script"
+          additionalProperties:
+            type: string
 
       required:
         - value

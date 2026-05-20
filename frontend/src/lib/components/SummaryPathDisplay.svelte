@@ -150,7 +150,6 @@
 								initialPath={path ?? ''}
 								namePlaceholder={kind}
 								{kind}
-								hideFullPath
 								size="sm"
 								drawerOffset={4000}
 							/>
@@ -199,7 +198,6 @@
 							initialPath={path ?? ''}
 							namePlaceholder={kind}
 							{kind}
-							hideFullPath
 							size="sm"
 							drawerOffset={4000}
 						/>

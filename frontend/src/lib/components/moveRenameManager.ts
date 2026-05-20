@@ -1,4 +1,5 @@
 import { AppService, FlowService, ScriptService } from '$lib/gen'
+import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 
 type ItemKind = 'flow' | 'script' | 'app'
 
@@ -74,4 +75,8 @@ export async function updateItemPathAndSummary(opts: {
 			}
 		})
 	}
+
+	// The path changed (rename/move) — drop the autocomplete cache so the new
+	// path shows up immediately instead of after the 60s TTL.
+	invalidateWorkspacePaths(workspace)
 }

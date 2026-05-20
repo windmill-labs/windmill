@@ -10,6 +10,7 @@
 	import { canWrite } from '$lib/utils'
 	import { Save } from 'lucide-svelte'
 	import VariableForm from './VariableForm.svelte'
+	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import WsSpecificVersions from './WsSpecificVersions.svelte'
 	import { resource } from 'runed'
 	import { deepEqual } from 'fast-equals'
@@ -301,6 +302,9 @@
 				}
 				// Saved on the backend — drop the local autosave for this workspace.
 				UserDraft.remove('variable', editPath ?? '', { workspace: ws })
+				// Path now exists server-side — drop the autocomplete cache so
+				// it shows up immediately instead of after the 60s TTL.
+				invalidateWorkspacePaths(ws)
 			}
 			sendUserToast(edit ? `Updated variable in ${dirty.length} workspace(s)` : `Created variable`)
 			dispatch('create')

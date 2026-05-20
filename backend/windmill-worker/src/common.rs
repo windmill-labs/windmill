@@ -47,7 +47,9 @@ use windmill_common::{variables, DB};
 use tokio::{io::AsyncWriteExt, time::Instant};
 
 use crate::agent_workers::UPDATE_PING_URL;
-use crate::{JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE, MAX_TIMEOUT_DURATION, PATH_ENV};
+use crate::{
+    JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE, MAX_TIMEOUT_DURATION, NSJAIL_TMPFS_SIZE_MB, PATH_ENV,
+};
 use windmill_common::client::AuthedClient;
 
 /// Additional nsjail config for development. Currently used for nix flake.
@@ -114,6 +116,7 @@ pub async fn create_args_and_out_file(
     if let Some(args) = job.args.as_ref() {
         if let Some(mut x) = transform_json(client, &job.workspace_id, &args.0, job, conn).await? {
             x.remove("_MODULES");
+            x.remove("_TEMP_SCRIPT_REFS");
             write_file(
                 job_dir,
                 "args.json",
@@ -122,6 +125,7 @@ pub async fn create_args_and_out_file(
         } else {
             let mut filtered = args.0.clone();
             filtered.remove("_MODULES");
+            filtered.remove("_TEMP_SCRIPT_REFS");
             write_file(
                 job_dir,
                 "args.json",
@@ -241,6 +245,13 @@ pub fn parse_npm_config(s: &str) -> (String, Option<String>) {
     return (url, token_opt);
 }
 
+// Defense-in-depth bound on worker-side interpolation recursion. `$res:`
+// resolution is delegated to the API (which enforces its own
+// MAX_RESOURCE_INTERPOLATION_DEPTH), so this only bounds nested
+// object/array structure here, but a finite cap guards against pathological
+// inputs regardless of the API-side guard.
+const MAX_INTERPOLATION_DEPTH: u8 = 50;
+
 #[async_recursion]
 pub async fn transform_json_value(
     name: &str,
@@ -251,6 +262,11 @@ pub async fn transform_json_value(
     conn: &Connection,
     depth: u8,
 ) -> error::Result<Value> {
+    if depth >= MAX_INTERPOLATION_DEPTH {
+        return Err(Error::internal_err(format!(
+            "Maximum resource/variable interpolation depth ({MAX_INTERPOLATION_DEPTH}) exceeded for `{name}`; this usually indicates a circular `$res:` or `$var:` reference"
+        )));
+    }
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
@@ -990,6 +1006,21 @@ pub async fn resolve_nsjail_timeout(
 ) -> String {
     let (duration, _, _) = resolve_job_timeout(conn, w_id, job_id, custom_timeout).await;
     (duration.as_secs() + 15).to_string()
+}
+
+/// Default size (in bytes) of the `/tmp` tmpfs mount inside nsjail sandboxes,
+/// used when the `nsjail_tmpfs_size_mb` instance setting is unset.
+pub const DEFAULT_NSJAIL_TMPFS_SIZE_BYTES: u64 = 800_000_000;
+
+/// Resolve the tmpfs `size=` value (in bytes, formatted for the nsjail proto)
+/// for the `/tmp` tmpfs mount. When the `nsjail_tmpfs_size_mb` instance setting
+/// is `None`, `Some(0)`, or negative, falls back to
+/// [`DEFAULT_NSJAIL_TMPFS_SIZE_BYTES`].
+pub async fn resolve_nsjail_tmpfs_size_bytes() -> String {
+    match *NSJAIL_TMPFS_SIZE_MB.read().await {
+        Some(mb) if mb > 0 => ((mb as u64).saturating_mul(1_000_000)).to_string(),
+        _ => DEFAULT_NSJAIL_TMPFS_SIZE_BYTES.to_string(),
+    }
 }
 
 async fn hash_args(

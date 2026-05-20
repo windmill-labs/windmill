@@ -29,16 +29,19 @@
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import { Alert, Button } from './common'
-	import Badge from './common/badge/Badge.svelte'
-	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { random_adj } from './random_positive_adjetive'
-	import { Folder, SearchCode, User } from 'lucide-svelte'
+	import { ChevronDown, SearchCode } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { tick } from 'svelte'
 	import FolderPicker from './FolderPicker.svelte'
 	import PathNameAutocomplete from './PathNameAutocomplete.svelte'
-	import TextInput from './text_input/TextInput.svelte'
+	import TextInput, {
+		inputBaseClass,
+		inputBorderClass,
+		inputSizeClasses
+	} from './text_input/TextInput.svelte'
+	import Select from './select/Select.svelte'
+	import { twMerge } from 'tailwind-merge'
 	import InputError from './InputError.svelte'
 
 	type PathKind =
@@ -73,7 +76,6 @@
 		kind: PathKind
 		hideUser?: boolean
 		disableEditing?: boolean
-		hideFullPath?: boolean
 		size?: 'sm' | 'md'
 		drawerOffset?: number
 	}
@@ -91,7 +93,6 @@
 		kind,
 		hideUser = false,
 		disableEditing = false,
-		hideFullPath = false,
 		size = 'md',
 		drawerOffset = 0
 	}: Props = $props()
@@ -422,48 +423,46 @@
 </script>
 
 <div>
-	<div class="flex gap-2 pb-0 mb-1 flex-col flex-wrap sm:flex-row sm:items-center">
+	<div
+		class={twMerge(
+			inputBaseClass,
+			inputBorderClass({ error: !!error }),
+			inputSizeClasses[size],
+			'flex gap-0 pb-0 mb-1 flex-col flex-wrap sm:flex-row sm:items-center',
+			disabled && '!bg-surface-disabled cursor-not-allowed border-none'
+		)}
+	>
 		{#if meta != undefined}
+			{@const nameDisabled = disabled || disableEditing}
 			<!-- svelte-ignore a11y_label_has_associated_control -->
 			{#if !hideUser}
 				<div class="block">
-					<ToggleButtonGroup
-						bind:selected={meta.ownerKind}
-						on:selected={(e) => {
-							setDirty()
-							const kind = e.detail
-							if (meta) {
-								if (kind === 'folder') {
+					<Select
+						items={[
+							{ value: 'user', label: 'User' },
+							{ value: 'folder', label: 'Folder' }
+						]}
+						RightIcon={ChevronDown}
+						transformInputSelectedText={(t) => t.substring(0, 1).toLowerCase()}
+						inputClass={twMerge('border-none', disabled && '!bg-transparent')}
+						useContentEditable
+						bind:value={
+							() => meta?.ownerKind,
+							(v) => {
+								if (!meta || !v) return
+								setDirty()
+								meta.ownerKind = v
+								if (v === 'folder') {
 									meta.owner = folders?.[0]?.name ?? ''
-								} else if (kind === 'group') {
-									meta.owner = 'all'
 								} else {
+									// 'group' is unreachable here (Select only offers user/folder)
+									// but validateName still accepts it for forward-compat.
 									meta.owner = $userStore?.username?.split('@')[0] ?? ''
 								}
 							}
-						}}
-						disabled={disabled || disableEditing}
-					>
-						{#snippet children({ item })}
-							<ToggleButton
-								icon={User}
-								disabled={disabled || disableEditing}
-								value="user"
-								label="User"
-								{size}
-								{item}
-							/>
-							<!-- <ToggleButton light size="xs" value="group" position="center">Group</ToggleButton> -->
-							<ToggleButton
-								icon={Folder}
-								disabled={disabled || disableEditing}
-								value="folder"
-								label="Folder"
-								{size}
-								{item}
-							/>
-						{/snippet}
-					</ToggleButtonGroup>
+						}
+						disabled={nameDisabled}
+					/>
 				</div>
 			{/if}
 			{#if !hideUser}
@@ -471,17 +470,18 @@
 			{/if}
 			<div>
 				{#if meta.ownerKind === 'user'}
+					{@const userOwnerDisabled =
+						disabled || !($superadmin || ($userStore?.is_admin ?? false)) || disableEditing}
 					<label class="block shrink min-w-0">
 						<TextInput
-							class="!w-36"
+							class={twMerge('!border-none', userOwnerDisabled && '!bg-transparent')}
 							{size}
+							underlyingInputEl="div"
 							bind:value={meta.owner}
 							inputProps={{
-								type: 'text',
 								placeholder: $userStore?.username ?? '',
 								onkeydown: setDirty,
-								disabled:
-									disabled || !($superadmin || ($userStore?.is_admin ?? false)) || disableEditing
+								disabled: userOwnerDisabled
 							}}
 						/>
 					</label>
@@ -494,12 +494,13 @@
 							{disableEditing}
 							{size}
 							{drawerOffset}
+							selectInputClass={twMerge('!border-none', disabled && '!bg-transparent')}
 						/>
 					</label>
 				{/if}
 			</div>
 			<div class="text-sm text-secondary">/</div>
-			<label class="block grow min-w-32 max-w-md">
+			<label class="block grow min-w-32">
 				<!-- svelte-ignore a11y_autofocus -->
 				<PathNameAutocomplete
 					bind:this={inputP}
@@ -510,36 +511,16 @@
 					{autofocus}
 					id="path"
 					placeholder={namePlaceholder}
-					disabled={disabled || disableEditing}
+					disabled={nameDisabled}
 					onkeyup={handleKeyUp}
+					textInputClass={twMerge(
+						'border-none',
+						nameDisabled && '!bg-transparent disabled:!bg-transparent'
+					)}
 				/>
 			</label>
 		{/if}
 	</div>
-
-	{#if !hideFullPath}
-		<div class="flex flex-col w-full mt-2">
-			<div class="flex justify-start w-full">
-				<Badge
-					color="gray"
-					class="center-center !bg-surface-secondary !text-primary !w-[70px] !h-[24px] rounded-r-none border"
-				>
-					Full path
-				</Badge>
-				<input
-					type="text"
-					readonly
-					value={path}
-					size={path?.length || 50}
-					class="font-mono !text-xs max-w-[calc(100%-70px)] !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
-					onfocus={({ currentTarget }) => {
-						currentTarget.select()
-					}}
-				/>
-				<!-- <span class="font-mono text-sm break-all">{path}</span> -->
-			</div>
-		</div>
-	{/if}
 
 	<InputError {error} />
 
@@ -618,9 +599,3 @@
 		</Alert>
 	{/if}
 </div>
-
-<style>
-	input:disabled {
-		background: rgba(200, 200, 200, 0.267);
-	}
-</style>

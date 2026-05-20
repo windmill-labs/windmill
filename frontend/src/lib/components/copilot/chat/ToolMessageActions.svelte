@@ -4,6 +4,7 @@
 		Calendar,
 		Database,
 		KeyRound,
+		Mail,
 		Package,
 		Route,
 		SquarePen,
@@ -44,7 +45,8 @@
 		mqtt: { title: 'MQTT trigger', icon: MqttIcon },
 		sqs: { title: 'SQS trigger', icon: AwsIcon },
 		gcp: { title: 'GCP Pub/Sub trigger', icon: GoogleCloudIcon },
-		azure: { title: 'Azure Event Grid trigger', icon: AzureIcon }
+		azure: { title: 'Azure Event Grid trigger', icon: AzureIcon },
+		email: { title: 'Email trigger', icon: Mail }
 	}
 
 	function getActionCardConfig(action: ToolDisplayAction): ActionCardConfig {

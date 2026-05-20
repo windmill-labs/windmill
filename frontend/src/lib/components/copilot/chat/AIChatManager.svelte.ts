@@ -95,7 +95,7 @@ function isWorkspacePath(path: string | undefined): path is string {
 	return path?.startsWith('f/') === true || path?.startsWith('u/') === true
 }
 
-class AIChatManager {
+export class AIChatManager {
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
 	abortController: AbortController | undefined = undefined
@@ -999,6 +999,10 @@ class AIChatManager {
 
 	disableAutomaticScroll = () => {
 		this.#automaticScroll = false
+	}
+
+	enableAutomaticScroll = () => {
+		this.#automaticScroll = true
 	}
 
 	generateStep = async (moduleId: string, lang: ScriptLang, instructions: string) => {
