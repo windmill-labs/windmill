@@ -20,7 +20,7 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
-        read_result, resolve_nsjail_tmpfs_size, start_child_process, OccupancyMetrics,
+        read_result, resolve_nsjail_tmpfs_size_bytes, start_child_process, OccupancyMetrics,
         DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
@@ -583,7 +583,7 @@ async fn run<'a>(
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .replace(
                     "{NSJAIL_TMPFS_SIZE}",
-                    &resolve_nsjail_tmpfs_size().await,
+                    &resolve_nsjail_tmpfs_size_bytes().await,
                 )
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
         )?;

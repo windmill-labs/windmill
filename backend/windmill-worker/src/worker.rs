@@ -683,7 +683,8 @@ lazy_static::lazy_static! {
 
 lazy_static::lazy_static! {
     /// Optional override for the size of the `/tmp` tmpfs mount in nsjail sandboxes (in megabytes).
-    /// When `None`, executors fall back to their per-language default.
+    /// When `None` (or non-positive), executors fall back to the unified
+    /// `DEFAULT_NSJAIL_TMPFS_SIZE_BYTES` (800MB).
     pub static ref NSJAIL_TMPFS_SIZE_MB: Arc<RwLock<Option<i64>>> = Arc::new(RwLock::new(None));
 }
 

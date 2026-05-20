@@ -23,7 +23,7 @@ use windmill_queue::{append_logs, CanceledBy};
 use crate::{
     common::{
         build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
-        get_reserved_variables, read_result, resolve_nsjail_timeout, resolve_nsjail_tmpfs_size,
+        get_reserved_variables, read_result, resolve_nsjail_timeout, resolve_nsjail_tmpfs_size_bytes,
         start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
@@ -482,7 +482,7 @@ pub async fn build_rust_crate(
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .replace(
                     "{NSJAIL_TMPFS_SIZE}",
-                    &resolve_nsjail_tmpfs_size().await,
+                    &resolve_nsjail_tmpfs_size_bytes().await,
                 )
                 .replace("{BUILD}", &build_dir),
         )?;
@@ -707,7 +707,7 @@ pub async fn handle_rust_job(
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace(
                     "{NSJAIL_TMPFS_SIZE}",
-                    &resolve_nsjail_tmpfs_size().await,
+                    &resolve_nsjail_tmpfs_size_bytes().await,
                 )
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;

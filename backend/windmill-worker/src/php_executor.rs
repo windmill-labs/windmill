@@ -20,7 +20,7 @@ use windmill_queue::{append_logs, CanceledBy};
 use crate::{
     common::{
         build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
-        get_reserved_variables, read_result, resolve_nsjail_timeout, resolve_nsjail_tmpfs_size,
+        get_reserved_variables, read_result, resolve_nsjail_timeout, resolve_nsjail_tmpfs_size_bytes,
         start_child_process, MaybeLock, OccupancyMetrics,
     },
     handle_child::handle_child,
@@ -427,7 +427,7 @@ try {{
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace(
                     "{NSJAIL_TMPFS_SIZE}",
-                    &resolve_nsjail_tmpfs_size().await,
+                    &resolve_nsjail_tmpfs_size_bytes().await,
                 )
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
