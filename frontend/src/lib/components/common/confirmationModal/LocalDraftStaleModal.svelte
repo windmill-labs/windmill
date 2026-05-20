@@ -16,7 +16,9 @@
 	import Button from '../button/Button.svelte'
 	import { CornerDownLeft, RefreshCcw } from 'lucide-svelte'
 
-	type Cause = 'draft' | 'version'
+	// 'url' is temporary — used by /scripts/{add,edit}'s URL-hash sync block
+	// while we wait for a future PR to replace that legacy behavior.
+	type Cause = 'draft' | 'version' | 'url'
 
 	let {
 		open = false,
@@ -51,13 +53,18 @@
 	const title = $derived(
 		cause === 'draft'
 			? 'A newer draft was saved on the server'
-			: 'A newer version was deployed on the server'
+			: cause === 'url'
+				? 'The URL contains a different script payload'
+				: 'A newer version was deployed on the server'
 	)
 	const body = $derived(
 		cause === 'draft'
 			? "The editor is showing your local autosave. Someone else (or another tab) pushed a newer draft to the server while you were editing — your copy is now behind. Load latest replaces what's on screen; Keep current leaves it alone."
-			: "The editor is showing your local autosave. A newer version was deployed while you were editing — your copy is now behind. Load latest replaces what's on screen; Keep current leaves it alone."
+			: cause === 'url'
+				? 'The current page URL encodes a script (e.g. from a Fork link or shared URL) that differs from your local autosave. Load from URL replaces your local draft; Keep current draft ignores the URL payload.'
+				: "The editor is showing your local autosave. A newer version was deployed while you were editing — your copy is now behind. Load latest replaces what's on screen; Keep current leaves it alone."
 	)
+	const loadLabel = $derived(cause === 'url' ? 'Load from URL' : 'Load latest version')
 </script>
 
 <svelte:window onkeydowncapture={onKeyDown} />
@@ -100,7 +107,7 @@
 							shortCut={{ Icon: CornerDownLeft, withoutModifier: true }}
 							variant="accent"
 						>
-							<span class="min-w-20">Load latest version</span>
+							<span class="min-w-20">{loadLabel}</span>
 						</Button>
 						<Button
 							on:click={() => onKeepDraft()}

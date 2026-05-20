@@ -6,8 +6,18 @@
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
 	import type { Schema } from '$lib/common'
-	import { decodeState, emptySchema, emptyString, sendUserToast } from '$lib/utils'
+	import {
+		cleanValueProperties,
+		decodeState,
+		emptySchema,
+		emptyString,
+		encodeState,
+		orderedJsonStringify,
+		readFieldsRecursively,
+		sendUserToast
+	} from '$lib/utils'
 	import { goto } from '$lib/navigation'
+	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 	import type { Trigger } from '$lib/components/triggers/utils'
@@ -102,18 +112,61 @@
 		defaultValue: templatePath || hubPath || urlScript ? undefined : defaultScript()
 	})
 
+	// === BEGIN TEMP URL-HASH SYNC (remove with future PR) ===
+	// Legacy behavior: the URL hash both seeds the editor on load AND stays in
+	// sync with edits (encoded back into the hash, debounced). Asks the user
+	// via modal when the URL payload would clobber an existing local autosave.
+	let urlConflictModalOpen = $state(false)
+	let pendingUrlPayload: Script | undefined = undefined
+
 	if (urlScript) {
-		scriptHandle.draft = { ...defaultScript(), ...urlScript }
-		sendUserToast('Loaded from URL')
-		// Consume-once: strip the hash so a reload restores the user's
-		// autosave instead of re-applying the seed (which would clobber
-		// any edits they made).
-		if (typeof window !== 'undefined') {
-			const url = new URL(window.location.href)
-			url.hash = ''
-			window.history.replaceState(window.history.state, '', url.toString())
+		const seeded = { ...defaultScript(), ...urlScript } as Script
+		const existing = scriptHandle.draft
+		if (existing) {
+			const localClean = orderedJsonStringify(cleanValueProperties(existing))
+			const seededClean = orderedJsonStringify(cleanValueProperties(seeded))
+			if (localClean !== seededClean) {
+				pendingUrlPayload = seeded
+				urlConflictModalOpen = true
+			}
+		} else {
+			scriptHandle.draft = seeded
+			sendUserToast('Loaded from URL')
 		}
 	}
+
+	function onUrlConflictUseUrl() {
+		if (pendingUrlPayload) {
+			scriptHandle.draft = pendingUrlPayload
+			sendUserToast('Loaded from URL')
+		}
+		pendingUrlPayload = undefined
+		urlConflictModalOpen = false
+	}
+	function onUrlConflictKeepLocal() {
+		pendingUrlPayload = undefined
+		urlConflictModalOpen = false
+	}
+
+	let _urlHashSyncTimeout: number | undefined
+	$effect(() => {
+		const draft = scriptHandle.draft
+		if (!draft) return
+		// Gate while the conflict modal is open so we don't overwrite the URL
+		// payload before the user has decided.
+		if (urlConflictModalOpen) return
+		readFieldsRecursively(draft)
+		if (typeof window === 'undefined') return
+		if (_urlHashSyncTimeout) clearTimeout(_urlHashSyncTimeout)
+		_urlHashSyncTimeout = setTimeout(() => {
+			const snapshot = $state.snapshot(scriptHandle.draft)
+			if (!snapshot) return
+			const url = new URL(window.location.href)
+			url.hash = encodeState(snapshot)
+			window.history.replaceState(window.history.state, '', url.toString())
+		}, 500)
+	})
+	// === END TEMP URL-HASH SYNC ===
 
 	async function loadTemplate(): Promise<void> {
 		if (urlScript) return
@@ -191,6 +244,14 @@
 		}
 	})
 </script>
+
+<!-- TEMP URL-HASH SYNC: conflict modal (remove with future PR) -->
+<LocalDraftStaleModal
+	open={urlConflictModalOpen}
+	cause="url"
+	onLoadLatest={onUrlConflictUseUrl}
+	onKeepDraft={onUrlConflictKeepLocal}
+/>
 
 {#if scriptHandle.draft}
 	<ScriptBuilder
