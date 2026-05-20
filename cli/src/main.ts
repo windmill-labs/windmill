@@ -48,6 +48,8 @@ import token from "./commands/token/token.ts";
 import generateMetadata from "./commands/generate-metadata/generate-metadata.ts";
 import docs from "./commands/docs/docs.ts";
 import config from "./commands/config/config.ts";
+import datatable from "./commands/datatable/datatable.ts";
+import ducklake from "./commands/ducklake/ducklake.ts";
 import { fetchVersion } from "./core/context.ts";
 
 export {
@@ -71,6 +73,8 @@ export {
   dev,
   docs,
   config,
+  datatable,
+  ducklake,
   hubPull,
   pull,
   push,
@@ -201,6 +205,8 @@ const command = new Command()
   .command("generate-metadata", generateMetadata)
   .command("docs", docs)
   .command("config", config)
+  .command("datatable", datatable)
+  .command("ducklake", ducklake)
   .command("version --version", "Show version information")
   .action(async (opts: any) => {
     console.log("CLI version: " + VERSION);
