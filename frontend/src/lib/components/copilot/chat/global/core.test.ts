@@ -53,6 +53,7 @@ vi.mock('$lib/gen', async () => {
 		ScriptService: wrapService(actual.ScriptService, {
 			existsScriptByPath: vi.fn(async () => false),
 			getScriptByPath: vi.fn(),
+			getScriptByPathWithDraft: vi.fn(),
 			listScripts: vi.fn(async () => [])
 		}),
 		FlowService: wrapService(actual.FlowService, {
@@ -227,8 +228,40 @@ describe('global AI tools', () => {
 			summary: 'Hello script',
 			language: 'bun',
 			value: content,
-			isDraft: false
+			isDraft: true
 		})
+	})
+
+	it('reads backend draft-only scripts through the draft-aware endpoint', async () => {
+		const content = 'export async function main() {\n\treturn "db draft"\n}'
+		vi.mocked(ScriptService.getScriptByPathWithDraft).mockResolvedValueOnce({
+			hash: 'draft-hash',
+			path: 'f/scripts/backend-draft',
+			summary: 'Backend draft',
+			description: '',
+			content,
+			language: 'bun',
+			draft_only: true
+		} as any)
+
+		const raw = await callGlobalTool('read_workspace_item', {
+			type: 'script',
+			path: 'f/scripts/backend-draft'
+		})
+
+		expect(JSON.parse(raw)).toMatchObject({
+			type: 'script',
+			path: 'f/scripts/backend-draft',
+			summary: 'Backend draft',
+			language: 'bun',
+			value: content,
+			isDraft: true
+		})
+		expect(ScriptService.getScriptByPathWithDraft).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'f/scripts/backend-draft'
+		})
+		expect(ScriptService.getScriptByPath).not.toHaveBeenCalled()
 	})
 
 	it('reads a live UserDraft editor baseline as current context without marking it draft', async () => {
@@ -631,7 +664,7 @@ describe('global AI tools', () => {
 				schedule: '0 0 12 * * *',
 				timezone: 'UTC'
 			}),
-			isDraft: false
+			isDraft: true
 		})
 	})
 
@@ -794,7 +827,7 @@ describe('global AI tools', () => {
 		})
 		const item = JSON.parse(raw)
 
-		expect(item.isDraft).toBe(false)
+		expect(item.isDraft).toBe(true)
 		expect(item.value).toMatchObject({
 			modules: [
 				{

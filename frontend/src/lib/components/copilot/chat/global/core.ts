@@ -25,6 +25,7 @@ import type {
 	ListableVariable,
 	NewSchedule,
 	NewScript,
+	NewScriptWithDraft,
 	Schedule,
 	Script,
 	ScriptLang
@@ -523,15 +524,28 @@ function itemMatchesPathPrefix(
 	return !pathPrefix || item.path.startsWith(pathPrefix)
 }
 
-function scriptToItem(script: Script, includeValue: boolean): WorkspaceItem {
+type ScriptItemSource = Pick<NewScript, 'path' | 'summary' | 'language' | 'content'> & {
+	draft_only?: boolean
+}
+
+function scriptToItem(
+	script: ScriptItemSource,
+	includeValue: boolean,
+	isDraft = script.draft_only === true
+): WorkspaceItem {
 	return {
 		type: 'script',
 		path: script.path,
 		summary: script.summary,
 		language: script.language,
 		value: includeValue ? script.content : undefined,
-		isDraft: false
+		isDraft
 	}
+}
+
+function scriptWithDraftToItem(script: NewScriptWithDraft, includeValue: boolean): WorkspaceItem {
+	const draft = script.draft
+	return scriptToItem(draft ?? script, includeValue, draft !== undefined || script.draft_only === true)
 }
 
 function flowToItem(flow: Flow, includeValue: boolean): WorkspaceItem {
@@ -964,7 +978,10 @@ async function readWorkspaceItem(
 ): Promise<WorkspaceItem> {
 	switch (type) {
 		case 'script':
-			return scriptToItem(await ScriptService.getScriptByPath({ workspace, path }), true)
+			return scriptWithDraftToItem(
+				await ScriptService.getScriptByPathWithDraft({ workspace, path }),
+				true
+			)
 		case 'flow':
 			return flowToItem(await FlowService.getFlowByPath({ workspace, path }), true)
 		case 'schedule':
@@ -1322,6 +1339,14 @@ export const globalTools: Tool<{}>[] = [
 				toolCallbacks.setToolStatus(toolId, { content: message, error: message })
 				return JSON.stringify({ success: false, error: message })
 			}
+			const draftItem = getGlobalDraft(workspace, parsed.type, parsed.path, parsed.trigger_kind)
+			if (draftItem) {
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Read AI draft ${parsed.type} "${parsed.path}"`
+				})
+				return JSON.stringify(serializeWorkspaceItemForRead(draftItem), null, 2)
+			}
+
 			const currentItem = getGlobalCurrentItem(
 				workspace,
 				parsed.type,
