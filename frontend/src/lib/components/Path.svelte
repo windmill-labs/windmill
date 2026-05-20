@@ -461,7 +461,7 @@
 								}
 							}
 						}
-						{disabled}
+						disabled={nameDisabled}
 					/>
 				</div>
 			{/if}
