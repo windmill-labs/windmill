@@ -23,13 +23,28 @@ const DEFAULT_USER = "wmill";
 const DEFAULT_PORT_RANGE_START = 5433;
 const DEFAULT_PORT_RANGE_END = 5500;
 
-interface ServeOpts extends GlobalOptions {
+export interface ServeOpts extends GlobalOptions {
   name?: string;
   port?: number;
   host?: string;
 }
 
-export async function serve(opts: ServeOpts): Promise<void> {
+export interface ServeHandle {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  datatableName: string;
+  connectionString: string;
+  close: () => Promise<void>;
+}
+
+/**
+ * Bind the Postgres-wire proxy and return once it's accepting connections.
+ * Caller is responsible for calling `handle.close()` when done. Used by both
+ * `serve` (block on signal) and `psql` (block on child process exit).
+ */
+export async function startServe(opts: ServeOpts): Promise<ServeHandle> {
   const name = opts.name ?? "main";
   const host = opts.host ?? "127.0.0.1";
 
@@ -74,16 +89,34 @@ export async function serve(opts: ServeOpts): Promise<void> {
 
   await new Promise<void>((resolve) => server.listen(port, host, () => resolve()));
 
-  const connStr = `postgresql://${DEFAULT_USER}:${password}@${host}:${port}/${name}`;
-  log.info(colors.gray(`Serving datatable '${name}' via Postgres wire protocol`));
+  return {
+    host,
+    port,
+    user: DEFAULT_USER,
+    password,
+    datatableName: name,
+    connectionString: `postgresql://${DEFAULT_USER}:${password}@${host}:${port}/${name}`,
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        // Force-resolve if open client connections keep the server from closing.
+        setTimeout(resolve, 1000).unref();
+      }),
+  };
+}
+
+export async function serve(opts: ServeOpts): Promise<void> {
+  const handle = await startServe(opts);
+
+  log.info(colors.gray(`Serving datatable '${handle.datatableName}' via Postgres wire protocol`));
   log.info("");
-  log.info(`  ${colors.bold("psql")} '${connStr}'`);
+  log.info(`  ${colors.bold("psql")} '${handle.connectionString}'`);
   log.info("");
   log.info(colors.gray("Press Ctrl+C to stop."));
 
   const shutdown = () => {
     log.info(colors.gray("\nShutting down..."));
-    server.close(() => process.exit(0));
+    handle.close().finally(() => process.exit(0));
     // Force-exit if connections linger.
     setTimeout(() => process.exit(0), 1000).unref();
   };

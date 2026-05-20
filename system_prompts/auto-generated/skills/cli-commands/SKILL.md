@@ -87,6 +87,9 @@ datatable related commands
 - `datatable serve` - Serve a datatable as a Postgres-wire endpoint (psql, DBeaver, …
   - `--port <port:number>` - Port to listen on (default: first free port in 5433-5500)
   - `--host <host:string>` - Bind address (default: 127.0.0.1)
+- `datatable psql` - Start a serve listener and launch psql connected to it",
+  - `--port <port:number>` - Port the proxy listens on (default: first free port in 5433-5500)
+  - `--host <host:string>` - Bind address for the proxy (default: 127.0.0.1)
 
 ### dependencies
 
