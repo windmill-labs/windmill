@@ -46,6 +46,24 @@ pub struct ProxyRequest {
     pub body: Vec<u8>,
 }
 
+/// How the API proxy should execute a request for a provider.
+///
+/// Most providers can be represented as a transformed HTTP request. Google AI
+/// and Bedrock need native execution because their proxy paths also transform
+/// responses or call an SDK rather than forwarding an HTTP request directly.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProxyExecutionMode {
+    HttpForward,
+    NativeGoogleAi,
+    NativeAwsBedrock,
+}
+
+impl ProxyExecutionMode {
+    pub fn uses_query_builder_proxy(self) -> bool {
+        matches!(self, Self::HttpForward)
+    }
+}
+
 pub fn supports_openai_compatible_proxy(provider: &AIProvider) -> bool {
     matches!(
         provider,
@@ -60,8 +78,24 @@ pub fn supports_openai_compatible_proxy(provider: &AIProvider) -> bool {
     )
 }
 
+pub fn proxy_execution_mode(provider: &AIProvider) -> ProxyExecutionMode {
+    match provider {
+        AIProvider::OpenAI
+        | AIProvider::AzureOpenAI
+        | AIProvider::Anthropic
+        | AIProvider::Mistral
+        | AIProvider::DeepSeek
+        | AIProvider::Groq
+        | AIProvider::OpenRouter
+        | AIProvider::TogetherAI
+        | AIProvider::CustomAI => ProxyExecutionMode::HttpForward,
+        AIProvider::GoogleAI => ProxyExecutionMode::NativeGoogleAi,
+        AIProvider::AWSBedrock => ProxyExecutionMode::NativeAwsBedrock,
+    }
+}
+
 pub fn supports_query_builder_proxy(provider: &AIProvider) -> bool {
-    supports_openai_compatible_proxy(provider) || matches!(provider, AIProvider::Anthropic)
+    proxy_execution_mode(provider).uses_query_builder_proxy()
 }
 
 pub fn build_openai_compatible_proxy_request(args: &ProxyBuildArgs<'_>) -> Result<ProxyRequest> {
@@ -180,10 +214,32 @@ mod tests {
 
     #[test]
     fn query_builder_proxy_support_includes_anthropic() {
-        assert!(supports_query_builder_proxy(&AIProvider::OpenAI));
-        assert!(supports_query_builder_proxy(&AIProvider::Anthropic));
-        assert!(!supports_query_builder_proxy(&AIProvider::GoogleAI));
-        assert!(!supports_query_builder_proxy(&AIProvider::AWSBedrock));
+        let cases = [
+            (AIProvider::OpenAI, ProxyExecutionMode::HttpForward),
+            (AIProvider::AzureOpenAI, ProxyExecutionMode::HttpForward),
+            (AIProvider::Anthropic, ProxyExecutionMode::HttpForward),
+            (AIProvider::Mistral, ProxyExecutionMode::HttpForward),
+            (AIProvider::DeepSeek, ProxyExecutionMode::HttpForward),
+            (AIProvider::Groq, ProxyExecutionMode::HttpForward),
+            (AIProvider::OpenRouter, ProxyExecutionMode::HttpForward),
+            (AIProvider::TogetherAI, ProxyExecutionMode::HttpForward),
+            (AIProvider::CustomAI, ProxyExecutionMode::HttpForward),
+            (AIProvider::GoogleAI, ProxyExecutionMode::NativeGoogleAi),
+            (AIProvider::AWSBedrock, ProxyExecutionMode::NativeAwsBedrock),
+        ];
+
+        for (provider, expected_mode) in cases {
+            let mode = proxy_execution_mode(&provider);
+            assert_eq!(
+                mode, expected_mode,
+                "unexpected proxy mode for {provider:?}"
+            );
+            assert_eq!(
+                supports_query_builder_proxy(&provider),
+                mode.uses_query_builder_proxy(),
+                "query-builder support drifted for {provider:?}"
+            );
+        }
     }
 
     #[test]
