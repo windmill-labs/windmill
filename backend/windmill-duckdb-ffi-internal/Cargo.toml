@@ -11,6 +11,9 @@ rust_decimal = "1.37.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
 
+[dev-dependencies]
+tempfile = "3"
+
 # cdylib: the artifact loaded dynamically by the worker via libloading (must
 # stay dynamic — see README_DEV.md). rlib: lets `cargo test` build the unit
 # test harness; it is an extra artifact and does not change how the worker
