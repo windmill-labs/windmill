@@ -27,8 +27,8 @@ use windmill_queue::CanceledBy;
 use crate::{
     common::{
         build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
-        get_reserved_variables, read_result, resolve_nsjail_timeout, start_child_process,
-        DEV_CONF_NSJAIL,
+        get_reserved_variables, read_result, resolve_nsjail_timeout, resolve_nsjail_tmpfs_size,
+        start_child_process, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
@@ -603,6 +603,10 @@ pub async fn handle_csharp_job(
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace(
+                    "{NSJAIL_TMPFS_SIZE}",
+                    &resolve_nsjail_tmpfs_size(500_000_000).await,
+                )
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());

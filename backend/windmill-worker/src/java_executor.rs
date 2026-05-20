@@ -23,7 +23,8 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
-        read_result, resolve_nsjail_timeout, start_child_process, OccupancyMetrics,
+        read_result, resolve_nsjail_timeout, resolve_nsjail_tmpfs_size, start_child_process,
+        OccupancyMetrics,
     },
     handle_child, is_sandboxing_enabled, read_ee_registry_bool_with_workspace_override,
     read_ee_registry_with_workspace_override,
@@ -669,6 +670,10 @@ async fn run<'a>(
                 .replace("{SHARED_MOUNT}", &shared_mount)
                 // .replace("{CACHED_TARGET}", &shared_mount)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace(
+                    "{NSJAIL_TMPFS_SIZE}",
+                    &resolve_nsjail_tmpfs_size(500_000_000).await,
+                )
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
         let mut cmd = Command::new(NSJAIL_PATH.as_str());
