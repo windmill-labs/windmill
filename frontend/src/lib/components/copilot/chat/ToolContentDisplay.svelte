@@ -74,6 +74,33 @@
 			console.error('Failed to copy:', err)
 		}
 	}
+
+	// Only draw the bottom fade when the content actually overflows and the
+	// user hasn't scrolled to the bottom. `showFade` is the parent's intent;
+	// `canScrollDown` is the live measurement on the inner scroll container.
+	let scrollEl: HTMLDivElement | undefined = $state()
+	let canScrollDown = $state(false)
+	function updateCanScrollDown() {
+		if (!scrollEl) {
+			canScrollDown = false
+			return
+		}
+		canScrollDown = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight > 1
+	}
+
+	// Mount-time + content-change measurement via ResizeObserver. The
+	// observer fires on initial observe (catches first paint) and on every
+	// size change of the scroll container or its content (catches streaming
+	// JSON growing past max-h-28). User scrolls fire `onscroll` directly.
+	$effect(() => {
+		if (!scrollEl) return
+		updateCanScrollDown()
+		const ro = new ResizeObserver(updateCanScrollDown)
+		ro.observe(scrollEl)
+		const inner = scrollEl.firstElementChild
+		if (inner) ro.observe(inner)
+		return () => ro.disconnect()
+	})
 </script>
 
 {#if showWhileLoading || (!loading && hasContent) || streaming}
@@ -114,12 +141,16 @@
 			<div
 				class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded overflow-hidden relative"
 			>
-				<div class="p-3 overflow-x-auto max-h-28 overflow-y-auto">
+				<div
+					bind:this={scrollEl}
+					onscroll={updateCanScrollDown}
+					class="p-3 overflow-x-auto max-h-28 overflow-y-auto"
+				>
 					<pre class="text-2xs text-primary whitespace-pre-wrap"
 						>{formatJson($state.snapshot(content))}</pre
 					>
 				</div>
-				{#if showFade}
+				{#if showFade && canScrollDown}
 					<div
 						class="absolute bottom-0 left-0 right-0 h-16 pointer-events-none bg-gradient-to-t from-surface-secondary via-surface-secondary/70 via-surface-secondary/40 to-transparent"
 					></div>
