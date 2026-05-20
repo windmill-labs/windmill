@@ -36,17 +36,29 @@
 			if (existing.paths && now - existing.at < PATH_LIST_TTL_MS) return existing.paths
 			if (existing.pending) return existing.pending
 		}
-		const pending = (async () => {
+		// `pending` is referenced inside the IIFE after `await`, by which point
+		// the outer assignment has run — the definite-assignment assertion
+		// silences TS's flow analysis.
+		let pending!: Promise<string[]>
+		pending = (async () => {
 			try {
 				const res = await PathAutocompleteService.listPathAutocompletePaths({ workspace, force })
 				const paths = res.paths ?? []
-				pathListCache.set(workspace, { at: Date.now(), paths, pending: null })
-				// Only clear the force flag once a forced fetch has actually
-				// landed fresh data, so a failed retry still forces.
-				forceNextFetch.delete(workspace)
+				// Only write back if this promise is still the current one. A
+				// pre-invalidate fetch resolving after a forced refresh has
+				// started must not clobber the in-flight forced result.
+				if (pathListCache.get(workspace)?.pending === pending) {
+					pathListCache.set(workspace, { at: Date.now(), paths, pending: null })
+				}
+				// Only clear the force flag when this fetch itself was forced,
+				// so a stale in-flight non-forced fetch can't satisfy the
+				// invalidation. A failed retry still forces.
+				if (force) forceNextFetch.delete(workspace)
 				return paths
 			} catch (_e) {
-				pathListCache.delete(workspace)
+				if (pathListCache.get(workspace)?.pending === pending) {
+					pathListCache.delete(workspace)
+				}
 				return []
 			}
 		})()
