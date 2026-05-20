@@ -6,6 +6,8 @@
 	import {
 		AlertTriangle,
 		ArrowDown,
+		ChevronDown,
+		ChevronsRight,
 		CheckIcon,
 		HistoryIcon,
 		Hourglass,
@@ -24,7 +26,6 @@
 	import ProviderModelSelector from './ProviderModelSelector.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
-	import Select from '$lib/components/select/Select.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import { twMerge } from 'tailwind-merge'
@@ -37,11 +38,14 @@
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
 	const aiChatManager = getAiChatManager()
-	const autonomyModeItems: { label: string; value: AIAutonomyMode }[] = [
-		{ label: 'Default', value: AIAutonomyMode.DEFAULT },
-		{ label: 'Accept edits', value: AIAutonomyMode.ACCEPT_EDIT },
-		{ label: 'Yolo', value: AIAutonomyMode.YOLO }
+	const autonomyModeOptions: { label: string; mode: AIAutonomyMode }[] = [
+		{ label: 'auto accept off', mode: AIAutonomyMode.DEFAULT },
+		{ label: 'auto accept on', mode: AIAutonomyMode.ACCEPT_EDIT },
+		{ label: 'yolo on', mode: AIAutonomyMode.YOLO }
 	]
+	const autonomyModeLabel = (mode: AIAutonomyMode) =>
+		autonomyModeOptions.find((option) => option.mode === mode)?.label ??
+		autonomyModeOptions[0].label
 
 	let {
 		messages,
@@ -496,18 +500,40 @@
 							</Popover>
 						{/if}
 						{#if showAutonomyModeSelector}
-							<Select
-								items={autonomyModeItems}
-								bind:value={
-									() => aiChatManager.autonomyMode,
-									(mode) => aiChatManager.setAutonomyMode(mode ?? AIAutonomyMode.DEFAULT)
-								}
-								size="sm"
-								class="w-[118px]"
-								inputClass="!h-7 !py-0 !text-2xs"
-								listAutoWidth={false}
-								tooltip={autonomyModeTooltip}
-							/>
+							<div class="min-w-0">
+								<Popover class="max-w-full">
+									{#snippet trigger()}
+										<div
+											class="text-primary text-xs flex flex-row items-center font-normal gap-0.5 border px-1 rounded-lg"
+											title={autonomyModeTooltip}
+										>
+											<ChevronsRight size={13} class="text-accent shrink-0" />
+											<span class="truncate">{autonomyModeLabel(aiChatManager.autonomyMode)}</span>
+											<div class="shrink-0">
+												<ChevronDown size={16} />
+											</div>
+										</div>
+									{/snippet}
+									{#snippet content({ close })}
+										<div class="flex flex-col gap-1 p-1 min-w-32">
+											{#each autonomyModeOptions as option (option.mode)}
+												<button
+													class={twMerge(
+														'text-left text-xs hover:bg-surface-hover rounded-md p-1 font-normal',
+														aiChatManager.autonomyMode === option.mode && 'bg-surface-hover'
+													)}
+													onclick={() => {
+														aiChatManager.setAutonomyMode(option.mode)
+														close()
+													}}
+												>
+													{option.label}
+												</button>
+											{/each}
+										</div>
+									{/snippet}
+								</Popover>
+							</div>
 						{/if}
 						{#if aiChatManager.autonomyMode === AIAutonomyMode.YOLO && aiChatManager.autoAcceptToolConfirmationsAvailable}
 							<Tooltip small placement="top">
