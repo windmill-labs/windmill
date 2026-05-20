@@ -371,7 +371,10 @@ fn resolve_duckdb_memory_limit() -> Option<String> {
             return Some(v.to_string());
         }
     }
-    let bytes = get_memory()?;
+    cgroup_bytes_to_duckdb_memory_limit(get_memory()?)
+}
+
+fn cgroup_bytes_to_duckdb_memory_limit(bytes: i64) -> Option<String> {
     if bytes <= 0 || bytes >= CGROUP_UNLIMITED_THRESHOLD {
         return None;
     }
@@ -828,6 +831,44 @@ pub struct Arg {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cgroup_bytes_unlimited_or_invalid_returns_none() {
+        assert_eq!(cgroup_bytes_to_duckdb_memory_limit(0), None);
+        assert_eq!(cgroup_bytes_to_duckdb_memory_limit(-1), None);
+        // 1 PiB sentinel: cgroup v1 reports ~i64::MAX when uncapped.
+        assert_eq!(
+            cgroup_bytes_to_duckdb_memory_limit(CGROUP_UNLIMITED_THRESHOLD),
+            None
+        );
+    }
+
+    #[test]
+    fn cgroup_bytes_real_values_take_80_percent() {
+        // 1 GiB -> 80% -> 819 MiB (floored to MiB)
+        assert_eq!(
+            cgroup_bytes_to_duckdb_memory_limit(1024 * 1024 * 1024),
+            Some("819MiB".to_string())
+        );
+        // 4 GiB -> 3276 MiB
+        assert_eq!(
+            cgroup_bytes_to_duckdb_memory_limit(4 * 1024 * 1024 * 1024),
+            Some("3276MiB".to_string())
+        );
+    }
+
+    #[test]
+    fn cgroup_bytes_tiny_values_floored_to_64mib() {
+        // Tiny cgroup must not produce a 0/unusable limit.
+        assert_eq!(
+            cgroup_bytes_to_duckdb_memory_limit(1024 * 1024),
+            Some("64MiB".to_string())
+        );
+        assert_eq!(
+            cgroup_bytes_to_duckdb_memory_limit(1),
+            Some("64MiB".to_string())
+        );
+    }
 
     // Tests for parse_attach_db_resource function
     #[test]
