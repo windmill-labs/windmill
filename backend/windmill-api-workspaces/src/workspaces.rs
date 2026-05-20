@@ -3294,15 +3294,6 @@ async fn set_environment_variable(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    // Reserved for built-in `%%WM_*%%` contextual variables that SQL executors
-    // substitute raw into queries — see windmill_common::variables.
-    if windmill_common::variables::is_reserved_wm_env_name(&name) {
-        return Err(Error::BadRequest(format!(
-            "Environment variable name `{}` is reserved for built-in `WM_*` contextual variables",
-            name
-        )));
-    }
-
     let mut tx = db.begin().await?;
 
     match value {
