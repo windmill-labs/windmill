@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { AlertTriangle } from 'lucide-svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { aiChatManager } from './AIChatManager.svelte'
+	import { getContext } from 'svelte'
+	import { AIChatManager, aiChatManager as singletonAiChatManager } from './AIChatManager.svelte'
+
+	const aiChatManager = getContext<AIChatManager>('aiChatManager') ?? singletonAiChatManager
 	import DefaultDatabaseSelector from '$lib/components/raw_apps/DefaultDatabaseSelector.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { createDatatablesResource } from '$lib/components/raw_apps/datatableUtils.svelte'

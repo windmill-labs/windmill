@@ -30,10 +30,12 @@
 		enterpriseLicense,
 		superadmin,
 		userStore,
+		userWorkspaces,
 		usersWorkspaceStore,
 		workspaceStore,
 		isCriticalAlertsUIOpen
 	} from '$lib/stores'
+	import { switchWorkspace } from '$lib/storeUtils'
 	import { sendUserToast } from '$lib/toast'
 	import { clone, emptyString, encodeState, hasUnsavedChanges } from '$lib/utils'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
@@ -1542,11 +1544,24 @@
 									unifiedSize="md"
 									btnClasses="mt-2"
 									on:click={async () => {
-										await WorkspaceService.archiveWorkspace({ workspace: $workspaceStore ?? '' })
-										sendUserToast(`Archived workspace ${$workspaceStore}`)
-										workspaceStore.set(undefined)
-										usersWorkspaceStore.set(undefined)
-										goto('/user/workspaces')
+										const ws = $workspaceStore ?? ''
+										// Land on the parent workspace if this is a fork and the
+										// parent is still accessible — otherwise fall back to the
+										// workspace picker.
+										const parentId = $userWorkspaces.find((w) => w.id === ws)?.parent_workspace_id
+										const parentStillAccessible = !!(
+											parentId && $userWorkspaces.find((w) => w.id === parentId)
+										)
+										await WorkspaceService.archiveWorkspace({ workspace: ws })
+										sendUserToast(`Archived workspace ${ws}`)
+										if (parentStillAccessible && parentId) {
+											switchWorkspace(parentId)
+											await goto('/')
+										} else {
+											workspaceStore.set(undefined)
+											usersWorkspaceStore.set(undefined)
+											await goto('/user/workspaces')
+										}
 									}}
 								>
 									Archive workspace

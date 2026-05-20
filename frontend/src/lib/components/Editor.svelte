@@ -1829,6 +1829,25 @@
 	$effect(() => {
 		lang = scriptLangToEditorLang(scriptLang)
 	})
+
+	// Sync external `code` prop mutations into Monaco's model. Without
+	// this, parents that pass `code={...}` (no bind) — e.g. each inline
+	// rawscript in the flow editor — can mutate the prop and never see
+	// the change reflected in Monaco. The `getValue() !== code` guard
+	// keeps the user's caret intact when the change actually originated
+	// from typing inside Monaco (which propagates `code` back via the
+	// `$bindable` and re-fires this effect with `code === getValue()`).
+	let lastExternalCodeSync = code
+	$effect(() => {
+		if (code === lastExternalCodeSync) return
+		lastExternalCodeSync = code
+		if (!editor) return
+		untrack(() => {
+			if (editor!.getValue() !== code) {
+				editor!.setValue(code ?? '')
+			}
+		})
+	})
 	$effect(() => {
 		filePath = computePath(path)
 	})

@@ -2,7 +2,7 @@
 	import { Drawer, DrawerContent } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { isMac, userPathPrefix } from '$lib/utils'
-	import { editPathFor, invalidate as invalidatePicker } from '$lib/components/workspacePicker'
+	import { editPathFor } from '$lib/components/workspacePicker'
 	import { invalidateWorkspacePaths } from '$lib/components/PathNameAutocomplete.svelte'
 
 	import { AppService, DraftService, type Policy } from '$lib/gen'
@@ -124,6 +124,7 @@
 		onOpenYamlEditor?: () => void
 		sidebarCollapsed?: boolean
 		onToggleSidebar?: () => void
+		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
 	}
 
 	let {
@@ -147,7 +148,8 @@
 		onRedo = undefined,
 		onOpenYamlEditor = undefined,
 		sidebarCollapsed = false,
-		onToggleSidebar = undefined
+		onToggleSidebar = undefined,
+		onNavigate = undefined
 	}: Props = $props()
 
 	let newEditedPath = $state(
@@ -365,7 +367,6 @@
 				css
 			}
 		})
-		invalidatePicker($workspaceStore!, 'app')
 		invalidateWorkspacePaths($workspaceStore!)
 		savedApp = {
 			summary: summary,
@@ -913,7 +914,7 @@
 			savedPath={appPath || newPath || undefined}
 			kind="app"
 			raw_app
-			onNavigate={(item) => goto(editPathFor(item))}
+			onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
 		/>
 		<div></div>
 	</div>

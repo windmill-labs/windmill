@@ -63,7 +63,7 @@
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
 
 	import EditorHeader from '$lib/components/EditorHeader.svelte'
-	import { editPathFor, invalidate as invalidatePicker } from '$lib/components/workspacePicker'
+	import { editPathFor } from '$lib/components/workspacePicker'
 	import { invalidateWorkspacePaths } from '$lib/components/PathNameAutocomplete.svelte'
 	import { goto } from '$app/navigation'
 	import HideButton from './settingsPanel/HideButton.svelte'
@@ -109,6 +109,7 @@
 		onHideRightPanel?: () => void
 		onHideLeftPanel?: () => void
 		onHideBottomPanel?: () => void
+		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
 	}
 
 	let {
@@ -129,7 +130,8 @@
 		onShowBottomPanel,
 		onHideLeftPanel,
 		onHideRightPanel,
-		onHideBottomPanel
+		onHideBottomPanel,
+		onNavigate = undefined
 	}: Props = $props()
 
 	/** Mirror of the path the user is editing in the pen popover. Initialized
@@ -316,7 +318,6 @@
 				preserve_on_behalf_of: preserveOnBehalfOf || undefined
 			}
 		})
-		invalidatePicker($workspaceStore!, 'app')
 		invalidateWorkspacePaths($workspaceStore!)
 		savedApp = {
 			summary: $summary,
@@ -1013,7 +1014,7 @@
 			bind:path={newEditedPath}
 			savedPath={$appPath || newPath || undefined}
 			kind="app"
-			onNavigate={(item) => goto(editPathFor(item))}
+			onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
 		/>
 		<div class="flex gap-2 {compactTopbar ? 'hidden' : ''}">
 			{#if $app}

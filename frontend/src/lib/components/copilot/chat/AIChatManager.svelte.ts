@@ -145,13 +145,18 @@ export class AIChatManager {
 	private userQuestionCallbacks = new Map<string, (choice: string | undefined) => void>()
 	private appDatatablesRefreshTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
+	disabledModes: Partial<Record<AIMode, boolean>> = $state({})
+
 	allowedModes: Record<AIMode, boolean> = $derived({
-		script: this.flowAiChatHelpers === undefined && this.scriptEditorOptions !== undefined,
-		flow: this.flowAiChatHelpers !== undefined,
-		app: this.appAiChatHelpers !== undefined,
-		navigator: true,
-		ask: true,
-		API: true,
+		script:
+			this.flowAiChatHelpers === undefined &&
+			this.scriptEditorOptions !== undefined &&
+			!this.disabledModes.script,
+		flow: this.flowAiChatHelpers !== undefined && !this.disabledModes.flow,
+		app: this.appAiChatHelpers !== undefined && !this.disabledModes.app,
+		navigator: !this.disabledModes.navigator,
+		ask: !this.disabledModes.ask,
+		API: !this.disabledModes.API,
 		// Dev-only gate. See `./global/gate.ts` for how to enable.
 		global: isAIModeVisible(AIMode.GLOBAL)
 	})
@@ -683,6 +688,12 @@ export class AIChatManager {
 		}
 	}
 
+	// Optional pre-flight hook called once per send, after validation but
+	// before any UI state mutates or backend calls go out. Sessions use
+	// this to commit/materialise the workspace (creating a staged fork via
+	// the API) so the first message targets the correct workspace.
+	beforeSend?: () => Promise<void> | void
+
 	sendRequest = async (
 		options: {
 			removeDiff?: boolean
@@ -706,6 +717,13 @@ export class AIChatManager {
 		}
 		if (!this.instructions.trim()) {
 			return
+		}
+		if (this.beforeSend) {
+			try {
+				await this.beforeSend()
+			} catch (e) {
+				console.error('AIChatManager beforeSend hook failed', e)
+			}
 		}
 		try {
 			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []

@@ -17,6 +17,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	import { ChevronLeft, ChevronRight, Folder, Layers, Loader2, User } from 'lucide-svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
+	import WorkspaceItemRow from '$lib/components/WorkspaceItemRow.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import { onMount, untrack } from 'svelte'
 	import {
@@ -30,6 +31,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		type WorkspaceItem,
 		type WorkspaceItemKind
 	} from './workspacePicker'
+	import { globalDraftStore } from '$lib/components/copilot/chat/global/draftStore.svelte'
 
 	type Kind = WorkspaceItemKind
 	type Item = WorkspaceItem
@@ -90,10 +92,11 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	 * mounts under a stationary cursor doesn't clobber `initialHighlight`. */
 	let mouseActive = $state(false)
 
-	// Seed from cache so kinds already fetched in this session render on the
-	// first frame. Read once at mount: melt-ui mounts a fresh picker per
-	// popover open, so workspace changes are picked up at the next open
-	// without needing this seed to be reactive.
+	// Seed from the last fetched snapshot so kinds already fetched in this
+	// session render on the first frame. Each entry is replaced once
+	// `loadKind` returns fresh data — stale-while-revalidate, so deploys and
+	// AI-created drafts surface on the next open without explicit cache
+	// busting.
 	let loaded = $state<Partial<Record<Kind, Item[]>>>(
 		(() => {
 			if (!$workspaceStore) return {}
@@ -109,14 +112,35 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 
 	async function ensureLoaded(kind: Kind) {
 		if (!$workspaceStore) return
-		if (loaded[kind]) return
-		loadingKind[kind] = true
+		// Always re-fetch. If we have nothing cached, show a spinner; if we do,
+		// keep displaying it and quietly swap to fresh data when it lands.
+		if (!loaded[kind]) loadingKind[kind] = true
 		try {
 			const items = await loadKind($workspaceStore, kind)
 			loaded[kind] = items
 		} finally {
 			loadingKind[kind] = false
 		}
+	}
+
+	// AI tools populate `globalDraftStore` with in-memory drafts (the AI may
+	// have edited a flow that hasn't been persisted to the backend yet).
+	// Merge those into the picker so users can navigate to them. Filter to
+	// kinds the picker actually displays.
+	const KIND_TO_DRAFT_TYPE = { flow: 'flow', script: 'script', app: 'app' } as const
+	function aiDraftsForKind(k: Kind): Item[] {
+		if (!$workspaceStore) return []
+		const targetType = KIND_TO_DRAFT_TYPE[k]
+		return globalDraftStore
+			.listDrafts($workspaceStore)
+			.filter((d) => d.type === targetType)
+			.map((d) => ({
+				path: d.path,
+				summary: d.summary ?? '',
+				kind: k,
+				// `raw_app` lives on the draft envelope for legacy/raw-app distinction.
+				raw_app: k === 'app' ? !!(d.value as { files?: unknown })?.files : undefined
+			}))
 	}
 
 	// Fetch the scope's kind on entry to a non-root level. The `'all'` scope
@@ -138,6 +162,17 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		isScope: boolean
 		children: DirNode[]
 		leaves: Item[]
+	}
+
+	/** Merge AI-created in-memory drafts into a kind's list. The AI may have
+	 * scaffolded a script/flow/app via chat tools without the user saving
+	 * yet — those drafts should be navigable from the picker. Existing items
+	 * (same path) win to keep the backend's metadata (summary etc.). */
+	function withAiDrafts(items: Item[], k: Kind): Item[] {
+		const ai = aiDraftsForKind(k)
+		if (ai.length === 0) return items
+		const known = new Set(items.map((it) => it.path))
+		return items.concat(ai.filter((d) => !known.has(d.path)))
 	}
 
 	/** Inject the currently-edited item into a kind's list at its live path,
@@ -207,7 +242,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	 * cached. */
 	function buildIfActive(k: Kind, list: Item[] | undefined): DirNode[] {
 		if (!kinds.includes(k)) return []
-		const items = withCurrent(list ?? [], k)
+		const items = withAiDrafts(withCurrent(list ?? [], k), k)
 		if (items.length === 0) return []
 		return buildTreeFromItems(items)
 	}
@@ -219,7 +254,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	 * one folder hierarchy. Each leaf still carries its real kind, so the row
 	 * icon and `editPathFor` routing still work; folders contain a mix. */
 	const allTree = $derived.by(() => {
-		const merged = kinds.flatMap((k) => withCurrent(loaded[k] ?? [], k))
+		const merged = kinds.flatMap((k) => withAiDrafts(withCurrent(loaded[k] ?? [], k), k))
 		return merged.length === 0 ? [] : buildTreeFromItems(merged)
 	})
 
@@ -255,7 +290,10 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 
 	let allItems = $derived<SearchInput[]>(
 		kinds.flatMap((k) =>
-			withCurrent(loaded[k] ?? [], k).map((it) => ({ ...it, _key: `${k}:${it.path}` }))
+			withAiDrafts(withCurrent(loaded[k] ?? [], k), k).map((it) => ({
+				...it,
+				_key: `${k}:${it.path}`
+			}))
 		)
 	)
 
@@ -528,32 +566,18 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 
 {#snippet leafRow(it: Item, secondary: string, baseClass: string)}
 	{@const key = leafKey(it)}
-	{@const isHl = key === highlightedKey}
-	{@const isCur = isCurrent(it)}
-	<button
-		type="button"
+	<WorkspaceItemRow
+		kind={it.kind}
+		summary={it.summary}
+		{secondary}
+		highlighted={key === highlightedKey}
+		current={isCurrent(it)}
 		id={idFor(key)}
-		role="option"
-		aria-selected={isHl}
-		data-nav-key={key}
-		aria-current={isCur ? 'true' : undefined}
-		class="w-full text-left flex items-center gap-2 px-3 transition-colors {baseClass} {isHl
-			? 'bg-surface-hover'
-			: ''} {isCur ? 'cursor-default text-emphasis font-medium' : ''}"
-		onmousedown={(e) => e.preventDefault()}
+		navKey={key}
+		{baseClass}
 		onclick={() => pick(it)}
 		onmouseenter={() => setHoverHighlight(key)}
-	>
-		<RowIcon kind={it.kind} size={12} />
-		<div class="min-w-0 flex-1">
-			{#if it.summary}
-				<div class="text-xs text-primary truncate">{it.summary}</div>
-				<div class="text-2xs text-secondary font-normal font-mono truncate">{secondary}</div>
-			{:else}
-				<div class="text-xs text-primary font-mono truncate">{secondary}</div>
-			{/if}
-		</div>
-	</button>
+	/>
 {/snippet}
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->

@@ -63,6 +63,7 @@
 			  }
 			| undefined
 		diffDrawer?: DiffDrawer | undefined
+		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
 		/** Initial collapsed state for the file/runnable sidebar. The user's
 		 * toggled preference is persisted under `sidebarStorageKey`; this prop
 		 * only seeds the very first open. */
@@ -84,6 +85,7 @@
 		newPath = undefined,
 		savedApp = $bindable(undefined),
 		diffDrawer = undefined,
+		onNavigate,
 		defaultSidebarCollapsed = false,
 		sidebarStorageKey = 'raw-app-sidebar-collapsed'
 	}: Props = $props()
@@ -964,6 +966,7 @@
 		{data}
 		{runnables}
 		{getBundle}
+		{onNavigate}
 		canUndo={historyManager.canUndo}
 		canRedo={historyManager.canRedo}
 		onUndo={handleUndo}

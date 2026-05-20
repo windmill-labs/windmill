@@ -46,4 +46,7 @@ export interface ScriptBuilderProps {
 	onSeeDetails?: (e: { path: string }) => void
 	onSaveDraftError?: (e: { path: string; error: any }) => void
 	onNavigate?: (item: WorkspaceItem) => void
+	// Forwarded to the underlying ScriptEditor. When true, the right-hand
+	// test/run pane opens collapsed. Used by the session preview.
+	initialTestPanelCollapsed?: boolean
 }
