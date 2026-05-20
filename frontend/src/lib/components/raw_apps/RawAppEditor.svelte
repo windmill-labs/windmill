@@ -28,7 +28,7 @@
 	import { createAppSelectedContext, type AppCodeSelectionElement } from '../copilot/chat/context'
 	import { rawAppLintStore } from './lintStore'
 	import { dbSchemas } from '$lib/stores'
-	import { MousePointerSquareDashed, RefreshCw, Columns2 } from 'lucide-svelte'
+	import { MousePointerSquareDashed, RefreshCw, Columns2, X } from 'lucide-svelte'
 	import DraggableTabs, {
 		type TabItem
 	} from '$lib/components/common/tabs/DraggableTabs.svelte'
@@ -1472,12 +1472,38 @@
 							</div>
 						</Pane>
 						<Pane bind:size={paneBRightSize} minSize={0}>
-							<iframe
-								bind:this={previewIframe}
-								title="App preview"
-								src="/ui_builder/app-preview.html"
-								class="w-full h-full block"
-							></iframe>
+							<div class="h-full w-full flex flex-col">
+								<!-- VS Code-style split: the preview side gets its own
+								     tab header so the user sees "Preview" as a tab
+								     anchored to the right pane (rather than just an
+								     iframe with no label). The X closes the split
+								     (preview goes back to the main tab bar). -->
+								{#if splitWithPreview && activeTabKind !== 'preview'}
+									<div
+										class="flex items-stretch bg-surface-secondary border-l border-border-light flex-shrink-0"
+									>
+										<div
+											class="inline-flex items-center gap-1.5 px-3 h-8 text-xs bg-surface text-primary"
+										>
+											<span>Preview</span>
+											<button
+												type="button"
+												class="opacity-60 hover:opacity-100 rounded hover:bg-surface-hover w-4 h-4 inline-flex items-center justify-center"
+												aria-label="Move preview back into a tab"
+												onclick={toggleSplit}
+											>
+												<X size={10} />
+											</button>
+										</div>
+									</div>
+								{/if}
+								<iframe
+									bind:this={previewIframe}
+									title="App preview"
+									src="/ui_builder/app-preview.html"
+									class="w-full flex-1 block"
+								></iframe>
+							</div>
 						</Pane>
 					</Splitpanes>
 				</div>
