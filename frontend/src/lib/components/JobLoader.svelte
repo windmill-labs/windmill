@@ -15,6 +15,7 @@
 		type OpenFlow
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { WM_LOGS_SKIPPED } from '$lib/consts'
 	import { getContext, onDestroy, tick, untrack } from 'svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
@@ -128,6 +129,37 @@
 			}
 		}
 	})
+
+	function isSkippedLogsValue(logs: string | undefined): boolean {
+		return logs === WM_LOGS_SKIPPED
+	}
+
+	function getResolvedLogs(logs: string | undefined): string {
+		return isSkippedLogsValue(logs) ? '' : (logs ?? '')
+	}
+
+	function mergeLogs(existingLogs: string | undefined, newLogs: string | undefined): string {
+		const existing = getResolvedLogs(existingLogs)
+		const incoming = newLogs ?? ''
+		return existing.length === 0 ? incoming : existing.concat(incoming)
+	}
+
+	function pickMoreCompleteLogs(
+		primaryLogs: string | undefined,
+		fallbackLogs: string | undefined
+	): string {
+		const primary = getResolvedLogs(primaryLogs)
+		const fallback = getResolvedLogs(fallbackLogs)
+		// When neither side has real logs but one was the skipped sentinel, keep
+		// the sentinel so downstream consumers can still lazily resolve logs
+		// instead of treating the job as having genuinely produced none.
+		if (primary.length === 0 && fallback.length === 0) {
+			return isSkippedLogsValue(primaryLogs) || isSkippedLogsValue(fallbackLogs)
+				? WM_LOGS_SKIPPED
+				: ''
+		}
+		return primary.length >= fallback.length ? primary : fallback
+	}
 
 	function clearCurrentId() {
 		if (currentId) {
@@ -251,7 +283,8 @@
 
 	function refreshLogOffset() {
 		if (logOffset == 0) {
-			logOffset = job?.logs?.length ? job.logs?.length + 1 : 0
+			const currentLogs = getResolvedLogs(job?.logs)
+			logOffset = currentLogs.length ? currentLogs.length + 1 : 0
 		}
 	}
 	export async function getLogs() {
@@ -264,7 +297,7 @@
 				logOffset: logOffset
 			})
 
-			if ((job?.logs ?? '').length == 0) {
+			if (getResolvedLogs(job?.logs).length == 0) {
 				job.logs = getUpdate.new_logs ?? ''
 				logOffset = getUpdate.log_offset ?? 0
 			}
@@ -385,11 +418,9 @@
 						if (event.data.completed) {
 							const njob = (event.data as any).job as Job & { result_stream?: string }
 							if (njob) {
-								// Use whichever logs are more complete (longer)
-								const streamedLogs = job?.logs ?? ''
-								const completedLogs = njob.logs ?? ''
-								njob.logs =
-									streamedLogs.length >= completedLogs.length ? streamedLogs : completedLogs
+								// Use whichever logs are more complete (longer), but never
+								// let the WM_LOGS_SKIPPED sentinel win over real logs.
+								njob.logs = pickMoreCompleteLogs(job?.logs, njob.logs)
 								const streamedResult = job?.result_stream ?? ''
 								const completedResult = njob.result_stream ?? ''
 								njob.result_stream =
@@ -451,11 +482,10 @@
 		}
 
 		if (previewJobUpdates.new_logs) {
-			if (logOffset == 0) {
-				job.logs = previewJobUpdates.new_logs ?? ''
-			} else {
-				job.logs = (job?.logs ?? '').concat(previewJobUpdates.new_logs)
-			}
+			job.logs =
+				logOffset == 0
+					? (previewJobUpdates.new_logs ?? '')
+					: mergeLogs(job?.logs, previewJobUpdates.new_logs)
 		}
 
 		if (previewJobUpdates.new_result_stream) {
@@ -500,6 +530,17 @@
 			callbacks?.change?.(job)
 		}
 	}
+	// When a job is fetched with no_logs=true the server omits logs entirely.
+	// Flag it with a sentinel so consumers (the log panel) can tell "logs were
+	// intentionally skipped" apart from "job genuinely produced no logs", and
+	// lazily resolve the real logs on demand.
+	function flagSkippedLogs<T extends Job>(j: T, effectiveNoLogs: boolean): T {
+		if (effectiveNoLogs && !(j as Job & { logs?: string }).logs) {
+			;(j as Job & { logs?: string }).logs = WM_LOGS_SKIPPED
+		}
+		return j
+	}
+
 	async function loadTestJob(id: string, callbacks?: Callbacks): Promise<boolean> {
 		let isCompleted = false
 		if (isCurrentJob(id)) {
@@ -519,23 +560,29 @@
 					})
 
 					if ((previewJobUpdates.running ?? false) || (previewJobUpdates.completed ?? false)) {
-						job = await JobService.getJob({
-							workspace: workspace!,
-							id,
-							noCode,
-							noLogs: onlyResult || noLogs
-						})
+						job = flagSkippedLogs(
+							await JobService.getJob({
+								workspace: workspace!,
+								id,
+								noCode,
+								noLogs: onlyResult || noLogs
+							}),
+							onlyResult || noLogs
+						)
 						callbacks?.change?.(job)
 					}
 
 					updateJobFromProgress(previewJobUpdates, job, callbacks)
 				} else {
-					job = await JobService.getJob({
-						workspace: workspace!,
-						id,
-						noLogs: onlyResult || noLogs,
-						noCode
-					})
+					job = flagSkippedLogs(
+						await JobService.getJob({
+							workspace: workspace!,
+							id,
+							noLogs: onlyResult || noLogs,
+							noCode
+						}),
+						onlyResult || noLogs
+					)
 				}
 				jobUpdateLastFetch = new Date()
 
@@ -628,12 +675,15 @@
 			try {
 				// First load the job to get initial state
 				if ((!job || job.id == '') && !onlyResult) {
-					job = await JobService.getJob({
-						workspace: workspace!,
-						id,
-						noLogs: noLogs,
-						noCode
-					})
+					job = flagSkippedLogs(
+						await JobService.getJob({
+							workspace: workspace!,
+							id,
+							noLogs: noLogs,
+							noCode
+						}),
+						noLogs
+					)
 
 					callbacks?.change?.(job)
 					getActiveRecording()?.recordInitialJob(id, job)
@@ -775,7 +825,7 @@
 									clearCurrentId()
 								} else {
 									const njob = previewJobUpdates.job as Job & { result_stream?: string }
-									njob.logs = job?.logs ?? ''
+									njob.logs = pickMoreCompleteLogs(job?.logs, njob.logs)
 									njob.result_stream = job?.result_stream ?? ''
 									job = njob
 									onJobCompleted(id, job, callbacks)
