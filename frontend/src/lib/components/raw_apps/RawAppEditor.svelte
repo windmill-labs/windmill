@@ -213,33 +213,33 @@
 				? 'file'
 				: 'runnable'
 	)
-	// What's visible. Both iframes and the runnable panel stay mounted so
-	// bundling, preview state, and editor state survive tab switches.
-	// `splitWithPreview` adds the preview pane alongside the active tab; the
-	// active tab's content visibility doesn't change when split toggles.
-	// The preview iframe always lives in Pane B; its visibility is driven by
-	// the pane size, not a separate flag. Source vs runnable swap inside Pane A.
+	// When split is on, the Preview tab moves out of the bar and lives in
+	// the right pane. The user only sees file/runnable tabs in the bar;
+	// the right pane is always preview. When split is off, the Preview
+	// tab is back in the bar like any other tab.
+	const displayedTabs = $derived(
+		splitWithPreview ? tabs.filter((t) => t.id !== PREVIEW_TAB_ID) : tabs
+	)
 	const showSource = $derived(activeTabKind === 'file')
 	const showRunnable = $derived(activeTabKind === 'runnable')
 
-	// Resizable split is handled by an inner Splitpanes. To preserve iframe
-	// state across single↔split toggles we always render the Splitpanes; sizes
-	// are driven by the active tab + split flag. `paneARatio` remembers the
-	// user's drag preference for next time split is enabled.
-	let paneALeftSize = $state(50)
-	let paneBRightSize = $state(50)
+	// Pane sizes for the inner content-area Splitpanes.
+	// - Single mode + preview active: right pane full (preview full width)
+	// - Single mode + file/runnable active: left pane full
+	// - Split mode: both panes visible at the user's preferred ratio
+	let paneALeftSize = $state(100)
+	let paneBRightSize = $state(0)
 	let paneARatio = $state(50)
 	$effect(() => {
-		// Snap sizes when the layout mode (preview/file/runnable + split) changes.
 		void activeTabKind
 		void splitWithPreview
 		untrack(() => {
-			if (activeTabKind === 'preview') {
-				paneALeftSize = 0
-				paneBRightSize = 100
-			} else if (splitWithPreview) {
+			if (splitWithPreview && activeTabKind !== 'preview') {
 				paneALeftSize = paneARatio
 				paneBRightSize = 100 - paneARatio
+			} else if (activeTabKind === 'preview') {
+				paneALeftSize = 0
+				paneBRightSize = 100
 			} else {
 				paneALeftSize = 100
 				paneBRightSize = 0
@@ -247,7 +247,7 @@
 		})
 	})
 	$effect(() => {
-		// While the user drags in split mode, remember the ratio they picked.
+		// Remember the user's drag ratio while in split mode.
 		void paneALeftSize
 		untrack(() => {
 			if (
@@ -343,7 +343,33 @@
 	}
 
 	function reorderTabs(next: TabItem[]) {
-		tabs = next
+		// `next` is `displayedTabs` after the user dropped a tab.
+		// When split is on, the Preview tab isn't in `next`; re-append it
+		// to preserve its slot in the underlying `tabs` array.
+		if (splitWithPreview && !next.some((t) => t.id === PREVIEW_TAB_ID)) {
+			tabs = [...next, previewTab]
+		} else {
+			tabs = next
+		}
+	}
+
+	function toggleSplit() {
+		if (splitWithPreview) {
+			splitWithPreview = false
+			return
+		}
+		// Going from single → split. The Preview tab is about to disappear
+		// from the bar; if it's currently active, redirect to the last
+		// file/runnable tab (or stay on preview if none exist — left pane
+		// will be empty until the user opens something).
+		if (activeTabId === PREVIEW_TAB_ID) {
+			const lastUserTab = tabs
+				.slice()
+				.reverse()
+				.find((t) => t.id !== PREVIEW_TAB_ID)
+			if (lastUserTab) activeTabId = lastUserTab.id
+		}
+		splitWithPreview = true
 	}
 	let yamlEditorDrawer: Drawer | undefined = $state(undefined)
 
@@ -1306,7 +1332,7 @@
 		<Pane>
 			<div class="flex flex-col h-full w-full min-h-0">
 				<DraggableTabs
-					{tabs}
+					tabs={displayedTabs}
 					activeId={activeTabId}
 					onSelect={(id) => activateTab(id)}
 					onClose={(id) => closeTab(id)}
@@ -1314,21 +1340,19 @@
 				>
 					{#snippet trailing()}
 						<div class="flex items-center gap-1 px-2">
-							{#if activeTabKind !== 'preview'}
-								<button
-									title={splitWithPreview
-										? 'Hide preview pane'
-										: 'Show preview side-by-side'}
-									aria-label="Toggle split with preview"
-									aria-pressed={splitWithPreview}
-									class={splitWithPreview
-										? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
-										: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
-									onclick={() => (splitWithPreview = !splitWithPreview)}
-								>
-									<Columns2 size={14} />
-								</button>
-							{/if}
+							<button
+								title={splitWithPreview
+									? 'Move preview back into a tab'
+									: 'Pin preview to the right'}
+								aria-label="Toggle split with preview"
+								aria-pressed={splitWithPreview}
+								class={splitWithPreview
+									? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
+									: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
+								onclick={toggleSplit}
+							>
+								<Columns2 size={14} />
+							</button>
 							<button
 								class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary px-2 h-7 rounded-md text-xs"
 								title="Switch bundler"
