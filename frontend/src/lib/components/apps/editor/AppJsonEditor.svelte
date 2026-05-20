@@ -5,6 +5,7 @@
 
 	import JsonEditor from '../../JsonEditor.svelte'
 	import { AppService, DraftService } from '$lib/gen'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
@@ -45,11 +46,7 @@
 			requestBody: { ...app, value: JSON.parse(code) }
 		})
 		dispatch('change')
-		try {
-			localStorage.removeItem(`app-${path}`)
-		} catch (e) {
-			console.error('error interacting with local storage', e)
-		}
+		UserDraft.remove('app', path)
 		sendUserToast('App deployed')
 	}
 
@@ -63,11 +60,7 @@
 			}
 		})
 		dispatch('change')
-		try {
-			localStorage.removeItem(`app-${path}`)
-		} catch (e) {
-			console.error('error interacting with local storage', e)
-		}
+		UserDraft.remove('app', path)
 		sendUserToast('Draft saved')
 	}
 </script>

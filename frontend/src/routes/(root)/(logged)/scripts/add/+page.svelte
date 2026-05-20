@@ -6,9 +6,18 @@
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
 	import type { Schema } from '$lib/common'
-	import { decodeState, emptySchema, emptyString, sendUserToast } from '$lib/utils'
+	import {
+		cleanValueProperties,
+		decodeState,
+		emptySchema,
+		emptyString,
+		encodeState,
+		orderedJsonStringify,
+		readFieldsRecursively,
+		sendUserToast
+	} from '$lib/utils'
 	import { goto } from '$lib/navigation'
-	import { replaceState } from '$app/navigation'
+	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 	import type { Trigger } from '$lib/components/triggers/utils'
@@ -17,6 +26,7 @@
 	import ScriptEditorSkeleton from '$lib/components/ScriptEditorSkeleton.svelte'
 	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
 	import { isWorkflowAsCode } from '$lib/components/graph/wacToFlow'
+	import { UserDraft } from '$lib/userDraft.svelte'
 
 	type Script = NewScript & {
 		draft_triggers?: Trigger[]
@@ -35,24 +45,45 @@
 	const wacParam = page.url.searchParams.get('wac')
 	const importParam = page.url.searchParams.get('import')
 
+	/** Some pages (run/[...run]'s "Fork" action, workspace_settings'
+	 * error/success-handler template buttons) base64-JSON-encode a NewScript
+	 * payload into the URL hash. That value is an explicit "open this script"
+	 * intent and wins over local autosave, templates, hubs, and YAML imports.
+	 *
+	 * We can't use `decodeState` from utils.ts directly — it fires its own
+	 * "Impossible to parse state" toast on failure, which would noise up the
+	 * UI when the hash isn't a script payload at all (e.g. a route anchor).
+	 */
+	function decodeUrlScript(): Partial<Script> | undefined {
+		const fragment = page.url.hash.startsWith('#') ? page.url.hash.slice(1) : ''
+		if (!fragment) return undefined
+		try {
+			const decoded = JSON.parse(decodeURIComponent(atob(fragment)))
+			if (decoded && typeof decoded === 'object') return decoded as Partial<Script>
+		} catch {
+			// Hash isn't a valid encoded script — ignore.
+		}
+		return undefined
+	}
+	const urlScript = decodeUrlScript()
+	// "+ Script" buttons navigate with ?nodraft=true to signal "start fresh".
+	// Wipe the persisted empty-path autosave and strip the flag from the URL
+	// synchronously so a reload doesn't wipe the freshly-started draft. A
+	// plain reload of /scripts/add (no nodraft) instead restores the
+	// previous session.
+	if (page.url.searchParams.get('nodraft') && typeof window !== 'undefined') {
+		UserDraft.remove('script', '')
+		const url = new URL(window.location.href)
+		url.searchParams.delete('nodraft')
+		window.history.replaceState(window.history.state, '', url.toString())
+	}
+
 	let initialArgs = urlArgs ? decodeState(urlArgs) : (get(initialArgsStore) ?? {})
 	if (get(initialArgsStore)) $initialArgsStore = undefined
 
 	const path = page.url.searchParams.get('path')
 
-	const initialState = page.url.hash != '' ? page.url.hash.slice(1) : undefined
-
 	let scriptBuilder: ScriptBuilder | undefined = $state(undefined)
-
-	function decodeStateAndHandleError(state) {
-		try {
-			const decoded = decodeState(state)
-			return decoded
-		} catch (e) {
-			console.error('Error decoding state', e)
-			return defaultScript()
-		}
-	}
 
 	function defaultScript(): Script {
 		return {
@@ -74,22 +105,78 @@
 		}
 	}
 
-	let script: Script | undefined = $state(
-		templatePath || hubPath
-			? undefined
-			: !path && initialState != undefined
-				? decodeStateAndHandleError(initialState)
-				: defaultScript()
-	)
+	// templatePath/hubPath/import/url-hash flows replace the value before
+	// render, so defaultValue is left undefined for those to avoid flashing a
+	// blank editor.
+	const scriptHandle = UserDraft.use<Script>('script', '', {
+		defaultValue: templatePath || hubPath || urlScript ? undefined : defaultScript()
+	})
+
+	// === BEGIN TEMP URL-HASH SYNC (remove with future PR) ===
+	// Legacy behavior: the URL hash both seeds the editor on load AND stays in
+	// sync with edits (encoded back into the hash, debounced). Asks the user
+	// via modal when the URL payload would clobber an existing local autosave.
+	let urlConflictModalOpen = $state(false)
+	let pendingUrlPayload: Script | undefined = undefined
+
+	if (urlScript) {
+		const seeded = { ...defaultScript(), ...urlScript } as Script
+		const existing = scriptHandle.draft
+		if (existing) {
+			const localClean = orderedJsonStringify(cleanValueProperties(existing))
+			const seededClean = orderedJsonStringify(cleanValueProperties(seeded))
+			if (localClean !== seededClean) {
+				pendingUrlPayload = seeded
+				urlConflictModalOpen = true
+			}
+		} else {
+			scriptHandle.draft = seeded
+			sendUserToast('Loaded from URL')
+		}
+	}
+
+	function onUrlConflictUseUrl() {
+		if (pendingUrlPayload) {
+			scriptHandle.draft = pendingUrlPayload
+			sendUserToast('Loaded from URL')
+		}
+		pendingUrlPayload = undefined
+		urlConflictModalOpen = false
+	}
+	function onUrlConflictKeepLocal() {
+		pendingUrlPayload = undefined
+		urlConflictModalOpen = false
+	}
+
+	let _urlHashSyncTimeout: number | undefined
+	$effect(() => {
+		const draft = scriptHandle.draft
+		if (!draft) return
+		// Gate while the conflict modal is open so we don't overwrite the URL
+		// payload before the user has decided.
+		if (urlConflictModalOpen) return
+		readFieldsRecursively(draft)
+		if (typeof window === 'undefined') return
+		if (_urlHashSyncTimeout) clearTimeout(_urlHashSyncTimeout)
+		_urlHashSyncTimeout = setTimeout(() => {
+			const snapshot = $state.snapshot(scriptHandle.draft)
+			if (!snapshot) return
+			const url = new URL(window.location.href)
+			url.hash = encodeState(snapshot)
+			window.history.replaceState(window.history.state, '', url.toString())
+		}, 500)
+	})
+	// === END TEMP URL-HASH SYNC ===
 
 	async function loadTemplate(): Promise<void> {
+		if (urlScript) return
 		if (templatePath) {
 			try {
 				const template = await ScriptService.getScriptByPath({
 					workspace: $workspaceStore!,
 					path: templatePath
 				})
-				script = {
+				scriptHandle.draft = {
 					...defaultScript(),
 					summary: !emptyString(template.summary) ? `Copy of ${template.summary}` : '',
 					description: template.description,
@@ -99,7 +186,7 @@
 					path: template.path + '_fork'
 				}
 			} catch (err) {
-				script = defaultScript()
+				scriptHandle.draft = defaultScript()
 				console.error('Error loading template', err)
 				sendUserToast('Error loading template: ' + err.message, true)
 			}
@@ -107,12 +194,13 @@
 	}
 
 	async function loadHub(): Promise<void> {
+		if (urlScript) return
 		if (hubPath) {
 			try {
 				const { content, language, summary } = await ScriptService.getHubScriptByPath({
 					path: hubPath
 				})
-				script = {
+				scriptHandle.draft = {
 					...defaultScript(),
 					description: `Fork of ${hubPath}`,
 					content: replaceScriptPlaceholderWithItsValues(hubPath, content),
@@ -121,7 +209,7 @@
 					path: hubPath + '_fork'
 				}
 			} catch (err) {
-				script = defaultScript()
+				scriptHandle.draft = defaultScript()
 				console.error('Error loading script from hub', err)
 				sendUserToast('Error loading script from hub: ' + err.message, true)
 			}
@@ -131,11 +219,11 @@
 	loadHub()
 
 	let importedWacTemplate: 'wac_python' | 'wac_typescript' | undefined = undefined
-	if (importParam && $importScriptStore) {
+	if (!urlScript && importParam && $importScriptStore) {
 		const imported = $importScriptStore
 		$importScriptStore = undefined
 		const isWac = isWorkflowAsCode(imported.content ?? '', imported.language ?? '')
-		script = {
+		scriptHandle.draft = {
 			...defaultScript(),
 			...imported,
 			path: path ?? '',
@@ -157,7 +245,15 @@
 	})
 </script>
 
-{#if script}
+<!-- TEMP URL-HASH SYNC: conflict modal (remove with future PR) -->
+<LocalDraftStaleModal
+	open={urlConflictModalOpen}
+	cause="url"
+	onLoadLatest={onUrlConflictUseUrl}
+	onKeepDraft={onUrlConflictKeepLocal}
+/>
+
+{#if scriptHandle.draft}
 	<ScriptBuilder
 		{initialArgs}
 		bind:this={scriptBuilder}
@@ -178,9 +274,8 @@
 		}}
 		onNavigate={(item) => goto(editPathFor(item))}
 		searchParams={page.url.searchParams}
-		bind:script
+		bind:script={scriptHandle.draft}
 		{showMeta}
-		replaceStateFn={(path) => replaceState(path, page.state)}
 	>
 		<UnsavedConfirmationModal
 			getInitialAndModifiedValues={scriptBuilder?.getInitialAndModifiedValues}

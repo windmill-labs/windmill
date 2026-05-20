@@ -7,7 +7,6 @@
 	import type Drawer from '../common/drawer/Drawer.svelte'
 	import { type Policy, WorkspaceService } from '$lib/gen'
 	import DiffDrawer from '../DiffDrawer.svelte'
-	import { encodeState } from '$lib/utils'
 	import { deepEqual } from 'fast-equals'
 
 	// import { addWmillClient } from './utils'
@@ -179,25 +178,6 @@
 		autoSnapshotInterval: 5 * 60 * 1000 // 5 minutes
 	})
 	historyManager.manualSnapshot(files ?? {}, runnables, summary, data)
-
-	let draftTimeout: number | undefined = undefined
-	function saveFrontendDraft() {
-		draftTimeout && clearTimeout(draftTimeout)
-		draftTimeout = setTimeout(() => {
-			try {
-				localStorage.setItem(
-					path != '' ? `rawapp-${path}` : 'rawapp',
-					encodeState({
-						files,
-						runnables: runnables,
-						data: data
-					})
-				)
-			} catch (err) {
-				console.error(err)
-			}
-		}, 500)
-	}
 
 	let iframe: HTMLIFrameElement | undefined = $state(undefined)
 	let yamlEditorDrawer: Drawer | undefined = $state(undefined)
@@ -414,7 +394,6 @@
 		if (data.datatable !== policy.datatable || data.schema !== policy.schema) {
 			data.datatable = policy.datatable
 			data.schema = policy.schema
-			saveFrontendDraft()
 		}
 	})
 
@@ -655,7 +634,6 @@
 						// Only add if not already present
 						if (!data.tables.includes(newRef)) {
 							data.tables = [...data.tables, newRef]
-							saveFrontendDraft()
 							// Clear the cached schema so it gets refreshed with the new table
 							const resourcePath = `datatable://${datatableName}`
 							delete $dbSchemas[resourcePath]
@@ -685,7 +663,6 @@
 				// Only add if not already present
 				if (!data.tables.includes(newRef)) {
 					data.tables = [...data.tables, newRef]
-					saveFrontendDraft()
 					void aiChatManager.refreshDatatables()
 				}
 			}
@@ -773,9 +750,6 @@
 	}
 
 	let darkMode: boolean = $state(false)
-	$effect(() => {
-		runnables && files && saveFrontendDraft()
-	})
 	$effect(() => {
 		iframe?.addEventListener('load', () => {
 			iframeLoaded = true
@@ -999,7 +973,6 @@
 					dataTableRefs={dataTableRefsObjects}
 					onDataTableRefsChange={(newRefs) => {
 						data.tables = newRefs.map(formatDataTableRef)
-						saveFrontendDraft()
 					}}
 					defaultDatatable={data.datatable}
 					defaultSchema={data.schema}
@@ -1012,7 +985,6 @@
 							datatable,
 							schema
 						}
-						saveFrontendDraft()
 					}}
 					{runnables}
 					{modules}

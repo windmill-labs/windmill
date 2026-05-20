@@ -2,7 +2,7 @@
 
 import { untrack } from 'svelte'
 import { deepEqual } from 'fast-equals'
-import type { StateStore } from './utils'
+import { readFieldsRecursively, type StateStore } from './utils'
 import { resource, watch, type ResourceReturn } from 'runed'
 
 export function withProps<Component, Props>(component: Component, props: Props) {
@@ -575,8 +575,36 @@ export class DebouncedTempValue<T> {
 export function useLocalStorageValue<T>(
 	key: string,
 	defaultValue: T,
-	typ?: 'string' | 'number' | 'boolean'
-): { val: T } {
+	typ?: 'string' | 'number' | 'boolean',
+	options?: {
+		saveInitialValue?: boolean
+		/**
+		 * Coalesce localStorage writes within a sliding window. When set to a
+		 * positive number, repeated mutations within `debounce` ms produce a
+		 * single localStorage write at the end of the window. The in-memory
+		 * `$state` is updated immediately on each change — only the persistence
+		 * side-effect is deferred. Readers of `.val` always see the latest
+		 * value; readers of `localStorage` may see a stale value during the
+		 * window. A pending write fires from a plain `setTimeout`, which
+		 * keeps running across SPA route teardown — only a hard browser tab
+		 * close drops it.
+		 */
+		debounce?: number
+		/**
+		 * Transform applied to the value just before serialisation, on every
+		 * persist (both setter-driven and deep-mutation-driven). The in-memory
+		 * `$state` is left as-is. Useful for injecting per-write metadata
+		 * (timestamps, counters) that must reflect the actual write time, not
+		 * the last `.val =` assignment — deep mutations don't re-run the
+		 * setter, so a timestamp set via `.val =` would otherwise grow stale
+		 * across long editing sessions.
+		 */
+		transformBeforePersist?: (val: T) => T
+	}
+): { val: T; skipNextWriteOnce(): void } {
+	const saveInitialValue = options?.saveInitialValue ?? true
+	const debounceMs = options?.debounce ?? 0
+	const transformBeforePersist = options?.transformBeforePersist
 	const serialize = (val: T) =>
 		typ === 'string' || typ === 'number' || typ === 'boolean' ? String(val) : JSON.stringify(val)
 	const deserialize = (val: string): T => {
@@ -585,17 +613,97 @@ export function useLocalStorageValue<T>(
 		if (typ === 'boolean') return (val === 'true') as any
 		return JSON.parse(val) as T
 	}
+	const persist = (val: T | undefined) => {
+		try {
+			if (val === undefined) {
+				localStorage.removeItem(key)
+			} else {
+				const toStore = transformBeforePersist ? transformBeforePersist(val as T) : (val as T)
+				localStorage.setItem(key, serialize(toStore))
+			}
+		} catch (e) {
+			console.error('useLocalStorageValue: localStorage write failed', e)
+		}
+	}
 
-	if (typeof window === 'undefined') return { val: defaultValue }
+	if (typeof window === 'undefined') return { val: defaultValue, skipNextWriteOnce: () => {} }
 	const savedValue = localStorage.getItem(key)
-	let s = $state(savedValue ? (deserialize(savedValue) as T) : defaultValue)
+	let s = $state<T>(
+		savedValue != null && savedValue !== 'undefined' ? (deserialize(savedValue) as T) : defaultValue
+	)
+
+	// Track the serialized form last written so we can detect deep mutations
+	// (changes that didn't go through the setter) without double-writing on
+	// every setter call. The first effect run sees identical serialized output
+	// and is a no-op (avoids persisting the default value on mount).
+	let lastSerialized: string | undefined = untrack(() =>
+		s === undefined ? undefined : serialize(s)
+	)
+	// When saveInitialValue=false, the first time the value actually changes
+	// (either via the setter or a deep mutation) is treated as "loading the
+	// initial value" rather than a user edit — we update lastSerialized so
+	// future writes are detected, but we don't persist.
+	let skipNextWrite = !saveInitialValue
+
+	// Debounce wrapper. Captures the latest pending value; a follow-up call
+	// within the window replaces the queued payload and resets the timer.
+	let debounceTimer: ReturnType<typeof setTimeout> | undefined
+	let pendingValue: T | undefined
+	const schedulePersist = (val: T | undefined) => {
+		if (debounceMs <= 0) {
+			persist(val)
+			return
+		}
+		pendingValue = val
+		if (debounceTimer != null) clearTimeout(debounceTimer)
+		debounceTimer = setTimeout(() => {
+			debounceTimer = undefined
+			persist(pendingValue)
+			pendingValue = undefined
+		}, debounceMs)
+	}
+
+	$effect(() => {
+		readFieldsRecursively(s)
+		const next = s === undefined ? undefined : serialize(s)
+		if (next === lastSerialized) return
+		lastSerialized = next
+		if (skipNextWrite) {
+			skipNextWrite = false
+			return
+		}
+		schedulePersist(s)
+	})
+
 	return {
 		get val() {
 			return s
 		},
 		set val(newVal: T) {
-			localStorage.setItem(key, serialize(newVal))
+			// In-memory state is updated synchronously; the localStorage write
+			// is debounced when `options.debounce` is set. Callers that read
+			// `.val` get the latest value either way; only direct localStorage
+			// reads see the stale value during the debounce window.
+			const next = newVal === undefined ? undefined : serialize(newVal as T)
+			if (next !== lastSerialized) {
+				lastSerialized = next
+				if (skipNextWrite) {
+					skipNextWrite = false
+				} else {
+					schedulePersist(newVal)
+				}
+			}
 			s = newVal
+		},
+		/**
+		 * Arm the persist skip so the next `set val` (or deep-mutation flush)
+		 * updates only the in-memory cell and leaves localStorage untouched.
+		 * Used by `UserDraft.discard` to reset the in-memory state to a
+		 * fallback without re-persisting it — pairs with an explicit LS
+		 * delete to leave the slot empty.
+		 */
+		skipNextWriteOnce(): void {
+			skipNextWrite = true
 		}
 	}
 }

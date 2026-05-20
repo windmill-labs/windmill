@@ -4,7 +4,6 @@
 	const bubble = createBubbler()
 	import {
 		DraftService,
-		type NewScript,
 		ScriptService,
 		type NewScriptWithDraft,
 		type Script,
@@ -35,7 +34,6 @@
 		cleanValueProperties,
 		emptySchema,
 		emptyString,
-		encodeState,
 		generateRandomString,
 		orderedJsonStringify,
 		readFieldsRecursively,
@@ -125,7 +123,6 @@
 		savedScript = $bindable(undefined),
 		searchParams = new URLSearchParams(),
 		disableHistoryChange = false,
-		replaceStateFn = (url) => window.history.replaceState(null, '', url),
 		customUi = {},
 		savedPrimarySchedule = undefined,
 		functionExports = undefined,
@@ -303,15 +300,11 @@
 
 	// Add triggers context store
 	const triggersState = $state(
-		new Triggers(
-			[
-				{ type: 'webhook', path: '', isDraft: false },
-				{ type: 'default_email', path: '', isDraft: false },
-				...(script.draft_triggers ?? [])
-			],
-			undefined,
-			saveSessionDraft
-		)
+		new Triggers([
+			{ type: 'webhook', path: '', isDraft: false },
+			{ type: 'default_email', path: '', isDraft: false },
+			...(script.draft_triggers ?? [])
+		])
 	)
 
 	const captureOn = writable<boolean | undefined>(undefined)
@@ -374,28 +367,6 @@
 	let pathError = $state('')
 	let loadingSave = $state(false)
 	let loadingDraft = $state(false)
-
-	let timeout2: number | undefined = undefined
-	function encodeScriptState(script: NewScript) {
-		untrack(() => timeout2 && clearTimeout(timeout2))
-		timeout2 = setTimeout(() => {
-			replaceStateFn(
-				'#' +
-					encodeState({
-						...script,
-						draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
-					})
-			)
-		}, 500)
-	}
-
-	let timeout: number | undefined = undefined
-	function saveSessionDraft() {
-		timeout && clearTimeout(timeout)
-		timeout = setTimeout(() => {
-			encodeScriptState(script)
-		}, 500)
-	}
 
 	if (script.content == '') {
 		if (template === 'wac_python') {
@@ -559,11 +530,6 @@
 
 		loadingSave = true
 		try {
-			try {
-				localStorage.removeItem(script.path)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
 			script.schema = script.schema ?? emptySchema()
 			try {
 				const result = await inferArgs(
@@ -703,11 +669,6 @@
 
 		loadingDraft = true
 		try {
-			try {
-				localStorage.removeItem(script.path)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
 			script.schema = script.schema ?? emptySchema()
 			try {
 				const result = await inferArgs(
@@ -1086,7 +1047,15 @@
 	})
 	$effect(() => {
 		readFieldsRecursively(script)
-		!disableHistoryChange && encodeScriptState(script)
+	})
+	// Mirror the draft triggers (held in a separate `triggersState` $state)
+	// back into `script.draft_triggers` so the UserDraft autosave — which
+	// deep-tracks `script` — picks them up. Pre-PR ScriptBuilder ran its own
+	// localStorage autosave that explicitly snapshotted triggersState; the
+	// switch to a unified UserDraft handle dropped that bridge.
+	$effect(() => {
+		readFieldsRecursively(triggersState.triggers)
+		script.draft_triggers = triggersState.getDraftTriggersSnapshot()
 	})
 
 	loadWorkerTags()
