@@ -1,6 +1,5 @@
 <script lang="ts">
 	import AppAvailableContextList from './AppAvailableContextList.svelte'
-	import AvailableContextList from './AvailableContextList.svelte'
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import ContextTextarea from './ContextTextarea.svelte'
 	import autosize from '$lib/autosize'
@@ -10,7 +9,6 @@
 	import { twMerge } from 'tailwind-merge'
 	import { tick, untrack, type Snippet } from 'svelte'
 	import Portal from '$lib/components/Portal.svelte'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import { ArrowUp, Square } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
@@ -154,7 +152,7 @@
 		}
 	}
 
-	async function addContextToSelection(contextElement: ContextElement) {
+	export async function addContextToSelection(contextElement: ContextElement) {
 		if (!selectedContext || !availableContext) return
 
 		const alreadySelected = selectedContext.find(
@@ -452,54 +450,21 @@
 {/snippet}
 
 {#snippet contextPickerRow()}
-	<div class="flex flex-row items-center gap-1 mt-1 overflow-scroll no-scrollbar">
-		<Popover>
-			{#snippet trigger()}
-				<div
-					class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
-					title="Add context"
-				>
-					@
-				</div>
-			{/snippet}
-			{#snippet content({ close })}
-				{#if isContextEnabledMode}
-					<AvailableContextList
-						{availableContext}
-						{selectedContext}
-						onSelect={(element) => {
-							void addContextToSelection(element)
-							close()
-						}}
-						onSelectWorkspaceItem={(element) => {
-							void addContextToSelection(element)
-							close()
-						}}
-					/>
-				{:else}
-					<AppAvailableContextList
-						{availableContext}
-						{selectedContext}
-						onSelect={(element) => {
-							void addContextToSelection(element)
-							close()
-						}}
-					/>
-				{/if}
-			{/snippet}
-		</Popover>
-		{#each selectedContext as element (element.type + '-' + element.title)}
-			<ContextElementBadge
-				contextElement={element}
-				deletable
-				onDelete={() => {
-					selectedContext = selectedContext?.filter(
-						(c) => c.type !== element.type || c.title !== element.title
-					)
-				}}
-			/>
-		{/each}
-	</div>
+	{#if selectedContext.length > 0}
+		<div class="flex flex-row flex-wrap items-center gap-1 mb-1">
+			{#each selectedContext as element (element.type + '-' + element.title)}
+				<ContextElementBadge
+					contextElement={element}
+					deletable
+					onDelete={() => {
+						selectedContext = selectedContext?.filter(
+							(c) => c.type !== element.type || c.title !== element.title
+						)
+					}}
+				/>
+			{/each}
+		</div>
+	{/if}
 {/snippet}
 
 <div
@@ -514,6 +479,9 @@
 	}}
 >
 	{#if isContextEnabledMode}
+		{#if showContext}
+			{@render contextPickerRow()}
+		{/if}
 		<div class="relative">
 			<ContextTextarea
 				bind:this={contextTextareaComponent}
@@ -538,10 +506,10 @@
 				</div>
 			{/if}
 		</div>
+	{:else if aiChatManager.mode === AIMode.APP}
 		{#if showContext}
 			{@render contextPickerRow()}
 		{/if}
-	{:else if aiChatManager.mode === AIMode.APP}
 		<div class={twMerge('relative w-full scroll-pb-2', className)}>
 			<textarea
 				bind:this={instructionsTextareaComponent}
@@ -580,9 +548,6 @@
 				</div>
 			{/if}
 		</div>
-		{#if showContext}
-			{@render contextPickerRow()}
-		{/if}
 		{#if showAppContextTooltip}
 			<Portal target="body">
 				<div
