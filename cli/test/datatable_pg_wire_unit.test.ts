@@ -1,8 +1,15 @@
 import { expect, test } from "bun:test";
 import {
+  buildBindComplete,
+  buildCloseComplete,
+  buildExecuteResponse,
   buildCommandComplete,
   buildDataRow,
   buildEmptyQueryResponse,
+  buildNoData,
+  buildParameterDescription,
+  buildParseComplete,
+  buildPortalSuspended,
   buildQueryResponse,
   buildReadyForQuery,
   buildRowDescription,
@@ -32,6 +39,32 @@ test("buildCommandComplete: 'C' + tag + null terminator", () => {
 test("buildEmptyQueryResponse: 'I' + len=4", () => {
   const buf = buildEmptyQueryResponse();
   expect(Array.from(buf)).toEqual([0x49, 0, 0, 0, 4]);
+});
+
+test("buildParseComplete / BindComplete / CloseComplete / NoData / PortalSuspended: empty payload messages", () => {
+  expect(Array.from(buildParseComplete())).toEqual([0x31, 0, 0, 0, 4]);
+  expect(Array.from(buildBindComplete())).toEqual([0x32, 0, 0, 0, 4]);
+  expect(Array.from(buildCloseComplete())).toEqual([0x33, 0, 0, 0, 4]);
+  expect(Array.from(buildNoData())).toEqual([0x6e, 0, 0, 0, 4]);
+  expect(Array.from(buildPortalSuspended())).toEqual([0x73, 0, 0, 0, 4]);
+});
+
+test("buildParameterDescription: count + OIDs", () => {
+  const buf = buildParameterDescription([23, 25]);
+  expect(buf[0]).toBe(0x74); // 't'
+  expect((buf[5] << 8) | buf[6]).toBe(2);
+  const firstOid =
+    (buf[7] << 24) |
+    (buf[8] << 16) |
+    (buf[9] << 8) |
+    buf[10];
+  const secondOid =
+    (buf[11] << 24) |
+    (buf[12] << 16) |
+    (buf[13] << 8) |
+    buf[14];
+  expect(firstOid).toBe(23);
+  expect(secondOid).toBe(25);
 });
 
 test("buildRowDescription: encodes one column with given OID", () => {
@@ -113,4 +146,48 @@ test("buildQueryResponse: one column + one row emits T, D, C, Z in that order", 
     off += 1 + len;
   }
   expect(tagBytes).toEqual([0x54 /* T */, 0x44 /* D */, 0x43 /* C */, 0x5a /* Z */]);
+});
+
+test("buildExecuteResponse: emits T, D, C without ReadyForQuery", () => {
+  const envelope: RawOutputEnvelope = {
+    columns: [{ name: "n", oid: 23, type_name: "int4" }],
+    rows: [["42"]],
+  };
+  const response = buildExecuteResponse(envelope);
+  const tagBytes: number[] = [];
+  let off = 0;
+  while (off < response.message.byteLength) {
+    tagBytes.push(response.message[off]);
+    const len =
+      (response.message[off + 1] << 24) |
+      (response.message[off + 2] << 16) |
+      (response.message[off + 3] << 8) |
+      response.message[off + 4];
+    off += 1 + len;
+  }
+  expect(response.suspended).toBe(false);
+  expect(response.nextRowOffset).toBe(1);
+  expect(tagBytes).toEqual([0x54 /* T */, 0x44 /* D */, 0x43 /* C */]);
+});
+
+test("buildExecuteResponse: maxRows suspends portal and omits CommandComplete", () => {
+  const envelope: RawOutputEnvelope = {
+    columns: [{ name: "n", oid: 23, type_name: "int4" }],
+    rows: [["1"], ["2"]],
+  };
+  const response = buildExecuteResponse(envelope, { maxRows: 1 });
+  const tagBytes: number[] = [];
+  let off = 0;
+  while (off < response.message.byteLength) {
+    tagBytes.push(response.message[off]);
+    const len =
+      (response.message[off + 1] << 24) |
+      (response.message[off + 2] << 16) |
+      (response.message[off + 3] << 8) |
+      response.message[off + 4];
+    off += 1 + len;
+  }
+  expect(response.suspended).toBe(true);
+  expect(response.nextRowOffset).toBe(1);
+  expect(tagBytes).toEqual([0x54 /* T */, 0x44 /* D */, 0x73 /* s */]);
 });

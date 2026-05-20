@@ -21,6 +21,12 @@ export interface RawOutputEnvelope {
   rows: (string | null)[][];
 }
 
+export interface ExecuteResponse {
+  message: Uint8Array;
+  nextRowOffset: number;
+  suspended: boolean;
+}
+
 const encoder = new TextEncoder();
 
 /**
@@ -139,6 +145,43 @@ export function buildEmptyQueryResponse(): Uint8Array {
   return buildMessage(0x49 /* 'I' */, new Uint8Array(0));
 }
 
+/** ParseComplete ('1') with no payload. */
+export function buildParseComplete(): Uint8Array {
+  return buildMessage(0x31 /* '1' */, new Uint8Array(0));
+}
+
+/** BindComplete ('2') with no payload. */
+export function buildBindComplete(): Uint8Array {
+  return buildMessage(0x32 /* '2' */, new Uint8Array(0));
+}
+
+/** CloseComplete ('3') with no payload. */
+export function buildCloseComplete(): Uint8Array {
+  return buildMessage(0x33 /* '3' */, new Uint8Array(0));
+}
+
+/** NoData ('n') with no payload. */
+export function buildNoData(): Uint8Array {
+  return buildMessage(0x6e /* 'n' */, new Uint8Array(0));
+}
+
+/** PortalSuspended ('s') with no payload. */
+export function buildPortalSuspended(): Uint8Array {
+  return buildMessage(0x73 /* 's' */, new Uint8Array(0));
+}
+
+/** ParameterDescription ('t'): INT16 count + one INT32 OID per parameter. */
+export function buildParameterDescription(typeOids: number[]): Uint8Array {
+  const payload = new Uint8Array(2 + typeOids.length * 4);
+  writeInt16(payload, 0, typeOids.length);
+  let off = 2;
+  for (const oid of typeOids) {
+    writeInt32(payload, off, oid);
+    off += 4;
+  }
+  return buildMessage(0x74 /* 't' */, payload);
+}
+
 /**
  * Translate a `RawOutputEnvelope` into the byte stream a Postgres client
  * expects in response to a Query message: RowDescription, one DataRow per
@@ -159,6 +202,41 @@ export function buildQueryResponse(envelope: RawOutputEnvelope): Uint8Array {
   parts.push(buildCommandComplete(`SELECT ${envelope.rows.length}`));
   parts.push(buildReadyForQuery("I"));
   return concat(parts);
+}
+
+export function buildExecuteResponse(
+  envelope: RawOutputEnvelope,
+  opts?: {
+    includeRowDescription?: boolean;
+    maxRows?: number;
+    rowOffset?: number;
+  },
+): ExecuteResponse {
+  const includeRowDescription = opts?.includeRowDescription ?? true;
+  const maxRows = opts?.maxRows ?? 0;
+  const rowOffset = opts?.rowOffset ?? 0;
+  const remainingRows = envelope.rows.slice(rowOffset);
+  const suspended = maxRows > 0 && remainingRows.length > maxRows;
+  const rowsToSend = suspended ? remainingRows.slice(0, maxRows) : remainingRows;
+
+  const parts: Uint8Array[] = [];
+  if (includeRowDescription && envelope.columns.length > 0) {
+    parts.push(buildRowDescription(envelope.columns));
+  }
+  for (const row of rowsToSend) {
+    parts.push(buildDataRow(row));
+  }
+  if (suspended) {
+    parts.push(buildPortalSuspended());
+  } else {
+    parts.push(buildCommandComplete(`SELECT ${envelope.rows.length}`));
+  }
+
+  return {
+    message: concat(parts),
+    nextRowOffset: rowOffset + rowsToSend.length,
+    suspended,
+  };
 }
 
 export function concat(parts: Uint8Array[]): Uint8Array {
