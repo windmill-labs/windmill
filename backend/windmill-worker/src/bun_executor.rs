@@ -28,6 +28,7 @@ use crate::{
 };
 use windmill_common::{
     client::AuthedClient,
+    jobs::JobKind,
     scripts::{id_to_codebase_info, CodebaseInfo, ScriptLang},
     utils::WarnAfterExt,
     workspace_dependencies::WorkspaceDependenciesPrefetched,
@@ -1356,11 +1357,18 @@ pub async fn handle_bun_job(
     // Preview jobs may carry _TEMP_SCRIPT_REFS so relative imports resolve from
     // not-yet-deployed local content uploaded to raw_script_temp. Extracted up
     // front so it reaches both lockfile generation and the runtime loader.
-    let temp_script_refs: Option<HashMap<String, String>> = job
-        .args
-        .as_ref()
-        .and_then(|x| x.get("_TEMP_SCRIPT_REFS"))
-        .and_then(|v| serde_json::from_str(v.get()).ok());
+    // Gated on JobKind::Preview because job.args includes caller-controlled
+    // request args; honoring this key on deployed runs would let a caller swap
+    // import resolution targets in deployed code.
+    let temp_script_refs: Option<HashMap<String, String>> = if matches!(job.kind, JobKind::Preview)
+    {
+        job.args
+            .as_ref()
+            .and_then(|x| x.get("_TEMP_SCRIPT_REFS"))
+            .and_then(|v| serde_json::from_str(v.get()).ok())
+    } else {
+        None
+    };
 
     if annotation.sandbox && NSJAIL_AVAILABLE.is_none() {
         return Err(error::Error::ExecutionErr(

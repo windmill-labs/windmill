@@ -6024,6 +6024,17 @@ async fn run_bundle_preview_script(
 
             let args = preview.args.unwrap_or_default();
 
+            // The bundle's runtime still resolves workspace-path imports
+            // (`/f/...`) via loader.bun.js, so pass through temp_script_refs the
+            // same way `run_preview_script` does — otherwise codebase previews
+            // silently fall back to deployed content for those imports.
+            let extra = preview.temp_script_refs.as_ref().map(|refs| {
+                let mut m = HashMap::new();
+                m.insert("_TEMP_SCRIPT_REFS".to_string(), to_raw_value(refs));
+                m
+            });
+            let push_args = PushArgs { extra, args: &args };
+
             is_tar = match preview.kind {
                 Some(PreviewKind::Tarbundle) => true,
                 _ => false,
@@ -6052,7 +6063,7 @@ async fn run_bundle_preview_script(
                     modules: None,
                     tag: None,
                 }),
-                PushArgs::from(&args),
+                push_args,
                 authed.display_username(),
                 &authed.email,
                 username_to_permissioned_as(&authed.username),

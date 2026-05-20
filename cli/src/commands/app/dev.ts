@@ -28,7 +28,11 @@ import * as wmill from "../../../gen/services.gen.ts";
 import { logQueueStatus } from "../../utils/job_polling.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
-import { GLOBAL_CONFIG_OPT, mergeConfigWithConfigFile } from "../../core/conf.ts";
+import {
+  getWmillYamlPath,
+  GLOBAL_CONFIG_OPT,
+  mergeConfigWithConfigFile,
+} from "../../core/conf.ts";
 import { listSyncCodebases } from "../../utils/codebase.ts";
 import { replaceInlineScripts, repopulateFields } from "./app.ts";
 import { Runnable } from "./metadata.ts";
@@ -389,23 +393,39 @@ async function dev(opts: DevOptions, appFolder?: string) {
 
   // Resolve relative imports in app inline scripts from local (not-yet-deployed)
   // content so previews use locally-edited workspace libs instead of deployed.
-  // Computed here from the workspace root (before the chdir below) — a snapshot
-  // taken at startup; re-run `wmill app dev` to pick up later edits to imported
-  // workspace scripts. Degrades gracefully (undefined) on older backends.
+  // Computed here as a startup snapshot; re-run `wmill app dev` to pick up
+  // later edits to imported workspace scripts. Degrades gracefully (undefined)
+  // on older backends. The walk must run from the wmill.yaml root so that the
+  // supported `cd <app>__raw_app && wmill app dev` invocation (cwd is the
+  // raw_app folder) still sees sibling workspace scripts like `f/lib.ts`.
   let appTempRefs: Record<string, string> | undefined = undefined;
   {
-    const relAppFolder = path.relative(originalCwd, targetDir) || ".";
+    const wmillYamlPath = getWmillYamlPath();
+    const workspaceRoot = wmillYamlPath
+      ? path.dirname(wmillYamlPath)
+      : originalCwd;
+    const relAppFolder = path.relative(workspaceRoot, targetDir) || ".";
     const mergedOpts = await mergeConfigWithConfigFile(opts);
     const codebases = await listSyncCodebases(mergedOpts);
     const { buildPreviewTempScriptRefs } = await import(
       "../generate-metadata/generate-metadata.ts"
     );
-    appTempRefs = await buildPreviewTempScriptRefs(
-      workspace,
-      mergedOpts as any,
-      codebases,
-      { kind: "app", folder: relAppFolder, rawApp: true },
-    );
+    const savedCwd = process.cwd();
+    if (workspaceRoot !== savedCwd) {
+      process.chdir(workspaceRoot);
+    }
+    try {
+      appTempRefs = await buildPreviewTempScriptRefs(
+        workspace,
+        mergedOpts as any,
+        codebases,
+        { kind: "app", folder: relAppFolder, rawApp: true },
+      );
+    } finally {
+      if (workspaceRoot !== savedCwd) {
+        process.chdir(savedCwd);
+      }
+    }
   }
 
   // Change to target directory for the rest of the command

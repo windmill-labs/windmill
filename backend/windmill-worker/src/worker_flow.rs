@@ -4080,11 +4080,17 @@ async fn push_next_flow_job(
         // Propagate temp script refs from the flow preview job to each step so
         // relative imports in inline scripts resolve from not-yet-deployed local
         // content (uploaded to raw_script_temp) instead of the deployed script.
-        if let Some(temp_script_refs) = arc_flow_job_args.as_ref().get("_TEMP_SCRIPT_REFS") {
-            push_args
-                .extra
-                .get_or_insert_with(HashMap::new)
-                .insert("_TEMP_SCRIPT_REFS".to_string(), temp_script_refs.clone());
+        // Gated on JobKind::FlowPreview because flow_job.args includes
+        // caller-controlled request args; honoring this key on deployed flow
+        // runs would let a caller swap import resolution targets in deployed
+        // step code.
+        if matches!(flow_job.kind, JobKind::FlowPreview) {
+            if let Some(temp_script_refs) = arc_flow_job_args.as_ref().get("_TEMP_SCRIPT_REFS") {
+                push_args
+                    .extra
+                    .get_or_insert_with(HashMap::new)
+                    .insert("_TEMP_SCRIPT_REFS".to_string(), temp_script_refs.clone());
+            }
         }
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed args for job {i} of {len}");

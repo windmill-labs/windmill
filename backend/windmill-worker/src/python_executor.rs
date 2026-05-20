@@ -31,6 +31,7 @@ use windmill_common::{
         self,
         Error::{self},
     },
+    jobs::JobKind,
     scripts::ScriptLang,
     utils::calculate_hash,
     worker::{
@@ -656,12 +657,19 @@ pub async fn handle_python_job(
     }
 
     // Preview jobs may carry _TEMP_SCRIPT_REFS so relative imports resolve from
-    // not-yet-deployed local content uploaded to raw_script_temp.
-    let temp_script_refs: Option<HashMap<String, String>> = job
-        .args
-        .as_ref()
-        .and_then(|x| x.get("_TEMP_SCRIPT_REFS"))
-        .and_then(|v| serde_json::from_str(v.get()).ok());
+    // not-yet-deployed local content uploaded to raw_script_temp. Gated on
+    // JobKind::Preview because job.args includes caller-controlled request
+    // args; honoring this key on deployed runs would let a caller swap import
+    // resolution targets in deployed code.
+    let temp_script_refs: Option<HashMap<String, String>> = if matches!(job.kind, JobKind::Preview)
+    {
+        job.args
+            .as_ref()
+            .and_then(|x| x.get("_TEMP_SCRIPT_REFS"))
+            .and_then(|v| serde_json::from_str(v.get()).ok())
+    } else {
+        None
+    };
 
     let (py_version, mut additional_python_paths) = handle_python_deps(
         job_dir,
