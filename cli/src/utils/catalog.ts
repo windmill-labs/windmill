@@ -1,18 +1,18 @@
 import { colors } from "@cliffy/ansi/colors";
 import { Table } from "@cliffy/table";
 
-import * as wmill from "../../../gen/services.gen.ts";
-import { Preview } from "../../../gen/types.gen.ts";
-import { requireLogin } from "../../core/auth.ts";
-import { resolveWorkspace } from "../../core/context.ts";
-import * as log from "../../core/log.ts";
-import { GlobalOptions } from "../../types.ts";
-import { pollJobWithQueueLogging } from "../../utils/job_polling.ts";
+import * as wmill from "../../gen/services.gen.ts";
+import { Preview } from "../../gen/types.gen.ts";
+import { requireLogin } from "../core/auth.ts";
+import { resolveWorkspace } from "../core/context.ts";
+import * as log from "../core/log.ts";
+import { GlobalOptions } from "../types.ts";
+import { pollJobWithQueueLogging } from "./job_polling.ts";
 
-// Shared building blocks for SQL catalogs (datatable today, ducklake next).
-// Both expose a query surface backed by Windmill script previews, but the
-// language and arg shape differ — `buildCatalogQueryPlan` centralizes that
-// difference so subcommands stay thin.
+// Shared building blocks for SQL catalogs (`wmill datatable` and
+// `wmill ducklake`). Both expose a SQL surface backed by Windmill script
+// previews, but the language and arg shape differ — `buildCatalogQueryPlan`
+// centralizes that difference so subcommands stay thin.
 
 export type CatalogKind = "datatable" | "ducklake";
 

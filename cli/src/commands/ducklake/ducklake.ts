@@ -8,25 +8,25 @@ import * as log from "../../core/log.ts";
 import { GlobalOptions } from "../../types.ts";
 import { runCatalogQuery } from "../../utils/catalog.ts";
 
-const DEFAULT_DATATABLE_NAME = "main";
+const DEFAULT_DUCKLAKE_NAME = "main";
 
 async function list(opts: GlobalOptions & { json?: boolean }) {
   if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  const items = await wmill.listDataTables({
+  const names = await wmill.listDucklakes({
     workspace: workspace.workspaceId,
   });
 
   if (opts.json) {
-    console.log(JSON.stringify(items));
+    console.log(JSON.stringify(names));
   } else {
     new Table()
-      .header(["Name", "Resource Type", "Resource Path"])
+      .header(["Name"])
       .padding(2)
       .border(true)
-      .body(items.map((x) => [x.name, x.resource_type, x.resource_path]))
+      .body(names.map((name) => [name]))
       .render();
   }
 }
@@ -35,20 +35,20 @@ async function run(
   opts: GlobalOptions & { name?: string; silent?: boolean },
   sql: string,
 ) {
-  const name = opts.name ?? DEFAULT_DATATABLE_NAME;
-  await runCatalogQuery(opts, "datatable", name, sql);
+  const name = opts.name ?? DEFAULT_DUCKLAKE_NAME;
+  await runCatalogQuery(opts, "ducklake", name, sql);
 }
 
 const command = new Command()
-  .description("datatable related commands")
-  .command("list", "list all datatables in the workspace")
+  .description("ducklake related commands")
+  .command("list", "list all ducklakes in the workspace")
   .option("--json", "Output as JSON (for piping to jq)")
   .action(list as any)
-  .command("run", "run a SQL query on a datatable")
+  .command("run", "run a SQL query on a ducklake")
   .arguments("<sql:string>")
   .option(
     "-n --name <name:string>",
-    "Datatable name (default: main)",
+    "Ducklake name (default: main)",
   )
   .option(
     "-s --silent",

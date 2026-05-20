@@ -6684,14 +6684,12 @@ Show all available wmill.yaml configuration options
 
 datatable related commands
 
-**Options:**
-- \`-n --name <name:string>\` - Datatable name (default: main)
-
 **Subcommands:**
 
 - \`datatable list\` - list all datatables in the workspace
   - \`--json\` - Output as JSON (for piping to jq)
 - \`datatable run <sql:string>\` - run a SQL query on a datatable
+  - \`-n --name <name:string>\` - Datatable name (default: main)
   - \`-s --silent\` - Output only the final result as JSON. Useful for scripting.
 
 ### dependencies
@@ -6722,6 +6720,18 @@ Search Windmill documentation.
 
 **Options:**
 - \`--json\` - Output results as JSON.
+
+### ducklake
+
+ducklake related commands
+
+**Subcommands:**
+
+- \`ducklake list\` - list all ducklakes in the workspace
+  - \`--json\` - Output as JSON (for piping to jq)
+- \`ducklake run <sql:string>\` - run a SQL query on a ducklake
+  - \`-n --name <name:string>\` - Ducklake name (default: main)
+  - \`-s --silent\` - Output only the final result as JSON. Useful for scripting.
 
 ### flow
 
