@@ -53,6 +53,43 @@
 		return `${diffHours}h ago`
 	}
 
+	type IndexerEntry = GetIndexerStatusResponse['job_indexer']
+
+	function statusDescriptor(entry: IndexerEntry): {
+		label: string
+		dot: string
+		text: string
+		hint?: string
+	} {
+		// Backends that predate the `state` field only report `is_alive`: keep the
+		// prior Running / Stopped signal instead of falling through to "Unknown".
+		if (entry?.state == null) {
+			return entry?.is_alive
+				? { label: 'Running', dot: 'bg-green-500', text: 'text-green-600 dark:text-green-400' }
+				: { label: 'Stopped', dot: 'bg-red-500', text: 'text-red-600 dark:text-red-400' }
+		}
+		switch (entry.state) {
+			case 'running':
+				return { label: 'Running', dot: 'bg-green-500', text: 'text-green-600 dark:text-green-400' }
+			case 'stale':
+				return {
+					label: 'Stale',
+					dot: 'bg-yellow-500',
+					text: 'text-yellow-600 dark:text-yellow-400',
+					hint: 'The indexer acquired its lock before but has not refreshed it recently. It may have crashed, be blocked, or be handing over during a deployment. Check the indexer container logs.'
+				}
+			case 'never_started':
+				return {
+					label: 'Not started',
+					dot: 'bg-red-500',
+					text: 'text-red-600 dark:text-red-400',
+					hint: 'No instance has ever run this indexer. Make sure an instance is running in "indexer" mode (or a server with the indexer addon enabled) and that you are on Enterprise.'
+				}
+			default:
+				return { label: 'Unknown', dot: 'bg-gray-400', text: 'text-tertiary' }
+		}
+	}
+
 	async function loadStatus() {
 		statusLoading = true
 		statusError = false
@@ -167,20 +204,16 @@
 		{#if status}
 			<div class="flex flex-col gap-2">
 				{#each [{ label: 'Job indexer', entry: status.job_indexer }, { label: 'Service log indexer', entry: status.log_indexer }] as { label, entry } (label)}
+					{@const d = statusDescriptor(entry)}
 					<div class="flex flex-row items-center gap-2 text-xs">
-						<span
-							class="inline-block w-2 h-2 rounded-full {entry?.is_alive
-								? 'bg-green-500'
-								: 'bg-red-500'}"
-						></span>
+						<span class="inline-block w-2 h-2 rounded-full {d.dot}"></span>
 						<span class="text-primary font-medium">{label}:</span>
-						<span
-							class="font-semibold {entry?.is_alive
-								? 'text-green-600 dark:text-green-400'
-								: 'text-red-600 dark:text-red-400'}"
-						>
-							{entry?.is_alive ? 'Running' : 'Stopped'}
+						<span class="font-semibold {d.text}">
+							{d.label}
 						</span>
+						{#if d.hint}
+							<Tooltip>{d.hint}</Tooltip>
+						{/if}
 						{#if entry?.last_locked_at}
 							<span class="text-tertiary text-2xs">
 								Last active: {formatTimeAgo(entry.last_locked_at)}

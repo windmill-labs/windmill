@@ -4,6 +4,11 @@ from importlib.abc import MetaPathFinder, Loader
 from importlib.machinery import ModuleSpec, SourceFileLoader
 import time
 
+# Injected by backend: maps script path -> temp storage hash so preview jobs
+# resolve relative imports from not-yet-deployed local content. Empty ({}) for
+# deployed runs.
+TEMP_SCRIPT_REFS = TEMP_SCRIPT_REFS_PLACEHOLDER
+
 class WindmillLoader(Loader):
     def __init__(self, path):
         self.path = path
@@ -48,6 +53,9 @@ class WindmillFinder(MetaPathFinder):
             runnable_id = os.environ.get('WM_RUNNABLE_ID')
             if runnable_id:
                 query_params += f"&cache_key={runnable_id}"
+            temp_hash = TEMP_SCRIPT_REFS.get(script_path) if TEMP_SCRIPT_REFS else None
+            if temp_hash:
+                query_params += f"&temp_script_hash={temp_hash}"
             url = f"{os.environ.get('BASE_INTERNAL_URL')}/api/w/{os.environ.get('WM_WORKSPACE')}/scripts/raw/p/{script_path}.py{query_params}"
 
             req = urllib.request.Request(url, None, headers)

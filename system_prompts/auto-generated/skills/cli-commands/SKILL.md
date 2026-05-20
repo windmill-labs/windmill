@@ -71,6 +71,18 @@ Show all available wmill.yaml configuration options
 
 - `config migrate` - Migrate wmill.yaml from gitBranches/environments to workspaces format
 
+### datatable
+
+datatable related commands
+
+**Subcommands:**
+
+- `datatable list` - list all datatables in the workspace
+  - `--json` - Output as JSON (for piping to jq)
+- `datatable run <sql:string>` - run a SQL query on a datatable
+  - `-n --name <name:string>` - Datatable name (default: main)
+  - `-s --silent` - Output only the final result as JSON. Useful for scripting.
+
 ### dependencies
 
 workspace dependencies related commands
@@ -99,6 +111,18 @@ Search Windmill documentation.
 
 **Options:**
 - `--json` - Output results as JSON.
+
+### ducklake
+
+ducklake related commands
+
+**Subcommands:**
+
+- `ducklake list` - list all ducklakes in the workspace
+  - `--json` - Output as JSON (for piping to jq)
+- `ducklake run <sql:string>` - run a SQL query on a ducklake
+  - `-n --name <name:string>` - Ducklake name (default: main)
+  - `-s --silent` - Output only the final result as JSON. Useful for scripting.
 
 ### flow
 
@@ -334,6 +358,20 @@ Validate Windmill flow, schedule, and trigger YAML files in a directory
 - `--fail-on-warn` - Exit with code 1 when warnings are emitted
 - `--locks-required` - Fail if scripts or flow inline scripts that need locks have no locks
 - `-w, --watch` - Watch for file changes and re-lint automatically
+
+### protection-rules
+
+**Subcommands:**
+
+- `protection-rules pull [workspace:string]` - Pull protection rules from Windmill into protection-rules.yaml for a workspace
+  - `--all` - Pull every workspace defined in wmill.yaml
+  - `--dry-run` - Show what would change without writing the file
+  - `--json-output` - Output in JSON format
+- `protection-rules push [workspace:string]` - Push protection rules from protection-rules.yaml to Windmill for a workspace (full reconcile: creates, updates, and deletes)
+  - `--all` - Push every workspace defined in protection-rules.yaml
+  - `--dry-run` - Show what would change without applying
+  - `--json-output` - Output in JSON format
+  - `--yes` - Skip the confirmation prompt (including deletions)
 
 ### queues
 

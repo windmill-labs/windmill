@@ -1,5 +1,7 @@
 <script lang="ts">
-	import PanelSection from '../apps/editor/settingsPanel/common/PanelSection.svelte'
+	import PanelSection, {
+		SUBTLE_PANEL_TITLE
+	} from '../apps/editor/settingsPanel/common/PanelSection.svelte'
 	import type { Runnable } from '../apps/inputType'
 	import RawAppInlineScriptPanelList from './RawAppInlineScriptPanelList.svelte'
 	import FileExplorer from '../FileExplorer.svelte'
@@ -86,7 +88,13 @@
 	}
 </script>
 
-<PanelSection size="sm" fullHeight={false} title="frontend" id="app-editor-frontend-panel">
+<PanelSection
+	size="sm"
+	fullHeight={false}
+	title="frontend"
+	titleClass={SUBTLE_PANEL_TITLE}
+	id="app-editor-frontend-panel"
+>
 	{#snippet action()}
 		<div class="flex gap-1">
 			<Button
@@ -161,7 +169,13 @@
 
 {#if historyManager && onHistorySelect && onManualSnapshot}
 	<div class="py-4"></div>
-	<PanelSection fullHeight={false} size="sm" title="history" id="app-editor-history-panel">
+	<PanelSection
+		fullHeight={false}
+		size="sm"
+		title="history"
+		titleClass={SUBTLE_PANEL_TITLE}
+		id="app-editor-history-panel"
+	>
 		{#snippet action()}
 			<div class="flex items-center gap-2">
 				<span class="text-2xs text-tertiary">{historyManager.allEntries.length}/50</span>

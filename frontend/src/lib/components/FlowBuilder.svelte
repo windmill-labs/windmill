@@ -158,6 +158,12 @@
 
 	// Draft triggers confirmation modal
 	let draftTriggersModalOpen = $state(false)
+
+	// Top-bar responsive collapse. Measured via bind:clientWidth — we can't
+	// rely on viewport `md:` because the editor lives inside other panes
+	// (session pane, drawer, etc.) where the viewport stays wide.
+	let topbarWidth = $state(0)
+	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
 	let confirmDeploymentCallback: (triggersToDeploy: Trigger[]) => void = () => {}
 
 	// AI changes warning modal
@@ -841,6 +847,24 @@
 		}
 	}
 
+	async function openDiffDrawer() {
+		if (!savedFlow) return
+		await syncWithDeployed()
+		const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
+		diffDrawer?.openDrawer()
+		const currentFlow = flowStore.val
+		diffDrawer?.setDiff({
+			mode: 'normal',
+			deployed: deployedValue ?? savedFlow,
+			draft: savedFlow?.draft,
+			current: {
+				...currentFlow,
+				path: $pathStore,
+				draft_triggers: currentDraftTriggers
+			}
+		})
+	}
+
 	let flowCopilotContext: FlowCopilotContext = $state({
 		shouldUpdatePropertyType: writable<{
 			[key: string]: 'static' | 'javascript' | undefined
@@ -877,7 +901,25 @@
 	const mod = isMac() ? '⌘' : 'Ctrl+'
 
 	function getMoreItems(): Item[] {
+		// When the top bar is compact, fold the inline Diff + Save draft buttons
+		// in here so they stay reachable. Save draft keeps its keyboard shortcut.
+		const compactExtras: Item[] = compactTopbar
+			? [
+					...(customUi?.topBar?.draft !== false
+						? [
+								{
+									displayName: 'Save draft',
+									icon: Save,
+									action: () => saveDraft(),
+									shortcut: `${mod}S`,
+									disabled: (!newFlow && !savedFlow) || loading
+								}
+							]
+						: [])
+				]
+			: []
 		return [
+			...compactExtras,
 			...baseMenuItems,
 			{
 				displayName: 'Undo',
@@ -885,7 +927,7 @@
 				action: () => handleUndo(),
 				disabled: $history.index === 0,
 				shortcut: `${mod}Z`,
-				separatorTop: baseMenuItems.length > 0
+				separatorTop: compactExtras.length > 0 || baseMenuItems.length > 0
 			},
 			{
 				displayName: 'Redo',
@@ -1159,9 +1201,10 @@
 		<div class="flex flex-col flex-1 h-screen">
 			<!-- Nav between steps-->
 			<div
+				bind:clientWidth={topbarWidth}
 				class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
 			>
-				<div class="min-w-0 max-w-full">
+				<div class="min-w-[200px] max-w-full">
 					<EditorHeader
 						bind:summary={flowStore.val.summary}
 						bind:path={$pathStore}
@@ -1186,57 +1229,19 @@
 						<Button
 							variant="default"
 							unifiedSize="md"
-							on:click={async () => {
-								if (!savedFlow) {
-									return
-								}
-
-								await syncWithDeployed()
-
-								const currentDraftTriggers = structuredClone(
-									triggersState.getDraftTriggersSnapshot()
-								)
-
-								diffDrawer?.openDrawer()
-								const currentFlow = flowStore.val
-								diffDrawer?.setDiff({
-									mode: 'normal',
-									deployed: deployedValue ?? savedFlow,
-									draft: savedFlow?.draft,
-									current: {
-										...currentFlow,
-										path: $pathStore,
-										draft_triggers: currentDraftTriggers
-									}
-								})
-							}}
+							on:click={() => openDiffDrawer()}
 							disabled={!savedFlow}
+							iconOnly={compactTopbar}
+							title="Diff"
 							startIcon={{ icon: DiffIcon }}
 						>
 							Diff
 						</Button>
 					{/if}
-					<FlowPreviewButtons
-						{suspendStatus}
-						on:openTriggers={(e) => {
-							select('Trigger')
-							handleSelectTriggerFromKind(triggersState, triggersCount, initialPath, e.detail.kind)
-							captureOn.set(true)
-							showCaptureHint.set(true)
-						}}
-						{onJobDone}
-						bind:localModuleStates
-						bind:this={flowPreviewButtons}
-						{loading}
-						onRunPreview={() => {
-							// Reset manually edited args inputs when running a preview
-							stepsInputArgs.resetManuallyEditedArgs()
-							modulesTestStates.hideJobsInGraph()
-							localModuleStates = {}
-							showJobStatus = true
-						}}
-					/>
-					{#if customUi?.topBar?.draft !== false}
+					{#if !compactTopbar}
+						{@render previewButtons()}
+					{/if}
+					{#if customUi?.topBar?.draft !== false && !compactTopbar}
 						<Button
 							loading={loadingDraft}
 							unifiedSize="md"
@@ -1254,15 +1259,39 @@
 						on:save={async ({ detail }) => await handleSaveFlow(detail)}
 						{loading}
 						{loadingSave}
-						{newFlow}
 						{dropdownItems}
 					/>
 				</div>
 			</div>
+			<!-- Rendered either inline in the top bar (wide) or as a graph overlay
+			     (compactTopbar). Crossing the 720px threshold remounts
+			     FlowPreviewButtons; any open preview state will reset. -->
+			{#snippet previewButtons()}
+				<FlowPreviewButtons
+					{suspendStatus}
+					on:openTriggers={(e) => {
+						select('Trigger')
+						handleSelectTriggerFromKind(triggersState, triggersCount, initialPath, e.detail.kind)
+						captureOn.set(true)
+						showCaptureHint.set(true)
+					}}
+					{onJobDone}
+					bind:localModuleStates
+					bind:this={flowPreviewButtons}
+					{loading}
+					onRunPreview={() => {
+						stepsInputArgs.resetManuallyEditedArgs()
+						modulesTestStates.hideJobsInGraph()
+						localModuleStates = {}
+						showJobStatus = true
+					}}
+				/>
+			{/snippet}
 			<!-- metadata -->
 			{#if flowStateStore.val}
 				<FlowEditor
 					bind:this={flowEditor}
+					graphOverlay={compactTopbar ? previewButtons : undefined}
 					{disabledFlowInputs}
 					disableAi={disableAi || customUi?.stepInputs?.ai == false}
 					disableSettings={customUi?.settingsPanel === false}
@@ -1321,7 +1350,7 @@
 						delete modulesTestStates.states[id]
 					}}
 					{flowHasChanged}
-					previewOpen={flowPreviewButtons?.getPreviewOpen()}
+					previewOpen={flowPreviewButtons?.getPreviewOpen() ?? false}
 				/>
 			{:else}
 				<CenteredPage>Loading...</CenteredPage>

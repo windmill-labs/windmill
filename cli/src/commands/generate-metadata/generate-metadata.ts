@@ -7,6 +7,7 @@ import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
 import * as log from "../../core/log.ts";
+import { Workspace } from "../workspace/workspace.ts";
 import {
   beginLockfileBatch,
   flushLockfileBatch,
@@ -89,6 +90,99 @@ async function walkLocalAppItems(
     folder: p.substring(0, p.lastIndexOf(SEP)),
     rawApp: p.endsWith(SEP + "raw_app.yaml"),
   }));
+}
+
+/**
+ * Build the path -> temp-storage-hash map for a preview target (script, flow,
+ * or app), so a preview run resolves relative imports from not-yet-deployed
+ * local content instead of the deployed scripts. Walks all local scripts so
+ * transitive relative-import targets can be uploaded, then for flow/app adds
+ * that item's node. Degrades gracefully (returns undefined) on older backends
+ * without the /raw_temp endpoints.
+ */
+export async function buildPreviewTempScriptRefs(
+  workspace: Workspace,
+  opts: GlobalOptions & SyncOptions & { defaultTs?: "bun" | "deno" },
+  codebases: SyncCodebase[],
+  target:
+    | { kind: "script"; path: string }
+    | { kind: "flow"; folder: string }
+    | { kind: "app"; folder: string; rawApp: boolean },
+): Promise<Record<string, string> | undefined> {
+  try {
+    const rawWorkspaceDependencies = await getRawWorkspaceDependencies(true);
+    const tree = new DoubleLinkedDependencyTree();
+    tree.setWorkspaceDeps(rawWorkspaceDependencies);
+    const ignore = await ignoreF(opts);
+
+    for (const e of await walkLocalScripts(codebases, ignore)) {
+      await generateScriptMetadataInternal(
+        e,
+        workspace,
+        opts,
+        true, // dryRun: only populate the tree
+        true, // noStaleMessage
+        rawWorkspaceDependencies,
+        codebases,
+        false,
+        tree,
+      );
+    }
+
+    let nodePath: string;
+    if (target.kind === "script") {
+      nodePath = scriptPathToRemotePath(target.path);
+    } else if (target.kind === "flow") {
+      const folder = target.folder.endsWith(SEP)
+        ? target.folder.slice(0, -1)
+        : target.folder;
+      await generateFlowLockInternal(folder, true, workspace, opts, false, true, tree);
+      nodePath = folder.replaceAll(SEP, "/");
+    } else {
+      const folder = target.folder.endsWith(SEP)
+        ? target.folder.slice(0, -1)
+        : target.folder;
+      await generateAppLocksInternal(
+        folder,
+        target.rawApp,
+        true,
+        workspace,
+        opts,
+        false,
+        true,
+        tree,
+      );
+      nodePath = folder.replaceAll(SEP, "/");
+    }
+
+    tree.propagateStaleness();
+    await uploadScripts(tree, workspace);
+    const refs = tree.getTempScriptRefs(nodePath);
+    return refs && Object.keys(refs).length > 0 ? refs : undefined;
+  } catch (e) {
+    // Degrade gracefully (preview still runs against deployed versions) but do
+    // NOT mask the real error: only the missing-/raw_temp-endpoint case is an
+    // expected old-backend incompatibility — anything else is surfaced verbatim.
+    const msg = e instanceof Error ? e.message : String(e);
+    // Narrow: only the missing raw_temp endpoint is the expected old-backend
+    // signal. A bare 404/"not found" matches far too much (module/command/
+    // ENOENT "not found", "Script X not found", …) and would mislabel real
+    // bugs as a backend-too-old issue.
+    const isOldBackend = /raw_temp|raw_script_temp/i.test(msg);
+    if (!(opts as { silent?: boolean }).silent) {
+      log.warn(
+        colors.yellow(
+          isOldBackend
+            ? `Backend does not support local-import resolution for preview ` +
+                `(requires the /raw_temp endpoints); relative imports will use ` +
+                `deployed script versions.`
+            : `Failed to resolve local relative imports for preview: ${msg}. ` +
+                `Falling back to deployed script versions.`,
+        ),
+      );
+    }
+    return undefined;
+  }
 }
 
 /**

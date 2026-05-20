@@ -277,6 +277,7 @@ const createScheduleTool: Tool<any> = {
 	requiresConfirmation: true,
 	confirmationMessage: 'Create schedule',
 	showDetails: true,
+	showFade: true,
 	validateBeforeConfirmation: ({ helpers }) => validateWorkspaceMutationTarget(helpers),
 	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
 		try {
@@ -337,6 +338,7 @@ const createTriggerTool: Tool<any> = {
 	requiresConfirmation: true,
 	confirmationMessage: 'Create trigger',
 	showDetails: true,
+	showFade: true,
 	validateBeforeConfirmation: ({ helpers }) => validateWorkspaceMutationTarget(helpers),
 	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
 		try {

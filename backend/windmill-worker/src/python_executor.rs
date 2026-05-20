@@ -31,6 +31,7 @@ use windmill_common::{
         self,
         Error::{self},
     },
+    jobs::JobKind,
     scripts::ScriptLang,
     utils::calculate_hash,
     worker::{
@@ -118,6 +119,18 @@ async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<Pipt
 const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download.py.config.proto");
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
 pub const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
+
+/// Render loader.py with the TEMP_SCRIPT_REFS placeholder substituted by a
+/// Python dict literal. Preview jobs pass a path -> temp-hash map so relative
+/// imports resolve from not-yet-deployed local content; deployed runs pass
+/// `None` which renders an empty dict (deployed resolution unchanged).
+fn render_relative_python_loader(temp_script_refs: &Option<HashMap<String, String>>) -> String {
+    let temp_refs_py = temp_script_refs
+        .as_ref()
+        .and_then(|m| serde_json::to_string(m).ok())
+        .unwrap_or_else(|| "{}".to_string());
+    RELATIVE_PYTHON_LOADER.replace("TEMP_SCRIPT_REFS_PLACEHOLDER", &temp_refs_py)
+}
 
 #[cfg(any(feature = "private", test))]
 pub fn has_relative_imports(content: &str) -> bool {
@@ -643,6 +656,21 @@ pub async fn handle_python_job(
         ));
     }
 
+    // Preview jobs may carry _TEMP_SCRIPT_REFS so relative imports resolve from
+    // not-yet-deployed local content uploaded to raw_script_temp. Gated on
+    // JobKind::Preview because job.args includes caller-controlled request
+    // args; honoring this key on deployed runs would let a caller swap import
+    // resolution targets in deployed code.
+    let temp_script_refs: Option<HashMap<String, String>> = if matches!(job.kind, JobKind::Preview)
+    {
+        job.args
+            .as_ref()
+            .and_then(|x| x.get("_TEMP_SCRIPT_REFS"))
+            .and_then(|v| serde_json::from_str(v.get()).ok())
+    } else {
+        None
+    };
+
     let (py_version, mut additional_python_paths) = handle_python_deps(
         job_dir,
         requirements_o,
@@ -658,6 +686,7 @@ pub async fn handle_python_job(
         &mut Some(occupancy_metrics),
         precomputed_agent_info,
         annotations.clone(),
+        &temp_script_refs,
     )
     .await?;
 
@@ -709,6 +738,7 @@ pub async fn handle_python_job(
         job.script_entrypoint_override.as_deref(),
         inner_content,
         &script_path,
+        &temp_script_refs,
     )
     .await?;
 
@@ -1532,6 +1562,7 @@ async fn prepare_wrapper(
     job_script_entrypoint_override: Option<&str>,
     inner_content: &str,
     script_path: &str,
+    temp_script_refs: &Option<HashMap<String, String>>,
 ) -> error::Result<(
     &'static str,
     &'static str,
@@ -1571,7 +1602,11 @@ async fn prepare_wrapper(
 
     let _ = write_file(&module_dir, &format!("{last}.py"), inner_content)?;
     if relative_imports {
-        let _ = write_file(job_dir, "loader.py", RELATIVE_PYTHON_LOADER)?;
+        let _ = write_file(
+            job_dir,
+            "loader.py",
+            &render_relative_python_loader(temp_script_refs),
+        )?;
     }
 
     let sig = windmill_parser_py::parse_python_signature(
@@ -1768,6 +1803,7 @@ pub(crate) async fn handle_python_deps(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     annotations: PythonAnnotations,
+    temp_script_refs: &Option<HashMap<String, String>>,
 ) -> error::Result<(PyV, Vec<String>)> {
     create_dependencies_dir(job_dir).await;
 
@@ -1796,7 +1832,7 @@ pub(crate) async fn handle_python_deps(
                         &mut version_specifiers,
                         &mut locked_v,
                         &None,
-                        &None, // temp_script_refs: only used during CLI lock generation
+                        temp_script_refs,
                     ))
                     .await?;
 
@@ -3042,7 +3078,8 @@ pub async fn start_worker(
 
     let any_relative_imports = RELATIVE_IMPORT_REGEX.is_match(inner_content);
     if any_relative_imports {
-        let _ = write_file(job_dir, "loader.py", RELATIVE_PYTHON_LOADER)?;
+        // Dedicated worker runs deployed scripts only — no temp refs.
+        let _ = write_file(job_dir, "loader.py", &render_relative_python_loader(&None))?;
     }
 
     let mut mem_peak: i32 = 0;
@@ -3087,6 +3124,7 @@ pub async fn start_worker(
         &mut None,
         None,
         annotations,
+        &None, // dedicated worker runs deployed scripts only
     )
     .await?;
 

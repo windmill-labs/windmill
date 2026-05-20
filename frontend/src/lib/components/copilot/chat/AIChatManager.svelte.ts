@@ -121,7 +121,7 @@ function persistAutoAcceptToolConfirmations(enabled: boolean) {
 	localStorage.setItem(AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY, enabled ? 'true' : 'false')
 }
 
-class AIChatManager {
+export class AIChatManager {
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
 	abortController: AbortController | undefined = undefined
@@ -1047,6 +1047,10 @@ class AIChatManager {
 
 	disableAutomaticScroll = () => {
 		this.#automaticScroll = false
+	}
+
+	enableAutomaticScroll = () => {
+		this.#automaticScroll = true
 	}
 
 	generateStep = async (moduleId: string, lang: ScriptLang, instructions: string) => {

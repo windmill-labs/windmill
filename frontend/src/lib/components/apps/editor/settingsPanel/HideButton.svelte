@@ -11,11 +11,11 @@
 		PanelRightClose,
 		PanelRightOpen
 	} from 'lucide-svelte'
-	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		btnClasses?: string | undefined
 		size?: ButtonType.Size
+		unifiedSize?: ButtonType.UnifiedSize
 		variant?: ButtonType.Variant
 		color?: ButtonType.Color
 		direction?: 'left' | 'right' | 'bottom'
@@ -30,8 +30,8 @@
 	let {
 		btnClasses = undefined,
 		size = 'xs',
-		variant = 'contained',
-		color = 'light',
+		unifiedSize = 'sm',
+		variant = 'subtle',
 		direction = 'right',
 		hidden = false,
 		shortcut = undefined,
@@ -74,23 +74,21 @@
 			</div>
 		{/if}
 	{/snippet}
-	<Button
-		iconOnly
-		startIcon={hidden
-			? (customHiddenIcon ?? {
-					icon: OpenIconMap[direction]
-				})
-			: {
-					icon: CloseIconMap[direction]
-				}}
-		{size}
-		btnClasses={twMerge(
-			'p-1 text-gray-300 hover:!text-gray-600 dark:text-gray-500 dark:hover:!text-gray-200 bg-transparent',
-			hidden ? 'bg-surface-selected !text-primary' : '',
-			btnClasses
-		)}
-		on:click
-		{variant}
-		{color}
-	/>
+	<div class={hidden ? 'bg-surface-selected rounded-md' : ''}>
+		<Button
+			iconOnly
+			startIcon={hidden
+				? (customHiddenIcon ?? {
+						icon: OpenIconMap[direction]
+					})
+				: {
+						icon: CloseIconMap[direction]
+					}}
+			{size}
+			{btnClasses}
+			{unifiedSize}
+			on:click
+			{variant}
+		/>
+	</div>
 </Popover>
