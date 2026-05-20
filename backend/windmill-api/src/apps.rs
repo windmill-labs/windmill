@@ -2039,6 +2039,10 @@ pub struct ExecuteApp {
     pub force_viewer_delete_after_secs: Option<i32>,
     /// Runnable query parameters (e.g., memory_id for chat-enabled flows)
     pub run_query_params: Option<RunJobQuery>,
+    /// Map of relative-import script path -> temp storage hash. Only honored for
+    /// inline-script (raw_code, preview) execution so `wmill app dev` resolves
+    /// those imports from not-yet-deployed local content instead of deployed.
+    pub temp_script_refs: Option<HashMap<String, String>>,
 }
 
 fn digest(code: &str) -> String {
@@ -2113,8 +2117,16 @@ async fn execute_component(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Json(payload): Json<ExecuteApp>,
+    Json(mut payload): Json<ExecuteApp>,
 ) -> Result<String> {
+    // Only honor temp_script_refs for the inline-script preview path:
+    // preview/editor mode (force_viewer_static_fields set, == `is_preview`),
+    // raw_code present, and no deployed app_script id — i.e. `wmill app dev`.
+    let temp_script_refs = payload.temp_script_refs.take();
+    let inject_temp_refs = temp_script_refs.is_some()
+        && payload.force_viewer_static_fields.is_some()
+        && payload.raw_code.is_some()
+        && payload.id.is_none();
     match (payload.path.is_some(), payload.raw_code.is_some()) {
         (false, false) => {
             return Err(Error::BadRequest(
@@ -2343,7 +2355,7 @@ async fn execute_component(
     let resolved_delete_secs =
         resolve_delete_after_secs(None, policy_triggerables.delete_after_secs);
 
-    let (args, job_id) = build_args(
+    let (mut args, job_id) = build_args(
         policy,
         policy_triggerables,
         payload.args,
@@ -2353,6 +2365,14 @@ async fn execute_component(
         &w_id,
     )
     .await?;
+
+    if inject_temp_refs {
+        if let Some(refs) = temp_script_refs {
+            args.extra
+                .get_or_insert_with(HashMap::new)
+                .insert("_TEMP_SCRIPT_REFS".to_string(), to_raw_value(&refs));
+        }
+    }
 
     let is_flow = payload
         .path

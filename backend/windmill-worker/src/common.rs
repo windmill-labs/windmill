@@ -114,6 +114,7 @@ pub async fn create_args_and_out_file(
     if let Some(args) = job.args.as_ref() {
         if let Some(mut x) = transform_json(client, &job.workspace_id, &args.0, job, conn).await? {
             x.remove("_MODULES");
+            x.remove("_TEMP_SCRIPT_REFS");
             write_file(
                 job_dir,
                 "args.json",
@@ -122,6 +123,7 @@ pub async fn create_args_and_out_file(
         } else {
             let mut filtered = args.0.clone();
             filtered.remove("_MODULES");
+            filtered.remove("_TEMP_SCRIPT_REFS");
             write_file(
                 job_dir,
                 "args.json",
