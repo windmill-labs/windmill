@@ -5,6 +5,7 @@
 		ArrowDown,
 		CheckIcon,
 		HistoryIcon,
+		Hourglass,
 		MousePointer2,
 		Plus,
 		TextSelect,
@@ -14,13 +15,14 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { fade } from 'svelte/transition'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import { type DisplayMessage } from './shared'
+	import { type DisplayMessage, type ToolDisplayMessage } from './shared'
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ProviderModelSelector from './ProviderModelSelector.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
 	import Markdown from 'svelte-exmarkdown'
+	import { twMerge } from 'tailwind-merge'
 	import { AIMode } from './AIChatManager.svelte'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import ChatTypingIndicator from './ChatTypingIndicator.svelte'
@@ -165,6 +167,29 @@
 
 	const showTypingIndicator = $derived(aiChatManager.loading)
 
+	// "Waiting for user" detection — when the latest tool message is staged
+	// for confirmation or has an unanswered askUserQuestion, the AI loop is
+	// paused on the user, not on its own work. The typing-dots indicator
+	// implies the AI is busy, which is misleading; surface a text pill
+	// instead so users know to act on the tool above.
+	const waitingForUserAction = $derived.by(() => {
+		if (!aiChatManager.loading) return false
+		const last = messages[messages.length - 1]
+		if (!last || last.role !== 'tool') return false
+		const tm = last as ToolDisplayMessage
+		if (tm.needsConfirmation && tm.isLoading) return true
+		if (
+			tm.userQuestion &&
+			tm.isLoading &&
+			!tm.error &&
+			!tm.userQuestion.selectedChoice &&
+			!tm.userQuestion.canceled
+		) {
+			return true
+		}
+		return false
+	})
+
 	// Get app context for display when in APP mode
 	const appContext = $derived.by((): SelectedContext | undefined => {
 		if (aiChatManager.mode !== AIMode.APP || !aiChatManager.appAiChatHelpers) {
@@ -283,7 +308,17 @@
 					{/each}
 					{#if showTypingIndicator}
 						<div class="sticky bottom-2 z-10 mt-2 ml-2 self-start pointer-events-none">
-							<ChatTypingIndicator loading={aiChatManager.loading} />
+							{#if waitingForUserAction}
+								<span
+									class="inline-flex items-center gap-1.5 text-2xs text-accent"
+									aria-label="Waiting for your input"
+								>
+									<Hourglass class="w-3 h-3 hourglass-flip" />
+									Waiting for your input
+								</span>
+							{:else}
+								<ChatTypingIndicator loading={aiChatManager.loading} />
+							{/if}
 						</div>
 					{/if}
 				</div>
@@ -291,11 +326,14 @@
 			{#if showScrollToLatest}
 				<div
 					transition:fade={{ duration: 120 }}
-					class="absolute bottom-2 left-1/2 -translate-x-1/2 z-10"
+					class={twMerge(
+						'absolute left-1/2 -translate-x-1/2 z-10 rounded-full bg-surface shadow-md border border-gray-200 dark:border-gray-700',
+						aiChatManager.flowAiChatHelpers?.hasPendingChanges() ? 'bottom-12' : 'bottom-2'
+					)}
 				>
 					<Button
 						variant="default"
-						unifiedSize="xs"
+						unifiedSize="sm"
 						iconOnly
 						title="Scroll to latest"
 						aria-label="Scroll to latest message"
@@ -439,3 +477,26 @@
 		{/if}
 	</div>
 </div>
+
+<style>
+	/* Hourglass flips every ~2.5s with brief pauses at each rest position.
+	   `:global` because the class is applied to a child component's root
+	   (Lucide SVG) and Svelte scoped CSS otherwise wouldn't match it. */
+	:global(.hourglass-flip) {
+		animation: hourglass-flip 4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+		transform-origin: center;
+	}
+	@keyframes hourglass-flip {
+		0%,
+		35% {
+			transform: rotate(0deg);
+		}
+		50%,
+		85% {
+			transform: rotate(180deg);
+		}
+		100% {
+			transform: rotate(360deg);
+		}
+	}
+</style>
