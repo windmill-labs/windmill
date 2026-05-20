@@ -72,7 +72,13 @@
       "Bash(chown:*)",
       "Bash(truncate:*)",
       "Bash(shred:*)",
-      "Bash(unlink:*)"
+      "Bash(unlink:*)",
+      "mcp__claude_ai_Stripe",
+      "mcp__claude_ai_Gmail",
+      "mcp__claude_ai_Google_Calendar",
+      "mcp__claude_ai_Google_Drive",
+      "mcp__claude_ai_Slack",
+      "mcp__claude_ai_Linear"
     ]
   },
   "enableAllProjectMcpServers": true,
