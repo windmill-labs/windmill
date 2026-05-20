@@ -41,6 +41,7 @@ import queues from "./commands/queues/queues.ts";
 import dependencies from "./commands/dependencies/dependencies.ts";
 import init from "./commands/init/init.ts";
 import refresh from "./commands/refresh/refresh.ts";
+import { warnIfPromptsStale } from "./guidance/freshness.ts";
 import jobs from "./commands/jobs/jobs.ts";
 import job from "./commands/job/job.ts";
 import group from "./commands/group/group.ts";
@@ -287,6 +288,12 @@ async function main() {
       await detectAuthGatewayChallenge(response);
       return response;
     });
+
+    // Warn (one line) if AGENTS.cli.md predates this CLI's prompts bundle.
+    // Silent for `wmill init`, `wmill refresh ...`, --help, --version, etc.
+    // — see shouldRunFreshnessCheck.
+    await warnIfPromptsStale({ argv: process.argv }).catch(() => {});
+
     await command.parse(args);
   } catch (e) {
     if (e && typeof e === "object" && "name" in e && e.name === "ApiError") {

@@ -142,7 +142,7 @@ For flow failures, start with \`wmill job get <id>\` to identify the failing ste
 
 ## Skills
 
-For specific guidance, ALWAYS use the skills listed below.
+For specific guidance, ALWAYS use the skills listed below. Paths point at the canonical \`.agents/skills/\` tree — Claude Code reads its own \`.claude/skills/\` mirror that \`@\`-includes the same files.
 
 ${skillsReference}
 `;

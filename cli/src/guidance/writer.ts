@@ -7,6 +7,10 @@ import {
   generateAgentsMdSkeleton,
 } from "./core.ts";
 import {
+  currentPromptsHash,
+  injectPromptsHashMarker,
+} from "./freshness.ts";
+import {
   SCHEMAS,
   SCHEMA_MAPPINGS,
   SKILLS,
@@ -59,21 +63,68 @@ export const WMILL_INIT_AI_AGENTS_SOURCE_ENV = "WMILL_INIT_AI_AGENTS_SOURCE";
 export const WMILL_INIT_AI_CLAUDE_SOURCE_ENV = "WMILL_INIT_AI_CLAUDE_SOURCE";
 
 const CLAUDE_MD_DEFAULT = "Instructions are in @AGENTS.md\n";
-const SKILL_TARGET_ROOTS = [".claude", ".agents"] as const;
+
+/**
+ * Skills are written once to the canonical `.agents/skills/` tree. The
+ * `.claude/skills/` tree gets thin wrapper files containing the skill
+ * frontmatter (so Claude Code's skill loader still discovers them) plus a
+ * single `@<path>` include that pulls the body from the agents-side file at
+ * read time. Half the disk, single source of truth, drift impossible.
+ */
+const SKILLS_CANONICAL_ROOT = ".agents";
+const SKILLS_WRAPPER_ROOTS = [".claude"] as const;
+
+function relativeAgentsSkillPath(skillName: string): string {
+  // Path from `.claude/skills/<name>/SKILL.md` up to the project root, then
+  // into the canonical `.agents/skills/<name>/SKILL.md`. Three `..` segments
+  // (out of <name>/, out of skills/, out of .claude/).
+  return `../../../${SKILLS_CANONICAL_ROOT}/skills/${skillName}/SKILL.md`;
+}
+
+function extractFrontmatter(content: string): string | null {
+  const match = content.match(/^(---\s*\n[\s\S]*?\n---\s*\n)/);
+  return match ? match[1] : null;
+}
+
+function buildClaudeWrapper(skillName: string, canonicalContent: string): string {
+  const frontmatter = extractFrontmatter(canonicalContent);
+  if (frontmatter == null) {
+    // Without a `---`-fenced frontmatter, Claude Code's skill loader can't
+    // index the wrapper (name/description live there). Refuse to write a
+    // discovery-broken wrapper — every managed SKILL_CONTENT entry starts
+    // with frontmatter, so this only fires for bundle-supplied skills
+    // missing it.
+    throw new Error(
+      `Skill "${skillName}" has no YAML frontmatter; cannot build .claude wrapper. ` +
+        `Add a leading \`---\\nname: ${skillName}\\ndescription: ...\\n---\` block to the source SKILL.md.`
+    );
+  }
+  return `${frontmatter}\n@${relativeAgentsSkillPath(skillName)}\n`;
+}
 
 export async function writeAiGuidanceFiles(
   options: WriteAiGuidanceOptions
 ): Promise<WriteAiGuidanceResult> {
-  const nonDottedPaths = options.nonDottedPaths ?? true;
+  // Match `core/conf.ts`'s missing-key default — if a legacy wmill.yaml
+  // omits `nonDottedPaths`, sync treats it as `false`, so we must too or
+  // the freshness hash will be permanently out of sync with the rest of
+  // the CLI's view of the project.
+  const nonDottedPaths = options.nonDottedPaths ?? false;
   const skillMetadata = options.skillsSourcePath
     ? await readSkillMetadataFromDirectory(options.skillsSourcePath)
     : getGeneratedSkillMetadata();
 
   // AGENTS.cli.md — always (re)written, this is the managed file.
-  const agentsCliContent =
+  // We embed a content-hash marker so other `wmill` commands can detect a
+  // stale bundle and prompt the user to `wmill refresh prompts`.
+  const rawAgentsCliContent =
     options.agentsSourcePath != null
       ? await readTextFile(options.agentsSourcePath)
       : generateAgentsCliMdContent(buildSkillsReference(skillMetadata));
+  const agentsCliContent = injectPromptsHashMarker(
+    rawAgentsCliContent,
+    currentPromptsHash(nonDottedPaths)
+  );
   const agentsCliPath = join(options.targetDir, "AGENTS.cli.md");
   await writeFile(agentsCliPath, agentsCliContent, "utf8");
   const agentsCliWritten = true;
@@ -170,7 +221,7 @@ function buildSkillsReference(
   return skills
     .map(
       (skill) =>
-        `- \`.claude/skills/${skill.directoryName}/SKILL.md\` - ${skill.description}`
+        `- \`${SKILLS_CANONICAL_ROOT}/skills/${skill.directoryName}/SKILL.md\` - ${skill.description}`
     )
     .join("\n");
 }
@@ -179,33 +230,74 @@ async function copySkillsFromSource(
   targetDir: string,
   skillsSourcePath: string
 ): Promise<ResolvedSkillMetadata[]> {
-  const skillsDirs = await ensureSkillsDirectories(targetDir);
+  const { canonicalSkillsDir, wrapperSkillsDirs } =
+    await ensureSkillsDirectories(targetDir);
+
+  // Copy the full source bundle (SKILL.md + any auxiliary files) into the
+  // canonical `.agents/skills/` tree.
+  await copyDirectoryContents(skillsSourcePath, canonicalSkillsDir);
+
+  // For every skill that landed in the canonical tree, write a Claude-side
+  // wrapper that frontmatter-mirrors the canonical and `@`-includes its body.
+  const sourceEntries = await readdir(skillsSourcePath, { withFileTypes: true });
   await Promise.all(
-    skillsDirs.map((skillsDir) =>
-      copyDirectoryContents(skillsSourcePath, skillsDir)
-    )
+    sourceEntries
+      .filter((entry) => entry.isDirectory())
+      .map(async (entry) => {
+        const canonicalSkillPath = join(
+          canonicalSkillsDir,
+          entry.name,
+          "SKILL.md"
+        );
+        const canonical = await readTextFile(canonicalSkillPath).catch(
+          () => null
+        );
+        if (canonical == null) return;
+        const wrapper = buildClaudeWrapper(entry.name, canonical);
+        await Promise.all(
+          wrapperSkillsDirs.map(async (dir) => {
+            const wrapperDir = join(dir, entry.name);
+            await mkdir(wrapperDir, { recursive: true });
+            await writeFile(join(wrapperDir, "SKILL.md"), wrapper, "utf8");
+          })
+        );
+      })
   );
-  return await readSkillMetadataFromDirectory(skillsDirs[0]);
+
+  return await readSkillMetadataFromDirectory(canonicalSkillsDir);
 }
 
 async function writeGeneratedSkills(
   targetDir: string,
   nonDottedPaths: boolean
 ): Promise<ResolvedSkillMetadata[]> {
-  const skillsDirs = await ensureSkillsDirectories(targetDir);
+  const { canonicalSkillsDir, wrapperSkillsDirs } =
+    await ensureSkillsDirectories(targetDir);
 
   await Promise.all(
-    skillsDirs.flatMap((skillsDir) =>
-      SKILLS.map(async (skill) => {
-        const skillDir = join(skillsDir, skill.name);
-        await mkdir(skillDir, { recursive: true });
-        await writeFile(
-          join(skillDir, "SKILL.md"),
-          renderGeneratedSkillContent(skill.name, nonDottedPaths),
-          "utf8"
-        );
-      })
-    )
+    SKILLS.map(async (skill) => {
+      const canonicalContent = renderGeneratedSkillContent(
+        skill.name,
+        nonDottedPaths
+      );
+
+      const canonicalSkillDir = join(canonicalSkillsDir, skill.name);
+      await mkdir(canonicalSkillDir, { recursive: true });
+      await writeFile(
+        join(canonicalSkillDir, "SKILL.md"),
+        canonicalContent,
+        "utf8"
+      );
+
+      const wrapper = buildClaudeWrapper(skill.name, canonicalContent);
+      await Promise.all(
+        wrapperSkillsDirs.map(async (wrapperDir) => {
+          const skillDir = join(wrapperDir, skill.name);
+          await mkdir(skillDir, { recursive: true });
+          await writeFile(join(skillDir, "SKILL.md"), wrapper, "utf8");
+        })
+      );
+    })
   );
 
   return SKILLS.map((skill) => ({
@@ -221,14 +313,20 @@ function getGeneratedSkillMetadata(): ResolvedSkillMetadata[] {
   }));
 }
 
-async function ensureSkillsDirectories(targetDir: string): Promise<string[]> {
-  const skillsDirs = SKILL_TARGET_ROOTS.map((root) =>
+async function ensureSkillsDirectories(targetDir: string): Promise<{
+  canonicalSkillsDir: string;
+  wrapperSkillsDirs: string[];
+}> {
+  const canonicalSkillsDir = join(targetDir, SKILLS_CANONICAL_ROOT, "skills");
+  const wrapperSkillsDirs = SKILLS_WRAPPER_ROOTS.map((root) =>
     join(targetDir, root, "skills")
   );
   await Promise.all(
-    skillsDirs.map((skillsDir) => mkdir(skillsDir, { recursive: true }))
+    [canonicalSkillsDir, ...wrapperSkillsDirs].map((skillsDir) =>
+      mkdir(skillsDir, { recursive: true })
+    )
   );
-  return skillsDirs;
+  return { canonicalSkillsDir, wrapperSkillsDirs };
 }
 
 async function copyDirectoryContents(

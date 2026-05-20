@@ -24,13 +24,17 @@ export async function refreshPrompts(opts: {
   yes?: boolean;
   agentsMdChoice?: AgentsMdMigration;
 }): Promise<void> {
-  let nonDottedPaths = true; // default for new projects
+  // Match `core/conf.ts`'s missing-key default (`?? false`) so legacy
+  // wmill.yaml files without the key don't drift from how sync renders
+  // paths. New projects get `true` via the wmill.yaml template, not via
+  // this fallback.
+  let nonDottedPaths = false;
   try {
     const { readConfigFile } = await import("../../core/conf.ts");
     const config = await readConfigFile();
-    nonDottedPaths = config.nonDottedPaths ?? true;
+    nonDottedPaths = config.nonDottedPaths ?? false;
   } catch {
-    // If config can't be read, use defaults
+    // If config can't be read, use the conservative default above.
   }
 
   const interactive = process.stdin.isTTY && !opts.yes;

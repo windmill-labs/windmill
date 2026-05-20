@@ -2,9 +2,24 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { resolve } from "node:path";
 import { writeAiGuidanceFiles } from "../src/guidance/writer.ts";
+import {
+  currentPromptsHash,
+  extractPromptsHash,
+  injectPromptsHashMarker,
+  shouldRunFreshnessCheck,
+  warnIfPromptsStale,
+} from "../src/guidance/freshness.ts";
 
-const SKILL_TARGET_ROOTS = [".claude", ".agents"] as const;
+const SKILLS_CANONICAL_ROOT = ".agents";
+const SKILLS_WRAPPER_ROOTS = [".claude"] as const;
+const SKILL_TARGET_ROOTS = [
+  SKILLS_CANONICAL_ROOT,
+  ...SKILLS_WRAPPER_ROOTS,
+] as const;
+const WRAPPER_INCLUDE_LINE = (skillName: string) =>
+  `@../../../${SKILLS_CANONICAL_ROOT}/skills/${skillName}/SKILL.md`;
 
 async function withTempDir(fn: (tempDir: string) => Promise<void>): Promise<void> {
   const tempDir = await mkdtemp(join(tmpdir(), "wmill_guidance_writer_"));
@@ -46,7 +61,7 @@ Preserve me.
           writeSkill(skillsDir, "custom-skill", customSkillContent)
         )
       );
-      const generatedSkillPaths = await Promise.all(
+      await Promise.all(
         skillsDirs.map((skillsDir) =>
           writeSkill(skillsDir, "write-flow", staleGeneratedContent)
         )
@@ -54,14 +69,30 @@ Preserve me.
 
       await writeAiGuidanceFiles({ targetDir: tempDir });
 
+      // Custom skills must survive on every side, untouched.
       for (const customSkillPath of customSkillPaths) {
         expect(await readFile(customSkillPath, "utf8")).toBe(customSkillContent);
       }
 
-      for (const generatedSkillPath of generatedSkillPaths) {
-        const generatedSkillContent = await readFile(generatedSkillPath, "utf8");
-        expect(generatedSkillContent).not.toBe(staleGeneratedContent);
-        expect(generatedSkillContent).toContain("name: write-flow");
+      // Canonical `.agents/skills/write-flow/SKILL.md` holds the full body.
+      const canonical = await readFile(
+        join(tempDir, SKILLS_CANONICAL_ROOT, "skills/write-flow/SKILL.md"),
+        "utf8"
+      );
+      expect(canonical).not.toBe(staleGeneratedContent);
+      expect(canonical).toContain("name: write-flow");
+      expect(canonical).not.toContain("@../../../");
+
+      // `.claude/skills/write-flow/SKILL.md` is a thin wrapper:
+      // frontmatter + @-include pointing at the canonical body.
+      for (const wrapperRoot of SKILLS_WRAPPER_ROOTS) {
+        const wrapper = await readFile(
+          join(tempDir, wrapperRoot, "skills/write-flow/SKILL.md"),
+          "utf8"
+        );
+        expect(wrapper).not.toBe(staleGeneratedContent);
+        expect(wrapper).toContain("name: write-flow");
+        expect(wrapper).toContain(WRAPPER_INCLUDE_LINE("write-flow"));
       }
     });
   });
@@ -98,7 +129,7 @@ Copied from source bundle.
           writeSkill(skillsDir, "custom-skill", customSkillContent)
         )
       );
-      const existingGeneratedSkillPaths = await Promise.all(
+      await Promise.all(
         skillsDirs.map((skillsDir) =>
           writeSkill(skillsDir, "write-flow", "old content")
         )
@@ -113,16 +144,41 @@ Copied from source bundle.
         skillsSourcePath: sourceSkillsDir,
       });
 
+      // Custom skills survive untouched on every side.
       for (const customSkillPath of customSkillPaths) {
         expect(await readFile(customSkillPath, "utf8")).toBe(customSkillContent);
       }
-      for (const existingGeneratedSkillPath of existingGeneratedSkillPaths) {
-        expect(await readFile(existingGeneratedSkillPath, "utf8")).toBe(sourceSkillContent);
-      }
-      for (const skillsDir of skillsDirs) {
-        expect(await readFile(join(skillsDir, "bundle-only", "SKILL.md"), "utf8")).toBe(
-          bundleOnlySkillContent
+
+      // Canonical side gets the source bundle verbatim.
+      expect(
+        await readFile(
+          join(tempDir, SKILLS_CANONICAL_ROOT, "skills/write-flow/SKILL.md"),
+          "utf8"
+        )
+      ).toBe(sourceSkillContent);
+      expect(
+        await readFile(
+          join(tempDir, SKILLS_CANONICAL_ROOT, "skills/bundle-only/SKILL.md"),
+          "utf8"
+        )
+      ).toBe(bundleOnlySkillContent);
+
+      // Wrapper sides get frontmatter + @-include.
+      for (const wrapperRoot of SKILLS_WRAPPER_ROOTS) {
+        const writeFlowWrapper = await readFile(
+          join(tempDir, wrapperRoot, "skills/write-flow/SKILL.md"),
+          "utf8"
         );
+        expect(writeFlowWrapper).toContain("name: write-flow");
+        expect(writeFlowWrapper).toContain(WRAPPER_INCLUDE_LINE("write-flow"));
+        expect(writeFlowWrapper).not.toContain("Copied from source");
+
+        const bundleOnlyWrapper = await readFile(
+          join(tempDir, wrapperRoot, "skills/bundle-only/SKILL.md"),
+          "utf8"
+        );
+        expect(bundleOnlyWrapper).toContain("name: bundle-only");
+        expect(bundleOnlyWrapper).toContain(WRAPPER_INCLUDE_LINE("bundle-only"));
       }
     });
   });
@@ -148,8 +204,15 @@ Copied from source bundle.
       });
 
       const agentsCli = await readFile(join(tempDir, "AGENTS.cli.md"), "utf8");
-      expect(agentsCli).toContain(".claude/skills/custom-folder/SKILL.md");
-      expect(agentsCli).not.toContain(".claude/skills/write-flow/SKILL.md");
+      expect(agentsCli).toContain(
+        `${SKILLS_CANONICAL_ROOT}/skills/custom-folder/SKILL.md`
+      );
+      expect(agentsCli).not.toContain(
+        `${SKILLS_CANONICAL_ROOT}/skills/write-flow/SKILL.md`
+      );
+      // The skill reference should point at the canonical .agents/ tree —
+      // not the Claude-only mirror — so Codex/Pi don't get confused.
+      expect(agentsCli).not.toContain(".claude/skills/custom-folder/SKILL.md");
     });
   });
 
@@ -163,7 +226,7 @@ Copied from source bundle.
       ).rejects.toThrow();
 
       expect(await readFile(join(tempDir, "AGENTS.cli.md"), "utf8")).toContain(
-        ".claude/skills/"
+        `${SKILLS_CANONICAL_ROOT}/skills/`
       );
       expect(await readFile(join(tempDir, "AGENTS.md"), "utf8")).toContain(
         "@AGENTS.cli.md"
@@ -295,6 +358,174 @@ describe("writeAiGuidanceFiles — referencesAgentsCli (via reconciliation)", ()
         resolveAgentsMdMigration: async () => "append",
       });
       expect(result.agentsMigration).toBe("append");
+    });
+  });
+});
+
+describe("prompts freshness — hash marker", () => {
+  test("AGENTS.cli.md written by writeAiGuidanceFiles carries a hash marker", async () => {
+    await withTempDir(async (tempDir) => {
+      await writeAiGuidanceFiles({ targetDir: tempDir });
+      const agentsCli = await readFile(join(tempDir, "AGENTS.cli.md"), "utf8");
+      const hash = extractPromptsHash(agentsCli);
+      expect(hash).not.toBeNull();
+      expect(hash).toMatch(/^[0-9a-f]{12}$/);
+    });
+  });
+
+  test("the stored hash matches currentPromptsHash for the same nonDottedPaths", async () => {
+    await withTempDir(async (tempDir) => {
+      // writeAiGuidanceFiles defaults nonDottedPaths to `false` (matching
+      // core/conf.ts's missing-key default).
+      await writeAiGuidanceFiles({ targetDir: tempDir });
+      const agentsCli = await readFile(join(tempDir, "AGENTS.cli.md"), "utf8");
+      expect(extractPromptsHash(agentsCli)).toBe(currentPromptsHash(false));
+    });
+  });
+
+  test("nonDottedPaths setting changes the hash", () => {
+    expect(currentPromptsHash(true)).not.toBe(currentPromptsHash(false));
+  });
+
+  test("injectPromptsHashMarker places the marker after the H1 title", () => {
+    const input = "# Title\n\nbody line\n";
+    const out = injectPromptsHashMarker(input, "abc123def456");
+    const lines = out.split("\n");
+    expect(lines[0]).toBe("# Title");
+    expect(lines[1]).toBe("<!-- wmill-prompts-hash: abc123def456 -->");
+    expect(lines[2]).toBe("");
+    expect(lines[3]).toBe("body line");
+  });
+
+  test("injectPromptsHashMarker prepends when there's no H1", () => {
+    const input = "no heading\nrest\n";
+    const out = injectPromptsHashMarker(input, "abc123def456");
+    expect(out).toStartWith("<!-- wmill-prompts-hash: abc123def456 -->");
+  });
+
+  test("extractPromptsHash returns null when no marker is present", () => {
+    expect(extractPromptsHash("# Title\n\nno marker here\n")).toBeNull();
+    expect(extractPromptsHash("<!-- wmill-prompts-hash: tooshort -->")).toBeNull();
+  });
+});
+
+describe("prompts freshness — shouldRunFreshnessCheck", () => {
+  // Each input matches process.argv shape: [node, script, ...args].
+  test.each<[string, string[], boolean]>([
+    ["empty argv", ["node", "wmill"], false],
+    ["wmill --help", ["node", "wmill", "--help"], false],
+    ["wmill -h on a subcommand", ["node", "wmill", "init", "-h"], false],
+    ["wmill --version", ["node", "wmill", "--version"], false],
+    ["wmill init", ["node", "wmill", "init"], false],
+    ["wmill init prompts", ["node", "wmill", "init", "prompts"], false],
+    ["wmill refresh prompts", ["node", "wmill", "refresh", "prompts"], false],
+    ["wmill completions zsh", ["node", "wmill", "completions", "zsh"], false],
+    ["wmill upgrade", ["node", "wmill", "upgrade"], false],
+    ["wmill sync push", ["node", "wmill", "sync", "push"], true],
+    ["wmill flow run", ["node", "wmill", "flow", "run"], true],
+    ["wmill --verbose sync push", ["node", "wmill", "--verbose", "sync", "push"], true],
+  ])("%s → %s", (_label, argv, expected) => {
+    expect(shouldRunFreshnessCheck(argv)).toBe(expected);
+  });
+});
+
+describe("prompts freshness — additional invariants", () => {
+  test("currentPromptsHash is deterministic across invocations in the same process", () => {
+    const h1 = currentPromptsHash(true);
+    const h2 = currentPromptsHash(true);
+    const h3 = currentPromptsHash(false);
+    const h4 = currentPromptsHash(false);
+    expect(h1).toBe(h2);
+    expect(h3).toBe(h4);
+  });
+
+  test("Claude wrapper's @-include path resolves to the canonical file", async () => {
+    await withTempDir(async (tempDir) => {
+      await writeAiGuidanceFiles({ targetDir: tempDir });
+
+      const wrapperPath = join(
+        tempDir,
+        ".claude",
+        "skills",
+        "write-flow",
+        "SKILL.md"
+      );
+      const canonicalPath = join(
+        tempDir,
+        SKILLS_CANONICAL_ROOT,
+        "skills",
+        "write-flow",
+        "SKILL.md"
+      );
+
+      const wrapperContent = await readFile(wrapperPath, "utf8");
+      const includeMatch = wrapperContent.match(/^@(.+)$/m);
+      expect(includeMatch).not.toBeNull();
+      const includeTarget = includeMatch![1];
+
+      const wrapperDir = join(tempDir, ".claude", "skills", "write-flow");
+      const resolvedFromInclude = resolve(wrapperDir, includeTarget);
+      expect(resolvedFromInclude).toBe(canonicalPath);
+    });
+  });
+
+  test("throws when a bundle-supplied skill is missing frontmatter", async () => {
+    await withTempDir(async (tempDir) => {
+      const sourceSkillsDir = join(tempDir, "source-skills");
+      await writeSkill(
+        sourceSkillsDir,
+        "no-frontmatter",
+        "this skill has no --- block at all\n"
+      );
+
+      await expect(
+        writeAiGuidanceFiles({
+          targetDir: tempDir,
+          skillsSourcePath: sourceSkillsDir,
+        })
+      ).rejects.toThrow(/no YAML frontmatter/);
+    });
+  });
+
+  test("warnIfPromptsStale writes to stderr (never stdout)", async () => {
+    await withTempDir(async (tempDir) => {
+      // Write a tampered AGENTS.cli.md so the freshness check trips.
+      await writeFile(
+        join(tempDir, "AGENTS.cli.md"),
+        "# Windmill CLI Agent Instructions\n<!-- wmill-prompts-hash: 000000000000 -->\nbody\n",
+        "utf8"
+      );
+
+      const stdoutWrites: string[] = [];
+      const stderrWrites: string[] = [];
+      const originalStdout = process.stdout.write.bind(process.stdout);
+      const originalStderr = process.stderr.write.bind(process.stderr);
+      // @ts-expect-error — overriding write for the test
+      process.stdout.write = (chunk: any) => {
+        stdoutWrites.push(String(chunk));
+        return true;
+      };
+      // @ts-expect-error — overriding write for the test
+      process.stderr.write = (chunk: any) => {
+        stderrWrites.push(String(chunk));
+        return true;
+      };
+
+      try {
+        await warnIfPromptsStale({
+          cwd: tempDir,
+          nonDottedPaths: false,
+          argv: ["node", "wmill", "sync", "push"],
+        });
+      } finally {
+        process.stdout.write = originalStdout;
+        process.stderr.write = originalStderr;
+      }
+
+      const stderrJoined = stderrWrites.join("");
+      const stdoutJoined = stdoutWrites.join("");
+      expect(stderrJoined).toContain("out of date");
+      expect(stdoutJoined).not.toContain("out of date");
     });
   });
 });
