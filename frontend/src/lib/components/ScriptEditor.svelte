@@ -2159,11 +2159,6 @@
 				if (activeModuleTab === null) {
 					await inferSchema(editorCode)
 				}
-				try {
-					localStorage.setItem(path ?? 'last_save', activeModuleTab === null ? editorCode : code)
-				} catch (e) {
-					console.error('Could not save last_save to local storage', e)
-				}
 				dispatch('format')
 			}}
 			class="flex flex-1 h-full !overflow-visible"

@@ -270,7 +270,8 @@ export async function parseOpenAIResponsesCompletion(
 				toolName: item.name,
 				isStreamingArguments: shouldStream,
 				showFade: tool?.showFade,
-				showDetails: tool?.showDetails
+				showDetails: tool?.showDetails,
+				autoCollapseDetails: tool?.autoCollapseDetails
 			})
 		}
 	})

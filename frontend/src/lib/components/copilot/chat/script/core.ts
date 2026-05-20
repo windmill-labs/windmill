@@ -905,7 +905,8 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 	},
 	requiresConfirmation: true,
 	confirmationMessage: 'Run script test',
-	showDetails: true
+	showDetails: true,
+	autoCollapseDetails: false
 }
 
 export const getLintErrorsTool: Tool<ScriptChatHelpers> = {

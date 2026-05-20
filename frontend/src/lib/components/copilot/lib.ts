@@ -1069,6 +1069,7 @@ export async function parseOpenAICompletion(
 						isStreamingArguments: shouldStream,
 						showFade: tool?.showFade,
 						showDetails: tool?.showDetails,
+						autoCollapseDetails: tool?.autoCollapseDetails,
 						parameters: parameters
 					})
 				}

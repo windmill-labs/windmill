@@ -3,15 +3,16 @@
 
 	import { AppService, type Policy } from '$lib/gen'
 	import { page } from '$app/state'
-	import { decodeState } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { afterNavigate, replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import FileEditorIcon from '$lib/components/raw_apps/FileEditorIcon.svelte'
+	import { UserDraft, localDraftDiffers } from '$lib/userDraft.svelte'
+	import { readFieldsRecursively } from '$lib/utils'
+	import { untrack } from 'svelte'
 	import {
 		react18Template,
 		react19Template,
@@ -40,10 +41,25 @@
 	import { Alert } from '$lib/components/common'
 	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
 
-	let nodraft = page.url.searchParams.get('nodraft')
+	// `nodraft` is captured into a local because we strip it from the URL
+	// below — downstream readers like `templatePicker` must see the original
+	// signal.
+	const nodraft = page.url.searchParams.get('nodraft')
 	const templatePath = page.url.searchParams.get('template')
 	const templateId = page.url.searchParams.get('template_id')
 	const hubId = page.url.searchParams.get('hub')
+
+	// "+ Raw App" / "+ App > Full code" buttons navigate with ?nodraft=true to
+	// signal "start fresh". Wipe the persisted empty-path autosave and strip
+	// the flag from the URL synchronously so a reload doesn't wipe the
+	// freshly-started draft. A plain reload of /apps_raw/add (no nodraft)
+	// instead restores the previous session.
+	if (nodraft && typeof window !== 'undefined') {
+		UserDraft.discard('raw_app', '', undefined)
+		const url = new URL(window.location.href)
+		url.searchParams.delete('nodraft')
+		window.history.replaceState(window.history.state, '', url.toString())
+	}
 
 	// Check in-memory store first, then sessionStorage (used when full page reload occurs)
 	let importRaw = $importStore
@@ -58,26 +74,19 @@
 		}
 	}
 
-	const appState = nodraft || hubId ? undefined : localStorage.getItem('rawapp')
+	const draftHandle = UserDraft.use<{
+		files: Record<string, string>
+		runnables: Record<string, Runnable>
+		data: RawAppData
+		summary: string
+	}>('raw_app', '')
+	// Restore the persisted autosave so a plain reload of /apps_raw/add
+	// resumes the last session. Captured once; the $effect below mirrors
+	// later edits back. Import/template/hub flows in loadApp() wipe the
+	// entry first (`UserDraft.remove`) for "start fresh" semantics.
+	const restoredDraft = untrack(() => draftHandle.draft)
 
-	let summary = $state('')
-	let files: Record<string, string> = $state(react19Template)
-	afterNavigate(() => {
-		if (nodraft) {
-			let url = new URL(page.url.href)
-			url.search = ''
-			replaceState(url.toString(), page.state)
-		}
-	})
-	let policy: Policy = $state({
-		on_behalf_of: $userStore?.username.includes('@')
-			? $userStore?.username
-			: `u/${$userStore?.username}`,
-		on_behalf_of_email: $userStore?.email,
-		execution_mode: 'publisher'
-	})
-
-	let runnables: Record<string, Runnable> = $state({
+	const defaultRunnables: Record<string, Runnable> = {
 		a: {
 			name: 'a',
 			fields: {},
@@ -101,9 +110,55 @@
 				}
 			}
 		}
+	}
+
+	let summary = $state(restoredDraft?.summary ?? '')
+	let files: Record<string, string> = $state(restoredDraft?.files ?? react19Template)
+	let policy: Policy = $state({
+		on_behalf_of: $userStore?.username.includes('@')
+			? $userStore?.username
+			: `u/${$userStore?.username}`,
+		on_behalf_of_email: $userStore?.email,
+		execution_mode: 'publisher'
 	})
+
+	let runnables: Record<string, Runnable> = $state(restoredDraft?.runnables ?? defaultRunnables)
 	/** Data configuration including tables and creation policy */
-	let data: RawAppData = $state({ ...DEFAULT_DATA })
+	let data: RawAppData = $state(restoredDraft?.data ?? { ...DEFAULT_DATA })
+
+	// First mirror consumes the handle's first-write skip up-front (wipe
+	// then restore) so the user's first real edit isn't the one dropped.
+	let firstMirror = true
+	$effect(() => {
+		readFieldsRecursively(files)
+		readFieldsRecursively(runnables)
+		readFieldsRecursively(data)
+		void summary
+		untrack(() => {
+			if (firstMirror) {
+				firstMirror = false
+				draftHandle.setDraftAndMeta(undefined, {})
+			}
+			draftHandle.draft = { files, runnables, data, summary }
+		})
+	})
+
+	// Reflect an external UserDraft.save into the form. Idempotent + the
+	// d == null guard keeps it from looping with the mirror above or
+	// clobbering "start fresh" loads (which discard the in-memory draft).
+	$effect(() => {
+		const d = draftHandle.draft
+		if (d == null) return
+		untrack(() => {
+			if (localDraftDiffers(d, { files, runnables, data, summary })) {
+				files = d.files
+				runnables = d.runnables
+				data = d.data
+				summary = d.summary
+			}
+		})
+	})
+
 	loadApp()
 
 	function extractValue(value: any) {
@@ -128,6 +183,10 @@
 	}
 	async function loadApp() {
 		if (importRaw) {
+			// Import/template/hub loads are an explicit "start fresh from this
+			// content" — drop the restored empty-path autosave so it doesn't
+			// linger as the next plain reload's baseline.
+			UserDraft.discard('raw_app', '', undefined)
 			sendUserToast('Loaded from YAML/JSON')
 			if ('value' in importRaw) {
 				summary = importRaw.summary
@@ -139,6 +198,7 @@
 			}
 			console.log('importRaw', importRaw)
 		} else if (templatePath) {
+			UserDraft.discard('raw_app', '', undefined)
 			const template = await AppService.getAppByPath({
 				workspace: $workspaceStore!,
 				path: templatePath
@@ -148,6 +208,7 @@
 			sendUserToast('App loaded from template path')
 			goto('?', { replaceState: true })
 		} else if (templateId) {
+			UserDraft.discard('raw_app', '', undefined)
 			const template = await AppService.getAppByVersion({
 				workspace: $workspaceStore!,
 				id: parseInt(templateId)
@@ -157,6 +218,7 @@
 			sendUserToast('App loaded from template')
 			goto('?', { replaceState: true })
 		} else if (hubId) {
+			UserDraft.discard('raw_app', '', undefined)
 			const hub = await AppService.getHubRawAppById({ id: Number(hubId) })
 			if (hub.app?.value) {
 				extractValue(hub.app.value)
@@ -167,19 +229,6 @@
 			console.log('App loaded from Hub')
 			sendUserToast('App loaded from Hub')
 			goto('?', { replaceState: true })
-		} else if (!templatePath && !hubId && appState) {
-			console.log('App loaded from browser stored autosave')
-			sendUserToast('App restored from browser stored autosave', false, [
-				{
-					label: 'Start from blank',
-					callback: () => {
-						files = {}
-						runnables = {}
-					}
-				}
-			])
-			let decoded = decodeState(appState)
-			extractValue(decoded)
 		}
 	}
 

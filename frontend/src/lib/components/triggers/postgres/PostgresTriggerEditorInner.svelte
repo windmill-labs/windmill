@@ -45,6 +45,7 @@
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
 	import { capitalize } from '$lib/utils'
 
 	interface Props {
@@ -162,6 +163,16 @@
 	)
 
 	const postgresConfig = $derived.by(getSaveCfg)
+
+	const draftSync = useTriggerDraftSync({
+		itemKind: 'trigger_postgres',
+		path: () => initialPath,
+		workspace: () => $workspaceStore,
+		drawerLoading: () => drawerLoading,
+		getCfg: () => postgresConfig,
+		applyCfg: loadTriggerConfig,
+		deployed: () => originalConfig
+	})
 	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 
 	const saveDisabled = $derived(
@@ -239,13 +250,14 @@
 			transaction_to_track = []
 			tab = 'basic'
 			await loadTrigger(defaultConfig)
-			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-		} catch (err) {
-			sendUserToast(`Could not load postgres trigger: ${err.body}`, true)
-		} finally {
 			if (!defaultConfig) {
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			await draftSync.maybeRestore(ePath)
+		} catch (err) {
+			sendUserToast(`Could not load postgres trigger: ${err.body}`, true)
+		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
@@ -400,6 +412,7 @@
 		if (!cfg) {
 			return
 		}
+		const previousPath = initialPath
 		deploymentLoading = true
 		const isSaved = await savePostgresTriggerFromCfg(
 			initialPath,
@@ -409,6 +422,7 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
+			draftSync.discard(previousPath, getSaveCfg())
 			onUpdate?.(path)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			initialPath = cfg.path
