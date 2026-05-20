@@ -630,14 +630,40 @@ pub async fn do_snowflake(
         )
         .to_uppercase();
 
-        let public_key = match database.public_key.as_deref() {
-            Some(key) => pem::parse(key.as_bytes()).map_err(|e| {
-                Error::ExecutionErr(format!("Failed to parse public key: {}", e.to_string()))
-            })?,
-            None => return Err(Error::ExecutionErr("Public key is missing".to_string())),
+        let public_key_der: Vec<u8> = match database.public_key.as_deref() {
+            Some(key) => pem::parse(key.as_bytes())
+                .map_err(|e| Error::ExecutionErr(format!("Failed to parse public key: {e}")))?
+                .into_contents(),
+            None => {
+                // Derive the public key from the private key — RSA private keys
+                // contain the public components (n, e).
+                use rsa::pkcs8::{DecodePrivateKey, EncodePublicKey};
+                let pk_pem = database.private_key.as_deref().ok_or_else(|| {
+                    Error::ExecutionErr(
+                        "Either public_key or private_key must be provided".to_string(),
+                    )
+                })?;
+                let rsa_priv = rsa::RsaPrivateKey::from_pkcs8_pem(pk_pem)
+                    .or_else(|_| {
+                        use rsa::pkcs1::DecodeRsaPrivateKey;
+                        rsa::RsaPrivateKey::from_pkcs1_pem(pk_pem)
+                    })
+                    .map_err(|e| {
+                        Error::ExecutionErr(format!(
+                            "Failed to parse private key to derive public key: {e}"
+                        ))
+                    })?;
+                let rsa_pub = rsa::RsaPublicKey::from(&rsa_priv);
+                rsa_pub
+                    .to_public_key_der()
+                    .map_err(|e| {
+                        Error::ExecutionErr(format!("Failed to encode derived public key: {e}"))
+                    })?
+                    .to_vec()
+            }
         };
         let mut public_key_hash = Sha256::new();
-        public_key_hash.update(public_key.contents());
+        public_key_hash.update(&public_key_der);
 
         let public_key_fp = engine::general_purpose::STANDARD.encode(public_key_hash.finalize());
 
