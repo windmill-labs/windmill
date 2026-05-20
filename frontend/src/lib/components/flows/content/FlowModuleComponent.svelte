@@ -799,6 +799,7 @@
 							lang={flowModule.value['language'] ?? 'deno'}
 							{websocketAlive}
 							iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD}
+							compactHelpers={width < 600}
 							kind={scriptKind}
 							template={scriptTemplate}
 							args={Object.entries(flowModule.value.input_transforms).reduce((acc, [key, obj]) => {

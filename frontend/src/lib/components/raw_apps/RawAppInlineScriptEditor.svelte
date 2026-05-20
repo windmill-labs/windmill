@@ -641,6 +641,7 @@
 				lang={inlineScript.language}
 				{websocketAlive}
 				iconOnly={width < 1250}
+				compactHelpers={width < 600}
 				kind={'script'}
 				template={'script'}
 				on:showDiffMode={showDiffMode}
