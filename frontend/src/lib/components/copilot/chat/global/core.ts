@@ -15,7 +15,7 @@ import {
 	VariableService,
 	WebsocketTriggerService
 } from '$lib/gen'
-import { $ScriptLang } from '$lib/gen/schemas.gen'
+import { $NewScript, $ScriptLang } from '$lib/gen/schemas.gen'
 import type {
 	AppWithLastVersion,
 	Flow,
@@ -1720,65 +1720,37 @@ function cloneIfDefined<T>(value: T | undefined): T | undefined {
 	}
 }
 
-function buildScriptDraftFromBase(
-	base: Partial<NewScript>,
-	args: { path: string; summary?: string; language: ScriptLang; content: string },
-	overrides: Partial<NewScript> = {}
-): NewScript {
-	const draft: NewScript = {
-		path: args.path,
-		summary: args.summary ?? base.summary ?? '',
-		description: base.description ?? '',
-		content: args.content,
-		schema: cloneIfDefined(base.schema) ?? emptySchema(),
-		is_template: base.is_template ?? false,
-		language: args.language,
-		kind: base.kind ?? 'script'
-	}
+const newScriptKeys = new Set(Object.keys($NewScript.properties) as Array<keyof NewScript>)
 
-	const optionalKeys: (keyof NewScript)[] = [
-		'parent_hash',
-		'lock',
-		'tag',
-		'draft_only',
-		'envs',
-		'concurrent_limit',
-		'concurrency_time_window_s',
-		'cache_ttl',
-		'cache_ignore_s3_path',
-		'dedicated_worker',
-		'ws_error_handler_muted',
-		'priority',
-		'restart_unless_cancelled',
-		'timeout',
-		'delete_after_secs',
-		'deployment_message',
-		'concurrency_key',
-		'debounce_key',
-		'debounce_delay_s',
-		'debounce_args_to_accumulate',
-		'max_total_debouncing_time',
-		'max_total_debounces_amount',
-		'visible_to_runner_only',
-		'auto_kind',
-		'codebase',
-		'has_preprocessor',
-		'on_behalf_of_email',
-		'preserve_on_behalf_of',
-		'assets',
-		'modules',
-		'labels'
-	]
-
-	for (const key of optionalKeys) {
-		const cloned = cloneIfDefined(base[key] as never)
+function pickNewScriptFields(base: Partial<NewScript> & Partial<Script>): Partial<NewScript> {
+	const draft: Partial<NewScript> = {}
+	for (const key of Object.keys(base) as Array<keyof NewScript>) {
+		if (!newScriptKeys.has(key)) continue
+		const cloned = cloneIfDefined(base[key])
 		if (cloned !== undefined) {
 			;(draft as Record<string, unknown>)[key] = cloned
 		}
 	}
+	return draft
+}
+
+function buildScriptDraftFromBase(
+	base: Partial<NewScript> & Partial<Script>,
+	args: { path: string; summary?: string; language: ScriptLang; content: string },
+	overrides: Partial<NewScript> = {}
+): NewScript {
+	const draftBase = pickNewScriptFields(base)
 
 	return {
-		...draft,
+		...draftBase,
+		path: args.path,
+		summary: args.summary ?? draftBase.summary ?? '',
+		description: draftBase.description ?? '',
+		content: args.content,
+		schema: draftBase.schema ?? emptySchema(),
+		language: args.language,
+		kind: draftBase.kind ?? 'script',
+		is_template: draftBase.is_template ?? false,
 		...overrides
 	}
 }

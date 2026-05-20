@@ -52,6 +52,7 @@ vi.mock('$lib/gen', async () => {
 		...actual,
 		ScriptService: wrapService(actual.ScriptService, {
 			existsScriptByPath: vi.fn(async () => false),
+			getScriptByPath: vi.fn(),
 			listScripts: vi.fn(async () => [])
 		}),
 		FlowService: wrapService(actual.FlowService, {
@@ -122,6 +123,7 @@ vi.mock('$lib/gen', async () => {
 import { globalTools, prepareGlobalUserMessage } from './core'
 import { deleteGlobalDraft, listGlobalDrafts } from './userDraftAdapter'
 import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
+import { ScriptService } from '$lib/gen'
 import type { Tool, ToolCallbacks } from '../shared'
 
 const WORKSPACE = 'global-core-test'
@@ -334,6 +336,75 @@ describe('global AI tools', () => {
 			})
 		])
 		expect(localStorage.getItem(`userdraft/w/${WORKSPACE}/script/f/scripts/live-ai`)).not.toBeNull()
+	})
+
+	it('preserves NewScript metadata from existing scripts without copying backend read fields', async () => {
+		vi.mocked(ScriptService.existsScriptByPath).mockResolvedValueOnce(true)
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			workspace_id: WORKSPACE,
+			hash: 'old-hash',
+			path: 'f/scripts/existing',
+			parent_hashes: ['older-hash'],
+			summary: 'Existing script',
+			description: 'Existing description',
+			content: 'export async function main() { return 1 }',
+			created_by: 'admin',
+			created_at: '2026-01-01T00:00:00Z',
+			archived: false,
+			deleted: false,
+			extra_perms: {},
+			is_template: true,
+			language: 'bun',
+			kind: 'script',
+			starred: true,
+			has_draft: true,
+			schema: {
+				type: 'object',
+				properties: {
+					name: { type: 'string' }
+				}
+			},
+			concurrent_limit: 3,
+			cache_ttl: 30,
+			cache_ignore_s3_path: true,
+			has_preprocessor: true,
+			assets: [{ path: 'asset.txt', kind: 's3object' }],
+			labels: ['important']
+		} as any)
+
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/existing',
+			summary: 'AI update',
+			language: 'python3',
+			content: 'def main():\n    return 2'
+		})
+
+		const draft = UserDraft.get<any>('script', 'f/scripts/existing', { workspace: WORKSPACE })
+		expect(draft).toMatchObject({
+			path: 'f/scripts/existing',
+			parent_hash: 'old-hash',
+			summary: 'AI update',
+			description: 'Existing description',
+			content: 'def main():\n    return 2',
+			language: 'python3',
+			is_template: true,
+			schema: {
+				properties: {
+					name: { type: 'string' }
+				}
+			},
+			concurrent_limit: 3,
+			cache_ttl: 30,
+			cache_ignore_s3_path: true,
+			has_preprocessor: true,
+			assets: [{ path: 'asset.txt', kind: 's3object' }],
+			labels: ['important']
+		})
+		expect(draft).not.toHaveProperty('hash')
+		expect(draft).not.toHaveProperty('workspace_id')
+		expect(draft).not.toHaveProperty('created_by')
+		expect(draft).not.toHaveProperty('starred')
+		expect(draft).not.toHaveProperty('extra_perms')
 	})
 
 	it('deleteGlobalDraft clears both persisted storage and any live handle state', async () => {
