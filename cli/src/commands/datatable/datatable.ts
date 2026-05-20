@@ -7,6 +7,8 @@ import { resolveWorkspace } from "../../core/context.ts";
 import * as log from "../../core/log.ts";
 import { GlobalOptions } from "../../types.ts";
 import { runCatalogQuery } from "../../utils/catalog.ts";
+import { psql as psqlDatatable } from "./psql.ts";
+import { serve as serveDatatable } from "./serve.ts";
 
 const DEFAULT_DATATABLE_NAME = "main";
 
@@ -39,6 +41,18 @@ async function run(
   await runCatalogQuery(opts, "datatable", name, sql);
 }
 
+async function serve(
+  opts: GlobalOptions & { port?: number; host?: string; password?: string },
+) {
+  await serveDatatable(opts);
+}
+
+async function psql(
+  opts: GlobalOptions & { name?: string; port?: number; host?: string; password?: string },
+) {
+  await psqlDatatable(opts);
+}
+
 const command = new Command()
   .description("datatable related commands")
   .command("list", "list all datatables in the workspace")
@@ -54,6 +68,44 @@ const command = new Command()
     "-s --silent",
     "Output only the final result as JSON. Useful for scripting.",
   )
-  .action(run as any);
+  .action(run as any)
+  .command(
+    "serve",
+    "Serve all datatables as a Postgres-wire endpoint (psql, DBeaver, pgAdmin); the client picks the datatable via the database name in its connection string",
+  )
+  .option(
+    "--port <port:number>",
+    "Port to listen on (default: first free port in 5433-5500)",
+  )
+  .option(
+    "--host <host:string>",
+    "Bind address (default: 127.0.0.1)",
+  )
+  .option(
+    "--password <password:string>",
+    "Password for Postgres clients (default: generate a random password at startup)",
+  )
+  .action(serve as any)
+  .command(
+    "psql",
+    "Start a serve listener and launch psql connected to it",
+  )
+  .option(
+    "-n --name <name:string>",
+    "Datatable to connect psql to (default: main)",
+  )
+  .option(
+    "--port <port:number>",
+    "Port the proxy listens on (default: first free port in 5433-5500)",
+  )
+  .option(
+    "--host <host:string>",
+    "Bind address for the proxy (default: 127.0.0.1)",
+  )
+  .option(
+    "--password <password:string>",
+    "Password for the temporary Postgres proxy (default: generate a random password at startup)",
+  )
+  .action(psql as any);
 
 export default command;
