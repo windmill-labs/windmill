@@ -28,7 +28,7 @@
 	import { createAppSelectedContext, type AppCodeSelectionElement } from '../copilot/chat/context'
 	import { rawAppLintStore } from './lintStore'
 	import { dbSchemas } from '$lib/stores'
-	import { MousePointerSquareDashed, RefreshCw, Columns2, X } from 'lucide-svelte'
+	import { MousePointerSquareDashed, RefreshCw, Columns2 } from 'lucide-svelte'
 	import DraggableTabs, {
 		type TabItem
 	} from '$lib/components/common/tabs/DraggableTabs.svelte'
@@ -1330,183 +1330,177 @@
 			</Pane>
 		{/if}
 		<Pane>
-			<div class="flex flex-col h-full w-full min-h-0">
-				<DraggableTabs
-					tabs={displayedTabs}
-					activeId={activeTabId}
-					onSelect={(id) => activateTab(id)}
-					onClose={(id) => closeTab(id)}
-					onReorder={(next) => reorderTabs(next)}
-				>
-					{#snippet trailing()}
-						<div class="flex items-center gap-1 px-2">
-							<button
-								title={splitWithPreview
-									? 'Move preview back into a tab'
-									: 'Pin preview to the right'}
-								aria-label="Toggle split with preview"
-								aria-pressed={splitWithPreview}
-								class={splitWithPreview
-									? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
-									: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
-								onclick={toggleSplit}
+			<!--
+				VS Code-style split: each pane is a self-contained "editor
+				group" with its own tab bar at the top. Splitpanes is the
+				topmost element here so the divider runs floor-to-ceiling.
+				Both iframes + RawAppInlineScriptsPanel stay mounted always;
+				`display` toggles + pane sizes do the swapping.
+			-->
+			<div
+				class="h-full w-full {splitWithPreview && activeTabKind !== 'preview'
+					? 'tabs-content-split'
+					: 'tabs-content-single'}"
+			>
+				<Splitpanes>
+					<Pane bind:size={paneALeftSize} minSize={0}>
+						<div class="flex flex-col h-full w-full min-h-0">
+							<DraggableTabs
+								tabs={displayedTabs}
+								activeId={activeTabId}
+								onSelect={(id) => activateTab(id)}
+								onClose={(id) => closeTab(id)}
+								onReorder={(next) => reorderTabs(next)}
 							>
-								<Columns2 size={14} />
-							</button>
-							<button
-								class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary px-2 h-7 rounded-md text-xs"
-								title="Switch bundler"
-								onclick={() => {
-									const next =
-										bundlerType === 'esbuild' ? 'rolldown' : 'esbuild'
-									bundlerType = next
-									iframe?.contentWindow?.postMessage(
-										{ type: 'setBundlerType', bundlerType: next },
-										'*'
-									)
-								}}>{bundlerType}</button
-							>
-							<button
-								title={inspectorEnabled
-									? 'Click to disable element inspector'
-									: 'Click to enable element inspector'}
-								class={inspectorEnabled
-									? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
-									: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
-								aria-label="Toggle element inspector"
-								onclick={() => {
-									inspectorEnabled = !inspectorEnabled
-									previewIframe?.contentWindow?.postMessage(
-										{
-											type: inspectorEnabled
-												? 'inspectorEnable'
-												: 'inspectorDisable'
-										},
-										'*'
-									)
-								}}
-							>
-								<MousePointerSquareDashed size={14} />
-							</button>
-							<button
-								class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center"
-								title="Replay the last build into the preview"
-								aria-label="Rebuild"
-								onclick={() => {
-									if (lastBuild) {
-										previewIframe?.contentWindow?.postMessage(
-											{
-												type: 'preview',
-												css: lastBuild.css,
-												js: lastBuild.js
-											},
-											'*'
-										)
-									}
-								}}
-							>
-								<RefreshCw size={14} />
-							</button>
-						</div>
-					{/snippet}
-				</DraggableTabs>
-				<!--
-					Content area. Always rendered as a Splitpanes so the iframes
-					never remount on a single↔split toggle. The active tab's
-					slot occupies Pane A (left); the preview iframe sits in
-					Pane B (right). Sizes are driven reactively from the tab +
-					split state. The splitter divider is hidden via CSS when
-					one of the panes is at 0% — the user uses the explicit
-					toggle button in the tab bar to flip between modes.
-				-->
-				<div
-					class="flex-1 min-h-0 w-full {splitWithPreview &&
-					activeTabKind !== 'preview'
-						? 'tabs-content-split'
-						: 'tabs-content-single'}"
-				>
-					<Splitpanes>
-						<Pane bind:size={paneALeftSize} minSize={0}>
-							<div
-								class="relative h-full w-full"
-								style="display: {showSource ? 'block' : 'none'}"
-							>
-								<iframe
-									bind:this={iframe}
-									title="UI builder"
-									src="/ui_builder/index.html"
-									class="w-full h-full block"
-								></iframe>
-							</div>
-							<div
-								class="relative h-full w-full"
-								style="display: {showRunnable ? 'block' : 'none'}"
-							>
-								<!-- svelte-ignore a11y_no_static_element_interactions -->
-								<div class="flex h-full w-full">
-									{#if selectedRunnable !== undefined}
-										<RawAppInlineScriptsPanel
-											appPath={path}
-											{selectedRunnable}
-											bind:runnables
-											onSelectionChange={(selection) => {
-												if (selection === null) {
-													codeSelection = undefined
-												} else if (selectedRunnable) {
-													codeSelection = {
-														type: 'app_code_selection',
-														source: selectedRunnable,
-														sourceType: 'backend',
-														title: `${selectedRunnable}:L${selection.startLine}-L${selection.endLine}`,
-														content: selection.content,
-														startLine: selection.startLine,
-														endLine: selection.endLine,
-														startColumn: selection.startColumn,
-														endColumn: selection.endColumn
+								{#snippet trailing()}
+									<div class="flex items-center gap-1 px-2">
+										<button
+											title={splitWithPreview
+												? 'Move preview back into a tab'
+												: 'Pin preview to the right'}
+											aria-label="Toggle split with preview"
+											aria-pressed={splitWithPreview}
+											class={splitWithPreview
+												? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
+												: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
+											onclick={toggleSplit}
+										>
+											<Columns2 size={14} />
+										</button>
+									</div>
+								{/snippet}
+							</DraggableTabs>
+							<div class="flex-1 min-h-0 w-full relative">
+								<div
+									class="absolute inset-0"
+									style="display: {showSource ? 'block' : 'none'}"
+								>
+									<iframe
+										bind:this={iframe}
+										title="UI builder"
+										src="/ui_builder/index.html"
+										class="w-full h-full block"
+									></iframe>
+								</div>
+								<div
+									class="absolute inset-0"
+									style="display: {showRunnable ? 'block' : 'none'}"
+								>
+									<!-- svelte-ignore a11y_no_static_element_interactions -->
+									<div class="flex h-full w-full">
+										{#if selectedRunnable !== undefined}
+											<RawAppInlineScriptsPanel
+												appPath={path}
+												{selectedRunnable}
+												bind:runnables
+												onSelectionChange={(selection) => {
+													if (selection === null) {
+														codeSelection = undefined
+													} else if (selectedRunnable) {
+														codeSelection = {
+															type: 'app_code_selection',
+															source: selectedRunnable,
+															sourceType: 'backend',
+															title: `${selectedRunnable}:L${selection.startLine}-L${selection.endLine}`,
+															content: selection.content,
+															startLine: selection.startLine,
+															endLine: selection.endLine,
+															startColumn: selection.startColumn,
+															endColumn: selection.endColumn
+														}
 													}
-												}
-											}}
-										/>
-									{/if}
+												}}
+											/>
+										{/if}
+									</div>
 								</div>
 							</div>
-						</Pane>
-						<Pane bind:size={paneBRightSize} minSize={0}>
-							<div class="h-full w-full flex flex-col">
-								<!-- VS Code-style split: the preview side gets its own
-								     tab header so the user sees "Preview" as a tab
-								     anchored to the right pane (rather than just an
-								     iframe with no label). The X closes the split
-								     (preview goes back to the main tab bar). -->
-								{#if splitWithPreview && activeTabKind !== 'preview'}
-									<div
-										class="flex items-stretch bg-surface-secondary border-l border-border-light flex-shrink-0"
+						</div>
+					</Pane>
+					<Pane bind:size={paneBRightSize} minSize={0}>
+						<div class="flex flex-col h-full w-full min-h-0">
+							<!--
+								Preview header — the right pane's own "tab bar".
+								Always rendered when the right pane is visible
+								(width 0 hides it without conditionals). Carries
+								the active-tab-styled "Preview" label on the
+								left and the preview-affecting action buttons
+								(bundler, inspector, rebuild) on the right.
+							-->
+							<div
+								class="flex items-stretch bg-surface-secondary flex-shrink-0 h-8"
+							>
+								<div
+									class="inline-flex items-center gap-1.5 px-3 h-8 text-xs bg-surface text-primary"
+								>
+									<span>Preview</span>
+								</div>
+								<div class="ml-auto flex items-center gap-1 px-2">
+									<button
+										class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary px-2 h-7 rounded-md text-xs"
+										title="Switch bundler"
+										onclick={() => {
+											const next =
+												bundlerType === 'esbuild' ? 'rolldown' : 'esbuild'
+											bundlerType = next
+											iframe?.contentWindow?.postMessage(
+												{ type: 'setBundlerType', bundlerType: next },
+												'*'
+											)
+										}}>{bundlerType}</button
 									>
-										<div
-											class="inline-flex items-center gap-1.5 px-3 h-8 text-xs bg-surface text-primary"
-										>
-											<span>Preview</span>
-											<button
-												type="button"
-												class="opacity-60 hover:opacity-100 rounded hover:bg-surface-hover w-4 h-4 inline-flex items-center justify-center"
-												aria-label="Move preview back into a tab"
-												onclick={toggleSplit}
-											>
-												<X size={10} />
-											</button>
-										</div>
-									</div>
-								{/if}
-								<iframe
-									bind:this={previewIframe}
-									title="App preview"
-									src="/ui_builder/app-preview.html"
-									class="w-full flex-1 block"
-								></iframe>
+									<button
+										title={inspectorEnabled
+											? 'Click to disable element inspector'
+											: 'Click to enable element inspector'}
+										class={inspectorEnabled
+											? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
+											: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
+										aria-label="Toggle element inspector"
+										onclick={() => {
+											inspectorEnabled = !inspectorEnabled
+											previewIframe?.contentWindow?.postMessage(
+												{
+													type: inspectorEnabled
+														? 'inspectorEnable'
+														: 'inspectorDisable'
+												},
+												'*'
+											)
+										}}
+									>
+										<MousePointerSquareDashed size={14} />
+									</button>
+									<button
+										class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center"
+										title="Replay the last build into the preview"
+										aria-label="Rebuild"
+										onclick={() => {
+											if (lastBuild) {
+												previewIframe?.contentWindow?.postMessage(
+													{
+														type: 'preview',
+														css: lastBuild.css,
+														js: lastBuild.js
+													},
+													'*'
+												)
+											}
+										}}
+									>
+										<RefreshCw size={14} />
+									</button>
+								</div>
 							</div>
-						</Pane>
-					</Splitpanes>
-				</div>
+							<iframe
+								bind:this={previewIframe}
+								title="App preview"
+								src="/ui_builder/app-preview.html"
+								class="w-full flex-1 block"
+							></iframe>
+						</div>
+					</Pane>
+				</Splitpanes>
 			</div>
 		</Pane>
 	</Splitpanes>
