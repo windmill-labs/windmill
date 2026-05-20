@@ -249,6 +249,10 @@
 	const hiddenYoloBypassedToolCount = $derived(
 		Math.max(0, yoloBypassedTools.length - visibleYoloBypassedTools.length)
 	)
+	const showFlowPendingActionControls = $derived(
+		(aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false) &&
+			!aiChatManager.autoAcceptEditsActive
+	)
 	const showFooterLeftControls = $derived(
 		!disabled &&
 			(showContextPicker ||
@@ -368,7 +372,7 @@
 						<div
 							class={twMerge(
 								'sticky z-10 mt-2 ml-2 self-start pointer-events-none',
-								aiChatManager.flowAiChatHelpers?.hasPendingChanges() ? 'bottom-14' : 'bottom-2'
+								showFlowPendingActionControls ? 'bottom-14' : 'bottom-2'
 							)}
 						>
 							{#if waitingForUserAction}
@@ -391,7 +395,7 @@
 					transition:fade={{ duration: 120 }}
 					class={twMerge(
 						'absolute left-1/2 -translate-x-1/2 z-10 rounded-md bg-surface shadow-md',
-						aiChatManager.flowAiChatHelpers?.hasPendingChanges() ? 'bottom-12' : 'bottom-2'
+						showFlowPendingActionControls ? 'bottom-12' : 'bottom-2'
 					)}
 				>
 					<Button
@@ -416,7 +420,7 @@
 			? 'relative w-full max-w-3xl mx-auto px-6 pb-2'
 			: 'relative w-full max-w-2xl mx-auto px-2 pb-2'}
 	>
-		{#if aiChatManager.flowAiChatHelpers?.hasPendingChanges()}
+		{#if showFlowPendingActionControls}
 			<div class="absolute -top-10 w-full flex flex-row justify-center gap-2">
 				<Button
 					startIcon={{ icon: CheckIcon }}
