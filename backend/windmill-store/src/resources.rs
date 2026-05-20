@@ -585,6 +585,14 @@ pub async fn get_resource_value_interpolated_internal<'a>(
     }
 }
 
+// Maximum recursion depth for variable/resource interpolation. Each nested
+// object/array level and each `$res:`/`$var:` indirection consumes one unit of
+// depth. This bounds runtime cost and, crucially, prevents a stack overflow
+// from mutually-recursive `$res:` references (e.g. resource A -> `$res:B` and
+// resource B -> `$res:A`), which any workspace member with resource write
+// access could otherwise use to crash the API process.
+pub const MAX_RESOURCE_INTERPOLATION_DEPTH: u8 = 50;
+
 #[async_recursion]
 pub async fn transform_json_value(
     db_with_opt_authed: &DbWithOptAuthed<ApiAuthed>,
@@ -594,6 +602,11 @@ pub async fn transform_json_value(
     token: Option<&str>,
     depth: u8,
 ) -> Result<Value> {
+    if depth >= MAX_RESOURCE_INTERPOLATION_DEPTH {
+        return Err(Error::internal_err(format!(
+            "Maximum resource/variable interpolation depth ({MAX_RESOURCE_INTERPOLATION_DEPTH}) exceeded; this usually indicates a circular `$res:` or `$var:` reference"
+        )));
+    }
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
@@ -2587,6 +2600,86 @@ mod tests {
         let result = transform_json_value(&dba, "test", input, &None, None, 0).await;
 
         assert!(result.is_err());
+    }
+
+    // Regression test for WIN-1957: deeply nested structures must be bounded so
+    // that interpolation cannot recurse without limit (which would otherwise
+    // overflow the stack).
+    #[tokio::test]
+    async fn test_transform_json_value_bounds_recursion_depth() {
+        let db_url = std::env::var("DATABASE_URL")
+            .unwrap_or("postgres://postgres:changeme@localhost:5432/windmill".to_string());
+        let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
+        let dba = test_db_with_opt_authed(pool);
+
+        // Build an object nested deeper than the allowed interpolation depth.
+        // No `$res:`/`$var:` leaves are involved, so this exercises the depth
+        // guard purely on structural recursion (no DB lookups required).
+        let mut input = Value::String("plain".to_string());
+        for _ in 0..(MAX_RESOURCE_INTERPOLATION_DEPTH as usize + 5) {
+            let mut m = serde_json::Map::new();
+            m.insert("a".to_string(), input);
+            input = Value::Object(m);
+        }
+
+        let result = transform_json_value(&dba, "test", input, &None, None, 0).await;
+
+        let err = result.expect_err("deeply nested value should be rejected");
+        assert!(
+            err.to_string().contains("interpolation depth"),
+            "unexpected error: {err}"
+        );
+    }
+
+    // Regression test for WIN-1957: two resources whose values reference each
+    // other via `$res:` must NOT recurse forever (stack overflow / process
+    // crash). With the depth guard the resolution terminates with an error.
+    //
+    // This test needs the real `workspace`/`resource` schema, so it uses
+    // `#[sqlx::test]` which provisions a migrated ephemeral database per test
+    // (the bare `DATABASE_URL` database in CI has no migrations applied, which
+    // previously made the workspace INSERT panic with `relation "workspace"
+    // does not exist` — WIN-1958).
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_transform_json_value_mutual_resource_recursion_terminates(pool: DB) {
+        let w_id = format!("dostest{}", Uuid::new_v4().simple());
+
+        sqlx::query("INSERT INTO workspace (id, name, owner) VALUES ($1, $1, 'test@windmill.dev')")
+            .bind(&w_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        sqlx::query(
+            "INSERT INTO resource (workspace_id, path, value, resource_type) VALUES \
+             ($1, 'f/test/dos_a', $2, 'object'), \
+             ($1, 'f/test/dos_b', $3, 'object')",
+        )
+        .bind(&w_id)
+        .bind(json!("$res:f/test/dos_b"))
+        .bind(json!("$res:f/test/dos_a"))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let dba = test_db_with_opt_authed(pool.clone());
+        let result = transform_json_value(
+            &dba,
+            &w_id,
+            Value::String("$res:f/test/dos_a".to_string()),
+            &None,
+            None,
+            0,
+        )
+        .await;
+
+        // The ephemeral test database is dropped automatically, so no manual
+        // row cleanup is required.
+        let err = result.expect_err("mutually recursive resources should error, not crash");
+        assert!(
+            err.to_string().contains("interpolation depth"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

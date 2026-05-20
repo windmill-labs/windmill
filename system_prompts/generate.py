@@ -361,6 +361,12 @@ def parse_command_block(content: str, file_path: Path | None = None) -> dict:
         if '@deprecated' in section:
             continue
 
+        # Hidden commands (Cliffy .hidden()) are internal — invoked by other
+        # Windmill components, not users — and must not surface in the
+        # generated agent system prompts or help.
+        if '.hidden()' in section:
+            continue
+
         cmd_name = cmd_match.group(1)
         second_arg = cmd_match.group(2).strip() if cmd_match.group(2) else ''
 
