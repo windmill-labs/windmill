@@ -307,7 +307,12 @@
 						/>
 					{/each}
 					{#if showTypingIndicator}
-						<div class="sticky bottom-2 z-10 mt-2 ml-2 self-start pointer-events-none">
+						<div
+							class={twMerge(
+								'sticky z-10 mt-2 ml-2 self-start pointer-events-none',
+								aiChatManager.flowAiChatHelpers?.hasPendingChanges() ? 'bottom-14' : 'bottom-2'
+							)}
+						>
 							{#if waitingForUserAction}
 								<span
 									class="inline-flex items-center gap-1.5 text-2xs text-accent"
