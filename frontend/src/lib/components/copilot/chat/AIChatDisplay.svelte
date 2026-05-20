@@ -1,5 +1,7 @@
 <script lang="ts">
 	import AIChatMessage from './AIChatMessage.svelte'
+	import AppAvailableContextList from './AppAvailableContextList.svelte'
+	import AvailableContextList from './AvailableContextList.svelte'
 	import { type Snippet } from 'svelte'
 	import {
 		ArrowDown,
@@ -15,7 +17,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { fade } from 'svelte/transition'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import { type DisplayMessage, type ToolDisplayMessage } from './shared'
+	import { type DisplayMessage } from './shared'
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ProviderModelSelector from './ProviderModelSelector.svelte'
@@ -167,6 +169,17 @@
 
 	const showTypingIndicator = $derived(aiChatManager.loading)
 
+	// `@` context picker is offered in modes that accept workspace/script/flow
+	// references (SCRIPT, FLOW, GLOBAL → workspace items + code blocks) or in
+	// APP mode (datatables, frontend files, etc.). Other modes (NAVIGATOR,
+	// ASK, API) don't accept @-context.
+	const showContextPicker = $derived(
+		aiChatManager.mode === AIMode.SCRIPT ||
+			aiChatManager.mode === AIMode.FLOW ||
+			aiChatManager.mode === AIMode.GLOBAL ||
+			aiChatManager.mode === AIMode.APP
+	)
+
 	// "Waiting for user" detection — when the latest tool message is staged
 	// for confirmation or has an unanswered askUserQuestion, the AI loop is
 	// paused on the user, not on its own work. The typing-dots indicator
@@ -176,14 +189,13 @@
 		if (!aiChatManager.loading) return false
 		const last = messages[messages.length - 1]
 		if (!last || last.role !== 'tool') return false
-		const tm = last as ToolDisplayMessage
-		if (tm.needsConfirmation && tm.isLoading) return true
+		if (last.needsConfirmation && last.isLoading) return true
 		if (
-			tm.userQuestion &&
-			tm.isLoading &&
-			!tm.error &&
-			!tm.userQuestion.selectedChoice &&
-			!tm.userQuestion.canceled
+			last.userQuestion &&
+			last.isLoading &&
+			!last.error &&
+			!last.userQuestion.selectedChoice &&
+			!last.userQuestion.canceled
 		) {
 			return true
 		}
@@ -355,8 +367,8 @@
 
 	<div
 		class={wideLayout
-			? 'relative w-full max-w-3xl mx-auto px-6'
-			: 'relative w-full max-w-2xl mx-auto px-2'}
+			? 'relative w-full max-w-3xl mx-auto px-6 pb-2'
+			: 'relative w-full max-w-2xl mx-auto px-2 pb-2'}
 	>
 		{#if aiChatManager.flowAiChatHelpers?.hasPendingChanges()}
 			<div class="absolute -top-10 w-full flex flex-row justify-center gap-2">
@@ -397,14 +409,49 @@
 				{disabled}
 				isFirstMessage={messages.length === 0}
 			/>
-			<div
-				class={`flex flex-row ${
-					aiChatManager.mode === 'script' && hasDiff ? 'justify-between' : 'justify-end'
-				} items-center`}
-			>
-				{#if aiChatManager.mode === 'script' && hasDiff}
-					<ChatQuickActions {askAi} {diffMode} />
-				{/if}
+			<div class="flex flex-row justify-between items-center gap-x-1.5">
+				<div class="flex flex-row items-center gap-x-1.5">
+					{#if showContextPicker && !disabled}
+						<Popover>
+							{#snippet trigger()}
+								<div
+									class="text-primary text-xs flex flex-row items-center font-normal border px-1 rounded-lg hover:bg-surface-hover bg-surface"
+									title="Add context"
+								>
+									@
+								</div>
+							{/snippet}
+							{#snippet content({ close })}
+								{#if aiChatManager.mode === AIMode.APP}
+									<AppAvailableContextList
+										{availableContext}
+										{selectedContext}
+										onSelect={(element) => {
+											void aiChatInput?.addContextToSelection(element)
+											close()
+										}}
+									/>
+								{:else}
+									<AvailableContextList
+										{availableContext}
+										{selectedContext}
+										onSelect={(element) => {
+											void aiChatInput?.addContextToSelection(element)
+											close()
+										}}
+										onSelectWorkspaceItem={(element) => {
+											void aiChatInput?.addContextToSelection(element)
+											close()
+										}}
+									/>
+								{/if}
+							{/snippet}
+						</Popover>
+					{/if}
+					{#if aiChatManager.mode === 'script' && hasDiff}
+						<ChatQuickActions {askAi} {diffMode} />
+					{/if}
+				</div>
 				{#if disabled}
 					<div class="text-primary text-xs my-2 px-2">
 						<Markdown md={disabledMessage} />
@@ -486,7 +533,7 @@
 </div>
 
 <style>
-	/* Hourglass flips every ~2.5s with brief pauses at each rest position.
+	/* Hourglass flips every 4s with long rests at each upright position.
 	   `:global` because the class is applied to a child component's root
 	   (Lucide SVG) and Svelte scoped CSS otherwise wouldn't match it. */
 	:global(.hourglass-flip) {
