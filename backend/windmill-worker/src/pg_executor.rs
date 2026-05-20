@@ -11,7 +11,6 @@ use futures::future::BoxFuture;
 use futures::{FutureExt, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
-use serde::Serialize;
 use serde_json::value::RawValue;
 use serde_json::Map;
 use serde_json::Value;
@@ -326,40 +325,6 @@ fn otyp_to_pg_type(otyp: &str) -> error::Result<Type> {
     Ok(if is_array { array } else { scalar })
 }
 
-/// Envelope shape produced when a postgres script carries the `-- raw_output`
-/// annotation. Consumed by `wmill datatable serve` to construct RowDescription
-/// + DataRow messages without re-stringifying every JSON value.
-#[derive(Serialize, Clone, Debug)]
-struct RawOutputColumn {
-    name: String,
-    oid: u32,
-    type_name: String,
-}
-
-#[derive(Serialize, Debug)]
-struct RawOutputEnvelope {
-    columns: Vec<RawOutputColumn>,
-    rows: Vec<Vec<Option<String>>>,
-}
-
-/// Convert a JSON value (as produced by `postgres_row_to_row_data_with_state`)
-/// to the text shape Postgres's wire protocol expects in `DataRow`.
-/// - SQL NULL → None (encoded as -1 length on the wire)
-/// - JSON strings already carry the server's text repr
-/// - Numbers/bools render with Postgres conventions (`t`/`f`)
-/// - Arrays/objects fall back to JSON serialization (psql will display them
-///   as JSON literals; not a valid pg array literal, but readable)
-fn json_value_to_pg_text(v: JSONValue) -> Option<String> {
-    match v {
-        JSONValue::Null => None,
-        JSONValue::String(s) => Some(s),
-        JSONValue::Number(n) => Some(n.to_string()),
-        JSONValue::Bool(true) => Some("t".to_string()),
-        JSONValue::Bool(false) => Some("f".to_string()),
-        JSONValue::Array(_) | JSONValue::Object(_) => Some(v.to_string()),
-    }
-}
-
 fn do_postgresql_inner<'a>(
     mut query: String,
     param_idx_to_arg_and_value: &HashMap<i32, (&Arg, Option<&Value>)>,
@@ -559,53 +524,7 @@ fn do_postgresql_inner<'a>(
             }
 
             if raw_output {
-                let columns: Vec<RawOutputColumn> = rows
-                    .first()
-                    .map(|r| {
-                        r.columns()
-                            .iter()
-                            .map(|c| RawOutputColumn {
-                                name: c.name().to_string(),
-                                oid: c.type_().oid(),
-                                type_name: c.type_().name().to_string(),
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-
-                let mut text_rows: Vec<Vec<Option<String>>> = Vec::with_capacity(rows.len());
-                for row in rows.into_iter() {
-                    let row_data = postgres_row_to_row_data_with_state(row, &format_state)
-                        .map_err(to_anyhow)?;
-                    let text_row: Vec<Option<String>> = columns
-                        .iter()
-                        .map(|c| {
-                            json_value_to_pg_text(
-                                row_data.get(&c.name).cloned().unwrap_or(JSONValue::Null),
-                            )
-                        })
-                        .collect();
-                    siz.fetch_add(
-                        text_row
-                            .iter()
-                            .map(|v| v.as_ref().map(|s| s.len()).unwrap_or(0))
-                            .sum::<usize>(),
-                        Ordering::Relaxed,
-                    );
-                    if *CLOUD_HOSTED {
-                        let siz = siz.load(Ordering::Relaxed);
-                        if siz > MAX_RESULT_SIZE * 4 {
-                            return Err(Error::ExecutionErr(format!(
-                                "Query result too large for cloud (size = {} > {})",
-                                siz,
-                                MAX_RESULT_SIZE * 4,
-                            )));
-                        }
-                    }
-                    text_rows.push(text_row);
-                }
-
-                let envelope = RawOutputEnvelope { columns, rows: text_rows };
+                let envelope = crate::pg_raw_output::build_envelope(rows, &format_state, siz)?;
                 res.push(to_raw_value(&envelope));
             } else {
                 for row in rows.into_iter() {
@@ -906,16 +825,7 @@ pub async fn do_postgresql(
             // The raw_output envelope already aggregates the last statement's
             // result; skip the collection_strategy reshape that wraps rows in
             // a JSON array.
-            Ok(results
-                .into_iter()
-                .last()
-                .and_then(|v| v.into_iter().last())
-                .unwrap_or_else(|| {
-                    serde_json::value::RawValue::from_string(
-                        "{\"columns\":[],\"rows\":[]}".to_string(),
-                    )
-                    .unwrap()
-                }))
+            Ok(crate::pg_raw_output::extract_envelope_or_empty(results))
         } else {
             collection_strategy.collect(results)
         }
@@ -2067,70 +1977,6 @@ impl FromSql<'_> for StringCollector {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_json_value_to_pg_text() {
-        // NULLs survive as None so the wire layer emits length -1.
-        assert_eq!(json_value_to_pg_text(JSONValue::Null), None);
-
-        // Strings already carry the server's text repr (e.g. "2024-01-15");
-        // we deliberately strip the JSON quotes.
-        assert_eq!(
-            json_value_to_pg_text(JSONValue::String("hello".into())),
-            Some("hello".to_string()),
-        );
-
-        // Numbers render without JSON wrapping.
-        assert_eq!(
-            json_value_to_pg_text(JSONValue::Number(serde_json::Number::from(42))),
-            Some("42".to_string()),
-        );
-
-        // Booleans use Postgres's `t`/`f` text convention.
-        assert_eq!(
-            json_value_to_pg_text(JSONValue::Bool(true)),
-            Some("t".to_string()),
-        );
-        assert_eq!(
-            json_value_to_pg_text(JSONValue::Bool(false)),
-            Some("f".to_string()),
-        );
-
-        // Arrays/objects fall back to JSON — psql will display them verbatim.
-        let arr = serde_json::json!([1, 2, 3]);
-        assert_eq!(json_value_to_pg_text(arr), Some("[1,2,3]".to_string()),);
-        let obj = serde_json::json!({"k": "v"});
-        assert_eq!(
-            json_value_to_pg_text(obj),
-            Some("{\"k\":\"v\"}".to_string()),
-        );
-    }
-
-    #[test]
-    fn test_raw_output_envelope_serialization() {
-        // Lock in the JSON shape that the CLI's pg-wire bridge consumes.
-        let envelope = RawOutputEnvelope {
-            columns: vec![
-                RawOutputColumn { name: "id".into(), oid: 23, type_name: "int4".into() },
-                RawOutputColumn { name: "name".into(), oid: 25, type_name: "text".into() },
-            ],
-            rows: vec![
-                vec![Some("1".into()), Some("alice".into())],
-                vec![Some("2".into()), None],
-            ],
-        };
-        let json = serde_json::to_value(&envelope).unwrap();
-        assert_eq!(
-            json,
-            serde_json::json!({
-                "columns": [
-                    {"name": "id", "oid": 23, "type_name": "int4"},
-                    {"name": "name", "oid": 25, "type_name": "text"},
-                ],
-                "rows": [["1", "alice"], ["2", null]],
-            }),
-        );
-    }
 
     #[test]
     fn test_parse_naive_date() {
