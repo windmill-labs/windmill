@@ -28,6 +28,7 @@ use crate::{
 };
 use windmill_common::{
     client::AuthedClient,
+    jobs::JobKind,
     scripts::{id_to_codebase_info, CodebaseInfo, ScriptLang},
     utils::WarnAfterExt,
     workspace_dependencies::WorkspaceDependenciesPrefetched,
@@ -1160,8 +1161,15 @@ pub async fn prebundle_bun_script(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     temp_script_refs: &Option<HashMap<String, String>>,
 ) -> Result<()> {
-    let (local_path, remote_path) =
-        compute_bundle_local_and_remote_path(inner_content, lock, script_path, db, w_id).await;
+    let (local_path, remote_path) = compute_bundle_local_and_remote_path(
+        inner_content,
+        lock,
+        script_path,
+        db,
+        w_id,
+        temp_script_refs,
+    )
+    .await;
     if exists_in_cache(&local_path, &remote_path).await {
         return Ok(());
     }
@@ -1252,6 +1260,7 @@ pub async fn compute_bundle_local_and_remote_path(
     script_path: &str,
     db: Option<&DB>,
     w_id: &str,
+    temp_script_refs: &Option<HashMap<String, String>>,
 ) -> (String, String) {
     let mut input_src = format!("{inner_content}{lock}",);
 
@@ -1268,6 +1277,18 @@ pub async fn compute_bundle_local_and_remote_path(
             }
         }
     };
+
+    // Keep temp-script-ref (preview) bundles in a distinct cache slot: their
+    // imports come from not-yet-deployed local content, so they must neither
+    // reuse a deployed-content bundle nor be saved under the deployed key.
+    if let Some(refs) = temp_script_refs {
+        let mut entries: Vec<(&String, &String)> = refs.iter().collect();
+        entries.sort();
+        for (path, hash) in entries {
+            input_src.push_str(path);
+            input_src.push_str(hash);
+        }
+    }
 
     let ws_suffix = crate::workspace_registry_cache_suffix(w_id).await;
     input_src.push_str(&ws_suffix);
@@ -1333,6 +1354,22 @@ pub async fn handle_bun_job(
 ) -> error::Result<Box<RawValue>> {
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
+    // Preview jobs may carry _TEMP_SCRIPT_REFS so relative imports resolve from
+    // not-yet-deployed local content uploaded to raw_script_temp. Extracted up
+    // front so it reaches both lockfile generation and the runtime loader.
+    // Gated on JobKind::Preview because job.args includes caller-controlled
+    // request args; honoring this key on deployed runs would let a caller swap
+    // import resolution targets in deployed code.
+    let temp_script_refs: Option<HashMap<String, String>> = if matches!(job.kind, JobKind::Preview)
+    {
+        job.args
+            .as_ref()
+            .and_then(|x| x.get("_TEMP_SCRIPT_REFS"))
+            .and_then(|v| serde_json::from_str(v.get()).ok())
+    } else {
+        None
+    };
+
     if annotation.sandbox && NSJAIL_AVAILABLE.is_none() {
         return Err(error::Error::ExecutionErr(
             "Script has //sandbox annotation but nsjail is not available on this worker. \
@@ -1353,6 +1390,7 @@ pub async fn handle_bun_job(
                     job.runnable_path(),
                     Some(db),
                     &job.workspace_id,
+                    &temp_script_refs,
                 )
                 .await
             }
@@ -1512,7 +1550,7 @@ pub async fn handle_bun_job(
                     workspace_dependencies,
                     annotation.npm,
                     &mut Some(occupancy_metrics),
-                    &None,
+                    &temp_script_refs,
                     wac_replay_info.is_some(),
                 )
                 .await?;
@@ -1886,7 +1924,7 @@ try {{
                 } else {
                     LoaderMode::BunBundle
                 },
-                &None,
+                &temp_script_refs,
             )
             .await?;
 
@@ -1903,7 +1941,7 @@ try {{
                 } else {
                     LoaderMode::Bun
                 },
-                &None,
+                &temp_script_refs,
             )
             .await
         } else {
