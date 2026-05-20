@@ -217,9 +217,49 @@
 	// bundling, preview state, and editor state survive tab switches.
 	// `splitWithPreview` adds the preview pane alongside the active tab; the
 	// active tab's content visibility doesn't change when split toggles.
+	// The preview iframe always lives in Pane B; its visibility is driven by
+	// the pane size, not a separate flag. Source vs runnable swap inside Pane A.
 	const showSource = $derived(activeTabKind === 'file')
 	const showRunnable = $derived(activeTabKind === 'runnable')
-	const showPreview = $derived(activeTabKind === 'preview' || splitWithPreview)
+
+	// Resizable split is handled by an inner Splitpanes. To preserve iframe
+	// state across single↔split toggles we always render the Splitpanes; sizes
+	// are driven by the active tab + split flag. `paneARatio` remembers the
+	// user's drag preference for next time split is enabled.
+	let paneALeftSize = $state(50)
+	let paneBRightSize = $state(50)
+	let paneARatio = $state(50)
+	$effect(() => {
+		// Snap sizes when the layout mode (preview/file/runnable + split) changes.
+		void activeTabKind
+		void splitWithPreview
+		untrack(() => {
+			if (activeTabKind === 'preview') {
+				paneALeftSize = 0
+				paneBRightSize = 100
+			} else if (splitWithPreview) {
+				paneALeftSize = paneARatio
+				paneBRightSize = 100 - paneARatio
+			} else {
+				paneALeftSize = 100
+				paneBRightSize = 0
+			}
+		})
+	})
+	$effect(() => {
+		// While the user drags in split mode, remember the ratio they picked.
+		void paneALeftSize
+		untrack(() => {
+			if (
+				splitWithPreview &&
+				activeTabKind !== 'preview' &&
+				paneALeftSize > 0 &&
+				paneALeftSize < 100
+			) {
+				paneARatio = paneALeftSize
+			}
+		})
+	})
 
 	function fileTabId(filePath: string) {
 		return FILE_PREFIX + filePath
@@ -1347,69 +1387,89 @@
 					{/snippet}
 				</DraggableTabs>
 				<!--
-					Content area. All three slots stay mounted always; we toggle
-					CSS display so iframes don't lose state on tab switches.
-					Flex layout: in single mode only one slot has display, so
-					it takes the full width. In split mode two are visible and
-					share the space.
+					Content area. Always rendered as a Splitpanes so the iframes
+					never remount on a single↔split toggle. The active tab's
+					slot occupies Pane A (left); the preview iframe sits in
+					Pane B (right). Sizes are driven reactively from the tab +
+					split state. The splitter divider is hidden via CSS when
+					one of the panes is at 0% — the user uses the explicit
+					toggle button in the tab bar to flip between modes.
 				-->
-				<div class="flex flex-1 min-h-0 w-full">
-					<div
-						class="flex-1 min-w-0 relative"
-						style="display: {showSource ? 'block' : 'none'}"
-					>
-						<iframe
-							bind:this={iframe}
-							title="UI builder"
-							src="/ui_builder/index.html"
-							class="w-full h-full block"
-						></iframe>
-					</div>
-					<div
-						class="flex-1 min-w-0 relative"
-						style="display: {showRunnable ? 'block' : 'none'}"
-					>
-						<!-- svelte-ignore a11y_no_static_element_interactions -->
-						<div class="flex h-full w-full">
-							{#if selectedRunnable !== undefined}
-								<RawAppInlineScriptsPanel
-									appPath={path}
-									{selectedRunnable}
-									bind:runnables
-									onSelectionChange={(selection) => {
-										if (selection === null) {
-											codeSelection = undefined
-										} else if (selectedRunnable) {
-											codeSelection = {
-												type: 'app_code_selection',
-												source: selectedRunnable,
-												sourceType: 'backend',
-												title: `${selectedRunnable}:L${selection.startLine}-L${selection.endLine}`,
-												content: selection.content,
-												startLine: selection.startLine,
-												endLine: selection.endLine,
-												startColumn: selection.startColumn,
-												endColumn: selection.endColumn
-											}
-										}
-									}}
-								/>
-							{/if}
-						</div>
-					</div>
-					<div
-						class="flex-1 min-w-0 relative"
-						style="display: {showPreview ? 'block' : 'none'}"
-					>
-						<iframe
-							bind:this={previewIframe}
-							title="App preview"
-							src="/ui_builder/app-preview.html"
-							class="w-full h-full block"
-						></iframe>
-					</div>
+				<div
+					class="flex-1 min-h-0 w-full {splitWithPreview &&
+					activeTabKind !== 'preview'
+						? 'tabs-content-split'
+						: 'tabs-content-single'}"
+				>
+					<Splitpanes>
+						<Pane bind:size={paneALeftSize} minSize={0}>
+							<div
+								class="relative h-full w-full"
+								style="display: {showSource ? 'block' : 'none'}"
+							>
+								<iframe
+									bind:this={iframe}
+									title="UI builder"
+									src="/ui_builder/index.html"
+									class="w-full h-full block"
+								></iframe>
+							</div>
+							<div
+								class="relative h-full w-full"
+								style="display: {showRunnable ? 'block' : 'none'}"
+							>
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<div class="flex h-full w-full">
+									{#if selectedRunnable !== undefined}
+										<RawAppInlineScriptsPanel
+											appPath={path}
+											{selectedRunnable}
+											bind:runnables
+											onSelectionChange={(selection) => {
+												if (selection === null) {
+													codeSelection = undefined
+												} else if (selectedRunnable) {
+													codeSelection = {
+														type: 'app_code_selection',
+														source: selectedRunnable,
+														sourceType: 'backend',
+														title: `${selectedRunnable}:L${selection.startLine}-L${selection.endLine}`,
+														content: selection.content,
+														startLine: selection.startLine,
+														endLine: selection.endLine,
+														startColumn: selection.startColumn,
+														endColumn: selection.endColumn
+													}
+												}
+											}}
+										/>
+									{/if}
+								</div>
+							</div>
+						</Pane>
+						<Pane bind:size={paneBRightSize} minSize={0}>
+							<iframe
+								bind:this={previewIframe}
+								title="App preview"
+								src="/ui_builder/app-preview.html"
+								class="w-full h-full block"
+							></iframe>
+						</Pane>
+					</Splitpanes>
 				</div>
 			</div>
 		</Pane>
 	</Splitpanes>
 </div>
+
+<style>
+	/* Hide the splitter in the inner content-area Splitpanes when we're not
+	   actually in split-with-preview mode (one pane is at 0%). The user
+	   uses the explicit Split toggle in the tab bar to flip modes; a
+	   visible-but-non-functional drag handle would be confusing. */
+	:global(.tabs-content-single .splitpanes__splitter) {
+		visibility: hidden;
+		pointer-events: none;
+		width: 0;
+	}
+</style>

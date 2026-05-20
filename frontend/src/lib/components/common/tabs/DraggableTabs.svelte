@@ -57,10 +57,14 @@
 
 	function tabClasses(isActive: boolean) {
 		return twMerge(
-			'group inline-flex items-center gap-1.5 px-3 h-8 text-xs select-none cursor-pointer border-r border-border-light whitespace-nowrap focus:outline-none focus-visible:ring-1 focus-visible:ring-border-selected',
+			'group inline-flex items-center gap-1.5 px-3 h-8 text-xs select-none cursor-pointer whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-border-selected focus-visible:ring-inset',
+			// Active tab shares its background with the content area below it
+			// — no border, the boundary "disappears" into the surface.
+			// Inactive tabs sit on the darker tab-strip bg and have a subtle
+			// right separator so they don't blur together.
 			isActive
-				? 'bg-surface text-primary border-b-2 border-b-accent -mb-px'
-				: 'bg-surface-secondary text-secondary hover:bg-surface-hover'
+				? 'bg-surface text-primary'
+				: 'bg-surface-secondary text-secondary border-r border-border-light hover:bg-surface-hover hover:text-primary'
 		)
 	}
 
@@ -127,7 +131,7 @@
 
 <div
 	class={twMerge(
-		'flex items-stretch border-b border-border-light overflow-x-auto bg-surface-secondary',
+		'flex items-stretch overflow-x-auto bg-surface-secondary',
 		c
 	)}
 	role="tablist"
