@@ -3990,6 +3990,94 @@ async fn test_failure_module(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_run_wait_result_early_return_with_failure_module(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [{
+            "id": "a",
+            "value": {
+                "type": "rawscript",
+                "language": "deno",
+                "input_transforms": {},
+                "content": "export function main() { throw new Error('boom'); }",
+            },
+        }],
+        "failure_module": {
+            "value": {
+                "type": "rawscript",
+                "language": "deno",
+                "input_transforms": {},
+                "content": "export function main() { return { recovered: true } }",
+            },
+        },
+    }))
+    .unwrap();
+
+    let completed =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, port)
+            .await;
+
+    // Sanity: flow result is the failure_module's output.
+    assert_eq!(
+        json!({ "recovered": true }),
+        completed.json_result().unwrap()
+    );
+
+    let read_body = |response: axum::response::Response| async move {
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()
+    };
+
+    // has_failure_module=false: legacy behavior — return the early_return node's failure.
+    let resp_a_only = windmill_api::jobs::run_wait_result(
+        &db,
+        completed.id,
+        "test-workspace",
+        Some("a".to_string()),
+        false,
+        "test-user",
+    )
+    .await
+    .unwrap();
+    let body_a_only = read_body(resp_a_only).await;
+    let body_a_only_str = body_a_only.to_string();
+    assert!(
+        body_a_only_str.contains("boom"),
+        "expected node 'a' failure, got {body_a_only_str}",
+    );
+    assert!(
+        !body_a_only_str.contains("recovered"),
+        "expected node 'a' failure, not failure_module output; got {body_a_only_str}",
+    );
+
+    // has_failure_module=true: skip the early_return node's failure and return the
+    // failure_module's recovered result instead.
+    let resp_with_fm = windmill_api::jobs::run_wait_result(
+        &db,
+        completed.id,
+        "test-workspace",
+        Some("a".to_string()),
+        true,
+        "test-user",
+    )
+    .await
+    .unwrap();
+    let body_with_fm = read_body(resp_with_fm).await;
+    assert_eq!(json!({ "recovered": true }), body_with_fm);
+
+    Ok(())
+}
+
 #[cfg(feature = "python")]
 #[sqlx::test(fixtures("base"))]
 async fn test_flow_lock_all(db: Pool<Postgres>) -> anyhow::Result<()> {

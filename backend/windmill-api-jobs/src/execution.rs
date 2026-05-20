@@ -284,9 +284,15 @@ pub async fn run_wait_result_internal(
 
     let fast_poll_duration = *WAIT_RESULT_FAST_POLL_DURATION_SECS as u64 * 1000;
     let mut accumulated_delay = 0 as u64;
+    // Once we observe the early_return node failed with a failure_module configured,
+    // its result is final — no need to re-query it on every poll.
+    let mut early_return_failed_and_suppressed = false;
 
     loop {
-        if let Some(node_id_for_empty_return) = node_id_for_empty_return.as_ref() {
+        if let Some(node_id_for_empty_return) = node_id_for_empty_return
+            .as_ref()
+            .filter(|_| !early_return_failed_and_suppressed)
+        {
             let result_and_success = get_result_and_success_by_id_from_flow(
                 &db,
                 w_id,
@@ -301,7 +307,9 @@ pub async fn run_wait_result_internal(
                 // the error handler will run and may recover. Skip this result and let
                 // the loop fall through to the completed flow result below, which is
                 // the failure_module's output.
-                if !(has_failure_module && !s) {
+                if has_failure_module && !s {
+                    early_return_failed_and_suppressed = true;
+                } else {
                     result = Some(r);
                     success = s;
                 }

@@ -7183,6 +7183,7 @@ async fn get_job_update(
             None,
             None,
             false,
+            &mut false,
         )
         .await?,
     ))
@@ -7270,6 +7271,9 @@ pub fn start_job_update_sse_stream(
         let mut stream_offset = initial_stream_offset;
         let mut last_update_hash: Option<String> = None;
         let mut flow_stream_job_id = None;
+        // Latched once the early_return node's failure is observed alongside a
+        // failure_module — subsequent polls then skip the redundant per-node lookup.
+        let mut early_return_suppressed = false;
 
         // Send initial update immediately
         let mut running = running;
@@ -7293,6 +7297,7 @@ pub fn start_job_update_sse_stream(
             flow_stream_job_id,
             early_return.as_deref(),
             has_failure_module,
+            &mut early_return_suppressed,
         )
         .await
         {
@@ -7412,6 +7417,7 @@ pub fn start_job_update_sse_stream(
                 flow_stream_job_id,
                 early_return.as_deref(),
                 has_failure_module,
+                &mut early_return_suppressed,
             )
             .await
             {
@@ -7544,6 +7550,7 @@ async fn get_job_update_data(
     flow_stream_job_id: Option<Uuid>,
     early_return: Option<&str>,
     has_failure_module: bool,
+    early_return_suppressed: &mut bool,
 ) -> error::Result<JobUpdate> {
     let tags = if log_view {
         log_job_view(
@@ -7707,15 +7714,20 @@ async fn get_job_update_data(
 
         let flow_stream_job_id = flow_stream_job_id.or(new_flow_stream_job_id);
 
-        let result = if let Some(early_return) = early_return {
+        let result = if let Some(early_return) = early_return.filter(|_| !*early_return_suppressed)
+        {
             match get_result_and_success_by_id_from_flow(db, w_id, job_id, early_return, None).await
             {
                 // When the early_return node failed but the flow has a failure_module,
                 // the error handler will run and may recover. Keep the completed flow
-                // result instead (it reflects the failure_module's output).
-                Ok((early_result, early_success)) if !(has_failure_module && !early_success) => {
-                    Some(early_result)
+                // result instead (it reflects the failure_module's output). Latch the
+                // observation so subsequent polls skip this query — the early-return
+                // node's failure is final once observed.
+                Ok((_, early_success)) if has_failure_module && !early_success => {
+                    *early_return_suppressed = true;
+                    result
                 }
+                Ok((early_result, _)) => Some(early_result),
                 _ => result,
             }
         } else {
