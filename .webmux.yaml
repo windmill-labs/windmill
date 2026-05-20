@@ -47,6 +47,7 @@ profiles:
       For this window specifically, backend is running on: ${BACKEND_PORT} and frontend is running on: ${FRONTEND_PORT}.
       To connect to the database, use this connection string: ${DATABASE_URL}
       Because we are running backend with cargo watch, to verify your changes, just check the logs in the backend pane. No need for cargo check.
+      For UI verification, use the Playwright MCP (`mcp__playwright__*`) — the `playwright` server is headless and works without a display. Navigate to http://localhost:${FRONTEND_PORT}, log in as admin@windmill.dev / changeme.
       IMPORTANT: Read docs/autonomous-mode.md before starting any work.
     panes:
       - id: agent
@@ -76,6 +77,7 @@ profiles:
       On this window specifically, frontend is running on: ${FRONTEND_PORT}.
       To connect to the database, use this connection string: ${DATABASE_URL}
       Because we are running frontend with npm run dev, to verify your changes, just check the logs in the frontend pane. No need for npm run build.
+      For UI verification, use the Playwright MCP (`mcp__playwright__*`) — the `playwright` server is headless and works without a display. Navigate to http://localhost:${FRONTEND_PORT}, log in as admin@windmill.dev / changeme.
       IMPORTANT: Read docs/autonomous-mode.md before starting any work.
     panes:
       - id: agent
@@ -124,7 +126,9 @@ oneshot:
     Take the task to its real conclusion without pausing:
       1. Make the change.
       2. Validate it (run the relevant tests, typecheck, build, or quick
-         manual check).
+         manual check). For UI changes, drive the running frontend with
+         the Playwright MCP (`mcp__playwright__*`, headless) and confirm
+         the change works end-to-end before moving on.
       3. Commit.
       4. Push.
       5. Open a pull request.
