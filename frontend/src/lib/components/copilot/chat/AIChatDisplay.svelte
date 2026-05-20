@@ -312,9 +312,9 @@
 								/>
 								{#snippet text()}
 									<div class="max-w-64 text-xs">
-										<p class="font-semibold">Yolo auto-accepts tool confirmations.</p>
+										<p class="font-semibold">Yolo auto-accepts tool usage.</p>
 										<p class="mt-1">
-											This can result in unwanted tools being called without another prompt.
+											This can result in unwanted tools being called without user confirmation.
 										</p>
 										{#if yoloBypassedTools.length > 0}
 											<p class="mt-2 font-semibold">Bypassed in current mode:</p>
