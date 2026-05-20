@@ -283,11 +283,12 @@ def extract_py_classes(content: str) -> list[dict]:
 # =============================================================================
 
 
-# Reusable option pattern for CLI parsing
+# Reusable option pattern for CLI parsing. Matches both `.option(...)` and
+# `.globalOption(...)` so subcommand-level global options surface in the docs.
 OPTION_PATTERN = re.compile(
-    r'\.option\(\s*"([^"]+)"\s*,\s*"([^"]+)"'  # double-quoted
+    r'\.(?:option|globalOption)\(\s*"([^"]+)"\s*,\s*"([^"]+)"'  # double-quoted
     r'|'
-    r"\.option\(\s*'([^']+)'\s*,\s*'([^']+)'",  # single-quoted
+    r"\.(?:option|globalOption)\(\s*'([^']+)'\s*,\s*'([^']+)'",  # single-quoted
     re.MULTILINE | re.DOTALL
 )
 
@@ -352,7 +353,24 @@ def parse_command_block(content: str, file_path: Path | None = None) -> dict:
     subcommand_sections = re.split(r'(?=\.command\()', block)
 
     for section in subcommand_sections:
-        cmd_match = re.match(r'\.command\(\s*["\']([^"\']+)["\']\s*(?:,\s*("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|[^)]+))?\s*\)', section)
+        # Second arg is either a quoted description, a bare identifier (imported
+        # command, e.g. `.command("app", app)`), or a more complex expression
+        # like `someWrapper(new Command()...)` — the `[^)]+` fallback covers
+        # the last case by matching up to the next `)`.
+        #
+        # Two subtleties:
+        #   - The quoted-string alts are tried first so a description containing
+        #     `(` like "(psql, DBeaver)" isn't truncated by the `[^)]+` fallback.
+        #   - The trailing `,?` accommodates the prettier-style `\n  )` close
+        #     paren that follows a comma. Without it, the quoted alt would
+        #     succeed but the outer `\s*\)` would fail, forcing a backtrack to
+        #     `[^)]+` and producing a truncated description with a trailing `",`.
+        cmd_match = re.match(
+            r'\.command\(\s*["\']([^"\']+)["\']\s*'
+            r'(?:,\s*("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|[^)]+))?'
+            r'\s*,?\s*\)',
+            section,
+        )
         if not cmd_match:
             continue
 
