@@ -619,6 +619,7 @@ async fn install<'a>(
         envs.clone(),
         get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?,
     );
+    let nsjail_tmpfs_size = resolve_nsjail_tmpfs_size().await;
     par_install_language_dependencies_seq(
         InstallDeps::Flat(deps.clone()),
         "ruby",
@@ -638,10 +639,7 @@ async fn install<'a>(
                         .replace("{TARGET}", &dependency.path)
                         .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                         .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
-                        .replace(
-                            "{NSJAIL_TMPFS_SIZE}",
-                            &resolve_nsjail_tmpfs_size().await,
-                        )
+                        .replace("{NSJAIL_TMPFS_SIZE}", &nsjail_tmpfs_size)
                         .replace("#{DEV}", DEV_CONF_NSJAIL), // .replace("{BUILD}", &build_dir),
                 )?;
                 let mut cmd = Command::new(NSJAIL_PATH.as_str());
@@ -814,10 +812,7 @@ mount {{
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace(
-                    "{NSJAIL_TMPFS_SIZE}",
-                    &resolve_nsjail_tmpfs_size().await,
-                )
+                .replace("{NSJAIL_TMPFS_SIZE}", &resolve_nsjail_tmpfs_size().await)
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
         let mut cmd = Command::new(NSJAIL_PATH.as_str());
