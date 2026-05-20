@@ -4,31 +4,34 @@ import { deepEqual } from 'fast-equals'
 import { workspaceStore } from './stores'
 import { useLocalStorageValue } from './svelte5Utils.svelte'
 
-export type UserDraftItemKind =
-	| 'script'
-	| 'flow'
-	| 'app'
-	| 'raw_app'
-	| 'resource'
-	| 'variable'
-	| 'trigger_schedule'
-	| 'trigger_webhook'
-	| 'trigger_default_email'
-	| 'trigger_email'
-	| 'trigger_http'
-	| 'trigger_websocket'
-	| 'trigger_postgres'
-	| 'trigger_kafka'
-	| 'trigger_nats'
-	| 'trigger_mqtt'
-	| 'trigger_sqs'
-	| 'trigger_gcp'
-	| 'trigger_azure'
-	| 'trigger_poll'
-	| 'trigger_cli'
-	| 'trigger_nextcloud'
-	| 'trigger_google'
-	| 'trigger_github'
+export const USER_DRAFT_ITEM_KINDS = [
+	'script',
+	'flow',
+	'app',
+	'raw_app',
+	'resource',
+	'variable',
+	'trigger_schedule',
+	'trigger_webhook',
+	'trigger_default_email',
+	'trigger_email',
+	'trigger_http',
+	'trigger_websocket',
+	'trigger_postgres',
+	'trigger_kafka',
+	'trigger_nats',
+	'trigger_mqtt',
+	'trigger_sqs',
+	'trigger_gcp',
+	'trigger_azure',
+	'trigger_poll',
+	'trigger_cli',
+	'trigger_nextcloud',
+	'trigger_google',
+	'trigger_github'
+] as const
+
+export type UserDraftItemKind = (typeof USER_DRAFT_ITEM_KINDS)[number]
 
 export type UserDraftOptions = {
 	workspace?: string
@@ -41,6 +44,10 @@ export type UserDraftUseOptions<V> = UserDraftOptions & {
 	 * actual mutation is what writes to localStorage.
 	 */
 	defaultValue?: V
+}
+
+export type UserDraftListOptions = UserDraftOptions & {
+	itemKinds?: readonly UserDraftItemKind[]
 }
 
 /**
@@ -97,6 +104,9 @@ type DraftState<V> = {
 
 type DraftEntry = {
 	count: number
+	workspace: string
+	itemKind: UserDraftItemKind
+	path: string
 	state: DraftState<unknown>
 	/**
 	 * Tears down the `$effect.root` scope that owns the entry's
@@ -107,6 +117,16 @@ type DraftEntry = {
 	 * us through the fallback path (see `acquireEntry`).
 	 */
 	destroyRoot?: () => void
+}
+
+export type UserDraftEntry<V = unknown> = {
+	workspace: string
+	itemKind: UserDraftItemKind
+	path: string
+	value: V | undefined
+	meta: UserDraftMeta
+	persisted: boolean
+	live: boolean
 }
 
 const entries = new Map<string, DraftEntry>()
@@ -209,6 +229,36 @@ function localStorageKey(workspace: string, itemKind: UserDraftItemKind, path: s
 	return `userdraft/w/${workspace}/${itemKind}/${path}`
 }
 
+function parseLocalStorageKey(
+	key: string,
+	workspace: string,
+	itemKinds: readonly UserDraftItemKind[]
+): { itemKind: UserDraftItemKind; path: string } | undefined {
+	const prefix = `userdraft/w/${workspace}/`
+	if (!key.startsWith(prefix)) return undefined
+	const rest = key.slice(prefix.length)
+	for (const itemKind of itemKinds) {
+		const kindPrefix = `${itemKind}/`
+		if (rest.startsWith(kindPrefix)) {
+			return { itemKind, path: rest.slice(kindPrefix.length) }
+		}
+	}
+	return undefined
+}
+
+function snapshotDraftValue<V>(value: V | undefined): V | undefined {
+	if (value === undefined) return undefined
+	try {
+		return structuredClone($state.snapshot(value)) as V
+	} catch {
+		try {
+			return JSON.parse(JSON.stringify(value)) as V
+		} catch {
+			return undefined
+		}
+	}
+}
+
 export type UserDraftHandle<V> = {
 	get draft(): V | undefined
 	set draft(value: V | undefined)
@@ -297,6 +347,27 @@ export const UserDraft = {
 		} catch (e) {
 			console.error('UserDraft.save: localStorage write failed', e)
 		}
+	},
+
+	setDraftAndMeta<V>(
+		itemKind: UserDraftItemKind,
+		path: string,
+		value: V | undefined,
+		meta: UserDraftMeta,
+		opts?: UserDraftOptions
+	): void {
+		const ws = resolveWorkspace(opts)
+		const mk = mapKey(ws, itemKind, path)
+		const entry = entries.get(mk)
+		if (entry) {
+			entry.state.val = wrap(value, meta)
+			// Static writes represent explicit external draft mutations. A
+			// freshly acquired live entry may still have the initial-write skip
+			// armed, so force the storage slot to match the live value.
+			persistDirect(localStorageKey(ws, itemKind, path), value, meta)
+			return
+		}
+		persistDirect(localStorageKey(ws, itemKind, path), value, meta)
 	},
 
 	/**
@@ -396,6 +467,61 @@ export const UserDraft = {
 		}
 	},
 
+	clear(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
+		UserDraft.discard(itemKind, path, undefined, opts)
+	},
+
+	list<V = unknown>(opts?: UserDraftListOptions): UserDraftEntry<V>[] {
+		const ws = resolveWorkspace(opts)
+		const itemKinds = opts?.itemKinds ?? USER_DRAFT_ITEM_KINDS
+		const out = new Map<string, UserDraftEntry<V>>()
+
+		if (typeof localStorage !== 'undefined') {
+			const keys: string[] = []
+			for (let i = 0; i < localStorage.length; i++) {
+				const key = localStorage.key(i)
+				if (key != null && key.startsWith(`userdraft/w/${ws}/`)) keys.push(key)
+			}
+			for (const key of keys) {
+				const parsed = parseLocalStorageKey(key, ws, itemKinds)
+				if (!parsed) continue
+				const stored = readPersisted<V>(key)
+				if (stored === undefined) continue
+				out.set(mapKey(ws, parsed.itemKind, parsed.path), {
+					workspace: ws,
+					itemKind: parsed.itemKind,
+					path: parsed.path,
+					value: snapshotDraftValue(unwrap(stored)),
+					meta: extractMeta(stored),
+					persisted: true,
+					live: false
+				})
+			}
+		}
+
+		for (const entry of entries.values()) {
+			if (entry.workspace !== ws || !itemKinds.includes(entry.itemKind)) continue
+			const stored = untrack(() => entry.state.val as StoredDraft<V> | undefined)
+			const mk = mapKey(entry.workspace, entry.itemKind, entry.path)
+			if (stored === undefined) {
+				out.delete(mk)
+				continue
+			}
+			const existing = out.get(mk)
+			out.set(mk, {
+				workspace: entry.workspace,
+				itemKind: entry.itemKind,
+				path: entry.path,
+				value: snapshotDraftValue(unwrap(stored)),
+				meta: extractMeta(stored),
+				persisted: existing?.persisted ?? false,
+				live: true
+			})
+		}
+
+		return Array.from(out.values())
+	},
+
 	/**
 	 * Like `remove`, but also resets any live handle's `draft` to
 	 * `fallback` in-memory (so reactive readers see it immediately) and
@@ -412,10 +538,14 @@ export const UserDraft = {
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) {
-			// Arm the skip before the cell write so the setter suppresses
-			// the persist; the removeItem below actually clears the slot.
-			entry.state.skipNextWriteOnce()
-			entry.state.val = wrap(fallback) as StoredDraft<unknown> | undefined
+			// First write `undefined` through the live cell so any pending
+			// debounced draft write is replaced by a remove.
+			entry.state.val = undefined
+			if (fallback !== undefined) {
+				// Keep the fallback in memory without persisting it as a draft.
+				entry.state.skipNextWriteOnce()
+				entry.state.val = wrap(fallback) as StoredDraft<unknown> | undefined
+			}
 		}
 		try {
 			localStorage.removeItem(localStorageKey(ws, itemKind, path))
@@ -549,7 +679,7 @@ function acquireEntry(
 		)
 	})
 	if (stateRef) {
-		entries.set(mk, { count: 1, state: stateRef, destroyRoot })
+		entries.set(mk, { count: 1, workspace, itemKind, path, state: stateRef, destroyRoot })
 		return
 	}
 	// Fallback for the vitest runtime where `$effect.root`'s callback isn't
@@ -560,7 +690,7 @@ function acquireEntry(
 		undefined,
 		useLocalStorageOptions
 	)
-	entries.set(mk, { count: 1, state })
+	entries.set(mk, { count: 1, workspace, itemKind, path, state })
 }
 
 function releaseEntry(mk: string): void {

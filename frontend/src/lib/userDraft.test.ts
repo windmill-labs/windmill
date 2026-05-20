@@ -719,3 +719,219 @@ describe('UserDraft.saveIfChanged', () => {
 		expect(storedShape(KEY)).toBe(wrapped(value))
 	})
 })
+
+describe('UserDraft.list / clear / setDraftAndMeta', () => {
+	it('enumerates persisted-only drafts for the requested workspace and kinds', () => {
+		UserDraft.setDraftAndMeta('script', 'f/a', { path: 'f/a', content: 'a' }, { remoteRev: 'h1' })
+		UserDraft.setDraftAndMeta(
+			'flow',
+			'f/b',
+			{ path: 'f/b', value: { modules: [] } },
+			{ remoteRev: 2 },
+			{ workspace: 'other_ws' }
+		)
+		UserDraft.setDraftAndMeta('resource', 'f/c', { path: 'f/c' }, {})
+
+		expect(UserDraft.list({ itemKinds: ['script'] })).toEqual([
+			{
+				workspace: 'test_ws',
+				itemKind: 'script',
+				path: 'f/a',
+				value: { path: 'f/a', content: 'a' },
+				meta: { remoteRev: 'h1' },
+				persisted: true,
+				live: false
+			}
+		])
+		expect(UserDraft.list({ workspace: 'other_ws' })).toEqual([
+			expect.objectContaining({
+				workspace: 'other_ws',
+				itemKind: 'flow',
+				path: 'f/b',
+				persisted: true,
+				live: false
+			})
+		])
+	})
+
+	it('keeps multiple path-addressed drafts and the empty-path scratch draft distinct', () => {
+		UserDraft.setDraftAndMeta('script', '', { path: '', content: 'scratch' }, {})
+		UserDraft.setDraftAndMeta('script', 'f/new-a', { path: 'f/new-a', content: 'a' }, {})
+		UserDraft.setDraftAndMeta('script', 'f/new-b', { path: 'f/new-b', content: 'b' }, {})
+
+		const entries = UserDraft.list<{ path: string; content: string }>({ itemKinds: ['script'] })
+
+		expect(entries).toHaveLength(3)
+		expect(entries).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					itemKind: 'script',
+					path: '',
+					value: { path: '', content: 'scratch' }
+				}),
+				expect.objectContaining({
+					itemKind: 'script',
+					path: 'f/new-a',
+					value: { path: 'f/new-a', content: 'a' }
+				}),
+				expect.objectContaining({
+					itemKind: 'script',
+					path: 'f/new-b',
+					value: { path: 'f/new-b', content: 'b' }
+				})
+			])
+		)
+	})
+
+	it('enumerates live-only drafts before the debounce persists them', () => {
+		const handle = UserDraft.use<{ path: string; content: string }>('script', 'f/live')
+		handle.setDraftAndMeta({ path: 'f/live', content: 'live' }, { remoteRev: 'h1' })
+
+		expect(localStorage.getItem('userdraft/w/test_ws/script/f/live')).toBeNull()
+		expect(UserDraft.list({ itemKinds: ['script'] })).toEqual([
+			{
+				workspace: 'test_ws',
+				itemKind: 'script',
+				path: 'f/live',
+				value: { path: 'f/live', content: 'live' },
+				meta: { remoteRev: 'h1' },
+				persisted: false,
+				live: true
+			}
+		])
+	})
+
+	it('dedupes entries that are both persisted and live', () => {
+		UserDraft.setDraftAndMeta(
+			'script',
+			'f/both',
+			{ path: 'f/both', content: 'persisted' },
+			{
+				remoteRev: 'h1'
+			}
+		)
+		const handle = UserDraft.use<{ path: string; content: string }>('script', 'f/both')
+		handle.draft = { path: 'f/both', content: 'live' }
+
+		expect(UserDraft.list({ itemKinds: ['script'] })).toEqual([
+			{
+				workspace: 'test_ws',
+				itemKind: 'script',
+				path: 'f/both',
+				value: { path: 'f/both', content: 'live' },
+				meta: { remoteRev: 'h1' },
+				persisted: true,
+				live: true
+			}
+		])
+	})
+
+	it('clear removes persisted storage and live state without re-persisting', () => {
+		UserDraft.setDraftAndMeta(
+			'script',
+			'f/clear',
+			{ path: 'f/clear', content: 'x' },
+			{
+				remoteRev: 'h1'
+			}
+		)
+		const handle = UserDraft.use<{ path: string; content: string }>('script', 'f/clear')
+		expect(handle.draft).toEqual({ path: 'f/clear', content: 'x' })
+
+		UserDraft.clear('script', 'f/clear')
+		flushPersist()
+
+		expect(handle.draft).toBeUndefined()
+		expect(localStorage.getItem('userdraft/w/test_ws/script/f/clear')).toBeNull()
+		expect(UserDraft.list({ itemKinds: ['script'] })).toEqual([])
+	})
+
+	it('clear cancels pending debounced live writes', () => {
+		const handle = UserDraft.use<{ path: string; content: string }>('script', 'f/pending-clear')
+		handle.draft = { path: 'f/pending-clear', content: 'initial' }
+		handle.draft = { path: 'f/pending-clear', content: 'pending' }
+
+		UserDraft.clear('script', 'f/pending-clear')
+		expect(handle.draft).toBeUndefined()
+		expect(localStorage.getItem('userdraft/w/test_ws/script/f/pending-clear')).toBeNull()
+
+		flushPersist()
+		expect(localStorage.getItem('userdraft/w/test_ws/script/f/pending-clear')).toBeNull()
+	})
+
+	it('list hides persisted drafts when a live handle has cleared the value', () => {
+		UserDraft.setDraftAndMeta(
+			'script',
+			'f/live-clear',
+			{ path: 'f/live-clear', content: 'persisted' },
+			{}
+		)
+		const handle = UserDraft.use<{ path: string; content: string }>('script', 'f/live-clear')
+		handle.draft = { path: 'f/live-clear', content: 'edited' }
+		handle.draft = undefined
+
+		expect(localStorage.getItem('userdraft/w/test_ws/script/f/live-clear')).not.toBeNull()
+		expect(UserDraft.list({ itemKinds: ['script'] })).toEqual([])
+	})
+
+	it('setDraftAndMeta updates live handles atomically and preserves metadata on later draft writes', () => {
+		const handle = UserDraft.use<{ path: string; content: string }>('script', 'f/meta')
+
+		UserDraft.setDraftAndMeta(
+			'script',
+			'f/meta',
+			{ path: 'f/meta', content: 'first' },
+			{
+				remoteRev: 'h1',
+				remoteDraftRev: 'd1'
+			}
+		)
+		handle.draft = { path: 'f/meta', content: 'second' }
+
+		expect(handle.draft).toEqual({ path: 'f/meta', content: 'second' })
+		expect(handle.meta).toEqual({ remoteRev: 'h1', remoteDraftRev: 'd1' })
+		expect(UserDraft.list({ itemKinds: ['script'] })[0]).toEqual(
+			expect.objectContaining({
+				value: { path: 'f/meta', content: 'second' },
+				meta: { remoteRev: 'h1', remoteDraftRev: 'd1' }
+			})
+		)
+	})
+
+	it('static setDraftAndMeta persists first writes even when a live handle exists', () => {
+		const handle = UserDraft.use<{ path: string; content: string }>('script', 'f/static-live')
+
+		UserDraft.setDraftAndMeta(
+			'script',
+			'f/static-live',
+			{ path: 'f/static-live', content: 'first' },
+			{ remoteRev: 'h1' }
+		)
+
+		expect(handle.draft).toEqual({ path: 'f/static-live', content: 'first' })
+		expect(storedShape('userdraft/w/test_ws/script/f/static-live')).toBe(
+			JSON.stringify({
+				value: { path: 'f/static-live', content: 'first' },
+				remoteRev: 'h1'
+			})
+		)
+	})
+
+	it('lists live drafts with runtime-only values without throwing', () => {
+		const handle = UserDraft.use<Record<string, unknown>>('script', 'f/runtime')
+		handle.draft = {
+			path: 'f/runtime',
+			content: 'x',
+			callback: () => 'not serializable'
+		}
+
+		expect(() => UserDraft.list({ itemKinds: ['script'] })).not.toThrow()
+		expect(UserDraft.list({ itemKinds: ['script'] })).toEqual([
+			expect.objectContaining({
+				itemKind: 'script',
+				path: 'f/runtime',
+				value: { path: 'f/runtime', content: 'x' }
+			})
+		])
+	})
+})
