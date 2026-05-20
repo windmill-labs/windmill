@@ -3942,7 +3942,7 @@ async fn batch_rerun_handle_job(
                 None,
             )
             .await;
-            if let Ok((uuid, _, _)) = result {
+            if let Ok((uuid, _, _, _)) = result {
                 return Ok(uuid.to_string());
             }
         }
@@ -4004,7 +4004,7 @@ pub async fn run_flow_by_path(
     )
     .await?;
 
-    let (uuid, _, _) = push_flow_job_by_path_into_queue(
+    let (uuid, _, _, _) = push_flow_job_by_path_into_queue(
         authed,
         db,
         None,
@@ -4038,7 +4038,7 @@ pub async fn run_flow_by_version(
         )
         .await?;
 
-    let (uuid, _) =
+    let (uuid, _, _) =
         run_flow_by_version_inner(authed, db, user_db, w_id, version, run_query, args, None)
             .await?;
 
@@ -4054,7 +4054,7 @@ pub async fn run_flow_by_version_inner(
     run_query: RunJobQuery,
     args: PushArgsOwned,
     trigger: Option<TriggerMetadata>,
-) -> error::Result<(Uuid, Option<String>)> {
+) -> error::Result<(Uuid, Option<String>, bool)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
@@ -4066,7 +4066,7 @@ pub async fn run_flow_by_version_inner(
     let flow_version_info =
         get_flow_version_info_from_version(&db, version, &w_id, &flow_path).await?;
 
-    let (uuid, early_return, _) = run_flow(
+    let (uuid, early_return, has_failure_module, _) = run_flow(
         &authed,
         &db,
         None,
@@ -4080,7 +4080,7 @@ pub async fn run_flow_by_version_inner(
     )
     .await?;
 
-    Ok((uuid, early_return))
+    Ok((uuid, early_return, has_failure_module))
 }
 
 #[cfg(not(feature = "enterprise"))]
@@ -4984,7 +4984,7 @@ pub async fn run_wait_result_job_by_path_get(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, &w_id, None, &authed.username).await;
+    let wait_result = run_wait_result(&db, uuid, &w_id, None, false, &authed.username).await;
     handle_delete_after_completion(&db, uuid, &w_id, delete_after_use, delete_after_secs).await?;
     return wait_result;
 }
@@ -5128,7 +5128,7 @@ pub async fn run_wait_result_script_by_path_internal(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, &w_id, None, &authed.username).await;
+    let wait_result = run_wait_result(&db, uuid, &w_id, None, false, &authed.username).await;
     handle_delete_after_completion(&db, uuid, &w_id, delete_after_use, delete_after_secs).await?;
     return wait_result;
 }
@@ -5253,7 +5253,7 @@ pub async fn run_wait_result_script_by_hash(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, &w_id, None, &authed.username).await;
+    let wait_result = run_wait_result(&db, uuid, &w_id, None, false, &authed.username).await;
     handle_delete_after_completion(&db, uuid, &w_id, delete_after_use, delete_after_secs).await?;
     return wait_result;
 }
@@ -5406,7 +5406,7 @@ pub async fn stream_job(
     };
 
     let poll_delay_ms = run_query.poll_delay_ms;
-    let (uuid, early_return) = match runnable_id {
+    let (uuid, early_return, has_failure_module) = match runnable_id {
         RunnableId::ScriptId(ScriptId::ScriptPath(script_path))
         | RunnableId::HubScript(script_path) => {
             let (uuid, _, _) = push_script_job_by_path_into_queue(
@@ -5421,7 +5421,7 @@ pub async fn stream_job(
                 None,
             )
             .await?;
-            (uuid, None)
+            (uuid, None, false)
         }
         RunnableId::ScriptId(ScriptId::ScriptHash(script_hash)) => {
             let (uuid, _, _) = run_job_by_hash_inner(
@@ -5435,10 +5435,10 @@ pub async fn stream_job(
                 None,
             )
             .await?;
-            (uuid, None)
+            (uuid, None, false)
         }
         RunnableId::FlowId(FlowId::FlowPath(flow_path)) => {
-            let (uuid, early_return, _) = push_flow_job_by_path_into_queue(
+            let (uuid, early_return, has_failure_module, _) = push_flow_job_by_path_into_queue(
                 authed.clone(),
                 db.clone(),
                 None,
@@ -5450,10 +5450,10 @@ pub async fn stream_job(
                 None,
             )
             .await?;
-            (uuid, early_return)
+            (uuid, early_return, has_failure_module)
         }
         RunnableId::FlowId(FlowId::FlowVersion(version)) => {
-            let (uuid, early_return) = run_flow_by_version_inner(
+            let (uuid, early_return, has_failure_module) = run_flow_by_version_inner(
                 authed.clone(),
                 db.clone(),
                 user_db,
@@ -5464,7 +5464,7 @@ pub async fn stream_job(
                 None,
             )
             .await?;
-            (uuid, early_return)
+            (uuid, early_return, has_failure_module)
         }
     };
 
@@ -5496,6 +5496,7 @@ pub async fn stream_job(
         tx,
         poll_delay_ms,
         early_return,
+        has_failure_module,
     );
 
     let body = axum::body::Body::from_stream(stream.map(Result::<_, std::convert::Infallible>::Ok));
@@ -5979,7 +5980,7 @@ async fn run_wait_result_preview_script(
     let uuid = uuid
         .parse::<Uuid>()
         .map_err(|_| Error::BadRequest("Invalid UUID".to_string()))?;
-    let result = run_wait_result(&db, uuid, &w_id, None, &authed.username).await;
+    let result = run_wait_result(&db, uuid, &w_id, None, false, &authed.username).await;
     return result;
 }
 
@@ -6253,7 +6254,7 @@ async fn run_dependencies_job(
     Json(req): Json<RunDependenciesRequest>,
 ) -> error::Result<Response> {
     let uuid = push_dependencies_job(&authed, &db, &w_id, req).await?;
-    run_wait_result(&db, uuid, &w_id, None, &authed.username).await
+    run_wait_result(&db, uuid, &w_id, None, false, &authed.username).await
 }
 
 async fn run_dependencies_job_async(
@@ -6362,7 +6363,7 @@ async fn run_flow_dependencies_job(
     Json(req): Json<RunFlowDependenciesRequest>,
 ) -> error::Result<Response> {
     let uuid = push_flow_dependencies_job(&authed, &db, &w_id, req).await?;
-    run_wait_result(&db, uuid, &w_id, None, &authed.username).await
+    run_wait_result(&db, uuid, &w_id, None, false, &authed.username).await
 }
 
 async fn run_flow_dependencies_job_async(
@@ -6781,7 +6782,7 @@ async fn run_wait_result_preview_flow(
     let uuid = uuid
         .parse::<Uuid>()
         .map_err(|_| Error::BadRequest("Invalid UUID".to_string()))?;
-    let result = run_wait_result(&db, uuid, &w_id, None, &authed.username).await;
+    let result = run_wait_result(&db, uuid, &w_id, None, false, &authed.username).await;
     return result;
 }
 
@@ -7215,6 +7216,8 @@ async fn get_job_update(
             is_flow,
             None,
             None,
+            false,
+            &mut false,
         )
         .await?,
     ))
@@ -7256,6 +7259,7 @@ async fn get_job_update_sse(
         tx,
         poll_delay_ms,
         None,
+        false,
     );
 
     let stream = tokio_stream::wrappers::ReceiverStream::new(rx).map(|x| {
@@ -7294,12 +7298,16 @@ pub fn start_job_update_sse_stream(
     tx: tokio::sync::mpsc::Sender<JobUpdateSSEStream>,
     poll_delay_ms: Option<u64>,
     early_return: Option<String>,
+    has_failure_module: bool,
 ) -> () {
     tokio::spawn(async move {
         let mut log_offset = initial_log_offset;
         let mut stream_offset = initial_stream_offset;
         let mut last_update_hash: Option<String> = None;
         let mut flow_stream_job_id = None;
+        // Latched once the early_return node's failure is observed alongside a
+        // failure_module — subsequent polls then skip the redundant per-node lookup.
+        let mut early_return_suppressed = false;
 
         // Send initial update immediately
         let mut running = running;
@@ -7322,6 +7330,8 @@ pub fn start_job_update_sse_stream(
             is_flow,
             flow_stream_job_id,
             early_return.as_deref(),
+            has_failure_module,
+            &mut early_return_suppressed,
         )
         .await
         {
@@ -7440,6 +7450,8 @@ pub fn start_job_update_sse_stream(
                 is_flow,
                 flow_stream_job_id,
                 early_return.as_deref(),
+                has_failure_module,
+                &mut early_return_suppressed,
             )
             .await
             {
@@ -7571,6 +7583,8 @@ async fn get_job_update_data(
     is_flow: Option<bool>,
     flow_stream_job_id: Option<Uuid>,
     early_return: Option<&str>,
+    has_failure_module: bool,
+    early_return_suppressed: &mut bool,
 ) -> error::Result<JobUpdate> {
     let tags = if log_view {
         log_job_view(
@@ -7734,11 +7748,21 @@ async fn get_job_update_data(
 
         let flow_stream_job_id = flow_stream_job_id.or(new_flow_stream_job_id);
 
-        let result = if let Some(early_return) = early_return {
+        let result = if let Some(early_return) = early_return.filter(|_| !*early_return_suppressed)
+        {
             match get_result_and_success_by_id_from_flow(db, w_id, job_id, early_return, None).await
             {
+                // When the early_return node failed but the flow has a failure_module,
+                // the error handler will run and may recover. Keep the completed flow
+                // result instead (it reflects the failure_module's output). Latch the
+                // observation so subsequent polls skip this query — the early-return
+                // node's failure is final once observed.
+                Ok((_, early_success)) if has_failure_module && !early_success => {
+                    *early_return_suppressed = true;
+                    result
+                }
                 Ok((early_result, _)) => Some(early_result),
-                Err(_) => result,
+                _ => result,
             }
         } else {
             result
