@@ -67,7 +67,8 @@ import { isGlobalAiEnabled } from './global/gate'
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
 const MAX_TOKENS_HARD_LIMIT = 5000
-const AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY = 'ai-chat-yolo-mode'
+const AI_AUTONOMY_MODE_STORAGE_KEY = 'ai-chat-autonomy-mode'
+const LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY = 'ai-chat-yolo-mode'
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -79,7 +80,15 @@ export enum AIMode {
 	ASK = 'ask'
 }
 
+export enum AIAutonomyMode {
+	DEFAULT = 'default',
+	ACCEPT_EDIT = 'acceptedit',
+	YOLO = 'yolo'
+}
+
 const ALL_AI_MODES = Object.values(AIMode)
+const ALL_AI_AUTONOMY_MODES = Object.values(AIAutonomyMode)
+const AUTO_ACCEPT_EDIT_MODES = new Set<AIMode>([AIMode.SCRIPT, AIMode.FLOW])
 const AUTO_ACCEPT_TOOL_CONFIRMATION_MODES = new Set<AIMode>([
 	AIMode.SCRIPT,
 	AIMode.FLOW,
@@ -89,6 +98,14 @@ const AUTO_ACCEPT_TOOL_CONFIRMATION_MODES = new Set<AIMode>([
 
 export function isAIMode(mode: unknown): mode is AIMode {
 	return ALL_AI_MODES.includes(mode as AIMode)
+}
+
+export function isAIAutonomyMode(mode: unknown): mode is AIAutonomyMode {
+	return ALL_AI_AUTONOMY_MODES.includes(mode as AIAutonomyMode)
+}
+
+export function supportsAutoAcceptEdits(mode: AIMode): boolean {
+	return AUTO_ACCEPT_EDIT_MODES.has(mode)
 }
 
 export function supportsAutoAcceptToolConfirmations(mode: AIMode): boolean {
@@ -107,18 +124,24 @@ function isWorkspacePath(path: string | undefined): path is string {
 	return path?.startsWith('f/') === true || path?.startsWith('u/') === true
 }
 
-function getPersistedAutoAcceptToolConfirmations(): boolean {
+function getPersistedAutonomyMode(): AIAutonomyMode {
 	if (!BROWSER || typeof localStorage === 'undefined') {
-		return false
+		return AIAutonomyMode.DEFAULT
 	}
-	return localStorage.getItem(AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY) === 'true'
+	const persistedMode = localStorage.getItem(AI_AUTONOMY_MODE_STORAGE_KEY)
+	if (isAIAutonomyMode(persistedMode)) {
+		return persistedMode
+	}
+	return localStorage.getItem(LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY) === 'true'
+		? AIAutonomyMode.YOLO
+		: AIAutonomyMode.DEFAULT
 }
 
-function persistAutoAcceptToolConfirmations(enabled: boolean) {
+function persistAutonomyMode(mode: AIAutonomyMode) {
 	if (!BROWSER || typeof localStorage === 'undefined') {
 		return
 	}
-	localStorage.setItem(AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY, enabled ? 'true' : 'false')
+	localStorage.setItem(AI_AUTONOMY_MODE_STORAGE_KEY, mode)
 }
 
 export class AIChatManager {
@@ -138,10 +161,16 @@ export class AIChatManager {
 	currentReply = $state<string>('')
 	displayMessages = $state<DisplayMessage[]>([])
 	messages = $state<ChatCompletionMessageParam[]>([])
-	autoAcceptToolConfirmations = $state<boolean>(getPersistedAutoAcceptToolConfirmations())
+	autonomyMode = $state<AIAutonomyMode>(getPersistedAutonomyMode())
+	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
+	autoAcceptEditsActive = $derived(
+		this.autoAcceptEditsAvailable &&
+			(this.autonomyMode === AIAutonomyMode.ACCEPT_EDIT ||
+				this.autonomyMode === AIAutonomyMode.YOLO)
+	)
 	autoAcceptToolConfirmationsAvailable = $derived(supportsAutoAcceptToolConfirmations(this.mode))
 	autoAcceptToolConfirmationsActive = $derived(
-		this.autoAcceptToolConfirmations && this.autoAcceptToolConfirmationsAvailable
+		this.autonomyMode === AIAutonomyMode.YOLO && this.autoAcceptToolConfirmationsAvailable
 	)
 	#automaticScroll = $state<boolean>(true)
 	systemMessage = $state<ChatCompletionSystemMessageParam>({
@@ -153,9 +182,9 @@ export class AIChatManager {
 
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
 	flowOptions = $state<FlowOptions | undefined>(undefined)
-	scriptEditorApplyCode = $state<((code: string, opts?: ReviewChangesOpts) => void) | undefined>(
-		undefined
-	)
+	scriptEditorApplyCode = $state<
+		((code: string, opts?: ReviewChangesOpts) => void | Promise<void>) | undefined
+	>(undefined)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
 	scriptEditorGetLintErrors = $state<(() => ScriptLintResult) | undefined>(undefined)
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
@@ -264,16 +293,45 @@ export class AIChatManager {
 		}
 	}
 
-	setAutoAcceptToolConfirmations = (enabled: boolean) => {
-		this.autoAcceptToolConfirmations = enabled
-		persistAutoAcceptToolConfirmations(enabled)
-
-		if (enabled && this.autoAcceptToolConfirmationsAvailable) {
-			for (const confirmationCallback of this.confirmationCallbacks.values()) {
-				confirmationCallback(true)
-			}
-			this.confirmationCallbacks.clear()
+	private acceptPendingToolConfirmations = () => {
+		for (const confirmationCallback of this.confirmationCallbacks.values()) {
+			confirmationCallback(true)
 		}
+		this.confirmationCallbacks.clear()
+	}
+
+	private acceptPendingFlowEdits = () => {
+		if (this.mode === AIMode.FLOW && this.flowAiChatHelpers?.hasPendingChanges()) {
+			this.flowAiChatHelpers.acceptAllModuleActions()
+		}
+	}
+
+	setAutonomyMode = (mode: AIAutonomyMode) => {
+		this.autonomyMode = mode
+		persistAutonomyMode(mode)
+
+		if (this.autoAcceptToolConfirmationsActive) {
+			this.acceptPendingToolConfirmations()
+		}
+		if (this.autoAcceptEditsActive) {
+			this.acceptPendingFlowEdits()
+		}
+	}
+
+	setAutoAcceptToolConfirmations = (enabled: boolean) => {
+		this.setAutonomyMode(enabled ? AIAutonomyMode.YOLO : AIAutonomyMode.DEFAULT)
+	}
+
+	applyScriptEditorCode = async (code: string, opts?: ReviewChangesOpts) => {
+		if (this.autoAcceptEditsActive && opts?.mode === 'revert') {
+			return
+		}
+
+		const effectiveOpts =
+			this.autoAcceptEditsActive && (opts?.mode ?? 'apply') === 'apply'
+				? ({ ...opts, mode: 'apply', applyAll: true } satisfies ReviewChangesOpts)
+				: opts
+		await this.scriptEditorApplyCode?.(code, effectiveOpts)
 	}
 
 	requestUserQuestion = (
@@ -393,7 +451,7 @@ export class AIChatManager {
 				},
 				getWorkspaceMutationTarget: this.getScriptWorkspaceMutationTarget,
 				applyCode: (code: string, opts?: ReviewChangesOpts) => {
-					this.scriptEditorApplyCode?.(code, opts)
+					return this.applyScriptEditorCode(code, opts)
 				},
 				getLintErrors: () => {
 					if (this.scriptEditorGetLintErrors) {
@@ -934,6 +992,9 @@ export class AIChatManager {
 				...params
 			})
 			this.messages = [...this.messages, ...(addedMessages ?? [])]
+			if (this.autoAcceptEditsActive) {
+				this.acceptPendingFlowEdits()
+			}
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
 		} catch (err) {
 			console.error(err)
@@ -1108,10 +1169,10 @@ export class AIChatManager {
 
 	listenForCurrentEditorChanges = (currentEditor: CurrentEditor) => {
 		if (currentEditor && currentEditor.type === 'script') {
-			this.scriptEditorApplyCode = (code) => {
+			this.scriptEditorApplyCode = (code, opts) => {
 				if (currentEditor && currentEditor.type === 'script') {
 					currentEditor.hideDiffMode()
-					currentEditor.editor.reviewAndApplyCode(code)
+					currentEditor.editor.reviewAndApplyCode(code, opts)
 				}
 			}
 			this.scriptEditorShowDiffMode = () => {

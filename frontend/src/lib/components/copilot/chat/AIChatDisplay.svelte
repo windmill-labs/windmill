@@ -24,11 +24,11 @@
 	import ProviderModelSelector from './ProviderModelSelector.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
+	import Select from '$lib/components/select/Select.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import { twMerge } from 'tailwind-merge'
-	import { AIMode } from './AIChatManager.svelte'
+	import { AIAutonomyMode, AIMode } from './AIChatManager.svelte'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import ChatTypingIndicator from './ChatTypingIndicator.svelte'
 	import AIChatInput from './AIChatInput.svelte'
@@ -37,6 +37,11 @@
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
 	const aiChatManager = getAiChatManager()
+	const autonomyModeItems: { label: string; value: AIAutonomyMode }[] = [
+		{ label: 'Default', value: AIAutonomyMode.DEFAULT },
+		{ label: 'Accept edits', value: AIAutonomyMode.ACCEPT_EDIT },
+		{ label: 'Yolo', value: AIAutonomyMode.YOLO }
+	]
 
 	let {
 		messages,
@@ -183,6 +188,20 @@
 			aiChatManager.mode === AIMode.GLOBAL ||
 			aiChatManager.mode === AIMode.APP
 	)
+	const showAutonomyModeSelector = $derived(
+		!disabled &&
+			(aiChatManager.autoAcceptEditsAvailable || aiChatManager.autoAcceptToolConfirmationsAvailable)
+	)
+	const autonomyModeTooltip = $derived.by(() => {
+		switch (aiChatManager.autonomyMode) {
+			case AIAutonomyMode.ACCEPT_EDIT:
+				return 'Automatically accepts script and flow edits. Tool calls still ask for confirmation.'
+			case AIAutonomyMode.YOLO:
+				return 'Automatically accepts script and flow edits plus tool confirmations.'
+			default:
+				return 'Requires confirmation for edits and tool calls.'
+		}
+	})
 
 	// "Waiting for user" detection — when the latest tool message is staged
 	// for confirmation or has an unanswered askUserQuestion, the AI loop is
@@ -229,7 +248,7 @@
 	const showFooterLeftControls = $derived(
 		!disabled &&
 			(showContextPicker ||
-				aiChatManager.autoAcceptToolConfirmationsAvailable ||
+				showAutonomyModeSelector ||
 				(aiChatManager.mode === AIMode.SCRIPT && hasDiff))
 	)
 </script>
@@ -476,28 +495,29 @@
 								{/snippet}
 							</Popover>
 						{/if}
-						{#if aiChatManager.autoAcceptToolConfirmationsAvailable}
-							<Toggle
-								size="xs"
-								color="red"
-								checked={aiChatManager.autoAcceptToolConfirmations}
-								options={{
-									right: 'yolo',
-									title: 'Auto-accept AI tool confirmations'
-								}}
-								on:change={(e) => aiChatManager.setAutoAcceptToolConfirmations(e.detail)}
+						{#if showAutonomyModeSelector}
+							<Select
+								items={autonomyModeItems}
+								bind:value={
+									() => aiChatManager.autonomyMode,
+									(mode) => aiChatManager.setAutonomyMode(mode ?? AIAutonomyMode.DEFAULT)
+								}
+								size="sm"
+								class="w-[118px]"
+								inputClass="!h-7 !py-0 !text-2xs"
+								listAutoWidth={false}
+								tooltip={autonomyModeTooltip}
 							/>
+						{/if}
+						{#if aiChatManager.autonomyMode === AIAutonomyMode.YOLO && aiChatManager.autoAcceptToolConfirmationsAvailable}
 							<Tooltip small placement="top">
-								<AlertTriangle
-									class={aiChatManager.autoAcceptToolConfirmations
-										? 'w-3 h-3 text-red-500'
-										: 'w-3 h-3 text-secondary'}
-								/>
+								<AlertTriangle class="w-3 h-3 text-red-500" />
 								{#snippet text()}
 									<div class="max-w-64 text-xs">
-										<p class="font-semibold">Yolo auto-accepts tool usage.</p>
+										<p class="font-semibold">Yolo auto-accepts edits and tool usage.</p>
 										<p class="mt-1">
-											This can result in unwanted tools being called without user confirmation.
+											This can result in edits being applied or tools being called without user
+											confirmation.
 										</p>
 										{#if yoloBypassedTools.length > 0}
 											<p class="mt-2 font-semibold">Bypassed in current mode:</p>
