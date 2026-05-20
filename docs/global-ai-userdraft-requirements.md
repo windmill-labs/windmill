@@ -7,6 +7,10 @@ on the frontend `UserDraft` service. It is intentionally limited to required
 behavior and does not prescribe API names, data structures, or implementation
 strategy.
 
+Global mode AI chat must use the same local draft model as the user. A draft
+modified through global mode is still a user draft. Requirements must therefore
+avoid creating a separate "AI draft" ownership model.
+
 The requirements are based on the current base branch state of `UserDraft`:
 
 - drafts are scoped by workspace, item kind, and storage path;
@@ -18,8 +22,8 @@ The requirements are based on the current base branch state of `UserDraft`:
 - existing editor flows rely on `UserDraft` for autosave, restore, metadata,
   removal, discard, and live-handle behavior;
 - the service does not provide a public way to enumerate all draft entries;
-- the service does not identify whether a draft was written by an editor or by
-  an external actor.
+- live editor state can include current loaded values that are useful context
+  but are not necessarily meaningful unsaved draft work.
 
 ## Requirements
 
@@ -31,24 +35,36 @@ Opening an editor, hydrating current backend state, autosaving local edits,
 restoring local edits, checking staleness, removing local drafts, and discarding
 to a fallback value must keep the same observable behavior.
 
-Global mode must not cause a clean editor baseline to become deployable AI work.
+Global mode must not cause a clean editor baseline to become deployable draft
+work.
 
-### R2. Global Mode Writes Must Be Distinguishable From Editor Writes
+### R2. Global Mode Must Share The User Draft Model
 
-When global mode creates or updates a frontend local draft, later code must be
-able to distinguish that draft from drafts created by normal editor autosave or
-editor hydration.
+Drafts written or modified through global mode must be represented as normal
+user drafts.
 
-This distinction must survive page reloads.
+Global mode must be able to read, modify, deploy, and clear the same local draft
+work that the user can act on through the editor, subject to the same workspace,
+item-kind, freshness, and confirmation constraints.
 
-This distinction must survive freshness metadata updates.
+The system must not require two parallel local draft concepts for the same
+workspace item.
 
-Legacy drafts with no such distinction must not be treated as global mode AI
-drafts.
+### R3. Meaningful Draft Work Must Be Distinguishable From Clean Context
 
-### R3. External Draft Writes Must Be Visible Immediately
+Global mode must be able to distinguish meaningful local draft work from clean
+frontend-visible context.
 
-After global mode writes a frontend local draft, the written value must be
+Clean editor baselines and current loaded backend values may be useful read
+context, but they must not be listed, deployed, or cleared as draft work unless
+they represent actual local draft changes.
+
+This distinction must not depend on whether the last change was made by a human
+or through global mode.
+
+### R4. Global Mode Writes Must Be Visible Immediately
+
+After global mode writes to a frontend local draft, the written value must be
 visible immediately to:
 
 - any live editor handle for the same workspace, item kind, and storage path;
@@ -57,25 +73,23 @@ visible immediately to:
 
 This must hold even when a live editor handle already exists before the write.
 
-### R4. Freshness Metadata Must Not Be Lost
+### R5. Freshness Metadata Must Not Be Lost
 
 Global mode writes and any later metadata updates must preserve the freshness
 metadata needed by existing editor staleness checks.
 
-Freshness metadata changes must not erase the marker that distinguishes global
-mode drafts from editor drafts.
+Freshness metadata must continue to reflect the backend state that the local
+draft is based on.
 
-The marker that distinguishes global mode drafts from editor drafts must not
-erase freshness metadata.
-
-### R5. Draft Enumeration Must Be Possible
+### R6. Draft Enumeration Must Be Possible
 
 Global mode must be able to enumerate frontend local drafts for a workspace and
 a bounded set of item kinds.
 
 Enumeration must include persisted-only drafts.
 
-Enumeration must include live-only draft values.
+Enumeration must include live-only draft values when they represent meaningful
+local draft work.
 
 Enumeration must include draft values that exist both in localStorage and in a
 live editor handle.
@@ -83,7 +97,7 @@ live editor handle.
 Enumeration must not return duplicate logical entries for the same workspace,
 item kind, and storage path.
 
-### R6. Enumeration Must Expose Storage Identity
+### R7. Enumeration Must Expose Storage Identity
 
 For each enumerated draft, global mode must be able to identify the exact
 workspace, item kind, and storage path used by `UserDraft`.
@@ -93,7 +107,7 @@ This is required because global mode operates on workspace item paths, while
 
 New-item editor drafts with an empty storage path must remain representable.
 
-### R7. Enumeration Must Expose Persistence State
+### R8. Enumeration Must Expose Persistence State
 
 For each enumerated draft, global mode must be able to determine whether the
 value exists in localStorage, in a live editor handle, or in both.
@@ -101,35 +115,19 @@ value exists in localStorage, in a live editor handle, or in both.
 Global mode must not need to infer persistence state by reading private
 `UserDraft` internals.
 
-### R8. Enumeration Must Expose Draft Origin
-
-For each enumerated draft, global mode must be able to determine whether the
-draft is global-mode-originated or editor-originated.
-
-Global mode must not need to infer origin from the draft value shape, item path,
-item kind, or localStorage key.
-
-### R9. Live-Only Values Must Not Be Deployable By Global Mode
-
-A frontend local draft must not be deployable by global mode unless it is known
-to be global-mode-originated and persisted.
-
-Live-only values may be read as current frontend-visible context, but they must
-not be treated as deployable AI drafts.
-
-### R10. Current Context And Deployable Drafts Must Be Separatable
+### R9. Current Context And Draft Work Must Be Separatable
 
 Global mode must be able to distinguish:
 
 - current frontend-visible local state, which may include clean editor
-  baselines, editor-originated drafts, live-only values, and global mode drafts;
-- deployable global mode draft state, which must include only persisted
-  global-mode-originated drafts.
+  baselines, loaded backend values, and local draft work;
+- meaningful local draft work, which may be read, listed, deployed, or cleared
+  as draft state.
 
 This distinction must be available without inspecting private `UserDraft`
 internals.
 
-### R11. Clearing A Global Mode Draft Must Clear Persisted And Live State
+### R10. Clearing A Draft Must Clear Persisted And Live State
 
 When global mode clears a frontend local draft, the draft must be removed from
 localStorage and from any live editor handle for the same workspace, item kind,
@@ -138,18 +136,18 @@ and storage path.
 The cleared live state must not be re-persisted automatically as a side effect
 of clearing.
 
-Clearing a global mode draft must not clear unrelated editor drafts or unrelated
-workspace items.
+Clearing a draft must not clear unrelated editor drafts or unrelated workspace
+items.
 
-### R12. Existing Discard Semantics Must Remain Available
+### R11. Existing Discard Semantics Must Remain Available
 
 Editor flows must retain the ability to discard local draft state while
 restoring a provided fallback value in memory.
 
-Global mode clearing requirements must not remove or weaken that editor
-discard behavior.
+Global mode clearing requirements must not remove or weaken that editor discard
+behavior.
 
-### R13. Enumeration Must Be Robust To Editor Runtime Values
+### R12. Enumeration Must Be Robust To Editor Runtime Values
 
 Draft enumeration must not fail because a live editor draft contains
 runtime-only values that cannot be serialized into localStorage.
@@ -157,7 +155,7 @@ runtime-only values that cannot be serialized into localStorage.
 Enumeration may omit runtime-only details, but it must preserve the draft data
 needed for global mode to identify, read, list, and clear the draft.
 
-### R14. UserDraft Must Remain Domain-Agnostic
+### R13. UserDraft Must Remain Domain-Agnostic
 
 `UserDraft` must remain independent of global mode workspace item semantics.
 
@@ -167,7 +165,7 @@ resources, variables, deployment behavior, or chat tools.
 Global mode-specific interpretation of item kinds and draft values must remain
 outside `UserDraft`.
 
-### R15. Backend Drafts Must Remain Separate From UserDraft
+### R14. Backend Drafts Must Remain Separate From UserDraft
 
 Backend draft-only scripts, flows, and apps are not frontend `UserDraft`
 entries.
@@ -177,7 +175,7 @@ Global mode must not require `UserDraft` to represent backend DB drafts.
 Global mode must be able to combine backend draft-aware reads with frontend
 `UserDraft` state without treating one storage system as the other.
 
-### R16. Cross-Workspace Isolation Must Be Preserved
+### R15. Cross-Workspace Isolation Must Be Preserved
 
 Draft reads, writes, enumeration, and clearing must remain scoped to the target
 workspace.
@@ -185,7 +183,7 @@ workspace.
 Global mode must not see, modify, deploy, or clear drafts from another
 workspace.
 
-### R17. Item-Kind Boundaries Must Be Preserved
+### R16. Item-Kind Boundaries Must Be Preserved
 
 Draft reads, writes, enumeration, and clearing must remain scoped to the target
 item kind.
@@ -193,18 +191,18 @@ item kind.
 Global mode must not treat a draft of one item kind as a draft of another item
 kind.
 
-### R18. Regression Coverage Is Required
+### R17. Regression Coverage Is Required
 
 The UserDraft-only change must include tests covering:
 
 - preservation of existing editor behavior;
-- distinction between editor-originated and global-mode-originated drafts;
+- global mode writes sharing the same draft state as editor writes;
+- clean editor baselines not being treated as draft work;
 - persisted-only draft enumeration;
-- live-only draft enumeration;
+- live-only draft enumeration when it represents meaningful draft work;
 - combined persisted and live draft enumeration without duplicates;
 - storage path exposure when storage path differs from item path;
-- global-mode-originated writes becoming visible to live handles and
-  localStorage;
+- global mode writes becoming visible to live handles and localStorage;
 - clearing removing both persisted and live state;
 - freshness metadata preservation;
 - cross-workspace isolation;
