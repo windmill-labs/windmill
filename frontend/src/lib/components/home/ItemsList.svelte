@@ -492,7 +492,7 @@
 		}
 
 		const skipSelector =
-			'[role="menu"], [role="menuitem"], [role="dialog"], [role="listbox"], [role="combobox"], [aria-expanded="true"], [data-menu]'
+			'[role="menu"], [role="menuitem"], [role="dialog"], [role="listbox"], [role="combobox"], [aria-expanded="true"], [data-menu], [data-chat-keyboard-scope]'
 		if (target) {
 			const tag = target.tagName
 			const isEditable =

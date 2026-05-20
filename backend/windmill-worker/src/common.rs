@@ -243,6 +243,13 @@ pub fn parse_npm_config(s: &str) -> (String, Option<String>) {
     return (url, token_opt);
 }
 
+// Defense-in-depth bound on worker-side interpolation recursion. `$res:`
+// resolution is delegated to the API (which enforces its own
+// MAX_RESOURCE_INTERPOLATION_DEPTH), so this only bounds nested
+// object/array structure here, but a finite cap guards against pathological
+// inputs regardless of the API-side guard.
+const MAX_INTERPOLATION_DEPTH: u8 = 50;
+
 #[async_recursion]
 pub async fn transform_json_value(
     name: &str,
@@ -253,6 +260,11 @@ pub async fn transform_json_value(
     conn: &Connection,
     depth: u8,
 ) -> error::Result<Value> {
+    if depth >= MAX_INTERPOLATION_DEPTH {
+        return Err(Error::internal_err(format!(
+            "Maximum resource/variable interpolation depth ({MAX_INTERPOLATION_DEPTH}) exceeded for `{name}`; this usually indicates a circular `$res:` or `$var:` reference"
+        )));
+    }
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();

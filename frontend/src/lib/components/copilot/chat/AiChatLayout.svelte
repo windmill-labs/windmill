@@ -15,6 +15,7 @@
 	interface Props {
 		noPadding?: boolean
 		isCollapsed?: boolean
+		isMobile?: boolean
 		children: any
 		onMenuOpen?: () => void
 		disableAi?: boolean
@@ -22,6 +23,7 @@
 	let {
 		noPadding: noBorder = false,
 		isCollapsed = false,
+		isMobile = false,
 		children,
 		onMenuOpen,
 		disableAi
@@ -56,7 +58,7 @@
 				id="content"
 				class={classNames(
 					'w-full flex-1 flex flex-col overflow-y-auto min-h-0',
-					noBorder || $userStore?.operator ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40',
+					noBorder || $userStore?.operator || isMobile ? '!pl-0' : isCollapsed ? 'pl-12' : 'pl-40',
 					'transition-all ease-in-out duration-200'
 				)}
 			>

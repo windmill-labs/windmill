@@ -5,12 +5,14 @@ const ORIGINAL_ENV = {
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+  DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
 };
 
 afterEach(() => {
   process.env.ANTHROPIC_API_KEY = ORIGINAL_ENV.ANTHROPIC_API_KEY;
   process.env.OPENAI_API_KEY = ORIGINAL_ENV.OPENAI_API_KEY;
   process.env.GEMINI_API_KEY = ORIGINAL_ENV.GEMINI_API_KEY;
+  process.env.DEEPSEEK_API_KEY = ORIGINAL_ENV.DEEPSEEK_API_KEY;
 });
 
 describe("getFrontendApiKey", () => {
@@ -19,10 +21,15 @@ describe("getFrontendApiKey", () => {
     expect(getFrontendApiKey("googleai")).toBe("gemini-test-key");
   });
 
+  it("reads the DeepSeek API key for deepseek models", () => {
+    process.env.DEEPSEEK_API_KEY = "deepseek-test-key";
+    expect(getFrontendApiKey("deepseek")).toBe("deepseek-test-key");
+  });
+
   it("throws a provider-specific error when the key is missing", () => {
     delete process.env.GEMINI_API_KEY;
     expect(() => getFrontendApiKey("googleai")).toThrow(
-      "GEMINI_API_KEY is required for frontend evals"
+      "GEMINI_API_KEY is required for frontend evals",
     );
   });
 });

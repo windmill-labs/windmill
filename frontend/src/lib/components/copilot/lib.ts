@@ -31,6 +31,11 @@ import {
 	openAICompletionsUsageToChatTokenUsage,
 	type ChatTokenUsage
 } from './chat/tokenUsage'
+import {
+	buildAssistantTextMessage,
+	buildAssistantToolCallMessage,
+	getReasoningContentDelta
+} from './chat/openaiReasoning'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
@@ -960,6 +965,9 @@ export async function parseOpenAICompletion(
 	let tokenUsage = emptyChatTokenUsage()
 
 	let answer = ''
+	let assistantContent = ''
+	let reasoningContent = ''
+	let hasReasoningContent = false
 	for await (const chunk of completion) {
 		if ('usage' in chunk && chunk.usage) {
 			tokenUsage = openAICompletionsUsageToChatTokenUsage(chunk.usage)
@@ -968,9 +976,11 @@ export async function parseOpenAICompletion(
 			continue
 		}
 		const c = chunk as ChatCompletionChunk
+		const choice = c.choices[0]
+		const delta = choice.delta
 
 		// Check for malformed function call error (e.g. from Gemini models)
-		const finishReason = c.choices[0].finish_reason
+		const finishReason = choice.finish_reason
 		if (
 			finishReason &&
 			typeof finishReason === 'string' &&
@@ -979,12 +989,19 @@ export async function parseOpenAICompletion(
 			malformedFunctionCallError = true
 		}
 
-		const delta = c.choices[0].delta.content
-		if (delta) {
-			answer += delta
-			callbacks.onNewToken(delta)
+		const reasoningDelta = getReasoningContentDelta(delta)
+		if (typeof reasoningDelta === 'string') {
+			hasReasoningContent = true
+			reasoningContent += reasoningDelta
 		}
-		const toolCalls = c.choices[0].delta.tool_calls || []
+
+		const contentDelta = delta.content
+		if (contentDelta) {
+			answer += contentDelta
+			assistantContent += contentDelta
+			callbacks.onNewToken(contentDelta)
+		}
+		const toolCalls = delta.tool_calls || []
 		if (toolCalls.length > 0 && answer) {
 			// if tool calls are present but we have some textual content already, we need to display it to the user first
 			callbacks.onMessageEnd()
@@ -1059,8 +1076,12 @@ export async function parseOpenAICompletion(
 		}
 	}
 
-	if (answer) {
-		const toAdd = { role: 'assistant' as const, content: answer }
+	const toolCalls = Object.values(finalToolCalls).filter(
+		(toolCall) => toolCall.id !== undefined && toolCall.function?.arguments !== undefined
+	) as ChatCompletionMessageFunctionToolCall[]
+
+	if (answer && toolCalls.length === 0) {
+		const toAdd = buildAssistantTextMessage(answer)
 		addedMessages.push(toAdd)
 		messages.push(toAdd)
 	}
@@ -1074,21 +1095,22 @@ export async function parseOpenAICompletion(
 		}
 	}
 
-	const toolCalls = Object.values(finalToolCalls).filter(
-		(toolCall) => toolCall.id !== undefined && toolCall.function?.arguments !== undefined
-	) as ChatCompletionMessageFunctionToolCall[]
-
 	if (toolCalls.length > 0) {
-		const toAdd = {
-			role: 'assistant' as const,
-			tool_calls: toolCalls.map((t) => ({
-				...t,
-				function: {
-					...t.function,
-					arguments: t.function.arguments || '{}'
-				}
-			}))
-		}
+		const normalizedToolCalls = toolCalls.map((t) => ({
+			...t,
+			function: {
+				...t.function,
+				arguments: t.function.arguments || '{}'
+			}
+		}))
+		const toAdd = buildAssistantToolCallMessage({
+			content: assistantContent,
+			reasoning: {
+				hasReasoningContent,
+				reasoningContent
+			},
+			toolCalls: normalizedToolCalls
+		})
 		messages.push(toAdd)
 		addedMessages.push(toAdd)
 		for (const toolCall of toolCalls) {

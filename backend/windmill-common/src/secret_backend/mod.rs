@@ -118,6 +118,13 @@ pub struct VaultSettings {
     pub address: String,
     /// KV v2 mount path (e.g., "windmill")
     pub mount_path: String,
+    /// Optional path prefix inserted between the KV `data`/`metadata` segment
+    /// and the workspace id, e.g. "apps/windmill". When set, secrets live at
+    /// `<mount>/data/<prefix>/<workspace>/<secret>`, so a Vault policy can be
+    /// scoped to exactly `<mount>/data/<prefix>/*`. Surrounding slashes are
+    /// trimmed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kv_secret_path_prefix: Option<String>,
     /// JWT auth role name configured in Vault (used for JWT/OIDC auth)
     /// Optional - if not provided, token auth is used
     #[serde(skip_serializing_if = "Option::is_none")]

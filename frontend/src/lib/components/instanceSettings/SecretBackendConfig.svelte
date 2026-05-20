@@ -69,6 +69,7 @@
 				type: 'HashiCorpVault',
 				address: $values['secret_backend']?.address ?? '',
 				mount_path: $values['secret_backend']?.mount_path ?? 'windmill',
+				kv_secret_path_prefix: $values['secret_backend']?.kv_secret_path_prefix ?? null,
 				jwt_role: $values['secret_backend']?.jwt_role ?? 'windmill-secrets',
 				jwt_mount_path: $values['secret_backend']?.jwt_mount_path ?? null,
 				namespace: $values['secret_backend']?.namespace ?? null,
@@ -122,6 +123,7 @@
 		return {
 			address: $values['secret_backend'].address,
 			mount_path: $values['secret_backend'].mount_path,
+			kv_secret_path_prefix: $values['secret_backend'].kv_secret_path_prefix || undefined,
 			jwt_role: $values['secret_backend'].jwt_role,
 			jwt_mount_path: $values['secret_backend'].jwt_mount_path || undefined,
 			namespace: $values['secret_backend'].namespace || undefined,
@@ -355,6 +357,11 @@
 
 	let baseUrl = $derived($values['base_url'] ?? 'https://your-windmill-instance.com')
 	let jwtMount = $derived(($values['secret_backend']?.jwt_mount_path?.trim() || 'jwt') as string)
+	let kvPrefix = $derived(
+		($values['secret_backend']?.kv_secret_path_prefix?.trim().replace(/^\/+|\/+$/g, '') ||
+			'') as string
+	)
+	let kvPolicyPath = $derived(kvPrefix ? `${kvPrefix}/*` : '*')
 	let vaultAudience = $derived(
 		($values['secret_backend']?.address?.trim() || 'https://vault.example.com:8200') as string
 	)
@@ -372,7 +379,7 @@
 				/>
 				<ToggleButton
 					value="HashiCorpVault"
-					label="HashiCorp Vault (Beta)"
+					label="HashiCorp Vault"
 					tooltip={vaultDisabled
 						? 'Requires Enterprise Edition'
 						: 'Store secrets in HashiCorp Vault'}
@@ -390,7 +397,7 @@
 				/>
 				<ToggleButton
 					value="AwsSecretsManager"
-					label="AWS Secrets Manager (Beta)"
+					label="AWS Secrets Manager"
 					tooltip={vaultDisabled
 						? 'Requires Enterprise Edition'
 						: 'Store secrets in AWS Secrets Manager'}
@@ -422,12 +429,7 @@
 			<div class="flex items-center gap-2 mb-4">
 				<Lock class="text-primary" size={20} />
 				<div>
-					<p class="text-sm font-medium text-emphasis"
-						>HashiCorp Vault Configuration <span
-							class="ml-2 px-1.5 py-0.5 text-2xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 rounded"
-							>Beta</span
-						></p
-					>
+					<p class="text-sm font-medium text-emphasis">HashiCorp Vault Configuration</p>
 					<p class="text-xs text-secondary"
 						>Store secrets in an external HashiCorp Vault instance.</p
 					>
@@ -456,6 +458,27 @@
 					<TextInput
 						inputProps={{ type: 'text', id: 'vault_mount_path', placeholder: 'windmill', disabled }}
 						bind:value={$values['secret_backend'].mount_path}
+					/>
+				</div>
+				<div class="flex flex-col gap-1">
+					<label for="vault_kv_secret_path_prefix" class="block text-xs font-semibold text-emphasis"
+						>KV Secret Path Prefix (optional)</label
+					>
+					<span class="text-2xs text-secondary"
+						>Optional prefix inserted before the workspace id. When set, secrets are stored at
+						<code>&lt;mount&gt;/data/&lt;prefix&gt;/&lt;workspace&gt;/&lt;secret&gt;</code>, so you
+						can keep an existing layout and scope a Vault policy to exactly
+						<code>{$values['secret_backend']?.mount_path ?? 'windmill'}/data/{kvPolicyPath}</code
+						>.</span
+					>
+					<TextInput
+						inputProps={{
+							type: 'text',
+							id: 'vault_kv_secret_path_prefix',
+							placeholder: 'apps/windmill',
+							disabled
+						}}
+						bind:value={$values['secret_backend'].kv_secret_path_prefix}
 					/>
 				</div>
 				<div class="flex flex-col gap-2">
@@ -546,10 +569,10 @@ vault write auth/{jwtMount}/config \
 
 # Create a policy for Windmill secrets
 vault policy write windmill-secrets - &lt;&lt;EOF
-path "{$values['secret_backend']?.mount_path ?? 'windmill'}/data/*" &#123;
+path "{$values['secret_backend']?.mount_path ?? 'windmill'}/data/{kvPolicyPath}" &#123;
   capabilities = ["create", "read", "update", "delete"]
 &#125;
-path "{$values['secret_backend']?.mount_path ?? 'windmill'}/metadata/*" &#123;
+path "{$values['secret_backend']?.mount_path ?? 'windmill'}/metadata/{kvPolicyPath}" &#123;
   capabilities = ["list", "delete"]
 &#125;
 EOF
@@ -766,12 +789,7 @@ vault write auth/{jwtMount}/role/{$values['secret_backend']?.jwt_role || 'windmi
 			<div class="flex items-center gap-2 mb-4">
 				<Cloud class="text-primary" size={20} />
 				<div>
-					<p class="text-sm font-medium text-emphasis"
-						>AWS Secrets Manager Configuration <span
-							class="ml-2 px-1.5 py-0.5 text-2xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 rounded"
-							>Beta</span
-						></p
-					>
+					<p class="text-sm font-medium text-emphasis">AWS Secrets Manager Configuration</p>
 					<p class="text-xs text-secondary">Store secrets in AWS Secrets Manager.</p>
 				</div>
 			</div>
