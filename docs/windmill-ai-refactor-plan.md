@@ -70,13 +70,14 @@ Follow-up status: Anthropic/Vertex proxy handling has since moved into
 `windmill-ai`, and the dead `AIRequestConfig::prepare_request` fallback has
 been removed.
 
-## Current Phase PR: Proxy Execution Mode
+## Current Phase PR: Proxy Execution Mode + Google AI Proxy Migration
 
 Goal: introduce a shared provider execution classifier before moving Google AI
 and Bedrock. `ProxyRequest` is a good contract for HTTP-forwarding providers
 such as OpenAI-compatible providers and Anthropic, but Google AI also converts
 responses back to OpenAI shape and Bedrock uses SDK execution. Model that split
-explicitly before moving those providers.
+explicitly before moving those providers, then move the Google AI proxy
+transformation into `windmill-ai` as the first native-provider migration.
 
 Suggested PR title: `refactor(ai): add provider proxy execution mode`.
 
@@ -85,14 +86,16 @@ Scope:
 - Classify providers as HTTP-forwarding, native Google AI, or native Bedrock.
 - Make `supports_query_builder_proxy` derive from the shared execution mode.
 - Use the shared execution mode in `windmill-api/src/ai.rs` for workspace proxy routing.
-- Keep global proxy behavior, Google AI native handling, Bedrock native handling, credential resolution, audit logging, caching, and SSE keepalive behavior unchanged.
+- Move Google AI workspace proxy request conversion, streaming/non-streaming response conversion, and model-list normalization into `windmill-ai::providers::google_ai`.
+- Delete the API-local `windmill-api/src/google.rs` module.
+- Keep global proxy behavior, Bedrock native handling, credential resolution, audit logging, caching, and SSE keepalive behavior unchanged.
 
 Out of scope:
-- Do not move `windmill-api/src/google.rs`.
 - Do not move `windmill-api/src/bedrock.rs`.
 - Do not unify `AIRequestConfig` and `ProviderWithResource`.
 
 Validation:
+- `cargo test -p windmill-ai google_ai`
 - `cargo test -p windmill-ai proxy`
 - `cargo test -p windmill-api maps_request_config_to_provider_credentials`
 - `cargo test -p windmill-ai anthropic`

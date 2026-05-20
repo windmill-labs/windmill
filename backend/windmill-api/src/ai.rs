@@ -19,7 +19,13 @@ use windmill_ai::ai_cache::current_instance_ai_config_revision;
 use windmill_ai::ai_providers::{
     empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel,
 };
-use windmill_ai::providers::create_proxy_query_builder;
+use windmill_ai::providers::{
+    create_proxy_query_builder,
+    google_ai::{
+        handle_google_ai_chat_proxy, handle_google_ai_models_proxy, GoogleAIProxyResponse,
+        GoogleAIProxyResponseBody,
+    },
+};
 use windmill_ai::proxy::{
     proxy_execution_mode, supports_query_builder_proxy, ProviderCredentials, ProxyBuildArgs,
     ProxyExecutionMode, ProxyRequest,
@@ -520,6 +526,19 @@ fn proxy_request_to_request_builder(proxy_request: ProxyRequest) -> RequestBuild
     request.body(proxy_request.body)
 }
 
+fn google_ai_proxy_response_to_body(
+    response: GoogleAIProxyResponse,
+) -> (http::StatusCode, HeaderMap, axum::body::Body) {
+    let body = match response.body {
+        GoogleAIProxyResponseBody::Fixed(body) => axum::body::Body::from(body),
+        GoogleAIProxyResponseBody::Stream(stream) => axum::body::Body::from_stream(
+            inject_keepalives(stream, Duration::from_secs(KEEPALIVE_INTERVAL_SECS)),
+        ),
+    };
+
+    (response.status_code, response.headers, body)
+}
+
 pub(crate) fn inject_keepalives<S>(
     upstream: S,
     interval: Duration,
@@ -799,10 +818,6 @@ async fn proxy(
 
     // Handle GoogleAI (Gemini) using the native Gemini API
     if matches!(proxy_mode, ProxyExecutionMode::NativeGoogleAi) {
-        let api_key = request_config.api_key.as_deref().unwrap_or("");
-        let base_url = request_config.base_url.trim_end_matches('/');
-        let is_vertex = request_config.platform == AIPlatform::GoogleVertexAi;
-
         let mut tx = db.begin().await?;
         audit_log(
             &mut *tx,
@@ -816,16 +831,25 @@ async fn proxy(
         .await?;
         tx.commit().await?;
 
-        return match ai_path.as_str() {
-            "chat/completions" => {
-                crate::google::handle_google_ai_chat(&body, api_key, base_url, is_vertex).await
-            }
-            "models" => crate::google::handle_google_ai_models(api_key, base_url, is_vertex).await,
+        let credentials = request_config.into_provider_credentials(provider.clone());
+        let proxy_args = ProxyBuildArgs {
+            method: &method,
+            path: &ai_path,
+            headers: &headers,
+            body: &body,
+            credentials: &credentials,
+        };
+
+        let response = match ai_path.as_str() {
+            "chat/completions" => handle_google_ai_chat_proxy(&HTTP_CLIENT, &proxy_args).await,
+            "models" => handle_google_ai_models_proxy(&HTTP_CLIENT, &proxy_args).await,
             _ => Err(Error::BadRequest(format!(
                 "Unsupported Google AI path: {}",
                 ai_path
             ))),
-        };
+        }?;
+
+        return Ok(google_ai_proxy_response_to_body(response));
     }
 
     // Handle Bedrock-specific logic when the feature is enabled
