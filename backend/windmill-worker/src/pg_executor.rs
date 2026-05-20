@@ -598,7 +598,7 @@ fn do_postgresql_inner<'a>(
                             return Err(Error::ExecutionErr(format!(
                                 "Query result too large for cloud (size = {} > {})",
                                 siz,
-                                MAX_RESULT_SIZE & 4,
+                                MAX_RESULT_SIZE * 4,
                             )));
                         }
                     }
@@ -620,7 +620,7 @@ fn do_postgresql_inner<'a>(
                             return Err(Error::ExecutionErr(format!(
                                 "Query result too large for cloud (size = {} > {})",
                                 siz,
-                                MAX_RESULT_SIZE & 4,
+                                MAX_RESULT_SIZE * 4,
                             )));
                         }
                     }
