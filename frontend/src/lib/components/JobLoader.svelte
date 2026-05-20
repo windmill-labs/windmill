@@ -130,6 +130,26 @@
 		}
 	})
 
+	function isSkippedLogsValue(logs: string | undefined): boolean {
+		return logs === WM_LOGS_SKIPPED
+	}
+
+	function getResolvedLogs(logs: string | undefined): string {
+		return isSkippedLogsValue(logs) ? '' : (logs ?? '')
+	}
+
+	function mergeLogs(existingLogs: string | undefined, newLogs: string | undefined): string {
+		const existing = getResolvedLogs(existingLogs)
+		const incoming = newLogs ?? ''
+		return existing.length === 0 ? incoming : existing.concat(incoming)
+	}
+
+	function pickMoreCompleteLogs(primaryLogs: string | undefined, fallbackLogs: string | undefined): string {
+		const primary = getResolvedLogs(primaryLogs)
+		const fallback = getResolvedLogs(fallbackLogs)
+		return primary.length >= fallback.length ? primary : fallback
+	}
+
 	function clearCurrentId() {
 		if (currentId) {
 			if (allowConcurentRequests) {
@@ -252,7 +272,8 @@
 
 	function refreshLogOffset() {
 		if (logOffset == 0) {
-			logOffset = job?.logs?.length ? job.logs?.length + 1 : 0
+			const currentLogs = getResolvedLogs(job?.logs)
+			logOffset = currentLogs.length ? currentLogs.length + 1 : 0
 		}
 	}
 	export async function getLogs() {
@@ -265,7 +286,7 @@
 				logOffset: logOffset
 			})
 
-			if ((job?.logs ?? '').length == 0) {
+			if (getResolvedLogs(job?.logs).length == 0) {
 				job.logs = getUpdate.new_logs ?? ''
 				logOffset = getUpdate.log_offset ?? 0
 			}
@@ -386,11 +407,9 @@
 						if (event.data.completed) {
 							const njob = (event.data as any).job as Job & { result_stream?: string }
 							if (njob) {
-								// Use whichever logs are more complete (longer)
-								const streamedLogs = job?.logs ?? ''
-								const completedLogs = njob.logs ?? ''
-								njob.logs =
-									streamedLogs.length >= completedLogs.length ? streamedLogs : completedLogs
+								// Use whichever logs are more complete (longer), but never
+								// let the WM_LOGS_SKIPPED sentinel win over real logs.
+								njob.logs = pickMoreCompleteLogs(job?.logs, njob.logs)
 								const streamedResult = job?.result_stream ?? ''
 								const completedResult = njob.result_stream ?? ''
 								njob.result_stream =
@@ -452,11 +471,10 @@
 		}
 
 		if (previewJobUpdates.new_logs) {
-			if (logOffset == 0) {
-				job.logs = previewJobUpdates.new_logs ?? ''
-			} else {
-				job.logs = (job?.logs ?? '').concat(previewJobUpdates.new_logs)
-			}
+			job.logs =
+				logOffset == 0
+					? previewJobUpdates.new_logs ?? ''
+					: mergeLogs(job?.logs, previewJobUpdates.new_logs)
 		}
 
 		if (previewJobUpdates.new_result_stream) {
@@ -796,7 +814,7 @@
 									clearCurrentId()
 								} else {
 									const njob = previewJobUpdates.job as Job & { result_stream?: string }
-									njob.logs = job?.logs ?? ''
+									njob.logs = pickMoreCompleteLogs(job?.logs, njob.logs)
 									njob.result_stream = job?.result_stream ?? ''
 									job = njob
 									onJobCompleted(id, job, callbacks)

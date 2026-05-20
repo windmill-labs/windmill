@@ -87,9 +87,9 @@
 	let loadedFromObjectStore = $state('')
 
 	// `content` is the WM_LOGS_SKIPPED sentinel when the job was fetched with
-	// no_logs=true. In that case we resolve the real logs by jobId and render
-	// those instead, showing a loader while the fetch is in flight.
-	let isLogsSkipped = $derived(content === WM_LOGS_SKIPPED)
+	// no_logs=true. If an older in-memory value accidentally has real bytes
+	// concatenated after the sentinel, treat that as skipped too and refetch.
+	let isLogsSkipped = $derived((content ?? '').startsWith(WM_LOGS_SKIPPED))
 	let resolvedSkippedLogs: string | undefined = $state(undefined)
 	let fetchedSkippedJobId: string | undefined = $state(undefined)
 	let effectiveContent = $derived(isLogsSkipped ? resolvedSkippedLogs : content)
