@@ -188,6 +188,7 @@ describe('processToolCall', () => {
 				content: error,
 				error,
 				isLoading: false,
+				isStreamingArguments: false,
 				needsConfirmation: false,
 				showDetails: true
 			})
@@ -207,6 +208,8 @@ describe('processToolCall', () => {
 					def: createToolDef(z.object({}), 'create_schedule', 'Create schedule'),
 					requiresConfirmation: true,
 					confirmationMessage: 'Create schedule',
+					showDetails: true,
+					autoCollapseDetails: false,
 					validateBeforeConfirmation: () => undefined,
 					fn
 				}
@@ -227,6 +230,20 @@ describe('processToolCall', () => {
 
 		expect(requestConfirmation).toHaveBeenCalledWith('call_2')
 		expect(fn).toHaveBeenCalled()
+		expect(setToolStatus).toHaveBeenCalledWith(
+			'call_2',
+			expect.objectContaining({
+				autoCollapseDetails: false,
+				showDetails: true
+			})
+		)
+		expect(setToolStatus).toHaveBeenLastCalledWith(
+			'call_2',
+			expect.objectContaining({
+				isLoading: false,
+				isStreamingArguments: false
+			})
+		)
 		expect(result.content).toBe('ok')
 	})
 

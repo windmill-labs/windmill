@@ -420,7 +420,8 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		},
 		requiresConfirmation: true,
 		confirmationMessage: 'Run flow test',
-		showDetails: true
+		showDetails: true,
+		autoCollapseDetails: false
 	},
 	{
 		// set strict to false to avoid issues with open ai models
@@ -537,7 +538,8 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		},
 		requiresConfirmation: true,
 		confirmationMessage: 'Run flow step test',
-		showDetails: true
+		showDetails: true,
+		autoCollapseDetails: false
 	},
 	{
 		def: inspectInlineScriptToolDef,
