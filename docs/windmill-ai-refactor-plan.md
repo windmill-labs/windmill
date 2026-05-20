@@ -87,6 +87,7 @@ Scope:
 - Make `supports_query_builder_proxy` derive from the shared execution mode.
 - Use the shared execution mode in `windmill-api/src/ai.rs` for workspace proxy routing.
 - Move Google AI workspace proxy request conversion, streaming/non-streaming response conversion, and model-list normalization into `windmill-ai::providers::google_ai`.
+- Share Google AI `GeminiTextRequest` and generation-config construction between worker agent requests and API proxy requests.
 - Delete the API-local `windmill-api/src/google.rs` module.
 - Keep global proxy behavior, Bedrock native handling, credential resolution, audit logging, caching, and SSE keepalive behavior unchanged.
 

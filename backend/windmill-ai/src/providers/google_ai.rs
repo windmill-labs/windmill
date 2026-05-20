@@ -46,22 +46,11 @@ impl GoogleAIQueryBuilder {
     ) -> Result<String, Error> {
         let prepared_messages =
             prepare_messages_for_api(args.messages, client, workspace_id).await?;
-        let (contents, system_instruction) = openai_messages_to_gemini(&prepared_messages);
-
-        let tools = self.convert_tools_to_gemini(args.tools, args.has_websearch);
-
-        let generation_config = self.build_generation_config(args);
-
-        let request = GeminiTextRequest {
-            contents,
-            tools,
-            tool_config: None,
-            system_instruction,
-            generation_config,
-        };
-
-        serde_json::to_string(&request)
-            .map_err(|e| Error::internal_err(format!("Failed to serialize request: {}", e)))
+        build_gemini_text_request_body(
+            &prepared_messages,
+            self.convert_tools_to_gemini(args.tools, args.has_websearch),
+            self.build_generation_config(args),
+        )
     }
 
     async fn build_image_request(
@@ -164,16 +153,54 @@ impl GoogleAIQueryBuilder {
             (None, None)
         };
 
-        if args.temperature.is_some() || args.max_tokens.is_some() || response_mime_type.is_some() {
-            Some(GeminiGenerationConfig {
-                temperature: args.temperature,
-                max_output_tokens: args.max_tokens,
-                response_mime_type,
-                response_schema,
-            })
-        } else {
-            None
-        }
+        build_gemini_generation_config(
+            args.temperature,
+            args.max_tokens,
+            response_mime_type,
+            response_schema,
+        )
+    }
+}
+
+fn build_gemini_text_request_body(
+    messages: &[OpenAIMessage],
+    tools: Option<Vec<GeminiTool>>,
+    generation_config: Option<GeminiGenerationConfig>,
+) -> Result<String, Error> {
+    let request = build_gemini_text_request(messages, tools, generation_config);
+    serde_json::to_string(&request)
+        .map_err(|e| Error::internal_err(format!("Failed to serialize Gemini request: {}", e)))
+}
+
+fn build_gemini_text_request(
+    messages: &[OpenAIMessage],
+    tools: Option<Vec<GeminiTool>>,
+    generation_config: Option<GeminiGenerationConfig>,
+) -> GeminiTextRequest {
+    let (contents, system_instruction) = openai_messages_to_gemini(messages);
+
+    GeminiTextRequest { contents, tools, tool_config: None, system_instruction, generation_config }
+}
+
+fn build_gemini_generation_config(
+    temperature: Option<f32>,
+    max_tokens: Option<u32>,
+    response_mime_type: Option<String>,
+    response_schema: Option<serde_json::Value>,
+) -> Option<GeminiGenerationConfig> {
+    if temperature.is_some()
+        || max_tokens.is_some()
+        || response_mime_type.is_some()
+        || response_schema.is_some()
+    {
+        Some(GeminiGenerationConfig {
+            temperature,
+            max_output_tokens: max_tokens,
+            response_mime_type,
+            response_schema,
+        })
+    } else {
+        None
     }
 }
 
@@ -301,19 +328,6 @@ fn build_google_ai_chat_proxy_request(
     let request: GoogleAIProxyChatRequest = serde_json::from_slice(args.body)
         .map_err(|e| Error::BadRequest(format!("Failed to parse request body: {}", e)))?;
 
-    let (contents, system_instruction) = openai_messages_to_gemini(&request.messages);
-
-    let generation_config = if request.temperature.is_some() || request.max_tokens.is_some() {
-        Some(GeminiGenerationConfig {
-            temperature: request.temperature,
-            max_output_tokens: request.max_tokens,
-            response_mime_type: None,
-            response_schema: None,
-        })
-    } else {
-        None
-    };
-
     let gemini_tools = request.tools.as_ref().map(|tools| {
         let declarations: Vec<GeminiFunctionDeclaration> = tools
             .iter()
@@ -330,16 +344,12 @@ fn build_google_ai_chat_proxy_request(
         vec![GeminiTool { function_declarations: Some(declarations), google_search: None }]
     });
 
-    let gemini_request = GeminiTextRequest {
-        contents,
-        tools: gemini_tools,
-        tool_config: None,
-        system_instruction,
-        generation_config,
-    };
-
-    let body = serde_json::to_vec(&gemini_request)
-        .map_err(|e| Error::internal_err(format!("Failed to serialize Gemini request: {}", e)))?;
+    let body = build_gemini_text_request_body(
+        &request.messages,
+        gemini_tools,
+        build_gemini_generation_config(request.temperature, request.max_tokens, None, None),
+    )?
+    .into_bytes();
 
     let credentials = args.credentials;
     let base_url = credentials.base_url.trim_end_matches('/');
