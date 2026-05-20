@@ -2603,7 +2603,7 @@ async fn upload_s3_file_from_app(
                 "Operators cannot run app S3 previews for security reasons".to_string(),
             ));
         }
-        check_scopes(authed, || format!("apps:write:{}", &path.0))?;
+        check_scopes(authed, || format!("apps:write:{}", path.to_path()))?;
         Some(Policy {
             execution_mode: ExecutionMode::Viewer,
             triggerables: None,
