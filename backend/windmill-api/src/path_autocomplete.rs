@@ -12,11 +12,11 @@ use std::{
 };
 
 use axum::{
-    extract::{Extension, Path},
+    extract::{Extension, Path, Query},
     routing::get,
     Json, Router,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use windmill_common::error::JsonResult;
 
 use crate::db::{ApiAuthed, DB};
@@ -43,16 +43,28 @@ struct ListPathsResponse {
     paths: Arc<Vec<String>>,
 }
 
+#[derive(Deserialize)]
+struct ListPathsQuery {
+    /// When true, bypass the cached entry and re-query the DB, refreshing the
+    /// cache. Used by clients that just mutated the workspace (e.g. a deploy)
+    /// and need the new path reflected immediately.
+    #[serde(default)]
+    force: bool,
+}
+
 async fn list_paths(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
+    Query(ListPathsQuery { force }): Query<ListPathsQuery>,
 ) -> JsonResult<ListPathsResponse> {
-    if let Some((cached, cached_at)) = PATHS_CACHE.get(&w_id) {
-        if cached_at.elapsed() < CACHE_TTL {
-            return Ok(Json(ListPathsResponse { paths: cached }));
+    if !force {
+        if let Some((cached, cached_at)) = PATHS_CACHE.get(&w_id) {
+            if cached_at.elapsed() < CACHE_TTL {
+                return Ok(Json(ListPathsResponse { paths: cached }));
+            }
+            PATHS_CACHE.remove(&w_id);
         }
-        PATHS_CACHE.remove(&w_id);
     }
 
     let mut paths: Vec<String> = sqlx::query_scalar!(

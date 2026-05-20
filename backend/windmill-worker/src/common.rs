@@ -47,7 +47,9 @@ use windmill_common::{variables, DB};
 use tokio::{io::AsyncWriteExt, time::Instant};
 
 use crate::agent_workers::UPDATE_PING_URL;
-use crate::{JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE, MAX_TIMEOUT_DURATION, PATH_ENV};
+use crate::{
+    JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE, MAX_TIMEOUT_DURATION, NSJAIL_TMPFS_SIZE_MB, PATH_ENV,
+};
 use windmill_common::client::AuthedClient;
 
 /// Additional nsjail config for development. Currently used for nix flake.
@@ -1004,6 +1006,21 @@ pub async fn resolve_nsjail_timeout(
 ) -> String {
     let (duration, _, _) = resolve_job_timeout(conn, w_id, job_id, custom_timeout).await;
     (duration.as_secs() + 15).to_string()
+}
+
+/// Default size (in bytes) of the `/tmp` tmpfs mount inside nsjail sandboxes,
+/// used when the `nsjail_tmpfs_size_mb` instance setting is unset.
+pub const DEFAULT_NSJAIL_TMPFS_SIZE_BYTES: u64 = 800_000_000;
+
+/// Resolve the tmpfs `size=` value (in bytes, formatted for the nsjail proto)
+/// for the `/tmp` tmpfs mount. When the `nsjail_tmpfs_size_mb` instance setting
+/// is `None`, `Some(0)`, or negative, falls back to
+/// [`DEFAULT_NSJAIL_TMPFS_SIZE_BYTES`].
+pub async fn resolve_nsjail_tmpfs_size_bytes() -> String {
+    match *NSJAIL_TMPFS_SIZE_MB.read().await {
+        Some(mb) if mb > 0 => ((mb as u64).saturating_mul(1_000_000)).to_string(),
+        _ => DEFAULT_NSJAIL_TMPFS_SIZE_BYTES.to_string(),
+    }
 }
 
 async fn hash_args(

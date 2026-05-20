@@ -43,6 +43,7 @@
 		type Value
 	} from '$lib/utils'
 	import Path from './Path.svelte'
+	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
 	import { Alert, Button, Drawer, SecondsInput, Tab, TabContent, Tabs } from './common'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
@@ -625,6 +626,10 @@
 					labels: script.labels
 				}
 			})
+
+			// New/updated path now exists server-side — drop the autocomplete
+			// cache so it shows up immediately instead of after the 60s TTL.
+			invalidateWorkspacePaths($workspaceStore!)
 
 			if (!initialPath) {
 				await CaptureService.moveCapturesAndConfigs({
