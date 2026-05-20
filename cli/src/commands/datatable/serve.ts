@@ -24,7 +24,6 @@ const DEFAULT_PORT_RANGE_START = 5433;
 const DEFAULT_PORT_RANGE_END = 5500;
 
 export interface ServeOpts extends GlobalOptions {
-  name?: string;
   port?: number;
   host?: string;
 }
@@ -34,18 +33,22 @@ export interface ServeHandle {
   port: number;
   user: string;
   password: string;
-  datatableName: string;
-  connectionString: string;
+  /** Build a `postgresql://…/<dbName>` URL for a given datatable name. */
+  connectionString: (datatableName: string) => string;
   close: () => Promise<void>;
 }
 
 /**
  * Bind the Postgres-wire proxy and return once it's accepting connections.
- * Caller is responsible for calling `handle.close()` when done. Used by both
- * `serve` (block on signal) and `psql` (block on child process exit).
+ * Each client connection picks its target datatable via the standard
+ * Postgres `database` startup parameter (the `…/dbname` segment of the URL),
+ * so the same listener can multiplex any number of datatables — and clients
+ * like pgAdmin list them as separate databases instead of one shared "main".
+ *
+ * Caller owns `handle.close()`. Used by both `serve` (block on signal) and
+ * `psql` (block on child process exit).
  */
 export async function startServe(opts: ServeOpts): Promise<ServeHandle> {
-  const name = opts.name ?? "main";
   const host = opts.host ?? "127.0.0.1";
 
   const workspace = await resolveWorkspace(opts);
@@ -67,7 +70,7 @@ export async function startServe(opts: ServeOpts): Promise<ServeHandle> {
   );
 
   const server = createServer((socket) => {
-    handleConnection(socket, workspace.workspaceId, name, preHashedPassword)
+    handleConnection(socket, workspace.workspaceId, preHashedPassword)
       .catch((err) => {
         log.warn(
           colors.yellow(
@@ -94,8 +97,8 @@ export async function startServe(opts: ServeOpts): Promise<ServeHandle> {
     port,
     user: DEFAULT_USER,
     password,
-    datatableName: name,
-    connectionString: `postgresql://${DEFAULT_USER}:${password}@${host}:${port}/${name}`,
+    connectionString: (datatableName: string) =>
+      `postgresql://${DEFAULT_USER}:${password}@${host}:${port}/${datatableName}`,
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => resolve());
@@ -108,9 +111,30 @@ export async function startServe(opts: ServeOpts): Promise<ServeHandle> {
 export async function serve(opts: ServeOpts): Promise<void> {
   const handle = await startServe(opts);
 
-  log.info(colors.gray(`Serving datatable '${handle.datatableName}' via Postgres wire protocol`));
+  // List available datatables so the user sees what they can `\c` into.
+  const workspace = await resolveWorkspace(opts);
+  let datatableNames: string[] = [];
+  try {
+    const items = await wmill.listDataTables({
+      workspace: workspace.workspaceId,
+    });
+    datatableNames = items.map((x) => x.name);
+  } catch {
+    // Listing is best-effort — the proxy still serves whatever the client asks for.
+  }
+
+  log.info(colors.gray(`Serving datatables on ${handle.host}:${handle.port} via Postgres wire protocol`));
   log.info("");
-  log.info(`  ${colors.bold("psql")} '${handle.connectionString}'`);
+  if (datatableNames.length > 0) {
+    log.info(colors.gray("Available datatables:"));
+    for (const name of datatableNames) {
+      log.info(`  ${colors.bold("psql")} '${handle.connectionString(name)}'`);
+    }
+  } else {
+    log.info(
+      `  ${colors.bold("psql")} '${handle.connectionString("<datatable_name>")}'`,
+    );
+  }
   log.info("");
   log.info(colors.gray("Press Ctrl+C to stop."));
 
@@ -129,7 +153,6 @@ export async function serve(opts: ServeOpts): Promise<void> {
 async function handleConnection(
   socket: Socket,
   workspaceId: string,
-  datatableName: string,
   preHashedPassword: string,
 ): Promise<void> {
   await fromNodeSocket(socket, {
@@ -154,6 +177,12 @@ async function handleConnection(
       if (code === FE_TERMINATE) {
         return undefined; // let pg-gateway close the connection
       }
+      // Standard Postgres startup includes a `database` parameter — that's the
+      // path segment in the URL (`postgresql://…/<dbname>`). pg-gateway exposes
+      // it under clientParams; we use it to route the query to the matching
+      // datatable. Falling back to the user name matches libpq's own default.
+      const datatableName =
+        state.clientParams?.database ?? state.clientParams?.user ?? "main";
       if (code === FE_QUERY) {
         const query = readSimpleQuery(data);
         try {

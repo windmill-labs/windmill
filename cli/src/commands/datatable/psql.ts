@@ -4,16 +4,24 @@ import { spawn } from "node:child_process";
 import * as log from "../../core/log.ts";
 import { startServe, type ServeOpts } from "./serve.ts";
 
-export async function psql(opts: ServeOpts): Promise<void> {
+export interface PsqlOpts extends ServeOpts {
+  name?: string;
+}
+
+const DEFAULT_DATATABLE_NAME = "main";
+
+export async function psql(opts: PsqlOpts): Promise<void> {
+  const datatableName = opts.name ?? DEFAULT_DATATABLE_NAME;
   const handle = await startServe(opts);
+  const connectionString = handle.connectionString(datatableName);
 
   log.info(
     colors.gray(
-      `Launching psql against datatable '${handle.datatableName}' (proxy on ${handle.host}:${handle.port})`,
+      `Launching psql against datatable '${datatableName}' (proxy on ${handle.host}:${handle.port})`,
     ),
   );
 
-  const child = spawn("psql", [handle.connectionString], {
+  const child = spawn("psql", [connectionString], {
     stdio: "inherit",
   });
 

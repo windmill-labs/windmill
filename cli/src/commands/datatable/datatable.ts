@@ -42,7 +42,7 @@ async function run(
 }
 
 async function serve(
-  opts: GlobalOptions & { name?: string; port?: number; host?: string },
+  opts: GlobalOptions & { port?: number; host?: string },
 ) {
   await serveDatatable(opts);
 }
@@ -55,15 +55,15 @@ async function psql(
 
 const command = new Command()
   .description("datatable related commands")
-  .globalOption(
-    "-n --name <name:string>",
-    "Datatable name (default: main)",
-  )
   .command("list", "list all datatables in the workspace")
   .option("--json", "Output as JSON (for piping to jq)")
   .action(list as any)
   .command("run", "run a SQL query on a datatable")
   .arguments("<sql:string>")
+  .option(
+    "-n --name <name:string>",
+    "Datatable name (default: main)",
+  )
   .option(
     "-s --silent",
     "Output only the final result as JSON. Useful for scripting.",
@@ -71,7 +71,7 @@ const command = new Command()
   .action(run as any)
   .command(
     "serve",
-    "Serve a datatable as a Postgres-wire endpoint (psql, DBeaver, …)",
+    "Serve all datatables as a Postgres-wire endpoint (psql, DBeaver, pgAdmin); the client picks the datatable via the database name in its connection string",
   )
   .option(
     "--port <port:number>",
@@ -85,6 +85,10 @@ const command = new Command()
   .command(
     "psql",
     "Start a serve listener and launch psql connected to it",
+  )
+  .option(
+    "-n --name <name:string>",
+    "Datatable to connect psql to (default: main)",
   )
   .option(
     "--port <port:number>",
