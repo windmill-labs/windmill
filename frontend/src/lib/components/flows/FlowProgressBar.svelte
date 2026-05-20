@@ -58,6 +58,22 @@
 		let newCurrentStepId: string | undefined = undefined
 		let newIsWaitingForEvents = false
 
+		// Error handler (failure_module) was triggered: backend sets step >= modules.length
+		// and runs the failure_module. Clamp progress to the failed module so the bar shows
+		// the error indicator at the correct position instead of overflowing past 100%.
+		if (
+			maxDone >= modules.length &&
+			job?.flow_status?.failure_module?.type !== 'WaitingForPriorSteps'
+		) {
+			const failedIdx = modules.findIndex((m) => m?.type === 'Failure')
+			if (failedIdx >= 0) {
+				newError = failedIdx
+				maxDone = failedIdx + 1
+			} else {
+				maxDone = modules.length
+			}
+		}
+
 		if (modules.length > maxDone) {
 			const nextModule = modules[maxDone]
 			if (nextModule.type === 'InProgress') {
@@ -110,12 +126,25 @@
 		subLength = subStepLength ? Math.max(subStepLength, 1) : undefined
 		subIndex = subStepIndex
 		length = Math.max(modules.length, 1)
-		index = maxDone
+		const newIsSkipped = 'is_skipped' in job && Boolean(job.is_skipped)
+		// Early-stop completion: stop_after_if (without 'label as skipped') ends the flow
+		// with step < modules.length. Without this, the bar stays at < 100% with 'Running'.
+		if (
+			'success' in job &&
+			job.success === true &&
+			!newIsSkipped &&
+			newError === undefined &&
+			maxDone < modules.length
+		) {
+			index = modules.length
+		} else {
+			index = maxDone
+		}
 		nextInProgress = newNextInProgress
 		currentStepId = newCurrentStepId
 		isWaitingForEvents = newIsWaitingForEvents
 		isCanceled = job?.canceled || false
-		isSkipped = 'is_skipped' in job && Boolean(job.is_skipped)
+		isSkipped = newIsSkipped
 	}
 
 	export function reset() {
