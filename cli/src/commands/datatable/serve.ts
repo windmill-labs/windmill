@@ -18,6 +18,10 @@ import {
   concat,
   type RawOutputEnvelope,
 } from "./pg_wire.ts";
+import {
+  queryTouchesVirtualDatabaseCatalog,
+  virtualizeDatabaseCatalogQuery,
+} from "./virtual_catalog.ts";
 
 const DEFAULT_USER = "wmill";
 const DEFAULT_PORT_RANGE_START = 5433;
@@ -26,6 +30,7 @@ const DEFAULT_PORT_RANGE_END = 5500;
 export interface ServeOpts extends GlobalOptions {
   port?: number;
   host?: string;
+  password?: string;
 }
 
 export interface ServeHandle {
@@ -63,7 +68,7 @@ export async function startServe(opts: ServeOpts): Promise<ServeHandle> {
       ),
     }));
 
-  const password = randomBytes(12).toString("hex");
+  const password = opts.password ?? randomBytes(12).toString("hex");
   const preHashedPassword = await createPreHashedPassword(
     DEFAULT_USER,
     password,
@@ -98,7 +103,7 @@ export async function startServe(opts: ServeOpts): Promise<ServeHandle> {
     user: DEFAULT_USER,
     password,
     connectionString: (datatableName: string) =>
-      `postgresql://${DEFAULT_USER}:${password}@${host}:${port}/${datatableName}`,
+      `postgresql://${DEFAULT_USER}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(datatableName)}`,
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => resolve());
@@ -241,7 +246,11 @@ async function runQuery(
   // The annotation parser stops at the first non-blank line that isn't a
   // `--` comment, so prepending guarantees it's honored even if the client
   // sent leading comments of its own.
-  const content = `-- raw_output\n${query}`;
+  const content = `-- raw_output\n${await prepareQueryForDatatableProxy(
+    workspaceId,
+    datatableName,
+    query,
+  )}`;
 
   const jobId = await wmill.runScriptPreview({
     workspace: workspaceId,
@@ -267,6 +276,32 @@ async function runQuery(
 
   const envelope = coerceEnvelope(result);
   return buildQueryResponse(envelope);
+}
+
+async function prepareQueryForDatatableProxy(
+  workspaceId: string,
+  datatableName: string,
+  query: string,
+): Promise<string> {
+  if (!queryTouchesVirtualDatabaseCatalog(query)) {
+    return query;
+  }
+
+  let databaseNames = [datatableName];
+  if (query.toLowerCase().includes("pg_database")) {
+    try {
+      const items = await wmill.listDataTables({
+        workspace: workspaceId,
+      });
+      databaseNames = Array.from(
+        new Set([datatableName, ...items.map((item) => item.name)]),
+      ).sort();
+    } catch {
+      // Fall back to the current datatable so catalog queries still stay virtual.
+    }
+  }
+
+  return virtualizeDatabaseCatalogQuery(query, datatableName, databaseNames);
 }
 
 function extractErrorMessage(result: unknown): string {

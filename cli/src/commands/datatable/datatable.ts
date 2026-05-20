@@ -42,13 +42,13 @@ async function run(
 }
 
 async function serve(
-  opts: GlobalOptions & { port?: number; host?: string },
+  opts: GlobalOptions & { port?: number; host?: string; password?: string },
 ) {
   await serveDatatable(opts);
 }
 
 async function psql(
-  opts: GlobalOptions & { name?: string; port?: number; host?: string },
+  opts: GlobalOptions & { name?: string; port?: number; host?: string; password?: string },
 ) {
   await psqlDatatable(opts);
 }
@@ -81,6 +81,10 @@ const command = new Command()
     "--host <host:string>",
     "Bind address (default: 127.0.0.1)",
   )
+  .option(
+    "--password <password:string>",
+    "Password for Postgres clients (default: generate a random password at startup)",
+  )
   .action(serve as any)
   .command(
     "psql",
@@ -97,6 +101,10 @@ const command = new Command()
   .option(
     "--host <host:string>",
     "Bind address for the proxy (default: 127.0.0.1)",
+  )
+  .option(
+    "--password <password:string>",
+    "Password for the temporary Postgres proxy (default: generate a random password at startup)",
   )
   .action(psql as any);
 
