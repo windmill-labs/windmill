@@ -21,7 +21,8 @@ use windmill_ai::ai_providers::{
 };
 use windmill_ai::providers::create_proxy_query_builder;
 use windmill_ai::proxy::{
-    supports_query_builder_proxy, ProviderCredentials, ProxyBuildArgs, ProxyRequest,
+    proxy_execution_mode, supports_query_builder_proxy, ProviderCredentials, ProxyBuildArgs,
+    ProxyExecutionMode, ProxyRequest,
 };
 use windmill_ai::utils::AI_HTTP_HEADERS;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
@@ -368,82 +369,6 @@ impl AIRequestConfig {
         Ok(response.access_token)
     }
 
-    pub fn prepare_request(
-        self,
-        provider: &AIProvider,
-        path: &str,
-        method: Method,
-        _headers: HeaderMap,
-        body: Bytes,
-    ) -> Result<RequestBuilder> {
-        let credentials = self.into_provider_credentials(provider.clone());
-
-        let body = if let Some(user) = credentials.user.as_ref() {
-            Self::add_user_to_body(body, user.clone())?
-        } else {
-            body
-        };
-
-        let base_url = credentials.base_url.trim_end_matches('/');
-
-        let is_azure = credentials.provider.is_azure_openai(base_url);
-        let is_google_ai = credentials.provider == AIProvider::GoogleAI;
-
-        let base_url = base_url.to_string();
-        let base_url = base_url.as_str();
-
-        // Build URL based on provider
-        let url = if is_azure {
-            let azure_url = AIProvider::build_azure_openai_url(base_url, path);
-            azure_url
-        } else {
-            let default_url = format!("{}/{}", base_url, path);
-            default_url
-        };
-
-        tracing::debug!("AI request URL: {}", url);
-
-        let mut request = HTTP_CLIENT
-            .request(method.clone(), &url)
-            .header("content-type", "application/json");
-
-        // Add authentication headers
-        if let Some(api_key) = credentials.api_key {
-            if is_azure {
-                request = request.header("api-key", api_key.clone())
-            } else if is_google_ai {
-                // Note: GoogleAI requests are intercepted earlier (see the GoogleAI
-                // handler block above) and never reach this code path. This branch
-                // is kept as a safety net for the standard Gemini API auth format.
-                request = request.header("x-goog-api-key", api_key.clone())
-            } else {
-                request = request.header("authorization", format!("Bearer {}", api_key.clone()))
-            }
-        }
-
-        if let Some(access_token) = credentials.access_token {
-            request = request.header("authorization", format!("Bearer {}", access_token))
-        }
-
-        request = request.body(body);
-
-        if let Some(org_id) = credentials.organization_id {
-            request = request.header("OpenAI-Organization", org_id);
-        }
-
-        // Apply custom headers from AI_HTTP_HEADERS environment variable
-        for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
-            request = request.header(header_name.as_str(), header_value.as_str());
-        }
-
-        // Apply custom headers from the resource
-        for (header_name, header_value) in &credentials.custom_headers {
-            request = request.header(header_name.as_str(), header_value.as_str());
-        }
-
-        Ok(request)
-    }
-
     fn into_provider_credentials(self, provider: AIProvider) -> ProviderCredentials {
         ProviderCredentials {
             provider,
@@ -460,24 +385,6 @@ impl AIRequestConfig {
             enable_1m_context: self.enable_1m_context,
             custom_headers: self.custom_headers,
         }
-    }
-
-    fn add_user_to_body(body: Bytes, user: String) -> Result<Bytes> {
-        tracing::debug!("Adding user to request body");
-        let mut json_body: HashMap<String, Box<RawValue>> = serde_json::from_slice(&body)
-            .map_err(|e| Error::internal_err(format!("Failed to parse request body: {}", e)))?;
-
-        let user_json_string = serde_json::Value::String(user).to_string(); // makes sure to escape characters
-
-        json_body.insert(
-            "user".to_string(),
-            RawValue::from_string(user_json_string)
-                .map_err(|e| Error::internal_err(format!("Failed to parse user: {}", e)))?,
-        );
-
-        Ok(serde_json::to_vec(&json_body)
-            .map_err(|e| Error::internal_err(format!("Failed to reserialize request body: {}", e)))?
-            .into())
     }
 }
 
@@ -888,8 +795,10 @@ async fn proxy(
         ai_path = chat_path;
     }
 
+    let proxy_mode = proxy_execution_mode(&provider);
+
     // Handle GoogleAI (Gemini) using the native Gemini API
-    if matches!(provider, AIProvider::GoogleAI) {
+    if matches!(proxy_mode, ProxyExecutionMode::NativeGoogleAi) {
         let api_key = request_config.api_key.as_deref().unwrap_or("");
         let base_url = request_config.base_url.trim_end_matches('/');
         let is_vertex = request_config.platform == AIPlatform::GoogleVertexAi;
@@ -923,7 +832,7 @@ async fn proxy(
     #[cfg(feature = "bedrock")]
     {
         // Extract model and streaming flag for Bedrock transformation (only for POST requests)
-        let (model, is_streaming) = if matches!(provider, AIProvider::AWSBedrock)
+        let (model, is_streaming) = if matches!(proxy_mode, ProxyExecutionMode::NativeAwsBedrock)
             && method == Method::POST
         {
             #[derive(Deserialize, Debug)]
@@ -940,7 +849,7 @@ async fn proxy(
         };
 
         // For Bedrock requests, use the SDK-based approach
-        if matches!(provider, AIProvider::AWSBedrock) {
+        if matches!(proxy_mode, ProxyExecutionMode::NativeAwsBedrock) {
             let region = request_config
                 .region
                 .as_deref()
@@ -1014,25 +923,35 @@ async fn proxy(
 
     // When bedrock feature is disabled, return error for Bedrock provider
     #[cfg(not(feature = "bedrock"))]
-    if matches!(provider, AIProvider::AWSBedrock) {
+    if matches!(proxy_mode, ProxyExecutionMode::NativeAwsBedrock) {
         return Err(Error::BadRequest(
             "AWS Bedrock support is not enabled. Build with 'bedrock' feature.".to_string(),
         ));
     }
 
-    let request = if supports_query_builder_proxy(&provider) {
-        let credentials = request_config.into_provider_credentials(provider.clone());
-        let query_builder = create_proxy_query_builder(&credentials);
-        let proxy_request = query_builder.build_proxy_request(&ProxyBuildArgs {
-            method: &method,
-            path: &ai_path,
-            headers: &headers,
-            body: &body,
-            credentials: &credentials,
-        })?;
-        proxy_request_to_request_builder(proxy_request)
-    } else {
-        request_config.prepare_request(&provider, &ai_path, method, headers, body)?
+    let request = match proxy_mode {
+        ProxyExecutionMode::HttpForward => {
+            let credentials = request_config.into_provider_credentials(provider.clone());
+            let query_builder = create_proxy_query_builder(&credentials);
+            let proxy_request = query_builder.build_proxy_request(&ProxyBuildArgs {
+                method: &method,
+                path: &ai_path,
+                headers: &headers,
+                body: &body,
+                credentials: &credentials,
+            })?;
+            proxy_request_to_request_builder(proxy_request)
+        }
+        ProxyExecutionMode::NativeGoogleAi => {
+            return Err(Error::internal_err(
+                "Google AI proxy route was not handled".to_string(),
+            ))
+        }
+        ProxyExecutionMode::NativeAwsBedrock => {
+            return Err(Error::BadRequest(
+                "Unsupported AWS Bedrock proxy request".to_string(),
+            ))
+        }
     };
 
     let response = request.send().await.map_err(to_anyhow)?;
