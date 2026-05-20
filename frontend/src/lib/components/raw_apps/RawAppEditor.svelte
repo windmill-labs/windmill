@@ -1330,47 +1330,56 @@
 			</Pane>
 		{/if}
 		<Pane>
-			<!--
-				VS Code-style split: each pane is a self-contained "editor
-				group" with its own tab bar at the top. Splitpanes is the
-				topmost element here so the divider runs floor-to-ceiling.
-				Both iframes + RawAppInlineScriptsPanel stay mounted always;
-				`display` toggles + pane sizes do the swapping.
-			-->
-			<div
-				class="h-full w-full {splitWithPreview && activeTabKind !== 'preview'
-					? 'tabs-content-split'
-					: 'tabs-content-single'}"
-			>
-				<Splitpanes>
-					<Pane bind:size={paneALeftSize} minSize={0}>
-						<div class="flex flex-col h-full w-full min-h-0">
-							<DraggableTabs
-								tabs={displayedTabs}
-								activeId={activeTabId}
-								onSelect={(id) => activateTab(id)}
-								onClose={(id) => closeTab(id)}
-								onReorder={(next) => reorderTabs(next)}
+			<div class="flex flex-col h-full w-full min-h-0">
+				<!--
+					Main tab bar — always visible above the Splitpanes, full
+					width. The user can switch tabs (including back from
+					Preview to a file) without losing visibility on the rest
+					of the tab list.
+				-->
+				<DraggableTabs
+					tabs={displayedTabs}
+					activeId={activeTabId}
+					onSelect={(id) => activateTab(id)}
+					onClose={(id) => closeTab(id)}
+					onReorder={(next) => reorderTabs(next)}
+				>
+					{#snippet trailing()}
+						<div class="flex items-center gap-1 px-2">
+							<button
+								title={splitWithPreview
+									? 'Move preview back into a tab'
+									: 'Pin preview to the right'}
+								aria-label="Toggle split with preview"
+								aria-pressed={splitWithPreview}
+								class={splitWithPreview
+									? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
+									: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
+								onclick={toggleSplit}
 							>
-								{#snippet trailing()}
-									<div class="flex items-center gap-1 px-2">
-										<button
-											title={splitWithPreview
-												? 'Move preview back into a tab'
-												: 'Pin preview to the right'}
-											aria-label="Toggle split with preview"
-											aria-pressed={splitWithPreview}
-											class={splitWithPreview
-												? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
-												: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
-											onclick={toggleSplit}
-										>
-											<Columns2 size={14} />
-										</button>
-									</div>
-								{/snippet}
-							</DraggableTabs>
-							<div class="flex-1 min-h-0 w-full relative">
+								<Columns2 size={14} />
+							</button>
+						</div>
+					{/snippet}
+				</DraggableTabs>
+				<!--
+					Content area: Splitpanes below the main tab bar. Both
+					iframes + RawAppInlineScriptsPanel stay mounted always;
+					`display` + pane sizes do the swapping. The right pane
+					carries its own Preview pseudo-header with the
+					preview-affecting toolbar (bundler / inspector /
+					rebuild). The header is rendered whenever the right
+					pane is visible — width 0 hides it implicitly.
+				-->
+				<div
+					class="flex-1 min-h-0 w-full {splitWithPreview &&
+					activeTabKind !== 'preview'
+						? 'tabs-content-split'
+						: 'tabs-content-single'}"
+				>
+					<Splitpanes>
+						<Pane bind:size={paneALeftSize} minSize={0}>
+							<div class="relative h-full w-full">
 								<div
 									class="absolute inset-0"
 									style="display: {showSource ? 'block' : 'none'}"
@@ -1415,92 +1424,84 @@
 									</div>
 								</div>
 							</div>
-						</div>
-					</Pane>
-					<Pane bind:size={paneBRightSize} minSize={0}>
-						<div class="flex flex-col h-full w-full min-h-0">
-							<!--
-								Preview header — the right pane's own "tab bar".
-								Always rendered when the right pane is visible
-								(width 0 hides it without conditionals). Carries
-								the active-tab-styled "Preview" label on the
-								left and the preview-affecting action buttons
-								(bundler, inspector, rebuild) on the right.
-							-->
-							<div
-								class="flex items-stretch bg-surface-secondary flex-shrink-0 h-8"
-							>
+						</Pane>
+						<Pane bind:size={paneBRightSize} minSize={0}>
+							<div class="flex flex-col h-full w-full min-h-0">
 								<div
-									class="inline-flex items-center gap-1.5 px-3 h-8 text-xs bg-surface text-primary"
+									class="flex items-stretch bg-surface-secondary flex-shrink-0 h-8"
 								>
-									<span>Preview</span>
-								</div>
-								<div class="ml-auto flex items-center gap-1 px-2">
-									<button
-										class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary px-2 h-7 rounded-md text-xs"
-										title="Switch bundler"
-										onclick={() => {
-											const next =
-												bundlerType === 'esbuild' ? 'rolldown' : 'esbuild'
-											bundlerType = next
-											iframe?.contentWindow?.postMessage(
-												{ type: 'setBundlerType', bundlerType: next },
-												'*'
-											)
-										}}>{bundlerType}</button
+									<div
+										class="inline-flex items-center gap-1.5 px-3 h-8 text-xs bg-surface text-primary"
 									>
-									<button
-										title={inspectorEnabled
-											? 'Click to disable element inspector'
-											: 'Click to enable element inspector'}
-										class={inspectorEnabled
-											? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
-											: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
-										aria-label="Toggle element inspector"
-										onclick={() => {
-											inspectorEnabled = !inspectorEnabled
-											previewIframe?.contentWindow?.postMessage(
-												{
-													type: inspectorEnabled
-														? 'inspectorEnable'
-														: 'inspectorDisable'
-												},
-												'*'
-											)
-										}}
-									>
-										<MousePointerSquareDashed size={14} />
-									</button>
-									<button
-										class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center"
-										title="Replay the last build into the preview"
-										aria-label="Rebuild"
-										onclick={() => {
-											if (lastBuild) {
+										<span>Preview</span>
+									</div>
+									<div class="ml-auto flex items-center gap-1 px-2">
+										<button
+											class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary px-2 h-7 rounded-md text-xs"
+											title="Switch bundler"
+											onclick={() => {
+												const next =
+													bundlerType === 'esbuild' ? 'rolldown' : 'esbuild'
+												bundlerType = next
+												iframe?.contentWindow?.postMessage(
+													{ type: 'setBundlerType', bundlerType: next },
+													'*'
+												)
+											}}>{bundlerType}</button
+										>
+										<button
+											title={inspectorEnabled
+												? 'Click to disable element inspector'
+												: 'Click to enable element inspector'}
+											class={inspectorEnabled
+												? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
+												: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
+											aria-label="Toggle element inspector"
+											onclick={() => {
+												inspectorEnabled = !inspectorEnabled
 												previewIframe?.contentWindow?.postMessage(
 													{
-														type: 'preview',
-														css: lastBuild.css,
-														js: lastBuild.js
+														type: inspectorEnabled
+															? 'inspectorEnable'
+															: 'inspectorDisable'
 													},
 													'*'
 												)
-											}
-										}}
-									>
-										<RefreshCw size={14} />
-									</button>
+											}}
+										>
+											<MousePointerSquareDashed size={14} />
+										</button>
+										<button
+											class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center"
+											title="Replay the last build into the preview"
+											aria-label="Rebuild"
+											onclick={() => {
+												if (lastBuild) {
+													previewIframe?.contentWindow?.postMessage(
+														{
+															type: 'preview',
+															css: lastBuild.css,
+															js: lastBuild.js
+														},
+														'*'
+													)
+												}
+											}}
+										>
+											<RefreshCw size={14} />
+										</button>
+									</div>
 								</div>
+								<iframe
+									bind:this={previewIframe}
+									title="App preview"
+									src="/ui_builder/app-preview.html"
+									class="w-full flex-1 block"
+								></iframe>
 							</div>
-							<iframe
-								bind:this={previewIframe}
-								title="App preview"
-								src="/ui_builder/app-preview.html"
-								class="w-full flex-1 block"
-							></iframe>
-						</div>
-					</Pane>
-				</Splitpanes>
+						</Pane>
+					</Splitpanes>
+				</div>
 			</div>
 		</Pane>
 	</Splitpanes>
