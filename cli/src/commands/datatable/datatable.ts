@@ -41,15 +41,15 @@ async function run(
 
 const command = new Command()
   .description("datatable related commands")
+  .globalOption(
+    "-n --name <name:string>",
+    "Datatable name (default: main)",
+  )
   .command("list", "list all datatables in the workspace")
   .option("--json", "Output as JSON (for piping to jq)")
   .action(list as any)
   .command("run", "run a SQL query on a datatable")
   .arguments("<sql:string>")
-  .option(
-    "-n --name <name:string>",
-    "Datatable name (default: main)",
-  )
   .option(
     "-s --silent",
     "Output only the final result as JSON. Useful for scripting.",

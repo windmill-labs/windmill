@@ -1,4 +1,5 @@
 import { colors } from "@cliffy/ansi/colors";
+import { Table } from "@cliffy/table";
 
 import * as wmill from "../../../gen/services.gen.ts";
 import { Preview } from "../../../gen/types.gen.ts";
@@ -88,6 +89,53 @@ export async function runCatalogQuery(
   if (opts.silent) {
     console.log(JSON.stringify(result));
   } else {
-    log.info(JSON.stringify(result, null, 2));
+    renderQueryResult(result);
   }
+}
+
+/**
+ * Render a SQL query result. Postgres script previews return rows as an array
+ * of `{column: value}` objects — display those as a table. Anything else
+ * (DDL output, empty results, scalar payloads) falls back to pretty JSON.
+ */
+function renderQueryResult(result: unknown): void {
+  if (Array.isArray(result) && result.length > 0 && result.every(isRecord)) {
+    const rows = result as Record<string, unknown>[];
+    const columns = collectColumns(rows);
+    new Table()
+      .header(columns)
+      .padding(2)
+      .border(true)
+      .body(rows.map((row) => columns.map((c) => formatCell(row[c]))))
+      .render();
+    return;
+  }
+  log.info(JSON.stringify(result, null, 2));
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+function collectColumns(rows: Record<string, unknown>[]): string[] {
+  const seen = new Set<string>();
+  const columns: string[] = [];
+  for (const row of rows) {
+    for (const key of Object.keys(row)) {
+      if (!seen.has(key)) {
+        seen.add(key);
+        columns.push(key);
+      }
+    }
+  }
+  return columns;
+}
+
+function formatCell(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return JSON.stringify(value);
 }

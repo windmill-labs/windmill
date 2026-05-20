@@ -283,11 +283,12 @@ def extract_py_classes(content: str) -> list[dict]:
 # =============================================================================
 
 
-# Reusable option pattern for CLI parsing
+# Reusable option pattern for CLI parsing. Matches both `.option(...)` and
+# `.globalOption(...)` so subcommand-level global options surface in the docs.
 OPTION_PATTERN = re.compile(
-    r'\.option\(\s*"([^"]+)"\s*,\s*"([^"]+)"'  # double-quoted
+    r'\.(?:option|globalOption)\(\s*"([^"]+)"\s*,\s*"([^"]+)"'  # double-quoted
     r'|'
-    r"\.option\(\s*'([^']+)'\s*,\s*'([^']+)'",  # single-quoted
+    r"\.(?:option|globalOption)\(\s*'([^']+)'\s*,\s*'([^']+)'",  # single-quoted
     re.MULTILINE | re.DOTALL
 )
 

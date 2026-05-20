@@ -2601,12 +2601,14 @@ Show all available wmill.yaml configuration options
 
 datatable related commands
 
+**Options:**
+- \`-n --name <name:string>\` - Datatable name (default: main)
+
 **Subcommands:**
 
 - \`datatable list\` - list all datatables in the workspace
   - \`--json\` - Output as JSON (for piping to jq)
 - \`datatable run <sql:string>\` - run a SQL query on a datatable
-  - \`-n --name <name:string>\` - Datatable name (default: main)
   - \`-s --silent\` - Output only the final result as JSON. Useful for scripting.
 
 ### dependencies
