@@ -79,6 +79,9 @@ datatable related commands
   - `--json` - Output as JSON (for piping to jq)
 - `datatable run <sql:string>` - run a SQL query on a datatable
   - `-s --silent` - Output only the final result as JSON. Useful for scripting.
+- `datatable serve` - Serve a datatable as a Postgres-wire endpoint (psql, DBeaver, …
+  - `--port <port:number>` - Port to listen on (default: first free port in 5433-5500)
+  - `--host <host:string>` - Bind address (default: 127.0.0.1)
 
 ### dependencies
 

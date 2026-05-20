@@ -7,6 +7,7 @@ import { resolveWorkspace } from "../../core/context.ts";
 import * as log from "../../core/log.ts";
 import { GlobalOptions } from "../../types.ts";
 import { runCatalogQuery } from "./catalog.ts";
+import { serve as serveDatatable } from "./serve.ts";
 
 const DEFAULT_DATATABLE_NAME = "main";
 
@@ -39,6 +40,12 @@ async function run(
   await runCatalogQuery(opts, "datatable", name, sql);
 }
 
+async function serve(
+  opts: GlobalOptions & { name?: string; port?: number; host?: string },
+) {
+  await serveDatatable(opts);
+}
+
 const command = new Command()
   .description("datatable related commands")
   .globalOption(
@@ -54,6 +61,19 @@ const command = new Command()
     "-s --silent",
     "Output only the final result as JSON. Useful for scripting.",
   )
-  .action(run as any);
+  .action(run as any)
+  .command(
+    "serve",
+    "Serve a datatable as a Postgres-wire endpoint (psql, DBeaver, …)",
+  )
+  .option(
+    "--port <port:number>",
+    "Port to listen on (default: first free port in 5433-5500)",
+  )
+  .option(
+    "--host <host:string>",
+    "Bind address (default: 127.0.0.1)",
+  )
+  .action(serve as any);
 
 export default command;
