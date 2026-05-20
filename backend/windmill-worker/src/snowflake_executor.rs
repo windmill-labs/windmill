@@ -630,7 +630,12 @@ pub async fn do_snowflake(
         )
         .to_uppercase();
 
-        let public_key_der: Vec<u8> = match database.public_key.as_deref() {
+        let public_key_der: Vec<u8> = match database
+            .public_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             Some(key) => pem::parse(key.as_bytes())
                 .map_err(|e| Error::ExecutionErr(format!("Failed to parse public key: {e}")))?
                 .into_contents(),
@@ -638,11 +643,16 @@ pub async fn do_snowflake(
                 // Derive the public key from the private key — RSA private keys
                 // contain the public components (n, e).
                 use rsa::pkcs8::{DecodePrivateKey, EncodePublicKey};
-                let pk_pem = database.private_key.as_deref().ok_or_else(|| {
-                    Error::ExecutionErr(
-                        "Either public_key or private_key must be provided".to_string(),
-                    )
-                })?;
+                let pk_pem = database
+                    .private_key
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .ok_or_else(|| {
+                        Error::ExecutionErr(
+                            "Either public_key or private_key must be provided".to_string(),
+                        )
+                    })?;
                 let rsa_priv = rsa::RsaPrivateKey::from_pkcs8_pem(pk_pem)
                     .or_else(|_| {
                         use rsa::pkcs1::DecodeRsaPrivateKey;
