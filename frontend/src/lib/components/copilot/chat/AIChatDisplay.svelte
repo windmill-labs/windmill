@@ -290,7 +290,11 @@
 				{disabled}
 				isFirstMessage={messages.length === 0}
 			/>
-			<div class="flex flex-row justify-between items-center gap-2">
+			<div
+				class="flex flex-row items-center gap-2"
+				class:justify-between={showFooterLeftControls}
+				class:justify-end={!showFooterLeftControls}
+			>
 				{#if showFooterLeftControls}
 					<div class="flex flex-row gap-x-2 min-w-0 flex-wrap items-center">
 						{#if aiChatManager.autoAcceptToolConfirmationsAvailable}
