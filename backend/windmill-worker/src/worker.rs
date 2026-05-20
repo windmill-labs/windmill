@@ -4700,6 +4700,7 @@ pub async fn run_language_executor(
                 column_order,
                 occupancy_metrics,
                 parent_runnable_path,
+                job_dir,
                 run_inline,
             ))
             .await;
