@@ -332,7 +332,7 @@
 				<div
 					transition:fade={{ duration: 120 }}
 					class={twMerge(
-						'absolute left-1/2 -translate-x-1/2 z-10 rounded-full bg-surface shadow-md border border-gray-200 dark:border-gray-700',
+						'absolute left-1/2 -translate-x-1/2 z-10 rounded-md bg-surface shadow-md',
 						aiChatManager.flowAiChatHelpers?.hasPendingChanges() ? 'bottom-12' : 'bottom-2'
 					)}
 				>
@@ -371,17 +371,19 @@
 				>
 					Accept all
 				</Button>
-				<Button
-					startIcon={{ icon: XIcon }}
-					size="xs"
-					variant="default"
-					btnClasses="dark:opacity-50 opacity-60 hover:opacity-100"
-					onclick={() => {
-						aiChatManager.flowAiChatHelpers?.rejectAllModuleActions()
-					}}
-				>
-					Reject all
-				</Button>
+				<div class="rounded bg-surface">
+					<Button
+						startIcon={{ icon: XIcon }}
+						size="xs"
+						variant="default"
+						btnClasses="dark:opacity-50 opacity-60 hover:opacity-100"
+						onclick={() => {
+							aiChatManager.flowAiChatHelpers?.rejectAllModuleActions()
+						}}
+					>
+						Reject all
+					</Button>
+				</div>
 			</div>
 		{/if}
 		<div>
