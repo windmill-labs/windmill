@@ -21,6 +21,7 @@ import schedule from "./commands/schedule/schedule.ts";
 import trigger from "./commands/trigger/trigger.ts";
 import sync from "./commands/sync/sync.ts";
 import gitsyncSettings from "./commands/gitsync-settings/gitsync-settings.ts";
+import protectionRules from "./commands/protection-rules/protection-rules.ts";
 import instance from "./commands/instance/instance.ts";
 import workerGroups from "./commands/worker-groups/worker-groups.ts";
 import lint from "./commands/lint/lint.ts";
@@ -67,6 +68,7 @@ export {
   sync,
   lint,
   gitsyncSettings,
+  protectionRules,
   instance,
   dev,
   docs,
@@ -189,6 +191,7 @@ const command = new Command()
   .command("sync", sync)
   .command("lint", lint)
   .command("gitsync-settings", gitsyncSettings)
+  .command("protection-rules", protectionRules)
   .command("instance", instance)
   .command("worker-groups", workerGroups)
   .command("workers", workers)
