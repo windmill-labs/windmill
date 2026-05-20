@@ -246,6 +246,15 @@ export const settings: Record<string, Setting[]> = {
 			]
 		},
 		{
+			label: 'Nsjail tmpfs size (MB)',
+			key: 'nsjail_tmpfs_size_mb',
+			description:
+				'Override the size of the <code>/tmp</code> tmpfs mount inside the nsjail sandbox (in MB). When left empty, defaults to 800MB. Only applies when the job isolation mode is set to Nsjail.',
+			fieldType: 'number',
+			placeholder: '800',
+			storage: 'setting'
+		},
+		{
 			label: 'Default timeout',
 			key: 'job_default_timeout',
 			description:

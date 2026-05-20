@@ -146,8 +146,8 @@ use windmill_object_store::OBJECT_STORE_SETTINGS;
 use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables, read_file,
-        read_result, resolve_nsjail_timeout, start_child_process, OccupancyMetrics, StreamNotifier,
-        DEV_CONF_NSJAIL,
+        read_result, resolve_nsjail_timeout, resolve_nsjail_tmpfs_size_bytes, start_child_process,
+        OccupancyMetrics, StreamNotifier, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
@@ -1023,6 +1023,10 @@ mount {{
                 )
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace(
+                    "{NSJAIL_TMPFS_SIZE}",
+                    &resolve_nsjail_tmpfs_size_bytes().await,
+                )
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
     } else {
@@ -2043,6 +2047,10 @@ async fn spawn_uv_install(
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace(
+                    "{NSJAIL_TMPFS_SIZE}",
+                    &resolve_nsjail_tmpfs_size_bytes().await,
+                )
                 .as_str(),
         )?;
 
