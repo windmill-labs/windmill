@@ -28,6 +28,10 @@
 	import { createAppSelectedContext, type AppCodeSelectionElement } from '../copilot/chat/context'
 	import { rawAppLintStore } from './lintStore'
 	import { dbSchemas } from '$lib/stores'
+	import { MousePointerSquareDashed, RefreshCw, Columns2 } from 'lucide-svelte'
+	import DraggableTabs, {
+		type TabItem
+	} from '$lib/components/common/tabs/DraggableTabs.svelte'
 	import { runScriptAndPollResult } from '../jobs/utils'
 	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
 	import { sendUserToast } from '$lib/utils'
@@ -180,6 +184,127 @@
 	historyManager.manualSnapshot(files ?? {}, runnables, summary, data)
 
 	let iframe: HTMLIFrameElement | undefined = $state(undefined)
+	let previewIframe: HTMLIFrameElement | undefined = $state(undefined)
+	let previewIframeLoaded = $state(false)
+	let lastBuild: { css: string; js: string } | undefined = undefined
+	let inspectorEnabled = $state(false)
+	let bundlerType: 'esbuild' | 'rolldown' = $state('esbuild')
+
+	// Tab system — the source side of the editor area. The sidebar stays the
+	// primary navigation; tabs are a secondary surface that's useful when the
+	// sidebar is collapsed and on narrow viewports.
+	const PREVIEW_TAB_ID = 'preview'
+	const FILE_PREFIX = 'file:'
+	const RUNNABLE_PREFIX = 'runnable:'
+	const previewTab: TabItem = {
+		id: PREVIEW_TAB_ID,
+		label: 'Preview',
+		closable: false,
+		pinned: 'right'
+	}
+	let tabs: TabItem[] = $state([previewTab])
+	let activeTabId: string = $state(PREVIEW_TAB_ID)
+	let splitWithPreview: boolean = $state(false)
+	const TABS_STORAGE_KEY = $derived(`raw-app-tabs:${$workspaceStore ?? ''}:${path ?? ''}`)
+	const activeTabKind = $derived<'file' | 'runnable' | 'preview'>(
+		activeTabId === PREVIEW_TAB_ID
+			? 'preview'
+			: activeTabId.startsWith(FILE_PREFIX)
+				? 'file'
+				: 'runnable'
+	)
+	// What's visible. Both iframes and the runnable panel stay mounted so
+	// bundling, preview state, and editor state survive tab switches.
+	// `splitWithPreview` adds the preview pane alongside the active tab; the
+	// active tab's content visibility doesn't change when split toggles.
+	const showSource = $derived(activeTabKind === 'file')
+	const showRunnable = $derived(activeTabKind === 'runnable')
+	const showPreview = $derived(activeTabKind === 'preview' || splitWithPreview)
+
+	function fileTabId(filePath: string) {
+		return FILE_PREFIX + filePath
+	}
+	function runnableTabId(key: string) {
+		return RUNNABLE_PREFIX + key
+	}
+	function fileBaseName(filePath: string) {
+		return filePath.split('/').pop() || filePath
+	}
+
+	function activateTab(id: string) {
+		const tab = tabs.find((t) => t.id === id)
+		if (!tab) return
+		activeTabId = id
+		if (tab.id === PREVIEW_TAB_ID) {
+			selectedRunnable = undefined
+		} else if (tab.id.startsWith(FILE_PREFIX)) {
+			const filePath = tab.id.slice(FILE_PREFIX.length)
+			selectedRunnable = undefined
+			iframe?.contentWindow?.postMessage({ type: 'selectFile', path: filePath }, '*')
+		} else if (tab.id.startsWith(RUNNABLE_PREFIX)) {
+			const key = tab.id.slice(RUNNABLE_PREFIX.length)
+			if (selectedRunnable !== key) selectedRunnable = key
+		}
+	}
+
+	function ensureFileTab(filePath: string): string {
+		const id = fileTabId(filePath)
+		if (!tabs.some((t) => t.id === id)) {
+			// Insert before the pinned preview tab.
+			const insertAt = tabs.findIndex((t) => t.pinned === 'right')
+			const newTab: TabItem = {
+				id,
+				label: fileBaseName(filePath),
+				closable: true
+			}
+			tabs = [
+				...tabs.slice(0, insertAt === -1 ? tabs.length : insertAt),
+				newTab,
+				...tabs.slice(insertAt === -1 ? tabs.length : insertAt)
+			]
+		}
+		return id
+	}
+
+	function ensureRunnableTab(key: string): string {
+		const id = runnableTabId(key)
+		if (!tabs.some((t) => t.id === id)) {
+			const insertAt = tabs.findIndex((t) => t.pinned === 'right')
+			const newTab: TabItem = {
+				id,
+				label: key,
+				closable: true
+			}
+			tabs = [
+				...tabs.slice(0, insertAt === -1 ? tabs.length : insertAt),
+				newTab,
+				...tabs.slice(insertAt === -1 ? tabs.length : insertAt)
+			]
+		}
+		return id
+	}
+
+	function closeTab(id: string) {
+		const idx = tabs.findIndex((t) => t.id === id)
+		const tab = tabs[idx]
+		if (!tab || tab.closable === false) return
+		const wasActive = activeTabId === id
+		// Clear runnable selection BEFORE removing the tab so the $effect
+		// doesn't immediately recreate it.
+		if (wasActive && tab.id.startsWith(RUNNABLE_PREFIX)) {
+			selectedRunnable = undefined
+		}
+		tabs = tabs.filter((t) => t.id !== id)
+		if (wasActive) {
+			// Fall back to the previous tab, else the preview tab.
+			const fallback = tabs[Math.max(0, idx - 1)] ?? previewTab
+			activateTab(fallback.id)
+		}
+	}
+
+	function reorderTabs(next: TabItem[]) {
+		tabs = next
+	}
 	let yamlEditorDrawer: Drawer | undefined = $state(undefined)
 
 	let sidebarPanelSize = $state(15)
@@ -686,6 +811,38 @@
 	}
 
 	function listener(e: MessageEvent) {
+		// Two children speak to us now: the UI Builder iframe (source editor)
+		// and the preview iframe (rendered user app). Gate by source so they
+		// can't be confused or spoofed.
+		const fromUiBuilder = e.source === iframe?.contentWindow
+		const fromPreview = e.source === previewIframe?.contentWindow
+		if (!fromUiBuilder && !fromPreview) return
+
+		// Build output: UI Builder finished bundling. Cache it and forward to
+		// the preview iframe so it renders the new app.
+		if (fromUiBuilder && e.data.type === 'preview') {
+			lastBuild = { css: e.data.css, js: e.data.js }
+			previewIframe?.contentWindow?.postMessage(
+				{ type: 'preview', css: e.data.css, js: e.data.js },
+				'*'
+			)
+			return
+		}
+
+		// Inspector events come exclusively from the preview iframe.
+		if (fromPreview && e.data.type === 'inspectorSelect') {
+			inspectorElement = e.data.element as InspectorElementInfo
+			inspectorEnabled = false
+			return
+		}
+		if (fromPreview && e.data.type === 'inspectorClear') {
+			inspectorElement = undefined
+			return
+		}
+
+		// Everything below this point is editor metadata from the UI Builder.
+		if (!fromUiBuilder) return
+
 		if (e.data.type === 'setFiles') {
 			// Ignore setFiles from the iframe while it's reloading (e.g. theme switch);
 			// the iframe boots with its default template and would otherwise clobber the user's files.
@@ -705,12 +862,20 @@
 			if (suppressSetActiveDocument) return
 			// Normalize Windows-style path separators to Linux-style
 			selectedDocument = e.data.path?.replace(/\\/g, '/')
-		} else if (e.data.type === 'inspectorSelect') {
-			// Handle inspector element selection from the iframe preview
-			inspectorElement = e.data.element as InspectorElementInfo
-		} else if (e.data.type === 'inspectorClear') {
-			// Clear the inspector element when user dismisses the selection
-			inspectorElement = undefined
+			// If VS Code switched to a file we don't have a tab for (e.g. via
+			// the file explorer's reveal-in-editor, or our own auto-open of
+			// the main app file at boot), backfill a tab.
+			if (selectedDocument) {
+				const id = fileTabId(selectedDocument)
+				if (!tabs.some((t) => t.id === id)) {
+					ensureFileTab(selectedDocument)
+					// Don't auto-activate — the user's tab choice wins.
+					// But if no file tab is currently active, fall in line.
+					if (activeTabKind === 'preview' && tabs.length === 2) {
+						activateTab(id)
+					}
+				}
+			}
 		} else if (e.data.type === 'editorSelection') {
 			// Handle code selection from the iframe editor
 			const selection = e.data.selection
@@ -756,23 +921,33 @@
 		})
 	})
 	$effect(() => {
-		// Toggling dark mode changes the iframe src, causing it to reload.
-		// Reset iframeLoaded so the populate effect refires after the new load,
-		// and suppress the iframe's initial setFiles (default template) until then.
-		void darkMode
-		untrack(() => {
-			if (iframe && iframeLoaded) {
-				iframeLoaded = false
-				suppressIframeSetFiles = true
-				// Cancel any pending clear from a prior reload — otherwise on rapid
-				// toggles the previous timer can fire mid-reload and drop suppression
-				// before the iframe has finished booting.
-				if (suppressTimer !== undefined) {
-					clearTimeout(suppressTimer)
-					suppressTimer = undefined
-				}
+		previewIframe?.addEventListener('load', () => {
+			previewIframeLoaded = true
+			// Replay the last build so the preview repopulates without
+			// waiting for the user to trigger another bundle.
+			if (lastBuild) {
+				previewIframe?.contentWindow?.postMessage(
+					{ type: 'preview', css: lastBuild.css, js: lastBuild.js },
+					'*'
+				)
 			}
 		})
+	})
+	$effect(() => {
+		// Push dark mode to both children. The UI Builder iframe and the
+		// preview iframe each listen for `setDarkMode` separately.
+		if (iframe && iframeLoaded) {
+			iframe.contentWindow?.postMessage(
+				{ type: 'setDarkMode', dark: darkMode },
+				'*'
+			)
+		}
+		if (previewIframe && previewIframeLoaded) {
+			previewIframe.contentWindow?.postMessage(
+				{ type: 'setDarkMode', dark: darkMode },
+				'*'
+			)
+		}
 	})
 	$effect(() => {
 		iframe && iframeLoaded && files && populateFiles()
@@ -798,15 +973,10 @@
 
 	function handleSelectFile(path: string) {
 		console.log('event Select file:', path)
-		selectedRunnable = undefined
-		// Inspector is cleared by the $effect watching selection changes
-		iframe?.contentWindow?.postMessage(
-			{
-				type: 'selectFile',
-				path: path
-			},
-			'*'
-		)
+		// Adding the tab activates it; activateTab posts the selectFile message
+		// to the UI Builder iframe and clears any selected runnable.
+		const id = ensureFileTab(path)
+		activateTab(id)
 	}
 
 	// Track previous values for change detection
@@ -823,6 +993,93 @@
 			prevSelectedRunnable = selectedRunnable
 			prevSelectedDocument = selectedDocument
 		}
+	})
+
+	// Mirror sidebar runnable selection into the tab system. When the user
+	// picks a runnable from the sidebar, `selectedRunnable` flips via
+	// `bind:selectedRunnable`; ensure a tab for it exists and is active.
+	$effect(() => {
+		const key = selectedRunnable
+		if (!key) return
+		const id = runnableTabId(key)
+		untrack(() => {
+			if (!tabs.some((t) => t.id === id)) ensureRunnableTab(key)
+			if (activeTabId !== id) activeTabId = id
+		})
+	})
+
+	// Hydrate tab state from localStorage on mount.
+	let tabsHydrated = $state(false)
+	onMount(() => {
+		try {
+			const raw = localStorage.getItem(TABS_STORAGE_KEY)
+			if (raw) {
+				const parsed = JSON.parse(raw) as {
+					tabs?: TabItem[]
+					activeTabId?: string
+					splitWithPreview?: boolean
+				}
+				if (Array.isArray(parsed.tabs) && parsed.tabs.length > 0) {
+					// Always re-pin the preview tab — if the stored data lost
+					// its `pinned` marker we'd misrender.
+					const stored = parsed.tabs.filter((t) => t.id !== PREVIEW_TAB_ID)
+					tabs = [...stored, previewTab]
+				}
+				if (parsed.activeTabId && tabs.some((t) => t.id === parsed.activeTabId)) {
+					activateTab(parsed.activeTabId)
+				}
+				if (typeof parsed.splitWithPreview === 'boolean') {
+					splitWithPreview = parsed.splitWithPreview
+				}
+			}
+		} catch (e) {
+			console.warn('Failed to hydrate raw-app tabs from localStorage', e)
+		} finally {
+			tabsHydrated = true
+		}
+	})
+
+	// Persist tab state. Gated on `tabsHydrated` so the initial default state
+	// doesn't overwrite the user's saved layout.
+	$effect(() => {
+		void tabs
+		void activeTabId
+		void splitWithPreview
+		if (!tabsHydrated) return
+		untrack(() => {
+			try {
+				localStorage.setItem(
+					TABS_STORAGE_KEY,
+					JSON.stringify({ tabs, activeTabId, splitWithPreview })
+				)
+			} catch (e) {
+				// Quota or privacy mode — silent, persistence is a nice-to-have.
+			}
+		})
+	})
+
+	// Drop file tabs whose underlying file disappeared (deleted via setFiles
+	// or workspace cleanup). Same for runnable tabs whose key no longer
+	// exists in the runnables map.
+	$effect(() => {
+		void files
+		void runnables
+		untrack(() => {
+			const filesSet = files ?? {}
+			const runnablesSet = runnables ?? {}
+			const stale = tabs.filter((t) => {
+				if (t.id.startsWith(FILE_PREFIX)) {
+					const fp = t.id.slice(FILE_PREFIX.length)
+					return filesSet[fp] === undefined
+				}
+				if (t.id.startsWith(RUNNABLE_PREFIX)) {
+					const k = t.id.slice(RUNNABLE_PREFIX.length)
+					return runnablesSet[k] === undefined
+				}
+				return false
+			})
+			for (const t of stale) closeTab(t.id)
+		})
 	})
 
 	function handleUndo() {
@@ -915,7 +1172,7 @@
 <RawAppBackgroundRunner
 	workspace={$workspaceStore ?? ''}
 	editor
-	{iframe}
+	iframe={previewIframe}
 	bind:jobs
 	bind:jobsById
 	{runnables}
@@ -1007,46 +1264,152 @@
 			</Pane>
 		{/if}
 		<Pane>
-			<div class="h-full w-full relative">
-				<iframe
-					bind:this={iframe}
-					title="UI builder"
-					style="display: {selectedRunnable == undefined ? 'block' : 'none'}"
-					src="/ui_builder/index.html?dark={darkMode}"
-					class="w-full h-full"
-				></iframe>
-				{#if selectedRunnable !== undefined}
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div class="flex h-full w-full">
-						<RawAppInlineScriptsPanel
-							appPath={path}
-							{selectedRunnable}
-							bind:runnables
-							onSelectionChange={(selection) => {
-								console.log('handle selection', selection)
-
-								if (selection === null) {
-									codeSelection = undefined
-								} else if (selectedRunnable) {
-									codeSelection = {
-										type: 'app_code_selection',
-										source: selectedRunnable,
-										sourceType: 'backend',
-										title: `${selectedRunnable}:L${selection.startLine}-L${selection.endLine}`,
-										content: selection.content,
-										startLine: selection.startLine,
-										endLine: selection.endLine,
-										startColumn: selection.startColumn,
-										endColumn: selection.endColumn
+			<div class="flex flex-col h-full w-full min-h-0">
+				<DraggableTabs
+					{tabs}
+					activeId={activeTabId}
+					onSelect={(id) => activateTab(id)}
+					onClose={(id) => closeTab(id)}
+					onReorder={(next) => reorderTabs(next)}
+				>
+					{#snippet trailing()}
+						<div class="flex items-center gap-1 px-2">
+							{#if activeTabKind !== 'preview'}
+								<button
+									title={splitWithPreview
+										? 'Hide preview pane'
+										: 'Show preview side-by-side'}
+									aria-label="Toggle split with preview"
+									aria-pressed={splitWithPreview}
+									class={splitWithPreview
+										? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
+										: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
+									onclick={() => (splitWithPreview = !splitWithPreview)}
+								>
+									<Columns2 size={14} />
+								</button>
+							{/if}
+							<button
+								class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary px-2 h-7 rounded-md text-xs"
+								title="Switch bundler"
+								onclick={() => {
+									const next =
+										bundlerType === 'esbuild' ? 'rolldown' : 'esbuild'
+									bundlerType = next
+									iframe?.contentWindow?.postMessage(
+										{ type: 'setBundlerType', bundlerType: next },
+										'*'
+									)
+								}}>{bundlerType}</button
+							>
+							<button
+								title={inspectorEnabled
+									? 'Click to disable element inspector'
+									: 'Click to enable element inspector'}
+								class={inspectorEnabled
+									? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
+									: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
+								aria-label="Toggle element inspector"
+								onclick={() => {
+									inspectorEnabled = !inspectorEnabled
+									previewIframe?.contentWindow?.postMessage(
+										{
+											type: inspectorEnabled
+												? 'inspectorEnable'
+												: 'inspectorDisable'
+										},
+										'*'
+									)
+								}}
+							>
+								<MousePointerSquareDashed size={14} />
+							</button>
+							<button
+								class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center"
+								title="Replay the last build into the preview"
+								aria-label="Rebuild"
+								onclick={() => {
+									if (lastBuild) {
+										previewIframe?.contentWindow?.postMessage(
+											{
+												type: 'preview',
+												css: lastBuild.css,
+												js: lastBuild.js
+											},
+											'*'
+										)
 									}
-								}
-							}}
-						/>
+								}}
+							>
+								<RefreshCw size={14} />
+							</button>
+						</div>
+					{/snippet}
+				</DraggableTabs>
+				<!--
+					Content area. All three slots stay mounted always; we toggle
+					CSS display so iframes don't lose state on tab switches.
+					Flex layout: in single mode only one slot has display, so
+					it takes the full width. In split mode two are visible and
+					share the space.
+				-->
+				<div class="flex flex-1 min-h-0 w-full">
+					<div
+						class="flex-1 min-w-0 relative"
+						style="display: {showSource ? 'block' : 'none'}"
+					>
+						<iframe
+							bind:this={iframe}
+							title="UI builder"
+							src="/ui_builder/index.html"
+							class="w-full h-full block"
+						></iframe>
 					</div>
-				{/if}
+					<div
+						class="flex-1 min-w-0 relative"
+						style="display: {showRunnable ? 'block' : 'none'}"
+					>
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<div class="flex h-full w-full">
+							{#if selectedRunnable !== undefined}
+								<RawAppInlineScriptsPanel
+									appPath={path}
+									{selectedRunnable}
+									bind:runnables
+									onSelectionChange={(selection) => {
+										if (selection === null) {
+											codeSelection = undefined
+										} else if (selectedRunnable) {
+											codeSelection = {
+												type: 'app_code_selection',
+												source: selectedRunnable,
+												sourceType: 'backend',
+												title: `${selectedRunnable}:L${selection.startLine}-L${selection.endLine}`,
+												content: selection.content,
+												startLine: selection.startLine,
+												endLine: selection.endLine,
+												startColumn: selection.startColumn,
+												endColumn: selection.endColumn
+											}
+										}
+									}}
+								/>
+							{/if}
+						</div>
+					</div>
+					<div
+						class="flex-1 min-w-0 relative"
+						style="display: {showPreview ? 'block' : 'none'}"
+					>
+						<iframe
+							bind:this={previewIframe}
+							title="App preview"
+							src="/ui_builder/app-preview.html"
+							class="w-full h-full block"
+						></iframe>
+					</div>
+				</div>
 			</div>
-
-			<!-- <div class="bg-red-400 h-full w-full" /> -->
 		</Pane>
 	</Splitpanes>
 </div>
