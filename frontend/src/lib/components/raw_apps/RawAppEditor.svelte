@@ -213,13 +213,23 @@
 				? 'file'
 				: 'runnable'
 	)
-	// When split is on, the Preview tab moves out of the bar and lives in
-	// the right pane. The user only sees file/runnable tabs in the bar;
-	// the right pane is always preview. When split is off, the Preview
-	// tab is back in the bar like any other tab.
-	const displayedTabs = $derived(
+	// Per-pane tab lists.
+	// - Single mode: BOTH panes mirror the FULL tab list — whichever pane is
+	//   visible (paneA when source is active, paneB when preview is active)
+	//   carries every tab so the user can always switch. This is the fix
+	//   for the bug where activating Preview hid every tab.
+	// - Split mode: each pane shows its own subset (VS Code-style):
+	//   left = file/runnable tabs, right = just the Preview pseudo-header.
+	const leftPaneTabs = $derived<TabItem[]>(
 		splitWithPreview ? tabs.filter((t) => t.id !== PREVIEW_TAB_ID) : tabs
 	)
+	const rightPaneTabs = $derived<TabItem[]>(
+		splitWithPreview ? tabs.filter((t) => t.id === PREVIEW_TAB_ID) : tabs
+	)
+	// In split mode the Preview tab is permanently visible in the right pane;
+	// the right bar always shows it as the active tab regardless of which
+	// file/runnable tab is logically active in the left pane.
+	const rightPaneActiveId = $derived(splitWithPreview ? PREVIEW_TAB_ID : activeTabId)
 	const showSource = $derived(activeTabKind === 'file')
 	const showRunnable = $derived(activeTabKind === 'runnable')
 
@@ -274,6 +284,11 @@
 	function activateTab(id: string) {
 		const tab = tabs.find((t) => t.id === id)
 		if (!tab) return
+		// Clicking the Preview tab while in split mode is a visual no-op —
+		// Preview is already permanently shown in the right pane, and
+		// promoting it to active would trigger the pane-sizing $effect and
+		// collapse the left pane (the bug being fixed here).
+		if (splitWithPreview && id === PREVIEW_TAB_ID) return
 		activeTabId = id
 		if (tab.id === PREVIEW_TAB_ID) {
 			selectedRunnable = undefined
@@ -1330,56 +1345,49 @@
 			</Pane>
 		{/if}
 		<Pane>
-			<div class="flex flex-col h-full w-full min-h-0">
-				<!--
-					Main tab bar — always visible above the Splitpanes, full
-					width. The user can switch tabs (including back from
-					Preview to a file) without losing visibility on the rest
-					of the tab list.
-				-->
-				<DraggableTabs
-					tabs={displayedTabs}
-					activeId={activeTabId}
-					onSelect={(id) => activateTab(id)}
-					onClose={(id) => closeTab(id)}
-					onReorder={(next) => reorderTabs(next)}
-				>
-					{#snippet trailing()}
-						<div class="flex items-center gap-1 px-2">
-							<button
-								title={splitWithPreview
-									? 'Move preview back into a tab'
-									: 'Pin preview to the right'}
-								aria-label="Toggle split with preview"
-								aria-pressed={splitWithPreview}
-								class={splitWithPreview
-									? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
-									: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
-								onclick={toggleSplit}
+			<!--
+				Per-pane tab bars (VS Code-style). Each pane carries its own
+				DraggableTabs instance so the splitter goes floor-to-ceiling
+				through tabs AND content in split mode. In single mode both
+				bars mirror the FULL tab list — whichever pane is visible
+				keeps every tab accessible, fixing the bug where activating
+				Preview previously hid every tab.
+			-->
+			<div
+				class="h-full w-full min-h-0 {splitWithPreview &&
+				activeTabKind !== 'preview'
+					? 'tabs-content-split'
+					: 'tabs-content-single'}"
+			>
+				<Splitpanes>
+					<Pane bind:size={paneALeftSize} minSize={0}>
+						<div class="flex flex-col h-full w-full min-h-0">
+							<DraggableTabs
+								tabs={leftPaneTabs}
+								activeId={activeTabId}
+								onSelect={(id) => activateTab(id)}
+								onClose={(id) => closeTab(id)}
+								onReorder={(next) => reorderTabs(next)}
 							>
-								<Columns2 size={14} />
-							</button>
-						</div>
-					{/snippet}
-				</DraggableTabs>
-				<!--
-					Content area: Splitpanes below the main tab bar. Both
-					iframes + RawAppInlineScriptsPanel stay mounted always;
-					`display` + pane sizes do the swapping. The right pane
-					carries its own Preview pseudo-header with the
-					preview-affecting toolbar (bundler / inspector /
-					rebuild). The header is rendered whenever the right
-					pane is visible — width 0 hides it implicitly.
-				-->
-				<div
-					class="flex-1 min-h-0 w-full {splitWithPreview &&
-					activeTabKind !== 'preview'
-						? 'tabs-content-split'
-						: 'tabs-content-single'}"
-				>
-					<Splitpanes>
-						<Pane bind:size={paneALeftSize} minSize={0}>
-							<div class="relative h-full w-full">
+								{#snippet trailing()}
+									<div class="flex items-center gap-1 px-2">
+										<button
+											title={splitWithPreview
+												? 'Move preview back into a tab'
+												: 'Pin preview to the right'}
+											aria-label="Toggle split with preview"
+											aria-pressed={splitWithPreview}
+											class={splitWithPreview
+												? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
+												: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
+											onclick={toggleSplit}
+										>
+											<Columns2 size={14} />
+										</button>
+									</div>
+								{/snippet}
+							</DraggableTabs>
+							<div class="flex-1 min-h-0 relative">
 								<div
 									class="absolute inset-0"
 									style="display: {showSource ? 'block' : 'none'}"
@@ -1424,18 +1432,19 @@
 									</div>
 								</div>
 							</div>
-						</Pane>
-						<Pane bind:size={paneBRightSize} minSize={0}>
-							<div class="flex flex-col h-full w-full min-h-0">
-								<div
-									class="flex items-stretch bg-surface-secondary flex-shrink-0 h-8"
-								>
-									<div
-										class="inline-flex items-center gap-1.5 px-3 h-8 text-xs bg-surface text-primary"
-									>
-										<span>Preview</span>
-									</div>
-									<div class="ml-auto flex items-center gap-1 px-2">
+						</div>
+					</Pane>
+					<Pane bind:size={paneBRightSize} minSize={0}>
+						<div class="flex flex-col h-full w-full min-h-0">
+							<DraggableTabs
+								tabs={rightPaneTabs}
+								activeId={rightPaneActiveId}
+								onSelect={(id) => activateTab(id)}
+								onClose={(id) => closeTab(id)}
+								onReorder={(next) => reorderTabs(next)}
+							>
+								{#snippet trailing()}
+									<div class="flex items-center gap-1 px-2">
 										<button
 											class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary px-2 h-7 rounded-md text-xs"
 											title="Switch bundler"
@@ -1490,18 +1499,31 @@
 										>
 											<RefreshCw size={14} />
 										</button>
+										<button
+											title={splitWithPreview
+												? 'Move preview back into a tab'
+												: 'Pin preview to the right'}
+											aria-label="Toggle split with preview"
+											aria-pressed={splitWithPreview}
+											class={splitWithPreview
+												? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
+												: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
+											onclick={toggleSplit}
+										>
+											<Columns2 size={14} />
+										</button>
 									</div>
-								</div>
-								<iframe
-									bind:this={previewIframe}
-									title="App preview"
-									src="/ui_builder/app-preview.html"
-									class="w-full flex-1 block"
-								></iframe>
-							</div>
-						</Pane>
-					</Splitpanes>
-				</div>
+								{/snippet}
+							</DraggableTabs>
+							<iframe
+								bind:this={previewIframe}
+								title="App preview"
+								src="/ui_builder/app-preview.html"
+								class="w-full flex-1 block"
+							></iframe>
+						</div>
+					</Pane>
+				</Splitpanes>
 			</div>
 		</Pane>
 	</Splitpanes>
