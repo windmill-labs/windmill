@@ -454,9 +454,9 @@
 								meta.ownerKind = v
 								if (v === 'folder') {
 									meta.owner = folders?.[0]?.name ?? ''
-								} else if (v === 'group') {
-									meta.owner = 'all'
 								} else {
+									// 'group' is unreachable here (Select only offers user/folder)
+									// but validateName still accepts it for forward-compat.
 									meta.owner = $userStore?.username?.split('@')[0] ?? ''
 								}
 							}
