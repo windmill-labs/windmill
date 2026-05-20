@@ -164,10 +164,11 @@
 		aria-disabled={disabled}
 		tabindex={disabled ? -1 : 0}
 		contenteditable={!disabled}
+		{...divProps}
 		onkeydown={(e) => {
 			if (e.key === 'Enter') e.preventDefault()
+			divProps?.onkeydown?.(e)
 		}}
-		{...divProps}
 		class={fullClassName}
 		data-placeholder={placeholder ?? ''}
 		onpointerdown={(e) => e.stopImmediatePropagation()}
