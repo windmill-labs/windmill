@@ -27,7 +27,7 @@
 	async function importRaw() {
 		$importFlowStore =
 			importType === 'yaml' ? YAML.parse(pendingRaw ?? '') : JSON.parse(pendingRaw ?? '')
-		await goto('/flows/add')
+		await goto('/flows/add?nodraft=true')
 		drawer?.closeDrawer?.()
 	}
 
@@ -35,7 +35,7 @@
 		const parsed =
 			wacImportType === 'yaml' ? YAML.parse(pendingWacRaw ?? '') : JSON.parse(pendingWacRaw ?? '')
 		$importScriptStore = parsed
-		await goto(`${base}/scripts/add?import=true`)
+		await goto(`${base}/scripts/add?import=true&nodraft=true`)
 		wacDrawer?.closeDrawer?.()
 	}
 

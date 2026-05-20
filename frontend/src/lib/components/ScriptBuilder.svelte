@@ -4,7 +4,6 @@
 	const bubble = createBubbler()
 	import {
 		DraftService,
-		type NewScript,
 		ScriptService,
 		type NewScriptWithDraft,
 		type Script,
@@ -35,7 +34,6 @@
 		cleanValueProperties,
 		emptySchema,
 		emptyString,
-		encodeState,
 		generateRandomString,
 		orderedJsonStringify,
 		readFieldsRecursively,
@@ -43,6 +41,7 @@
 		type Value
 	} from '$lib/utils'
 	import Path from './Path.svelte'
+	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
 	import { Alert, Button, Drawer, SecondsInput, Tab, TabContent, Tabs } from './common'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
@@ -52,7 +51,21 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ErrorHandlerToggleButton from '$lib/components/details/ErrorHandlerToggleButton.svelte'
-	import { Bug, CheckCircle, Code, Plus, Rocket, Save, Settings, Shuffle, X } from 'lucide-svelte'
+	import {
+		Bug,
+		CheckCircle,
+		Code,
+		EllipsisVertical,
+		Plus,
+		Rocket,
+		Save,
+		Settings,
+		Shuffle,
+		Tag,
+		X
+	} from 'lucide-svelte'
+	import DropdownV2 from './DropdownV2.svelte'
+	import { isMac, type Item } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import Awareness from './Awareness.svelte'
@@ -110,7 +123,6 @@
 		savedScript = $bindable(undefined),
 		searchParams = new URLSearchParams(),
 		disableHistoryChange = false,
-		replaceStateFn = (url) => window.history.replaceState(null, '', url),
 		customUi = {},
 		savedPrimarySchedule = undefined,
 		functionExports = undefined,
@@ -147,6 +159,36 @@
 	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
 	let deployedBy: string | undefined = $state(undefined) // Author
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
+
+	// Top-bar responsive collapse — container width, not viewport.
+	let topbarWidth = $state(0)
+	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
+	const mod = isMac() ? '⌘' : 'Ctrl+'
+
+	function getCompactMenuItems(): Item[] {
+		const hasTags = ($workerTags?.length ?? 0) > 0
+		return [
+			{
+				displayName: 'Save draft',
+				icon: Save,
+				action: () => saveDraft(),
+				shortcut: `${mod}S`,
+				disabled: initialPath != '' && !savedScript
+			},
+			...(customUi?.topBar?.tagEdit != false && hasTags
+				? [
+						{
+							displayName: 'Worker tag',
+							icon: Tag,
+							action: () => {
+								selectedTab = 'runtime'
+								metadataOpen = true
+							}
+						}
+					]
+				: [])
+		]
+	}
 	let open: boolean = $state(false) // Is confirmation modal open
 	let args: Record<string, any> = $state(untrack(() => initialArgs)) // Test args input
 	let selectedInputTab: 'main' | 'preprocessor' | 'diagram' = $state('main')
@@ -258,15 +300,11 @@
 
 	// Add triggers context store
 	const triggersState = $state(
-		new Triggers(
-			[
-				{ type: 'webhook', path: '', isDraft: false },
-				{ type: 'default_email', path: '', isDraft: false },
-				...(script.draft_triggers ?? [])
-			],
-			undefined,
-			saveSessionDraft
-		)
+		new Triggers([
+			{ type: 'webhook', path: '', isDraft: false },
+			{ type: 'default_email', path: '', isDraft: false },
+			...(script.draft_triggers ?? [])
+		])
 	)
 
 	const captureOn = writable<boolean | undefined>(undefined)
@@ -329,28 +367,6 @@
 	let pathError = $state('')
 	let loadingSave = $state(false)
 	let loadingDraft = $state(false)
-
-	let timeout2: number | undefined = undefined
-	function encodeScriptState(script: NewScript) {
-		untrack(() => timeout2 && clearTimeout(timeout2))
-		timeout2 = setTimeout(() => {
-			replaceStateFn(
-				'#' +
-					encodeState({
-						...script,
-						draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
-					})
-			)
-		}, 500)
-	}
-
-	let timeout: number | undefined = undefined
-	function saveSessionDraft() {
-		timeout && clearTimeout(timeout)
-		timeout = setTimeout(() => {
-			encodeScriptState(script)
-		}, 500)
-	}
 
 	if (script.content == '') {
 		if (template === 'wac_python') {
@@ -514,11 +530,6 @@
 
 		loadingSave = true
 		try {
-			try {
-				localStorage.removeItem(script.path)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
 			script.schema = script.schema ?? emptySchema()
 			try {
 				const result = await inferArgs(
@@ -581,6 +592,10 @@
 					labels: script.labels
 				}
 			})
+
+			// New/updated path now exists server-side — drop the autocomplete
+			// cache so it shows up immediately instead of after the 60s TTL.
+			invalidateWorkspacePaths($workspaceStore!)
 
 			if (!initialPath) {
 				await CaptureService.moveCapturesAndConfigs({
@@ -654,11 +669,6 @@
 
 		loadingDraft = true
 		try {
-			try {
-				localStorage.removeItem(script.path)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
 			script.schema = script.schema ?? emptySchema()
 			try {
 				const result = await inferArgs(
@@ -1037,7 +1047,15 @@
 	})
 	$effect(() => {
 		readFieldsRecursively(script)
-		!disableHistoryChange && encodeScriptState(script)
+	})
+	// Mirror the draft triggers (held in a separate `triggersState` $state)
+	// back into `script.draft_triggers` so the UserDraft autosave — which
+	// deep-tracks `script` — picks them up. Pre-PR ScriptBuilder ran its own
+	// localStorage autosave that explicitly snapshotted triggersState; the
+	// switch to a unified UserDraft handle dropped that bridge.
+	$effect(() => {
+		readFieldsRecursively(triggersState.triggers)
+		script.draft_triggers = triggersState.getDraftTriggersSnapshot()
 	})
 
 	loadWorkerTags()
@@ -1937,9 +1955,9 @@
 	</Drawer>
 
 	<div class="flex flex-col h-screen">
-		<div class="flex h-12 items-center px-4">
+		<div bind:clientWidth={topbarWidth} class="flex h-12 items-center px-4">
 			<div class="flex gap-2 lg:gap-2 w-full items-center">
-				<div class="flex flex-row items-center gap-2 min-w-0 max-w-full">
+				<div class="flex flex-row items-center gap-2 min-w-[200px] max-w-full">
 					<button
 						disabled={customUi?.topBar?.settings == false}
 						class="shrink-0"
@@ -1972,47 +1990,67 @@
 				<!-- Separator -->
 				<div class="flex-1"></div>
 
-				{#if customUi?.topBar?.tagEdit != false}
-					{#if $workerTags}
-						{#if $workerTags?.length ?? 0 > 0}
-							<div class="max-w-[200px]">
-								<WorkerTagSelect
-									nullTag={script.language}
-									placeholder={customUi?.tagSelectPlaceholder}
-									bind:tag={script.tag}
-								/>
-							</div>
+				{#snippet settingsButton()}
+					{#if customUi?.topBar?.settings != false}
+						<Button
+							aiId="script-builder-settings"
+							aiDescription="Script builder settings to configure metadata, runtime, triggers, and generated UI."
+							variant="default"
+							unifiedSize="md"
+							on:click={() => (metadataOpen = true)}
+							startIcon={{ icon: Settings }}
+							iconOnly={compactTopbar}
+							title="Settings"
+						>
+							<span> Settings </span>
+						</Button>
+					{/if}
+				{/snippet}
+				{#if compactTopbar}
+					<DropdownV2 items={getCompactMenuItems} placement="bottom-end">
+						{#snippet buttonReplacement()}
+							<Button
+								nonCaptureEvent
+								unifiedSize="md"
+								variant="subtle"
+								startIcon={{ icon: EllipsisVertical }}
+								iconOnly
+								title="More"
+							/>
+						{/snippet}
+					</DropdownV2>
+					{@render settingsButton()}
+				{:else}
+					{#if customUi?.topBar?.tagEdit != false}
+						{#if $workerTags}
+							{#if $workerTags?.length ?? 0 > 0}
+								<div class="max-w-[200px]">
+									<WorkerTagSelect
+										nullTag={script.language}
+										placeholder={customUi?.tagSelectPlaceholder}
+										bind:tag={script.tag}
+									/>
+								</div>
+							{/if}
 						{/if}
 					{/if}
-				{/if}
-				{#if customUi?.topBar?.settings != false}
+					{@render settingsButton()}
 					<Button
-						aiId="script-builder-settings"
-						aiDescription="Script builder settings to configure metadata, runtime, triggers, and generated UI."
-						variant="default"
+						loading={loadingDraft}
 						unifiedSize="md"
-						on:click={() => (metadataOpen = true)}
-						startIcon={{ icon: Settings }}
+						variant="accent"
+						startIcon={{ icon: Save }}
+						on:click={() => saveDraft()}
+						disabled={initialPath != '' && !savedScript}
+						shortCut={{ key: 'S' }}
 					>
-						<span class="hidden lg:flex"> Settings </span>
+						<span> Draft </span>
 					</Button>
 				{/if}
-				<Button
-					loading={loadingDraft}
-					unifiedSize="md"
-					variant="accent"
-					startIcon={{ icon: Save }}
-					on:click={() => saveDraft()}
-					disabled={initialPath != '' && !savedScript}
-					shortCut={{ key: 'S' }}
-				>
-					<span class="hidden lg:flex"> Draft </span>
-				</Button>
 
 				<DeployButton
 					loading={!fullyLoaded}
 					{loadingSave}
-					newFlow={false}
 					dropdownItems={computeDropdownItems(initialPath, savedScript, diffDrawer)}
 					on:save={({ detail }) => handleEditScript(false, detail)}
 				/>

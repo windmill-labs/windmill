@@ -21,7 +21,7 @@
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Button from './common/button/Button.svelte'
 	import { sameTopDomainOrigin } from '$lib/cookies'
-	import { isValidLogoutRedirect } from '$lib/logoutRedirect'
+	import { isValidLogoutRedirect, toSameOriginRelativePath } from '$lib/logoutRedirect'
 
 	interface Props {
 		rd?: string | undefined
@@ -139,21 +139,25 @@
 	}
 
 	async function redirectUser() {
-		if (rd?.startsWith('http')) {
-			if (isValidLogoutRedirect(rd)) {
-				window.location.href = rd
+		// Reduce same-origin full URLs to relative paths so deep links from
+		// e.g. /a/[...path] (which carry the full URL as rd) still navigate
+		// correctly instead of falling through to the cross-origin branch.
+		let resolvedRd = toSameOriginRelativePath(rd) ?? rd
+		if (resolvedRd?.startsWith('http')) {
+			if (isValidLogoutRedirect(resolvedRd)) {
+				window.location.href = resolvedRd
 				return
 			}
 			goto('/')
 			return
 		}
 		if ($workspaceStore) {
-			goto(rd ?? '/')
+			goto(resolvedRd ?? '/')
 		} else {
-			let workspaceTarget = parseQueryParams(rd ?? undefined)['workspace']
-			if (rd && workspaceTarget) {
+			let workspaceTarget = parseQueryParams(resolvedRd ?? undefined)['workspace']
+			if (resolvedRd && workspaceTarget) {
 				$workspaceStore = workspaceTarget
-				goto(rd)
+				goto(resolvedRd)
 				return
 			}
 
@@ -177,17 +181,17 @@
 						const prefix = defaultApp.default_app_raw ? '/apps_raw/get' : '/apps/get'
 						goto(`${prefix}/${defaultApp.default_app_path}`)
 					} else {
-						goto(rd ?? '/')
+						goto(resolvedRd ?? '/')
 					}
 				} else {
-					goto(rd ?? '/')
+					goto(resolvedRd ?? '/')
 				}
-			} else if (rd?.startsWith('/user/workspaces')) {
-				goto(rd)
-			} else if (rd == '/#user-settings') {
+			} else if (resolvedRd?.startsWith('/user/workspaces')) {
+				goto(resolvedRd)
+			} else if (resolvedRd == '/#user-settings') {
 				goto(`/user/workspaces#user-settings`)
 			} else {
-				goto(`/user/workspaces${rd ? `?rd=${encodeURIComponent(rd)}` : ''}`)
+				goto(`/user/workspaces${resolvedRd ? `?rd=${encodeURIComponent(resolvedRd)}` : ''}`)
 			}
 		}
 	}
@@ -343,12 +347,16 @@
 	})
 
 	function persistRd() {
-		if (rd) {
-			try {
-				localStorage.setItem('rd', rd)
-			} catch (e) {
-				console.error('Could not persist redirection to local storage', e)
-			}
+		if (!rd) return
+		// Only persist a same-origin relative path. Storing a full URL pollutes
+		// the localStorage key with a value that the post-login redirect logic
+		// can't reuse safely (it would fall through the open-redirect guard).
+		const safe = toSameOriginRelativePath(rd)
+		if (!safe) return
+		try {
+			localStorage.setItem('rd', safe)
+		} catch (e) {
+			console.error('Could not persist redirection to local storage', e)
 		}
 	}
 
@@ -418,12 +426,15 @@
 		let relayStateSet = false
 		// Carry the SP-initiated deep link through the IdP round-trip via SAML
 		// RelayState so the ACS redirects straight back to it (bypassing
-		// /user/login). Only same-origin relative paths are passed; the backend
-		// re-validates. Absolute `rd` still relies on the localStorage fallback.
-		if (rd && rd.startsWith('/') && !rd.startsWith('//')) {
+		// /user/login). Same-origin relative paths are passed verbatim;
+		// full URLs (e.g. the page URL from /a/[...path]) are reduced to their
+		// path component first. The backend re-validates. Cross-origin or
+		// otherwise unsafe values fall through to the localStorage fallback.
+		const safePath = toSameOriginRelativePath(rd)
+		if (safePath) {
 			try {
 				const url = new URL(saml)
-				url.searchParams.set('RelayState', rd)
+				url.searchParams.set('RelayState', safePath)
 				target = url.toString()
 				relayStateSet = true
 			} catch (e) {

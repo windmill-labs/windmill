@@ -18,8 +18,16 @@
 		message.parameters !== undefined && Object.keys(message.parameters).length > 0
 	)
 
+	const isSuccessful = $derived(
+		!message.isLoading &&
+			!message.error &&
+			!message.needsConfirmation &&
+			!message.isStreamingArguments
+	)
+	const autoCollapseDetails = $derived(message.autoCollapseDetails !== false)
+
 	let isExpanded = $derived(
-		message.showDetails ||
+		(message.showDetails && (!isSuccessful || !autoCollapseDetails)) ||
 			(message.isStreamingArguments && hasParameters) ||
 			(message.isLoading && message.needsConfirmation)
 	)
@@ -134,6 +142,7 @@
 						content={message.logs}
 						loading={message.isLoading}
 						showWhileLoading={false}
+						showFade={message.showFade}
 					/>
 
 					{#if visibleActions.length > 0}
@@ -144,6 +153,7 @@
 							content={message.result}
 							error={message.error}
 							loading={message.isLoading}
+							showFade={message.showFade}
 						/>
 					{/if}
 				{/if}

@@ -466,6 +466,7 @@ export type CreatedResourceTriggerKind =
 	| 'sqs'
 	| 'gcp'
 	| 'azure'
+	| 'email'
 
 export type CreatedResourceAction = {
 	id: string
@@ -497,6 +498,7 @@ export type ToolDisplayMessage = {
 	error?: string
 	needsConfirmation?: boolean
 	showDetails?: boolean
+	autoCollapseDetails?: boolean
 	isStreamingArguments?: boolean
 	toolName?: string
 	showFade?: boolean
@@ -566,9 +568,11 @@ export async function processToolCall<T>({
 				content: validationError,
 				parameters: args,
 				isLoading: false,
+				isStreamingArguments: false,
 				error: validationError,
 				needsConfirmation: false,
-				showDetails: tool?.showDetails
+				showDetails: tool?.showDetails,
+				autoCollapseDetails: tool?.autoCollapseDetails
 			})
 			return {
 				role: 'tool' as const,
@@ -587,7 +591,8 @@ export async function processToolCall<T>({
 			parameters: args,
 			isLoading: true,
 			needsConfirmation: needsConfirmation,
-			showDetails: tool?.showDetails
+			showDetails: tool?.showDetails,
+			autoCollapseDetails: tool?.autoCollapseDetails
 		})
 
 		// If confirmation is needed and we have the callback, wait for it
@@ -598,6 +603,7 @@ export async function processToolCall<T>({
 				toolCallbacks.setToolStatus(toolCall.id, {
 					content: 'Cancelled by user',
 					isLoading: false,
+					isStreamingArguments: false,
 					error: 'Tool execution was cancelled by user',
 					needsConfirmation: false
 				})
@@ -627,12 +633,14 @@ export async function processToolCall<T>({
 				toolId: toolCall.id
 			})
 			toolCallbacks.setToolStatus(toolCall.id, {
-				isLoading: false
+				isLoading: false,
+				isStreamingArguments: false
 			})
 		} catch (err) {
 			console.error(err)
 			toolCallbacks.setToolStatus(toolCall.id, {
 				isLoading: false,
+				isStreamingArguments: false,
 				error: 'An error occurred while calling the tool'
 			})
 			const errorMessage =
@@ -678,6 +686,7 @@ export interface Tool<T> {
 	requiresConfirmation?: boolean
 	confirmationMessage?: string
 	showDetails?: boolean
+	autoCollapseDetails?: boolean
 	streamArguments?: boolean
 	showFade?: boolean
 }

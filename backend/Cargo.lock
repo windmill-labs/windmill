@@ -15667,6 +15667,7 @@ dependencies = [
  "regex",
  "reqwest 0.13.1",
  "reqwest-middleware",
+ "rsa",
  "rust_decimal",
  "serde",
  "serde_json",

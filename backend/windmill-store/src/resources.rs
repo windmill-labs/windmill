@@ -2634,12 +2634,14 @@ mod tests {
     // Regression test for WIN-1957: two resources whose values reference each
     // other via `$res:` must NOT recurse forever (stack overflow / process
     // crash). With the depth guard the resolution terminates with an error.
-    #[tokio::test]
-    async fn test_transform_json_value_mutual_resource_recursion_terminates() {
-        let db_url = std::env::var("DATABASE_URL")
-            .unwrap_or("postgres://postgres:changeme@localhost:5432/windmill".to_string());
-        let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
-
+    //
+    // This test needs the real `workspace`/`resource` schema, so it uses
+    // `#[sqlx::test]` which provisions a migrated ephemeral database per test
+    // (the bare `DATABASE_URL` database in CI has no migrations applied, which
+    // previously made the workspace INSERT panic with `relation "workspace"
+    // does not exist` — WIN-1958).
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_transform_json_value_mutual_resource_recursion_terminates(pool: DB) {
         let w_id = format!("dostest{}", Uuid::new_v4().simple());
 
         sqlx::query("INSERT INTO workspace (id, name, owner) VALUES ($1, $1, 'test@windmill.dev')")
@@ -2671,16 +2673,8 @@ mod tests {
         )
         .await;
 
-        // Clean up before asserting so a failed assertion doesn't leave rows.
-        let _ = sqlx::query("DELETE FROM resource WHERE workspace_id = $1")
-            .bind(&w_id)
-            .execute(&pool)
-            .await;
-        let _ = sqlx::query("DELETE FROM workspace WHERE id = $1")
-            .bind(&w_id)
-            .execute(&pool)
-            .await;
-
+        // The ephemeral test database is dropped automatically, so no manual
+        // row cleanup is required.
         let err = result.expect_err("mutually recursive resources should error, not crash");
         assert!(
             err.to_string().contains("interpolation depth"),

@@ -77,16 +77,22 @@ export function kindLabel(kind: string): string {
 
 export function itemHref(kind: string, path: string): string | undefined {
 	switch (kind) {
+		case 'script':
 		case 'scripts':
 			return `/scripts/get/${path}`
+		case 'flow':
 		case 'flows':
 			return `/flows/get/${path}`
+		case 'app':
 		case 'apps':
 			return `/apps/get/${path}`
+		case 'resource':
 		case 'resources':
 			return `/resources#/resource/${path}`
+		case 'variable':
 		case 'variables':
 			return `/variables#${path}`
+		case 'schedule':
 		case 'schedules':
 			return `/schedules#${path}`
 		default: {

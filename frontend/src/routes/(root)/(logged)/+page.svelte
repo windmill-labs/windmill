@@ -43,6 +43,8 @@
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 	import TutorialBanner from '$lib/components/home/TutorialBanner.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
+	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
+	import { z } from 'zod'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -54,7 +56,9 @@
 
 	let subtab: 'flow' | 'script' | 'app' = $state('script')
 
-	let filter: string = $state('')
+	const searchParams = useSearchParams(z.object({ search: z.string().nullable() }))
+	const getFilter = () => searchParams.search ?? ''
+	const setFilter = (v: string) => (searchParams.search = v === '' ? null : v)
 
 	let flowViewer: Drawer | undefined = $state(undefined)
 	let flowViewerFlow: { flow?: OpenFlow & { id?: number } } | undefined = $state(undefined)
@@ -371,19 +375,31 @@
 					{/snippet}
 
 					{#if subtab == 'script'}
-						<PickHubScript syncQuery bind:filter on:pick={(e) => viewCode(e.detail)}>
+						<PickHubScript
+							syncQuery
+							bind:filter={getFilter, setFilter}
+							on:pick={(e) => viewCode(e.detail)}
+						>
 							{#snippet children()}
 								{@render toggleKinds?.()}
 							{/snippet}
 						</PickHubScript>
 					{:else if subtab == 'flow'}
-						<PickHubFlow syncQuery bind:filter on:pick={(e) => viewFlow(e.detail)}>
+						<PickHubFlow
+							syncQuery
+							bind:filter={getFilter, setFilter}
+							on:pick={(e) => viewFlow(e.detail)}
+						>
 							{#snippet children()}
 								{@render toggleKinds?.()}
 							{/snippet}
 						</PickHubFlow>
 					{:else if subtab == 'app'}
-						<PickHubApp syncQuery bind:filter on:pick={(e) => viewApp(e.detail)}>
+						<PickHubApp
+							syncQuery
+							bind:filter={getFilter, setFilter}
+							on:pick={(e) => viewApp(e.detail)}
+						>
 							{#snippet children()}
 								{@render toggleKinds?.()}
 							{/snippet}
@@ -395,7 +411,7 @@
 	</div>
 
 	{#if tab == 'workspace'}
-		<ItemsList bind:filter bind:subtab showEditButtons={showCreateButtons} />
+		<ItemsList bind:filter={getFilter, setFilter} bind:subtab showEditButtons={showCreateButtons} />
 	{/if}
 </div>
 

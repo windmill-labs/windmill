@@ -31,6 +31,7 @@ use windmill_common::{
         self,
         Error::{self},
     },
+    jobs::JobKind,
     scripts::ScriptLang,
     utils::calculate_hash,
     worker::{
@@ -119,6 +120,18 @@ const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
 pub const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 
+/// Render loader.py with the TEMP_SCRIPT_REFS placeholder substituted by a
+/// Python dict literal. Preview jobs pass a path -> temp-hash map so relative
+/// imports resolve from not-yet-deployed local content; deployed runs pass
+/// `None` which renders an empty dict (deployed resolution unchanged).
+fn render_relative_python_loader(temp_script_refs: &Option<HashMap<String, String>>) -> String {
+    let temp_refs_py = temp_script_refs
+        .as_ref()
+        .and_then(|m| serde_json::to_string(m).ok())
+        .unwrap_or_else(|| "{}".to_string());
+    RELATIVE_PYTHON_LOADER.replace("TEMP_SCRIPT_REFS_PLACEHOLDER", &temp_refs_py)
+}
+
 #[cfg(any(feature = "private", test))]
 pub fn has_relative_imports(content: &str) -> bool {
     RELATIVE_IMPORT_REGEX.is_match(content)
@@ -133,8 +146,8 @@ use windmill_object_store::OBJECT_STORE_SETTINGS;
 use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables, read_file,
-        read_result, resolve_nsjail_timeout, start_child_process, OccupancyMetrics, StreamNotifier,
-        DEV_CONF_NSJAIL,
+        read_result, resolve_nsjail_timeout, resolve_nsjail_tmpfs_size_bytes, start_child_process,
+        OccupancyMetrics, StreamNotifier, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
@@ -643,6 +656,21 @@ pub async fn handle_python_job(
         ));
     }
 
+    // Preview jobs may carry _TEMP_SCRIPT_REFS so relative imports resolve from
+    // not-yet-deployed local content uploaded to raw_script_temp. Gated on
+    // JobKind::Preview because job.args includes caller-controlled request
+    // args; honoring this key on deployed runs would let a caller swap import
+    // resolution targets in deployed code.
+    let temp_script_refs: Option<HashMap<String, String>> = if matches!(job.kind, JobKind::Preview)
+    {
+        job.args
+            .as_ref()
+            .and_then(|x| x.get("_TEMP_SCRIPT_REFS"))
+            .and_then(|v| serde_json::from_str(v.get()).ok())
+    } else {
+        None
+    };
+
     let (py_version, mut additional_python_paths) = handle_python_deps(
         job_dir,
         requirements_o,
@@ -658,6 +686,7 @@ pub async fn handle_python_job(
         &mut Some(occupancy_metrics),
         precomputed_agent_info,
         annotations.clone(),
+        &temp_script_refs,
     )
     .await?;
 
@@ -709,6 +738,7 @@ pub async fn handle_python_job(
         job.script_entrypoint_override.as_deref(),
         inner_content,
         &script_path,
+        &temp_script_refs,
     )
     .await?;
 
@@ -993,6 +1023,10 @@ mount {{
                 )
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace(
+                    "{NSJAIL_TMPFS_SIZE}",
+                    &resolve_nsjail_tmpfs_size_bytes().await,
+                )
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
     } else {
@@ -1532,6 +1566,7 @@ async fn prepare_wrapper(
     job_script_entrypoint_override: Option<&str>,
     inner_content: &str,
     script_path: &str,
+    temp_script_refs: &Option<HashMap<String, String>>,
 ) -> error::Result<(
     &'static str,
     &'static str,
@@ -1571,7 +1606,11 @@ async fn prepare_wrapper(
 
     let _ = write_file(&module_dir, &format!("{last}.py"), inner_content)?;
     if relative_imports {
-        let _ = write_file(job_dir, "loader.py", RELATIVE_PYTHON_LOADER)?;
+        let _ = write_file(
+            job_dir,
+            "loader.py",
+            &render_relative_python_loader(temp_script_refs),
+        )?;
     }
 
     let sig = windmill_parser_py::parse_python_signature(
@@ -1768,6 +1807,7 @@ pub(crate) async fn handle_python_deps(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     annotations: PythonAnnotations,
+    temp_script_refs: &Option<HashMap<String, String>>,
 ) -> error::Result<(PyV, Vec<String>)> {
     create_dependencies_dir(job_dir).await;
 
@@ -1796,7 +1836,7 @@ pub(crate) async fn handle_python_deps(
                         &mut version_specifiers,
                         &mut locked_v,
                         &None,
-                        &None, // temp_script_refs: only used during CLI lock generation
+                        temp_script_refs,
                     ))
                     .await?;
 
@@ -2007,6 +2047,10 @@ async fn spawn_uv_install(
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace(
+                    "{NSJAIL_TMPFS_SIZE}",
+                    &resolve_nsjail_tmpfs_size_bytes().await,
+                )
                 .as_str(),
         )?;
 
@@ -3042,7 +3086,8 @@ pub async fn start_worker(
 
     let any_relative_imports = RELATIVE_IMPORT_REGEX.is_match(inner_content);
     if any_relative_imports {
-        let _ = write_file(job_dir, "loader.py", RELATIVE_PYTHON_LOADER)?;
+        // Dedicated worker runs deployed scripts only — no temp refs.
+        let _ = write_file(job_dir, "loader.py", &render_relative_python_loader(&None))?;
     }
 
     let mut mem_peak: i32 = 0;
@@ -3087,6 +3132,7 @@ pub async fn start_worker(
         &mut None,
         None,
         annotations,
+        &None, // dedicated worker runs deployed scripts only
     )
     .await?;
 
