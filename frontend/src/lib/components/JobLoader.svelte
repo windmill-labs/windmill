@@ -144,9 +144,20 @@
 		return existing.length === 0 ? incoming : existing.concat(incoming)
 	}
 
-	function pickMoreCompleteLogs(primaryLogs: string | undefined, fallbackLogs: string | undefined): string {
+	function pickMoreCompleteLogs(
+		primaryLogs: string | undefined,
+		fallbackLogs: string | undefined
+	): string {
 		const primary = getResolvedLogs(primaryLogs)
 		const fallback = getResolvedLogs(fallbackLogs)
+		// When neither side has real logs but one was the skipped sentinel, keep
+		// the sentinel so downstream consumers can still lazily resolve logs
+		// instead of treating the job as having genuinely produced none.
+		if (primary.length === 0 && fallback.length === 0) {
+			return isSkippedLogsValue(primaryLogs) || isSkippedLogsValue(fallbackLogs)
+				? WM_LOGS_SKIPPED
+				: ''
+		}
 		return primary.length >= fallback.length ? primary : fallback
 	}
 
@@ -473,7 +484,7 @@
 		if (previewJobUpdates.new_logs) {
 			job.logs =
 				logOffset == 0
-					? previewJobUpdates.new_logs ?? ''
+					? (previewJobUpdates.new_logs ?? '')
 					: mergeLogs(job?.logs, previewJobUpdates.new_logs)
 		}
 
