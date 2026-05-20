@@ -13,6 +13,7 @@
 	// import { addWmillClient } from './utils'
 	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { genWmillTs, type Runnable } from './utils'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import RawAppSidebar from './RawAppSidebar.svelte'
@@ -62,6 +63,14 @@
 			  }
 			| undefined
 		diffDrawer?: DiffDrawer | undefined
+		/** Initial collapsed state for the file/runnable sidebar. The user's
+		 * toggled preference is persisted under `sidebarStorageKey`; this prop
+		 * only seeds the very first open. */
+		defaultSidebarCollapsed?: boolean
+		/** localStorage key for the persisted sidebar state. Pass a different
+		 * key when the editor is rendered in a context that wants its own
+		 * preference. */
+		sidebarStorageKey?: string
 	}
 
 	let {
@@ -74,7 +83,9 @@
 		path,
 		newPath = undefined,
 		savedApp = $bindable(undefined),
-		diffDrawer = undefined
+		diffDrawer = undefined,
+		defaultSidebarCollapsed = false,
+		sidebarStorageKey = 'raw-app-sidebar-collapsed'
 	}: Props = $props()
 	export const version: number | undefined = undefined
 
@@ -192,6 +203,16 @@
 	let yamlEditorDrawer: Drawer | undefined = $state(undefined)
 
 	let sidebarPanelSize = $state(15)
+
+	// Persisted across opens. Seeded with `defaultSidebarCollapsed` only when
+	// localStorage has no entry yet — callers (like the session preview pane)
+	// can default the initial state without overriding a user who has already
+	// expressed a preference.
+	const sidebarCollapsed = useLocalStorageValue(
+		sidebarStorageKey,
+		defaultSidebarCollapsed,
+		'boolean'
+	)
 
 	function handleYamlApply(update: RawAppYamlUpdate) {
 		if (update.summary !== undefined) {
@@ -890,10 +911,26 @@
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
+		// Skip when typing in an input, textarea, or Monaco editor.
+		const classes = (e.target as HTMLElement | null)?.className
+		if (
+			(typeof classes === 'string' && classes.includes('inputarea')) ||
+			['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName ?? '')
+		) {
+			return
+		}
+
 		// Ctrl/Cmd + Shift + H for manual snapshot
 		if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'H') {
 			e.preventDefault()
 			historyManager.manualSnapshot(files ?? {}, runnables, summary, data)
+			return
+		}
+
+		// Ctrl/Cmd + B toggles the file sidebar
+		if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'b') {
+			e.preventDefault()
+			sidebarCollapsed.val = !sidebarCollapsed.val
 		}
 	}
 </script>
@@ -932,6 +969,8 @@
 		onUndo={handleUndo}
 		onRedo={handleRedo}
 		onOpenYamlEditor={() => yamlEditorDrawer?.openDrawer()}
+		sidebarCollapsed={sidebarCollapsed.val}
+		onToggleSidebar={() => (sidebarCollapsed.val = !sidebarCollapsed.val)}
 	/>
 
 	<RawAppYamlEditor
@@ -944,57 +983,59 @@
 	/>
 
 	<Splitpanes id="o2" class="grow min-h-0 border-t">
-		<Pane bind:size={sidebarPanelSize} maxSize={20} class="h-full overflow-y-auto">
-			<RawAppSidebar
-				bind:files={
-					() => files,
-					(newFiles) => {
-						files = newFiles
-						setFilesInIframe(newFiles ?? {})
+		{#if !sidebarCollapsed.val}
+			<Pane bind:size={sidebarPanelSize} maxSize={20} class="h-full overflow-y-auto relative">
+				<RawAppSidebar
+					bind:files={
+						() => files,
+						(newFiles) => {
+							files = newFiles
+							setFilesInIframe(newFiles ?? {})
+						}
 					}
-				}
-				onSelectFile={handleSelectFile}
-				bind:selectedRunnable
-				bind:selectedDocument
-				dataTableRefs={dataTableRefsObjects}
-				onDataTableRefsChange={(newRefs) => {
-					data.tables = newRefs.map(formatDataTableRef)
-					saveFrontendDraft()
-				}}
-				defaultDatatable={data.datatable}
-				defaultSchema={data.schema}
-				onDefaultChange={(datatable, schema) => {
-					data.datatable = datatable
-					data.schema = schema
-					// Also sync to aiChatManager
-					aiChatManager.datatableCreationPolicy = {
-						...aiChatManager.datatableCreationPolicy,
-						datatable,
-						schema
-					}
-					saveFrontendDraft()
-				}}
-				{runnables}
-				{modules}
-				{historyManager}
-				historySelectedId={historyManager.selectedEntryId}
-				onHistorySelect={handleHistorySelect}
-				onHistorySelectCurrent={() => {
-					// Restore the temporary current state if it exists
-					const tempState = historyManager.getAndClearTemporaryState()
-					if (tempState) {
-						applyEntry(tempState)
-					}
-					// Clear selection to indicate we're at current state
-					historyManager.clearSelection()
-				}}
-				onManualSnapshot={() => {
-					historyManager.manualSnapshot(files ?? {}, runnables, summary, data, true)
-				}}
-			></RawAppSidebar>
-		</Pane>
+					onSelectFile={handleSelectFile}
+					bind:selectedRunnable
+					bind:selectedDocument
+					dataTableRefs={dataTableRefsObjects}
+					onDataTableRefsChange={(newRefs) => {
+						data.tables = newRefs.map(formatDataTableRef)
+						saveFrontendDraft()
+					}}
+					defaultDatatable={data.datatable}
+					defaultSchema={data.schema}
+					onDefaultChange={(datatable, schema) => {
+						data.datatable = datatable
+						data.schema = schema
+						// Also sync to aiChatManager
+						aiChatManager.datatableCreationPolicy = {
+							...aiChatManager.datatableCreationPolicy,
+							datatable,
+							schema
+						}
+						saveFrontendDraft()
+					}}
+					{runnables}
+					{modules}
+					{historyManager}
+					historySelectedId={historyManager.selectedEntryId}
+					onHistorySelect={handleHistorySelect}
+					onHistorySelectCurrent={() => {
+						// Restore the temporary current state if it exists
+						const tempState = historyManager.getAndClearTemporaryState()
+						if (tempState) {
+							applyEntry(tempState)
+						}
+						// Clear selection to indicate we're at current state
+						historyManager.clearSelection()
+					}}
+					onManualSnapshot={() => {
+						historyManager.manualSnapshot(files ?? {}, runnables, summary, data, true)
+					}}
+				></RawAppSidebar>
+			</Pane>
+		{/if}
 		<Pane>
-			<div class="h-full w-full">
+			<div class="h-full w-full relative">
 				<iframe
 					bind:this={iframe}
 					title="UI builder"

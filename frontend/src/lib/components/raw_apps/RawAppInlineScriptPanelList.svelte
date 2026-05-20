@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { Plus, File, AlertCircle, AlertTriangle } from 'lucide-svelte'
-	import PanelSection from '../apps/editor/settingsPanel/common/PanelSection.svelte'
+	import PanelSection, {
+		SUBTLE_PANEL_TITLE
+	} from '../apps/editor/settingsPanel/common/PanelSection.svelte'
 	import Popover from '../Popover.svelte'
 
 	import type { Runnable } from '../apps/inputType'
@@ -89,7 +91,13 @@
 	}
 </script>
 
-<PanelSection size="sm" fullHeight={false} title="backend" id="app-editor-runnable-panel">
+<PanelSection
+	size="sm"
+	fullHeight={false}
+	title="backend"
+	titleClass={SUBTLE_PANEL_TITLE}
+	id="app-editor-runnable-panel"
+>
 	{#snippet action()}
 		<div class="flex flex-row gap-1">
 			<Button

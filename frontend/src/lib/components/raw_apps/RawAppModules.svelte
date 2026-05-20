@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { Loader2 } from 'lucide-svelte'
-	import PanelSection from '../apps/editor/settingsPanel/common/PanelSection.svelte'
+	import PanelSection, {
+		SUBTLE_PANEL_TITLE
+	} from '../apps/editor/settingsPanel/common/PanelSection.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 
 	export type Modules = {
@@ -42,6 +44,7 @@
 	collapsible
 	initiallyCollapsed
 	titlePadding="!text-tertiary"
+	titleClass={SUBTLE_PANEL_TITLE}
 	fullHeight={false}
 	title="packages ({Object.keys(props.modules?.installed ?? {}).length})"
 	id="app-editor-frontend-panel-modules"
