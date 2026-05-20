@@ -14,7 +14,6 @@
 	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
-	import { PanelLeft, PanelLeftClose } from 'lucide-svelte'
 	import { genWmillTs, type Runnable } from './utils'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import RawAppSidebar from './RawAppSidebar.svelte'
@@ -912,10 +911,26 @@
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
+		// Skip when typing in an input, textarea, or Monaco editor.
+		const classes = (e.target as HTMLElement | null)?.className
+		if (
+			(typeof classes === 'string' && classes.includes('inputarea')) ||
+			['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName ?? '')
+		) {
+			return
+		}
+
 		// Ctrl/Cmd + Shift + H for manual snapshot
 		if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'H') {
 			e.preventDefault()
 			historyManager.manualSnapshot(files ?? {}, runnables, summary, data)
+			return
+		}
+
+		// Ctrl/Cmd + B toggles the file sidebar
+		if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'b') {
+			e.preventDefault()
+			sidebarCollapsed.val = !sidebarCollapsed.val
 		}
 	}
 </script>
@@ -954,6 +969,8 @@
 		onUndo={handleUndo}
 		onRedo={handleRedo}
 		onOpenYamlEditor={() => yamlEditorDrawer?.openDrawer()}
+		sidebarCollapsed={sidebarCollapsed.val}
+		onToggleSidebar={() => (sidebarCollapsed.val = !sidebarCollapsed.val)}
 	/>
 
 	<RawAppYamlEditor
@@ -968,14 +985,6 @@
 	<Splitpanes id="o2" class="grow min-h-0 border-t">
 		{#if !sidebarCollapsed.val}
 			<Pane bind:size={sidebarPanelSize} maxSize={20} class="h-full overflow-y-auto relative">
-				<button
-					type="button"
-					class="absolute top-1 right-1 z-10 p-1 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
-					title="Collapse file sidebar"
-					onclick={() => (sidebarCollapsed.val = true)}
-				>
-					<PanelLeftClose size={14} />
-				</button>
 				<RawAppSidebar
 					bind:files={
 						() => files,
@@ -1027,16 +1036,6 @@
 		{/if}
 		<Pane>
 			<div class="h-full w-full relative">
-				{#if sidebarCollapsed.val}
-					<button
-						type="button"
-						class="absolute top-1 left-1 z-10 p-1 rounded text-tertiary hover:bg-surface-hover hover:text-primary bg-surface/80 backdrop-blur"
-						title="Expand file sidebar"
-						onclick={() => (sidebarCollapsed.val = false)}
-					>
-						<PanelLeft size={14} />
-					</button>
-				{/if}
 				<iframe
 					bind:this={iframe}
 					title="UI builder"

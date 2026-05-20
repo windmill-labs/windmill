@@ -16,6 +16,8 @@
 		FileJson,
 		Globe,
 		History,
+		PanelLeft,
+		PanelLeftClose,
 		Redo,
 		Save,
 		Undo,
@@ -114,6 +116,8 @@
 		onUndo?: () => void
 		onRedo?: () => void
 		onOpenYamlEditor?: () => void
+		sidebarCollapsed?: boolean
+		onToggleSidebar?: () => void
 	}
 
 	let {
@@ -135,7 +139,9 @@
 		canRedo = false,
 		onUndo = undefined,
 		onRedo = undefined,
-		onOpenYamlEditor = undefined
+		onOpenYamlEditor = undefined,
+		sidebarCollapsed = false,
+		onToggleSidebar = undefined
 	}: Props = $props()
 
 	let newEditedPath = $state(
@@ -881,6 +887,16 @@
 	class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto max-h-12 h-12 shrink-0"
 >
 	<div class="flex flex-row gap-2 items-center min-w-[200px]">
+		{#if onToggleSidebar}
+			<Button
+				unifiedSize="sm"
+				variant="subtle"
+				iconOnly
+				startIcon={{ icon: sidebarCollapsed ? PanelLeft : PanelLeftClose }}
+				title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} file sidebar (${isMac() ? '⌘' : 'Ctrl+'}B)`}
+				on:click={() => onToggleSidebar?.()}
+			/>
+		{/if}
 		<EditorHeader
 			bind:summary
 			bind:path={newEditedPath}
