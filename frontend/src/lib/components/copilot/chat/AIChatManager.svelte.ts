@@ -95,7 +95,7 @@ function isWorkspacePath(path: string | undefined): path is string {
 	return path?.startsWith('f/') === true || path?.startsWith('u/') === true
 }
 
-class AIChatManager {
+export class AIChatManager {
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
 	abortController: AbortController | undefined = undefined
@@ -142,6 +142,7 @@ class AIChatManager {
 	cachedDatatables = $state<AppDatatableElement[]>([])
 
 	private confirmationCallback = $state<((value: boolean) => void) | undefined>(undefined)
+	private userQuestionCallbacks = new Map<string, (choice: string | undefined) => void>()
 	private appDatatablesRefreshTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
 	allowedModes: Record<AIMode, boolean> = $derived({
@@ -226,6 +227,40 @@ class AIChatManager {
 			this.confirmationCallback(confirmed)
 			this.confirmationCallback = undefined
 		}
+	}
+
+	requestUserQuestion = (
+		toolId: string,
+		_question: { question: string; choices: string[] }
+	): Promise<string | undefined> => {
+		return new Promise((resolve) => {
+			this.userQuestionCallbacks.set(toolId, resolve)
+		})
+	}
+
+	handleUserQuestionAnswer = (toolId: string, choice: string) => {
+		const callback = this.userQuestionCallbacks.get(toolId)
+		if (!callback) {
+			return
+		}
+
+		this.displayMessages = this.displayMessages.map((message) => {
+			if (message.role === 'tool' && message.tool_call_id === toolId && message.userQuestion) {
+				return {
+					...message,
+					content: `User answered question: ${choice}`,
+					isLoading: false,
+					userQuestion: {
+						...message.userQuestion,
+						selectedChoice: choice
+					}
+				}
+			}
+			return message
+		})
+
+		callback(choice)
+		this.userQuestionCallbacks.delete(toolId)
 	}
 
 	setAiChatInput(aiChatInput: AIChatInput | null) {
@@ -538,7 +573,7 @@ class AIChatManager {
 					} else if (this.mode === AIMode.NAVIGATOR) {
 						return prepareNavigatorUserMessage(pendingPrompt)
 					} else if (this.mode === AIMode.GLOBAL) {
-						return prepareGlobalUserMessage(pendingPrompt)
+						return prepareGlobalUserMessage(pendingPrompt, this.contextManager.getSelectedContext())
 					}
 					return undefined
 				},
@@ -715,7 +750,7 @@ class AIChatManager {
 					role: 'user',
 					content: this.instructions,
 					contextElements:
-						this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW
+						this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW || this.mode === AIMode.GLOBAL
 							? oldSelectedContext
 							: undefined,
 					snapshot,
@@ -755,7 +790,7 @@ class AIChatManager {
 					userMessage = prepareApiUserMessage(oldInstructions)
 					break
 				case AIMode.GLOBAL:
-					userMessage = prepareGlobalUserMessage(oldInstructions)
+					userMessage = prepareGlobalUserMessage(oldInstructions, oldSelectedContext)
 					break
 				case AIMode.APP:
 					userMessage = prepareAppUserMessage(
@@ -838,7 +873,8 @@ class AIChatManager {
 							this.displayMessages = [...this.displayMessages]
 						}
 					},
-					requestConfirmation: this.requestConfirmation
+					requestConfirmation: this.requestConfirmation,
+					requestUserQuestion: this.requestUserQuestion
 				}
 			}
 
@@ -869,6 +905,10 @@ class AIChatManager {
 			this.confirmationCallback(false)
 			this.confirmationCallback = undefined
 		}
+		for (const resolveQuestion of this.userQuestionCallbacks.values()) {
+			resolveQuestion(undefined)
+		}
+		this.userQuestionCallbacks.clear()
 		const cancelReason = reason ?? 'user_cancelled'
 		console.log('cancelling request:', {
 			reason: cancelReason,
@@ -961,6 +1001,10 @@ class AIChatManager {
 		this.#automaticScroll = false
 	}
 
+	enableAutomaticScroll = () => {
+		this.#automaticScroll = true
+	}
+
 	generateStep = async (moduleId: string, lang: ScriptLang, instructions: string) => {
 		if (!this.flowAiChatHelpers) {
 			throw new Error('No flow helpers found')
@@ -993,6 +1037,11 @@ class AIChatManager {
 				dbSchemas,
 				workspaceStore ?? '',
 				!copilotSessionModel?.model.endsWith('/thinking'),
+				untrack(() => this.contextManager.getSelectedContext())
+			)
+		} else if (this.mode === AIMode.GLOBAL) {
+			this.contextManager.updateAvailableContextForGlobal(
+				workspaceStore ?? '',
 				untrack(() => this.contextManager.getSelectedContext())
 			)
 		}
@@ -1207,7 +1256,10 @@ class AIChatManager {
 					...message,
 					isLoading: false,
 					content: messageText,
-					error: messageText
+					error: messageText,
+					userQuestion: message.userQuestion
+						? { ...message.userQuestion, canceled: true }
+						: undefined
 				}
 			}
 			return message

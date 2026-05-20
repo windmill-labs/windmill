@@ -120,7 +120,6 @@
 	loadPastChat={(id) => {
 		aiChatManager.loadPastChat(id)
 	}}
-	cancel={aiChatManager.cancel}
 	askAi={aiChatManager.askAi}
 	{headerLeft}
 	hasDiff={aiChatManager.scriptEditorOptions &&
