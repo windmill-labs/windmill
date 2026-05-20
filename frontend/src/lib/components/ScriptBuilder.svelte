@@ -177,18 +177,6 @@
 				shortcut: `${mod}S`,
 				disabled: initialPath != '' && !savedScript
 			},
-			...(customUi?.topBar?.settings != false
-				? [
-						{
-							displayName: 'Script settings',
-							icon: Settings,
-							action: () => {
-								selectedTab = 'metadata'
-								metadataOpen = true
-							}
-						}
-					]
-				: []),
 			...(customUi?.topBar?.tagEdit != false && hasTags
 				? [
 						{
@@ -2028,6 +2016,22 @@
 				<!-- Separator -->
 				<div class="flex-1"></div>
 
+				{#snippet settingsButton()}
+					{#if customUi?.topBar?.settings != false}
+						<Button
+							aiId="script-builder-settings"
+							aiDescription="Script builder settings to configure metadata, runtime, triggers, and generated UI."
+							variant="default"
+							unifiedSize="md"
+							on:click={() => (metadataOpen = true)}
+							startIcon={{ icon: Settings }}
+							iconOnly={compactTopbar}
+							title="Settings"
+						>
+							<span> Settings </span>
+						</Button>
+					{/if}
+				{/snippet}
 				{#if compactTopbar}
 					<DropdownV2 items={getCompactMenuItems} placement="bottom-end">
 						{#snippet buttonReplacement()}
@@ -2041,6 +2045,7 @@
 							/>
 						{/snippet}
 					</DropdownV2>
+					{@render settingsButton()}
 				{:else}
 					{#if customUi?.topBar?.tagEdit != false}
 						{#if $workerTags}
@@ -2055,18 +2060,7 @@
 							{/if}
 						{/if}
 					{/if}
-					{#if customUi?.topBar?.settings != false}
-						<Button
-							aiId="script-builder-settings"
-							aiDescription="Script builder settings to configure metadata, runtime, triggers, and generated UI."
-							variant="default"
-							unifiedSize="md"
-							on:click={() => (metadataOpen = true)}
-							startIcon={{ icon: Settings }}
-						>
-							<span> Settings </span>
-						</Button>
-					{/if}
+					{@render settingsButton()}
 					<Button
 						loading={loadingDraft}
 						unifiedSize="md"

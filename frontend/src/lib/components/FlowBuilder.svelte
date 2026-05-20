@@ -915,16 +915,6 @@
 									disabled: (!newFlow && !savedFlow) || loading
 								}
 							]
-						: []),
-					...(customUi?.topBar?.diff !== false
-						? [
-								{
-									displayName: 'Diff',
-									icon: DiffIcon,
-									action: () => openDiffDrawer(),
-									disabled: !savedFlow
-								}
-							]
 						: [])
 				]
 			: []
@@ -1235,35 +1225,14 @@
 							></span>
 						{/if}
 					</div>
-					{#if customUi?.topBar?.diff != false && !compactTopbar}
+					{#if customUi?.topBar?.diff != false}
 						<Button
 							variant="default"
 							unifiedSize="md"
-							on:click={async () => {
-								if (!savedFlow) {
-									return
-								}
-
-								await syncWithDeployed()
-
-								const currentDraftTriggers = structuredClone(
-									triggersState.getDraftTriggersSnapshot()
-								)
-
-								diffDrawer?.openDrawer()
-								const currentFlow = flowStore.val
-								diffDrawer?.setDiff({
-									mode: 'normal',
-									deployed: deployedValue ?? savedFlow,
-									draft: savedFlow?.draft,
-									current: {
-										...currentFlow,
-										path: $pathStore,
-										draft_triggers: currentDraftTriggers
-									}
-								})
-							}}
+							on:click={() => openDiffDrawer()}
 							disabled={!savedFlow}
+							iconOnly={compactTopbar}
+							title="Diff"
 							startIcon={{ icon: DiffIcon }}
 						>
 							Diff
