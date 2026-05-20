@@ -43,6 +43,7 @@ import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
 import { get } from 'svelte/store'
+import { BROWSER } from 'esm-env'
 import { workspaceStore, type DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
@@ -66,6 +67,7 @@ import { isGlobalAiEnabled } from './global/gate'
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
 const MAX_TOKENS_HARD_LIMIT = 5000
+const AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY = 'ai-chat-yolo-mode'
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -78,9 +80,19 @@ export enum AIMode {
 }
 
 const ALL_AI_MODES = Object.values(AIMode)
+const AUTO_ACCEPT_TOOL_CONFIRMATION_MODES = new Set<AIMode>([
+	AIMode.SCRIPT,
+	AIMode.FLOW,
+	AIMode.APP,
+	AIMode.GLOBAL
+])
 
 export function isAIMode(mode: unknown): mode is AIMode {
 	return ALL_AI_MODES.includes(mode as AIMode)
+}
+
+export function supportsAutoAcceptToolConfirmations(mode: AIMode): boolean {
+	return AUTO_ACCEPT_TOOL_CONFIRMATION_MODES.has(mode)
 }
 
 export function isAIModeVisible(mode: AIMode): boolean {
@@ -93,6 +105,20 @@ export function getVisibleAIModes(): AIMode[] {
 
 function isWorkspacePath(path: string | undefined): path is string {
 	return path?.startsWith('f/') === true || path?.startsWith('u/') === true
+}
+
+function getPersistedAutoAcceptToolConfirmations(): boolean {
+	if (!BROWSER || typeof localStorage === 'undefined') {
+		return false
+	}
+	return localStorage.getItem(AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY) === 'true'
+}
+
+function persistAutoAcceptToolConfirmations(enabled: boolean) {
+	if (!BROWSER || typeof localStorage === 'undefined') {
+		return
+	}
+	localStorage.setItem(AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY, enabled ? 'true' : 'false')
 }
 
 class AIChatManager {
@@ -112,6 +138,11 @@ class AIChatManager {
 	currentReply = $state<string>('')
 	displayMessages = $state<DisplayMessage[]>([])
 	messages = $state<ChatCompletionMessageParam[]>([])
+	autoAcceptToolConfirmations = $state<boolean>(getPersistedAutoAcceptToolConfirmations())
+	autoAcceptToolConfirmationsAvailable = $derived(supportsAutoAcceptToolConfirmations(this.mode))
+	autoAcceptToolConfirmationsActive = $derived(
+		this.autoAcceptToolConfirmations && this.autoAcceptToolConfirmationsAvailable
+	)
 	#automaticScroll = $state<boolean>(true)
 	systemMessage = $state<ChatCompletionSystemMessageParam>({
 		role: 'system',
@@ -141,7 +172,7 @@ class AIChatManager {
 	/** Cached datatables for app context (fetched asynchronously) */
 	cachedDatatables = $state<AppDatatableElement[]>([])
 
-	private confirmationCallback = $state<((value: boolean) => void) | undefined>(undefined)
+	private confirmationCallbacks = new Map<string, (value: boolean) => void>()
 	private userQuestionCallbacks = new Map<string, (choice: string | undefined) => void>()
 	private appDatatablesRefreshTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
@@ -215,17 +246,33 @@ class AIChatManager {
 
 	// Request confirmation from user for a tool call
 	requestConfirmation = (toolId: string): Promise<boolean> => {
+		if (this.autoAcceptToolConfirmationsActive) {
+			return Promise.resolve(true)
+		}
+
 		return new Promise((resolve) => {
-			// Store the callback for this specific tool
-			this.confirmationCallback = resolve
+			this.confirmationCallbacks.set(toolId, resolve)
 		})
 	}
 
 	// Handle confirmation response for a specific tool
 	handleToolConfirmation = (toolId: string, confirmed: boolean) => {
-		if (this.confirmationCallback) {
-			this.confirmationCallback(confirmed)
-			this.confirmationCallback = undefined
+		const confirmationCallback = this.confirmationCallbacks.get(toolId)
+		if (confirmationCallback) {
+			confirmationCallback(confirmed)
+			this.confirmationCallbacks.delete(toolId)
+		}
+	}
+
+	setAutoAcceptToolConfirmations = (enabled: boolean) => {
+		this.autoAcceptToolConfirmations = enabled
+		persistAutoAcceptToolConfirmations(enabled)
+
+		if (enabled && this.autoAcceptToolConfirmationsAvailable) {
+			for (const confirmationCallback of this.confirmationCallbacks.values()) {
+				confirmationCallback(true)
+			}
+			this.confirmationCallbacks.clear()
 		}
 	}
 
@@ -874,6 +921,7 @@ class AIChatManager {
 						}
 					},
 					requestConfirmation: this.requestConfirmation,
+					shouldAutoAcceptToolConfirmations: () => this.autoAcceptToolConfirmationsActive,
 					requestUserQuestion: this.requestUserQuestion
 				}
 			}
@@ -901,10 +949,10 @@ class AIChatManager {
 	}
 
 	cancel = (reason?: string) => {
-		if (this.confirmationCallback) {
-			this.confirmationCallback(false)
-			this.confirmationCallback = undefined
+		for (const confirmationCallback of this.confirmationCallbacks.values()) {
+			confirmationCallback(false)
 		}
+		this.confirmationCallbacks.clear()
 		for (const resolveQuestion of this.userQuestionCallbacks.values()) {
 			resolveQuestion(undefined)
 		}

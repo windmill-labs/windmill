@@ -2,6 +2,7 @@
 	import AIChatMessage from './AIChatMessage.svelte'
 	import { type Snippet } from 'svelte'
 	import {
+		AlertTriangle,
 		CheckIcon,
 		HistoryIcon,
 		Loader2,
@@ -20,11 +21,15 @@
 	import ProviderModelSelector from './ProviderModelSelector.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 	import AIChatInput from './AIChatInput.svelte'
 	import { getModifierKey } from '$lib/utils'
 	import type { SelectedContext } from './app/core'
+
+	const MAX_YOLO_TOOLTIP_TOOLS = 8
 
 	let {
 		messages,
@@ -107,6 +112,24 @@
 		}
 		return aiChatManager.appAiChatHelpers.getSelectedContext()
 	})
+
+	const yoloBypassedTools = $derived.by(() => {
+		return aiChatManager.tools
+			.filter((tool) => tool.requiresConfirmation === true)
+			.map((tool) => ({
+				name: tool.def.function.name,
+				label: tool.confirmationMessage ?? tool.def.function.name
+			}))
+	})
+	const visibleYoloBypassedTools = $derived(yoloBypassedTools.slice(0, MAX_YOLO_TOOLTIP_TOOLS))
+	const hiddenYoloBypassedToolCount = $derived(
+		Math.max(0, yoloBypassedTools.length - visibleYoloBypassedTools.length)
+	)
+	const showFooterLeftControls = $derived(
+		!disabled &&
+			(aiChatManager.autoAcceptToolConfirmationsAvailable ||
+				(aiChatManager.mode === AIMode.SCRIPT && hasDiff))
+	)
 </script>
 
 <div class="flex flex-col h-full">
@@ -120,58 +143,54 @@
 		<div class="flex flex-row items-center gap-2">
 			<Popover>
 				{#snippet trigger()}
-							
-						<Button
-							on:click={() => {}}
-							title="History"
-							size="md"
-							btnClasses="!p-1"
-							startIcon={{ icon: HistoryIcon }}
-							iconOnly
-							variant="border"
-							color="light"
-							propagateEvent
-						/>
-					
-							{/snippet}
+					<Button
+						on:click={() => {}}
+						title="History"
+						size="md"
+						btnClasses="!p-1"
+						startIcon={{ icon: HistoryIcon }}
+						iconOnly
+						variant="border"
+						color="light"
+						propagateEvent
+					/>
+				{/snippet}
 				{#snippet content({ close })}
-							
-						<div class="p-1 overflow-y-auto max-h-[300px]">
-							{#if pastChats.length === 0}
-								<div class="text-center text-primary text-xs">No history</div>
-							{:else}
-								<div class="flex flex-col">
-									{#each pastChats as chat (chat.id)}
-										<button
-											class="text-left flex flex-row items-center gap-2 justify-between hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md p-1"
-											onclick={() => {
-												loadPastChat(chat.id)
-												close()
-											}}
+					<div class="p-1 overflow-y-auto max-h-[300px]">
+						{#if pastChats.length === 0}
+							<div class="text-center text-primary text-xs">No history</div>
+						{:else}
+							<div class="flex flex-col">
+								{#each pastChats as chat (chat.id)}
+									<button
+										class="text-left flex flex-row items-center gap-2 justify-between hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md p-1"
+										onclick={() => {
+											loadPastChat(chat.id)
+											close()
+										}}
+									>
+										<div
+											class="text-xs font-medium w-48 text-ellipsis overflow-hidden whitespace-nowrap flex-1"
+											title={chat.title}
 										>
-											<div
-												class="text-xs font-medium w-48 text-ellipsis overflow-hidden whitespace-nowrap flex-1"
-												title={chat.title}
-											>
-												{chat.title}
-											</div>
-											<Button
-												iconOnly
-												size="xs2"
-												btnClasses="!p-1"
-												variant="default"
-												startIcon={{ icon: X }}
-												on:click={() => {
-													deletePastChat(chat.id)
-												}}
-											/>
-										</button>
-									{/each}
-								</div>
-							{/if}
-						</div>
-					
-							{/snippet}
+											{chat.title}
+										</div>
+										<Button
+											iconOnly
+											size="xs2"
+											btnClasses="!p-1"
+											variant="default"
+											startIcon={{ icon: X }}
+											on:click={() => {
+												deletePastChat(chat.id)
+											}}
+										/>
+									</button>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				{/snippet}
 			</Popover>
 			<Button
 				title="New chat"
@@ -271,13 +290,53 @@
 				{disabled}
 				isFirstMessage={messages.length === 0}
 			/>
-			<div
-				class={`flex flex-row ${
-					aiChatManager.mode === 'script' && hasDiff ? 'justify-between' : 'justify-end'
-				} items-center`}
-			>
-				{#if aiChatManager.mode === 'script' && hasDiff}
-					<ChatQuickActions {askAi} {diffMode} />
+			<div class="flex flex-row justify-between items-center gap-2">
+				{#if showFooterLeftControls}
+					<div class="flex flex-row gap-x-2 min-w-0 flex-wrap items-center">
+						{#if aiChatManager.autoAcceptToolConfirmationsAvailable}
+							<Toggle
+								size="xs"
+								color="red"
+								checked={aiChatManager.autoAcceptToolConfirmations}
+								options={{
+									right: 'yolo',
+									title: 'Auto-accept AI tool confirmations'
+								}}
+								on:change={(e) => aiChatManager.setAutoAcceptToolConfirmations(e.detail)}
+							/>
+							<Tooltip small placement="top">
+								<AlertTriangle
+									class={aiChatManager.autoAcceptToolConfirmations
+										? 'w-3 h-3 text-red-500'
+										: 'w-3 h-3 text-secondary'}
+								/>
+								{#snippet text()}
+									<div class="max-w-64 text-xs">
+										<p class="font-semibold">Yolo auto-accepts tool confirmations.</p>
+										<p class="mt-1">
+											This can result in unwanted tools being called without another prompt.
+										</p>
+										{#if yoloBypassedTools.length > 0}
+											<p class="mt-2 font-semibold">Bypassed in current mode:</p>
+											<ul class="mt-1 list-disc pl-4 space-y-0.5">
+												{#each visibleYoloBypassedTools as tool (tool.name)}
+													<li class="break-words">{tool.label}</li>
+												{/each}
+											</ul>
+											{#if hiddenYoloBypassedToolCount > 0}
+												<p class="mt-1">+ {hiddenYoloBypassedToolCount} more</p>
+											{/if}
+										{:else}
+											<p class="mt-2">No tools in the current mode require confirmation.</p>
+										{/if}
+									</div>
+								{/snippet}
+							</Tooltip>
+						{/if}
+						{#if aiChatManager.mode === AIMode.SCRIPT && hasDiff}
+							<ChatQuickActions {askAi} {diffMode} />
+						{/if}
+					</div>
 				{/if}
 				{#if disabled}
 					<div class="text-primary text-xs my-2 px-2">
