@@ -1,5 +1,6 @@
 <script lang="ts">
 	import AppAvailableContextList from './AppAvailableContextList.svelte'
+	import AvailableContextList from './AvailableContextList.svelte'
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import ContextTextarea from './ContextTextarea.svelte'
 	import autosize from '$lib/autosize'
@@ -9,6 +10,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { tick, untrack, type Snippet } from 'svelte'
 	import Portal from '$lib/components/Portal.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import { ArrowUp, Square } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
@@ -38,6 +40,12 @@
 		loading?: boolean
 		// Called when the user clicks Stop. Defaults to `aiChatManager.cancel()`.
 		onCancel?: () => void
+		// Render an inline `@` picker button above the textarea. Off by
+		// default because the main chat surface renders its own picker in
+		// `AIChatDisplay`'s controls row; opt-in for the message-editing
+		// surface (`AIChatMessage`) which mounts `AIChatInput` standalone
+		// without surrounding controls.
+		showInlinePicker?: boolean
 	}
 
 	let {
@@ -56,7 +64,8 @@
 		bottomRightSnippet,
 		onKeyDown = undefined,
 		loading,
-		onCancel
+		onCancel,
+		showInlinePicker = false
 	}: Props = $props()
 
 	// GLOBAL-mode suggestion pool. We pick one at mount-time so each new
@@ -449,9 +458,46 @@
 	/>
 {/snippet}
 
-{#snippet contextPickerRow()}
-	{#if selectedContext.length > 0}
+{#snippet selectedContextBadges()}
+	{#if showInlinePicker || selectedContext.length > 0}
 		<div class="flex flex-row flex-wrap items-center gap-1 mb-1">
+			{#if showInlinePicker}
+				<Popover>
+					{#snippet trigger()}
+						<div
+							class="text-primary text-xs flex flex-row items-center font-normal border px-1 rounded-lg hover:bg-surface-hover bg-surface"
+							title="Add context"
+						>
+							@
+						</div>
+					{/snippet}
+					{#snippet content({ close })}
+						{#if aiChatManager.mode === AIMode.APP}
+							<AppAvailableContextList
+								{availableContext}
+								{selectedContext}
+								onSelect={(element) => {
+									void addContextToSelection(element)
+									close()
+								}}
+							/>
+						{:else}
+							<AvailableContextList
+								{availableContext}
+								{selectedContext}
+								onSelect={(element) => {
+									void addContextToSelection(element)
+									close()
+								}}
+								onSelectWorkspaceItem={(element) => {
+									void addContextToSelection(element)
+									close()
+								}}
+							/>
+						{/if}
+					{/snippet}
+				</Popover>
+			{/if}
 			{#each selectedContext as element (element.type + '-' + element.title)}
 				<ContextElementBadge
 					contextElement={element}
@@ -480,7 +526,7 @@
 >
 	{#if isContextEnabledMode}
 		{#if showContext}
-			{@render contextPickerRow()}
+			{@render selectedContextBadges()}
 		{/if}
 		<div class="relative">
 			<ContextTextarea
@@ -508,7 +554,7 @@
 		</div>
 	{:else if aiChatManager.mode === AIMode.APP}
 		{#if showContext}
-			{@render contextPickerRow()}
+			{@render selectedContextBadges()}
 		{/if}
 		<div class={twMerge('relative w-full scroll-pb-2', className)}>
 			<textarea

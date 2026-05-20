@@ -64,6 +64,7 @@
 				bind:selectedContext
 				initialInstructions={message.content}
 				{editingMessageIndex}
+				showInlinePicker
 				onClickOutside={() => (editingMessageIndex = null)}
 				onKeyDown={(e) => {
 					if (e.key === 'Escape') {

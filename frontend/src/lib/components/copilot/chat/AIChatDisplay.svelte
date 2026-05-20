@@ -330,7 +330,7 @@
 									class="inline-flex items-center gap-1.5 text-2xs text-accent"
 									aria-label="Waiting for your input"
 								>
-									<Hourglass class="w-3 h-3 hourglass-flip" />
+									<Hourglass class="w-3 h-3 ai-chat-hourglass-flip" />
 									Waiting for your input
 								</span>
 							{:else}
@@ -536,11 +536,11 @@
 	/* Hourglass flips every 4s with long rests at each upright position.
 	   `:global` because the class is applied to a child component's root
 	   (Lucide SVG) and Svelte scoped CSS otherwise wouldn't match it. */
-	:global(.hourglass-flip) {
-		animation: hourglass-flip 4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+	:global(.ai-chat-hourglass-flip) {
+		animation: ai-chat-hourglass-flip 4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
 		transform-origin: center;
 	}
-	@keyframes hourglass-flip {
+	@keyframes ai-chat-hourglass-flip {
 		0%,
 		35% {
 			transform: rotate(0deg);
