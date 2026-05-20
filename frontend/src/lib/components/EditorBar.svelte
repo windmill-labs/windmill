@@ -3,6 +3,9 @@
 	// Below this width even the icon-only helpers cluster is too crowded —
 	// collapse them into a single "Helpers" dropdown menu.
 	export const EDITOR_BAR_HELPERS_COMPACT_THRESHOLD = 800
+	// Tighter threshold for editors embedded inline in narrow panes
+	// (flow-step editor, raw-app inline script editor).
+	export const EDITOR_BAR_HELPERS_INLINE_THRESHOLD = 600
 
 	function getImportWmillTsStatement(lang: string | undefined) {
 		if (lang === 'deno') {
@@ -947,27 +950,33 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		></div>
 		<div class="flex items-center gap-2">
 			{#if compactHelpers}
+				{#snippet helpersDropdown()}
+					<DropdownV2 items={getHelperItems} placement="bottom-start">
+						{#snippet buttonReplacement()}
+							<Button
+								nonCaptureEvent
+								variant="subtle"
+								unifiedSize="sm"
+								startIcon={{ icon: Plus }}
+								title="Helpers"
+							>
+								Helpers
+							</Button>
+						{/snippet}
+					</DropdownV2>
+				{/snippet}
 				{#if showGitRepoPicker && customUi?.resource != false}
+					<!-- Wrap the Helpers dropdown so the Git-repo popover anchors to
+					     the visible Helpers button rather than an sr-only placeholder. -->
 					<GitRepoPopoverPicker
 						bind:isOpen={gitRepoPickerOpen}
 						on:selected={(e) => insertDelegateToGitRepo(e.detail.resourcePath)}
 					>
-						<span class="sr-only">Git repo anchor</span>
+						{@render helpersDropdown()}
 					</GitRepoPopoverPicker>
+				{:else}
+					{@render helpersDropdown()}
 				{/if}
-				<DropdownV2 items={getHelperItems} placement="bottom-start">
-					{#snippet buttonReplacement()}
-						<Button
-							nonCaptureEvent
-							variant="subtle"
-							unifiedSize="sm"
-							startIcon={{ icon: Plus }}
-							title="Helpers"
-						>
-							Helpers
-						</Button>
-					{/snippet}
-				</DropdownV2>
 			{:else}
 				{#if showContextVarPicker && customUi?.contextVar != false}
 					<Button

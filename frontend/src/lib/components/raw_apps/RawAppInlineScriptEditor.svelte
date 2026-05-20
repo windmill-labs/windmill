@@ -18,7 +18,7 @@
 	import TagPopup from '../apps/editor/inlineScriptsPanel/TagPopup.svelte'
 	import DeleteAfterUsePopup from './DeleteAfterUsePopup.svelte'
 	import { computeFields } from '../apps/editor/inlineScriptsPanel/utils'
-	import EditorBar from '../EditorBar.svelte'
+	import EditorBar, { EDITOR_BAR_HELPERS_INLINE_THRESHOLD } from '../EditorBar.svelte'
 	import { LanguageIcon } from '../common/languageIcons'
 	import { resource } from 'runed'
 	import { usePreparedAssetSqlQueries } from '$lib/infer.svelte'
@@ -641,7 +641,7 @@
 				lang={inlineScript.language}
 				{websocketAlive}
 				iconOnly={width < 1250}
-				compactHelpers={width < 600}
+				compactHelpers={width < EDITOR_BAR_HELPERS_INLINE_THRESHOLD}
 				kind={'script'}
 				template={'script'}
 				on:showDiffMode={showDiffMode}

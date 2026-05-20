@@ -86,9 +86,13 @@
 	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
 	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
 
-	// When the script editor is rendered inside a session pane, the session
-	// owns the AI chat — hide the per-editor VS Code button to keep the
-	// narrow top bar uncluttered.
+	// Forward-looking hook for the upcoming session-pane feature: that PR will
+	// `setContext('aiChatManager', ...)` from the session wrapper so this editor
+	// can detect it and hide its own AI/VS Code controls. On main today nothing
+	// sets the context, so `inSessionPane` is always false and these buttons
+	// render normally — keep the check anyway to avoid re-touching this file
+	// when the session-pane PR lands. Untyped getContext to avoid coupling to
+	// the AIChatManager class export (which lives on the chat-visuals PR).
 	const inSessionPane = !!getContext('aiChatManager')
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import AssetsDropdownButton from './assets/AssetsDropdownButton.svelte'
@@ -1301,7 +1305,9 @@
 
 	function toggleTestPanel() {
 		if (testPanelSize > 0) {
-			storedTestPanelSize = testPanelSize
+			// Store the raw (unclamped) preference so reopening on a wider screen
+			// restores the user's intent, not the pixel-min that inflated the pane.
+			storedTestPanelSize = rawTestPanelSize
 			rawTestPanelSize = 0
 		} else {
 			rawTestPanelSize = Math.max(storedTestPanelSize, testPaneMinPercent)

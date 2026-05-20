@@ -6,7 +6,10 @@
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Editor from '$lib/components/Editor.svelte'
-	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from '$lib/components/EditorBar.svelte'
+	import EditorBar, {
+		EDITOR_BAR_WIDTH_THRESHOLD,
+		EDITOR_BAR_HELPERS_INLINE_THRESHOLD
+	} from '$lib/components/EditorBar.svelte'
 	import ModulePreview from '$lib/components/ModulePreview.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils.svelte'
@@ -799,7 +802,7 @@
 							lang={flowModule.value['language'] ?? 'deno'}
 							{websocketAlive}
 							iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD}
-							compactHelpers={width < 600}
+							compactHelpers={width < EDITOR_BAR_HELPERS_INLINE_THRESHOLD}
 							kind={scriptKind}
 							template={scriptTemplate}
 							args={Object.entries(flowModule.value.input_transforms).reduce((acc, [key, obj]) => {

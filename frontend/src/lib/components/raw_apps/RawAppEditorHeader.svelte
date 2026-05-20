@@ -56,8 +56,13 @@
 	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
 	import { getContext } from 'svelte'
 
-	// When rendered inside a session pane, the session provides its own AI
-	// chat — hide the per-editor AI button to avoid two competing entry points.
+	// Forward-looking hook for the upcoming session-pane feature: that PR will
+	// `setContext('aiChatManager', ...)` from the session wrapper so this editor
+	// can detect it and hide its own AI button. On main today nothing sets the
+	// context, so `inSessionPane` is always false and the AI button renders
+	// normally — keep the check to avoid re-touching this file when the
+	// session-pane PR lands. Untyped getContext to avoid coupling to the
+	// AIChatManager class export (which lives on the chat-visuals PR).
 	const inSessionPane = !!getContext('aiChatManager')
 	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
 	import type { RawAppData } from './dataTableRefUtils'
