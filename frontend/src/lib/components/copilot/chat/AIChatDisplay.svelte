@@ -38,14 +38,31 @@
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
 	const aiChatManager = getAiChatManager()
-	const autonomyModeOptions: { label: string; mode: AIAutonomyMode }[] = [
+	type AutonomyModeOption = { label: string; mode: AIAutonomyMode }
+	const autonomyModeOptions: AutonomyModeOption[] = [
 		{ label: 'auto accept off', mode: AIAutonomyMode.DEFAULT },
 		{ label: 'auto accept on', mode: AIAutonomyMode.ACCEPT_EDIT },
 		{ label: 'yolo on', mode: AIAutonomyMode.YOLO }
 	]
-	const autonomyModeLabel = (mode: AIAutonomyMode) =>
-		autonomyModeOptions.find((option) => option.mode === mode)?.label ??
-		autonomyModeOptions[0].label
+	const autonomyModeLabel = (
+		mode: AIAutonomyMode,
+		options: AutonomyModeOption[] = autonomyModeOptions
+	) => options.find((option) => option.mode === mode)?.label ?? autonomyModeOptions[0].label
+	const isAutonomyModeAvailable = (
+		mode: AIAutonomyMode,
+		autoAcceptEditsAvailable: boolean,
+		autoAcceptToolConfirmationsAvailable: boolean
+	) => {
+		switch (mode) {
+			case AIAutonomyMode.DEFAULT:
+				return true
+			case AIAutonomyMode.ACCEPT_EDIT:
+				return autoAcceptEditsAvailable
+			case AIAutonomyMode.YOLO:
+				return autoAcceptToolConfirmationsAvailable
+		}
+		return false
+	}
 
 	let {
 		messages,
@@ -192,17 +209,34 @@
 			aiChatManager.mode === AIMode.GLOBAL ||
 			aiChatManager.mode === AIMode.APP
 	)
-	const showAutonomyModeSelector = $derived(
-		!disabled &&
-			(aiChatManager.autoAcceptEditsAvailable || aiChatManager.autoAcceptToolConfirmationsAvailable)
+	const availableAutonomyModeOptions = $derived.by(() =>
+		autonomyModeOptions.filter((option) =>
+			isAutonomyModeAvailable(
+				option.mode,
+				aiChatManager.autoAcceptEditsAvailable,
+				aiChatManager.autoAcceptToolConfirmationsAvailable
+			)
+		)
 	)
+	const effectiveAutonomyMode = $derived(
+		availableAutonomyModeOptions.some((option) => option.mode === aiChatManager.autonomyMode)
+			? aiChatManager.autonomyMode
+			: AIAutonomyMode.DEFAULT
+	)
+	const showAutonomyModeSelector = $derived(!disabled && availableAutonomyModeOptions.length > 1)
 	const autonomyModeTooltip = $derived.by(() => {
-		switch (aiChatManager.autonomyMode) {
+		switch (effectiveAutonomyMode) {
 			case AIAutonomyMode.ACCEPT_EDIT:
 				return 'Automatically accepts script and flow edits. Tool calls still ask for confirmation.'
 			case AIAutonomyMode.YOLO:
+				if (!aiChatManager.autoAcceptEditsAvailable) {
+					return 'Automatically accepts tool confirmations.'
+				}
 				return 'Automatically accepts script and flow edits plus tool confirmations.'
 			default:
+				if (!aiChatManager.autoAcceptEditsAvailable) {
+					return 'Requires confirmation for tool calls.'
+				}
 				return 'Requires confirmation for edits and tool calls.'
 		}
 	})
@@ -515,12 +549,17 @@
 												size={13}
 												class={twMerge(
 													'shrink-0',
-													aiChatManager.autonomyMode === AIAutonomyMode.YOLO
+													effectiveAutonomyMode === AIAutonomyMode.YOLO
 														? 'text-red-500'
 														: 'text-accent'
 												)}
 											/>
-											<span class="truncate">{autonomyModeLabel(aiChatManager.autonomyMode)}</span>
+											<span class="truncate"
+												>{autonomyModeLabel(
+													effectiveAutonomyMode,
+													availableAutonomyModeOptions
+												)}</span
+											>
 											<div class="shrink-0">
 												<ChevronDown size={16} />
 											</div>
@@ -528,11 +567,11 @@
 									{/snippet}
 									{#snippet content({ close })}
 										<div class="flex flex-col gap-1 p-1 min-w-32">
-											{#each autonomyModeOptions as option (option.mode)}
+											{#each availableAutonomyModeOptions as option (option.mode)}
 												<button
 													class={twMerge(
 														'text-left text-xs hover:bg-surface-hover rounded-md p-1 font-normal',
-														aiChatManager.autonomyMode === option.mode && 'bg-surface-hover'
+														effectiveAutonomyMode === option.mode && 'bg-surface-hover'
 													)}
 													onclick={() => {
 														aiChatManager.setAutonomyMode(option.mode)
@@ -547,15 +586,20 @@
 								</Popover>
 							</div>
 						{/if}
-						{#if aiChatManager.autonomyMode === AIAutonomyMode.YOLO && aiChatManager.autoAcceptToolConfirmationsAvailable}
+						{#if effectiveAutonomyMode === AIAutonomyMode.YOLO && aiChatManager.autoAcceptToolConfirmationsAvailable}
 							<Tooltip small placement="top">
 								<AlertTriangle class="w-3 h-3 text-red-500" />
 								{#snippet text()}
 									<div class="max-w-64 text-xs">
-										<p class="font-semibold">Yolo auto-accepts edits and tool usage.</p>
+										<p class="font-semibold">
+											{aiChatManager.autoAcceptEditsAvailable
+												? 'Yolo auto-accepts edits and tool usage.'
+												: 'Yolo auto-accepts tool usage.'}
+										</p>
 										<p class="mt-1">
-											This can result in edits being applied or tools being called without user
-											confirmation.
+											{aiChatManager.autoAcceptEditsAvailable
+												? 'This can result in edits being applied or tools being called without user confirmation.'
+												: 'This can result in tools being called without user confirmation.'}
 										</p>
 										{#if yoloBypassedTools.length > 0}
 											<p class="mt-2 font-semibold">Bypassed in current mode:</p>
