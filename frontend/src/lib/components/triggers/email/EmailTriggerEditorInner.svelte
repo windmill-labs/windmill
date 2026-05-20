@@ -29,6 +29,7 @@
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { saveEmailTriggerFromCfg } from './utils'
 	import { deepEqual } from 'fast-equals'
+	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 
@@ -88,6 +89,16 @@
 	let hasChanged = $derived(!deepEqual(getEmailTriggerConfig(), originalConfig ?? {}))
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const emailConfig = $derived.by(getEmailTriggerConfig)
+
+	const draftSync = useTriggerDraftSync({
+		itemKind: 'trigger_email',
+		path: () => initialPath,
+		workspace: () => $workspaceStore,
+		drawerLoading: () => drawerLoading,
+		getCfg: () => emailConfig,
+		applyCfg: (c) => loadTriggerConfig(c as Partial<EmailTrigger>),
+		deployed: () => originalConfig
+	})
 	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 	const saveDisabled = $derived(
 		drawerLoading ||
@@ -120,14 +131,15 @@
 			dirtyPath = false
 			dirtyLocalPart = false
 			await loadTrigger(defaultConfig)
-			originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
-		} catch (err) {
-			sendUserToast(`Could not load email trigger: ${err}`, true)
-		} finally {
 			if (!defaultConfig) {
 				// If the email trigger is loaded from the backend, we to set the initial config
 				initialConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
 			}
+			originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
+			await draftSync.maybeRestore(ePath)
+		} catch (err) {
+			sendUserToast(`Could not load email trigger: ${err}`, true)
+		} finally {
 			clearTimeout(loader)
 			drawerLoading = false
 			showLoader = false
@@ -213,6 +225,7 @@
 			drawer?.closeDrawer()
 		} else {
 			deploymentLoading = true
+			const previousPath = initialPath
 			const saveCfg = emailConfig
 			const isSaved = await saveEmailTriggerFromCfg(
 				initialPath,
@@ -223,6 +236,7 @@
 				usedTriggerKinds
 			)
 			if (isSaved) {
+				draftSync.discard(previousPath, getEmailTriggerConfig())
 				onUpdate(saveCfg.path)
 				originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
 				initialPath = saveCfg.path

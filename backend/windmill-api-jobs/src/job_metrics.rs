@@ -180,13 +180,22 @@ async fn set_job_progress(
     // If flow_job_id exists, than we should modify flow_status of corresponding module
     // Individual jobs and flows are handled differently
     if let Some(flow_job_id) = flow_job_id {
+        // `v2_job_status` has no workspace_id column and the root db handle
+        // bypasses RLS (the per-row policy on the table is also inert today —
+        // `ENABLE ROW LEVEL SECURITY` was never set). Scope the update by
+        // joining `v2_job` so the URL's workspace_id confines tampering to the
+        // caller's workspace; without this, an authed member of any workspace
+        // could overwrite the flow `progress` UI field of a flow in another
+        // workspace given just the flow UUID.
         // TODO: Return error if trying to set completed job?
         sqlx::query!(
-            "UPDATE v2_job_status
-                SET flow_status = JSONB_SET(flow_status, ARRAY['modules', flow_status->>'step', 'progress'], $1)
-                WHERE id = $2",
+            "UPDATE v2_job_status s
+                SET flow_status = JSONB_SET(s.flow_status, ARRAY['modules', s.flow_status->>'step', 'progress'], $1)
+                FROM v2_job j
+                WHERE s.id = $2 AND j.id = s.id AND j.workspace_id = $3",
             serde_json::json!(percent.clamp(0, 99)),
-            flow_job_id
+            flow_job_id,
+            w_id,
         )
         .execute(&db)
         .await?;

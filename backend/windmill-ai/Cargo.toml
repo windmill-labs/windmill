@@ -20,6 +20,7 @@ windmill-parser.workspace = true
 windmill-mcp = { workspace = true, optional = true }
 
 async-trait.workspace = true
+async-stream.workspace = true
 base64.workspace = true
 bytes.workspace = true
 eventsource-stream.workspace = true

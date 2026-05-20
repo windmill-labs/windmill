@@ -107,7 +107,8 @@ export async function parseAnthropicCompletion(
 					toolName,
 					isStreamingArguments: shouldStream,
 					showFade: tool?.showFade,
-					showDetails: tool?.showDetails
+					showDetails: tool?.showDetails,
+					autoCollapseDetails: tool?.autoCollapseDetails
 				})
 			}
 		}

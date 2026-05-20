@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 
 lazy_static::lazy_static! {
     pub static ref SECRET_SALT: Option<String> = std::env::var("SECRET_SALT").ok();
+    static ref RESERVED_WM_VAR_NAME: regex::Regex = regex::Regex::new(r"^WM_[A-Z_]+$").unwrap();
 }
 
 #[derive(Serialize, Clone)]
@@ -50,6 +51,10 @@ pub struct ListableVariable {
     pub labels: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_specific: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edited_at: Option<chrono::DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edited_by: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, sqlx::FromRow)]
@@ -452,7 +457,7 @@ async fn get_cached_workspace_envs(conn: &Connection, w_id: &str) -> Vec<(String
     let custom_envs = if let Some(cached_envs) = cached_envs_o {
         cached_envs
     } else {
-        let custom_envs = match conn {
+        let raw_envs = match conn {
             Connection::Sql(db) => sqlx::query_as::<_, (String, String)>(
                 "SELECT name, value FROM workspace_env WHERE workspace_id = $1",
             )
@@ -465,6 +470,13 @@ async fn get_cached_workspace_envs(conn: &Connection, w_id: &str) -> Vec<(String
                 .await
                 .unwrap_or_default(),
         };
+        // Applied here (not in the SQL branch alone) so agent workers going
+        // through `Connection::Http` are covered too — drop any name that
+        // would shadow a built-in `%%WM_*%%` contextual var.
+        let custom_envs: Vec<(String, String)> = raw_envs
+            .into_iter()
+            .filter(|(name, _)| !RESERVED_WM_VAR_NAME.is_match(name))
+            .collect();
         CUSTOM_ENVS_CACHE.insert(
             w_id.to_string(),
             (chrono::Utc::now().timestamp(), custom_envs.clone()),

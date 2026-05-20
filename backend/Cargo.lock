@@ -13871,6 +13871,7 @@ dependencies = [
 name = "windmill-ai"
 version = "1.704.1"
 dependencies = [
+ "async-stream",
  "async-trait",
  "aws-config",
  "aws-credential-types",

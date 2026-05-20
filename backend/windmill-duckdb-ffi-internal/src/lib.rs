@@ -11,6 +11,22 @@ use rust_decimal::{prelude::FromPrimitive, Decimal};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
+// Worker passes "" for "no override" — saves an extra C string nullability dance.
+// Returns an owned String so the value outlives the raw pointer's lifetime.
+fn ptr_to_opt_str(ptr: *const c_char) -> Result<Option<String>, String> {
+    if ptr.is_null() {
+        return Ok(None);
+    }
+    let s = unsafe { CStr::from_ptr(ptr) }
+        .to_str()
+        .map_err(|e| format!("Invalid string in duckdb ffi: {}", e))?;
+    Ok(if s.is_empty() {
+        None
+    } else {
+        Some(s.to_owned())
+    })
+}
+
 #[derive(Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct Arg {
     pub name: String,
@@ -34,7 +50,7 @@ pub extern "C" fn get_version() -> c_uint {
     // Increment when making breaking changes to the FFI interface.
     // The windmill worker will check that the version matches or else refuse to call
     // the FFI functions to avoid undefined behavior.
-    return 1;
+    return 2;
 }
 
 #[unsafe(no_mangle)]
@@ -45,10 +61,16 @@ pub extern "C" fn run_duckdb_ffi(
     token: *const c_char,
     base_internal_url: *const c_char,
     w_id: *const c_char,
+    memory_limit: *const c_char,
+    temp_directory: *const c_char,
     column_order_ptr: *mut *mut c_char,
     collect_last_only: bool,
     collect_first_row_only: bool,
 ) -> *mut c_char {
+    let resource_limits = match (ptr_to_opt_str(memory_limit), ptr_to_opt_str(temp_directory)) {
+        (Ok(m), Ok(t)) => Ok(ResourceLimits { memory_limit: m, temp_directory: t }),
+        (Err(e), _) | (_, Err(e)) => Err(e),
+    };
     let (r, column_order) = match convert_args(
         query_block_list,
         query_block_list_count,
@@ -57,8 +79,9 @@ pub extern "C" fn run_duckdb_ffi(
         base_internal_url,
         w_id,
     )
+    .and_then(|args| resource_limits.map(|r| (args, r)))
     .and_then(
-        |(query_block_list, job_args, token, base_internal_url, w_id)| {
+        |((query_block_list, job_args, token, base_internal_url, w_id), limits)| {
             run_duckdb_internal(
                 query_block_list,
                 query_block_list_count,
@@ -66,6 +89,7 @@ pub extern "C" fn run_duckdb_ffi(
                 token,
                 base_internal_url,
                 w_id,
+                limits,
                 collect_last_only,
                 collect_first_row_only,
             )
@@ -150,7 +174,13 @@ pub extern "C" fn prepare_duckdb_ffi(
     token: *const c_char,
     base_internal_url: *const c_char,
     w_id: *const c_char,
+    memory_limit: *const c_char,
+    temp_directory: *const c_char,
 ) -> *mut c_char {
+    let resource_limits = match (ptr_to_opt_str(memory_limit), ptr_to_opt_str(temp_directory)) {
+        (Ok(m), Ok(t)) => Ok(ResourceLimits { memory_limit: m, temp_directory: t }),
+        (Err(e), _) | (_, Err(e)) => Err(e),
+    };
     let r = match convert_prepare_args(
         query_block_list,
         query_block_list_count,
@@ -158,9 +188,12 @@ pub extern "C" fn prepare_duckdb_ffi(
         base_internal_url,
         w_id,
     )
-    .and_then(|(query_block_list, token, base_internal_url, w_id)| {
-        prepare_duckdb_internal(query_block_list, token, base_internal_url, w_id)
-    }) {
+    .and_then(|args| resource_limits.map(|r| (args, r)))
+    .and_then(
+        |((query_block_list, token, base_internal_url, w_id), limits)| {
+            prepare_duckdb_internal(query_block_list, token, base_internal_url, w_id, limits)
+        },
+    ) {
         Ok(result) => result,
         Err(err) => {
             let err = serde_json::to_string(&err)
@@ -175,12 +208,58 @@ pub extern "C" fn prepare_duckdb_ffi(
     })
 }
 
+#[derive(Clone, Default)]
+struct ResourceLimits {
+    memory_limit: Option<String>,
+    temp_directory: Option<String>,
+}
+
+fn sql_single_quote(s: &str) -> String {
+    s.replace('\'', "''")
+}
+
+// Bounds memory so DuckDB spills to disk before blowing the cgroup cap and
+// getting the worker SIGKILLed. Spill goes to the job dir (when set) so it is
+// cleaned up with the job, otherwise DuckDB's default temp_directory is kept.
+fn configure_duckdb_resource_limits(
+    conn: &duckdb::Connection,
+    limits: &ResourceLimits,
+) -> Result<(), String> {
+    let mut config_sql = String::new();
+    // jemalloc-specific setting bundled with the Linux DuckDB build. macOS and
+    // Windows builds may not accept it; gated to avoid breaking those workers.
+    if cfg!(target_os = "linux") {
+        config_sql.push_str("SET allocator_background_threads=true;\n");
+    }
+    if let Some(mem) = limits.memory_limit.as_deref() {
+        config_sql.push_str(&format!("SET memory_limit='{}';\n", sql_single_quote(mem)));
+    }
+    if let Some(tmp) = limits.temp_directory.as_deref() {
+        config_sql.push_str(&format!(
+            "SET temp_directory='{}';\n",
+            sql_single_quote(tmp)
+        ));
+    }
+    if config_sql.is_empty() {
+        return Ok(());
+    }
+    conn.execute_batch(&config_sql).map_err(|e| {
+        format!(
+            "Error configuring DuckDB resource limits: {}",
+            e.to_string()
+        )
+    })
+}
+
 fn setup_duckdb_connection(
     conn: &duckdb::Connection,
     token: &str,
     base_internal_url: &str,
     w_id: &str,
+    limits: &ResourceLimits,
 ) -> Result<(), String> {
+    configure_duckdb_resource_limits(conn, limits)?;
+
     let (s3_access_key, s3_secret_key) = token.rsplit_once('.').unwrap_or(("", token));
     let (s3_endpoint_ssl, s3_endpoint) = base_internal_url
         .split_once("://")
@@ -249,10 +328,11 @@ fn prepare_duckdb_internal(
     token: &str,
     base_internal_url: &str,
     w_id: &str,
+    limits: ResourceLimits,
 ) -> Result<String, String> {
     let conn = duckdb::Connection::open_in_memory().map_err(|e| e.to_string())?;
 
-    setup_duckdb_connection(&conn, token, base_internal_url, w_id)?;
+    setup_duckdb_connection(&conn, token, base_internal_url, w_id, &limits)?;
 
     let mut results: Vec<PrepareQueryResult> = vec![];
 
@@ -379,12 +459,13 @@ fn run_duckdb_internal<'a>(
     token: &str,
     base_internal_url: &str,
     w_id: &str,
+    limits: ResourceLimits,
     collect_last_only: bool,
     collect_first_row_only: bool,
 ) -> Result<(String, Option<Vec<String>>), String> {
     let conn = duckdb::Connection::open_in_memory().map_err(|e| e.to_string())?;
 
-    setup_duckdb_connection(&conn, token, base_internal_url, w_id)?;
+    setup_duckdb_connection(&conn, token, base_internal_url, w_id, &limits)?;
 
     let mut results: Vec<Vec<Box<RawValue>>> = vec![];
     let mut column_order = None;

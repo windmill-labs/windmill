@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { afterNavigate, replaceState } from '$app/navigation'
 	import { page } from '$app/state'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
-	import { editPathFor } from '$lib/components/workspacePicker'
+	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { importFlowStore, initFlow } from '$lib/components/flows/flowStore.svelte'
 	import { FlowService, type Flow } from '$lib/gen'
@@ -14,16 +13,19 @@
 	import { tick } from 'svelte'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 	import type { Trigger } from '$lib/components/triggers/utils'
+	import { UserDraft } from '$lib/userDraft.svelte'
 
-	let nodraft = page.url.searchParams.get('nodraft')
-
-	afterNavigate(() => {
-		if (nodraft) {
-			let url = new URL(page.url.href)
-			url.search = ''
-			replaceState(url.toString(), page.state)
-		}
-	})
+	// "+ Flow" buttons navigate with ?nodraft=true to signal "start fresh".
+	// Wipe the persisted empty-path autosave and strip the flag from the URL
+	// synchronously so a reload doesn't wipe the freshly-started draft. A
+	// plain reload of /flows/add (no nodraft) instead restores whatever the
+	// user was last working on.
+	if (page.url.searchParams.get('nodraft') && typeof window !== 'undefined') {
+		UserDraft.remove('flow', '')
+		const url = new URL(window.location.href)
+		url.searchParams.delete('nodraft')
+		window.history.replaceState(window.history.state, '', url.toString())
+	}
 
 	const hubId = page.url.searchParams.get('hub')
 	const templatePath = page.url.searchParams.get('template')
@@ -44,9 +46,6 @@
 		}
 	}
 
-	const initialState =
-		hubId || templatePath || nodraft || isFork ? undefined : localStorage.getItem('flow')
-
 	let selectedId: string = $state('settings-metadata')
 	let loading = $state(false)
 
@@ -61,8 +60,8 @@
 	// initialArgs may also be set from decoded state below (e.g. fork preview)
 	let flowBuilder: FlowBuilder | undefined = $state(undefined)
 
-	const flowStore: StateStore<Flow> = $state({
-		val: {
+	function emptyFlow(): Flow {
+		return {
 			summary: '',
 			value: { modules: [] },
 			path: '',
@@ -72,25 +71,32 @@
 			extra_perms: {},
 			schema: emptySchema()
 		}
-	})
+	}
+
+	const flowHandle = UserDraft.use<Flow>('flow', '', { defaultValue: emptyFlow() })
+
+	const flowStore: StateStore<Flow> = {
+		get val() {
+			return flowHandle.draft ?? emptyFlow()
+		},
+		set val(v: Flow) {
+			flowHandle.draft = v
+		}
+	}
 	const flowStateStore = $state({ val: {} })
 
 	let draftTriggersFromUrl: Trigger[] | undefined = $state(undefined)
 	let selectedTriggerIndexFromUrl: number | undefined = $state(undefined)
 	async function loadFlow() {
 		loading = true
-		let flow: Flow = {
-			path: '',
-			summary: '',
-			value: { modules: [] },
-			edited_by: '',
-			edited_at: '',
-			archived: false,
-			extra_perms: {},
-			schema: emptySchema()
-		}
+		// Start from the persisted autosave, not a fresh `emptyFlow()`. The
+		// branches below override `flow` when the user explicitly asked for a
+		// different starting point (import/fork/URL state/template/hub); a
+		// plain reload of /flows/add (no query params) falls through with
+		// the LS value intact so the user's last session is restored.
+		let flow: Flow = flowHandle.draft ?? emptyFlow()
 
-		let state = forkState ?? (initialState ? decodeState(initialState) : undefined)
+		let state = forkState
 		const initialStateQuery = page.url.hash != '' ? page.url.hash.slice(1) : undefined
 
 		if (initialStateQuery) {
@@ -101,24 +107,6 @@
 			$importFlowStore = undefined
 			sendUserToast('Flow loaded from YAML/JSON')
 		} else if (!templatePath && !hubId && state) {
-			sendUserToast('Flow restored from draft', false, [
-				{
-					label: 'Start from blank instead',
-					callback: () => {
-						flowStore.val = {
-							summary: '',
-							value: { modules: [] },
-							path: '',
-							edited_at: '',
-							edited_by: '',
-							archived: false,
-							extra_perms: {},
-							schema: emptySchema()
-						}
-					}
-				}
-			])
-
 			flow = state.flow
 			pathStoreInit = state.path
 			if (state.initialArgs) {
@@ -143,12 +131,15 @@
 						path: templatePath
 					})
 				}
+				// Template/hub flows are an explicit "start fresh from this
+				// content" — drop any previous empty-path autosave and use
+				// the freshly built flow as the baseline.
+				flow = emptyFlow()
 				Object.assign(flow, template)
 				const oldPath = templatePath.split('/')
 				initialPath = `u/${$userStore?.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')}/${
 					oldPath[oldPath.length - 1]
 				}_fork`
-				flow = flow
 				goto('?', { replaceState: true })
 				selectedId = 'settings-metadata'
 			} else if (hubId) {
@@ -157,6 +148,7 @@
 				initialPath = `u/${$userStore?.username
 					.split('@')[0]
 					.replace(/[^a-zA-Z0-9_]/g, '')}/flow_${hubId}`
+				flow = emptyFlow()
 				Object.assign(flow, hub.flow)
 				if (flow.value.preprocessor_module?.value.type === 'rawscript') {
 					flow.value.preprocessor_module.value.content = replaceScriptPlaceholderWithItsValues(
@@ -164,7 +156,6 @@
 						flow.value.preprocessor_module.value.content
 					)
 				}
-				flow = flow
 				goto('?', { replaceState: true })
 				selectedId = 'constants'
 			}
@@ -194,9 +185,13 @@
 
 <FlowBuilder
 	onSaveInitial={(e) => {
+		UserDraft.remove('flow', '')
+		if ($workspaceStore) invalidate($workspaceStore, 'flow')
 		goto(`/flows/edit/${e.path}?selected=${e.id}`)
 	}}
 	onDeploy={(e) => {
+		UserDraft.remove('flow', '')
+		if ($workspaceStore) invalidate($workspaceStore, 'flow')
 		goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
 	}}
 	onDetails={(e) => {
