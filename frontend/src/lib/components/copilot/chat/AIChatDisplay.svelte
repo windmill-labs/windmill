@@ -507,7 +507,15 @@
 											class="text-primary text-xs flex flex-row items-center font-normal gap-0.5 border px-1 rounded-lg"
 											title={autonomyModeTooltip}
 										>
-											<ChevronsRight size={13} class="text-accent shrink-0" />
+											<ChevronsRight
+												size={13}
+												class={twMerge(
+													'shrink-0',
+													aiChatManager.autonomyMode === AIAutonomyMode.YOLO
+														? 'text-red-500'
+														: 'text-accent'
+												)}
+											/>
 											<span class="truncate">{autonomyModeLabel(aiChatManager.autonomyMode)}</span>
 											<div class="shrink-0">
 												<ChevronDown size={16} />
