@@ -2589,6 +2589,21 @@ async fn upload_s3_file_from_app(
     request: axum::extract::Request,
 ) -> JsonResult<AppUploadFileResponse> {
     let policy = if let Some(file_key_regex) = query.force_viewer_file_key_regex {
+        // `force_viewer_*` lets the caller supply a synthetic upload policy that
+        // bypasses the deployed app's file_key_regex / resource restrictions.
+        // It is intended for the app editor's preview path, so it must enforce
+        // the same guards as `execute_component`'s preview mode (PR #9235):
+        // authed caller, not an operator, and `apps:write` scope to make sure
+        // an `apps:run`-scoped token cannot pick its own policy.
+        let authed = opt_authed.as_ref().ok_or_else(|| {
+            Error::NotAuthorized("App S3 preview upload requires authentication".to_string())
+        })?;
+        if authed.is_operator {
+            return Err(Error::NotAuthorized(
+                "Operators cannot run app S3 previews for security reasons".to_string(),
+            ));
+        }
+        check_scopes(authed, || format!("apps:write:{}", &path.0))?;
         Some(Policy {
             execution_mode: ExecutionMode::Viewer,
             triggerables: None,
@@ -3100,6 +3115,20 @@ async fn download_s3_file_from_app(
     let force_viewer_allowed_s3_keys = if let Some(force_viewer_allowed_s3_keys) =
         query.force_viewer_allowed_s3_keys.clone()
     {
+        // `force_viewer_allowed_s3_keys` lets the caller supply a synthetic
+        // allowlist that bypasses the deployed app policy. Apply the same
+        // preview-mode guard as `execute_component` (PR #9235): authed, not an
+        // operator, `apps:write` scope so an `apps:run`-scoped token cannot
+        // pick its own allowlist.
+        let authed = opt_authed.as_ref().ok_or_else(|| {
+            Error::NotAuthorized("App S3 preview download requires authentication".to_string())
+        })?;
+        if authed.is_operator {
+            return Err(Error::NotAuthorized(
+                "Operators cannot run app S3 previews for security reasons".to_string(),
+            ));
+        }
+        check_scopes(authed, || format!("apps:write:{}", path))?;
         Some(serde_json::from_str::<Vec<S3Key>>(&force_viewer_allowed_s3_keys).unwrap_or_default())
     } else {
         None

@@ -19,6 +19,16 @@ use serde::{Deserialize, Serialize};
 
 lazy_static::lazy_static! {
     pub static ref SECRET_SALT: Option<String> = std::env::var("SECRET_SALT").ok();
+    static ref RESERVED_WM_VAR_NAME: regex::Regex = regex::Regex::new(r"^WM_[A-Z_]+$").unwrap();
+}
+
+/// Names matching this pattern are reserved for built-in `%%WM_*%%` contextual
+/// variables that SQL executors substitute raw (no escaping) into queries. A
+/// workspace admin must not be able to plant a custom env under such a name —
+/// it would shadow the built-in and inject arbitrary text into another
+/// member's SQL job, with audit attribution to that member.
+pub fn is_reserved_wm_env_name(name: &str) -> bool {
+    RESERVED_WM_VAR_NAME.is_match(name)
 }
 
 #[derive(Serialize, Clone)]
@@ -452,7 +462,7 @@ async fn get_cached_workspace_envs(conn: &Connection, w_id: &str) -> Vec<(String
     let custom_envs = if let Some(cached_envs) = cached_envs_o {
         cached_envs
     } else {
-        let custom_envs = match conn {
+        let raw_envs = match conn {
             Connection::Sql(db) => sqlx::query_as::<_, (String, String)>(
                 "SELECT name, value FROM workspace_env WHERE workspace_id = $1",
             )
@@ -465,6 +475,13 @@ async fn get_cached_workspace_envs(conn: &Connection, w_id: &str) -> Vec<(String
                 .await
                 .unwrap_or_default(),
         };
+        // Defense-in-depth: drop any pre-existing custom env that matches the
+        // reserved `WM_*` pattern so it cannot shadow a built-in contextual
+        // variable in SQL substitution (see is_reserved_wm_env_name).
+        let custom_envs: Vec<(String, String)> = raw_envs
+            .into_iter()
+            .filter(|(name, _)| !is_reserved_wm_env_name(name))
+            .collect();
         CUSTOM_ENVS_CACHE.insert(
             w_id.to_string(),
             (chrono::Utc::now().timestamp(), custom_envs.clone()),
