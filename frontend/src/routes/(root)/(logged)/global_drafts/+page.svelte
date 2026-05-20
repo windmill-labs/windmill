@@ -22,7 +22,11 @@
 		}
 	})
 
-	let drafts = $derived($workspaceStore ? listGlobalDrafts($workspaceStore) : [])
+	let refreshRevision = $state(0)
+	let drafts = $derived.by(() => {
+		refreshRevision
+		return $workspaceStore ? listGlobalDrafts($workspaceStore) : []
+	})
 
 	function draftKey(item: WorkspaceItem): string {
 		return `${item.type}:${item.triggerKind ?? '-'}:${item.path}`
@@ -31,11 +35,13 @@
 	function deleteDraft(item: WorkspaceItem) {
 		if (!$workspaceStore) return
 		deleteGlobalDraft($workspaceStore, item.type, item.path, item.triggerKind)
+		refreshRevision += 1
 	}
 
 	function clearAll() {
 		if (!$workspaceStore) return
 		clearGlobalDrafts($workspaceStore)
+		refreshRevision += 1
 	}
 </script>
 
@@ -45,7 +51,7 @@
 			<div>
 				<h1 class="text-2xl font-semibold">Global AI drafts</h1>
 				<p class="text-sm text-tertiary">
-					Dev-only inspector for global AI drafts, including shared editor drafts.
+					Dev-only inspector for drafts written by global AI mode.
 				</p>
 			</div>
 			<Button
@@ -85,6 +91,8 @@
 								variant="default"
 								startIcon={{ icon: Trash2 }}
 								iconOnly
+								aria-label={`Delete draft ${draft.path}`}
+								title={`Delete draft ${draft.path}`}
 								onclick={() => deleteDraft(draft)}
 							/>
 						</div>

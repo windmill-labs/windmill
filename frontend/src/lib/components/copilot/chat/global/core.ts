@@ -83,6 +83,7 @@ import {
 	getGlobalDraft,
 	getGlobalDraftStoragePath,
 	listGlobalCurrentItems,
+	listGlobalDrafts,
 	triggerKindToUserDraftKind
 } from './userDraftAdapter'
 
@@ -513,6 +514,13 @@ function itemMatches(
 		item.path.toLowerCase().includes(normalized) ||
 		(item.summary?.toLowerCase().includes(normalized) ?? false)
 	)
+}
+
+function itemMatchesPathPrefix(
+	item: Pick<WorkspaceItem, 'path'>,
+	pathPrefix: string | undefined
+): boolean {
+	return !pathPrefix || item.path.startsWith(pathPrefix)
 }
 
 function scriptToItem(script: Script, includeValue: boolean): WorkspaceItem {
@@ -1279,7 +1287,19 @@ export const globalTools: Tool<{}>[] = [
 				)
 			}
 
+			for (const draftItem of listGlobalDrafts(workspace)) {
+				if (!types.includes(draftItem.type)) continue
+				byKey.set(
+					getWorkspaceItemKey(draftItem.type, draftItem.path, draftItem.triggerKind),
+					{
+						...draftItem,
+						value: undefined
+					}
+				)
+			}
+
 			const results = Array.from(byKey.values())
+				.filter((item) => itemMatchesPathPrefix(item, parsed.path_prefix))
 				.filter((item) => itemMatches(item, parsed.query))
 				.slice(0, limit)
 
@@ -1795,7 +1815,7 @@ async function writeScriptDraft(
 		}
 	}
 
-	UserDraft.save('script', draftStoragePath, draft, { workspace })
+	UserDraft.saveExternal('script', draftStoragePath, draft, { workspace })
 	return finishDraftWrite(
 		getRequiredGlobalDraft(workspace, 'script', args.path),
 		existingDraft !== undefined || backendExists,
@@ -1853,7 +1873,7 @@ async function writeFlowDraft(
 		}
 	}
 
-	UserDraft.save('flow', draftStoragePath, draft, { workspace })
+	UserDraft.saveExternal('flow', draftStoragePath, draft, { workspace })
 	return finishDraftWrite(
 		getRequiredGlobalDraft(workspace, 'flow', args.path),
 		existingDraft !== undefined || backendExists,
@@ -1871,7 +1891,7 @@ async function writeScheduleDraft(args: NewSchedule, ctx: WriteDraftCtx): Promis
 		? false
 		: await ScheduleService.existsSchedule({ workspace, path: args.path })
 
-	UserDraft.save('trigger_schedule', args.path, draft, { workspace })
+	UserDraft.saveExternal('trigger_schedule', args.path, draft, { workspace })
 	return finishDraftWrite(
 		getRequiredGlobalDraft(workspace, 'schedule', args.path),
 		existingDraft !== undefined || backendExists,
@@ -1894,7 +1914,7 @@ async function writeTriggerDraft(
 		? false
 		: await triggerServices[kind].exists({ workspace, path: args.path })
 
-	UserDraft.save(itemKind, args.path, draft, { workspace })
+	UserDraft.saveExternal(itemKind, args.path, draft, { workspace })
 	return finishDraftWrite(
 		getRequiredGlobalDraft(workspace, 'trigger', args.path, kind),
 		existingDraft !== undefined || backendExists,
@@ -1915,7 +1935,7 @@ async function writeResourceDraft(
 		? false
 		: await ResourceService.existsResource({ workspace, path: args.path })
 
-	UserDraft.save('resource', args.path, draft, { workspace })
+	UserDraft.saveExternal('resource', args.path, draft, { workspace })
 	return finishDraftWrite(
 		getRequiredGlobalDraft(workspace, 'resource', args.path),
 		existingDraft !== undefined || backendExists,
@@ -1936,7 +1956,7 @@ async function writeVariableDraft(
 		? false
 		: await VariableService.existsVariable({ workspace, path: args.path })
 
-	UserDraft.save('variable', args.path, draft, { workspace })
+	UserDraft.saveExternal('variable', args.path, draft, { workspace })
 	return finishDraftWrite(
 		getRequiredGlobalDraft(workspace, 'variable', args.path),
 		existingDraft !== undefined || backendExists,
@@ -1945,7 +1965,7 @@ async function writeVariableDraft(
 }
 
 function saveAppDraft(workspace: string, path: string, value: AppDraftValue): WorkspaceItem {
-	UserDraft.save('raw_app', path, normalizeAppDraftValue(value), { workspace })
+	UserDraft.saveExternal('raw_app', path, normalizeAppDraftValue(value), { workspace })
 	return getRequiredGlobalDraft(workspace, 'app', path)
 }
 

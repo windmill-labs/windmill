@@ -143,7 +143,7 @@
 		})
 	})
 
-	// Reflect an external UserDraft.save into the form. Idempotent + the
+	// Reflect an external UserDraft.saveExternal into the form. Idempotent + the
 	// d == null guard keeps it from looping with the mirror above or
 	// clobbering "start fresh" loads (which discard the in-memory draft).
 	$effect(() => {

@@ -5,7 +5,12 @@ import type {
 	NewSchedule,
 	NewScript
 } from '$lib/gen/types.gen'
-import { UserDraft, type UserDraftItemKind, type UserDraftListEntry } from '$lib/userDraft.svelte'
+import {
+	UserDraft,
+	type UserDraftEntrySource,
+	type UserDraftItemKind,
+	type UserDraftListEntry
+} from '$lib/userDraft.svelte'
 import {
 	getWorkspaceItemKey,
 	type AppDraftValue,
@@ -66,7 +71,6 @@ const SHARED_DRAFT_KINDS = [
 	'variable'
 ] as const satisfies UserDraftItemKind[]
 const DEFAULT_APP_DATA = { tables: [], datatable: undefined, schema: undefined }
-const storagePathByVisibleItem = new Map<string, string>()
 
 function clone<T>(value: T): T {
 	return structuredClone(value) as T
@@ -148,31 +152,6 @@ function normalizeAppDraftValue(value: AppDraftValue): AppDraftValue {
 
 function getItemSummary(value: unknown): string | undefined {
 	return ((value as { summary?: string | null } | undefined)?.summary ?? undefined) || undefined
-}
-
-function storagePathCacheKey(
-	workspace: string,
-	type: WorkspaceItemType,
-	path: string,
-	triggerKind?: TriggerKind
-): string {
-	return `${workspace}:${getWorkspaceItemKey(type, path, triggerKind)}`
-}
-
-function rememberStoragePath(workspace: string, item: WorkspaceItem, storagePath: string): void {
-	storagePathByVisibleItem.set(
-		storagePathCacheKey(workspace, item.type, item.path, item.triggerKind),
-		storagePath
-	)
-}
-
-function forgetStoragePath(
-	workspace: string,
-	type: WorkspaceItemType,
-	path: string,
-	triggerKind?: TriggerKind
-): void {
-	storagePathByVisibleItem.delete(storagePathCacheKey(workspace, type, path, triggerKind))
 }
 
 function getItemPath(storagePath: string, value: unknown): string | undefined {
@@ -332,23 +311,23 @@ function sharedDraftEntryToWorkspaceItem(
 ): WorkspaceItem | undefined {
 	switch (entry.itemKind) {
 		case 'script':
-			return scriptDraftToWorkspaceItem(entry.path, entry.value as NewScript, isDraft)
+			return scriptDraftToWorkspaceItem(entry.storagePath, entry.value as NewScript, isDraft)
 		case 'flow':
-			return flowDraftToWorkspaceItem(entry.path, entry.value, isDraft)
+			return flowDraftToWorkspaceItem(entry.storagePath, entry.value, isDraft)
 		case 'raw_app':
-			return appDraftToWorkspaceItem(entry.path, entry.value as AppDraftValue, isDraft)
+			return appDraftToWorkspaceItem(entry.storagePath, entry.value as AppDraftValue, isDraft)
 		case 'trigger_schedule':
-			return scheduleDraftToWorkspaceItem(entry.path, entry.value as NewSchedule, isDraft)
+			return scheduleDraftToWorkspaceItem(entry.storagePath, entry.value as NewSchedule, isDraft)
 		case 'resource':
-			return resourceDraftToWorkspaceItem(entry.path, entry.value as CreateResource, isDraft)
+			return resourceDraftToWorkspaceItem(entry.storagePath, entry.value as CreateResource, isDraft)
 		case 'variable':
-			return variableDraftToWorkspaceItem(entry.path, entry.value as CreateVariable, isDraft)
+			return variableDraftToWorkspaceItem(entry.storagePath, entry.value as CreateVariable, isDraft)
 		default:
 			const triggerKind = TRIGGER_KIND_BY_DRAFT_KIND[entry.itemKind]
 			return triggerKind
 				? triggerDraftToWorkspaceItem(
 						triggerKind,
-						entry.path,
+						entry.storagePath,
 						entry.value as TriggerRequestBody,
 						isDraft
 					)
@@ -356,81 +335,73 @@ function sharedDraftEntryToWorkspaceItem(
 	}
 }
 
-type SharedDraftLookup = {
+type LocalWorkspaceItemLookup = {
 	storagePath: string
-	value: unknown
+	source: UserDraftEntrySource
+	draftSource?: UserDraftListEntry['draftSource']
+	item: WorkspaceItem
 }
 
-function findSharedDraft(
-	workspace: string,
+function isDeployableEntry(entry: Pick<LocalWorkspaceItemLookup, 'source' | 'draftSource'>): boolean {
+	return entry.source !== 'live' && entry.draftSource === 'external'
+}
+
+function itemHasTarget(
+	item: WorkspaceItem,
 	type: SharedWorkspaceItemType,
 	path: string,
 	triggerKind?: TriggerKind
-): SharedDraftLookup | undefined {
+): boolean {
+	if (item.type !== type) return false
+	if (item.path !== path) return false
+	return type !== 'trigger' || item.triggerKind === triggerKind
+}
+
+function listSharedEntries(
+	workspace: string,
+	itemKinds: UserDraftItemKind[],
+	isDraft: boolean
+): LocalWorkspaceItemLookup[] {
+	const entries: LocalWorkspaceItemLookup[] = []
+	for (const entry of UserDraft.list({ workspace, itemKinds })) {
+		const item = sharedDraftEntryToWorkspaceItem(entry, isDraft)
+		if (!item) continue
+		entries.push({
+			storagePath: entry.storagePath,
+			source: entry.source,
+			draftSource: entry.draftSource,
+			item
+		})
+	}
+	return entries
+}
+
+function findSharedEntry(
+	workspace: string,
+	type: SharedWorkspaceItemType,
+	path: string,
+	triggerKind: TriggerKind | undefined,
+	mode: 'draft' | 'current'
+): LocalWorkspaceItemLookup | undefined {
 	const itemKind = sharedDraftKind(type, triggerKind)
 	if (!itemKind) return undefined
 
-	const cachedStoragePath = storagePathByVisibleItem.get(
-		storagePathCacheKey(workspace, type, path, triggerKind)
-	)
-	if (cachedStoragePath !== undefined) {
-		const cached = UserDraft.get(itemKind, cachedStoragePath, { workspace })
-		if (cached !== undefined) return { storagePath: cachedStoragePath, value: cached }
-		forgetStoragePath(workspace, type, path, triggerKind)
-	}
-
-	const direct = UserDraft.get(itemKind, path, { workspace })
-	if (direct !== undefined) return { storagePath: path, value: direct }
-
-	if (path !== '') {
-		const addEditorDraft = UserDraft.get(itemKind, '', { workspace })
-		if (addEditorDraft !== undefined && getItemPath('', addEditorDraft) === path) {
-			return { storagePath: '', value: addEditorDraft }
-		}
-	}
-
-	for (const entry of UserDraft.list({ workspace, itemKinds: [itemKind] })) {
-		if (getItemPath(entry.path, entry.value) === path) {
-			return { storagePath: entry.path, value: entry.value }
-		}
+	for (const entry of listSharedEntries(workspace, [itemKind], mode === 'draft')) {
+		if (mode === 'draft' && !isDeployableEntry(entry)) continue
+		if (itemHasTarget(entry.item, type, path, triggerKind)) return entry
 	}
 
 	return undefined
 }
 
-function getSharedDraft(
+function getSharedItem(
 	workspace: string,
 	type: SharedWorkspaceItemType,
 	path: string,
 	triggerKind?: TriggerKind,
-	isDraft = true
+	mode: 'draft' | 'current' = 'draft'
 ): WorkspaceItem | undefined {
-	const draft = findSharedDraft(workspace, type, path, triggerKind)
-	if (!draft) return undefined
-
-	switch (type) {
-		case 'script':
-			return scriptDraftToWorkspaceItem(draft.storagePath, draft.value as NewScript, isDraft)
-		case 'flow':
-			return flowDraftToWorkspaceItem(draft.storagePath, draft.value, isDraft)
-		case 'app':
-			return appDraftToWorkspaceItem(draft.storagePath, draft.value as AppDraftValue, isDraft)
-		case 'schedule':
-			return scheduleDraftToWorkspaceItem(draft.storagePath, draft.value as NewSchedule, isDraft)
-		case 'trigger':
-			return triggerKind
-				? triggerDraftToWorkspaceItem(
-						triggerKind,
-						draft.storagePath,
-						draft.value as TriggerRequestBody,
-						isDraft
-					)
-				: undefined
-		case 'resource':
-			return resourceDraftToWorkspaceItem(draft.storagePath, draft.value as CreateResource, isDraft)
-		case 'variable':
-			return variableDraftToWorkspaceItem(draft.storagePath, draft.value as CreateVariable, isDraft)
-	}
+	return findSharedEntry(workspace, type, path, triggerKind, mode)?.item
 }
 
 function deleteSharedDraft(
@@ -441,8 +412,8 @@ function deleteSharedDraft(
 ): void {
 	const itemKind = sharedDraftKind(type, triggerKind)
 	if (!itemKind) return
-	const draft = findSharedDraft(workspace, type, path, triggerKind)
-	UserDraft.remove(itemKind, draft?.storagePath ?? path, { workspace })
+	const draft = findSharedEntry(workspace, type, path, triggerKind, 'current')
+	UserDraft.clear(itemKind, draft?.storagePath ?? path, { workspace })
 }
 
 export function getGlobalDraft(
@@ -452,7 +423,7 @@ export function getGlobalDraft(
 	triggerKind?: TriggerKind
 ): WorkspaceItem | undefined {
 	if (isSharedWorkspaceItemType(type)) {
-		return getSharedDraft(workspace, type, path, triggerKind)
+		return getSharedItem(workspace, type, path, triggerKind, 'draft')
 	}
 	return undefined
 }
@@ -469,7 +440,7 @@ export function getGlobalCurrentItem(
 	triggerKind?: TriggerKind
 ): WorkspaceItem | undefined {
 	if (isSharedWorkspaceItemType(type)) {
-		return getSharedDraft(workspace, type, path, triggerKind, false)
+		return getSharedItem(workspace, type, path, triggerKind, 'current')
 	}
 	return undefined
 }
@@ -481,7 +452,7 @@ export function getGlobalDraftStoragePath(
 	triggerKind?: TriggerKind
 ): string | undefined {
 	if (isSharedWorkspaceItemType(type)) {
-		return findSharedDraft(workspace, type, path, triggerKind)?.storagePath
+		return findSharedEntry(workspace, type, path, triggerKind, 'current')?.storagePath
 	}
 	return undefined
 }
@@ -489,10 +460,9 @@ export function getGlobalDraftStoragePath(
 export function listGlobalDrafts(workspace: string): WorkspaceItem[] {
 	const drafts = new Map<string, WorkspaceItem>()
 
-	for (const entry of UserDraft.list({ workspace, itemKinds: [...SHARED_DRAFT_KINDS] })) {
-		const draft = sharedDraftEntryToWorkspaceItem(entry)
-		if (!draft) continue
-		rememberStoragePath(workspace, draft, entry.path)
+	for (const entry of listSharedEntries(workspace, [...SHARED_DRAFT_KINDS], true)) {
+		if (!isDeployableEntry(entry)) continue
+		const { item: draft } = entry
 		drafts.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), draft)
 	}
 
@@ -509,13 +479,11 @@ export function listGlobalCurrentItems(
 ): WorkspaceItem[] {
 	const items = new Map<string, WorkspaceItem>()
 
-	for (const entry of UserDraft.list({
+	for (const { item } of listSharedEntries(
 		workspace,
-		itemKinds: sharedDraftKindsForTypes(types)
-	})) {
-		const item = sharedDraftEntryToWorkspaceItem(entry, false)
-		if (!item) continue
-		rememberStoragePath(workspace, item, entry.path)
+		sharedDraftKindsForTypes(types),
+		false
+	)) {
 		items.set(getWorkspaceItemKey(item.type, item.path, item.triggerKind), item)
 	}
 
@@ -535,7 +503,8 @@ export function deleteGlobalDraft(
 
 export function clearGlobalDrafts(workspace: string): void {
 	for (const draft of UserDraft.list({ workspace, itemKinds: [...SHARED_DRAFT_KINDS] })) {
-		UserDraft.remove(draft.itemKind, draft.path, { workspace })
+		if (!isDeployableEntry(draft)) continue
+		UserDraft.clear(draft.itemKind, draft.storagePath, { workspace })
 	}
 }
 

@@ -113,7 +113,7 @@
 		draftHandle.draft = { files, runnables, data, summary }
 	})
 
-	// Reflect an external UserDraft.save into the form. Idempotent; the
+	// Reflect an external UserDraft.saveExternal into the form. Idempotent; the
 	// `!files` guard skips the reload window so it doesn't fight loadApp.
 	$effect(() => {
 		const d = draftHandle.draft

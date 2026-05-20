@@ -34,8 +34,8 @@ function flushPersist(): void {
 
 // Helper: localStorage payloads are always wrapped as { value: <draft> } so
 // future metadata fields can be added without breaking existing entries.
-function wrapped<V>(value: V): string {
-	return JSON.stringify({ value })
+function wrapped<V>(value: V, meta: Record<string, unknown> = {}): string {
+	return JSON.stringify({ value, ...meta })
 }
 
 // Helper: read a localStorage entry, strip the GC `lastWrittenAt` stamp so
@@ -156,6 +156,19 @@ describe('UserDraft.use() — observer sync', () => {
 		expect(storedShape('userdraft/w/test_ws/flow/u/me/observed')).toBe(wrapped(9))
 	})
 
+	it('saveExternal() persists through live use() handles and marks the draft source', () => {
+		const handle = UserDraft.use<number>('flow', 'u/me/external')
+		expect(handle.draft).toBeUndefined()
+
+		UserDraft.saveExternal('flow', 'u/me/external', 7)
+		expect(handle.draft).toBe(7)
+		flushPersist()
+
+		expect(storedShape('userdraft/w/test_ws/flow/u/me/external')).toBe(
+			wrapped(7, { draftSource: 'external' })
+		)
+	})
+
 	it('remove() clears localStorage without touching the in-memory handle', () => {
 		// Seed localStorage so the live handle initialises from it.
 		localStorage.setItem('userdraft/w/test_ws/flow/u/me/removed', wrapped(1))
@@ -198,6 +211,18 @@ describe('UserDraft.use() — observer sync', () => {
 
 		expect(handle.draft).toBeUndefined()
 		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/wipe')).toBeNull()
+	})
+
+	it('clear() clears both localStorage and the live handle', () => {
+		localStorage.setItem('userdraft/w/test_ws/flow/u/me/clear-live', wrapped('local-edit'))
+		const handle = UserDraft.use<string>('flow', 'u/me/clear-live')
+		expect(handle.draft).toBe('local-edit')
+
+		UserDraft.clear('flow', 'u/me/clear-live')
+		flushPersist()
+
+		expect(handle.draft).toBeUndefined()
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/clear-live')).toBeNull()
 	})
 
 	it('the second write through the handle setter persists to localStorage', () => {
@@ -298,13 +323,35 @@ describe('UserDraft.list()', () => {
 				workspace: 'test_ws',
 				itemKind: 'script',
 				path: 'u/me/script1',
+				storagePath: 'u/me/script1',
+				source: 'persisted',
+				draftSource: undefined,
 				value: { content: 'code' }
 			},
 			{
 				workspace: 'test_ws',
 				itemKind: 'flow',
 				path: 'u/me/flow1',
+				storagePath: 'u/me/flow1',
+				source: 'persisted',
+				draftSource: undefined,
 				value: { modules: [] }
+			}
+		])
+	})
+
+	it('exposes draftSource for externally saved drafts', () => {
+		UserDraft.saveExternal('script', 'u/me/script1', { content: 'code' })
+
+		expect(UserDraft.list({ itemKinds: ['script'] })).toEqual([
+			{
+				workspace: 'test_ws',
+				itemKind: 'script',
+				path: 'u/me/script1',
+				storagePath: 'u/me/script1',
+				source: 'persisted',
+				draftSource: 'external',
+				value: { content: 'code' }
 			}
 		])
 	})
@@ -319,6 +366,9 @@ describe('UserDraft.list()', () => {
 				workspace: 'test_ws',
 				itemKind: 'script',
 				path: 'u/me/live',
+				storagePath: 'u/me/live',
+				source: 'both',
+				draftSource: undefined,
 				value: { source: 'live' }
 			}
 		])

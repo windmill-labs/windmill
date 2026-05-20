@@ -47,10 +47,19 @@ export type UserDraftListOptions = UserDraftOptions & {
 	itemKinds?: UserDraftItemKind[]
 }
 
+export type UserDraftEntrySource = 'persisted' | 'live' | 'both'
+
 export type UserDraftListEntry<V = unknown> = {
 	workspace: string
 	itemKind: UserDraftItemKind
+	/**
+	 * Storage key path. For new-item editor drafts this can be empty even
+	 * when the draft value already contains its final workspace path.
+	 */
 	path: string
+	storagePath: string
+	source: UserDraftEntrySource
+	draftSource?: UserDraftMeta['draftSource']
 	value: V
 }
 
@@ -79,6 +88,7 @@ export type UserDraftSpec<V> = {
 export type UserDraftMeta = {
 	remoteRev?: string | number
 	remoteDraftRev?: string | number
+	draftSource?: 'external'
 }
 
 /**
@@ -140,6 +150,7 @@ function wrap<V>(value: V | undefined, meta?: UserDraftMeta): StoredDraft<V> | u
 	const out: StoredDraft<V> = { value }
 	if (meta?.remoteRev !== undefined) out.remoteRev = meta.remoteRev
 	if (meta?.remoteDraftRev !== undefined) out.remoteDraftRev = meta.remoteDraftRev
+	if (meta?.draftSource !== undefined) out.draftSource = meta.draftSource
 	return out
 }
 
@@ -152,6 +163,7 @@ function extractMeta(stored: StoredDraft<unknown> | undefined): UserDraftMeta {
 	const meta: UserDraftMeta = {}
 	if (stored.remoteRev !== undefined) meta.remoteRev = stored.remoteRev
 	if (stored.remoteDraftRev !== undefined) meta.remoteDraftRev = stored.remoteDraftRev
+	if (stored.draftSource !== undefined) meta.draftSource = stored.draftSource
 	return meta
 }
 
@@ -224,7 +236,15 @@ function localStorageKey(workspace: string, itemKind: UserDraftItemKind, path: s
 }
 
 function clone<T>(value: T): T {
-	return structuredClone($state.snapshot(value)) as T
+	const snapshot = $state.snapshot(value)
+	try {
+		return structuredClone(snapshot) as T
+	} catch {
+		// Live editor values may contain runtime-only fields (functions,
+		// class instances). Listing should still expose the usable draft
+		// shape; downstream converters copy only the fields they understand.
+		return snapshot as T
+	}
 }
 
 function listLocalStorageDrafts(
@@ -255,6 +275,9 @@ function listLocalStorageDrafts(
 			workspace,
 			itemKind,
 			path,
+			storagePath: path,
+			source: 'persisted',
+			draftSource: stored?.draftSource,
 			value: clone(value)
 		})
 	}
@@ -327,29 +350,53 @@ export function localDraftDiffers<V>(
 	return !deepEqual(normalizeForCompare(localDraft), normalizeForCompare(currentConfig))
 }
 
+function saveDraft<V>(
+	itemKind: UserDraftItemKind,
+	path: string,
+	value: V,
+	opts: UserDraftOptions | undefined,
+	metaPatch: UserDraftMeta,
+	persistLiveEntry: boolean
+): void {
+	const ws = resolveWorkspace(opts)
+	const key = localStorageKey(ws, itemKind, path)
+	const mk = mapKey(ws, itemKind, path)
+	const entry = entries.get(mk)
+	if (entry) {
+		// Notify observers; preserve existing rev metadata. `untrack`ed
+		// read — see `set draft` below for why.
+		const current = untrack(() => entry.state.val as StoredDraft<unknown> | undefined)
+		const meta: UserDraftMeta = { ...extractMeta(current), ...metaPatch }
+		entry.state.val = wrap(value, meta)
+		if (persistLiveEntry) {
+			persistDirect(key, value, meta)
+		}
+		return
+	}
+
+	// No live handle: preserve any persisted meta so the staleness
+	// signal survives a write while the editor is closed.
+	const existing = readPersisted<unknown>(key)
+	persistDirect(key, value, { ...extractMeta(existing), ...metaPatch })
+}
+
 export const UserDraft = {
 	save<V>(itemKind: UserDraftItemKind, path: string, value: V, opts?: UserDraftOptions): void {
-		const ws = resolveWorkspace(opts)
-		const mk = mapKey(ws, itemKind, path)
-		const entry = entries.get(mk)
-		if (entry) {
-			// Notify observers; preserve existing rev metadata. `untrack`ed
-			// read — see `set draft` below for why.
-			const current = untrack(() => entry.state.val as StoredDraft<unknown> | undefined)
-			entry.state.val = wrap(value, extractMeta(current))
-			return
-		}
-		// No live handle: preserve any persisted meta so the staleness
-		// signal survives a write while the editor is closed.
-		const existing = readPersisted<unknown>(localStorageKey(ws, itemKind, path))
-		try {
-			localStorage.setItem(
-				localStorageKey(ws, itemKind, path),
-				JSON.stringify(stamp(wrap(value, extractMeta(existing))))
-			)
-		} catch (e) {
-			console.error('UserDraft.save: localStorage write failed', e)
-		}
+		saveDraft(itemKind, path, value, opts, {}, false)
+	},
+
+	/**
+	 * Persist a draft written by an external actor such as global AI mode.
+	 * Unlike editor baseline hydration, this must be visible immediately to
+	 * draft deployment/listing tools even when a live editor handle is open.
+	 */
+	saveExternal<V>(
+		itemKind: UserDraftItemKind,
+		path: string,
+		value: V,
+		opts?: UserDraftOptions
+	): void {
+		saveDraft(itemKind, path, value, opts, { draftSource: 'external' }, true)
 	},
 
 	/**
@@ -407,11 +454,14 @@ export const UserDraft = {
 		if (entry) {
 			const current = untrack(() => entry.state.val as StoredDraft<unknown> | undefined)
 			if (current === undefined) return
-			entry.state.val = wrap(current.value, meta)
+			entry.state.val = wrap(current.value, { ...extractMeta(current), ...meta })
 		}
 		const existing = readPersisted<unknown>(localStorageKey(ws, itemKind, path))
 		if (existing === undefined) return
-		persistDirect(localStorageKey(ws, itemKind, path), existing.value, meta)
+		persistDirect(localStorageKey(ws, itemKind, path), existing.value, {
+			...extractMeta(existing),
+			...meta
+		})
 	},
 
 	/**
@@ -452,10 +502,14 @@ export const UserDraft = {
 			const value = unwrap(entry.state.val as StoredDraft<unknown> | undefined)
 			if (value === undefined) continue
 
+			const persisted = drafts.get(key)
 			drafts.set(key, {
 				workspace: ws,
 				itemKind: entry.itemKind,
 				path: entry.path,
+				storagePath: entry.path,
+				source: persisted ? 'both' : 'live',
+				draftSource: extractMeta(entry.state.val as StoredDraft<unknown> | undefined).draftSource,
 				value: clone(value)
 			})
 		}
@@ -498,6 +552,10 @@ export const UserDraft = {
 		} catch (e) {
 			console.error('UserDraft.discard: localStorage remove failed', e)
 		}
+	},
+
+	clear(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
+		UserDraft.discard(itemKind, path, undefined, opts)
 	},
 
 	use<V = unknown>(
@@ -698,9 +756,12 @@ function makeHandle<V>(
 			if (!state) return
 			const current = untrack(() => state.val as StoredDraft<V> | undefined)
 			if (current === undefined) return
-			state.val = wrap(current.value, meta)
+			state.val = wrap(current.value, { ...extractMeta(current), ...meta })
 			if (opts?.force) {
-				persistDirect(localStorageKey(workspace, itemKind, path), current.value, meta)
+				persistDirect(localStorageKey(workspace, itemKind, path), current.value, {
+					...extractMeta(current),
+					...meta
+				})
 			}
 		}
 	}

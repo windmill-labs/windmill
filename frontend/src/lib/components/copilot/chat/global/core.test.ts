@@ -120,6 +120,7 @@ vi.mock('$lib/gen', async () => {
 })
 
 import { globalTools, prepareGlobalUserMessage } from './core'
+import { deleteGlobalDraft, listGlobalDrafts } from './userDraftAdapter'
 import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
 import type { Tool, ToolCallbacks } from '../shared'
 
@@ -257,6 +258,102 @@ describe('global AI tools', () => {
 		expect(localStorage.getItem(`userdraft/w/${WORKSPACE}/script/f/scripts/open-editor`)).toBeNull()
 	})
 
+	it('does not treat a clean live editor baseline as a deployable global draft', async () => {
+		const content = 'export async function main() {\n\treturn "baseline"\n}'
+		const handle = UserDraft.use<any>('script', 'f/scripts/baseline', { workspace: WORKSPACE })
+		handle.setDraftAndMeta(
+			{
+				path: 'f/scripts/baseline',
+				summary: 'Clean baseline',
+				language: 'bun',
+				content
+			},
+			{ remoteRev: 'v1' }
+		)
+
+		expect(listGlobalDrafts(WORKSPACE)).toEqual([])
+		await expect(
+			callGlobalTool('deploy_workspace_item', {
+				type: 'script',
+				path: 'f/scripts/baseline'
+			})
+		).rejects.toThrow('No AI draft found for script "f/scripts/baseline".')
+	})
+
+	it('does not treat a persisted editor baseline as a deployable global draft', async () => {
+		const key = `userdraft/w/${WORKSPACE}/script/f/scripts/persisted-baseline`
+		localStorage.setItem(
+			key,
+			JSON.stringify({
+				value: {
+					path: 'f/scripts/persisted-baseline',
+					summary: 'Persisted baseline',
+					language: 'bun',
+					content: 'export async function main() {\n\treturn "baseline"\n}',
+					parent_hash: 'h1'
+				},
+				remoteRev: 'h1'
+			})
+		)
+
+		expect(listGlobalDrafts(WORKSPACE)).toEqual([])
+		await expect(
+			callGlobalTool('deploy_workspace_item', {
+				type: 'script',
+				path: 'f/scripts/persisted-baseline'
+			})
+		).rejects.toThrow('No AI draft found for script "f/scripts/persisted-baseline".')
+	})
+
+	it('persists AI writes into a live editor handle so they remain deployable', async () => {
+		const handle = UserDraft.use<any>('script', 'f/scripts/live-ai', { workspace: WORKSPACE })
+		handle.setDraftAndMeta(
+			{
+				path: 'f/scripts/live-ai',
+				summary: 'Clean baseline',
+				language: 'bun',
+				content: 'export async function main() {\n\treturn 1\n}'
+			},
+			{ remoteRev: 'v1' }
+		)
+
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/live-ai',
+			summary: 'AI edit',
+			language: 'bun',
+			content: 'export async function main() {\n\treturn 2\n}'
+		})
+
+		expect(handle.draft?.content).toContain('return 2')
+		expect(listGlobalDrafts(WORKSPACE)).toEqual([
+			expect.objectContaining({
+				type: 'script',
+				path: 'f/scripts/live-ai',
+				summary: 'AI edit',
+				isDraft: true
+			})
+		])
+		expect(localStorage.getItem(`userdraft/w/${WORKSPACE}/script/f/scripts/live-ai`)).not.toBeNull()
+	})
+
+	it('deleteGlobalDraft clears both persisted storage and any live handle state', async () => {
+		const handle = UserDraft.use<any>('script', 'f/scripts/delete-live', { workspace: WORKSPACE })
+
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/delete-live',
+			summary: 'Delete me',
+			language: 'bun',
+			content: 'export async function main() {\n\treturn "delete"\n}'
+		})
+		expect(handle.draft).toBeDefined()
+		expect(localStorage.getItem(`userdraft/w/${WORKSPACE}/script/f/scripts/delete-live`)).not.toBeNull()
+
+		deleteGlobalDraft(WORKSPACE, 'script', 'f/scripts/delete-live')
+
+		expect(handle.draft).toBeUndefined()
+		expect(localStorage.getItem(`userdraft/w/${WORKSPACE}/script/f/scripts/delete-live`)).toBeNull()
+	})
+
 	it('lists and edits a new script draft stored under the empty add-editor key by its assigned path', async () => {
 		const content = 'export async function main() {\n\treturn 1\n}'
 		const handle = UserDraft.use<any>('script', '', { workspace: WORKSPACE })
@@ -348,9 +445,47 @@ describe('global AI tools', () => {
 				type: 'script',
 				path: 'f/scripts/listed',
 				summary: 'Listed script',
-				isDraft: false
+				isDraft: true
 			})
 		])
+	})
+
+	it('keeps local UserDraft overlays marked as drafts after path_prefix filtering', async () => {
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/listed',
+			summary: 'Listed script',
+			language: 'bun',
+			content: 'export async function main() { return 1 }'
+		})
+
+		const raw = await callGlobalTool('list_workspace_items', {
+			types: ['script'],
+			path_prefix: 'f/scripts'
+		})
+
+		expect(JSON.parse(raw)).toEqual([
+			expect.objectContaining({
+				type: 'script',
+				path: 'f/scripts/listed',
+				isDraft: true
+			})
+		])
+	})
+
+	it('applies path_prefix to local UserDraft overlays in list_workspace_items', async () => {
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/listed',
+			summary: 'Listed script',
+			language: 'bun',
+			content: 'export async function main() { return 1 }'
+		})
+
+		const raw = await callGlobalTool('list_workspace_items', {
+			types: ['script'],
+			path_prefix: 'f/other'
+		})
+
+		expect(JSON.parse(raw)).toEqual([])
 	})
 
 	it('does not inspect unrelated partial flow UserDraft entries when listing scripts', async () => {
@@ -463,7 +598,7 @@ describe('global AI tools', () => {
 				triggerKind: 'http',
 				path: 'f/triggers/hook',
 				summary: 'Hook trigger',
-				isDraft: false
+				isDraft: true
 			})
 		])
 	})

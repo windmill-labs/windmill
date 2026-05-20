@@ -44,7 +44,7 @@ export interface TriggerDraftSync {
 
 /**
  * Shared local-autosave wiring for the trigger editors. Holding a live
- * `UserDraft` handle is what makes an external `UserDraft.save('trigger_x',
+ * `UserDraft` handle is what makes an external `UserDraft.saveExternal('trigger_x',
  * …)` (another tab, a programmatic write) propagate into the open editor.
  *
  * - **apply-effect**: reflects external `handle.draft` changes into the form.
