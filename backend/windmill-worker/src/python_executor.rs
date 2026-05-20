@@ -995,7 +995,7 @@ mount {{
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .replace(
                     "{NSJAIL_TMPFS_SIZE}",
-                    &resolve_nsjail_tmpfs_size(500_000_000).await,
+                    &resolve_nsjail_tmpfs_size().await,
                 )
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
@@ -2013,7 +2013,7 @@ async fn spawn_uv_install(
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .replace(
                     "{NSJAIL_TMPFS_SIZE}",
-                    &resolve_nsjail_tmpfs_size(500_000_000).await,
+                    &resolve_nsjail_tmpfs_size().await,
                 )
                 .as_str(),
         )?;

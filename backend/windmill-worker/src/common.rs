@@ -1006,13 +1006,17 @@ pub async fn resolve_nsjail_timeout(
     (duration.as_secs() + 15).to_string()
 }
 
+/// Default size (in bytes) of the `/tmp` tmpfs mount inside nsjail sandboxes,
+/// used when the `nsjail_tmpfs_size_mb` instance setting is unset.
+pub const DEFAULT_NSJAIL_TMPFS_SIZE_BYTES: u64 = 800_000_000;
+
 /// Resolve the tmpfs `size=` value (in bytes) for nsjail `/tmp` mounts. When the
-/// `nsjail_tmpfs_size_mb` instance setting is unset, the per-language default
-/// passed by the caller is used.
-pub async fn resolve_nsjail_tmpfs_size(default_bytes: u64) -> String {
+/// `nsjail_tmpfs_size_mb` instance setting is unset, falls back to
+/// [`DEFAULT_NSJAIL_TMPFS_SIZE_BYTES`].
+pub async fn resolve_nsjail_tmpfs_size() -> String {
     match *NSJAIL_TMPFS_SIZE_MB.read().await {
         Some(mb) if mb > 0 => ((mb as u64).saturating_mul(1_000_000)).to_string(),
-        _ => default_bytes.to_string(),
+        _ => DEFAULT_NSJAIL_TMPFS_SIZE_BYTES.to_string(),
     }
 }
 

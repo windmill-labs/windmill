@@ -684,7 +684,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
                 .replace("{CACHE_DIR}", &*POWERSHELL_CACHE_DIR)
                 .replace(
                     "{NSJAIL_TMPFS_SIZE}",
-                    &resolve_nsjail_tmpfs_size(800_000_000).await,
+                    &resolve_nsjail_tmpfs_size().await,
                 )
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;

@@ -672,7 +672,7 @@ async fn run<'a>(
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace(
                     "{NSJAIL_TMPFS_SIZE}",
-                    &resolve_nsjail_tmpfs_size(500_000_000).await,
+                    &resolve_nsjail_tmpfs_size().await,
                 )
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;

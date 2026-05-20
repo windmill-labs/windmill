@@ -482,7 +482,7 @@ pub async fn build_rust_crate(
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .replace(
                     "{NSJAIL_TMPFS_SIZE}",
-                    &resolve_nsjail_tmpfs_size(500_000_000).await,
+                    &resolve_nsjail_tmpfs_size().await,
                 )
                 .replace("{BUILD}", &build_dir),
         )?;
@@ -707,7 +707,7 @@ pub async fn handle_rust_job(
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace(
                     "{NSJAIL_TMPFS_SIZE}",
-                    &resolve_nsjail_tmpfs_size(500_000_000).await,
+                    &resolve_nsjail_tmpfs_size().await,
                 )
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;

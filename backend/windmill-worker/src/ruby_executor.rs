@@ -640,7 +640,7 @@ async fn install<'a>(
                         .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                         .replace(
                             "{NSJAIL_TMPFS_SIZE}",
-                            &resolve_nsjail_tmpfs_size(500_000_000).await,
+                            &resolve_nsjail_tmpfs_size().await,
                         )
                         .replace("#{DEV}", DEV_CONF_NSJAIL), // .replace("{BUILD}", &build_dir),
                 )?;
@@ -816,7 +816,7 @@ mount {{
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace(
                     "{NSJAIL_TMPFS_SIZE}",
-                    &resolve_nsjail_tmpfs_size(500_000_000).await,
+                    &resolve_nsjail_tmpfs_size().await,
                 )
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
