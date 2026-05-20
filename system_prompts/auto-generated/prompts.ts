@@ -2775,11 +2775,6 @@ Bootstrap a windmill project with a wmill.yaml file
 - \`--bind-profile\` - Automatically bind active workspace profile to current Git branch
 - \`--no-bind-profile\` - Skip workspace profile binding prompt
 
-**Subcommands:**
-
-- \`init prompts\`
-  - \`--force\` - Also overwrite AGENTS.md and CLAUDE.md (by default they're left alone if present)
-
 ### instance
 
 sync local with a remote instance or the opposite (push or pull)
@@ -2889,6 +2884,18 @@ List all queues with their metrics
 **Options:**
 - \`--instance [instance]\` - Name of the instance to push to, override the active instance
 - \`--base-url [baseUrl]\` - If used with --token, will be used as the base url for the instance
+
+### refresh
+
+Refresh wmill-managed project files (AGENTS.cli.md and skills)
+
+**Subcommands:**
+
+- \`refresh prompts\` - Refresh AGENTS.cli.md, CLAUDE.md, and managed skills. User-owned AGENTS.md is never overwritten unless you opt in.
+  - \`--yes\` - Non-interactive: skip prompts; for an existing AGENTS.md without an @AGENTS.cli.md reference, append the include automatically.
+  - \`--append-agents-md\` - Force the 'append @AGENTS.cli.md to existing AGENTS.md' migration choice (no prompt).
+  - \`--overwrite-agents-md\` - Force the 'overwrite AGENTS.md with managed skeleton' migration choice (no prompt). Destructive — use sparingly.
+  - \`--skip-agents-md\` - Force the 'leave AGENTS.md alone' migration choice (no prompt).
 
 ### resource
 

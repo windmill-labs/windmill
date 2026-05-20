@@ -40,6 +40,7 @@ import workers from "./commands/workers/workers.ts";
 import queues from "./commands/queues/queues.ts";
 import dependencies from "./commands/dependencies/dependencies.ts";
 import init from "./commands/init/init.ts";
+import refresh from "./commands/refresh/refresh.ts";
 import jobs from "./commands/jobs/jobs.ts";
 import job from "./commands/job/job.ts";
 import group from "./commands/group/group.ts";
@@ -171,6 +172,7 @@ const command = new Command()
     },
   })
   .command("init", init)
+  .command("refresh", refresh)
   .command("app", app)
   .command("flow", flow)
   .command("script", script)

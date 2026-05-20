@@ -17,11 +17,7 @@ import {
 } from "../workspace/workspace.ts";
 import { generateRTNamespace } from "../resource-type/resource-type.ts";
 import { generateCommentedTemplate } from "./template.ts";
-// Kept as two separate imports because system_prompts/generate.py's import
-// regex only recognises plain default imports; a combined default+named form
-// would break subcommand parsing for the generated CLI docs.
-import promptsCommand from "./prompts.ts";
-import { regenerateAiGuidance } from "./prompts.ts";
+import { refreshPrompts } from "../refresh/prompts.ts";
 
 export interface InitOptions {
   useDefault?: boolean;
@@ -240,7 +236,7 @@ async function initAction(opts: InitOptions) {
     }
   }
 
-  await regenerateAiGuidance({ overwriteProjectGuidance: false });
+  await refreshPrompts({ yes: opts.useDefault === true });
 
   // Generate resource type namespace (only if a workspace was bound)
   if (didBindWorkspace && boundProfile) {
@@ -276,7 +272,6 @@ const command = new Command()
     "Automatically bind active workspace profile to current Git branch"
   )
   .option("--no-bind-profile", "Skip workspace profile binding prompt")
-  .action(initAction as any)
-  .command("prompts", promptsCommand);
+  .action(initAction as any);
 
 export default command;

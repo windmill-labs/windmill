@@ -1,7 +1,11 @@
 import { cp, mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { readTextFile } from "../utils/utils.ts";
 import { join } from "node:path";
-import { generateAgentsMdContent } from "./core.ts";
+import {
+  AGENTS_CLI_INCLUDE_LINE,
+  generateAgentsCliMdContent,
+  generateAgentsMdSkeleton,
+} from "./core.ts";
 import {
   SCHEMAS,
   SCHEMA_MAPPINGS,
@@ -14,17 +18,38 @@ type ResolvedSkillMetadata = SkillMetadata & {
   directoryName: string;
 };
 
+/**
+ * How to reconcile an existing AGENTS.md that doesn't reference AGENTS.cli.md.
+ *
+ * - `append`: leave AGENTS.md as-is and append the `@AGENTS.cli.md` include.
+ * - `overwrite`: replace AGENTS.md with the managed skeleton.
+ * - `skip`: leave AGENTS.md alone. AGENTS.cli.md is still written/refreshed,
+ *   but no link from AGENTS.md to it — the user is expected to wire it
+ *   manually later.
+ */
+export type AgentsMdMigration = "append" | "overwrite" | "skip";
+
 export interface WriteAiGuidanceOptions {
   targetDir: string;
   nonDottedPaths?: boolean;
-  overwriteProjectGuidance?: boolean;
+  /** Skill source override (testing / source-of-truth bundling). */
   skillsSourcePath?: string;
+  /** AGENTS.cli.md source override (testing). */
   agentsSourcePath?: string;
+  /** CLAUDE.md source override (testing). */
   claudeSourcePath?: string;
+  /**
+   * Optional resolver invoked when an existing AGENTS.md lacks an
+   * `@AGENTS.cli.md` reference. Callers are expected to prompt the user; if
+   * omitted, the writer defaults to `append` (non-destructive).
+   */
+  resolveAgentsMdMigration?: () => Promise<AgentsMdMigration>;
 }
 
 export interface WriteAiGuidanceResult {
-  agentsWritten: boolean;
+  agentsCliWritten: boolean;
+  agentsCreated: boolean;
+  agentsMigration: AgentsMdMigration | "already-linked" | "not-applicable";
   claudeWritten: boolean;
   skillCount: number;
 }
@@ -34,52 +59,7 @@ export const WMILL_INIT_AI_AGENTS_SOURCE_ENV = "WMILL_INIT_AI_AGENTS_SOURCE";
 export const WMILL_INIT_AI_CLAUDE_SOURCE_ENV = "WMILL_INIT_AI_CLAUDE_SOURCE";
 
 const CLAUDE_MD_DEFAULT = "Instructions are in @AGENTS.md\n";
-const AGENTS_CUSTOM_MD_PLACEHOLDER = `# Project-specific overrides
-
-This file is committed and shared with your team. \`wmill init\` never overwrites
-it — write project-specific overrides or extensions to the managed AGENTS.md
-instructions here, and they will be included automatically (via the
-\`@AGENTS.custom.md\` tail-include at the bottom of AGENTS.md).
-
-Use it to:
-
-- Pin deploy commands or workflows specific to this repo.
-- Add domain glossary, naming conventions, or "ask before X" rules.
-- Override or extend instructions from the managed AGENTS.md — when an
-  override is non-obvious, state explicitly that it supersedes the rule
-  above so the agent doesn't try to reconcile both.
-
-## Custom skills
-
-To add a project-specific skill (e.g. internal deploy script, custom lint rule,
-team-specific patterns), drop it under:
-
-- \`.claude/skills/custom/<skill-name>/SKILL.md\` — picked up by Claude Code.
-- \`.agents/skills/custom/<skill-name>/SKILL.md\` — picked up by Codex / Pi /
-  other agents that read \`.agents/\`.
-
-The \`custom/\` subdirectory is reserved — \`wmill init\` never touches its
-contents. Use standard skill frontmatter:
-
-\`\`\`markdown
----
-name: my-custom-skill
-description: One-line description shown to the agent.
----
-
-# My Custom Skill
-
-…instructions…
-\`\`\`
-
-Then reference the skill from this file or from AGENTS.md so agents know when
-to load it. Example:
-
-> When deploying to production, use the \`production-deploy\` skill at
-> \`.claude/skills/custom/production-deploy/SKILL.md\`.
-`;
 const SKILL_TARGET_ROOTS = [".claude", ".agents"] as const;
-const CUSTOM_SKILLS_DIR = "custom";
 
 export async function writeAiGuidanceFiles(
   options: WriteAiGuidanceOptions
@@ -89,30 +69,33 @@ export async function writeAiGuidanceFiles(
     ? await readSkillMetadataFromDirectory(options.skillsSourcePath)
     : getGeneratedSkillMetadata();
 
-  const agentsWritten = await writeProjectGuidanceFile({
-    targetPath: join(options.targetDir, "AGENTS.md"),
-    overwrite: options.overwriteProjectGuidance ?? false,
-    content:
-      options.agentsSourcePath != null
-        ? await readTextFile(options.agentsSourcePath)
-        : generateAgentsMdContent(buildSkillsReference(skillMetadata)),
+  // AGENTS.cli.md — always (re)written, this is the managed file.
+  const agentsCliContent =
+    options.agentsSourcePath != null
+      ? await readTextFile(options.agentsSourcePath)
+      : generateAgentsCliMdContent(buildSkillsReference(skillMetadata));
+  const agentsCliPath = join(options.targetDir, "AGENTS.cli.md");
+  await writeFile(agentsCliPath, agentsCliContent, "utf8");
+  const agentsCliWritten = true;
+
+  // AGENTS.md — user-owned. Three paths:
+  //   1. doesn't exist → create skeleton (which already includes @AGENTS.cli.md).
+  //   2. exists and already references @AGENTS.cli.md → leave alone.
+  //   3. exists but doesn't reference @AGENTS.cli.md → ask caller via
+  //      resolveAgentsMdMigration (defaults to append).
+  const agentsMdPath = join(options.targetDir, "AGENTS.md");
+  const agentsMdResult = await reconcileAgentsMd({
+    path: agentsMdPath,
+    resolveMigration: options.resolveAgentsMdMigration,
   });
 
   const claudeWritten = await writeProjectGuidanceFile({
     targetPath: join(options.targetDir, "CLAUDE.md"),
-    overwrite: options.overwriteProjectGuidance ?? false,
+    overwrite: false,
     content:
       options.claudeSourcePath != null
         ? await readTextFile(options.claudeSourcePath)
         : CLAUDE_MD_DEFAULT,
-  });
-
-  // Always seed AGENTS.custom.md (if missing) so the @AGENTS.custom.md include
-  // in the managed AGENTS.md resolves. Never overwrite it — it's user-owned.
-  await writeProjectGuidanceFile({
-    targetPath: join(options.targetDir, "AGENTS.custom.md"),
-    overwrite: false,
-    content: AGENTS_CUSTOM_MD_PLACEHOLDER,
   });
 
   if (options.skillsSourcePath) {
@@ -121,23 +104,74 @@ export async function writeAiGuidanceFiles(
     await writeGeneratedSkills(options.targetDir, nonDottedPaths);
   }
 
-  // Ensure the user-owned `custom/` skills directory exists under each root so
-  // teams have an obvious place to drop their own SKILL.md files. Never touch
-  // its contents.
-  await ensureCustomSkillsDirectories(options.targetDir);
-
   return {
-    agentsWritten,
+    agentsCliWritten,
+    agentsCreated: agentsMdResult.created,
+    agentsMigration: agentsMdResult.migration,
     claudeWritten,
     skillCount: skillMetadata.length,
   };
+}
+
+async function reconcileAgentsMd(options: {
+  path: string;
+  resolveMigration?: () => Promise<AgentsMdMigration>;
+}): Promise<{
+  created: boolean;
+  migration: AgentsMdMigration | "already-linked" | "not-applicable";
+}> {
+  const exists = (await stat(options.path).catch(() => null)) != null;
+  if (!exists) {
+    await writeFile(options.path, generateAgentsMdSkeleton(), "utf8");
+    return { created: true, migration: "not-applicable" };
+  }
+
+  const existing = await readTextFile(options.path);
+  if (referencesAgentsCli(existing)) {
+    return { created: false, migration: "already-linked" };
+  }
+
+  const choice = options.resolveMigration
+    ? await options.resolveMigration()
+    : "append";
+
+  if (choice === "skip") {
+    return { created: false, migration: "skip" };
+  }
+
+  if (choice === "overwrite") {
+    await writeFile(options.path, generateAgentsMdSkeleton(), "utf8");
+    return { created: false, migration: "overwrite" };
+  }
+
+  // append — add the include at the end, leaving existing content untouched.
+  const appended = existing.endsWith("\n")
+    ? `${existing}\n${AGENTS_CLI_INCLUDE_LINE}\n`
+    : `${existing}\n\n${AGENTS_CLI_INCLUDE_LINE}\n`;
+  await writeFile(options.path, appended, "utf8");
+  return { created: false, migration: "append" };
+}
+
+function referencesAgentsCli(content: string): boolean {
+  // Split on any whitespace (newlines, spaces, tabs, CR) and check for an
+  // exact token match. This avoids regex escaping pitfalls and false matches
+  // on look-alike strings (`@AGENTS-cli-md`, `@AGENTS.cli.mdx`, ...).
+  for (const token of content.split(/\s+/)) {
+    if (token === AGENTS_CLI_INCLUDE_LINE) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function buildSkillsReference(
   skills: Pick<ResolvedSkillMetadata, "directoryName" | "description">[]
 ): string {
   return skills
-    .map((skill) => `- \`.claude/skills/${skill.directoryName}/SKILL.md\` - ${skill.description}`)
+    .map(
+      (skill) =>
+        `- \`.claude/skills/${skill.directoryName}/SKILL.md\` - ${skill.description}`
+    )
     .join("\n");
 }
 
@@ -147,19 +181,11 @@ async function copySkillsFromSource(
 ): Promise<ResolvedSkillMetadata[]> {
   const skillsDirs = await ensureSkillsDirectories(targetDir);
   await Promise.all(
-    skillsDirs.map((skillsDir) => copyDirectoryContents(skillsSourcePath, skillsDir))
-  );
-  return await readSkillMetadataFromDirectory(skillsDirs[0]);
-}
-
-async function ensureCustomSkillsDirectories(targetDir: string): Promise<void> {
-  await Promise.all(
-    SKILL_TARGET_ROOTS.map((root) =>
-      mkdir(join(targetDir, root, "skills", CUSTOM_SKILLS_DIR), {
-        recursive: true,
-      })
+    skillsDirs.map((skillsDir) =>
+      copyDirectoryContents(skillsSourcePath, skillsDir)
     )
   );
+  return await readSkillMetadataFromDirectory(skillsDirs[0]);
 }
 
 async function writeGeneratedSkills(
@@ -205,22 +231,26 @@ async function ensureSkillsDirectories(targetDir: string): Promise<string[]> {
   return skillsDirs;
 }
 
-async function copyDirectoryContents(sourceDir: string, targetDir: string): Promise<void> {
+async function copyDirectoryContents(
+  sourceDir: string,
+  targetDir: string
+): Promise<void> {
   const entries = await readdir(sourceDir, { withFileTypes: true });
 
   await Promise.all(
-    entries
-      .filter((entry) => entry.name !== CUSTOM_SKILLS_DIR)
-      .map(async (entry) => {
-        await cp(join(sourceDir, entry.name), join(targetDir, entry.name), {
-          recursive: true,
-          force: true,
-        });
-      })
+    entries.map(async (entry) => {
+      await cp(join(sourceDir, entry.name), join(targetDir, entry.name), {
+        recursive: true,
+        force: true,
+      });
+    })
   );
 }
 
-function renderGeneratedSkillContent(skillName: string, nonDottedPaths: boolean): string {
+function renderGeneratedSkillContent(
+  skillName: string,
+  nonDottedPaths: boolean
+): string {
   let skillContent = SKILL_CONTENT[skillName];
   if (!skillContent) {
     throw new Error(`Missing generated skill content for ${skillName}`);
@@ -257,7 +287,11 @@ function renderGeneratedSkillContent(skillName: string, nonDottedPaths: boolean)
       if (!schemaYaml) {
         return null;
       }
-      return formatSchemaForMarkdown(schemaYaml, mapping.name, mapping.filePattern);
+      return formatSchemaForMarkdown(
+        schemaYaml,
+        mapping.name,
+        mapping.filePattern
+      );
     })
     .filter((entry): entry is string => entry !== null);
 
@@ -268,16 +302,16 @@ function renderGeneratedSkillContent(skillName: string, nonDottedPaths: boolean)
   return `${skillContent}\n\n${schemaDocs.join("\n\n")}`;
 }
 
-async function readSkillMetadataFromDirectory(skillsDir: string): Promise<ResolvedSkillMetadata[]> {
+async function readSkillMetadataFromDirectory(
+  skillsDir: string
+): Promise<ResolvedSkillMetadata[]> {
   const entries = await readdir(skillsDir, { withFileTypes: true });
   const skills: ResolvedSkillMetadata[] = [];
 
-  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+  for (const entry of entries.sort((left, right) =>
+    left.name.localeCompare(right.name)
+  )) {
     if (!entry.isDirectory()) {
-      continue;
-    }
-
-    if (entry.name === CUSTOM_SKILLS_DIR) {
       continue;
     }
 
@@ -293,7 +327,10 @@ async function readSkillMetadataFromDirectory(skillsDir: string): Promise<Resolv
   return skills;
 }
 
-function parseSkillMetadata(content: string, fallbackName: string): ResolvedSkillMetadata {
+function parseSkillMetadata(
+  content: string,
+  fallbackName: string
+): ResolvedSkillMetadata {
   const frontMatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
   if (!frontMatterMatch) {
     return {
@@ -330,7 +367,10 @@ async function writeProjectGuidanceFile(options: {
   content: string;
   overwrite: boolean;
 }): Promise<boolean> {
-  if (!options.overwrite && (await stat(options.targetPath).catch(() => null))) {
+  if (
+    !options.overwrite &&
+    (await stat(options.targetPath).catch(() => null))
+  ) {
     return false;
   }
 

@@ -1,17 +1,55 @@
 /**
- * Core guidance content for AGENTS.md
+ * Core guidance content for the AGENTS files Windmill writes during init.
  *
- * This module exports the template for the AGENTS.md file that provides
- * AI agent instructions for working with Windmill projects.
+ * `wmill` writes two files:
+ *
+ * - `AGENTS.cli.md` — managed CLI / workspace guidance, refreshed by
+ *   `wmill refresh prompts` (and the implicit refresh inside `wmill init`).
+ * - `AGENTS.md` — user-owned project entry point. The default skeleton
+ *   references `AGENTS.cli.md` via an `@`-include so the managed content is
+ *   pulled in automatically.
  */
 
+export const AGENTS_CLI_INCLUDE_LINE = "@AGENTS.cli.md";
+
 /**
- * Generate the AGENTS.md content with the given skills reference.
- * @param skillsReference - A formatted list of skills to include in the document
- * @returns The complete AGENTS.md content
+ * Lightweight, user-owned AGENTS.md skeleton. Written only when no AGENTS.md
+ * exists in the project. Everything below the `@AGENTS.cli.md` include is for
+ * the user to edit; nothing in this file is refreshed by `wmill`.
  */
-export function generateAgentsMdContent(skillsReference: string): string {
-  return `# Windmill AI Agent Instructions
+export function generateAgentsMdSkeleton(): string {
+  return `# Project AI Agent Instructions
+
+This file is the entry point for AI agents working in this repository. It is
+**user-owned** — \`wmill\` never overwrites it. Add your project-specific
+guidance below the include line.
+
+The line below pulls in Windmill's managed CLI guidance (skills, deploy flow,
+debugging jobs, etc.). Refresh it with \`wmill refresh prompts\`. Remove the
+include line if you don't want the managed guidance in this project.
+
+${AGENTS_CLI_INCLUDE_LINE}
+
+## Project-specific instructions
+
+<!-- Add anything specific to this repo here. Examples:
+     - Deploy commands or environments unique to this project.
+     - Domain glossary, naming conventions, or "ask before X" rules.
+     - Overrides for the managed guidance above (be explicit that they
+       supersede the managed rule). -->
+`;
+}
+
+/**
+ * Managed AGENTS.cli.md content. Rewritten by `wmill init` and
+ * `wmill refresh prompts` every time.
+ */
+export function generateAgentsCliMdContent(skillsReference: string): string {
+  return `# Windmill CLI Agent Instructions
+
+> Managed by \`wmill\`. This file is regenerated on \`wmill init\` and
+> \`wmill refresh prompts\` — edit AGENTS.md (user-owned) for project-specific
+> instructions instead.
 
 You are a helpful assistant that can help with Windmill scripts, flows, apps, and resources management.
 
@@ -107,11 +145,5 @@ For flow failures, start with \`wmill job get <id>\` to identify the failing ste
 For specific guidance, ALWAYS use the skills listed below.
 
 ${skillsReference}
-
-## Project-specific overrides
-
-Project-specific overrides and any custom skills are documented in \`AGENTS.custom.md\` (included below). Anything there extends or overrides the instructions above.
-
-@AGENTS.custom.md
 `;
 }
