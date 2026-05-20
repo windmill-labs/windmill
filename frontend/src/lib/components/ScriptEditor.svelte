@@ -591,6 +591,10 @@
 	let debugBreakpoints = new SvelteSet<number>()
 	let breakpointDecorations: string[] = $state([])
 	let currentLineDecoration: string[] = $state([])
+	let hoverBreakpointDecoration: string[] = $state([])
+	// Line currently showing the ghost breakpoint, used to short-circuit redundant
+	// deltaDecorations calls on every mousemove event.
+	let hoverBreakpointLine: number | null = null
 	// Get the DAP server URL based on language
 	const dapServerUrl = $derived(getDebugServerUrl((lang || 'python3') as DebugLanguage))
 	const debugFilePath = $derived(`/tmp/script${getDebugFileExtension(lang || '')}`)
@@ -620,6 +624,13 @@
 	const breakpointDecorationType: meditor.IModelDecorationOptions = {
 		glyphMarginClassName: 'debug-breakpoint-glyph',
 		glyphMarginHoverMessage: { value: 'Breakpoint (click to remove)' },
+		stickiness: 1
+	}
+
+	// Ghost breakpoint shown while hovering the gutter on a line without a breakpoint
+	const hoverBreakpointDecorationType: meditor.IModelDecorationOptions = {
+		glyphMarginClassName: 'debug-breakpoint-glyph-hover',
+		glyphMarginHoverMessage: { value: 'Click to add a breakpoint' },
 		stickiness: 1
 	}
 
@@ -854,6 +865,35 @@
 			debugBreakpoints.add(line)
 		}
 		updateBreakpointDecorations()
+		clearHoverBreakpointDecoration()
+	}
+
+	function updateHoverBreakpointDecoration(line: number): void {
+		if (hoverBreakpointLine === line) return
+		const monacoEditor = editor?.getEditor?.()
+		if (!monacoEditor) return
+
+		const decorations = [
+			{
+				range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 },
+				options: hoverBreakpointDecorationType
+			}
+		]
+
+		const oldDecorations = untrack(() => hoverBreakpointDecoration)
+		hoverBreakpointDecoration = monacoEditor.deltaDecorations(oldDecorations, decorations)
+		hoverBreakpointLine = line
+	}
+
+	function clearHoverBreakpointDecoration(): void {
+		if (hoverBreakpointLine === null) return
+		const monacoEditor = editor?.getEditor?.()
+		if (!monacoEditor) return
+		const oldDecorations = untrack(() => hoverBreakpointDecoration)
+		if (oldDecorations.length > 0) {
+			hoverBreakpointDecoration = monacoEditor.deltaDecorations(oldDecorations, [])
+		}
+		hoverBreakpointLine = null
 	}
 
 	function updateBreakpointDecorations(): void {
@@ -1083,13 +1123,33 @@
 
 			// Add click handler for glyph margin (breakpoint toggle)
 			const mouseDownDisposable = monacoEditor.onMouseDown((e) => {
-				// MouseTargetType.GUTTER_GLYPH_MARGIN = 2
-				if (e.target.type === 2) {
+				if (e.target.type === meditor.MouseTargetType.GUTTER_GLYPH_MARGIN) {
 					const line = e.target.position?.lineNumber
 					if (line) {
 						toggleBreakpoint(line)
 					}
 				}
+			})
+
+			// Show a ghost breakpoint while hovering anywhere in the gutter on an empty line.
+			// Hover area is intentionally wider than the click target — clicks still only
+			// toggle when landing on the glyph margin itself, but the ghost helps users find it.
+			const mouseMoveDisposable = monacoEditor.onMouseMove((e) => {
+				const t = e.target.type
+				const isGutter =
+					t === meditor.MouseTargetType.GUTTER_GLYPH_MARGIN ||
+					t === meditor.MouseTargetType.GUTTER_LINE_NUMBERS ||
+					t === meditor.MouseTargetType.GUTTER_LINE_DECORATIONS
+				const line = e.target.position?.lineNumber
+				if (isGutter && line && !debugBreakpoints.has(line)) {
+					updateHoverBreakpointDecoration(line)
+				} else {
+					clearHoverBreakpointDecoration()
+				}
+			})
+
+			const mouseLeaveDisposable = monacoEditor.onMouseLeave(() => {
+				clearHoverBreakpointDecoration()
 			})
 
 			// Add F9 keyboard shortcut for toggling breakpoint at cursor
@@ -1124,6 +1184,9 @@
 
 			return () => {
 				mouseDownDisposable.dispose()
+				mouseMoveDisposable.dispose()
+				mouseLeaveDisposable.dispose()
+				clearHoverBreakpointDecoration()
 				// Disable glyph margin when exiting debug mode
 				monacoEditor.updateOptions({ glyphMargin: false })
 			}
@@ -2161,6 +2224,18 @@
 		height: 10px !important;
 		margin-left: 5px;
 		margin-top: 4px;
+	}
+
+	/* Ghost breakpoint shown on gutter hover before the user clicks */
+	.debug-breakpoint-glyph-hover {
+		background-color: #e51400;
+		opacity: 0.35;
+		border-radius: 50%;
+		width: 10px !important;
+		height: 10px !important;
+		margin-left: 5px;
+		margin-top: 4px;
+		cursor: pointer;
 	}
 
 	/* Current execution line - yellow background */
