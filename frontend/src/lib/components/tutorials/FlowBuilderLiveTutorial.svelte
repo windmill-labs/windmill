@@ -25,7 +25,8 @@
 	import { get } from 'svelte/store'
 	import { sendUserToast } from '$lib/toast'
 	import { updateProgress } from '$lib/tutorialUtils'
-	const { flowStore, flowStateStore, selectionManager, currentEditor } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, flowStateStore, selectionManager, currentEditor } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 
 	interface Props {
 		index: number
@@ -48,7 +49,11 @@
 	}
 
 	// Helper function to type text character by character
-	async function typeText(input: HTMLInputElement, text: string, delay: number = DELAY_TYPING): Promise<void> {
+	async function typeText(
+		input: HTMLInputElement,
+		text: string,
+		delay: number = DELAY_TYPING
+	): Promise<void> {
 		input.value = ''
 		input.focus()
 		for (let i = 0; i < text.length; i++) {
@@ -60,7 +65,7 @@
 
 	// Helper function to update module summary in flowStore
 	function updateModuleSummary(moduleId: string, summary: string): void {
-		const moduleIndex = flowStore.val.value.modules.findIndex(m => m.id === moduleId)
+		const moduleIndex = flowStore.val.value.modules.findIndex((m) => m.id === moduleId)
 		if (moduleIndex !== -1) {
 			flowStore.val.value.modules[moduleIndex].summary = summary
 			flowStore.val = { ...flowStore.val }
@@ -78,9 +83,9 @@
 	// Helper function to find button by text and classes
 	function findButtonByText(text: string, classes: string[] = []): HTMLElement | null {
 		const buttons = Array.from(document.querySelectorAll('button'))
-		return buttons.find(btn => {
+		return buttons.find((btn) => {
 			const hasText = btn.textContent?.includes(text) ?? false
-			const hasClasses = classes.every(cls => btn.classList.contains(cls))
+			const hasClasses = classes.every((cls) => btn.classList.contains(cls))
 			return hasText && (classes.length === 0 || hasClasses)
 		}) as HTMLElement | null
 	}
@@ -127,11 +132,6 @@
 	}
 
 	export function runTutorial() {
-		try {
-			localStorage.removeItem('flow')
-		} catch (e) {
-			console.error('Error clearing localStorage', e)
-		}
 		tutorial?.runTutorial()
 	}
 
@@ -196,7 +196,7 @@
 				celsius: {
 					type: 'number',
 					description: 'Temperature in Celsius',
-					default: ""
+					default: ''
 				}
 			},
 			required: ['celsius'],
@@ -212,7 +212,7 @@
 
 <Tutorial
 	bind:this={tutorial}
-	index={index}
+	{index}
 	name="flow-live-tutorial"
 	tainted={isFlowTainted(flowStore.val)}
 	on:error
@@ -260,7 +260,9 @@
 						overlay.style.left = '0'
 					}
 
-					const celsiusInput = document.querySelector('input[type="number"][placeholder=""]') as HTMLInputElement
+					const celsiusInput = document.querySelector(
+						'input[type="number"][placeholder=""]'
+					) as HTMLInputElement
 					if (celsiusInput) {
 						celsiusInput.value = ''
 						celsiusInput.dispatchEvent(new Event('input', { bubbles: true }))
@@ -312,7 +314,9 @@
 					await wait(DELAY_LONG)
 
 					const spans = Array.from(document.querySelectorAll('span'))
-					const bunSpan = spans.find(span => span.textContent?.includes('TypeScript (Bun)')) as HTMLElement
+					const bunSpan = spans.find((span) =>
+						span.textContent?.includes('TypeScript (Bun)')
+					) as HTMLElement
 
 					if (bunSpan) {
 						// Animate cursor from add step button to TypeScript (Bun) span
@@ -355,7 +359,13 @@
 					side: 'top',
 					onNextClick: () => {
 						if (!step3Complete) {
-							sendUserToast('Please wait for the script to be created...', false, [], undefined, 3000)
+							sendUserToast(
+								'Please wait for the script to be created...',
+								false,
+								[],
+								undefined,
+								3000
+							)
 							return
 						}
 						driver.moveNext()
@@ -383,7 +393,9 @@
 
 					// First, type the summary
 					await wait(DELAY_MEDIUM)
-					const summaryInput = document.querySelector('input[placeholder="Summary"]') as HTMLInputElement
+					const summaryInput = document.querySelector(
+						'input[placeholder="Summary"]'
+					) as HTMLInputElement
 					if (summaryInput) {
 						const summaryText = 'Validate temperature input'
 						await typeText(summaryInput, summaryText)
@@ -405,8 +417,9 @@
 
 					if (editorState && editorState.type === 'script') {
 						const editor = editorState.editor
-						const moduleA = flowJson.value.modules.find(m => m.id === 'a')
-						const codeToType = (moduleA?.value && 'content' in moduleA.value) ? moduleA.value.content : ''
+						const moduleA = flowJson.value.modules.find((m) => m.id === 'a')
+						const codeToType =
+							moduleA?.value && 'content' in moduleA.value ? moduleA.value.content : ''
 
 						if (codeToType) {
 							editor.setCode('', true)
@@ -422,8 +435,11 @@
 							}
 
 							// Update the flow store with the typed code
-							const moduleIndex = flowStore.val.value.modules.findIndex(m => m.id === 'a')
-							if (moduleIndex !== -1 && 'content' in flowStore.val.value.modules[moduleIndex].value) {
+							const moduleIndex = flowStore.val.value.modules.findIndex((m) => m.id === 'a')
+							if (
+								moduleIndex !== -1 &&
+								'content' in flowStore.val.value.modules[moduleIndex].value
+							) {
 								flowStore.val.value.modules[moduleIndex].value = {
 									...flowStore.val.value.modules[moduleIndex].value,
 									content: codeToType
@@ -445,13 +461,18 @@
 				},
 				popover: {
 					title: 'Add validation logic',
-					description:
-						"Watch as we write code to validate the temperature input.",
+					description: 'Watch as we write code to validate the temperature input.',
 					side: 'bottom',
 					onNextClick: () => {
 						// Only proceed if code writing is complete
 						if (!step4Complete) {
-							sendUserToast('Please wait for the code to finish typing...', false, [], undefined, 3000)
+							sendUserToast(
+								'Please wait for the code to finish typing...',
+								false,
+								[],
+								undefined,
+								3000
+							)
 							return
 						}
 
@@ -524,7 +545,9 @@
 					await wait(DELAY_MEDIUM)
 
 					// Step 2: Move to and click flow_input.celsius
-					const targetButton = document.querySelector('button[title="flow_input.celsius"]') as HTMLElement
+					const targetButton = document.querySelector(
+						'button[title="flow_input.celsius"]'
+					) as HTMLElement
 					if (targetButton) {
 						await moveCursorToElement(fakeCursor, targetButton, DELAY_ANIMATION_LONG)
 						await wait(DELAY_MEDIUM)
@@ -636,7 +659,9 @@
 					await wait(DELAY_LONG)
 
 					// Type summary for script 'b'
-					const summaryInputB = document.querySelector('input[placeholder="Summary"]') as HTMLInputElement
+					const summaryInputB = document.querySelector(
+						'input[placeholder="Summary"]'
+					) as HTMLInputElement
 					if (summaryInputB) {
 						const summaryTextB = 'Convert to Fahrenheit'
 						await typeText(summaryInputB, summaryTextB)
@@ -655,7 +680,9 @@
 					await wait(DELAY_LONG)
 
 					// Type summary for script 'c'
-					const summaryInputC = document.querySelector('input[placeholder="Summary"]') as HTMLInputElement
+					const summaryInputC = document.querySelector(
+						'input[placeholder="Summary"]'
+					) as HTMLInputElement
 					if (summaryInputC) {
 						const summaryTextC = 'Categorize temperature'
 						await typeText(summaryInputC, summaryTextC)
@@ -680,7 +707,13 @@
 					description: 'Two more scripts to convert and categorize the temperature.',
 					onNextClick: () => {
 						if (!step6Complete) {
-							sendUserToast('Please wait for the summaries to be added...', false, [], undefined, 3000)
+							sendUserToast(
+								'Please wait for the summaries to be added...',
+								false,
+								[],
+								undefined,
+								3000
+							)
 							return
 						}
 
@@ -703,7 +736,8 @@
 				element: '#flow-editor-test-flow',
 				popover: {
 					title: 'Ready to test!',
-					description: 'Run the complete flow and see your temperature converter in action.<p style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(128,128,128,0.3); font-size: 0.9em; opacity: 0.9;"><strong>💡 Want to learn more?</strong> Access more tutorials from the <strong>Tutorials</strong> page in the main menu or in the <strong>Help</strong> submenu.</p>',
+					description:
+						'Run the complete flow and see your temperature converter in action.<p style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(128,128,128,0.3); font-size: 0.9em; opacity: 0.9;"><strong>💡 Want to learn more?</strong> Access more tutorials from the <strong>Tutorials</strong> page in the main menu or in the <strong>Help</strong> submenu.</p>',
 					onNextClick: () => {
 						updateProgress(index)
 						driver.destroy()
@@ -712,7 +746,7 @@
 						sendUserToast('Previous is not available for this step', true, [], undefined, 3000)
 					}
 				}
-			},
+			}
 		]
 
 		return steps

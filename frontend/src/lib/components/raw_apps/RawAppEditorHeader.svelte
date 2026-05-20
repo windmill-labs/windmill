@@ -3,8 +3,10 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { isMac, userPathPrefix } from '$lib/utils'
 	import { editPathFor, invalidate as invalidatePicker } from '$lib/components/workspacePicker'
+	import { invalidateWorkspacePaths } from '$lib/components/PathNameAutocomplete.svelte'
 
 	import { AppService, DraftService, type Policy } from '$lib/gen'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import { rawAppToHubUrl } from '$lib/hub'
 	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
 	import YAML from 'yaml'
@@ -16,6 +18,8 @@
 		FileJson,
 		Globe,
 		History,
+		PanelLeft,
+		PanelLeftClose,
 		Redo,
 		Save,
 		Undo,
@@ -52,6 +56,16 @@
 	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 	import { updateRawAppPolicy } from './rawAppPolicy'
 	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
+	import { getContext } from 'svelte'
+
+	// Forward-looking hook for the upcoming session-pane feature: that PR will
+	// `setContext('aiChatManager', ...)` from the session wrapper so this editor
+	// can detect it and hide its own AI button. On main today nothing sets the
+	// context, so `inSessionPane` is always false and the AI button renders
+	// normally — keep the check to avoid re-touching this file when the
+	// session-pane PR lands. Untyped getContext to avoid coupling to the
+	// AIChatManager class export (which lives on the chat-visuals PR).
+	const inSessionPane = !!getContext('aiChatManager')
 	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
 	import type { RawAppData } from './dataTableRefUtils'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
@@ -109,6 +123,8 @@
 		onUndo?: () => void
 		onRedo?: () => void
 		onOpenYamlEditor?: () => void
+		sidebarCollapsed?: boolean
+		onToggleSidebar?: () => void
 	}
 
 	let {
@@ -130,7 +146,9 @@
 		canRedo = false,
 		onUndo = undefined,
 		onRedo = undefined,
-		onOpenYamlEditor = undefined
+		onOpenYamlEditor = undefined,
+		sidebarCollapsed = false,
+		onToggleSidebar = undefined
 	}: Props = $props()
 
 	let newEditedPath = $state(
@@ -163,6 +181,10 @@
 	let publishToHubDrawerOpen = $state(false)
 	let publishingToHub = $state(false)
 	let deploymentMsg: string | undefined = $state(undefined)
+
+	// Top-bar responsive collapse — container width, not viewport.
+	let topbarWidth = $state(0)
+	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
 
 	async function publishToHub() {
 		if (!app) return
@@ -233,6 +255,9 @@
 					css
 				}
 			})
+			// New path now exists server-side — drop the autocomplete cache so
+			// it shows up immediately instead of after the 60s TTL.
+			invalidateWorkspacePaths($workspaceStore!)
 			savedApp = {
 				summary: summary,
 				value: structuredClone(stateSnapshot(app)),
@@ -242,14 +267,10 @@
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
-			try {
-				localStorage.removeItem(`rawapp-${path}`)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
+			UserDraft.remove('raw_app', path)
 			dispatch('savedNewAppPath', path)
 		} catch (e) {
-			sendUserToast('Error creating app', e)
+			sendUserToast(`Error creating app: ${e.body ?? e.message}`, true)
 		}
 	}
 
@@ -342,6 +363,7 @@
 			}
 		})
 		invalidatePicker($workspaceStore!, 'app')
+		invalidateWorkspacePaths($workspaceStore!)
 		savedApp = {
 			summary: summary,
 			value: structuredClone(stateSnapshot(app)),
@@ -357,12 +379,8 @@
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
+		UserDraft.remove('raw_app', appPath)
 		if (appPath !== npath) {
-			try {
-				localStorage.removeItem(`rawapp-${appPath}`)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
 			dispatch('savedNewAppPath', npath)
 		}
 	}
@@ -440,9 +458,13 @@
 			}
 
 			draftDrawerOpen = false
+			// The initial draft was promoted to a real path on the backend —
+			// drop the autosave keyed on the prior (possibly empty) path so
+			// a future "+ App" click opens on a clean slate.
+			UserDraft.remove('raw_app', appPath)
 			dispatch('savedNewAppPath', newEditedPath)
 		} catch (e) {
-			sendUserToast('Error saving initial draft', e)
+			sendUserToast(`Error saving initial draft: ${e.body ?? e.message}`, true)
 		}
 		draftDrawerOpen = false
 	}
@@ -540,11 +562,7 @@
 			}
 
 			sendUserToast('Draft saved')
-			try {
-				localStorage.removeItem(`rawapp-${path}`)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
+			UserDraft.remove('raw_app', path)
 			loading.saveDraft = false
 			if (newApp || savedApp.draft_only) {
 				dispatch('savedNewAppPath', newEditedPath || path)
@@ -575,6 +593,23 @@
 	const mod = isMac() ? '⌘' : 'Ctrl+'
 
 	let moreItems = $derived([
+		...(compactTopbar
+			? [
+					{
+						displayName: 'Save draft',
+						icon: Save,
+						action: () => saveDraft(),
+						shortcut: `${mod}S`,
+						disabled: !newApp && !savedApp
+					},
+					{
+						displayName: `Jobs (${jobs?.length > 99 ? '99+' : (jobs?.length ?? 0)})`,
+						icon: Bug,
+						action: () => (jobsDrawerOpen = true),
+						separatorBottom: true
+					}
+				]
+			: []),
 		{
 			displayName: 'Undo',
 			icon: Undo,
@@ -851,9 +886,20 @@
 />
 
 <div
+	bind:clientWidth={topbarWidth}
 	class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto max-h-12 h-12 shrink-0"
 >
-	<div class="flex flex-row gap-2 items-center">
+	<div class="flex flex-row gap-2 items-center min-w-[200px]">
+		{#if onToggleSidebar}
+			<Button
+				unifiedSize="sm"
+				variant="subtle"
+				iconOnly
+				startIcon={{ icon: sidebarCollapsed ? PanelLeft : PanelLeftClose }}
+				title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} file sidebar (${isMac() ? '⌘' : 'Ctrl+'}B)`}
+				on:click={() => onToggleSidebar?.()}
+			/>
+		{/if}
 		<EditorHeader
 			bind:summary
 			bind:path={newEditedPath}
@@ -881,7 +927,7 @@
 			{/snippet}
 		</DropdownV2>
 
-		<div class="hidden md:inline relative overflow-visible">
+		<div class="{compactTopbar ? 'hidden' : 'hidden md:inline'} relative overflow-visible">
 			<Button
 				on:click={() => {
 					jobsDrawerOpen = true
@@ -902,27 +948,31 @@
 			</Button>
 		</div>
 		<AppExportButton bind:this={appExport} />
-		<Button
-			unifiedSize="md"
-			variant="default"
-			onClick={() => aiChatManager.toggleOpen()}
-			startIcon={{ icon: WandSparkles }}
-			iconOnly
-			btnClasses={AIBtnClasses('default')}
-		>
-			AI
-		</Button>
-		<Button
-			loading={loading.save}
-			startIcon={{ icon: Save }}
-			on:click={() => saveDraft()}
-			unifiedSize="md"
-			variant="default"
-			disabled={!newApp && !savedApp}
-			shortCut={{ key: 'S' }}
-		>
-			Draft
-		</Button>
+		{#if !inSessionPane}
+			<Button
+				unifiedSize="md"
+				variant="default"
+				onClick={() => aiChatManager.toggleOpen()}
+				startIcon={{ icon: WandSparkles }}
+				iconOnly
+				btnClasses={AIBtnClasses('default')}
+			>
+				AI
+			</Button>
+		{/if}
+		{#if !compactTopbar}
+			<Button
+				loading={loading.save}
+				startIcon={{ icon: Save }}
+				on:click={() => saveDraft()}
+				unifiedSize="md"
+				variant="default"
+				disabled={!newApp && !savedApp}
+				shortCut={{ key: 'S' }}
+			>
+				Draft
+			</Button>
+		{/if}
 		<Button
 			loading={loading.save}
 			startIcon={{ icon: Save }}

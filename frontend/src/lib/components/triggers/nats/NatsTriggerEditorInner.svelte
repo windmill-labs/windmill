@@ -23,6 +23,7 @@
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 
@@ -110,6 +111,16 @@
 		pathError != '' || emptyString(script_path) || !can_write || !isValid || !hasChanged
 	)
 	const natsConfig = $derived.by(getSaveCfg)
+
+	const draftSync = useTriggerDraftSync({
+		itemKind: 'trigger_nats',
+		path: () => initialPath,
+		workspace: () => $workspaceStore,
+		drawerLoading: () => drawerLoading,
+		getCfg: () => natsConfig,
+		applyCfg: loadTriggerConfig,
+		deployed: () => originalConfig
+	})
 	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 
 	$effect(() => {
@@ -132,16 +143,17 @@
 			edit = true
 			dirtyPath = false
 			await loadTrigger(defaultConfig)
+			if (!defaultConfig) {
+				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
+			}
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			await draftSync.maybeRestore(ePath)
 		} catch (err) {
 			sendUserToast(`Could not load nats trigger: ${err}`, true)
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
-			if (!defaultConfig) {
-				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
-			}
-			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 		}
 	}
 
@@ -248,6 +260,7 @@
 
 	async function updateTrigger(): Promise<void> {
 		deploymentLoading = true
+		const previousPath = initialPath
 		const cfg = natsConfig
 		const isSaved = await saveNatsTriggerFromCfg(
 			initialPath,
@@ -257,6 +270,7 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
+			draftSync.discard(previousPath, getSaveCfg())
 			onUpdate?.(cfg.path)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			initialPath = cfg.path

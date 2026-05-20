@@ -524,6 +524,7 @@ pub async fn trigger_runnable_inner<'c>(
     Uuid,
     Option<i32>,
     Option<String>,
+    bool,
     Option<sqlx::Transaction<'c, sqlx::Postgres>>,
 )> {
     let error_handler_args = error_handler_args.map(|args| {
@@ -536,10 +537,10 @@ pub async fn trigger_runnable_inner<'c>(
     });
 
     let user_db = user_db.unwrap_or_else(|| UserDB::new(db.clone()));
-    let (uuid, resolved_delete_secs, early_return, tx_out) = if is_flow {
+    let (uuid, resolved_delete_secs, early_return, has_failure_module, tx_out) = if is_flow {
         let run_query = RunJobQuery { job_id, suspended_mode, ..Default::default() };
         let path = StripPath(runnable_path.to_string());
-        let (uuid, early_return, tx_out) = push_flow_job_by_path_into_queue(
+        let (uuid, early_return, has_failure_module, tx_out) = push_flow_job_by_path_into_queue(
             authed,
             db.clone(),
             tx_o,
@@ -551,7 +552,7 @@ pub async fn trigger_runnable_inner<'c>(
             Some(trigger),
         )
         .await?;
-        (uuid, None, early_return, tx_out)
+        (uuid, None, early_return, has_failure_module, tx_out)
     } else {
         let (uuid, resolved_delete_secs, tx_out) = trigger_script_internal(
             db,
@@ -570,10 +571,16 @@ pub async fn trigger_runnable_inner<'c>(
             suspended_mode,
         )
         .await?;
-        (uuid, resolved_delete_secs, None, tx_out)
+        (uuid, resolved_delete_secs, None, false, tx_out)
     };
 
-    Ok((uuid, resolved_delete_secs, early_return, tx_out))
+    Ok((
+        uuid,
+        resolved_delete_secs,
+        early_return,
+        has_failure_module,
+        tx_out,
+    ))
 }
 
 #[allow(dead_code)]
@@ -631,7 +638,7 @@ pub async fn trigger_runnable_and_wait_for_result(
     trigger: TriggerMetadata,
 ) -> Result<axum::response::Response> {
     let username = authed.username.clone();
-    let (uuid, resolved_delete_secs, early_return, _) = trigger_runnable_inner(
+    let (uuid, resolved_delete_secs, early_return, has_failure_module, _) = trigger_runnable_inner(
         db,
         None,
         user_db,
@@ -649,8 +656,15 @@ pub async fn trigger_runnable_and_wait_for_result(
         None,
     )
     .await?;
-    let (result, success) =
-        run_wait_result_internal(db, uuid, &workspace_id, early_return, &username).await?;
+    let (result, success) = run_wait_result_internal(
+        db,
+        uuid,
+        &workspace_id,
+        early_return,
+        has_failure_module,
+        &username,
+    )
+    .await?;
 
     match resolved_delete_secs {
         Some(0) => delete_job_metadata_after_use(&db, uuid).await?,
@@ -677,7 +691,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
     trigger: TriggerMetadata,
 ) -> Result<(Box<RawValue>, bool)> {
     let username = authed.username.clone();
-    let (uuid, resolved_delete_secs, early_return, _) = trigger_runnable_inner(
+    let (uuid, resolved_delete_secs, early_return, has_failure_module, _) = trigger_runnable_inner(
         db,
         None,
         user_db,
@@ -696,16 +710,22 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
     )
     .await?;
 
-    let (result, success) =
-        run_wait_result_internal(db, uuid, &workspace_id, early_return, &username)
-            .await
-            .with_context(|| {
-                format!(
-                    "Error fetching job result for {} {}",
-                    if is_flow { "flow" } else { "script" },
-                    runnable_path
-                )
-            })?;
+    let (result, success) = run_wait_result_internal(
+        db,
+        uuid,
+        &workspace_id,
+        early_return,
+        has_failure_module,
+        &username,
+    )
+    .await
+    .with_context(|| {
+        format!(
+            "Error fetching job result for {} {}",
+            if is_flow { "flow" } else { "script" },
+            runnable_path
+        )
+    })?;
 
     match resolved_delete_secs {
         Some(0) => delete_job_metadata_after_use(&db, uuid).await?,

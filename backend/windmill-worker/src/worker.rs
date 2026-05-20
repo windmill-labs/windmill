@@ -681,6 +681,13 @@ lazy_static::lazy_static! {
     pub static ref FLOW_RUNNER_RUNNING: Mutex<bool> = Mutex::new(false);
 }
 
+lazy_static::lazy_static! {
+    /// Optional override for the size of the `/tmp` tmpfs mount in nsjail sandboxes (in megabytes).
+    /// When `None` (or non-positive), executors fall back to the unified
+    /// `DEFAULT_NSJAIL_TMPFS_SIZE_BYTES` (800MB).
+    pub static ref NSJAIL_TMPFS_SIZE_MB: Arc<RwLock<Option<i64>>> = Arc::new(RwLock::new(None));
+}
+
 pub fn sleep_queue() -> u64 {
     if NATIVE_MODE_RESOLVED.load(std::sync::atomic::Ordering::Relaxed) {
         300
@@ -4693,6 +4700,7 @@ pub async fn run_language_executor(
                 column_order,
                 occupancy_metrics,
                 parent_runnable_path,
+                job_dir,
                 run_inline,
             ))
             .await;

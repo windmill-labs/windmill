@@ -6,7 +6,7 @@ import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import * as log from "../../core/log.ts";
 import { GlobalOptions } from "../../types.ts";
-import { runCatalogQuery } from "./catalog.ts";
+import { runCatalogQuery } from "../../utils/catalog.ts";
 import { psql as psqlDatatable } from "./psql.ts";
 import { serve as serveDatatable } from "./serve.ts";
 

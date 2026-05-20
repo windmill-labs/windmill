@@ -21,6 +21,7 @@ import schedule from "./commands/schedule/schedule.ts";
 import trigger from "./commands/trigger/trigger.ts";
 import sync from "./commands/sync/sync.ts";
 import gitsyncSettings from "./commands/gitsync-settings/gitsync-settings.ts";
+import protectionRules from "./commands/protection-rules/protection-rules.ts";
 import instance from "./commands/instance/instance.ts";
 import workerGroups from "./commands/worker-groups/worker-groups.ts";
 import lint from "./commands/lint/lint.ts";
@@ -48,6 +49,7 @@ import generateMetadata from "./commands/generate-metadata/generate-metadata.ts"
 import docs from "./commands/docs/docs.ts";
 import config from "./commands/config/config.ts";
 import datatable from "./commands/datatable/datatable.ts";
+import ducklake from "./commands/ducklake/ducklake.ts";
 import { fetchVersion } from "./core/context.ts";
 
 export {
@@ -66,11 +68,13 @@ export {
   sync,
   lint,
   gitsyncSettings,
+  protectionRules,
   instance,
   dev,
   docs,
   config,
   datatable,
+  ducklake,
   hubPull,
   pull,
   push,
@@ -187,6 +191,7 @@ const command = new Command()
   .command("sync", sync)
   .command("lint", lint)
   .command("gitsync-settings", gitsyncSettings)
+  .command("protection-rules", protectionRules)
   .command("instance", instance)
   .command("worker-groups", workerGroups)
   .command("workers", workers)
@@ -201,6 +206,7 @@ const command = new Command()
   .command("docs", docs)
   .command("config", config)
   .command("datatable", datatable)
+  .command("ducklake", ducklake)
   .command("version --version", "Show version information")
   .action(async (opts: any) => {
     console.log("CLI version: " + VERSION);

@@ -38,6 +38,7 @@
 	import { runScheduleNow } from '../scheduled/utils'
 	import { handleConfigChange } from '../utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
+	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
@@ -130,6 +131,16 @@
 	)
 	const scheduleCfg = $derived.by(getScheduleCfg)
 
+	const draftSync = useTriggerDraftSync({
+		itemKind: 'trigger_schedule',
+		path: () => initialPath,
+		workspace: () => $workspaceStore,
+		drawerLoading: () => drawerLoading,
+		getCfg: () => scheduleCfg,
+		applyCfg: loadScheduleCfg,
+		deployed: () => initialConfig
+	})
+
 	export async function openEdit(ePath: string, isFlow: boolean, defaultCfg?: Record<string, any>) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
@@ -142,10 +153,11 @@
 			path = defaultCfg?.path ?? ePath
 			await loadSchedule(defaultCfg)
 			edit = true
-		} finally {
 			if (!defaultCfg) {
 				initialConfig = structuredClone($state.snapshot(getScheduleCfg()))
 			}
+			await draftSync.maybeRestore(ePath)
+		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
@@ -527,10 +539,12 @@
 	}
 
 	async function scheduleScript(): Promise<void> {
+		const previousPath = initialPath
 		const scheduleCfg = getScheduleCfg()
 		deploymentLoading = true
 		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, $workspaceStore!)
 		if (isSaved) {
+			draftSync.discard(previousPath, scheduleCfg)
 			onUpdate?.(scheduleCfg.path)
 			drawer?.closeDrawer()
 		}

@@ -6,12 +6,10 @@
 	const {
 		loading = false,
 		loadingSave = false,
-		newFlow = false,
 		dropdownItems = []
 	}: {
 		loading?: boolean
 		loadingSave?: boolean
-		newFlow?: boolean
 		dropdownItems?: Array<{
 			label: string
 			onClick: () => void
@@ -33,7 +31,7 @@
 	unifiedSize="md"
 	startIcon={{ icon: Save }}
 	on:click={() => dispatch('save')}
-	dropdownItems={!newFlow ? dropdownItems : undefined}
+	{dropdownItems}
 	tooltipPopover={{
 		placement: 'bottom-end',
 		openDelay: dropdownOpen ? 200 : 0,

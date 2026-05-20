@@ -13871,6 +13871,7 @@ dependencies = [
 name = "windmill-ai"
 version = "1.704.1"
 dependencies = [
+ "async-stream",
  "async-trait",
  "aws-config",
  "aws-credential-types",
@@ -15667,6 +15668,7 @@ dependencies = [
  "regex",
  "reqwest 0.13.1",
  "reqwest-middleware",
+ "rsa",
  "rust_decimal",
  "serde",
  "serde_json",
