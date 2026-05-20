@@ -3,6 +3,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { isMac, userPathPrefix } from '$lib/utils'
 	import { editPathFor, invalidate as invalidatePicker } from '$lib/components/workspacePicker'
+	import { invalidateWorkspacePaths } from '$lib/components/PathNameAutocomplete.svelte'
 
 	import { AppService, DraftService, type Policy } from '$lib/gen'
 	import { rawAppToHubUrl } from '$lib/hub'
@@ -253,6 +254,9 @@
 					css
 				}
 			})
+			// New path now exists server-side — drop the autocomplete cache so
+			// it shows up immediately instead of after the 60s TTL.
+			invalidateWorkspacePaths($workspaceStore!)
 			savedApp = {
 				summary: summary,
 				value: structuredClone(stateSnapshot(app)),
@@ -362,6 +366,7 @@
 			}
 		})
 		invalidatePicker($workspaceStore!, 'app')
+		invalidateWorkspacePaths($workspaceStore!)
 		savedApp = {
 			summary: summary,
 			value: structuredClone(stateSnapshot(app)),

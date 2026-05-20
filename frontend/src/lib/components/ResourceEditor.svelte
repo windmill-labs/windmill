@@ -7,6 +7,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
 	import ResourceForm from './ResourceForm.svelte'
+	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { resource } from 'runed'
 	import { deepEqual } from 'fast-equals'
@@ -246,6 +247,9 @@
 						}
 					})
 				}
+				// Path now exists server-side — drop the autocomplete cache so
+				// it shows up immediately instead of after the 60s TTL.
+				invalidateWorkspacePaths(ws)
 			}
 			sendUserToast(
 				dirty.length > 1 ? `Saved resource in ${dirty.length} workspaces` : `Saved resource`

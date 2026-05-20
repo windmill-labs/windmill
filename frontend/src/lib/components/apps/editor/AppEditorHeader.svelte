@@ -64,6 +64,7 @@
 
 	import EditorHeader from '$lib/components/EditorHeader.svelte'
 	import { editPathFor, invalidate as invalidatePicker } from '$lib/components/workspacePicker'
+	import { invalidateWorkspacePaths } from '$lib/components/PathNameAutocomplete.svelte'
 	import { goto } from '$app/navigation'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
@@ -215,6 +216,9 @@
 					preserve_on_behalf_of: preserveOnBehalfOf || undefined
 				}
 			})
+			// New path now exists server-side — drop the autocomplete cache so
+			// it shows up immediately instead of after the 60s TTL.
+			invalidateWorkspacePaths($workspaceStore!)
 			savedApp = {
 				summary: $summary,
 				value: structuredClone($state.snapshot($app)),
@@ -313,6 +317,7 @@
 			}
 		})
 		invalidatePicker($workspaceStore!, 'app')
+		invalidateWorkspacePaths($workspaceStore!)
 		savedApp = {
 			summary: $summary,
 			value: structuredClone($state.snapshot($app)),
