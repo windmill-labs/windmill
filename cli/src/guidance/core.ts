@@ -55,6 +55,40 @@ You MUST use the \`preview\` skill any time the user wants to see/open/visualize
 
 You MUST use the \`cli-commands\` skill to use the CLI.
 
+## Deploying
+
+There are two ways local changes reach the workspace. Pick based on how the repo is wired, not habit.
+
+### Detecting the setup
+
+Before deploying, check whether this repo has a **GitHub Actions (or other CI) workflow that runs \`wmill sync push\` on push**. That workflow is the signal that pushing a branch will deploy:
+
+- Look for \`.github/workflows/*.yml\` (or other CI configs) that invoke \`wmill sync push\`, \`wmill\` deployment commands, or similar.
+- Cache the result for the rest of the session — don't re-scan on every deploy.
+
+If such a workflow exists → **use \`git push\`** (Option A). Otherwise → **use \`wmill sync push\`** directly (Option B).
+
+### Option A — \`git push\` (CI is wired to sync)
+
+The CI workflow will pick up the commit and run \`wmill sync push\` on the backend, which is how deployments are intended to happen in this repo. Don't bypass it.
+
+1. \`git add\` + \`git commit\` the local changes.
+2. \`git push\` to the branch the CI runs on.
+3. The workflow deploys to the workspace.
+
+Only fall back to Option B if the user explicitly asks to bypass CI for this change (e.g. CI is broken, urgent hotfix), or if the workflow doesn't cover the current branch.
+
+### Option B — \`wmill sync push\` (no CI wiring)
+
+No CI workflow runs \`wmill sync push\` automatically, so deploy directly from the CLI:
+
+- \`wmill sync push --dry-run\` to preview.
+- \`wmill sync push\` to apply.
+
+### In both cases
+
+Only deploy when the user explicitly asks to deploy, publish, push, or ship — not when they say "run", "try", or "test". For testing local edits use the per-entity \`preview\` commands (\`wmill script preview\`, \`wmill flow preview\`) — they don't deploy.
+
 ## Debugging Jobs
 
 When the user reports a script or flow failure, is investigating unexpected output, or asks why something ran the way it did, use the CLI to fetch job details before speculating. See the \`cli-commands\` skill for all flags.
@@ -73,5 +107,11 @@ For flow failures, start with \`wmill job get <id>\` to identify the failing ste
 For specific guidance, ALWAYS use the skills listed below.
 
 ${skillsReference}
+
+## Project-specific overrides
+
+Project-specific overrides and any custom skills are documented in \`AGENTS.custom.md\` (included below). Anything there extends or overrides the instructions above.
+
+@AGENTS.custom.md
 `;
 }

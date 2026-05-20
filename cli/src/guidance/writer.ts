@@ -34,7 +34,52 @@ export const WMILL_INIT_AI_AGENTS_SOURCE_ENV = "WMILL_INIT_AI_AGENTS_SOURCE";
 export const WMILL_INIT_AI_CLAUDE_SOURCE_ENV = "WMILL_INIT_AI_CLAUDE_SOURCE";
 
 const CLAUDE_MD_DEFAULT = "Instructions are in @AGENTS.md\n";
+const AGENTS_CUSTOM_MD_PLACEHOLDER = `# Project-specific overrides
+
+This file is committed and shared with your team. \`wmill init\` never overwrites
+it — write project-specific overrides or extensions to the managed AGENTS.md
+instructions here, and they will be included automatically (via the
+\`@AGENTS.custom.md\` tail-include at the bottom of AGENTS.md).
+
+Use it to:
+
+- Pin deploy commands or workflows specific to this repo.
+- Add domain glossary, naming conventions, or "ask before X" rules.
+- Override or extend instructions from the managed AGENTS.md — when an
+  override is non-obvious, state explicitly that it supersedes the rule
+  above so the agent doesn't try to reconcile both.
+
+## Custom skills
+
+To add a project-specific skill (e.g. internal deploy script, custom lint rule,
+team-specific patterns), drop it under:
+
+- \`.claude/skills/custom/<skill-name>/SKILL.md\` — picked up by Claude Code.
+- \`.agents/skills/custom/<skill-name>/SKILL.md\` — picked up by Codex / Pi /
+  other agents that read \`.agents/\`.
+
+The \`custom/\` subdirectory is reserved — \`wmill init\` never touches its
+contents. Use standard skill frontmatter:
+
+\`\`\`markdown
+---
+name: my-custom-skill
+description: One-line description shown to the agent.
+---
+
+# My Custom Skill
+
+…instructions…
+\`\`\`
+
+Then reference the skill from this file or from AGENTS.md so agents know when
+to load it. Example:
+
+> When deploying to production, use the \`production-deploy\` skill at
+> \`.claude/skills/custom/production-deploy/SKILL.md\`.
+`;
 const SKILL_TARGET_ROOTS = [".claude", ".agents"] as const;
+const CUSTOM_SKILLS_DIR = "custom";
 
 export async function writeAiGuidanceFiles(
   options: WriteAiGuidanceOptions
@@ -62,11 +107,24 @@ export async function writeAiGuidanceFiles(
         : CLAUDE_MD_DEFAULT,
   });
 
+  // Always seed AGENTS.custom.md (if missing) so the @AGENTS.custom.md include
+  // in the managed AGENTS.md resolves. Never overwrite it — it's user-owned.
+  await writeProjectGuidanceFile({
+    targetPath: join(options.targetDir, "AGENTS.custom.md"),
+    overwrite: false,
+    content: AGENTS_CUSTOM_MD_PLACEHOLDER,
+  });
+
   if (options.skillsSourcePath) {
     await copySkillsFromSource(options.targetDir, options.skillsSourcePath);
   } else {
     await writeGeneratedSkills(options.targetDir, nonDottedPaths);
   }
+
+  // Ensure the user-owned `custom/` skills directory exists under each root so
+  // teams have an obvious place to drop their own SKILL.md files. Never touch
+  // its contents.
+  await ensureCustomSkillsDirectories(options.targetDir);
 
   return {
     agentsWritten,
@@ -92,6 +150,16 @@ async function copySkillsFromSource(
     skillsDirs.map((skillsDir) => copyDirectoryContents(skillsSourcePath, skillsDir))
   );
   return await readSkillMetadataFromDirectory(skillsDirs[0]);
+}
+
+async function ensureCustomSkillsDirectories(targetDir: string): Promise<void> {
+  await Promise.all(
+    SKILL_TARGET_ROOTS.map((root) =>
+      mkdir(join(targetDir, root, "skills", CUSTOM_SKILLS_DIR), {
+        recursive: true,
+      })
+    )
+  );
 }
 
 async function writeGeneratedSkills(
@@ -141,12 +209,14 @@ async function copyDirectoryContents(sourceDir: string, targetDir: string): Prom
   const entries = await readdir(sourceDir, { withFileTypes: true });
 
   await Promise.all(
-    entries.map(async (entry) => {
-      await cp(join(sourceDir, entry.name), join(targetDir, entry.name), {
-        recursive: true,
-        force: true,
-      });
-    })
+    entries
+      .filter((entry) => entry.name !== CUSTOM_SKILLS_DIR)
+      .map(async (entry) => {
+        await cp(join(sourceDir, entry.name), join(targetDir, entry.name), {
+          recursive: true,
+          force: true,
+        });
+      })
   );
 }
 
@@ -204,6 +274,10 @@ async function readSkillMetadataFromDirectory(skillsDir: string): Promise<Resolv
 
   for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
     if (!entry.isDirectory()) {
+      continue;
+    }
+
+    if (entry.name === CUSTOM_SKILLS_DIR) {
       continue;
     }
 

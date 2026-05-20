@@ -6858,6 +6858,11 @@ Bootstrap a windmill project with a wmill.yaml file
 - \`--bind-profile\` - Automatically bind active workspace profile to current Git branch
 - \`--no-bind-profile\` - Skip workspace profile binding prompt
 
+**Subcommands:**
+
+- \`init prompts\`
+  - \`--force\` - Also overwrite AGENTS.md and CLAUDE.md (by default they're left alone if present)
+
 ### instance
 
 sync local with a remote instance or the opposite (push or pull)
