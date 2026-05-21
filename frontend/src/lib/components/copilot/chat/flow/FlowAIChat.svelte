@@ -1,6 +1,6 @@
 <script lang="ts">
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
-	import { getContext, untrack } from 'svelte'
+	import { getContext, tick, untrack } from 'svelte'
 	import type { ExtendedOpenFlow, FlowEditorContext } from '$lib/components/flows/types'
 	import type { InputTransform } from '$lib/gen'
 	import type { FlowAIChatHelpers } from './core'
@@ -30,6 +30,22 @@
 
 	// Get diffManager from the graph
 	const diffManager = $derived(flowModuleSchemaMap?.getDiffManager())
+	async function acceptPendingFlowEditsIfEnabled(waitForComputedDiff = false) {
+		if (!aiChatManager.autoAcceptEditsActive || !diffManager) {
+			return
+		}
+
+		diffManager.setCurrentFlow(flowStore.val.value)
+		diffManager.setCurrentInputSchema(flowStore.val.schema)
+		if (waitForComputedDiff) {
+			await tick()
+		}
+		if (diffManager.hasPendingChanges) {
+			diffManager.acceptAll(flowStore)
+			await tick()
+		}
+	}
+
 	const flowHelpers: FlowAIChatHelpers = {
 		// flow context
 		getFlowAndSelectedId: () => {
@@ -114,6 +130,7 @@
 			if ($currentEditor && $currentEditor.type === 'script' && $currentEditor.stepId === id) {
 				$currentEditor.editor.setCode(code)
 			}
+			await acceptPendingFlowEditsIfEnabled()
 		},
 		getFlowInputsSchema: async () => {
 			return flowStore.val.schema ?? {}
@@ -204,6 +221,7 @@
 
 				// Refresh the state store to update UI
 				refreshStateStore(flowStore)
+				await acceptPendingFlowEditsIfEnabled(true)
 				return result
 			} catch (error) {
 				throw new Error(
@@ -215,6 +233,7 @@
 
 	$effect(() => {
 		if (
+			!aiChatManager.autoAcceptEditsActive &&
 			$currentEditor?.type === 'script' &&
 			selectedId &&
 			diffManager?.moduleActions[selectedId]?.pending &&
