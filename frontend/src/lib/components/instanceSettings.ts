@@ -252,8 +252,10 @@ export const settings: Record<string, Setting[]> = {
 			description:
 				'How <code>/tmp</code> is backed inside the nsjail sandbox. <strong>RAM (tmpfs)</strong> is the default — fast, with a hard size cap from <em>Nsjail tmpfs size</em>, but consumes worker memory. <strong>Disk (bind mount)</strong> uses a per-job directory on the worker disk — no RAM cost, but the only remaining per-file ceiling is <code>rlimit_fsize</code> (~1GB for python/ansible, unbounded for most other languages because they set <code>disable_rl: true</code>); pair with host disk monitoring or quotas.',
 			storage: 'setting',
+			placeholder: 'tmpfs',
+			defaultValue: () => 'tmpfs',
 			select_items: [
-				{ label: 'RAM (tmpfs)', value: 'tmpfs' },
+				{ label: 'RAM (tmpfs) — default', value: 'tmpfs' },
 				{ label: 'Disk (bind mount)', value: 'disk' }
 			]
 		},
