@@ -1999,6 +1999,7 @@ async fn spawn_uv_install(
         .unwrap_or("unsafe-best-match");
     let uv_exclude_newer = (*UV_EXCLUDE_NEWER.read().await).map(|secs| format!("{}s", secs));
     let uv_exclude_newer = uv_exclude_newer.as_deref();
+    let uv_python_install_mirror = UV_PYTHON_INSTALL_MIRROR.read().await.clone();
 
     if is_sandboxing_enabled() {
         tracing::info!(
@@ -2037,7 +2038,6 @@ async fn spawn_uv_install(
         if let Some(v) = uv_exclude_newer {
             vars.push(("UV_EXCLUDE_NEWER", v));
         }
-        let uv_python_install_mirror = UV_PYTHON_INSTALL_MIRROR.read().await.clone();
         if let Some(mirror) = uv_python_install_mirror.as_ref() {
             vars.push(("UV_PYTHON_INSTALL_MIRROR", mirror));
         }
