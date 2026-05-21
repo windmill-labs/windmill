@@ -765,6 +765,11 @@ pub struct SqlAnnotations {
     pub return_last_result: bool, // deprecated, use result_collection instead
     pub result_collection: SqlResultCollectionStrategy,
     pub prepare: bool, // Used to prepare datatable queries without executing
+    // Emit {columns: [{name, oid, type_name}], rows: [[text|null]]} from the
+    // last statement instead of the default `[{col: val}]` JSON shape. Used by
+    // `wmill datatable serve` to map Postgres results onto the wire protocol
+    // without re-stringifying every JSON value.
+    pub raw_output: bool,
 }
 
 #[annotations("#")]
@@ -2326,6 +2331,20 @@ mod tests {
         let content = "# sandbox\ndef main():\n    pass";
         let annotations = PythonAnnotations::parse(content);
         assert!(annotations.sandbox);
+    }
+
+    #[test]
+    fn test_sql_raw_output_annotation() {
+        let with_flag = SqlAnnotations::parse("-- raw_output\nSELECT 1");
+        assert!(with_flag.raw_output);
+        assert!(!with_flag.prepare);
+
+        let without_flag = SqlAnnotations::parse("SELECT 1");
+        assert!(!without_flag.raw_output);
+
+        let combined = SqlAnnotations::parse("-- prepare\n-- raw_output\nSELECT 1");
+        assert!(combined.raw_output);
+        assert!(combined.prepare);
     }
 
     #[test]

@@ -29,6 +29,26 @@ Open-source platform for internal tools, workflows, API integrations, background
 - **Instance settings**: navigate to `/#superadmin-settings`
 - **Migrations**: use `cargo sqlx migrate add -r <name>` from `backend/` to create new migrations (never generate timestamps manually)
 
+## Verifying Frontend Changes
+
+After modifying frontend code, drive the running dev server with the **Playwright MCP** to verify the change in a real browser — don't claim a UI change works without exercising it.
+
+Two MCP servers are registered in `.mcp.json`:
+- `playwright` — headless Chromium, default for devboxes (no display required)
+- `playwright-headed` — windowed Chromium, when a display is available
+
+**One-time setup:** run `npx playwright install chromium` to download the browser binary (Playwright won't fetch it automatically on first use).
+
+Typical flow:
+1. Ensure backend (`cargo run`) and frontend (`REMOTE=http://localhost:8000 npm run dev`) are running
+2. `mcp__playwright__browser_navigate` to the relevant page (login at `admin@windmill.dev` / `changeme`)
+3. `mcp__playwright__browser_snapshot` to inspect the accessibility tree (preferred over screenshots for reading the DOM)
+4. `mcp__playwright__browser_click` / `browser_fill_form` / `browser_type` to interact
+5. `mcp__playwright__browser_take_screenshot` for visual confirmation
+6. `mcp__playwright__browser_console_messages` / `browser_network_requests` to surface errors
+
+If you cannot exercise a UI change (no dev server, etc.), say so explicitly rather than claiming success.
+
 ## Banned Patterns
 
 ### `$bindable(default_value)` on optional props

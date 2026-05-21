@@ -1,5 +1,11 @@
 import type { DbType } from './components/dbTypes'
 
+// Sentinel written into a job's `logs` field when it was fetched with
+// `no_logs=true` (e.g. nested flow-status viewers during "Test flow").
+// It is NOT empty logs — it means logs were intentionally skipped and can
+// be lazily fetched. The log panel detects this and resolves the real logs.
+export const WM_LOGS_SKIPPED = '__WM_LOGS_SKIPPED__'
+
 export const DEFAULT_WEBHOOK_TYPE: 'async' | 'sync' = 'async'
 
 export const HOME_SHOW_HUB = true

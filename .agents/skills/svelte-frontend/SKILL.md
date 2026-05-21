@@ -78,3 +78,7 @@ Use the Svelte MCP tools when working on Svelte code:
 2. **get-documentation**: Fetch relevant sections based on use_cases
 3. **svelte-autofixer**: MUST use on all Svelte code before finalizing — keep calling until no issues
 4. **playground-link**: Only after user confirms and code was NOT written to project files
+
+## Verifying in the Browser
+
+After changing Svelte code, use the **Playwright MCP** (`mcp__playwright__*`) to drive the running frontend and confirm the change works. See AGENTS.md → "Verifying Frontend Changes" for the full flow. Use `playwright` (headless) on devboxes; `playwright-headed` when a display is available.
