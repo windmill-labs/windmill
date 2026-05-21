@@ -52,10 +52,6 @@
 			// downstream" alternative; the round Play button stays a single-
 			// click default. Undefined / 0 hides the cascade menu item.
 			downstreamCount?: number
-			// Called before running so the details pane focuses this script —
-			// mirrors AssetNode.onSelectAsset, keeps the runs/output in view
-			// instead of dispatching into nowhere.
-			onSelectSelf?: () => void
 			// Wired by the canvas. When set, the node renders an
 			// EllipsisVertical hover-button that opens a small action menu —
 			// "Discard" for drafts, "Delete…" (which the page maps to its
@@ -97,9 +93,6 @@
 	async function runSelf(e: MouseEvent, cascade?: boolean) {
 		e.stopPropagation()
 		if (!$workspaceStore || running || !data.onRunSelf) return
-		// Focus this runnable so the details pane opens to its editor — same
-		// rationale as AssetNode.onSelectAsset before runProducers.
-		if (!selected) data.onSelectSelf?.()
 		running = true
 		try {
 			await data.onRunSelf(cascade != undefined ? { cascade } : undefined)

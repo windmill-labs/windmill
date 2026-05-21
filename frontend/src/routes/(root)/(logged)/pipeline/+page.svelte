@@ -2,11 +2,37 @@
 	import { userStore } from '$lib/stores'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import PipelinePickerModal from '$lib/components/assets/AssetGraph/PipelinePickerModal.svelte'
+	import PipelineAlphaAckModal from '$lib/components/assets/AssetGraph/PipelineAlphaAckModal.svelte'
 	import { ArrowRight, NetworkIcon } from 'lucide-svelte'
+	import { onMount } from 'svelte'
 
-	// Modal is open by default on landing; the editor shell stays empty
-	// behind it until the user picks or creates a folder.
-	let pickerOpen = $state(true)
+	const ACK_STORAGE_KEY = 'pipeline-alpha-ack'
+
+	// Gate the picker behind a one-time alpha acknowledgement. We read
+	// localStorage in onMount (not at module scope) so SSR doesn't blow up.
+	let ackOpen = $state(false)
+	let pickerOpen = $state(false)
+
+	onMount(() => {
+		const acked =
+			typeof localStorage !== 'undefined' && localStorage.getItem(ACK_STORAGE_KEY) === 'true'
+		if (acked) {
+			pickerOpen = true
+		} else {
+			ackOpen = true
+		}
+	})
+
+	function handleAck() {
+		try {
+			localStorage.setItem(ACK_STORAGE_KEY, 'true')
+		} catch {
+			// Storage may be unavailable (private mode, quota); the ack still
+			// flows through for this visit, the user just sees the modal again next time.
+		}
+		ackOpen = false
+		pickerOpen = true
+	}
 </script>
 
 <svelte:head>
@@ -43,5 +69,6 @@
 		</div>
 	</div>
 
+	<PipelineAlphaAckModal bind:open={ackOpen} onAck={handleAck} />
 	<PipelinePickerModal bind:open={pickerOpen} />
 {/if}

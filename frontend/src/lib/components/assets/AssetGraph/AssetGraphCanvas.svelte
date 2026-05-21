@@ -236,8 +236,7 @@
 					pathPrefix,
 					defaultPathSuffix,
 					producers: producersByAsset.get(`${a.kind}:${a.path}`) ?? [],
-					onRunProducer,
-					onSelectAsset: () => onselect?.({ kind: 'asset', asset_kind: a.kind, path: a.path })
+					onRunProducer
 				}
 			})
 		}
@@ -279,12 +278,6 @@
 							: undefined,
 					downstreamCount: downstreamByScript.get(r.path) ?? 0,
 					runState,
-					onSelectSelf: () =>
-						onselect?.({
-							kind: 'runnable',
-							runnable_kind: r.usage_kind,
-							path: r.path
-						}),
 					onRequestRemove: onRunnableMenuRemove
 						? () =>
 								onRunnableMenuRemove({

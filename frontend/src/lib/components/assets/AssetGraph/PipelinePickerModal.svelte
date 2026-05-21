@@ -3,13 +3,11 @@
 	import { base } from '$lib/base'
 	import { goto } from '$app/navigation'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import Select from '$lib/components/select/Select.svelte'
+	import FolderPicker from '$lib/components/FolderPicker.svelte'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
-	import { FolderService, OpenAPI } from '$lib/gen'
+	import { OpenAPI } from '$lib/gen'
 	import { resource } from 'runed'
-	import { sendUserToast } from '$lib/utils'
-	import { ArrowRight, FolderPlus, Loader2 } from 'lucide-svelte'
+	import { ArrowRight, Loader2 } from 'lucide-svelte'
 
 	interface PipelineFolder {
 		folder: string
@@ -38,53 +36,21 @@
 		}
 	)
 
-	let allFolders = resource(
-		() => $workspaceStore,
-		async (ws) => {
-			if (!ws) return [] as string[]
-			return await FolderService.listFolderNames({ workspace: ws })
-		}
-	)
-
-	let selectedExistingFolder = $state<string | undefined>(undefined)
-	let newFolderName = $state('')
-	let creatingFolder = $state(false)
+	let pickedFolder = $state('')
 
 	let visiblePipelines = $derived(
 		(pipelines.current ?? []).filter((p) => p.folder !== currentFolder)
 	)
-
-	let foldersWithoutPipeline = $derived.by(() => {
-		const existing = new Set((pipelines.current ?? []).map((p) => p.folder))
-		return (allFolders.current ?? []).filter((f) => !existing.has(f) && f !== currentFolder)
-	})
 
 	async function openExistingPipeline(folder: string) {
 		open = false
 		await goto(`${base}/pipeline/${encodeURIComponent(folder)}`)
 	}
 
-	async function startInExistingFolder() {
-		if (!selectedExistingFolder) return
-		await openExistingPipeline(selectedExistingFolder)
-	}
-
-	async function createFolderAndStart() {
-		const name = newFolderName.trim()
-		if (!name || !$workspaceStore) return
-		creatingFolder = true
-		try {
-			await FolderService.createFolder({
-				workspace: $workspaceStore,
-				requestBody: { name }
-			})
-			sendUserToast(`Created folder f/${name}`)
-			await openExistingPipeline(name)
-		} catch (e: any) {
-			sendUserToast(`Failed to create folder: ${e?.body ?? e?.message ?? e}`, true)
-		} finally {
-			creatingFolder = false
-		}
+	async function openPicked() {
+		const name = pickedFolder.trim()
+		if (!name) return
+		await openExistingPipeline(name)
 	}
 </script>
 
@@ -124,51 +90,20 @@
 
 		<section class="flex flex-col gap-2">
 			<h3 class="text-xs font-semibold text-secondary uppercase tracking-wide">
-				Start in an existing folder
+				Pick or create a folder
 			</h3>
 			<div class="flex items-center gap-2">
-				<div class="flex-1">
-					<Select
-						items={foldersWithoutPipeline.map((f) => ({ label: `f/${f}`, value: f }))}
-						bind:value={selectedExistingFolder}
-						placeholder={foldersWithoutPipeline.length === 0
-							? 'No folders available'
-							: 'Pick a folder…'}
-						clearable
-					/>
+				<div class="flex-1 min-w-0">
+					<FolderPicker bind:folderName={pickedFolder} />
 				</div>
 				<Button
 					variant="accent"
 					unifiedSize="sm"
-					disabled={!selectedExistingFolder}
-					onclick={startInExistingFolder}
+					disabled={!pickedFolder.trim()}
+					onclick={openPicked}
 					startIcon={{ icon: ArrowRight }}
 				>
 					Open
-				</Button>
-			</div>
-		</section>
-
-		<section class="flex flex-col gap-2">
-			<h3 class="text-xs font-semibold text-secondary uppercase tracking-wide">
-				Or create a new folder
-			</h3>
-			<div class="flex items-center gap-2">
-				<div class="flex-1">
-					<TextInput
-						bind:value={newFolderName}
-						placeholder="new-folder-name"
-						disabled={creatingFolder}
-					/>
-				</div>
-				<Button
-					variant="accent"
-					unifiedSize="sm"
-					disabled={!newFolderName.trim() || creatingFolder}
-					onclick={createFolderAndStart}
-					startIcon={{ icon: FolderPlus }}
-				>
-					{creatingFolder ? 'Creating…' : 'Create & open'}
 				</Button>
 			</div>
 		</section>
