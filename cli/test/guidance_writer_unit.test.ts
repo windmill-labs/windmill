@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolve } from "node:path";
 import { writeAiGuidanceFiles } from "../src/guidance/writer.ts";
 import {
   currentPromptsHash,
@@ -12,14 +11,7 @@ import {
   warnIfPromptsStale,
 } from "../src/guidance/freshness.ts";
 
-const SKILLS_CANONICAL_ROOT = ".agents";
-const SKILLS_WRAPPER_ROOTS = [".claude"] as const;
-const SKILL_TARGET_ROOTS = [
-  SKILLS_CANONICAL_ROOT,
-  ...SKILLS_WRAPPER_ROOTS,
-] as const;
-const WRAPPER_INCLUDE_LINE = (skillName: string) =>
-  `@../../../${SKILLS_CANONICAL_ROOT}/skills/${skillName}/SKILL.md`;
+const SKILL_TARGET_ROOTS = [".agents", ".claude"] as const;
 
 async function withTempDir(fn: (tempDir: string) => Promise<void>): Promise<void> {
   const tempDir = await mkdtemp(join(tmpdir(), "wmill_guidance_writer_"));
@@ -61,7 +53,7 @@ Preserve me.
           writeSkill(skillsDir, "custom-skill", customSkillContent)
         )
       );
-      await Promise.all(
+      const generatedSkillPaths = await Promise.all(
         skillsDirs.map((skillsDir) =>
           writeSkill(skillsDir, "write-flow", staleGeneratedContent)
         )
@@ -69,30 +61,19 @@ Preserve me.
 
       await writeAiGuidanceFiles({ targetDir: tempDir });
 
-      // Custom skills must survive on every side, untouched.
+      // Custom skills survive on every side, untouched.
       for (const customSkillPath of customSkillPaths) {
         expect(await readFile(customSkillPath, "utf8")).toBe(customSkillContent);
       }
 
-      // Canonical `.agents/skills/write-flow/SKILL.md` holds the full body.
-      const canonical = await readFile(
-        join(tempDir, SKILLS_CANONICAL_ROOT, "skills/write-flow/SKILL.md"),
-        "utf8"
-      );
-      expect(canonical).not.toBe(staleGeneratedContent);
-      expect(canonical).toContain("name: write-flow");
-      expect(canonical).not.toContain("@../../../");
-
-      // `.claude/skills/write-flow/SKILL.md` is a thin wrapper:
-      // frontmatter + @-include pointing at the canonical body.
-      for (const wrapperRoot of SKILLS_WRAPPER_ROOTS) {
-        const wrapper = await readFile(
-          join(tempDir, wrapperRoot, "skills/write-flow/SKILL.md"),
-          "utf8"
-        );
-        expect(wrapper).not.toBe(staleGeneratedContent);
-        expect(wrapper).toContain("name: write-flow");
-        expect(wrapper).toContain(WRAPPER_INCLUDE_LINE("write-flow"));
+      // Both `.agents/skills/` and `.claude/skills/` hold the same full
+      // canonical content. (Claude's skill loader doesn't expand `@`
+      // references inside SKILL.md, so we can't dedupe via `@`-include.)
+      for (const generatedSkillPath of generatedSkillPaths) {
+        const generatedSkillContent = await readFile(generatedSkillPath, "utf8");
+        expect(generatedSkillContent).not.toBe(staleGeneratedContent);
+        expect(generatedSkillContent).toContain("name: write-flow");
+        expect(generatedSkillContent).not.toContain("@../../../");
       }
     });
   });
@@ -149,36 +130,15 @@ Copied from source bundle.
         expect(await readFile(customSkillPath, "utf8")).toBe(customSkillContent);
       }
 
-      // Canonical side gets the source bundle verbatim.
-      expect(
-        await readFile(
-          join(tempDir, SKILLS_CANONICAL_ROOT, "skills/write-flow/SKILL.md"),
-          "utf8"
-        )
-      ).toBe(sourceSkillContent);
-      expect(
-        await readFile(
-          join(tempDir, SKILLS_CANONICAL_ROOT, "skills/bundle-only/SKILL.md"),
-          "utf8"
-        )
-      ).toBe(bundleOnlySkillContent);
-
-      // Wrapper sides get frontmatter + @-include.
-      for (const wrapperRoot of SKILLS_WRAPPER_ROOTS) {
-        const writeFlowWrapper = await readFile(
-          join(tempDir, wrapperRoot, "skills/write-flow/SKILL.md"),
-          "utf8"
-        );
-        expect(writeFlowWrapper).toContain("name: write-flow");
-        expect(writeFlowWrapper).toContain(WRAPPER_INCLUDE_LINE("write-flow"));
-        expect(writeFlowWrapper).not.toContain("Copied from source");
-
-        const bundleOnlyWrapper = await readFile(
-          join(tempDir, wrapperRoot, "skills/bundle-only/SKILL.md"),
-          "utf8"
-        );
-        expect(bundleOnlyWrapper).toContain("name: bundle-only");
-        expect(bundleOnlyWrapper).toContain(WRAPPER_INCLUDE_LINE("bundle-only"));
+      // Source bundle is copied verbatim into both `.agents/skills/` and
+      // `.claude/skills/`. No `@`-include wrapping.
+      for (const root of SKILL_TARGET_ROOTS) {
+        expect(
+          await readFile(join(tempDir, root, "skills/write-flow/SKILL.md"), "utf8")
+        ).toBe(sourceSkillContent);
+        expect(
+          await readFile(join(tempDir, root, "skills/bundle-only/SKILL.md"), "utf8")
+        ).toBe(bundleOnlySkillContent);
       }
     });
   });
@@ -204,14 +164,10 @@ Copied from source bundle.
       });
 
       const agentsCli = await readFile(join(tempDir, "AGENTS.cli.md"), "utf8");
-      expect(agentsCli).toContain(
-        `${SKILLS_CANONICAL_ROOT}/skills/custom-folder/SKILL.md`
-      );
-      expect(agentsCli).not.toContain(
-        `${SKILLS_CANONICAL_ROOT}/skills/write-flow/SKILL.md`
-      );
-      // The skill reference should point at the canonical .agents/ tree —
-      // not the Claude-only mirror — so Codex/Pi don't get confused.
+      expect(agentsCli).toContain(".agents/skills/custom-folder/SKILL.md");
+      expect(agentsCli).not.toContain(".agents/skills/write-flow/SKILL.md");
+      // The skill reference points at the .agents/ tree — not .claude/ —
+      // so the path is meaningful to Codex/Pi as well as Claude.
       expect(agentsCli).not.toContain(".claude/skills/custom-folder/SKILL.md");
     });
   });
@@ -226,7 +182,7 @@ Copied from source bundle.
       ).rejects.toThrow();
 
       expect(await readFile(join(tempDir, "AGENTS.cli.md"), "utf8")).toContain(
-        `${SKILLS_CANONICAL_ROOT}/skills/`
+        ".agents/skills/"
       );
       expect(await readFile(join(tempDir, "AGENTS.md"), "utf8")).toContain(
         "@AGENTS.cli.md"
@@ -437,54 +393,6 @@ describe("prompts freshness — additional invariants", () => {
     const h4 = currentPromptsHash(false);
     expect(h1).toBe(h2);
     expect(h3).toBe(h4);
-  });
-
-  test("Claude wrapper's @-include path resolves to the canonical file", async () => {
-    await withTempDir(async (tempDir) => {
-      await writeAiGuidanceFiles({ targetDir: tempDir });
-
-      const wrapperPath = join(
-        tempDir,
-        ".claude",
-        "skills",
-        "write-flow",
-        "SKILL.md"
-      );
-      const canonicalPath = join(
-        tempDir,
-        SKILLS_CANONICAL_ROOT,
-        "skills",
-        "write-flow",
-        "SKILL.md"
-      );
-
-      const wrapperContent = await readFile(wrapperPath, "utf8");
-      const includeMatch = wrapperContent.match(/^@(.+)$/m);
-      expect(includeMatch).not.toBeNull();
-      const includeTarget = includeMatch![1];
-
-      const wrapperDir = join(tempDir, ".claude", "skills", "write-flow");
-      const resolvedFromInclude = resolve(wrapperDir, includeTarget);
-      expect(resolvedFromInclude).toBe(canonicalPath);
-    });
-  });
-
-  test("throws when a bundle-supplied skill is missing frontmatter", async () => {
-    await withTempDir(async (tempDir) => {
-      const sourceSkillsDir = join(tempDir, "source-skills");
-      await writeSkill(
-        sourceSkillsDir,
-        "no-frontmatter",
-        "this skill has no --- block at all\n"
-      );
-
-      await expect(
-        writeAiGuidanceFiles({
-          targetDir: tempDir,
-          skillsSourcePath: sourceSkillsDir,
-        })
-      ).rejects.toThrow(/no YAML frontmatter/);
-    });
   });
 
   test("warnIfPromptsStale writes to stderr (never stdout)", async () => {
