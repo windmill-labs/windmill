@@ -68,6 +68,7 @@ use windmill_common::{
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, STORE_AUDIT_LOGS_S3_SETTING,
         TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING,
+        UV_PYTHON_INSTALL_MIRROR_SETTING,
     },
     indexer::load_indexer_config,
     jwt::JWT_SECRET,
@@ -109,7 +110,7 @@ use windmill_worker::{
     NO_DEFAULT_MAVEN, NPMRC, NPM_CONFIG_REGISTRY, NSJAIL_AVAILABLE, NSJAIL_TMPFS_SIZE_MB,
     NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
     POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, UNSHARE_PATH, UV_EXCLUDE_NEWER, UV_INDEX_STRATEGY,
-    WORKSPACE_REGISTRIES,
+    UV_PYTHON_INSTALL_MIRROR, WORKSPACE_REGISTRIES,
 };
 
 #[cfg(feature = "parquet")]
@@ -390,6 +391,7 @@ pub async fn initial_load(
         reload_pip_index_url_setting(&conn).await;
         reload_uv_index_strategy_setting(&conn).await;
         reload_uv_exclude_newer_setting(&conn).await;
+        reload_uv_python_install_mirror_setting(&conn).await;
         reload_bun_install_min_release_age_setting(&conn).await;
         reload_npm_config_registry_setting(&conn).await;
         reload_bunfig_install_scopes_setting(&conn).await;
@@ -1627,6 +1629,16 @@ pub async fn reload_uv_exclude_newer_setting(conn: &Connection) {
         UV_EXCLUDE_NEWER_SETTING,
         "UV_EXCLUDE_NEWER",
         UV_EXCLUDE_NEWER.clone(),
+    )
+    .await;
+}
+
+pub async fn reload_uv_python_install_mirror_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        UV_PYTHON_INSTALL_MIRROR_SETTING,
+        "UV_PYTHON_INSTALL_MIRROR",
+        UV_PYTHON_INSTALL_MIRROR.clone(),
     )
     .await;
 }
