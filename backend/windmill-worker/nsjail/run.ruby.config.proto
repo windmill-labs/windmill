@@ -51,12 +51,7 @@ mount {
     rw: true
 }
 
-mount {
-    dst: "/tmp"
-    fstype: "tmpfs"
-    rw: true
-    options: "size={NSJAIL_TMPFS_SIZE}"
-}
+{TMP_MOUNT_BLOCK}
 
 
 mount {

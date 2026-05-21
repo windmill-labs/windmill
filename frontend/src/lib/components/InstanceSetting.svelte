@@ -72,6 +72,20 @@
 				return false
 			}
 		}
+		// Hide the nsjail-only settings only when isolation is *explicitly* a
+		// non-nsjail mode. When `job_isolation` is unset, nsjail may still be
+		// enabled via the legacy env-driven path (`DISABLE_NSJAIL=false`), so
+		// keep the controls reachable.
+		if (setting == 'nsjail_tmp_backing' || setting == 'nsjail_tmpfs_size_mb') {
+			const isolation = values['job_isolation']
+			if (isolation === 'none' || isolation === 'unshare') {
+				return false
+			}
+		}
+		// The tmpfs size knob is meaningless when /tmp is disk-backed.
+		if (setting == 'nsjail_tmpfs_size_mb' && values['nsjail_tmp_backing'] === 'disk') {
+			return false
+		}
 		return true
 	}
 

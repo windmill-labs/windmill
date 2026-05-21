@@ -55,6 +55,9 @@ pub const KEEP_JOB_DIR_SETTING: &str = "keep_job_dir";
 pub const REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING: &str = "require_preexisting_user_for_oauth";
 pub const JOB_ISOLATION_SETTING: &str = "job_isolation";
 pub const NSJAIL_TMPFS_SIZE_MB_SETTING: &str = "nsjail_tmpfs_size_mb";
+pub const NSJAIL_TMP_BACKING_SETTING: &str = "nsjail_tmp_backing";
+pub const NSJAIL_TMP_BACKING_DISK: &str = "disk";
+pub const NSJAIL_TMP_BACKING_TMPFS: &str = "tmpfs";
 pub const OBJECT_STORE_CONFIG_SETTING: &str = "object_store_cache_config";
 pub const HUB_API_SECRET_SETTING: &str = "hub_api_secret";
 
