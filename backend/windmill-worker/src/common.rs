@@ -1234,6 +1234,7 @@ mod nsjail_tmp_mount_tests {
     /// `job_dir` before the resolver runs), the resolver must refuse the
     /// bind mount and fall back to tmpfs — never bind-mount the symlink
     /// target into the sandbox as /tmp.
+    #[cfg(unix)]
     #[tokio::test]
     async fn disk_backed_refuses_preexisting_symlink_at_jail_tmp() {
         let tmp = tempfile::tempdir().expect("tempdir");
