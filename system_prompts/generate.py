@@ -1828,7 +1828,7 @@ CONTEXT7_REPO_NAME = "windmill-cli-docs"
 
 
 def extract_agents_md_template() -> str:
-    """Extract the AGENTS.md template string from cli/src/guidance/core.ts.
+    """Extract the AGENTS.cli.md template string from cli/src/guidance/core.ts.
 
     Keeping a single source of truth in TypeScript avoids drift between what
     `wmill init` writes locally and what we publish for context7 ingestion.
@@ -1836,14 +1836,16 @@ def extract_agents_md_template() -> str:
     core_ts_path = SCRIPT_DIR.parent / "cli" / "src" / "guidance" / "core.ts"
     content = core_ts_path.read_text()
     # Anchor on the function name so adding other template-literal-returning
-    # functions to core.ts can't silently re-target the regex.
+    # functions to core.ts can't silently re-target the regex. The function
+    # was renamed from `generateAgentsMdContent` → `generateAgentsCliMdContent`
+    # when the managed file split out of AGENTS.md into AGENTS.cli.md.
     match = re.search(
-        r"function\s+generateAgentsMdContent\b[\s\S]*?return\s+`([\s\S]*?)`;",
+        r"function\s+generateAgentsCliMdContent\b[\s\S]*?return\s+`([\s\S]*?)`;",
         content,
     )
     if not match:
         raise RuntimeError(
-            f"Could not extract AGENTS.md template from {core_ts_path}"
+            f"Could not extract AGENTS.cli.md template from {core_ts_path}"
         )
     return _unescape_ts_template_literal(match.group(1))
 
@@ -1865,10 +1867,16 @@ def _unescape_ts_template_literal(raw: str) -> str:
 def render_agents_md_for_docs(
     skills: list[str], skill_desc_map: dict[str, str]
 ) -> str:
-    """Render AGENTS.md exactly as `wmill init` would, for the docs repo."""
+    """Render AGENTS.cli.md exactly as `wmill init` would, for the docs repo.
+
+    The skill reference paths point at `.agents/skills/` (the canonical tree
+    that Codex/Pi read directly and that Claude Code mirrors under
+    `.claude/skills/`) — matching `buildSkillsReference` in
+    `cli/src/guidance/writer.ts`.
+    """
     template = extract_agents_md_template()
     skills_reference = "\n".join(
-        f"- `.claude/skills/{name}/SKILL.md` - {skill_desc_map[name]}"
+        f"- `.agents/skills/{name}/SKILL.md` - {skill_desc_map[name]}"
         for name in skills
         if name in skill_desc_map
     )
@@ -2002,7 +2010,10 @@ def generate_context7_repo(
 
     skill_desc_map = build_skill_desc_map(skills)
 
-    # AGENTS.md — the same content `wmill init` writes locally.
+    # AGENTS.md — the managed CLI guidance (what `wmill init` writes as
+    # AGENTS.cli.md locally). Kept under the `AGENTS.md` filename here to
+    # preserve the existing context7 ingest path; docs consumers read this
+    # as the canonical AGENTS file.
     (target_dir / "AGENTS.md").write_text(
         render_agents_md_for_docs(skills, skill_desc_map)
     )
