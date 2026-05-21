@@ -99,7 +99,7 @@
 
 	function handleApplyCode() {
 		if (code && aiChatManager.scriptEditorApplyCode) {
-			aiChatManager.scriptEditorApplyCode(code, { mode: 'apply' })
+			void aiChatManager.applyScriptEditorCode(code, { mode: 'apply' })
 		}
 	}
 </script>

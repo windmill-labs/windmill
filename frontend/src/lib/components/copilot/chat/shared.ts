@@ -582,10 +582,13 @@ export async function processToolCall<T>({
 		}
 
 		// Check if tool requires confirmation
-		const needsConfirmation = tool?.requiresConfirmation
+		const requiresConfirmation = tool?.requiresConfirmation === true
+		const autoAcceptConfirmation =
+			requiresConfirmation && toolCallbacks.shouldAutoAcceptToolConfirmations?.() === true
+		const needsConfirmation = requiresConfirmation && !autoAcceptConfirmation
 
 		toolCallbacks.setToolStatus(toolCall.id, {
-			...(tool?.requiresConfirmation
+			...(requiresConfirmation
 				? { content: tool.confirmationMessage ?? 'Waiting for confirmation...' }
 				: {}),
 			parameters: args,
@@ -695,6 +698,7 @@ export interface ToolCallbacks {
 	setToolStatus: (id: string, metadata?: Partial<ToolDisplayMessage>) => void
 	removeToolStatus: (id: string) => void
 	requestConfirmation?: (toolId: string) => Promise<boolean>
+	shouldAutoAcceptToolConfirmations?: () => boolean
 	requestUserQuestion?: (
 		toolId: string,
 		question: UserQuestionDisplay
