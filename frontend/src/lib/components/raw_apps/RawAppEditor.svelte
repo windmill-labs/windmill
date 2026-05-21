@@ -996,6 +996,22 @@
 	}
 
 	let darkMode: boolean = $state(false)
+	// Host's computed `text-xs` size in px. Windmill bumps :root to 18px at
+	// ≥1760px viewports, so this re-evaluates on resize via the listener below.
+	let editorFontSize = $state(12)
+	function recomputeEditorFontSize() {
+		const rootPx = parseFloat(
+			getComputedStyle(document.documentElement).fontSize
+		)
+		// text-xs is 0.75rem
+		editorFontSize = rootPx * 0.75
+	}
+	$effect(() => {
+		recomputeEditorFontSize()
+		const onResize = () => recomputeEditorFontSize()
+		window.addEventListener('resize', onResize)
+		return () => window.removeEventListener('resize', onResize)
+	})
 	$effect(() => {
 		iframe?.addEventListener('load', () => {
 			iframeLoaded = true
@@ -1026,6 +1042,15 @@
 		if (previewIframe && previewIframeLoaded) {
 			previewIframe.contentWindow?.postMessage(
 				{ type: 'setDarkMode', dark: darkMode },
+				'*'
+			)
+		}
+	})
+	$effect(() => {
+		// Match VS Code's editor font size to Windmill's text-xs.
+		if (iframe && iframeLoaded) {
+			iframe.contentWindow?.postMessage(
+				{ type: 'setFontSize', px: editorFontSize },
 				'*'
 			)
 		}

@@ -16,6 +16,7 @@
 	import { dndzone, type DndEvent } from '@windmill-labs/svelte-dnd-action'
 	import { X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { createScrollArea, melt } from '@melt-ui/svelte'
 
 	interface Props {
 		tabs: TabItem[]
@@ -43,8 +44,15 @@
 	const middle = $derived(tabs.filter((t) => !t.pinned))
 	const pinnedRight = $derived(tabs.filter((t) => t.pinned === 'right'))
 
+	// Melt scroll-area: type='always' keeps the custom thumb's gutter present
+	// at all times, so the layout never shifts when content stops/starts
+	// overflowing. The native horizontal scrollbar is hidden by melt and our
+	// own 4px-tall track sits along the bottom of the strip.
+	const {
+		elements: { root, viewport, content, scrollbarX, thumbX }
+	} = createScrollArea({ type: 'always', dir: 'ltr' })
+
 	function rebuild(middleNew: TabItem[]) {
-		// dnd-action only owns the middle (draggable) slice; reassemble.
 		onReorder?.([...pinnedLeft, ...middleNew, ...pinnedRight])
 	}
 
@@ -57,14 +65,10 @@
 
 	function tabClasses(isActive: boolean) {
 		return twMerge(
-			'group inline-flex items-center gap-1.5 px-3 h-8 text-xs select-none cursor-pointer whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-border-selected focus-visible:ring-inset',
-			// Active tab shares its background with the content area below it
-			// — no border, the boundary "disappears" into the surface.
-			// Inactive tabs sit on the darker tab-strip bg and have a subtle
-			// right separator so they don't blur together.
+			'group inline-flex items-center gap-1.5 px-2.5 h-7 text-xs rounded-md select-none cursor-pointer whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-border-selected focus-visible:ring-inset',
 			isActive
-				? 'bg-surface text-primary'
-				: 'bg-surface-secondary text-secondary border-r border-border-light hover:bg-surface-hover hover:text-primary'
+				? 'bg-surface-input text-primary'
+				: 'bg-transparent text-secondary hover:bg-surface-hover hover:text-primary'
 		)
 	}
 
@@ -88,7 +92,6 @@
 	}
 
 	function handleAuxClick(e: MouseEvent, tab: TabItem) {
-		// Middle-click closes (browser convention).
 		if (e.button === 1 && tab.closable !== false) {
 			e.preventDefault()
 			onClose?.(tab.id)
@@ -130,41 +133,90 @@
 {/snippet}
 
 <div
-	class={twMerge(
-		'flex items-stretch overflow-x-auto bg-surface-secondary',
-		c
-	)}
-	role="tablist"
+	class={twMerge('flex items-center bg-surface-secondary', c)}
 >
-	{#each pinnedLeft as tab (tab.id)}
-		{@render tabButton(tab)}
-	{/each}
+	<div use:melt={$root} class="tabs-root flex-1 min-w-0 relative pt-1 pl-1 pb-1">
+		<div use:melt={$viewport} class="tabs-viewport w-full">
+			<!-- Inner flex wrapper — melt's content element is forced to
+				 `display: table` which would stack the tabs vertically. -->
+			<div use:melt={$content}>
+				<div class="flex items-center" role="tablist">
+					{#each pinnedLeft as tab (tab.id)}
+						{@render tabButton(tab)}
+					{/each}
 
-	<div
-		class="flex items-stretch"
-		use:dndzone={{
-			items: middle,
-			flipDurationMs: 150,
-			type: 'draggable-tabs',
-			dropTargetStyle: {}
-		}}
-		onconsider={handleConsider}
-		onfinalize={handleFinalize}
-	>
-		{#each middle as tab (tab.id)}
-			<div>
-				{@render tabButton(tab)}
+					<div
+						class="flex items-center"
+						use:dndzone={{
+							items: middle,
+							flipDurationMs: 150,
+							type: 'draggable-tabs',
+							dropTargetStyle: {}
+						}}
+						onconsider={handleConsider}
+						onfinalize={handleFinalize}
+					>
+						{#each middle as tab (tab.id)}
+							<div>
+								{@render tabButton(tab)}
+							</div>
+						{/each}
+					</div>
+
+					{#each pinnedRight as tab (tab.id)}
+						{@render tabButton(tab)}
+					{/each}
+				</div>
 			</div>
-		{/each}
+		</div>
+
+		<div use:melt={$scrollbarX} class="tabs-scrollbar">
+			<div use:melt={$thumbX} class="tabs-thumb"></div>
+		</div>
 	</div>
 
-	{#each pinnedRight as tab (tab.id)}
-		{@render tabButton(tab)}
-	{/each}
-
 	{#if trailing}
-		<div class="ml-auto flex items-center">
+		<div class="ml-1 pr-1 flex items-center shrink-0">
 			{@render trailing()}
 		</div>
 	{/if}
 </div>
+
+<style>
+	/* The melt viewport hides its own native scrollbar internally; we just
+	   need to give it a height so the content sits flush above the custom
+	   bar that lives at the bottom of the root. */
+	.tabs-viewport {
+		height: 100%;
+	}
+
+	/* 4px-tall custom horizontal scrollbar pinned to the bottom of the
+	   strip. With melt's `type: 'always'` the track is permanently present,
+	   so there's no layout shift when content stops overflowing, and the
+	   appearance is identical on macOS, Linux, and Windows regardless of
+	   the OS scrollbar setting. */
+	:global([data-melt-scroll-area-scrollbar].tabs-scrollbar) {
+		height: 4px;
+		background: transparent;
+		touch-action: none;
+		user-select: none;
+	}
+	:global([data-melt-scroll-area-thumb].tabs-thumb) {
+		height: 100%;
+		width: var(--melt-scroll-area-thumb-width);
+		background: rgb(var(--color-text-hint));
+		border-radius: 2px;
+		position: relative;
+		transition: background-color 0.15s;
+	}
+	/* When the content fits the viewport melt sets data-state="hidden" but
+	   leaves the element at full width — without this rule it looks like a
+	   bar spanning the whole track. Hide it so the strip's bottom row is
+	   empty until there's actually something to scroll. */
+	:global([data-melt-scroll-area-thumb].tabs-thumb[data-state='hidden']) {
+		opacity: 0;
+	}
+	:global([data-melt-scroll-area-thumb].tabs-thumb:hover) {
+		background: rgb(var(--color-text-secondary));
+	}
+</style>
