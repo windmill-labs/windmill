@@ -15,6 +15,7 @@ use tokio::process::Command;
 use tokio::{fs::File, io::AsyncReadExt};
 
 use windmill_common::flows::Step;
+use windmill_common::global_settings::NSJAIL_TMP_BACKING_DISK;
 use windmill_common::variables::{build_crypt_with_key_suffix, decrypt};
 use windmill_common::worker::{
     to_raw_value, update_ping_for_failed_init_script_query, write_file, Connection, Ping, PingType,
@@ -49,7 +50,7 @@ use tokio::{io::AsyncWriteExt, time::Instant};
 use crate::agent_workers::UPDATE_PING_URL;
 use crate::{
     JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE, MAX_TIMEOUT_DURATION, NSJAIL_TMPFS_SIZE_MB,
-    NSJAIL_TMP_DISK_BACKED, PATH_ENV,
+    NSJAIL_TMP_BACKING, PATH_ENV,
 };
 use windmill_common::client::AuthedClient;
 
@@ -1049,14 +1050,20 @@ fn bind_mount_block(jail_tmp: &str) -> String {
 /// function calls `create_dir_all` on `{job_dir}/jail_tmp`, so callers must
 /// not pass user-controlled paths.
 ///
-/// When `nsjail_tmp_disk_backed` is `Some(true)`, returns a disk-backed bind
-/// mount of `{job_dir}/jail_tmp` and ensures the directory exists (cleanup is
-/// handled by the worker's job_dir removal). If `create_dir_all` fails, logs
-/// an error and falls back to the historical tmpfs block so the job can still
-/// start. When the setting is unset / `Some(false)`, returns the historical
-/// RAM-backed tmpfs mount sized via `nsjail_tmpfs_size_mb`.
+/// When the `nsjail_tmp_backing` instance setting is `"disk"`, returns a
+/// disk-backed bind mount of `{job_dir}/jail_tmp` and ensures the directory
+/// exists (cleanup is handled by the worker's job_dir removal). If
+/// `create_dir_all` fails, logs an error and falls back to the historical
+/// tmpfs block so the job can still start. For any other value (including
+/// unset, `"tmpfs"`, or unrecognized), returns the historical RAM-backed
+/// tmpfs mount sized via `nsjail_tmpfs_size_mb`.
 pub(crate) async fn resolve_nsjail_tmp_mount_block(job_dir: &str) -> String {
-    let disk_backed = NSJAIL_TMP_DISK_BACKED.read().await.unwrap_or(false);
+    let disk_backed = NSJAIL_TMP_BACKING
+        .read()
+        .await
+        .as_deref()
+        .map(|v| v.eq_ignore_ascii_case(NSJAIL_TMP_BACKING_DISK))
+        .unwrap_or(false);
     let size_bytes = resolve_nsjail_tmpfs_size_bytes().await;
     if !disk_backed {
         return tmpfs_mount_block(&size_bytes);
@@ -1095,31 +1102,41 @@ mod nsjail_tmp_mount_tests {
         assert!(!block.contains("fstype"));
     }
 
-    /// Serializes tests that mutate the process-global `NSJAIL_TMP_DISK_BACKED`
+    /// Serializes tests that mutate the process-global `NSJAIL_TMP_BACKING`
     /// so they don't race when cargo runs them in parallel.
     static SETTING_GUARD: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-    async fn with_disk_backed<F, Fut, T>(value: Option<bool>, f: F) -> T
+    async fn with_tmp_backing<F, Fut, T>(value: Option<String>, f: F) -> T
     where
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = T>,
     {
         let _serial = SETTING_GUARD.lock().await;
-        let prev = NSJAIL_TMP_DISK_BACKED.read().await.clone();
-        *NSJAIL_TMP_DISK_BACKED.write().await = value;
+        let prev = NSJAIL_TMP_BACKING.read().await.clone();
+        *NSJAIL_TMP_BACKING.write().await = value;
         let res = f().await;
-        *NSJAIL_TMP_DISK_BACKED.write().await = prev;
+        *NSJAIL_TMP_BACKING.write().await = prev;
         res
     }
 
     #[tokio::test]
     async fn tmpfs_mode_returns_tmpfs_block_for_any_job_dir() {
-        let block = with_disk_backed(Some(false), || async {
+        let block = with_tmp_backing(Some("tmpfs".to_string()), || async {
             resolve_nsjail_tmp_mount_block("/anything").await
         })
         .await;
         assert!(block.contains("fstype: \"tmpfs\""));
         assert!(block.contains("options: \"size="));
+        assert!(!block.contains("is_bind"));
+    }
+
+    #[tokio::test]
+    async fn unset_defaults_to_tmpfs() {
+        let block = with_tmp_backing(None, || async {
+            resolve_nsjail_tmp_mount_block("/anything").await
+        })
+        .await;
+        assert!(block.contains("fstype: \"tmpfs\""));
         assert!(!block.contains("is_bind"));
     }
 
@@ -1130,7 +1147,7 @@ mod nsjail_tmp_mount_tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let job_dir = tmp.path().to_str().expect("utf8 path").to_string();
 
-        let block = with_disk_backed(Some(true), || async {
+        let block = with_tmp_backing(Some("disk".to_string()), || async {
             resolve_nsjail_tmp_mount_block(&job_dir).await
         })
         .await;
@@ -1152,11 +1169,22 @@ mod nsjail_tmp_mount_tests {
         // so create_dir_all on a subpath returns EPERM/EACCES.
         let job_dir = "/proc/win1967_should_not_exist";
 
-        let block = with_disk_backed(Some(true), || async {
+        let block = with_tmp_backing(Some("disk".to_string()), || async {
             resolve_nsjail_tmp_mount_block(job_dir).await
         })
         .await;
 
+        assert!(block.contains("fstype: \"tmpfs\""));
+        assert!(!block.contains("is_bind"));
+    }
+
+    /// Unknown values fall through to the tmpfs branch instead of crashing.
+    #[tokio::test]
+    async fn unknown_value_defaults_to_tmpfs() {
+        let block = with_tmp_backing(Some("bogus".to_string()), || async {
+            resolve_nsjail_tmp_mount_block("/anything").await
+        })
+        .await;
         assert!(block.contains("fstype: \"tmpfs\""));
         assert!(!block.contains("is_bind"));
     }

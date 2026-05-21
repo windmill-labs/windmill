@@ -72,6 +72,16 @@
 				return false
 			}
 		}
+		// Both nsjail-only settings only make sense when nsjail isolation is selected.
+		if (setting == 'nsjail_tmp_backing' || setting == 'nsjail_tmpfs_size_mb') {
+			if (values['job_isolation'] !== 'nsjail_sandboxing') {
+				return false
+			}
+		}
+		// The tmpfs size knob is meaningless when /tmp is disk-backed.
+		if (setting == 'nsjail_tmpfs_size_mb' && values['nsjail_tmp_backing'] === 'disk') {
+			return false
+		}
 		return true
 	}
 

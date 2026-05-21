@@ -246,20 +246,24 @@ export const settings: Record<string, Setting[]> = {
 			]
 		},
 		{
+			label: 'Nsjail /tmp backing',
+			key: 'nsjail_tmp_backing',
+			fieldType: 'select',
+			description:
+				'How <code>/tmp</code> is backed inside the nsjail sandbox. <strong>RAM (tmpfs)</strong> is the default — fast, with a hard size cap from <em>Nsjail tmpfs size</em>, but consumes worker memory. <strong>Disk (bind mount)</strong> uses a per-job directory on the worker disk — no RAM cost, but the only remaining per-file ceiling is <code>rlimit_fsize</code> (~1GB for python/ansible, unbounded for most other languages because they set <code>disable_rl: true</code>); pair with host disk monitoring or quotas.',
+			storage: 'setting',
+			select_items: [
+				{ label: 'RAM (tmpfs)', value: 'tmpfs' },
+				{ label: 'Disk (bind mount)', value: 'disk' }
+			]
+		},
+		{
 			label: 'Nsjail tmpfs size (MB)',
 			key: 'nsjail_tmpfs_size_mb',
 			description:
-				'Override the size of the <code>/tmp</code> tmpfs mount inside the nsjail sandbox (in MB). When left empty, defaults to 800MB. Only applies when the job isolation mode is set to Nsjail and the <em>Disk-back /tmp</em> setting below is off.',
+				'Override the size of the <code>/tmp</code> tmpfs mount inside the nsjail sandbox (in MB). When left empty, defaults to 800MB. Only applies when <em>Nsjail /tmp backing</em> is RAM (tmpfs).',
 			fieldType: 'number',
 			placeholder: '800',
-			storage: 'setting'
-		},
-		{
-			label: 'Disk-back nsjail /tmp',
-			key: 'nsjail_tmp_disk_backed',
-			description:
-				'When enabled, the <code>/tmp</code> mount inside the nsjail sandbox is a disk-backed bind mount (under each job dir) instead of a RAM-backed tmpfs. Disk backing avoids consuming worker RAM but loses the hard size cap the tmpfs provides — only <code>rlimit_fsize</code> remains as a per-file ceiling. Only applies when the job isolation mode is set to Nsjail.',
-			fieldType: 'boolean',
 			storage: 'setting'
 		},
 		{

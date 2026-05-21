@@ -223,7 +223,7 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nsjail_tmpfs_size_mb: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub nsjail_tmp_disk_backed: Option<bool>,
+    pub nsjail_tmp_backing: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bun_install_min_release_age: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
