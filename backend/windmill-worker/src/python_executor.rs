@@ -155,7 +155,7 @@ use crate::{
     worker_utils::ping_job_status,
     PyV, DISABLE_NUSER, HOME_ENV, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL,
     PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, UV_CACHE_DIR,
-    UV_EXCLUDE_NEWER, UV_INDEX_STRATEGY,
+    UV_EXCLUDE_NEWER, UV_INDEX_STRATEGY, UV_PYTHON_INSTALL_MIRROR,
 };
 use windmill_common::client::AuthedClient;
 
@@ -392,6 +392,10 @@ pub async fn uv_pip_compile(
             .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        if let Some(mirror) = UV_PYTHON_INSTALL_MIRROR.read().await.as_ref() {
+            child_cmd.env("UV_PYTHON_INSTALL_MIRROR", mirror);
+        }
 
         #[cfg(windows)]
         {
@@ -2033,6 +2037,10 @@ async fn spawn_uv_install(
         if let Some(v) = uv_exclude_newer {
             vars.push(("UV_EXCLUDE_NEWER", v));
         }
+        let uv_python_install_mirror = UV_PYTHON_INSTALL_MIRROR.read().await.clone();
+        if let Some(mirror) = uv_python_install_mirror.as_ref() {
+            vars.push(("UV_PYTHON_INSTALL_MIRROR", mirror));
+        }
 
         std::fs::create_dir_all(venv_p)?;
         let nsjail_proto = format!("{req}.config.proto");
@@ -2115,6 +2123,9 @@ async fn spawn_uv_install(
         let mut envs = vec![("PATH", PATH_ENV.as_str())];
         envs.push(("HOME", HOME_ENV.as_str()));
         envs.push(("UV_INDEX_STRATEGY", uv_index_strategy));
+        if let Some(mirror) = uv_python_install_mirror.as_ref() {
+            envs.push(("UV_PYTHON_INSTALL_MIRROR", mirror));
+        }
 
         if let Some(url) = pip_index_url.as_ref() {
             command_args.extend(["--index-url", url]);

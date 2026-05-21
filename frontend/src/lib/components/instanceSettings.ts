@@ -470,6 +470,15 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
+			label: 'UV Python install mirror',
+			description:
+				'Mirror URL for downloading managed Python interpreters. Wires to <code>UV_PYTHON_INSTALL_MIRROR</code>. See <a href="https://docs.astral.sh/uv/configuration/environment/#uv_python_install_mirror">uv docs</a>.',
+			key: 'uv_python_install_mirror',
+			fieldType: 'text',
+			placeholder: 'https://github.com/astral-sh/python-build-standalone/releases/download',
+			storage: 'setting'
+		},
+		{
 			label: 'UV index strategy',
 			description:
 				'Strategy for resolving packages from multiple indexes. See <a href="https://docs.astral.sh/uv/pip/compatibility/#packages-that-exist-on-multiple-indexes">uv docs</a>',
@@ -1110,7 +1119,10 @@ export function buildSearchableSettingItems(
 	return items
 }
 
-/** Registry settings that support per-workspace overrides. Excludes instance_python_version and uv_index_strategy which are instance-wide only. */
+/** Registry settings that support per-workspace overrides. Excludes instance_python_version, uv_index_strategy, and uv_python_install_mirror which are instance-wide only. */
 export const WORKSPACE_REGISTRY_SETTINGS: Setting[] = settings['Registries'].filter(
-	(s) => s.key !== 'instance_python_version' && s.key !== 'uv_index_strategy'
+	(s) =>
+		s.key !== 'instance_python_version' &&
+		s.key !== 'uv_index_strategy' &&
+		s.key !== 'uv_python_install_mirror'
 )

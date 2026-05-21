@@ -686,6 +686,11 @@ lazy_static::lazy_static! {
     /// When `None` (or non-positive), executors fall back to the unified
     /// `DEFAULT_NSJAIL_TMPFS_SIZE_BYTES` (800MB).
     pub static ref NSJAIL_TMPFS_SIZE_MB: Arc<RwLock<Option<i64>>> = Arc::new(RwLock::new(None));
+
+    /// Optional mirror URL for `uv python install`. Wires to the `UV_PYTHON_INSTALL_MIRROR`
+    /// env var when forwarded to uv. Can be set via the `UV_PYTHON_INSTALL_MIRROR` env var
+    /// or the `uv_python_install_mirror` instance setting.
+    pub static ref UV_PYTHON_INSTALL_MIRROR: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 }
 
 pub fn sleep_queue() -> u64 {
