@@ -23,15 +23,22 @@ type ResolvedSkillMetadata = SkillMetadata & {
 };
 
 /**
- * How to reconcile an existing AGENTS.md that doesn't reference AGENTS.cli.md.
+ * How to reconcile an existing user-owned guidance file (AGENTS.md or
+ * CLAUDE.md) that doesn't reference the managed file below it
+ * (`@AGENTS.cli.md` for AGENTS.md, `@AGENTS.md` for CLAUDE.md).
  *
- * - `append`: leave AGENTS.md as-is and append the `@AGENTS.cli.md` include.
- * - `overwrite`: replace AGENTS.md with the managed skeleton.
- * - `skip`: leave AGENTS.md alone. AGENTS.cli.md is still written/refreshed,
- *   but no link from AGENTS.md to it — the user is expected to wire it
+ * - `append`: leave the file as-is and append the include line.
+ * - `overwrite`: replace the file with the managed skeleton.
+ * - `skip`: leave the file alone. The managed downstream file is still
+ *   written/refreshed, but no link to it — the user is expected to wire it
  *   manually later.
  */
 export type AgentsMdMigration = "append" | "overwrite" | "skip";
+
+export type ReconcileOutcome =
+  | AgentsMdMigration
+  | "already-linked"
+  | "not-applicable";
 
 export interface WriteAiGuidanceOptions {
   targetDir: string;
@@ -53,8 +60,9 @@ export interface WriteAiGuidanceOptions {
 export interface WriteAiGuidanceResult {
   agentsCliWritten: boolean;
   agentsCreated: boolean;
-  agentsMigration: AgentsMdMigration | "already-linked" | "not-applicable";
-  claudeWritten: boolean;
+  agentsMigration: ReconcileOutcome;
+  claudeCreated: boolean;
+  claudeMigration: ReconcileOutcome;
   skillCount: number;
 }
 
@@ -63,6 +71,7 @@ export const WMILL_INIT_AI_AGENTS_SOURCE_ENV = "WMILL_INIT_AI_AGENTS_SOURCE";
 export const WMILL_INIT_AI_CLAUDE_SOURCE_ENV = "WMILL_INIT_AI_CLAUDE_SOURCE";
 
 const CLAUDE_MD_DEFAULT = "Instructions are in @AGENTS.md\n";
+const CLAUDE_MD_INCLUDE_LINE = "@AGENTS.md";
 
 /**
  * Both `.agents/skills/` (read by Codex, Pi) and `.claude/skills/` (read by
@@ -100,24 +109,35 @@ export async function writeAiGuidanceFiles(
   await writeFile(agentsCliPath, agentsCliContent, "utf8");
   const agentsCliWritten = true;
 
+  // Cache the user's first migration answer and reuse it for every file
+  // that needs reconciling in this run — there's never a good reason to ask
+  // the same question twice in a row.
+  const resolveMigration = cacheOnce(options.resolveAgentsMdMigration);
+
   // AGENTS.md — user-owned. Three paths:
   //   1. doesn't exist → create skeleton (which already includes @AGENTS.cli.md).
   //   2. exists and already references @AGENTS.cli.md → leave alone.
   //   3. exists but doesn't reference @AGENTS.cli.md → ask caller via
-  //      resolveAgentsMdMigration (defaults to append).
-  const agentsMdPath = join(options.targetDir, "AGENTS.md");
-  const agentsMdResult = await reconcileAgentsMd({
-    path: agentsMdPath,
-    resolveMigration: options.resolveAgentsMdMigration,
+  //      resolveMigration (defaults to append).
+  const agentsMdResult = await reconcileIncludingFile({
+    path: join(options.targetDir, "AGENTS.md"),
+    includeLine: AGENTS_CLI_INCLUDE_LINE,
+    skeleton: generateAgentsMdSkeleton(),
+    resolveMigration,
   });
 
-  const claudeWritten = await writeProjectGuidanceFile({
-    targetPath: join(options.targetDir, "CLAUDE.md"),
-    overwrite: false,
-    content:
-      options.claudeSourcePath != null
-        ? await readTextFile(options.claudeSourcePath)
-        : CLAUDE_MD_DEFAULT,
+  // CLAUDE.md — user-owned wrapper that points at @AGENTS.md. Same three-way
+  // reconciliation: create if missing, leave alone if it already references
+  // AGENTS.md, otherwise ask via resolveMigration.
+  const claudeSkeleton =
+    options.claudeSourcePath != null
+      ? await readTextFile(options.claudeSourcePath)
+      : CLAUDE_MD_DEFAULT;
+  const claudeMdResult = await reconcileIncludingFile({
+    path: join(options.targetDir, "CLAUDE.md"),
+    includeLine: CLAUDE_MD_INCLUDE_LINE,
+    skeleton: claudeSkeleton,
+    resolveMigration,
   });
 
   if (options.skillsSourcePath) {
@@ -130,26 +150,38 @@ export async function writeAiGuidanceFiles(
     agentsCliWritten,
     agentsCreated: agentsMdResult.created,
     agentsMigration: agentsMdResult.migration,
-    claudeWritten,
+    claudeCreated: claudeMdResult.created,
+    claudeMigration: claudeMdResult.migration,
     skillCount: skillMetadata.length,
   };
 }
 
-async function reconcileAgentsMd(options: {
+function cacheOnce(
+  resolver: (() => Promise<AgentsMdMigration>) | undefined
+): (() => Promise<AgentsMdMigration>) | undefined {
+  if (!resolver) return undefined;
+  let cached: AgentsMdMigration | null = null;
+  return async () => {
+    if (cached !== null) return cached;
+    cached = await resolver();
+    return cached;
+  };
+}
+
+async function reconcileIncludingFile(options: {
   path: string;
+  includeLine: string;
+  skeleton: string;
   resolveMigration?: () => Promise<AgentsMdMigration>;
-}): Promise<{
-  created: boolean;
-  migration: AgentsMdMigration | "already-linked" | "not-applicable";
-}> {
+}): Promise<{ created: boolean; migration: ReconcileOutcome }> {
   const exists = (await stat(options.path).catch(() => null)) != null;
   if (!exists) {
-    await writeFile(options.path, generateAgentsMdSkeleton(), "utf8");
+    await writeFile(options.path, options.skeleton, "utf8");
     return { created: true, migration: "not-applicable" };
   }
 
   const existing = await readTextFile(options.path);
-  if (referencesAgentsCli(existing)) {
+  if (referencesIncludeLine(existing, options.includeLine)) {
     return { created: false, migration: "already-linked" };
   }
 
@@ -162,24 +194,24 @@ async function reconcileAgentsMd(options: {
   }
 
   if (choice === "overwrite") {
-    await writeFile(options.path, generateAgentsMdSkeleton(), "utf8");
+    await writeFile(options.path, options.skeleton, "utf8");
     return { created: false, migration: "overwrite" };
   }
 
   // append — add the include at the end, leaving existing content untouched.
   const appended = existing.endsWith("\n")
-    ? `${existing}\n${AGENTS_CLI_INCLUDE_LINE}\n`
-    : `${existing}\n\n${AGENTS_CLI_INCLUDE_LINE}\n`;
+    ? `${existing}\n${options.includeLine}\n`
+    : `${existing}\n\n${options.includeLine}\n`;
   await writeFile(options.path, appended, "utf8");
   return { created: false, migration: "append" };
 }
 
-function referencesAgentsCli(content: string): boolean {
-  // Split on any whitespace (newlines, spaces, tabs, CR) and check for an
-  // exact token match. This avoids regex escaping pitfalls and false matches
-  // on look-alike strings (`@AGENTS-cli-md`, `@AGENTS.cli.mdx`, ...).
+function referencesIncludeLine(content: string, includeLine: string): boolean {
+  // Split on any whitespace and check for an exact token match. Avoids regex
+  // escaping pitfalls and false matches on look-alike strings
+  // (`@AGENTS-cli-md`, `@AGENTS.cli.mdx`, ...).
   for (const token of content.split(/\s+/)) {
-    if (token === AGENTS_CLI_INCLUDE_LINE) {
+    if (token === includeLine) {
       return true;
     }
   }
@@ -382,22 +414,6 @@ function parseSkillMetadata(
   }
 
   return { name, description, directoryName: fallbackName };
-}
-
-async function writeProjectGuidanceFile(options: {
-  targetPath: string;
-  content: string;
-  overwrite: boolean;
-}): Promise<boolean> {
-  if (
-    !options.overwrite &&
-    (await stat(options.targetPath).catch(() => null))
-  ) {
-    return false;
-  }
-
-  await writeFile(options.targetPath, options.content, "utf8");
-  return true;
 }
 
 function formatSchemaForMarkdown(

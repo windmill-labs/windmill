@@ -286,6 +286,105 @@ describe("writeAiGuidanceFiles — AGENTS.md reconciliation", () => {
   });
 });
 
+describe("writeAiGuidanceFiles — CLAUDE.md reconciliation", () => {
+  test("creates a skeleton CLAUDE.md (with @AGENTS.md include) when none exists", async () => {
+    await withTempDir(async (tempDir) => {
+      const result = await writeAiGuidanceFiles({ targetDir: tempDir });
+      expect(result.claudeCreated).toBe(true);
+      expect(result.claudeMigration).toBe("not-applicable");
+
+      const claudeMd = await readFile(join(tempDir, "CLAUDE.md"), "utf8");
+      expect(claudeMd).toContain("@AGENTS.md");
+    });
+  });
+
+  test("leaves an existing CLAUDE.md alone when it already references @AGENTS.md", async () => {
+    await withTempDir(async (tempDir) => {
+      const original = "# My CLAUDE.md\n\nlocal stuff\n\n@AGENTS.md\n";
+      await writeFile(join(tempDir, "CLAUDE.md"), original, "utf8");
+
+      const result = await writeAiGuidanceFiles({ targetDir: tempDir });
+      expect(result.claudeCreated).toBe(false);
+      expect(result.claudeMigration).toBe("already-linked");
+
+      expect(await readFile(join(tempDir, "CLAUDE.md"), "utf8")).toBe(original);
+    });
+  });
+
+  test("appends @AGENTS.md when the resolver returns 'append'", async () => {
+    await withTempDir(async (tempDir) => {
+      const original = "# Existing custom CLAUDE.md\n\nBe helpful.\n";
+      await writeFile(join(tempDir, "CLAUDE.md"), original, "utf8");
+
+      const result = await writeAiGuidanceFiles({
+        targetDir: tempDir,
+        resolveAgentsMdMigration: async () => "append",
+      });
+      expect(result.claudeCreated).toBe(false);
+      expect(result.claudeMigration).toBe("append");
+
+      const updated = await readFile(join(tempDir, "CLAUDE.md"), "utf8");
+      expect(updated).toStartWith(original);
+      expect(updated).toContain("@AGENTS.md");
+    });
+  });
+
+  test("overwrites CLAUDE.md with the managed skeleton when the resolver returns 'overwrite'", async () => {
+    await withTempDir(async (tempDir) => {
+      const original = "# Some old CLAUDE.md\n";
+      await writeFile(join(tempDir, "CLAUDE.md"), original, "utf8");
+
+      const result = await writeAiGuidanceFiles({
+        targetDir: tempDir,
+        resolveAgentsMdMigration: async () => "overwrite",
+      });
+      expect(result.claudeCreated).toBe(false);
+      expect(result.claudeMigration).toBe("overwrite");
+
+      expect(
+        await readFile(join(tempDir, "CLAUDE.md"), "utf8")
+      ).not.toBe(original);
+      expect(await readFile(join(tempDir, "CLAUDE.md"), "utf8")).toContain(
+        "@AGENTS.md"
+      );
+    });
+  });
+
+  test("leaves CLAUDE.md untouched when the resolver returns 'skip'", async () => {
+    await withTempDir(async (tempDir) => {
+      const original = "# Hand-managed CLAUDE.md\n";
+      await writeFile(join(tempDir, "CLAUDE.md"), original, "utf8");
+
+      const result = await writeAiGuidanceFiles({
+        targetDir: tempDir,
+        resolveAgentsMdMigration: async () => "skip",
+      });
+      expect(result.claudeCreated).toBe(false);
+      expect(result.claudeMigration).toBe("skip");
+
+      expect(await readFile(join(tempDir, "CLAUDE.md"), "utf8")).toBe(original);
+    });
+  });
+
+  test("resolver is invoked at most once even if both files need it", async () => {
+    await withTempDir(async (tempDir) => {
+      const original = "# old\n";
+      await writeFile(join(tempDir, "AGENTS.md"), original, "utf8");
+      await writeFile(join(tempDir, "CLAUDE.md"), original, "utf8");
+
+      let resolverCalls = 0;
+      await writeAiGuidanceFiles({
+        targetDir: tempDir,
+        resolveAgentsMdMigration: async () => {
+          resolverCalls += 1;
+          return "append";
+        },
+      });
+      expect(resolverCalls).toBe(1);
+    });
+  });
+});
+
 describe("writeAiGuidanceFiles — referencesAgentsCli (via reconciliation)", () => {
   test.each([
     ["bare line", "@AGENTS.cli.md"],
