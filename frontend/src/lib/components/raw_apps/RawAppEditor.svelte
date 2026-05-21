@@ -28,7 +28,7 @@
 	import { createAppSelectedContext, type AppCodeSelectionElement } from '../copilot/chat/context'
 	import { rawAppLintStore } from './lintStore'
 	import { dbSchemas } from '$lib/stores'
-	import { MousePointerSquareDashed, RefreshCw, Columns2 } from 'lucide-svelte'
+	import { MousePointerSquareDashed, RefreshCw, Columns2, ChevronDown } from 'lucide-svelte'
 	import DraggableTabs, {
 		type TabItem
 	} from '$lib/components/common/tabs/DraggableTabs.svelte'
@@ -189,6 +189,18 @@
 	let lastBuild: { css: string; js: string } | undefined = undefined
 	let inspectorEnabled = $state(false)
 	let bundlerType: 'esbuild' | 'rolldown' = $state('esbuild')
+
+	// Build/bundler logs forwarded from the UI Builder iframe. We render
+	// them as an overlay inside the preview pane (right side) so they're
+	// visually tied to the build output, not to the source editor.
+	let logs = $state('')
+	let logsCollapsed = $state(false)
+	let logsDiv: HTMLDivElement | undefined = $state(undefined)
+	$effect(() => {
+		if (logsDiv && logs && !logsCollapsed) {
+			setTimeout(() => logsDiv?.scrollTo(0, logsDiv.scrollHeight), 50)
+		}
+	})
 
 	// Tab system — the source side of the editor area. The sidebar stays the
 	// primary navigation; tabs are a secondary surface that's useful when the
@@ -910,6 +922,14 @@
 			return
 		}
 
+		// Build/bundler logs from the UI Builder iframe — render them as
+		// an overlay inside the preview pane (see the panel rendered with
+		// the right Pane below).
+		if (fromUiBuilder && e.data.type === 'setLogs') {
+			logs = String(e.data.logs ?? '')
+			return
+		}
+
 		// Inspector events come exclusively from the preview iframe.
 		if (fromPreview && e.data.type === 'inspectorSelect') {
 			inspectorElement = e.data.element as InspectorElementInfo
@@ -1460,7 +1480,7 @@
 						</div>
 					</Pane>
 					<Pane bind:size={paneBRightSize} minSize={0}>
-						<div class="flex flex-col h-full w-full min-h-0">
+						<div class="flex flex-col h-full w-full min-h-0 relative">
 							<DraggableTabs
 								tabs={rightPaneTabs}
 								activeId={rightPaneActiveId}
@@ -1546,6 +1566,38 @@
 								src="/ui_builder/app-preview.html"
 								class="w-full flex-1 block"
 							></iframe>
+							{#if logs}
+								<div
+									class="absolute right-0 bottom-0 z-20 max-w-[500px] w-full flex flex-col text-xs p-1 border border-border-light rounded-tl-md bg-surface text-primary {logsCollapsed
+										? 'h-6'
+										: 'max-h-60 h-full'}"
+								>
+									<button
+										class="cursor-pointer flex items-center gap-2 w-full text-xs font-normal text-secondary -mt-0.5 px-2 text-left"
+										onclick={() => (logsCollapsed = !logsCollapsed)}
+									>
+										Logs
+										<ChevronDown
+											size={12}
+											class="transition duration-200"
+											style="transform: {logsCollapsed
+												? 'rotate(180deg)'
+												: 'rotate(0deg)'}"
+										/>
+										<span class="text-secondary"
+											>({logs.split('\n').length})</span
+										>
+									</button>
+									<div
+										bind:this={logsDiv}
+										class="logs-scroll grow w-full overflow-auto"
+									>
+										{#if !logsCollapsed}
+											<pre>{logs}</pre>
+										{/if}
+									</div>
+								</div>
+							{/if}
 						</div>
 					</Pane>
 				</Splitpanes>
@@ -1563,5 +1615,22 @@
 		visibility: hidden;
 		pointer-events: none;
 		width: 0;
+	}
+
+	/* Logs overlay scrollbar — small, themed, matching the previous in-iframe
+	   panel's look. */
+	.logs-scroll::-webkit-scrollbar {
+		width: 8px;
+		height: 8px;
+	}
+	.logs-scroll::-webkit-scrollbar-track {
+		background: rgb(var(--color-surface-sunken));
+	}
+	.logs-scroll::-webkit-scrollbar-thumb {
+		background: rgb(var(--color-surface-secondary));
+		border-radius: 4px;
+	}
+	.logs-scroll::-webkit-scrollbar-thumb:hover {
+		background: rgb(var(--color-border-light));
 	}
 </style>
