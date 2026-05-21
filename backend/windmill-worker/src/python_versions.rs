@@ -25,7 +25,7 @@ use crate::{
     handle_child::handle_child,
     python_executor::{INDEX_CERT, NATIVE_CERT, PYTHON_PATH},
     HOME_ENV, INSTANCE_PYTHON_VERSION, PATH_ENV, PROXY_ENVS, PY_INSTALL_DIR, UV_CACHE_DIR,
-    WIN_ENVS,
+    UV_PYTHON_INSTALL_MIRROR, WIN_ENVS,
 };
 
 impl From<PyV> for PyVAlias {
@@ -545,6 +545,10 @@ impl PyV {
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        if let Some(mirror) = UV_PYTHON_INSTALL_MIRROR.read().await.as_ref() {
+            child_cmd.env("UV_PYTHON_INSTALL_MIRROR", mirror);
+        }
 
         #[cfg(windows)]
         {
