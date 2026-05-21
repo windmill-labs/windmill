@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { paneMinPercent } from '$lib/utils/splitpaneSizing'
 	import RawAppInlineScriptsPanel from './RawAppInlineScriptsPanel.svelte'
 	import type { JobById } from '../apps/types'
 	import RawAppEditorHeader from './RawAppEditorHeader.svelte'
@@ -400,7 +401,20 @@
 	}
 	let yamlEditorDrawer: Drawer | undefined = $state(undefined)
 
-	let sidebarPanelSize = $state(15)
+	// Sidebar uses a dynamic pixel-aware minimum: the user's `%` preference is
+	// honored, but the pane can never shrink below SIDEBAR_PX_MIN — including
+	// when the container itself shrinks. svelte-splitpanes' `minSize` only
+	// blocks splitter drag, so we clamp `sidebarPanelSize` ourselves and use a
+	// getter/setter bind so the user's preference is preserved.
+	let rawSidebarSize = $state(15)
+	let splitContainerWidth = $state(0)
+	const SIDEBAR_PX_MIN = 160
+	const sidebarMinPercent = $derived(
+		paneMinPercent(splitContainerWidth, SIDEBAR_PX_MIN)
+	)
+	const sidebarPanelSize = $derived(
+		Math.max(rawSidebarSize, sidebarMinPercent)
+	)
 
 	// Persisted across opens. Seeded with `defaultSidebarCollapsed` only when
 	// localStorage has no entry yet — callers (like the session preview pane)
@@ -1339,9 +1353,14 @@
 		onApply={handleYamlApply}
 	/>
 
-	<Splitpanes id="o2" class="grow min-h-0 border-t">
-		{#if !sidebarCollapsed.val}
-			<Pane bind:size={sidebarPanelSize} maxSize={20} class="h-full overflow-y-auto relative">
+	<div bind:clientWidth={splitContainerWidth} class="grow min-h-0 flex flex-col">
+		<Splitpanes id="o2" class="grow min-h-0 border-t">
+			{#if !sidebarCollapsed.val}
+				<Pane
+					bind:size={() => sidebarPanelSize, (v) => (rawSidebarSize = v)}
+					minSize={sidebarMinPercent}
+					class="h-full overflow-y-auto relative"
+				>
 				<RawAppSidebar
 					bind:files={
 						() => files,
@@ -1604,6 +1623,7 @@
 			</div>
 		</Pane>
 	</Splitpanes>
+	</div>
 </div>
 
 <style>
