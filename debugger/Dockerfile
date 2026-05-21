@@ -51,6 +51,14 @@ COPY dap_websocket_server.py .
 # Expose the default port
 EXPOSE 5679
 
+# Create a non-root user 'windmill' with UID and GID 1000 (mirrors main Windmill image)
+RUN addgroup --gid 1000 windmill && \
+    adduser --disabled-password --gecos "" --uid 1000 --gid 1000 windmill
+
+# Ensure cache and work directories are writable by any UID
+RUN mkdir -p /tmp/windmill/cache /tmp/windmill/cache_nomount /tmp/.cache && \
+    chmod -R 777 /tmp/windmill /tmp/.cache /app
+
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:5679/health || exit 1
