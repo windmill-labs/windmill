@@ -41,7 +41,7 @@ use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::{
     common::{
         build_args_map, build_command_with_isolation, get_reserved_variables, read_file,
-        read_file_content, resolve_nsjail_timeout, resolve_nsjail_tmpfs_size_bytes, start_child_process,
+        read_file_content, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
         OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
@@ -216,8 +216,8 @@ exit $exit_status
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .replace(
-                    "{NSJAIL_TMPFS_SIZE}",
-                    &resolve_nsjail_tmpfs_size_bytes().await,
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
                 )
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
