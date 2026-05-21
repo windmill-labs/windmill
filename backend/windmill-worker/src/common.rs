@@ -1027,35 +1027,138 @@ pub async fn resolve_nsjail_tmpfs_size_bytes() -> String {
 /// Sub-directory inside each job dir used as the disk-backed `/tmp` when
 /// `nsjail_tmp_disk_backed` is enabled. Kept under `{JOB_DIR}` so existing
 /// job-dir cleanup removes it for free.
-pub const NSJAIL_TMP_BIND_SUBDIR: &str = "jail_tmp";
+const NSJAIL_TMP_BIND_SUBDIR: &str = "jail_tmp";
+
+fn tmpfs_mount_block(size_bytes: &str) -> String {
+    format!(
+        "mount {{\n    dst: \"/tmp\"\n    fstype: \"tmpfs\"\n    rw: true\n    options: \"size={size_bytes}\"\n}}"
+    )
+}
+
+fn bind_mount_block(jail_tmp: &str) -> String {
+    format!(
+        "mount {{\n    src: \"{jail_tmp}\"\n    dst: \"/tmp\"\n    is_bind: true\n    rw: true\n}}"
+    )
+}
 
 /// Build the nsjail `mount { ... }` block that backs `/tmp` inside the
-/// sandbox. When `nsjail_tmp_disk_backed` is `Some(true)`, returns a
-/// disk-backed bind mount of `{job_dir}/jail_tmp` and ensures the directory
-/// exists (cleanup is handled by the worker's job_dir removal). Otherwise
-/// returns the historical RAM-backed tmpfs mount sized via
-/// `nsjail_tmpfs_size_mb`.
-pub async fn resolve_nsjail_tmp_mount_block(job_dir: &str) -> String {
-    if NSJAIL_TMP_DISK_BACKED.read().await.unwrap_or(false) {
-        let jail_tmp = format!("{job_dir}/{NSJAIL_TMP_BIND_SUBDIR}");
-        if let Err(e) = tokio::fs::create_dir_all(&jail_tmp).await {
-            tracing::error!(
-                "Failed to create nsjail disk-backed /tmp at {jail_tmp}: {e:?}; \
-                 nsjail will fail to start. Falling back to tmpfs for this job."
-            );
-            let size_bytes = resolve_nsjail_tmpfs_size_bytes().await;
-            return format!(
-                "mount {{\n    dst: \"/tmp\"\n    fstype: \"tmpfs\"\n    rw: true\n    options: \"size={size_bytes}\"\n}}"
-            );
-        }
-        format!(
-            "mount {{\n    src: \"{jail_tmp}\"\n    dst: \"/tmp\"\n    is_bind: true\n    rw: true\n}}"
-        )
-    } else {
-        let size_bytes = resolve_nsjail_tmpfs_size_bytes().await;
-        format!(
-            "mount {{\n    dst: \"/tmp\"\n    fstype: \"tmpfs\"\n    rw: true\n    options: \"size={size_bytes}\"\n}}"
-        )
+/// sandbox.
+///
+/// **Caller contract**: `job_dir` must be a trusted, worker-allocated job
+/// directory (typically `{worker_dir}/{job_id}`) — in disk-backed mode this
+/// function calls `create_dir_all` on `{job_dir}/jail_tmp`, so callers must
+/// not pass user-controlled paths.
+///
+/// When `nsjail_tmp_disk_backed` is `Some(true)`, returns a disk-backed bind
+/// mount of `{job_dir}/jail_tmp` and ensures the directory exists (cleanup is
+/// handled by the worker's job_dir removal). If `create_dir_all` fails, logs
+/// an error and falls back to the historical tmpfs block so the job can still
+/// start. When the setting is unset / `Some(false)`, returns the historical
+/// RAM-backed tmpfs mount sized via `nsjail_tmpfs_size_mb`.
+pub(crate) async fn resolve_nsjail_tmp_mount_block(job_dir: &str) -> String {
+    let disk_backed = NSJAIL_TMP_DISK_BACKED.read().await.unwrap_or(false);
+    let size_bytes = resolve_nsjail_tmpfs_size_bytes().await;
+    if !disk_backed {
+        return tmpfs_mount_block(&size_bytes);
+    }
+    let jail_tmp = format!("{job_dir}/{NSJAIL_TMP_BIND_SUBDIR}");
+    if let Err(e) = tokio::fs::create_dir_all(&jail_tmp).await {
+        tracing::error!(
+            "Failed to create nsjail disk-backed /tmp at {jail_tmp}: {e:?}; \
+             falling back to tmpfs for this job."
+        );
+        return tmpfs_mount_block(&size_bytes);
+    }
+    bind_mount_block(&jail_tmp)
+}
+
+#[cfg(test)]
+mod nsjail_tmp_mount_tests {
+    use super::*;
+
+    #[test]
+    fn tmpfs_block_renders_size() {
+        let block = tmpfs_mount_block("800000000");
+        assert!(block.contains("dst: \"/tmp\""));
+        assert!(block.contains("fstype: \"tmpfs\""));
+        assert!(block.contains("options: \"size=800000000\""));
+        assert!(!block.contains("is_bind"));
+    }
+
+    #[test]
+    fn bind_block_renders_source_path() {
+        let block = bind_mount_block("/var/lib/windmill/jobs/abc/jail_tmp");
+        assert!(block.contains("src: \"/var/lib/windmill/jobs/abc/jail_tmp\""));
+        assert!(block.contains("dst: \"/tmp\""));
+        assert!(block.contains("is_bind: true"));
+        assert!(block.contains("rw: true"));
+        assert!(!block.contains("fstype"));
+    }
+
+    /// Serializes tests that mutate the process-global `NSJAIL_TMP_DISK_BACKED`
+    /// so they don't race when cargo runs them in parallel.
+    static SETTING_GUARD: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    async fn with_disk_backed<F, Fut, T>(value: Option<bool>, f: F) -> T
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = T>,
+    {
+        let _serial = SETTING_GUARD.lock().await;
+        let prev = NSJAIL_TMP_DISK_BACKED.read().await.clone();
+        *NSJAIL_TMP_DISK_BACKED.write().await = value;
+        let res = f().await;
+        *NSJAIL_TMP_DISK_BACKED.write().await = prev;
+        res
+    }
+
+    #[tokio::test]
+    async fn tmpfs_mode_returns_tmpfs_block_for_any_job_dir() {
+        let block = with_disk_backed(Some(false), || async {
+            resolve_nsjail_tmp_mount_block("/anything").await
+        })
+        .await;
+        assert!(block.contains("fstype: \"tmpfs\""));
+        assert!(block.contains("options: \"size="));
+        assert!(!block.contains("is_bind"));
+    }
+
+    /// Disk-backed branch: the resolver must create `{job_dir}/jail_tmp` and
+    /// emit a bind block pointing at it.
+    #[tokio::test]
+    async fn disk_backed_creates_jail_tmp_and_returns_bind_block() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let job_dir = tmp.path().to_str().expect("utf8 path").to_string();
+
+        let block = with_disk_backed(Some(true), || async {
+            resolve_nsjail_tmp_mount_block(&job_dir).await
+        })
+        .await;
+
+        let expected_dir = format!("{job_dir}/{NSJAIL_TMP_BIND_SUBDIR}");
+        assert!(
+            std::path::Path::new(&expected_dir).is_dir(),
+            "jail_tmp dir should have been created at {expected_dir}"
+        );
+        assert!(block.contains("is_bind: true"));
+        assert!(block.contains(&format!("src: \"{expected_dir}\"")));
+    }
+
+    /// Disk-backed branch fallback: if `create_dir_all` fails, we must emit
+    /// the tmpfs block instead of returning an invalid bind config.
+    #[tokio::test]
+    async fn disk_backed_falls_back_to_tmpfs_on_mkdir_error() {
+        // /proc is a kernel filesystem that disallows directory creation,
+        // so create_dir_all on a subpath returns EPERM/EACCES.
+        let job_dir = "/proc/win1967_should_not_exist";
+
+        let block = with_disk_backed(Some(true), || async {
+            resolve_nsjail_tmp_mount_block(job_dir).await
+        })
+        .await;
+
+        assert!(block.contains("fstype: \"tmpfs\""));
+        assert!(!block.contains("is_bind"));
     }
 }
 
