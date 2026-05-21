@@ -38,8 +38,6 @@ use uuid::Uuid;
 
 use windmill_common::job_metrics;
 
-#[cfg(target_os = "linux")]
-use tokio::io::AsyncWriteExt;
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     sync::{broadcast, watch},
@@ -127,19 +125,13 @@ pub async fn handle_child(
     let pid = child.id();
     #[cfg(target_os = "linux")]
     if let Some(pid) = pid {
-        //set the highest oom priority so OOM killer targets this job, not the worker
-        match File::create(format!("/proc/{pid}/oom_score_adj")).await {
-            Ok(mut file) => {
-                if let Err(e) = file.write_all(b"1000").await {
-                    tracing::error!("Failed to write oom_score_adj for pid {pid}: {e:#}");
-                }
-                if let Err(e) = file.sync_all().await {
-                    tracing::warn!("Failed to sync oom_score_adj for pid {pid}: {e:#}");
-                }
-            }
+        // procfs handles writes synchronously in-kernel; no fsync (it returns
+        // EINVAL on procfs files).
+        match std::fs::write(format!("/proc/{pid}/oom_score_adj"), b"1000") {
+            Ok(()) => {}
             Err(e) => {
                 tracing::error!(
-                    "Could not open /proc/{pid}/oom_score_adj: {e:#}. \
+                    "Failed to set oom_score_adj=1000 for pid {pid}: {e:#}. \
                     OOM killer may target the worker instead of this job"
                 );
             }
