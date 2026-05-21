@@ -48,7 +48,8 @@ use tokio::{io::AsyncWriteExt, time::Instant};
 
 use crate::agent_workers::UPDATE_PING_URL;
 use crate::{
-    JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE, MAX_TIMEOUT_DURATION, NSJAIL_TMPFS_SIZE_MB, PATH_ENV,
+    JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE, MAX_TIMEOUT_DURATION, NSJAIL_TMPFS_SIZE_MB,
+    NSJAIL_TMP_DISK_BACKED, PATH_ENV,
 };
 use windmill_common::client::AuthedClient;
 
@@ -1020,6 +1021,41 @@ pub async fn resolve_nsjail_tmpfs_size_bytes() -> String {
     match *NSJAIL_TMPFS_SIZE_MB.read().await {
         Some(mb) if mb > 0 => ((mb as u64).saturating_mul(1_000_000)).to_string(),
         _ => DEFAULT_NSJAIL_TMPFS_SIZE_BYTES.to_string(),
+    }
+}
+
+/// Sub-directory inside each job dir used as the disk-backed `/tmp` when
+/// `nsjail_tmp_disk_backed` is enabled. Kept under `{JOB_DIR}` so existing
+/// job-dir cleanup removes it for free.
+pub const NSJAIL_TMP_BIND_SUBDIR: &str = "jail_tmp";
+
+/// Build the nsjail `mount { ... }` block that backs `/tmp` inside the
+/// sandbox. When `nsjail_tmp_disk_backed` is `Some(true)`, returns a
+/// disk-backed bind mount of `{job_dir}/jail_tmp` and ensures the directory
+/// exists (cleanup is handled by the worker's job_dir removal). Otherwise
+/// returns the historical RAM-backed tmpfs mount sized via
+/// `nsjail_tmpfs_size_mb`.
+pub async fn resolve_nsjail_tmp_mount_block(job_dir: &str) -> String {
+    if NSJAIL_TMP_DISK_BACKED.read().await.unwrap_or(false) {
+        let jail_tmp = format!("{job_dir}/{NSJAIL_TMP_BIND_SUBDIR}");
+        if let Err(e) = tokio::fs::create_dir_all(&jail_tmp).await {
+            tracing::error!(
+                "Failed to create nsjail disk-backed /tmp at {jail_tmp}: {e:?}; \
+                 nsjail will fail to start. Falling back to tmpfs for this job."
+            );
+            let size_bytes = resolve_nsjail_tmpfs_size_bytes().await;
+            return format!(
+                "mount {{\n    dst: \"/tmp\"\n    fstype: \"tmpfs\"\n    rw: true\n    options: \"size={size_bytes}\"\n}}"
+            );
+        }
+        format!(
+            "mount {{\n    src: \"{jail_tmp}\"\n    dst: \"/tmp\"\n    is_bind: true\n    rw: true\n}}"
+        )
+    } else {
+        let size_bytes = resolve_nsjail_tmpfs_size_bytes().await;
+        format!(
+            "mount {{\n    dst: \"/tmp\"\n    fstype: \"tmpfs\"\n    rw: true\n    options: \"size={size_bytes}\"\n}}"
+        )
     }
 }
 

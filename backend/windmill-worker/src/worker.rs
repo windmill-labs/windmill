@@ -686,6 +686,11 @@ lazy_static::lazy_static! {
     /// When `None` (or non-positive), executors fall back to the unified
     /// `DEFAULT_NSJAIL_TMPFS_SIZE_BYTES` (800MB).
     pub static ref NSJAIL_TMPFS_SIZE_MB: Arc<RwLock<Option<i64>>> = Arc::new(RwLock::new(None));
+
+    /// When `Some(true)`, swap the tmpfs `/tmp` mount inside nsjail sandboxes for a
+    /// disk-backed bind mount on `{JOB_DIR}/jail_tmp`. Otherwise the historical
+    /// tmpfs behavior is preserved (RAM-backed, sized by `nsjail_tmpfs_size_mb`).
+    pub static ref NSJAIL_TMP_DISK_BACKED: Arc<RwLock<Option<bool>>> = Arc::new(RwLock::new(None));
 }
 
 pub fn sleep_queue() -> u64 {

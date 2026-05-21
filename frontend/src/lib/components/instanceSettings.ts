@@ -249,9 +249,17 @@ export const settings: Record<string, Setting[]> = {
 			label: 'Nsjail tmpfs size (MB)',
 			key: 'nsjail_tmpfs_size_mb',
 			description:
-				'Override the size of the <code>/tmp</code> tmpfs mount inside the nsjail sandbox (in MB). When left empty, defaults to 800MB. Only applies when the job isolation mode is set to Nsjail.',
+				'Override the size of the <code>/tmp</code> tmpfs mount inside the nsjail sandbox (in MB). When left empty, defaults to 800MB. Only applies when the job isolation mode is set to Nsjail and the <em>Disk-back /tmp</em> setting below is off.',
 			fieldType: 'number',
 			placeholder: '800',
+			storage: 'setting'
+		},
+		{
+			label: 'Disk-back nsjail /tmp',
+			key: 'nsjail_tmp_disk_backed',
+			description:
+				'When enabled, the <code>/tmp</code> mount inside the nsjail sandbox is a disk-backed bind mount (under each job dir) instead of a RAM-backed tmpfs. Disk backing avoids consuming worker RAM but loses the hard size cap the tmpfs provides — only <code>rlimit_fsize</code> remains as a per-file ceiling. Only applies when the job isolation mode is set to Nsjail.',
+			fieldType: 'boolean',
 			storage: 'setting'
 		},
 		{

@@ -26,7 +26,7 @@ lazy_static::lazy_static! {
 use crate::{
     common::{
         build_args_map, build_command_with_isolation, get_reserved_variables, read_file,
-        read_file_content, resolve_nsjail_timeout, resolve_nsjail_tmpfs_size_bytes, start_child_process,
+        read_file_content, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
         MaybeLock, OccupancyMetrics,
     },
     handle_child::handle_child,
@@ -683,8 +683,8 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{CACHE_DIR}", &*POWERSHELL_CACHE_DIR)
                 .replace(
-                    "{NSJAIL_TMPFS_SIZE}",
-                    &resolve_nsjail_tmpfs_size_bytes().await,
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
                 )
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
