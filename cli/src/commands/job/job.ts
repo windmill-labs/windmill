@@ -412,6 +412,27 @@ async function rerun(
   console.log(newIds[0]);
 }
 
+async function restart(
+  opts: GlobalOptions & { step: string; iteration?: number },
+  id: string
+) {
+  log.setSilent(true);
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const newId = await wmill.restartFlowAtStep({
+    workspace: workspace.workspaceId,
+    id,
+    requestBody: {
+      step_id: opts.step,
+      branch_or_iteration_n: opts.iteration,
+    },
+  });
+
+  console.log(newId);
+}
+
 // Shared list options to avoid repetition between default action and list subcommand
 const listOptions = (cmd: Command) =>
   cmd
@@ -452,6 +473,14 @@ const command = listOptions(new Command()
     "Re-run a completed job with the same args. Prints the new job UUID on stdout."
   )
   .arguments("<id:string>")
-  .action(rerun as any);
+  .action(rerun as any)
+  .command(
+    "restart",
+    "Restart a completed flow at a given top-level step. Prints the new flow job UUID on stdout."
+  )
+  .arguments("<id:string>")
+  .option("--step <stepId:string>", "Top-level step id to restart the flow from", { required: true })
+  .option("--iteration <n:number>", "For a top-level branchall or for-loop step, the iteration to restart at")
+  .action(restart as any);
 
 export default command;
