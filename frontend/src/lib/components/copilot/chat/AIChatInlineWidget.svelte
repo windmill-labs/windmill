@@ -213,7 +213,7 @@
 				try {
 					const reply = await aiChatManager.sendInlineRequest(instructions, selectedCode, selection)
 					if (reply) {
-						aiChatManager.scriptEditorApplyCode?.(reply)
+						await aiChatManager.applyScriptEditorCode(reply)
 					}
 				} catch (error) {
 					console.error('Inline AI request failed:', error)
