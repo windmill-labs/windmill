@@ -1046,17 +1046,21 @@ fn bind_mount_block(jail_tmp: &str) -> String {
 /// sandbox.
 ///
 /// **Caller contract**: `job_dir` must be a trusted, worker-allocated job
-/// directory (typically `{worker_dir}/{job_id}`) — in disk-backed mode this
-/// function calls `create_dir_all` on `{job_dir}/jail_tmp`, so callers must
-/// not pass user-controlled paths.
+/// directory (typically `{worker_dir}/{job_id}`). In disk-backed mode this
+/// function creates `{job_dir}/jail_tmp` and bind-mounts it as `/tmp` with
+/// `rw: true`. Callers must not pass user-controlled paths.
+///
+/// Some executors (e.g. the bun codebase path) extract user-supplied archives
+/// into `job_dir` before this resolver runs, so the resolver actively refuses
+/// any pre-existing entry at `{job_dir}/jail_tmp` (including symlinks) to
+/// avoid bind-mounting an attacker-controlled host directory as `/tmp`.
 ///
 /// When the `nsjail_tmp_backing` instance setting is `"disk"`, returns a
-/// disk-backed bind mount of `{job_dir}/jail_tmp` and ensures the directory
-/// exists (cleanup is handled by the worker's job_dir removal). If
-/// `create_dir_all` fails, logs an error and falls back to the historical
-/// tmpfs block so the job can still start. For any other value (including
-/// unset, `"tmpfs"`, or unrecognized), returns the historical RAM-backed
-/// tmpfs mount sized via `nsjail_tmpfs_size_mb`.
+/// disk-backed bind mount of `{job_dir}/jail_tmp` after creating the
+/// directory. If creation or the pre-existence check fails, logs an error and
+/// falls back to the historical tmpfs block so the job can still start. For
+/// any other value (including unset, `"tmpfs"`, or unrecognized), returns the
+/// historical RAM-backed tmpfs mount sized via `nsjail_tmpfs_size_mb`.
 pub(crate) async fn resolve_nsjail_tmp_mount_block(job_dir: &str) -> String {
     let disk_backed = NSJAIL_TMP_BACKING
         .read()
@@ -1069,7 +1073,36 @@ pub(crate) async fn resolve_nsjail_tmp_mount_block(job_dir: &str) -> String {
         return tmpfs_mount_block(&size_bytes);
     }
     let jail_tmp = format!("{job_dir}/{NSJAIL_TMP_BIND_SUBDIR}");
-    if let Err(e) = tokio::fs::create_dir_all(&jail_tmp).await {
+
+    // SECURITY: never bind-mount a pre-existing entry at jail_tmp. Use
+    // `symlink_metadata` so symlinks are detected (`metadata` would follow
+    // them). User-controlled archives extracted into job_dir could otherwise
+    // plant `jail_tmp` as a symlink to an arbitrary host directory, which
+    // nsjail would then expose as a writable /tmp.
+    match tokio::fs::symlink_metadata(&jail_tmp).await {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Ok(_) => {
+            tracing::error!(
+                "Refusing to bind-mount nsjail disk-backed /tmp: {jail_tmp} \
+                 already exists (possibly planted by a user-controlled archive). \
+                 Falling back to RAM-backed tmpfs for this job."
+            );
+            return tmpfs_mount_block(&size_bytes);
+        }
+        Err(e) => {
+            tracing::error!(
+                "Failed to stat nsjail disk-backed /tmp at {jail_tmp}: {e:?}; \
+                 falling back to tmpfs for this job."
+            );
+            return tmpfs_mount_block(&size_bytes);
+        }
+    }
+
+    // `create_dir` (not `_all`) errors if the path already exists, closing
+    // the TOCTOU window between the `symlink_metadata` check above and the
+    // mkdir. The parent `{job_dir}` is created by the worker before any
+    // executor work runs, so we don't need the recursive variant.
+    if let Err(e) = tokio::fs::create_dir(&jail_tmp).await {
         tracing::error!(
             "Failed to create nsjail disk-backed /tmp at {jail_tmp}: {e:?}; \
              falling back to tmpfs for this job."
@@ -1185,6 +1218,62 @@ mod nsjail_tmp_mount_tests {
             resolve_nsjail_tmp_mount_block("/anything").await
         })
         .await;
+        assert!(block.contains("fstype: \"tmpfs\""));
+        assert!(!block.contains("is_bind"));
+    }
+
+    /// Security regression: if a pre-existing symlink sits at the jail_tmp
+    /// path (e.g. planted by a user-controlled tarball extracted into
+    /// `job_dir` before the resolver runs), the resolver must refuse the
+    /// bind mount and fall back to tmpfs — never bind-mount the symlink
+    /// target into the sandbox as /tmp.
+    #[tokio::test]
+    async fn disk_backed_refuses_preexisting_symlink_at_jail_tmp() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let job_dir = tmp.path().to_str().expect("utf8 path").to_string();
+
+        // Plant a symlink at {job_dir}/jail_tmp pointing at an arbitrary host
+        // path. Target doesn't have to exist — what matters is that the
+        // resolver doesn't follow it.
+        let jail_tmp_path = format!("{job_dir}/{NSJAIL_TMP_BIND_SUBDIR}");
+        std::os::unix::fs::symlink("/etc", &jail_tmp_path).expect("plant symlink");
+        assert!(std::path::Path::new(&jail_tmp_path).is_symlink());
+
+        let block = with_tmp_backing(Some("disk".to_string()), || async {
+            resolve_nsjail_tmp_mount_block(&job_dir).await
+        })
+        .await;
+
+        // Fell back to tmpfs — no bind-mount of the attacker-controlled path.
+        assert!(
+            block.contains("fstype: \"tmpfs\""),
+            "expected tmpfs fallback, got: {block}"
+        );
+        assert!(
+            !block.contains("is_bind"),
+            "must not emit bind block, got: {block}"
+        );
+        assert!(
+            !block.contains("/etc"),
+            "must not leak the symlink target into the proto, got: {block}"
+        );
+    }
+
+    /// Pre-existing real directory at jail_tmp is also rejected (defense in
+    /// depth — a user-extracted tarball directory could contain attacker
+    /// files that would otherwise appear inside the sandbox as /tmp/*).
+    #[tokio::test]
+    async fn disk_backed_refuses_preexisting_directory_at_jail_tmp() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let job_dir = tmp.path().to_str().expect("utf8 path").to_string();
+        let jail_tmp_path = format!("{job_dir}/{NSJAIL_TMP_BIND_SUBDIR}");
+        std::fs::create_dir(&jail_tmp_path).expect("pre-create dir");
+
+        let block = with_tmp_backing(Some("disk".to_string()), || async {
+            resolve_nsjail_tmp_mount_block(&job_dir).await
+        })
+        .await;
+
         assert!(block.contains("fstype: \"tmpfs\""));
         assert!(!block.contains("is_bind"));
     }
