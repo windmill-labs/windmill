@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.706.0](https://github.com/windmill-labs/windmill/compare/v1.705.0...v1.706.0) (2026-05-21)
+
+
+### Features
+
+* add userdraft listing primitives ([#9268](https://github.com/windmill-labs/windmill/issues/9268)) ([d0ee697](https://github.com/windmill-labs/windmill/commit/d0ee697e8b8de58085ea0b2ecde1af2b2441428d))
+* add UV_PYTHON_INSTALL_MIRROR env and instance setting ([#9271](https://github.com/windmill-labs/windmill/issues/9271)) ([1169371](https://github.com/windmill-labs/windmill/commit/1169371d4885bdc18c76d03c6caae71f0e440235))
+* add yolo mode for ai chat tools ([#9258](https://github.com/windmill-labs/windmill/issues/9258)) ([ac26aa4](https://github.com/windmill-labs/windmill/commit/ac26aa4e4c7cc2d493f136b59738c0708803cc6d))
+* CLI datatable serve / psql ([#9267](https://github.com/windmill-labs/windmill/issues/9267)) ([28c8b5c](https://github.com/windmill-labs/windmill/commit/28c8b5c60fd46f961ae11b363b9be834fad6ee68))
+* **cli:** add `wmill init prompts` and custom override slot ([#9266](https://github.com/windmill-labs/windmill/issues/9266)) ([1ba8ed8](https://github.com/windmill-labs/windmill/commit/1ba8ed8abd827313ce0f7728d9f84357417206ee))
+* **nsjail:** optional disk-backed /tmp via instance setting ([#9272](https://github.com/windmill-labs/windmill/issues/9272)) ([b656dc6](https://github.com/windmill-labs/windmill/commit/b656dc6cdc8c50ef9740240447f119cceed18547))
+
+
+### Bug Fixes
+
+* **ai:** enforce RLS and scope check on user-supplied X-Resource-Path ([#9276](https://github.com/windmill-labs/windmill/issues/9276)) ([0692b97](https://github.com/windmill-labs/windmill/commit/0692b97c8a3818549d7050ea3e057e9cbf1ddb44))
+* **debugger:** add non-root user support to Dockerfile ([#9277](https://github.com/windmill-labs/windmill/issues/9277)) ([0bdb6a9](https://github.com/windmill-labs/windmill/commit/0bdb6a9d5d5fb28a27af1b6eda9fde7172308faf))
+* **indexer:** tell admins when ingress routes search to wrong pod ([#9274](https://github.com/windmill-labs/windmill/issues/9274)) ([d29a561](https://github.com/windmill-labs/windmill/commit/d29a5612fcd17eb4197468289e955a1209127cc1))
+
 ## [1.705.0](https://github.com/windmill-labs/windmill/compare/v1.704.1...v1.705.0) (2026-05-20)
 
 
