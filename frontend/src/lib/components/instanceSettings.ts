@@ -475,7 +475,7 @@ export const settings: Record<string, Setting[]> = {
 				'Mirror URL for downloading managed Python interpreters. Wires to <code>UV_PYTHON_INSTALL_MIRROR</code>. See <a href="https://docs.astral.sh/uv/configuration/environment/#uv_python_install_mirror">uv docs</a>.',
 			key: 'uv_python_install_mirror',
 			fieldType: 'text',
-			placeholder: 'https://github.com/astral-sh/python-build-standalone/releases/download',
+			placeholder: 'https://mirror.example.com/python-build-standalone',
 			storage: 'setting'
 		},
 		{
