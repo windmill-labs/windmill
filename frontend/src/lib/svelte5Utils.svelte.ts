@@ -601,7 +601,7 @@ export function useLocalStorageValue<T>(
 		 */
 		transformBeforePersist?: (val: T) => T
 	}
-): { val: T; skipNextWriteOnce(): void } {
+): { val: T; skipNextWriteOnce(): void; setWithoutPersist(newVal: T): void } {
 	const saveInitialValue = options?.saveInitialValue ?? true
 	const debounceMs = options?.debounce ?? 0
 	const transformBeforePersist = options?.transformBeforePersist
@@ -626,7 +626,9 @@ export function useLocalStorageValue<T>(
 		}
 	}
 
-	if (typeof window === 'undefined') return { val: defaultValue, skipNextWriteOnce: () => {} }
+	if (typeof window === 'undefined') {
+		return { val: defaultValue, skipNextWriteOnce: () => {}, setWithoutPersist: () => {} }
+	}
 	const savedValue = localStorage.getItem(key)
 	let s = $state<T>(
 		savedValue != null && savedValue !== 'undefined' ? (deserialize(savedValue) as T) : defaultValue
@@ -661,6 +663,13 @@ export function useLocalStorageValue<T>(
 			persist(pendingValue)
 			pendingValue = undefined
 		}, debounceMs)
+	}
+	const cancelPendingWrite = () => {
+		if (debounceTimer != null) {
+			clearTimeout(debounceTimer)
+			debounceTimer = undefined
+		}
+		pendingValue = undefined
 	}
 
 	$effect(() => {
@@ -698,12 +707,19 @@ export function useLocalStorageValue<T>(
 		/**
 		 * Arm the persist skip so the next `set val` (or deep-mutation flush)
 		 * updates only the in-memory cell and leaves localStorage untouched.
-		 * Used by `UserDraft.discard` to reset the in-memory state to a
-		 * fallback without re-persisting it — pairs with an explicit LS
-		 * delete to leave the slot empty.
 		 */
 		skipNextWriteOnce(): void {
 			skipNextWrite = true
+		},
+		/**
+		 * Reset the in-memory state while canceling any queued debounced write.
+		 * Used when a caller performs its own synchronous persistence action.
+		 */
+		setWithoutPersist(newVal: T): void {
+			cancelPendingWrite()
+			lastSerialized = newVal === undefined ? undefined : serialize(newVal)
+			skipNextWrite = false
+			s = newVal
 		}
 	}
 }
