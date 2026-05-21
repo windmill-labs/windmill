@@ -100,6 +100,7 @@ function stamp<V>(stored: StoredDraft<V> | undefined): StoredDraft<V> | undefine
 type DraftState<V> = {
 	val: StoredDraft<V> | undefined
 	skipNextWriteOnce(): void
+	setWithoutPersist(newVal: StoredDraft<V> | undefined): void
 }
 
 type DraftEntry = {
@@ -538,14 +539,11 @@ export const UserDraft = {
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) {
-			// First write `undefined` through the live cell so any pending
-			// debounced draft write is replaced by a remove.
-			entry.state.val = undefined
-			if (fallback !== undefined) {
-				// Keep the fallback in memory without persisting it as a draft.
-				entry.state.skipNextWriteOnce()
-				entry.state.val = wrap(fallback) as StoredDraft<unknown> | undefined
-			}
+			// Drop any queued debounced write owned by this live entry before
+			// resetting the in-memory value. Otherwise a timer from the old
+			// entry can outlive unmount and later delete a freshly written
+			// draft for the same key.
+			entry.state.setWithoutPersist(wrap(fallback) as StoredDraft<unknown> | undefined)
 		}
 		try {
 			localStorage.removeItem(localStorageKey(ws, itemKind, path))

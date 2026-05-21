@@ -859,6 +859,30 @@ describe('UserDraft.list / clear / setDraftAndMeta', () => {
 		expect(localStorage.getItem('userdraft/w/test_ws/script/f/pending-clear')).toBeNull()
 	})
 
+	it('clear does not let an old debounced remove delete a later direct write', () => {
+		const key = 'userdraft/w/test_ws/script/f/rewrite-after-clear'
+		const handle = UserDraft.use<{ path: string; content: string }>(
+			'script',
+			'f/rewrite-after-clear'
+		)
+		handle.draft = { path: 'f/rewrite-after-clear', content: 'initial' }
+		handle.draft = { path: 'f/rewrite-after-clear', content: 'pending' }
+
+		UserDraft.clear('script', 'f/rewrite-after-clear')
+		flushDestroyCallbacks()
+		UserDraft.setDraftAndMeta(
+			'script',
+			'f/rewrite-after-clear',
+			{ path: 'f/rewrite-after-clear', content: 'new' },
+			{}
+		)
+
+		flushPersist()
+		expect(storedShape(key)).toBe(
+			wrapped({ path: 'f/rewrite-after-clear', content: 'new' })
+		)
+	})
+
 	it('list hides persisted drafts when a live handle has cleared the value', () => {
 		UserDraft.setDraftAndMeta(
 			'script',
