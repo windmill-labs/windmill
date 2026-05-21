@@ -366,10 +366,7 @@ Refresh wmill-managed project files (AGENTS.cli.md and skills)
 **Subcommands:**
 
 - `refresh prompts` - Refresh AGENTS.cli.md, CLAUDE.md, and managed skills. User-owned AGENTS.md is never overwritten unless you opt in.
-  - `--yes` - Non-interactive: skip prompts; for an existing AGENTS.md without an @AGENTS.cli.md reference, append the include automatically.
-  - `--append-agents-md` - Force the 'append @AGENTS.cli.md to existing AGENTS.md' migration choice (no prompt).
-  - `--overwrite-agents-md` - Force the 'overwrite AGENTS.md with managed skeleton' migration choice (no prompt). Destructive — use sparingly.
-  - `--skip-agents-md` - Force the 'leave AGENTS.md alone' migration choice (no prompt).
+  - `--yes` - Non-interactive: skip the migration prompt for existing AGENTS.md without an @AGENTS.cli.md reference; defaults to appending the include.
 
 ### resource
 

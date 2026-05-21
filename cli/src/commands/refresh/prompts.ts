@@ -22,7 +22,6 @@ interface RefreshPromptsOptions {
  */
 export async function refreshPrompts(opts: {
   yes?: boolean;
-  agentsMdChoice?: AgentsMdMigration;
 }): Promise<void> {
   // Match `core/conf.ts`'s missing-key default (`?? false`) so legacy
   // wmill.yaml files without the key don't drift from how sync renders
@@ -47,7 +46,6 @@ export async function refreshPrompts(opts: {
       agentsSourcePath: process.env[WMILL_INIT_AI_AGENTS_SOURCE_ENV],
       claudeSourcePath: process.env[WMILL_INIT_AI_CLAUDE_SOURCE_ENV],
       resolveAgentsMdMigration: async () => {
-        if (opts.agentsMdChoice) return opts.agentsMdChoice;
         if (!interactive) return "append";
         return await promptAgentsMdMigration();
       },
@@ -151,43 +149,17 @@ async function promptAgentsMdMigration(): Promise<AgentsMdMigration> {
 
 interface CommandOptions {
   yes?: boolean;
-  appendAgentsMd?: boolean;
-  overwriteAgentsMd?: boolean;
-  skipAgentsMd?: boolean;
 }
 
 async function promptsAction(opts: CommandOptions): Promise<void> {
-  let agentsMdChoice: AgentsMdMigration | undefined;
-  if (opts.appendAgentsMd) agentsMdChoice = "append";
-  else if (opts.overwriteAgentsMd) agentsMdChoice = "overwrite";
-  else if (opts.skipAgentsMd) agentsMdChoice = "skip";
-
-  await refreshPrompts({
-    yes: opts.yes === true,
-    agentsMdChoice,
-  });
+  await refreshPrompts({ yes: opts.yes === true });
 }
 
 const command = new Command()
   .description("Refresh AGENTS.cli.md, CLAUDE.md, and managed skills. User-owned AGENTS.md is never overwritten unless you opt in.")
   .option(
     "--yes",
-    "Non-interactive: skip prompts; for an existing AGENTS.md without an @AGENTS.cli.md reference, append the include automatically."
-  )
-  .option(
-    "--append-agents-md",
-    "Force the 'append @AGENTS.cli.md to existing AGENTS.md' migration choice (no prompt).",
-    { conflicts: ["overwrite-agents-md", "skip-agents-md"] }
-  )
-  .option(
-    "--overwrite-agents-md",
-    "Force the 'overwrite AGENTS.md with managed skeleton' migration choice (no prompt). Destructive — use sparingly.",
-    { conflicts: ["append-agents-md", "skip-agents-md"] }
-  )
-  .option(
-    "--skip-agents-md",
-    "Force the 'leave AGENTS.md alone' migration choice (no prompt).",
-    { conflicts: ["append-agents-md", "overwrite-agents-md"] }
+    "Non-interactive: skip the migration prompt for existing AGENTS.md without an @AGENTS.cli.md reference; defaults to appending the include."
   )
   .action(promptsAction as any);
 
