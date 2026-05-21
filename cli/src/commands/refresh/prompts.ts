@@ -74,11 +74,15 @@ export async function refreshPrompts(opts: {
       )
     );
   } catch (error) {
+    // Log first so the user sees what happened, then rethrow so `wmill
+    // refresh prompts` (and `wmill init`, which delegates here) exits
+    // non-zero. Silent swallowing would hide a broken refresh from CI.
     if (error instanceof Error) {
-      log.warn(`Could not refresh guidance files: ${error.message}`);
+      log.error(`Could not refresh guidance files: ${error.message}`);
     } else {
-      log.warn(`Could not refresh guidance files: ${error}`);
+      log.error(`Could not refresh guidance files: ${error}`);
     }
+    throw error;
   }
 }
 

@@ -405,6 +405,8 @@ describe("writeAiGuidanceFiles — referencesAgentsCli (via reconciliation)", ()
     ["@AGENTS.cli.mdx", "@AGENTS.cli.mdx"],
     ["@AGENTS-cli-md (lookalike)", "@AGENTS-cli-md"],
     ["@AGENTS.cli.md without surrounding whitespace", "foo@AGENTS.cli.md"],
+    ["commented-out include", "<!-- @AGENTS.cli.md -->"],
+    ["blockquoted include", "> @AGENTS.cli.md"],
   ])("does not treat %s as a reference (append happens)", async (_label, content) => {
     await withTempDir(async (tempDir) => {
       await writeFile(join(tempDir, "AGENTS.md"), content, "utf8");
@@ -479,6 +481,18 @@ describe("prompts freshness — shouldRunFreshnessCheck", () => {
     ["wmill sync push", ["node", "wmill", "sync", "push"], true],
     ["wmill flow run", ["node", "wmill", "flow", "run"], true],
     ["wmill --verbose sync push", ["node", "wmill", "--verbose", "sync", "push"], true],
+    // Value-taking global options must skip their value when locating the
+    // first subcommand. Otherwise `wmill --workspace prod refresh prompts`
+    // would misread `"prod"` as the subcommand and trip the warning during
+    // the very command that's meant to fix it.
+    ["wmill --workspace prod refresh prompts",
+      ["node", "wmill", "--workspace", "prod", "refresh", "prompts"], false],
+    ["wmill --token tok sync push",
+      ["node", "wmill", "--token", "tok", "sync", "push"], true],
+    ["wmill --base-url u --workspace w init",
+      ["node", "wmill", "--base-url", "u", "--workspace", "w", "init"], false],
+    ["wmill --config-dir /etc/wmill init prompts",
+      ["node", "wmill", "--config-dir", "/etc/wmill", "init", "prompts"], false],
   ])("%s → %s", (_label, argv, expected) => {
     expect(shouldRunFreshnessCheck(argv)).toBe(expected);
   });

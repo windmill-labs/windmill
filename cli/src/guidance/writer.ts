@@ -207,11 +207,13 @@ async function reconcileIncludingFile(options: {
 }
 
 function referencesIncludeLine(content: string, includeLine: string): boolean {
-  // Split on any whitespace and check for an exact token match. Avoids regex
-  // escaping pitfalls and false matches on look-alike strings
-  // (`@AGENTS-cli-md`, `@AGENTS.cli.mdx`, ...).
-  for (const token of content.split(/\s+/)) {
-    if (token === includeLine) {
+  // Match only when the include sits on a line by itself (allowing leading
+  // and trailing whitespace). Earlier we split on `\s+`, but that
+  // false-positives on commented-out includes like `<!-- @AGENTS.cli.md -->`
+  // where the middle token equals the include. CRLF is handled by the
+  // `\r?\n` split.
+  for (const line of content.split(/\r?\n/)) {
+    if (line.trim() === includeLine) {
       return true;
     }
   }

@@ -23,19 +23,15 @@ import {
   SKILL_CONTENT,
 } from "./skills.gen.ts";
 
+// Re-export from the gate module so existing callers (and tests) keep working.
+// `shouldRunFreshnessCheck` lives there to avoid pulling skills.gen.ts (~360 KB)
+// into main.ts's static import graph; main.ts now imports the gate directly
+// and only `await import`s this file lazily.
+import { shouldRunFreshnessCheck } from "./freshness_gate.ts";
+export { shouldRunFreshnessCheck };
+
 export const PROMPTS_HASH_MARKER_PREFIX = "<!-- wmill-prompts-hash: ";
 const PROMPTS_HASH_REGEX = /<!-- wmill-prompts-hash: ([0-9a-f]{12}) -->/;
-
-/**
- * Subcommands where a freshness warning is noise (the user is either fixing
- * it, asking for help, or doing something orthogonal).
- */
-const SKIP_FRESHNESS_FOR_SUBCOMMANDS = new Set([
-  "init",
-  "refresh",
-  "completions",
-  "upgrade",
-]);
 
 export function buildPromptsHashMarker(hash: string): string {
   return `${PROMPTS_HASH_MARKER_PREFIX}${hash} -->`;
@@ -102,21 +98,6 @@ export function currentPromptsHash(nonDottedPaths: boolean): string {
   hasher.update(String(nonDottedPaths));
 
   return hasher.digest("hex").slice(0, 12);
-}
-
-/**
- * Decide whether the current `wmill` invocation should run the freshness
- * check. Bypasses for `init`, `refresh`, `completions`, `upgrade`,
- * `--help`, and `--version`. Exposed for tests.
- */
-export function shouldRunFreshnessCheck(argv: readonly string[]): boolean {
-  const args = argv.slice(2); // strip node + script
-  if (args.length === 0) return false; // bare `wmill` shows help
-  if (args.includes("--help") || args.includes("-h")) return false;
-  if (args.includes("--version") || args.includes("-V")) return false;
-  const firstSubcommand = args.find((a) => !a.startsWith("-"));
-  if (!firstSubcommand) return false;
-  return !SKIP_FRESHNESS_FOR_SUBCOMMANDS.has(firstSubcommand);
 }
 
 /**
