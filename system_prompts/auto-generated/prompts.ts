@@ -2856,6 +2856,7 @@ Manage jobs (list, inspect, cancel)
 - \`job logs <id:string>\` - Get job logs. For flows: aggregates all step logs
 - \`job cancel <id:string>\` - Cancel a running or queued job
   - \`--reason <reason:string>\` - Reason for cancellation
+- \`job rerun <id:string>\` - Re-run a completed job with the same args. Prints the new job UUID on stdout.
 
 ### jobs
 

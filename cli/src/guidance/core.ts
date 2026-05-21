@@ -65,6 +65,7 @@ When the user reports a script or flow failure, is investigating unexpected outp
 - \`wmill job logs <id>\` — stdout/stderr; for flows, aggregates every step's logs
 - \`wmill job result <id>\` — JSON result of a completed job
 - \`wmill job cancel <id>\` — stop a running or queued job
+- \`wmill job rerun <id>\` — re-run a completed job with the same args (single-job equivalent of the frontend "rerun" button)
 
 For flow failures, start with \`wmill job get <id>\` to identify the failing step and its sub-job ID, then \`wmill job logs <sub-job-id>\` to drill in.
 
