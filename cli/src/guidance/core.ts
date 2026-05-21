@@ -93,6 +93,16 @@ You MUST use the \`preview\` skill any time the user wants to see/open/visualize
 
 You MUST use the \`cli-commands\` skill to use the CLI.
 
+## Running and previewing local changes
+
+Local previews exist for every entity type and don't deploy:
+
+- \`wmill script preview <path> -d '<args>'\` — run a local script.
+- \`wmill flow preview <flow_path> -d '<args>'\` — run a local flow.yaml.
+- \`wmill app dev\` — live-reload dev server for raw apps.
+
+Argument shapes and per-language details live in the \`write-script-<lang>\`, \`write-flow\`, and \`raw-app\` skills.
+
 ## Deploying
 
 There are two ways local changes reach the workspace. Pick based on how the repo is wired, not habit.
