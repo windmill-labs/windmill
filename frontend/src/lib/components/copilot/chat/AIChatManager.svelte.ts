@@ -300,9 +300,9 @@ export class AIChatManager {
 		this.confirmationCallbacks.clear()
 	}
 
-	private acceptPendingFlowEdits = () => {
-		if (this.mode === AIMode.FLOW && this.flowAiChatHelpers?.hasPendingChanges()) {
-			this.flowAiChatHelpers.acceptAllModuleActions()
+	private acceptPendingFlowEdits = (flowHelpers = this.flowAiChatHelpers) => {
+		if (flowHelpers?.hasPendingChanges()) {
+			flowHelpers.acceptAllModuleActions()
 		}
 	}
 
@@ -1169,10 +1169,10 @@ export class AIChatManager {
 
 	listenForCurrentEditorChanges = (currentEditor: CurrentEditor) => {
 		if (currentEditor && currentEditor.type === 'script') {
-			this.scriptEditorApplyCode = (code, opts) => {
+			this.scriptEditorApplyCode = async (code, opts) => {
 				if (currentEditor && currentEditor.type === 'script') {
 					currentEditor.hideDiffMode()
-					currentEditor.editor.reviewAndApplyCode(code, opts)
+					await currentEditor.editor.reviewAndApplyCode(code, opts)
 				}
 			}
 			this.scriptEditorShowDiffMode = () => {
@@ -1273,6 +1273,11 @@ export class AIChatManager {
 
 	setFlowHelpers = (flowHelpers: FlowAIChatHelpers) => {
 		this.flowAiChatHelpers = flowHelpers
+		untrack(() => {
+			if (this.autoAcceptEditsActive) {
+				this.acceptPendingFlowEdits(flowHelpers)
+			}
+		})
 
 		return () => {
 			this.flowAiChatHelpers = undefined
