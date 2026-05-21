@@ -115,14 +115,14 @@
 <div class="space-y-6">
 	<div class="flex flex-col gap-1">
 		<label for="writer_memory_budget" class="block text-xs font-semibold text-emphasis">
-			Index writer memory budget (MB)
+			Index writer memory budget (MB of RAM)
 			<Tooltip>
 				The allocated memory arena for the indexer. A bigger value means less writing to disk and
-				potentially higher indexing throughput
+				potentially higher indexing throughput.
 			</Tooltip>
 		</label>
 		<IntegerInput
-			placeholder="300"
+			placeholder="143"
 			id="writer_memory_budget"
 			{disabled}
 			error={errors.writer_memory_budget ?? ''}
@@ -141,6 +141,10 @@
 				}
 			}}
 		/>
+		<span class="text-2xs text-tertiary">
+			MB of RAM (leave blank to use the default of 143 MB, or the
+			<code>TANTIVY_INDEX_WRITER_MEMORY_BUDGET__MB</code> env var if set)
+		</span>
 		<InputError error={errors.writer_memory_budget ?? ''} />
 	</div>
 	<div class="flex flex-col gap-2">
