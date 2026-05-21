@@ -234,10 +234,11 @@ function commentPrefix(lang: ScriptLang): string {
 export type DraftTriggerSource =
 	| { kind: 'schedule'; cron: string }
 	| { kind: 'asset'; ref: string }
-	| {
-			kind: 'webhook' | 'email' | 'kafka' | 'mqtt' | 'nats' | 'postgres' | 'sqs' | 'gcp'
-			path: string | undefined
-	  }
+	// Native trigger marker — the annotation is path-less (`// on kafka`).
+	// The binding lives on the trigger row's own `script_path`; the user
+	// creates that row via the drawer the canvas opens on the missing-
+	// trigger placeholder.
+	| { kind: 'webhook' | 'email' | 'kafka' | 'mqtt' | 'nats' | 'postgres' | 'sqs' | 'gcp' }
 
 export type TemplateContext = {
 	language: ScriptLang
@@ -262,7 +263,8 @@ function header(language: ScriptLang, triggers: DraftTriggerSource[]): string {
 			case 'asset':
 				return `${p} on ${t.ref}`
 			default:
-				return `${p} on ${t.kind} ${t.path ?? '<trigger-path>'}`
+				// Native triggers: marker-only — no trailing path.
+				return `${p} on ${t.kind}`
 		}
 	})
 	// Discoverability hint — the three annotations users most often miss

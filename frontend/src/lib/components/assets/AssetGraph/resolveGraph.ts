@@ -1,4 +1,4 @@
-import type { AssetGraphResponse } from './types'
+import type { AssetGraphResponse, NativeTriggerKind } from './types'
 import { parsePipelineAnnotations, type PipelineAnnotations } from './parsePipelineAnnotations'
 import {
 	extractWrites,
@@ -25,6 +25,13 @@ export type ResolveGraphInput = {
 	/** Sticky session caches of inferred body writes/reads per script path. */
 	inferredWritesByPath: Map<string, Array<{ kind: AssetKind; path: string }>>
 	inferredReadsByPath: Map<string, Array<{ kind: AssetKind; path: string }>>
+	/**
+	 * Sticky cache of native trigger kinds declared via `// on <kind>` in
+	 * each script's deployed source. Filled by the load-time prefetch
+	 * sweep. Used here to emit "missing" placeholders for scripts whose
+	 * annotation has no matching trigger row in `base.triggers`.
+	 */
+	annotatedNativeKindsByPath: Map<string, Set<NativeTriggerKind>>
 }
 
 /**
@@ -48,7 +55,8 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 		liveBodyAssets,
 		liveAnnotations,
 		inferredWritesByPath,
-		inferredReadsByPath
+		inferredReadsByPath,
+		annotatedNativeKindsByPath
 	} = input
 
 	// Every draft contributes: a runnable, an output asset, a write edge,
@@ -136,13 +144,17 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 			const hasTriggerAsset = assets.some((x) => x.kind === a.kind && x.path === a.path)
 			if (!hasTriggerAsset) assets.push({ kind: a.kind, path: a.path })
 		}
+		// Native trigger annotations on a draft are always "missing" until
+		// the user creates the matching trigger row — drafts can't carry a
+		// real trigger row since the script isn't deployed yet. Surface a
+		// red placeholder so the user knows to wire it up.
 		for (const n of parsed.nativeTriggers) {
 			extraTriggers.push({
 				trigger_kind: n.kind,
-				path: n.path,
 				runnable_kind: 'script',
 				runnable_path: path,
-				unsaved: true
+				unsaved: true,
+				missing: true
 			})
 		}
 	}
@@ -206,11 +218,13 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 				unsaved: true
 			})
 		}
-		// Persisted native triggers keyed by `<kind>:<path>`, used to
-		// suppress duplicate overlay for already-saved `// on <kind>`
-		// annotations. trigger_kind is narrower than the union so we
-		// cast through string.
-		const persistedNativeKeys = new Set(
+		// Native trigger annotations: kinds for which a matching trigger
+		// row was found in the backend response. If the live buffer
+		// declares `// on kafka` and at least one kafka_trigger row points
+		// at this script, the source node is already on the canvas — no
+		// overlay needed. Otherwise emit a "missing" placeholder so the
+		// user can either create the trigger row or remove the annotation.
+		const persistedNativeKinds = new Set(
 			base.triggers
 				.filter(
 					(t) =>
@@ -219,17 +233,49 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 						t.runnable_kind === 'script' &&
 						t.runnable_path === livePath
 				)
-				.map((t) => `${t.trigger_kind}:${(t as { path: string }).path}`)
+				.map((t) => t.trigger_kind)
 		)
 		for (const n of liveAnnotations.annotations.nativeTriggers) {
-			const key = `${n.kind}:${n.path}`
-			if (persistedNativeKeys.has(key)) continue
+			if (persistedNativeKinds.has(n.kind)) continue
 			extraTriggers.push({
 				trigger_kind: n.kind,
-				path: n.path,
 				runnable_kind: 'script',
 				runnable_path: livePath,
-				unsaved: true
+				unsaved: true,
+				missing: true
+			})
+		}
+	}
+
+	// Cross-check for already-deployed scripts (not the open buffer): if a
+	// script's persisted body declares `// on kafka` but no matching
+	// kafka_trigger row points at it, surface a red placeholder. The
+	// annotated-kinds map is filled by the page-level prefetch sweep
+	// (one read per script in the folder); drafts and the active editor
+	// are handled by the loops above. Scripts that haven't been swept
+	// yet contribute nothing here — they'll surface on the next refetch.
+	const livePathExcl = livePath
+	for (const [scriptPath, kinds] of annotatedNativeKindsByPath) {
+		if (drafts.has(scriptPath)) continue
+		if (scriptPath === livePathExcl) continue
+		const attachedKinds = new Set(
+			base.triggers
+				.filter(
+					(t) =>
+						t.trigger_kind !== 'asset' &&
+						t.trigger_kind !== 'schedule' &&
+						t.runnable_kind === 'script' &&
+						t.runnable_path === scriptPath
+				)
+				.map((t) => t.trigger_kind)
+		)
+		for (const kind of kinds) {
+			if (attachedKinds.has(kind)) continue
+			extraTriggers.push({
+				trigger_kind: kind,
+				runnable_kind: 'script',
+				runnable_path: scriptPath,
+				missing: true
 			})
 		}
 	}

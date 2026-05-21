@@ -40,7 +40,10 @@ const NATIVE_TRIGGER_KEYWORDS: NativeTriggerKind[] = [
 export const PARTITION_TOKEN = '{partition}'
 
 export type PipelineTriggerAsset = { kind: AssetKind; path: string }
-export type PipelineNativeTrigger = { kind: NativeTriggerKind; path: string }
+// Marker-only — native trigger annotations carry no path. The binding lives
+// on the trigger row's own `script_path` field; the graph endpoint resolves
+// it by querying the per-kind trigger tables.
+export type PipelineNativeTrigger = { kind: NativeTriggerKind }
 
 export type PartitionKind =
 	| { kind: 'daily' }
@@ -130,15 +133,22 @@ type ParsedTriggerSpec =
 
 // Parse a single `on <spec>` right-hand side. The top-level `// schedule`
 // is handled separately at the line level (not via `on`).
+//
+// Native trigger keywords (kafka, mqtt, …) are marker-only — `// on kafka`
+// without a trailing path. Trailing content makes the line malformed and
+// is rejected. Asset triggers always carry an `<asset-prefix><path>` ref.
 function parseTriggerSpec(s: string): ParsedTriggerSpec | undefined {
 	for (const kw of NATIVE_TRIGGER_KEYWORDS) {
 		if (s.startsWith(kw)) {
 			const after = s.slice(kw.length)
-			// Require whitespace so `kafkalike` doesn't match `kafka`.
-			if (after.length === 0 || !/\s/.test(after[0])) continue
-			const path = after.trim()
-			if (!path) return undefined
-			return { kind: 'native', value: { kind: kw, path } }
+			// `kafka` must end the line (modulo whitespace) — `kafkalike`
+			// is not `kafka`. Anything trailing makes it malformed.
+			if (after.length === 0) {
+				return { kind: 'native', value: { kind: kw } }
+			}
+			if (!/\s/.test(after[0])) continue
+			if (after.trim().length > 0) return undefined
+			return { kind: 'native', value: { kind: kw } }
 		}
 	}
 	const asset = parseAssetSyntax(s)
@@ -262,9 +272,7 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 					out.triggerAssets.push(spec.value)
 				}
 			} else {
-				if (
-					!out.nativeTriggers.some((n) => n.kind === spec.value.kind && n.path === spec.value.path)
-				) {
+				if (!out.nativeTriggers.some((n) => n.kind === spec.value.kind)) {
 					out.nativeTriggers.push(spec.value)
 				}
 			}

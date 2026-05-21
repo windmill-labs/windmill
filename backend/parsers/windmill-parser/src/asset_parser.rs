@@ -115,35 +115,20 @@ pub enum TriggerSpec {
     Schedule {
         cron: String,
     },
-    // `// on <kind> <path>` style. The `path` is a workspace-relative
-    // reference to a trigger row already configured in the corresponding
-    // trigger table (http_trigger, email_trigger, kafka_trigger, …). Keeps
-    // the annotation terse; auth/broker/topic details live in the trigger's
-    // own UI.
-    Webhook {
-        path: String,
-    },
-    Email {
-        path: String,
-    },
-    Kafka {
-        path: String,
-    },
-    Mqtt {
-        path: String,
-    },
-    Nats {
-        path: String,
-    },
-    Postgres {
-        path: String,
-    },
-    Sqs {
-        path: String,
-    },
-    Gcp {
-        path: String,
-    },
+    // `// on <kind>` — marker-only declaration that this script wants to be
+    // triggered by a native trigger of the given kind. No path: the binding
+    // is the trigger row's own `script_path` field (set when the user creates
+    // the kafka/mqtt/… trigger in its dedicated UI). The graph endpoint
+    // discovers attached triggers by `WHERE script_path = <this script>` and
+    // surfaces a "missing" placeholder when an annotation has no matching row.
+    Webhook,
+    Email,
+    Kafka,
+    Mqtt,
+    Nats,
+    Postgres,
+    Sqs,
+    Gcp,
 }
 
 impl TriggerSpec {
@@ -620,33 +605,38 @@ fn parse_partitioned_spec(s: &str) -> Option<PartitionSpec> {
 //     webhook | email | kafka | mqtt | nats | postgres | sqs | gcp
 //   <asset-path-with-prefix>        (e.g. s3://bucket/key, $res:f/foo)
 //
+// Native trigger keywords are *marker-only* — no trailing path. The actual
+// binding lives on the native trigger row (`script_path` column). Anything
+// trailing the keyword is rejected so the form stays unambiguous.
+//
 // Note: `on schedule "..."` is no longer accepted — schedule moved to a
 // top-level `// schedule "..."` annotation. The `Schedule` TriggerSpec
 // variant is still produced, just from a different keyword.
 fn parse_trigger_spec(s: &str) -> Option<TriggerSpec> {
-    // `<kind> <path>` — delegate to a tiny table so the annotation set
-    // stays in lockstep with `TriggerSpec`.
-    type Ctor = fn(String) -> TriggerSpec;
-    const KINDS: &[(&str, Ctor)] = &[
-        ("webhook", |p| TriggerSpec::Webhook { path: p }),
-        ("email", |p| TriggerSpec::Email { path: p }),
-        ("kafka", |p| TriggerSpec::Kafka { path: p }),
-        ("mqtt", |p| TriggerSpec::Mqtt { path: p }),
-        ("nats", |p| TriggerSpec::Nats { path: p }),
-        ("postgres", |p| TriggerSpec::Postgres { path: p }),
-        ("sqs", |p| TriggerSpec::Sqs { path: p }),
-        ("gcp", |p| TriggerSpec::Gcp { path: p }),
+    // Marker-only native trigger keywords. The match table keeps the
+    // annotation set in lockstep with `TriggerSpec`.
+    const NATIVE_KINDS: &[(&str, TriggerSpec)] = &[
+        ("webhook", TriggerSpec::Webhook),
+        ("email", TriggerSpec::Email),
+        ("kafka", TriggerSpec::Kafka),
+        ("mqtt", TriggerSpec::Mqtt),
+        ("nats", TriggerSpec::Nats),
+        ("postgres", TriggerSpec::Postgres),
+        ("sqs", TriggerSpec::Sqs),
+        ("gcp", TriggerSpec::Gcp),
     ];
-    for (kw, ctor) in KINDS {
+    for (kw, spec) in NATIVE_KINDS {
         if let Some(rest) = s.strip_prefix(kw) {
-            if !rest.starts_with(|c: char| c.is_whitespace()) {
+            // Must be a complete word — `kafkalike` doesn't match `kafka`.
+            // Trailing whitespace alone is fine; any non-empty trailing
+            // content is treated as malformed (the annotation is marker-only).
+            if !rest.is_empty() && !rest.starts_with(|c: char| c.is_whitespace()) {
                 continue;
             }
-            let path = rest.trim();
-            if path.is_empty() {
+            if !rest.trim().is_empty() {
                 return None;
             }
-            return Some(ctor(path.to_string()));
+            return Some(spec.clone());
         }
     }
 
@@ -845,12 +835,43 @@ mod pipeline_annotation_tests {
     }
 
     #[test]
-    fn on_kv_split_preserves_non_asset_and_spaced_refs() {
-        // `<kind> <path>` ref with a trailing opt still parses; the opt is
-        // simply not carried for non-asset triggers.
-        let out = parse_pipeline_annotations("// on webhook f/foo debounce=30s");
+    fn native_trigger_keywords_are_marker_only() {
+        // Marker form: `// on kafka` parses to the unit variant.
+        let out = parse_pipeline_annotations("// on kafka");
         assert_eq!(out.triggers.len(), 1);
-        assert!(matches!(out.triggers[0], TriggerSpec::Webhook { .. }));
+        assert!(matches!(out.triggers[0], TriggerSpec::Kafka));
+
+        // Old path-bearing form is rejected (no path on native markers).
+        let out = parse_pipeline_annotations("// on webhook f/foo");
+        assert!(out.triggers.is_empty());
+
+        // Trailing key=value opts are silently dropped by the line-level
+        // KV splitter before parse_trigger_spec sees them — same behaviour
+        // for both asset and native kinds. The opts have no meaning for a
+        // marker, but the marker still parses.
+        let out = parse_pipeline_annotations("// on mqtt debounce=30s");
+        assert_eq!(out.triggers.len(), 1);
+        assert!(matches!(out.triggers[0], TriggerSpec::Mqtt));
+
+        // `kafkalike` mustn't match `kafka`.
+        let out = parse_pipeline_annotations("// on kafkalike");
+        assert!(out.triggers.is_empty());
+    }
+
+    #[test]
+    fn all_native_marker_keywords_parse() {
+        let code = "// on webhook\n// on email\n// on kafka\n// on mqtt\n\
+                    // on nats\n// on postgres\n// on sqs\n// on gcp";
+        let out = parse_pipeline_annotations(code);
+        assert_eq!(out.triggers.len(), 8);
+        assert!(matches!(out.triggers[0], TriggerSpec::Webhook));
+        assert!(matches!(out.triggers[1], TriggerSpec::Email));
+        assert!(matches!(out.triggers[2], TriggerSpec::Kafka));
+        assert!(matches!(out.triggers[3], TriggerSpec::Mqtt));
+        assert!(matches!(out.triggers[4], TriggerSpec::Nats));
+        assert!(matches!(out.triggers[5], TriggerSpec::Postgres));
+        assert!(matches!(out.triggers[6], TriggerSpec::Sqs));
+        assert!(matches!(out.triggers[7], TriggerSpec::Gcp));
     }
 
     #[test]

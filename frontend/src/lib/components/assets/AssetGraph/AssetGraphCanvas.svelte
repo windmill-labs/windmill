@@ -15,7 +15,7 @@
 	import AddNode from './AddNode.svelte'
 	import AssetGraphEdge from './AssetGraphEdge.svelte'
 	import { layoutAssetGraph } from './assetGraphLayout'
-	import type { AssetGraphResponse, AssetGraphSelection } from './types'
+	import type { AssetGraphResponse, AssetGraphSelection, NativeTriggerKind } from './types'
 	import type { RunnableRunState } from './activeRunnables.svelte'
 	import type { AssetKind } from '$lib/gen'
 	import { NODE } from '$lib/components/graph/util'
@@ -51,10 +51,7 @@
 			path: string,
 			source:
 				| { kind: 'schedule'; cron: string }
-				| {
-						kind: 'webhook' | 'email' | 'kafka' | 'mqtt' | 'nats' | 'postgres' | 'sqs' | 'gcp'
-						path: string | undefined
-				  },
+				| { kind: 'webhook' | 'email' | 'kafka' | 'mqtt' | 'nats' | 'postgres' | 'sqs' | 'gcp' },
 			outputKind: import('./pipelineTemplates').PipelineOutputKind,
 			aiPrompt?: string
 		) => void
@@ -105,6 +102,11 @@
 		// a small badge on each runnable node. Same poll source as
 		// `activeRunnableIds`; persists the last status while idle.
 		runStates?: ReadonlyMap<string, RunnableRunState>
+		// Click handler for a "missing trigger" placeholder. The page wires
+		// this to its native trigger drawer set so clicking the red node
+		// opens the matching editor with `script_path` pre-filled — no
+		// navigation, drafts stay intact.
+		onCreateMissingTrigger?: (kind: NativeTriggerKind, scriptPath: string) => void
 	}
 	let {
 		graph,
@@ -119,7 +121,8 @@
 		onRunnableMenuRemove,
 		activeRunnable,
 		activeRunnableIds,
-		runStates
+		runStates,
+		onCreateMissingTrigger
 	}: Props = $props()
 
 	const ADD_NODE_ID = '__add__'
@@ -140,6 +143,10 @@
 			| 'trigger-native'
 			| 'add-anchor'
 		unsaved?: boolean
+		// Edge from a missing-trigger placeholder — styled red dashed to
+		// signal "this script declared `// on kafka` but no trigger row
+		// targets it; create one or remove the annotation".
+		missing?: boolean
 	}
 
 	// Graph-id of the script the user just launched (zero-latency hint),
@@ -315,18 +322,33 @@
 		}
 
 		// Non-asset triggers (schedule + native) are rendered as source nodes
-		// above the pipeline script. Nodes are deduplicated per (kind, ref)
-		// tuple so a single schedule/webhook shared across multiple scripts
-		// shows as one node with N outgoing edges. A trigger node is
-		// considered unsaved if every attachment referencing it is unsaved.
+		// above the pipeline script. Real (non-missing) nodes are
+		// deduplicated per (kind, ref) tuple so a single schedule shared
+		// across multiple scripts shows as one node with N outgoing edges.
+		// "missing" placeholders are scoped per-(kind, script) — each script
+		// gets its own placeholder so the prompt "create / delete" tells
+		// the user which script the annotation lives on.
 		const triggerSourceNodes = new Map<
 			string,
-			{ allUnsaved: boolean; kind: TriggerNodeKind; ref: string }
+			{
+				allUnsaved: boolean
+				kind: TriggerNodeKind
+				ref: string
+				missing: boolean
+				runnable_path?: string
+			}
 		>()
-		function recordSourceTrigger(id: string, kind: TriggerNodeKind, ref: string, unsaved: boolean) {
+		function recordSourceTrigger(
+			id: string,
+			kind: TriggerNodeKind,
+			ref: string,
+			unsaved: boolean,
+			missing: boolean,
+			runnable_path?: string
+		) {
 			const prev = triggerSourceNodes.get(id)
 			if (!prev) {
-				triggerSourceNodes.set(id, { allUnsaved: unsaved, kind, ref })
+				triggerSourceNodes.set(id, { allUnsaved: unsaved, kind, ref, missing, runnable_path })
 			} else {
 				prev.allUnsaved = prev.allUnsaved && unsaved
 			}
@@ -345,22 +367,45 @@
 				})
 				continue
 			}
-			const ref = t.trigger_kind === 'schedule' ? (t as any).cron : (t as any).path
+			const isMissing = t.trigger_kind !== 'schedule' && (t as any).missing === true
+			// Schedule: cron is the ref. Native (attached): trigger row path.
+			// Native (missing): synthesize a per-script ref so each placeholder
+			// is its own node ("missing kafka on f/foo/bar").
+			const ref = isMissing
+				? `missing:${t.runnable_path}`
+				: t.trigger_kind === 'schedule'
+					? (t as any).cron
+					: ((t as any).path ?? '')
 			const sourceId = `trigger:${t.trigger_kind}:${ref}`
-			recordSourceTrigger(sourceId, t.trigger_kind, ref, !!t.unsaved)
+			recordSourceTrigger(
+				sourceId,
+				t.trigger_kind,
+				ref,
+				!!t.unsaved,
+				isMissing,
+				isMissing ? t.runnable_path : undefined
+			)
 			edges.push({
 				id: `trig-${t.trigger_kind}:${sourceId}->${runnableId}`,
 				source: sourceId,
 				target: runnableId,
 				kind: t.trigger_kind === 'schedule' ? 'trigger-schedule' : 'trigger-native',
-				unsaved: t.unsaved
+				unsaved: t.unsaved,
+				missing: isMissing
 			})
 		}
 		for (const [id, info] of triggerSourceNodes) {
 			nodes.push({
 				id,
 				type: 'trigger',
-				data: { kind: info.kind, ref: info.ref, unsaved: info.allUnsaved }
+				data: {
+					kind: info.kind,
+					ref: info.ref,
+					unsaved: info.allUnsaved,
+					missing: info.missing,
+					runnable_path: info.runnable_path,
+					onCreateMissingTrigger
+				}
 			})
 		}
 
@@ -516,6 +561,18 @@
 					strokeDasharray = '3 3'
 					style = `${style} opacity: 0.7;`
 					if (label) label = `${label} (unsaved)`
+				}
+				// Missing-trigger edge: overrides the per-kind stroke colour
+				// with red so the entire "annotated but no row" branch reads
+				// as broken at a glance. Composes with `unsaved` if both
+				// (red dashed dimmed — fresh draft annotation that also has
+				// no matching row, which is the common case).
+				if (e.missing) {
+					style = 'stroke: rgb(239 68 68); stroke-width: 2px;'
+					strokeDasharray = '3 3'
+					markerColor = 'rgb(239 68 68)'
+					label = 'missing trigger'
+					labelStyle = 'fill: rgb(239 68 68); font-size: 10px; font-weight: 600;'
 				}
 				if (strokeDasharray) {
 					style = `${style} stroke-dasharray: ${strokeDasharray};`

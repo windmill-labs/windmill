@@ -407,9 +407,14 @@ struct GraphEdge {
 }
 
 // Declared `// on <trigger>` trigger edge — the actual execution DAG.
-// For the eight non-native, non-schedule trigger kinds the variant carries
-// just the trigger's workspace path; the config (broker, topic, auth, …)
-// lives in its own trigger table and UI.
+// Asset / Schedule come from `script_trigger`; the seven native variants
+// (Email/Kafka/…/Gcp) come from the per-kind trigger tables joined on
+// `script_path`. Each native variant carries just the trigger row's path;
+// the config (broker, topic, auth, …) lives in its own UI.
+//
+// `webhook` is parsed as an annotation marker but has no dedicated trigger
+// table — every script gets an implicit webhook endpoint — so no variant
+// here. The frontend renders the marker from the source annotations alone.
 #[derive(Serialize, Debug)]
 #[serde(tag = "trigger_kind", rename_all = "lowercase")]
 enum TriggerEdge {
@@ -421,11 +426,6 @@ enum TriggerEdge {
     },
     Schedule {
         cron: String,
-        runnable_kind: AssetUsageKind,
-        runnable_path: String,
-    },
-    Webhook {
-        path: String,
         runnable_kind: AssetUsageKind,
         runnable_path: String,
     },
@@ -518,9 +518,11 @@ async fn asset_graph(
     .fetch_all(&mut *tx)
     .await?;
 
-    // Pipeline triggers attached to scripts in scope. Fetched separately so
-    // we can widen the runnable_set for trigger-only endpoints (e.g. an
-    // asset trigger whose asset has no usage in the pipeline yet).
+    // Pipeline asset / schedule trigger edges, fetched separately so we can
+    // widen the runnable_set for trigger-only endpoints (e.g. an asset
+    // trigger whose asset has no usage in the pipeline yet). Native trigger
+    // kinds (kafka, mqtt, …) are *not* in `script_trigger` anymore — they're
+    // discovered below by querying each native trigger table directly.
     let trigger_rows = sqlx::query!(
         r#"
         SELECT
@@ -530,7 +532,45 @@ async fn asset_graph(
             trigger_ref   AS "trigger_ref!"
         FROM script_trigger
         WHERE workspace_id = $1
+          AND trigger_kind IN ('asset', 'schedule')
           AND ($2::text IS NULL OR runnable_path LIKE $2)
+        "#,
+        &w_id,
+        folder_filter.as_deref(),
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // Native triggers in scope. Each native trigger table stores its
+    // single-destination `script_path` directly, so we resolve attachment by
+    // joining on that field rather than via `script_trigger`. UNION ALL keeps
+    // it a single round trip; the `kind` column drives the TriggerEdge ctor
+    // below.
+    let native_trigger_rows = sqlx::query!(
+        r#"
+        SELECT kind, path, script_path, is_flow FROM (
+            SELECT 'email' AS kind, path, script_path, is_flow FROM email_trigger
+                WHERE workspace_id = $1
+            UNION ALL
+            SELECT 'kafka', path, script_path, is_flow FROM kafka_trigger
+                WHERE workspace_id = $1
+            UNION ALL
+            SELECT 'mqtt', path, script_path, is_flow FROM mqtt_trigger
+                WHERE workspace_id = $1
+            UNION ALL
+            SELECT 'nats', path, script_path, is_flow FROM nats_trigger
+                WHERE workspace_id = $1
+            UNION ALL
+            SELECT 'postgres', path, script_path, is_flow FROM postgres_trigger
+                WHERE workspace_id = $1
+            UNION ALL
+            SELECT 'sqs', path, script_path, is_flow FROM sqs_trigger
+                WHERE workspace_id = $1
+            UNION ALL
+            SELECT 'gcp', path, script_path, is_flow FROM gcp_trigger
+                WHERE workspace_id = $1
+        ) t
+        WHERE ($2::text IS NULL OR script_path LIKE $2)
         "#,
         &w_id,
         folder_filter.as_deref(),
@@ -584,7 +624,8 @@ async fn asset_graph(
         });
     }
 
-    let mut triggers: Vec<TriggerEdge> = Vec::with_capacity(trigger_rows.len());
+    let mut triggers: Vec<TriggerEdge> =
+        Vec::with_capacity(trigger_rows.len() + native_trigger_rows.len());
     for t in trigger_rows {
         runnable_set.insert((t.runnable_kind, t.runnable_path.clone()));
         match t.trigger_kind.as_str() {
@@ -610,51 +651,34 @@ async fn asset_graph(
                     runnable_path: t.runnable_path,
                 });
             }
-            // One-liners for the `<kind> <path>` trigger variants. Kept as a
-            // flat match rather than a helper — each arm's variant ctor is
-            // different and we don't benefit from abstracting it.
-            "webhook" => triggers.push(TriggerEdge::Webhook {
-                path: t.trigger_ref,
-                runnable_kind: t.runnable_kind,
-                runnable_path: t.runnable_path,
-            }),
-            "email" => triggers.push(TriggerEdge::Email {
-                path: t.trigger_ref,
-                runnable_kind: t.runnable_kind,
-                runnable_path: t.runnable_path,
-            }),
-            "kafka" => triggers.push(TriggerEdge::Kafka {
-                path: t.trigger_ref,
-                runnable_kind: t.runnable_kind,
-                runnable_path: t.runnable_path,
-            }),
-            "mqtt" => triggers.push(TriggerEdge::Mqtt {
-                path: t.trigger_ref,
-                runnable_kind: t.runnable_kind,
-                runnable_path: t.runnable_path,
-            }),
-            "nats" => triggers.push(TriggerEdge::Nats {
-                path: t.trigger_ref,
-                runnable_kind: t.runnable_kind,
-                runnable_path: t.runnable_path,
-            }),
-            "postgres" => triggers.push(TriggerEdge::Postgres {
-                path: t.trigger_ref,
-                runnable_kind: t.runnable_kind,
-                runnable_path: t.runnable_path,
-            }),
-            "sqs" => triggers.push(TriggerEdge::Sqs {
-                path: t.trigger_ref,
-                runnable_kind: t.runnable_kind,
-                runnable_path: t.runnable_path,
-            }),
-            "gcp" => triggers.push(TriggerEdge::Gcp {
-                path: t.trigger_ref,
-                runnable_kind: t.runnable_kind,
-                runnable_path: t.runnable_path,
-            }),
-            _ => {} // Unknown trigger_kind — forward-compat.
+            _ => {} // Native kinds come from per-kind trigger tables below.
         }
+    }
+
+    // Native trigger attachments — one TriggerEdge per row, the kind chosen
+    // from the discriminator. Add the runnable to the set so a script with
+    // no asset edges but a kafka attachment still renders on the canvas.
+    for t in native_trigger_rows {
+        let kind = t.kind.unwrap_or_default();
+        let path = t.path.unwrap_or_default();
+        let script_path = t.script_path.unwrap_or_default();
+        let runnable_kind = if t.is_flow.unwrap_or(false) {
+            AssetUsageKind::Flow
+        } else {
+            AssetUsageKind::Script
+        };
+        runnable_set.insert((runnable_kind, script_path.clone()));
+        let edge = match kind.as_str() {
+            "email" => TriggerEdge::Email { path, runnable_kind, runnable_path: script_path },
+            "kafka" => TriggerEdge::Kafka { path, runnable_kind, runnable_path: script_path },
+            "mqtt" => TriggerEdge::Mqtt { path, runnable_kind, runnable_path: script_path },
+            "nats" => TriggerEdge::Nats { path, runnable_kind, runnable_path: script_path },
+            "postgres" => TriggerEdge::Postgres { path, runnable_kind, runnable_path: script_path },
+            "sqs" => TriggerEdge::Sqs { path, runnable_kind, runnable_path: script_path },
+            "gcp" => TriggerEdge::Gcp { path, runnable_kind, runnable_path: script_path },
+            _ => continue,
+        };
+        triggers.push(edge);
     }
 
     let mut assets: Vec<GraphAssetNode> = asset_set

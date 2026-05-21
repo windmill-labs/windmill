@@ -1566,10 +1566,15 @@ async fn create_script_internal<'c>(
     }
 
     // Pipeline trigger edges: wipe-and-reinsert per deploy so removing an
-    // `// on ...` annotation drops the edge.
+    // `// on ...` annotation drops the edge. Only Asset / Schedule produce
+    // a row — native trigger marker annotations (`// on kafka`, etc.) are
+    // discovered by the graph endpoint directly from the per-kind trigger
+    // tables, so `trigger_spec_to_row` returns None for those.
     clear_script_triggers(&mut *tx, &w_id, &ns.path, AssetUsageKind::Script).await?;
     for spec in &pipeline_triggers {
-        let (trigger_kind, trigger_ref) = trigger_spec_to_row(spec);
+        let Some((trigger_kind, trigger_ref)) = trigger_spec_to_row(spec) else {
+            continue;
+        };
         // Effective debounce for this edge: per-`// on debounce=` wins,
         // else the script-level `// debounce` default. Debounce only
         // applies to asset-cascade edges; other trigger kinds get none.

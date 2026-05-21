@@ -27,6 +27,7 @@ const input = (over: Partial<ResolveGraphInput> = {}): ResolveGraphInput => ({
 	liveAnnotations: { scriptPath: undefined, annotations: ann() },
 	inferredWritesByPath: new Map(),
 	inferredReadsByPath: new Map(),
+	annotatedNativeKindsByPath: new Map(),
 	...over
 })
 

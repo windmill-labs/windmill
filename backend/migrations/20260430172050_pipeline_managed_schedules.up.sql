@@ -1,12 +1,14 @@
--- Track schedules auto-created from a materializer's `// schedule "<cron>"`
+-- Flag schedules auto-created from a pipeline script's `// schedule "<cron>"`
 -- annotation so reconciliation can update / drop them on subsequent deploys
--- without touching schedules a user created manually. Null for all
--- pre-existing rows.
-ALTER TABLE schedule ADD COLUMN IF NOT EXISTS managed_by_runnable_path VARCHAR(255) DEFAULT NULL;
+-- without touching schedules a user created manually. Defaults to false for
+-- pre-existing rows. `script_path` already tells us which script owns the
+-- row — this is just a boolean discriminator.
+ALTER TABLE schedule ADD COLUMN IF NOT EXISTS managed BOOLEAN NOT NULL DEFAULT false;
 
--- One managed schedule per (workspace, runnable). Index supports the
--- reconciliation lookup ("does this script already have a managed schedule?")
--- and the cleanup-on-delete query.
-CREATE INDEX IF NOT EXISTS idx_schedule_managed_by_runnable_path
-    ON schedule (workspace_id, managed_by_runnable_path)
-    WHERE managed_by_runnable_path IS NOT NULL;
+-- Partial index for the two hot reconciliation queries:
+--   * "does this script already have a managed schedule?"   (script_path lookup)
+--   * "drop any managed schedules for this deleted script"  (same lookup)
+-- The boolean predicate keeps the index narrow (only managed rows are stored).
+CREATE INDEX IF NOT EXISTS idx_schedule_managed
+    ON schedule (workspace_id, script_path)
+    WHERE managed;

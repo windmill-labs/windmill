@@ -107,7 +107,7 @@ pub async fn clear_script_triggers<'e>(
 // `// schedule "<cron>"` annotation. Idempotent: each call brings the
 // `schedule` row in line with the annotation as of *this* deploy.
 //
-// The schedule lives at the same path as the runnable. `managed_by_runnable_path`
+// The schedule lives at the same path as the runnable. The `managed` flag
 // disambiguates auto-created rows from user-managed ones — only managed
 // rows are updated or removed by reconciliation; manually-created schedules
 // at the same path are left alone (the annotation is silently ignored).
@@ -135,16 +135,16 @@ pub async fn reconcile_pipeline_schedule<'e>(
                     workspace_id, path, schedule, timezone, edited_by, script_path,
                     is_flow, enabled, email, permissioned_as,
                     ws_error_handler_muted, no_flow_overlap, cron_version,
-                    managed_by_runnable_path
+                    managed
                 )
-                VALUES ($1, $2, $3, 'UTC', $4, $2, $5, true, $6, $7, false, false, 'v2', $2)
+                VALUES ($1, $2, $3, 'UTC', $4, $2, $5, true, $6, $7, false, false, 'v2', true)
                 ON CONFLICT (workspace_id, path) DO UPDATE
                 SET schedule = EXCLUDED.schedule,
                     edited_at = now(),
                     edited_by = EXCLUDED.edited_by,
-                    managed_by_runnable_path = EXCLUDED.managed_by_runnable_path
-                WHERE schedule.managed_by_runnable_path = EXCLUDED.managed_by_runnable_path
-                   OR schedule.managed_by_runnable_path IS NULL AND schedule.script_path = EXCLUDED.script_path
+                    managed = true
+                WHERE schedule.managed
+                   OR schedule.script_path = EXCLUDED.script_path
                 "#,
                 workspace_id,
                 runnable_path,
@@ -159,12 +159,13 @@ pub async fn reconcile_pipeline_schedule<'e>(
         }
         None => {
             // Drop any prior managed schedule for this runnable. Manual
-            // schedules at the same path keep `managed_by_runnable_path =
-            // NULL` and are unaffected.
+            // schedules at the same path keep `managed = false` and are
+            // unaffected.
             sqlx::query!(
                 r#"DELETE FROM schedule
                    WHERE workspace_id = $1
-                     AND managed_by_runnable_path = $2"#,
+                     AND script_path = $2
+                     AND managed"#,
                 workspace_id,
                 runnable_path,
             )
@@ -186,7 +187,8 @@ pub async fn delete_managed_pipeline_schedule<'e>(
     sqlx::query!(
         r#"DELETE FROM schedule
            WHERE workspace_id = $1
-             AND managed_by_runnable_path = $2"#,
+             AND script_path = $2
+             AND managed"#,
         workspace_id,
         runnable_path,
     )
@@ -289,7 +291,12 @@ pub fn parse_asset_trigger_ref(s: &str) -> Option<(AssetKind, String)> {
 // Convert a parser TriggerSpec into the `(kind, ref)` pair stored in
 // script_trigger. Asset refs get their canonical prefix back so the
 // trigger_ref matches what downstream lookups expect.
-pub fn trigger_spec_to_row(spec: &TriggerSpec) -> (ScriptTriggerKind, String) {
+//
+// Returns `None` for native trigger kinds (Kafka, Mqtt, Postgres, …) —
+// those annotations are marker-only and don't produce a `script_trigger`
+// row. The actual binding lives on the trigger row's own `script_path`
+// column; the graph endpoint looks it up directly per kind.
+pub fn trigger_spec_to_row(spec: &TriggerSpec) -> Option<(ScriptTriggerKind, String)> {
     match spec {
         TriggerSpec::Asset { asset_kind, path, .. } => {
             let prefix = match asset_kind {
@@ -299,17 +306,17 @@ pub fn trigger_spec_to_row(spec: &TriggerSpec) -> (ScriptTriggerKind, String) {
                 windmill_parser::asset_parser::AssetKind::DataTable => "datatable://",
                 windmill_parser::asset_parser::AssetKind::Volume => "volume://",
             };
-            (ScriptTriggerKind::Asset, format!("{}{}", prefix, path))
+            Some((ScriptTriggerKind::Asset, format!("{}{}", prefix, path)))
         }
-        TriggerSpec::Schedule { cron } => (ScriptTriggerKind::Schedule, cron.clone()),
-        TriggerSpec::Webhook { path } => (ScriptTriggerKind::Webhook, path.clone()),
-        TriggerSpec::Email { path } => (ScriptTriggerKind::Email, path.clone()),
-        TriggerSpec::Kafka { path } => (ScriptTriggerKind::Kafka, path.clone()),
-        TriggerSpec::Mqtt { path } => (ScriptTriggerKind::Mqtt, path.clone()),
-        TriggerSpec::Nats { path } => (ScriptTriggerKind::Nats, path.clone()),
-        TriggerSpec::Postgres { path } => (ScriptTriggerKind::Postgres, path.clone()),
-        TriggerSpec::Sqs { path } => (ScriptTriggerKind::Sqs, path.clone()),
-        TriggerSpec::Gcp { path } => (ScriptTriggerKind::Gcp, path.clone()),
+        TriggerSpec::Schedule { cron } => Some((ScriptTriggerKind::Schedule, cron.clone())),
+        TriggerSpec::Webhook
+        | TriggerSpec::Email
+        | TriggerSpec::Kafka
+        | TriggerSpec::Mqtt
+        | TriggerSpec::Nats
+        | TriggerSpec::Postgres
+        | TriggerSpec::Sqs
+        | TriggerSpec::Gcp => None,
     }
 }
 

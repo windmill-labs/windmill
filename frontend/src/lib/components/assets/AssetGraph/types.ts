@@ -70,10 +70,17 @@ export type AssetGraphTrigger =
 	  }
 	| {
 			trigger_kind: NativeTriggerKind
-			path: string
+			// path of the matching trigger row (kafka_trigger.path, etc.).
+			// Undefined when `missing` is true — the script has the
+			// annotation marker but no trigger row points at it.
+			path?: string
 			runnable_kind: GraphUsageKind
 			runnable_path: string
 			unsaved?: boolean
+			// Annotation declared but no matching trigger row was found —
+			// the canvas renders a red placeholder with a "Create trigger"
+			// affordance instead of a fully-wired source.
+			missing?: boolean
 	  }
 
 export interface AssetGraphResponse {

@@ -16,9 +16,13 @@
 	} from '$lib/components/assets/lib'
 	import type {
 		AssetGraphResponse,
-		AssetGraphSelection
+		AssetGraphSelection,
+		NativeTriggerKind
 	} from '$lib/components/assets/AssetGraph/types'
-	import type { PipelineAnnotations } from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
+	import {
+		parsePipelineAnnotations,
+		type PipelineAnnotations
+	} from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
 	import {
 		generatePipelineDraft,
@@ -56,6 +60,13 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
 	import { inferArgs, inferAssets } from '$lib/infer'
+	import KafkaTriggerEditor from '$lib/components/triggers/kafka/KafkaTriggerEditor.svelte'
+	import MqttTriggerEditor from '$lib/components/triggers/mqtt/MqttTriggerEditor.svelte'
+	import NatsTriggerEditor from '$lib/components/triggers/nats/NatsTriggerEditor.svelte'
+	import PostgresTriggerEditor from '$lib/components/triggers/postgres/PostgresTriggerEditor.svelte'
+	import SqsTriggerEditor from '$lib/components/triggers/sqs/SqsTriggerEditor.svelte'
+	import GcpTriggerEditor from '$lib/components/triggers/gcp/GcpTriggerEditor.svelte'
+	import EmailTriggerEditor from '$lib/components/triggers/email/EmailTriggerEditor.svelte'
 
 	// Variables and resources are declarative config, not pipeline assets —
 	// they're hub-shaped (referenced by most runnables) and would swamp the
@@ -273,6 +284,12 @@
 	// edited / across selection, instead of only after Save re-derives the
 	// persisted asset rows.
 	let inferredReadsByPath = $state<Map<string, Array<{ kind: AssetKind; path: string }>>>(new Map())
+
+	// Sticky cache of native trigger kinds declared via `// on kafka` etc.
+	// in each deployed script's source. Filled by the prefetch sweep below.
+	// resolveGraph uses this to flag scripts whose annotation has no
+	// matching trigger row — red placeholder on the canvas.
+	let annotatedNativeKindsByPath = $state<Map<string, Set<NativeTriggerKind>>>(new Map())
 
 	// Build a runnable Script from picked language / triggers / output.
 	// Delegates to the shared template generator (pipelineTemplates.ts) so
@@ -678,7 +695,8 @@
 			liveBodyAssets,
 			liveAnnotations,
 			inferredWritesByPath,
-			inferredReadsByPath
+			inferredReadsByPath,
+			annotatedNativeKindsByPath
 		})
 	)
 
@@ -799,6 +817,41 @@
 	// folder…" entry in the dropdown otherwise.
 	let pickerModalOpen = $state(false)
 
+	// Native trigger editors mounted inline so clicking a "missing"
+	// placeholder opens the matching drawer with `script_path` pre-filled
+	// — keeps pipeline drafts intact instead of navigating away. Each
+	// editor's wrapper lazily mounts its Inner only when `open=true`, so
+	// holding refs to all seven is cheap.
+	let kafkaEditor: KafkaTriggerEditor | undefined = $state()
+	let mqttEditor: MqttTriggerEditor | undefined = $state()
+	let natsEditor: NatsTriggerEditor | undefined = $state()
+	let postgresEditor: PostgresTriggerEditor | undefined = $state()
+	let sqsEditor: SqsTriggerEditor | undefined = $state()
+	let gcpEditor: GcpTriggerEditor | undefined = $state()
+	let emailEditor: EmailTriggerEditor | undefined = $state()
+
+	function openMissingTriggerDrawer(kind: NativeTriggerKind, scriptPath: string) {
+		switch (kind) {
+			case 'kafka':
+				return kafkaEditor?.openNew(false, scriptPath)
+			case 'mqtt':
+				return mqttEditor?.openNew(false, scriptPath)
+			case 'nats':
+				return natsEditor?.openNew(false, scriptPath)
+			case 'postgres':
+				return postgresEditor?.openNew(false, scriptPath)
+			case 'sqs':
+				return sqsEditor?.openNew(false, scriptPath)
+			case 'gcp':
+				return gcpEditor?.openNew(false, scriptPath)
+			case 'email':
+				return emailEditor?.openNew(false, scriptPath)
+			// webhook has no dedicated editor; schedule is inline-managed.
+			default:
+				return
+		}
+	}
+
 	// Reuse the empty AssetGraphResponse so we can still render the canvas
 	// (layout, controls, mini-map) on a fresh pipeline.
 	const EMPTY_GRAPH: AssetGraphResponse = {
@@ -888,7 +941,11 @@
 				.filter((r) => r.usage_kind === 'script')
 				.map((r) => r.path)
 				.filter(
-					(p) => !drafts.has(p) && !inferredWritesByPath.has(p) && !inferredReadsByPath.has(p)
+					(p) =>
+						!drafts.has(p) &&
+						!inferredWritesByPath.has(p) &&
+						!inferredReadsByPath.has(p) &&
+						!annotatedNativeKindsByPath.has(p)
 				)
 		)
 		if (targets.length === 0) return
@@ -900,11 +957,18 @@
 				try {
 					const s = await ScriptService.getScriptByPath({ workspace: ws, path })
 					if (gen !== assetPrefetchGen) return
-					const res = await inferAssets(s.language, s.content ?? '')
+					const content = s.content ?? ''
+					const res = await inferAssets(s.language, content)
 					if (gen !== assetPrefetchGen) return
 					const inferred = (res?.assets ?? []) as AssetWithAltAccessType[]
 					const writes = extractWrites(inferred)
 					const reads = extractReads(inferred)
+					// Parse `// on kafka` markers in parallel with the asset
+					// inference. Cheap pure-TS pass — runs on the same content
+					// we already loaded for inferAssets.
+					const annotated = new Set(
+						parsePipelineAnnotations(content).nativeTriggers.map((n) => n.kind)
+					)
 					untrack(() => {
 						// A live edit / prior sweep may have filled either meanwhile.
 						if (writes.length > 0 && !inferredWritesByPath.has(path)) {
@@ -917,6 +981,13 @@
 							next.set(path, reads)
 							inferredReadsByPath = next
 						}
+						// Always seed the annotation map (even if empty) so a
+						// later removal of all `// on kafka` lines retires the
+						// placeholder on the next deploy + refetch.
+						const nextAnnot = new Map(annotatedNativeKindsByPath)
+						if (annotated.size > 0) nextAnnot.set(path, annotated)
+						else nextAnnot.delete(path)
+						annotatedNativeKindsByPath = nextAnnot
 					})
 				} catch {
 					// Skip — that node just falls back to base-graph edges.
@@ -1085,6 +1156,7 @@
 								{pathPrefix}
 								defaultPathSuffix={DEFAULT_PATH_SUFFIX}
 								defaultScheduleCron={DEFAULT_SCHEDULE_CRON}
+								onCreateMissingTrigger={openMissingTriggerDrawer}
 								onselect={(s) => {
 									// Clicking a draft runnable node re-opens it in the pane;
 									// clicking anything else selects it normally and detaches
@@ -1345,6 +1417,18 @@
 	</div>
 
 	<PipelinePickerModal bind:open={pickerModalOpen} currentFolder={folder} />
+
+	<!-- Native trigger editors mounted off-screen. Each only renders its
+	     inner drawer when `open=true` (set by openNew/openEdit), so this
+	     adds ~zero render cost while idle. `onUpdate` refreshes the graph
+	     so the new trigger row replaces the red missing placeholder. -->
+	<KafkaTriggerEditor bind:this={kafkaEditor} onUpdate={() => graphRes.refetch()} />
+	<MqttTriggerEditor bind:this={mqttEditor} onUpdate={() => graphRes.refetch()} />
+	<NatsTriggerEditor bind:this={natsEditor} onUpdate={() => graphRes.refetch()} />
+	<PostgresTriggerEditor bind:this={postgresEditor} onUpdate={() => graphRes.refetch()} />
+	<SqsTriggerEditor bind:this={sqsEditor} onUpdate={() => graphRes.refetch()} />
+	<GcpTriggerEditor bind:this={gcpEditor} onUpdate={() => graphRes.refetch()} />
+	<EmailTriggerEditor bind:this={emailEditor} onUpdate={() => graphRes.refetch()} />
 
 	{#if leaveModalOpen}
 		<!-- Three-button leave guard. Built inline rather than reusing
