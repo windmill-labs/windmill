@@ -1074,18 +1074,37 @@ pub(crate) async fn resolve_nsjail_tmp_mount_block(job_dir: &str) -> String {
     }
     let jail_tmp = format!("{job_dir}/{NSJAIL_TMP_BIND_SUBDIR}");
 
-    // SECURITY: never bind-mount a pre-existing entry at jail_tmp. Use
-    // `symlink_metadata` so symlinks are detected (`metadata` would follow
-    // them). User-controlled archives extracted into job_dir could otherwise
-    // plant `jail_tmp` as a symlink to an arbitrary host directory, which
-    // nsjail would then expose as a writable /tmp.
+    // SECURITY: never bind-mount a symlinked (or otherwise non-directory)
+    // entry at jail_tmp. `symlink_metadata` returns the link's own metadata
+    // without following it, so `is_dir()` is true only for a real directory.
+    // User-controlled archives extracted into job_dir could otherwise plant
+    // `jail_tmp` as a symlink to an arbitrary host directory, which nsjail
+    // would then expose as a writable /tmp.
+    //
+    // A pre-existing real directory at this path is legitimate: several
+    // executors (python_executor, ruby_executor, rust_executor) invoke nsjail
+    // more than once per job_dir (e.g. dep install, then run), and the first
+    // invocation will have created it via the `create_dir` below.
     match tokio::fs::symlink_metadata(&jail_tmp).await {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            if let Err(e) = tokio::fs::create_dir(&jail_tmp).await {
+                tracing::error!(
+                    "Failed to create nsjail disk-backed /tmp at {jail_tmp}: {e:?}; \
+                     falling back to tmpfs for this job."
+                );
+                return tmpfs_mount_block(&size_bytes);
+            }
+        }
+        Ok(meta) if meta.is_dir() => {
+            // Real directory left over from an earlier nsjail invocation in
+            // this same job_dir — safe to reuse.
+        }
         Ok(_) => {
             tracing::error!(
                 "Refusing to bind-mount nsjail disk-backed /tmp: {jail_tmp} \
-                 already exists (possibly planted by a user-controlled archive). \
-                 Falling back to RAM-backed tmpfs for this job."
+                 exists but is not a regular directory (possibly a symlink \
+                 planted by a user-controlled archive). Falling back to \
+                 RAM-backed tmpfs for this job."
             );
             return tmpfs_mount_block(&size_bytes);
         }
@@ -1096,18 +1115,6 @@ pub(crate) async fn resolve_nsjail_tmp_mount_block(job_dir: &str) -> String {
             );
             return tmpfs_mount_block(&size_bytes);
         }
-    }
-
-    // `create_dir` (not `_all`) errors if the path already exists, closing
-    // the TOCTOU window between the `symlink_metadata` check above and the
-    // mkdir. The parent `{job_dir}` is created by the worker before any
-    // executor work runs, so we don't need the recursive variant.
-    if let Err(e) = tokio::fs::create_dir(&jail_tmp).await {
-        tracing::error!(
-            "Failed to create nsjail disk-backed /tmp at {jail_tmp}: {e:?}; \
-             falling back to tmpfs for this job."
-        );
-        return tmpfs_mount_block(&size_bytes);
     }
     bind_mount_block(&jail_tmp)
 }
@@ -1259,23 +1266,34 @@ mod nsjail_tmp_mount_tests {
         );
     }
 
-    /// Pre-existing real directory at jail_tmp is also rejected (defense in
-    /// depth — a user-extracted tarball directory could contain attacker
-    /// files that would otherwise appear inside the sandbox as /tmp/*).
+    /// Sequential resolver calls in the same `job_dir` (e.g. Python uv install
+    /// → Python run, Ruby install → run, Rust build → run) must keep using
+    /// the bind mount instead of silently falling back to tmpfs on the
+    /// second call. The first call creates `jail_tmp`; subsequent calls see
+    /// it as a pre-existing real directory and must accept it.
     #[tokio::test]
-    async fn disk_backed_refuses_preexisting_directory_at_jail_tmp() {
+    async fn disk_backed_reuses_jail_tmp_across_sequential_calls() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let job_dir = tmp.path().to_str().expect("utf8 path").to_string();
-        let jail_tmp_path = format!("{job_dir}/{NSJAIL_TMP_BIND_SUBDIR}");
-        std::fs::create_dir(&jail_tmp_path).expect("pre-create dir");
+        let expected_dir = format!("{job_dir}/{NSJAIL_TMP_BIND_SUBDIR}");
 
-        let block = with_tmp_backing(Some("disk".to_string()), || async {
-            resolve_nsjail_tmp_mount_block(&job_dir).await
+        let (first, second) = with_tmp_backing(Some("disk".to_string()), || async {
+            let first = resolve_nsjail_tmp_mount_block(&job_dir).await;
+            // Simulate an executor that completes its first nsjail invocation
+            // (e.g. uv install) leaving jail_tmp on disk, then invokes nsjail
+            // again for the main run.
+            assert!(std::path::Path::new(&expected_dir).is_dir());
+            let second = resolve_nsjail_tmp_mount_block(&job_dir).await;
+            (first, second)
         })
         .await;
 
-        assert!(block.contains("fstype: \"tmpfs\""));
-        assert!(!block.contains("is_bind"));
+        assert!(first.contains("is_bind: true"), "first call: {first}");
+        assert!(
+            second.contains("is_bind: true"),
+            "second call regressed to tmpfs: {second}"
+        );
+        assert!(second.contains(&format!("src: \"{expected_dir}\"")));
     }
 }
 
