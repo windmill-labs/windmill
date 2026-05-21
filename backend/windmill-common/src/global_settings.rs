@@ -36,6 +36,7 @@ pub const EXTRA_PIP_INDEX_URL_SETTING: &str = "pip_extra_index_url";
 pub const PIP_INDEX_URL_SETTING: &str = "pip_index_url";
 pub const UV_INDEX_STRATEGY_SETTING: &str = "uv_index_strategy";
 pub const UV_EXCLUDE_NEWER_SETTING: &str = "uv_exclude_newer";
+pub const UV_PYTHON_INSTALL_MIRROR_SETTING: &str = "uv_python_install_mirror";
 pub const BUN_INSTALL_MIN_RELEASE_AGE_SETTING: &str = "bun_install_min_release_age";
 pub const INSTANCE_PYTHON_VERSION_SETTING: &str = "instance_python_version";
 pub const RUFF_CONFIG_SETTING: &str = "ruff_config";
@@ -126,6 +127,7 @@ pub const ENV_SETTINGS: &[&str] = &[
     "PIP_INDEX_URL",
     "PIP_EXTRA_INDEX_URL",
     "PIP_TRUSTED_HOST",
+    "UV_PYTHON_INSTALL_MIRROR",
     "PATH",
     "HOME",
     "DATABASE_CONNECTIONS",

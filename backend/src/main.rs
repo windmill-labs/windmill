@@ -59,7 +59,7 @@ use windmill_common::{
         RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING, SAML_METADATA_SETTING,
         SCIM_TOKEN_SETTING, SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING, TEAMS_SETTING,
         TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING,
-        WORKSPACE_REGISTRIES_SETTING,
+        UV_PYTHON_INSTALL_MIRROR_SETTING, WORKSPACE_REGISTRIES_SETTING,
     },
     scripts::ScriptLang,
     stats_oss::schedule_stats,
@@ -132,7 +132,8 @@ use crate::monitor::{
     reload_nsjail_tmpfs_size_setting, reload_otel_tracing_proxy_setting,
     reload_pip_index_url_setting, reload_retention_period_setting, reload_scim_token_setting,
     reload_smtp_config, reload_store_audit_logs_s3_setting, reload_uv_exclude_newer_setting,
-    reload_uv_index_strategy_setting, reload_worker_config, MonitorIteration,
+    reload_uv_index_strategy_setting, reload_uv_python_install_mirror_setting,
+    reload_worker_config, MonitorIteration,
 };
 
 #[cfg(feature = "parquet")]
@@ -1797,6 +1798,9 @@ async fn process_notify_event(
                 PIP_INDEX_URL_SETTING => reload_pip_index_url_setting(conn).await,
                 UV_INDEX_STRATEGY_SETTING => reload_uv_index_strategy_setting(conn).await,
                 UV_EXCLUDE_NEWER_SETTING => reload_uv_exclude_newer_setting(conn).await,
+                UV_PYTHON_INSTALL_MIRROR_SETTING => {
+                    reload_uv_python_install_mirror_setting(conn).await
+                }
                 BUN_INSTALL_MIN_RELEASE_AGE_SETTING => {
                     reload_bun_install_min_release_age_setting(conn).await
                 }

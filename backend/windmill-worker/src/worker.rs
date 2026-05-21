@@ -691,6 +691,11 @@ lazy_static::lazy_static! {
     /// disk-backed bind mount on `{JOB_DIR}/jail_tmp`. Otherwise the historical
     /// tmpfs behavior is preserved (RAM-backed, sized by `nsjail_tmpfs_size_mb`).
     pub static ref NSJAIL_TMP_DISK_BACKED: Arc<RwLock<Option<bool>>> = Arc::new(RwLock::new(None));
+
+    /// Optional mirror URL for `uv python install`. Wires to the `UV_PYTHON_INSTALL_MIRROR`
+    /// env var when forwarded to uv. Can be set via the `UV_PYTHON_INSTALL_MIRROR` env var
+    /// or the `uv_python_install_mirror` instance setting.
+    pub static ref UV_PYTHON_INSTALL_MIRROR: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 }
 
 pub fn sleep_queue() -> u64 {
