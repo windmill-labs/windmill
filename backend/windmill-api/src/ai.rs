@@ -1,6 +1,7 @@
 #[cfg(feature = "bedrock")]
 use crate::bedrock;
 use crate::db::{ApiAuthed, DB};
+use crate::utils::check_scopes;
 
 #[cfg(feature = "bedrock")]
 use axum::routing::get;
@@ -669,6 +670,7 @@ async fn global_proxy(
 async fn proxy(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, mut ai_path)): Path<(String, String)>,
     method: Method,
     headers: HeaderMap,
@@ -689,6 +691,16 @@ async fn proxy(
         .get("X-Resource-Path")
         .map(|v| v.to_str().unwrap_or("").to_string());
     let is_user_specified_resource = forced_resource_path.is_some();
+
+    // When the caller supplies X-Resource-Path, the resource is treated as if it
+    // were being read through the normal resource API: scope and RLS checks must
+    // apply so that a low-privilege user cannot point the proxy at a restricted
+    // AI resource (e.g. one in a folder they cannot read) to exfiltrate the
+    // resource's provider credentials or use them via the proxy.
+    if let Some(resource_path) = forced_resource_path.as_ref() {
+        check_scopes(&authed, || format!("resources:read:{}", resource_path))?;
+    }
+
     let request_config = match workspace_cache {
         Some(request_cache) if !request_cache.is_expired() && forced_resource_path.is_none() => {
             request_cache.config
@@ -759,13 +771,32 @@ async fn proxy(
                     )
                 };
 
-            let resource = sqlx::query_scalar::<_, Option<sqlx::types::Json<Box<RawValue>>>>(
-                "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
-            )
-            .bind(&resource_path)
-            .bind(&resource_workspace)
-            .fetch_optional(&db)
-            .await?
+            // For user-specified resources, fetch through an RLS-scoped
+            // connection so PostgreSQL row-level security enforces the same
+            // folder/group boundaries as the regular resource API. For the
+            // workspace/instance ai_config path, the resource_path was already
+            // validated by an admin/devops user when configuring the workspace,
+            // so the raw pool is used.
+            let resource = if is_user_specified_resource {
+                let mut tx = user_db.clone().begin(&authed).await?;
+                let res = sqlx::query_scalar::<_, Option<sqlx::types::Json<Box<RawValue>>>>(
+                    "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
+                )
+                .bind(&resource_path)
+                .bind(&resource_workspace)
+                .fetch_optional(&mut *tx)
+                .await?;
+                tx.commit().await?;
+                res
+            } else {
+                sqlx::query_scalar::<_, Option<sqlx::types::Json<Box<RawValue>>>>(
+                    "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
+                )
+                .bind(&resource_path)
+                .bind(&resource_workspace)
+                .fetch_optional(&db)
+                .await?
+            }
             .ok_or_else(|| Error::NotFound(format!("Could not find the resource {}, update the resource path in the workspace settings", resource_path)))?
             .ok_or_else(|| Error::BadRequest(format!("Empty resource value for {}", resource_path)))?;
 
