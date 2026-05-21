@@ -112,7 +112,6 @@
 		initialPath={path}
 		fullyLoaded={!runtime.loadingScript}
 		disableHistoryChange={true}
-		replaceStateFn={() => {}}
 		{diffDrawer}
 		{onNavigate}
 		{initialTestPanelCollapsed}

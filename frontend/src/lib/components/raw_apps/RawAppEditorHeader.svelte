@@ -269,7 +269,7 @@
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
-			UserDraft.remove('raw_app', path)
+			if (!inSessionPane) UserDraft.remove('raw_app', path)
 			dispatch('savedNewAppPath', path)
 		} catch (e) {
 			sendUserToast(`Error creating app: ${e.body ?? e.message}`, true)
@@ -380,7 +380,7 @@
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
-		UserDraft.remove('raw_app', appPath)
+		if (!inSessionPane) UserDraft.remove('raw_app', appPath)
 		if (appPath !== npath) {
 			dispatch('savedNewAppPath', npath)
 		}
@@ -462,7 +462,7 @@
 			// The initial draft was promoted to a real path on the backend —
 			// drop the autosave keyed on the prior (possibly empty) path so
 			// a future "+ App" click opens on a clean slate.
-			UserDraft.remove('raw_app', appPath)
+			if (!inSessionPane) UserDraft.remove('raw_app', appPath)
 			dispatch('savedNewAppPath', newEditedPath)
 		} catch (e) {
 			sendUserToast(`Error saving initial draft: ${e.body ?? e.message}`, true)
@@ -563,7 +563,7 @@
 			}
 
 			sendUserToast('Draft saved')
-			UserDraft.remove('raw_app', path)
+			if (!inSessionPane) UserDraft.remove('raw_app', path)
 			loading.saveDraft = false
 			if (newApp || savedApp.draft_only) {
 				dispatch('savedNewAppPath', newEditedPath || path)

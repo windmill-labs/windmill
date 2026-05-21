@@ -172,6 +172,11 @@
 	const { history, jobsDrawerOpen, refreshComponents } =
 		getContext<AppEditorContext>('AppEditorContext')
 
+	// Sessions inject an AIChatManager via context; AppEditor skips its
+	// UserDraft handle in that case, so the cleanup calls here must skip too
+	// (otherwise we'd wipe a non-session tab's autosave at the same path).
+	const inSessionPane = !!getContext('aiChatManager')
+
 	const loading = $state({
 		publish: false,
 		save: false,
@@ -231,7 +236,7 @@
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
-			UserDraft.remove('app', path)
+			if (!inSessionPane) UserDraft.remove('app', path)
 			onSavedNewAppPath?.(path)
 		} catch (e) {
 			sendUserToast('Error creating app', e)
@@ -331,7 +336,7 @@
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
-		UserDraft.remove('app', $appPath)
+		if (!inSessionPane) UserDraft.remove('app', $appPath)
 		if ($appPath !== npath) {
 			onSavedNewAppPath?.(npath)
 		}
@@ -407,7 +412,7 @@
 			// The initial draft was promoted to a real path on the backend —
 			// drop the autosave keyed on the prior (possibly empty) path so
 			// a future "+ App" click opens on a clean slate.
-			UserDraft.remove('app', $appPath)
+			if (!inSessionPane) UserDraft.remove('app', $appPath)
 			onSavedNewAppPath?.(newEditedPath)
 		} catch (e) {
 			sendUserToast('Error saving initial draft', e)
@@ -498,7 +503,7 @@
 			}
 
 			sendUserToast('Draft saved')
-			UserDraft.remove('app', path)
+			if (!inSessionPane) UserDraft.remove('app', path)
 			loading.saveDraft = false
 			if (newApp || savedApp.draft_only) {
 				onSavedNewAppPath?.(newEditedPath || path)
