@@ -1761,10 +1761,9 @@ def resolve_plugin_skills_dir(plugin_dir: Path) -> Path:
     """Resolve the plugin skills directory from a repo root, plugin root, or skills dir."""
     plugin_dir = plugin_dir.expanduser().resolve()
 
-    repo_skills_dir = plugin_dir / "plugins" / "windmill-code-plugin" / "skills"
-    repo_plugin_json = plugin_dir / "plugins" / "windmill-code-plugin" / ".claude-plugin" / "plugin.json"
-    if repo_plugin_json.exists():
-        return repo_skills_dir
+    plugin_root = plugin_dir / "plugins" / "windmill"
+    if (plugin_root / ".claude-plugin" / "plugin.json").exists():
+        return plugin_root / "skills"
 
     plugin_skills_dir = plugin_dir / "skills"
     plugin_json = plugin_dir / ".claude-plugin" / "plugin.json"
