@@ -44,10 +44,17 @@ vi.mock('$lib/gen', async () => {
 		...actual,
 		ScriptService: wrapService(actual.ScriptService, {
 			existsScriptByPath: vi.fn(async () => false),
+			getScriptByPathWithDraft: vi.fn(async () => {
+				throw new Error('getScriptByPathWithDraft mock not configured')
+			}),
 			listScripts: vi.fn(async () => [])
 		}),
 		FlowService: wrapService(actual.FlowService, {
-			existsFlowByPath: vi.fn(async () => false)
+			existsFlowByPath: vi.fn(async () => false),
+			getFlowByPathWithDraft: vi.fn(async () => {
+				throw new Error('getFlowByPathWithDraft mock not configured')
+			}),
+			getFlowLatestVersion: vi.fn(async () => ({ id: 1 }))
 		}),
 		VariableService: wrapService(actual.VariableService, {
 			existsVariable: vi.fn(async () => false)
@@ -58,6 +65,7 @@ vi.mock('$lib/gen', async () => {
 import { globalTools, prepareGlobalUserMessage } from './core'
 import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
 import { clearGlobalDrafts } from './userDraftAdapter'
+import { FlowService, ScriptService } from '$lib/gen'
 import type { Tool, ToolCallbacks } from '../shared'
 
 const WORKSPACE = 'global-core-test'
@@ -140,6 +148,95 @@ describe('global AI tools', () => {
 		)
 	})
 
+	it('preserves existing script metadata and seeds freshness on first script write', async () => {
+		vi.mocked(ScriptService.existsScriptByPath).mockResolvedValueOnce(true)
+		vi.mocked(ScriptService.getScriptByPathWithDraft).mockResolvedValueOnce({
+			path: 'f/scripts/existing',
+			hash: 'deployed-hash',
+			draft_created_at: '2026-05-22T10:00:00Z',
+			summary: 'deployed summary',
+			description: 'deployed description',
+			content: 'old deployed content',
+			language: 'bun',
+			kind: 'script',
+			draft: {
+				path: 'f/scripts/existing',
+				summary: 'db draft summary',
+				description: 'db draft description',
+				content: 'old draft content',
+				language: 'bun',
+				kind: 'script'
+			}
+		} as any)
+
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/existing',
+			summary: 'new summary',
+			language: 'bun',
+			content: 'new content'
+		})
+
+		expect(
+			UserDraft.get<any>('script', 'f/scripts/existing', { workspace: WORKSPACE })
+		).toMatchObject({
+			path: 'f/scripts/existing',
+			parent_hash: 'deployed-hash',
+			summary: 'new summary',
+			description: 'db draft description',
+			content: 'new content',
+			language: 'bun'
+		})
+		expect(UserDraft.getMeta('script', 'f/scripts/existing', { workspace: WORKSPACE })).toEqual({
+			remoteRev: 'deployed-hash',
+			remoteDraftRev: '2026-05-22T10:00:00Z'
+		})
+	})
+
+	it('preserves existing flow metadata and seeds freshness on first flow write', async () => {
+		vi.mocked(FlowService.existsFlowByPath).mockResolvedValueOnce(true)
+		vi.mocked(FlowService.getFlowLatestVersion).mockResolvedValueOnce({ id: 42 } as any)
+		vi.mocked(FlowService.getFlowByPathWithDraft).mockResolvedValueOnce({
+			path: 'f/flows/existing',
+			summary: 'deployed summary',
+			description: 'deployed description',
+			value: { modules: [] },
+			schema: { properties: { deployed: { type: 'boolean' } } },
+			edited_by: 'admin',
+			edited_at: '2026-05-22T09:00:00Z',
+			archived: false,
+			extra_perms: {},
+			draft_created_at: '2026-05-22T10:00:00Z',
+			draft: {
+				path: 'f/flows/existing',
+				summary: 'db draft summary',
+				description: 'db draft description',
+				value: { modules: [] },
+				schema: { properties: { draft: { type: 'string' } } },
+				edited_by: 'admin',
+				edited_at: '2026-05-22T09:30:00Z',
+				archived: false,
+				extra_perms: {}
+			}
+		} as any)
+
+		await callGlobalTool('write_flow', {
+			path: 'f/flows/existing',
+			summary: 'new summary',
+			modules: JSON.stringify([{ id: 'step', value: { type: 'identity' } }])
+		})
+
+		expect(UserDraft.get<any>('flow', 'f/flows/existing', { workspace: WORKSPACE })).toMatchObject({
+			path: 'f/flows/existing',
+			summary: 'new summary',
+			description: 'db draft description',
+			value: { modules: [{ id: 'step', value: { type: 'identity' } }] }
+		})
+		expect(UserDraft.getMeta('flow', 'f/flows/existing', { workspace: WORKSPACE })).toEqual({
+			remoteRev: 42,
+			remoteDraftRev: '2026-05-22T10:00:00Z'
+		})
+	})
+
 	it('fills an empty rawscript module through set_flow_module_code', async () => {
 		await callGlobalTool('write_flow', {
 			path: 'f/flows/empty-module',
@@ -165,7 +262,7 @@ describe('global AI tools', () => {
 				module_id: 'empty_step',
 				code
 			})
-		).resolves.toContain('Updated AI draft flow')
+		).resolves.toContain('Updated local draft flow')
 
 		await expect(
 			callGlobalTool('read_flow_module_code', {

@@ -23,6 +23,7 @@ import type {
 	ListableApp,
 	ListableResource,
 	ListableVariable,
+	NewScript,
 	Schedule,
 	Script,
 	ScriptLang
@@ -61,6 +62,8 @@ import {
 	type ToolDisplayAction
 } from '../shared'
 import type { ContextElement } from '../context'
+import { UserDraft } from '$lib/userDraft.svelte'
+import { emptySchema } from '$lib/utils'
 import {
 	resourceRequestSchema,
 	scheduleRequestSchema,
@@ -1359,17 +1362,7 @@ export const globalTools: Tool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = writeScriptSchema.parse(ctx.args)
-			return writeDraft(
-				{
-					type: 'script',
-					path: parsed.path,
-					summary: parsed.summary,
-					language: parsed.language,
-					value: parsed.content,
-					isDraft: true
-				},
-				ctx
-			)
+			return writeScriptDraft(parsed, ctx)
 		}
 	},
 	{
@@ -1393,13 +1386,11 @@ export const globalTools: Tool<{}>[] = [
 				failure_module: parseOptionalJsonArg(parsed.failure_module, 'failure_module'),
 				groups: parseOptionalJsonArg(parsed.groups, 'groups')
 			})
-			return writeDraft(
+			return writeFlowDraft(
 				{
-					type: 'flow',
 					path: parsed.path,
 					summary: parsed.summary,
-					value: editableFlowToDraftValue(editable),
-					isDraft: true
+					flow: editableFlowToDraftValue(editable)
 				},
 				ctx
 			)
@@ -1714,6 +1705,182 @@ type WriteDraftCtx = {
 	toolCallbacks: ToolCallbacks
 }
 
+function startDraftWrite(ctx: WriteDraftCtx, type: WorkspaceItemType, path: string): void {
+	ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+		content: `Writing draft ${type} "${path}"...`
+	})
+}
+
+function getRequiredGlobalDraft(
+	workspace: string,
+	type: WorkspaceItemType,
+	path: string,
+	triggerKind?: TriggerKind
+): WorkspaceItem {
+	const draft = getGlobalDraft(workspace, type, path, triggerKind)
+	if (!draft) {
+		throw new Error(`Could not read written draft ${type} "${path}".`)
+	}
+	return draft
+}
+
+function finishDraftWrite(
+	stored: WorkspaceItem,
+	existed: boolean,
+	ctx: WriteDraftCtx
+): string {
+	const verb = existed ? 'Updated' : 'Created'
+	const serializedItem =
+		stored.type === 'variable' || stored.type === 'flow'
+			? serializeWorkspaceItemForRead(stored)
+			: stored
+
+	ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+		content: `${verb} local draft ${stored.type} "${stored.path}"`,
+		result: `Draft ${verb.toLowerCase()}`
+	})
+	return JSON.stringify(
+		{
+			success: true,
+			message: `${verb} local draft ${stored.type} "${stored.path}". The workspace was not saved or deployed.`,
+			item: serializedItem
+		},
+		null,
+		2
+	)
+}
+
+async function writeScriptDraft(
+	args: { path: string; summary?: string; language: ScriptLang; content: string },
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace } = ctx
+	startDraftWrite(ctx, 'script', args.path)
+
+	const existingDraft = UserDraft.get<NewScript>('script', args.path, { workspace })
+	const backendExists = existingDraft
+		? false
+		: await ScriptService.existsScriptByPath({ workspace, path: args.path })
+
+	if (existingDraft) {
+		const draft: NewScript = {
+			...structuredClone(existingDraft),
+			path: args.path,
+			summary: args.summary ?? existingDraft.summary,
+			content: args.content,
+			language: args.language
+		}
+		UserDraft.save('script', args.path, draft, { workspace })
+	} else if (backendExists) {
+		const existing = await ScriptService.getScriptByPathWithDraft({
+			workspace,
+			path: args.path
+		})
+		const base = (existing.draft ?? existing) as NewScript
+		const draft: NewScript = {
+			...structuredClone(base),
+			parent_hash: existing.hash,
+			path: args.path,
+			summary: args.summary ?? base.summary,
+			content: args.content,
+			language: args.language
+		}
+		UserDraft.setDraftAndMeta(
+			'script',
+			args.path,
+			draft,
+			{ remoteRev: existing.hash, remoteDraftRev: existing.draft_created_at },
+			{ workspace }
+		)
+	} else {
+		const draft: NewScript = {
+			path: args.path,
+			summary: args.summary ?? '',
+			description: '',
+			content: args.content,
+			schema: emptySchema(),
+			is_template: false,
+			language: args.language,
+			kind: 'script'
+		}
+		UserDraft.save('script', args.path, draft, { workspace })
+	}
+
+	return finishDraftWrite(
+		getRequiredGlobalDraft(workspace, 'script', args.path),
+		existingDraft !== undefined || backendExists,
+		ctx
+	)
+}
+
+async function writeFlowDraft(
+	args: { path: string; summary?: string; flow: FlowDraftValue },
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace } = ctx
+	startDraftWrite(ctx, 'flow', args.path)
+
+	const draftValue = args.flow
+	const value = structuredClone(draftValue.value)
+	if (draftValue.groups !== undefined && draftValue.groups !== null) {
+		value.groups = structuredClone(draftValue.groups)
+	}
+
+	const existingDraft = UserDraft.get<Flow>('flow', args.path, { workspace })
+	const backendExists = existingDraft
+		? false
+		: await FlowService.existsFlowByPath({ workspace, path: args.path })
+
+	if (existingDraft) {
+		const draft: Flow = {
+			...structuredClone(existingDraft),
+			path: args.path,
+			summary: args.summary ?? existingDraft.summary,
+			value,
+			schema: draftValue.schema ?? existingDraft.schema
+		}
+		UserDraft.save('flow', args.path, draft, { workspace })
+	} else if (backendExists) {
+		const [existing, latestVersion] = await Promise.all([
+			FlowService.getFlowByPathWithDraft({ workspace, path: args.path }),
+			FlowService.getFlowLatestVersion({ workspace, path: args.path })
+		])
+		const base = (existing.draft ?? existing) as Flow
+		const draft: Flow = {
+			...structuredClone(base),
+			path: args.path,
+			summary: args.summary ?? base.summary,
+			value,
+			schema: draftValue.schema ?? base.schema
+		}
+		UserDraft.setDraftAndMeta(
+			'flow',
+			args.path,
+			draft,
+			{ remoteRev: latestVersion.id, remoteDraftRev: existing.draft_created_at },
+			{ workspace }
+		)
+	} else {
+		const draft: Flow = {
+			path: args.path,
+			summary: args.summary ?? '',
+			value,
+			schema: draftValue.schema ?? emptySchema(),
+			edited_by: '',
+			edited_at: '',
+			archived: false,
+			extra_perms: {}
+		}
+		UserDraft.save('flow', args.path, draft, { workspace })
+	}
+
+	return finishDraftWrite(
+		getRequiredGlobalDraft(workspace, 'flow', args.path),
+		existingDraft !== undefined || backendExists,
+		ctx
+	)
+}
+
 async function loadScriptForEdit(
 	path: string,
 	workspace: string
@@ -1738,14 +1905,12 @@ async function editScript(
 
 	const base = await loadScriptForEdit(path, ctx.workspace)
 	const updated = findAndReplace(base.content, oldString, newString, replaceAll, 'script source')
-	return writeDraft(
+	return writeScriptDraft(
 		{
-			type: 'script',
 			path,
 			summary: base.summary,
 			language: base.language,
-			value: updated,
-			isDraft: true
+			content: updated
 		},
 		ctx
 	)
@@ -1802,18 +1967,16 @@ async function patchFlowJson(
 	const patchedEditable = validateEditableFlowJson(parsedValue)
 	const newFlowValue = applyEditableFlowJsonToFlow(base.flow.value, patchedEditable, session)
 
-	return writeDraft(
+	return writeFlowDraft(
 		{
-			type: 'flow',
 			path,
 			summary: base.summary,
-			value: {
+			flow: {
 				...base.flow,
 				value: newFlowValue,
 				schema: patchedEditable.schema,
 				groups: patchedEditable.groups
-			},
-			isDraft: true
+			}
 		},
 		ctx
 	)
@@ -1860,13 +2023,11 @@ async function setFlowModuleCode(
 	}
 	session.set(args.module_id, args.code)
 	const newFlowValue = applyEditableFlowJsonToFlow(base.flow.value, editable, session)
-	return writeDraft(
+	return writeFlowDraft(
 		{
-			type: 'flow',
 			path: args.path,
 			summary: base.summary,
-			value: { ...base.flow, value: newFlowValue },
-			isDraft: true
+			flow: { ...base.flow, value: newFlowValue }
 		},
 		ctx
 	)
