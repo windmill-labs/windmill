@@ -798,6 +798,243 @@ async fn test_compare_workspaces_trigger_and_schedule(db: Pool<Postgres>) -> any
     Ok(())
 }
 
+/// End-to-end regression for WIN-1975 against the real EE tally path.
+/// Reproduces the reporter's exact steps with the API: fork → create script
+/// in folder1 → rename to folder2 → compare. Folder2 only exists in the
+/// fork, so before the fix the source-scoped authed in `filter_visible_diffs`
+/// hid the script and the response set `all_ahead_items_visible = false`.
+///
+/// Gated on `private` because the OSS build of `handle_deployment_metadata`
+/// is a no-op (`windmill-git-sync/src/git_sync_oss.rs`) — without it the
+/// `workspace_diff` rows never get written and the test would assert against
+/// an empty diff set.
+#[cfg(feature = "private")]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_compare_workspaces_rename_visibility_ee_e2e(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+    let admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    let non_admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN_2".to_string(),
+    );
+
+    // The base fixture pre-populates `skip_workspace_diff_tally` for every
+    // workspace existing at migration time — that bypasses the diff
+    // accounting. Clear it so tally + compare run normally for this test.
+    sqlx::query!("DELETE FROM skip_workspace_diff_tally")
+        .execute(&db)
+        .await?;
+
+    // ------ Fork the existing test-workspace.
+    let resp = admin
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({
+            "id": "wm-fork-rename-test",
+            "name": "Rename Fork",
+            "color": "#0000ff"
+        }))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "fork creation failed: {}",
+        resp.status()
+    );
+
+    // Non-admin user must be a member of both workspaces. They already are in
+    // test-workspace (base fixture); add them to the fork. Same username as
+    // the source so RLS extra_perms keys still resolve.
+    sqlx::query!(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role)
+         VALUES ('wm-fork-rename-test', 'test2@windmill.dev', 'test-user-2', false, 'User')"
+    )
+    .execute(&db)
+    .await?;
+
+    // ------ Non-admin creates folder1 in the fork (owner = self).
+    let resp = non_admin
+        .client()
+        .post(&format!("{base_url}/w/wm-fork-rename-test/folders/create"))
+        .json(&json!({"name": "folder1", "owners": [], "summary": ""}))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "folder1 create failed: {} — {}",
+        resp.status(),
+        resp.text().await?
+    );
+
+    // ------ Deploy a script in folder1 (initial deploy, no parent_hash).
+    let resp = non_admin
+        .client()
+        .post(&format!("{base_url}/w/wm-fork-rename-test/scripts/create"))
+        .json(&json!({
+            "path": "f/folder1/myscript",
+            "summary": "renamed test",
+            "description": "",
+            // Use bash so we don't trigger the dependency-job code path —
+            // create_script defers `handle_deployment_metadata` (and the
+            // tally) to the dep job for languages that need lock generation
+            // (Deno/Bun/Python/etc), which never runs in this test.
+            "content": "echo 1",
+            "language": "bash",
+            "schema": {"type": "object", "properties": {}, "required": []},
+            "deployment_message": "initial",
+        }))
+        .send()
+        .await?;
+    let status = resp.status();
+    let initial_hash = resp.text().await?;
+    assert!(
+        status.is_success(),
+        "initial script create failed: {} — {}",
+        status,
+        initial_hash
+    );
+
+    // ------ Create folder2 in fork.
+    let resp = non_admin
+        .client()
+        .post(&format!("{base_url}/w/wm-fork-rename-test/folders/create"))
+        .json(&json!({"name": "folder2", "owners": [], "summary": ""}))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "folder2 create failed: {}",
+        resp.status()
+    );
+
+    // ------ Rename: re-deploy the same script at the new path with the old
+    // hash as parent_hash. This is exactly what the script editor sends when
+    // the user changes the path field and clicks Deploy. The EE tally upserts
+    // a workspace_diff row for both the new path AND the renamed_from path.
+    let resp = non_admin
+        .client()
+        .post(&format!("{base_url}/w/wm-fork-rename-test/scripts/create"))
+        .json(&json!({
+            "path": "f/folder2/myscript",
+            "summary": "renamed test",
+            "description": "",
+            // Use bash so we don't trigger the dependency-job code path —
+            // create_script defers `handle_deployment_metadata` (and the
+            // tally) to the dep job for languages that need lock generation
+            // (Deno/Bun/Python/etc), which never runs in this test.
+            "content": "echo 1",
+            "language": "bash",
+            "schema": {"type": "object", "properties": {}, "required": []},
+            // The API returns hash as hex (ScriptHash Serialize impl); pass it
+            // through verbatim — the backend deserializer parses hex back.
+            "parent_hash": initial_hash.trim().trim_matches('"'),
+            "deployment_message": "rename to folder2",
+        }))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "rename failed: {} — {}",
+        resp.status(),
+        resp.text().await?
+    );
+
+    // The tally is fired via `tokio::spawn` in `handle_deployment_metadata`
+    // (windmill-git-sync/src/git_sync_ee.rs) — wait specifically for the
+    // renamed script row to appear so we don't race the actual case under
+    // test.
+    let mut script_diff_written = false;
+    for _ in 0..40 {
+        let row_count: i64 = sqlx::query_scalar!(
+            "SELECT COUNT(*) AS \"count!\" FROM workspace_diff
+             WHERE source_workspace_id = 'test-workspace'
+               AND fork_workspace_id = 'wm-fork-rename-test'
+               AND kind = 'script'
+               AND path = 'f/folder2/myscript'"
+        )
+        .fetch_one(&db)
+        .await?;
+        if row_count >= 1 {
+            script_diff_written = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(
+        script_diff_written,
+        "tally never wrote the renamed-script row to workspace_diff"
+    );
+
+    // ------ Compare as the non-admin who owns folder2 in the fork. With the
+    // bug, the source-scoped authed has no folder2 entry → fork visibility
+    // query hides f/folder2/myscript → all_ahead_items_visible flips to
+    // false. With the fix, the fork-scoped authed sees folder2 and the
+    // visibility check passes.
+    let comparison: serde_json::Value = non_admin
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-rename-test"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    assert_eq!(
+        comparison["all_ahead_items_visible"].as_bool(),
+        Some(true),
+        "non-admin owner of fork-only folder should see ahead items as visible; got {comparison}"
+    );
+
+    let diffs = comparison["diffs"].as_array().unwrap();
+    assert!(
+        diffs
+            .iter()
+            .any(|d| d["path"] == "f/folder2/myscript" && d["kind"] == "script"),
+        "renamed script at f/folder2/myscript should appear in diffs; got {diffs:?}"
+    );
+    // The renamed_from row (f/folder1/myscript) must NOT appear: both sides'
+    // archived=false views show it missing, so compare_two_scripts returns
+    // has_changes=false and the row is deleted. Keep an explicit assertion
+    // so a future regression that leaks the old path is caught here.
+    assert!(
+        !diffs
+            .iter()
+            .any(|d| d["path"] == "f/folder1/myscript" && d["kind"] == "script"),
+        "renamed-from path f/folder1/myscript should be cleaned up; got {diffs:?}"
+    );
+
+    // ------ Also confirm the superadmin path still works (this used to be
+    // the only path that worked because RLS bypass masked the bug).
+    let comparison: serde_json::Value = admin
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-rename-test"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        comparison["all_ahead_items_visible"].as_bool(),
+        Some(true),
+        "superadmin must always see all ahead items: {comparison}"
+    );
+
+    Ok(())
+}
+
 /// Regression test for WIN-1975. A non-admin user creating a script in a fork-
 /// only folder used to get the spurious
 /// "this fork has changes not visible to your user" warning because
