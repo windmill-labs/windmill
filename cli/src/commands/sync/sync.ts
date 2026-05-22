@@ -2503,14 +2503,8 @@ export async function pull(
     }
 
     if (opts.onlyCreateBranch) {
-      gitSyncDeployPush({
-        items: deployItems,
-        authorName: process.env["WM_USERNAME"] || "windmill",
-        authorEmail: process.env["WM_EMAIL"] || "windmill@windmill.dev",
-        committerName: opts.gitCommitterName,
-        committerEmail: opts.gitCommitterEmail,
-        onlyCreateBranch: true,
-      });
+      // Branch is checked out locally; the caller pushes it. Symmetric with
+      // the non-onlyCreateBranch path: CLI does branch + pull, never push.
       return;
     }
   }
@@ -2982,19 +2976,11 @@ export async function pull(
     log.warn(`Failed to pull shared UI folder: ${e}`);
   }
 
-  // Git-sync deployment-callback mode: commit the pulled files and push the
-  // current branch (the wm_deploy/fork branch checked out above, or the base
-  // branch in workspace-wide mode).
-  if (opts.gitDeployItems !== undefined && !opts.onlyCreateBranch) {
-    const deployItems: GitSyncDeployItem[] = JSON.parse(opts.gitDeployItems);
-    gitSyncDeployPush({
-      items: deployItems,
-      authorName: process.env["WM_USERNAME"] || "windmill",
-      authorEmail: process.env["WM_EMAIL"] || "windmill@windmill.dev",
-      committerName: opts.gitCommitterName,
-      committerEmail: opts.gitCommitterEmail,
-    });
-  }
+  // Git-sync deployment-callback mode stops here: branch checkout + pull have
+  // happened, but commit + push are the caller's job. The hub script does
+  // them in-process with `set_gpg_signing_secret` so the agent's pre-warmed
+  // passphrase cache is still warm at sign time (WIN-1974). `gitSyncDeployPush`
+  // stays exported for callers that want the same commit/push behavior.
 }
 
 // Internal git-sync deployment-callback entrypoint. Invoked only by the
