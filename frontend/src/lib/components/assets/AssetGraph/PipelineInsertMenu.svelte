@@ -59,17 +59,18 @@
 		languages = [],
 		pathPrefix = '',
 		trigger: triggerSnippet,
-		placement = 'bottom'
+		placement = 'bottom',
+		defaultPathSuffix
 	}: Props = $props()
 
-	const EMPTY_SELECTED = {
+	const buildEmptySelected = () => ({
 		triggerId: undefined as undefined | string,
 		language: undefined as undefined | ScriptLang,
 		outputId: undefined as undefined | PipelineOutputKind,
-		scriptPath: undefined as undefined | string,
+		scriptPath: `${defaultPathSuffix ?? 'pipeline_script'}_${shortSlug()}`,
 		aiPrompt: undefined as undefined | string
-	}
-	let selected = $state(EMPTY_SELECTED)
+	})
+	let selected = $state(buildEmptySelected())
 
 	let compatibleKinds = $derived.by<PipelineOutputKind[]>(() => {
 		if (!selected.language) return []
@@ -81,6 +82,13 @@
 	)
 
 	let showBottomPanel = $derived(selected.triggerId && selected.language && selected.outputId)
+
+	function shortSlug(len = 4): string {
+		const a = 'abcdefghijklmnopqrstuvwxyz0123456789'
+		let out = ''
+		for (let i = 0; i < len; i++) out += a[Math.floor(Math.random() * a.length)]
+		return out
+	}
 </script>
 
 <Popover
@@ -97,7 +105,7 @@
 		fitViewport: true,
 		overlap: false
 	}}
-	onClose={() => (selected = EMPTY_SELECTED)}
+	onClose={() => (selected = buildEmptySelected())}
 >
 	{#snippet trigger()}
 		{@render triggerSnippet?.()}
@@ -233,6 +241,9 @@
 		<TextInput
 			class="resize-none h-12 !max-h-12"
 			underlyingInputEl="textarea"
+			inputProps={{
+				placeholder: 'Describe what the script should do — leave empty to use a template'
+			}}
 			bind:value={selected.aiPrompt}
 		/>
 	</Label>
