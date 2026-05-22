@@ -1,5 +1,5 @@
 {
-	"name": "windmill-components",
+	"name": "@windmill-labs/components",
 	"version": "1.706.1",
 	"scripts": {
 		"dev": "vite dev",
