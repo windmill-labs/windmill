@@ -482,7 +482,7 @@ const initAppSchema = z.object({
 
 const GLOBAL_SYSTEM_PROMPT = `You are Windmill's global workspace assistant.
 
-You can inspect workspace scripts, flows, schedules, triggers, resources, variables, and apps, then create draft changes in the frontend AI draft store.
+You can inspect workspace scripts, flows, schedules, triggers, resources, variables, and apps, then create local draft changes in the user's editor draft system.
 
 Important rules:
 - write_{script,flow,schedule,trigger,resource,variable} create or overwrite drafts. They do not save, deploy, or mutate workspace items.
@@ -498,7 +498,7 @@ Important rules:
 - Use get_instructions before writing a script, flow, resource, or app. For scripts, pass the target language; when modifying, use the language from the item you read.
 - Schedules, triggers, and variables do not need get_instructions — their tool schemas describe every field.
 - When a required decision is ambiguous, use askUserQuestion with two to six clear answer strings instead of guessing.
-- A workspace item is { type, path, summary?, language?, triggerKind?, value, isDraft }. For scripts, value is the source code string. For flows, read_workspace_item returns value as the compact flow object { modules, schema, preprocessor_module, failure_module, groups }; write_flow takes the same flow fields as top-level tool arguments plus path/summary. For schedules/triggers/resources/variables, value is the full request body for that type. For apps, value is { files, runnables, data?, policy?, custom_path? } with frontend file contents and backend runnable definitions.
+- A workspace item is { type, path, summary?, language?, triggerKind?, value, isDraft }. For scripts, value is the source code string. For flows, read_workspace_item returns value as the compact flow object { modules, schema, preprocessor_module, failure_module, groups }; write_flow takes the same flow fields as top-level tool arguments plus path/summary. For schedules/triggers/resources/variables, value is the full request body for that type. For apps, value is { files, runnables, data? } with frontend file contents and backend runnable definitions.
 - Apps (raw apps): use list_workspace_items with types: ['app'] to find them, read_workspace_item with type 'app' for a metadata summary (file paths + runnable list, no contents), then read_app_file to read individual files. Edit with write_app_file / patch_app_file / delete_app_file for frontend files and write_app_runnable / delete_app_runnable for backend runnables. Frontend file paths start with "/" (e.g. /index.tsx). Backend inline runnables are addressed as "backend/<key>/main.{ts|py}". /wmill.d.ts is generated and cannot be written.
 - To create a new raw app, use init_app. Before calling it, confirm framework (react19 / react18 / svelte5 / vue), path, and summary with the user — do not silently default to react19, even though it is the recommended choice.
 - Apps cannot be deployed from chat. The app editor bundles JS/CSS before save; tell the user to open the app editor to deploy app drafts.
@@ -1166,7 +1166,7 @@ function getFlowInstructions(): string {
 - \`read_workspace_item\` and \`patch_flow_json\` operate on a **compact view** of the flow: every rawscript module's \`value.content\` is replaced with the placeholder \`"inline_script.<moduleId>"\` so inline script bodies don't bloat tool I/O. Schema, groups, preprocessor_module and failure_module are all shown in this view.
 - Inline rawscript content is **not** part of the JSON \`patch_flow_json\` sees. Edits to inline bodies happen via dedicated tools:
   - \`read_flow_module_code(path, module_id)\` — returns the raw inline script content for one module.
-  - \`set_flow_module_code(path, module_id, code)\` — overwrites that module's inline script content; saves to the AI draft.
+  - \`set_flow_module_code(path, module_id, code)\` — overwrites that module's inline script content; saves to the local draft.
 - Use \`patch_flow_json\` for *structural* edits: module ids, paths, input_transforms, branch arrangement, summaries, preprocessor/failure swaps, schema/groups. Use \`set_flow_module_code\` for changes inside a specific rawscript body.
 - \`write_flow\` is for full overwrites / create-from-scratch. Its \`modules\`, \`preprocessor_module\`, and \`failure_module\` arguments use **non-compact** flow modules (rawscript content is the actual code, not a placeholder).
 
@@ -1302,7 +1302,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			listWorkspaceItemsSchema,
 			'list_workspace_items',
-			'List workspace items (scripts, flows, schedules, triggers, resources, variables, apps) and AI drafts. Returns metadata only (no value). Defaults to scripts and flows.'
+			'List workspace items (scripts, flows, schedules, triggers, resources, variables, apps) and local drafts. Returns metadata only (no value). Defaults to scripts and flows.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = listWorkspaceItemsSchema.parse(args)
@@ -1343,7 +1343,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			readWorkspaceItemSchema,
 			'read_workspace_item',
-			'Read one workspace item or AI draft by type and path. Returns the full workspace item including value.'
+			'Read one workspace item or local draft by type and path. Returns the full workspace item including value.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = readWorkspaceItemSchema.parse(args)
@@ -1355,7 +1355,7 @@ export const globalTools: Tool<{}>[] = [
 			const draft = getGlobalDraft(workspace, parsed.type, parsed.path, parsed.trigger_kind)
 			if (draft) {
 				toolCallbacks.setToolStatus(toolId, {
-					content: `Read AI draft ${parsed.type} "${parsed.path}"`
+					content: `Read local draft ${parsed.type} "${parsed.path}"`
 				})
 				return JSON.stringify(serializeWorkspaceItemForRead(draft), null, 2)
 			}
@@ -1377,7 +1377,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeScriptSchema,
 			'write_script',
-			'Create or overwrite an AI draft script. Does not save or deploy. Read the existing script first when overwriting.'
+			'Create or overwrite a local draft script. Does not save or deploy. Read the existing script first when overwriting.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -1391,7 +1391,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeFlowSchema,
 			'write_flow',
-			'Create or overwrite an AI draft flow. Does not save or deploy. Read the existing flow first when overwriting. Uses the same flow-structure arguments as set_flow_json plus path and summary.'
+			'Create or overwrite a local draft flow. Does not save or deploy. Read the existing flow first when overwriting. Uses the same flow-structure arguments as set_flow_json plus path and summary.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -1422,7 +1422,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeScheduleSchema,
 			'write_schedule',
-			'Create or overwrite an AI draft schedule. Does not save or deploy. Provide script_path and is_flow to point to the runnable.',
+			'Create or overwrite a local draft schedule. Does not save or deploy. Provide script_path and is_flow to point to the runnable.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -1437,7 +1437,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeTriggerSchema,
 			'write_trigger',
-			'Create or overwrite an AI draft trigger. Does not save or deploy. Provide kind plus the kind-specific config (including path, script_path, is_flow).',
+			'Create or overwrite a local draft trigger. Does not save or deploy. Provide kind plus the kind-specific config (including path, script_path, is_flow).',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -1480,13 +1480,13 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			deployWorkspaceItemSchema,
 			'deploy_workspace_item',
-			'Persist an AI draft to the workspace by calling the real backend create/update API. This MUTATES the workspace. Requires user confirmation.',
+			'Persist a local draft to the workspace by calling the real backend create/update API. This MUTATES the workspace. Requires user confirmation.',
 			{ strict: false }
 		),
 		showDetails: true,
 		showFade: true,
 		requiresConfirmation: true,
-		confirmationMessage: 'Deploy AI draft to workspace',
+		confirmationMessage: 'Deploy local draft to workspace',
 		fn: async (ctx) => {
 			const parsed = deployWorkspaceItemSchema.parse(ctx.args)
 			return deployDraft(parsed, ctx)
@@ -1496,7 +1496,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			deleteWorkspaceItemSchema,
 			'delete_workspace_item',
-			'Permanently delete a workspace item by path. This MUTATES the workspace and is irreversible. Also clears any matching AI draft. Requires user confirmation.'
+			'Permanently delete a workspace item by path. This MUTATES the workspace and is irreversible. Also clears any matching local draft. Requires user confirmation.'
 		),
 		showDetails: true,
 		showFade: true,
@@ -1511,7 +1511,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeResourceSchema,
 			'write_resource',
-			'Create or overwrite an AI draft resource. Does not save or deploy. Reference secret values via $var:path/to/variable; create the variable separately with write_variable.',
+			'Create or overwrite a local draft resource. Does not save or deploy. Reference secret values via $var:path/to/variable; create the variable separately with write_variable.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -1526,7 +1526,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeVariableSchema,
 			'write_variable',
-			'Create or overwrite an AI draft variable. Does not save or deploy. Use is_secret: true for secret values. After deploy, reference from a resource as $var:path/to/variable.',
+			'Create or overwrite a local draft variable. Does not save or deploy. Use is_secret: true for secret values. After deploy, reference from a resource as $var:path/to/variable.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -1570,7 +1570,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			readFlowModuleCodeSchema,
 			'read_flow_module_code',
-			'Read the inline rawscript content of one flow module by id. Reads from the AI draft when one exists, otherwise from the workspace flow. Use this instead of patch_flow_json when you only need to inspect an inline script body.'
+			'Read the inline rawscript content of one flow module by id. Reads from the local draft when one exists, otherwise from the workspace flow. Use this instead of patch_flow_json when you only need to inspect an inline script body.'
 		),
 		fn: async (ctx) => {
 			const parsed = readFlowModuleCodeSchema.parse(ctx.args)
@@ -1581,7 +1581,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			setFlowModuleCodeSchema,
 			'set_flow_module_code',
-			'Overwrite the inline rawscript content of one flow module by id. Saves to the AI draft only — does not deploy. Use this for inline script body changes; structural changes (module ids, paths, input_transforms, branches) go through patch_flow_json.'
+			'Overwrite the inline rawscript content of one flow module by id. Saves to the local draft only — does not deploy. Use this for inline script body changes; structural changes (module ids, paths, input_transforms, branches) go through patch_flow_json.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -1609,7 +1609,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			readAppFileSchema,
 			'read_app_file',
-			'Read one frontend file or inline backend runnable script from a raw app. Use file_path "/foo.tsx" for frontend files and "backend/<key>/main.{ts|py}" for inline runnables. Prefers the AI draft when one exists.'
+			'Read one frontend file or inline backend runnable script from a raw app. Use file_path "/foo.tsx" for frontend files and "backend/<key>/main.{ts|py}" for inline runnables. Prefers the local draft when one exists.'
 		),
 		fn: async (ctx) => {
 			const parsed = readAppFileSchema.parse(ctx.args)
@@ -1620,7 +1620,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeAppFileSchema,
 			'write_app_file',
-			'Create or overwrite a frontend file in an app draft. Saves to the AI draft only — does not deploy. First write snapshots the workspace app onto the draft.'
+			'Create or overwrite a frontend file in an app draft. Saves to the local draft only — does not deploy. First write snapshots the workspace app onto the draft.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -1634,7 +1634,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			deleteAppFileSchema,
 			'delete_app_file',
-			'Remove a frontend file from an app draft. Saves to the AI draft only — does not deploy.'
+			'Remove a frontend file from an app draft. Saves to the local draft only — does not deploy.'
 		),
 		fn: async (ctx) => {
 			const parsed = deleteAppFileSchema.parse(ctx.args)
@@ -1645,7 +1645,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			patchAppFileSchema,
 			'patch_app_file',
-			'Find/replace exact text in a frontend file or inline backend runnable script. Saves the result to the AI draft.'
+			'Find/replace exact text in a frontend file or inline backend runnable script. Saves the result to the local draft.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -1659,7 +1659,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeAppRunnableSchema,
 			'write_app_runnable',
-			'Create or overwrite a backend runnable in an app draft. Saves to the AI draft only — does not deploy. Re-derives the app policy after the change.',
+			'Create or overwrite a backend runnable in an app draft. Saves to the local draft only — does not deploy. Re-derives the app policy after the change.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -1674,7 +1674,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			deleteAppRunnableSchema,
 			'delete_app_runnable',
-			'Remove a backend runnable from an app draft. Saves to the AI draft only — does not deploy. Re-derives the app policy after the change.'
+			'Remove a backend runnable from an app draft. Saves to the local draft only — does not deploy. Re-derives the app policy after the change.'
 		),
 		fn: async (ctx) => {
 			const parsed = deleteAppRunnableSchema.parse(ctx.args)
@@ -2267,7 +2267,7 @@ async function initApp(
 
 	if (getGlobalDraft(workspace, 'app', path)) {
 		throw new Error(
-			`An AI draft for app "${path}" already exists. Use write_app_file / write_app_runnable to modify it, or delete the existing draft first.`
+			`A local draft for app "${path}" already exists. Use write_app_file / write_app_runnable to modify it, or delete the existing draft first.`
 		)
 	}
 	if (await AppService.existsApp({ workspace, path })) {
@@ -2303,7 +2303,7 @@ async function initApp(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Initialized AI draft app "${path}" from the ${framework} template with a starter runnable "${STARTER_RUNNABLE_KEY}". Use write_app_file / write_app_runnable to evolve the draft.`,
+			message: `Initialized local draft app "${path}" from the ${framework} template with a starter runnable "${STARTER_RUNNABLE_KEY}". Use write_app_file / write_app_runnable to evolve the draft.`,
 			item: stored
 		},
 		null,
@@ -2365,7 +2365,7 @@ async function writeAppFile(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Updated AI draft app "${args.path}" with frontend file "${target.filePath}".`,
+			message: `Updated local draft app "${args.path}" with frontend file "${target.filePath}".`,
 			item: stored
 		},
 		null,
@@ -2405,7 +2405,7 @@ async function deleteAppFile(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Removed "${target.filePath}" from AI draft app "${args.path}".`,
+			message: `Removed "${target.filePath}" from local draft app "${args.path}".`,
 			item: stored
 		},
 		null,
@@ -2479,7 +2479,7 @@ async function patchAppFile(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Patched "${target.filePath}" in AI draft app "${path}".`,
+			message: `Patched "${target.filePath}" in local draft app "${path}".`,
 			item: stored
 		},
 		null,
@@ -2518,7 +2518,7 @@ async function writeAppRunnable(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Updated AI draft app "${path}" with runnable "${key}".`,
+			message: `Updated local draft app "${path}" with runnable "${key}".`,
 			item: stored
 		},
 		null,
@@ -2552,7 +2552,7 @@ async function deleteAppRunnable(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Removed runnable "${key}" from AI draft app "${path}".`,
+			message: `Removed runnable "${key}" from local draft app "${path}".`,
 			item: stored
 		},
 		null,
@@ -2646,7 +2646,7 @@ async function deployDraft(
 
 	const draft = getGlobalDraft(workspace, type, path, triggerKind)
 	if (!draft) {
-		throw new Error(`No AI draft found for ${type} "${path}".`)
+		throw new Error(`No local draft found for ${type} "${path}".`)
 	}
 	if (draft.value === undefined) {
 		throw new Error(`Draft ${type} "${path}" has no value to deploy.`)
@@ -2743,7 +2743,7 @@ async function deployDraft(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Deployed AI draft ${type} "${path}" to the workspace. Draft removed from the AI draft store.`,
+			message: `Deployed local draft ${type} "${path}" to the workspace. Draft removed from the local draft system.`,
 			type,
 			path,
 			triggerKind
@@ -2801,7 +2801,7 @@ async function deleteWorkspaceItem(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Deleted ${type} "${path}" from the workspace. Any matching AI draft was also cleared.`,
+			message: `Deleted ${type} "${path}" from the workspace. Any matching local draft was also cleared.`,
 			type,
 			path,
 			triggerKind

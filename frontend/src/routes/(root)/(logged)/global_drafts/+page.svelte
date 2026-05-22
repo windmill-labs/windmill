@@ -43,7 +43,7 @@
 	<div class="p-6 max-w-5xl mx-auto">
 		<div class="flex items-center justify-between mb-6">
 			<div>
-				<h1 class="text-2xl font-semibold">Global AI drafts</h1>
+				<h1 class="text-2xl font-semibold">Global local drafts</h1>
 				<p class="text-sm text-tertiary">
 					Dev-only inspector for global local drafts.
 				</p>
