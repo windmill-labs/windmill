@@ -424,9 +424,9 @@ export const UserDraft = {
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) {
-			return unwrap(entry.state.val as StoredDraft<V> | undefined)
+			return snapshotDraftValue(unwrap(entry.state.val as StoredDraft<V> | undefined))
 		}
-		return unwrap(readPersisted<V>(localStorageKey(ws, itemKind, path)))
+		return snapshotDraftValue(unwrap(readPersisted<V>(localStorageKey(ws, itemKind, path))))
 	},
 
 	/**

@@ -217,6 +217,16 @@ describe('UserDraft.use() — observer sync', () => {
 		expect(storedShape('userdraft/w/test_ws/flow/u/me/observed')).toBe(wrapped(9))
 	})
 
+	it('get() returns a cloneable snapshot of live handle values', () => {
+		const handle = UserDraft.use<{ path: string; nested: { value: number } }>('script', '')
+		handle.draft = { path: 'u/me/live', nested: { value: 1 } }
+
+		const draft = UserDraft.get<{ path: string; nested: { value: number } }>('script', '')
+		expect(draft).toEqual({ path: 'u/me/live', nested: { value: 1 } })
+		expect(draft).not.toBe(handle.draft)
+		expect(() => structuredClone(draft)).not.toThrow()
+	})
+
 	it('remove() clears localStorage without touching the in-memory handle', () => {
 		// Seed localStorage so the live handle initialises from it.
 		localStorage.setItem('userdraft/w/test_ws/flow/u/me/removed', wrapped(1))
