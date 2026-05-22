@@ -6372,11 +6372,23 @@ async fn compare_workspaces(
         }
     }
 
+    // The authed in `authed` is loaded for the source workspace (the one in the
+    // URL path). Its `folders`/`groups`/`is_admin` reflect membership in the
+    // source workspace only. Using it as the RLS context when querying the
+    // fork's tables would hide items the user can only see via fork-specific
+    // permissions (e.g. a folder the user owns in the fork but that does not
+    // exist in the source), causing the spurious
+    // "this fork has changes not visible to your user" warning. Build a
+    // matching authed for the fork so each side's visibility check uses the
+    // right RLS context.
+    let fork_authed = load_workspace_authed(&db, &authed, &fork_workspace_id).await?;
     let visible_diffs = filter_visible_diffs(
         &confirmed_diffs,
         &source_workspace_id,
         &fork_workspace_id,
-        user_db.begin(&authed).await?,
+        &authed,
+        &fork_authed,
+        &user_db,
     )
     .await?;
 
@@ -6443,11 +6455,90 @@ async fn compare_workspaces(
     }));
 }
 
+/// Build an `ApiAuthed` for the same user but scoped to a different workspace.
+///
+/// Reloads `is_admin`, `groups`, and `folders` from the target workspace's
+/// `usr` / `group_` / `folder` tables (keyed by the caller's email) so the
+/// returned authed can be used as the RLS context for queries against that
+/// workspace. `is_admin` is OR'd with the user's superadmin status so cross-
+/// workspace superadmins keep their RLS bypass.
+///
+/// If the user is not a member of `workspace_id`, returns an authed with no
+/// folders/groups/operator/admin (except for superadmins, who stay admin) —
+/// i.e. they will only see what RLS explicitly allows for unknown users.
+async fn load_workspace_authed(
+    db: &DB,
+    base_authed: &ApiAuthed,
+    workspace_id: &str,
+) -> Result<ApiAuthed> {
+    let mut conn = db
+        .acquire()
+        .await
+        .map_err(|e| Error::internal_err(e.to_string()))?;
+
+    let is_super_admin =
+        windmill_common::auth::is_super_admin_email(db, &base_authed.email).await?;
+
+    let user_row = sqlx::query!(
+        "SELECT username, is_admin, operator FROM usr
+         WHERE workspace_id = $1 AND email = $2 AND disabled = false",
+        workspace_id,
+        &base_authed.email
+    )
+    .fetch_optional(&mut *conn)
+    .await?;
+
+    let Some(user_row) = user_row else {
+        return Ok(ApiAuthed {
+            email: base_authed.email.clone(),
+            username: base_authed.username.clone(),
+            is_admin: is_super_admin,
+            is_operator: false,
+            groups: vec![],
+            folders: vec![],
+            scopes: base_authed.scopes.clone(),
+            username_override: base_authed.username_override.clone(),
+            token_prefix: base_authed.token_prefix.clone(),
+            read_only: base_authed.read_only,
+        });
+    };
+
+    let groups = windmill_common::auth::get_groups_for_user(
+        workspace_id,
+        &user_row.username,
+        &base_authed.email,
+        &mut *conn,
+    )
+    .await?;
+    let folders = windmill_common::auth::get_folders_for_user(
+        workspace_id,
+        &user_row.username,
+        &groups,
+        &mut *conn,
+    )
+    .await?;
+
+    Ok(ApiAuthed {
+        email: base_authed.email.clone(),
+        username: user_row.username,
+        is_admin: is_super_admin || user_row.is_admin,
+        is_operator: user_row.operator,
+        groups,
+        folders,
+        scopes: base_authed.scopes.clone(),
+        username_override: base_authed.username_override.clone(),
+        token_prefix: base_authed.token_prefix.clone(),
+        read_only: base_authed.read_only,
+    })
+}
+
 async fn filter_visible_diffs(
     confirmed_diffs: &[WorkspaceDiffRow],
     source_workspace_id: &str,
     fork_workspace_id: &str,
-    mut tx: Transaction<'static, Postgres>,
+    source_authed: &ApiAuthed,
+    fork_authed: &ApiAuthed,
+    user_db: &UserDB,
 ) -> Result<Vec<WorkspaceDiffRow>> {
     // Step 1: Group paths by (workspace, kind)
     let mut source_items: HashMap<&str, Vec<&str>> = HashMap::new();
@@ -6462,9 +6553,23 @@ async fn filter_visible_diffs(
         }
     }
 
-    // Step 2: Batch query for each (workspace, kind) combination
-    let source_visible = query_visible_items(&mut tx, source_workspace_id, &source_items).await?;
-    let fork_visible = query_visible_items(&mut tx, fork_workspace_id, &fork_items).await?;
+    // Step 2: Batch query for each (workspace, kind) combination, each in its
+    // own transaction so RLS uses the right authed for each side. The fork's
+    // authed picks up fork-only folders/groups; without this split the fork
+    // queries would run with the source workspace's permissions and miss any
+    // item the user can only reach through fork-specific permissions.
+    let source_visible = {
+        let mut tx = user_db.clone().begin(source_authed).await?;
+        let visible = query_visible_items(&mut tx, source_workspace_id, &source_items).await?;
+        tx.commit().await?;
+        visible
+    };
+    let fork_visible = {
+        let mut tx = user_db.clone().begin(fork_authed).await?;
+        let visible = query_visible_items(&mut tx, fork_workspace_id, &fork_items).await?;
+        tx.commit().await?;
+        visible
+    };
 
     // Step 3: Filter diffs based on visibility
     let visible_diffs: Vec<WorkspaceDiffRow> = confirmed_diffs

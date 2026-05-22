@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.706.1](https://github.com/windmill-labs/windmill/compare/v1.706.0...v1.706.1) (2026-05-22)
+
+
+### Bug Fixes
+
+* fork compare visibility for non-admins and stale-token superadmins ([#9283](https://github.com/windmill-labs/windmill/issues/9283)) ([8272244](https://github.com/windmill-labs/windmill/commit/82722449e79da0b4b0ad4142aec7e7965e9ff236))
+* **git-sync:** bump to hub/28234 with stateless gpg.program wrapper (WIN-1974) ([#9282](https://github.com/windmill-labs/windmill/issues/9282)) ([89a2f07](https://github.com/windmill-labs/windmill/commit/89a2f07218818b95238b4a4484deab3138099672))
+* **nsjail:** gate unix-symlink test behind cfg(unix) for Windows build ([#9280](https://github.com/windmill-labs/windmill/issues/9280)) ([72e2c3a](https://github.com/windmill-labs/windmill/commit/72e2c3a6b3e0cb0f5bddf8291ae18bb8cf55ec28))
+
 ## [1.706.0](https://github.com/windmill-labs/windmill/compare/v1.705.0...v1.706.0) (2026-05-21)
 
 
