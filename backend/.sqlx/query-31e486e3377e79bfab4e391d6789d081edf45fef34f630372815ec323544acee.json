@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, created_by)\n         VALUES ('test-workspace', 'folder1', 'folder1', ARRAY['u/test-user-2']::varchar[], $1, '', 'test-user-2')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "31e486e3377e79bfab4e391d6789d081edf45fef34f630372815ec323544acee"
+}
