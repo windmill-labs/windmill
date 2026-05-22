@@ -39,6 +39,44 @@
 		selected = $bindable()
 	}: Props = $props()
 
+	// `selected` stays a bindable prop so Svelte callers can still use
+	// `bind:selected`, but every internal read/write goes through this local
+	// `_selected` $state instead of touching the prop directly.
+	//
+	// This component is also exported as a React component via `reactify`,
+	// which has no equivalent of Svelte's `bind:` — a React parent cannot
+	// two-way bind a prop. Mutating the `$bindable` prop from inside the
+	// component would not propagate back to a React parent, so the component
+	// must own its selection state locally. The two effects below keep
+	// `_selected` and the `selected` prop synced in both directions, so
+	// `bind:selected` keeps working for Svelte consumers while React consumers
+	// still get a fully functional component.
+	let _selected = $state<string | undefined>(selected)
+
+	// Sync prop -> local: pick up external changes to `selected`.
+	//
+	// `reactify` re-pushes props on every React render, and React never passes
+	// `selected`, so Svelte reverts this `$bindable` prop to its `undefined`
+	// fallback on each re-render. Ignore that spurious reset, otherwise it
+	// would clobber `_selected` and unmount the form. Real callers (the Svelte
+	// `ResourceEditorDrawer`/`WsSpecificVersions` `bind:selected`) only ever
+	// set `selected` to a concrete workspace id, never `undefined`.
+	$effect(() => {
+		const next = selected
+		if (next === undefined) return
+		untrack(() => {
+			if (_selected !== next) _selected = next
+		})
+	})
+
+	// Sync local -> prop: mirror internal changes back for `bind:selected`.
+	$effect(() => {
+		const next = _selected
+		untrack(() => {
+			if (selected !== next) selected = next
+		})
+	})
+
 	type ResourceState = {
 		path: string
 		description: string
@@ -135,7 +173,7 @@
 	let perWsValid: Record<string, boolean> = $state({})
 
 	const deployToResource = resource(
-		() => selected,
+		() => _selected,
 		async (ws) =>
 			ws ? (await WorkspaceService.getDeployTo({ workspace: ws })).deploy_to : undefined
 	)
@@ -160,18 +198,18 @@
 	})
 	let loadingSchema = $derived(resourceTypeResource.loading)
 
-	let current = $derived(selected ? states[selected]?.draft : undefined)
+	let current = $derived(_selected ? states[_selected]?.draft : undefined)
 	let resourceToEdit: Resource | undefined = $derived(
-		selected ? fetchedResources[selected] : undefined
+		_selected ? fetchedResources[_selected] : undefined
 	)
 	let can_write = $derived.by(() => {
-		if (!selected) return true
-		const r = fetchedResources[selected]
+		if (!_selected) return true
+		const r = fetchedResources[_selected]
 		if (!r) return true
 		return canWrite(
 			current?.path ?? initialPath,
 			r.extra_perms ?? {},
-			perWsUser[selected] ?? $userStore
+			perWsUser[_selected] ?? $userStore
 		)
 	})
 
@@ -205,12 +243,11 @@
 		})
 	)
 
-	// Bootstrap: ensure selected is set on mount (edit or new)
+	// Bootstrap: ensure `_selected` is set on mount (edit or new)
 	$effect(() => {
 		if (!effectiveWorkspace) return
 		untrack(() => {
-			if (selected !== undefined) return
-			selected = effectiveWorkspace
+			_selected = effectiveWorkspace
 			if (!initialPath) {
 				// New resource
 				const s: ResourceState = {
@@ -231,7 +268,7 @@
 
 	// Lazy-fetch the resource for the selected workspace when not already cached
 	$effect(() => {
-		const ws = selected
+		const ws = _selected
 		if (!ws || !initialPath) return
 		if (ws in states) return
 		untrack(() => {
@@ -318,8 +355,8 @@
 	})
 
 	$effect(() => {
-		if (selected !== undefined) {
-			perWsValid[selected] = isValid && jsonError == ''
+		if (_selected !== undefined) {
+			perWsValid[_selected] = isValid && jsonError == ''
 		}
 	})
 
