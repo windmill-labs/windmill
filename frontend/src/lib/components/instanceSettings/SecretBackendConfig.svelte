@@ -145,17 +145,37 @@
 		}
 	}
 
+	function formatMigrationFailures(
+		failures: Array<{ workspace_id: string; path: string; error: string }> | undefined
+	): string {
+		if (!failures || failures.length === 0) return ''
+		const maxShown = 5
+		const shown = failures
+			.slice(0, maxShown)
+			.map((f) => `• ${f.workspace_id}/${f.path}: ${f.error}`)
+			.join('\n')
+		const extra =
+			failures.length > maxShown
+				? `\n…and ${failures.length - maxShown} more (see backend logs)`
+				: ''
+		return `\nFailures:\n${shown}${extra}`
+	}
+
 	async function migrateSecretsToVault() {
 		if (!$values['secret_backend'] || $values['secret_backend'].type !== 'HashiCorpVault') return
 		migratingToVault = true
 		try {
 			const report = await SettingService.migrateSecretsToVault({ requestBody: getVaultSettings() })
-			if (report.failed_count > 0)
+			if (report.failed_count > 0) {
+				console.error('Vault migration failures:', report.failures)
 				sendUserToast(
-					`Migration: ${report.migrated_count}/${report.total_secrets} migrated, ${report.failed_count} failed`,
-					true
+					`Migration: ${report.migrated_count}/${report.total_secrets} migrated, ${report.failed_count} failed.${formatMigrationFailures(report.failures)}`,
+					true,
+					undefined,
+					undefined,
+					15000
 				)
-			else
+			} else
 				sendUserToast(`Migrated ${report.migrated_count}/${report.total_secrets} secrets to Vault`)
 		} catch (error: any) {
 			sendUserToast('Failed: ' + error.message, true)
@@ -172,12 +192,16 @@
 			const report = await SettingService.migrateSecretsToDatabase({
 				requestBody: getVaultSettings()
 			})
-			if (report.failed_count > 0)
+			if (report.failed_count > 0) {
+				console.error('Vault->DB migration failures:', report.failures)
 				sendUserToast(
-					`Migration: ${report.migrated_count}/${report.total_secrets} migrated, ${report.failed_count} failed`,
-					true
+					`Migration: ${report.migrated_count}/${report.total_secrets} migrated, ${report.failed_count} failed.${formatMigrationFailures(report.failures)}`,
+					true,
+					undefined,
+					undefined,
+					15000
 				)
-			else
+			} else
 				sendUserToast(
 					`Migrated ${report.migrated_count}/${report.total_secrets} secrets to database`
 				)
