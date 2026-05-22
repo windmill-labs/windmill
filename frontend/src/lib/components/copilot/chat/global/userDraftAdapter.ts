@@ -63,13 +63,6 @@ const GLOBAL_DRAFT_KINDS = [
 const DEFAULT_SCRIPT_LANGUAGE: ScriptLang = 'bun'
 const DEFAULT_APP_DATA = { tables: [], datatable: undefined, schema: undefined }
 
-export type GlobalDraftSlot<T = unknown> = {
-	itemKind: UserDraftItemKind
-	storagePath: string
-	value: T
-	item: WorkspaceItem
-}
-
 type ResourceDraftState = {
 	path: string
 	description: string
@@ -104,15 +97,6 @@ function normalizeAppDraftValue(value: AppDraftValue): AppDraftValue {
 
 function getItemSummary(value: unknown): string | undefined {
 	return ((value as { summary?: string | null } | undefined)?.summary ?? undefined) || undefined
-}
-
-function pathFromDraftValue(value: unknown): string | undefined {
-	const path = (value as { path?: unknown } | undefined)?.path
-	return typeof path === 'string' && path.length > 0 ? path : undefined
-}
-
-function effectiveDraftPath(entry: UserDraftEntry): string {
-	return pathFromDraftValue(entry.value) ?? entry.path
 }
 
 function itemKindFor(
@@ -237,26 +221,23 @@ function variableDraftToWorkspaceItem(path: string, draft: VariableDraftState): 
 }
 
 function userDraftEntryToWorkspaceItem(entry: UserDraftEntry): WorkspaceItem | undefined {
-	const path = effectiveDraftPath(entry)
-	if (!path) return undefined
-
 	switch (entry.itemKind) {
 		case 'script':
-			return scriptDraftToWorkspaceItem(path, entry.value as NewScript)
+			return scriptDraftToWorkspaceItem(entry.path, entry.value as NewScript)
 		case 'flow':
-			return flowDraftToWorkspaceItem(path, entry.value as Flow)
+			return flowDraftToWorkspaceItem(entry.path, entry.value as Flow)
 		case 'raw_app':
-			return appDraftToWorkspaceItem(path, entry.value as AppDraftValue)
+			return appDraftToWorkspaceItem(entry.path, entry.value as AppDraftValue)
 		case 'trigger_schedule':
-			return scheduleDraftToWorkspaceItem(path, entry.value as NewSchedule)
+			return scheduleDraftToWorkspaceItem(entry.path, entry.value as NewSchedule)
 		case 'resource':
-			return resourceDraftToWorkspaceItem(path, entry.value as ResourceDraftState)
+			return resourceDraftToWorkspaceItem(entry.path, entry.value as ResourceDraftState)
 		case 'variable':
-			return variableDraftToWorkspaceItem(path, entry.value as VariableDraftState)
+			return variableDraftToWorkspaceItem(entry.path, entry.value as VariableDraftState)
 		default: {
 			const triggerKind = TRIGGER_KIND_BY_DRAFT_KIND[entry.itemKind]
 			return triggerKind
-				? triggerDraftToWorkspaceItem(triggerKind, path, entry.value as TriggerRequestBody)
+				? triggerDraftToWorkspaceItem(triggerKind, entry.path, entry.value as TriggerRequestBody)
 				: undefined
 		}
 	}
@@ -373,97 +354,42 @@ function itemToDraftValue(item: WorkspaceItem): unknown {
 	}
 }
 
-function draftSlotPriority(entry: UserDraftEntry, path: string): number {
-	const exactStoragePath = entry.path === path
-	if (entry.live && exactStoragePath) return 0
-	if (entry.live) return 1
-	if (exactStoragePath) return 2
-	return 3
-}
-
-export function getGlobalDraftSlot<T = unknown>(
-	workspace: string,
-	type: WorkspaceItemType,
-	path: string,
-	triggerKind?: TriggerKind
-): GlobalDraftSlot<T> | undefined {
-	const itemKind = itemKindFor(type, triggerKind)
-	if (!itemKind) return undefined
-
-	const candidates: Array<{ entry: UserDraftEntry; item: WorkspaceItem; priority: number }> = []
-	for (const entry of UserDraft.list({ workspace, itemKinds: [itemKind] })) {
-		const item = userDraftEntryToWorkspaceItem(entry)
-		if (!item) continue
-		if (item.type !== type) continue
-		if (type === 'trigger' && item.triggerKind !== triggerKind) continue
-		if (item.path !== path && entry.path !== path) continue
-		candidates.push({ entry, item, priority: draftSlotPriority(entry, path) })
-	}
-
-	candidates.sort((a, b) => a.priority - b.priority)
-	const best = candidates[0]
-	if (!best || best.entry.value === undefined) return undefined
-
-	return {
-		itemKind,
-		storagePath: best.entry.path,
-		value: best.entry.value as T,
-		item: best.item
-	}
-}
-
 export function getGlobalDraft(
 	workspace: string,
 	type: WorkspaceItemType,
 	path: string,
 	triggerKind?: TriggerKind
 ): WorkspaceItem | undefined {
-	return getGlobalDraftSlot(workspace, type, path, triggerKind)?.item
+	const itemKind = itemKindFor(type, triggerKind)
+	if (!itemKind) return undefined
+	const draft = UserDraft.get(itemKind, path, { workspace })
+	if (draft === undefined) return undefined
+
+	const entry = { workspace, itemKind, path, value: draft, meta: {}, persisted: false, live: false }
+	return userDraftEntryToWorkspaceItem(entry)
 }
 
 export function listGlobalDrafts(workspace: string): WorkspaceItem[] {
-	const drafts = new Map<string, { item: WorkspaceItem; priority: number }>()
+	const drafts = new Map<string, WorkspaceItem>()
 	for (const entry of UserDraft.list({ workspace, itemKinds: [...GLOBAL_DRAFT_KINDS] })) {
 		const draft = userDraftEntryToWorkspaceItem(entry)
 		if (!draft) continue
-		const key = getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind)
-		const priority = draftSlotPriority(entry, draft.path)
-		const existing = drafts.get(key)
-		if (!existing || priority < existing.priority) {
-			drafts.set(key, { item: draft, priority })
-		}
+		drafts.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), draft)
 	}
-	return Array.from(drafts.values()).map(({ item }) => item)
-}
-
-export function saveGlobalDraftValue<T>(
-	workspace: string,
-	type: WorkspaceItemType,
-	path: string,
-	value: T,
-	triggerKind?: TriggerKind
-): WorkspaceItem {
-	const itemKind = itemKindFor(type, triggerKind)
-	if (!itemKind) {
-		throw new Error(`Draft ${type} "${path}" is missing a UserDraft kind.`)
-	}
-	const storagePath = getGlobalDraftSlot(workspace, type, path, triggerKind)?.storagePath ?? path
-	UserDraft.save(itemKind, storagePath, value, { workspace })
-	const stored = getGlobalDraft(workspace, type, path, triggerKind)
-	if (!stored) {
-		throw new Error(`Could not read written draft ${type} "${path}".`)
-	}
-	return stored
+	return Array.from(drafts.values())
 }
 
 export function setGlobalDraft(workspace: string, item: WorkspaceItem): WorkspaceItem {
-	return saveGlobalDraftValue(
-		workspace,
-		item.type,
-		item.path,
-		itemToDraftValue(item),
-		item.triggerKind
-	)
+	const itemKind = itemKindFor(item.type, item.triggerKind)
+	if (!itemKind) {
+		throw new Error(`Draft ${item.type} "${item.path}" is missing a UserDraft kind.`)
+	}
+	UserDraft.save(itemKind, item.path, itemToDraftValue(item), { workspace })
+	const stored = getGlobalDraft(workspace, item.type, item.path, item.triggerKind)
+	if (!stored) {
+		throw new Error(`Could not read written draft ${item.type} "${item.path}".`)
+	}
+	return stored
 }
 
 export function saveGlobalAppDraft(
@@ -471,8 +397,7 @@ export function saveGlobalAppDraft(
 	path: string,
 	value: AppDraftValue
 ): WorkspaceItem {
-	const storagePath = getGlobalDraftSlot(workspace, 'app', path)?.storagePath ?? path
-	UserDraft.save('raw_app', storagePath, normalizeAppDraftValue(value), { workspace })
+	UserDraft.save('raw_app', path, normalizeAppDraftValue(value), { workspace })
 	const stored = getGlobalDraft(workspace, 'app', path)
 	if (!stored) throw new Error(`Could not read written app draft "${path}".`)
 	return stored
@@ -484,13 +409,9 @@ export function deleteGlobalDraft(
 	path: string,
 	triggerKind?: TriggerKind
 ): void {
-	const slot = getGlobalDraftSlot(workspace, type, path, triggerKind)
-	if (slot) {
-		UserDraft.clear(slot.itemKind, slot.storagePath, { workspace })
-		return
-	}
 	const itemKind = itemKindFor(type, triggerKind)
-	if (itemKind) UserDraft.clear(itemKind, path, { workspace })
+	if (!itemKind) return
+	UserDraft.clear(itemKind, path, { workspace })
 }
 
 export function clearGlobalDrafts(workspace: string): void {
