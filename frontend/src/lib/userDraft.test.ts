@@ -119,6 +119,67 @@ describe('UserDraft.save / get / remove (no observers)', () => {
 	})
 })
 
+describe('UserDraft live editor draft registry', () => {
+	it('stores the live editor storage path and effective path per workspace and kind', () => {
+		UserDraft.setLiveEditorDraft({
+			itemKind: 'script',
+			storagePath: '',
+			effectivePath: 'u/me/generated_script'
+		})
+
+		expect(UserDraft.getLiveEditorDraft('script')).toEqual({
+			workspace: 'test_ws',
+			itemKind: 'script',
+			storagePath: '',
+			effectivePath: 'u/me/generated_script'
+		})
+		expect(UserDraft.listLiveEditorDrafts()).toEqual([
+			{
+				workspace: 'test_ws',
+				itemKind: 'script',
+				storagePath: '',
+				effectivePath: 'u/me/generated_script'
+			}
+		])
+	})
+
+	it('keeps live editor registrations isolated by workspace', () => {
+		UserDraft.setLiveEditorDraft({
+			workspace: 'ws_a',
+			itemKind: 'flow',
+			storagePath: '',
+			effectivePath: 'u/me/a'
+		})
+		UserDraft.setLiveEditorDraft({
+			workspace: 'ws_b',
+			itemKind: 'flow',
+			storagePath: '',
+			effectivePath: 'u/me/b'
+		})
+
+		expect(UserDraft.getLiveEditorDraft('flow', { workspace: 'ws_a' })?.effectivePath).toBe(
+			'u/me/a'
+		)
+		expect(UserDraft.getLiveEditorDraft('flow', { workspace: 'ws_b' })?.effectivePath).toBe(
+			'u/me/b'
+		)
+	})
+
+	it('clears only the matching live editor storage path when provided', () => {
+		UserDraft.setLiveEditorDraft({
+			itemKind: 'raw_app',
+			storagePath: '',
+			effectivePath: 'u/me/live_app'
+		})
+
+		UserDraft.clearLiveEditorDraft('raw_app', { storagePath: 'u/me/other' })
+		expect(UserDraft.getLiveEditorDraft('raw_app')).toBeDefined()
+
+		UserDraft.clearLiveEditorDraft('raw_app', { storagePath: '' })
+		expect(UserDraft.getLiveEditorDraft('raw_app')).toBeUndefined()
+	})
+})
+
 describe('UserDraft.use() — observer sync', () => {
 	it('loads the existing localStorage value on first use', () => {
 		localStorage.setItem('userdraft/w/test_ws/flow/u/me/loaded', wrapped('preloaded'))
@@ -878,9 +939,7 @@ describe('UserDraft.list / clear / setDraftAndMeta', () => {
 		)
 
 		flushPersist()
-		expect(storedShape(key)).toBe(
-			wrapped({ path: 'f/rewrite-after-clear', content: 'new' })
-		)
+		expect(storedShape(key)).toBe(wrapped({ path: 'f/rewrite-after-clear', content: 'new' }))
 	})
 
 	it('list hides persisted drafts when a live handle has cleared the value', () => {

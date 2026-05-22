@@ -88,6 +88,7 @@ export type WorkspaceItem = {
 		| CreateVariable
 		| AppDraftValue
 	isDraft: boolean
+	isLiveDraft?: boolean
 }
 
 export function getWorkspaceItemKey(

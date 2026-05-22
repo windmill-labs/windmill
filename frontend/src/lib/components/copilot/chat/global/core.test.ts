@@ -54,7 +54,8 @@ vi.mock('$lib/gen', async () => {
 			getFlowByPathWithDraft: vi.fn(async () => {
 				throw new Error('getFlowByPathWithDraft mock not configured')
 			}),
-			getFlowLatestVersion: vi.fn(async () => ({ id: 1 }))
+			getFlowLatestVersion: vi.fn(async () => ({ id: 1 })),
+			listFlows: vi.fn(async () => [])
 		}),
 		ScheduleService: wrapService(actual.ScheduleService, {
 			existsSchedule: vi.fn(async () => false),
@@ -72,7 +73,8 @@ vi.mock('$lib/gen', async () => {
 			existsApp: vi.fn(async () => false),
 			getAppByPathWithDraft: vi.fn(async () => {
 				throw new Error('getAppByPathWithDraft mock not configured')
-			})
+			}),
+			listApps: vi.fn(async () => [])
 		}),
 		ResourceService: wrapService(actual.ResourceService, {
 			existsResource: vi.fn(async () => false),
@@ -254,6 +256,135 @@ describe('global AI tools', () => {
 		)
 	})
 
+	it('lists and edits the live script editor draft through its effective path', async () => {
+		UserDraft.save(
+			'script',
+			'',
+			{
+				path: 'u/admin/amazed_script',
+				summary: 'Live script',
+				description: '',
+				content: 'export async function main(a: number, b: number) {\n\treturn a + b\n}',
+				schema: {},
+				is_template: false,
+				language: 'bun',
+				kind: 'script'
+			},
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'script',
+			storagePath: '',
+			effectivePath: 'u/admin/amazed_script'
+		})
+
+		const listRaw = await callGlobalTool('list_workspace_items', { types: ['script'] })
+		expect(JSON.parse(listRaw)).toContainEqual(
+			expect.objectContaining({
+				type: 'script',
+				path: 'u/admin/amazed_script',
+				isDraft: true,
+				isLiveDraft: true
+			})
+		)
+
+		await callGlobalTool('edit_script', {
+			path: 'u/admin/amazed_script',
+			old_string: 'return a + b',
+			new_string: 'return a * b'
+		})
+
+		expect(UserDraft.get<any>('script', '', { workspace: WORKSPACE })).toMatchObject({
+			path: 'u/admin/amazed_script',
+			content: 'export async function main(a: number, b: number) {\n\treturn a * b\n}'
+		})
+		expect(
+			UserDraft.get('script', 'u/admin/amazed_script', { workspace: WORKSPACE })
+		).toBeUndefined()
+	})
+
+	it('lists and writes the live flow editor draft through its effective path', async () => {
+		UserDraft.save(
+			'flow',
+			'',
+			{
+				path: '',
+				summary: 'Live flow',
+				value: { modules: [] },
+				schema: {},
+				edited_by: '',
+				edited_at: '',
+				archived: false,
+				extra_perms: {}
+			},
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'flow',
+			storagePath: '',
+			effectivePath: 'u/admin/live_flow'
+		})
+
+		const listRaw = await callGlobalTool('list_workspace_items', { types: ['flow'] })
+		expect(JSON.parse(listRaw)).toContainEqual(
+			expect.objectContaining({
+				type: 'flow',
+				path: 'u/admin/live_flow',
+				isDraft: true,
+				isLiveDraft: true
+			})
+		)
+
+		await callGlobalTool('write_flow', {
+			path: 'u/admin/live_flow',
+			summary: 'Updated live flow',
+			modules: JSON.stringify([{ id: 'step', value: { type: 'identity' } }])
+		})
+
+		expect(UserDraft.get<any>('flow', '', { workspace: WORKSPACE })).toMatchObject({
+			path: 'u/admin/live_flow',
+			summary: 'Updated live flow',
+			value: { modules: [{ id: 'step', value: { type: 'identity' } }] }
+		})
+		expect(UserDraft.get('flow', 'u/admin/live_flow', { workspace: WORKSPACE })).toBeUndefined()
+	})
+
+	it('writes the live raw app editor draft through its effective path', async () => {
+		UserDraft.save(
+			'raw_app',
+			'',
+			{
+				summary: 'Live app',
+				files: { '/src/App.tsx': 'export default function App() { return null }' },
+				runnables: {},
+				data: { tables: [] }
+			},
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'raw_app',
+			storagePath: '',
+			effectivePath: 'u/admin/live_app'
+		})
+
+		await callGlobalTool('write_app_file', {
+			path: 'u/admin/live_app',
+			file_path: '/src/New.tsx',
+			content: 'export default function New() { return null }'
+		})
+
+		expect(UserDraft.get<any>('raw_app', '', { workspace: WORKSPACE })).toMatchObject({
+			files: {
+				'/src/App.tsx': 'export default function App() { return null }',
+				'/src/New.tsx': 'export default function New() { return null }'
+			}
+		})
+		expect(UserDraft.get('raw_app', 'u/admin/live_app', { workspace: WORKSPACE })).toBeUndefined()
+	})
+
 	it('discards a local draft without deleting the workspace item', async () => {
 		await callGlobalTool('write_script', {
 			path: 'f/scripts/discard-me',
@@ -275,7 +406,9 @@ describe('global AI tools', () => {
 			path: 'f/scripts/discard-me'
 		})
 		expect(raw).toContain('The deployed workspace item was not changed')
-		expect(UserDraft.get('script', 'f/scripts/discard-me', { workspace: WORKSPACE })).toBeUndefined()
+		expect(
+			UserDraft.get('script', 'f/scripts/discard-me', { workspace: WORKSPACE })
+		).toBeUndefined()
 	})
 
 	it('requires trigger_kind when discarding a trigger draft', async () => {

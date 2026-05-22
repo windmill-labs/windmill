@@ -370,6 +370,7 @@
 				bind:summary
 				{newPath}
 				path={page.params.path ?? ''}
+				liveEditorDraftStoragePath={path}
 				{policy}
 				bind:savedApp
 				{diffDrawer}

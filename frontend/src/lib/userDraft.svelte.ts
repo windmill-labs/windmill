@@ -130,7 +130,26 @@ export type UserDraftEntry<V = unknown> = {
 	live: boolean
 }
 
+export type LiveEditorDraft = {
+	workspace: string
+	itemKind: UserDraftItemKind
+	storagePath: string
+	effectivePath?: string
+}
+
+export type LiveEditorDraftSpec = {
+	itemKind: UserDraftItemKind
+	storagePath: string
+	effectivePath?: string
+	workspace?: string
+}
+
+export type ClearLiveEditorDraftOptions = UserDraftOptions & {
+	storagePath?: string
+}
+
 const entries = new Map<string, DraftEntry>()
+const liveEditorDrafts = new Map<string, LiveEditorDraft>()
 
 function resolveWorkspace(opts?: UserDraftOptions): string {
 	const ws = opts?.workspace ?? get(workspaceStore)
@@ -228,6 +247,10 @@ function mapKey(workspace: string, itemKind: UserDraftItemKind, path: string): s
 
 function localStorageKey(workspace: string, itemKind: UserDraftItemKind, path: string): string {
 	return `userdraft/w/${workspace}/${itemKind}/${path}`
+}
+
+function liveEditorDraftKey(workspace: string, itemKind: UserDraftItemKind): string {
+	return `${workspace}/${itemKind}`
 }
 
 function parseLocalStorageKey(
@@ -523,6 +546,42 @@ export const UserDraft = {
 		return Array.from(out.values())
 	},
 
+	setLiveEditorDraft(spec: LiveEditorDraftSpec): void {
+		const ws = resolveWorkspace({ workspace: spec.workspace })
+		liveEditorDrafts.set(liveEditorDraftKey(ws, spec.itemKind), {
+			workspace: ws,
+			itemKind: spec.itemKind,
+			storagePath: spec.storagePath,
+			effectivePath: spec.effectivePath || undefined
+		})
+	},
+
+	getLiveEditorDraft(
+		itemKind: UserDraftItemKind,
+		opts?: UserDraftOptions
+	): LiveEditorDraft | undefined {
+		const ws = resolveWorkspace(opts)
+		const draft = liveEditorDrafts.get(liveEditorDraftKey(ws, itemKind))
+		return draft ? { ...draft } : undefined
+	},
+
+	listLiveEditorDrafts(opts?: UserDraftListOptions): LiveEditorDraft[] {
+		const ws = resolveWorkspace(opts)
+		const itemKinds = opts?.itemKinds ?? USER_DRAFT_ITEM_KINDS
+		return Array.from(liveEditorDrafts.values())
+			.filter((draft) => draft.workspace === ws && itemKinds.includes(draft.itemKind))
+			.map((draft) => ({ ...draft }))
+	},
+
+	clearLiveEditorDraft(itemKind: UserDraftItemKind, opts?: ClearLiveEditorDraftOptions): void {
+		const ws = resolveWorkspace(opts)
+		const key = liveEditorDraftKey(ws, itemKind)
+		const draft = liveEditorDrafts.get(key)
+		if (!draft) return
+		if (opts?.storagePath !== undefined && draft.storagePath !== opts.storagePath) return
+		liveEditorDrafts.delete(key)
+	},
+
 	/**
 	 * Like `remove`, but also resets any live handle's `draft` to
 	 * `fallback` in-memory (so reactive readers see it immediately) and
@@ -802,4 +861,5 @@ export function gcUserDrafts(maxAgeMs: number = USER_DRAFT_GC_MAX_AGE_MS): void 
 /** Test-only: clear all in-memory entries. */
 export function __resetUserDraftForTesting(): void {
 	entries.clear()
+	liveEditorDrafts.clear()
 }

@@ -666,6 +666,7 @@
 		bind:data
 		{policy}
 		path={''}
+		liveEditorDraftStoragePath=""
 		bind:summary
 		newApp
 	/>

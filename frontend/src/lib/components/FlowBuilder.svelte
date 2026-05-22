@@ -100,6 +100,7 @@
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
+	import { UserDraft } from '$lib/userDraft.svelte'
 
 	let {
 		initialPath = $bindable(''),
@@ -123,6 +124,7 @@
 		children,
 		loadedFromHistoryFromUrl,
 		noInitial = false,
+		liveEditorDraftStoragePath = undefined,
 		onSaveInitial,
 		onSaveDraft,
 		onDeploy,
@@ -588,6 +590,23 @@
 	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
 	const history = initHistory(untrack(() => flowStore).val)
 	const pathStore = writable<string>(untrack(() => pathStoreInit) ?? initialPath)
+
+	$effect(() => {
+		if (liveEditorDraftStoragePath === undefined || !$workspaceStore) return
+		const workspace = $workspaceStore
+		UserDraft.setLiveEditorDraft({
+			workspace,
+			itemKind: 'flow',
+			storagePath: liveEditorDraftStoragePath,
+			effectivePath: $pathStore
+		})
+		return () =>
+			UserDraft.clearLiveEditorDraft('flow', {
+				workspace,
+				storagePath: liveEditorDraftStoragePath
+			})
+	})
+
 	const captureOn = writable<boolean>(false)
 	const showCaptureHint = writable<boolean | undefined>(undefined)
 	const flowInputEditorStateStore = writable<FlowInputEditorState>({

@@ -39,6 +39,18 @@
 	const draftPath = hash ? '' : (page.params.path ?? '')
 	const scriptHandle = UserDraft.use<EditableScript>('script', draftPath)
 
+	$effect(() => {
+		if (hash || !$workspaceStore) return
+		const workspace = $workspaceStore
+		UserDraft.setLiveEditorDraft({
+			workspace,
+			itemKind: 'script',
+			storagePath: draftPath,
+			effectivePath: scriptHandle.draft?.path ?? draftPath
+		})
+		return () => UserDraft.clearLiveEditorDraft('script', { workspace, storagePath: draftPath })
+	})
+
 	/** Some pages base64-JSON-encode a NewScript-like payload into the URL
 	 * hash on `/scripts/edit/<path>#…`. Treat it as a one-shot seed that
 	 * wins over local autosave + backend draft + deployed: apply, toast,
