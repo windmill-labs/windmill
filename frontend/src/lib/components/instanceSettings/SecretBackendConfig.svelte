@@ -145,6 +145,19 @@
 		}
 	}
 
+	// Toast messages render via {@html} in Toast.svelte, so any backend-supplied
+	// string interpolated here must be HTML-escaped to prevent stored XSS.
+	// We deliberately do NOT escape '/' so the toast's path-highlight regex
+	// (which matches u/.../... and f/.../...) still picks up workspace paths.
+	function escapeHtml(s: string): string {
+		return s
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;')
+			.replace(/"/g, '&quot;')
+			.replace(/'/g, '&#39;')
+	}
+
 	function formatMigrationFailures(
 		failures: Array<{ workspace_id: string; path: string; error: string }> | undefined
 	): string {
@@ -152,13 +165,32 @@
 		const maxShown = 5
 		const shown = failures
 			.slice(0, maxShown)
-			.map((f) => `• ${f.workspace_id}/${f.path}: ${f.error}`)
-			.join('\n')
+			.map((f) => `• ${escapeHtml(f.workspace_id)}/${escapeHtml(f.path)}: ${escapeHtml(f.error)}`)
+			.join('<br>')
 		const extra =
 			failures.length > maxShown
-				? `\n…and ${failures.length - maxShown} more (see backend logs)`
+				? `<br>…and ${failures.length - maxShown} more (see backend logs)`
 				: ''
-		return `\nFailures:\n${shown}${extra}`
+		return `<br>Failures:<br>${shown}${extra}`
+	}
+
+	function reportMigrationFailures(
+		context: string,
+		report: {
+			migrated_count: number
+			total_secrets: number
+			failed_count: number
+			failures?: Array<{ workspace_id: string; path: string; error: string }>
+		}
+	) {
+		console.error(`${context} failures:`, report.failures)
+		sendUserToast(
+			`Migration: ${report.migrated_count}/${report.total_secrets} migrated, ${report.failed_count} failed.${formatMigrationFailures(report.failures)}`,
+			true,
+			undefined,
+			undefined,
+			15000
+		)
 	}
 
 	async function migrateSecretsToVault() {
@@ -167,14 +199,7 @@
 		try {
 			const report = await SettingService.migrateSecretsToVault({ requestBody: getVaultSettings() })
 			if (report.failed_count > 0) {
-				console.error('Vault migration failures:', report.failures)
-				sendUserToast(
-					`Migration: ${report.migrated_count}/${report.total_secrets} migrated, ${report.failed_count} failed.${formatMigrationFailures(report.failures)}`,
-					true,
-					undefined,
-					undefined,
-					15000
-				)
+				reportMigrationFailures('Vault migration', report)
 			} else
 				sendUserToast(`Migrated ${report.migrated_count}/${report.total_secrets} secrets to Vault`)
 		} catch (error: any) {
@@ -193,14 +218,7 @@
 				requestBody: getVaultSettings()
 			})
 			if (report.failed_count > 0) {
-				console.error('Vault->DB migration failures:', report.failures)
-				sendUserToast(
-					`Migration: ${report.migrated_count}/${report.total_secrets} migrated, ${report.failed_count} failed.${formatMigrationFailures(report.failures)}`,
-					true,
-					undefined,
-					undefined,
-					15000
-				)
+				reportMigrationFailures('Vault->DB migration', report)
 			} else
 				sendUserToast(
 					`Migrated ${report.migrated_count}/${report.total_secrets} secrets to database`
@@ -253,12 +271,9 @@
 			const report = await SettingService.migrateSecretsToAzureKv({
 				requestBody: getAzureKvSettings()
 			})
-			if (report.failed_count > 0)
-				sendUserToast(
-					`Migration: ${report.migrated_count}/${report.total_secrets} migrated, ${report.failed_count} failed`,
-					true
-				)
-			else
+			if (report.failed_count > 0) {
+				reportMigrationFailures('Azure KV migration', report)
+			} else
 				sendUserToast(
 					`Migrated ${report.migrated_count}/${report.total_secrets} secrets to Azure Key Vault`
 				)
@@ -277,12 +292,9 @@
 			const report = await SettingService.migrateSecretsFromAzureKv({
 				requestBody: getAzureKvSettings()
 			})
-			if (report.failed_count > 0)
-				sendUserToast(
-					`Migration: ${report.migrated_count}/${report.total_secrets} migrated, ${report.failed_count} failed`,
-					true
-				)
-			else
+			if (report.failed_count > 0) {
+				reportMigrationFailures('Azure KV->DB migration', report)
+			} else
 				sendUserToast(
 					`Migrated ${report.migrated_count}/${report.total_secrets} secrets to database`
 				)
@@ -332,12 +344,9 @@
 		migratingToAwsSm = true
 		try {
 			const report = await SettingService.migrateSecretsToAwsSm({ requestBody: getAwsSmSettings() })
-			if (report.failed_count > 0)
-				sendUserToast(
-					`Migration: ${report.migrated_count}/${report.total_secrets} migrated, ${report.failed_count} failed`,
-					true
-				)
-			else
+			if (report.failed_count > 0) {
+				reportMigrationFailures('AWS SM migration', report)
+			} else
 				sendUserToast(
 					`Migrated ${report.migrated_count}/${report.total_secrets} secrets to AWS Secrets Manager`
 				)
@@ -356,12 +365,9 @@
 			const report = await SettingService.migrateSecretsFromAwsSm({
 				requestBody: getAwsSmSettings()
 			})
-			if (report.failed_count > 0)
-				sendUserToast(
-					`Migration: ${report.migrated_count}/${report.total_secrets} migrated, ${report.failed_count} failed`,
-					true
-				)
-			else
+			if (report.failed_count > 0) {
+				reportMigrationFailures('AWS SM->DB migration', report)
+			} else
 				sendUserToast(
 					`Migrated ${report.migrated_count}/${report.total_secrets} secrets to database`
 				)
