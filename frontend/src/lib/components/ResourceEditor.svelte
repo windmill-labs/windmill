@@ -36,8 +36,13 @@
 		onChange,
 		defaultValues = undefined,
 		workspace = undefined,
-		selected = $bindable()
+		selected: selectedProp = $bindable()
 	}: Props = $props()
+
+	// Fallback to `effectiveWorkspace` insulates against reactify-style
+	// parents that re-spread props without `selected` — otherwise it
+	// transiently resets and the form below remounts on every keystroke.
+	let selected = $derived(selectedProp ?? effectiveWorkspace)
 
 	type ResourceState = {
 		path: string
@@ -205,28 +210,25 @@
 		})
 	)
 
-	// Bootstrap: ensure selected is set on mount (edit or new)
+	// New-resource bootstrap: seed empty state per workspace (edit mode
+	// is seeded by the lazy-fetch effect below).
 	$effect(() => {
-	    selected
-		if (!effectiveWorkspace) return
+		if (!selected) return
+		if (initialPath) return
+		if (selected in initialStates) return
 		untrack(() => {
-			if (selected !== undefined) return
-			selected = effectiveWorkspace
-			if (!initialPath) {
-				// New resource
-				const s: ResourceState = {
-					path: '',
-					description: '',
-					args: (defaultValues && Object.keys(defaultValues).length > 0
-						? defaultValues
-						: {}) as any,
-					labels: undefined,
-					wsSpecific: false
-				}
-				ensureHandle(effectiveWorkspace, s)
-				initialStates[effectiveWorkspace] = structuredClone(s)
-				existedInitially[effectiveWorkspace] = false
+			const s: ResourceState = {
+				path: '',
+				description: '',
+				args: (defaultValues && Object.keys(defaultValues).length > 0
+					? defaultValues
+					: {}) as any,
+				labels: undefined,
+				wsSpecific: false
 			}
+			ensureHandle(selected, s)
+			initialStates[selected] = structuredClone(s)
+			existedInitially[selected] = false
 		})
 	})
 
@@ -330,11 +332,9 @@
 
 	$effect(() => {
 		if (current)
-			// Snapshot args so the deep read establishes nested dependency
-			// tracking (the effect re-runs on mutations inside args, not
-			// just reference changes) and so consumers receive a plain
-			// object instead of a $state proxy — important for React
-			// integrations that diff by reference or JSON.stringify.
+			// $state.snapshot deep-reads (so the effect re-runs on nested
+			// args mutations) and returns a plain object (React consumers
+			// can't diff a $state proxy by reference or JSON.stringify).
 			onChange?.({
 				path: current.path,
 				args: $state.snapshot(current.args) as Record<string, any>,
