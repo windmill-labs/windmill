@@ -376,6 +376,63 @@ async function cancel(
   log.info(colors.green(`Job ${id} canceled.`));
 }
 
+async function rerun(
+  opts: GlobalOptions,
+  id: string
+) {
+  log.setSilent(true);
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const response = await wmill.batchReRunJobs({
+    workspace: workspace.workspaceId,
+    requestBody: {
+      job_ids: [id],
+      script_options_by_path: {},
+      flow_options_by_path: {},
+    },
+  });
+
+  const newIds: string[] = [];
+  const errorLines: string[] = [];
+  for (const line of String(response).split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith("Error:")) errorLines.push(trimmed);
+    else newIds.push(trimmed);
+  }
+
+  for (const err of errorLines) log.error(err);
+
+  if (newIds.length === 0) {
+    throw new Error(`Failed to re-run job ${id}.`);
+  }
+
+  console.log(newIds[0]);
+}
+
+async function restart(
+  opts: GlobalOptions & { step: string; iteration?: number },
+  id: string
+) {
+  log.setSilent(true);
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const newId = await wmill.restartFlowAtStep({
+    workspace: workspace.workspaceId,
+    id,
+    requestBody: {
+      step_id: opts.step,
+      branch_or_iteration_n: opts.iteration,
+    },
+  });
+
+  console.log(newId);
+}
+
 // Shared list options to avoid repetition between default action and list subcommand
 const listOptions = (cmd: Command) =>
   cmd
@@ -410,6 +467,20 @@ const command = listOptions(new Command()
   .command("cancel", "Cancel a running or queued job")
   .arguments("<id:string>")
   .option("--reason <reason:string>", "Reason for cancellation")
-  .action(cancel as any);
+  .action(cancel as any)
+  .command(
+    "rerun",
+    "Re-run a completed job with the same args. Prints the new job UUID on stdout."
+  )
+  .arguments("<id:string>")
+  .action(rerun as any)
+  .command(
+    "restart",
+    "Restart a completed flow at a given top-level step. Prints the new flow job UUID on stdout."
+  )
+  .arguments("<id:string>")
+  .option("--step <stepId:string>", "Top-level step id to restart the flow from", { required: true })
+  .option("--iteration <n:number>", "For a top-level branchall or for-loop step, the iteration to restart at")
+  .action(restart as any);
 
 export default command;
