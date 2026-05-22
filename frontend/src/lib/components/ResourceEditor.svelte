@@ -39,11 +39,6 @@
 		selected: selectedProp = $bindable()
 	}: Props = $props()
 
-	// Fallback to `effectiveWorkspace` insulates against reactify-style
-	// parents that re-spread props without `selected` — otherwise it
-	// transiently resets and the form below remounts on every keystroke.
-	let selected = $derived(selectedProp ?? effectiveWorkspace)
-
 	type ResourceState = {
 		path: string
 		description: string
@@ -55,6 +50,10 @@
 	const dispatch = createEventDispatcher()
 
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
+	// Fallback to `effectiveWorkspace` insulates against reactify-style
+	// parents that re-spread props without `selected` — otherwise it
+	// transiently resets and the form below remounts on every keystroke.
+	let selected = $derived(selectedProp ?? effectiveWorkspace)
 	let initialPath = path
 
 	// Per-workspace handles are driven by `useMany`. We track the workspace
