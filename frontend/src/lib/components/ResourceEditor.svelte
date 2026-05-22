@@ -207,9 +207,9 @@
 
 	// Bootstrap: ensure selected is set on mount (edit or new)
 	$effect(() => {
-		if (selected !== undefined) return
 		if (!effectiveWorkspace) return
 		untrack(() => {
+			if (selected !== undefined) return
 			selected = effectiveWorkspace
 			if (!initialPath) {
 				// New resource
