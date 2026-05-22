@@ -101,9 +101,6 @@ RUN rm ${APP}/hubPaths.json
 
 RUN windmill cache-rt
 
-RUN rm -rf /tmp/windmill/cache_nomount \
-    && mkdir -p -m 777 /tmp/windmill/cache_nomount
-
 # Create directories and make world-accessible for arbitrary UID support
 RUN mkdir -p -m 777 /tmp/windmill/logs /tmp/windmill/search /tmp/.cache && \
     chmod 777 /tmp/.cache && \
