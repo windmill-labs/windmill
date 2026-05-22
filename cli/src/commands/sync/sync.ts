@@ -2858,7 +2858,7 @@ export async function pull(
       await generateAppLocksInternal(
         change,
         true,
-        true,
+        false,
         workspace,
         opts,
         true,
