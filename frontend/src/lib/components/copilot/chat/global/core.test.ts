@@ -74,8 +74,17 @@ vi.mock('$lib/gen', async () => {
 				throw new Error('getAppByPathWithDraft mock not configured')
 			})
 		}),
+		ResourceService: wrapService(actual.ResourceService, {
+			existsResource: vi.fn(async () => false),
+			getResource: vi.fn(async () => {
+				throw new Error('getResource mock not configured')
+			})
+		}),
 		VariableService: wrapService(actual.VariableService, {
-			existsVariable: vi.fn(async () => false)
+			existsVariable: vi.fn(async () => false),
+			getVariable: vi.fn(async () => {
+				throw new Error('getVariable mock not configured')
+			})
 		})
 	}
 })
@@ -83,7 +92,15 @@ vi.mock('$lib/gen', async () => {
 import { globalTools, prepareGlobalUserMessage } from './core'
 import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
 import { clearGlobalDrafts } from './userDraftAdapter'
-import { AppService, FlowService, HttpTriggerService, ScheduleService, ScriptService } from '$lib/gen'
+import {
+	AppService,
+	FlowService,
+	HttpTriggerService,
+	ResourceService,
+	ScheduleService,
+	ScriptService,
+	VariableService
+} from '$lib/gen'
 import type { Tool, ToolCallbacks } from '../shared'
 
 const WORKSPACE = 'global-core-test'
@@ -143,6 +160,77 @@ describe('global AI tools', () => {
 			path: 'f/secrets/api_key',
 			summary: 'API key',
 			isDraft: true
+		})
+	})
+
+	it('writes resource drafts in the editor UserDraft shape', async () => {
+		vi.mocked(ResourceService.existsResource).mockResolvedValueOnce(true)
+		vi.mocked(ResourceService.getResource).mockResolvedValueOnce({
+			path: 'f/resources/db',
+			description: 'existing database',
+			value: { host: 'old.example.com', port: 5432 },
+			resource_type: 'postgresql',
+			labels: ['prod'],
+			ws_specific: true,
+			edited_at: '2026-05-22T09:30:00Z'
+		} as any)
+
+		await callGlobalTool('write_resource', {
+			path: 'f/resources/db',
+			value: { host: 'new.example.com', port: 5432 },
+			resource_type: 'postgresql'
+		})
+
+		expect(UserDraft.get<any>('resource', 'f/resources/db', { workspace: WORKSPACE })).toEqual({
+			path: 'f/resources/db',
+			description: 'existing database',
+			args: { host: 'new.example.com', port: 5432 },
+			labels: ['prod'],
+			wsSpecific: true,
+			resource_type: 'postgresql'
+		})
+		expect(UserDraft.getMeta('resource', 'f/resources/db', { workspace: WORKSPACE })).toEqual({
+			remoteRev: '2026-05-22T09:30:00Z'
+		})
+	})
+
+	it('writes variable drafts in the editor UserDraft shape', async () => {
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true)
+		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
+			path: 'f/secrets/api_key',
+			value: undefined,
+			is_secret: true,
+			description: 'old description',
+			account: 123,
+			is_oauth: true,
+			expires_at: '2026-06-22T09:30:00Z',
+			labels: ['prod'],
+			ws_specific: true,
+			edited_at: '2026-05-22T09:30:00Z'
+		} as any)
+
+		await callGlobalTool('write_variable', {
+			path: 'f/secrets/api_key',
+			value: 'new-secret-token',
+			is_secret: true,
+			description: 'new description'
+		})
+
+		expect(UserDraft.get<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })).toEqual({
+			path: 'f/secrets/api_key',
+			variable: {
+				value: 'new-secret-token',
+				is_secret: true,
+				description: 'new description'
+			},
+			labels: ['prod'],
+			wsSpecific: true,
+			account: 123,
+			is_oauth: true,
+			expires_at: '2026-06-22T09:30:00Z'
+		})
+		expect(UserDraft.getMeta('variable', 'f/secrets/api_key', { workspace: WORKSPACE })).toEqual({
+			remoteRev: '2026-05-22T09:30:00Z'
 		})
 	})
 

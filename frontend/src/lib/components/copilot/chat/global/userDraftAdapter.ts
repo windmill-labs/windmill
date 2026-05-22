@@ -63,6 +63,25 @@ const GLOBAL_DRAFT_KINDS = [
 const DEFAULT_SCRIPT_LANGUAGE: ScriptLang = 'bun'
 const DEFAULT_APP_DATA = { tables: [], datatable: undefined, schema: undefined }
 
+type ResourceDraftState = {
+	path: string
+	description: string
+	args: Record<string, any>
+	labels: string[] | undefined
+	wsSpecific: boolean
+	resource_type?: string
+}
+
+type VariableDraftState = {
+	path: string
+	variable: { value: string; is_secret: boolean; description: string }
+	labels: string[] | undefined
+	wsSpecific: boolean
+	account?: number
+	is_oauth?: boolean
+	expires_at?: string
+}
+
 function clone<T>(value: T): T {
 	return structuredClone(value) as T
 }
@@ -164,22 +183,39 @@ function triggerDraftToWorkspaceItem(
 	}
 }
 
-function resourceDraftToWorkspaceItem(path: string, draft: CreateResource): WorkspaceItem {
+function resourceDraftToWorkspaceItem(path: string, draft: ResourceDraftState): WorkspaceItem {
 	return {
 		type: 'resource',
 		path,
-		summary: draft.description ?? undefined,
-		value: clone(draft),
+		summary: draft.description || undefined,
+		value: {
+			path,
+			value: clone(draft.args),
+			description: draft.description,
+			resource_type: draft.resource_type ?? '',
+			labels: draft.labels,
+			ws_specific: draft.wsSpecific
+		},
 		isDraft: true
 	}
 }
 
-function variableDraftToWorkspaceItem(path: string, draft: CreateVariable): WorkspaceItem {
+function variableDraftToWorkspaceItem(path: string, draft: VariableDraftState): WorkspaceItem {
 	return {
 		type: 'variable',
 		path,
-		summary: draft.description ?? undefined,
-		value: clone(draft),
+		summary: draft.variable.description || undefined,
+		value: {
+			path,
+			value: draft.variable.value,
+			is_secret: draft.variable.is_secret,
+			description: draft.variable.description,
+			account: draft.account,
+			is_oauth: draft.is_oauth,
+			expires_at: draft.expires_at,
+			labels: draft.labels,
+			ws_specific: draft.wsSpecific
+		},
 		isDraft: true
 	}
 }
@@ -195,9 +231,9 @@ function userDraftEntryToWorkspaceItem(entry: UserDraftEntry): WorkspaceItem | u
 		case 'trigger_schedule':
 			return scheduleDraftToWorkspaceItem(entry.path, entry.value as NewSchedule)
 		case 'resource':
-			return resourceDraftToWorkspaceItem(entry.path, entry.value as CreateResource)
+			return resourceDraftToWorkspaceItem(entry.path, entry.value as ResourceDraftState)
 		case 'variable':
-			return variableDraftToWorkspaceItem(entry.path, entry.value as CreateVariable)
+			return variableDraftToWorkspaceItem(entry.path, entry.value as VariableDraftState)
 		default: {
 			const triggerKind = TRIGGER_KIND_BY_DRAFT_KIND[entry.itemKind]
 			return triggerKind
@@ -268,16 +304,35 @@ function triggerItemToDraft(item: WorkspaceItem): TriggerRequestBody {
 	return { ...clone(value), path: item.path } as TriggerRequestBody
 }
 
-function resourceItemToDraft(item: WorkspaceItem): CreateResource {
+function resourceItemToDraft(item: WorkspaceItem): ResourceDraftState {
 	const value = item.value as CreateResource | undefined
 	if (!value) throw new Error(`Draft resource "${item.path}" is missing value.`)
-	return { ...clone(value), path: item.path }
+	return {
+		path: item.path,
+		description: value.description ?? '',
+		args: clone((value.value ?? {}) as Record<string, any>),
+		labels: value.labels,
+		wsSpecific: value.ws_specific ?? false,
+		resource_type: value.resource_type
+	}
 }
 
-function variableItemToDraft(item: WorkspaceItem): CreateVariable {
+function variableItemToDraft(item: WorkspaceItem): VariableDraftState {
 	const value = item.value as CreateVariable | undefined
 	if (!value) throw new Error(`Draft variable "${item.path}" is missing value.`)
-	return { ...clone(value), path: item.path }
+	return {
+		path: item.path,
+		variable: {
+			value: value.value,
+			is_secret: value.is_secret,
+			description: value.description
+		},
+		labels: value.labels,
+		wsSpecific: value.ws_specific ?? false,
+		account: value.account,
+		is_oauth: value.is_oauth,
+		expires_at: value.expires_at
+	}
 }
 
 function itemToDraftValue(item: WorkspaceItem): unknown {
