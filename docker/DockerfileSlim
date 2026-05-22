@@ -39,7 +39,7 @@ ENV PATH=/usr/local/bin:/root/.local/bin:/tmp/.local/bin:$PATH
 
 # Install system dependencies
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates wget curl git jq unzip unixodbc xmlsec1 gnupg lsb-release \
+    && apt-get install -y --no-install-recommends ca-certificates wget curl git jq unzip unixodbc xmlsec1 gnupg lsb-release libgnutls30=3.7.9-2+deb12u* \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -100,6 +100,9 @@ RUN windmill cache ${APP}/hubPaths.json
 RUN rm ${APP}/hubPaths.json
 
 RUN windmill cache-rt
+
+RUN rm -rf /tmp/windmill/cache_nomount \
+    && mkdir -p -m 777 /tmp/windmill/cache_nomount
 
 # Create directories and make world-accessible for arbitrary UID support
 RUN mkdir -p -m 777 /tmp/windmill/logs /tmp/windmill/search /tmp/.cache && \
