@@ -68,6 +68,12 @@ vi.mock('$lib/gen', async () => {
 				throw new Error('getHttpTrigger mock not configured')
 			})
 		}),
+		AppService: wrapService(actual.AppService, {
+			existsApp: vi.fn(async () => false),
+			getAppByPathWithDraft: vi.fn(async () => {
+				throw new Error('getAppByPathWithDraft mock not configured')
+			})
+		}),
 		VariableService: wrapService(actual.VariableService, {
 			existsVariable: vi.fn(async () => false)
 		})
@@ -77,7 +83,7 @@ vi.mock('$lib/gen', async () => {
 import { globalTools, prepareGlobalUserMessage } from './core'
 import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
 import { clearGlobalDrafts } from './userDraftAdapter'
-import { FlowService, HttpTriggerService, ScheduleService, ScriptService } from '$lib/gen'
+import { AppService, FlowService, HttpTriggerService, ScheduleService, ScriptService } from '$lib/gen'
 import type { Tool, ToolCallbacks } from '../shared'
 
 const WORKSPACE = 'global-core-test'
@@ -355,6 +361,93 @@ describe('global AI tools', () => {
 			workspace_id: expect.anything(),
 			edited_by: expect.anything()
 		})
+	})
+
+	it('seeds raw app draft metadata on first app write', async () => {
+		vi.mocked(AppService.getAppByPathWithDraft).mockResolvedValueOnce({
+			path: 'f/apps/report',
+			summary: 'deployed app',
+			versions: [3, 4],
+			draft_created_at: '2026-05-22T10:30:00Z',
+			value: {
+				files: { '/src/App.tsx': 'deployed content' },
+				runnables: {},
+				data: { tables: [] }
+			},
+			policy: { execution_mode: 'publisher' },
+			custom_path: 'report',
+			draft: {
+				summary: 'saved app draft',
+				value: {
+					files: { '/src/App.tsx': 'draft content' },
+					runnables: {
+						main: {
+							type: 'inline',
+							inlineScript: { language: 'bun', content: 'export async function main() {}' }
+						}
+					},
+					data: { tables: ['orders'], datatable: 'db', schema: 'public' }
+				},
+				policy: { execution_mode: 'anonymous' }
+			}
+		} as any)
+
+		await callGlobalTool('write_app_file', {
+			path: 'f/apps/report',
+			file_path: '/src/New.tsx',
+			content: 'export default function New() { return null }'
+		})
+
+		const draft = UserDraft.get<any>('raw_app', 'f/apps/report', { workspace: WORKSPACE })
+		expect(draft).toMatchObject({
+			summary: 'saved app draft',
+			files: {
+				'/src/App.tsx': 'draft content',
+				'/src/New.tsx': 'export default function New() { return null }'
+			},
+			runnables: {
+				main: {
+					type: 'inline',
+					inlineScript: { language: 'bun', content: 'export async function main() {}' }
+				}
+			},
+			data: { tables: ['orders'], datatable: 'db', schema: 'public' }
+		})
+		expect(draft).not.toHaveProperty('policy')
+		expect(draft).not.toHaveProperty('custom_path')
+		expect(UserDraft.getMeta('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toEqual({
+			remoteRev: 4,
+			remoteDraftRev: '2026-05-22T10:30:00Z'
+		})
+	})
+
+	it('reads raw app files without creating a local draft', async () => {
+		vi.mocked(AppService.getAppByPathWithDraft).mockResolvedValueOnce({
+			path: 'f/apps/report',
+			summary: 'deployed app',
+			versions: [5],
+			value: {
+				files: { '/src/App.tsx': 'deployed content' },
+				runnables: {},
+				data: { tables: [] }
+			},
+			draft: {
+				summary: 'saved app draft',
+				value: {
+					files: { '/src/App.tsx': 'draft content' },
+					runnables: {},
+					data: { tables: [] }
+				}
+			}
+		} as any)
+
+		await expect(
+			callGlobalTool('read_app_file', {
+				path: 'f/apps/report',
+				file_path: '/src/App.tsx'
+			})
+		).resolves.toBe('draft content')
+		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
 	it('fills an empty rawscript module through set_flow_module_code', async () => {

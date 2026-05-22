@@ -69,7 +69,7 @@ function clone<T>(value: T): T {
 
 function normalizeAppDraftValue(value: AppDraftValue): AppDraftValue {
 	return {
-		...value,
+		summary: value.summary,
 		files: { ...(value.files ?? {}) },
 		runnables: { ...(value.runnables ?? {}) },
 		data: value.data ?? { ...DEFAULT_APP_DATA }

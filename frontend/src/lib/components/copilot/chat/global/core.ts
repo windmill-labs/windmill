@@ -36,6 +36,7 @@ import {
 	STARTER_RUNNABLE_KEY,
 	type FrameworkKey
 } from '$lib/components/raw_apps/templates'
+import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import {
 	applyEditableFlowJsonToFlow,
 	buildEditableFlowJson,
@@ -63,7 +64,7 @@ import {
 	type ToolDisplayAction
 } from '../shared'
 import type { ContextElement } from '../context'
-import { UserDraft } from '$lib/userDraft.svelte'
+import { UserDraft, type UserDraftMeta } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
 import {
 	resourceRequestSchema,
@@ -827,22 +828,63 @@ function getInlineRunnableContent(
 	return { content: runnable.inlineScript?.content ?? '', runnable }
 }
 
+function normalizeRawAppData(value: Record<string, any>): AppDraftValue['data'] {
+	if (value.data?.creation) {
+		return {
+			tables: value.data.tables ?? [],
+			datatable: value.data.creation.datatable,
+			schema: value.data.creation.schema
+		}
+	}
+	if (value.data) {
+		return value.data
+	}
+	if (value.datatables) {
+		return { ...DEFAULT_RAW_APP_DATA, tables: value.datatables }
+	}
+	if (value.dataTableRefs) {
+		return { ...DEFAULT_RAW_APP_DATA, tables: value.dataTableRefs }
+	}
+	return { ...DEFAULT_RAW_APP_DATA }
+}
+
+function appSourceToDraftValue(app: any): AppDraftValue {
+	const value = (app.value ?? {}) as Record<string, any>
+	return {
+		summary: app.summary ?? '',
+		files: { ...(value.files ?? {}) },
+		runnables: { ...(value.runnables ?? {}) },
+		data: normalizeRawAppData(value)
+	}
+}
+
+function appDraftMeta(app: { versions?: number[]; draft_created_at?: string }): UserDraftMeta {
+	return {
+		remoteRev: app.versions ? app.versions[app.versions.length - 1] : undefined,
+		remoteDraftRev: app.draft_created_at
+	}
+}
+
+async function loadAppValueForRead(path: string, workspace: string): Promise<AppDraftValue> {
+	const draft = getGlobalDraft(workspace, 'app', path)
+	if (draft && draft.value && typeof draft.value === 'object' && 'files' in draft.value) {
+		return draft.value as AppDraftValue
+	}
+
+	const app = await AppService.getAppByPathWithDraft({ workspace, path })
+	return appSourceToDraftValue(app.draft ?? app)
+}
+
 async function loadAppDraftValue(path: string, workspace: string): Promise<AppDraftValue> {
 	const draft = getGlobalDraft(workspace, 'app', path)
 	if (draft && draft.value && typeof draft.value === 'object' && 'files' in draft.value) {
 		return draft.value as AppDraftValue
 	}
 
-	const app = await AppService.getAppByPath({ workspace, path })
-	const value = (app.value ?? {}) as Partial<AppDraftValue>
-	return {
-		summary: app.summary,
-		files: { ...(value.files ?? {}) },
-		runnables: { ...(value.runnables ?? {}) },
-		data: value.data,
-		policy: app.policy as any,
-		custom_path: app.custom_path
-	}
+	const app = await AppService.getAppByPathWithDraft({ workspace, path })
+	const value = appSourceToDraftValue(app.draft ?? app)
+	UserDraft.setDraftAndMeta('raw_app', path, value, appDraftMeta(app), { workspace })
+	return value
 }
 
 function saveAppDraft(workspace: string, path: string, value: AppDraftValue): WorkspaceItem {
@@ -2171,7 +2213,7 @@ async function readAppFile(
 		content: `Reading ${target.filePath} from app "${args.path}"...`
 	})
 
-	const value = await loadAppDraftValue(args.path, workspace)
+	const value = await loadAppValueForRead(args.path, workspace)
 
 	if (target.kind === 'frontend') {
 		const content = value.files[target.filePath]
