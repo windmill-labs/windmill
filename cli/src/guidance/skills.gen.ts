@@ -605,9 +605,10 @@ async duckdbConnectionSettings(s3_resource_path: string | undefined): Promise<an
 /**
  * Get S3 client settings from a resource or workspace default
  * @param s3_resource_path - Path to S3 resource (uses workspace default if undefined)
+ * @param workspace - Workspace to read from (defaults to the \`WM_WORKSPACE\` env var)
  * @returns S3 client configuration settings
  */
-async denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<DenoS3LightClientSettings>
+async denoS3LightClientSettings(s3_resource_path: string | undefined, workspace: string | undefined = undefined): Promise<DenoS3LightClientSettings>
 
 /**
  * Load the content of a file stored in S3. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
@@ -618,8 +619,10 @@ async denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<D
  * const text = new TextDecoder().decode(fileContentStream)
  * console.log(text);
  * \`\`\`
+ * 
+ * @param workspace - Workspace to read from (defaults to the \`WM_WORKSPACE\` env var)
  */
-async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Uint8Array | undefined>
+async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefined, workspace: string | undefined = undefined): Promise<Uint8Array | undefined>
 
 /**
  * Load the content of a file stored in S3 as a stream. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
@@ -629,8 +632,10 @@ async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefi
  * // if the content is plain text, the blob can be read directly:
  * console.log(await fileContentBlob.text());
  * \`\`\`
+ * 
+ * @param workspace - Workspace to read from (defaults to the \`WM_WORKSPACE\` env var)
  */
-async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Blob | undefined>
+async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = undefined, workspace: string | undefined = undefined): Promise<Blob | undefined>
 
 /**
  * Persist a file to the S3 bucket. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
@@ -640,8 +645,22 @@ async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = 
  * const fileContentAsUtf8Str = (await s3object.toArray()).toString('utf-8')
  * console.log(fileContentAsUtf8Str)
  * \`\`\`
+ * 
+ * @param workspace - Workspace to write to (defaults to the \`WM_WORKSPACE\` env var)
  */
-async writeS3File(s3object: S3Object | undefined, fileContent: string | Blob, s3ResourcePath: string | undefined = undefined, contentType: string | undefined = undefined, contentDisposition: string | undefined = undefined): Promise<S3Object>
+async writeS3File(s3object: S3Object | undefined, fileContent: string | Blob, s3ResourcePath: string | undefined = undefined, contentType: string | undefined = undefined, contentDisposition: string | undefined = undefined, workspace: string | undefined = undefined): Promise<S3Object>
+
+/**
+ * Permanently delete a file from S3 by key.
+ * 
+ * \`\`\`typescript
+ * await wmill.deleteS3File({ s3: "path/to/file.txt" })
+ * \`\`\`
+ * 
+ * @param s3object - S3 object identifying the file to delete (must have \`s3\` set)
+ * @param workspace - Workspace to delete from (defaults to the \`WM_WORKSPACE\` env var)
+ */
+async deleteS3File(s3object: S3Object, workspace: string | undefined = undefined): Promise<void>
 
 /**
  * Sign S3 objects to be used by anonymous users in public apps
@@ -1296,9 +1315,10 @@ async duckdbConnectionSettings(s3_resource_path: string | undefined): Promise<an
 /**
  * Get S3 client settings from a resource or workspace default
  * @param s3_resource_path - Path to S3 resource (uses workspace default if undefined)
+ * @param workspace - Workspace to read from (defaults to the \`WM_WORKSPACE\` env var)
  * @returns S3 client configuration settings
  */
-async denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<DenoS3LightClientSettings>
+async denoS3LightClientSettings(s3_resource_path: string | undefined, workspace: string | undefined = undefined): Promise<DenoS3LightClientSettings>
 
 /**
  * Load the content of a file stored in S3. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
@@ -1309,8 +1329,10 @@ async denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<D
  * const text = new TextDecoder().decode(fileContentStream)
  * console.log(text);
  * \`\`\`
+ * 
+ * @param workspace - Workspace to read from (defaults to the \`WM_WORKSPACE\` env var)
  */
-async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Uint8Array | undefined>
+async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefined, workspace: string | undefined = undefined): Promise<Uint8Array | undefined>
 
 /**
  * Load the content of a file stored in S3 as a stream. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
@@ -1320,8 +1342,10 @@ async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefi
  * // if the content is plain text, the blob can be read directly:
  * console.log(await fileContentBlob.text());
  * \`\`\`
+ * 
+ * @param workspace - Workspace to read from (defaults to the \`WM_WORKSPACE\` env var)
  */
-async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Blob | undefined>
+async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = undefined, workspace: string | undefined = undefined): Promise<Blob | undefined>
 
 /**
  * Persist a file to the S3 bucket. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
@@ -1331,8 +1355,22 @@ async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = 
  * const fileContentAsUtf8Str = (await s3object.toArray()).toString('utf-8')
  * console.log(fileContentAsUtf8Str)
  * \`\`\`
+ * 
+ * @param workspace - Workspace to write to (defaults to the \`WM_WORKSPACE\` env var)
  */
-async writeS3File(s3object: S3Object | undefined, fileContent: string | Blob, s3ResourcePath: string | undefined = undefined, contentType: string | undefined = undefined, contentDisposition: string | undefined = undefined): Promise<S3Object>
+async writeS3File(s3object: S3Object | undefined, fileContent: string | Blob, s3ResourcePath: string | undefined = undefined, contentType: string | undefined = undefined, contentDisposition: string | undefined = undefined, workspace: string | undefined = undefined): Promise<S3Object>
+
+/**
+ * Permanently delete a file from S3 by key.
+ * 
+ * \`\`\`typescript
+ * await wmill.deleteS3File({ s3: "path/to/file.txt" })
+ * \`\`\`
+ * 
+ * @param s3object - S3 object identifying the file to delete (must have \`s3\` set)
+ * @param workspace - Workspace to delete from (defaults to the \`WM_WORKSPACE\` env var)
+ */
+async deleteS3File(s3object: S3Object, workspace: string | undefined = undefined): Promise<void>
 
 /**
  * Sign S3 objects to be used by anonymous users in public apps
@@ -2075,9 +2113,10 @@ async duckdbConnectionSettings(s3_resource_path: string | undefined): Promise<an
 /**
  * Get S3 client settings from a resource or workspace default
  * @param s3_resource_path - Path to S3 resource (uses workspace default if undefined)
+ * @param workspace - Workspace to read from (defaults to the \`WM_WORKSPACE\` env var)
  * @returns S3 client configuration settings
  */
-async denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<DenoS3LightClientSettings>
+async denoS3LightClientSettings(s3_resource_path: string | undefined, workspace: string | undefined = undefined): Promise<DenoS3LightClientSettings>
 
 /**
  * Load the content of a file stored in S3. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
@@ -2088,8 +2127,10 @@ async denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<D
  * const text = new TextDecoder().decode(fileContentStream)
  * console.log(text);
  * \`\`\`
+ * 
+ * @param workspace - Workspace to read from (defaults to the \`WM_WORKSPACE\` env var)
  */
-async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Uint8Array | undefined>
+async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefined, workspace: string | undefined = undefined): Promise<Uint8Array | undefined>
 
 /**
  * Load the content of a file stored in S3 as a stream. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
@@ -2099,8 +2140,10 @@ async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefi
  * // if the content is plain text, the blob can be read directly:
  * console.log(await fileContentBlob.text());
  * \`\`\`
+ * 
+ * @param workspace - Workspace to read from (defaults to the \`WM_WORKSPACE\` env var)
  */
-async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Blob | undefined>
+async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = undefined, workspace: string | undefined = undefined): Promise<Blob | undefined>
 
 /**
  * Persist a file to the S3 bucket. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
@@ -2110,8 +2153,22 @@ async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = 
  * const fileContentAsUtf8Str = (await s3object.toArray()).toString('utf-8')
  * console.log(fileContentAsUtf8Str)
  * \`\`\`
+ * 
+ * @param workspace - Workspace to write to (defaults to the \`WM_WORKSPACE\` env var)
  */
-async writeS3File(s3object: S3Object | undefined, fileContent: string | Blob, s3ResourcePath: string | undefined = undefined, contentType: string | undefined = undefined, contentDisposition: string | undefined = undefined): Promise<S3Object>
+async writeS3File(s3object: S3Object | undefined, fileContent: string | Blob, s3ResourcePath: string | undefined = undefined, contentType: string | undefined = undefined, contentDisposition: string | undefined = undefined, workspace: string | undefined = undefined): Promise<S3Object>
+
+/**
+ * Permanently delete a file from S3 by key.
+ * 
+ * \`\`\`typescript
+ * await wmill.deleteS3File({ s3: "path/to/file.txt" })
+ * \`\`\`
+ * 
+ * @param s3object - S3 object identifying the file to delete (must have \`s3\` set)
+ * @param workspace - Workspace to delete from (defaults to the \`WM_WORKSPACE\` env var)
+ */
+async deleteS3File(s3object: S3Object, workspace: string | undefined = undefined): Promise<void>
 
 /**
  * Sign S3 objects to be used by anonymous users in public apps
@@ -3277,9 +3334,10 @@ async duckdbConnectionSettings(s3_resource_path: string | undefined): Promise<an
 /**
  * Get S3 client settings from a resource or workspace default
  * @param s3_resource_path - Path to S3 resource (uses workspace default if undefined)
+ * @param workspace - Workspace to read from (defaults to the \`WM_WORKSPACE\` env var)
  * @returns S3 client configuration settings
  */
-async denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<DenoS3LightClientSettings>
+async denoS3LightClientSettings(s3_resource_path: string | undefined, workspace: string | undefined = undefined): Promise<DenoS3LightClientSettings>
 
 /**
  * Load the content of a file stored in S3. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
@@ -3290,8 +3348,10 @@ async denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<D
  * const text = new TextDecoder().decode(fileContentStream)
  * console.log(text);
  * \`\`\`
+ * 
+ * @param workspace - Workspace to read from (defaults to the \`WM_WORKSPACE\` env var)
  */
-async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Uint8Array | undefined>
+async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefined, workspace: string | undefined = undefined): Promise<Uint8Array | undefined>
 
 /**
  * Load the content of a file stored in S3 as a stream. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
@@ -3301,8 +3361,10 @@ async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefi
  * // if the content is plain text, the blob can be read directly:
  * console.log(await fileContentBlob.text());
  * \`\`\`
+ * 
+ * @param workspace - Workspace to read from (defaults to the \`WM_WORKSPACE\` env var)
  */
-async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Blob | undefined>
+async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = undefined, workspace: string | undefined = undefined): Promise<Blob | undefined>
 
 /**
  * Persist a file to the S3 bucket. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
@@ -3312,8 +3374,22 @@ async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = 
  * const fileContentAsUtf8Str = (await s3object.toArray()).toString('utf-8')
  * console.log(fileContentAsUtf8Str)
  * \`\`\`
+ * 
+ * @param workspace - Workspace to write to (defaults to the \`WM_WORKSPACE\` env var)
  */
-async writeS3File(s3object: S3Object | undefined, fileContent: string | Blob, s3ResourcePath: string | undefined = undefined, contentType: string | undefined = undefined, contentDisposition: string | undefined = undefined): Promise<S3Object>
+async writeS3File(s3object: S3Object | undefined, fileContent: string | Blob, s3ResourcePath: string | undefined = undefined, contentType: string | undefined = undefined, contentDisposition: string | undefined = undefined, workspace: string | undefined = undefined): Promise<S3Object>
+
+/**
+ * Permanently delete a file from S3 by key.
+ * 
+ * \`\`\`typescript
+ * await wmill.deleteS3File({ s3: "path/to/file.txt" })
+ * \`\`\`
+ * 
+ * @param s3object - S3 object identifying the file to delete (must have \`s3\` set)
+ * @param workspace - Workspace to delete from (defaults to the \`WM_WORKSPACE\` env var)
+ */
+async deleteS3File(s3object: S3Object, workspace: string | undefined = undefined): Promise<void>
 
 /**
  * Sign S3 objects to be used by anonymous users in public apps
