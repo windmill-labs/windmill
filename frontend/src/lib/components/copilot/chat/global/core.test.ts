@@ -56,6 +56,18 @@ vi.mock('$lib/gen', async () => {
 			}),
 			getFlowLatestVersion: vi.fn(async () => ({ id: 1 }))
 		}),
+		ScheduleService: wrapService(actual.ScheduleService, {
+			existsSchedule: vi.fn(async () => false),
+			getSchedule: vi.fn(async () => {
+				throw new Error('getSchedule mock not configured')
+			})
+		}),
+		HttpTriggerService: wrapService(actual.HttpTriggerService, {
+			existsHttpTrigger: vi.fn(async () => false),
+			getHttpTrigger: vi.fn(async () => {
+				throw new Error('getHttpTrigger mock not configured')
+			})
+		}),
 		VariableService: wrapService(actual.VariableService, {
 			existsVariable: vi.fn(async () => false)
 		})
@@ -65,7 +77,7 @@ vi.mock('$lib/gen', async () => {
 import { globalTools, prepareGlobalUserMessage } from './core'
 import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
 import { clearGlobalDrafts } from './userDraftAdapter'
-import { FlowService, ScriptService } from '$lib/gen'
+import { FlowService, HttpTriggerService, ScheduleService, ScriptService } from '$lib/gen'
 import type { Tool, ToolCallbacks } from '../shared'
 
 const WORKSPACE = 'global-core-test'
@@ -234,6 +246,114 @@ describe('global AI tools', () => {
 		expect(UserDraft.getMeta('flow', 'f/flows/existing', { workspace: WORKSPACE })).toEqual({
 			remoteRev: 42,
 			remoteDraftRev: '2026-05-22T10:00:00Z'
+		})
+	})
+
+	it('preserves editor schedule fields when writing over an existing schedule', async () => {
+		vi.mocked(ScheduleService.existsSchedule).mockResolvedValueOnce(true)
+		vi.mocked(ScheduleService.getSchedule).mockResolvedValueOnce({
+			path: 'f/schedules/nightly',
+			schedule: '0 0 0 * * *',
+			timezone: 'UTC',
+			enabled: true,
+			script_path: 'f/scripts/old',
+			is_flow: false,
+			args: {},
+			extra_perms: { 'u/viewer': true },
+			email: 'admin@windmill.dev',
+			permissioned_as: 'u/admin',
+			edited_by: 'admin',
+			edited_at: '2026-05-22T09:00:00Z',
+			summary: 'old summary',
+			description: 'keep this description',
+			no_flow_overlap: true,
+			cron_version: 'v2'
+		} as any)
+
+		await callGlobalTool('write_schedule', {
+			path: 'f/schedules/nightly',
+			schedule: '0 15 0 * * *',
+			timezone: 'Europe/Paris',
+			script_path: 'f/flows/new',
+			is_flow: true,
+			args: { limit: 5 }
+		})
+
+		expect(
+			UserDraft.get<any>('trigger_schedule', 'f/schedules/nightly', { workspace: WORKSPACE })
+		).toMatchObject({
+			path: 'f/schedules/nightly',
+			schedule: '0 15 0 * * *',
+			timezone: 'Europe/Paris',
+			script_path: 'f/flows/new',
+			is_flow: true,
+			args: { limit: 5 },
+			extra_perms: { 'u/viewer': true },
+			permissioned_as: 'u/admin',
+			summary: 'old summary',
+			description: 'keep this description',
+			no_flow_overlap: true
+		})
+		expect(
+			UserDraft.get<any>('trigger_schedule', 'f/schedules/nightly', { workspace: WORKSPACE })
+		).not.toMatchObject({
+			edited_by: expect.anything()
+		})
+	})
+
+	it('preserves editor trigger fields when writing over an existing trigger', async () => {
+		vi.mocked(HttpTriggerService.existsHttpTrigger).mockResolvedValueOnce(true)
+		vi.mocked(HttpTriggerService.getHttpTrigger).mockResolvedValueOnce({
+			path: 'f/routes/api',
+			script_path: 'f/scripts/old',
+			is_flow: false,
+			route_path: 'api/old',
+			http_method: 'post',
+			request_type: 'sync',
+			authentication_method: 'none',
+			is_static_website: false,
+			workspaced_route: false,
+			wrap_body: false,
+			raw_string: false,
+			mode: 'enabled',
+			extra_perms: { 'u/viewer': true },
+			workspace_id: WORKSPACE,
+			edited_by: 'admin',
+			edited_at: '2026-05-22T09:00:00Z',
+			permissioned_as: 'u/admin',
+			summary: 'old route',
+			description: 'keep route description'
+		} as any)
+
+		await callGlobalTool('write_trigger', {
+			kind: 'http',
+			config: {
+				path: 'f/routes/api',
+				script_path: 'f/flows/new',
+				is_flow: true,
+				route_path: 'api/new',
+				http_method: 'get',
+				authentication_method: 'windmill',
+				is_static_website: false
+			}
+		})
+
+		const draft = UserDraft.get<any>('trigger_http', 'f/routes/api', { workspace: WORKSPACE })
+		expect(draft).toMatchObject({
+			path: 'f/routes/api',
+			script_path: 'f/flows/new',
+			is_flow: true,
+			route_path: 'api/new',
+			http_method: 'get',
+			authentication_method: 'windmill',
+			extra_perms: { 'u/viewer': true },
+			permissioned_as: 'u/admin',
+			summary: 'old route',
+			description: 'keep route description'
+		})
+		expect(draft).not.toMatchObject({
+			workspace_id: expect.anything(),
+			edited_by: expect.anything()
 		})
 	})
 

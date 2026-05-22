@@ -23,6 +23,7 @@ import type {
 	ListableApp,
 	ListableResource,
 	ListableVariable,
+	NewSchedule,
 	NewScript,
 	Schedule,
 	Script,
@@ -76,6 +77,7 @@ import {
 	type AppDraftValue,
 	type FlowDraftValue,
 	type TriggerKind,
+	type TriggerRequestBody,
 	type WorkspaceItem,
 	type WorkspaceItemType
 } from './workspaceItems'
@@ -85,7 +87,8 @@ import {
 	getGlobalDraft,
 	listGlobalDrafts,
 	saveGlobalAppDraft,
-	setGlobalDraft
+	setGlobalDraft,
+	triggerKindToUserDraftKind
 } from './userDraftAdapter'
 
 const ITEM_TYPES = [
@@ -1408,16 +1411,7 @@ export const globalTools: Tool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = writeScheduleSchema.parse(ctx.args)
-			return writeDraft(
-				{
-					type: 'schedule',
-					path: parsed.path,
-					summary: parsed.summary ?? undefined,
-					value: parsed,
-					isDraft: true
-				},
-				ctx
-			)
+			return writeScheduleDraft(parsed, ctx)
 		}
 	},
 	{
@@ -1432,18 +1426,7 @@ export const globalTools: Tool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = writeTriggerSchema.parse(ctx.args)
-			const config = parsed.config as { path: string; summary?: string | null }
-			return writeDraft(
-				{
-					type: 'trigger',
-					triggerKind: parsed.kind,
-					path: config.path,
-					summary: config.summary ?? undefined,
-					value: parsed.config,
-					isDraft: true
-				},
-				ctx
-			)
+			return writeTriggerDraft(parsed, ctx)
 		}
 	},
 	{
@@ -1705,6 +1688,32 @@ type WriteDraftCtx = {
 	toolCallbacks: ToolCallbacks
 }
 
+type DraftConfig = Record<string, any>
+type ScheduleDraftConfig = NewSchedule & DraftConfig
+type TriggerDraftConfig = TriggerRequestBody & DraftConfig & { path: string }
+
+function stripBackendMetadata<T extends DraftConfig>(value: T): T {
+	const draft = structuredClone(value)
+	delete draft.workspace_id
+	delete draft.edited_by
+	delete draft.edited_at
+	delete draft.email
+	delete draft.error
+	return draft
+}
+
+function mergeDraftConfig<T extends DraftConfig>(
+	base: T | undefined,
+	overrides: DraftConfig,
+	path: string
+): T {
+	return {
+		...(base ? stripBackendMetadata(base) : {}),
+		...structuredClone(overrides),
+		path
+	} as unknown as T
+}
+
 function startDraftWrite(ctx: WriteDraftCtx, type: WorkspaceItemType, path: string): void {
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, {
 		content: `Writing draft ${type} "${path}"...`
@@ -1876,6 +1885,67 @@ async function writeFlowDraft(
 
 	return finishDraftWrite(
 		getRequiredGlobalDraft(workspace, 'flow', args.path),
+		existingDraft !== undefined || backendExists,
+		ctx
+	)
+}
+
+async function writeScheduleDraft(args: NewSchedule, ctx: WriteDraftCtx): Promise<string> {
+	const { workspace } = ctx
+	startDraftWrite(ctx, 'schedule', args.path)
+
+	const existingDraft = UserDraft.get<ScheduleDraftConfig>('trigger_schedule', args.path, {
+		workspace
+	})
+	const backendExists = existingDraft
+		? false
+		: await ScheduleService.existsSchedule({ workspace, path: args.path })
+
+	const base = existingDraft
+		? existingDraft
+		: backendExists
+			? ((await ScheduleService.getSchedule({
+					workspace,
+					path: args.path
+				})) as ScheduleDraftConfig)
+			: undefined
+	const draft = mergeDraftConfig<ScheduleDraftConfig>(base, args as DraftConfig, args.path)
+
+	UserDraft.save('trigger_schedule', args.path, draft, { workspace })
+
+	return finishDraftWrite(
+		getRequiredGlobalDraft(workspace, 'schedule', args.path),
+		existingDraft !== undefined || backendExists,
+		ctx
+	)
+}
+
+async function writeTriggerDraft(
+	args: { kind: TriggerKind; config: unknown },
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace } = ctx
+	const config = args.config as TriggerDraftConfig
+	const path = config.path
+	const itemKind = triggerKindToUserDraftKind(args.kind)
+	startDraftWrite(ctx, 'trigger', path)
+
+	const existingDraft = UserDraft.get<TriggerDraftConfig>(itemKind, path, { workspace })
+	const backendExists = existingDraft
+		? false
+		: await triggerServices[args.kind].exists({ workspace, path })
+
+	const base = existingDraft
+		? existingDraft
+		: backendExists
+			? ((await triggerServices[args.kind].get({ workspace, path })) as TriggerDraftConfig)
+			: undefined
+	const draft = mergeDraftConfig<TriggerDraftConfig>(base, config, path)
+
+	UserDraft.save(itemKind, path, draft, { workspace })
+
+	return finishDraftWrite(
+		getRequiredGlobalDraft(workspace, 'trigger', path, args.kind),
 		existingDraft !== undefined || backendExists,
 		ctx
 	)
