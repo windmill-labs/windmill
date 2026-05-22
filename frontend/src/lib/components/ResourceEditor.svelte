@@ -207,6 +207,7 @@
 
 	// Bootstrap: ensure selected is set on mount (edit or new)
 	$effect(() => {
+	    selected
 		if (!effectiveWorkspace) return
 		untrack(() => {
 			if (selected !== undefined) return
