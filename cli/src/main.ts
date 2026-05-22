@@ -40,6 +40,8 @@ import workers from "./commands/workers/workers.ts";
 import queues from "./commands/queues/queues.ts";
 import dependencies from "./commands/dependencies/dependencies.ts";
 import init from "./commands/init/init.ts";
+import refresh from "./commands/refresh/refresh.ts";
+import { shouldRunFreshnessCheck } from "./guidance/freshness_gate.ts";
 import jobs from "./commands/jobs/jobs.ts";
 import job from "./commands/job/job.ts";
 import group from "./commands/group/group.ts";
@@ -85,7 +87,7 @@ export {
   token,
 };
 
-export const VERSION = "1.705.0";
+export const VERSION = "1.706.0";
 
 // Re-exported from constants.ts to maintain backwards compatibility
 export { WM_FORK_PREFIX } from "./core/constants.ts";
@@ -175,6 +177,7 @@ const command = new Command()
     },
   })
   .command("init", init)
+  .command("refresh", refresh)
   .command("app", app)
   .command("flow", flow)
   .command("script", script)
@@ -291,6 +294,15 @@ async function main() {
       await detectAuthGatewayChallenge(response);
       return response;
     });
+
+    // Warn (one line) if AGENTS.cli.md predates this CLI's prompts bundle.
+    // The check is gated on argv parsing (cheap) so the ~360 KB skills.gen.ts
+    // bundle stays out of the import graph for help/version/init/refresh/etc.
+    if (shouldRunFreshnessCheck(process.argv)) {
+      const { warnIfPromptsStale } = await import("./guidance/freshness.ts");
+      await warnIfPromptsStale({ argv: process.argv }).catch(() => {});
+    }
+
     await command.parse(args);
   } catch (e) {
     if (e && typeof e === "object" && "name" in e && e.name === "ApiError") {
