@@ -42,6 +42,10 @@ vi.mock('$lib/gen', async () => {
 
 	return {
 		...actual,
+		ScriptService: wrapService(actual.ScriptService, {
+			existsScriptByPath: vi.fn(async () => false),
+			listScripts: vi.fn(async () => [])
+		}),
 		FlowService: wrapService(actual.FlowService, {
 			existsFlowByPath: vi.fn(async () => false)
 		}),
@@ -52,7 +56,8 @@ vi.mock('$lib/gen', async () => {
 })
 
 import { globalTools, prepareGlobalUserMessage } from './core'
-import { globalDraftStore } from './draftStore.svelte'
+import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
+import { clearGlobalDrafts } from './userDraftAdapter'
 import type { Tool, ToolCallbacks } from '../shared'
 
 const WORKSPACE = 'global-core-test'
@@ -86,7 +91,9 @@ async function callGlobalTool(
 
 describe('global AI tools', () => {
 	beforeEach(() => {
-		globalDraftStore.clearDrafts(WORKSPACE)
+		__resetUserDraftForTesting()
+		localStorage.clear()
+		clearGlobalDrafts(WORKSPACE)
 		vi.clearAllMocks()
 	})
 
@@ -111,6 +118,26 @@ describe('global AI tools', () => {
 			summary: 'API key',
 			isDraft: true
 		})
+	})
+
+	it('writes script drafts into UserDraft', async () => {
+		const content = 'export async function main() {\n\treturn "hello"\n}'
+
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/hello',
+			summary: 'Hello script',
+			language: 'bun',
+			content
+		})
+
+		expect(UserDraft.get<any>('script', 'f/scripts/hello', { workspace: WORKSPACE })).toMatchObject(
+			{
+				path: 'f/scripts/hello',
+				summary: 'Hello script',
+				language: 'bun',
+				content
+			}
+		)
 	})
 
 	it('fills an empty rawscript module through set_flow_module_code', async () => {

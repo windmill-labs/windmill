@@ -69,15 +69,21 @@ import {
 } from '../workspaceToolsZod.gen'
 import {
 	getWorkspaceItemKey,
-	globalDraftStore,
 	TRIGGER_KINDS,
 	type AppDraftValue,
 	type FlowDraftValue,
 	type TriggerKind,
 	type WorkspaceItem,
 	type WorkspaceItemType
-} from './draftStore.svelte'
+} from './workspaceItems'
 import { buildFlowDeployRequestBody, buildScriptDeployRequestBody } from './deployRequests'
+import {
+	deleteGlobalDraft,
+	getGlobalDraft,
+	listGlobalDrafts,
+	saveGlobalAppDraft,
+	setGlobalDraft
+} from './userDraftAdapter'
 
 const ITEM_TYPES = [
 	'script',
@@ -816,7 +822,7 @@ function getInlineRunnableContent(
 }
 
 async function loadAppDraftValue(path: string, workspace: string): Promise<AppDraftValue> {
-	const draft = globalDraftStore.getDraft(workspace, 'app', path)
+	const draft = getGlobalDraft(workspace, 'app', path)
 	if (draft && draft.value && typeof draft.value === 'object' && 'files' in draft.value) {
 		return draft.value as AppDraftValue
 	}
@@ -834,13 +840,7 @@ async function loadAppDraftValue(path: string, workspace: string): Promise<AppDr
 }
 
 function saveAppDraft(workspace: string, path: string, value: AppDraftValue): WorkspaceItem {
-	return globalDraftStore.setDraft(workspace, {
-		type: 'app',
-		path,
-		summary: value.summary,
-		value,
-		isDraft: true
-	})
+	return saveGlobalAppDraft(workspace, path, value)
 }
 
 type TriggerLike = { path: string; summary?: string | null }
@@ -1296,7 +1296,7 @@ export const globalTools: Tool<{}>[] = [
 				byKey.set(getWorkspaceItemKey(item.type, item.path, item.triggerKind), item)
 			}
 
-			for (const draft of globalDraftStore.listDrafts(workspace)) {
+			for (const draft of listGlobalDrafts(workspace)) {
 				if (!types.includes(draft.type)) continue
 				byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
 					...draft,
@@ -1327,12 +1327,7 @@ export const globalTools: Tool<{}>[] = [
 				toolCallbacks.setToolStatus(toolId, { content: message, error: message })
 				return JSON.stringify({ success: false, error: message })
 			}
-			const draft = globalDraftStore.getDraft(
-				workspace,
-				parsed.type,
-				parsed.path,
-				parsed.trigger_kind
-			)
+			const draft = getGlobalDraft(workspace, parsed.type, parsed.path, parsed.trigger_kind)
 			if (draft) {
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Read AI draft ${parsed.type} "${parsed.path}"`
@@ -1723,7 +1718,7 @@ async function loadScriptForEdit(
 	path: string,
 	workspace: string
 ): Promise<{ content: string; language: ScriptLang; summary?: string }> {
-	const draft = globalDraftStore.getDraft(workspace, 'script', path)
+	const draft = getGlobalDraft(workspace, 'script', path)
 	if (draft) {
 		if (typeof draft.value !== 'string' || !draft.language) {
 			throw new Error(`Draft script "${path}" is missing content or language.`)
@@ -1760,7 +1755,7 @@ async function loadFlowDraftValue(
 	path: string,
 	workspace: string
 ): Promise<{ flow: FlowDraftValue; summary?: string }> {
-	const draft = globalDraftStore.getDraft(workspace, 'flow', path)
+	const draft = getGlobalDraft(workspace, 'flow', path)
 	if (draft) {
 		if (draft.value === undefined || typeof draft.value === 'string') {
 			throw new Error(`Draft flow "${path}" has no value.`)
@@ -1889,7 +1884,7 @@ async function initApp(
 	const { workspace, toolId, toolCallbacks } = ctx
 	const { path, summary, framework, data } = args
 
-	if (globalDraftStore.getDraft(workspace, 'app', path)) {
+	if (getGlobalDraft(workspace, 'app', path)) {
 		throw new Error(
 			`An AI draft for app "${path}" already exists. Use write_app_file / write_app_runnable to modify it, or delete the existing draft first.`
 		)
@@ -2268,7 +2263,7 @@ async function deployDraft(
 		throw new Error('trigger_kind is required when deploying a trigger.')
 	}
 
-	const draft = globalDraftStore.getDraft(workspace, type, path, triggerKind)
+	const draft = getGlobalDraft(workspace, type, path, triggerKind)
 	if (!draft) {
 		throw new Error(`No AI draft found for ${type} "${path}".`)
 	}
@@ -2357,7 +2352,7 @@ async function deployDraft(
 		}
 	}
 
-	globalDraftStore.deleteDraft(workspace, type, path, triggerKind)
+	deleteGlobalDraft(workspace, type, path, triggerKind)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deployed ${type} "${path}"`,
@@ -2416,7 +2411,7 @@ async function deleteWorkspaceItem(
 			break
 	}
 
-	globalDraftStore.deleteDraft(workspace, type, path, triggerKind)
+	deleteGlobalDraft(workspace, type, path, triggerKind)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deleted ${type} "${path}"`,
@@ -2442,10 +2437,10 @@ async function writeDraft(item: WorkspaceItem, ctx: WriteDraftCtx): Promise<stri
 	})
 
 	const exists =
-		globalDraftStore.getDraft(workspace, item.type, item.path, item.triggerKind) !== undefined ||
+		getGlobalDraft(workspace, item.type, item.path, item.triggerKind) !== undefined ||
 		(await workspaceItemExists(item.type, item.path, workspace, item.triggerKind))
 
-	const stored = globalDraftStore.setDraft(workspace, item)
+	const stored = setGlobalDraft(workspace, item)
 	const serializedItem =
 		stored.type === 'variable' || stored.type === 'flow'
 			? serializeWorkspaceItemForRead(stored)

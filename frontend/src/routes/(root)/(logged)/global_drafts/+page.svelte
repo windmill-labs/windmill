@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import {
-		globalDraftStore,
-		type WorkspaceItem
-	} from '$lib/components/copilot/chat/global/draftStore.svelte'
+		clearGlobalDrafts,
+		deleteGlobalDraft,
+		listGlobalDrafts
+	} from '$lib/components/copilot/chat/global/userDraftAdapter'
+	import type { WorkspaceItem } from '$lib/components/copilot/chat/global/workspaceItems'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { goto } from '$lib/navigation'
 	import { workspaceStore } from '$lib/stores'
@@ -20,7 +22,7 @@
 		}
 	})
 
-	let drafts = $derived($workspaceStore ? globalDraftStore.listDrafts($workspaceStore) : [])
+	let drafts = $derived($workspaceStore ? listGlobalDrafts($workspaceStore) : [])
 
 	function draftKey(item: WorkspaceItem): string {
 		return `${item.type}:${item.triggerKind ?? '-'}:${item.path}`
@@ -28,12 +30,12 @@
 
 	function deleteDraft(item: WorkspaceItem) {
 		if (!$workspaceStore) return
-		globalDraftStore.deleteDraft($workspaceStore, item.type, item.path, item.triggerKind)
+		deleteGlobalDraft($workspaceStore, item.type, item.path, item.triggerKind)
 	}
 
 	function clearAll() {
 		if (!$workspaceStore) return
-		globalDraftStore.clearDrafts($workspaceStore)
+		clearGlobalDrafts($workspaceStore)
 	}
 </script>
 
@@ -43,7 +45,7 @@
 			<div>
 				<h1 class="text-2xl font-semibold">Global AI drafts</h1>
 				<p class="text-sm text-tertiary">
-					Dev-only inspector for the in-memory global draft store.
+					Dev-only inspector for global local drafts.
 				</p>
 			</div>
 			<Button
