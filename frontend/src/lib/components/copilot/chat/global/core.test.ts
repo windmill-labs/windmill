@@ -89,7 +89,7 @@ vi.mock('$lib/gen', async () => {
 	}
 })
 
-import { globalTools, prepareGlobalUserMessage } from './core'
+import { globalTools, prepareGlobalSystemMessage, prepareGlobalUserMessage } from './core'
 import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
 import { clearGlobalDrafts } from './userDraftAdapter'
 import {
@@ -252,6 +252,39 @@ describe('global AI tools', () => {
 				content
 			}
 		)
+	})
+
+	it('discards a local draft without deleting the workspace item', async () => {
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/discard-me',
+			summary: 'Temporary draft',
+			language: 'bun',
+			content: 'export async function main() { return 1 }'
+		})
+
+		expect(UserDraft.get('script', 'f/scripts/discard-me', { workspace: WORKSPACE })).toBeDefined()
+
+		const raw = await callGlobalTool('discard_local_draft', {
+			type: 'script',
+			path: 'f/scripts/discard-me'
+		})
+
+		expect(JSON.parse(raw)).toMatchObject({
+			success: true,
+			type: 'script',
+			path: 'f/scripts/discard-me'
+		})
+		expect(raw).toContain('The deployed workspace item was not changed')
+		expect(UserDraft.get('script', 'f/scripts/discard-me', { workspace: WORKSPACE })).toBeUndefined()
+	})
+
+	it('requires trigger_kind when discarding a trigger draft', async () => {
+		await expect(
+			callGlobalTool('discard_local_draft', {
+				type: 'trigger',
+				path: 'f/routes/missing-kind'
+			})
+		).rejects.toThrow('trigger_kind is required')
 	})
 
 	it('preserves existing script metadata and seeds freshness on first script write', async () => {
@@ -661,6 +694,34 @@ describe('global AI tools', () => {
 				userQuestion: expect.objectContaining({ selectedChoice: 'python3' })
 			})
 		)
+	})
+})
+
+describe('prepareGlobalSystemMessage', () => {
+	it('keeps global chat draft instructions concise and user-facing', () => {
+		const message = prepareGlobalSystemMessage()
+		const content = message.content
+
+		expect(content).toContain('Draft tools create or update local drafts only')
+		expect(content).toContain('Use discard_local_draft to remove an unsaved local draft')
+		expect(content).not.toContain('AI draft')
+		expect(content).not.toContain('UserDraft')
+		expect(content).not.toContain('localStorage')
+		expect(content).not.toContain('frontend AI draft store')
+	})
+
+	it('exposes separate tools for discarding drafts and deleting workspace items', () => {
+		const discard = getGlobalTool('discard_local_draft')
+		const deleteItem = getGlobalTool('delete_workspace_item')
+
+		expect(discard.def.function.description).toBe(
+			'Discard a local draft only. Does not mutate deployed workspace items.'
+		)
+		expect(deleteItem.def.function.description).toBe(
+			'Delete a deployed workspace item. Mutates the workspace.'
+		)
+		expect(discard.requiresConfirmation).toBe(true)
+		expect(deleteItem.requiresConfirmation).toBe(true)
 	})
 })
 

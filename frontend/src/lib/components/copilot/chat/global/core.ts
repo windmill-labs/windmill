@@ -315,6 +315,14 @@ const deleteWorkspaceItemSchema = z.object({
 		.describe('Required when type is trigger. Identifies which trigger service to call.')
 })
 
+const discardLocalDraftSchema = z.object({
+	type: itemTypeSchema,
+	path: z.string().describe('Workspace path of the local draft to discard.'),
+	trigger_kind: triggerKindSchema
+		.optional()
+		.describe('Required when type is trigger. Must match the draft trigger kind.')
+})
+
 const deployWorkspaceItemSchema = z.object({
 	type: itemTypeSchema,
 	path: z.string().describe('Workspace path of the draft to deploy.'),
@@ -482,28 +490,30 @@ const initAppSchema = z.object({
 
 const GLOBAL_SYSTEM_PROMPT = `You are Windmill's global workspace assistant.
 
-You can inspect workspace scripts, flows, schedules, triggers, resources, variables, and apps, then create local draft changes in the user's editor draft system.
+Use tools to inspect workspace items and create local drafts for scripts, flows, schedules, triggers, resources, variables, and raw apps.
 
-Important rules:
-- write_{script,flow,schedule,trigger,resource,variable} create or overwrite drafts. They do not save, deploy, or mutate workspace items.
-- edit_script and patch_flow_json apply small exact-text edits and save the result as a draft. Prefer them for localized changes; use write_* for large rewrites.
-- For flows specifically: read_workspace_item and patch_flow_json work on a COMPACT view where rawscript module bodies are replaced with the placeholder "inline_script.<moduleId>". Use read_flow_module_code / set_flow_module_code to inspect or overwrite an inline script body; use patch_flow_json for structural edits.
-- deploy_workspace_item persists a draft to the workspace via the real backend create/update API and removes the draft. Requires user confirmation. Only call after the user has reviewed the draft and explicitly asked to deploy.
-- delete_workspace_item permanently removes a workspace item (and any matching draft). Irreversible. Requires user confirmation. Only call when the user has explicitly asked to delete.
-- Use list_workspace_items before broad reads.
-- Use read_workspace_item before overwriting an existing item, unless the user already provided the complete current item. For triggers, pass trigger_kind.
-- Variable values are NEVER returned by read_workspace_item or list_workspace_items — only metadata (path, description, is_secret). The model cannot read secret values, by design.
-- For resources that need secrets, write a Variable first (with is_secret: true), then in the resource value reference it as "$var:path/to/variable". When deploying both, deploy the variable before the resource.
-- Use search_resource_types before write_resource to discover the resource_type name and the JSON Schema its value must match.
-- Use get_instructions before writing a script, flow, resource, or app. For scripts, pass the target language; when modifying, use the language from the item you read.
-- Schedules, triggers, and variables do not need get_instructions — their tool schemas describe every field.
-- When a required decision is ambiguous, use askUserQuestion with two to six clear answer strings instead of guessing.
-- A workspace item is { type, path, summary?, language?, triggerKind?, value, isDraft }. For scripts, value is the source code string. For flows, read_workspace_item returns value as the compact flow object { modules, schema, preprocessor_module, failure_module, groups }; write_flow takes the same flow fields as top-level tool arguments plus path/summary. For schedules/triggers/resources/variables, value is the full request body for that type. For apps, value is { files, runnables, data? } with frontend file contents and backend runnable definitions.
-- Apps (raw apps): use list_workspace_items with types: ['app'] to find them, read_workspace_item with type 'app' for a metadata summary (file paths + runnable list, no contents), then read_app_file to read individual files. Edit with write_app_file / patch_app_file / delete_app_file for frontend files and write_app_runnable / delete_app_runnable for backend runnables. Frontend file paths start with "/" (e.g. /index.tsx). Backend inline runnables are addressed as "backend/<key>/main.{ts|py}". /wmill.d.ts is generated and cannot be written.
-- To create a new raw app, use init_app. Before calling it, confirm framework (react19 / react18 / svelte5 / vue), path, and summary with the user — do not silently default to react19, even though it is the recommended choice.
-- Apps cannot be deployed from chat. The app editor bundles JS/CSS before save; tell the user to open the app editor to deploy app drafts.
-- Keep context targeted. Do not read unrelated items.
-- Be explicit with the user when you create or update a draft.`
+Rules:
+- Draft tools create or update local drafts only; they do not deploy or mutate deployed workspace items.
+- Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
+- Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a local draft to the workspace.
+- Use discard_local_draft to remove an unsaved local draft. Use delete_workspace_item only to delete a deployed workspace item.
+- Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
+- Use search_resource_types before write_resource.
+- Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
+- Ask the user when a required decision is ambiguous.
+- Keep context targeted.
+
+Flows:
+- read_workspace_item returns compact flow JSON. Inline script bodies appear as "inline_script.<moduleId>".
+- Use read_flow_module_code and set_flow_module_code for inline script bodies.
+- Use patch_flow_json for structural flow edits and write_flow for full flow rewrites.
+
+Raw apps:
+- read_workspace_item returns app metadata only. Use read_app_file for file and inline runnable contents.
+- Use write_app_file, patch_app_file, and delete_app_file for frontend files.
+- Use write_app_runnable and delete_app_runnable for backend runnables.
+- Use init_app only after confirming framework, path, and summary with the user.
+- Apps cannot be deployed from chat; tell the user to open the app editor.`
 
 const DEFAULT_LIST_TYPES = ['script', 'flow'] as const satisfies readonly WorkspaceItemType[]
 
@@ -1232,7 +1242,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			getInstructionsSchema,
 			'get_instructions',
-			'Get Windmill authoring instructions for scripts, flows, resources, or apps. For scripts, pass the target language.'
+			'Get authoring guidance for scripts, flows, resources, or apps.'
 		),
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			const parsed = getInstructionsSchema.parse(args)
@@ -1248,7 +1258,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			askUserQuestionSchema,
 			'askUserQuestion',
-			'Ask the user a multiple-choice question and wait for their selection before continuing.'
+			'Ask the user a multiple-choice question.'
 		),
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			const parsed = askUserQuestionSchema.parse(args)
@@ -1302,7 +1312,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			listWorkspaceItemsSchema,
 			'list_workspace_items',
-			'List workspace items (scripts, flows, schedules, triggers, resources, variables, apps) and local drafts. Returns metadata only (no value). Defaults to scripts and flows.'
+			'List workspace items and local drafts. Returns metadata only.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = listWorkspaceItemsSchema.parse(args)
@@ -1343,7 +1353,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			readWorkspaceItemSchema,
 			'read_workspace_item',
-			'Read one workspace item or local draft by type and path. Returns the full workspace item including value.'
+			'Read one workspace item or local draft.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = readWorkspaceItemSchema.parse(args)
@@ -1377,7 +1387,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeScriptSchema,
 			'write_script',
-			'Create or overwrite a local draft script. Does not save or deploy. Read the existing script first when overwriting.'
+			'Create or overwrite a local draft script.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -1391,7 +1401,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeFlowSchema,
 			'write_flow',
-			'Create or overwrite a local draft flow. Does not save or deploy. Read the existing flow first when overwriting. Uses the same flow-structure arguments as set_flow_json plus path and summary.'
+			'Create or overwrite a local draft flow.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -1422,7 +1432,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeScheduleSchema,
 			'write_schedule',
-			'Create or overwrite a local draft schedule. Does not save or deploy. Provide script_path and is_flow to point to the runnable.',
+			'Create or overwrite a local draft schedule.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -1437,7 +1447,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeTriggerSchema,
 			'write_trigger',
-			'Create or overwrite a local draft trigger. Does not save or deploy. Provide kind plus the kind-specific config (including path, script_path, is_flow).',
+			'Create or overwrite a local draft trigger.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -1452,7 +1462,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			editScriptSchema,
 			'edit_script',
-			'Find/replace exact text in a script. Edits the existing draft if one exists, otherwise reads the workspace script and saves the result as a new draft.'
+			'Find/replace exact text in a script and save a local draft.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -1466,7 +1476,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			patchFlowJsonSchema,
 			'patch_flow_json',
-			'Find/replace exact text in a flow value (compact JSON). Edits the existing draft if one exists, otherwise reads the workspace flow and saves the result as a new draft. Use write_flow for larger structural rewrites.'
+			'Find/replace exact text in compact flow JSON and save a local draft.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -1480,7 +1490,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			deployWorkspaceItemSchema,
 			'deploy_workspace_item',
-			'Persist a local draft to the workspace by calling the real backend create/update API. This MUTATES the workspace. Requires user confirmation.',
+			'Deploy a local draft to the workspace. Mutates the workspace.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -1496,7 +1506,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			deleteWorkspaceItemSchema,
 			'delete_workspace_item',
-			'Permanently delete a workspace item by path. This MUTATES the workspace and is irreversible. Also clears any matching local draft. Requires user confirmation.'
+			'Delete a deployed workspace item. Mutates the workspace.'
 		),
 		showDetails: true,
 		showFade: true,
@@ -1509,9 +1519,24 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
+			discardLocalDraftSchema,
+			'discard_local_draft',
+			'Discard a local draft only. Does not mutate deployed workspace items.'
+		),
+		showDetails: true,
+		showFade: true,
+		requiresConfirmation: true,
+		confirmationMessage: 'Discard local draft',
+		fn: async (ctx) => {
+			const parsed = discardLocalDraftSchema.parse(ctx.args)
+			return discardLocalDraft(parsed, ctx)
+		}
+	},
+	{
+		def: createToolDef(
 			writeResourceSchema,
 			'write_resource',
-			'Create or overwrite a local draft resource. Does not save or deploy. Reference secret values via $var:path/to/variable; create the variable separately with write_variable.',
+			'Create or overwrite a local draft resource.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -1526,7 +1551,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeVariableSchema,
 			'write_variable',
-			'Create or overwrite a local draft variable. Does not save or deploy. Use is_secret: true for secret values. After deploy, reference from a resource as $var:path/to/variable.',
+			'Create or overwrite a local draft variable.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -1541,7 +1566,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			searchResourceTypesSchema,
 			'search_resource_types',
-			'Search for resource types in the workspace by substring. Returns names, descriptions, and JSON Schemas — use this before write_resource to know what shape value should have.'
+			'Search workspace resource types and schemas.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = searchResourceTypesSchema.parse(args)
@@ -1570,7 +1595,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			readFlowModuleCodeSchema,
 			'read_flow_module_code',
-			'Read the inline rawscript content of one flow module by id. Reads from the local draft when one exists, otherwise from the workspace flow. Use this instead of patch_flow_json when you only need to inspect an inline script body.'
+			'Read inline script code from one flow module.'
 		),
 		fn: async (ctx) => {
 			const parsed = readFlowModuleCodeSchema.parse(ctx.args)
@@ -1581,7 +1606,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			setFlowModuleCodeSchema,
 			'set_flow_module_code',
-			'Overwrite the inline rawscript content of one flow module by id. Saves to the local draft only — does not deploy. Use this for inline script body changes; structural changes (module ids, paths, input_transforms, branches) go through patch_flow_json.'
+			'Overwrite inline script code in one flow module and save a local draft.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -1595,7 +1620,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			initAppSchema,
 			'init_app',
-			'Initialize a new raw app draft from a framework template. Errors if an app already exists at the path or a draft is already in flight. Confirm framework, path, and summary with the user before calling — do not silently default to react19.',
+			'Initialize a local draft raw app from a framework template.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -1609,7 +1634,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			readAppFileSchema,
 			'read_app_file',
-			'Read one frontend file or inline backend runnable script from a raw app. Use file_path "/foo.tsx" for frontend files and "backend/<key>/main.{ts|py}" for inline runnables. Prefers the local draft when one exists.'
+			'Read one raw app frontend file or inline backend runnable.'
 		),
 		fn: async (ctx) => {
 			const parsed = readAppFileSchema.parse(ctx.args)
@@ -1620,7 +1645,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeAppFileSchema,
 			'write_app_file',
-			'Create or overwrite a frontend file in an app draft. Saves to the local draft only — does not deploy. First write snapshots the workspace app onto the draft.'
+			'Create or overwrite a frontend file in a local app draft.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -1634,7 +1659,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			deleteAppFileSchema,
 			'delete_app_file',
-			'Remove a frontend file from an app draft. Saves to the local draft only — does not deploy.'
+			'Remove a frontend file from a local app draft.'
 		),
 		fn: async (ctx) => {
 			const parsed = deleteAppFileSchema.parse(ctx.args)
@@ -1645,7 +1670,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			patchAppFileSchema,
 			'patch_app_file',
-			'Find/replace exact text in a frontend file or inline backend runnable script. Saves the result to the local draft.'
+			'Find/replace exact text in a raw app file and save a local draft.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -1659,7 +1684,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeAppRunnableSchema,
 			'write_app_runnable',
-			'Create or overwrite a backend runnable in an app draft. Saves to the local draft only — does not deploy. Re-derives the app policy after the change.',
+			'Create or overwrite a backend runnable in a local app draft.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -1674,7 +1699,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			deleteAppRunnableSchema,
 			'delete_app_runnable',
-			'Remove a backend runnable from an app draft. Saves to the local draft only — does not deploy. Re-derives the app policy after the change.'
+			'Remove a backend runnable from a local app draft.'
 		),
 		fn: async (ctx) => {
 			const parsed = deleteAppRunnableSchema.parse(ctx.args)
@@ -2620,6 +2645,41 @@ function createOpenVariableAction(path: string): ToolDisplayAction {
 		resource: 'variable',
 		path
 	}
+}
+
+async function discardLocalDraft(
+	args: { type: WorkspaceItemType; path: string; trigger_kind?: TriggerKind },
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const { type, path, trigger_kind: triggerKind } = args
+
+	if (type === 'trigger' && !triggerKind) {
+		throw new Error('trigger_kind is required when discarding a trigger draft.')
+	}
+
+	const draft = getGlobalDraft(workspace, type, path, triggerKind)
+	if (!draft) {
+		throw new Error(`No local draft found for ${type} "${path}".`)
+	}
+
+	deleteGlobalDraft(workspace, type, path, triggerKind)
+
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Discarded local draft ${type} "${path}"`,
+		result: 'Draft discarded'
+	})
+	return JSON.stringify(
+		{
+			success: true,
+			message: `Discarded local draft ${type} "${path}". The deployed workspace item was not changed.`,
+			type,
+			path,
+			triggerKind
+		},
+		null,
+		2
+	)
 }
 
 async function deployDraft(
