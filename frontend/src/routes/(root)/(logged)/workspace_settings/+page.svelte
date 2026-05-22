@@ -74,6 +74,7 @@
 		type DataTableSettingsType
 	} from '$lib/components/workspaceSettings/DataTableSettings.svelte'
 	import WorkspaceDependenciesSettings from '$lib/components/workspaceSettings/WorkspaceDependenciesSettings.svelte'
+	import DeployToHub from '$lib/components/workspaceSettings/DeployToHub.svelte'
 	import SettingsFooter from '$lib/components/workspaceSettings/SettingsFooter.svelte'
 	import WorkspaceRulesets from '$lib/components/workspaceSettings/WorkspaceRulesets.svelte'
 	import SettingCard from '$lib/components/instanceSettings/SettingCard.svelte'
@@ -295,6 +296,7 @@
 			| 'dependencies'
 			| 'rulesets'
 			| 'shared_ui'
+			| 'hub'
 		// Both 'slack' and 'teams' URLs map to 'slack' tab
 		if (selectedTab === 'teams') {
 			return 'slack'
@@ -1098,6 +1100,12 @@
 					aiId: 'workspace-settings-rulesets',
 					aiDescription: 'Protection Rulesets workspace settings',
 					isEE: true
+				},
+				{
+					id: 'hub',
+					label: 'Deploy to Hub',
+					aiId: 'workspace-settings-hub',
+					aiDescription: 'Deploy workspace folders to the Hub'
 				}
 			]
 		},
@@ -1954,6 +1962,14 @@ export async function main(
 								saveLabel="Save & Re-encrypt workspace"
 								disabled={!!encryptionKeyValidationError || workspaceReencryptionInProgress}
 							/>
+						{:else if tab == 'hub'}
+							<SettingsPageHeader
+								title="Deploy to Hub"
+								description="Bundle all scripts, flows and apps under a folder and publish them to the Hub as a workspace."
+							/>
+							<div class="mt-4">
+								<DeployToHub />
+							</div>
 						{:else if tab == 'shared_ui'}
 							<SharedUiSettings />
 						{:else if tab == 'trashbin'}
