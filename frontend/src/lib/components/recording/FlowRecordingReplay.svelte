@@ -230,7 +230,7 @@
 		{/if}
 
 		<FlowViewer
-			flow={recording.flow}
+			flow={recording?.flow}
 			noSummary
 			noInput
 			hideDefaultInputs
@@ -262,10 +262,10 @@
 							hideFlowResult={!done}
 						/>
 					</div>
-				{:else}
+				{:else if recording?.flow}
 					<div class="flow-root w-full pb-4">
 						<p class="text-2xs text-tertiary py-1">Click on a step to see its details</p>
-						<FlowGraphViewer hideDefaultInputs flow={recording.flow!} overflowAuto />
+						<FlowGraphViewer hideDefaultInputs flow={recording?.flow} overflowAuto />
 					</div>
 				{/if}
 			{/snippet}
