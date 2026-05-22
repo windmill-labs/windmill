@@ -157,15 +157,6 @@ pub enum ObjectType {
     WorkspaceDependencies,
 }
 
-// hub/28231 broke GPG-signed deploys (WIN-1974): the agent-cache pre-warm in
-// `set_gpg_signing_secret` was no longer valid for the spawned `git` process
-// by the time the CLI's `git commit` ran (after API resolve, zip pull, file
-// extract, lockfile autofill), so signing failed with `gpg failed to sign
-// the data`. hub/28234 replaces the agent-cache dependency with a stateless
-// `gpg.program` wrapper that always uses `--pinentry-mode loopback` (and
-// `--passphrase-file` when a passphrase exists), so every git-invoked gpg
-// call provides the passphrase itself instead of trusting the agent. Bundled
-// CLI is windmill-cli@1.705.0.
 pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28234/sync-script-to-git-repo-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
