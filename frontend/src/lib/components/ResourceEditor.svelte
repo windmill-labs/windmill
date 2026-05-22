@@ -330,7 +330,16 @@
 
 	$effect(() => {
 		if (current)
-			onChange?.({ path: current.path, args: current.args, description: current.description })
+			// Snapshot args so the deep read establishes nested dependency
+			// tracking (the effect re-runs on mutations inside args, not
+			// just reference changes) and so consumers receive a plain
+			// object instead of a $state proxy — important for React
+			// integrations that diff by reference or JSON.stringify.
+			onChange?.({
+				path: current.path,
+				args: $state.snapshot(current.args) as Record<string, any>,
+				description: current.description
+			})
 	})
 
 	$effect(() => {
