@@ -89,9 +89,10 @@ import { buildFlowDeployRequestBody, buildScriptDeployRequestBody } from './depl
 import {
 	deleteGlobalDraft,
 	getGlobalDraft,
+	getGlobalDraftSlot,
 	listGlobalDrafts,
 	saveGlobalAppDraft,
-	triggerKindToUserDraftKind
+	saveGlobalDraftValue
 } from './userDraftAdapter'
 
 const ITEM_TYPES = [
@@ -1871,7 +1872,7 @@ async function writeScriptDraft(
 	const { workspace } = ctx
 	startDraftWrite(ctx, 'script', args.path)
 
-	const existingDraft = UserDraft.get<NewScript>('script', args.path, { workspace })
+	const existingDraft = getGlobalDraftSlot<NewScript>(workspace, 'script', args.path)?.value
 	const backendExists = existingDraft
 		? false
 		: await ScriptService.existsScriptByPath({ workspace, path: args.path })
@@ -1884,7 +1885,7 @@ async function writeScriptDraft(
 			content: args.content,
 			language: args.language
 		}
-		UserDraft.save('script', args.path, draft, { workspace })
+		saveGlobalDraftValue(workspace, 'script', args.path, draft)
 	} else if (backendExists) {
 		const existing = await ScriptService.getScriptByPathWithDraft({
 			workspace,
@@ -1917,7 +1918,7 @@ async function writeScriptDraft(
 			language: args.language,
 			kind: 'script'
 		}
-		UserDraft.save('script', args.path, draft, { workspace })
+		saveGlobalDraftValue(workspace, 'script', args.path, draft)
 	}
 
 	return finishDraftWrite(
@@ -1940,7 +1941,7 @@ async function writeFlowDraft(
 		value.groups = structuredClone(draftValue.groups)
 	}
 
-	const existingDraft = UserDraft.get<Flow>('flow', args.path, { workspace })
+	const existingDraft = getGlobalDraftSlot<Flow>(workspace, 'flow', args.path)?.value
 	const backendExists = existingDraft
 		? false
 		: await FlowService.existsFlowByPath({ workspace, path: args.path })
@@ -1953,7 +1954,7 @@ async function writeFlowDraft(
 			value,
 			schema: draftValue.schema ?? existingDraft.schema
 		}
-		UserDraft.save('flow', args.path, draft, { workspace })
+		saveGlobalDraftValue(workspace, 'flow', args.path, draft)
 	} else if (backendExists) {
 		const [existing, latestVersion] = await Promise.all([
 			FlowService.getFlowByPathWithDraft({ workspace, path: args.path }),
@@ -1985,7 +1986,7 @@ async function writeFlowDraft(
 			archived: false,
 			extra_perms: {}
 		}
-		UserDraft.save('flow', args.path, draft, { workspace })
+		saveGlobalDraftValue(workspace, 'flow', args.path, draft)
 	}
 
 	return finishDraftWrite(
@@ -1999,9 +2000,11 @@ async function writeScheduleDraft(args: NewSchedule, ctx: WriteDraftCtx): Promis
 	const { workspace } = ctx
 	startDraftWrite(ctx, 'schedule', args.path)
 
-	const existingDraft = UserDraft.get<ScheduleDraftConfig>('trigger_schedule', args.path, {
-		workspace
-	})
+	const existingDraft = getGlobalDraftSlot<ScheduleDraftConfig>(
+		workspace,
+		'schedule',
+		args.path
+	)?.value
 	const backendExists = existingDraft
 		? false
 		: await ScheduleService.existsSchedule({ workspace, path: args.path })
@@ -2016,7 +2019,7 @@ async function writeScheduleDraft(args: NewSchedule, ctx: WriteDraftCtx): Promis
 			: undefined
 	const draft = mergeDraftConfig<ScheduleDraftConfig>(base, args as DraftConfig, args.path)
 
-	UserDraft.save('trigger_schedule', args.path, draft, { workspace })
+	saveGlobalDraftValue(workspace, 'schedule', args.path, draft)
 
 	return finishDraftWrite(
 		getRequiredGlobalDraft(workspace, 'schedule', args.path),
@@ -2032,10 +2035,14 @@ async function writeTriggerDraft(
 	const { workspace } = ctx
 	const config = args.config as TriggerDraftConfig
 	const path = config.path
-	const itemKind = triggerKindToUserDraftKind(args.kind)
 	startDraftWrite(ctx, 'trigger', path)
 
-	const existingDraft = UserDraft.get<TriggerDraftConfig>(itemKind, path, { workspace })
+	const existingDraft = getGlobalDraftSlot<TriggerDraftConfig>(
+		workspace,
+		'trigger',
+		path,
+		args.kind
+	)?.value
 	const backendExists = existingDraft
 		? false
 		: await triggerServices[args.kind].exists({ workspace, path })
@@ -2047,7 +2054,7 @@ async function writeTriggerDraft(
 			: undefined
 	const draft = mergeDraftConfig<TriggerDraftConfig>(base, config, path)
 
-	UserDraft.save(itemKind, path, draft, { workspace })
+	saveGlobalDraftValue(workspace, 'trigger', path, draft, args.kind)
 
 	return finishDraftWrite(
 		getRequiredGlobalDraft(workspace, 'trigger', path, args.kind),
@@ -2060,15 +2067,22 @@ async function writeResourceDraft(args: CreateResource, ctx: WriteDraftCtx): Pro
 	const { workspace } = ctx
 	startDraftWrite(ctx, 'resource', args.path)
 
-	const existingDraft = UserDraft.get<ResourceDraftState>('resource', args.path, { workspace })
+	const existingDraft = getGlobalDraftSlot<ResourceDraftState>(
+		workspace,
+		'resource',
+		args.path
+	)?.value
 	const backendExists = existingDraft
 		? false
 		: await ResourceService.existsResource({ workspace, path: args.path })
 
 	if (existingDraft) {
-		UserDraft.save('resource', args.path, createResourceToDraftState(args, existingDraft), {
-			workspace
-		})
+		saveGlobalDraftValue(
+			workspace,
+			'resource',
+			args.path,
+			createResourceToDraftState(args, existingDraft)
+		)
 	} else if (backendExists) {
 		const existing = await ResourceService.getResource({ workspace, path: args.path })
 		UserDraft.setDraftAndMeta(
@@ -2079,7 +2093,7 @@ async function writeResourceDraft(args: CreateResource, ctx: WriteDraftCtx): Pro
 			{ workspace }
 		)
 	} else {
-		UserDraft.save('resource', args.path, createResourceToDraftState(args), { workspace })
+		saveGlobalDraftValue(workspace, 'resource', args.path, createResourceToDraftState(args))
 	}
 
 	return finishDraftWrite(
@@ -2093,15 +2107,22 @@ async function writeVariableDraft(args: CreateVariable, ctx: WriteDraftCtx): Pro
 	const { workspace } = ctx
 	startDraftWrite(ctx, 'variable', args.path)
 
-	const existingDraft = UserDraft.get<VariableDraftState>('variable', args.path, { workspace })
+	const existingDraft = getGlobalDraftSlot<VariableDraftState>(
+		workspace,
+		'variable',
+		args.path
+	)?.value
 	const backendExists = existingDraft
 		? false
 		: await VariableService.existsVariable({ workspace, path: args.path })
 
 	if (existingDraft) {
-		UserDraft.save('variable', args.path, createVariableToDraftState(args, existingDraft), {
-			workspace
-		})
+		saveGlobalDraftValue(
+			workspace,
+			'variable',
+			args.path,
+			createVariableToDraftState(args, existingDraft)
+		)
 	} else if (backendExists) {
 		const existing = await VariableService.getVariable({
 			workspace,
@@ -2116,7 +2137,7 @@ async function writeVariableDraft(args: CreateVariable, ctx: WriteDraftCtx): Pro
 			{ workspace }
 		)
 	} else {
-		UserDraft.save('variable', args.path, createVariableToDraftState(args), { workspace })
+		saveGlobalDraftValue(workspace, 'variable', args.path, createVariableToDraftState(args))
 	}
 
 	return finishDraftWrite(

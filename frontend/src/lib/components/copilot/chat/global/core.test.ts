@@ -54,7 +54,8 @@ vi.mock('$lib/gen', async () => {
 			getFlowByPathWithDraft: vi.fn(async () => {
 				throw new Error('getFlowByPathWithDraft mock not configured')
 			}),
-			getFlowLatestVersion: vi.fn(async () => ({ id: 1 }))
+			getFlowLatestVersion: vi.fn(async () => ({ id: 1 })),
+			listFlows: vi.fn(async () => [])
 		}),
 		ScheduleService: wrapService(actual.ScheduleService, {
 			existsSchedule: vi.fn(async () => false),
@@ -130,6 +131,34 @@ async function callGlobalTool(
 		toolCallbacks: callbacks,
 		toolId: `test-${name}`
 	})
+}
+
+function openEditorScriptDraft(path: string, content: string): Record<string, unknown> {
+	return {
+		hash: '',
+		path,
+		summary: '',
+		content,
+		description: '',
+		schema: {},
+		is_template: false,
+		extra_perms: {},
+		language: 'bun',
+		kind: 'script'
+	}
+}
+
+function openEditorFlowDraft(path: string): Record<string, unknown> {
+	return {
+		path,
+		summary: '',
+		value: { modules: [] },
+		schema: {},
+		edited_by: '',
+		edited_at: '',
+		archived: false,
+		extra_perms: {}
+	}
 }
 
 describe('global AI tools', () => {
@@ -254,6 +283,90 @@ describe('global AI tools', () => {
 		)
 	})
 
+	it('lists and reads editor script drafts stored under the empty path', async () => {
+		const path = 'u/admin/amazed_script'
+		const content = 'export async function main(a: number, b: number) { return a + b }'
+		UserDraft.save('script', '', openEditorScriptDraft(path, content), { workspace: WORKSPACE })
+
+		const listed = JSON.parse(await callGlobalTool('list_workspace_items', { types: ['script'] }))
+		expect(listed).toEqual([
+			{
+				type: 'script',
+				path,
+				summary: '',
+				language: 'bun',
+				isDraft: true
+			}
+		])
+
+		const read = JSON.parse(
+			await callGlobalTool('read_workspace_item', {
+				type: 'script',
+				path
+			})
+		)
+		expect(read).toMatchObject({
+			type: 'script',
+			path,
+			value: content,
+			isDraft: true
+		})
+	})
+
+	it('edits editor script drafts in their existing empty-path slot', async () => {
+		const path = 'u/admin/amazed_script'
+		UserDraft.save(
+			'script',
+			'',
+			openEditorScriptDraft(
+				path,
+				'export async function main(a: number, b: number) { return a + b }'
+			),
+			{ workspace: WORKSPACE }
+		)
+
+		await callGlobalTool('edit_script', {
+			path,
+			old_string: 'return a + b',
+			new_string: 'return a * b',
+			replace_all: false
+		})
+
+		expect(UserDraft.get<any>('script', '', { workspace: WORKSPACE })).toMatchObject({
+			path,
+			content: 'export async function main(a: number, b: number) { return a * b }'
+		})
+		expect(UserDraft.get('script', path, { workspace: WORKSPACE })).toBeUndefined()
+	})
+
+	it('lists and updates editor flow drafts stored under the empty path', async () => {
+		const path = 'u/admin/amazed_flow'
+		UserDraft.save('flow', '', openEditorFlowDraft(path), { workspace: WORKSPACE })
+
+		const listed = JSON.parse(await callGlobalTool('list_workspace_items', { types: ['flow'] }))
+		expect(listed).toEqual([
+			{
+				type: 'flow',
+				path,
+				summary: '',
+				isDraft: true
+			}
+		])
+
+		await callGlobalTool('write_flow', {
+			path,
+			summary: 'Updated flow',
+			modules: JSON.stringify([{ id: 'step', value: { type: 'identity' } }])
+		})
+
+		expect(UserDraft.get<any>('flow', '', { workspace: WORKSPACE })).toMatchObject({
+			path,
+			summary: 'Updated flow',
+			value: { modules: [{ id: 'step', value: { type: 'identity' } }] }
+		})
+		expect(UserDraft.get('flow', path, { workspace: WORKSPACE })).toBeUndefined()
+	})
+
 	it('discards a local draft without deleting the workspace item', async () => {
 		await callGlobalTool('write_script', {
 			path: 'f/scripts/discard-me',
@@ -275,7 +388,24 @@ describe('global AI tools', () => {
 			path: 'f/scripts/discard-me'
 		})
 		expect(raw).toContain('The deployed workspace item was not changed')
-		expect(UserDraft.get('script', 'f/scripts/discard-me', { workspace: WORKSPACE })).toBeUndefined()
+		expect(
+			UserDraft.get('script', 'f/scripts/discard-me', { workspace: WORKSPACE })
+		).toBeUndefined()
+	})
+
+	it('discards editor script drafts by their visible path', async () => {
+		const path = 'u/admin/amazed_script'
+		UserDraft.save('script', '', openEditorScriptDraft(path, 'export async function main() {}'), {
+			workspace: WORKSPACE
+		})
+
+		const raw = await callGlobalTool('discard_local_draft', {
+			type: 'script',
+			path
+		})
+
+		expect(JSON.parse(raw)).toMatchObject({ success: true, type: 'script', path })
+		expect(UserDraft.get('script', '', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
 	it('requires trigger_kind when discarding a trigger draft', async () => {
