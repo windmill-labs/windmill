@@ -201,7 +201,7 @@
 			// TODO: bundle (tarball export + recordings + app bundles + resource types)
 			// and POST to the Hub.
 			await new Promise((r) => setTimeout(r, 600))
-			sendUserToast(`Deployed ${items.length} item(s) to the Hub`)
+			sendUserToast(`Submitted ${items.length} item(s) to the Hub for review`)
 		} finally {
 			deploying = false
 		}
@@ -331,7 +331,7 @@
 		<div class="flex items-center justify-end gap-3">
 			{#if !allDone}
 				<span class="text-[11px] text-hint">
-					Record all scripts/flows and build all apps before deploying.
+					Record all scripts/flows and build all apps before submitting.
 				</span>
 			{/if}
 			<Button
@@ -341,7 +341,7 @@
 				startIcon={{ icon: ExternalLink }}
 				onclick={deployToHub}
 			>
-				Deploy to Hub ({items.length})
+				Submit to Hub ({items.length})
 			</Button>
 		</div>
 	{/if}

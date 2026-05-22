@@ -1103,9 +1103,9 @@
 				},
 				{
 					id: 'hub',
-					label: 'Deploy to Hub',
+					label: 'Submit to Hub',
 					aiId: 'workspace-settings-hub',
-					aiDescription: 'Deploy workspace folders to the Hub'
+					aiDescription: 'Submit workspace folders to the Hub for review'
 				}
 			]
 		},
@@ -1964,8 +1964,8 @@ export async function main(
 							/>
 						{:else if tab == 'hub'}
 							<SettingsPageHeader
-								title="Deploy to Hub"
-								description="Bundle all scripts, flows and apps under a folder and publish them to the Hub as a workspace."
+								title="Submit to Hub"
+								description="Bundle all scripts, flows and apps under a folder and submit them to the Hub for review as a workspace."
 							/>
 							<div class="mt-4">
 								<DeployToHub />
