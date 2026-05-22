@@ -35,7 +35,7 @@ python system_prompts/generate.py --plugin-dir ~/windmill-claude-plugin
 
 `--plugin-dir` accepts:
 - the `windmill-claude-plugin` repo root
-- a plugin root such as `plugins/windmill-code-plugin`
+- a plugin root such as `plugins/windmill`
 - a direct `skills/` directory
 
 To regenerate the public docs repo (consumed by context7):
