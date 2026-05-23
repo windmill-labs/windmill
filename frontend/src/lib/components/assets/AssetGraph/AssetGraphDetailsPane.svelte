@@ -812,7 +812,12 @@
 							hideArgs: true,
 							argsAboveLogs: true,
 							logsResultSideBySide: true,
-							downstreamSubscribers
+							downstreamSubscribers,
+							// Selecting a script node should immediately show
+							// "what happened last time it ran" — pulling the
+							// latest top-level completed job into the preview
+							// pane is far more useful than an empty placeholder.
+							loadLastRunOnMount: true
 						}
 					}}
 					bind:code={script.content}

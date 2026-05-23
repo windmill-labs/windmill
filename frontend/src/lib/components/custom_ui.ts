@@ -84,6 +84,13 @@ export type PreviewPanelUi = {
 	// partitioned pipeline script that needs a `partition` arg to run).
 	// No-op when the script has no input properties.
 	argsAboveLogs?: boolean
+	// On mount, query the most recent top-level completed job for this
+	// script's path and load it into the preview pane so users immediately
+	// see the last run's logs/result instead of an empty panel. Used by the
+	// asset-graph details pane where selecting a script node should expose
+	// "what happened the last time this ran". No-op when a test is already
+	// in progress (we don't clobber a live run).
+	loadLastRunOnMount?: boolean
 }
 
 export type EditorBarUi = {

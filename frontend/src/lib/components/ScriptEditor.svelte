@@ -1250,7 +1250,36 @@
 		}
 		aiChatManager.saveAndClear()
 		aiChatManager.changeMode(AIMode.SCRIPT)
+		if (customUi?.previewPanel?.loadLastRunOnMount) {
+			void loadLastRunIntoTestPanel()
+		}
 	})
+
+	// Pull the most recent top-level completed job for this script path and
+	// feed it through the JobLoader so the preview pane renders its logs +
+	// result. Best-effort: any error (no job yet, network blip) leaves the
+	// panel empty rather than surfacing a toast — this is a passive "show
+	// what's there" affordance, not a user action. Skipped when a test is
+	// already running so a live job's stream is never clobbered.
+	async function loadLastRunIntoTestPanel(): Promise<void> {
+		if (!path || !$workspaceStore) return
+		if (testIsLoading || testJob !== undefined) return
+		try {
+			const jobs = await JobService.listCompletedJobs({
+				workspace: $workspaceStore,
+				scriptPathExact: path,
+				hasNullParent: true,
+				perPage: 1,
+				orderDesc: true
+			})
+			const lastId = jobs[0]?.id
+			if (lastId && !testIsLoading && testJob === undefined) {
+				await jobLoader?.watchJob(lastId)
+			}
+		} catch (e) {
+			// Silent: empty preview pane is the natural fallback.
+		}
+	}
 
 	setLicense()
 	export async function setCollaborationMode() {
