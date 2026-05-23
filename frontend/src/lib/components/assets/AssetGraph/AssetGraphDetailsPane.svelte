@@ -4,7 +4,6 @@
 	import { base } from '$lib/base'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import ScriptEditor from '$lib/components/ScriptEditor.svelte'
-	import WorkerTagSelect from '$lib/components/WorkerTagSelect.svelte'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 	import { formatAssetKind, type AssetWithAltAccessType } from '$lib/components/assets/lib'
 	import {
@@ -825,13 +824,7 @@
 					bind:assets={liveBodyAssets}
 					{onTestStateChange}
 					{args}
-				>
-					{#snippet editorBarRight()}
-						<div>
-							<WorkerTagSelect bind:tag={() => script?.tag, (v) => script && (script.tag = v)} />
-						</div>
-					{/snippet}
-				</ScriptEditor>
+				/>
 			{/key}
 		{/if}
 	</div>
