@@ -20,6 +20,7 @@
 	import { Badge } from '$lib/components/common'
 	import { Popover } from '$lib/components/meltComponents'
 	import { twMerge } from 'tailwind-merge'
+	import DispatchEventsButton from '$lib/components/runs/DispatchEventsButton.svelte'
 
 	interface Props {
 		// Producers of this asset. Each contributes its own listExtendedJobs
@@ -288,6 +289,12 @@
 				href={`${base}/run/${selectedJob.id}?workspace=${$workspaceStore}`}
 				target="_blank">Open ↗</a
 			>
+			{#if $workspaceStore}
+				<DispatchEventsButton
+					workspace={selectedJob.workspace_id ?? $workspaceStore}
+					jobId={selectedJob.id}
+				/>
+			{/if}
 		{:else if runnableProducers.length === 0}
 			<span class="text-tertiary">No producer for this asset</span>
 		{:else if loading && jobs.length === 0}

@@ -83,6 +83,7 @@
 	import { setContext } from 'svelte'
 	import HideButton from './apps/editor/settingsPanel/HideButton.svelte'
 	import { base } from '$lib/base'
+	import DispatchEventsButton from '$lib/components/runs/DispatchEventsButton.svelte'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './copilot/chat/script/core'
 	import { getStringError } from './copilot/chat/utils'
 	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
@@ -1810,6 +1811,30 @@
 						     it visually pinned to the top edge without
 						     relying on cross-browser overflow behaviour. -->
 							<div class="relative h-full pt-9 flex flex-col">
+								{#if testJob?.id && testJob.type === 'CompletedJob' && $workspaceStore}
+									<!-- Right-side affordances when we're displaying a *completed*
+									     job (either the user just ran a test, or the on-mount
+									     last-run loader populated the panel). The job-id link
+									     opens the full run page in a new tab; the dispatch
+									     button mounts a popover that shows what downstream
+									     jobs this run triggered (rendered only when the run
+									     actually dispatched anything). -->
+									<div class="absolute top-1 right-2 z-10 flex items-center gap-2">
+										<a
+											class="text-3xs text-blue-600 hover:underline font-mono"
+											href={`${base}/run/${testJob.id}?workspace=${$workspaceStore}`}
+											target="_blank"
+											rel="noopener noreferrer"
+											title="Open this run"
+										>
+											{testJob.id.slice(0, 8)}… ↗
+										</a>
+										<DispatchEventsButton
+											workspace={testJob.workspace_id ?? $workspaceStore}
+											jobId={testJob.id}
+										/>
+									</div>
+								{/if}
 								<div class="absolute top-1 left-2 z-10">
 									{#if testIsLoading}
 										<Button on:click={jobLoader?.cancelJob} unifiedSize="sm" btnClasses="shadow-md">
