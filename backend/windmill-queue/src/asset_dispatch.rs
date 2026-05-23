@@ -81,6 +81,88 @@ pub struct DispatchResult {
     pub dispatched: Vec<Uuid>,
 }
 
+/// Per-decision outcome persisted to `dispatch_event` so the producer's
+/// job detail page can show what happened to each subscriber. Mirrors
+/// the `DISPATCH_OUTCOME` Postgres enum exactly.
+#[derive(Debug, Clone, Copy, sqlx::Type)]
+#[sqlx(type_name = "DISPATCH_OUTCOME", rename_all = "snake_case")]
+enum DispatchOutcome {
+    Dispatched,
+    JoinPending,
+    Skipped,
+}
+
+/// Outcome-specific fields. `record_event` takes the four "always-present"
+/// columns positionally and bundles the rest here so each call site only
+/// names what it actually carries.
+#[derive(Debug, Default)]
+struct EventOptions<'a> {
+    child_job_id: Option<Uuid>,
+    partition: Option<&'a str>,
+    received_inputs: Option<i32>,
+    required_inputs: Option<i32>,
+    debounce_s: Option<i32>,
+    reason: Option<&'a str>,
+}
+
+/// AND-join slot progress at the moment a partition-bearing input
+/// arrived. `fired` = all required inputs are now present (the slot has
+/// been cleared and the subscriber will be dispatched). `received` /
+/// `required` are the counts observed inside the slot's transaction
+/// (monotonic up to that point), surfaced so the dispatch_event row can
+/// show partial progress like "2/3".
+#[derive(Debug, Clone, Copy)]
+struct JoinSlotStatus {
+    fired: bool,
+    received: i32,
+    required: i32,
+}
+
+/// Best-effort insert into `dispatch_event`. Never propagates — the
+/// dispatch contract is "logging failures must not retroactively fail
+/// the producer's job."
+async fn record_event(
+    db: &DB,
+    workspace_id: &str,
+    producer_job_id: Uuid,
+    subscriber_path: &str,
+    asset_kind: AssetKind,
+    asset_path: &str,
+    outcome: DispatchOutcome,
+    opts: EventOptions<'_>,
+) {
+    let res = sqlx::query!(
+        r#"INSERT INTO dispatch_event (
+             workspace_id, producer_job_id, subscriber_path,
+             asset_kind, asset_path, outcome,
+             child_job_id, partition,
+             received_inputs, required_inputs,
+             debounce_s, reason
+           ) VALUES ($1, $2, $3, $4::ASSET_KIND, $5, $6::DISPATCH_OUTCOME,
+                     $7, $8, $9, $10, $11, $12)"#,
+        workspace_id,
+        producer_job_id,
+        subscriber_path,
+        asset_kind as AssetKind,
+        asset_path,
+        outcome as DispatchOutcome,
+        opts.child_job_id,
+        opts.partition,
+        opts.received_inputs,
+        opts.required_inputs,
+        opts.debounce_s,
+        opts.reason,
+    )
+    .execute(db)
+    .await;
+    if let Err(e) = res {
+        tracing::error!(
+            "failed to record dispatch_event for producer {}: {e:#}",
+            producer_job_id
+        );
+    }
+}
+
 /// Top-level entry. Returns `Ok(default)` and logs on any internal failure
 /// rather than propagating, because dispatch is best-effort and must not
 /// retroactively fail the producer.
@@ -140,8 +222,21 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
         };
         let trigger_ref = format!("{}{}", prefix, asset_path);
         let subs = fetch_subscribers(db, &job.workspace_id, &trigger_ref).await?;
-        for (sub_path, join_all, debounce_s) in subs {
+        for sub in subs {
+            let Subscriber { path: sub_path, join_all, debounce_s, retry_count, retry_delay_s } =
+                sub;
             if sub_path == runnable_path {
+                record_event(
+                    db,
+                    &job.workspace_id,
+                    job.id,
+                    &sub_path,
+                    asset_kind,
+                    &asset_path,
+                    DispatchOutcome::Skipped,
+                    EventOptions { reason: Some("self_loop"), ..Default::default() },
+                )
+                .await;
                 continue;
             }
             if join_all {
@@ -156,6 +251,20 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
                         sub_path,
                         trigger_ref
                     );
+                    record_event(
+                        db,
+                        &job.workspace_id,
+                        job.id,
+                        &sub_path,
+                        asset_kind,
+                        &asset_path,
+                        DispatchOutcome::Skipped,
+                        EventOptions {
+                            reason: Some("case3_non_partition_bearing"),
+                            ..Default::default()
+                        },
+                    )
+                    .await;
                     continue;
                 }
                 let Some(pv) = partition.as_deref() else {
@@ -165,13 +274,45 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
                         sub_path,
                         trigger_ref
                     );
+                    record_event(
+                        db,
+                        &job.workspace_id,
+                        job.id,
+                        &sub_path,
+                        asset_kind,
+                        &asset_path,
+                        DispatchOutcome::Skipped,
+                        EventOptions {
+                            reason: Some("case3_missing_partition"),
+                            ..Default::default()
+                        },
+                    )
+                    .await;
                     continue;
                 };
                 match record_and_check_join_slot(db, &job.workspace_id, &sub_path, pv, &trigger_ref)
                     .await
                 {
-                    Ok(false) => continue, // slot incomplete — wait for the rest
-                    Ok(true) => {}         // all inputs present for this partition
+                    Ok(JoinSlotStatus { fired: false, received, required }) => {
+                        record_event(
+                            db,
+                            &job.workspace_id,
+                            job.id,
+                            &sub_path,
+                            asset_kind,
+                            &asset_path,
+                            DispatchOutcome::JoinPending,
+                            EventOptions {
+                                partition: Some(pv),
+                                received_inputs: Some(received),
+                                required_inputs: Some(required),
+                                ..Default::default()
+                            },
+                        )
+                        .await;
+                        continue; // slot incomplete — wait for the rest
+                    }
+                    Ok(JoinSlotStatus { fired: true, .. }) => {} // fall through to push
                     Err(e) => {
                         tracing::error!("join-slot check failed for {}: {e:#}", sub_path);
                         continue;
@@ -188,10 +329,30 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
                 depth + 1,
                 partition.as_deref(),
                 debounce_s,
+                retry_count,
+                retry_delay_s,
             )
             .await
             {
-                Ok(id) => dispatched.push(id),
+                Ok(id) => {
+                    record_event(
+                        db,
+                        &job.workspace_id,
+                        job.id,
+                        &sub_path,
+                        asset_kind,
+                        &asset_path,
+                        DispatchOutcome::Dispatched,
+                        EventOptions {
+                            child_job_id: Some(id),
+                            partition: partition.as_deref(),
+                            debounce_s,
+                            ..Default::default()
+                        },
+                    )
+                    .await;
+                    dispatched.push(id);
+                }
                 Err(e) => {
                     tracing::error!("failed to push asset-triggered job for {}: {e:#}", sub_path)
                 }
@@ -308,19 +469,33 @@ async fn fetch_producer_writes(
     Ok(rows.into_iter().map(|r| (r.kind, r.path)).collect())
 }
 
+/// A subscriber row resolved from `script_trigger`. Bundles the per-edge
+/// options (debounce) and the script-level policy fields (`join_all`,
+/// retry) that travel together to dispatch.
+struct Subscriber {
+    path: String,
+    join_all: bool,
+    debounce_s: Option<i32>,
+    retry_count: Option<i16>,
+    retry_delay_s: Option<i32>,
+}
+
 async fn fetch_subscribers(
     db: &Pool<Postgres>,
     workspace_id: &str,
     trigger_ref: &str,
-) -> Result<Vec<(String, bool, Option<i32>)>> {
+) -> Result<Vec<Subscriber>> {
     // V1: script subscribers only. Flow subscribers (`runnable_kind = 'flow'`)
     // are intentionally excluded — wiring them is straightforward but the
     // payload shape and permissioning need their own pass.
     // `join_all` = `// trigger all` (AND join); `debounce_s` = the opt-in
     // debounce window resolved at deploy (NULL = fan-out, the default).
+    // `retry_count` / `retry_delay_s` = the `// retry <n> [<delay>]` policy
+    // (NULL = no retry).
     let rows = sqlx::query!(
         r#"
-        SELECT runnable_path AS "runnable_path!", join_all AS "join_all!", debounce_s
+        SELECT runnable_path AS "runnable_path!", join_all AS "join_all!", debounce_s,
+               retry_count, retry_delay_s
         FROM script_trigger
         WHERE workspace_id = $1
           AND trigger_kind = 'asset'
@@ -342,7 +517,13 @@ async fn fetch_subscribers(
     }
     Ok(rows
         .into_iter()
-        .map(|r| (r.runnable_path, r.join_all, r.debounce_s))
+        .map(|r| Subscriber {
+            path: r.runnable_path,
+            join_all: r.join_all,
+            debounce_s: r.debounce_s,
+            retry_count: r.retry_count,
+            retry_delay_s: r.retry_delay_s,
+        })
         .collect())
 }
 
@@ -374,7 +555,7 @@ async fn record_and_check_join_slot(
     subscriber_path: &str,
     partition: &str,
     trigger_ref: &str,
-) -> Result<bool> {
+) -> Result<JoinSlotStatus> {
     let mut tx = db.begin().await?;
     let lock_key = format!("{workspace_id}|{subscriber_path}|{partition}");
     sqlx::query!(
@@ -432,7 +613,9 @@ async fn record_and_check_join_slot(
         .await?;
     }
     tx.commit().await?;
-    Ok(fire)
+    // i64 -> i32: the COUNT(DISTINCT trigger_ref) values are bounded by the
+    // number of `// on` lines on a single subscriber — fits trivially.
+    Ok(JoinSlotStatus { fired: fire, received: received as i32, required: required as i32 })
 }
 
 /// Default time a partial AND-join slot may sit with no new input before
@@ -476,6 +659,8 @@ async fn push_subscriber(
     depth: i64,
     partition: Option<&str>,
     debounce_s: Option<i32>,
+    retry_count: Option<i16>,
+    retry_delay_s: Option<i32>,
 ) -> Result<Uuid> {
     let (
         hash,
@@ -497,34 +682,72 @@ async fn push_subscriber(
         labels,
     ) = get_latest_hash_for_path(db, &producer.workspace_id, subscriber_path, false).await?;
 
-    let payload = JobPayload::ScriptHash {
-        hash,
-        path: subscriber_path.to_string(),
-        cache_ttl,
-        cache_ignore_s3_path,
-        dedicated_worker,
-        language,
-        priority,
-        apply_preprocessor: false,
-        // Debounce is opt-in per subscriber edge (`// debounce` /
-        // `// on … debounce=`). Default = none (fan-out — the user's
-        // intent unless they ask otherwise). When set, the window is
-        // keyed by (subscriber, partition) so distinct partitions never
-        // collapse and "latest within the window" falls out for free.
-        debouncing_settings: match debounce_s {
-            Some(s) if s > 0 => DebouncingSettings {
-                debounce_key: Some(format!(
-                    "asset-cascade:{}:{}",
-                    subscriber_path,
-                    partition.unwrap_or("")
-                )),
-                debounce_delay_s: Some(s),
-                ..DebouncingSettings::default()
-            },
-            _ => DebouncingSettings::default(),
+    // Debounce is opt-in per subscriber edge (`// debounce` /
+    // `// on … debounce=`). Default = none (fan-out — the user's intent
+    // unless they ask otherwise). When set, the window is keyed by
+    // (subscriber, partition) so distinct partitions never collapse and
+    // "latest within the window" falls out for free.
+    let debouncing_settings = match debounce_s {
+        Some(s) if s > 0 => DebouncingSettings {
+            debounce_key: Some(format!(
+                "asset-cascade:{}:{}",
+                subscriber_path,
+                partition.unwrap_or("")
+            )),
+            debounce_delay_s: Some(s),
+            ..DebouncingSettings::default()
         },
-        concurrency_settings: ConcurrencySettings::default(),
-        labels,
+        _ => DebouncingSettings::default(),
+    };
+
+    // Retry is only available via the flow runtime — wrap the script in a
+    // one-step flow with `Retry { constant: { attempts, seconds } }` when
+    // the cascade declares `// retry`. The exponential delay and retry_if
+    // expression are intentionally unused: the annotation grammar is
+    // count-plus-constant-delay only (parser-light). Empty retry =
+    // unwrapped `ScriptHash` push, matching the previous behaviour.
+    let payload = if let Some(count) = retry_count.filter(|c| *c > 0) {
+        let delay = retry_delay_s.unwrap_or(0).max(0).min(u16::MAX as i32) as u16;
+        let retry = windmill_common::flows::Retry {
+            constant: windmill_common::flows::ConstantDelay {
+                attempts: count as u32,
+                seconds: delay,
+            },
+            exponential: windmill_common::flows::ExponentialDelay::default(),
+            retry_if: None,
+        };
+        JobPayload::SingleStepFlow {
+            path: subscriber_path.to_string(),
+            hash: Some(hash),
+            flow_version: None,
+            args: HashMap::new(),
+            retry: Some(retry),
+            error_handler_path: None,
+            error_handler_args: None,
+            skip_handler: None,
+            cache_ttl,
+            cache_ignore_s3_path,
+            priority,
+            tag_override: tag.clone(),
+            trigger_path: None,
+            apply_preprocessor: false,
+            concurrency_settings: ConcurrencySettings::default(),
+            debouncing_settings,
+        }
+    } else {
+        JobPayload::ScriptHash {
+            hash,
+            path: subscriber_path.to_string(),
+            cache_ttl,
+            cache_ignore_s3_path,
+            dedicated_worker,
+            language,
+            priority,
+            apply_preprocessor: false,
+            debouncing_settings,
+            concurrency_settings: ConcurrencySettings::default(),
+            labels,
+        }
     };
 
     // Subscriber's own on_behalf_of_email controls identity when set;

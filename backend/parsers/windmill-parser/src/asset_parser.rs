@@ -94,6 +94,19 @@ pub struct ParseAssetsOutput {
     // freshness). Absent = no debounce (fan-out, current behaviour).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub debounce_default: Option<String>,
+    // `// tag <name>` — overrides the script's worker tag at deploy. Source
+    // wins over any UI-set value, matching the wipe-and-reinsert convention
+    // of other pipeline annotations (`// schedule`, `// on`). Absent = keep
+    // whatever the caller (UI / CLI) supplied.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tag: Option<String>,
+    // `// retry <count> [<delay>]` — re-run a pipeline-cascade triggered
+    // script up to `count` times on failure, waiting `delay` between
+    // attempts. Applies only to runs launched via the asset/schedule
+    // cascade (the rows in `script_trigger`); manual UI runs are unaffected.
+    // The delay is a raw duration string parsed at deploy (parser-light).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub retry: Option<RetrySpec>,
 }
 
 #[derive(Serialize, Debug, PartialEq, Clone)]
@@ -180,6 +193,17 @@ pub struct FreshnessSpec {
     pub duration: String,
 }
 
+// Retry policy declared via `// retry <count> [<delay>]`. The delay is kept
+// as a raw duration string (mirrors freshness/debounce_default) and resolved
+// to seconds at deploy via `parse_duration_secs`; absent = back-to-back
+// re-runs with no inter-attempt wait.
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub struct RetrySpec {
+    pub count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delay: Option<String>,
+}
+
 // `// trigger any` (default) vs `// trigger all`. `Any` = OR: any trigger
 // firing runs the script (current behaviour). `All` = AND: the script
 // runs only once every partition-bearing input has materialized at the
@@ -208,6 +232,8 @@ pub struct PipelineAnnotations {
     pub freshness: Option<FreshnessSpec>,
     pub join_mode: JoinMode,
     pub debounce_default: Option<String>,
+    pub tag: Option<String>,
+    pub retry: Option<RetrySpec>,
 }
 
 impl ParseAssetsOutput {
@@ -229,6 +255,8 @@ impl ParseAssetsOutput {
             freshness: pipeline.freshness,
             join_mode: pipeline.join_mode,
             debounce_default: pipeline.debounce_default,
+            tag: pipeline.tag,
+            retry: pipeline.retry,
         }
     }
 }
@@ -443,15 +471,19 @@ fn parse_kv_opts(s: &str) -> BTreeMap<String, String> {
 //   - `on <trigger-spec>`        → asset / native trigger edge
 //   - `partitioned <kind> [opts]` → partition declaration
 //   - `freshness <duration>`     → SLA / active backstop
+//   - `tag <name>`               → worker-tag override (annotation wins
+//                                  over UI-set value at deploy)
+//   - `retry <count> [<delay>]`  → cascade-only retry policy
 //
 // `// pipeline` is intentionally strict — only whitespace allowed after the
 // keyword. Without that constraint, casual prose like `// pipeline broken
 // on staging` would false-positive (the word "pipeline" is far more common
 // in normal comments than "materialize" was).
 //
-// `partition` and `freshness` use first-write-wins; if multiple lines
-// declare them, the first one is kept (last would be reasonable too, but
-// first matches the file-top convention developers follow).
+// `partition`, `freshness`, `tag`, and `retry` use first-write-wins; if
+// multiple lines declare them, the first one is kept (last would be
+// reasonable too, but first matches the file-top convention developers
+// follow).
 pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
     let mut out = PipelineAnnotations::default();
 
@@ -540,6 +572,29 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
             continue;
         }
 
+        if let Some(after_kw) = rest.strip_prefix("tag") {
+            if !after_kw.starts_with(|c: char| c.is_whitespace()) {
+                continue;
+            }
+            let name = after_kw.trim();
+            if !name.is_empty() && out.tag.is_none() {
+                out.tag = Some(name.to_string());
+            }
+            continue;
+        }
+
+        if let Some(after_kw) = rest.strip_prefix("retry") {
+            if !after_kw.starts_with(|c: char| c.is_whitespace()) {
+                continue;
+            }
+            if out.retry.is_none() {
+                if let Some(spec) = parse_retry_spec(after_kw.trim()) {
+                    out.retry = Some(spec);
+                }
+            }
+            continue;
+        }
+
         if let Some(after_kw) = rest.strip_prefix("on") {
             if !after_kw.starts_with(|c: char| c.is_whitespace()) {
                 continue;
@@ -568,6 +623,26 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
     }
 
     out
+}
+
+// Parse a `// retry <count> [<delay>]` right-hand side. `<count>` is a
+// non-negative decimal; `<delay>` is an optional raw duration string left
+// for `parse_duration_secs` to validate at deploy. A bare zero count (or
+// non-numeric token) is rejected — that is, the annotation must encode a
+// real retry policy or be omitted, so a typo (`// retry retry 3`) fails
+// safe rather than silently disabling cascade retries.
+fn parse_retry_spec(s: &str) -> Option<RetrySpec> {
+    let mut split = s.splitn(2, char::is_whitespace);
+    let count_word = split.next()?.trim();
+    let count: u32 = count_word.parse().ok()?;
+    if count == 0 {
+        return None;
+    }
+    let delay = split
+        .next()
+        .map(|d| d.trim().to_string())
+        .filter(|d| !d.is_empty());
+    Some(RetrySpec { count, delay })
 }
 
 // Parse a `// partitioned <kind> [opts]` right-hand side. Recognized kinds:
@@ -932,19 +1007,79 @@ mod pipeline_annotation_tests {
     }
 
     #[test]
+    fn tag_basic() {
+        let out = parse_pipeline_annotations("// tag heavy");
+        assert_eq!(out.tag.as_deref(), Some("heavy"));
+    }
+
+    #[test]
+    fn tag_first_wins() {
+        let out = parse_pipeline_annotations("// tag heavy\n# tag light");
+        assert_eq!(out.tag.as_deref(), Some("heavy"));
+    }
+
+    #[test]
+    fn tag_empty_is_skipped() {
+        let out = parse_pipeline_annotations("// tag   ");
+        assert!(out.tag.is_none());
+    }
+
+    #[test]
+    fn retry_count_only() {
+        let out = parse_pipeline_annotations("// retry 3");
+        let r = out.retry.expect("retry");
+        assert_eq!(r.count, 3);
+        assert_eq!(r.delay, None);
+    }
+
+    #[test]
+    fn retry_with_delay() {
+        let out = parse_pipeline_annotations("// retry 3 5s");
+        let r = out.retry.expect("retry");
+        assert_eq!(r.count, 3);
+        assert_eq!(r.delay.as_deref(), Some("5s"));
+    }
+
+    #[test]
+    fn retry_first_wins() {
+        let out = parse_pipeline_annotations("// retry 3 5s\n# retry 1");
+        let r = out.retry.expect("retry");
+        assert_eq!(r.count, 3);
+        assert_eq!(r.delay.as_deref(), Some("5s"));
+    }
+
+    #[test]
+    fn retry_zero_is_skipped() {
+        let out = parse_pipeline_annotations("// retry 0 5s");
+        assert!(out.retry.is_none());
+    }
+
+    #[test]
+    fn retry_non_numeric_count_is_skipped() {
+        let out = parse_pipeline_annotations("// retry many");
+        assert!(out.retry.is_none());
+    }
+
+    #[test]
     fn combined() {
         let code = concat!(
             "// pipeline\n",
             "// schedule \"0 0 * * *\"\n",
             "// on s3://in.csv\n",
             "// partitioned daily tz=\"UTC\"\n",
-            "// freshness 2h\n"
+            "// freshness 2h\n",
+            "// tag heavy\n",
+            "// retry 3 5s\n"
         );
         let out = parse_pipeline_annotations(code);
         assert!(out.in_pipeline);
         assert_eq!(out.triggers.len(), 2);
         assert!(out.partition.is_some());
         assert_eq!(out.freshness.unwrap().duration, "2h");
+        assert_eq!(out.tag.as_deref(), Some("heavy"));
+        let r = out.retry.expect("retry");
+        assert_eq!(r.count, 3);
+        assert_eq!(r.delay.as_deref(), Some("5s"));
     }
 
     #[test]

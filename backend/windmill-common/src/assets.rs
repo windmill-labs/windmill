@@ -199,8 +199,10 @@ pub async fn delete_managed_pipeline_schedule<'e>(
 
 // Insert a single trigger declaration. Caller is expected to wipe first.
 // `join_all` is the script-level `// trigger all` flag (AND join barrier);
-// it is the same for every row of a given runnable but stored per-row to
-// keep the wipe-and-reinsert pattern and a single-query subscriber lookup.
+// `retry_count` / `retry_delay_s` are the `// retry <n> [<delay>]` policy.
+// All three are script-level — the same value for every row of a given
+// runnable — but stored per-row to keep the wipe-and-reinsert pattern and a
+// single-query subscriber lookup.
 pub async fn insert_script_trigger<'e>(
     executor: impl PgExecutor<'e>,
     workspace_id: &str,
@@ -210,12 +212,14 @@ pub async fn insert_script_trigger<'e>(
     trigger_ref: &str,
     join_all: bool,
     debounce_s: Option<i32>,
+    retry_count: Option<i16>,
+    retry_delay_s: Option<i32>,
 ) -> error::Result<()> {
     sqlx::query!(
         r#"INSERT INTO script_trigger
              (workspace_id, runnable_kind, runnable_path, trigger_kind, trigger_ref, join_all,
-              debounce_s)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)"#,
+              debounce_s, retry_count, retry_delay_s)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"#,
         workspace_id,
         runnable_kind as AssetUsageKind,
         runnable_path,
@@ -223,6 +227,8 @@ pub async fn insert_script_trigger<'e>(
         trigger_ref,
         join_all,
         debounce_s,
+        retry_count,
+        retry_delay_s,
     )
     .execute(executor)
     .await?;

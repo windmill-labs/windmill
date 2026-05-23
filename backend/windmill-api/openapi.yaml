@@ -12589,6 +12589,75 @@ paths:
                 required:
                   - created_at
 
+  /w/{workspace}/jobs_u/dispatch_events/{id}:
+    get:
+      summary: list asset-trigger dispatch events for a producer job
+      description: >
+        Returns the chronological log of decisions the asset-trigger
+        dispatcher made after this producer job completed. Each row is one
+        (subscriber, asset write) decision: `dispatched` (with
+        `child_job_id`), `join_pending` (with `received_inputs` /
+        `required_inputs` / `partition`), or `skipped` (with `reason`).
+        Rows are reaped automatically when the producer's `v2_job` row is
+        deleted by the retention sweep.
+      operationId: listDispatchEvents
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: dispatch events for this producer job
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    subscriber_path:
+                      type: string
+                    asset_kind:
+                      type: string
+                      enum:
+                        - s3object
+                        - resource
+                        - variable
+                        - ducklake
+                        - datatable
+                        - volume
+                    asset_path:
+                      type: string
+                    outcome:
+                      type: string
+                      enum:
+                        - dispatched
+                        - join_pending
+                        - skipped
+                    child_job_id:
+                      type: string
+                      format: uuid
+                    partition:
+                      type: string
+                    received_inputs:
+                      type: integer
+                    required_inputs:
+                      type: integer
+                    debounce_s:
+                      type: integer
+                    reason:
+                      type: string
+                    created_at:
+                      type: string
+                      format: date-time
+                  required:
+                    - subscriber_path
+                    - asset_kind
+                    - asset_path
+                    - outcome
+                    - created_at
+
   /w/{workspace}/jobs/completed/delete/{id}:
     post:
       summary: delete completed job (erase content but keep run id)

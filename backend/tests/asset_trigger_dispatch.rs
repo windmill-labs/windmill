@@ -178,6 +178,30 @@ async fn seed_subscription_debounced(
     Ok(())
 }
 
+/// Seed an asset subscription with a `// retry <n> [<delay>]` policy.
+async fn seed_subscription_with_retry(
+    db: &Pool<Postgres>,
+    subscriber_path: &str,
+    trigger_ref: &str,
+    retry_count: i16,
+    retry_delay_s: i32,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        r#"INSERT INTO script_trigger
+             (workspace_id, runnable_kind, runnable_path, trigger_kind, trigger_ref,
+              retry_count, retry_delay_s)
+           VALUES ($1, 'script'::asset_usage_kind, $2, 'asset'::script_trigger_kind, $3, $4, $5)"#,
+    )
+    .bind(WS)
+    .bind(subscriber_path)
+    .bind(trigger_ref)
+    .bind(retry_count)
+    .bind(retry_delay_s)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 fn make_mini(id: Uuid, runnable_path: &str) -> MiniCompletedJob {
     MiniCompletedJob {
         id,
@@ -572,6 +596,65 @@ async fn debounce_setting_applied_to_dispatched_subscriber(
     assert_eq!(
         plain_delay, None,
         "undebounced edge → no debounce (fan-out)"
+    );
+
+    Ok(())
+}
+
+/// `// retry <n> [<delay>]` opts the subscriber into the flow-runtime retry
+/// path. Implementation-wise, the dispatcher wraps the script in a one-step
+/// flow (`JobPayload::SingleStepFlow`) so the existing flow retry machinery
+/// handles re-runs. Subscribers without retry continue to be pushed as
+/// `JobKind::Script` (no wrapping).
+#[sqlx::test(fixtures("base"))]
+async fn retry_setting_wraps_dispatched_subscriber_as_flow(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    seed_script(&db, SUB_S3, "echo retrying", "bash").await?;
+    seed_script(&db, SUB_RES, "echo plain", "bash").await?;
+    seed_asset_write(&db, PRODUCER, "s3object", "f/blob").await?;
+    // Retry policy on the s3 edge; res edge stays vanilla so we also assert
+    // the "no retry" path keeps the cheaper ScriptHash push.
+    seed_subscription_with_retry(&db, SUB_S3, "s3://f/blob", 3, 5).await?;
+    seed_subscription(&db, SUB_RES, "script", "s3://f/blob").await?;
+
+    let id = seed_producer_job(&db, json!({})).await?;
+    let r = dispatch_asset_triggers(&db, &make_mini(id, PRODUCER)).await;
+    assert_eq!(r.dispatched.len(), 2, "both subscribers dispatched");
+
+    let kinds: Vec<(String, String)> = sqlx::query!(
+        r#"SELECT runnable_path AS "runnable_path!", kind::text AS "kind!"
+             FROM v2_job
+             WHERE workspace_id = $1 AND trigger_kind = 'asset'
+             ORDER BY runnable_path"#,
+        WS,
+    )
+    .fetch_all(&db)
+    .await?
+    .into_iter()
+    .map(|r| (r.runnable_path, r.kind))
+    .collect();
+
+    let s3_kind = kinds
+        .iter()
+        .find(|(p, _)| p == SUB_S3)
+        .map(|(_, k)| k.as_str())
+        .unwrap_or("");
+    let res_kind = kinds
+        .iter()
+        .find(|(p, _)| p == SUB_RES)
+        .map(|(_, k)| k.as_str())
+        .unwrap_or("");
+
+    assert_eq!(
+        s3_kind, "singlestepflow",
+        "retry-bearing subscriber wraps as SingleStepFlow so flow-runtime retry kicks in"
+    );
+    assert_eq!(
+        res_kind, "script",
+        "no-retry subscriber stays as the cheaper ScriptHash push"
     );
 
     Ok(())

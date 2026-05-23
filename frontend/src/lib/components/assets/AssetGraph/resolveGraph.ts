@@ -77,6 +77,8 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 			in_pipeline: true,
 			partition_kind: parsed.partition?.kind,
 			freshness: parsed.freshness?.duration,
+			tag: parsed.tag,
+			retry: parsed.retry,
 			unsaved: true
 		})
 		// Output asset(s): three-tier resolution.

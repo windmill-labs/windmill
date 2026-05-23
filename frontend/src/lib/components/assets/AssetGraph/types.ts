@@ -21,6 +21,13 @@ export interface AssetGraphRunnableNode {
 	// Raw `// freshness <duration>` value, e.g. "1h", "30m". Surfaced for
 	// the badge; the runtime parses it as needed.
 	freshness?: string
+	// `// tag <name>` worker-tag override. Surfaced for the badge so users
+	// can see which worker pool will pick this script up at a glance.
+	tag?: string
+	// `// retry <count> [<delay>]` cascade retry policy. `delay` is the raw
+	// duration string (`"5s"`, `"30s"`); absent = back-to-back. Surfaced as
+	// a badge so retry-enabled scripts are visible without opening the pane.
+	retry?: { count: number; delay?: string }
 	// Synthesized by the page from a local draft; the script doesn't exist
 	// in the DB yet. Drives a dashed/lower-opacity rendering to mirror how
 	// unsaved triggers are styled — visually distinct from persisted nodes.

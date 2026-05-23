@@ -9,6 +9,8 @@
 		Layers,
 		Loader2,
 		Play,
+		RotateCw,
+		Tag,
 		Timer,
 		Trash2,
 		XCircle,
@@ -32,6 +34,8 @@
 			in_pipeline?: boolean
 			partition_kind?: 'daily' | 'hourly' | 'weekly' | 'monthly' | 'dynamic'
 			freshness?: string
+			tag?: string
+			retry?: { count: number; delay?: string }
 			// Last-run status + run count observed this session (from the
 			// folder queue poll). Undefined until the first observed run.
 			runState?: RunnableRunState
@@ -164,6 +168,25 @@
 			>
 				<Timer size={10} />
 				<span class="text-3xs leading-none">{data.freshness}</span>
+			</div>
+		{/if}
+		{#if data.tag}
+			<div
+				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300"
+				title={`// tag ${data.tag}`}
+			>
+				<Tag size={10} />
+				<span class="text-3xs leading-none">{data.tag}</span>
+			</div>
+		{/if}
+		{#if data.retry}
+			{@const r = data.retry}
+			<div
+				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300"
+				title={`// retry ${r.count}${r.delay ? ` ${r.delay}` : ''}`}
+			>
+				<RotateCw size={10} />
+				<span class="text-3xs leading-none">×{r.count}</span>
 			</div>
 		{/if}
 		{#if data.runState}

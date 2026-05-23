@@ -40,6 +40,7 @@
 	} from 'lucide-svelte'
 
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
+	import DispatchEventsPanel from '$lib/components/runs/DispatchEventsPanel.svelte'
 	import {
 		enterpriseLicense,
 		initialArgsStore,
@@ -846,6 +847,9 @@
 							{/if}
 						</div>
 					</div>
+					{#if job.id && job.workspace_id}
+						<DispatchEventsPanel workspace={job.workspace_id} jobId={job.id} />
+					{/if}
 				{/if}
 
 				<!-- Logs and outputs-->

@@ -62,6 +62,13 @@ export type FreshnessSpec = {
 	duration: string
 }
 
+// `// retry <count> [<delay>]` — see backend RetrySpec. Delay is kept as the
+// raw duration string and resolved to seconds at deploy.
+export type RetrySpec = {
+	count: number
+	delay?: string
+}
+
 export type PipelineAnnotations = {
 	inPipeline: boolean
 	triggerAssets: PipelineTriggerAsset[]
@@ -69,6 +76,8 @@ export type PipelineAnnotations = {
 	nativeTriggers: PipelineNativeTrigger[]
 	partition?: PartitionSpec
 	freshness?: FreshnessSpec
+	tag?: string
+	retry?: RetrySpec
 }
 
 function unquote(s: string): string | undefined {
@@ -154,6 +163,22 @@ function parseTriggerSpec(s: string): ParsedTriggerSpec | undefined {
 	const asset = parseAssetSyntax(s)
 	if (asset) return { kind: 'asset', value: asset }
 	return undefined
+}
+
+// Parse a `// retry <count> [<delay>]` right-hand side. `<count>` is a
+// non-negative decimal; `<delay>` is an optional raw duration string left
+// for the deploy path to validate. Zero / non-numeric count is rejected so
+// a typo can't silently disable cascade retries.
+function parseRetrySpec(s: string): RetrySpec | undefined {
+	const m = s.match(/^(\S+)(?:\s+(.*))?$/)
+	if (!m) return undefined
+	// Strict whole-token decimal — match backend `parse::<u32>()` semantics
+	// (rejects `3foo`, leading signs, hex, floats).
+	if (!/^\d+$/.test(m[1])) return undefined
+	const count = Number.parseInt(m[1], 10)
+	if (count <= 0) return undefined
+	const delay = m[2]?.trim()
+	return delay ? { count, delay } : { count }
 }
 
 // Parse a `// partitioned <kind> [opts]` right-hand side.
@@ -255,6 +280,24 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 			const dur = afterFresh.trim()
 			if (dur && !out.freshness) {
 				out.freshness = { duration: dur }
+			}
+			continue
+		}
+
+		const afterTag = consumeKeyword(inner, 'tag')
+		if (afterTag !== undefined) {
+			const name = afterTag.trim()
+			if (name && !out.tag) {
+				out.tag = name
+			}
+			continue
+		}
+
+		const afterRetry = consumeKeyword(inner, 'retry')
+		if (afterRetry !== undefined) {
+			if (!out.retry) {
+				const spec = parseRetrySpec(afterRetry.trim())
+				if (spec) out.retry = spec
 			}
 			continue
 		}

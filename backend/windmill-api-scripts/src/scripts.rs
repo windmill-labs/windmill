@@ -1252,6 +1252,28 @@ async fn create_script_internal<'c>(
     // overrides it (precedence resolved per edge below).
     let pipeline_debounce_default = pipeline_annotations.debounce_default;
     let pipeline_triggers = pipeline_annotations.triggers;
+    // `// tag <name>` overrides the caller-supplied tag at deploy. Source
+    // wins, matching the wipe-and-reinsert convention of other pipeline
+    // annotations. Applied before the dep-job tag selection below (which
+    // special-cases dedicated_worker / bunnative / `$args[`) so that path
+    // sees the annotation-overridden value.
+    if let Some(t) = pipeline_annotations.tag.clone() {
+        ns.tag = Some(t);
+    }
+    // `// retry <count> [<delay>]` — cascade-only retry. Same value on
+    // every script_trigger row for this runnable (like join_all), so we
+    // resolve once here. The delay is parser-light (raw string); we
+    // convert to seconds via the shared parser. Falls back to 0 (back-to-
+    // back) when the delay token is absent or unparseable.
+    let pipeline_retry: Option<(i16, i32)> = pipeline_annotations.retry.as_ref().map(|r| {
+        let count = r.count.min(i16::MAX as u32) as i16;
+        let delay_s = r
+            .delay
+            .as_deref()
+            .and_then(parse_duration_secs)
+            .unwrap_or(0);
+        (count, delay_s)
+    });
     let auto_kind = if in_pipeline {
         Some("pipeline".to_string())
     } else if ci_test_refs.is_some() {
@@ -1594,6 +1616,8 @@ async fn create_script_internal<'c>(
             &trigger_ref,
             pipeline_join_all,
             debounce_s,
+            pipeline_retry.map(|(c, _)| c),
+            pipeline_retry.map(|(_, d)| d),
         )
         .await?;
     }
