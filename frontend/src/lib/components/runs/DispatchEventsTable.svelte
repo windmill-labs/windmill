@@ -35,8 +35,11 @@
 			<tr class="border-t">
 				<td class="px-3 py-2 align-top whitespace-nowrap">
 					{#if ev.outcome === 'dispatched'}
-						<span class="inline-flex items-center gap-1 text-green-700 dark:text-green-400">
-							<Check size={12} /> dispatched
+						<span
+							class="inline-flex items-center text-green-700 dark:text-green-400"
+							title="dispatched"
+						>
+							<Check size={12} />
 						</span>
 					{:else if ev.outcome === 'join_pending'}
 						<span class="inline-flex items-center gap-1 text-yellow-700 dark:text-yellow-400">
