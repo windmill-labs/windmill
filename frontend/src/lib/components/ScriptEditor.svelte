@@ -1389,13 +1389,21 @@
 
 	setContext('disableTooltips', untrack(() => customUi)?.disableTooltips === true)
 
-	// Pixel minimum width for the test pane while open. The pane's `minSize`
-	// is a percentage, so we derive it from the live splitpane container
-	// width (Svelte wires a ResizeObserver for bind:clientWidth).
+	// Pixel minimum size for the test pane while open. The pane's `minSize`
+	// is a percentage of the *split axis* (width for `right` layout, height
+	// for `bottom`), so we derive it from whichever container dimension the
+	// splitter actually distributes. Without this layout switch, the bottom
+	// layout would translate a 400px width-fraction into a height-fraction,
+	// which on wide screens is far too tall and on tall narrow screens far
+	// too short.
 	let splitContainerWidth = $state(0)
-	const TEST_PANE_MIN_PX = 400
+	let splitContainerHeight = $state(0)
+	const testPaneMinPx = $derived(previewLayout === 'bottom' ? 220 : 400)
+	const splitAxisExtent = $derived(
+		previewLayout === 'bottom' ? splitContainerHeight : splitContainerWidth
+	)
 	const testPaneMinPercent = $derived(
-		splitContainerWidth > 0 ? Math.min(80, (TEST_PANE_MIN_PX / splitContainerWidth) * 100) : 0
+		splitAxisExtent > 0 ? Math.min(80, (testPaneMinPx / splitAxisExtent) * 100) : 0
 	)
 
 	// Raw user-controlled test size (what the splitter wrote, or what the
@@ -1596,7 +1604,11 @@
 	</div>
 </div>
 <SplitPanesWrapper>
-	<div bind:clientWidth={splitContainerWidth} class="h-full">
+	<div
+		bind:clientWidth={splitContainerWidth}
+		bind:clientHeight={splitContainerHeight}
+		class="h-full"
+	>
 		<Splitpanes class="!overflow-visible" horizontal={previewLayout === 'bottom'}>
 			<Pane size={codePanelSize} minSize={0} class="!overflow-visible">
 				{#if lang === 'ansible' && ansibleAlternativeExecutionMode != null}
