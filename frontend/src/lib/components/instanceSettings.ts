@@ -303,6 +303,49 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: 'You can only adjust this setting to above 30 days in the EE version',
 			cloudonly: false
+		},
+		{
+			label: 'Workspace fairness — enabled',
+			description:
+				'Cloud-only safeguard against a single workspace dominating the shared worker pool. When a workspace accounts for at least <em>Workspace fairness — max percent</em> of cluster activity over the last <em>Workspace fairness — duration</em> seconds, the pull query temporarily excludes that workspace until its share drops back below the threshold. Idle workers always fall back to running its jobs, so capping never starves the queue.',
+			key: 'workspace_fairness_enabled',
+			fieldType: 'boolean',
+			storage: 'setting',
+			cloudonly: true,
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Workspace fairness — max percent',
+			description:
+				'Maximum percentage of cluster activity a single workspace may sustain before being temporarily excluded from the pull query. Default 50.',
+			key: 'workspace_fairness_max_percent',
+			fieldType: 'number',
+			placeholder: '50',
+			storage: 'setting',
+			cloudonly: true,
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Workspace fairness — duration (seconds)',
+			description:
+				'Rolling window used to measure workspace share. Activity = currently running jobs ∪ jobs completed in the last N seconds. Default 10.',
+			key: 'workspace_fairness_duration_secs',
+			fieldType: 'seconds',
+			placeholder: '10',
+			storage: 'setting',
+			cloudonly: true,
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Workspace fairness — minimum total jobs',
+			description:
+				'Cap is only applied when cluster-wide activity exceeds this floor. Prevents over-eager capping on small clusters or quiet periods. Default 4.',
+			key: 'workspace_fairness_min_total_jobs',
+			fieldType: 'number',
+			placeholder: '4',
+			storage: 'setting',
+			cloudonly: true,
+			hideInQuickSetup: true
 		}
 	],
 	'Object Storage': [

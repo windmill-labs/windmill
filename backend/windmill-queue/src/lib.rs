@@ -14,6 +14,7 @@ pub mod schedule;
 pub use jobs::*;
 pub mod flow_status;
 pub mod tags;
+pub mod workspace_fairness;
 
 #[cfg(feature = "cloud")]
 pub mod cloud_usage;
