@@ -7585,6 +7585,27 @@ async fn get_job_update_data(
     has_failure_module: bool,
     early_return_suppressed: &mut bool,
 ) -> error::Result<JobUpdate> {
+    // Unauthenticated callers may only read jobs whose creator is "anonymous".
+    // The non-only_result branch enforces this via `record.created_by` from its
+    // main query, but the only_result branch below fetches solely the result by
+    // (workspace_id, job_id), so we hoist the guard here to cover both paths.
+    if opt_authed.is_none() {
+        let created_by = sqlx::query_scalar!(
+            "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+            job_id,
+            w_id,
+        )
+        .fetch_optional(db)
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?;
+
+        if created_by != "anonymous" {
+            return Err(Error::BadRequest(
+                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+            ));
+        }
+    }
+
     let tags = if log_view {
         log_job_view(
             db,
