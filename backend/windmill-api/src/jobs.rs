@@ -7585,27 +7585,6 @@ async fn get_job_update_data(
     has_failure_module: bool,
     early_return_suppressed: &mut bool,
 ) -> error::Result<JobUpdate> {
-    // Unauthenticated callers may only read jobs whose creator is "anonymous".
-    // The non-only_result branch enforces this via `record.created_by` from its
-    // main query, but the only_result branch below fetches solely the result by
-    // (workspace_id, job_id), so we hoist the guard here to cover both paths.
-    if opt_authed.is_none() {
-        let created_by = sqlx::query_scalar!(
-            "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
-            job_id,
-            w_id,
-        )
-        .fetch_optional(db)
-        .await?
-        .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?;
-
-        if created_by != "anonymous" {
-            return Err(Error::BadRequest(
-                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
-            ));
-        }
-    }
-
     let tags = if log_view {
         log_job_view(
             db,
@@ -7677,6 +7656,23 @@ async fn get_job_update_data(
                     r.stream_job,
                 )
             } else {
+                // `j.created_by` from the LEFT JOIN below gates unauthenticated access —
+                // only jobs created by "anonymous" are readable, matching the non-only_result
+                // branch and adjacent unauthenticated endpoints. Folded into the existing
+                // queries to avoid an extra round-trip on the SSE polling loop.
+                let check_unauthed = |created_by: Option<String>| -> error::Result<()> {
+                    if opt_authed.is_none() {
+                        let created_by = created_by
+                            .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?;
+                        if created_by != "anonymous" {
+                            return Err(Error::BadRequest(
+                                "As a non logged in user, you can only see jobs ran by anonymous users"
+                                    .to_string(),
+                            ));
+                        }
+                    }
+                    Ok(())
+                };
                 if running.is_some_and(|x| !x) {
                     let r = sqlx::query!(
                         "
@@ -7694,10 +7690,12 @@ async fn get_job_update_data(
                             jq.running as \"running: Option<bool>\",
                             rs.stream AS \"result_stream: Option<String>\",
                             rs.offset AS stream_offset,
-                            CASE WHEN $4 THEN NULL ELSE (COALESCE(js.flow_status, jc.flow_status)->>'stream_job')::uuid END as stream_job
+                            CASE WHEN $4 THEN NULL ELSE (COALESCE(js.flow_status, jc.flow_status)->>'stream_job')::uuid END as stream_job,
+                            j.created_by AS \"created_by?\"
                         FROM (
                             SELECT $1::uuid as job_id, $2::text as workspace_id
                         ) base
+                        LEFT JOIN v2_job j ON j.id = base.job_id AND j.workspace_id = base.workspace_id
                         LEFT JOIN v2_job_completed jc ON jc.id = base.job_id AND jc.workspace_id = base.workspace_id
                         LEFT JOIN v2_job_queue jq ON jq.id = base.job_id AND jq.workspace_id = base.workspace_id
                         LEFT JOIN v2_job_status js ON js.id = base.job_id
@@ -7708,6 +7706,8 @@ async fn get_job_update_data(
                         stream_offset.unwrap_or(0),
                         ignore_flow_stream_job_id,
                     ).fetch_optional(db).await?;
+                    let created_by = r.as_ref().and_then(|r| r.created_by.clone());
+                    check_unauthed(created_by)?;
                     if let Some(r) = r {
                         let running = r.running.as_ref().map(|x| *x);
                         (
@@ -7737,10 +7737,12 @@ async fn get_job_update_data(
                             rs.stream AS \"result_stream: Option<String>\",
                             rs.offset AS stream_offset,
                             COALESCE(js.flow_status, jc.flow_status) as \"flow_status: sqlx::types::Json<Box<RawValue>>\",
-                            CASE WHEN $4 THEN NULL ELSE (COALESCE(js.flow_status, jc.flow_status)->>'stream_job')::uuid END as stream_job
+                            CASE WHEN $4 THEN NULL ELSE (COALESCE(js.flow_status, jc.flow_status)->>'stream_job')::uuid END as stream_job,
+                            j.created_by AS \"created_by?\"
                         FROM (
                             SELECT $2::uuid as job_id, $1::text as workspace_id
                         ) base
+                        LEFT JOIN v2_job j ON j.id = base.job_id AND j.workspace_id = base.workspace_id
                         LEFT JOIN v2_job_completed jc ON jc.id = base.job_id AND jc.workspace_id = base.workspace_id
                         LEFT JOIN v2_job_status js ON js.id = base.job_id
                         LEFT JOIN result_stream rs ON rs.job_id = base.job_id
@@ -7752,6 +7754,8 @@ async fn get_job_update_data(
                     )
                     .fetch_optional(db)
                     .await?;
+                    let created_by = q.as_ref().and_then(|r| r.created_by.clone());
+                    check_unauthed(created_by)?;
                     if let Some(r) = q {
                         (
                             r.result.map(|x| x.0),
