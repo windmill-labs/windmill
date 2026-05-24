@@ -67,7 +67,7 @@ const MAX_OVERLOADED_RETURNED: i64 = 64;
 ///   - `WORKSPACE_FAIRNESS_ENABLED` setting toggled on, AND
 ///   - `CLOUD_HOSTED=true`, AND
 ///   - `BASE_URL` host is the production cloud host.
-pub fn fairness_active() -> bool {
+fn fairness_active() -> bool {
     WORKSPACE_FAIRNESS_ENABLED.load(Ordering::Relaxed) && is_cloud_production_host()
 }
 

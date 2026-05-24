@@ -494,7 +494,17 @@ pub async fn set_global_setting_internal(
     // them on any instance that is not CLOUD_HOSTED + app.windmill.dev. This is
     // belt-and-suspenders alongside the frontend `{#if isCloudHosted()}` wrap
     // and the runtime check in `workspace_fairness::fairness_active`.
-    if is_workspace_fairness_setting(&key) && !workspace_fairness_settings_allowed() {
+    //
+    // Deletes (Null / empty-string) are *allowed* on non-cloud so admins can clear
+    // stale rows that ended up in `global_settings` via a cloned cloud DB. Without
+    // this exception a self-hosted instance would be stuck with cloud-only rows
+    // showing up in its instance-config YAML export.
+    let is_clearing_value = matches!(&value, serde_json::Value::Null)
+        || matches!(&value, serde_json::Value::String(s) if s.trim().is_empty());
+    if is_workspace_fairness_setting(&key)
+        && !is_clearing_value
+        && !workspace_fairness_settings_allowed()
+    {
         return Err(error::Error::BadRequest(format!(
             "{} is only configurable on app.windmill.dev cloud (CLOUD_HOSTED + BASE_URL match required)",
             key
@@ -765,12 +775,14 @@ async fn set_instance_config(
         // `workspace_fairness::fairness_active` still keeps the cap inert there, but persisting
         // the rows would be a leak of cloud-only config into non-cloud DBs and would advertise
         // the feature in the YAML export.
-        let touched_fairness_keys = settings_diff
+        //
+        // Only block *upserts*; deletes are allowed everywhere so admins can clean up stale
+        // rows (e.g. from a cloned cloud DB) without flipping `CLOUD_HOSTED` on temporarily.
+        let upserts_touch_fairness = settings_diff
             .upserts
             .keys()
-            .chain(settings_diff.deletes.iter())
             .any(|k| is_workspace_fairness_setting(k));
-        if touched_fairness_keys && !workspace_fairness_settings_allowed() {
+        if upserts_touch_fairness && !workspace_fairness_settings_allowed() {
             return Err(error::Error::BadRequest(
                 "Workspace fairness settings are only configurable on app.windmill.dev cloud (CLOUD_HOSTED + BASE_URL match required)".to_string(),
             ));

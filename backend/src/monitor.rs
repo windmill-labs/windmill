@@ -573,6 +573,14 @@ const WORKSPACE_FAIRNESS_DURATION_SECS_MAX: u64 = 86_400;
 /// while still leaving more headroom than any realistic cluster will need.
 const WORKSPACE_FAIRNESS_MIN_TOTAL_MAX: u64 = u32::MAX as u64;
 
+// Defaults used when a fairness knob is unset (row missing or row deleted via NULL/empty value).
+// Must stay in sync with the `AtomicU32::new(...)` initialisers in `windmill-common/src/worker.rs`
+// so a process that has never seen the setting reads the same value as one that just saw it
+// cleared.
+const WORKSPACE_FAIRNESS_MAX_PERCENT_DEFAULT: u32 = 50;
+const WORKSPACE_FAIRNESS_DURATION_SECS_DEFAULT: u32 = 10;
+const WORKSPACE_FAIRNESS_MIN_TOTAL_DEFAULT: u32 = 4;
+
 pub async fn load_workspace_fairness_enabled(db: &DB) -> error::Result<()> {
     // Match the convention used by `load_preview_tags_override` /
     // `load_fork_workspace_tag_append_fork_suffix`: on transient DB errors, leave the in-memory
@@ -596,39 +604,65 @@ pub async fn load_workspace_fairness_enabled(db: &DB) -> error::Result<()> {
 }
 
 pub async fn load_workspace_fairness_max_percent(db: &DB) -> error::Result<()> {
-    let v = load_value_from_global_settings(db, WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING).await;
-    if let Ok(Some(serde_json::Value::Number(n))) = v {
-        if let Some(u) = n.as_u64() {
-            WORKSPACE_FAIRNESS_MAX_PERCENT.store(u.clamp(1, 100) as u32, Ordering::Relaxed);
+    // Distinguish three outcomes:
+    //   - `Err(_)`: transient DB issue. Leave the atomic alone (don't clobber a known-good value
+    //     because of a network blip during a notify-event propagation).
+    //   - `Ok(None)` or `Ok(Some(invalid))`: setting is unset / explicitly cleared / corrupt.
+    //     Restore the default so a deletion via the admin UI actually takes effect at runtime
+    //     instead of leaving the stale in-memory value pinned until restart.
+    //   - `Ok(Some(valid))`: clamp and store.
+    match load_value_from_global_settings(db, WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING).await? {
+        Some(serde_json::Value::Number(n)) => {
+            let v = n
+                .as_u64()
+                .map(|u| u.clamp(1, 100) as u32)
+                .unwrap_or(WORKSPACE_FAIRNESS_MAX_PERCENT_DEFAULT);
+            WORKSPACE_FAIRNESS_MAX_PERCENT.store(v, Ordering::Relaxed);
+        }
+        _ => {
+            WORKSPACE_FAIRNESS_MAX_PERCENT
+                .store(WORKSPACE_FAIRNESS_MAX_PERCENT_DEFAULT, Ordering::Relaxed);
         }
     }
     Ok(())
 }
 
 pub async fn load_workspace_fairness_duration_secs(db: &DB) -> error::Result<()> {
-    let v = load_value_from_global_settings(db, WORKSPACE_FAIRNESS_DURATION_SECS_SETTING).await;
-    if let Ok(Some(serde_json::Value::Number(n))) = v {
-        if let Some(u) = n.as_u64() {
+    // See `load_workspace_fairness_max_percent` for the Err / None / invalid policy.
+    match load_value_from_global_settings(db, WORKSPACE_FAIRNESS_DURATION_SECS_SETTING).await? {
+        Some(serde_json::Value::Number(n)) => {
             // Clamp to the safe range before narrowing. The downstream `u32 -> i32` cast in
             // `workspace_fairness::refresh_overloaded` makes any value above `i32::MAX` toxic
             // (sign flip → negative interval → silent disable of the completed-jobs scan).
-            let clamped = u.clamp(1, WORKSPACE_FAIRNESS_DURATION_SECS_MAX) as u32;
-            WORKSPACE_FAIRNESS_DURATION_SECS.store(clamped, Ordering::Relaxed);
+            let v = n
+                .as_u64()
+                .map(|u| u.clamp(1, WORKSPACE_FAIRNESS_DURATION_SECS_MAX) as u32)
+                .unwrap_or(WORKSPACE_FAIRNESS_DURATION_SECS_DEFAULT);
+            WORKSPACE_FAIRNESS_DURATION_SECS.store(v, Ordering::Relaxed);
+        }
+        _ => {
+            WORKSPACE_FAIRNESS_DURATION_SECS
+                .store(WORKSPACE_FAIRNESS_DURATION_SECS_DEFAULT, Ordering::Relaxed);
         }
     }
     Ok(())
 }
 
 pub async fn load_workspace_fairness_min_total(db: &DB) -> error::Result<()> {
-    let v = load_value_from_global_settings(db, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING).await;
-    if let Ok(Some(serde_json::Value::Number(n))) = v {
-        if let Some(u) = n.as_u64() {
+    // See `load_workspace_fairness_max_percent` for the Err / None / invalid policy.
+    match load_value_from_global_settings(db, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING).await? {
+        Some(serde_json::Value::Number(n)) => {
             // Clamp before narrowing — same reasoning as `_duration_secs`, just for the
             // counting threshold rather than the interval.
-            WORKSPACE_FAIRNESS_MIN_TOTAL.store(
-                u.min(WORKSPACE_FAIRNESS_MIN_TOTAL_MAX) as u32,
-                Ordering::Relaxed,
-            );
+            let v = n
+                .as_u64()
+                .map(|u| u.min(WORKSPACE_FAIRNESS_MIN_TOTAL_MAX) as u32)
+                .unwrap_or(WORKSPACE_FAIRNESS_MIN_TOTAL_DEFAULT);
+            WORKSPACE_FAIRNESS_MIN_TOTAL.store(v, Ordering::Relaxed);
+        }
+        _ => {
+            WORKSPACE_FAIRNESS_MIN_TOTAL
+                .store(WORKSPACE_FAIRNESS_MIN_TOTAL_DEFAULT, Ordering::Relaxed);
         }
     }
     Ok(())
