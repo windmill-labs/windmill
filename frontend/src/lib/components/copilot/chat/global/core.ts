@@ -576,6 +576,16 @@ function serializeWorkspaceItemForRead(item: WorkspaceItem): unknown {
 		}
 	}
 
+	if (item.type === 'app' && item.value && typeof item.value === 'object' && 'files' in item.value) {
+		return {
+			type: 'app',
+			path: item.path,
+			summary: item.summary,
+			value: summarizeAppValue(item.value as AppDraftValue),
+			isDraft: item.isDraft
+		}
+	}
+
 	if (item.type !== 'flow' || !item.value) return item
 	const flowDraft = item.value as FlowDraftValue
 	const session = createInlineScriptSession()
@@ -1340,6 +1350,7 @@ export const globalTools: Tool<{}>[] = [
 
 			for (const draft of listGlobalDrafts(workspace)) {
 				if (!types.includes(draft.type)) continue
+				if (parsed.path_prefix && !draft.path.startsWith(parsed.path_prefix)) continue
 				byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
 					...draft,
 					value: undefined
@@ -1801,10 +1812,11 @@ function createVariableToDraftState(
 }
 
 function syncEphemeralSecretVariableDraftValue(workspace: string, args: CreateVariable): void {
+	const storagePath = getGlobalDraftStoragePath(workspace, 'variable', args.path)
 	if (args.is_secret) {
-		setEphemeralSecretVariableDraftValue(workspace, args.path, args.value)
+		setEphemeralSecretVariableDraftValue(workspace, storagePath, args.value)
 	} else {
-		clearEphemeralSecretVariableDraftValue(workspace, args.path)
+		clearEphemeralSecretVariableDraftValue(workspace, storagePath)
 	}
 }
 
@@ -1816,7 +1828,8 @@ function buildVariableDeployRequestBody(
 	const requestBody = structuredClone(draftValue)
 	if (!requestBody.is_secret) return requestBody
 
-	const secretValue = getEphemeralSecretVariableDraftValue(workspace, path)
+	const storagePath = getGlobalDraftStoragePath(workspace, 'variable', path)
+	const secretValue = getEphemeralSecretVariableDraftValue(workspace, storagePath)
 	if (secretValue === undefined) {
 		throw new Error(
 			`Secret value for local draft variable "${path}" is no longer available because secret draft values are kept only in memory. Run write_variable again before deploying this secret.`
@@ -2806,7 +2819,7 @@ async function deployDraft(
 		}
 	}
 
-	deleteGlobalDraft(workspace, type, path, triggerKind)
+	deleteGlobalDraft(workspace, type, path, triggerKind, { preserveLiveDraft: true })
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deployed ${type} "${path}"`,

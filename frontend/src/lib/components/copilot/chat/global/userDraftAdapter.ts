@@ -1,17 +1,9 @@
-import type {
-	CreateResource,
-	CreateVariable,
-	Flow,
-	NewSchedule,
-	NewScript,
-	ScriptLang
-} from '$lib/gen/types.gen'
+import type { Flow, NewSchedule, NewScript } from '$lib/gen/types.gen'
+import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { UserDraft, type UserDraftEntry, type UserDraftItemKind } from '$lib/userDraft.svelte'
-import { emptySchema } from '$lib/utils'
 import {
 	getWorkspaceItemKey,
 	type AppDraftValue,
-	type FlowDraftValue,
 	type ResourceDraftState,
 	type TriggerKind,
 	type TriggerRequestBody,
@@ -32,17 +24,12 @@ const TRIGGER_DRAFT_KIND_BY_TRIGGER_KIND = {
 	azure: 'trigger_azure'
 } as const satisfies Record<TriggerKind, UserDraftItemKind>
 
-const TRIGGER_KIND_BY_DRAFT_KIND = {
-	trigger_http: 'http',
-	trigger_websocket: 'websocket',
-	trigger_kafka: 'kafka',
-	trigger_nats: 'nats',
-	trigger_postgres: 'postgres',
-	trigger_mqtt: 'mqtt',
-	trigger_sqs: 'sqs',
-	trigger_gcp: 'gcp',
-	trigger_azure: 'azure'
-} as const satisfies Partial<Record<UserDraftItemKind, TriggerKind>>
+const TRIGGER_KIND_BY_DRAFT_KIND = Object.fromEntries(
+	Object.entries(TRIGGER_DRAFT_KIND_BY_TRIGGER_KIND).map(([triggerKind, draftKind]) => [
+		draftKind,
+		triggerKind
+	])
+) as Partial<Record<UserDraftItemKind, TriggerKind>>
 
 const GLOBAL_DRAFT_KINDS = [
 	'script',
@@ -62,16 +49,7 @@ const GLOBAL_DRAFT_KINDS = [
 	'variable'
 ] as const satisfies UserDraftItemKind[]
 
-const DEFAULT_SCRIPT_LANGUAGE: ScriptLang = 'bun'
-const DEFAULT_APP_DATA = { tables: [], datatable: undefined, schema: undefined }
 const secretVariableDraftValues = new Map<string, Map<string, string>>()
-
-export type GlobalDraftSlot = {
-	itemKind: UserDraftItemKind
-	storagePath: string
-	displayPath: string
-	item: WorkspaceItem
-}
 
 function clone<T>(value: T): T {
 	return structuredClone(value) as T
@@ -82,7 +60,7 @@ function normalizeAppDraftValue(value: AppDraftValue): AppDraftValue {
 		summary: value.summary,
 		files: { ...(value.files ?? {}) },
 		runnables: { ...(value.runnables ?? {}) },
-		data: value.data ?? { ...DEFAULT_APP_DATA }
+		data: value.data ?? { ...DEFAULT_RAW_APP_DATA }
 	}
 }
 
@@ -277,117 +255,6 @@ function userDraftEntryToWorkspaceItem(
 	return item && isLiveDraft ? { ...item, isLiveDraft: true } : item
 }
 
-function scriptItemToDraft(item: WorkspaceItem): NewScript {
-	if (typeof item.value !== 'string') {
-		throw new Error(`Draft script "${item.path}" is missing source content.`)
-	}
-	return {
-		path: item.path,
-		summary: item.summary ?? '',
-		description: '',
-		content: item.value,
-		schema: emptySchema(),
-		is_template: false,
-		language: item.language ?? DEFAULT_SCRIPT_LANGUAGE,
-		kind: 'script'
-	}
-}
-
-function flowItemToDraft(item: WorkspaceItem): Flow {
-	const draftValue = item.value as FlowDraftValue | undefined
-	if (!draftValue?.value) {
-		throw new Error(`Draft flow "${item.path}" is missing value.`)
-	}
-	const value = clone(draftValue.value)
-	if (draftValue.groups !== undefined && draftValue.groups !== null) {
-		value.groups = clone(draftValue.groups)
-	}
-	return {
-		path: item.path,
-		summary: item.summary ?? '',
-		value,
-		schema: draftValue.schema ?? emptySchema(),
-		edited_by: '',
-		edited_at: '',
-		archived: false,
-		extra_perms: {}
-	}
-}
-
-function appItemToDraft(item: WorkspaceItem): AppDraftValue {
-	const value = item.value as AppDraftValue | undefined
-	if (!value?.files || !value?.runnables) {
-		throw new Error(`Draft app "${item.path}" is missing files or runnables.`)
-	}
-	return normalizeAppDraftValue({
-		...clone(value),
-		summary: value.summary ?? item.summary
-	})
-}
-
-function scheduleItemToDraft(item: WorkspaceItem): NewSchedule {
-	const value = item.value as NewSchedule | undefined
-	if (!value) throw new Error(`Draft schedule "${item.path}" is missing value.`)
-	return { ...clone(value), path: item.path }
-}
-
-function triggerItemToDraft(item: WorkspaceItem): TriggerRequestBody {
-	const value = item.value as TriggerRequestBody | undefined
-	if (!item.triggerKind) throw new Error(`Draft trigger "${item.path}" is missing trigger kind.`)
-	if (!value) throw new Error(`Draft trigger "${item.path}" is missing value.`)
-	return { ...clone(value), path: item.path } as TriggerRequestBody
-}
-
-function resourceItemToDraft(item: WorkspaceItem): ResourceDraftState {
-	const value = item.value as CreateResource | undefined
-	if (!value) throw new Error(`Draft resource "${item.path}" is missing value.`)
-	return {
-		path: item.path,
-		description: value.description ?? '',
-		args: clone((value.value ?? {}) as Record<string, any>),
-		labels: value.labels,
-		wsSpecific: value.ws_specific ?? false,
-		resource_type: value.resource_type
-	}
-}
-
-function variableItemToDraft(item: WorkspaceItem): VariableDraftState {
-	const value = item.value as CreateVariable | undefined
-	if (!value) throw new Error(`Draft variable "${item.path}" is missing value.`)
-	return {
-		path: item.path,
-		variable: {
-			value: value.value,
-			is_secret: value.is_secret,
-			description: value.description
-		},
-		labels: value.labels,
-		wsSpecific: value.ws_specific ?? false,
-		account: value.account,
-		is_oauth: value.is_oauth,
-		expires_at: value.expires_at
-	}
-}
-
-function itemToDraftValue(item: WorkspaceItem): unknown {
-	switch (item.type) {
-		case 'script':
-			return scriptItemToDraft(item)
-		case 'flow':
-			return flowItemToDraft(item)
-		case 'app':
-			return appItemToDraft(item)
-		case 'schedule':
-			return scheduleItemToDraft(item)
-		case 'trigger':
-			return triggerItemToDraft(item)
-		case 'resource':
-			return resourceItemToDraft(item)
-		case 'variable':
-			return variableItemToDraft(item)
-	}
-}
-
 function liveDisplayPath(
 	workspace: string,
 	itemKind: UserDraftItemKind,
@@ -425,12 +292,12 @@ export function getGlobalDraftStoragePath(
 	return itemKind ? resolveDraftStoragePath(workspace, itemKind, path) : path
 }
 
-export function getGlobalDraftSlot(
+function getGlobalDraftSlot(
 	workspace: string,
 	type: WorkspaceItemType,
 	path: string,
 	triggerKind?: TriggerKind
-): GlobalDraftSlot | undefined {
+) {
 	const itemKind = itemKindFor(type, triggerKind)
 	if (!itemKind) return undefined
 	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
@@ -472,20 +339,6 @@ export function listGlobalDrafts(workspace: string): WorkspaceItem[] {
 	return Array.from(drafts.values())
 }
 
-export function setGlobalDraft(workspace: string, item: WorkspaceItem): WorkspaceItem {
-	const itemKind = itemKindFor(item.type, item.triggerKind)
-	if (!itemKind) {
-		throw new Error(`Draft ${item.type} "${item.path}" is missing a UserDraft kind.`)
-	}
-	const storagePath = resolveDraftStoragePath(workspace, itemKind, item.path)
-	UserDraft.save(itemKind, storagePath, itemToDraftValue(item), { workspace })
-	const stored = getGlobalDraft(workspace, item.type, item.path, item.triggerKind)
-	if (!stored) {
-		throw new Error(`Could not read written draft ${item.type} "${item.path}".`)
-	}
-	return stored
-}
-
 export function saveGlobalAppDraft(
 	workspace: string,
 	path: string,
@@ -498,16 +351,26 @@ export function saveGlobalAppDraft(
 	return stored
 }
 
+type DeleteGlobalDraftOptions = {
+	preserveLiveDraft?: boolean
+}
+
 export function deleteGlobalDraft(
 	workspace: string,
 	type: WorkspaceItemType,
 	path: string,
-	triggerKind?: TriggerKind
+	triggerKind?: TriggerKind,
+	options: DeleteGlobalDraftOptions = {}
 ): void {
 	const itemKind = itemKindFor(type, triggerKind)
 	if (!itemKind) return
 	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
-	UserDraft.clear(itemKind, storagePath, { workspace })
+	const liveDraft = UserDraft.getLiveEditorDraft(itemKind, { workspace })
+	if (options.preserveLiveDraft && liveDraft?.storagePath === storagePath) {
+		UserDraft.remove(itemKind, storagePath, { workspace })
+	} else {
+		UserDraft.clear(itemKind, storagePath, { workspace })
+	}
 	if (type === 'variable') clearEphemeralSecretVariableDraftValue(workspace, storagePath)
 }
 

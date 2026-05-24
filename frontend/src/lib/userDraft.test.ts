@@ -18,6 +18,7 @@ vi.mock('svelte', async (importOriginal) => {
 const { UserDraft, normalizeForCompare, localDraftDiffers, __resetUserDraftForTesting } =
 	await import('./userDraft.svelte')
 const { workspaceStore } = await import('./stores')
+const { deleteGlobalDraft } = await import('./components/copilot/chat/global/userDraftAdapter')
 
 function flushDestroyCallbacks(): void {
 	const callbacks = onDestroyCallbacks.splice(0, onDestroyCallbacks.length)
@@ -177,6 +178,25 @@ describe('UserDraft live editor draft registry', () => {
 
 		UserDraft.clearLiveEditorDraft('raw_app', { storagePath: '' })
 		expect(UserDraft.getLiveEditorDraft('raw_app')).toBeUndefined()
+	})
+
+	it('can remove persisted global draft storage without blanking the live editor', () => {
+		const draft = { path: 'u/me/live_script', content: 'export async function main() {}' }
+		localStorage.setItem('userdraft/w/test_ws/script/', wrapped(draft))
+		const handle = UserDraft.use<typeof draft>('script', '')
+		UserDraft.setLiveEditorDraft({
+			itemKind: 'script',
+			storagePath: '',
+			effectivePath: 'u/me/live_script'
+		})
+
+		deleteGlobalDraft('test_ws', 'script', 'u/me/live_script', undefined, {
+			preserveLiveDraft: true
+		})
+		flushPersist()
+
+		expect(handle.draft).toEqual(draft)
+		expect(localStorage.getItem('userdraft/w/test_ws/script/')).toBeNull()
 	})
 })
 

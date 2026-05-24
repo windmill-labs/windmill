@@ -13,6 +13,11 @@
 	import { onMount } from 'svelte'
 
 	let enabled = $state(false)
+	let refreshToken = $state(0)
+
+	function refreshDrafts() {
+		refreshToken += 1
+	}
 
 	onMount(() => {
 		// Dev-only route. Bounce to home when the global mode gate is closed.
@@ -20,9 +25,23 @@
 		if (!enabled) {
 			goto('/')
 		}
+
+		const onStorage = (event: StorageEvent) => {
+			if (event.key?.startsWith('userdraft/')) refreshDrafts()
+		}
+		window.addEventListener('storage', onStorage)
+		const interval = window.setInterval(refreshDrafts, 1000)
+
+		return () => {
+			window.removeEventListener('storage', onStorage)
+			window.clearInterval(interval)
+		}
 	})
 
-	let drafts = $derived($workspaceStore ? listGlobalDrafts($workspaceStore) : [])
+	let drafts = $derived.by(() => {
+		refreshToken
+		return $workspaceStore ? listGlobalDrafts($workspaceStore) : []
+	})
 
 	function draftKey(item: WorkspaceItem): string {
 		return `${item.type}:${item.triggerKind ?? '-'}:${item.path}`
@@ -31,11 +50,13 @@
 	function deleteDraft(item: WorkspaceItem) {
 		if (!$workspaceStore) return
 		deleteGlobalDraft($workspaceStore, item.type, item.path, item.triggerKind)
+		refreshDrafts()
 	}
 
 	function clearAll() {
 		if (!$workspaceStore) return
 		clearGlobalDrafts($workspaceStore)
+		refreshDrafts()
 	}
 </script>
 

@@ -44,6 +44,7 @@ vi.mock('$lib/gen', async () => {
 		...actual,
 		ScriptService: wrapService(actual.ScriptService, {
 			existsScriptByPath: vi.fn(async () => false),
+			createScript: vi.fn(async () => 'created'),
 			getScriptByPathWithDraft: vi.fn(async () => {
 				throw new Error('getScriptByPathWithDraft mock not configured')
 			}),
@@ -51,6 +52,11 @@ vi.mock('$lib/gen', async () => {
 		}),
 		FlowService: wrapService(actual.FlowService, {
 			existsFlowByPath: vi.fn(async () => false),
+			createFlow: vi.fn(async () => 'created'),
+			updateFlow: vi.fn(async () => 'updated'),
+			getFlowByPath: vi.fn(async () => {
+				throw new Error('getFlowByPath mock not configured')
+			}),
 			getFlowByPathWithDraft: vi.fn(async () => {
 				throw new Error('getFlowByPathWithDraft mock not configured')
 			}),
@@ -334,6 +340,35 @@ describe('global AI tools', () => {
 				content
 			}
 		)
+	})
+
+	it('applies path_prefix to local drafts before enforcing the result limit', async () => {
+		await callGlobalTool('write_script', {
+			path: 'f/other/outside',
+			summary: 'Outside draft',
+			language: 'bun',
+			content: 'export async function main() { return "outside" }'
+		})
+		await callGlobalTool('write_script', {
+			path: 'f/matching/inside',
+			summary: 'Inside draft',
+			language: 'bun',
+			content: 'export async function main() { return "inside" }'
+		})
+
+		const raw = await callGlobalTool('list_workspace_items', {
+			types: ['script'],
+			path_prefix: 'f/matching/',
+			limit: 1
+		})
+
+		expect(JSON.parse(raw)).toEqual([
+			expect.objectContaining({
+				type: 'script',
+				path: 'f/matching/inside',
+				isDraft: true
+			})
+		])
 	})
 
 	it('lists and edits the live script editor draft through its effective path', async () => {
@@ -753,6 +788,57 @@ describe('global AI tools', () => {
 			remoteRev: 4,
 			remoteDraftRev: '2026-05-22T10:30:00Z'
 		})
+	})
+
+	it('summarizes local raw app drafts in read_workspace_item', async () => {
+		UserDraft.save(
+			'raw_app',
+			'f/apps/local',
+			{
+				summary: 'local app',
+				files: { '/src/App.tsx': 'const frontendSecret = "do-not-dump"' },
+				runnables: {
+					main: {
+						type: 'inline',
+						inlineScript: {
+							language: 'bun',
+							content: 'const backendSecret = "do-not-dump"'
+						}
+					}
+				},
+				data: { tables: ['orders'] }
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		const raw = await callGlobalTool('read_workspace_item', {
+			type: 'app',
+			path: 'f/apps/local'
+		})
+		const item = JSON.parse(raw)
+
+		expect(raw).not.toContain('frontendSecret')
+		expect(raw).not.toContain('backendSecret')
+		expect(item).toMatchObject({
+			type: 'app',
+			path: 'f/apps/local',
+			summary: 'local app',
+			isDraft: true,
+			value: {
+				frontend: [{ path: '/src/App.tsx', size: 'const frontendSecret = "do-not-dump"'.length }],
+				backend: [
+					expect.objectContaining({
+						key: 'main',
+						name: 'main',
+						type: 'inline',
+						language: 'bun',
+						contentSize: 'const backendSecret = "do-not-dump"'.length
+					})
+				],
+				data: { tables: ['orders'] }
+			}
+		})
+		expect(item.value.backend[0]).not.toHaveProperty('content')
 	})
 
 	it('reads raw app files without creating a local draft', async () => {
