@@ -86,6 +86,15 @@ pub const WORKSPACE_REGISTRIES_SETTING: &str = "workspace_registries";
 pub const RESTART_COORDINATION_SETTING: &str = "_restart_coordination";
 pub const ALERT_CONFIG_SETTING: &str = "alert_job_queue_waiting";
 
+// Workspace fairness: cloud-only mechanism that caps any single workspace at
+// `workspace_fairness_max_percent`% of the shared worker pool once it has been
+// occupying it for more than `workspace_fairness_duration_secs` seconds. See
+// `windmill-queue/src/workspace_fairness.rs`.
+pub const WORKSPACE_FAIRNESS_ENABLED_SETTING: &str = "workspace_fairness_enabled";
+pub const WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING: &str = "workspace_fairness_max_percent";
+pub const WORKSPACE_FAIRNESS_DURATION_SECS_SETTING: &str = "workspace_fairness_duration_secs";
+pub const WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING: &str = "workspace_fairness_min_total_jobs";
+
 use std::sync::atomic::AtomicBool;
 
 lazy_static::lazy_static! {

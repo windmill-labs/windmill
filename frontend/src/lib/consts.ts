@@ -50,6 +50,11 @@ export const DEFAULT_TAGS_WORKSPACES_SETTING = 'default_tags_workspaces'
 export const FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING = 'fork_workspace_tag_append_fork_suffix'
 export const PREVIEW_TAGS_OVERRIDE_SETTING = 'preview_tags_override'
 
+export const WORKSPACE_FAIRNESS_ENABLED_SETTING = 'workspace_fairness_enabled'
+export const WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING = 'workspace_fairness_max_percent'
+export const WORKSPACE_FAIRNESS_DURATION_SECS_SETTING = 'workspace_fairness_duration_secs'
+export const WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING = 'workspace_fairness_min_total_jobs'
+
 export const WORKSPACE_SLACK_BOT_TOKEN_PATH = 'f/slack_bot/bot_token'
 
 export const POSTGRES_TYPES = [
