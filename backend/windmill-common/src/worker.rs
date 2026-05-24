@@ -258,6 +258,9 @@ lazy_static::lazy_static! {
 
 
     pub static ref CLOUD_HOSTED: bool = std::env::var("CLOUD_HOSTED").is_ok();
+    /// Host used to gate cloud-only features that must only ever run on the
+    /// production `app.windmill.dev` cluster, not on staging or self-hosted.
+    pub static ref CLOUD_PRODUCTION_HOST: &'static str = "app.windmill.dev";
 
     pub static ref CUSTOM_TAGS: Vec<String> = std::env::var("CUSTOM_TAGS")
         .ok()
@@ -300,6 +303,34 @@ lazy_static::lazy_static! {
 /// `WORKER_CONFIG.native_mode` which combines all sources.
 pub fn is_native_mode_from_env() -> bool {
     *NATIVE_MODE || *WORKER_GROUP == "native"
+}
+
+/// True iff this process is configured to act as the production cloud cluster:
+/// `CLOUD_HOSTED=true` AND `BASE_URL`'s host matches `CLOUD_PRODUCTION_HOST`.
+/// Centralized so the API setter, the runtime pull path, and any future cloud-
+/// only feature share one canonical check (rather than re-implementing the
+/// scheme/host parser at each call site).
+pub fn is_cloud_production_host() -> bool {
+    if !*CLOUD_HOSTED {
+        return false;
+    }
+    let base = crate::BASE_URL.load();
+    let s = base.as_str();
+    if s.is_empty() {
+        return false;
+    }
+    let after_scheme = s
+        .strip_prefix("https://")
+        .or_else(|| s.strip_prefix("http://"))
+        .unwrap_or(s);
+    let host = after_scheme
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("");
+    host == *CLOUD_PRODUCTION_HOST
 }
 
 /// Cached resolved native mode flag, updated when worker config is reloaded.
@@ -537,7 +568,10 @@ pub fn make_pull_query(tags: &[String]) -> String {
 // overloaded-list bind parameter ($2::text[]). Built as a separate string (rather than reusing
 // `make_pull_query` with an always-bound array) so the planner can keep using the same indexes
 // when fairness is off — the default `make_pull_query` text stays bit-identical to today's.
-pub fn make_pull_query_fairness(tags: &[String]) -> String {
+//
+// `pub(crate)` because only `store_pull_query` consumes it; the resulting query string is what
+// crosses crate boundaries via `WORKER_PULL_QUERIES_FAIRNESS`.
+pub(crate) fn make_pull_query_fairness(tags: &[String]) -> String {
     let query = format_pull_query(format!(
         "SELECT id
         FROM v2_job_queue

@@ -45,15 +45,12 @@ use sqlx::{Pool, Postgres};
 
 use windmill_common::error::Result;
 use windmill_common::worker::{
-    CLOUD_HOSTED, WORKSPACE_FAIRNESS_DURATION_SECS, WORKSPACE_FAIRNESS_ENABLED,
+    is_cloud_production_host, WORKSPACE_FAIRNESS_DURATION_SECS, WORKSPACE_FAIRNESS_ENABLED,
     WORKSPACE_FAIRNESS_LAST_REFRESH_MICROS, WORKSPACE_FAIRNESS_MAX_PERCENT,
     WORKSPACE_FAIRNESS_MIN_TOTAL, WORKSPACE_FAIRNESS_OVERLOADED,
 };
-use windmill_common::BASE_URL;
 
 pub const TASK_STATE_NAME: &str = "workspace_fairness";
-
-const APP_WINDMILL_DEV_HOST: &str = "app.windmill.dev";
 
 /// Refresh interval when no workspace is currently capped. Slower cadence to
 /// keep DB load minimal during normal operation.
@@ -66,32 +63,12 @@ const ACTIVE_REFRESH_SECS: u32 = 2;
 /// Hard cap on the size of the overloaded list bound into the pull query.
 const MAX_OVERLOADED_RETURNED: i64 = 64;
 
-/// Read `BASE_URL` and check whether the cluster's base URL points at
-/// `app.windmill.dev`. The setting is configured by the admin via `/base_url`
-/// and is empty until the first settings load completes.
-fn is_app_windmill_dev() -> bool {
-    let base = BASE_URL.load();
-    let s = base.as_str();
-    if s.is_empty() {
-        return false;
-    }
-    // Strip scheme then check the leading host segment. Avoids a new dependency
-    // for what is a fixed-string match against one production host.
-    let after_scheme = s
-        .strip_prefix("https://")
-        .or_else(|| s.strip_prefix("http://"))
-        .unwrap_or(s);
-    let host = after_scheme.split('/').next().unwrap_or("");
-    let host = host.split(':').next().unwrap_or("");
-    host == APP_WINDMILL_DEV_HOST
-}
-
 /// Whether the feature can be active in this process. Combined gate:
 ///   - `WORKSPACE_FAIRNESS_ENABLED` setting toggled on, AND
 ///   - `CLOUD_HOSTED=true`, AND
-///   - `BASE_URL` host is `app.windmill.dev`.
+///   - `BASE_URL` host is the production cloud host.
 pub fn fairness_active() -> bool {
-    WORKSPACE_FAIRNESS_ENABLED.load(Ordering::Relaxed) && *CLOUD_HOSTED && is_app_windmill_dev()
+    WORKSPACE_FAIRNESS_ENABLED.load(Ordering::Relaxed) && is_cloud_production_host()
 }
 
 #[derive(serde::Deserialize)]
@@ -133,15 +110,17 @@ pub fn maybe_refresh_overloaded(db: &Pool<Postgres>) {
     tokio::spawn(async move {
         match tokio::time::timeout(Duration::from_secs(5), refresh_overloaded(&db)).await {
             Ok(Ok(())) => {}
+            // On failure, leave `LAST_REFRESH_MICROS` set to `now_us` (already done by the CAS
+            // above). The next attempt therefore has to wait a full `current_refresh_interval`
+            // — exactly the same cooldown as a successful refresh. Previously we wrote `0`
+            // here, which removed the rate limit entirely and let every subsequent pull spawn
+            // a fresh refresh task while the DB was under pressure (precisely the moment we
+            // most need to back off).
             Ok(Err(e)) => {
                 tracing::warn!("workspace fairness refresh failed: {e:#}");
-                // Reset the gate so the next pull can retry, but with the
-                // current "active" interval as a floor to avoid stampeding.
-                WORKSPACE_FAIRNESS_LAST_REFRESH_MICROS.store(0, Ordering::Relaxed);
             }
             Err(_) => {
                 tracing::warn!("workspace fairness refresh timed out after 5s");
-                WORKSPACE_FAIRNESS_LAST_REFRESH_MICROS.store(0, Ordering::Relaxed);
             }
         }
     });
@@ -156,74 +135,106 @@ fn current_refresh_interval_micros() -> i64 {
     (secs as i64) * 1_000_000
 }
 
-/// Run the coordinated refresh. Idempotent across processes: only one update
-/// per cycle commits real work, everyone else does a cheap read.
+/// Run the coordinated refresh.
+///
+/// The previous implementation used a single `INSERT ... ON CONFLICT DO UPDATE
+/// WHERE updated_at < ...` statement, which had a fatal flaw: Postgres evaluates
+/// the `VALUES` clause (including the expensive `v2_job_queue ∪ v2_job_completed`
+/// aggregation inlined there) **for every contender** to build the proposed row,
+/// before the conflict-row check decides whether to actually apply the update.
+/// So every worker process re-ran the heavy aggregation each cycle, and the
+/// claimed "one heavy aggregation per cycle cluster-wide" property did not hold.
+///
+/// This version splits the refresh into three small statements:
+///   1. Claim: a cheap upsert with only constant `VALUES`. Returns `Some(...)`
+///      iff this process won the right to refresh (row was either missing or
+///      had a stale `updated_at`).
+///   2. Winner-only: an `UPDATE ... SET value = ...` whose `SET` expression
+///      contains the heavy aggregation. Postgres evaluates `SET` per row
+///      matching `WHERE`; we only issue it when `won`, so the aggregation runs
+///      exactly once per refresh cycle cluster-wide.
+///   3. Read: every caller reads the current value (winner sees its own fresh
+///      write; losers see whatever the winner-from-this-or-the-prior-cycle
+///      wrote).
 async fn refresh_overloaded(db: &Pool<Postgres>) -> Result<()> {
     let duration_secs = WORKSPACE_FAIRNESS_DURATION_SECS
         .load(Ordering::Relaxed)
-        .max(1) as i32;
+        .clamp(1, i32::MAX as u32) as i32;
     let max_percent = WORKSPACE_FAIRNESS_MAX_PERCENT
         .load(Ordering::Relaxed)
         .clamp(1, 100) as i64;
     let min_total = WORKSPACE_FAIRNESS_MIN_TOTAL.load(Ordering::Relaxed) as i64;
-    // Use the tighter of the two intervals as the refresh predicate; the slower
-    // idle cadence is enforced client-side by the CAS gate, while the SQL guard
-    // protects against multiple in-flight refreshes from different processes.
+    // Use the tighter of the two intervals as the cluster-wide guard. The
+    // slower idle cadence is enforced by the per-process CAS gate in
+    // `maybe_refresh_overloaded`; the DB-side guard only needs to prevent
+    // two processes from racing into a refresh at the same time.
     let refresh_secs = ACTIVE_REFRESH_SECS as i32;
 
-    // Single statement: either we win the row-lock and recompute, or we read
-    // whatever was just written by the winner.
-    let row: Option<serde_json::Value> = sqlx::query_scalar(
+    // Step 1: claim. The VALUES clause is all constants — Postgres has no
+    // expensive work to do for either the insert-side or the conflict-side.
+    // Returns Some(true) for the unique winner per cycle, None for losers.
+    let won = sqlx::query_scalar::<_, bool>(
         r#"
-        WITH refreshed AS (
-            INSERT INTO background_task_state (name, value, running, owner, updated_at)
-            VALUES (
-                $1,
-                jsonb_build_object('overloaded', (
-                    WITH active AS (
-                        SELECT workspace_id FROM v2_job_queue WHERE running = true
-                        UNION ALL
-                        SELECT workspace_id FROM v2_job_completed
-                         WHERE completed_at > now() - make_interval(secs => $2)
-                    ),
-                    per_ws AS (
-                        SELECT workspace_id, COUNT(*)::int8 AS c FROM active GROUP BY 1
-                    ),
-                    total AS (SELECT SUM(c)::int8 AS t FROM per_ws)
-                    SELECT COALESCE(jsonb_agg(workspace_id ORDER BY c DESC), '[]'::jsonb)
-                    FROM (
-                        SELECT workspace_id, c FROM per_ws, total
-                        WHERE total.t >= $3
-                          AND per_ws.c * 100 >= $4 * total.t
-                        ORDER BY c DESC
-                        LIMIT $5
-                    ) capped
-                )),
-                false,
-                NULL,
-                NOW()
-            )
-            ON CONFLICT (name) DO UPDATE
-                SET value = EXCLUDED.value,
-                    updated_at = NOW()
-                WHERE background_task_state.updated_at
-                    < NOW() - make_interval(secs => $6)
-            RETURNING value
-        )
-        SELECT value FROM refreshed
-        UNION ALL
-        SELECT value FROM background_task_state WHERE name = $1
-        LIMIT 1
+        INSERT INTO background_task_state (name, value, running, owner, updated_at)
+        VALUES ($1, '{"overloaded":[]}'::jsonb, false, NULL, NOW())
+        ON CONFLICT (name) DO UPDATE
+            SET updated_at = NOW()
+            WHERE background_task_state.updated_at
+                < NOW() - make_interval(secs => $2::int)
+        RETURNING true
         "#,
     )
     .bind(TASK_STATE_NAME)
-    .bind(duration_secs)
-    .bind(min_total)
-    .bind(max_percent)
-    .bind(MAX_OVERLOADED_RETURNED)
     .bind(refresh_secs)
     .fetch_optional(db)
-    .await?;
+    .await?
+    .is_some();
+
+    // Step 2: winner-only aggregation + value write. `SET` is evaluated per
+    // updated row, so issuing this statement only when `won` guarantees the
+    // expensive aggregation never runs for a loser.
+    if won {
+        sqlx::query(
+            r#"
+            UPDATE background_task_state
+            SET value = jsonb_build_object('overloaded', (
+                WITH active AS (
+                    SELECT workspace_id FROM v2_job_queue WHERE running = true
+                    UNION ALL
+                    SELECT workspace_id FROM v2_job_completed
+                     WHERE completed_at > NOW() - make_interval(secs => $2::int)
+                ),
+                per_ws AS (
+                    SELECT workspace_id, COUNT(*)::int8 AS c FROM active GROUP BY 1
+                ),
+                total AS (SELECT SUM(c)::int8 AS t FROM per_ws)
+                SELECT COALESCE(jsonb_agg(workspace_id ORDER BY c DESC), '[]'::jsonb)
+                FROM (
+                    SELECT workspace_id, c FROM per_ws, total
+                    WHERE total.t >= $3
+                      AND per_ws.c * 100 >= $4 * total.t
+                    ORDER BY c DESC
+                    LIMIT $5
+                ) capped
+            ))
+            WHERE name = $1
+            "#,
+        )
+        .bind(TASK_STATE_NAME)
+        .bind(duration_secs)
+        .bind(min_total)
+        .bind(max_percent)
+        .bind(MAX_OVERLOADED_RETURNED)
+        .execute(db)
+        .await?;
+    }
+
+    // Step 3: read current state (winner reads its own fresh write).
+    let row: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT value FROM background_task_state WHERE name = $1")
+            .bind(TASK_STATE_NAME)
+            .fetch_optional(db)
+            .await?;
 
     let new_list: Vec<String> = match row {
         Some(value) => match serde_json::from_value::<FairnessState>(value) {

@@ -61,8 +61,7 @@ use windmill_common::{
     },
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
-    worker::CLOUD_HOSTED,
-    BASE_URL,
+    worker::is_cloud_production_host,
 };
 use windmill_common::{error::to_anyhow, PgDatabase};
 
@@ -466,23 +465,7 @@ fn is_workspace_fairness_setting(key: &str) -> bool {
 /// Cloud-and-app.windmill.dev gate for workspace fairness. Must hold to persist
 /// the setting; the runtime path additionally verifies before applying the cap.
 fn workspace_fairness_settings_allowed() -> bool {
-    if !*CLOUD_HOSTED {
-        return false;
-    }
-    let base = BASE_URL.load();
-    let s = base.as_str();
-    let after_scheme = s
-        .strip_prefix("https://")
-        .or_else(|| s.strip_prefix("http://"))
-        .unwrap_or(s);
-    let host = after_scheme
-        .split('/')
-        .next()
-        .unwrap_or("")
-        .split(':')
-        .next()
-        .unwrap_or("");
-    host == "app.windmill.dev"
+    is_cloud_production_host()
 }
 
 pub async fn set_global_setting(
@@ -775,6 +758,23 @@ async fn set_instance_config(
             .upserts
             .iter()
             .any(|(key, _)| key == AI_CONFIG_SETTING);
+
+        // Mirror the per-key cloud gate in `set_global_setting_internal`. Without this, the
+        // bulk endpoint would let a self-hosted superadmin persist `workspace_fairness_*` rows
+        // even though the per-key API rejects them. The runtime check in
+        // `workspace_fairness::fairness_active` still keeps the cap inert there, but persisting
+        // the rows would be a leak of cloud-only config into non-cloud DBs and would advertise
+        // the feature in the YAML export.
+        let touched_fairness_keys = settings_diff
+            .upserts
+            .keys()
+            .chain(settings_diff.deletes.iter())
+            .any(|k| is_workspace_fairness_setting(k));
+        if touched_fairness_keys && !workspace_fairness_settings_allowed() {
+            return Err(error::Error::BadRequest(
+                "Workspace fairness settings are only configurable on app.windmill.dev cloud (CLOUD_HOSTED + BASE_URL match required)".to_string(),
+            ));
+        }
 
         for (key, value) in &settings_diff.upserts {
             run_setting_pre_write_hook(&db, key, value).await?;

@@ -562,12 +562,29 @@ pub async fn load_preview_tags_override(db: &DB) -> error::Result<()> {
     Ok(())
 }
 
+// Upper bound on the duration window. Postgres `make_interval(secs => $1::int4)` is the consumer
+// downstream, so this stays comfortably below `i32::MAX` and the subsequent `u32 -> i32` cast in
+// `workspace_fairness::refresh_overloaded` cannot wrap into a negative interval (which would
+// silently turn `now() - interval` into a future timestamp and disable the completed-jobs half
+// of the activity signal). A day is the practical ceiling for a "rolling window" knob.
+const WORKSPACE_FAIRNESS_DURATION_SECS_MAX: u64 = 86_400;
+
+/// Min-total floor is a counting threshold; cap at `u32::MAX` to make wraparound impossible
+/// while still leaving more headroom than any realistic cluster will need.
+const WORKSPACE_FAIRNESS_MIN_TOTAL_MAX: u64 = u32::MAX as u64;
+
 pub async fn load_workspace_fairness_enabled(db: &DB) -> error::Result<()> {
-    let v = load_value_from_global_settings(db, WORKSPACE_FAIRNESS_ENABLED_SETTING).await;
-    let new_enabled = match v {
-        Ok(Some(serde_json::Value::Bool(t))) => t,
-        _ => false,
-    };
+    // Match the convention used by `load_preview_tags_override` /
+    // `load_fork_workspace_tag_append_fork_suffix`: on transient DB errors, leave the in-memory
+    // atomic untouched rather than silently toggling the feature off across the whole cluster
+    // (which would also trigger an unnecessary `store_pull_query` rebuild — exactly when DB load
+    // is probably highest).
+    let new_enabled =
+        match load_value_from_global_settings(db, WORKSPACE_FAIRNESS_ENABLED_SETTING).await? {
+            Some(serde_json::Value::Bool(t)) => t,
+            // Setting unset / non-bool → explicit off.
+            _ => false,
+        };
     let prev = WORKSPACE_FAIRNESS_ENABLED.swap(new_enabled, Ordering::Relaxed);
     // Re-store the pull queries so the fairness variants appear/disappear in
     // lockstep with the toggle.
@@ -592,7 +609,11 @@ pub async fn load_workspace_fairness_duration_secs(db: &DB) -> error::Result<()>
     let v = load_value_from_global_settings(db, WORKSPACE_FAIRNESS_DURATION_SECS_SETTING).await;
     if let Ok(Some(serde_json::Value::Number(n))) = v {
         if let Some(u) = n.as_u64() {
-            WORKSPACE_FAIRNESS_DURATION_SECS.store(u.max(1) as u32, Ordering::Relaxed);
+            // Clamp to the safe range before narrowing. The downstream `u32 -> i32` cast in
+            // `workspace_fairness::refresh_overloaded` makes any value above `i32::MAX` toxic
+            // (sign flip → negative interval → silent disable of the completed-jobs scan).
+            let clamped = u.clamp(1, WORKSPACE_FAIRNESS_DURATION_SECS_MAX) as u32;
+            WORKSPACE_FAIRNESS_DURATION_SECS.store(clamped, Ordering::Relaxed);
         }
     }
     Ok(())
@@ -602,7 +623,12 @@ pub async fn load_workspace_fairness_min_total(db: &DB) -> error::Result<()> {
     let v = load_value_from_global_settings(db, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING).await;
     if let Ok(Some(serde_json::Value::Number(n))) = v {
         if let Some(u) = n.as_u64() {
-            WORKSPACE_FAIRNESS_MIN_TOTAL.store(u as u32, Ordering::Relaxed);
+            // Clamp before narrowing — same reasoning as `_duration_secs`, just for the
+            // counting threshold rather than the interval.
+            WORKSPACE_FAIRNESS_MIN_TOTAL.store(
+                u.min(WORKSPACE_FAIRNESS_MIN_TOTAL_MAX) as u32,
+                Ordering::Relaxed,
+            );
         }
     }
     Ok(())
