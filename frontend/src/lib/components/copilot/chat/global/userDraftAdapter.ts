@@ -12,8 +12,10 @@ import {
 	getWorkspaceItemKey,
 	type AppDraftValue,
 	type FlowDraftValue,
+	type ResourceDraftState,
 	type TriggerKind,
 	type TriggerRequestBody,
+	type VariableDraftState,
 	type WorkspaceItem,
 	type WorkspaceItemType
 } from './workspaceItems'
@@ -62,25 +64,7 @@ const GLOBAL_DRAFT_KINDS = [
 
 const DEFAULT_SCRIPT_LANGUAGE: ScriptLang = 'bun'
 const DEFAULT_APP_DATA = { tables: [], datatable: undefined, schema: undefined }
-
-type ResourceDraftState = {
-	path: string
-	description: string
-	args: Record<string, any>
-	labels: string[] | undefined
-	wsSpecific: boolean
-	resource_type?: string
-}
-
-type VariableDraftState = {
-	path: string
-	variable: { value: string; is_secret: boolean; description: string }
-	labels: string[] | undefined
-	wsSpecific: boolean
-	account?: number
-	is_oauth?: boolean
-	expires_at?: string
-}
+const secretVariableDraftValues = new Map<string, Map<string, string>>()
 
 export type GlobalDraftSlot = {
 	itemKind: UserDraftItemKind
@@ -104,6 +88,37 @@ function normalizeAppDraftValue(value: AppDraftValue): AppDraftValue {
 
 function getItemSummary(value: unknown): string | undefined {
 	return ((value as { summary?: string | null } | undefined)?.summary ?? undefined) || undefined
+}
+
+export function setEphemeralSecretVariableDraftValue(
+	workspace: string,
+	path: string,
+	value: string
+): void {
+	let workspaceValues = secretVariableDraftValues.get(workspace)
+	if (!workspaceValues) {
+		workspaceValues = new Map()
+		secretVariableDraftValues.set(workspace, workspaceValues)
+	}
+	workspaceValues.set(path, value)
+}
+
+export function getEphemeralSecretVariableDraftValue(
+	workspace: string,
+	path: string
+): string | undefined {
+	return secretVariableDraftValues.get(workspace)?.get(path)
+}
+
+export function clearEphemeralSecretVariableDraftValue(workspace: string, path: string): void {
+	const workspaceValues = secretVariableDraftValues.get(workspace)
+	if (!workspaceValues) return
+	workspaceValues.delete(path)
+	if (workspaceValues.size === 0) secretVariableDraftValues.delete(workspace)
+}
+
+function clearEphemeralSecretVariableDraftValues(workspace: string): void {
+	secretVariableDraftValues.delete(workspace)
 }
 
 function itemKindFor(
@@ -491,11 +506,14 @@ export function deleteGlobalDraft(
 ): void {
 	const itemKind = itemKindFor(type, triggerKind)
 	if (!itemKind) return
-	UserDraft.clear(itemKind, resolveDraftStoragePath(workspace, itemKind, path), { workspace })
+	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
+	UserDraft.clear(itemKind, storagePath, { workspace })
+	if (type === 'variable') clearEphemeralSecretVariableDraftValue(workspace, storagePath)
 }
 
 export function clearGlobalDrafts(workspace: string): void {
 	for (const draft of UserDraft.list({ workspace, itemKinds: [...GLOBAL_DRAFT_KINDS] })) {
 		UserDraft.clear(draft.itemKind, draft.path, { workspace })
 	}
+	clearEphemeralSecretVariableDraftValues(workspace)
 }

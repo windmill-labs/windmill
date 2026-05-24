@@ -73,6 +73,25 @@ export type AppDraftValue = {
 	custom_path?: string
 }
 
+export type ResourceDraftState = {
+	path: string
+	description: string
+	args: Record<string, any>
+	labels: string[] | undefined
+	wsSpecific: boolean
+	resource_type?: string
+}
+
+export type VariableDraftState = {
+	path: string
+	variable: { value: string; is_secret: boolean; description: string }
+	labels: string[] | undefined
+	wsSpecific: boolean
+	account?: number
+	is_oauth?: boolean
+	expires_at?: string
+}
+
 export type WorkspaceItem = {
 	type: WorkspaceItemType
 	path: string

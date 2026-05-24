@@ -86,7 +86,9 @@ vi.mock('$lib/gen', async () => {
 			existsVariable: vi.fn(async () => false),
 			getVariable: vi.fn(async () => {
 				throw new Error('getVariable mock not configured')
-			})
+			}),
+			createVariable: vi.fn(async () => 'created'),
+			updateVariable: vi.fn(async () => 'updated')
 		})
 	}
 })
@@ -134,6 +136,15 @@ async function callGlobalTool(
 	})
 }
 
+function localStorageSnapshot(): string {
+	const values: string[] = []
+	for (let i = 0; i < localStorage.length; i++) {
+		const key = localStorage.key(i)
+		if (key) values.push(`${key}: ${localStorage.getItem(key)}`)
+	}
+	return values.join('\n')
+}
+
 describe('global AI tools', () => {
 	beforeEach(() => {
 		__resetUserDraftForTesting()
@@ -157,6 +168,7 @@ describe('global AI tools', () => {
 		const item = JSON.parse(raw)
 
 		expect(raw).not.toContain('super-secret-token')
+		expect(localStorageSnapshot()).not.toContain('super-secret-token')
 		expect(item).toEqual({
 			type: 'variable',
 			path: 'f/secrets/api_key',
@@ -221,7 +233,7 @@ describe('global AI tools', () => {
 		expect(UserDraft.get<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })).toEqual({
 			path: 'f/secrets/api_key',
 			variable: {
-				value: 'new-secret-token',
+				value: '',
 				is_secret: true,
 				description: 'new description'
 			},
@@ -234,6 +246,74 @@ describe('global AI tools', () => {
 		expect(UserDraft.getMeta('variable', 'f/secrets/api_key', { workspace: WORKSPACE })).toEqual({
 			remoteRev: '2026-05-22T09:30:00Z'
 		})
+		expect(localStorageSnapshot()).not.toContain('new-secret-token')
+	})
+
+	it('deploys secret variable drafts with ephemeral values only', async () => {
+		await callGlobalTool('write_variable', {
+			path: 'f/secrets/api_key',
+			value: 'new-secret-token',
+			is_secret: true,
+			description: 'new description'
+		})
+
+		expect(
+			UserDraft.get<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
+		).toMatchObject({
+			path: 'f/secrets/api_key',
+			variable: {
+				value: '',
+				is_secret: true,
+				description: 'new description'
+			},
+			wsSpecific: false
+		})
+		expect(localStorageSnapshot()).not.toContain('new-secret-token')
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'variable',
+			path: 'f/secrets/api_key'
+		})
+
+		expect(VariableService.createVariable).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: expect.objectContaining({
+				path: 'f/secrets/api_key',
+				value: 'new-secret-token',
+				is_secret: true,
+				description: 'new description',
+				ws_specific: false
+			})
+		})
+		expect(UserDraft.get('variable', 'f/secrets/api_key', { workspace: WORKSPACE })).toBeUndefined()
+		expect(localStorageSnapshot()).not.toContain('new-secret-token')
+	})
+
+	it('does not deploy a secret variable draft when the ephemeral value is gone', async () => {
+		UserDraft.save(
+			'variable',
+			'f/secrets/api_key',
+			{
+				path: 'f/secrets/api_key',
+				variable: {
+					value: '',
+					is_secret: true,
+					description: 'new description'
+				},
+				labels: undefined,
+				wsSpecific: false
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		await expect(
+			callGlobalTool('deploy_workspace_item', {
+				type: 'variable',
+				path: 'f/secrets/api_key'
+			})
+		).rejects.toThrow('secret draft values are kept only in memory')
+		expect(VariableService.createVariable).not.toHaveBeenCalled()
+		expect(VariableService.updateVariable).not.toHaveBeenCalled()
 	})
 
 	it('writes script drafts into UserDraft', async () => {

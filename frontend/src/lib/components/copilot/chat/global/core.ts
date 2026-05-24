@@ -75,18 +75,23 @@ import {
 	TRIGGER_KINDS,
 	type AppDraftValue,
 	type FlowDraftValue,
+	type ResourceDraftState,
 	type TriggerKind,
 	type TriggerRequestBody,
+	type VariableDraftState,
 	type WorkspaceItem,
 	type WorkspaceItemType
 } from './workspaceItems'
 import { buildFlowDeployRequestBody, buildScriptDeployRequestBody } from './deployRequests'
 import {
+	clearEphemeralSecretVariableDraftValue,
 	deleteGlobalDraft,
+	getEphemeralSecretVariableDraftValue,
 	getGlobalDraft,
 	getGlobalDraftStoragePath,
 	listGlobalDrafts,
 	saveGlobalAppDraft,
+	setEphemeralSecretVariableDraftValue,
 	triggerKindToUserDraftKind
 } from './userDraftAdapter'
 
@@ -1710,23 +1715,6 @@ type WriteDraftCtx = {
 type DraftConfig = Record<string, any>
 type ScheduleDraftConfig = NewSchedule & DraftConfig
 type TriggerDraftConfig = TriggerRequestBody & DraftConfig & { path: string }
-type ResourceDraftState = {
-	path: string
-	description: string
-	args: Record<string, any>
-	labels: string[] | undefined
-	wsSpecific: boolean
-	resource_type?: string
-}
-type VariableDraftState = {
-	path: string
-	variable: { value: string; is_secret: boolean; description: string }
-	labels: string[] | undefined
-	wsSpecific: boolean
-	account?: number
-	is_oauth?: boolean
-	expires_at?: string
-}
 
 function stripBackendMetadata<T extends DraftConfig>(value: T): T {
 	const draft = structuredClone(value)
@@ -1800,7 +1788,7 @@ function createVariableToDraftState(
 		...base,
 		path: args.path,
 		variable: {
-			value: args.value,
+			value: args.is_secret ? '' : args.value,
 			is_secret: args.is_secret,
 			description: args.description
 		},
@@ -1810,6 +1798,32 @@ function createVariableToDraftState(
 		is_oauth: args.is_oauth ?? base?.is_oauth,
 		expires_at: args.expires_at ?? base?.expires_at
 	}
+}
+
+function syncEphemeralSecretVariableDraftValue(workspace: string, args: CreateVariable): void {
+	if (args.is_secret) {
+		setEphemeralSecretVariableDraftValue(workspace, args.path, args.value)
+	} else {
+		clearEphemeralSecretVariableDraftValue(workspace, args.path)
+	}
+}
+
+function buildVariableDeployRequestBody(
+	workspace: string,
+	path: string,
+	draftValue: CreateVariable
+): CreateVariable {
+	const requestBody = structuredClone(draftValue)
+	if (!requestBody.is_secret) return requestBody
+
+	const secretValue = getEphemeralSecretVariableDraftValue(workspace, path)
+	if (secretValue === undefined) {
+		throw new Error(
+			`Secret value for local draft variable "${path}" is no longer available because secret draft values are kept only in memory. Run write_variable again before deploying this secret.`
+		)
+	}
+
+	return { ...requestBody, value: secretValue }
 }
 
 function startDraftWrite(ctx: WriteDraftCtx, type: WorkspaceItemType, path: string): void {
@@ -2109,6 +2123,7 @@ async function writeVariableDraft(args: CreateVariable, ctx: WriteDraftCtx): Pro
 	} else {
 		UserDraft.save('variable', args.path, createVariableToDraftState(args), { workspace })
 	}
+	syncEphemeralSecretVariableDraftValue(workspace, args)
 
 	return finishDraftWrite(
 		getRequiredGlobalDraft(workspace, 'variable', args.path),
@@ -2776,7 +2791,11 @@ async function deployDraft(
 			break
 		}
 		case 'variable': {
-			const requestBody = draft.value as any
+			const requestBody = buildVariableDeployRequestBody(
+				workspace,
+				path,
+				draft.value as CreateVariable
+			)
 			if (await VariableService.existsVariable({ workspace, path })) {
 				await VariableService.updateVariable({ workspace, path, requestBody })
 			} else {
