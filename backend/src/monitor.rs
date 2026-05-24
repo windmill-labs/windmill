@@ -69,6 +69,8 @@ use windmill_common::{
         RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
         STORE_AUDIT_LOGS_S3_SETTING, TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING,
         UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
+        WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
+        WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
     },
     indexer::load_indexer_config,
     jwt::JWT_SECRET,
@@ -84,7 +86,8 @@ use windmill_common::{
         store_suspended_pull_query, Connection, WorkerConfig, DEFAULT_TAGS_PER_WORKSPACE,
         DEFAULT_TAGS_WORKSPACES, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX, INDEXER_CONFIG,
         PREVIEW_TAGS_OVERRIDE, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, WINDMILL_DIR, WORKER_CONFIG,
-        WORKER_GROUP,
+        WORKER_GROUP, WORKSPACE_FAIRNESS_DURATION_SECS, WORKSPACE_FAIRNESS_ENABLED,
+        WORKSPACE_FAIRNESS_MAX_PERCENT, WORKSPACE_FAIRNESS_MIN_TOTAL,
     },
     KillpillSender, AUDIT_LOG_RETENTION_DAYS, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE,
     CRITICAL_ALERTS_ON_TOKEN_EXPIRY, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB,
@@ -247,6 +250,22 @@ pub async fn initial_load(
 
         if let Err(e) = load_preview_tags_override(db).await {
             tracing::error!("Error loading preview tags override: {e:#}");
+        }
+
+        // Workspace fairness (cloud-only). Load the percentage/duration/min knobs
+        // *before* the enabled flag so that `load_workspace_fairness_enabled` reads
+        // current values when re-storing the pull queries.
+        if let Err(e) = load_workspace_fairness_max_percent(db).await {
+            tracing::error!("Error loading workspace fairness max percent: {e:#}");
+        }
+        if let Err(e) = load_workspace_fairness_duration_secs(db).await {
+            tracing::error!("Error loading workspace fairness duration secs: {e:#}");
+        }
+        if let Err(e) = load_workspace_fairness_min_total(db).await {
+            tracing::error!("Error loading workspace fairness min total: {e:#}");
+        }
+        if let Err(e) = load_workspace_fairness_enabled(db).await {
+            tracing::error!("Error loading workspace fairness enabled: {e:#}");
         }
     }
 
@@ -540,6 +559,52 @@ pub async fn load_preview_tags_override(db: &DB) -> error::Result<()> {
         Ok(Some(serde_json::Value::Bool(t))) => PREVIEW_TAGS_OVERRIDE.store(t, Ordering::Relaxed),
         _ => (),
     };
+    Ok(())
+}
+
+pub async fn load_workspace_fairness_enabled(db: &DB) -> error::Result<()> {
+    let v = load_value_from_global_settings(db, WORKSPACE_FAIRNESS_ENABLED_SETTING).await;
+    let new_enabled = match v {
+        Ok(Some(serde_json::Value::Bool(t))) => t,
+        _ => false,
+    };
+    let prev = WORKSPACE_FAIRNESS_ENABLED.swap(new_enabled, Ordering::Relaxed);
+    // Re-store the pull queries so the fairness variants appear/disappear in
+    // lockstep with the toggle.
+    if prev != new_enabled {
+        let wc = windmill_common::worker::WORKER_CONFIG.load_full();
+        store_pull_query(&wc).await;
+    }
+    Ok(())
+}
+
+pub async fn load_workspace_fairness_max_percent(db: &DB) -> error::Result<()> {
+    let v = load_value_from_global_settings(db, WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING).await;
+    if let Ok(Some(serde_json::Value::Number(n))) = v {
+        if let Some(u) = n.as_u64() {
+            WORKSPACE_FAIRNESS_MAX_PERCENT.store(u.clamp(1, 100) as u32, Ordering::Relaxed);
+        }
+    }
+    Ok(())
+}
+
+pub async fn load_workspace_fairness_duration_secs(db: &DB) -> error::Result<()> {
+    let v = load_value_from_global_settings(db, WORKSPACE_FAIRNESS_DURATION_SECS_SETTING).await;
+    if let Ok(Some(serde_json::Value::Number(n))) = v {
+        if let Some(u) = n.as_u64() {
+            WORKSPACE_FAIRNESS_DURATION_SECS.store(u.max(1) as u32, Ordering::Relaxed);
+        }
+    }
+    Ok(())
+}
+
+pub async fn load_workspace_fairness_min_total(db: &DB) -> error::Result<()> {
+    let v = load_value_from_global_settings(db, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING).await;
+    if let Ok(Some(serde_json::Value::Number(n))) = v {
+        if let Some(u) = n.as_u64() {
+            WORKSPACE_FAIRNESS_MIN_TOTAL.store(u as u32, Ordering::Relaxed);
+        }
+    }
     Ok(())
 }
 

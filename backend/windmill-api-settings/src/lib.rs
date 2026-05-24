@@ -54,10 +54,15 @@ use windmill_common::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_HUB_SETTING,
         EMAIL_DOMAIN_SETTING, ENV_SETTINGS, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
-        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING, RUFF_CONFIG_SETTING, WS_BASE_URL_SETTING,
+        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING, RUFF_CONFIG_SETTING,
+        WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
+        WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
+        WS_BASE_URL_SETTING,
     },
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
+    worker::CLOUD_HOSTED,
+    BASE_URL,
 };
 use windmill_common::{error::to_anyhow, PgDatabase};
 
@@ -446,6 +451,40 @@ pub async fn delete_global_setting(db: &DB, key: &str) -> error::Result<()> {
     tracing::info!("Unset global setting {}", key);
     Ok(())
 }
+/// Returns true when `key` is one of the workspace-fairness settings whose
+/// writes must be gated to cloud only.
+fn is_workspace_fairness_setting(key: &str) -> bool {
+    matches!(
+        key,
+        WORKSPACE_FAIRNESS_ENABLED_SETTING
+            | WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING
+            | WORKSPACE_FAIRNESS_DURATION_SECS_SETTING
+            | WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING
+    )
+}
+
+/// Cloud-and-app.windmill.dev gate for workspace fairness. Must hold to persist
+/// the setting; the runtime path additionally verifies before applying the cap.
+fn workspace_fairness_settings_allowed() -> bool {
+    if !*CLOUD_HOSTED {
+        return false;
+    }
+    let base = BASE_URL.load();
+    let s = base.as_str();
+    let after_scheme = s
+        .strip_prefix("https://")
+        .or_else(|| s.strip_prefix("http://"))
+        .unwrap_or(s);
+    let host = after_scheme
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("");
+    host == "app.windmill.dev"
+}
+
 pub async fn set_global_setting(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
@@ -467,6 +506,17 @@ pub async fn set_global_setting_internal(
     } else {
         value
     };
+
+    // Hard-gate the cloud-only workspace fairness settings: refuse to persist
+    // them on any instance that is not CLOUD_HOSTED + app.windmill.dev. This is
+    // belt-and-suspenders alongside the frontend `{#if isCloudHosted()}` wrap
+    // and the runtime check in `workspace_fairness::fairness_active`.
+    if is_workspace_fairness_setting(&key) && !workspace_fairness_settings_allowed() {
+        return Err(error::Error::BadRequest(format!(
+            "{} is only configurable on app.windmill.dev cloud (CLOUD_HOSTED + BASE_URL match required)",
+            key
+        )));
+    }
 
     run_setting_pre_write_hook(db, &key, &value).await?;
 

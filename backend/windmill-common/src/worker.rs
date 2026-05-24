@@ -17,7 +17,7 @@ use std::{
     panic::Location,
     path::{Component, Path, PathBuf},
     str::FromStr,
-    sync::atomic::AtomicBool,
+    sync::atomic::{AtomicBool, AtomicI64, AtomicU32},
     time::Duration,
 };
 #[cfg(windows)]
@@ -237,7 +237,20 @@ lazy_static::lazy_static! {
     });
 
     pub static ref WORKER_PULL_QUERIES: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
+    pub static ref WORKER_PULL_QUERIES_FAIRNESS: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
     pub static ref WORKER_SUSPENDED_PULL_QUERY: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee("".to_string());
+
+    // Workspace fairness (cloud-only). When enabled, a workspace whose footprint over the rolling
+    // `WORKSPACE_FAIRNESS_DURATION_SECS` window represents >= `WORKSPACE_FAIRNESS_MAX_PERCENT`% of
+    // all worker activity gets excluded from the pull query, freeing slots for other workspaces.
+    // The list of overloaded workspaces is computed cluster-wide via a single coordinated UPDATE
+    // on `background_task_state` so only one process per refresh interval runs the aggregation.
+    pub static ref WORKSPACE_FAIRNESS_ENABLED: AtomicBool = AtomicBool::new(false);
+    pub static ref WORKSPACE_FAIRNESS_MAX_PERCENT: AtomicU32 = AtomicU32::new(50);
+    pub static ref WORKSPACE_FAIRNESS_DURATION_SECS: AtomicU32 = AtomicU32::new(10);
+    pub static ref WORKSPACE_FAIRNESS_MIN_TOTAL: AtomicU32 = AtomicU32::new(4);
+    pub static ref WORKSPACE_FAIRNESS_OVERLOADED: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
+    pub static ref WORKSPACE_FAIRNESS_LAST_REFRESH_MICROS: AtomicI64 = AtomicI64::new(0);
 
 
     pub static ref SMTP_CONFIG: arc_swap::ArcSwap<Option<Smtp>> = arc_swap::ArcSwap::from_pointee(None);
@@ -520,17 +533,40 @@ pub fn make_pull_query(tags: &[String]) -> String {
     query
 }
 
+// Variant of `make_pull_query` that additionally excludes jobs whose workspace_id is in the
+// overloaded-list bind parameter ($2::text[]). Built as a separate string (rather than reusing
+// `make_pull_query` with an always-bound array) so the planner can keep using the same indexes
+// when fairness is off — the default `make_pull_query` text stays bit-identical to today's.
+pub fn make_pull_query_fairness(tags: &[String]) -> String {
+    let query = format_pull_query(format!(
+        "SELECT id
+        FROM v2_job_queue
+        WHERE running = false AND tag IN ({}) AND scheduled_for <= now()
+          AND workspace_id <> ALL($2::text[])
+        ORDER BY priority DESC NULLS LAST, scheduled_for
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1",
+        tags.iter().map(|x| format!("'{x}'")).join(", ")
+    ));
+    query
+}
+
 pub async fn store_pull_query(wc: &WorkerConfig) {
     let mut queries = vec![];
+    let mut fairness_queries = vec![];
+    let fairness_enabled = WORKSPACE_FAIRNESS_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
     for tags in wc.priority_tags_sorted.iter() {
         if tags.tags.len() == 0 {
             tracing::error!("Empty tags in priority tags, skipping");
             continue;
         }
-        let query = make_pull_query(&tags.tags);
-        queries.push(query);
+        queries.push(make_pull_query(&tags.tags));
+        if fairness_enabled {
+            fairness_queries.push(make_pull_query_fairness(&tags.tags));
+        }
     }
     WORKER_PULL_QUERIES.store(std::sync::Arc::new(queries));
+    WORKER_PULL_QUERIES_FAIRNESS.store(std::sync::Arc::new(fairness_queries));
 }
 
 lazy_static::lazy_static! {
