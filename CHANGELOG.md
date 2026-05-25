@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.709.0](https://github.com/windmill-labs/windmill/compare/v1.708.0...v1.709.0) (2026-05-25)
+
+
+### Features
+
+* add copy button to Path component ([#9311](https://github.com/windmill-labs/windmill/issues/9311)) ([98bd5e7](https://github.com/windmill-labs/windmill/commit/98bd5e7f2a437b8b534028838b6ed0d7c59f7011))
+* **ai-chat:** align footer bar + DropdownV2 mode/autonomy selectors ([#9308](https://github.com/windmill-labs/windmill/issues/9308)) ([2f50e8b](https://github.com/windmill-labs/windmill/commit/2f50e8bab0b5ae9ae297c79abfe96df441f405e2))
+* **ai-chat:** expand chat question answers ([#9310](https://github.com/windmill-labs/windmill/issues/9310)) ([3f219ae](https://github.com/windmill-labs/windmill/commit/3f219aed98d93158aefce01bb51ed12dcb4711a1))
+* plug global chat drafts into userdraft ([#9291](https://github.com/windmill-labs/windmill/issues/9291)) ([1eef531](https://github.com/windmill-labs/windmill/commit/1eef53170b1b2afb75b9812e33787d1f28cf50dd))
+* **raw_apps:** surface UI Builder build errors over the preview pane ([#9316](https://github.com/windmill-labs/windmill/issues/9316)) ([90a196d](https://github.com/windmill-labs/windmill/commit/90a196d8d81993ffc2377d7088ab98f7b0f5ddcc))
+* **raw_apps:** tab-based editor surface with split-with-preview ([#9273](https://github.com/windmill-labs/windmill/issues/9273)) ([368e677](https://github.com/windmill-labs/windmill/commit/368e6774194a58058f28d1b4a42f8f4a7ec4ab63))
+* **service-accounts:** allow choosing role at creation time ([#9307](https://github.com/windmill-labs/windmill/issues/9307)) ([b125eca](https://github.com/windmill-labs/windmill/commit/b125eca7628b07c071bd102b161d389259fd6c62))
+
+
+### Bug Fixes
+
+* **auth:** filter resource/variable listings by token scope (WIN-1981) ([#9302](https://github.com/windmill-labs/windmill/issues/9302)) ([b5a0d46](https://github.com/windmill-labs/windmill/commit/b5a0d46695fdfe692d64573d1cfa06511e3b33f5))
+* **jobs:** authorization bypass in only_result job updates (WIN-1980) ([#9301](https://github.com/windmill-labs/windmill/issues/9301)) ([108a88a](https://github.com/windmill-labs/windmill/commit/108a88a1801548c8570d56aa3e1eb80246367bf4))
+
 ## [1.708.0](https://github.com/windmill-labs/windmill/compare/v1.707.0...v1.708.0) (2026-05-24)
 
 
