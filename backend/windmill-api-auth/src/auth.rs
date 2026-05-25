@@ -302,13 +302,34 @@ impl AuthCache {
                                             None
                                         }
                                     } else if prefix == "g" {
-                                        let group_exists = if super_admin {
+                                        // Checking that the group exists in the
+                                        // target workspace is necessary but not
+                                        // sufficient: the `all` group is
+                                        // provisioned in every workspace, so an
+                                        // attacker with token-table write access
+                                        // could pair owner=g/all with any
+                                        // workspace_id and authenticate as a
+                                        // group user there without being a
+                                        // workspace member. Additionally require
+                                        // that the token holder (by email) is a
+                                        // non-disabled member of the target
+                                        // workspace, mirroring the u/ branch.
+                                        let group_check = if super_admin {
                                             true
                                         } else {
                                             sqlx::query_scalar!(
-                                                "SELECT EXISTS(SELECT 1 FROM group_ WHERE workspace_id = $1 AND name = $2)",
+                                                "SELECT EXISTS(
+                                                    SELECT 1 FROM group_
+                                                    WHERE workspace_id = $1 AND name = $2
+                                                ) AND EXISTS(
+                                                    SELECT 1 FROM usr
+                                                    WHERE workspace_id = $1
+                                                      AND email = $3
+                                                      AND disabled = false
+                                                )",
                                                 &w_id.as_ref().unwrap(),
                                                 name,
+                                                &email,
                                             )
                                             .fetch_one(&self.db)
                                             .await
@@ -317,7 +338,7 @@ impl AuthCache {
                                             .unwrap_or(false)
                                         };
 
-                                        if group_exists {
+                                        if group_check {
                                             let groups = vec![name.to_string()];
                                             let folders = get_folders_for_user(
                                                 &w_id.unwrap(),
@@ -345,7 +366,7 @@ impl AuthCache {
                                             })
                                         } else {
                                             tracing::warn!(
-                                                "Token owner g/{} is not a group in workspace {}; rejecting auth",
+                                                "Token owner g/{} is not a valid group/workspace-member combination for workspace {}; rejecting auth",
                                                 name,
                                                 w_id.as_deref().unwrap_or("")
                                             );

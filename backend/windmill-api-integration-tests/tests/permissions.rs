@@ -854,3 +854,79 @@ async fn test_operator_cannot_create_update(db: Pool<Postgres>) -> anyhow::Resul
 
     Ok(())
 }
+
+/// Regression test for WIN-1986: WIN-1978's `g/<groupname>` fix only
+/// validated that the group exists in the target workspace, but the
+/// default `all` group is provisioned in every workspace. An attacker
+/// with token-table write access could therefore pair `owner=g/all` with
+/// any workspace_id and authenticate as a group user there without being
+/// a workspace member. The fix additionally requires the token holder's
+/// email to be a non-disabled member of the target workspace.
+#[ignore]
+#[cfg(feature = "deno_core")]
+#[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+async fn test_forged_g_all_owner_rejects_non_member(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{}/api", port);
+
+    // The `all` group is provisioned for `test-workspace` by base.sql,
+    // matching production behaviour. Insert a token whose email is NOT
+    // a member of `test-workspace`, with owner=g/all and workspace_id
+    // pointing at the target workspace. This simulates an attacker who
+    // mutated the `token` table to forge cross-workspace access.
+    let forged_token = "FORGED_GALL_NONMEMBER";
+    let forged_hash = windmill_common::utils::calculate_hash(forged_token);
+    let forged_prefix = &forged_token[..10.min(forged_token.len())];
+    sqlx::query!(
+        "INSERT INTO token (token_hash, token_prefix, email, label, super_admin, owner, workspace_id)
+         VALUES ($1, $2, 'outsider@example.com', 'forged-gall', false, 'g/all', 'test-workspace')",
+        forged_hash,
+        forged_prefix,
+    )
+    .execute(&db)
+    .await?;
+
+    let client = create_client_for_user(port, forged_token).await;
+    let resp = client
+        .get(&format!("{base_url}/w/test-workspace/scripts/list"))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        resp.status() == reqwest::StatusCode::UNAUTHORIZED
+            || resp.status() == reqwest::StatusCode::FORBIDDEN,
+        "Forged g/all owner with non-member email must be rejected against test-workspace; got {}",
+        resp.status()
+    );
+
+    // Legitimate sanity check: a g/<group> token whose email IS a
+    // workspace member should still authenticate. Alice is in
+    // test-workspace per the permissions_test fixture.
+    let alice_gall_token = "ALICE_GALL_TOKEN_OK";
+    let alice_gall_hash = windmill_common::utils::calculate_hash(alice_gall_token);
+    let alice_gall_prefix = &alice_gall_token[..10.min(alice_gall_token.len())];
+    sqlx::query!(
+        "INSERT INTO token (token_hash, token_prefix, email, label, super_admin, owner, workspace_id)
+         VALUES ($1, $2, 'alice@windmill.dev', 'gall-ok', false, 'g/all', 'test-workspace')",
+        alice_gall_hash,
+        alice_gall_prefix,
+    )
+    .execute(&db)
+    .await?;
+
+    let alice_client = create_client_for_user(port, alice_gall_token).await;
+    let resp = alice_client
+        .get(&format!("{base_url}/w/test-workspace/scripts/list"))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        resp.status().is_success(),
+        "g/all token for a real workspace member should authenticate; got {}",
+        resp.status()
+    );
+
+    Ok(())
+}

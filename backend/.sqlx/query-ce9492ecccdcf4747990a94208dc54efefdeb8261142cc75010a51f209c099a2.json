@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(\n                                                    SELECT 1 FROM group_\n                                                    WHERE workspace_id = $1 AND name = $2\n                                                ) AND EXISTS(\n                                                    SELECT 1 FROM usr\n                                                    WHERE workspace_id = $1\n                                                      AND email = $3\n                                                      AND disabled = false\n                                                )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ce9492ecccdcf4747990a94208dc54efefdeb8261142cc75010a51f209c099a2"
+}
