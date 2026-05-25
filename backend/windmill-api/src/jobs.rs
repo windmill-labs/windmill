@@ -7217,6 +7217,7 @@ async fn get_job_update(
             None,
             false,
             &mut false,
+            &mut false,
         )
         .await?,
     ))
@@ -7307,6 +7308,10 @@ pub fn start_job_update_sse_stream(
         // Latched once the early_return node's failure is observed alongside a
         // failure_module — subsequent polls then skip the redundant per-node lookup.
         let mut early_return_suppressed = false;
+        // Latched once we've verified the job was created by "anonymous" — for
+        // unauthenticated SSE streams, this gates access and is checked once per
+        // stream rather than once per poll (created_by cannot change).
+        let mut anonymous_verified = false;
 
         // Send initial update immediately
         let mut running = running;
@@ -7331,6 +7336,7 @@ pub fn start_job_update_sse_stream(
             early_return.as_deref(),
             has_failure_module,
             &mut early_return_suppressed,
+            &mut anonymous_verified,
         )
         .await
         {
@@ -7451,6 +7457,7 @@ pub fn start_job_update_sse_stream(
                 early_return.as_deref(),
                 has_failure_module,
                 &mut early_return_suppressed,
+                &mut anonymous_verified,
             )
             .await
             {
@@ -7584,6 +7591,7 @@ async fn get_job_update_data(
     early_return: Option<&str>,
     has_failure_module: bool,
     early_return_suppressed: &mut bool,
+    anonymous_verified: &mut bool,
 ) -> error::Result<JobUpdate> {
     let tags = if log_view {
         log_job_view(
@@ -7605,6 +7613,32 @@ async fn get_job_update_data(
     let ignore_flow_stream_job_id = is_flow.is_some_and(|x| !x) || flow_stream_job_id.is_some();
 
     if only_result.unwrap_or(false) {
+        // Unauthenticated callers may only read jobs whose creator is "anonymous".
+        // The non-only_result branch enforces this via `record.created_by` from its
+        // main query, but the only_result branch below fetches solely the result by
+        // (workspace_id, job_id), so we guard here to close the gap. The
+        // `anonymous_verified` flag is preserved across SSE poll iterations so the
+        // lookup only happens once per stream — `created_by` cannot change for a
+        // given job once it has been created.
+        if opt_authed.is_none() && !*anonymous_verified {
+            let created_by = sqlx::query_scalar!(
+                "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+                job_id,
+                w_id,
+            )
+            .fetch_optional(db)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?;
+
+            if created_by != "anonymous" {
+                return Err(Error::BadRequest(
+                    "As a non logged in user, you can only see jobs ran by anonymous users"
+                        .to_string(),
+                ));
+            }
+            *anonymous_verified = true;
+        }
+
         let (result, running, mut result_stream, mut new_stream_offset, new_flow_stream_job_id) =
             if let Some(tags) = tags {
                 let r = sqlx::query!(
