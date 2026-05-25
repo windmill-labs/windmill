@@ -59,7 +59,7 @@ use windmill_common::{
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
 };
-use windmill_common::{error::to_anyhow, PgDatabase};
+use windmill_common::{error::to_anyhow, worker::CLOUD_HOSTED, PgDatabase};
 
 /// Unauthenticated settings routes.
 ///
@@ -545,7 +545,10 @@ async fn run_setting_pre_write_hook(
                 )));
             };
 
-            if !*workspaced_route {
+            // Cloud always scopes app custom paths by workspace_id (see
+            // `custom_path_exists` in apps.rs), so duplicates across workspaces
+            // are expected and this setting has no runtime effect on cloud.
+            if !*workspaced_route && !*CLOUD_HOSTED {
                 #[derive(Debug, Deserialize, Serialize)]
                 #[allow(unused)]
                 struct DuplicateApp {
@@ -608,7 +611,11 @@ async fn run_setting_pre_write_hook(
                 )));
             };
 
-            if !*workspaced_route {
+            // Cloud always scopes routes by workspace_id (see
+            // `route_path_key_exists` in windmill-trigger-http), so duplicates
+            // across workspaces are expected and this setting has no runtime
+            // effect on cloud.
+            if !*workspaced_route && !*CLOUD_HOSTED {
                 #[derive(Debug, Deserialize, Serialize)]
                 #[allow(unused)]
                 struct DuplicateRoute {
