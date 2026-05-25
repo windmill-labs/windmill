@@ -921,11 +921,17 @@
 			return
 		}
 
-		// Build/bundler logs from the UI Builder iframe — render them as
-		// an overlay inside the preview pane (see the panel rendered with
-		// the right Pane below).
+		// Build/bundler logs from the UI Builder iframe — rendered as an
+		// overlay inside the preview pane (see the panel below). Two
+		// shapes are accepted: a full snapshot (`setLogs`) for backwards
+		// compat, and an incremental delta (`appendLogs`) used during
+		// heavy bundler activity to avoid O(n²) postMessage traffic.
 		if (fromUiBuilder && e.data.type === 'setLogs') {
 			logs = String(e.data.logs ?? '')
+			return
+		}
+		if (fromUiBuilder && e.data.type === 'appendLogs') {
+			logs += String(e.data.delta ?? '')
 			return
 		}
 
