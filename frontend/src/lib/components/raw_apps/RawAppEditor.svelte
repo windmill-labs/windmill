@@ -245,6 +245,16 @@
 	const rightPaneActiveId = $derived(splitWithPreview ? PREVIEW_TAB_ID : activeTabId)
 	const showSource = $derived(activeTabKind === 'file')
 	const showRunnable = $derived(activeTabKind === 'runnable')
+	// Lazy-mount the UI Builder iframe: when Preview is active and no file
+	// has ever been opened, paneA is 0 wide, and mounting the iframe there
+	// makes the VS Code workbench fail with "Unable to figure out browser
+	// width and height". We mount it the first moment showSource becomes
+	// true (paneA is at 100% then, so the workbench measures correctly)
+	// and keep it mounted afterwards so tab switches don't reload.
+	let iframeShouldMount = $state(false)
+	$effect(() => {
+		if (showSource) iframeShouldMount = true
+	})
 
 	// Pane sizes for the inner content-area Splitpanes.
 	// - Single mode + preview active: right pane full (preview full width)
@@ -1460,12 +1470,14 @@
 									class="absolute inset-0"
 									style="display: {showSource ? 'block' : 'none'}"
 								>
-									<iframe
-										bind:this={iframe}
-										title="UI builder"
-										src="/ui_builder/index.html"
-										class="w-full h-full block"
-									></iframe>
+									{#if iframeShouldMount}
+										<iframe
+											bind:this={iframe}
+											title="UI builder"
+											src="/ui_builder/index.html"
+											class="w-full h-full block"
+										></iframe>
+									{/if}
 								</div>
 								<div
 									class="absolute inset-0"
