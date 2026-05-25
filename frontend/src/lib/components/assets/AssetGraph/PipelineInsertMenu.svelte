@@ -75,6 +75,10 @@
 	// focus off to the first tabbable in the next column.
 	let languageEl: HTMLElement | undefined
 	let outputEl: HTMLElement | undefined
+	// Refs into the bottom panel for the Output → Path → AI Prompt → Save chain.
+	let pathEl: HTMLElement | undefined
+	let aiPromptEl: HTMLElement | undefined
+	let saveEl: HTMLElement | undefined
 
 	let compatibleKinds = $derived.by<PipelineOutputKind[]>(() => {
 		if (!selected.language) return []
@@ -143,9 +147,7 @@
 				showBottomPanel ? 'h-[14rem] border-t p-4' : 'h-0'
 			)}
 		>
-			{#if showBottomPanel}
-				{@render bottomSection(close)}
-			{/if}
+			{@render bottomSection(close)}
 		</div>
 	{/snippet}
 </Popover>
@@ -227,7 +229,7 @@
 			'flex flex-col gap-1 p-2 grow w-56 overflow-auto transition-opacity',
 			selected.triggerId && selected.language ? '' : 'opacity-20'
 		)}
-		{@attach arrowTabNav()}
+		{@attach arrowTabNav({ onKeyDown: selectAndAdvanceTo(() => pathEl, { timeout: 50 }) })}
 	>
 		<div class="text-2xs font-normal text-secondary ml-2 mb-1">Output asset</div>
 		{#each visibleOutputKinds.length ? visibleOutputKinds : PIPELINE_OUTPUT_KINDS as k}
@@ -253,7 +255,8 @@
 
 {#snippet bottomSection(close: () => void)}
 	<Label label="Path">
-		<div class="flex">
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div bind:this={pathEl} class="flex" onkeydown={selectAndAdvanceTo(() => aiPromptEl)}>
 			<div
 				class="border rounded-md rounded-r-none border-r-0 text-xs w-fit flex items-center px-2 text-secondary bg-surface-input"
 			>
@@ -263,20 +266,28 @@
 		</div>
 	</Label>
 	<Label label="AI Prompt (optional)">
-		<TextInput
-			class="resize-none h-12 !max-h-12"
-			underlyingInputEl="textarea"
-			inputProps={{
-				placeholder: 'Describe what the script should do — leave empty to use a template'
-			}}
-			bind:value={selected.aiPrompt}
-		/>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			bind:this={aiPromptEl}
+			onkeydown={(e) => (e.metaKey || e.ctrlKey) && e.key === 'Enter' && confirm(close)}
+		>
+			<TextInput
+				class="resize-none h-12 !max-h-12"
+				underlyingInputEl="textarea"
+				inputProps={{
+					placeholder: 'Describe what the script should do — leave empty to use a template'
+				}}
+				bind:value={selected.aiPrompt}
+			/>
+		</div>
 	</Label>
-	<Button
-		variant="accent"
-		btnClasses="w-fit ml-auto"
-		disabled={!selected.scriptPath.trim()}
-		onClick={() => confirm(close)}
-		shortCut={{ Icon: CornerDownLeft, withoutModifier: true }}>Create</Button
-	>
+	<div bind:this={saveEl} class="flex">
+		<Button
+			variant="accent"
+			btnClasses="w-fit ml-auto"
+			disabled={!selected.scriptPath.trim()}
+			onClick={() => confirm(close)}
+			shortCut={{ Icon: CornerDownLeft, withoutModifier: true }}>Create</Button
+		>
+	</div>
 {/snippet}
