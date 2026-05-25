@@ -23,7 +23,7 @@ use windmill_ai::providers::bedrock::{
     handle_bedrock_proxy, BedrockProxyResponse, BedrockProxyResponseBody,
 };
 use windmill_ai::providers::{
-    create_proxy_query_builder,
+    create_query_builder,
     google_ai::{
         handle_google_ai_chat_proxy, handle_google_ai_models_proxy, GoogleAIProxyResponse,
         GoogleAIProxyResponseBody,
@@ -622,7 +622,7 @@ async fn global_proxy(
             enable_1m_context: false,
             custom_headers: HashMap::new(),
         };
-        let query_builder = create_proxy_query_builder(&credentials);
+        let query_builder = create_query_builder(&credentials);
         let proxy_request = query_builder.build_proxy_request(&ProxyBuildArgs {
             method: &method,
             path: &ai_path,
@@ -937,7 +937,7 @@ async fn proxy(
     let request = match proxy_mode {
         ProxyExecutionMode::HttpForward => {
             let credentials = request_config.into_provider_credentials(provider.clone());
-            let query_builder = create_proxy_query_builder(&credentials);
+            let query_builder = create_query_builder(&credentials);
             let proxy_request = query_builder.build_proxy_request(&ProxyBuildArgs {
                 method: &method,
                 path: &ai_path,

@@ -105,7 +105,7 @@ Follow-up status: Bedrock native proxy handling has since moved into
 `windmill-ai`, and the API-local `windmill-api/src/bedrock.rs` module has been
 removed.
 
-## Current Phase PR: Bedrock Native Proxy Migration
+## Completed Phase: Bedrock Native Proxy Migration ✅
 
 Goal: move the remaining native-provider API proxy execution out of
 `windmill-api` and into `windmill-ai`, while leaving API-owned routing,
@@ -156,6 +156,56 @@ visible for later hardening work.
   This also preserves the pre-move behavior. A later cleanup can generalize the
   keepalive wrapper so it works for both `reqwest::Error` streams and Bedrock's
   SDK-backed `std::io::Error` streams.
+
+## Current Phase: Credential Unification Phase 1
+
+Goal: make `ProviderCredentials` the shared resolved runtime credential shape
+without overloading it with raw resource input or model-selection state.
+
+`AIRequestConfig` and `ProviderWithResource` are not equivalent concepts:
+`AIRequestConfig` is API-side resolved state after DB, variable, OAuth, and
+resource handling, while `ProviderWithResource` is worker-side raw agent input
+that also carries the selected model. Keep raw/deserialization types separate and
+convert them into `ProviderCredentials` at execution boundaries.
+
+Suggested PR title: `refactor(ai): use provider credentials for worker builders`.
+
+Scope:
+- Add a worker-side conversion from `ProviderWithResource` to
+  `ProviderCredentials`.
+- Keep `model` outside `ProviderCredentials`; it remains agent request data.
+- Keep `ProviderWithResource` as the backward-compatible deserialization type for
+  existing agent payloads.
+- Use `ProviderCredentials` for worker query-builder creation.
+- Collapse `create_query_builder` and `create_proxy_query_builder` into one
+  `create_query_builder(&ProviderCredentials)` factory.
+
+Out of scope:
+- Do not remove API-local `AIRequestConfig` yet.
+- Do not change API request-cache behavior.
+- Do not change worker agent payload shape or serialized field names.
+
+Validation:
+- `cargo check -p windmill-ai -p windmill-api -p windmill-worker`
+- `cargo check -p windmill-ai -p windmill-api -p windmill-worker --features bedrock`
+
+## Next Phase: Credential Unification Phase 2
+
+Goal: remove the API-local resolved credential wrapper after worker execution
+already uses the shared shape.
+
+Suggested PR title: `refactor(ai): resolve api proxy credentials directly`.
+
+Scope:
+- Change API credential resolution to return `ProviderCredentials` directly.
+- Replace `ExpiringAIRequestConfig` with an expiring `ProviderCredentials`
+  cache entry.
+- Remove `AIRequestConfig::into_provider_credentials`.
+- Delete `AIRequestConfig` entirely if no API-only behavior remains.
+
+Out of scope:
+- Do not merge raw worker resource input into `ProviderCredentials`.
+- Do not put model selection into `ProviderCredentials`.
 
 ## Step-by-Step Plan
 
@@ -322,9 +372,15 @@ pub struct ProxyRequest {
 
 ### Step 9: Unify credential resolution
 
-Merge `AIRequestConfig` (API-side) and `ProviderWithResource` (worker-side) into a single credential shape in windmill-ai.
+Make `ProviderCredentials` the single resolved runtime credential shape in
+windmill-ai, while keeping raw API and worker input/deserialization types at
+their boundaries.
 
-Both currently carry: api_key, base_url, region, platform, custom_headers, AWS credentials. The API's `AIRequestConfig::new` resolves credentials from DB (workspace/instance settings). The worker's `ProviderWithResource` gets credentials from the flow module definition.
+The API's `AIRequestConfig::new` resolves credentials from DB, workspace or
+instance settings, variables, and OAuth. The worker's `ProviderWithResource`
+gets raw credentials from the flow module definition and also carries the
+selected model. Convert both paths into `ProviderCredentials`; do not make
+`ProviderCredentials` carry raw resource state or the model.
 
 Extend `windmill_ai::proxy::ProviderCredentials` as needed so both can produce it:
 ```rust
