@@ -125,8 +125,9 @@ function isWorkspacePath(path: string | undefined): path is string {
 }
 
 function getPersistedAutonomyMode(): AIAutonomyMode {
+	// Default to auto-accepting edits when the user hasn't chosen a mode yet.
 	if (!BROWSER || typeof localStorage === 'undefined') {
-		return AIAutonomyMode.DEFAULT
+		return AIAutonomyMode.ACCEPT_EDIT
 	}
 	const persistedMode = localStorage.getItem(AI_AUTONOMY_MODE_STORAGE_KEY)
 	if (isAIAutonomyMode(persistedMode)) {
@@ -134,7 +135,7 @@ function getPersistedAutonomyMode(): AIAutonomyMode {
 	}
 	return localStorage.getItem(LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY) === 'true'
 		? AIAutonomyMode.YOLO
-		: AIAutonomyMode.DEFAULT
+		: AIAutonomyMode.ACCEPT_EDIT
 }
 
 function persistAutonomyMode(mode: AIAutonomyMode) {
