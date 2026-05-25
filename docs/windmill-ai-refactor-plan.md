@@ -5,10 +5,10 @@
 AI provider logic is currently split across three crates with duplicate code:
 
 - **windmill-common** — base types (`ai_types`, `ai_providers`, `ai_google`, `ai_bedrock`, `ai_cache`)
-- **windmill-api** — chat proxy (`ai.rs`, `google.rs`, `bedrock.rs`) with its own request building for Google/Bedrock, plus `AIRequestConfig::prepare_request` for auth/URL handling
+- **windmill-api** — chat proxy routes (`ai.rs`), audit logging, caching, and DB-backed credential resolution through `AIRequestConfig`
 - **windmill-worker** — agent execution (`ai/` module) with `QueryBuilder` trait, SSE parsers, provider implementations
 
-The goal: a single `windmill-ai` crate with all AI provider logic. Both the API proxy and worker agent use `QueryBuilder` for every provider — no more duplicate logic.
+The goal: a single `windmill-ai` crate with all AI provider logic. Worker agent execution uses `QueryBuilder`; the API proxy uses `QueryBuilder::build_proxy_request` for HTTP-forwarding providers and native proxy handlers for providers that need response conversion or SDK execution.
 
 ## Dependency Direction
 
@@ -25,7 +25,7 @@ windmill-common does **NOT** re-export from windmill-ai (would be circular). All
 
 ## Reviewer Note: Keep API Proxy Unification Split
 
-The crate boundary, shared utilities, SSE parsers, image handling, and worker provider implementations are now in `windmill-ai`. The remaining duplication is the API proxy path: `AIRequestConfig::prepare_request`, `windmill-api/src/google.rs`, and `windmill-api/src/bedrock.rs` still own API-specific request transformation.
+The crate boundary, shared utilities, SSE parsers, image handling, worker provider implementations, and provider-specific API proxy transformations are now in `windmill-ai`. The remaining duplication is credential shape and resolution: `windmill-api` still resolves DB-backed proxy credentials through `AIRequestConfig`, while worker agent execution still receives `ProviderWithResource`.
 
 Do not jump directly from the current state to full proxy and credential unification in one PR. The API proxy combines request transformation, endpoint selection, auth headers, custom headers, OAuth user injection, Azure URL handling, Anthropic Vertex handling, Bedrock SDK calls, and SSE keepalive behavior. Split the work by risk:
 - Introduce shared proxy request and credential types first.
@@ -70,7 +70,7 @@ Follow-up status: Anthropic/Vertex proxy handling has since moved into
 `windmill-ai`, and the dead `AIRequestConfig::prepare_request` fallback has
 been removed.
 
-## Current Phase PR: Proxy Execution Mode + Google AI Proxy Migration
+## Completed Phase: Proxy Execution Mode + Google AI Proxy Migration ✅
 
 Goal: introduce a shared provider execution classifier before moving Google AI
 and Bedrock. `ProxyRequest` is a good contract for HTTP-forwarding providers
@@ -100,6 +100,62 @@ Validation:
 - `cargo test -p windmill-ai proxy`
 - `cargo test -p windmill-api maps_request_config_to_provider_credentials`
 - `cargo test -p windmill-ai anthropic`
+
+Follow-up status: Bedrock native proxy handling has since moved into
+`windmill-ai`, and the API-local `windmill-api/src/bedrock.rs` module has been
+removed.
+
+## Current Phase PR: Bedrock Native Proxy Migration
+
+Goal: move the remaining native-provider API proxy execution out of
+`windmill-api` and into `windmill-ai`, while leaving API-owned routing,
+credential resolution, auditing, cache behavior, and Axum response conversion in
+`windmill-api`.
+
+Suggested PR title: `refactor(ai): move bedrock proxy handling to windmill-ai`.
+
+Scope:
+- Move Bedrock control-plane proxy calls (`foundation-models`,
+  `inference-profiles`) into `windmill-ai::providers::bedrock`.
+- Move Bedrock chat proxy OpenAI request parsing, Converse request execution,
+  streaming SSE conversion, non-streaming OpenAI-shaped response conversion, and
+  auth selection into `windmill-ai::providers::bedrock`.
+- Add an Axum-free `BedrockProxyResponse` shape in `windmill-ai`; the API route
+  converts it into an Axum body.
+- Move the optional `aws-sdk-bedrock` dependency from `windmill-api` to
+  `windmill-ai`.
+- Delete the API-local `windmill-api/src/bedrock.rs` module.
+
+Out of scope:
+- Do not unify `AIRequestConfig` and `ProviderWithResource`.
+- Do not change Bedrock credential resolution, audit logging, request caching,
+  or non-Bedrock proxy behavior.
+
+Validation:
+- `cargo test -p windmill-ai bedrock --features bedrock`
+- `cargo check -p windmill-ai -p windmill-api`
+- `cargo check -p windmill-ai -p windmill-api --features bedrock`
+
+## Known Follow-Ups
+
+These are not blockers for the current migration PR because they either preserve
+existing behavior or need a separate product decision, but they should stay
+visible for later hardening work.
+
+- **Google AI/Gemini native proxy custom headers**: the native Google AI proxy
+  path intentionally does not apply `AI_HTTP_HEADERS` or resource-level custom
+  headers today. Decide whether and how env/resource custom-header injection
+  should apply to Google AI once the proxy behavior is unified further.
+- **Bedrock SSE tool-call indexing**: Bedrock streaming currently increments
+  the OpenAI tool-call index on every Bedrock `ContentBlockStop`, including text
+  content blocks. This behavior existed before the move from `windmill-api` to
+  `windmill-ai`, but a later cleanup should advance the index only when the
+  stopped block was a tool-use block.
+- **Bedrock SSE keepalives**: Bedrock native SSE streams are still returned
+  directly without the API proxy keepalive injection used by other SSE paths.
+  This also preserves the pre-move behavior. A later cleanup can generalize the
+  keepalive wrapper so it works for both `reqwest::Error` streams and Bedrock's
+  SDK-backed `std::io::Error` streams.
 
 ## Step-by-Step Plan
 
@@ -200,9 +256,10 @@ Move `AI_HTTP_HEADERS` lazy_static (currently duplicated in `windmill-api/src/ai
 
 ---
 
-### Step 8: Add proxy support to QueryBuilder — API uses QueryBuilder for all providers
+### Step 8: Add API proxy execution support to windmill-ai ✅
 
-This is the key unification step. Add a new method to the `QueryBuilder` trait:
+This is the key proxy unification step. HTTP-forwarding providers use
+`QueryBuilder::build_proxy_request`:
 
 ```rust
 /// Build a request from a raw OpenAI-format proxy request.
@@ -237,19 +294,21 @@ pub struct ProxyRequest {
 **Provider implementations:**
 - **OpenAI-compatible** (OpenAI, Mistral, DeepSeek, Groq, TogetherAI, CustomAI, OpenRouter): Minimal transformation — pass body through, build URL and auth headers.
 - **Anthropic**: Handle standard vs Vertex AI. For Vertex: transform body (extract model, add anthropic_version). For standard: pass through with appropriate headers.
-- **Google AI**: Convert OpenAI format → Gemini format (using existing `ai_google` functions). Replaces `windmill-api/src/google.rs`.
-- **Bedrock**: Convert OpenAI format → Bedrock SDK calls. Replaces `windmill-api/src/bedrock.rs`.
+- **Google AI**: Native execution mode converts OpenAI format → Gemini format and Gemini responses → OpenAI shape. Replaces `windmill-api/src/google.rs`.
+- **Bedrock**: Native execution mode converts OpenAI format → Bedrock SDK calls and SDK responses → OpenAI shape. Replaces `windmill-api/src/bedrock.rs`.
 
 **Refactor API proxy** (`windmill-api/src/ai.rs`):
 1. Parse provider from headers, resolve credentials → `ProviderCredentials`
 2. Create `QueryBuilder` via `create_query_builder`
-3. Call `query_builder.build_proxy_request(&proxy_args)` → `ProxyRequest`
-4. Send the request, return response with SSE keepalive injection
+3. Dispatch by `ProxyExecutionMode`:
+   - HTTP-forwarding providers call `query_builder.build_proxy_request(&proxy_args)` → `ProxyRequest`
+   - Google AI and Bedrock call native handlers in `windmill-ai`
+4. Convert the provider response to the API response body
 
 **Remove** from windmill-api:
 - `AIRequestConfig::prepare_request` — replaced by `QueryBuilder::build_proxy_request`
-- `google.rs` — replaced by `GoogleAIQueryBuilder::build_proxy_request`
-- `bedrock.rs` — replaced by `BedrockQueryBuilder::build_proxy_request`
+- `google.rs` — replaced by `windmill_ai::providers::google_ai` native proxy handlers
+- `bedrock.rs` — replaced by `windmill_ai::providers::bedrock` native proxy handlers
 - `transform_anthropic_for_vertex` — moved to `AnthropicQueryBuilder`
 - `supports_native_fim`, `transform_fim_to_chat_completions` — moved to windmill-ai
 
@@ -310,8 +369,8 @@ windmill-ai/src/
     ├── mod.rs           # create_query_builder factory
     ├── anthropic.rs     # build_request + build_proxy_request
     ├── openai.rs        # build_request + build_proxy_request
-    ├── google_ai.rs     # build_request + build_proxy_request
-    ├── bedrock.rs       # build_request + build_proxy_request (feature: bedrock)
+    ├── google_ai.rs     # build_request + native proxy handlers
+    ├── bedrock.rs       # build_request + native proxy handlers (feature: bedrock)
     ├── other.rs         # build_request + build_proxy_request
     └── openrouter.rs    # build_request + build_proxy_request
 ```

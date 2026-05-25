@@ -31,7 +31,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		type WorkspaceItem,
 		type WorkspaceItemKind
 	} from './workspacePicker'
-	import { globalDraftStore } from '$lib/components/copilot/chat/global/draftStore.svelte'
+	import { listGlobalDrafts } from '$lib/components/copilot/chat/global/userDraftAdapter'
 
 	type Kind = WorkspaceItemKind
 	type Item = WorkspaceItem
@@ -153,16 +153,15 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		}
 	}
 
-	// AI tools populate `globalDraftStore` with in-memory drafts (the AI may
-	// have edited a flow that hasn't been persisted to the backend yet).
-	// Merge those into the picker so users can navigate to them. Filter to
-	// kinds the picker actually displays.
+	// Chat tools and session editor previews write drafts through
+	// `UserDraft` (workspace-scoped, localStorage-backed). Merge those into
+	// the picker so users can navigate to in-flight items that haven't been
+	// deployed yet. Filter to kinds the picker actually displays.
 	const KIND_TO_DRAFT_TYPE = { flow: 'flow', script: 'script', app: 'app' } as const
 	function aiDraftsForKind(k: Kind): Item[] {
 		if (!$workspaceStore) return []
 		const targetType = KIND_TO_DRAFT_TYPE[k]
-		return globalDraftStore
-			.listDrafts($workspaceStore)
+		return listGlobalDrafts($workspaceStore)
 			.filter((d) => d.type === targetType)
 			.map((d) => ({
 				path: d.path,

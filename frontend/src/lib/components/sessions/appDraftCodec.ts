@@ -1,10 +1,21 @@
 import type { RawAppData } from '$lib/components/raw_apps/dataTableRefUtils'
-import type { AppDraftValue } from '$lib/components/copilot/chat/global/draftStore.svelte'
+
+// The raw-app draft shape stored under `UserDraft<RawAppDraft>` — matches the
+// regular `/apps_raw/edit` route's UserDraft handle exactly. The chat's
+// `userDraftAdapter.saveGlobalAppDraft` writes through the same shape, so
+// session previews and the chat round-trip identically.
+export type RawAppDraft = {
+	files: Record<string, string>
+	runnables: Record<string, any>
+	data: RawAppData
+	summary: string
+	policy?: any
+	custom_path?: string
+}
 
 // The shape `runtime.rawApp.val` actually holds (see SessionRuntime in
-// sessionRuntime.svelte.ts lines 74-84). Slightly flatter than the AI's
-// `AppDraftValue`: `path` is metadata not present on the AI side, and
-// `summary` is required here.
+// sessionRuntime.svelte.ts). Adds `path` (a key, not a draft field) and
+// makes `policy` required for the editor's live binding.
 export type RuntimeRawApp = {
 	summary: string
 	path: string
@@ -14,28 +25,27 @@ export type RuntimeRawApp = {
 	policy: any
 }
 
-// Strip runtime metadata (just `path` for raw apps) and project into the
-// AI-facing `AppDraftValue` envelope.
-export function rawAppToDraftValue(raw: RuntimeRawApp): AppDraftValue {
+// Strip runtime-only metadata (just `path`, the storage key) when persisting
+// to UserDraft.
+export function runtimeRawAppToDraft(raw: RuntimeRawApp): RawAppDraft {
 	return {
 		summary: raw.summary,
 		files: raw.files,
 		runnables: raw.runnables,
 		data: raw.data,
 		policy: raw.policy
-		// custom_path is read-only and not held on the runtime.
 	}
 }
 
-// Overlay an AI-produced draft onto an existing runtime raw app,
-// preserving metadata fields (path) that don't live in `AppDraftValue`.
-export function applyDraftValueToRawApp(raw: RuntimeRawApp, dv: AppDraftValue): RuntimeRawApp {
+// Overlay a UserDraft-stored raw-app draft onto an existing runtime raw app,
+// preserving the runtime-only `path` field.
+export function applyDraftToRuntimeRawApp(raw: RuntimeRawApp, dv: RawAppDraft): RuntimeRawApp {
 	return {
 		...raw,
-		summary: dv.summary ?? raw.summary,
+		summary: dv.summary,
 		files: dv.files,
 		runnables: dv.runnables,
-		data: (dv.data as RawAppData | undefined) ?? raw.data,
+		data: dv.data,
 		policy: dv.policy ?? raw.policy
 	}
 }

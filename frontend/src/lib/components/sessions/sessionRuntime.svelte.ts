@@ -28,13 +28,8 @@ import {
 	type Session,
 	type SessionTarget
 } from './sessionState.svelte'
-import {
-	globalDraftStore,
-	type AppDraftValue,
-	type FlowDraftValue
-} from '$lib/components/copilot/chat/global/draftStore.svelte'
-import { applyDraftValueToFlow, flowToDraftValue } from './flowDraftCodec'
-import { applyDraftValueToRawApp, rawAppToDraftValue } from './appDraftCodec'
+import { UserDraft } from '$lib/userDraft.svelte'
+import { applyDraftToRuntimeRawApp, runtimeRawAppToDraft, type RawAppDraft } from './appDraftCodec'
 import { setOpenPreviewHandler } from '$lib/components/copilot/chat/global/core'
 
 export interface SessionRuntime {
@@ -211,21 +206,14 @@ function createRuntime(session: Session): SessionRuntime {
 			loadingFlow = true
 			notFound = false
 			try {
-				// Draft first. globalDraftStore is the authoritative content
-				// source: the AI writes through it (write_flow / patch_flow_json
-				// / set_flow_module_code) and the editor's outbound $effect
-				// mirrors user edits back into it. If a draft exists we render
-				// from it, even when the path has never been deployed.
-				const aiDraft = globalDraftStore.getFlowDraft(workspace, path)
-				const draftValue =
-					aiDraft &&
-					aiDraft.value &&
-					typeof aiDraft.value === 'object' &&
-					'value' in (aiDraft.value as object)
-						? (aiDraft.value as FlowDraftValue)
-						: undefined
+				// Draft first. UserDraft is the shared authoritative content
+				// source — the chat (write_flow / patch_flow_json /
+				// set_flow_module_code) and the editor's outbound $effect both
+				// write through it. If a draft exists we render from it, even
+				// when the path has never been deployed.
+				const aiDraft = UserDraft.get<Flow>('flow', path, { workspace })
 
-				if (draftValue) {
+				if (aiDraft) {
 					// Best-effort fetch the backend baseline for the diff
 					// drawer. Don't fail the load if the path doesn't exist
 					// yet on the backend — draft-only flows are a valid state.
@@ -235,18 +223,7 @@ function createRuntime(session: Session): SessionRuntime {
 					} catch {
 						savedFlow.val = undefined
 					}
-					const skeleton: Flow = (savedFlow.val as Flow | undefined) ?? {
-						path,
-						summary: '',
-						value: { modules: [] },
-						edited_by: '',
-						edited_at: '',
-						archived: false,
-						extra_perms: {},
-						schema: emptySchema()
-					}
-					const flow = applyDraftValueToFlow(skeleton, draftValue)
-					await initFlow(flow, flowStore, flowStateStore)
+					await initFlow(aiDraft, flowStore, flowStateStore)
 					loadedPath = path
 					return
 				}
@@ -256,13 +233,7 @@ function createRuntime(session: Session): SessionRuntime {
 				const result = await FlowService.getFlowByPathWithDraft({ workspace, path })
 				savedFlow.val = result
 				const flow: Flow = (result.draft as Flow | undefined) ?? (result as Flow)
-				globalDraftStore.setDraft(workspace, {
-					type: 'flow',
-					path,
-					summary: flow.summary,
-					value: flowToDraftValue(flow),
-					isDraft: true
-				})
+				UserDraft.save('flow', path, flow, { workspace })
 				await initFlow(flow, flowStore, flowStateStore)
 				loadedPath = path
 			} catch (err) {
@@ -290,16 +261,14 @@ function createRuntime(session: Session): SessionRuntime {
 			loadingScript = true
 			notFoundScript = false
 			try {
-				// Draft first. globalDraftStore is the authoritative content
-				// source: the AI writes through it (write_script / edit_script)
-				// and the editor's outbound $effect mirrors user edits back
-				// into it. If a draft exists we render from it, even when the
-				// path has never been deployed.
-				const aiDraft = globalDraftStore.getScriptDraft(workspace, path)
-				const draftContent =
-					aiDraft && typeof aiDraft.value === 'string' ? aiDraft.value : undefined
+				// Draft first. UserDraft is the shared authoritative content
+				// source — the chat (write_script / edit_script) and the
+				// editor's outbound $effect both write through it. If a draft
+				// exists we render from it, even when the path has never been
+				// deployed.
+				const aiDraft = UserDraft.get<NewScript>('script', path, { workspace })
 
-				if (aiDraft && draftContent !== undefined) {
+				if (aiDraft && typeof aiDraft.content === 'string') {
 					// Best-effort fetch the backend baseline for the diff
 					// drawer + parent_hash. 404 means draft-only — leave
 					// savedScript undefined and skip parent_hash.
@@ -322,7 +291,7 @@ function createRuntime(session: Session): SessionRuntime {
 					if (savedScript.val?.hash) {
 						baseline.parent_hash = savedScript.val.hash
 					}
-					baseline.content = draftContent
+					baseline.content = aiDraft.content
 					if (aiDraft.language) baseline.language = aiDraft.language
 					if (aiDraft.summary !== undefined) baseline.summary = aiDraft.summary
 					scriptStore.val = baseline
@@ -335,14 +304,7 @@ function createRuntime(session: Session): SessionRuntime {
 				savedScript.val = result
 				const baseline = (result.draft as NewScript | undefined) ?? (result as NewScript)
 				baseline.parent_hash = result.hash
-				globalDraftStore.setDraft(workspace, {
-					type: 'script',
-					path,
-					language: baseline.language,
-					summary: baseline.summary,
-					value: baseline.content ?? '',
-					isDraft: true
-				})
+				UserDraft.save<NewScript>('script', path, baseline, { workspace })
 				scriptStore.val = baseline
 				loadedScriptPath = path
 			} catch (err) {
@@ -425,21 +387,14 @@ function createRuntime(session: Session): SessionRuntime {
 			loadingRawApp = true
 			notFoundRawApp = false
 			try {
-				// Draft first. globalDraftStore is the authoritative content
-				// source: the AI writes through it (init_app / write_app_file
-				// / ...) and the editor's outbound $effect mirrors user edits
-				// back into it. If a draft exists we render from it, even
-				// when the path has never been deployed.
-				const aiDraft = globalDraftStore.getAppDraft(workspace, path)
-				const draftValue =
-					aiDraft &&
-					aiDraft.value &&
-					typeof aiDraft.value === 'object' &&
-					'files' in (aiDraft.value as object)
-						? (aiDraft.value as AppDraftValue)
-						: undefined
+				// Draft first. UserDraft is the shared authoritative content
+				// source — the chat (init_app / write_app_file / ...) and the
+				// editor's outbound $effect both write through it. If a draft
+				// exists we render from it, even when the path has never been
+				// deployed.
+				const aiDraft = UserDraft.get<RawAppDraft>('raw_app', path, { workspace })
 
-				if (draftValue) {
+				if (aiDraft) {
 					// Best-effort fetch the backend baseline for the diff
 					// drawer. Don't fail the load if the path doesn't exist
 					// yet on the backend — draft-only apps are a valid state.
@@ -457,16 +412,16 @@ function createRuntime(session: Session): SessionRuntime {
 					} catch {
 						savedRawApp.val = undefined
 					}
-					rawApp.val = applyDraftValueToRawApp(
+					rawApp.val = applyDraftToRuntimeRawApp(
 						{
 							files: {},
 							runnables: {},
 							data: { ...DEFAULT_DATA },
 							policy: undefined,
-							summary: draftValue.summary ?? '',
+							summary: aiDraft.summary ?? '',
 							path
 						},
-						draftValue
+						aiDraft
 					)
 					loadedRawAppPath = path
 					return
@@ -510,13 +465,7 @@ function createRuntime(session: Session): SessionRuntime {
 					summary: result.summary ?? '',
 					path: result.path
 				}
-				globalDraftStore.setDraft(workspace, {
-					type: 'app',
-					path,
-					summary: runtimeValue.summary,
-					value: rawAppToDraftValue(runtimeValue),
-					isDraft: true
-				})
+				UserDraft.save('raw_app', path, runtimeRawAppToDraft(runtimeValue), { workspace })
 				rawApp.val = runtimeValue
 				loadedRawAppPath = path
 			} catch (err) {

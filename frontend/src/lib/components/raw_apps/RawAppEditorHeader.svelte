@@ -126,6 +126,7 @@
 		sidebarCollapsed?: boolean
 		onToggleSidebar?: () => void
 		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
+		liveEditorDraftStoragePath?: string
 	}
 
 	let {
@@ -150,7 +151,8 @@
 		onOpenYamlEditor = undefined,
 		sidebarCollapsed = false,
 		onToggleSidebar = undefined,
-		onNavigate = undefined
+		onNavigate = undefined,
+		liveEditorDraftStoragePath = undefined
 	}: Props = $props()
 
 	let newEditedPath = $state(
@@ -160,6 +162,22 @@
 				: newPath || appPath || ''
 		)
 	)
+
+	$effect(() => {
+		if (liveEditorDraftStoragePath === undefined || !$workspaceStore) return
+		const workspace = $workspaceStore
+		UserDraft.setLiveEditorDraft({
+			workspace,
+			itemKind: 'raw_app',
+			storagePath: liveEditorDraftStoragePath,
+			effectivePath: newEditedPath || appPath || savedApp?.path
+		})
+		return () =>
+			UserDraft.clearLiveEditorDraft('raw_app', {
+				workspace,
+				storagePath: liveEditorDraftStoragePath
+			})
+	})
 
 	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
 	let deployedBy: string | undefined = $state(undefined) // Author
