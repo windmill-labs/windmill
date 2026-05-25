@@ -6,6 +6,7 @@
 	import RawAppEditorHeader from './RawAppEditorHeader.svelte'
 	import RawAppYamlEditor, { type RawAppYamlUpdate } from './RawAppYamlEditor.svelte'
 	import type Drawer from '../common/drawer/Drawer.svelte'
+	import Alert from '../common/alert/Alert.svelte'
 	import { type Policy, WorkspaceService } from '$lib/gen'
 	import DiffDrawer from '../DiffDrawer.svelte'
 	import { deepEqual } from 'fast-equals'
@@ -195,6 +196,9 @@
 	// them as an overlay inside the preview pane (right side) so they're
 	// visually tied to the build output, not to the source editor.
 	let logs = $state('')
+
+	// Latest UI Builder error; cleared on next successful build.
+	let buildError = $state<string | undefined>(undefined)
 	let logsCollapsed = $state(false)
 	let logsDiv: HTMLDivElement | undefined = $state(undefined)
 	$effect(() => {
@@ -229,13 +233,20 @@
 				? 'file'
 				: 'runnable'
 	)
+	// Tint the Preview tab red so the error is visible when Preview isn't active.
+	function tintPreviewOnError(t: TabItem): TabItem {
+		if (t.id !== PREVIEW_TAB_ID || !buildError) return t
+		const errClass = 'text-red-600 dark:text-red-400'
+		return { ...t, iconClass: errClass, labelClass: errClass }
+	}
+	const tintTabs = (ts: TabItem[]) => ts.map(tintPreviewOnError)
 	// Single mode: both bars mirror the full list (the visible pane carries
 	// every tab). Split mode: left = files/runnables, right = Preview only.
 	const leftPaneTabs = $derived<TabItem[]>(
-		splitWithPreview ? tabs.filter((t) => t.id !== PREVIEW_TAB_ID) : tabs
+		tintTabs(splitWithPreview ? tabs.filter((t) => t.id !== PREVIEW_TAB_ID) : tabs)
 	)
 	const rightPaneTabs = $derived<TabItem[]>(
-		splitWithPreview ? tabs.filter((t) => t.id === PREVIEW_TAB_ID) : tabs
+		tintTabs(splitWithPreview ? tabs.filter((t) => t.id === PREVIEW_TAB_ID) : tabs)
 	)
 	// In split mode the right bar always highlights Preview, regardless of the
 	// left pane's active file/runnable.
@@ -938,6 +949,12 @@
 			return
 		}
 
+		// `message: undefined` arrives on the next successful build and clears the banner.
+		if (fromUiBuilder && e.data.type === 'buildError') {
+			buildError = typeof e.data.message === 'string' ? e.data.message : undefined
+			return
+		}
+
 		// Inspector events come exclusively from the preview iframe.
 		if (fromPreview && e.data.type === 'inspectorSelect') {
 			inspectorElement = e.data.element as InspectorElementInfo
@@ -1557,6 +1574,20 @@
 									src="/ui_builder/app-preview.html"
 									class="w-full flex-1 block"
 								></iframe>
+								{#if buildError}
+									<!-- top-12 clears the tab bar; `before:bg-surface` backs the
+									     Alert's translucent red; `isolate` pins the pseudo's stacking context. -->
+									<div class="absolute top-12 left-2 right-2 z-20 isolate" role="alert">
+										<Alert
+											type="error"
+											title="Build failed"
+											class="relative before:absolute before:inset-0 before:-z-10 before:rounded-md before:bg-surface before:content-['']"
+										>
+											<pre
+												class="overflow-auto whitespace-pre-wrap text-xs max-h-60">{buildError}</pre>
+										</Alert>
+									</div>
+								{/if}
 								{#if logs}
 									<div
 										class="absolute right-0 bottom-0 z-20 max-w-[500px] w-full flex flex-col text-xs p-1 border border-border-light rounded-tl-md bg-surface text-primary {logsCollapsed
