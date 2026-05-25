@@ -7,7 +7,6 @@
 	import { Badge, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import WorkspaceDeployLayout from '$lib/components/WorkspaceDeployLayout.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import {
@@ -33,22 +32,10 @@
 		rec: RecStatus
 		published?: boolean
 		publicUrl?: string
-		rateLimit?: RateLimitConfig
 		[k: string]: unknown
 	}
-	interface RateLimitConfig {
-		enabled: boolean
-		perMinute: number
-		burst: number
-		perIp: boolean
-	}
-	const DEFAULT_RATE_LIMIT: RateLimitConfig = {
-		enabled: true,
-		perMinute: 60,
-		burst: 10,
-		perIp: true
-	}
-	const WORKSPACE_DEFAULT_RATE_LIMIT = { perMinute: 120, burst: 20 }
+	// MOCK: would be fetched via WorkspaceService.getSettings().public_app_execution_limit_per_minute
+	let workspaceRateLimit = $state<number | undefined>(120)
 
 	const canRecord = (k: Kind) => k === 'script' || k === 'flow'
 	const canPublishApp = (k: Kind) => k === 'app' || k === 'raw_app'
@@ -139,7 +126,6 @@
 	let publishDrawer = $state<Drawer | undefined>()
 	let publishTarget = $state<DeployItem | undefined>()
 	let publishing = $state(false)
-	let publishRateLimit = $state<RateLimitConfig>({ ...DEFAULT_RATE_LIMIT })
 
 	const mockPublicUrl = (path: string) => `https://app.windmill.dev/public/${hubSlug}/${path}`
 
@@ -188,7 +174,6 @@
 
 	function openPublish(it: DeployItem) {
 		publishTarget = it
-		publishRateLimit = { ...(it.rateLimit ?? DEFAULT_RATE_LIMIT) }
 		publishDrawer?.openDrawer()
 	}
 	async function confirmPublish() {
@@ -197,17 +182,10 @@
 		publishing = true
 		try {
 			await delay(500)
-			const rl = { ...publishRateLimit }
 			items = items.map((i) =>
-				i.key === it.key
-					? { ...i, published: true, publicUrl: mockPublicUrl(i.path), rateLimit: rl }
-					: i
+				i.key === it.key ? { ...i, published: true, publicUrl: mockPublicUrl(i.path) } : i
 			)
-			sendUserToast(
-				rl.enabled
-					? `${it.path} is now public (${rl.perMinute} req/min, burst ${rl.burst})`
-					: `${it.path} is now public (no rate limit)`
-			)
+			sendUserToast(`${it.path} is now public`)
 			publishDrawer?.closeDrawer()
 		} finally {
 			publishing = false
@@ -401,61 +379,38 @@
 			</p>
 
 			<div class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3">
-				<div class="flex items-center justify-between">
-					<div class="flex items-center gap-2">
-						<TriangleAlert size={14} class="text-orange-600" />
-						<span class="text-sm font-semibold">Rate limit</span>
-						<Tooltip>
-							Caps requests to this public app. Workspace default: {WORKSPACE_DEFAULT_RATE_LIMIT.perMinute}
-							req/min, burst {WORKSPACE_DEFAULT_RATE_LIMIT.burst}. Override here for this app only.
-						</Tooltip>
-					</div>
-					<Toggle bind:checked={publishRateLimit.enabled} size="xs" />
+				<div class="flex items-center gap-2">
+					<TriangleAlert
+						size={14}
+						class={workspaceRateLimit ? 'text-secondary' : 'text-orange-600'}
+					/>
+					<span class="text-sm font-semibold">Rate limit (workspace-wide)</span>
+					<Tooltip>
+						Caps public app executions per minute per server. Applies to all public apps in this
+						workspace.
+					</Tooltip>
 				</div>
-				{#if publishRateLimit.enabled}
-					<div class="grid grid-cols-2 gap-3">
-						<label class="flex flex-col gap-1 text-xs">
-							<span class="text-secondary">Requests / minute</span>
-							<input
-								type="number"
-								min="1"
-								bind:value={publishRateLimit.perMinute}
-								class="rounded border px-2 py-1 text-xs"
-							/>
-						</label>
-						<label class="flex flex-col gap-1 text-xs">
-							<span class="text-secondary">Burst</span>
-							<input
-								type="number"
-								min="0"
-								bind:value={publishRateLimit.burst}
-								class="rounded border px-2 py-1 text-xs"
-							/>
-						</label>
-					</div>
-					<div class="flex items-center justify-between gap-2">
-						<span class="flex items-center gap-1 text-xs text-secondary">
-							Apply per client IP
-							<Tooltip>If off, limit is shared across all callers (global counter).</Tooltip>
-						</span>
-						<Toggle bind:checked={publishRateLimit.perIp} size="xs" />
-					</div>
+				{#if workspaceRateLimit && workspaceRateLimit > 0}
+					<span class="text-xs text-secondary">
+						Currently <span class="font-mono text-emphasis">{workspaceRateLimit}</span> executions /
+						minute / server.
+					</span>
 				{:else}
 					<span class="text-xs text-orange-700">
-						Disabled — anyone with the URL can hit this app at any rate.
+						No rate limit configured — anyone with the URL can hit this app at any rate.
 					</span>
 				{/if}
-				<span class="text-[11px] text-hint">
-					Workspace-wide defaults live in <a
-						href="#default_app"
-						class="underline"
-						onclick={(e) => {
-							e.preventDefault()
-							publishDrawer?.closeDrawer()
-							window.location.hash = 'default_app'
-						}}>Workspace settings → Default app → Rate limiting</a
-					>.
-				</span>
+				<a
+					href="#default_app"
+					class="text-[11px] text-blue-600 underline"
+					onclick={(e) => {
+						e.preventDefault()
+						publishDrawer?.closeDrawer()
+						window.location.hash = 'default_app'
+					}}
+				>
+					Edit in Workspace settings → Apps
+				</a>
 			</div>
 
 			{#if publishTarget}
