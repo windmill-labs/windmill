@@ -1587,9 +1587,16 @@
 								></iframe>
 								{#if buildError}
 									<!-- top-12 clears the tab bar (h-7 buttons + padding) so the
-									     banner sits over the preview iframe, not over the tabs. -->
+									     banner sits over the preview iframe, not over the tabs.
+									     The `before:` pseudo lays a solid `bg-surface` plate behind
+									     the Alert's semi-transparent red (esp. dark mode's
+									     bg-red-900/40) so the preview iframe doesn't show through. -->
 									<div class="absolute top-12 left-2 right-2 z-20" role="alert">
-										<Alert type="error" title="Build failed">
+										<Alert
+											type="error"
+											title="Build failed"
+											class="relative before:absolute before:inset-0 before:-z-10 before:rounded-md before:bg-surface before:content-['']"
+										>
 											<pre
 												class="overflow-auto whitespace-pre-wrap text-xs max-h-60">{buildError}</pre>
 										</Alert>
