@@ -42,15 +42,33 @@
 	const aiChatManager = getAiChatManager()
 	type AutonomyModeOption = { label: string; mode: AIAutonomyMode }
 	const autonomyModeOptions: AutonomyModeOption[] = [
-		{ label: 'Auto-accept off', mode: AIAutonomyMode.DEFAULT },
-		{ label: 'Auto-accept on', mode: AIAutonomyMode.ACCEPT_EDIT },
-		{ label: 'YOLO mode', mode: AIAutonomyMode.YOLO }
+		{ label: 'Ask permission', mode: AIAutonomyMode.DEFAULT },
+		{ label: 'Auto-accept edits', mode: AIAutonomyMode.ACCEPT_EDIT },
+		{ label: 'Bypass permissions', mode: AIAutonomyMode.YOLO }
 	]
 	const autonomyModeLabel = (mode: AIAutonomyMode) =>
 		autonomyModeOptions.find((option) => option.mode === mode)?.label ??
 		autonomyModeOptions[0].label
-	// Off requires confirmation (raised hand), on/yolo fast-forward. Color ramps
-	// from muted (off) to accent (on) to red (yolo) as autonomy increases.
+	// "Auto-accept edits" only applies where script/flow edits can be accepted,
+	// "Bypass permissions" only where tool confirmations exist; filter the picker
+	// to the levels that actually do something in the current mode.
+	const isAutonomyModeAvailable = (
+		mode: AIAutonomyMode,
+		autoAcceptEditsAvailable: boolean,
+		autoAcceptToolConfirmationsAvailable: boolean
+	) => {
+		switch (mode) {
+			case AIAutonomyMode.DEFAULT:
+				return true
+			case AIAutonomyMode.ACCEPT_EDIT:
+				return autoAcceptEditsAvailable
+			case AIAutonomyMode.YOLO:
+				return autoAcceptToolConfirmationsAvailable
+		}
+		return false
+	}
+	// Ask-permission holds (raised hand); auto-accept/bypass fast-forward. Color
+	// ramps from muted (ask) to accent (auto-accept) to red (bypass).
 	const autonomyModeIcon = (mode: AIAutonomyMode) =>
 		mode === AIAutonomyMode.DEFAULT ? Hand : ChevronsRight
 	const autonomyModeIconColor = (mode: AIAutonomyMode) =>
@@ -205,15 +223,23 @@
 			aiChatManager.mode === AIMode.GLOBAL ||
 			aiChatManager.mode === AIMode.APP
 	)
-	const effectiveAutonomyMode = $derived(aiChatManager.autonomyMode)
-	// The picker always offers the three autonomy levels (off / on / yolo). It's
-	// shown whenever the current mode can auto-accept anything (edits or tool
-	// confirmations); in modes without edits, "Auto-accept on" simply has no
-	// edits to accept.
-	const showAutonomyModeSelector = $derived(
-		!disabled &&
-			(aiChatManager.autoAcceptEditsAvailable || aiChatManager.autoAcceptToolConfirmationsAvailable)
+	const availableAutonomyModeOptions = $derived.by(() =>
+		autonomyModeOptions.filter((option) =>
+			isAutonomyModeAvailable(
+				option.mode,
+				aiChatManager.autoAcceptEditsAvailable,
+				aiChatManager.autoAcceptToolConfirmationsAvailable
+			)
+		)
 	)
+	// Fall back to ask-permission when the persisted mode isn't applicable in the
+	// current AI mode (e.g. auto-accept edits while in a mode without edits).
+	const effectiveAutonomyMode = $derived(
+		availableAutonomyModeOptions.some((option) => option.mode === aiChatManager.autonomyMode)
+			? aiChatManager.autonomyMode
+			: AIAutonomyMode.DEFAULT
+	)
+	const showAutonomyModeSelector = $derived(!disabled && availableAutonomyModeOptions.length > 1)
 	const autonomyModeTooltip = $derived.by(() => {
 		switch (effectiveAutonomyMode) {
 			case AIAutonomyMode.ACCEPT_EDIT:
@@ -527,7 +553,7 @@
 						{#if showAutonomyModeSelector}
 							<DropdownV2
 								items={() =>
-									autonomyModeOptions.map((option) => ({
+									availableAutonomyModeOptions.map((option) => ({
 										displayName: option.label,
 										selected: effectiveAutonomyMode === option.mode,
 										action: () => aiChatManager.setAutonomyMode(option.mode)
@@ -560,8 +586,8 @@
 									<div class="max-w-64 text-xs">
 										<p class="font-semibold">
 											{aiChatManager.autoAcceptEditsAvailable
-												? 'Yolo auto-accepts edits and tool usage.'
-												: 'Yolo auto-accepts tool usage.'}
+												? 'Bypass permissions auto-accepts edits and tool usage.'
+												: 'Bypass permissions auto-accepts tool usage.'}
 										</p>
 										<p class="mt-1">
 											{aiChatManager.autoAcceptEditsAvailable
