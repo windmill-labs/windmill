@@ -7217,6 +7217,7 @@ async fn get_job_update(
             None,
             false,
             &mut false,
+            &mut false,
         )
         .await?,
     ))
@@ -7307,6 +7308,10 @@ pub fn start_job_update_sse_stream(
         // Latched once the early_return node's failure is observed alongside a
         // failure_module — subsequent polls then skip the redundant per-node lookup.
         let mut early_return_suppressed = false;
+        // Latched once we've verified the job was created by "anonymous" — for
+        // unauthenticated SSE streams, this gates access and is checked once per
+        // stream rather than once per poll (created_by cannot change).
+        let mut anonymous_verified = false;
 
         // Send initial update immediately
         let mut running = running;
@@ -7331,6 +7336,7 @@ pub fn start_job_update_sse_stream(
             early_return.as_deref(),
             has_failure_module,
             &mut early_return_suppressed,
+            &mut anonymous_verified,
         )
         .await
         {
@@ -7451,6 +7457,7 @@ pub fn start_job_update_sse_stream(
                 early_return.as_deref(),
                 has_failure_module,
                 &mut early_return_suppressed,
+                &mut anonymous_verified,
             )
             .await
             {
@@ -7584,7 +7591,33 @@ async fn get_job_update_data(
     early_return: Option<&str>,
     has_failure_module: bool,
     early_return_suppressed: &mut bool,
+    anonymous_verified: &mut bool,
 ) -> error::Result<JobUpdate> {
+    // Unauthenticated callers may only read jobs whose creator is "anonymous".
+    // The non-only_result branch enforces this via `record.created_by` from its
+    // main query, but the only_result branch below fetches solely the result by
+    // (workspace_id, job_id), so we guard here to cover both paths. The
+    // `anonymous_verified` flag is preserved across SSE poll iterations so the
+    // lookup only happens once per stream — `created_by` cannot change for a
+    // given job once it has been created.
+    if opt_authed.is_none() && !*anonymous_verified {
+        let created_by = sqlx::query_scalar!(
+            "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+            job_id,
+            w_id,
+        )
+        .fetch_optional(db)
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?;
+
+        if created_by != "anonymous" {
+            return Err(Error::BadRequest(
+                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+            ));
+        }
+        *anonymous_verified = true;
+    }
+
     let tags = if log_view {
         log_job_view(
             db,
@@ -7656,23 +7689,6 @@ async fn get_job_update_data(
                     r.stream_job,
                 )
             } else {
-                // `j.created_by` from the LEFT JOIN below gates unauthenticated access —
-                // only jobs created by "anonymous" are readable, matching the non-only_result
-                // branch and adjacent unauthenticated endpoints. Folded into the existing
-                // queries to avoid an extra round-trip on the SSE polling loop.
-                let check_unauthed = |created_by: Option<String>| -> error::Result<()> {
-                    if opt_authed.is_none() {
-                        let created_by = created_by
-                            .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?;
-                        if created_by != "anonymous" {
-                            return Err(Error::BadRequest(
-                                "As a non logged in user, you can only see jobs ran by anonymous users"
-                                    .to_string(),
-                            ));
-                        }
-                    }
-                    Ok(())
-                };
                 if running.is_some_and(|x| !x) {
                     let r = sqlx::query!(
                         "
@@ -7690,12 +7706,10 @@ async fn get_job_update_data(
                             jq.running as \"running: Option<bool>\",
                             rs.stream AS \"result_stream: Option<String>\",
                             rs.offset AS stream_offset,
-                            CASE WHEN $4 THEN NULL ELSE (COALESCE(js.flow_status, jc.flow_status)->>'stream_job')::uuid END as stream_job,
-                            j.created_by AS \"created_by?\"
+                            CASE WHEN $4 THEN NULL ELSE (COALESCE(js.flow_status, jc.flow_status)->>'stream_job')::uuid END as stream_job
                         FROM (
                             SELECT $1::uuid as job_id, $2::text as workspace_id
                         ) base
-                        LEFT JOIN v2_job j ON j.id = base.job_id AND j.workspace_id = base.workspace_id
                         LEFT JOIN v2_job_completed jc ON jc.id = base.job_id AND jc.workspace_id = base.workspace_id
                         LEFT JOIN v2_job_queue jq ON jq.id = base.job_id AND jq.workspace_id = base.workspace_id
                         LEFT JOIN v2_job_status js ON js.id = base.job_id
@@ -7706,8 +7720,6 @@ async fn get_job_update_data(
                         stream_offset.unwrap_or(0),
                         ignore_flow_stream_job_id,
                     ).fetch_optional(db).await?;
-                    let created_by = r.as_ref().and_then(|r| r.created_by.clone());
-                    check_unauthed(created_by)?;
                     if let Some(r) = r {
                         let running = r.running.as_ref().map(|x| *x);
                         (
@@ -7737,12 +7749,10 @@ async fn get_job_update_data(
                             rs.stream AS \"result_stream: Option<String>\",
                             rs.offset AS stream_offset,
                             COALESCE(js.flow_status, jc.flow_status) as \"flow_status: sqlx::types::Json<Box<RawValue>>\",
-                            CASE WHEN $4 THEN NULL ELSE (COALESCE(js.flow_status, jc.flow_status)->>'stream_job')::uuid END as stream_job,
-                            j.created_by AS \"created_by?\"
+                            CASE WHEN $4 THEN NULL ELSE (COALESCE(js.flow_status, jc.flow_status)->>'stream_job')::uuid END as stream_job
                         FROM (
                             SELECT $2::uuid as job_id, $1::text as workspace_id
                         ) base
-                        LEFT JOIN v2_job j ON j.id = base.job_id AND j.workspace_id = base.workspace_id
                         LEFT JOIN v2_job_completed jc ON jc.id = base.job_id AND jc.workspace_id = base.workspace_id
                         LEFT JOIN v2_job_status js ON js.id = base.job_id
                         LEFT JOIN result_stream rs ON rs.job_id = base.job_id
@@ -7754,8 +7764,6 @@ async fn get_job_update_data(
                     )
                     .fetch_optional(db)
                     .await?;
-                    let created_by = q.as_ref().and_then(|r| r.created_by.clone());
-                    check_unauthed(created_by)?;
                     if let Some(r) = q {
                         (
                             r.result.map(|x| x.0),
