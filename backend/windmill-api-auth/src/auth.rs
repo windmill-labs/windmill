@@ -302,18 +302,10 @@ impl AuthCache {
                                             None
                                         }
                                     } else if prefix == "g" {
-                                        // Checking that the group exists in the
-                                        // target workspace is necessary but not
-                                        // sufficient: the `all` group is
-                                        // provisioned in every workspace, so an
-                                        // attacker with token-table write access
-                                        // could pair owner=g/all with any
-                                        // workspace_id and authenticate as a
-                                        // group user there without being a
-                                        // workspace member. Additionally require
-                                        // that the token holder (by email) is a
-                                        // non-disabled member of the target
-                                        // workspace, mirroring the u/ branch.
+                                        // Group existence alone is not enough: `all` exists in every
+                                        // workspace, so owner=g/all would otherwise authenticate any
+                                        // forged token against any workspace. Also require the email
+                                        // to be a workspace member (WIN-1986).
                                         let group_check = if super_admin {
                                             true
                                         } else {
