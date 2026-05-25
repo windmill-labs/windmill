@@ -5,7 +5,7 @@
 <script lang="ts">
 	import { pathToMeta, type Meta } from '$lib/common'
 
-	import { localeConcatAnd, pluralize } from '$lib/utils'
+	import { copyToClipboard, localeConcatAnd, pluralize } from '$lib/utils'
 	import {
 		AppService,
 		FlowService,
@@ -30,7 +30,7 @@
 	import { writable } from 'svelte/store'
 	import { Alert, Button } from './common'
 	import { random_adj } from './random_positive_adjetive'
-	import { ChevronDown, SearchCode } from 'lucide-svelte'
+	import { ChevronDown, Copy, SearchCode } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { tick } from 'svelte'
 	import FolderPicker from './FolderPicker.svelte'
@@ -428,7 +428,7 @@
 			inputBaseClass,
 			inputBorderClass({ error: !!error }),
 			inputSizeClasses[size],
-			'flex gap-0 pb-0 mb-1 flex-col flex-wrap sm:flex-row sm:items-center',
+			'relative flex gap-0 pb-0 mb-1 flex-col flex-wrap sm:flex-row sm:items-center',
 			disabled && '!bg-surface-disabled cursor-not-allowed border-none'
 		)}
 	>
@@ -500,7 +500,7 @@
 				{/if}
 			</div>
 			<div class="text-sm text-secondary">/</div>
-			<label class="block grow min-w-32">
+			<label class="block grow min-w-32 mr-3">
 				<!-- svelte-ignore a11y_autofocus -->
 				<PathNameAutocomplete
 					bind:this={inputP}
@@ -519,6 +519,15 @@
 					)}
 				/>
 			</label>
+			<Button
+				iconOnly
+				size="xs2"
+				variant="subtle"
+				startIcon={{ icon: Copy }}
+				title="Copy path"
+				wrapperClasses="absolute right-1 top-1/2 -translate-y-1/2"
+				on:click={() => copyToClipboard(path)}
+			/>
 		{/if}
 	</div>
 
