@@ -38,7 +38,7 @@
 	import type { ScriptLang } from '$lib/gen'
 	import Label from '$lib/components/Label.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { CornerDownLeft } from 'lucide-svelte'
+	import { CornerDownLeft, Sparkles } from 'lucide-svelte'
 	import { arrowTabNav } from '$lib/attachments/arrowTabNav'
 	import { selectAndAdvanceTo } from '$lib/attachments/selectAndAdvanceTo'
 
@@ -78,7 +78,6 @@
 	// Refs into the bottom panel for the Output → Path → AI Prompt → Save chain.
 	let pathEl: HTMLElement | undefined
 	let aiPromptEl: HTMLElement | undefined
-	let saveEl: HTMLElement | undefined
 
 	let compatibleKinds = $derived.by<PipelineOutputKind[]>(() => {
 		if (!selected.language) return []
@@ -281,13 +280,15 @@
 			/>
 		</div>
 	</Label>
-	<div bind:this={saveEl} class="flex">
+	{@const hasAiPrompt = !!selected.aiPrompt?.trim()}
+	<div class="ml-auto">
 		<Button
 			variant="accent"
-			btnClasses="w-fit ml-auto"
+			btnClasses="w-fit"
 			disabled={!selected.scriptPath.trim()}
 			onClick={() => confirm(close)}
-			shortCut={{ Icon: CornerDownLeft, withoutModifier: true }}>Create</Button
+			startIcon={hasAiPrompt ? { icon: Sparkles } : undefined}
+			shortCut={{ Icon: CornerDownLeft }}>{hasAiPrompt ? 'Generate' : 'Create'}</Button
 		>
 	</div>
 {/snippet}
