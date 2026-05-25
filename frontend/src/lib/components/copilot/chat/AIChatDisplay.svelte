@@ -484,7 +484,7 @@
 				isFirstMessage={messages.length === 0}
 			/>
 			<div
-				class="mt-1.5 flex flex-row flex-wrap items-center gap-x-1.5 gap-y-1"
+				class="mt-1 flex flex-row flex-wrap items-center gap-x-1.5 gap-y-1"
 				class:justify-between={showFooterLeftControls}
 				class:justify-end={!showFooterLeftControls}
 			>
