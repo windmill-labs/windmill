@@ -200,6 +200,7 @@
 	onNavigate={(item) => goto(editPathFor(item))}
 	{initialPath}
 	{pathStoreInit}
+	liveEditorDraftStoragePath=""
 	bind:this={flowBuilder}
 	newFlow
 	{initialArgs}

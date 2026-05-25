@@ -408,6 +408,8 @@ fn build_google_ai_model_endpoint(
     action: &str,
     is_vertex: bool,
 ) -> String {
+    let model = model.strip_prefix("models/").unwrap_or(model);
+
     if is_vertex {
         format!("{}/{}:{}", base_url, model, action)
     } else {
@@ -416,6 +418,10 @@ fn build_google_ai_model_endpoint(
 }
 
 fn add_google_ai_auth_header(headers: &mut Vec<(String, String)>, api_key: &str, is_vertex: bool) {
+    // Native Google AI proxy intentionally does not apply AI_HTTP_HEADERS or
+    // resource custom headers yet. Gemini/Vertex header semantics are
+    // provider-specific; keep this limited to required auth headers until
+    // explicit custom-header support is designed.
     if is_vertex {
         headers.push(("Authorization".to_string(), format!("Bearer {}", api_key)));
     } else {
@@ -747,6 +753,32 @@ mod tests {
         assert_eq!(body["generationConfig"]["maxOutputTokens"], 123);
         assert_eq!(body["generationConfig"]["temperature"], 0.2);
         assert!(body["contents"].is_array());
+    }
+
+    #[test]
+    fn builds_standard_google_ai_endpoint_from_model_resource_name() {
+        assert_eq!(
+            build_google_ai_model_endpoint(
+                "https://generativelanguage.googleapis.com/v1beta",
+                "models/gemini-2.0-flash",
+                "generateContent",
+                false,
+            ),
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        );
+    }
+
+    #[test]
+    fn builds_vertex_google_ai_endpoint_from_model_resource_name() {
+        assert_eq!(
+            build_google_ai_model_endpoint(
+                "https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/google/models",
+                "models/gemini-2.0-flash",
+                "streamGenerateContent",
+                true,
+            ),
+            "https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/google/models/gemini-2.0-flash:streamGenerateContent"
+        );
     }
 
     #[test]
