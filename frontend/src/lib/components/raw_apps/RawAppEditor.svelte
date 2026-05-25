@@ -294,21 +294,29 @@
 		return filePath.split('/').pop() || filePath
 	}
 
-	function activateTab(id: string) {
+	function activateTab(id: string, opts?: { force?: boolean }) {
 		const tab = tabs.find((t) => t.id === id)
 		if (!tab) return
-		// Clicking the Preview tab while in split mode is a visual no-op —
-		// Preview is already permanently shown in the right pane, and
-		// promoting it to active would trigger the pane-sizing $effect and
-		// collapse the left pane (the bug being fixed here).
-		if (splitWithPreview && id === PREVIEW_TAB_ID) return
+		// Clicking the Preview tab while in split mode is normally a visual
+		// no-op (Preview is already permanently shown in the right pane;
+		// promoting it would collapse the left pane). `force: true` is used
+		// by closeTab's fallback when the only remaining tab IS Preview —
+		// in that case we genuinely have nothing on the left to keep alive.
+		if (!opts?.force && splitWithPreview && id === PREVIEW_TAB_ID) return
 		activeTabId = id
 		if (tab.id === PREVIEW_TAB_ID) {
 			selectedRunnable = undefined
 		} else if (tab.id.startsWith(FILE_PREFIX)) {
 			const filePath = tab.id.slice(FILE_PREFIX.length)
 			selectedRunnable = undefined
-			iframe?.contentWindow?.postMessage({ type: 'selectFile', path: filePath }, '*')
+			// Always update `selectedDocument` — it drives sidebar highlight
+			// and, crucially, is read by `populateFiles` once the iframe
+			// finishes loading so a hydrated tab opens the right file even
+			// when activateTab fires before the iframe's listener exists.
+			selectedDocument = filePath
+			if (iframeLoaded) {
+				iframe?.contentWindow?.postMessage({ type: 'selectFile', path: filePath }, '*')
+			}
 		} else if (tab.id.startsWith(RUNNABLE_PREFIX)) {
 			const key = tab.id.slice(RUNNABLE_PREFIX.length)
 			if (selectedRunnable !== key) selectedRunnable = key
@@ -364,9 +372,11 @@
 		}
 		tabs = tabs.filter((t) => t.id !== id)
 		if (wasActive) {
-			// Fall back to the previous tab, else the preview tab.
+			// Fall back to the previous tab, else the preview tab. Force
+			// activation so the Preview-in-split-mode no-op guard doesn't
+			// leave `activeTabId` pointing at the deleted tab.
 			const fallback = tabs[Math.max(0, idx - 1)] ?? previewTab
-			activateTab(fallback.id)
+			activateTab(fallback.id, { force: true })
 		}
 	}
 
@@ -497,12 +507,10 @@
 	}
 
 	let iframeLoaded = $state(false) // @hmr:keep
-	// Suppresses iframe-sourced events for a short window after we re-push files,
-	// to keep the iframe's boot-time messages from clobbering the user's state.
-	// suppressIframeSetFiles is held across an entire iframe reload (e.g. theme switch);
-	// the timer is reset on every reload so rapid toggles don't clear it prematurely.
+	// Briefly drops the `setActiveDocument` echo VS Code fires while we're
+	// pushing the initial file set — the iframe auto-opens a default editor
+	// during boot which we don't want to treat as a user-driven activation.
 	let suppressSetActiveDocument = false
-	let suppressIframeSetFiles = false
 	let suppressTimer: ReturnType<typeof setTimeout> | undefined
 
 	let sharedUiFiles: Record<string, string> = $state({})
@@ -543,7 +551,6 @@
 			if (suppressTimer !== undefined) clearTimeout(suppressTimer)
 			suppressTimer = setTimeout(() => {
 				suppressSetActiveDocument = false
-				suppressIframeSetFiles = false
 				suppressTimer = undefined
 			}, 500)
 			const doc = untrack(() => selectedDocument)
@@ -959,9 +966,6 @@
 		if (!fromUiBuilder) return
 
 		if (e.data.type === 'setFiles') {
-			// Ignore setFiles from the iframe while it's reloading (e.g. theme switch);
-			// the iframe boots with its default template and would otherwise clobber the user's files.
-			if (suppressIframeSetFiles) return
 			// Normalize Windows-style path separators to Linux-style
 			const normalizedFiles = normalizeFilePaths(e.data.files)
 			// Only mark pending changes if files actually changed (ignore echo from setFilesInIframe)
