@@ -10,8 +10,8 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 
 use windmill_api_auth::{
-    check_scopes, maybe_refresh_folders, require_owner_of_path, require_super_admin, ApiAuthed,
-    Tokened,
+    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
+    require_super_admin, ApiAuthed, Tokened,
 };
 use windmill_common::db::DB;
 use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
@@ -194,6 +194,7 @@ async fn list_names(
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<Vec<NamePath>> {
     let mut tx = user_db.begin(&authed).await?;
+    let allowed = build_scope_path_predicate(&authed, "resources", "read");
     let rows = sqlx::query!(
         "SELECT value->>'name' as name, path from resource WHERE resource_type = $1 AND workspace_id = $2",
         rt,
@@ -203,6 +204,7 @@ async fn list_names(
     .await?
     .into_iter()
     .filter_map(|x| x.name.map(|name| NamePath { name, path: x.path }))
+    .filter(|np| allowed(&np.path))
     .collect::<Vec<_>>();
     tx.commit().await?;
     Ok(Json(rows))
@@ -225,6 +227,7 @@ async fn list_search_resources(
     #[cfg(not(feature = "enterprise"))]
     let n = 3;
 
+    let allowed = build_scope_path_predicate(&authed, "resources", "read");
     let rows = sqlx::query_as!(
         SearchResource,
         "SELECT path, value from resource WHERE workspace_id = $1 LIMIT $2",
@@ -234,6 +237,7 @@ async fn list_search_resources(
     .fetch_all(&mut *tx)
     .await?
     .into_iter()
+    .filter(|r| allowed(&r.path))
     .collect::<Vec<_>>();
     tx.commit().await?;
     Ok(Json(rows))
@@ -338,9 +342,13 @@ async fn list_resources(
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
+    let allowed = build_scope_path_predicate(&authed, "resources", "read");
     let rows = sqlx::query_as::<_, ListableResource>(&sql)
         .fetch_all(&mut *tx)
-        .await?;
+        .await?
+        .into_iter()
+        .filter(|r| allowed(&r.path))
+        .collect::<Vec<_>>();
 
     tx.commit().await?;
 
