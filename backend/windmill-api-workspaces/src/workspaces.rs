@@ -5451,6 +5451,14 @@ If you do not have an account on {}, login with SSO or ask an admin to create an
 #[derive(Deserialize)]
 pub struct NewServiceAccount {
     pub username: String,
+    #[serde(default)]
+    pub is_admin: bool,
+    #[serde(default = "default_true")]
+    pub operator: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 async fn create_service_account(

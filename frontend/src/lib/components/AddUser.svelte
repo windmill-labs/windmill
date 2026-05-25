@@ -36,7 +36,11 @@
 			if (!username) return
 			await WorkspaceService.createServiceAccount({
 				workspace: $workspaceStore!,
-				requestBody: { username: username! }
+				requestBody: {
+					username: username!,
+					is_admin: serviceAccountRole === 'admin',
+					operator: serviceAccountRole === 'operator'
+				}
 			})
 			sendUserToast(`Service account '${username}' created`)
 		} else {
@@ -80,7 +84,9 @@
 	}
 
 	type UserRole = 'operator' | 'developer' | 'admin' | 'service_account'
+	type ServiceAccountRole = 'operator' | 'developer' | 'admin'
 	let selected: UserRole = $state('developer' as UserRole)
+	let serviceAccountRole: ServiceAccountRole = $state('operator' as ServiceAccountRole)
 	let isServiceAccount = $derived(selected === 'service_account')
 </script>
 
@@ -144,6 +150,32 @@
 					/>
 				{/snippet}
 			</ToggleButtonGroup>
+
+			{#if isServiceAccount}
+				<span class="text-xs mb-1 leading-6">Service account role</span>
+				<ToggleButtonGroup bind:selected={serviceAccountRole} class="mb-4">
+					{#snippet children({ item })}
+						<ToggleButton
+							value="operator"
+							label="Operator"
+							tooltip="Read/run only. Counts as 0.5 seat. Cannot be used for CLI sync or to author scripts/flows/apps."
+							{item}
+						/>
+						<ToggleButton
+							value="developer"
+							label="Developer"
+							tooltip="Can author and edit scripts/flows/apps within its path. Counts as 1 seat. Use this for CLI sync tokens."
+							{item}
+						/>
+						<ToggleButton
+							value="admin"
+							label="Admin"
+							tooltip="Full workspace admin. Counts as 1 seat. Grant only when the service account needs to manage workspace settings."
+							{item}
+						/>
+					{/snippet}
+				</ToggleButtonGroup>
+			{/if}
 			<Button
 				variant="accent"
 				size="sm"
