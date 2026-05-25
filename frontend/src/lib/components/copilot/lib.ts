@@ -1,7 +1,7 @@
 import type { AIProvider, AIProviderModel } from '$lib/gen'
 import { workspaceStore, type DBSchema, type SQLSchema } from '$lib/stores'
 import type { IntrospectionQuery } from 'graphql'
-import OpenAI from 'openai'
+import type OpenAI from 'openai'
 import type {
 	ChatCompletionChunk,
 	ChatCompletionCreateParams,
@@ -10,7 +10,7 @@ import type {
 	ChatCompletionMessageFunctionToolCall,
 	ChatCompletionMessageParam
 } from 'openai/resources/index.mjs'
-import Anthropic from '@anthropic-ai/sdk'
+import type Anthropic from '@anthropic-ai/sdk'
 import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
@@ -394,8 +394,9 @@ export function getAiProxyBaseURL(workspace?: string): string {
 		: `${location.origin}${OpenAPI.BASE}/ai/proxy`
 }
 
-export function createOpenAIProxyClient(baseURL: string): OpenAI {
-	return new OpenAI({
+export async function createOpenAIProxyClient(baseURL: string): Promise<OpenAI> {
+	const { default: OpenAIClass } = await import('openai')
+	return new OpenAIClass({
 		baseURL,
 		apiKey: 'fake-key',
 		defaultHeaders: {
@@ -405,8 +406,9 @@ export function createOpenAIProxyClient(baseURL: string): OpenAI {
 	})
 }
 
-export function createAnthropicProxyClient(baseURL: string): Anthropic {
-	return new Anthropic({
+export async function createAnthropicProxyClient(baseURL: string): Promise<Anthropic> {
+	const { default: AnthropicClass } = await import('@anthropic-ai/sdk')
+	return new AnthropicClass({
 		baseURL,
 		apiKey: 'fake-key',
 		dangerouslyAllowBrowser: true,
@@ -415,34 +417,38 @@ export function createAnthropicProxyClient(baseURL: string): Anthropic {
 }
 
 class WorkspacedAIClients {
-	private openaiClient: OpenAI | undefined
-	private anthropicClient: Anthropic | undefined
+	private baseURL: string | undefined
+	private openaiClient: Promise<OpenAI> | undefined
+	private anthropicClient: Promise<Anthropic> | undefined
 
 	init(workspace: string) {
-		this.openaiClient = this.createOpenaiClient(workspace)
-		this.anthropicClient = this.createAnthropicClient(workspace)
+		this.baseURL = getAiProxyBaseURL(workspace)
+		// Invalidate cached clients; they will be constructed on first use,
+		// so the SDK chunks only load when Copilot is actually invoked.
+		this.openaiClient = undefined
+		this.anthropicClient = undefined
 	}
 
-	createOpenaiClient(workspace: string): OpenAI {
+	createOpenaiClient(workspace: string): Promise<OpenAI> {
 		return createOpenAIProxyClient(getAiProxyBaseURL(workspace))
 	}
 
-	createAnthropicClient(workspace: string): Anthropic {
+	createAnthropicClient(workspace: string): Promise<Anthropic> {
 		return createAnthropicProxyClient(getAiProxyBaseURL(workspace))
 	}
 
-	getOpenaiClient() {
-		if (!this.openaiClient) {
+	getOpenaiClient(): Promise<OpenAI> {
+		if (!this.baseURL) {
 			throw new Error('OpenAI not initialized')
 		}
-		return this.openaiClient
+		return (this.openaiClient ??= createOpenAIProxyClient(this.baseURL))
 	}
 
-	getAnthropicClient() {
-		if (!this.anthropicClient) {
+	getAnthropicClient(): Promise<Anthropic> {
+		if (!this.baseURL) {
 			throw new Error('Anthropic not initialized')
 		}
-		return this.anthropicClient
+		return (this.anthropicClient ??= createAnthropicProxyClient(this.baseURL))
 	}
 }
 
@@ -527,11 +533,11 @@ async function testAnthropicKey({
 		headers['X-API-Key'] = apiKey
 	}
 
-	const anthropicClient = apiKey
+	const anthropicClient = await (apiKey
 		? createAnthropicProxyClient(getAiProxyBaseURL())
 		: workspace
 			? workspaceAIClients.createAnthropicClient(workspace)
-			: workspaceAIClients.getAnthropicClient()
+			: workspaceAIClients.getAnthropicClient())
 
 	await anthropicClient.messages.create(
 		{
@@ -805,11 +811,11 @@ export async function getNonStreamingCompletion(
 			'X-API-Key': testOptions.apiKey
 		}
 	}
-	const openaiClient = testOptions?.apiKey
+	const openaiClient = await (testOptions?.apiKey
 		? createOpenAIProxyClient(getAiProxyBaseURL())
 		: testOptions?.workspace
 			? workspaceAIClients.createOpenaiClient(testOptions.workspace)
-			: workspaceAIClients.getOpenaiClient()
+			: workspaceAIClients.getOpenaiClient())
 
 	const completion = await openaiClient.chat.completions.create(config, fetchOptions)
 	response = completion.choices?.[0]?.message.content || ''
@@ -895,7 +901,7 @@ export async function getCompletion(
 	options?: {
 		forceCompletions?: boolean
 		forceModelProvider?: AIProviderModel
-		openaiClient?: OpenAI
+		openaiClient?: OpenAI | Promise<OpenAI>
 	}
 ): Promise<Stream<ChatCompletionChunk>> {
 	const { provider, config } = getProviderAndCompletionConfig({
@@ -905,10 +911,16 @@ export async function getCompletion(
 		forceModelProvider: options?.forceModelProvider
 	})
 
-	// Use Responses API for OpenAI and Azure OpenAI
+	// Use Responses API for OpenAI and Azure OpenAI. Setup failures (dynamic
+	// SDK import, client construction, initial request) now surface here and
+	// fall through to the Completions API below.
 	if ((provider === 'openai' || provider === 'azure_openai') && !options?.forceCompletions) {
 		try {
-			const stream = getOpenAIResponsesCompletionStream(messages, abortController, tools) as any
+			const stream = (await getOpenAIResponsesCompletionStream(
+				messages,
+				abortController,
+				tools
+			)) as any
 			return stream
 		} catch (error) {
 			console.error('Error using Responses API:', error)
@@ -916,7 +928,7 @@ export async function getCompletion(
 	}
 
 	// Use Completions API for other providers
-	const client = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
+	const client = await (options?.openaiClient ?? workspaceAIClients.getOpenaiClient())
 	const completionConfig =
 		(provider === 'openai' || provider === 'azure_openai' || provider === 'googleai') &&
 		config.stream

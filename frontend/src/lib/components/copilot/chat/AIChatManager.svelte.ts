@@ -640,6 +640,8 @@ export class AIChatManager {
 			// on each iteration. This is critical for changeModeTool (Navigator → Script/Flow)
 			// which reassigns this.tools, this.helpers, this.systemMessage mid-loop.
 			const self = this
+			// Pass promise-holders rather than awaited clients so a construction
+			// failure in the unused provider doesn't block a chat on the other.
 			const result = await runChatLoop({
 				messages,
 				get systemMessage() {
@@ -657,8 +659,12 @@ export class AIChatManager {
 					return getCurrentModel()
 				},
 				clients: {
-					openai: workspaceAIClients.getOpenaiClient(),
-					anthropic: workspaceAIClients.getAnthropicClient()
+					get openai() {
+						return workspaceAIClients.getOpenaiClient()
+					},
+					get anthropic() {
+						return workspaceAIClients.getAnthropicClient()
+					}
 				},
 				workspace: get(workspaceStore) ?? '',
 				skipResponsesApi: this.skipResponsesApi,
