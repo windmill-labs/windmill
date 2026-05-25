@@ -246,10 +246,24 @@ export const settings: Record<string, Setting[]> = {
 			]
 		},
 		{
+			label: 'Nsjail /tmp backing',
+			key: 'nsjail_tmp_backing',
+			fieldType: 'select',
+			description:
+				'How <code>/tmp</code> is backed inside the nsjail sandbox. <strong>RAM (tmpfs)</strong> is the default — fast, with a hard size cap from <em>Nsjail tmpfs size</em>, but consumes worker memory. <strong>Disk (bind mount)</strong> uses a per-job directory on the worker disk — no RAM cost, but the only remaining per-file ceiling is <code>rlimit_fsize</code> (~1GB for python/ansible, unbounded for most other languages because they set <code>disable_rl: true</code>); pair with host disk monitoring or quotas.',
+			storage: 'setting',
+			placeholder: 'tmpfs',
+			defaultValue: () => 'tmpfs',
+			select_items: [
+				{ label: 'RAM (tmpfs) — default', value: 'tmpfs' },
+				{ label: 'Disk (bind mount)', value: 'disk' }
+			]
+		},
+		{
 			label: 'Nsjail tmpfs size (MB)',
 			key: 'nsjail_tmpfs_size_mb',
 			description:
-				'Override the size of the <code>/tmp</code> tmpfs mount inside the nsjail sandbox (in MB). When left empty, defaults to 800MB. Only applies when the job isolation mode is set to Nsjail.',
+				'Override the size of the <code>/tmp</code> tmpfs mount inside the nsjail sandbox (in MB). When left empty, defaults to 800MB. Only applies when <em>Nsjail /tmp backing</em> is RAM (tmpfs).',
 			fieldType: 'number',
 			placeholder: '800',
 			storage: 'setting'
@@ -289,6 +303,49 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: 'You can only adjust this setting to above 30 days in the EE version',
 			cloudonly: false
+		},
+		{
+			label: 'Workspace fairness — enabled',
+			description:
+				'Cloud-only safeguard against a single workspace dominating the shared worker pool. When a workspace accounts for at least <em>Workspace fairness — max percent</em> of cluster activity over the last <em>Workspace fairness — duration</em> seconds, the pull query temporarily excludes that workspace until its share drops back below the threshold. Idle workers always fall back to running its jobs, so capping never starves the queue.',
+			key: 'workspace_fairness_enabled',
+			fieldType: 'boolean',
+			storage: 'setting',
+			cloudonly: true,
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Workspace fairness — max percent',
+			description:
+				'Maximum percentage of cluster activity a single workspace may sustain before being temporarily excluded from the pull query. Default 50.',
+			key: 'workspace_fairness_max_percent',
+			fieldType: 'number',
+			placeholder: '50',
+			storage: 'setting',
+			cloudonly: true,
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Workspace fairness — duration (seconds)',
+			description:
+				'Rolling window used to measure workspace share. Activity = currently running jobs ∪ jobs completed in the last N seconds. Default 10.',
+			key: 'workspace_fairness_duration_secs',
+			fieldType: 'seconds',
+			placeholder: '10',
+			storage: 'setting',
+			cloudonly: true,
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Workspace fairness — minimum total jobs',
+			description:
+				'Cap is only applied when cluster-wide activity exceeds this floor. Prevents over-eager capping on small clusters or quiet periods. Default 4.',
+			key: 'workspace_fairness_min_total_jobs',
+			fieldType: 'number',
+			placeholder: '4',
+			storage: 'setting',
+			cloudonly: true,
+			hideInQuickSetup: true
 		}
 	],
 	'Object Storage': [

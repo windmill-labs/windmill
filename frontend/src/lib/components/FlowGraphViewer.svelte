@@ -76,8 +76,8 @@
 		>
 			<FlowGraphV2
 				{triggerNode}
-				earlyStop={flow.value.skip_expr !== undefined}
-				cache={flow.value.cache_ttl !== undefined}
+				earlyStop={flow?.value?.skip_expr !== undefined}
+				cache={flow?.value?.cache_ttl !== undefined}
 				path={flow?.path}
 				{download}
 				minHeight={fillAvailableHeight ? Math.max(minHeight, availableHeight) : minHeight}
@@ -113,7 +113,7 @@
 				noGraph ? 'border-0 w-max' : ''
 			)}
 		>
-			<FlowGraphViewerStep schema={flow.schema} {stepDetail} {hideDefaultInputs} />
+			<FlowGraphViewerStep schema={flow?.schema} {stepDetail} {hideDefaultInputs} />
 		</div>
 	{/if}
 </div>

@@ -6,10 +6,11 @@
  * `use_individual_branch` is set — NOT straight to the cloned base branch
  * (e.g. a protected `main`, which fails with GH006).
  *
- * The CLI's `wmill sync pull --git-deploy-items ...` now owns that branch
- * checkout + commit + push (previously hub-script-only, hence untestable).
- * This drives it against a real local bare repo so the regression is caught
- * deterministically, with no network and no GitHub.
+ * Contract: `wmill sync git-deploy` does branch checkout + pull only. Commit
+ * + push are the caller's job — the hub script does them in the same process
+ * as `set_gpg_signing_secret` so the GPG agent's passphrase cache is still
+ * warm at sign time (WIN-1974). This test replicates the caller half (git
+ * add + commit + push) inline so the full promotion regression stays caught.
  */
 
 import { expect, test } from "bun:test";
@@ -121,6 +122,23 @@ test.skipIf(shouldSkipOnCI())(
         { path_type: "script", path: "f/promo/foo", commit_msg: "deploy foo" },
       ]);
 
+      // Caller-half: stage anything the CLI's pull dropped, commit on the
+      // current branch (which the CLI just checked out), and push. Mirrors
+      // what the hub script does in production after `wmill sync git-deploy`.
+      const commitAndPush = (work: string) => {
+        git(work, "config", "user.email", "test@windmill.dev");
+        git(work, "config", "user.name", "test");
+        git(work, "add", "-A");
+        try {
+          git(work, "diff", "--cached", "--quiet");
+          // Exit 0 = nothing staged; nothing to commit. Still push the
+          // (possibly new) branch ref so the assertions see it.
+        } catch {
+          git(work, "commit", "-m", "deploy foo");
+        }
+        git(work, "push", "--porcelain", "-u", "origin", "HEAD");
+      };
+
       // --- Case A: use_individual_branch=true -> wm_deploy branch, main untouched ---
       const workA = await mkdtemp(join(tmpdir(), "wmill_promo_a_"));
       git(workA, "clone", `file://${bareDir}`, ".");
@@ -141,6 +159,7 @@ test.skipIf(shouldSkipOnCI())(
         workA,
       );
       expect(resA.code).toBe(0);
+      commitAndPush(workA);
 
       const branchesA = remoteBranches(bareDir);
       const expectedBranch = `refs/heads/wm_deploy/${ws}/script/f__promo__foo`;
@@ -167,6 +186,8 @@ test.skipIf(shouldSkipOnCI())(
         workB,
       );
       expect(resB.code).toBe(0);
+      commitAndPush(workB);
+
       expect(remoteHead(bareDir, "main")).not.toBe(seedMain);
       expect(
         remoteBranches(bareDir).filter((b) => b.includes("wm_deploy")).length,

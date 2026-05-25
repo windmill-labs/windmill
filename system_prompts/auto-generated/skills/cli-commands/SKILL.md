@@ -339,6 +339,10 @@ Manage jobs (list, inspect, cancel)
 - `job logs <id:string>` - Get job logs. For flows: aggregates all step logs
 - `job cancel <id:string>` - Cancel a running or queued job
   - `--reason <reason:string>` - Reason for cancellation
+- `job rerun <id:string>` - Re-run a completed job with the same args. Prints the new job UUID on stdout.
+- `job restart <id:string>` - Restart a completed flow at a given top-level step. Prints the new flow job UUID on stdout.
+  - `--step <stepId:string>` - Top-level step id to restart the flow from
+  - `--iteration <n:number>` - For a top-level branchall or for-loop step, the iteration to restart at
 
 ### jobs
 
@@ -391,6 +395,15 @@ List all queues with their metrics
 **Options:**
 - `--instance [instance]` - Name of the instance to push to, override the active instance
 - `--base-url [baseUrl]` - If used with --token, will be used as the base url for the instance
+
+### refresh
+
+Refresh wmill-managed project files (AGENTS.cli.md and skills)
+
+**Subcommands:**
+
+- `refresh prompts` - Refresh AGENTS.cli.md and managed skills. User-owned AGENTS.md and CLAUDE.md are never overwritten unless you opt in.
+  - `--yes` - Non-interactive: skip the migration prompt for existing AGENTS.md / CLAUDE.md without the expected include; defaults to appending the include.
 
 ### resource
 

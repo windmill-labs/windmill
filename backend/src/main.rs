@@ -51,14 +51,17 @@ use windmill_common::{
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MAVEN_SETTINGS_XML_SETTING,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
-        NPM_CONFIG_REGISTRY_SETTING, NSJAIL_TMPFS_SIZE_MB_SETTING, NUGET_CONFIG_SETTING,
-        OAUTH_SETTING, OTEL_SETTING, OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING,
-        POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING,
-        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
-        RESTART_COORDINATION_SETTING, RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING,
-        SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING,
-        TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING,
-        UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING, WORKSPACE_REGISTRIES_SETTING,
+        NPM_CONFIG_REGISTRY_SETTING, NSJAIL_TMPFS_SIZE_MB_SETTING, NSJAIL_TMP_BACKING_SETTING,
+        NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING, OTEL_TRACING_PROXY_SETTING,
+        PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING,
+        PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RESTART_COORDINATION_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING, SAML_METADATA_SETTING,
+        SCIM_TOKEN_SETTING, SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING, TEAMS_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING,
+        UV_PYTHON_INSTALL_MIRROR_SETTING, WORKSPACE_FAIRNESS_DURATION_SECS_SETTING,
+        WORKSPACE_FAIRNESS_ENABLED_SETTING, WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING,
+        WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING, WORKSPACE_REGISTRIES_SETTING,
     },
     scripts::ScriptLang,
     stats_oss::schedule_stats,
@@ -119,7 +122,9 @@ use crate::monitor::{
     initial_load, load_disable_password_login, load_fork_workspace_tag_append_fork_suffix,
     load_keep_job_dir, load_metrics_debug_enabled, load_preview_tags_override,
     load_require_preexisting_user, load_tag_per_workspace_enabled,
-    load_tag_per_workspace_workspaces, monitor_db, reload_app_workspaced_route_setting,
+    load_tag_per_workspace_workspaces, load_workspace_fairness_duration_secs,
+    load_workspace_fairness_enabled, load_workspace_fairness_max_percent,
+    load_workspace_fairness_min_total, monitor_db, reload_app_workspaced_route_setting,
     reload_audit_log_retention_days_setting, reload_base_url_setting,
     reload_bun_install_min_release_age_setting, reload_bunfig_install_scopes_setting,
     reload_critical_alert_mute_ui_setting, reload_critical_alerts_on_token_expiry_setting,
@@ -127,10 +132,10 @@ use crate::monitor::{
     reload_http_route_workspaced_route_setting, reload_hub_api_secret_setting,
     reload_hub_base_url_setting, reload_instance_events_webhook_setting,
     reload_job_default_timeout_setting, reload_job_isolation_setting, reload_jwt_secret_setting,
-    reload_license_key, reload_npm_config_registry_setting, reload_nsjail_tmpfs_size_setting,
-    reload_otel_tracing_proxy_setting, reload_pip_index_url_setting,
-    reload_retention_period_setting, reload_scim_token_setting, reload_smtp_config,
-    reload_store_audit_logs_s3_setting, reload_uv_exclude_newer_setting,
+    reload_license_key, reload_npm_config_registry_setting, reload_nsjail_tmp_backing_setting,
+    reload_nsjail_tmpfs_size_setting, reload_otel_tracing_proxy_setting,
+    reload_pip_index_url_setting, reload_retention_period_setting, reload_scim_token_setting,
+    reload_smtp_config, reload_store_audit_logs_s3_setting, reload_uv_exclude_newer_setting,
     reload_uv_index_strategy_setting, reload_uv_python_install_mirror_setting,
     reload_worker_config, MonitorIteration,
 };
@@ -1764,6 +1769,26 @@ async fn process_notify_event(
                         tracing::error!("Error loading preview tags override: {e:#}");
                     }
                 }
+                WORKSPACE_FAIRNESS_ENABLED_SETTING => {
+                    if let Err(e) = load_workspace_fairness_enabled(db).await {
+                        tracing::error!("Error loading workspace fairness enabled: {e:#}");
+                    }
+                }
+                WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING => {
+                    if let Err(e) = load_workspace_fairness_max_percent(db).await {
+                        tracing::error!("Error loading workspace fairness max percent: {e:#}");
+                    }
+                }
+                WORKSPACE_FAIRNESS_DURATION_SECS_SETTING => {
+                    if let Err(e) = load_workspace_fairness_duration_secs(db).await {
+                        tracing::error!("Error loading workspace fairness duration secs: {e:#}");
+                    }
+                }
+                WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING => {
+                    if let Err(e) = load_workspace_fairness_min_total(db).await {
+                        tracing::error!("Error loading workspace fairness min total: {e:#}");
+                    }
+                }
                 SMTP_SETTING => {
                     reload_smtp_config(db).await;
                 }
@@ -1785,6 +1810,7 @@ async fn process_notify_event(
                 JOB_DEFAULT_TIMEOUT_SECS_SETTING => reload_job_default_timeout_setting(conn).await,
                 JOB_ISOLATION_SETTING => reload_job_isolation_setting(conn).await,
                 NSJAIL_TMPFS_SIZE_MB_SETTING => reload_nsjail_tmpfs_size_setting(conn).await,
+                NSJAIL_TMP_BACKING_SETTING => reload_nsjail_tmp_backing_setting(conn).await,
                 #[cfg(feature = "parquet")]
                 OBJECT_STORE_CONFIG_SETTING => {
                     if !disable_s3_store {

@@ -55,6 +55,9 @@ pub const KEEP_JOB_DIR_SETTING: &str = "keep_job_dir";
 pub const REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING: &str = "require_preexisting_user_for_oauth";
 pub const JOB_ISOLATION_SETTING: &str = "job_isolation";
 pub const NSJAIL_TMPFS_SIZE_MB_SETTING: &str = "nsjail_tmpfs_size_mb";
+pub const NSJAIL_TMP_BACKING_SETTING: &str = "nsjail_tmp_backing";
+pub const NSJAIL_TMP_BACKING_DISK: &str = "disk";
+pub const NSJAIL_TMP_BACKING_TMPFS: &str = "tmpfs";
 pub const OBJECT_STORE_CONFIG_SETTING: &str = "object_store_cache_config";
 pub const HUB_API_SECRET_SETTING: &str = "hub_api_secret";
 
@@ -82,6 +85,15 @@ pub const INSTANCE_EVENTS_WEBHOOK_SETTING: &str = "instance_events_webhook";
 pub const WORKSPACE_REGISTRIES_SETTING: &str = "workspace_registries";
 pub const RESTART_COORDINATION_SETTING: &str = "_restart_coordination";
 pub const ALERT_CONFIG_SETTING: &str = "alert_job_queue_waiting";
+
+// Workspace fairness: cloud-only mechanism that caps any single workspace at
+// `workspace_fairness_max_percent`% of the shared worker pool once it has been
+// occupying it for more than `workspace_fairness_duration_secs` seconds. See
+// `windmill-queue/src/workspace_fairness.rs`.
+pub const WORKSPACE_FAIRNESS_ENABLED_SETTING: &str = "workspace_fairness_enabled";
+pub const WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING: &str = "workspace_fairness_max_percent";
+pub const WORKSPACE_FAIRNESS_DURATION_SECS_SETTING: &str = "workspace_fairness_duration_secs";
+pub const WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING: &str = "workspace_fairness_min_total_jobs";
 
 use std::sync::atomic::AtomicBool;
 

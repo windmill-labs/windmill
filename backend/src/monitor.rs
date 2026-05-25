@@ -62,13 +62,15 @@ use windmill_common::{
         HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
         JOB_ISOLATION_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPMRC_SETTING, NPM_CONFIG_REGISTRY_SETTING,
-        NSJAIL_TMPFS_SIZE_MB_SETTING, NUGET_CONFIG_SETTING, OTEL_SETTING,
-        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
-        POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
-        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
-        SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, STORE_AUDIT_LOGS_S3_SETTING,
-        TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING,
-        UV_PYTHON_INSTALL_MIRROR_SETTING,
+        NSJAIL_TMPFS_SIZE_MB_SETTING, NSJAIL_TMP_BACKING_SETTING, NUGET_CONFIG_SETTING,
+        OTEL_SETTING, OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING,
+        POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING,
+        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
+        STORE_AUDIT_LOGS_S3_SETTING, TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING,
+        UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
+        WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
+        WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
     },
     indexer::load_indexer_config,
     jwt::JWT_SECRET,
@@ -84,7 +86,8 @@ use windmill_common::{
         store_suspended_pull_query, Connection, WorkerConfig, DEFAULT_TAGS_PER_WORKSPACE,
         DEFAULT_TAGS_WORKSPACES, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX, INDEXER_CONFIG,
         PREVIEW_TAGS_OVERRIDE, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, WINDMILL_DIR, WORKER_CONFIG,
-        WORKER_GROUP,
+        WORKER_GROUP, WORKSPACE_FAIRNESS_DURATION_SECS, WORKSPACE_FAIRNESS_ENABLED,
+        WORKSPACE_FAIRNESS_MAX_PERCENT, WORKSPACE_FAIRNESS_MIN_TOTAL,
     },
     KillpillSender, AUDIT_LOG_RETENTION_DAYS, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE,
     CRITICAL_ALERTS_ON_TOKEN_EXPIRY, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB,
@@ -108,9 +111,9 @@ use windmill_worker::{
     BUN_INSTALL_MIN_RELEASE_AGE, CARGO_REGISTRIES, INSTANCE_PYTHON_VERSION, JAVA_HOME_DIR,
     JOB_DEFAULT_TIMEOUT, JOB_ISOLATION, KEEP_JOB_DIR, MAVEN_REPOS, MAVEN_SETTINGS_XML,
     NO_DEFAULT_MAVEN, NPMRC, NPM_CONFIG_REGISTRY, NSJAIL_AVAILABLE, NSJAIL_TMPFS_SIZE_MB,
-    NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
-    POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, UNSHARE_PATH, UV_EXCLUDE_NEWER, UV_INDEX_STRATEGY,
-    UV_PYTHON_INSTALL_MIRROR, WORKSPACE_REGISTRIES,
+    NSJAIL_TMP_BACKING, NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL,
+    PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, UNSHARE_PATH, UV_EXCLUDE_NEWER,
+    UV_INDEX_STRATEGY, UV_PYTHON_INSTALL_MIRROR, WORKSPACE_REGISTRIES,
 };
 
 #[cfg(feature = "parquet")]
@@ -247,6 +250,22 @@ pub async fn initial_load(
 
         if let Err(e) = load_preview_tags_override(db).await {
             tracing::error!("Error loading preview tags override: {e:#}");
+        }
+
+        // Workspace fairness (cloud-only). Load the percentage/duration/min knobs
+        // *before* the enabled flag so that `load_workspace_fairness_enabled` reads
+        // current values when re-storing the pull queries.
+        if let Err(e) = load_workspace_fairness_max_percent(db).await {
+            tracing::error!("Error loading workspace fairness max percent: {e:#}");
+        }
+        if let Err(e) = load_workspace_fairness_duration_secs(db).await {
+            tracing::error!("Error loading workspace fairness duration secs: {e:#}");
+        }
+        if let Err(e) = load_workspace_fairness_min_total(db).await {
+            tracing::error!("Error loading workspace fairness min total: {e:#}");
+        }
+        if let Err(e) = load_workspace_fairness_enabled(db).await {
+            tracing::error!("Error loading workspace fairness enabled: {e:#}");
         }
     }
 
@@ -387,6 +406,7 @@ pub async fn initial_load(
         reload_job_default_timeout_setting(&conn).await;
         reload_job_isolation_setting(&conn).await;
         reload_nsjail_tmpfs_size_setting(&conn).await;
+        reload_nsjail_tmp_backing_setting(&conn).await;
         reload_extra_pip_index_url_setting(&conn).await;
         reload_pip_index_url_setting(&conn).await;
         reload_uv_index_strategy_setting(&conn).await;
@@ -539,6 +559,112 @@ pub async fn load_preview_tags_override(db: &DB) -> error::Result<()> {
         Ok(Some(serde_json::Value::Bool(t))) => PREVIEW_TAGS_OVERRIDE.store(t, Ordering::Relaxed),
         _ => (),
     };
+    Ok(())
+}
+
+// Upper bound on the duration window. Postgres `make_interval(secs => $1::int4)` is the consumer
+// downstream, so this stays comfortably below `i32::MAX` and the subsequent `u32 -> i32` cast in
+// `workspace_fairness::refresh_overloaded` cannot wrap into a negative interval (which would
+// silently turn `now() - interval` into a future timestamp and disable the completed-jobs half
+// of the activity signal). A day is the practical ceiling for a "rolling window" knob.
+const WORKSPACE_FAIRNESS_DURATION_SECS_MAX: u64 = 86_400;
+
+/// Min-total floor is a counting threshold; cap at `u32::MAX` to make wraparound impossible
+/// while still leaving more headroom than any realistic cluster will need.
+const WORKSPACE_FAIRNESS_MIN_TOTAL_MAX: u64 = u32::MAX as u64;
+
+// Defaults used when a fairness knob is unset (row missing or row deleted via NULL/empty value).
+// Must stay in sync with the `AtomicU32::new(...)` initialisers in `windmill-common/src/worker.rs`
+// so a process that has never seen the setting reads the same value as one that just saw it
+// cleared.
+const WORKSPACE_FAIRNESS_MAX_PERCENT_DEFAULT: u32 = 50;
+const WORKSPACE_FAIRNESS_DURATION_SECS_DEFAULT: u32 = 10;
+const WORKSPACE_FAIRNESS_MIN_TOTAL_DEFAULT: u32 = 4;
+
+pub async fn load_workspace_fairness_enabled(db: &DB) -> error::Result<()> {
+    // Match the convention used by `load_preview_tags_override` /
+    // `load_fork_workspace_tag_append_fork_suffix`: on transient DB errors, leave the in-memory
+    // atomic untouched rather than silently toggling the feature off across the whole cluster
+    // (which would also trigger an unnecessary `store_pull_query` rebuild — exactly when DB load
+    // is probably highest).
+    let new_enabled =
+        match load_value_from_global_settings(db, WORKSPACE_FAIRNESS_ENABLED_SETTING).await? {
+            Some(serde_json::Value::Bool(t)) => t,
+            // Setting unset / non-bool → explicit off.
+            _ => false,
+        };
+    let prev = WORKSPACE_FAIRNESS_ENABLED.swap(new_enabled, Ordering::Relaxed);
+    // Re-store the pull queries so the fairness variants appear/disappear in
+    // lockstep with the toggle.
+    if prev != new_enabled {
+        let wc = windmill_common::worker::WORKER_CONFIG.load_full();
+        store_pull_query(&wc).await;
+    }
+    Ok(())
+}
+
+pub async fn load_workspace_fairness_max_percent(db: &DB) -> error::Result<()> {
+    // Distinguish three outcomes:
+    //   - `Err(_)`: transient DB issue. Leave the atomic alone (don't clobber a known-good value
+    //     because of a network blip during a notify-event propagation).
+    //   - `Ok(None)` or `Ok(Some(invalid))`: setting is unset / explicitly cleared / corrupt.
+    //     Restore the default so a deletion via the admin UI actually takes effect at runtime
+    //     instead of leaving the stale in-memory value pinned until restart.
+    //   - `Ok(Some(valid))`: clamp and store.
+    match load_value_from_global_settings(db, WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING).await? {
+        Some(serde_json::Value::Number(n)) => {
+            let v = n
+                .as_u64()
+                .map(|u| u.clamp(1, 100) as u32)
+                .unwrap_or(WORKSPACE_FAIRNESS_MAX_PERCENT_DEFAULT);
+            WORKSPACE_FAIRNESS_MAX_PERCENT.store(v, Ordering::Relaxed);
+        }
+        _ => {
+            WORKSPACE_FAIRNESS_MAX_PERCENT
+                .store(WORKSPACE_FAIRNESS_MAX_PERCENT_DEFAULT, Ordering::Relaxed);
+        }
+    }
+    Ok(())
+}
+
+pub async fn load_workspace_fairness_duration_secs(db: &DB) -> error::Result<()> {
+    // See `load_workspace_fairness_max_percent` for the Err / None / invalid policy.
+    match load_value_from_global_settings(db, WORKSPACE_FAIRNESS_DURATION_SECS_SETTING).await? {
+        Some(serde_json::Value::Number(n)) => {
+            // Clamp to the safe range before narrowing. The downstream `u32 -> i32` cast in
+            // `workspace_fairness::refresh_overloaded` makes any value above `i32::MAX` toxic
+            // (sign flip → negative interval → silent disable of the completed-jobs scan).
+            let v = n
+                .as_u64()
+                .map(|u| u.clamp(1, WORKSPACE_FAIRNESS_DURATION_SECS_MAX) as u32)
+                .unwrap_or(WORKSPACE_FAIRNESS_DURATION_SECS_DEFAULT);
+            WORKSPACE_FAIRNESS_DURATION_SECS.store(v, Ordering::Relaxed);
+        }
+        _ => {
+            WORKSPACE_FAIRNESS_DURATION_SECS
+                .store(WORKSPACE_FAIRNESS_DURATION_SECS_DEFAULT, Ordering::Relaxed);
+        }
+    }
+    Ok(())
+}
+
+pub async fn load_workspace_fairness_min_total(db: &DB) -> error::Result<()> {
+    // See `load_workspace_fairness_max_percent` for the Err / None / invalid policy.
+    match load_value_from_global_settings(db, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING).await? {
+        Some(serde_json::Value::Number(n)) => {
+            // Clamp before narrowing — same reasoning as `_duration_secs`, just for the
+            // counting threshold rather than the interval.
+            let v = n
+                .as_u64()
+                .map(|u| u.min(WORKSPACE_FAIRNESS_MIN_TOTAL_MAX) as u32)
+                .unwrap_or(WORKSPACE_FAIRNESS_MIN_TOTAL_DEFAULT);
+            WORKSPACE_FAIRNESS_MIN_TOTAL.store(v, Ordering::Relaxed);
+        }
+        _ => {
+            WORKSPACE_FAIRNESS_MIN_TOTAL
+                .store(WORKSPACE_FAIRNESS_MIN_TOTAL_DEFAULT, Ordering::Relaxed);
+        }
+    }
     Ok(())
 }
 
@@ -1905,6 +2031,16 @@ pub async fn reload_nsjail_tmpfs_size_setting(conn: &Connection) {
         NSJAIL_TMPFS_SIZE_MB_SETTING,
         "NSJAIL_TMPFS_SIZE_MB",
         NSJAIL_TMPFS_SIZE_MB.clone(),
+    )
+    .await;
+}
+
+pub async fn reload_nsjail_tmp_backing_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        NSJAIL_TMP_BACKING_SETTING,
+        "NSJAIL_TMP_BACKING",
+        NSJAIL_TMP_BACKING.clone(),
     )
     .await;
 }

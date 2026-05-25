@@ -247,6 +247,49 @@ describe('processToolCall', () => {
 		expect(result.content).toBe('ok')
 	})
 
+	it('auto-accepts required confirmations when yolo mode is active', async () => {
+		const { createToolDef, processToolCall } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('ok')
+		const requestConfirmation = vi.fn()
+		const setToolStatus = vi.fn()
+
+		const result = await processToolCall({
+			tools: [
+				{
+					def: createToolDef(z.object({}), 'create_schedule', 'Create schedule'),
+					requiresConfirmation: true,
+					confirmationMessage: 'Create schedule',
+					fn
+				}
+			],
+			toolCall: {
+				id: 'call_yolo',
+				type: 'function',
+				function: { name: 'create_schedule', arguments: '{}' }
+			},
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus,
+				removeToolStatus: vi.fn(),
+				requestConfirmation,
+				shouldAutoAcceptToolConfirmations: () => true
+			}
+		})
+
+		expect(requestConfirmation).not.toHaveBeenCalled()
+		expect(fn).toHaveBeenCalled()
+		expect(setToolStatus).toHaveBeenCalledWith(
+			'call_yolo',
+			expect.objectContaining({
+				content: 'Create schedule',
+				isLoading: true,
+				needsConfirmation: false
+			})
+		)
+		expect(result.content).toBe('ok')
+	})
+
 	it('blocks workspace mutation tools for undeployed scripts and flows', async () => {
 		const { processToolCall } = await import('./shared')
 		const { createWorkspaceMutationTools } = await import('./workspaceTools')

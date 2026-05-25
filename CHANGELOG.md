@@ -1,5 +1,59 @@
 # Changelog
 
+## [1.708.0](https://github.com/windmill-labs/windmill/compare/v1.707.0...v1.708.0) (2026-05-24)
+
+
+### Features
+
+* **queue:** per-workspace fairness cap on the shared cloud worker pool ([#9303](https://github.com/windmill-labs/windmill/issues/9303)) ([de2e243](https://github.com/windmill-labs/windmill/commit/de2e243313ee34348675dec600cb412b475d1b4b))
+
+## [1.707.0](https://github.com/windmill-labs/windmill/compare/v1.706.1...v1.707.0) (2026-05-22)
+
+
+### Features
+
+* add wmill job rerun subcommand ([#9275](https://github.com/windmill-labs/windmill/issues/9275)) ([e0ffea2](https://github.com/windmill-labs/windmill/commit/e0ffea2deb5acf30815edd3669f4fc4c818b6e19))
+* **github-app:** hide cloud-only UI on self-managed + admin assignment UI ([#9299](https://github.com/windmill-labs/windmill/issues/9299)) ([dcee8cc](https://github.com/windmill-labs/windmill/commit/dcee8cc0d3dd71c3a12f1720e3ce4eb86cdacf4f))
+* **typescript-client:** add deleteS3File + optional workspace arg on S3 helpers ([#9300](https://github.com/windmill-labs/windmill/issues/9300)) ([daab561](https://github.com/windmill-labs/windmill/commit/daab561ec0763468d93e42e8f7f0796dc77be74d))
+
+
+### Bug Fixes
+
+* **auth:** tighten token-owner fallback for unscoped tokens (WIN-1978) ([#9293](https://github.com/windmill-labs/windmill/issues/9293)) ([7003998](https://github.com/windmill-labs/windmill/commit/7003998a575d76c272c6abd0789a1d1f7b722076))
+* **cli:** wmill sync pull updates wmill-lock.yaml for raw apps ([#9289](https://github.com/windmill-labs/windmill/issues/9289)) ([486e5f9](https://github.com/windmill-labs/windmill/commit/486e5f947b1649c17d32e3b214c50d4be701a4e8))
+* flow recording teardown crash + rename package to @windmill-labs/components ([#9288](https://github.com/windmill-labs/windmill/issues/9288)) ([13a2fae](https://github.com/windmill-labs/windmill/commit/13a2fae745ba4862006db5ee0811475c1d27fd1d))
+* **flows:** restore Variables and Resources in flow editor prop picker ([#9290](https://github.com/windmill-labs/windmill/issues/9290)) ([5566c7b](https://github.com/windmill-labs/windmill/commit/5566c7b3ff2d5a6b15cb9187aa15ce1c7245b3fb))
+* **ResourceEditor:** don't reset state when `selected` reverts to undefined ([#9295](https://github.com/windmill-labs/windmill/issues/9295)) ([1f2d2c1](https://github.com/windmill-labs/windmill/commit/1f2d2c11493db20b87615d41c21e5e1c35564739))
+* **secret-backend:** pass DB to Vault migrations + show failure details ([#9292](https://github.com/windmill-labs/windmill/issues/9292)) ([ace2291](https://github.com/windmill-labs/windmill/commit/ace22910c40585a6a2c9abd0c46f7e5e0214e78e))
+
+## [1.706.1](https://github.com/windmill-labs/windmill/compare/v1.706.0...v1.706.1) (2026-05-22)
+
+
+### Bug Fixes
+
+* fork compare visibility for non-admins and stale-token superadmins ([#9283](https://github.com/windmill-labs/windmill/issues/9283)) ([8272244](https://github.com/windmill-labs/windmill/commit/82722449e79da0b4b0ad4142aec7e7965e9ff236))
+* **git-sync:** bump to hub/28234 with stateless gpg.program wrapper (WIN-1974) ([#9282](https://github.com/windmill-labs/windmill/issues/9282)) ([89a2f07](https://github.com/windmill-labs/windmill/commit/89a2f07218818b95238b4a4484deab3138099672))
+* **nsjail:** gate unix-symlink test behind cfg(unix) for Windows build ([#9280](https://github.com/windmill-labs/windmill/issues/9280)) ([72e2c3a](https://github.com/windmill-labs/windmill/commit/72e2c3a6b3e0cb0f5bddf8291ae18bb8cf55ec28))
+
+## [1.706.0](https://github.com/windmill-labs/windmill/compare/v1.705.0...v1.706.0) (2026-05-21)
+
+
+### Features
+
+* add userdraft listing primitives ([#9268](https://github.com/windmill-labs/windmill/issues/9268)) ([d0ee697](https://github.com/windmill-labs/windmill/commit/d0ee697e8b8de58085ea0b2ecde1af2b2441428d))
+* add UV_PYTHON_INSTALL_MIRROR env and instance setting ([#9271](https://github.com/windmill-labs/windmill/issues/9271)) ([1169371](https://github.com/windmill-labs/windmill/commit/1169371d4885bdc18c76d03c6caae71f0e440235))
+* add yolo mode for ai chat tools ([#9258](https://github.com/windmill-labs/windmill/issues/9258)) ([ac26aa4](https://github.com/windmill-labs/windmill/commit/ac26aa4e4c7cc2d493f136b59738c0708803cc6d))
+* CLI datatable serve / psql ([#9267](https://github.com/windmill-labs/windmill/issues/9267)) ([28c8b5c](https://github.com/windmill-labs/windmill/commit/28c8b5c60fd46f961ae11b363b9be834fad6ee68))
+* **cli:** add `wmill init prompts` and custom override slot ([#9266](https://github.com/windmill-labs/windmill/issues/9266)) ([1ba8ed8](https://github.com/windmill-labs/windmill/commit/1ba8ed8abd827313ce0f7728d9f84357417206ee))
+* **nsjail:** optional disk-backed /tmp via instance setting ([#9272](https://github.com/windmill-labs/windmill/issues/9272)) ([b656dc6](https://github.com/windmill-labs/windmill/commit/b656dc6cdc8c50ef9740240447f119cceed18547))
+
+
+### Bug Fixes
+
+* **ai:** enforce RLS and scope check on user-supplied X-Resource-Path ([#9276](https://github.com/windmill-labs/windmill/issues/9276)) ([0692b97](https://github.com/windmill-labs/windmill/commit/0692b97c8a3818549d7050ea3e057e9cbf1ddb44))
+* **debugger:** add non-root user support to Dockerfile ([#9277](https://github.com/windmill-labs/windmill/issues/9277)) ([0bdb6a9](https://github.com/windmill-labs/windmill/commit/0bdb6a9d5d5fb28a27af1b6eda9fde7172308faf))
+* **indexer:** tell admins when ingress routes search to wrong pod ([#9274](https://github.com/windmill-labs/windmill/issues/9274)) ([d29a561](https://github.com/windmill-labs/windmill/commit/d29a5612fcd17eb4197468289e955a1209127cc1))
+
 ## [1.705.0](https://github.com/windmill-labs/windmill/compare/v1.704.1...v1.705.0) (2026-05-20)
 
 

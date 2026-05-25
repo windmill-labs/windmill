@@ -1165,9 +1165,10 @@ async duckdbConnectionSettings(s3_resource_path: string | undefined): Promise<an
 /**
  * Get S3 client settings from a resource or workspace default
  * @param s3_resource_path - Path to S3 resource (uses workspace default if undefined)
+ * @param workspace - Workspace to read from (defaults to the \`WM_WORKSPACE\` env var)
  * @returns S3 client configuration settings
  */
-async denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<DenoS3LightClientSettings>
+async denoS3LightClientSettings(s3_resource_path: string | undefined, workspace: string | undefined = undefined): Promise<DenoS3LightClientSettings>
 
 /**
  * Load the content of a file stored in S3. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
@@ -1178,8 +1179,10 @@ async denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<D
  * const text = new TextDecoder().decode(fileContentStream)
  * console.log(text);
  * \`\`\`
+ * 
+ * @param workspace - Workspace to read from (defaults to the \`WM_WORKSPACE\` env var)
  */
-async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Uint8Array | undefined>
+async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefined, workspace: string | undefined = undefined): Promise<Uint8Array | undefined>
 
 /**
  * Load the content of a file stored in S3 as a stream. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
@@ -1189,8 +1192,10 @@ async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefi
  * // if the content is plain text, the blob can be read directly:
  * console.log(await fileContentBlob.text());
  * \`\`\`
+ * 
+ * @param workspace - Workspace to read from (defaults to the \`WM_WORKSPACE\` env var)
  */
-async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Blob | undefined>
+async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = undefined, workspace: string | undefined = undefined): Promise<Blob | undefined>
 
 /**
  * Persist a file to the S3 bucket. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
@@ -1200,8 +1205,22 @@ async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = 
  * const fileContentAsUtf8Str = (await s3object.toArray()).toString('utf-8')
  * console.log(fileContentAsUtf8Str)
  * \`\`\`
+ * 
+ * @param workspace - Workspace to write to (defaults to the \`WM_WORKSPACE\` env var)
  */
-async writeS3File(s3object: S3Object | undefined, fileContent: string | Blob, s3ResourcePath: string | undefined = undefined, contentType: string | undefined = undefined, contentDisposition: string | undefined = undefined): Promise<S3Object>
+async writeS3File(s3object: S3Object | undefined, fileContent: string | Blob, s3ResourcePath: string | undefined = undefined, contentType: string | undefined = undefined, contentDisposition: string | undefined = undefined, workspace: string | undefined = undefined): Promise<S3Object>
+
+/**
+ * Permanently delete a file from S3 by key.
+ * 
+ * \`\`\`typescript
+ * await wmill.deleteS3File({ s3: "path/to/file.txt" })
+ * \`\`\`
+ * 
+ * @param s3object - S3 object identifying the file to delete (must have \`s3\` set)
+ * @param workspace - Workspace to delete from (defaults to the \`WM_WORKSPACE\` env var)
+ */
+async deleteS3File(s3object: S3Object, workspace: string | undefined = undefined): Promise<void>
 
 /**
  * Sign S3 objects to be used by anonymous users in public apps
@@ -2865,6 +2884,10 @@ Manage jobs (list, inspect, cancel)
 - \`job logs <id:string>\` - Get job logs. For flows: aggregates all step logs
 - \`job cancel <id:string>\` - Cancel a running or queued job
   - \`--reason <reason:string>\` - Reason for cancellation
+- \`job rerun <id:string>\` - Re-run a completed job with the same args. Prints the new job UUID on stdout.
+- \`job restart <id:string>\` - Restart a completed flow at a given top-level step. Prints the new flow job UUID on stdout.
+  - \`--step <stepId:string>\` - Top-level step id to restart the flow from
+  - \`--iteration <n:number>\` - For a top-level branchall or for-loop step, the iteration to restart at
 
 ### jobs
 
@@ -2917,6 +2940,15 @@ List all queues with their metrics
 **Options:**
 - \`--instance [instance]\` - Name of the instance to push to, override the active instance
 - \`--base-url [baseUrl]\` - If used with --token, will be used as the base url for the instance
+
+### refresh
+
+Refresh wmill-managed project files (AGENTS.cli.md and skills)
+
+**Subcommands:**
+
+- \`refresh prompts\` - Refresh AGENTS.cli.md and managed skills. User-owned AGENTS.md and CLAUDE.md are never overwritten unless you opt in.
+  - \`--yes\` - Non-interactive: skip the migration prompt for existing AGENTS.md / CLAUDE.md without the expected include; defaults to appending the include.
 
 ### resource
 

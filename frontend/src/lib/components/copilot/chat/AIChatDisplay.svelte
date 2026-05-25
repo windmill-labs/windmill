@@ -4,7 +4,10 @@
 	import AvailableContextList from './AvailableContextList.svelte'
 	import { type Snippet } from 'svelte'
 	import {
+		AlertTriangle,
 		ArrowDown,
+		ChevronDown,
+		ChevronsRight,
 		CheckIcon,
 		HistoryIcon,
 		Hourglass,
@@ -23,16 +26,43 @@
 	import ProviderModelSelector from './ProviderModelSelector.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
+	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import { twMerge } from 'tailwind-merge'
-	import { AIMode } from './AIChatManager.svelte'
+	import { AIAutonomyMode, AIMode } from './AIChatManager.svelte'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import ChatTypingIndicator from './ChatTypingIndicator.svelte'
 	import AIChatInput from './AIChatInput.svelte'
 	import { getModifierKey } from '$lib/utils'
 	import type { SelectedContext } from './app/core'
 
+	const MAX_YOLO_TOOLTIP_TOOLS = 8
 	const aiChatManager = getAiChatManager()
+	type AutonomyModeOption = { label: string; mode: AIAutonomyMode }
+	const autonomyModeOptions: AutonomyModeOption[] = [
+		{ label: 'auto accept off', mode: AIAutonomyMode.DEFAULT },
+		{ label: 'auto accept on', mode: AIAutonomyMode.ACCEPT_EDIT },
+		{ label: 'yolo on', mode: AIAutonomyMode.YOLO }
+	]
+	const autonomyModeLabel = (
+		mode: AIAutonomyMode,
+		options: AutonomyModeOption[] = autonomyModeOptions
+	) => options.find((option) => option.mode === mode)?.label ?? autonomyModeOptions[0].label
+	const isAutonomyModeAvailable = (
+		mode: AIAutonomyMode,
+		autoAcceptEditsAvailable: boolean,
+		autoAcceptToolConfirmationsAvailable: boolean
+	) => {
+		switch (mode) {
+			case AIAutonomyMode.DEFAULT:
+				return true
+			case AIAutonomyMode.ACCEPT_EDIT:
+				return autoAcceptEditsAvailable
+			case AIAutonomyMode.YOLO:
+				return autoAcceptToolConfirmationsAvailable
+		}
+		return false
+	}
 
 	let {
 		messages,
@@ -179,6 +209,37 @@
 			aiChatManager.mode === AIMode.GLOBAL ||
 			aiChatManager.mode === AIMode.APP
 	)
+	const availableAutonomyModeOptions = $derived.by(() =>
+		autonomyModeOptions.filter((option) =>
+			isAutonomyModeAvailable(
+				option.mode,
+				aiChatManager.autoAcceptEditsAvailable,
+				aiChatManager.autoAcceptToolConfirmationsAvailable
+			)
+		)
+	)
+	const effectiveAutonomyMode = $derived(
+		availableAutonomyModeOptions.some((option) => option.mode === aiChatManager.autonomyMode)
+			? aiChatManager.autonomyMode
+			: AIAutonomyMode.DEFAULT
+	)
+	const showAutonomyModeSelector = $derived(!disabled && availableAutonomyModeOptions.length > 1)
+	const autonomyModeTooltip = $derived.by(() => {
+		switch (effectiveAutonomyMode) {
+			case AIAutonomyMode.ACCEPT_EDIT:
+				return 'Automatically accepts script and flow edits. Tool calls still ask for confirmation.'
+			case AIAutonomyMode.YOLO:
+				if (!aiChatManager.autoAcceptEditsAvailable) {
+					return 'Automatically accepts tool confirmations.'
+				}
+				return 'Automatically accepts script and flow edits plus tool confirmations.'
+			default:
+				if (!aiChatManager.autoAcceptEditsAvailable) {
+					return 'Requires confirmation for tool calls.'
+				}
+				return 'Requires confirmation for edits and tool calls.'
+		}
+	})
 
 	// "Waiting for user" detection — when the latest tool message is staged
 	// for confirmation or has an unanswered askUserQuestion, the AI loop is
@@ -209,6 +270,29 @@
 		}
 		return aiChatManager.appAiChatHelpers.getSelectedContext()
 	})
+
+	const yoloBypassedTools = $derived.by(() => {
+		return aiChatManager.tools
+			.filter((tool) => tool.requiresConfirmation === true)
+			.map((tool) => ({
+				name: tool.def.function.name,
+				label: tool.confirmationMessage ?? tool.def.function.name
+			}))
+	})
+	const visibleYoloBypassedTools = $derived(yoloBypassedTools.slice(0, MAX_YOLO_TOOLTIP_TOOLS))
+	const hiddenYoloBypassedToolCount = $derived(
+		Math.max(0, yoloBypassedTools.length - visibleYoloBypassedTools.length)
+	)
+	const showFlowPendingActionControls = $derived(
+		(aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false) &&
+			!aiChatManager.autoAcceptEditsActive
+	)
+	const showFooterLeftControls = $derived(
+		!disabled &&
+			(showContextPicker ||
+				showAutonomyModeSelector ||
+				(aiChatManager.mode === AIMode.SCRIPT && hasDiff))
+	)
 </script>
 
 <div class="flex flex-col h-full">
@@ -322,7 +406,7 @@
 						<div
 							class={twMerge(
 								'sticky z-10 mt-2 ml-2 self-start pointer-events-none',
-								aiChatManager.flowAiChatHelpers?.hasPendingChanges() ? 'bottom-14' : 'bottom-2'
+								showFlowPendingActionControls ? 'bottom-14' : 'bottom-2'
 							)}
 						>
 							{#if waitingForUserAction}
@@ -345,7 +429,7 @@
 					transition:fade={{ duration: 120 }}
 					class={twMerge(
 						'absolute left-1/2 -translate-x-1/2 z-10 rounded-md bg-surface shadow-md',
-						aiChatManager.flowAiChatHelpers?.hasPendingChanges() ? 'bottom-12' : 'bottom-2'
+						showFlowPendingActionControls ? 'bottom-12' : 'bottom-2'
 					)}
 				>
 					<Button
@@ -370,7 +454,7 @@
 			? 'relative w-full max-w-3xl mx-auto px-6 pb-2'
 			: 'relative w-full max-w-2xl mx-auto px-2 pb-2'}
 	>
-		{#if aiChatManager.flowAiChatHelpers?.hasPendingChanges()}
+		{#if showFlowPendingActionControls}
 			<div class="absolute -top-10 w-full flex flex-row justify-center gap-2">
 				<Button
 					startIcon={{ icon: CheckIcon }}
@@ -409,49 +493,136 @@
 				{disabled}
 				isFirstMessage={messages.length === 0}
 			/>
-			<div class="flex flex-row justify-between items-center gap-x-1.5">
-				<div class="flex flex-row items-center gap-x-1.5">
-					{#if showContextPicker && !disabled}
-						<Popover>
-							{#snippet trigger()}
-								<div
-									class="text-primary text-xs flex flex-row items-center font-normal border px-1 rounded-lg hover:bg-surface-hover bg-surface"
-									title="Add context"
-								>
-									@
-								</div>
-							{/snippet}
-							{#snippet content({ close })}
-								{#if aiChatManager.mode === AIMode.APP}
-									<AppAvailableContextList
-										{availableContext}
-										{selectedContext}
-										onSelect={(element) => {
-											void aiChatInput?.addContextToSelection(element)
-											close()
-										}}
-									/>
-								{:else}
-									<AvailableContextList
-										{availableContext}
-										{selectedContext}
-										onSelect={(element) => {
-											void aiChatInput?.addContextToSelection(element)
-											close()
-										}}
-										onSelectWorkspaceItem={(element) => {
-											void aiChatInput?.addContextToSelection(element)
-											close()
-										}}
-									/>
-								{/if}
-							{/snippet}
-						</Popover>
-					{/if}
-					{#if aiChatManager.mode === 'script' && hasDiff}
-						<ChatQuickActions {askAi} {diffMode} />
-					{/if}
-				</div>
+			<div
+				class="flex flex-row items-center gap-x-1.5"
+				class:justify-between={showFooterLeftControls}
+				class:justify-end={!showFooterLeftControls}
+			>
+				{#if showFooterLeftControls}
+					<div class="flex flex-row items-center gap-x-1.5 min-w-0 flex-wrap">
+						{#if showContextPicker && !disabled}
+							<Popover>
+								{#snippet trigger()}
+									<div
+										class="text-primary text-xs flex flex-row items-center font-normal border px-1 rounded-lg hover:bg-surface-hover bg-surface"
+										title="Add context"
+									>
+										@
+									</div>
+								{/snippet}
+								{#snippet content({ close })}
+									{#if aiChatManager.mode === AIMode.APP}
+										<AppAvailableContextList
+											{availableContext}
+											{selectedContext}
+											onSelect={(element) => {
+												void aiChatInput?.addContextToSelection(element)
+												close()
+											}}
+										/>
+									{:else}
+										<AvailableContextList
+											{availableContext}
+											{selectedContext}
+											onSelect={(element) => {
+												void aiChatInput?.addContextToSelection(element)
+												close()
+											}}
+											onSelectWorkspaceItem={(element) => {
+												void aiChatInput?.addContextToSelection(element)
+												close()
+											}}
+										/>
+									{/if}
+								{/snippet}
+							</Popover>
+						{/if}
+						{#if showAutonomyModeSelector}
+							<div class="min-w-0">
+								<Popover class="max-w-full">
+									{#snippet trigger()}
+										<div
+											class="text-primary text-xs flex flex-row items-center font-normal gap-0.5 border px-1 rounded-lg"
+											title={autonomyModeTooltip}
+										>
+											<ChevronsRight
+												size={13}
+												class={twMerge(
+													'shrink-0',
+													effectiveAutonomyMode === AIAutonomyMode.YOLO
+														? 'text-red-500'
+														: 'text-accent'
+												)}
+											/>
+											<span class="truncate"
+												>{autonomyModeLabel(
+													effectiveAutonomyMode,
+													availableAutonomyModeOptions
+												)}</span
+											>
+											<div class="shrink-0">
+												<ChevronDown size={16} />
+											</div>
+										</div>
+									{/snippet}
+									{#snippet content({ close })}
+										<div class="flex flex-col gap-1 p-1 min-w-32">
+											{#each availableAutonomyModeOptions as option (option.mode)}
+												<button
+													class={twMerge(
+														'text-left text-xs hover:bg-surface-hover rounded-md p-1 font-normal',
+														effectiveAutonomyMode === option.mode && 'bg-surface-hover'
+													)}
+													onclick={() => {
+														aiChatManager.setAutonomyMode(option.mode)
+														close()
+													}}
+												>
+													{option.label}
+												</button>
+											{/each}
+										</div>
+									{/snippet}
+								</Popover>
+							</div>
+						{/if}
+						{#if effectiveAutonomyMode === AIAutonomyMode.YOLO && aiChatManager.autoAcceptToolConfirmationsAvailable}
+							<Tooltip small placement="top">
+								<AlertTriangle class="w-3 h-3 text-red-500" />
+								{#snippet text()}
+									<div class="max-w-64 text-xs">
+										<p class="font-semibold">
+											{aiChatManager.autoAcceptEditsAvailable
+												? 'Yolo auto-accepts edits and tool usage.'
+												: 'Yolo auto-accepts tool usage.'}
+										</p>
+										<p class="mt-1">
+											{aiChatManager.autoAcceptEditsAvailable
+												? 'This can result in edits being applied or tools being called without user confirmation.'
+												: 'This can result in tools being called without user confirmation.'}
+										</p>
+										{#if yoloBypassedTools.length > 0}
+											<p class="mt-2 font-semibold">Bypassed in current mode:</p>
+											<ul class="mt-1 list-disc pl-4 space-y-0.5">
+												{#each visibleYoloBypassedTools as tool (tool.name)}
+													<li class="break-words">{tool.label}</li>
+												{/each}
+											</ul>
+											{#if hiddenYoloBypassedToolCount > 0}
+												<p class="mt-1">+ {hiddenYoloBypassedToolCount} more</p>
+											{/if}
+										{:else}
+											<p class="mt-2">No tools in the current mode require confirmation.</p>
+										{/if}
+									</div>
+								{/snippet}
+							</Tooltip>
+						{/if}
+						{#if aiChatManager.mode === AIMode.SCRIPT && hasDiff}
+							<ChatQuickActions {askAi} {diffMode} />
+						{/if}
+					</div>
+				{/if}
 				{#if disabled}
 					<div class="text-primary text-xs my-2 px-2">
 						<Markdown md={disabledMessage} />
