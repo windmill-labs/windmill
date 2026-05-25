@@ -37,12 +37,16 @@
 //! cloud's `global_settings` row). When either check fails, [`maybe_refresh_overloaded`]
 //! and the pull-side dispatch both treat the feature as disabled.
 
+use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
 use sqlx::{Pool, Postgres};
 
+use windmill_audit::audit_oss::audit_log;
+use windmill_audit::ActionKind;
+use windmill_common::audit::AuditAuthor;
 use windmill_common::error::Result;
 use windmill_common::worker::{
     is_cloud_production_host, WORKSPACE_FAIRNESS_DURATION_SECS, WORKSPACE_FAIRNESS_ENABLED,
@@ -190,6 +194,28 @@ async fn refresh_overloaded(db: &Pool<Postgres>) -> Result<()> {
     .await?
     .is_some();
 
+    // Winner-only: read the value the cluster currently holds, so we can emit
+    // audit-log entries for workspaces that just entered or left the capped set.
+    // We compare against the DB-stored prior list (not the per-process local
+    // cache) so a freshly-restarted worker that happens to win the claim does
+    // not emit spurious "newly capped" entries for the workspaces that were
+    // already capped before it started.
+    let prev_list_from_db: Vec<String> = if won {
+        let prev_val: Option<serde_json::Value> =
+            sqlx::query_scalar("SELECT value FROM background_task_state WHERE name = $1")
+                .bind(TASK_STATE_NAME)
+                .fetch_optional(db)
+                .await?;
+        match prev_val {
+            Some(v) => serde_json::from_value::<FairnessState>(v)
+                .map(|s| s.overloaded)
+                .unwrap_or_default(),
+            None => vec![],
+        }
+    } else {
+        vec![]
+    };
+
     // Step 2: winner-only aggregation + value write. `SET` is evaluated per
     // updated row, so issuing this statement only when `won` guarantees the
     // expensive aggregation never runs for a loser.
@@ -247,6 +273,33 @@ async fn refresh_overloaded(db: &Pool<Postgres>) -> Result<()> {
         None => vec![],
     };
 
+    // Audit-log transitions (winner only). Skipping losers prevents N duplicate
+    // entries per transition on a fleet of N worker processes.
+    if won && prev_list_from_db != new_list {
+        let prev_set: HashSet<&str> = prev_list_from_db.iter().map(String::as_str).collect();
+        let new_set: HashSet<&str> = new_list.iter().map(String::as_str).collect();
+        let newly_capped: Vec<&str> = new_list
+            .iter()
+            .map(String::as_str)
+            .filter(|w| !prev_set.contains(w))
+            .collect();
+        let newly_uncapped: Vec<&str> = prev_list_from_db
+            .iter()
+            .map(String::as_str)
+            .filter(|w| !new_set.contains(w))
+            .collect();
+
+        emit_transition_audit(
+            db,
+            &newly_capped,
+            &newly_uncapped,
+            max_percent,
+            duration_secs,
+            new_list.len(),
+        )
+        .await;
+    }
+
     let prev = WORKSPACE_FAIRNESS_OVERLOADED.load();
     if **prev != new_list {
         tracing::info!(
@@ -259,4 +312,72 @@ async fn refresh_overloaded(db: &Pool<Postgres>) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Best-effort audit-log emission for workspaces entering or leaving the
+/// capped set. Failures are logged but never propagated — the refresh cycle
+/// must not abort just because an audit insert fails.
+///
+/// Entries are written to the affected workspace (`workspace_fairness.capped`
+/// / `workspace_fairness.uncapped`) so per-workspace audit views surface the
+/// event for that workspace's owners. Cluster admins can review the full
+/// timeline from the `admins` workspace via the cross-workspace audit query.
+async fn emit_transition_audit(
+    db: &Pool<Postgres>,
+    newly_capped: &[&str],
+    newly_uncapped: &[&str],
+    max_percent: i64,
+    duration_secs: i32,
+    total_overloaded: usize,
+) {
+    if newly_capped.is_empty() && newly_uncapped.is_empty() {
+        return;
+    }
+
+    let author = AuditAuthor {
+        username: "system".to_string(),
+        email: "system@windmill.dev".to_string(),
+        username_override: None,
+        token_prefix: None,
+    };
+
+    let max_percent_s = max_percent.to_string();
+    let window_secs_s = duration_secs.to_string();
+    let total_s = total_overloaded.to_string();
+
+    for w in newly_capped {
+        let mut params = std::collections::HashMap::<&str, &str>::new();
+        params.insert("max_percent", &max_percent_s);
+        params.insert("window_secs", &window_secs_s);
+        params.insert("total_overloaded", &total_s);
+        if let Err(e) = audit_log(
+            db,
+            &author,
+            "workspace_fairness.capped",
+            ActionKind::Update,
+            w,
+            None,
+            Some(params),
+        )
+        .await
+        {
+            tracing::warn!("failed to write workspace_fairness.capped audit for {w}: {e:#}");
+        }
+    }
+
+    for w in newly_uncapped {
+        if let Err(e) = audit_log(
+            db,
+            &author,
+            "workspace_fairness.uncapped",
+            ActionKind::Update,
+            w,
+            None,
+            None,
+        )
+        .await
+        {
+            tracing::warn!("failed to write workspace_fairness.uncapped audit for {w}: {e:#}");
+        }
+    }
 }
