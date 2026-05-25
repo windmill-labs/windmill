@@ -1050,10 +1050,14 @@
 			}
 			// Escape inside the preview exits inspect mode — the keydown fires in
 			// the iframe's document, so the parent window listener can't see it.
+			// We also want Escape to dismiss a lingering green "selected" overlay
+			// after the user picked an element (which auto-disables hover).
 			previewIframe?.contentWindow?.addEventListener(
 				'keydown',
 				(e) => {
-					if (e.key === 'Escape' && inspectorEnabled) disableInspector()
+					if (e.key === 'Escape' && (inspectorEnabled || inspectorElement)) {
+						disableInspector()
+					}
 				},
 				true
 			)
@@ -1225,9 +1229,17 @@
 	}
 
 	function disableInspector() {
-		if (!inspectorEnabled) return
+		// Picking an element auto-clears `inspectorEnabled`, so Escape after a
+		// pick gets here with hover already off but the green selection still
+		// up. Bail only when there is genuinely nothing to dismiss.
+		if (!inspectorEnabled && !inspectorElement) return
 		inspectorEnabled = false
+		// `inspectorDisable` only stops hover/click; the green "selected"
+		// overlay from a prior pick persists until we explicitly clear it.
+		// Escape should reset both, so the iframe goes back to its idle look.
 		previewIframe?.contentWindow?.postMessage({ type: 'inspectorDisable' }, '*')
+		previewIframe?.contentWindow?.postMessage({ type: 'inspectorClear' }, '*')
+		inspectorElement = undefined
 	}
 
 	// Escape exits inspect mode. We listen in the capture phase because a global
@@ -1235,7 +1247,7 @@
 	// iframe (separate document) is covered by its own listener on load.
 	$effect(() => {
 		const onEscapeCapture = (e: KeyboardEvent) => {
-			if (e.key === 'Escape' && inspectorEnabled) {
+			if (e.key === 'Escape' && (inspectorEnabled || inspectorElement)) {
 				disableInspector()
 				e.stopImmediatePropagation()
 				e.preventDefault()
