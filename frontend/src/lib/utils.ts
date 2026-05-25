@@ -1536,6 +1536,9 @@ export type Item = {
 	separatorTop?: boolean
 	submenuItems?: Item[]
 	shortcut?: string
+	// Renders a trailing check on the right of the label to mark the
+	// currently-selected item (for dropdowns used as a single-choice picker).
+	selected?: boolean
 }
 
 export function isObjectTooBig(obj: any): boolean {

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ChevronDown, Check } from 'lucide-svelte'
+	import { ChevronDown } from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import {
 		COPILOT_SESSION_MODEL_SETTING_NAME,
@@ -26,7 +26,7 @@
 		items={() =>
 			$copilotInfo.aiModels.map((m) => ({
 				displayName: m.model,
-				icon: m.model === providerModel.model ? Check : undefined,
+				selected: m.model === providerModel.model,
 				action: () => {
 					$copilotSessionModel = m
 					storeLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME, m.model)

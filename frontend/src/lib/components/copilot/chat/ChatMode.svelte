@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ChevronDown, Check } from 'lucide-svelte'
+	import { ChevronDown } from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 	import { CHAT_BAR_PILL, CHAT_BAR_PILL_STATIC } from './chatBarStyles'
@@ -17,7 +17,7 @@
 		items={() =>
 			allowedModeList.map((mode) => ({
 				displayName: modeLabel(mode),
-				icon: aiChatManager.mode === mode ? Check : undefined,
+				selected: aiChatManager.mode === mode,
 				action: () => aiChatManager.changeMode(mode)
 			}))}
 		placement="bottom-start"

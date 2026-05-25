@@ -6,7 +6,6 @@
 	import {
 		AlertTriangle,
 		ArrowDown,
-		Check,
 		ChevronDown,
 		ChevronsRight,
 		CheckIcon,
@@ -542,7 +541,7 @@
 								items={() =>
 									availableAutonomyModeOptions.map((option) => ({
 										displayName: option.label,
-										icon: effectiveAutonomyMode === option.mode ? Check : undefined,
+										selected: effectiveAutonomyMode === option.mode,
 										action: () => aiChatManager.setAutonomyMode(option.mode)
 									}))}
 								placement="bottom-start"
