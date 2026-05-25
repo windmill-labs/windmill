@@ -143,7 +143,7 @@
 	{#snippet trigger()}
 		<button
 			type="button"
-			class="w-10 h-10 rounded-full flex items-center justify-center bg-emerald-500 hover:bg-emerald-600 text-white shadow-md transition-colors cursor-pointer"
+			class="w-10 h-10 rounded-full flex items-center justify-center bg-surface-accent-primary text-white shadow-md transition-colors cursor-pointer"
 			title="Add to pipeline"
 		>
 			<Plus size={20} />

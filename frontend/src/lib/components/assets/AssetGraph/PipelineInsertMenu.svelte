@@ -60,7 +60,8 @@
 		pathPrefix = '',
 		trigger: triggerSnippet,
 		placement = 'bottom',
-		defaultPathSuffix
+		defaultPathSuffix,
+		onPick
 	}: Props = $props()
 
 	const buildEmptySelected = () => ({
@@ -88,6 +89,20 @@
 		let out = ''
 		for (let i = 0; i < len; i++) out += a[Math.floor(Math.random() * a.length)]
 		return out
+	}
+
+	function confirm(close: () => void) {
+		const suffix = selected.scriptPath.trim()
+		if (!suffix || !selected.triggerId || !selected.language || !selected.outputId) return
+		const trimmedPrompt = selected.aiPrompt?.trim()
+		onPick({
+			kindId: selected.triggerId,
+			language: selected.language,
+			path: pathPrefix + suffix,
+			outputKind: selected.outputId,
+			aiPrompt: trimmedPrompt && trimmedPrompt.length > 0 ? trimmedPrompt : undefined
+		})
+		close()
 	}
 </script>
 
@@ -126,7 +141,7 @@
 			)}
 		>
 			{#if showBottomPanel}
-				{@render bottomSection()}
+				{@render bottomSection(close)}
 			{/if}
 		</div>
 	{/snippet}
@@ -226,7 +241,7 @@
 	</div>
 {/snippet}
 
-{#snippet bottomSection()}
+{#snippet bottomSection(close: () => void)}
 	<Label label="Path">
 		<div class="flex">
 			<div
@@ -250,6 +265,8 @@
 	<Button
 		variant="accent"
 		btnClasses="w-fit ml-auto"
+		disabled={!selected.scriptPath.trim()}
+		onClick={() => confirm(close)}
 		shortCut={{ Icon: CornerDownLeft, withoutModifier: true }}>Create</Button
 	>
 {/snippet}
