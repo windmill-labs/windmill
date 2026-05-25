@@ -219,7 +219,6 @@
 	let tabs: TabItem[] = $state([previewTab])
 	let activeTabId: string = $state(PREVIEW_TAB_ID)
 	let splitWithPreview: boolean = $state(true)
-	const TABS_STORAGE_KEY = $derived(`raw-app-tabs:${$workspaceStore ?? ''}:${path ?? ''}`)
 	const activeTabKind = $derived<'file' | 'runnable' | 'preview'>(
 		activeTabId === PREVIEW_TAB_ID
 			? 'preview'
@@ -1166,62 +1165,15 @@
 		})
 	})
 
-	// Hydrate tab state from localStorage on mount.
-	let tabsHydrated = $state(false)
+	// Open a sensible default file on mount so the split view shows the editor
+	// + preview (and boots the UI Builder iframe) instead of a blank preview.
+	// Tab/split layout is intentionally NOT persisted — each open starts fresh
+	// (split mode, default file).
 	onMount(() => {
-		try {
-			const raw = localStorage.getItem(TABS_STORAGE_KEY)
-			if (raw) {
-				const parsed = JSON.parse(raw) as {
-					tabs?: TabItem[]
-					activeTabId?: string
-					splitWithPreview?: boolean
-				}
-				if (Array.isArray(parsed.tabs) && parsed.tabs.length > 0) {
-					// Always re-pin the preview tab — if the stored data lost
-					// its `pinned` marker we'd misrender.
-					const stored = parsed.tabs.filter((t) => t.id !== PREVIEW_TAB_ID)
-					tabs = [...stored, previewTab]
-				}
-				if (parsed.activeTabId && tabs.some((t) => t.id === parsed.activeTabId)) {
-					activateTab(parsed.activeTabId)
-				}
-				if (typeof parsed.splitWithPreview === 'boolean') {
-					splitWithPreview = parsed.splitWithPreview
-				}
-			}
-		} catch (e) {
-			console.warn('Failed to hydrate raw-app tabs from localStorage', e)
-		} finally {
-			// Fresh app (no saved file tab — only Preview): open a default file
-			// and activate it. With `splitWithPreview` defaulting to true this
-			// renders the editor + preview side-by-side and boots the UI
-			// Builder iframe (which then builds the preview).
-			if (tabs.length === 1) {
-				const def = pickDefaultFile(files)
-				if (def) activateTab(ensureFileTab(def))
-			}
-			tabsHydrated = true
+		if (tabs.length === 1) {
+			const def = pickDefaultFile(files)
+			if (def) activateTab(ensureFileTab(def))
 		}
-	})
-
-	// Persist tab state. Gated on `tabsHydrated` so the initial default state
-	// doesn't overwrite the user's saved layout.
-	$effect(() => {
-		void tabs
-		void activeTabId
-		void splitWithPreview
-		if (!tabsHydrated) return
-		untrack(() => {
-			try {
-				localStorage.setItem(
-					TABS_STORAGE_KEY,
-					JSON.stringify({ tabs, activeTabId, splitWithPreview })
-				)
-			} catch (e) {
-				// Quota or privacy mode — silent, persistence is a nice-to-have.
-			}
-		})
 	})
 
 	// Drop file tabs whose underlying file disappeared (deleted via setFiles
