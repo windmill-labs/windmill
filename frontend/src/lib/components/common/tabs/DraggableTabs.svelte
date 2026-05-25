@@ -95,7 +95,7 @@
 		return twMerge(
 			'group inline-flex items-center gap-1.5 px-2.5 h-7 text-xs rounded-md select-none cursor-pointer whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-border-selected focus-visible:ring-inset',
 			isActive
-				? 'bg-surface-input text-primary'
+				? 'bg-surface-accent-selected text-accent'
 				: 'bg-transparent text-secondary hover:bg-surface-hover hover:text-primary'
 		)
 	}
@@ -160,7 +160,7 @@
 	</div>
 {/snippet}
 
-<div class={twMerge('flex items-center bg-surface-secondary', c)}>
+<div class={twMerge('flex items-center bg-surface', c)}>
 	<div use:melt={$root} class="tabs-root flex-1 min-w-0 relative pt-1 pl-1 pb-1">
 		<div use:melt={$viewport} bind:clientWidth={viewportWidth} class="tabs-viewport w-full">
 			<!-- Inner flex wrapper — melt's content element is forced to
