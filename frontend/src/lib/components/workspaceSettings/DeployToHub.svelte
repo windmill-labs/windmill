@@ -302,7 +302,7 @@
 						startIcon={{ icon: Globe }}
 						onclick={() => openPublish(it)}
 					>
-						Publish publicly
+						Share as iframe
 					</Button>
 				{/if}
 			{/if}
@@ -368,14 +368,14 @@
 
 <Drawer bind:this={publishDrawer} size="600px">
 	<DrawerContent
-		title={publishTarget ? `Publish — ${publishTarget.path}` : 'Publish'}
+		title={publishTarget ? `Share as iframe — ${publishTarget.path}` : 'Share as iframe'}
 		on:close={() => publishDrawer?.closeDrawer()}
 	>
 		<div class="flex flex-col gap-4">
 			<p class="text-xs text-secondary">
-				This will expose <span class="font-mono text-emphasis">{publishTarget?.path}</span> at a public
-				URL so the Hub can embed it as a live iframe instead of a frontend-only run. Anyone with the
-				URL will be able to interact with it.
+				Expose <span class="font-mono text-emphasis">{publishTarget?.path}</span> at a public URL so
+				it can be embedded as an iframe (e.g. on the Hub, a docs page, or your own site). Anyone with
+				the URL will be able to interact with it.
 			</p>
 
 			<div class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3">
@@ -430,7 +430,7 @@
 				startIcon={{ icon: Globe }}
 				onclick={confirmPublish}
 			>
-				Publish publicly
+				Generate iframe
 			</Button>
 		{/snippet}
 	</DrawerContent>
