@@ -197,10 +197,7 @@
 	// visually tied to the build output, not to the source editor.
 	let logs = $state('')
 
-	// Last build error from the UI Builder, or undefined if the most recent
-	// build succeeded. Rendered as a banner overlay over the preview iframe
-	// (same pane as `logs`) so failures appear where the user is looking for
-	// the rendered output, not on top of the source files.
+	// Latest UI Builder error; cleared on next successful build.
 	let buildError = $state<string | undefined>(undefined)
 	let logsCollapsed = $state(false)
 	let logsDiv: HTMLDivElement | undefined = $state(undefined)
@@ -236,9 +233,7 @@
 				? 'file'
 				: 'runnable'
 	)
-	// While a build error is showing, tint the Preview tab red so the
-	// failure is also visible when Preview isn't the active tab (its overlay
-	// lives inside the preview pane and would otherwise be hidden).
+	// Tint the Preview tab red so the error is visible when Preview isn't active.
 	function tintPreviewOnError(t: TabItem): TabItem {
 		if (t.id !== PREVIEW_TAB_ID || !buildError) return t
 		const errClass = 'text-red-600 dark:text-red-400'
@@ -954,10 +949,7 @@
 			return
 		}
 
-		// Build error: shown as a banner overlay over the preview iframe
-		// (rendered below alongside the logs panel). `message: undefined`
-		// arrives from the UI Builder on the next successful build, which
-		// clears the banner.
+		// `message: undefined` arrives on the next successful build and clears the banner.
 		if (fromUiBuilder && e.data.type === 'buildError') {
 			buildError = typeof e.data.message === 'string' ? e.data.message : undefined
 			return
@@ -1583,14 +1575,8 @@
 									class="w-full flex-1 block"
 								></iframe>
 								{#if buildError}
-									<!-- top-12 clears the tab bar (h-7 buttons + padding) so the
-									     banner sits over the preview iframe, not over the tabs.
-									     The `before:` pseudo lays a solid `bg-surface` plate behind
-									     the Alert's semi-transparent red (esp. dark mode's
-									     bg-red-900/40) so the preview iframe doesn't show through.
-									     `isolate` pins the stacking context locally so the pseudo's
-									     `-z-10` can't escape behind the preview iframe if `z-20`
-									     ever gets removed in a future refactor. -->
+									<!-- top-12 clears the tab bar; `before:bg-surface` backs the
+									     Alert's translucent red; `isolate` pins the pseudo's stacking context. -->
 									<div class="absolute top-12 left-2 right-2 z-20 isolate" role="alert">
 										<Alert
 											type="error"
