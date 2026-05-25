@@ -1099,7 +1099,8 @@
 
 	function clearInspectorSelection() {
 		inspectorElement = undefined
-		iframe?.contentWindow?.postMessage({ type: 'inspectorClear' }, '*')
+		// Inspector lives in the preview iframe, so clear its overlay there.
+		previewIframe?.contentWindow?.postMessage({ type: 'inspectorClear' }, '*')
 	}
 
 	function handleSelectFile(path: string) {
