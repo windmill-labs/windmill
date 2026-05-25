@@ -318,10 +318,11 @@ async fn refresh_overloaded(db: &Pool<Postgres>) -> Result<()> {
 /// capped set. Failures are logged but never propagated — the refresh cycle
 /// must not abort just because an audit insert fails.
 ///
-/// Entries are written to the affected workspace (`workspace_fairness.capped`
-/// / `workspace_fairness.uncapped`) so per-workspace audit views surface the
-/// event for that workspace's owners. Cluster admins can review the full
-/// timeline from the `admins` workspace via the cross-workspace audit query.
+/// Entries are scoped to the `admins` workspace and carry the affected
+/// workspace as the `resource` field, so the queue-metrics drawer (cloud-only)
+/// can fetch a single time-ordered stream of cap transitions without merging
+/// across workspaces. Cluster admins also see them in the standard `admins`
+/// audit listing (no `all_workspaces=true` toggle required).
 async fn emit_transition_audit(
     db: &Pool<Postgres>,
     newly_capped: &[&str],
@@ -355,8 +356,8 @@ async fn emit_transition_audit(
             &author,
             "workspace_fairness.capped",
             ActionKind::Update,
-            w,
-            None,
+            "admins",
+            Some(w),
             Some(params),
         )
         .await
@@ -371,8 +372,8 @@ async fn emit_transition_audit(
             &author,
             "workspace_fairness.uncapped",
             ActionKind::Update,
-            w,
-            None,
+            "admins",
+            Some(w),
             None,
         )
         .await

@@ -17682,6 +17682,38 @@ paths:
                 additionalProperties:
                   type: integer
 
+  /workers/workspace_fairness_events:
+    get:
+      summary: list last 100 workspace-fairness cap/uncap events (cloud-only)
+      operationId: getWorkspaceFairnessEvents
+      tags:
+        - worker
+      responses:
+        "200":
+          description: workspace fairness events (empty on non-cloud)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    timestamp:
+                      type: string
+                      format: date-time
+                    operation:
+                      type: string
+                    workspace_id:
+                      type: string
+                      nullable: true
+                    parameters:
+                      type: object
+                      nullable: true
+                      additionalProperties: true
+                  required:
+                    - timestamp
+                    - operation
+
   /configs/list_worker_groups:
     get:
       summary: list worker groups
