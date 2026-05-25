@@ -75,64 +75,55 @@
 			id: 'schedule',
 			label: 'On schedule',
 			description: 'Cron-driven pipeline script',
-			icon: Clock,
-			pickLanguage: true
+			icon: Clock
 		},
 		{
 			id: 'webhook',
 			label: 'On webhook',
 			description: 'Triggered by an HTTP webhook',
-			icon: Webhook,
-			pickLanguage: true
+			icon: Webhook
 		},
 		{
 			id: 'email',
 			label: 'On email',
 			description: 'Triggered by incoming email',
-			icon: Mail,
-			pickLanguage: true
+			icon: Mail
 		},
 		{
 			id: 'kafka',
 			label: 'On Kafka',
 			description: 'Triggered by a Kafka message',
-			icon: Zap,
-			pickLanguage: true
+			icon: Zap
 		},
 		{
 			id: 'mqtt',
 			label: 'On MQTT',
 			description: 'Triggered by an MQTT message',
-			icon: Radio,
-			pickLanguage: true
+			icon: Radio
 		},
 		{
 			id: 'nats',
 			label: 'On NATS',
 			description: 'Triggered by a NATS message',
-			icon: MessageSquare,
-			pickLanguage: true
+			icon: MessageSquare
 		},
 		{
 			id: 'postgres',
 			label: 'On Postgres',
 			description: 'Triggered by a Postgres event',
-			icon: Database,
-			pickLanguage: true
+			icon: Database
 		},
 		{
 			id: 'sqs',
 			label: 'On SQS',
 			description: 'Triggered by an SQS message',
-			icon: Send,
-			pickLanguage: true
+			icon: Send
 		},
 		{
 			id: 'gcp',
 			label: 'On GCP Pub/Sub',
 			description: 'Triggered by a Pub/Sub message',
-			icon: CloudCog,
-			pickLanguage: true
+			icon: CloudCog
 		}
 	]}
 	languages={PIPELINE_LANGUAGES as any}

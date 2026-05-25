@@ -8,10 +8,6 @@
 		label: string
 		description?: string
 		icon?: ComponentType
-		// When pickLanguage is true, the right panel shows the language
-		// picker (and after a language is chosen, a path-entry stage).
-		// Otherwise onSelect is called directly with no language / path.
-		pickLanguage?: boolean
 	}
 
 	export type PipelineInsertPick = {
@@ -43,6 +39,8 @@
 	import Label from '$lib/components/Label.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { CornerDownLeft } from 'lucide-svelte'
+	import { arrowTabNav } from '$lib/attachments/arrowTabNav'
+	import { selectAndAdvanceTo } from '$lib/attachments/selectAndAdvanceTo'
 
 	interface Props {
 		kinds: PipelineInsertKind[]
@@ -72,6 +70,11 @@
 		aiPrompt: undefined as undefined | string
 	})
 	let selected = $state(buildEmptySelected())
+
+	// Refs to the column containers so Enter inside one column can hand
+	// focus off to the first tabbable in the next column.
+	let languageEl: HTMLElement | undefined
+	let outputEl: HTMLElement | undefined
 
 	let compatibleKinds = $derived.by<PipelineOutputKind[]>(() => {
 		if (!selected.language) return []
@@ -148,7 +151,10 @@
 </Popover>
 
 {#snippet topSection()}
-	<div class={twMerge('flex flex-col gap-1 p-2 w-56 shrink-0 overflow-auto')}>
+	<div
+		class={twMerge('flex flex-col gap-1 p-2 w-56 shrink-0 overflow-auto')}
+		{@attach arrowTabNav({ onKeyDown: selectAndAdvanceTo(() => languageEl) })}
+	>
 		<div class="text-2xs font-normal text-secondary ml-2 mb-1">Trigger</div>
 		{#each kinds as k}
 			{@const isSelected = selected.triggerId == k.id}
@@ -186,10 +192,12 @@
 	</div>
 
 	<div
+		bind:this={languageEl}
 		class={twMerge(
 			'flex flex-col gap-1 p-2 overflow-auto transition-opacity w-48',
 			selected.triggerId ? '' : 'opacity-20'
 		)}
+		{@attach arrowTabNav({ onKeyDown: selectAndAdvanceTo(() => outputEl) })}
 	>
 		<div class="text-2xs font-normal text-secondary ml-2 mb-1">Language</div>
 		{#each languages as l}
@@ -214,10 +222,12 @@
 	</div>
 
 	<div
+		bind:this={outputEl}
 		class={twMerge(
 			'flex flex-col gap-1 p-2 grow w-56 overflow-auto transition-opacity',
 			selected.triggerId && selected.language ? '' : 'opacity-20'
 		)}
+		{@attach arrowTabNav()}
 	>
 		<div class="text-2xs font-normal text-secondary ml-2 mb-1">Output asset</div>
 		{#each visibleOutputKinds.length ? visibleOutputKinds : PIPELINE_OUTPUT_KINDS as k}

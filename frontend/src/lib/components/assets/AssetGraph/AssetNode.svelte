@@ -170,8 +170,7 @@
 						id: 'pipeline_script',
 						label: 'Add downstream pipeline script',
 						description: 'Triggered when this asset changes',
-						icon: Code2,
-						pickLanguage: true
+						icon: Code2
 					}
 				]}
 				languages={PIPELINE_LANGUAGES as any}
