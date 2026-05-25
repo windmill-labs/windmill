@@ -118,10 +118,10 @@ const askUserQuestionSchema = z.object({
 		.min(1)
 		.describe('The concise question to show to the user before continuing.'),
 	choices: z
-		.array(z.string().min(1).describe('Short answer text shown to the user and returned as-is.'))
+		.array(z.string().min(1).describe('Proposed answer text shown to the user and returned as-is.'))
 		.min(2)
-		.max(6)
-		.describe('Two to six mutually exclusive answer strings.')
+		.max(10)
+		.describe('Two to ten mutually exclusive proposed answer strings.')
 })
 
 const listWorkspaceItemsSchema = z.object({
@@ -482,7 +482,7 @@ Important rules:
 - Use search_resource_types before write_resource to discover the resource_type name and the JSON Schema its value must match.
 - Use get_instructions before writing a script, flow, resource, or app. For scripts, pass the target language; when modifying, use the language from the item you read.
 - Schedules, triggers, and variables do not need get_instructions — their tool schemas describe every field.
-- When a required decision is ambiguous, use askUserQuestion with two to six clear answer strings instead of guessing.
+- When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
 - A workspace item is { type, path, summary?, language?, triggerKind?, value, isDraft }. For scripts, value is the source code string. For flows, read_workspace_item returns value as the compact flow object { modules, schema, preprocessor_module, failure_module, groups }; write_flow takes the same flow fields as top-level tool arguments plus path/summary. For schedules/triggers/resources/variables, value is the full request body for that type. For apps, value is { files, runnables, data?, policy?, custom_path? } with frontend file contents and backend runnable definitions.
 - Apps (raw apps): use list_workspace_items with types: ['app'] to find them, read_workspace_item with type 'app' for a metadata summary (file paths + runnable list, no contents), then read_app_file to read individual files. Edit with write_app_file / patch_app_file / delete_app_file for frontend files and write_app_runnable / delete_app_runnable for backend runnables. Frontend file paths start with "/" (e.g. /index.tsx). Backend inline runnables are addressed as "backend/<key>/main.{ts|py}". /wmill.d.ts is generated and cannot be written.
 - To create a new raw app, use init_app. Before calling it, confirm framework (react19 / react18 / svelte5 / vue), path, and summary with the user — do not silently default to react19, even though it is the recommended choice.
@@ -1223,7 +1223,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			askUserQuestionSchema,
 			'askUserQuestion',
-			'Ask the user a multiple-choice question and wait for their selection before continuing.'
+			'Ask the user a question with proposed answers and wait for their selected or custom answer before continuing.'
 		),
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			const parsed = askUserQuestionSchema.parse(args)
