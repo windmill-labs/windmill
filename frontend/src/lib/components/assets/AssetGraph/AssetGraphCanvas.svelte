@@ -51,7 +51,10 @@
 			path: string,
 			source:
 				| { kind: 'schedule'; cron: string }
-				| { kind: 'webhook' | 'email' | 'kafka' | 'mqtt' | 'nats' | 'postgres' | 'sqs' | 'gcp' },
+				| {
+						kind: 'webhook' | 'email' | 'kafka' | 'mqtt' | 'nats' | 'postgres' | 'sqs' | 'gcp'
+						path: string | undefined
+				  },
 			outputKind: import('./pipelineTemplates').PipelineOutputKind,
 			aiPrompt?: string
 		) => void
