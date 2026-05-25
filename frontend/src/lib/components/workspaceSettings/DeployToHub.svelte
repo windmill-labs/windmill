@@ -14,6 +14,7 @@
 	import {
 		AppService,
 		FlowService,
+		JobService,
 		RawAppService,
 		ResourceService,
 		ScriptService,
@@ -27,9 +28,11 @@
 		Copy,
 		ExternalLink,
 		Globe,
+		Loader2,
 		Play,
 		RotateCcw,
-		TriangleAlert
+		TriangleAlert,
+		X
 	} from 'lucide-svelte'
 	import type { Kind } from '$lib/utils_deployable'
 
@@ -54,14 +57,7 @@
 	let loading = $state(false)
 	let workspaceRateLimit = $state<number | undefined>(undefined)
 
-	const FAKE_SCHEMA = {
-		type: 'object',
-		properties: {
-			customer: { type: 'string', description: 'Customer to run against' },
-			includeArchived: { type: 'boolean', description: 'Include archived rows', default: false }
-		},
-		required: ['customer']
-	}
+	const EMPTY_SCHEMA = { type: 'object', properties: {}, required: [] }
 	// MOCK: no backend endpoint exposes a hub-slug or hub version per workspace yet.
 	let hubSlug = $derived($workspaceStore ?? '')
 	let hubUrl = $derived(`https://hub.windmill.dev/workspaces/${hubSlug}`)
@@ -77,6 +73,15 @@
 	let recordTarget = $state<DeployItem | undefined>()
 	let recordArgs = $state<Record<string, any>>({})
 	let recordValid = $state(true)
+	let recordSchema = $state<Record<string, any>>(EMPTY_SCHEMA)
+	let recordSchemaLoading = $state(false)
+	type RunState = 'idle' | 'running' | 'success' | 'failed'
+	let runState = $state<RunState>('idle')
+	let runJobId = $state<string | undefined>(undefined)
+	let runResult = $state<unknown>(undefined)
+	let runError = $state<string | undefined>(undefined)
+	// MOCK STORAGE: backend has no recordings table yet; we keep the job_id per item locally.
+	let recordings = $state<Record<string, string>>({})
 
 	let publishDrawer = $state<Drawer | undefined>()
 	let publishTarget = $state<DeployItem | undefined>()
@@ -138,8 +143,10 @@
 					rec: 'none'
 				})
 			}
+			// Mirrors backend/workspaces_export.rs: skip internal types not meant for export.
+			const HIDDEN_RESOURCE_TYPES = new Set(['app_theme', 'state', 'cache'])
 			for (const r of resources) {
-				if (r.resource_type === 'app_theme') continue
+				if (HIDDEN_RESOURCE_TYPES.has(r.resource_type)) continue
 				next.push({
 					key: `resource:${r.path}`,
 					path: r.path,
@@ -197,20 +204,104 @@
 		}
 	}
 
-	function openRecord(it: DeployItem) {
+	async function openRecord(it: DeployItem) {
 		recordTarget = it
 		recordArgs = {}
 		recordValid = true
+		recordSchema = EMPTY_SCHEMA
+		recordSchemaLoading = true
+		runState = 'idle'
+		runJobId = undefined
+		runResult = undefined
+		runError = undefined
 		recordDrawer?.openDrawer()
+		const workspace = $workspaceStore
+		if (!workspace) {
+			recordSchemaLoading = false
+			return
+		}
+		try {
+			if (it.kind === 'script') {
+				const s = await ScriptService.getScriptByPath({ workspace, path: it.path })
+				recordSchema = (s.schema as Record<string, any>) ?? EMPTY_SCHEMA
+			} else if (it.kind === 'flow') {
+				const f = await FlowService.getFlowByPath({ workspace, path: it.path })
+				recordSchema = (f.schema as Record<string, any>) ?? EMPTY_SCHEMA
+			}
+		} catch (e: any) {
+			sendUserToast(`Failed to load schema: ${e?.message ?? e}`, true)
+		} finally {
+			recordSchemaLoading = false
+		}
 	}
-	async function confirmRecord() {
-		// MOCK: recording feature not implemented backend-side.
+	async function runJob() {
 		const it = recordTarget
-		if (!it) return
-		recordDrawer?.closeDrawer()
-		items = items.map((i) => (i.key === it.key ? { ...i, rec: 'recording' } : i))
-		await delay(900)
+		const workspace = $workspaceStore
+		if (!it || !workspace) return
+		runState = 'running'
+		runJobId = undefined
+		runResult = undefined
+		runError = undefined
+		try {
+			let jobId: string
+			if (it.kind === 'script') {
+				jobId = await JobService.runScriptByPath({
+					workspace,
+					path: it.path,
+					requestBody: recordArgs
+				})
+			} else if (it.kind === 'flow') {
+				jobId = await JobService.runFlowByPath({
+					workspace,
+					path: it.path,
+					requestBody: recordArgs
+				})
+			} else {
+				runState = 'idle'
+				return
+			}
+			runJobId = jobId
+			await pollJobUntilComplete(workspace, jobId)
+		} catch (e: any) {
+			runState = 'failed'
+			runError = `Failed to start: ${e?.message ?? e}`
+		}
+	}
+	async function pollJobUntilComplete(workspace: string, jobId: string) {
+		for (let i = 0; i < 300; i++) {
+			await delay(1000)
+			try {
+				const r = await JobService.getCompletedJobResultMaybe({
+					workspace,
+					id: jobId
+				})
+				if (r.completed) {
+					runResult = r.result
+					if (r.success) {
+						runState = 'success'
+					} else {
+						runState = 'failed'
+						runError = typeof r.result === 'string' ? r.result : JSON.stringify(r.result)
+					}
+					return
+				}
+			} catch (e: any) {
+				runState = 'failed'
+				runError = `Polling failed: ${e?.message ?? e}`
+				return
+			}
+		}
+		runState = 'failed'
+		runError = 'Timed out after 5 minutes'
+	}
+	function saveRecording() {
+		const it = recordTarget
+		if (!it || !runJobId || runState !== 'success') return
+		// MOCK STORAGE: would persist {item_path, hub_version, job_id} server-side.
+		recordings = { ...recordings, [it.key]: runJobId }
 		items = items.map((i) => (i.key === it.key ? { ...i, rec: 'recorded' } : i))
+		sendUserToast(`Recording saved — job ${runJobId}`)
+		recordDrawer?.closeDrawer()
 	}
 
 	function openPublish(it: DeployItem) {
@@ -300,6 +391,21 @@
 						</a>
 					{/if}
 				</div>
+				{#if phase === 'live'}
+					<div
+						class="flex items-start gap-2 rounded-md border bg-surface-secondary p-3 text-xs text-secondary"
+					>
+						<Play size={14} class="mt-0.5 shrink-0 text-blue-600" />
+						<div class="flex flex-col gap-1">
+							<span class="font-semibold text-primary">What is a recording?</span>
+							<span>
+								A recording is one real execution of a script or flow, captured with its inputs,
+								logs, step outputs, and final result. Hub visitors can replay it step-by-step to
+								understand how the item works without needing access to your workspace.
+							</span>
+						</div>
+					</div>
+				{/if}
 			</div>
 		{/snippet}
 
@@ -317,6 +423,16 @@
 					<Badge color="green" size="xs">
 						<Check size={10} class="mr-0.5" />Recorded v{hubVersion}
 					</Badge>
+					{#if recordings[it.key]}
+						<a
+							href={`/run/${recordings[it.key]}?workspace=${$workspaceStore}`}
+							target="_blank"
+							rel="noopener noreferrer"
+							class="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+						>
+							<ExternalLink size={12} /> Job
+						</a>
+					{/if}
 					<Button
 						size="xs"
 						variant="subtle"
@@ -414,21 +530,98 @@
 	>
 		<div class="flex flex-col gap-3">
 			<p class="text-xs text-secondary">
-				Provide the inputs to run this {recordTarget?.kind} once. The run is captured as a recording
-				and attached to the item's current version on the Hub.
+				Run this {recordTarget?.kind} once with the inputs below. The full execution — args, logs, intermediate
+				step outputs and final result — is saved as a <b>replayable recording</b> shown on the Hub
+				page for v{hubVersion}. Visitors can step through it to see how the {recordTarget?.kind} works
+				without running anything themselves.
 			</p>
-			<SchemaForm bind:args={recordArgs} bind:isValid={recordValid} schema={FAKE_SCHEMA} />
+
+			{#if runState !== 'idle'}
+				<div
+					class="sticky top-0 z-10 flex flex-col gap-2 rounded-md border bg-surface-secondary p-3 shadow-sm"
+				>
+					<div class="flex items-center gap-2 text-sm">
+						{#if runState === 'running'}
+							<Loader2 size={14} class="animate-spin text-blue-600" />
+							<span class="font-semibold">Running…</span>
+						{:else if runState === 'success'}
+							<Check size={14} class="text-green-600" />
+							<span class="font-semibold text-green-700">Execution succeeded</span>
+						{:else}
+							<X size={14} class="text-red-600" />
+							<span class="font-semibold text-red-700">Execution failed</span>
+						{/if}
+						{#if runJobId}
+							<a
+								href={`/run/${runJobId}?workspace=${$workspaceStore}`}
+								target="_blank"
+								rel="noopener noreferrer"
+								class="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+							>
+								<ExternalLink size={12} /> Open job
+							</a>
+						{/if}
+					</div>
+					{#if runState === 'success' && runResult !== undefined}
+						<div class="flex flex-col gap-1 text-xs">
+							<span class="text-secondary">Result preview:</span>
+							<pre class="max-h-40 overflow-auto rounded bg-surface p-2 font-mono text-[11px]"
+								>{JSON.stringify(runResult, null, 2)}</pre
+							>
+						</div>
+					{:else if runState === 'failed' && runError}
+						<pre
+							class="max-h-40 overflow-auto rounded bg-surface p-2 font-mono text-[11px] text-red-700"
+							>{runError}</pre
+						>
+					{/if}
+					{#if runState === 'success'}
+						<div
+							class="mt-1 flex items-center justify-between gap-3 rounded-md border border-green-300 bg-green-50 p-2"
+						>
+							<span class="text-xs text-green-900">
+								Looks good? Save this run as the Hub recording for v{hubVersion}.
+							</span>
+							<Button
+								size="xs"
+								variant="accent"
+								startIcon={{ icon: Check }}
+								onclick={saveRecording}
+							>
+								Save as recording
+							</Button>
+						</div>
+					{:else if runState === 'failed'}
+						<span class="text-[11px] text-hint">
+							Fix inputs and try again. Only successful runs can be saved as a recording.
+						</span>
+					{/if}
+				</div>
+			{/if}
+
+			{#if recordSchemaLoading}
+				<span class="text-xs text-hint">Loading schema…</span>
+			{:else}
+				<SchemaForm bind:args={recordArgs} bind:isValid={recordValid} schema={recordSchema} />
+			{/if}
 		</div>
 		{#snippet actions()}
-			<Button variant="default" onclick={() => recordDrawer?.closeDrawer()}>Cancel</Button>
-			<Button
-				variant="accent"
-				disabled={!recordValid}
-				startIcon={{ icon: Play }}
-				onclick={confirmRecord}
-			>
-				Run & record
-			</Button>
+			{#if runState === 'success'}
+				<Button variant="default" startIcon={{ icon: RotateCcw }} onclick={runJob}>Re-run</Button>
+				<Button variant="accent" startIcon={{ icon: Check }} onclick={saveRecording}>
+					Save as recording
+				</Button>
+			{:else}
+				<Button
+					variant="accent"
+					loading={runState === 'running'}
+					disabled={!recordValid || recordSchemaLoading}
+					startIcon={{ icon: Play }}
+					onclick={runJob}
+				>
+					{runState === 'failed' ? 'Re-run' : 'Run'}
+				</Button>
+			{/if}
 		{/snippet}
 	</DrawerContent>
 </Drawer>
