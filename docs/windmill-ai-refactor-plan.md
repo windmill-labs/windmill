@@ -5,7 +5,7 @@
 AI provider logic is currently split across three crates with duplicate code:
 
 - **windmill-common** — base types (`ai_types`, `ai_providers`, `ai_google`, `ai_bedrock`, `ai_cache`)
-- **windmill-api** — chat proxy routes (`ai.rs`), audit logging, caching, and DB-backed credential resolution through `AIRequestConfig`
+- **windmill-api** — chat proxy routes (`ai.rs`), audit logging, caching, and DB-backed credential resolution into `ProviderCredentials`
 - **windmill-worker** — agent execution (`ai/` module) with `QueryBuilder` trait, SSE parsers, provider implementations
 
 The goal: a single `windmill-ai` crate with all AI provider logic. Worker agent execution uses `QueryBuilder`; the API proxy uses `QueryBuilder::build_proxy_request` for HTTP-forwarding providers and native proxy handlers for providers that need response conversion or SDK execution.
@@ -25,7 +25,7 @@ windmill-common does **NOT** re-export from windmill-ai (would be circular). All
 
 ## Reviewer Note: Keep API Proxy Unification Split
 
-The crate boundary, shared utilities, SSE parsers, image handling, worker provider implementations, and provider-specific API proxy transformations are now in `windmill-ai`. The remaining duplication is credential shape and resolution: `windmill-api` still resolves DB-backed proxy credentials through `AIRequestConfig`, while worker agent execution still receives `ProviderWithResource`.
+The crate boundary, shared utilities, SSE parsers, image handling, worker provider implementations, provider-specific API proxy transformations, and resolved runtime credential shape are now in `windmill-ai`. Raw API resources and worker agent provider payloads remain separate input/deserialization shapes and convert into `ProviderCredentials` at execution boundaries.
 
 Do not jump directly from the current state to full proxy and credential unification in one PR. The API proxy combines request transformation, endpoint selection, auth headers, custom headers, OAuth user injection, Azure URL handling, Anthropic Vertex handling, Bedrock SDK calls, and SSE keepalive behavior. Split the work by risk:
 - Introduce shared proxy request and credential types first.
@@ -62,7 +62,7 @@ Out of scope:
 
 Validation:
 - `cargo test -p windmill-ai proxy`
-- `cargo test -p windmill-api maps_request_config_to_provider_credentials`
+- `cargo test -p windmill-api invalidates_all_cached_providers_for_workspace`
 - `cargo check -p windmill-ai -p windmill-api`
 - `cargo check -p windmill-ai -p windmill-api --features bedrock`
 
@@ -98,7 +98,7 @@ Out of scope:
 Validation:
 - `cargo test -p windmill-ai google_ai`
 - `cargo test -p windmill-ai proxy`
-- `cargo test -p windmill-api maps_request_config_to_provider_credentials`
+- `cargo test -p windmill-api invalidates_all_cached_providers_for_workspace`
 - `cargo test -p windmill-ai anthropic`
 
 Follow-up status: Bedrock native proxy handling has since moved into
@@ -157,7 +157,7 @@ visible for later hardening work.
   keepalive wrapper so it works for both `reqwest::Error` streams and Bedrock's
   SDK-backed `std::io::Error` streams.
 
-## Current Phase: Credential Unification Phase 1
+## Completed Phase: Credential Unification Phase 1 ✅
 
 Goal: make `ProviderCredentials` the shared resolved runtime credential shape
 without overloading it with raw resource input or model-selection state.
@@ -189,7 +189,7 @@ Validation:
 - `cargo check -p windmill-ai -p windmill-api -p windmill-worker`
 - `cargo check -p windmill-ai -p windmill-api -p windmill-worker --features bedrock`
 
-## Next Phase: Credential Unification Phase 2
+## Completed Phase: Credential Unification Phase 2 ✅
 
 Goal: remove the API-local resolved credential wrapper after worker execution
 already uses the shared shape.
@@ -206,6 +206,11 @@ Scope:
 Out of scope:
 - Do not merge raw worker resource input into `ProviderCredentials`.
 - Do not put model selection into `ProviderCredentials`.
+
+Validation:
+- `cargo check -p windmill-ai -p windmill-api -p windmill-worker`
+- `cargo check -p windmill-ai -p windmill-api -p windmill-worker --features bedrock`
+- `cargo test -p windmill-api invalidates_all_cached_providers_for_workspace`
 
 ## Step-by-Step Plan
 
@@ -363,10 +368,10 @@ pub struct ProxyRequest {
 - `supports_native_fim`, `transform_fim_to_chat_completions` — moved to windmill-ai
 
 **Keep** in API:
-- `AIRequestConfig::new` credential resolution until it is refactored to produce `ProviderCredentials`
+- credential resolution from DB, workspace settings, instance settings, variables, and OAuth into `ProviderCredentials`
 - HTTP routes, audit logging, request caching
 - `inject_keepalives`, `is_sse_response` helpers
-- `AIConfig`, `ExpiringAIRequestConfig` caching types
+- `AIConfig`, `ExpiringProviderCredentials` caching types
 
 ---
 
@@ -376,8 +381,8 @@ Make `ProviderCredentials` the single resolved runtime credential shape in
 windmill-ai, while keeping raw API and worker input/deserialization types at
 their boundaries.
 
-The API's `AIRequestConfig::new` resolves credentials from DB, workspace or
-instance settings, variables, and OAuth. The worker's `ProviderWithResource`
+The API's `resolve_provider_credentials` resolves credentials from DB, workspace
+or instance settings, variables, and OAuth. The worker's `ProviderWithResource`
 gets raw credentials from the flow module definition and also carries the
 selected model. Convert both paths into `ProviderCredentials`; do not make
 `ProviderCredentials` carry raw resource state or the model.
