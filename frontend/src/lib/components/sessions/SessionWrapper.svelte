@@ -31,7 +31,6 @@
 	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
 	import SessionForkBar from './SessionForkBar.svelte'
 	import {
-		commitSessionWorkspace,
 		createSession,
 		getEffectiveWorkspaceId,
 		moveSessionToNewFork,
@@ -163,26 +162,15 @@
 	}
 
 	// Workspace bar is shown only before the session sends its first user
-	// message — after that the session's workspace is immutable.
+	// message — after that the session's workspace is immutable. The
+	// commit itself happens in `AIChatManager.beforeSend` (wired in
+	// `createRuntime`) so it fires exactly once at send-time. A reactive
+	// commit here would retry forever on backend failures (e.g. fork-id
+	// collision after a previously-successful create whose response was
+	// dropped) — restoration self-heal lives in `initRuntime` instead.
 	const hasFirstUserMessage = $derived(
 		runtime?.manager.displayMessages.some((m) => m.role === 'user') ?? false
 	)
-
-	// Commit pending workspace pick (or current active workspace as
-	// fallback) into `workspace_id` exactly once, when the first user
-	// message lands. This is the only path that defines workspace_id.
-	// When a pending fork is staged, this is also where the fork is
-	// materialised via the API — no orphan forks for abandoned drafts.
-	let committing = $state(false)
-	$effect(() => {
-		if (!session || !hasFirstUserMessage || session.workspace_id || committing) return
-		committing = true
-		commitSessionWorkspace(session.id, $workspaceStore ?? undefined)
-			.catch((e) => console.error('Failed to commit session workspace', e))
-			.finally(() => {
-				committing = false
-			})
-	})
 
 	// Effective workspace for routing editor views — committed if set,
 	// otherwise the pending pick, otherwise the current active workspace.

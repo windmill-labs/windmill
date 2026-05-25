@@ -308,7 +308,15 @@ export async function commitSessionWorkspace(
 	if (s.pending_fork) {
 		const fork = s.pending_fork
 		const newId = await materializeFork(fork)
-		if (!newId) return undefined
+		if (!newId) {
+			// Real failure (not a recovered duplicate). Drop the pending
+			// fork so the session falls through to the workspace-pick
+			// fallback on the next call and the unavailable-banner UX
+			// can take over instead of looping on the same broken intent.
+			s.pending_fork = undefined
+			persistSessions()
+			return undefined
+		}
 		if (get(workspaceStore) !== newId) switchWorkspace(newId)
 		s.workspace_id = newId
 		s.pending_fork = undefined
@@ -360,7 +368,14 @@ export function renameSession(id: string, newSummary: string) {
 // path (commitSessionWorkspace) and the move-session-to-a-new-fork path
 // in the unavailable-session banner. Returns undefined on failure (a
 // user-facing toast is already emitted).
+//
+// Self-heal: if `fork.id` is already present in the user-workspaces
+// store, the previous create succeeded (whose response we apparently
+// lost). Adopt it silently instead of re-POSTing — the API would
+// otherwise reject with workspace_pkey. Likewise, if the API returns a
+// duplicate-key error we refresh the store and adopt the existing row.
 export async function materializeFork(fork: PendingFork): Promise<string | undefined> {
+	if (get(userWorkspaces).some((w) => w.id === fork.id)) return fork.id
 	try {
 		await WorkspaceService.createWorkspaceFork({
 			workspace: fork.parent_workspace_id,
@@ -370,7 +385,12 @@ export async function materializeFork(fork: PendingFork): Promise<string | undef
 		sendUserToast(`Created fork ${fork.name}`)
 		return fork.id
 	} catch (e: any) {
-		sendUserToast(`Could not create fork: ${e?.body ?? e?.message ?? e}`, true)
+		const msg = String(e?.body ?? e?.message ?? e)
+		if (/workspace_pkey|duplicate key/i.test(msg)) {
+			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+			if (get(userWorkspaces).some((w) => w.id === fork.id)) return fork.id
+		}
+		sendUserToast(`Could not create fork: ${msg}`, true)
 		return undefined
 	}
 }
