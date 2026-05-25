@@ -9,6 +9,7 @@
 		type AppDraftValue
 	} from '$lib/components/copilot/chat/global/draftStore.svelte'
 	import { applyDraftValueToRawApp, rawAppToDraftValue } from './appDraftCodec'
+	import SessionItemNotFound from './SessionItemNotFound.svelte'
 
 	let {
 		runtime,
@@ -105,7 +106,7 @@
 {#if runtime.loadingRawApp && !runtime.loadedRawAppPath}
 	<div class="p-4 text-secondary text-sm">Loading raw app {path}…</div>
 {:else if runtime.notFoundRawApp && !runtime.loadedRawAppPath}
-	<div class="p-4 text-secondary text-sm">Raw app not found at path {path}</div>
+	<SessionItemNotFound kind="raw_app" {path} {onNavigate} />
 {:else if runtime.rawApp.val}
 	<RawAppEditor
 		bind:files={runtime.rawApp.val.files}

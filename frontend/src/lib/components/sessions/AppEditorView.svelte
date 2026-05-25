@@ -4,6 +4,7 @@
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import { untrack } from 'svelte'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
+	import SessionItemNotFound from './SessionItemNotFound.svelte'
 
 	let {
 		runtime,
@@ -39,7 +40,7 @@
 {#if runtime.loadingApp && !runtime.loadedAppPath}
 	<div class="p-4 text-secondary text-sm">Loading app {path}…</div>
 {:else if runtime.notFoundApp && !runtime.loadedAppPath}
-	<div class="p-4 text-secondary text-sm">App not found at path {path}</div>
+	<SessionItemNotFound kind="app" {path} {onNavigate} />
 {:else if runtime.appStore.val}
 	<AppEditor
 		summary={runtime.appStore.val.summary ?? ''}

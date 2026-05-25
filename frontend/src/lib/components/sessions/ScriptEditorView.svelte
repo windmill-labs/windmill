@@ -5,6 +5,7 @@
 	import { untrack } from 'svelte'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 	import { globalDraftStore } from '$lib/components/copilot/chat/global/draftStore.svelte'
+	import SessionItemNotFound from './SessionItemNotFound.svelte'
 
 	let {
 		runtime,
@@ -104,7 +105,7 @@
 {#if runtime.loadingScript && !runtime.loadedScriptPath}
 	<div class="p-4 text-secondary text-sm">Loading script {path}…</div>
 {:else if runtime.notFoundScript && !runtime.loadedScriptPath}
-	<div class="p-4 text-secondary text-sm">Script not found at path {path}</div>
+	<SessionItemNotFound kind="script" {path} {onNavigate} />
 {:else if runtime.scriptStore.val}
 	<ScriptBuilder
 		bind:script={runtime.scriptStore.val}

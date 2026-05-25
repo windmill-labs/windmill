@@ -10,6 +10,7 @@
 	} from '$lib/components/copilot/chat/global/draftStore.svelte'
 	import { initFlowState } from '$lib/components/flows/flowState'
 	import { applyDraftValueToFlow, flowToDraftValue } from './flowDraftCodec'
+	import SessionItemNotFound from './SessionItemNotFound.svelte'
 
 	let {
 		runtime,
@@ -118,7 +119,7 @@
 {#if runtime.loadingFlow && !runtime.loadedPath}
 	<div class="p-4 text-secondary text-sm">Loading flow {path}…</div>
 {:else if runtime.notFound && !runtime.loadedPath}
-	<div class="p-4 text-secondary text-sm">Flow not found at path {path}</div>
+	<SessionItemNotFound kind="flow" {path} {onNavigate} />
 {:else}
 	<FlowBuilder
 		flowStore={runtime.flowStore}
