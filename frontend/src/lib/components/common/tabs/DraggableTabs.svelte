@@ -15,12 +15,9 @@
 		pinned?: 'left' | 'right'
 	}
 
-	// Per-instance counter so every DraggableTabs gets its own dnd zone `type`.
-	// svelte-dnd-action treats zones sharing a `type` as one connected pool:
-	// two bars rendering the same tab ids (e.g. the mirrored single-view bars)
-	// would let a drag in one bar mark the matching item as a hidden shadow
-	// placeholder in the other and never clear it. Unique types keep them
-	// independent. We never drag tabs between two bars, so this loses nothing.
+	// Per-instance dnd zone `type` so sibling bars (mirrored single-view) don't
+	// share svelte-dnd-action's item pool — otherwise a drag in one ghosts the
+	// matching tab in the other.
 	let dndZoneSeq = 0
 </script>
 
@@ -52,15 +49,9 @@
 	// Unique dnd zone type for this instance (see note in the module block).
 	const dndType = `draggable-tabs-${dndZoneSeq++}`
 
-	// Local copy of the draggable items that the dnd zone owns and renders.
-	// We deliberately do NOT push `handleConsider` updates back to the parent:
-	// mid-drag, svelte-dnd-action injects a hidden "shadow placeholder" item
-	// into `e.detail.items`. If that reached the parent `tabs`, any sibling
-	// DraggableTabs bound to the same `tabs` (e.g. the mirrored single-view
-	// bars) would render the placeholder as a `visibility:hidden` ghost and
-	// keep it after the drag — the disappearing-tab bug. So consider only
-	// updates this local list (live feedback for the dragged bar); we commit
-	// to the parent on finalize, when the placeholder is already gone.
+	// Local list the dnd zone owns. `consider` updates only this (mid-drag it
+	// holds svelte-dnd-action's shadow placeholder); we commit to the parent on
+	// `finalize` so the placeholder never leaks into a sibling bar.
 	let dndMiddle = $state<TabItem[]>(untrack(() => middle))
 	let isDragging = false
 	$effect(() => {
@@ -69,22 +60,14 @@
 		if (!isDragging) dndMiddle = next
 	})
 
-	// Melt scroll-area: type='hover' reveals the custom 4px horizontal bar
-	// only while the user hovers the tab strip (or scrolls it), then hides it
-	// after `hideDelay`. melt flips the scrollbar's data-state, which our CSS
-	// fades. The bar is absolutely positioned and its gutter is reserved by
-	// the root's bottom padding, so showing/hiding it never shifts the layout.
+	// `type: 'hover'` shows the custom bar only while hovering/scrolling the strip.
 	const {
 		elements: { root, viewport, content, scrollbarX, thumbX }
 	} = createScrollArea({ type: 'hover', hideDelay: 600, dir: 'ltr' })
 
-	// melt's scroll-area only recomputes the thumb from a ResizeObserver on its
-	// *content* element, never the viewport. So resizing the pane (viewport
-	// shrinks/grows while the fixed-width tabs don't) leaves the thumb size and
-	// overflow state stale — a known melt limitation. We detect viewport width
-	// changes with `bind:clientWidth` below and nudge melt: perturb the content
-	// box by 1px (then revert) so its observer fires and recomputes against the
-	// new viewport. The sentinel is 0×0, so nothing is visible.
+	// melt only re-measures the thumb when its *content* resizes, not the
+	// viewport — so a pane resize leaves the thumb stale. Detect width changes
+	// via `bind:clientWidth` and nudge melt by perturbing the 0×0 sentinel's box.
 	let viewportWidth = $state(0)
 	let resizeSentinel: HTMLSpanElement | undefined = $state(undefined)
 	$effect(() => {
@@ -210,8 +193,7 @@
 						{@render tabButton(tab)}
 					{/each}
 
-					<!-- 0×0 sentinel used to nudge melt's content ResizeObserver
-						 on pane resize (see the $effect above). -->
+					<!-- resize nudge for melt (see the $effect above) -->
 					<span
 						bind:this={resizeSentinel}
 						aria-hidden="true"
@@ -234,17 +216,11 @@
 </div>
 
 <style>
-	/* The melt viewport hides its own native scrollbar internally; we just
-	   need to give it a height so the content sits flush above the custom
-	   bar that lives at the bottom of the root. */
 	.tabs-viewport {
 		height: 100%;
 	}
 
-	/* 4px-tall custom horizontal scrollbar pinned to the bottom of the
-	   strip. It's absolutely positioned, so showing/hiding it never shifts
-	   the tab layout. Appearance is identical across OSes regardless of the
-	   native scrollbar setting. */
+	/* Custom 4px bar, absolutely positioned so toggling it never shifts layout. */
 	:global([data-melt-scroll-area-scrollbar].tabs-scrollbar) {
 		height: 4px;
 		background: transparent;
@@ -252,20 +228,15 @@
 		user-select: none;
 		transition: opacity 0.15s;
 	}
-	/* melt flips the scrollbar's data-state to "hidden" when it shouldn't be
-	   shown (with `type: 'hover'`, whenever the strip isn't hovered/scrolled);
-	   fade the whole bar (thumb included) out then. The thumb's own data-state
-	   is unrelated, so we key off the scrollbar here, not the thumb. */
+	/* Hide the whole bar when melt marks it hidden (key off the scrollbar, not
+	   the thumb — the thumb's data-state doesn't track overflow). */
 	:global([data-melt-scroll-area-scrollbar].tabs-scrollbar[data-state='hidden']) {
 		opacity: 0;
 		pointer-events: none;
 	}
 	:global([data-melt-scroll-area-thumb].tabs-thumb) {
-		/* melt sizes the thumb via inline `height: var(--melt-scroll-area-thumb-height)`,
-		   but only populates the WIDTH var for a horizontal scrollbar — the height
-		   var stays empty, so the inline height collapses to 0 and the thumb is
-		   invisible. Supply the cross-axis size here so the inline `var()` resolves
-		   to the full 4px track height. */
+		/* melt leaves the thumb-height var empty for a horizontal bar, collapsing
+		   the inline height to 0 — supply it so the thumb fills the 4px track. */
 		--melt-scroll-area-thumb-height: 100%;
 		height: 100%;
 		width: var(--melt-scroll-area-thumb-width);

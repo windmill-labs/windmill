@@ -226,43 +226,29 @@
 				? 'file'
 				: 'runnable'
 	)
-	// Per-pane tab lists.
-	// - Single mode: BOTH panes mirror the FULL tab list — whichever pane is
-	//   visible (paneA when source is active, paneB when preview is active)
-	//   carries every tab so the user can always switch. This is the fix
-	//   for the bug where activating Preview hid every tab.
-	// - Split mode: each pane shows its own subset (VS Code-style):
-	//   left = file/runnable tabs, right = just the Preview pseudo-header.
+	// Single mode: both bars mirror the full list (the visible pane carries
+	// every tab). Split mode: left = files/runnables, right = Preview only.
 	const leftPaneTabs = $derived<TabItem[]>(
 		splitWithPreview ? tabs.filter((t) => t.id !== PREVIEW_TAB_ID) : tabs
 	)
 	const rightPaneTabs = $derived<TabItem[]>(
 		splitWithPreview ? tabs.filter((t) => t.id === PREVIEW_TAB_ID) : tabs
 	)
-	// In split mode the Preview tab is permanently visible in the right pane;
-	// the right bar always shows it as the active tab regardless of which
-	// file/runnable tab is logically active in the left pane.
+	// In split mode the right bar always highlights Preview, regardless of the
+	// left pane's active file/runnable.
 	const rightPaneActiveId = $derived(splitWithPreview ? PREVIEW_TAB_ID : activeTabId)
 	const showSource = $derived(activeTabKind === 'file')
 	const showRunnable = $derived(activeTabKind === 'runnable')
-	// Lazy-mount the UI Builder iframe: when Preview is active and no file
-	// has ever been opened, paneA is 0 wide, and mounting the iframe there
-	// makes the VS Code workbench fail with "Unable to figure out browser
-	// width and height". We mount it the first moment showSource becomes
-	// true (paneA is at 100% then, so the workbench measures correctly)
-	// and keep it mounted afterwards so tab switches don't reload.
+	// Mount the UI Builder iframe the first time a file is shown (paneA has
+	// width then; mounting it at 0-width breaks the VS Code workbench), and
+	// keep it mounted so tab switches don't reload it.
 	let iframeShouldMount = $state(false)
 	$effect(() => {
 		if (showSource) iframeShouldMount = true
 	})
 
-	// Pane sizes for the inner content-area Splitpanes are a pure function of
-	// the mode + active tab, so they're derived (no effects):
-	// - Split mode + file/runnable active: both panes at the user's ratio
-	// - Preview active: right pane full (preview full width)
-	// - Single mode + file/runnable active: left pane full
-	// `paneARatio` holds the user's last manual split drag (see the setter
-	// in the left <Pane bind:size> below). Right size mirrors the left.
+	// Inner pane sizes are a pure function of mode + active tab → derived.
+	// `paneARatio` is the user's last manual split drag (set by rememberPaneDrag).
 	let paneARatio = $state(50)
 	const paneALeftSize = $derived(
 		splitWithPreview && activeTabKind !== 'preview'
@@ -272,9 +258,8 @@
 				: 100
 	)
 	const paneBRightSize = $derived(100 - paneALeftSize)
-	// Remember a manual splitter drag. Splitpanes writes the new left size
-	// here; we keep it only when it's a genuine in-between split position
-	// (the 0/100 collapsed/full states are programmatic, not user intent).
+	// Keep a manual drag only when it's a genuine in-between split (0/100 are
+	// the programmatic collapsed/full states, not user intent).
 	function rememberPaneDrag(v: number) {
 		if (splitWithPreview && activeTabKind !== 'preview' && v > 0 && v < 100) {
 			paneARatio = v
@@ -291,10 +276,7 @@
 		return filePath.split('/').pop() || filePath
 	}
 
-	// Pick the file to open by default on a fresh load so the split view
-	// shows the editor + preview instead of a blank full-screen preview.
-	// Prefer the main `App.*` component, then the `index.*` entry, then any
-	// other source file, falling back to whatever exists.
+	// Default file to open on load: prefer App.*, then index.*, then any source file.
 	function pickDefaultFile(f: Record<string, string> | undefined): string | undefined {
 		if (!f) return undefined
 		const keys = Object.keys(f).filter((p) => !p.endsWith('/'))
@@ -312,11 +294,8 @@
 	function activateTab(id: string, opts?: { force?: boolean }) {
 		const tab = tabs.find((t) => t.id === id)
 		if (!tab) return
-		// Clicking the Preview tab while in split mode is normally a visual
-		// no-op (Preview is already permanently shown in the right pane;
-		// promoting it would collapse the left pane). `force: true` is used
-		// by closeTab's fallback when the only remaining tab IS Preview —
-		// in that case we genuinely have nothing on the left to keep alive.
+		// In split mode Preview is always shown on the right, so clicking it is a
+		// no-op (would collapse the left pane). `force` lets closeTab fall back to it.
 		if (!opts?.force && splitWithPreview && id === PREVIEW_TAB_ID) return
 		activeTabId = id
 		if (tab.id === PREVIEW_TAB_ID) {
@@ -324,10 +303,8 @@
 		} else if (tab.id.startsWith(FILE_PREFIX)) {
 			const filePath = tab.id.slice(FILE_PREFIX.length)
 			selectedRunnable = undefined
-			// Always update `selectedDocument` — it drives sidebar highlight
-			// and, crucially, is read by `populateFiles` once the iframe
-			// finishes loading so a hydrated tab opens the right file even
-			// when activateTab fires before the iframe's listener exists.
+			// `populateFiles` reads this on iframe load, so set it even if the
+			// iframe isn't ready yet (the postMessage below is then skipped).
 			selectedDocument = filePath
 			if (iframeLoaded) {
 				iframe?.contentWindow?.postMessage({ type: 'selectFile', path: filePath }, '*')
@@ -380,25 +357,20 @@
 		const tab = tabs[idx]
 		if (!tab || tab.closable === false) return
 		const wasActive = activeTabId === id
-		// Clear runnable selection BEFORE removing the tab so the $effect
-		// doesn't immediately recreate it.
+		// Clear selection before removal so the cleanup $effect doesn't recreate it.
 		if (wasActive && tab.id.startsWith(RUNNABLE_PREFIX)) {
 			selectedRunnable = undefined
 		}
 		tabs = tabs.filter((t) => t.id !== id)
 		if (wasActive) {
-			// Fall back to the previous tab, else the preview tab. Force
-			// activation so the Preview-in-split-mode no-op guard doesn't
-			// leave `activeTabId` pointing at the deleted tab.
+			// Fall back to the previous tab (force, in case it's Preview in split).
 			const fallback = tabs[Math.max(0, idx - 1)] ?? previewTab
 			activateTab(fallback.id, { force: true })
 		}
 	}
 
 	function reorderTabs(next: TabItem[]) {
-		// `next` is `displayedTabs` after the user dropped a tab.
-		// When split is on, the Preview tab isn't in `next`; re-append it
-		// to preserve its slot in the underlying `tabs` array.
+		// In split mode the right bar omits Preview from `next`; re-append it.
 		if (splitWithPreview && !next.some((t) => t.id === PREVIEW_TAB_ID)) {
 			tabs = [...next, previewTab]
 		} else {
@@ -411,10 +383,8 @@
 			splitWithPreview = false
 			return
 		}
-		// Going from single → split. The Preview tab is about to disappear
-		// from the bar; if it's currently active, redirect to the last
-		// file/runnable tab (or stay on preview if none exist — left pane
-		// will be empty until the user opens something).
+		// single → split: if Preview is active, move focus to the last
+		// file/runnable tab (it's leaving the left bar).
 		if (activeTabId === PREVIEW_TAB_ID) {
 			const lastUserTab = tabs
 				.slice()
@@ -426,11 +396,8 @@
 	}
 	let yamlEditorDrawer: Drawer | undefined = $state(undefined)
 
-	// Sidebar uses a dynamic pixel-aware minimum: the user's `%` preference is
-	// honored, but the pane can never shrink below SIDEBAR_PX_MIN — including
-	// when the container itself shrinks. svelte-splitpanes' `minSize` only
-	// blocks splitter drag, so we clamp `sidebarPanelSize` ourselves and use a
-	// getter/setter bind so the user's preference is preserved.
+	// Sidebar: honor the user's `%` but never shrink below SIDEBAR_PX_MIN.
+	// (svelte-splitpanes' minSize only blocks drag, so we clamp ourselves.)
 	let rawSidebarSize = $state(15)
 	let splitContainerWidth = $state(0)
 	const SIDEBAR_PX_MIN = 160
@@ -1152,10 +1119,8 @@
 		})
 	})
 
-	// Open a sensible default file on mount so the split view shows the editor
-	// + preview (and boots the UI Builder iframe) instead of a blank preview.
-	// Tab/split layout is intentionally NOT persisted — each open starts fresh
-	// (split mode, default file).
+	// Open a default file on mount (boots the iframe; avoids a blank preview).
+	// Layout isn't persisted — each open starts fresh in split mode.
 	onMount(() => {
 		if (tabs.length === 1) {
 			const def = pickDefaultFile(files)
@@ -1163,9 +1128,7 @@
 		}
 	})
 
-	// Drop file tabs whose underlying file disappeared (deleted via setFiles
-	// or workspace cleanup). Same for runnable tabs whose key no longer
-	// exists in the runnables map.
+	// Drop tabs whose file/runnable no longer exists.
 	$effect(() => {
 		void files
 		void runnables
