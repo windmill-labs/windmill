@@ -1638,14 +1638,15 @@
 </div>
 
 <style>
-	/* Hide the splitter in the inner content-area Splitpanes when we're not
-	   actually in split-with-preview mode (one pane is at 0%). The user
+	/* Remove the splitter from the inner content-area Splitpanes when we're
+	   not actually in split-with-preview mode (one pane is at 0%). The user
 	   uses the explicit Split toggle in the tab bar to flip modes; a
-	   visible-but-non-functional drag handle would be confusing. */
+	   visible-but-non-functional drag handle would be confusing. We use
+	   `display: none` rather than `width: 0` because svelte-splitpanes' own
+	   splitter-width rule otherwise wins and leaves a 1px sliver beside the
+	   preview content. */
 	:global(.tabs-content-single .splitpanes__splitter) {
-		visibility: hidden;
-		pointer-events: none;
-		width: 0;
+		display: none;
 	}
 
 	/* Logs overlay scrollbar — small, themed, matching the previous in-iframe
