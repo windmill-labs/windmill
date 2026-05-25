@@ -33,6 +33,7 @@ export function selectAndAdvanceTo(
 			return
 		}
 		e.preventDefault()
+		e.stopPropagation()
 		t.click()
 
 		const advance = () => {

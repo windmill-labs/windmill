@@ -268,7 +268,8 @@
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			bind:this={aiPromptEl}
-			onkeydown={(e) => (e.metaKey || e.ctrlKey) && e.key === 'Enter' && confirm(close)}
+			onkeydown={(e) =>
+				(e.metaKey || e.ctrlKey) && e.key === 'Enter' && (confirm(close), e.stopPropagation())}
 		>
 			<TextInput
 				class="resize-none h-12 !max-h-12"
