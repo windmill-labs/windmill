@@ -26579,6 +26579,9 @@ components:
           type: string
         operator_only:
           type: boolean
+        is_workspace_admin:
+          type: boolean
+          description: Populated only for service accounts. True if the service account has workspace admin in its (single) workspace.
         first_time_user:
           type: boolean
         role_source:
