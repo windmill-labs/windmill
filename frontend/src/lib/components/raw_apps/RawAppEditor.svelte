@@ -1048,6 +1048,15 @@
 					'*'
 				)
 			}
+			// Escape inside the preview exits inspect mode — the keydown fires in
+			// the iframe's document, so the parent window listener can't see it.
+			previewIframe?.contentWindow?.addEventListener(
+				'keydown',
+				(e) => {
+					if (e.key === 'Escape' && inspectorEnabled) disableInspector()
+				},
+				true
+			)
 		})
 	})
 	$effect(() => {
@@ -1214,6 +1223,27 @@
 			sendUserToast('Failed to apply entry: ' + (error as Error).message, true)
 		}
 	}
+
+	function disableInspector() {
+		if (!inspectorEnabled) return
+		inspectorEnabled = false
+		previewIframe?.contentWindow?.postMessage({ type: 'inspectorDisable' }, '*')
+	}
+
+	// Escape exits inspect mode. We listen in the capture phase because a global
+	// handler swallows Escape before it bubbles to <svelte:window>. The preview
+	// iframe (separate document) is covered by its own listener on load.
+	$effect(() => {
+		const onEscapeCapture = (e: KeyboardEvent) => {
+			if (e.key === 'Escape' && inspectorEnabled) {
+				disableInspector()
+				e.stopImmediatePropagation()
+				e.preventDefault()
+			}
+		}
+		window.addEventListener('keydown', onEscapeCapture, true)
+		return () => window.removeEventListener('keydown', onEscapeCapture, true)
+	})
 
 	function handleKeydown(e: KeyboardEvent) {
 		// Skip when typing in an input, textarea, or Monaco editor.
