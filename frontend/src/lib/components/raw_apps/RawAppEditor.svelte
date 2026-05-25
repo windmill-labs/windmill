@@ -244,17 +244,14 @@
 		const errClass = 'text-red-600 dark:text-red-400'
 		return { ...t, iconClass: errClass, labelClass: errClass }
 	}
+	const tintTabs = (ts: TabItem[]) => ts.map(tintPreviewOnError)
 	// Single mode: both bars mirror the full list (the visible pane carries
 	// every tab). Split mode: left = files/runnables, right = Preview only.
 	const leftPaneTabs = $derived<TabItem[]>(
-		(splitWithPreview ? tabs.filter((t) => t.id !== PREVIEW_TAB_ID) : tabs).map(
-			tintPreviewOnError
-		)
+		tintTabs(splitWithPreview ? tabs.filter((t) => t.id !== PREVIEW_TAB_ID) : tabs)
 	)
 	const rightPaneTabs = $derived<TabItem[]>(
-		(splitWithPreview ? tabs.filter((t) => t.id === PREVIEW_TAB_ID) : tabs).map(
-			tintPreviewOnError
-		)
+		tintTabs(splitWithPreview ? tabs.filter((t) => t.id === PREVIEW_TAB_ID) : tabs)
 	)
 	// In split mode the right bar always highlights Preview, regardless of the
 	// left pane's active file/runnable.
@@ -1590,8 +1587,11 @@
 									     banner sits over the preview iframe, not over the tabs.
 									     The `before:` pseudo lays a solid `bg-surface` plate behind
 									     the Alert's semi-transparent red (esp. dark mode's
-									     bg-red-900/40) so the preview iframe doesn't show through. -->
-									<div class="absolute top-12 left-2 right-2 z-20" role="alert">
+									     bg-red-900/40) so the preview iframe doesn't show through.
+									     `isolate` pins the stacking context locally so the pseudo's
+									     `-z-10` can't escape behind the preview iframe if `z-20`
+									     ever gets removed in a future refactor. -->
+									<div class="absolute top-12 left-2 right-2 z-20 isolate" role="alert">
 										<Alert
 											type="error"
 											title="Build failed"
