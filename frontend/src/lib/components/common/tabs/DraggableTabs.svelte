@@ -5,11 +5,23 @@
 		label: string
 		/** Optional lucide-svelte (or compatible) component rendered at 12px before the label. */
 		icon?: any
+		/** Optional class applied to the icon (e.g. `text-accent` to tint it). */
+		iconClass?: string
+		/** Optional class applied to the label text (e.g. `text-accent` to tint it). */
+		labelClass?: string
 		/** Defaults to true. Set false to hide the × close button. */
 		closable?: boolean
 		/** Pinned tabs are rendered outside the drag zone — 'left' or 'right' of the draggable group. */
 		pinned?: 'left' | 'right'
 	}
+
+	// Per-instance counter so every DraggableTabs gets its own dnd zone `type`.
+	// svelte-dnd-action treats zones sharing a `type` as one connected pool:
+	// two bars rendering the same tab ids (e.g. the mirrored single-view bars)
+	// would let a drag in one bar mark the matching item as a hidden shadow
+	// placeholder in the other and never clear it. Unique types keep them
+	// independent. We never drag tabs between two bars, so this loses nothing.
+	let dndZoneSeq = 0
 </script>
 
 <script lang="ts">
@@ -17,6 +29,7 @@
 	import { X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { createScrollArea, melt } from '@melt-ui/svelte'
+	import { untrack } from 'svelte'
 
 	interface Props {
 		tabs: TabItem[]
@@ -30,19 +43,31 @@
 		trailing?: import('svelte').Snippet
 	}
 
-	let {
-		tabs,
-		activeId,
-		onSelect,
-		onClose,
-		onReorder,
-		class: c = '',
-		trailing
-	}: Props = $props()
+	let { tabs, activeId, onSelect, onClose, onReorder, class: c = '', trailing }: Props = $props()
 
 	const pinnedLeft = $derived(tabs.filter((t) => t.pinned === 'left'))
 	const middle = $derived(tabs.filter((t) => !t.pinned))
 	const pinnedRight = $derived(tabs.filter((t) => t.pinned === 'right'))
+
+	// Unique dnd zone type for this instance (see note in the module block).
+	const dndType = `draggable-tabs-${dndZoneSeq++}`
+
+	// Local copy of the draggable items that the dnd zone owns and renders.
+	// We deliberately do NOT push `handleConsider` updates back to the parent:
+	// mid-drag, svelte-dnd-action injects a hidden "shadow placeholder" item
+	// into `e.detail.items`. If that reached the parent `tabs`, any sibling
+	// DraggableTabs bound to the same `tabs` (e.g. the mirrored single-view
+	// bars) would render the placeholder as a `visibility:hidden` ghost and
+	// keep it after the drag — the disappearing-tab bug. So consider only
+	// updates this local list (live feedback for the dragged bar); we commit
+	// to the parent on finalize, when the placeholder is already gone.
+	let dndMiddle = $state<TabItem[]>(untrack(() => middle))
+	let isDragging = false
+	$effect(() => {
+		const next = middle
+		// Re-sync from props except mid-drag, where the dnd zone owns the list.
+		if (!isDragging) dndMiddle = next
+	})
 
 	// Melt scroll-area: type='always' keeps the custom thumb's gutter present
 	// at all times, so the layout never shifts when content stops/starts
@@ -52,15 +77,14 @@
 		elements: { root, viewport, content, scrollbarX, thumbX }
 	} = createScrollArea({ type: 'always', dir: 'ltr' })
 
-	function rebuild(middleNew: TabItem[]) {
-		onReorder?.([...pinnedLeft, ...middleNew, ...pinnedRight])
-	}
-
 	function handleConsider(e: CustomEvent<DndEvent<TabItem>>) {
-		rebuild(e.detail.items)
+		isDragging = true
+		dndMiddle = e.detail.items
 	}
 	function handleFinalize(e: CustomEvent<DndEvent<TabItem>>) {
-		rebuild(e.detail.items)
+		isDragging = false
+		dndMiddle = e.detail.items
+		onReorder?.([...pinnedLeft, ...e.detail.items, ...pinnedRight])
 	}
 
 	function tabClasses(isActive: boolean) {
@@ -107,15 +131,15 @@
 		role="tab"
 		aria-selected={isActive}
 		tabindex={isActive ? 0 : -1}
-		class={tabClasses(isActive)}
+		class={twMerge(tabClasses(isActive), tab.closable !== false && 'pr-1')}
 		onclick={() => onSelect(tab.id)}
 		onauxclick={(e) => handleAuxClick(e, tab)}
 		onkeydown={(e) => handleKeydown(e, tab)}
 	>
 		{#if Icon}
-			<Icon size={12} />
+			<Icon size={12} class={tab.iconClass} />
 		{/if}
-		<span class="truncate max-w-[180px]">{tab.label}</span>
+		<span class={twMerge('truncate max-w-[180px]', tab.labelClass)}>{tab.label}</span>
 		{#if tab.closable !== false}
 			<button
 				type="button"
@@ -132,9 +156,7 @@
 	</div>
 {/snippet}
 
-<div
-	class={twMerge('flex items-center bg-surface-secondary', c)}
->
+<div class={twMerge('flex items-center bg-surface-secondary', c)}>
 	<div use:melt={$root} class="tabs-root flex-1 min-w-0 relative pt-1 pl-1 pb-1">
 		<div use:melt={$viewport} class="tabs-viewport w-full">
 			<!-- Inner flex wrapper — melt's content element is forced to
@@ -148,15 +170,15 @@
 					<div
 						class="flex items-center"
 						use:dndzone={{
-							items: middle,
+							items: dndMiddle,
 							flipDurationMs: 150,
-							type: 'draggable-tabs',
+							type: dndType,
 							dropTargetStyle: {}
 						}}
 						onconsider={handleConsider}
 						onfinalize={handleFinalize}
 					>
-						{#each middle as tab (tab.id)}
+						{#each dndMiddle as tab (tab.id)}
 							<div>
 								{@render tabButton(tab)}
 							</div>

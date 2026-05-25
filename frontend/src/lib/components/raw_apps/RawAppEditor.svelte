@@ -29,10 +29,8 @@
 	import { createAppSelectedContext, type AppCodeSelectionElement } from '../copilot/chat/context'
 	import { rawAppLintStore } from './lintStore'
 	import { dbSchemas } from '$lib/stores'
-	import { MousePointerSquareDashed, RefreshCw, Columns2, ChevronDown } from 'lucide-svelte'
-	import DraggableTabs, {
-		type TabItem
-	} from '$lib/components/common/tabs/DraggableTabs.svelte'
+	import { MousePointerSquareDashed, RefreshCw, Columns2, ChevronDown, Eye } from 'lucide-svelte'
+	import DraggableTabs, { type TabItem } from '$lib/components/common/tabs/DraggableTabs.svelte'
 	import { runScriptAndPollResult } from '../jobs/utils'
 	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
 	import { sendUserToast } from '$lib/utils'
@@ -212,12 +210,15 @@
 	const previewTab: TabItem = {
 		id: PREVIEW_TAB_ID,
 		label: 'Preview',
+		icon: Eye,
+		iconClass: 'text-accent',
+		labelClass: 'text-accent',
 		closable: false,
 		pinned: 'right'
 	}
 	let tabs: TabItem[] = $state([previewTab])
 	let activeTabId: string = $state(PREVIEW_TAB_ID)
-	let splitWithPreview: boolean = $state(false)
+	let splitWithPreview: boolean = $state(true)
 	const TABS_STORAGE_KEY = $derived(`raw-app-tabs:${$workspaceStore ?? ''}:${path ?? ''}`)
 	const activeTabKind = $derived<'file' | 'runnable' | 'preview'>(
 		activeTabId === PREVIEW_TAB_ID
@@ -302,6 +303,24 @@
 	}
 	function fileBaseName(filePath: string) {
 		return filePath.split('/').pop() || filePath
+	}
+
+	// Pick the file to open by default on a fresh load so the split view
+	// shows the editor + preview instead of a blank full-screen preview.
+	// Prefer the main `App.*` component, then the `index.*` entry, then any
+	// other source file, falling back to whatever exists.
+	function pickDefaultFile(f: Record<string, string> | undefined): string | undefined {
+		if (!f) return undefined
+		const keys = Object.keys(f).filter((p) => !p.endsWith('/'))
+		if (keys.length === 0) return undefined
+		const isSource = (p: string) =>
+			/\.(tsx|jsx|ts|js|svelte|vue)$/i.test(p) && !/package(-lock)?\.json$/i.test(p)
+		return (
+			keys.find((p) => /(^|\/)App\.(tsx|jsx|ts|js|svelte|vue)$/i.test(p)) ??
+			keys.find((p) => /(^|\/)index\.(tsx|jsx|ts|js)$/i.test(p)) ??
+			keys.find(isSource) ??
+			keys[0]
+		)
 	}
 
 	function activateTab(id: string, opts?: { force?: boolean }) {
@@ -429,12 +448,8 @@
 	let rawSidebarSize = $state(15)
 	let splitContainerWidth = $state(0)
 	const SIDEBAR_PX_MIN = 160
-	const sidebarMinPercent = $derived(
-		paneMinPercent(splitContainerWidth, SIDEBAR_PX_MIN)
-	)
-	const sidebarPanelSize = $derived(
-		Math.max(rawSidebarSize, sidebarMinPercent)
-	)
+	const sidebarMinPercent = $derived(paneMinPercent(splitContainerWidth, SIDEBAR_PX_MIN))
+	const sidebarPanelSize = $derived(Math.max(rawSidebarSize, sidebarMinPercent))
 
 	// Persisted across opens. Seeded with `defaultSidebarCollapsed` only when
 	// localStorage has no entry yet — callers (like the session preview pane)
@@ -1048,9 +1063,7 @@
 	// ≥1760px viewports, so this re-evaluates on resize via the listener below.
 	let editorFontSize = $state(12)
 	function recomputeEditorFontSize() {
-		const rootPx = parseFloat(
-			getComputedStyle(document.documentElement).fontSize
-		)
+		const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize)
 		// text-xs is 0.75rem
 		editorFontSize = rootPx * 0.75
 	}
@@ -1082,25 +1095,16 @@
 		// Push dark mode to both children. The UI Builder iframe and the
 		// preview iframe each listen for `setDarkMode` separately.
 		if (iframe && iframeLoaded) {
-			iframe.contentWindow?.postMessage(
-				{ type: 'setDarkMode', dark: darkMode },
-				'*'
-			)
+			iframe.contentWindow?.postMessage({ type: 'setDarkMode', dark: darkMode }, '*')
 		}
 		if (previewIframe && previewIframeLoaded) {
-			previewIframe.contentWindow?.postMessage(
-				{ type: 'setDarkMode', dark: darkMode },
-				'*'
-			)
+			previewIframe.contentWindow?.postMessage({ type: 'setDarkMode', dark: darkMode }, '*')
 		}
 	})
 	$effect(() => {
 		// Match VS Code's editor font size to Windmill's text-xs.
 		if (iframe && iframeLoaded) {
-			iframe.contentWindow?.postMessage(
-				{ type: 'setFontSize', px: editorFontSize },
-				'*'
-			)
+			iframe.contentWindow?.postMessage({ type: 'setFontSize', px: editorFontSize }, '*')
 		}
 	})
 	$effect(() => {
@@ -1189,6 +1193,14 @@
 		} catch (e) {
 			console.warn('Failed to hydrate raw-app tabs from localStorage', e)
 		} finally {
+			// Fresh app (no saved file tab — only Preview): open a default file
+			// and activate it. With `splitWithPreview` defaulting to true this
+			// renders the editor + preview side-by-side and boots the UI
+			// Builder iframe (which then builds the preview).
+			if (tabs.length === 1) {
+				const def = pickDefaultFile(files)
+				if (def) activateTab(ensureFileTab(def))
+			}
 			tabsHydrated = true
 		}
 	})
@@ -1375,55 +1387,55 @@
 					minSize={sidebarMinPercent}
 					class="h-full overflow-y-auto relative"
 				>
-				<RawAppSidebar
-					bind:files={
-						() => files,
-						(newFiles) => {
-							files = newFiles
-							setFilesInIframe(newFiles ?? {})
+					<RawAppSidebar
+						bind:files={
+							() => files,
+							(newFiles) => {
+								files = newFiles
+								setFilesInIframe(newFiles ?? {})
+							}
 						}
-					}
-					onSelectFile={handleSelectFile}
-					bind:selectedRunnable
-					bind:selectedDocument
-					dataTableRefs={dataTableRefsObjects}
-					onDataTableRefsChange={(newRefs) => {
-						data.tables = newRefs.map(formatDataTableRef)
-					}}
-					defaultDatatable={data.datatable}
-					defaultSchema={data.schema}
-					onDefaultChange={(datatable, schema) => {
-						data.datatable = datatable
-						data.schema = schema
-						// Also sync to aiChatManager
-						aiChatManager.datatableCreationPolicy = {
-							...aiChatManager.datatableCreationPolicy,
-							datatable,
-							schema
-						}
-					}}
-					{runnables}
-					{modules}
-					{historyManager}
-					historySelectedId={historyManager.selectedEntryId}
-					onHistorySelect={handleHistorySelect}
-					onHistorySelectCurrent={() => {
-						// Restore the temporary current state if it exists
-						const tempState = historyManager.getAndClearTemporaryState()
-						if (tempState) {
-							applyEntry(tempState)
-						}
-						// Clear selection to indicate we're at current state
-						historyManager.clearSelection()
-					}}
-					onManualSnapshot={() => {
-						historyManager.manualSnapshot(files ?? {}, runnables, summary, data, true)
-					}}
-				></RawAppSidebar>
-			</Pane>
-		{/if}
-		<Pane>
-			<!--
+						onSelectFile={handleSelectFile}
+						bind:selectedRunnable
+						bind:selectedDocument
+						dataTableRefs={dataTableRefsObjects}
+						onDataTableRefsChange={(newRefs) => {
+							data.tables = newRefs.map(formatDataTableRef)
+						}}
+						defaultDatatable={data.datatable}
+						defaultSchema={data.schema}
+						onDefaultChange={(datatable, schema) => {
+							data.datatable = datatable
+							data.schema = schema
+							// Also sync to aiChatManager
+							aiChatManager.datatableCreationPolicy = {
+								...aiChatManager.datatableCreationPolicy,
+								datatable,
+								schema
+							}
+						}}
+						{runnables}
+						{modules}
+						{historyManager}
+						historySelectedId={historyManager.selectedEntryId}
+						onHistorySelect={handleHistorySelect}
+						onHistorySelectCurrent={() => {
+							// Restore the temporary current state if it exists
+							const tempState = historyManager.getAndClearTemporaryState()
+							if (tempState) {
+								applyEntry(tempState)
+							}
+							// Clear selection to indicate we're at current state
+							historyManager.clearSelection()
+						}}
+						onManualSnapshot={() => {
+							historyManager.manualSnapshot(files ?? {}, runnables, summary, data, true)
+						}}
+					></RawAppSidebar>
+				</Pane>
+			{/if}
+			<Pane>
+				<!--
 				Per-pane tab bars (VS Code-style). Each pane carries its own
 				DraggableTabs instance so the splitter goes floor-to-ceiling
 				through tabs AND content in split mode. In single mode both
@@ -1431,214 +1443,197 @@
 				keeps every tab accessible, fixing the bug where activating
 				Preview previously hid every tab.
 			-->
-			<div
-				class="h-full w-full min-h-0 {splitWithPreview &&
-				activeTabKind !== 'preview'
-					? 'tabs-content-split'
-					: 'tabs-content-single'}"
-			>
-				<Splitpanes>
-					<Pane bind:size={paneALeftSize} minSize={0}>
-						<div class="flex flex-col h-full w-full min-h-0">
-							<DraggableTabs
-								tabs={leftPaneTabs}
-								activeId={activeTabId}
-								onSelect={(id) => activateTab(id)}
-								onClose={(id) => closeTab(id)}
-								onReorder={(next) => reorderTabs(next)}
-							>
-								{#snippet trailing()}
-									<div class="flex items-center gap-1 px-2">
-										<button
-											title={splitWithPreview
-												? 'Move preview back into a tab'
-												: 'Pin preview to the right'}
-											aria-label="Toggle split with preview"
-											aria-pressed={splitWithPreview}
-											class={splitWithPreview
-												? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
-												: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
-											onclick={toggleSplit}
-										>
-											<Columns2 size={14} />
-										</button>
-									</div>
-								{/snippet}
-							</DraggableTabs>
-							<div class="flex-1 min-h-0 relative">
-								<div
-									class="absolute inset-0"
-									style="display: {showSource ? 'block' : 'none'}"
+				<div
+					class="h-full w-full min-h-0 {splitWithPreview && activeTabKind !== 'preview'
+						? 'tabs-content-split'
+						: 'tabs-content-single'}"
+				>
+					<Splitpanes>
+						<Pane bind:size={paneALeftSize} minSize={0}>
+							<div class="flex flex-col h-full w-full min-h-0">
+								<DraggableTabs
+									tabs={leftPaneTabs}
+									activeId={activeTabId}
+									onSelect={(id) => activateTab(id)}
+									onClose={(id) => closeTab(id)}
+									onReorder={(next) => reorderTabs(next)}
 								>
-									{#if iframeShouldMount}
-										<iframe
-											bind:this={iframe}
-											title="UI builder"
-											src="/ui_builder/index.html"
-											class="w-full h-full block"
-										></iframe>
-									{/if}
-								</div>
-								<div
-									class="absolute inset-0"
-									style="display: {showRunnable ? 'block' : 'none'}"
-								>
-									<!-- svelte-ignore a11y_no_static_element_interactions -->
-									<div class="flex h-full w-full">
-										{#if selectedRunnable !== undefined}
-											<RawAppInlineScriptsPanel
-												appPath={path}
-												{selectedRunnable}
-												bind:runnables
-												onSelectionChange={(selection) => {
-													if (selection === null) {
-														codeSelection = undefined
-													} else if (selectedRunnable) {
-														codeSelection = {
-															type: 'app_code_selection',
-															source: selectedRunnable,
-															sourceType: 'backend',
-															title: `${selectedRunnable}:L${selection.startLine}-L${selection.endLine}`,
-															content: selection.content,
-															startLine: selection.startLine,
-															endLine: selection.endLine,
-															startColumn: selection.startColumn,
-															endColumn: selection.endColumn
-														}
-													}
-												}}
-											/>
+									{#snippet trailing()}
+										<div class="flex items-center gap-1 px-2">
+											<button
+												title={splitWithPreview
+													? 'Move preview back into a tab'
+													: 'Pin preview to the right'}
+												aria-label="Toggle split with preview"
+												aria-pressed={splitWithPreview}
+												class={splitWithPreview
+													? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
+													: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
+												onclick={toggleSplit}
+											>
+												<Columns2 size={14} />
+											</button>
+										</div>
+									{/snippet}
+								</DraggableTabs>
+								<div class="flex-1 min-h-0 relative">
+									<div class="absolute inset-0" style="display: {showSource ? 'block' : 'none'}">
+										{#if iframeShouldMount}
+											<iframe
+												bind:this={iframe}
+												title="UI builder"
+												src="/ui_builder/index.html"
+												class="w-full h-full block"
+											></iframe>
 										{/if}
+									</div>
+									<div class="absolute inset-0" style="display: {showRunnable ? 'block' : 'none'}">
+										<!-- svelte-ignore a11y_no_static_element_interactions -->
+										<div class="flex h-full w-full">
+											{#if selectedRunnable !== undefined}
+												<RawAppInlineScriptsPanel
+													appPath={path}
+													{selectedRunnable}
+													bind:runnables
+													onSelectionChange={(selection) => {
+														if (selection === null) {
+															codeSelection = undefined
+														} else if (selectedRunnable) {
+															codeSelection = {
+																type: 'app_code_selection',
+																source: selectedRunnable,
+																sourceType: 'backend',
+																title: `${selectedRunnable}:L${selection.startLine}-L${selection.endLine}`,
+																content: selection.content,
+																startLine: selection.startLine,
+																endLine: selection.endLine,
+																startColumn: selection.startColumn,
+																endColumn: selection.endColumn
+															}
+														}
+													}}
+												/>
+											{/if}
+										</div>
 									</div>
 								</div>
 							</div>
-						</div>
-					</Pane>
-					<Pane bind:size={paneBRightSize} minSize={0}>
-						<div class="flex flex-col h-full w-full min-h-0 relative">
-							<DraggableTabs
-								tabs={rightPaneTabs}
-								activeId={rightPaneActiveId}
-								onSelect={(id) => activateTab(id)}
-								onClose={(id) => closeTab(id)}
-								onReorder={(next) => reorderTabs(next)}
-							>
-								{#snippet trailing()}
-									<div class="flex items-center gap-1 px-2">
-										<button
-											class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary px-2 h-7 rounded-md text-xs"
-											title="Switch bundler"
-											onclick={() => {
-												const next =
-													bundlerType === 'esbuild' ? 'rolldown' : 'esbuild'
-												bundlerType = next
-												iframe?.contentWindow?.postMessage(
-													{ type: 'setBundlerType', bundlerType: next },
-													'*'
-												)
-											}}>{bundlerType}</button
-										>
-										<button
-											title={inspectorEnabled
-												? 'Click to disable element inspector'
-												: 'Click to enable element inspector'}
-											class={inspectorEnabled
-												? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
-												: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
-											aria-label="Toggle element inspector"
-											onclick={() => {
-												inspectorEnabled = !inspectorEnabled
-												previewIframe?.contentWindow?.postMessage(
-													{
-														type: inspectorEnabled
-															? 'inspectorEnable'
-															: 'inspectorDisable'
-													},
-													'*'
-												)
-											}}
-										>
-											<MousePointerSquareDashed size={14} />
-										</button>
-										<button
-											class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center"
-											title="Replay the last build into the preview"
-											aria-label="Rebuild"
-											onclick={() => {
-												if (lastBuild) {
+						</Pane>
+						<Pane bind:size={paneBRightSize} minSize={0}>
+							<div class="flex flex-col h-full w-full min-h-0 relative">
+								<DraggableTabs
+									tabs={rightPaneTabs}
+									activeId={rightPaneActiveId}
+									onSelect={(id) => activateTab(id)}
+									onClose={(id) => closeTab(id)}
+									onReorder={(next) => reorderTabs(next)}
+								>
+									{#snippet trailing()}
+										<div class="flex items-center gap-1 px-2">
+											<button
+												class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary px-2 h-7 rounded-md text-xs"
+												title="Switch bundler"
+												onclick={() => {
+													const next = bundlerType === 'esbuild' ? 'rolldown' : 'esbuild'
+													bundlerType = next
+													iframe?.contentWindow?.postMessage(
+														{ type: 'setBundlerType', bundlerType: next },
+														'*'
+													)
+												}}>{bundlerType}</button
+											>
+											<button
+												title={inspectorEnabled
+													? 'Click to disable element inspector'
+													: 'Click to enable element inspector'}
+												class={inspectorEnabled
+													? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
+													: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
+												aria-label="Toggle element inspector"
+												onclick={() => {
+													inspectorEnabled = !inspectorEnabled
 													previewIframe?.contentWindow?.postMessage(
 														{
-															type: 'preview',
-															css: lastBuild.css,
-															js: lastBuild.js
+															type: inspectorEnabled ? 'inspectorEnable' : 'inspectorDisable'
 														},
 														'*'
 													)
-												}
-											}}
-										>
-											<RefreshCw size={14} />
-										</button>
-										<button
-											title={splitWithPreview
-												? 'Move preview back into a tab'
-												: 'Pin preview to the right'}
-											aria-label="Toggle split with preview"
-											aria-pressed={splitWithPreview}
-											class={splitWithPreview
-												? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
-												: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
-											onclick={toggleSplit}
-										>
-											<Columns2 size={14} />
-										</button>
-									</div>
-								{/snippet}
-							</DraggableTabs>
-							<iframe
-								bind:this={previewIframe}
-								title="App preview"
-								src="/ui_builder/app-preview.html"
-								class="w-full flex-1 block"
-							></iframe>
-							{#if logs}
-								<div
-									class="absolute right-0 bottom-0 z-20 max-w-[500px] w-full flex flex-col text-xs p-1 border border-border-light rounded-tl-md bg-surface text-primary {logsCollapsed
-										? 'h-6'
-										: 'max-h-60 h-full'}"
-								>
-									<button
-										class="cursor-pointer flex items-center gap-2 w-full text-xs font-normal text-secondary -mt-0.5 px-2 text-left"
-										onclick={() => (logsCollapsed = !logsCollapsed)}
-									>
-										Logs
-										<ChevronDown
-											size={12}
-											class="transition duration-200"
-											style="transform: {logsCollapsed
-												? 'rotate(180deg)'
-												: 'rotate(0deg)'}"
-										/>
-										<span class="text-secondary"
-											>({logs.split('\n').length})</span
-										>
-									</button>
+												}}
+											>
+												<MousePointerSquareDashed size={14} />
+											</button>
+											<button
+												class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center"
+												title="Replay the last build into the preview"
+												aria-label="Rebuild"
+												onclick={() => {
+													if (lastBuild) {
+														previewIframe?.contentWindow?.postMessage(
+															{
+																type: 'preview',
+																css: lastBuild.css,
+																js: lastBuild.js
+															},
+															'*'
+														)
+													}
+												}}
+											>
+												<RefreshCw size={14} />
+											</button>
+											<button
+												title={splitWithPreview
+													? 'Move preview back into a tab'
+													: 'Pin preview to the right'}
+												aria-label="Toggle split with preview"
+												aria-pressed={splitWithPreview}
+												class={splitWithPreview
+													? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
+													: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
+												onclick={toggleSplit}
+											>
+												<Columns2 size={14} />
+											</button>
+										</div>
+									{/snippet}
+								</DraggableTabs>
+								<iframe
+									bind:this={previewIframe}
+									title="App preview"
+									src="/ui_builder/app-preview.html"
+									class="w-full flex-1 block"
+								></iframe>
+								{#if logs}
 									<div
-										bind:this={logsDiv}
-										class="logs-scroll grow w-full overflow-auto"
+										class="absolute right-0 bottom-0 z-20 max-w-[500px] w-full flex flex-col text-xs p-1 border border-border-light rounded-tl-md bg-surface text-primary {logsCollapsed
+											? 'h-6'
+											: 'max-h-60 h-full'}"
 									>
-										{#if !logsCollapsed}
-											<pre>{logs}</pre>
-										{/if}
+										<button
+											class="cursor-pointer flex items-center gap-2 w-full text-xs font-normal text-secondary -mt-0.5 px-2 text-left"
+											onclick={() => (logsCollapsed = !logsCollapsed)}
+										>
+											Logs
+											<ChevronDown
+												size={12}
+												class="transition duration-200"
+												style="transform: {logsCollapsed ? 'rotate(180deg)' : 'rotate(0deg)'}"
+											/>
+											<span class="text-secondary">({logs.split('\n').length})</span>
+										</button>
+										<div bind:this={logsDiv} class="logs-scroll grow w-full overflow-auto">
+											{#if !logsCollapsed}
+												<pre>{logs}</pre>
+											{/if}
+										</div>
 									</div>
-								</div>
-							{/if}
-						</div>
-					</Pane>
-				</Splitpanes>
-			</div>
-		</Pane>
-	</Splitpanes>
+								{/if}
+							</div>
+						</Pane>
+					</Splitpanes>
+				</div>
+			</Pane>
+		</Splitpanes>
 	</div>
 </div>
 
