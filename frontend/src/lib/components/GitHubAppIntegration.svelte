@@ -295,13 +295,21 @@
 													{#each githubState.workspaceGithubInstallations as installation (`current-${installation.installation_id}-${installation.workspace_id}`)}
 														<tr class="border-t border-gray-200 dark:border-gray-700">
 															<td class="py-2">
-																<div class="flex items-center gap-1">
+																<div class="flex items-center gap-1 flex-wrap">
 																	{#if installation.error}
 																		<span title={installation.error}>
 																			<AlertTriangle class="w-4 h-4 text-yellow-500" />
 																		</span>
 																	{/if}
 																	{installation.account_id}
+																	{#if installation.provisioned_by_admin}
+																		<span
+																			class="text-2xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
+																			title="Assigned by the instance super-admin from instance settings. Only the super-admin can remove it."
+																		>
+																			Provisioned by admin
+																		</span>
+																	{/if}
 																</div>
 															</td>
 															<td class="py-2">
@@ -310,34 +318,41 @@
 															</td>
 															<td class="py-2 text-primary">
 																{#if installation.error}
-																	<span class="text-yellow-600 dark:text-yellow-400 text-xs" title={installation.error}>Token error</span>
+																	<span
+																		class="text-yellow-600 dark:text-yellow-400 text-xs"
+																		title={installation.error}>Token error</span
+																	>
 																{:else}
 																	{installation.repositories.length} repos
 																{/if}
 															</td>
 															<td class="py-2 text-right">
 																<div class="flex justify-end gap-1">
-																	<Button
-																		size="xs2"
-																		variant="accent"
-																		title="Export installation to other instance"
-																		startIcon={{ icon: Download }}
-																		on:click={() =>
-																			handleExportInstallation(installation.installation_id)}
-																	>
-																		Export
-																	</Button>
-																	<Button
-																		size="xs2"
-																		variant="default"
-																		destructive
-																		title="Remove installation from workspace"
-																		startIcon={{ icon: Minus }}
-																		on:click={() =>
-																			handleDeleteInstallation(installation.installation_id)}
-																	>
-																		Remove
-																	</Button>
+																	{#if !installation.github_base_url}
+																		<Button
+																			size="xs2"
+																			variant="accent"
+																			title="Export installation to other instance"
+																			startIcon={{ icon: Download }}
+																			on:click={() =>
+																				handleExportInstallation(installation.installation_id)}
+																		>
+																			Export
+																		</Button>
+																	{/if}
+																	{#if !installation.provisioned_by_admin}
+																		<Button
+																			size="xs2"
+																			variant="default"
+																			destructive
+																			title="Remove installation from workspace"
+																			startIcon={{ icon: Minus }}
+																			on:click={() =>
+																				handleDeleteInstallation(installation.installation_id)}
+																		>
+																			Remove
+																		</Button>
+																	{/if}
 																</div>
 															</td>
 														</tr>
@@ -381,7 +396,10 @@
 															</td>
 															<td class="py-2 text-primary">
 																{#if installation.error}
-																	<span class="text-yellow-600 dark:text-yellow-400 text-xs" title={installation.error}>Token error</span>
+																	<span
+																		class="text-yellow-600 dark:text-yellow-400 text-xs"
+																		title={installation.error}>Token error</span
+																	>
 																{:else}
 																	{installation.repositories.length} repos
 																{/if}
@@ -414,26 +432,28 @@
 							</div>
 						</div>
 
-						<div class="mt-4 flex flex-col gap-2">
-							<p class="text-sm font-semibold text-secondary"
-								>Import installation from other instance:</p
-							>
-							<div class="flex gap-2">
-								<input
-									type="text"
-									placeholder="Paste JWT token here"
-									bind:value={githubState.importJwt}
-									class="flex-1"
-								/>
-								<Button
-									variant="accent"
-									on:click={handleImportInstallation}
-									disabled={!githubState.importJwt}
+						{#if !githubState.isGhesSelfManaged}
+							<div class="mt-4 flex flex-col gap-2">
+								<p class="text-sm font-semibold text-secondary"
+									>Import installation from other instance:</p
 								>
-									Import
-								</Button>
+								<div class="flex gap-2">
+									<input
+										type="text"
+										placeholder="Paste JWT token here"
+										bind:value={githubState.importJwt}
+										class="flex-1"
+									/>
+									<Button
+										variant="accent"
+										on:click={handleImportInstallation}
+										disabled={!githubState.importJwt}
+									>
+										Import
+									</Button>
+								</div>
 							</div>
-						</div>
+						{/if}
 					</div>
 				</div>
 			{/snippet}

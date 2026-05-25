@@ -59,7 +59,9 @@ use windmill_common::{
         RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING, SAML_METADATA_SETTING,
         SCIM_TOKEN_SETTING, SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING, TEAMS_SETTING,
         TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING,
-        UV_PYTHON_INSTALL_MIRROR_SETTING, WORKSPACE_REGISTRIES_SETTING,
+        UV_PYTHON_INSTALL_MIRROR_SETTING, WORKSPACE_FAIRNESS_DURATION_SECS_SETTING,
+        WORKSPACE_FAIRNESS_ENABLED_SETTING, WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING,
+        WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING, WORKSPACE_REGISTRIES_SETTING,
     },
     scripts::ScriptLang,
     stats_oss::schedule_stats,
@@ -120,7 +122,9 @@ use crate::monitor::{
     initial_load, load_disable_password_login, load_fork_workspace_tag_append_fork_suffix,
     load_keep_job_dir, load_metrics_debug_enabled, load_preview_tags_override,
     load_require_preexisting_user, load_tag_per_workspace_enabled,
-    load_tag_per_workspace_workspaces, monitor_db, reload_app_workspaced_route_setting,
+    load_tag_per_workspace_workspaces, load_workspace_fairness_duration_secs,
+    load_workspace_fairness_enabled, load_workspace_fairness_max_percent,
+    load_workspace_fairness_min_total, monitor_db, reload_app_workspaced_route_setting,
     reload_audit_log_retention_days_setting, reload_base_url_setting,
     reload_bun_install_min_release_age_setting, reload_bunfig_install_scopes_setting,
     reload_critical_alert_mute_ui_setting, reload_critical_alerts_on_token_expiry_setting,
@@ -1763,6 +1767,26 @@ async fn process_notify_event(
                 PREVIEW_TAGS_OVERRIDE_SETTING => {
                     if let Err(e) = load_preview_tags_override(db).await {
                         tracing::error!("Error loading preview tags override: {e:#}");
+                    }
+                }
+                WORKSPACE_FAIRNESS_ENABLED_SETTING => {
+                    if let Err(e) = load_workspace_fairness_enabled(db).await {
+                        tracing::error!("Error loading workspace fairness enabled: {e:#}");
+                    }
+                }
+                WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING => {
+                    if let Err(e) = load_workspace_fairness_max_percent(db).await {
+                        tracing::error!("Error loading workspace fairness max percent: {e:#}");
+                    }
+                }
+                WORKSPACE_FAIRNESS_DURATION_SECS_SETTING => {
+                    if let Err(e) = load_workspace_fairness_duration_secs(db).await {
+                        tracing::error!("Error loading workspace fairness duration secs: {e:#}");
+                    }
+                }
+                WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING => {
+                    if let Err(e) = load_workspace_fairness_min_total(db).await {
+                        tracing::error!("Error loading workspace fairness min total: {e:#}");
                     }
                 }
                 SMTP_SETTING => {

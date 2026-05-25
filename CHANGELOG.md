@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.708.0](https://github.com/windmill-labs/windmill/compare/v1.707.0...v1.708.0) (2026-05-24)
+
+
+### Features
+
+* **queue:** per-workspace fairness cap on the shared cloud worker pool ([#9303](https://github.com/windmill-labs/windmill/issues/9303)) ([de2e243](https://github.com/windmill-labs/windmill/commit/de2e243313ee34348675dec600cb412b475d1b4b))
+
+## [1.707.0](https://github.com/windmill-labs/windmill/compare/v1.706.1...v1.707.0) (2026-05-22)
+
+
+### Features
+
+* add wmill job rerun subcommand ([#9275](https://github.com/windmill-labs/windmill/issues/9275)) ([e0ffea2](https://github.com/windmill-labs/windmill/commit/e0ffea2deb5acf30815edd3669f4fc4c818b6e19))
+* **github-app:** hide cloud-only UI on self-managed + admin assignment UI ([#9299](https://github.com/windmill-labs/windmill/issues/9299)) ([dcee8cc](https://github.com/windmill-labs/windmill/commit/dcee8cc0d3dd71c3a12f1720e3ce4eb86cdacf4f))
+* **typescript-client:** add deleteS3File + optional workspace arg on S3 helpers ([#9300](https://github.com/windmill-labs/windmill/issues/9300)) ([daab561](https://github.com/windmill-labs/windmill/commit/daab561ec0763468d93e42e8f7f0796dc77be74d))
+
+
+### Bug Fixes
+
+* **auth:** tighten token-owner fallback for unscoped tokens (WIN-1978) ([#9293](https://github.com/windmill-labs/windmill/issues/9293)) ([7003998](https://github.com/windmill-labs/windmill/commit/7003998a575d76c272c6abd0789a1d1f7b722076))
+* **cli:** wmill sync pull updates wmill-lock.yaml for raw apps ([#9289](https://github.com/windmill-labs/windmill/issues/9289)) ([486e5f9](https://github.com/windmill-labs/windmill/commit/486e5f947b1649c17d32e3b214c50d4be701a4e8))
+* flow recording teardown crash + rename package to @windmill-labs/components ([#9288](https://github.com/windmill-labs/windmill/issues/9288)) ([13a2fae](https://github.com/windmill-labs/windmill/commit/13a2fae745ba4862006db5ee0811475c1d27fd1d))
+* **flows:** restore Variables and Resources in flow editor prop picker ([#9290](https://github.com/windmill-labs/windmill/issues/9290)) ([5566c7b](https://github.com/windmill-labs/windmill/commit/5566c7b3ff2d5a6b15cb9187aa15ce1c7245b3fb))
+* **ResourceEditor:** don't reset state when `selected` reverts to undefined ([#9295](https://github.com/windmill-labs/windmill/issues/9295)) ([1f2d2c1](https://github.com/windmill-labs/windmill/commit/1f2d2c11493db20b87615d41c21e5e1c35564739))
+* **secret-backend:** pass DB to Vault migrations + show failure details ([#9292](https://github.com/windmill-labs/windmill/issues/9292)) ([ace2291](https://github.com/windmill-labs/windmill/commit/ace22910c40585a6a2c9abd0c46f7e5e0214e78e))
+
 ## [1.706.1](https://github.com/windmill-labs/windmill/compare/v1.706.0...v1.706.1) (2026-05-22)
 
 

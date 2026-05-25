@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.706.1
+  version: 1.708.0
   title: Windmill API
 
   contact:
@@ -2573,6 +2573,104 @@ paths:
                   - base_url
                   - app_slug
                   - client_id
+
+  /github_app/ghes/discover:
+    get:
+      summary: Discover GHES App installations
+      description: |
+        Lists every installation the configured self-managed GitHub App can see,
+        annotated with the workspaces in this Windmill instance the
+        installation is currently assigned to. Super-admin only.
+      operationId: discoverGhesInstallations
+      tags:
+        - Git Sync
+      responses:
+        "200":
+          description: Discovered installations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - installation_id
+                    - account_id
+                    - assigned_workspaces
+                  properties:
+                    installation_id:
+                      type: integer
+                      format: int64
+                    account_id:
+                      type: string
+                      description: GitHub login of the installation's account (org or user)
+                    assigned_workspaces:
+                      type: array
+                      items:
+                        type: object
+                        required:
+                          - workspace_id
+                          - provisioned_by_admin
+                        properties:
+                          workspace_id:
+                            type: string
+                          provisioned_by_admin:
+                            type: boolean
+
+  /github_app/ghes/assign:
+    post:
+      summary: Assign GHES installation to a workspace
+      description: |
+        Assigns a discovered GHES App installation to a workspace. The resulting
+        installation is marked as admin-provisioned, so workspace admins cannot
+        remove it. Super-admin only.
+      operationId: assignGhesInstallation
+      tags:
+        - Git Sync
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - workspace_id
+                - installation_id
+              properties:
+                workspace_id:
+                  type: string
+                installation_id:
+                  type: integer
+                  format: int64
+      responses:
+        "200":
+          description: Installation assigned
+
+  /github_app/ghes/assign/{workspace_id}/{installation_id}:
+    delete:
+      summary: Unassign GHES installation from a workspace
+      description: |
+        Removes an installation (admin-provisioned or otherwise) from a
+        workspace. Super-admin only. Does not affect the installation on the
+        GitHub side.
+      operationId: unassignGhesInstallation
+      tags:
+        - Git Sync
+      parameters:
+        - name: workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: installation_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: Installation unassigned
 
   /users/accept_invite:
     post:
@@ -27823,6 +27921,13 @@ components:
           error:
             type: string
             description: Error message if token retrieval failed
+          github_base_url:
+            type: string
+            nullable: true
+            description: Set for self-managed (GHES) installs. Cloud installs omit this field.
+          provisioned_by_admin:
+            type: boolean
+            description: True when the installation was assigned by the instance super-admin from instance settings. Workspace admins cannot remove these.
         required:
           - installation_id
           - account_id
