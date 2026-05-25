@@ -74,8 +74,16 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 
 	// Sibling-popover open: melt-ui's `openFocus` runs once during the close→open
 	// transition; the picker may not be mounted yet. Retry after settle.
+	// Also kicks off the initial scope's fetch — drill/goUp do the same from
+	// their respective branches, so `ensureLoaded` is always a callback
+	// reaction to user navigation, never a reactive consequence.
 	onMount(() => {
 		const t = setTimeout(focus, 50)
+		const initial = untrack(() => scope)
+		if (initial) {
+			if (initial.kind === 'all') for (const k of kinds) ensureLoaded(k)
+			else ensureLoaded(initial.kind)
+		}
 		return () => clearTimeout(t)
 	})
 
@@ -83,6 +91,22 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 
 	let scope = $state<Scope>(untrack(() => initialScope))
 	let filter = $state('')
+
+	/**
+	 * Canonical entry point for changing the picker's scope. Triggers the
+	 * fetch for the kind(s) the new scope needs at the same point in time.
+	 * Replaces the older "react to `scope` change via `$effect`" wiring,
+	 * which had a subtle bug: `ensureLoaded` reads `loaded[kind]`, so the
+	 * effect ended up subscribed to the signal it fills — every fetch
+	 * result re-fired it. With explicit callbacks the fetch is tied to
+	 * the user's action, never to a reactive consequence of that action.
+	 */
+	function setScope(next: Scope) {
+		scope = next
+		if (!next) return
+		if (next.kind === 'all') for (const k of kinds) ensureLoaded(k)
+		else ensureLoaded(next.kind)
+	}
 
 	/** Tracks whether the last user action was mouse movement (true) or
 	 * keyboard nav (false). When false, row `mouseenter` events are ignored
@@ -114,7 +138,13 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		if (!$workspaceStore) return
 		// Always re-fetch. If we have nothing cached, show a spinner; if we do,
 		// keep displaying it and quietly swap to fresh data when it lands.
-		if (!loaded[kind]) loadingKind[kind] = true
+		// `loaded[kind]` is read inside `untrack(...)` because this function is
+		// reachable from the search `$effect` below — without the untrack,
+		// that effect would subscribe to the signal `ensureLoaded` fills, and
+		// each `loaded[kind] = items` (proxy `set` notifies even when the ref
+		// is unchanged from cache) would refire it → runaway loop. Drill
+		// navigation goes through `setScope` directly so it isn't affected.
+		if (!untrack(() => loaded[kind])) loadingKind[kind] = true
 		try {
 			const items = await loadKind($workspaceStore, kind)
 			loaded[kind] = items
@@ -142,14 +172,6 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 				raw_app: k === 'app' ? !!(d.value as { files?: unknown })?.files : undefined
 			}))
 	}
-
-	// Fetch the scope's kind on entry to a non-root level. The `'all'` scope
-	// needs every kind loaded since it merges items across them.
-	$effect(() => {
-		if (!scope) return
-		if (scope.kind === 'all') for (const k of kinds) ensureLoaded(k)
-		else ensureLoaded(scope.kind)
-	})
 
 	// Searching is global → load every kind.
 	$effect(() => {
@@ -421,9 +443,9 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 
 	function drill(entry: Entry) {
 		if (entry.type === 'kind') {
-			scope = { kind: entry.kind }
+			setScope({ kind: entry.kind })
 		} else if (entry.type === 'dir') {
-			scope = { kind: entry.kind, dir: entry.node.fullPath }
+			setScope({ kind: entry.kind, dir: entry.node.fullPath })
 		} else {
 			pick(entry.item)
 		}
@@ -435,13 +457,13 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		// just left, so the user sees where they came from.
 		if (!scope.dir) {
 			const leaving = kindKey(scope.kind)
-			scope = undefined
+			setScope(undefined)
 			highlightedKey = leaving
 			return
 		}
 		const leaving = dirKey(scope.kind, scope.dir)
 		const parent = parentDirPath(scope.dir)
-		scope = parent ? { kind: scope.kind, dir: parent } : { kind: scope.kind }
+		setScope(parent ? { kind: scope.kind, dir: parent } : { kind: scope.kind })
 		highlightedKey = leaving
 	}
 
