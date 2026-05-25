@@ -197,7 +197,8 @@
 	let logsDiv: HTMLDivElement | undefined = $state(undefined)
 	$effect(() => {
 		if (logsDiv && logs && !logsCollapsed) {
-			setTimeout(() => logsDiv?.scrollTo(0, logsDiv.scrollHeight), 50)
+			const t = setTimeout(() => logsDiv?.scrollTo(0, logsDiv.scrollHeight), 50)
+			return () => clearTimeout(t)
 		}
 	})
 
@@ -370,12 +371,12 @@
 	}
 
 	function reorderTabs(next: TabItem[]) {
-		// In split mode the right bar omits Preview from `next`; re-append it.
-		if (splitWithPreview && !next.some((t) => t.id === PREVIEW_TAB_ID)) {
-			tabs = [...next, previewTab]
-		} else {
-			tabs = next
-		}
+		// Rebuild from the reordered `next` plus any tabs that bar didn't show
+		// (e.g. files when the Preview-only right bar fires in split mode), with
+		// Preview kept pinned at the end — so a reorder can never drop a tab.
+		const seen = new Set(next.map((t) => t.id))
+		const rest = tabs.filter((t) => !seen.has(t.id))
+		tabs = [...next, ...rest].filter((t) => t.id !== PREVIEW_TAB_ID).concat(previewTab)
 	}
 
 	function toggleSplit() {
@@ -1102,7 +1103,6 @@
 	}
 
 	function handleSelectFile(path: string) {
-		console.log('event Select file:', path)
 		// Adding the tab activates it; activateTab posts the selectFile message
 		// to the UI Builder iframe and clears any selected runnable.
 		const id = ensureFileTab(path)
@@ -1469,7 +1469,7 @@
 								</div>
 							</div>
 						</Pane>
-						<Pane bind:size={() => paneBRightSize, () => {}} minSize={0}>
+						<Pane bind:size={() => paneBRightSize, (v) => rememberPaneDrag(100 - v)} minSize={0}>
 							<div class="flex flex-col h-full w-full min-h-0 relative">
 								<DraggableTabs
 									tabs={rightPaneTabs}
