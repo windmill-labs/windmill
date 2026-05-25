@@ -1103,9 +1103,9 @@
 				},
 				{
 					id: 'hub',
-					label: 'Submit to Hub',
+					label: 'Deploy to Hub',
 					aiId: 'workspace-settings-hub',
-					aiDescription: 'Submit workspace folders to the Hub for review'
+					aiDescription: 'Publish this workspace to the Hub'
 				}
 			]
 		},
@@ -1874,8 +1874,8 @@ export async function main(
 							<WorkspaceDependenciesSettings />
 						{:else if tab == 'default_app'}
 							<SettingsPageHeader
-								title="Workspace default app"
-								description="If configured, users who are operators in this workspace will be redirected to this app automatically when logging into this workspace. Make sure the default app is shared with all the operators of this workspace before turning this feature on."
+								title="Apps"
+								description="Workspace-level settings for apps: default app for operators, and rate limiting for public (anonymous) app executions."
 								link="https://www.windmill.dev/docs/apps/default_app"
 							/>
 							{#if !$enterpriseLicense}
@@ -1964,8 +1964,8 @@ export async function main(
 							/>
 						{:else if tab == 'hub'}
 							<SettingsPageHeader
-								title="Submit to Hub"
-								description="Bundle all scripts, flows and apps under a folder and submit them to the Hub for review as a workspace."
+								title="Deploy to Hub"
+								description="Publish this workspace to the Hub. Each deploy bundles every script, flow, app and resource and pushes them as a new version."
 							/>
 							<div class="mt-4">
 								<DeployToHub />

@@ -21,6 +21,7 @@
 		deploymentStatus: Record<string, { status: 'loading' | 'deployed' | 'failed'; error?: string }>
 		allSelected?: boolean
 		emptyMessage?: string
+		hideSelection?: boolean
 		children?: Snippet
 
 		// Snippets for customization
@@ -43,6 +44,7 @@
 		deploymentStatus,
 		allSelected = false,
 		emptyMessage = 'No items to deploy',
+		hideSelection = false,
 		header,
 		alerts,
 		itemSummary,
@@ -72,20 +74,22 @@
 
 	{#if items.length > 0}
 		<!-- Select all row -->
-		<div class="px-4 py-2 flex items-center justify-between">
-			<div
-				class="flex items-center gap-2 text-secondary text-xs"
-				class:opacity-50={!hasSelectableItems}
-			>
-				<input
-					type="checkbox"
-					disabled={!hasSelectableItems}
-					checked={allSelected}
-					onchange={allSelected ? onDeselectAll : onSelectAll}
-					class="rounded max-w-4 w-full"
-				/> Select all
+		{#if !hideSelection}
+			<div class="px-4 py-2 flex items-center justify-between">
+				<div
+					class="flex items-center gap-2 text-secondary text-xs"
+					class:opacity-50={!hasSelectableItems}
+				>
+					<input
+						type="checkbox"
+						disabled={!hasSelectableItems}
+						checked={allSelected}
+						onchange={allSelected ? onDeselectAll : onSelectAll}
+						class="rounded max-w-4 w-full"
+					/> Select all
+				</div>
 			</div>
-		</div>
+		{/if}
 
 		<!-- Items list -->
 		<div class="overflow-y-auto">
@@ -97,9 +101,9 @@
 					{@const isDeployed = status?.status === 'deployed'}
 
 					<Row
-						isSelectable={isSelectable && !isDeployed}
-						alignWithSelectable={true}
-						disabled={!isSelectable}
+						isSelectable={!hideSelection && isSelectable && !isDeployed}
+						alignWithSelectable={!hideSelection}
+						disabled={!hideSelection && !isSelectable}
 						selected={isSelected && !isDeployed}
 						onSelect={() => onToggleItem?.(item)}
 						path={item.kind !== 'resource' &&
