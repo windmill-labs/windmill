@@ -40,7 +40,7 @@
 			<Button
 				nonCaptureEvent
 				unifiedSize="xs"
-				variant="default"
+				variant="subtle"
 				endIcon={{ icon: ChevronDown }}
 				btnClasses="max-w-[160px]"
 			>
@@ -49,7 +49,7 @@
 		{/snippet}
 	</DropdownV2>
 {:else}
-	<Button unifiedSize="xs" variant="default" btnClasses="max-w-[160px]">
+	<Button unifiedSize="xs" variant="subtle" btnClasses="max-w-[160px]">
 		<span class="truncate">{providerModel.model}</span>
 	</Button>
 {/if}
