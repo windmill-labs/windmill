@@ -1104,7 +1104,7 @@ describe('global AI tools', () => {
 		expect(item.value.value).toBeUndefined()
 	})
 
-	it('asks the user a multiple-choice question and returns the selected answer', async () => {
+	it('asks the user a question and returns the selected answer', async () => {
 		const callbacks: ToolCallbacks = {
 			setToolStatus: vi.fn(),
 			removeToolStatus: vi.fn(),
@@ -1135,6 +1135,79 @@ describe('global AI tools', () => {
 				isLoading: false,
 				result: 'python3',
 				userQuestion: expect.objectContaining({ selectedChoice: 'python3' })
+			})
+		)
+	})
+
+	it('allows up to ten proposed answers', async () => {
+		const choices = Array.from({ length: 10 }, (_, index) => `choice-${index + 1}`)
+		const callbacks: ToolCallbacks = {
+			setToolStatus: vi.fn(),
+			removeToolStatus: vi.fn(),
+			requestUserQuestion: vi.fn(async (_toolId, question) => question.choices[9])
+		}
+
+		const raw = await callGlobalTool(
+			'askUserQuestion',
+			{
+				question: 'Which option should be used?',
+				choices
+			},
+			callbacks
+		)
+
+		expect(raw).toBe('choice-10')
+		expect(callbacks.requestUserQuestion).toHaveBeenCalledWith(
+			'test-askUserQuestion',
+			expect.objectContaining({
+				choices
+			})
+		)
+	})
+
+	it('rejects more than ten proposed answers', async () => {
+		const callbacks: ToolCallbacks = {
+			setToolStatus: vi.fn(),
+			removeToolStatus: vi.fn(),
+			requestUserQuestion: vi.fn()
+		}
+
+		await expect(
+			callGlobalTool(
+				'askUserQuestion',
+				{
+					question: 'Which option should be used?',
+					choices: Array.from({ length: 11 }, (_, index) => `choice-${index + 1}`)
+				},
+				callbacks
+			)
+		).rejects.toThrow()
+		expect(callbacks.requestUserQuestion).not.toHaveBeenCalled()
+	})
+
+	it('returns a custom answer that is not one of the proposed answers', async () => {
+		const callbacks: ToolCallbacks = {
+			setToolStatus: vi.fn(),
+			removeToolStatus: vi.fn(),
+			requestUserQuestion: vi.fn(async () => 'use deno instead')
+		}
+
+		const raw = await callGlobalTool(
+			'askUserQuestion',
+			{
+				question: 'Which script language should be used?',
+				choices: ['bun', 'python3']
+			},
+			callbacks
+		)
+
+		expect(raw).toBe('use deno instead')
+		expect(callbacks.setToolStatus).toHaveBeenLastCalledWith(
+			'test-askUserQuestion',
+			expect.objectContaining({
+				content: 'User answered question: use deno instead',
+				result: 'use deno instead',
+				userQuestion: expect.objectContaining({ selectedChoice: 'use deno instead' })
 			})
 		)
 	})
