@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { ChevronDown } from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import Button from '$lib/components/common/button/Button.svelte'
 	import {
 		COPILOT_SESSION_MODEL_SETTING_NAME,
 		COPILOT_SESSION_PROVIDER_SETTING_NAME
 	} from '$lib/stores'
 	import { storeLocalSetting } from '$lib/utils'
 	import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
-	import { CHAT_BAR_PILL, CHAT_BAR_PILL_STATIC } from './chatBarStyles'
 
 	let providerModel = $derived(
 		$copilotSessionModel ??
@@ -35,17 +35,21 @@
 			}))}
 		placement="bottom-end"
 		fixedHeight={false}
-		class="min-w-0"
 	>
 		{#snippet buttonReplacement()}
-			<div class={CHAT_BAR_PILL}>
+			<Button
+				nonCaptureEvent
+				unifiedSize="xs"
+				variant="default"
+				endIcon={{ icon: ChevronDown }}
+				btnClasses="max-w-[160px]"
+			>
 				<span class="truncate">{providerModel.model}</span>
-				<ChevronDown size={14} class="shrink-0" />
-			</div>
+			</Button>
 		{/snippet}
 	</DropdownV2>
 {:else}
-	<div class={CHAT_BAR_PILL_STATIC}>
+	<Button unifiedSize="xs" variant="default" btnClasses="max-w-[160px]">
 		<span class="truncate">{providerModel.model}</span>
-	</div>
+	</Button>
 {/if}

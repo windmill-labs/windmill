@@ -21,7 +21,6 @@
 	import { fade } from 'svelte/transition'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { CHAT_BAR_PILL } from './chatBarStyles'
 	import { type DisplayMessage } from './shared'
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
@@ -483,9 +482,9 @@
 						{#if showContextPicker && !disabled}
 							<Popover>
 								{#snippet trigger()}
-									<div class={twMerge(CHAT_BAR_PILL, 'justify-center')} title="Add context">
+									<Button nonCaptureEvent unifiedSize="xs" variant="default" title="Add context">
 										@
-									</div>
+									</Button>
 								{/snippet}
 								{#snippet content({ close })}
 									{#if aiChatManager.mode === AIMode.APP}
@@ -525,22 +524,24 @@
 								placement="bottom-start"
 								fixedHeight={false}
 								customWidth={180}
-								class="min-w-0"
 							>
 								{#snippet buttonReplacement()}
-									<div class={CHAT_BAR_PILL} title={autonomyModeTooltip}>
-										<ChevronsRight
-											size={13}
-											class={twMerge(
-												'shrink-0',
+									<Button
+										nonCaptureEvent
+										unifiedSize="xs"
+										variant="default"
+										title={autonomyModeTooltip}
+										startIcon={{
+											icon: ChevronsRight,
+											classes:
 												effectiveAutonomyMode === AIAutonomyMode.YOLO
 													? 'text-red-500'
 													: 'text-accent'
-											)}
-										/>
-										<span class="truncate">{autonomyModeLabel(effectiveAutonomyMode)}</span>
-										<ChevronDown size={14} class="shrink-0" />
-									</div>
+										}}
+										endIcon={{ icon: ChevronDown }}
+									>
+										{autonomyModeLabel(effectiveAutonomyMode)}
+									</Button>
 								{/snippet}
 							</DropdownV2>
 						{/if}
