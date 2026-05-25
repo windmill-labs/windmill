@@ -2,6 +2,7 @@
 	import { onMount, tick } from 'svelte'
 	import { CircleHelp } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { aiChatManager } from './AIChatManager.svelte'
 	import type { UserQuestionDisplay } from './shared'
 
@@ -13,6 +14,8 @@
 	let { toolCallId, userQuestion }: Props = $props()
 
 	let choiceButtons = $state<(HTMLButtonElement | undefined)[]>([])
+	let customAnswer = $state('')
+	let canSubmitCustomAnswer = $derived(customAnswer.trim().length > 0)
 
 	onMount(() => {
 		if (userQuestion.choices.length === 0) {
@@ -30,6 +33,15 @@
 
 	function selectChoice(choice: string) {
 		aiChatManager.handleUserQuestionAnswer(toolCallId, choice)
+	}
+
+	function submitCustomAnswer() {
+		const answer = customAnswer.trim()
+		if (!answer) {
+			return
+		}
+
+		aiChatManager.handleUserQuestionAnswer(toolCallId, answer)
 	}
 
 	function handleChoiceKeydown(event: KeyboardEvent, choice: string, index: number) {
@@ -52,6 +64,16 @@
 			event.stopPropagation()
 			selectChoice(choice)
 		}
+	}
+
+	function handleCustomAnswerKeydown(event: KeyboardEvent) {
+		if (event.key !== 'Enter') {
+			return
+		}
+
+		event.preventDefault()
+		event.stopPropagation()
+		submitCustomAnswer()
 	}
 </script>
 
@@ -81,5 +103,27 @@
 				</span>
 			</Button>
 		{/each}
+
+		<div class="flex min-w-0 gap-2 pt-1">
+			<TextInput
+				bind:value={customAnswer}
+				class="min-w-0 flex-1"
+				size="sm"
+				inputProps={{
+					'aria-label': 'Custom answer',
+					placeholder: 'Custom answer',
+					onkeydown: handleCustomAnswerKeydown
+				}}
+			/>
+			<Button
+				variant="default"
+				unifiedSize="sm"
+				disabled={!canSubmitCustomAnswer}
+				onClick={submitCustomAnswer}
+				btnClasses="shrink-0"
+			>
+				Send
+			</Button>
+		</div>
 	</div>
 </div>
