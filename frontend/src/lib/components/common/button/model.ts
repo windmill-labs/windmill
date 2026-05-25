@@ -17,7 +17,7 @@ export namespace ButtonType {
 	 * @deprecated Use `UnifiedSize` instead
 	 */
 	export type Size = 'xs3' | 'xs2' | 'xs' | 'sm' | 'md' | 'lg' | 'xl'
-	export type UnifiedSize = 'xs' | 'sm' | 'md' | 'lg'
+	export type UnifiedSize = '2xs' | 'xs' | 'sm' | 'md' | 'lg'
 	export type ExtendedSize = 'xs2' | 'xs' | 'sm' | 'md' | 'lg' | 'xl'
 	/**
 	 * @deprecated Use `Variant` instead
@@ -221,6 +221,7 @@ export namespace ButtonType {
 
 	// New unified sizing system
 	export const UnifiedSizingClasses: Record<ButtonType.UnifiedSize, string> = {
+		'2xs': 'px-1', // Compact horizontal padding
 		xs: 'px-2',
 		sm: 'px-2', // Regular horizontal padding
 		md: 'px-4',
@@ -228,6 +229,7 @@ export namespace ButtonType {
 	}
 
 	export const UnifiedIconOnlySizingClasses: Record<ButtonType.UnifiedSize, string> = {
+		'2xs': 'px-1',
 		xs: 'px-1',
 		sm: 'px-2', // Square padding for icon-only (same as width padding)
 		md: 'px-2',
@@ -235,6 +237,7 @@ export namespace ButtonType {
 	}
 
 	export const UnifiedMinHeightClasses: Record<ButtonType.UnifiedSize, string> = {
+		'2xs': 'min-h-5',
 		xs: 'min-h-5',
 		sm: 'min-h-7',
 		md: 'min-h-8',
@@ -242,6 +245,7 @@ export namespace ButtonType {
 	}
 
 	export const UnifiedHeightClasses: Record<ButtonType.UnifiedSize, string> = {
+		'2xs': 'h-5',
 		xs: 'h-5',
 		sm: 'h-7',
 		md: 'h-8',
@@ -249,6 +253,7 @@ export namespace ButtonType {
 	}
 
 	export const UnifiedIconSizes: Record<ButtonType.UnifiedSize, number> = {
+		'2xs': 12,
 		xs: 12,
 		sm: 13,
 		md: 14,
@@ -256,6 +261,7 @@ export namespace ButtonType {
 	}
 
 	export const UnifiedFontSizes: Record<ButtonType.UnifiedSize, string> = {
+		'2xs': 'font-normal',
 		xs: 'font-normal',
 		sm: 'font-normal',
 		md: 'font-medium',
