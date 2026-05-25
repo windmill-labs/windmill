@@ -2816,6 +2816,15 @@ paths:
               properties:
                 username:
                   type: string
+                is_admin:
+                  type: boolean
+                  description: Grant the service account workspace admin. Defaults to false. Cannot be combined with operator=true.
+                operator:
+                  type: boolean
+                  description: Make the service account an operator. Defaults to true for backward compatibility. Set to false to count as a developer (1 seat) instead of 0.5 seat.
+                add_to_deployers:
+                  type: boolean
+                  description: Add the service account to the workspace `wm_deployers` group on creation. Recommended when the account will be used as a CLI sync / CI deploy identity so it can deploy on behalf of other users.
               required:
                 - username
       responses:
@@ -26602,6 +26611,9 @@ components:
           type: string
         operator_only:
           type: boolean
+        is_workspace_admin:
+          type: boolean
+          description: Populated only for service accounts. True if the service account has workspace admin in its (single) workspace.
         first_time_user:
           type: boolean
         role_source:

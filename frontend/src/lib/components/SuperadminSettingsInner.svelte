@@ -405,7 +405,7 @@
 										</Head>
 										<tbody>
 											{#if filteredUsers && users}
-												{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, devops, login_type, name, username, operator_only, role_source, disabled, workspace_id }, i (email + '::' + (workspace_id ?? ''))}
+												{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, devops, login_type, name, username, operator_only, is_workspace_admin, role_source, disabled, workspace_id }, i (email + '::' + (workspace_id ?? ''))}
 													{@const isServiceAccount = login_type === 'service_account'}
 													<tr
 														class="{i % 2 === 0 ? 'bg-surface-tertiary' : 'bg-surface'} {disabled
@@ -467,7 +467,9 @@
 														>
 														{#if activeOnly}
 															<Cell>
-																{#if operator_only}
+																{#if is_workspace_admin}
+																	Admin
+																{:else if operator_only}
 																	Operator only
 																{:else}
 																	Developer
@@ -480,9 +482,15 @@
 																	<span
 																		class="rounded-md text-xs px-2 py-1 bg-surface shadow-md font-bold"
 																	>
-																		Operator
+																		{is_workspace_admin
+																			? 'Admin'
+																			: operator_only
+																				? 'Operator'
+																				: 'Developer'}
 																	</span>
-																	<Tooltip>Service accounts are always operators.</Tooltip>
+																	<Tooltip>
+																		Service-account role is managed in the workspace user settings.
+																	</Tooltip>
 																</div>
 															{:else}
 																<div class="flex flex-col items-start">

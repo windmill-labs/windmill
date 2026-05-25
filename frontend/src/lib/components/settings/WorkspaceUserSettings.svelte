@@ -848,14 +848,7 @@
 						>
 						<Cell>
 							<div>
-								{#if user.is_service_account}
-									<div class="flex items-center gap-1">
-										<span class="rounded-md text-xs px-2 py-1 bg-surface shadow-md font-bold">
-											Operator
-										</span>
-										<Tooltip>Service accounts are always operators.</Tooltip>
-									</div>
-								{:else if added_via?.source === 'instance_group'}
+								{#if added_via?.source === 'instance_group'}
 									<div class="flex items-center gap-1">
 										<span class="rounded-md text-xs px-2 py-1 bg-surface shadow-md font-bold">
 											{is_admin ? 'Admin' : operator ? 'Operator' : 'Developer'}
