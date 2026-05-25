@@ -569,7 +569,7 @@
 									}))}
 								placement="bottom-start"
 								fixedHeight={false}
-								customWidth={180}
+								customWidth={240}
 							>
 								{#snippet buttonReplacement()}
 									<Button
