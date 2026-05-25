@@ -370,3 +370,53 @@ where
         Self(err.into())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn json_err_message_error_and_details() {
+        let v = json!({
+            "error": "Duplicate HTTP route paths detected",
+            "details": [
+                { "route_path": "a", "workspace_id": "admins", "http_method": "post" },
+                { "route_path": "a", "workspace_id": "starter", "http_method": "post" },
+            ],
+        });
+        let rendered = Error::JsonErr(v).to_string();
+        assert_eq!(
+            rendered,
+            "Duplicate HTTP route paths detected\n\
+             - route_path=a, workspace_id=admins, http_method=post\n\
+             - route_path=a, workspace_id=starter, http_method=post"
+        );
+    }
+
+    #[test]
+    fn json_err_message_error_only() {
+        let v = json!({ "error": "Something went wrong" });
+        assert_eq!(Error::JsonErr(v).to_string(), "Something went wrong");
+    }
+
+    #[test]
+    fn json_err_message_truncates_long_details() {
+        let details: Vec<_> = (0..8).map(|i| json!({ "k": i })).collect();
+        let v = json!({ "error": "boom", "details": details });
+        let rendered = Error::JsonErr(v).to_string();
+        assert!(rendered.starts_with("boom\n- k=0\n- k=1\n- k=2\n- k=3\n- k=4"));
+        assert!(rendered.ends_with("... (3 more)"));
+        // Items beyond the cap aren't enumerated.
+        assert!(!rendered.contains("- k=5"));
+    }
+
+    #[test]
+    fn json_err_message_fallback_to_pretty_json() {
+        let v = json!([1, 2, 3]);
+        // Non-object payload falls back to pretty JSON instead of leaking
+        // Rust `Debug` syntax.
+        let rendered = Error::JsonErr(v).to_string();
+        assert_eq!(rendered, "[\n  1,\n  2,\n  3\n]");
+    }
+}

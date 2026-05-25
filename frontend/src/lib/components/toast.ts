@@ -15,12 +15,13 @@ export function processMessage(message: string | undefined): string {
 		: typeof message != 'string'
 			? JSON.stringify(message, null, 2)
 			: message
-	// Preserve newlines: the toast renders via {@html}, where consecutive
-	// whitespace (including \n) collapses to a single space. Escape the raw
-	// message first to avoid injecting HTML from server-side error bodies,
-	// then convert \n to <br /> so multi-line errors stay readable.
-	const hasNewline = msg.includes('\n')
-	let html = hasNewline ? escapeHtml(msg).replaceAll('\n', '<br />') : msg
+	// Toast renders via {@html}, so escape unconditionally — server error
+	// bodies can contain arbitrary content (e.g. `<` from a SQL fragment in
+	// an error message), and the path regex below only ever inserts a safe
+	// `<span>` around a `u/...` or `f/...` capture that itself cannot match
+	// any HTML metacharacter. Convert `\n` to `<br />` so multi-line errors
+	// stay readable in the toast (without this, HTML collapses newlines).
+	let html = escapeHtml(msg).replaceAll('\n', '<br />')
 	return html.replaceAll(pathRegex, (path) => {
 		return `<span class="bg-surface-secondary p-1 text-xs font-mono whitespace-nowrap rounded-md">${path}</span>`
 	})
