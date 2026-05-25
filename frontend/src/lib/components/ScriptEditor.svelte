@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { buildWsUrl } from '$lib/wsUrl'
+	import { paneMinPercent } from '$lib/utils/splitpaneSizing'
 	import { processSecretArgs } from './secretArgUtils'
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import {
@@ -1351,7 +1352,7 @@
 	let splitContainerWidth = $state(0)
 	const TEST_PANE_MIN_PX = 400
 	const testPaneMinPercent = $derived(
-		splitContainerWidth > 0 ? Math.min(80, (TEST_PANE_MIN_PX / splitContainerWidth) * 100) : 0
+		paneMinPercent(splitContainerWidth, TEST_PANE_MIN_PX)
 	)
 
 	// Raw user-controlled test size (what the splitter wrote, or what the
