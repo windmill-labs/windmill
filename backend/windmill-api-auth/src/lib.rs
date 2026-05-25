@@ -235,6 +235,50 @@ where
     Ok(())
 }
 
+/// Returns a predicate that checks whether `path` is within the token's
+/// scope for `{domain}:{action}:{path}`. For tokens without scope
+/// restrictions (no scopes at all, or only `if_jobs:filter_tags:*` scopes),
+/// the predicate always returns `true`.
+///
+/// Pre-parses the token's scopes once so the returned closure can cheaply
+/// filter large listings without re-parsing on each call.
+pub fn build_scope_path_predicate(
+    authed: &ApiAuthed,
+    domain: &str,
+    action: &str,
+) -> impl Fn(&str) -> bool {
+    // Mirror check_scopes semantics: a token is "scope-restricted" iff it has
+    // at least one non-`if_jobs:filter_tags:` scope. Unparseable scopes still
+    // count as restrictive — they just match nothing.
+    let (is_scoped_token, parsed): (bool, Vec<ScopeDefinition>) = match authed.scopes.as_ref() {
+        Some(scopes) => {
+            let mut is_scoped = false;
+            let parsed = scopes
+                .iter()
+                .filter(|s| !s.starts_with("if_jobs:filter_tags:"))
+                .inspect(|_| is_scoped = true)
+                .filter_map(|s| ScopeDefinition::from_scope_string(s).ok())
+                .collect();
+            (is_scoped, parsed)
+        }
+        None => (false, Vec::new()),
+    };
+    let domain = domain.to_string();
+    let action = action.to_string();
+
+    move |path: &str| -> bool {
+        if !is_scoped_token {
+            return true;
+        }
+        let required =
+            match ScopeDefinition::from_scope_string(&format!("{}:{}:{}", domain, action, path)) {
+                Ok(r) => r,
+                Err(_) => return false,
+            };
+        parsed.iter().any(|s| s.includes(&required))
+    }
+}
+
 pub async fn require_devops_role(db: &DB, email: &str) -> error::Result<()> {
     let is_devops = is_devops_email(db, email).await?;
 
@@ -801,5 +845,67 @@ pub fn require_path_read_access_for_preview(
             "Invalid path format for preview job: {}. Path must start with 'u/' or 'f/'",
             path
         ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn authed_with_scopes(scopes: Option<Vec<&str>>) -> ApiAuthed {
+        ApiAuthed {
+            scopes: scopes.map(|v| v.into_iter().map(String::from).collect()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn predicate_no_scopes_allows_all() {
+        let authed = authed_with_scopes(None);
+        let allowed = build_scope_path_predicate(&authed, "resources", "read");
+        assert!(allowed("u/alice/anything"));
+        assert!(allowed("u/bob/other"));
+    }
+
+    #[test]
+    fn predicate_tag_filter_only_allows_all() {
+        let authed = authed_with_scopes(Some(vec!["if_jobs:filter_tags:default"]));
+        let allowed = build_scope_path_predicate(&authed, "resources", "read");
+        assert!(allowed("u/alice/foo"));
+    }
+
+    #[test]
+    fn predicate_single_resource_scope_filters_others() {
+        // Regression test for WIN-1981: a token scoped to one resource must
+        // not match unrelated paths in listings (e.g. /resources/list_search).
+        let authed = authed_with_scopes(Some(vec!["resources:read:u/alice/allowed_resource"]));
+        let allowed = build_scope_path_predicate(&authed, "resources", "read");
+        assert!(allowed("u/alice/allowed_resource"));
+        assert!(!allowed("u/alice/other_resource"));
+        assert!(!allowed("u/bob/foo"));
+    }
+
+    #[test]
+    fn predicate_wildcard_scope_matches_subtree() {
+        let authed = authed_with_scopes(Some(vec!["resources:read:f/team/*"]));
+        let allowed = build_scope_path_predicate(&authed, "resources", "read");
+        assert!(allowed("f/team/db"));
+        assert!(allowed("f/team/sub/nested"));
+        assert!(!allowed("f/other/db"));
+    }
+
+    #[test]
+    fn predicate_wrong_domain_is_rejected() {
+        let authed = authed_with_scopes(Some(vec!["variables:read:u/alice/secret"]));
+        let allowed = build_scope_path_predicate(&authed, "resources", "read");
+        assert!(!allowed("u/alice/secret"));
+    }
+
+    #[test]
+    fn predicate_write_implies_read() {
+        let authed = authed_with_scopes(Some(vec!["resources:write:u/alice/foo"]));
+        let allowed = build_scope_path_predicate(&authed, "resources", "read");
+        assert!(allowed("u/alice/foo"));
+        assert!(!allowed("u/alice/bar"));
     }
 }
