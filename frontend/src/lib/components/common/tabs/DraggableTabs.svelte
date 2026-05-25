@@ -69,13 +69,34 @@
 		if (!isDragging) dndMiddle = next
 	})
 
-	// Melt scroll-area: type='always' keeps the custom thumb's gutter present
-	// at all times, so the layout never shifts when content stops/starts
-	// overflowing. The native horizontal scrollbar is hidden by melt and our
-	// own 4px-tall track sits along the bottom of the strip.
+	// Melt scroll-area: type='hover' reveals the custom 4px horizontal bar
+	// only while the user hovers the tab strip (or scrolls it), then hides it
+	// after `hideDelay`. melt flips the scrollbar's data-state, which our CSS
+	// fades. The bar is absolutely positioned and its gutter is reserved by
+	// the root's bottom padding, so showing/hiding it never shifts the layout.
 	const {
 		elements: { root, viewport, content, scrollbarX, thumbX }
-	} = createScrollArea({ type: 'always', dir: 'ltr' })
+	} = createScrollArea({ type: 'hover', hideDelay: 600, dir: 'ltr' })
+
+	// melt's scroll-area only recomputes the thumb from a ResizeObserver on its
+	// *content* element, never the viewport. So resizing the pane (viewport
+	// shrinks/grows while the fixed-width tabs don't) leaves the thumb size and
+	// overflow state stale — a known melt limitation. We detect viewport width
+	// changes with `bind:clientWidth` below and nudge melt: perturb the content
+	// box by 1px (then revert) so its observer fires and recomputes against the
+	// new viewport. The sentinel is 0×0, so nothing is visible.
+	let viewportWidth = $state(0)
+	let resizeSentinel: HTMLSpanElement | undefined = $state(undefined)
+	$effect(() => {
+		void viewportWidth
+		const el = untrack(() => resizeSentinel)
+		if (!el) return
+		el.style.width = '1px'
+		const raf = requestAnimationFrame(() => {
+			el.style.width = '0px'
+		})
+		return () => cancelAnimationFrame(raf)
+	})
 
 	function handleConsider(e: CustomEvent<DndEvent<TabItem>>) {
 		isDragging = true
@@ -158,7 +179,7 @@
 
 <div class={twMerge('flex items-center bg-surface-secondary', c)}>
 	<div use:melt={$root} class="tabs-root flex-1 min-w-0 relative pt-1 pl-1 pb-1">
-		<div use:melt={$viewport} class="tabs-viewport w-full">
+		<div use:melt={$viewport} bind:clientWidth={viewportWidth} class="tabs-viewport w-full">
 			<!-- Inner flex wrapper — melt's content element is forced to
 				 `display: table` which would stack the tabs vertically. -->
 			<div use:melt={$content}>
@@ -188,6 +209,14 @@
 					{#each pinnedRight as tab (tab.id)}
 						{@render tabButton(tab)}
 					{/each}
+
+					<!-- 0×0 sentinel used to nudge melt's content ResizeObserver
+						 on pane resize (see the $effect above). -->
+					<span
+						bind:this={resizeSentinel}
+						aria-hidden="true"
+						style="display:inline-block;width:0;height:0"
+					></span>
 				</div>
 			</div>
 		</div>
@@ -213,32 +242,39 @@
 	}
 
 	/* 4px-tall custom horizontal scrollbar pinned to the bottom of the
-	   strip. With melt's `type: 'always'` the track is permanently present,
-	   so there's no layout shift when content stops overflowing, and the
-	   appearance is identical on macOS, Linux, and Windows regardless of
-	   the OS scrollbar setting. */
+	   strip. It's absolutely positioned, so showing/hiding it never shifts
+	   the tab layout. Appearance is identical across OSes regardless of the
+	   native scrollbar setting. */
 	:global([data-melt-scroll-area-scrollbar].tabs-scrollbar) {
 		height: 4px;
 		background: transparent;
 		touch-action: none;
 		user-select: none;
+		transition: opacity 0.15s;
+	}
+	/* melt flips the scrollbar's data-state to "hidden" when it shouldn't be
+	   shown (with `type: 'hover'`, whenever the strip isn't hovered/scrolled);
+	   fade the whole bar (thumb included) out then. The thumb's own data-state
+	   is unrelated, so we key off the scrollbar here, not the thumb. */
+	:global([data-melt-scroll-area-scrollbar].tabs-scrollbar[data-state='hidden']) {
+		opacity: 0;
+		pointer-events: none;
 	}
 	:global([data-melt-scroll-area-thumb].tabs-thumb) {
+		/* melt sizes the thumb via inline `height: var(--melt-scroll-area-thumb-height)`,
+		   but only populates the WIDTH var for a horizontal scrollbar — the height
+		   var stays empty, so the inline height collapses to 0 and the thumb is
+		   invisible. Supply the cross-axis size here so the inline `var()` resolves
+		   to the full 4px track height. */
+		--melt-scroll-area-thumb-height: 100%;
 		height: 100%;
 		width: var(--melt-scroll-area-thumb-width);
-		background: rgb(var(--color-text-hint));
+		background: rgb(var(--color-text-hint) / 0.35);
 		border-radius: 2px;
 		position: relative;
 		transition: background-color 0.15s;
 	}
-	/* When the content fits the viewport melt sets data-state="hidden" but
-	   leaves the element at full width — without this rule it looks like a
-	   bar spanning the whole track. Hide it so the strip's bottom row is
-	   empty until there's actually something to scroll. */
-	:global([data-melt-scroll-area-thumb].tabs-thumb[data-state='hidden']) {
-		opacity: 0;
-	}
 	:global([data-melt-scroll-area-thumb].tabs-thumb:hover) {
-		background: rgb(var(--color-text-secondary));
+		background: rgb(var(--color-text-secondary) / 0.6);
 	}
 </style>
