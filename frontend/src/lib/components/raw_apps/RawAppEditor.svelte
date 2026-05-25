@@ -6,6 +6,7 @@
 	import RawAppEditorHeader from './RawAppEditorHeader.svelte'
 	import RawAppYamlEditor, { type RawAppYamlUpdate } from './RawAppYamlEditor.svelte'
 	import type Drawer from '../common/drawer/Drawer.svelte'
+	import Alert from '../common/alert/Alert.svelte'
 	import { type Policy, WorkspaceService } from '$lib/gen'
 	import DiffDrawer from '../DiffDrawer.svelte'
 	import { deepEqual } from 'fast-equals'
@@ -1587,11 +1588,11 @@
 								{#if buildError}
 									<!-- top-12 clears the tab bar (h-7 buttons + padding) so the
 									     banner sits over the preview iframe, not over the tabs. -->
-									<div
-										class="absolute top-12 left-2 right-2 z-20 bg-red-500 text-white rounded p-2"
-										role="alert"
-									>
-										<pre class="overflow-auto whitespace-pre-wrap text-xs">{buildError}</pre>
+									<div class="absolute top-12 left-2 right-2 z-20" role="alert">
+										<Alert type="error" title="Build failed">
+											<pre
+												class="overflow-auto whitespace-pre-wrap text-xs max-h-60">{buildError}</pre>
+										</Alert>
 									</div>
 								{/if}
 								{#if logs}
