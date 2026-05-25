@@ -23,12 +23,12 @@ export type PipelineOutputKindMeta = {
 export const PIPELINE_OUTPUT_KINDS: PipelineOutputKindMeta[] = [
 	{
 		id: 'datatable',
-		label: 'DataTable',
+		label: 'Data table',
 		description: 'Postgres-backed typed table'
 	},
 	{
 		id: 'ducklake',
-		label: 'DuckLake',
+		label: 'Ducklake',
 		description: 'DuckDB lakehouse table'
 	},
 	{
@@ -234,11 +234,10 @@ function commentPrefix(lang: ScriptLang): string {
 export type DraftTriggerSource =
 	| { kind: 'schedule'; cron: string }
 	| { kind: 'asset'; ref: string }
-	// Native trigger marker — the annotation is path-less (`// on kafka`).
-	// The binding lives on the trigger row's own `script_path`; the user
-	// creates that row via the drawer the canvas opens on the missing-
-	// trigger placeholder.
-	| { kind: 'webhook' | 'email' | 'kafka' | 'mqtt' | 'nats' | 'postgres' | 'sqs' | 'gcp' }
+	| {
+		kind: 'webhook' | 'email' | 'kafka' | 'mqtt' | 'nats' | 'postgres' | 'sqs' | 'gcp'
+		path: string | undefined
+	}
 
 export type TemplateContext = {
 	language: ScriptLang

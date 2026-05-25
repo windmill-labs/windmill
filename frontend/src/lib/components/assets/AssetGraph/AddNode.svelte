@@ -136,7 +136,6 @@
 		}
 	]}
 	languages={PIPELINE_LANGUAGES as any}
-	pickOutputKind
 	pathPrefix={data.pathPrefix}
 	defaultPathSuffix={data.defaultPathSuffix}
 	onPick={handlePick}
