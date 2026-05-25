@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import {
-		globalDraftStore,
-		type WorkspaceItem
-	} from '$lib/components/copilot/chat/global/draftStore.svelte'
+		clearGlobalDrafts,
+		deleteGlobalDraft,
+		listGlobalDrafts
+	} from '$lib/components/copilot/chat/global/userDraftAdapter'
+	import type { WorkspaceItem } from '$lib/components/copilot/chat/global/workspaceItems'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { goto } from '$lib/navigation'
 	import { workspaceStore } from '$lib/stores'
@@ -11,6 +13,11 @@
 	import { onMount } from 'svelte'
 
 	let enabled = $state(false)
+	let refreshToken = $state(0)
+
+	function refreshDrafts() {
+		refreshToken += 1
+	}
 
 	onMount(() => {
 		// Dev-only route. Bounce to home when the global mode gate is closed.
@@ -18,9 +25,24 @@
 		if (!enabled) {
 			goto('/')
 		}
+
+		const onStorage = (event: StorageEvent) => {
+			if (event.key?.startsWith('userdraft/')) refreshDrafts()
+		}
+		window.addEventListener('storage', onStorage)
+		// Same-tab saves and live editor registry changes don't emit `storage`.
+		const interval = window.setInterval(refreshDrafts, 1000)
+
+		return () => {
+			window.removeEventListener('storage', onStorage)
+			window.clearInterval(interval)
+		}
 	})
 
-	let drafts = $derived($workspaceStore ? globalDraftStore.listDrafts($workspaceStore) : [])
+	let drafts = $derived.by(() => {
+		refreshToken
+		return $workspaceStore ? listGlobalDrafts($workspaceStore) : []
+	})
 
 	function draftKey(item: WorkspaceItem): string {
 		return `${item.type}:${item.triggerKind ?? '-'}:${item.path}`
@@ -28,12 +50,14 @@
 
 	function deleteDraft(item: WorkspaceItem) {
 		if (!$workspaceStore) return
-		globalDraftStore.deleteDraft($workspaceStore, item.type, item.path, item.triggerKind)
+		deleteGlobalDraft($workspaceStore, item.type, item.path, item.triggerKind)
+		refreshDrafts()
 	}
 
 	function clearAll() {
 		if (!$workspaceStore) return
-		globalDraftStore.clearDrafts($workspaceStore)
+		clearGlobalDrafts($workspaceStore)
+		refreshDrafts()
 	}
 </script>
 
@@ -41,9 +65,9 @@
 	<div class="p-6 max-w-5xl mx-auto">
 		<div class="flex items-center justify-between mb-6">
 			<div>
-				<h1 class="text-2xl font-semibold">Global AI drafts</h1>
+				<h1 class="text-2xl font-semibold">Global local drafts</h1>
 				<p class="text-sm text-tertiary">
-					Dev-only inspector for the in-memory global draft store.
+					Dev-only inspector for global local drafts.
 				</p>
 			</div>
 			<Button
