@@ -24,6 +24,11 @@
 	import { ButtonType } from '$lib/components/common/button/model'
 
 	export const inputSizeClasses = {
+		'2xs': twMerge(
+			ButtonType.UnifiedSizingClasses['2xs'],
+			ButtonType.UnifiedMinHeightClasses['2xs'],
+			'px-1 !py-0.5'
+		),
 		xs: twMerge(
 			ButtonType.UnifiedSizingClasses.xs,
 			ButtonType.UnifiedMinHeightClasses.xs,
@@ -47,6 +52,7 @@
 	// so the exact centered value there is (content-box height − 2px). Scoped to
 	// the same 1760px breakpoint as the font-size bump; small mode is unchanged.
 	export const inputLeadingClasses: Record<ButtonType.UnifiedSize, string> = {
+		'2xs': 'leading-4 min-[1760px]:leading-[calc(1rem_-_2px)]', // h-5 − py-0.5 → 1rem
 		xs: 'leading-4 min-[1760px]:leading-[calc(1rem_-_2px)]', // h-5 − py-0.5 → 1rem
 		sm: 'leading-6 min-[1760px]:leading-[calc(1.5rem_-_2px)]', // h-7 − py-0.5 → 1.5rem
 		md: 'leading-8 min-[1760px]:leading-[calc(2rem_-_2px)]', // h-8, no py → 2rem
