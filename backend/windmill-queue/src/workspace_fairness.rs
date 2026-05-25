@@ -160,7 +160,7 @@ fn current_refresh_interval_micros() -> i64 {
 ///   3. Read: every caller reads the current value (winner sees its own fresh
 ///      write; losers see whatever the winner-from-this-or-the-prior-cycle
 ///      wrote).
-async fn refresh_overloaded(db: &Pool<Postgres>) -> Result<()> {
+pub async fn refresh_overloaded(db: &Pool<Postgres>) -> Result<()> {
     let duration_secs = WORKSPACE_FAIRNESS_DURATION_SECS
         .load(Ordering::Relaxed)
         .clamp(1, i32::MAX as u32) as i32;
