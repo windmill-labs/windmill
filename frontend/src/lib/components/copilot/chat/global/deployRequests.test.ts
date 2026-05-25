@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Flow, NewScript, Script } from '$lib/gen/types.gen'
 import { buildFlowDeployRequestBody, buildScriptDeployRequestBody } from './deployRequests'
-import type { WorkspaceItem } from './draftStore.svelte'
+import type { WorkspaceItem } from './workspaceItems'
 
 describe('global AI deploy request builders', () => {
 	it('preserves existing script metadata while replacing draft-controlled fields', () => {

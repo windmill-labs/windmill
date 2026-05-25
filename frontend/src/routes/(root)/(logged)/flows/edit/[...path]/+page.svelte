@@ -367,6 +367,7 @@
 		{flowStore}
 		{flowStateStore}
 		initialPath={page.params.path ?? ''}
+		liveEditorDraftStoragePath={flowDraftPath}
 		newFlow={false}
 		{selectedId}
 		{initialArgs}

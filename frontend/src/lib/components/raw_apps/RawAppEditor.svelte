@@ -70,6 +70,7 @@
 		 * key when the editor is rendered in a context that wants its own
 		 * preference. */
 		sidebarStorageKey?: string
+		liveEditorDraftStoragePath?: string
 	}
 
 	let {
@@ -84,7 +85,8 @@
 		savedApp = $bindable(undefined),
 		diffDrawer = undefined,
 		defaultSidebarCollapsed = false,
-		sidebarStorageKey = 'raw-app-sidebar-collapsed'
+		sidebarStorageKey = 'raw-app-sidebar-collapsed',
+		liveEditorDraftStoragePath = undefined
 	}: Props = $props()
 	export const version: number | undefined = undefined
 
@@ -934,6 +936,7 @@
 		{newApp}
 		{newPath}
 		appPath={path}
+		{liveEditorDraftStoragePath}
 		{files}
 		{data}
 		{runnables}
