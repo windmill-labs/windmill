@@ -62,11 +62,17 @@
 						{item.displayName}
 					</p>
 					{@render item.extra?.()}
-					{#if item.shortcut}
-						<span class="ml-auto pl-4 text-2xs text-secondary shrink-0">{item.shortcut}</span>
-					{/if}
-					{#if item.selected}
-						<Check size={14} class="ml-auto shrink-0 text-primary" />
+					{#if item.shortcut || item.selected}
+						<!-- Single trailing group so `shortcut` and `selected` can coexist:
+						     two `ml-auto` siblings would collapse to one right-aligned item. -->
+						<div class="ml-auto flex shrink-0 items-center gap-2">
+							{#if item.shortcut}
+								<span class="pl-4 text-2xs text-secondary">{item.shortcut}</span>
+							{/if}
+							{#if item.selected}
+								<Check size={14} class="text-primary" />
+							{/if}
+						</div>
 					{/if}
 					{#if item.tooltip}
 						<Tooltip>
