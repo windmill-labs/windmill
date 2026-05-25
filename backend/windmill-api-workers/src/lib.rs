@@ -20,7 +20,10 @@ use windmill_common::{
     error::JsonResult,
     jobs::{HIDE_WORKERS_FOR_NON_ADMINS, TAGS_ARE_SENSITIVE},
     utils::{paginate, Pagination},
-    worker::{ALL_TAGS, CUSTOM_TAGS_PER_WORKSPACE, DEFAULT_TAGS, DEFAULT_TAGS_PER_WORKSPACE},
+    worker::{
+        is_cloud_production_host, ALL_TAGS, CUSTOM_TAGS_PER_WORKSPACE, DEFAULT_TAGS,
+        DEFAULT_TAGS_PER_WORKSPACE,
+    },
     DB,
 };
 
@@ -39,6 +42,10 @@ pub fn global_service() -> Router {
         .route("/queue_metrics", get(get_queue_metrics))
         .route("/queue_counts", get(get_queue_counts))
         .route("/queue_running_counts", get(get_queue_running_counts))
+        .route(
+            "/workspace_fairness_events",
+            get(get_workspace_fairness_events),
+        )
 }
 
 pub fn workspaced_service() -> Router {
@@ -282,4 +289,59 @@ async fn get_queue_running_counts(
     require_devops_role(&db, &authed.email).await?;
     let queue_running_counts = windmill_common::queue::get_queue_running_counts(&db).await;
     Ok(Json(queue_running_counts))
+}
+
+#[derive(Serialize)]
+pub struct WorkspaceFairnessEvent {
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub operation: String,
+    /// Affected workspace (stored in audit log `resource`). `None` only for very
+    /// old rows pre-dating the resource convention — UI should treat as "unknown".
+    pub workspace_id: Option<String>,
+    /// Snapshot of the relevant fairness settings at the time of the transition
+    /// (`max_percent`, `window_secs`, `total_overloaded`). `None` for uncap rows.
+    pub parameters: Option<serde_json::Value>,
+}
+
+/// Return the last 100 workspace-fairness cap/uncap transitions written by
+/// `workspace_fairness::emit_transition_audit`. Cloud-only: the underlying
+/// mechanism is hard-gated to `CLOUD_HOSTED=true` + `app.windmill.dev`, so on
+/// any other instance we short-circuit with an empty list rather than running
+/// a query that would always be empty.
+async fn get_workspace_fairness_events(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> JsonResult<Vec<WorkspaceFairnessEvent>> {
+    require_devops_role(&db, &authed.email).await?;
+
+    if !is_cloud_production_host() {
+        return Ok(Json(vec![]));
+    }
+
+    let events = sqlx::query_as!(
+        WorkspaceFairnessEvent,
+        r#"
+        SELECT timestamp AS "timestamp!",
+               operation::text AS "operation!",
+               resource AS workspace_id,
+               parameters
+        FROM (
+            SELECT timestamp, operation, resource, parameters
+            FROM audit_partitioned
+            WHERE workspace_id = 'admins'
+              AND operation IN ('workspace_fairness.capped', 'workspace_fairness.uncapped')
+            UNION ALL
+            SELECT timestamp, operation, resource, parameters
+            FROM audit
+            WHERE workspace_id = 'admins'
+              AND operation IN ('workspace_fairness.capped', 'workspace_fairness.uncapped')
+        ) e
+        ORDER BY timestamp DESC
+        LIMIT 100
+        "#,
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(events))
 }

@@ -136,10 +136,10 @@ const askUserQuestionSchema = z.object({
 		.min(1)
 		.describe('The concise question to show to the user before continuing.'),
 	choices: z
-		.array(z.string().min(1).describe('Short answer text shown to the user and returned as-is.'))
+		.array(z.string().min(1).describe('Proposed answer text shown to the user and returned as-is.'))
 		.min(2)
-		.max(6)
-		.describe('Two to six mutually exclusive answer strings.')
+		.max(10)
+		.describe('Two to ten mutually exclusive proposed answer strings.')
 })
 
 const listWorkspaceItemsSchema = z.object({
@@ -526,7 +526,7 @@ Rules:
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
 - Use search_resource_types before write_resource.
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
-- Ask the user when a required decision is ambiguous.
+- When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
 - Keep context targeted.
 - After writing or substantially editing a script / flow / app draft inside an AI session, offer to open the preview via open_preview(kind, path) — this lets the user see the editor and live preview right next to the chat. open_preview is a no-op outside of sessions and will return an error; don't call it from the regular global side-panel chat.
 
@@ -1305,7 +1305,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			askUserQuestionSchema,
 			'askUserQuestion',
-			'Ask the user a multiple-choice question.'
+			'Ask the user a question with proposed answers and wait for their selected or custom answer before continuing.'
 		),
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			const parsed = askUserQuestionSchema.parse(args)

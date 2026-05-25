@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT timestamp AS \"timestamp!\",\n               operation::text AS \"operation!\",\n               resource AS workspace_id,\n               parameters\n        FROM (\n            SELECT timestamp, operation, resource, parameters\n            FROM audit_partitioned\n            WHERE workspace_id = 'admins'\n              AND operation IN ('workspace_fairness.capped', 'workspace_fairness.uncapped')\n            UNION ALL\n            SELECT timestamp, operation, resource, parameters\n            FROM audit\n            WHERE workspace_id = 'admins'\n              AND operation IN ('workspace_fairness.capped', 'workspace_fairness.uncapped')\n        ) e\n        ORDER BY timestamp DESC\n        LIMIT 100\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "timestamp!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 1,
+        "name": "operation!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "parameters",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "8df7878c46d8bfd38d4df91dff578e5d2d13f3516d954610b32b0709d6768a80"
+}

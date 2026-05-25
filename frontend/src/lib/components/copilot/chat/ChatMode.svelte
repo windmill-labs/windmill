@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ChevronDown } from 'lucide-svelte'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import { twMerge } from 'tailwind-merge'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import Button from '$lib/components/common/button/Button.svelte'
 	import { getContext } from 'svelte'
 	import {
 		AIChatManager,
@@ -9,49 +9,38 @@
 		AIMode
 	} from './AIChatManager.svelte'
 
+	// Sessions inject their own per-session `AIChatManager` via context;
+	// elsewhere we fall back to the global singleton.
 	const aiChatManager = getContext<AIChatManager>('aiChatManager') ?? singletonAiChatManager
+
+	const modeLabel = (mode: AIMode) => mode.charAt(0).toUpperCase() + mode.slice(1) + ' mode'
+
+	let allowedModeList = $derived(
+		Object.values(AIMode).filter((mode) => aiChatManager.allowedModes[mode])
+	)
+	let hasMultiple = $derived(allowedModeList.length > 1)
 </script>
 
-<div class="min-w-0">
-	<Popover
-		disablePopup={Object.keys(aiChatManager.allowedModes).filter(
-			(k) => aiChatManager.allowedModes[k]
-		).length < 2}
-		class="max-w-full"
+{#if hasMultiple}
+	<DropdownV2
+		items={() =>
+			allowedModeList.map((mode) => ({
+				displayName: modeLabel(mode),
+				selected: aiChatManager.mode === mode,
+				action: () => aiChatManager.changeMode(mode)
+			}))}
+		placement="bottom-start"
+		fixedHeight={false}
+		customWidth={170}
 	>
-		{#snippet trigger()}
-			<div
-				class="text-primary text-xs flex flex-row items-center font-normal gap-0.5 border px-1 rounded-lg"
-			>
-				<span class={`truncate`}>
-					{aiChatManager.mode.charAt(0).toUpperCase() + aiChatManager.mode.slice(1)} mode
-				</span>
-				{#if Object.keys(aiChatManager.allowedModes).filter((k) => aiChatManager.allowedModes[k]).length > 1}
-					<div class="shrink-0">
-						<ChevronDown size={16} />
-					</div>
-				{/if}
-			</div>
+		{#snippet buttonReplacement()}
+			<Button nonCaptureEvent unifiedSize="2xs" variant="subtle" endIcon={{ icon: ChevronDown }}>
+				{modeLabel(aiChatManager.mode)}
+			</Button>
 		{/snippet}
-		{#snippet content({ close })}
-			<div class="flex flex-col gap-1 p-1 min-w-24">
-				{#each Object.values(AIMode) as possibleMode}
-					{#if aiChatManager.allowedModes[possibleMode]}
-						<button
-							class={twMerge(
-								'text-left text-xs hover:bg-surface-hover rounded-md p-1 font-normal',
-								aiChatManager.mode === possibleMode && 'bg-surface-hover'
-							)}
-							onclick={() => {
-								aiChatManager.changeMode(possibleMode)
-								close()
-							}}
-						>
-							{possibleMode.charAt(0).toUpperCase() + possibleMode.slice(1)} mode
-						</button>
-					{/if}
-				{/each}
-			</div>
-		{/snippet}
-	</Popover>
-</div>
+	</DropdownV2>
+{:else}
+	<Button unifiedSize="2xs" variant="subtle">
+		{modeLabel(aiChatManager.mode)}
+	</Button>
+{/if}

@@ -6,9 +6,11 @@
 	import {
 		AlertTriangle,
 		ArrowDown,
+		AtSign,
 		ChevronDown,
 		ChevronsRight,
 		CheckIcon,
+		Hand,
 		HistoryIcon,
 		Hourglass,
 		MousePointer2,
@@ -20,6 +22,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { fade } from 'svelte/transition'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { type DisplayMessage } from './shared'
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
@@ -38,16 +41,21 @@
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
 	const aiChatManager = getAiChatManager()
-	type AutonomyModeOption = { label: string; mode: AIAutonomyMode }
+	// `label` is shown in the dropdown; `shortLabel` (when set) is shown in the
+	// compact trigger pill to save horizontal space.
+	type AutonomyModeOption = { label: string; shortLabel?: string; mode: AIAutonomyMode }
 	const autonomyModeOptions: AutonomyModeOption[] = [
-		{ label: 'auto accept off', mode: AIAutonomyMode.DEFAULT },
-		{ label: 'auto accept on', mode: AIAutonomyMode.ACCEPT_EDIT },
-		{ label: 'yolo on', mode: AIAutonomyMode.YOLO }
+		{ label: 'Ask permission', mode: AIAutonomyMode.DEFAULT },
+		{ label: 'Auto-accept edits', mode: AIAutonomyMode.ACCEPT_EDIT },
+		{ label: 'Yolo (bypass permissions)', shortLabel: 'Yolo', mode: AIAutonomyMode.YOLO }
 	]
-	const autonomyModeLabel = (
-		mode: AIAutonomyMode,
-		options: AutonomyModeOption[] = autonomyModeOptions
-	) => options.find((option) => option.mode === mode)?.label ?? autonomyModeOptions[0].label
+	const autonomyModeLabel = (mode: AIAutonomyMode) => {
+		const option = autonomyModeOptions.find((o) => o.mode === mode) ?? autonomyModeOptions[0]
+		return option.shortLabel ?? option.label
+	}
+	// "Auto-accept edits" only applies where script/flow edits can be accepted,
+	// "Bypass permissions" only where tool confirmations exist; filter the picker
+	// to the levels that actually do something in the current mode.
 	const isAutonomyModeAvailable = (
 		mode: AIAutonomyMode,
 		autoAcceptEditsAvailable: boolean,
@@ -63,6 +71,16 @@
 		}
 		return false
 	}
+	// Ask-permission holds (raised hand); auto-accept/bypass fast-forward. Color
+	// ramps from muted (ask) to accent (auto-accept) to red (bypass).
+	const autonomyModeIcon = (mode: AIAutonomyMode) =>
+		mode === AIAutonomyMode.DEFAULT ? Hand : ChevronsRight
+	const autonomyModeIconColor = (mode: AIAutonomyMode) =>
+		mode === AIAutonomyMode.YOLO
+			? 'text-red-500'
+			: mode === AIAutonomyMode.DEFAULT
+				? 'text-secondary'
+				: 'text-accent'
 
 	let {
 		messages,
@@ -218,6 +236,8 @@
 			)
 		)
 	)
+	// Fall back to ask-permission when the persisted mode isn't applicable in the
+	// current AI mode (e.g. auto-accept edits while in a mode without edits).
 	const effectiveAutonomyMode = $derived(
 		availableAutonomyModeOptions.some((option) => option.mode === aiChatManager.autonomyMode)
 			? aiChatManager.autonomyMode
@@ -405,7 +425,7 @@
 					{#if showTypingIndicator}
 						<div
 							class={twMerge(
-								'sticky z-10 mt-2 ml-2 self-start pointer-events-none',
+								'sticky z-10 mt-0.5 ml-2 self-start pointer-events-none',
 								showFlowPendingActionControls ? 'bottom-14' : 'bottom-2'
 							)}
 						>
@@ -494,7 +514,7 @@
 				isFirstMessage={messages.length === 0}
 			/>
 			<div
-				class="flex flex-row items-center gap-x-1.5"
+				class="mt-1 flex flex-row flex-wrap items-center gap-x-1.5 gap-y-1"
 				class:justify-between={showFooterLeftControls}
 				class:justify-end={!showFooterLeftControls}
 			>
@@ -503,12 +523,14 @@
 						{#if showContextPicker && !disabled}
 							<Popover>
 								{#snippet trigger()}
-									<div
-										class="text-primary text-xs flex flex-row items-center font-normal border px-1 rounded-lg hover:bg-surface-hover bg-surface"
+									<Button
+										nonCaptureEvent
+										unifiedSize="2xs"
+										variant="default"
 										title="Add context"
-									>
-										@
-									</div>
+										iconOnly
+										startIcon={{ icon: AtSign }}
+									/>
 								{/snippet}
 								{#snippet content({ close })}
 									{#if aiChatManager.mode === AIMode.APP}
@@ -538,53 +560,33 @@
 							</Popover>
 						{/if}
 						{#if showAutonomyModeSelector}
-							<div class="min-w-0">
-								<Popover class="max-w-full">
-									{#snippet trigger()}
-										<div
-											class="text-primary text-xs flex flex-row items-center font-normal gap-0.5 border px-1 rounded-lg"
-											title={autonomyModeTooltip}
-										>
-											<ChevronsRight
-												size={13}
-												class={twMerge(
-													'shrink-0',
-													effectiveAutonomyMode === AIAutonomyMode.YOLO
-														? 'text-red-500'
-														: 'text-accent'
-												)}
-											/>
-											<span class="truncate"
-												>{autonomyModeLabel(
-													effectiveAutonomyMode,
-													availableAutonomyModeOptions
-												)}</span
-											>
-											<div class="shrink-0">
-												<ChevronDown size={16} />
-											</div>
-										</div>
-									{/snippet}
-									{#snippet content({ close })}
-										<div class="flex flex-col gap-1 p-1 min-w-32">
-											{#each availableAutonomyModeOptions as option (option.mode)}
-												<button
-													class={twMerge(
-														'text-left text-xs hover:bg-surface-hover rounded-md p-1 font-normal',
-														effectiveAutonomyMode === option.mode && 'bg-surface-hover'
-													)}
-													onclick={() => {
-														aiChatManager.setAutonomyMode(option.mode)
-														close()
-													}}
-												>
-													{option.label}
-												</button>
-											{/each}
-										</div>
-									{/snippet}
-								</Popover>
-							</div>
+							<DropdownV2
+								items={() =>
+									availableAutonomyModeOptions.map((option) => ({
+										displayName: option.label,
+										selected: effectiveAutonomyMode === option.mode,
+										action: () => aiChatManager.setAutonomyMode(option.mode)
+									}))}
+								placement="bottom-start"
+								fixedHeight={false}
+								customWidth={240}
+							>
+								{#snippet buttonReplacement()}
+									<Button
+										nonCaptureEvent
+										unifiedSize="2xs"
+										variant="default"
+										title={autonomyModeTooltip}
+										startIcon={{
+											icon: autonomyModeIcon(effectiveAutonomyMode),
+											classes: autonomyModeIconColor(effectiveAutonomyMode)
+										}}
+										endIcon={{ icon: ChevronDown }}
+									>
+										{autonomyModeLabel(effectiveAutonomyMode)}
+									</Button>
+								{/snippet}
+							</DropdownV2>
 						{/if}
 						{#if effectiveAutonomyMode === AIAutonomyMode.YOLO && aiChatManager.autoAcceptToolConfirmationsAvailable}
 							<Tooltip small placement="top">
@@ -593,8 +595,8 @@
 									<div class="max-w-64 text-xs">
 										<p class="font-semibold">
 											{aiChatManager.autoAcceptEditsAvailable
-												? 'Yolo auto-accepts edits and tool usage.'
-												: 'Yolo auto-accepts tool usage.'}
+												? 'Bypass permissions auto-accepts edits and tool usage.'
+												: 'Bypass permissions auto-accepts tool usage.'}
 										</p>
 										<p class="mt-1">
 											{aiChatManager.autoAcceptEditsAvailable

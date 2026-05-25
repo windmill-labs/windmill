@@ -46,6 +46,13 @@ vi.mock('./global/gate', () => ({
 	isGlobalAiEnabled: () => true
 }))
 
+// Force BROWSER=true so localStorage-backed autonomy persistence is exercised
+// (the vitest "server" env reports BROWSER=false, which would short-circuit it).
+vi.mock('esm-env', async (importOriginal) => ({
+	...(await importOriginal<typeof import('esm-env')>()),
+	BROWSER: true
+}))
+
 function createFlowHelpers({
 	hasPendingChanges,
 	acceptAllModuleActions
@@ -75,6 +82,9 @@ function createFlowHelpers({
 describe('AIChatManager autonomy mode', () => {
 	beforeEach(() => {
 		localStorage.clear()
+		// These tests exercise the transition into auto-accept, so start from the
+		// ask-permission baseline rather than the new auto-accept-edits default.
+		localStorage.setItem('ai-chat-autonomy-mode', AIAutonomyMode.DEFAULT)
 		vi.clearAllMocks()
 	})
 
@@ -151,5 +161,30 @@ describe('AIChatManager autonomy mode', () => {
 		await applyPromise
 
 		expect(applied).toBe(true)
+	})
+})
+
+describe('AIChatManager persisted autonomy default', () => {
+	// Mirrors the private storage keys in AIChatManager.svelte.ts.
+	const AUTONOMY_KEY = 'ai-chat-autonomy-mode'
+	const LEGACY_YOLO_KEY = 'ai-chat-yolo-mode'
+
+	beforeEach(() => {
+		localStorage.clear()
+		vi.clearAllMocks()
+	})
+
+	it('defaults to auto-accept edits when no preference is stored', () => {
+		expect(new AIChatManager().autonomyMode).toBe(AIAutonomyMode.ACCEPT_EDIT)
+	})
+
+	it('maps the legacy auto-accept-tool-confirmations flag to YOLO', () => {
+		localStorage.setItem(LEGACY_YOLO_KEY, 'true')
+		expect(new AIChatManager().autonomyMode).toBe(AIAutonomyMode.YOLO)
+	})
+
+	it('restores an explicitly persisted autonomy mode', () => {
+		localStorage.setItem(AUTONOMY_KEY, AIAutonomyMode.DEFAULT)
+		expect(new AIChatManager().autonomyMode).toBe(AIAutonomyMode.DEFAULT)
 	})
 })
