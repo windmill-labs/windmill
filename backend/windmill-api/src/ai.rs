@@ -1,5 +1,3 @@
-#[cfg(feature = "bedrock")]
-use crate::bedrock;
 use crate::db::{ApiAuthed, DB};
 use crate::utils::check_scopes;
 
@@ -19,6 +17,10 @@ use std::time::Duration;
 use windmill_ai::ai_cache::current_instance_ai_config_revision;
 use windmill_ai::ai_providers::{
     empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel,
+};
+#[cfg(feature = "bedrock")]
+use windmill_ai::providers::bedrock::{
+    handle_bedrock_proxy, BedrockProxyResponse, BedrockProxyResponseBody,
 };
 use windmill_ai::providers::{
     create_proxy_query_builder,
@@ -540,6 +542,18 @@ fn google_ai_proxy_response_to_body(
     (response.status_code, response.headers, body)
 }
 
+#[cfg(feature = "bedrock")]
+fn bedrock_proxy_response_to_body(
+    response: BedrockProxyResponse,
+) -> (http::StatusCode, HeaderMap, axum::body::Body) {
+    let body = match response.body {
+        BedrockProxyResponseBody::Fixed(body) => axum::body::Body::from(body),
+        BedrockProxyResponseBody::Stream(stream) => axum::body::Body::from_stream(stream),
+    };
+
+    (response.status_code, response.headers, body)
+}
+
 pub(crate) fn inject_keepalives<S>(
     upstream: S,
     interval: Duration,
@@ -885,95 +899,31 @@ async fn proxy(
 
     // Handle Bedrock-specific logic when the feature is enabled
     #[cfg(feature = "bedrock")]
-    {
-        // Extract model and streaming flag for Bedrock transformation (only for POST requests)
-        let (model, is_streaming) = if matches!(proxy_mode, ProxyExecutionMode::NativeAwsBedrock)
-            && method == Method::POST
-        {
-            #[derive(Deserialize, Debug)]
-            struct BedrockRequest {
-                model: String,
-                #[serde(default)]
-                stream: bool,
-            }
-            let parsed: BedrockRequest = serde_json::from_slice(&body)
-                .map_err(|e| Error::internal_err(format!("Failed to parse request body: {}", e)))?;
-            (Some(parsed.model), parsed.stream)
-        } else {
-            (None, false)
-        };
+    if matches!(proxy_mode, ProxyExecutionMode::NativeAwsBedrock) {
+        let mut tx = db.begin().await?;
+        audit_log(
+            &mut *tx,
+            &authed,
+            "ai.request",
+            ActionKind::Execute,
+            &w_id,
+            Some(&authed.email),
+            Some([("ai_config_path", &format!("{:?}", ai_path)[..])].into()),
+        )
+        .await?;
+        tx.commit().await?;
 
-        // For Bedrock requests, use the SDK-based approach
-        if matches!(proxy_mode, ProxyExecutionMode::NativeAwsBedrock) {
-            let region = request_config
-                .region
-                .as_deref()
-                .unwrap_or(windmill_ai::ai_providers::USE_ENV_REGION);
+        let credentials = request_config.into_provider_credentials(provider.clone());
+        let response = handle_bedrock_proxy(&ProxyBuildArgs {
+            method: &method,
+            path: &ai_path,
+            headers: &headers,
+            body: &body,
+            credentials: &credentials,
+        })
+        .await?;
 
-            // Audit log before making the SDK request
-            let mut tx = db.begin().await?;
-            audit_log(
-                &mut *tx,
-                &authed,
-                "ai.request",
-                ActionKind::Execute,
-                &w_id,
-                Some(&authed.email),
-                Some([("ai_config_path", &format!("{:?}", ai_path)[..])].into()),
-            )
-            .await?;
-            tx.commit().await?;
-
-            // Handle GET requests for control plane operations
-            if method == Method::GET {
-                if ai_path == "foundation-models" {
-                    return bedrock::list_foundation_models(
-                        request_config.api_key.as_deref(),
-                        request_config.aws_access_key_id.as_deref(),
-                        request_config.aws_secret_access_key.as_deref(),
-                        request_config.aws_session_token.as_deref(),
-                        region,
-                    )
-                    .await;
-                } else if ai_path == "inference-profiles" {
-                    return bedrock::list_inference_profiles(
-                        request_config.api_key.as_deref(),
-                        request_config.aws_access_key_id.as_deref(),
-                        request_config.aws_secret_access_key.as_deref(),
-                        request_config.aws_session_token.as_deref(),
-                        region,
-                    )
-                    .await;
-                }
-            }
-
-            // Handle POST requests for inference
-            if method == Method::POST && model.is_some() {
-                if is_streaming {
-                    return bedrock::handle_bedrock_sdk_streaming(
-                        model.as_ref().unwrap(),
-                        &body,
-                        request_config.api_key.as_deref(),
-                        request_config.aws_access_key_id.as_deref(),
-                        request_config.aws_secret_access_key.as_deref(),
-                        request_config.aws_session_token.as_deref(),
-                        region,
-                    )
-                    .await;
-                } else {
-                    return bedrock::handle_bedrock_sdk_non_streaming(
-                        model.as_ref().unwrap(),
-                        &body,
-                        request_config.api_key.as_deref(),
-                        request_config.aws_access_key_id.as_deref(),
-                        request_config.aws_secret_access_key.as_deref(),
-                        request_config.aws_session_token.as_deref(),
-                        region,
-                    )
-                    .await;
-                }
-            }
-        }
+        return Ok(bedrock_proxy_response_to_body(response));
     }
 
     // When bedrock feature is disabled, return error for Bedrock provider
