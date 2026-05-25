@@ -256,43 +256,30 @@
 		if (showSource) iframeShouldMount = true
 	})
 
-	// Pane sizes for the inner content-area Splitpanes.
-	// - Single mode + preview active: right pane full (preview full width)
+	// Pane sizes for the inner content-area Splitpanes are a pure function of
+	// the mode + active tab, so they're derived (no effects):
+	// - Split mode + file/runnable active: both panes at the user's ratio
+	// - Preview active: right pane full (preview full width)
 	// - Single mode + file/runnable active: left pane full
-	// - Split mode: both panes visible at the user's preferred ratio
-	let paneALeftSize = $state(100)
-	let paneBRightSize = $state(0)
+	// `paneARatio` holds the user's last manual split drag (see the setter
+	// in the left <Pane bind:size> below). Right size mirrors the left.
 	let paneARatio = $state(50)
-	$effect(() => {
-		void activeTabKind
-		void splitWithPreview
-		untrack(() => {
-			if (splitWithPreview && activeTabKind !== 'preview') {
-				paneALeftSize = paneARatio
-				paneBRightSize = 100 - paneARatio
-			} else if (activeTabKind === 'preview') {
-				paneALeftSize = 0
-				paneBRightSize = 100
-			} else {
-				paneALeftSize = 100
-				paneBRightSize = 0
-			}
-		})
-	})
-	$effect(() => {
-		// Remember the user's drag ratio while in split mode.
-		void paneALeftSize
-		untrack(() => {
-			if (
-				splitWithPreview &&
-				activeTabKind !== 'preview' &&
-				paneALeftSize > 0 &&
-				paneALeftSize < 100
-			) {
-				paneARatio = paneALeftSize
-			}
-		})
-	})
+	const paneALeftSize = $derived(
+		splitWithPreview && activeTabKind !== 'preview'
+			? paneARatio
+			: activeTabKind === 'preview'
+				? 0
+				: 100
+	)
+	const paneBRightSize = $derived(100 - paneALeftSize)
+	// Remember a manual splitter drag. Splitpanes writes the new left size
+	// here; we keep it only when it's a genuine in-between split position
+	// (the 0/100 collapsed/full states are programmatic, not user intent).
+	function rememberPaneDrag(v: number) {
+		if (splitWithPreview && activeTabKind !== 'preview' && v > 0 && v < 100) {
+			paneARatio = v
+		}
+	}
 
 	function fileTabId(filePath: string) {
 		return FILE_PREFIX + filePath
@@ -1401,7 +1388,7 @@
 						: 'tabs-content-single'}"
 				>
 					<Splitpanes>
-						<Pane bind:size={paneALeftSize} minSize={0}>
+						<Pane bind:size={() => paneALeftSize, (v) => rememberPaneDrag(v)} minSize={0}>
 							<div class="flex flex-col h-full w-full min-h-0">
 								<DraggableTabs
 									tabs={leftPaneTabs}
@@ -1471,7 +1458,7 @@
 								</div>
 							</div>
 						</Pane>
-						<Pane bind:size={paneBRightSize} minSize={0}>
+						<Pane bind:size={() => paneBRightSize, () => {}} minSize={0}>
 							<div class="flex flex-col h-full w-full min-h-0 relative">
 								<DraggableTabs
 									tabs={rightPaneTabs}
