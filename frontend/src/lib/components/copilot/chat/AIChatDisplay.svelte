@@ -6,6 +6,7 @@
 	import {
 		AlertTriangle,
 		ArrowDown,
+		Check,
 		ChevronDown,
 		ChevronsRight,
 		CheckIcon,
@@ -20,6 +21,8 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { fade } from 'svelte/transition'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { CHAT_BAR_PILL } from './chatBarStyles'
 	import { type DisplayMessage } from './shared'
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
@@ -40,9 +43,9 @@
 	const aiChatManager = getAiChatManager()
 	type AutonomyModeOption = { label: string; mode: AIAutonomyMode }
 	const autonomyModeOptions: AutonomyModeOption[] = [
-		{ label: 'auto accept off', mode: AIAutonomyMode.DEFAULT },
-		{ label: 'auto accept on', mode: AIAutonomyMode.ACCEPT_EDIT },
-		{ label: 'yolo on', mode: AIAutonomyMode.YOLO }
+		{ label: 'Auto-accept off', mode: AIAutonomyMode.DEFAULT },
+		{ label: 'Auto-accept on', mode: AIAutonomyMode.ACCEPT_EDIT },
+		{ label: 'YOLO mode', mode: AIAutonomyMode.YOLO }
 	]
 	const autonomyModeLabel = (
 		mode: AIAutonomyMode,
@@ -405,7 +408,7 @@
 					{#if showTypingIndicator}
 						<div
 							class={twMerge(
-								'sticky z-10 mt-2 ml-2 self-start pointer-events-none',
+								'sticky z-10 mt-0.5 ml-2 self-start pointer-events-none',
 								showFlowPendingActionControls ? 'bottom-14' : 'bottom-2'
 							)}
 						>
@@ -494,7 +497,7 @@
 				isFirstMessage={messages.length === 0}
 			/>
 			<div
-				class="flex flex-row items-center gap-x-1.5"
+				class="flex flex-row flex-wrap items-center gap-x-1.5 gap-y-1"
 				class:justify-between={showFooterLeftControls}
 				class:justify-end={!showFooterLeftControls}
 			>
@@ -503,10 +506,7 @@
 						{#if showContextPicker && !disabled}
 							<Popover>
 								{#snippet trigger()}
-									<div
-										class="text-primary text-xs flex flex-row items-center font-normal border px-1 rounded-lg hover:bg-surface-hover bg-surface"
-										title="Add context"
-									>
+									<div class={twMerge(CHAT_BAR_PILL, 'justify-center')} title="Add context">
 										@
 									</div>
 								{/snippet}
@@ -538,53 +538,39 @@
 							</Popover>
 						{/if}
 						{#if showAutonomyModeSelector}
-							<div class="min-w-0">
-								<Popover class="max-w-full">
-									{#snippet trigger()}
-										<div
-											class="text-primary text-xs flex flex-row items-center font-normal gap-0.5 border px-1 rounded-lg"
-											title={autonomyModeTooltip}
+							<DropdownV2
+								items={() =>
+									availableAutonomyModeOptions.map((option) => ({
+										displayName: option.label,
+										icon: effectiveAutonomyMode === option.mode ? Check : undefined,
+										action: () => aiChatManager.setAutonomyMode(option.mode)
+									}))}
+								placement="bottom-start"
+								fixedHeight={false}
+								customWidth={180}
+								class="min-w-0"
+							>
+								{#snippet buttonReplacement()}
+									<div class={CHAT_BAR_PILL} title={autonomyModeTooltip}>
+										<ChevronsRight
+											size={13}
+											class={twMerge(
+												'shrink-0',
+												effectiveAutonomyMode === AIAutonomyMode.YOLO
+													? 'text-red-500'
+													: 'text-accent'
+											)}
+										/>
+										<span class="truncate"
+											>{autonomyModeLabel(
+												effectiveAutonomyMode,
+												availableAutonomyModeOptions
+											)}</span
 										>
-											<ChevronsRight
-												size={13}
-												class={twMerge(
-													'shrink-0',
-													effectiveAutonomyMode === AIAutonomyMode.YOLO
-														? 'text-red-500'
-														: 'text-accent'
-												)}
-											/>
-											<span class="truncate"
-												>{autonomyModeLabel(
-													effectiveAutonomyMode,
-													availableAutonomyModeOptions
-												)}</span
-											>
-											<div class="shrink-0">
-												<ChevronDown size={16} />
-											</div>
-										</div>
-									{/snippet}
-									{#snippet content({ close })}
-										<div class="flex flex-col gap-1 p-1 min-w-32">
-											{#each availableAutonomyModeOptions as option (option.mode)}
-												<button
-													class={twMerge(
-														'text-left text-xs hover:bg-surface-hover rounded-md p-1 font-normal',
-														effectiveAutonomyMode === option.mode && 'bg-surface-hover'
-													)}
-													onclick={() => {
-														aiChatManager.setAutonomyMode(option.mode)
-														close()
-													}}
-												>
-													{option.label}
-												</button>
-											{/each}
-										</div>
-									{/snippet}
-								</Popover>
-							</div>
+										<ChevronDown size={14} class="shrink-0" />
+									</div>
+								{/snippet}
+							</DropdownV2>
 						{/if}
 						{#if effectiveAutonomyMode === AIAutonomyMode.YOLO && aiChatManager.autoAcceptToolConfirmationsAvailable}
 							<Tooltip small placement="top">

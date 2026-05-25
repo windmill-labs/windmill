@@ -1,54 +1,39 @@
 <script lang="ts">
-	import { ChevronDown } from 'lucide-svelte'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import { twMerge } from 'tailwind-merge'
+	import { ChevronDown, Check } from 'lucide-svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { aiChatManager, AIMode } from './AIChatManager.svelte'
+	import { CHAT_BAR_PILL, CHAT_BAR_PILL_STATIC } from './chatBarStyles'
+
+	const modeLabel = (mode: AIMode) => mode.charAt(0).toUpperCase() + mode.slice(1) + ' mode'
+
+	let allowedModeList = $derived(
+		Object.values(AIMode).filter((mode) => aiChatManager.allowedModes[mode])
+	)
+	let hasMultiple = $derived(allowedModeList.length > 1)
 </script>
 
-<div class="min-w-0">
-	<Popover
-		disablePopup={Object.keys(aiChatManager.allowedModes).filter(
-			(k) => aiChatManager.allowedModes[k]
-		).length < 2}
-		class="max-w-full"
+{#if hasMultiple}
+	<DropdownV2
+		items={() =>
+			allowedModeList.map((mode) => ({
+				displayName: modeLabel(mode),
+				icon: aiChatManager.mode === mode ? Check : undefined,
+				action: () => aiChatManager.changeMode(mode)
+			}))}
+		placement="bottom-start"
+		fixedHeight={false}
+		customWidth={170}
+		class="min-w-0"
 	>
-		{#snippet trigger()}
-			
-				<div
-					class="text-primary text-xs flex flex-row items-center font-normal gap-0.5 border px-1 rounded-lg"
-				>
-					<span class={`truncate`}>
-						{aiChatManager.mode.charAt(0).toUpperCase() + aiChatManager.mode.slice(1)} mode
-					</span>
-					{#if Object.keys(aiChatManager.allowedModes).filter((k) => aiChatManager.allowedModes[k]).length > 1}
-						<div class="shrink-0">
-							<ChevronDown size={16} />
-						</div>
-					{/if}
-				</div>
-			
-			{/snippet}
-		{#snippet content({ close })}
-			
-				<div class="flex flex-col gap-1 p-1 min-w-24">
-					{#each Object.values(AIMode) as possibleMode}
-						{#if aiChatManager.allowedModes[possibleMode]}
-							<button
-								class={twMerge(
-									'text-left text-xs hover:bg-surface-hover rounded-md p-1 font-normal',
-									aiChatManager.mode === possibleMode && 'bg-surface-hover'
-								)}
-								onclick={() => {
-									aiChatManager.changeMode(possibleMode)
-									close()
-								}}
-							>
-								{possibleMode.charAt(0).toUpperCase() + possibleMode.slice(1)} mode
-							</button>
-						{/if}
-					{/each}
-				</div>
-			
-			{/snippet}
-	</Popover>
-</div>
+		{#snippet buttonReplacement()}
+			<div class={CHAT_BAR_PILL}>
+				<span class="truncate">{modeLabel(aiChatManager.mode)}</span>
+				<ChevronDown size={14} class="shrink-0" />
+			</div>
+		{/snippet}
+	</DropdownV2>
+{:else}
+	<div class={CHAT_BAR_PILL_STATIC}>
+		<span class="truncate">{modeLabel(aiChatManager.mode)}</span>
+	</div>
+{/if}
