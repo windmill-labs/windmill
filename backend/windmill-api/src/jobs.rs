@@ -7593,31 +7593,6 @@ async fn get_job_update_data(
     early_return_suppressed: &mut bool,
     anonymous_verified: &mut bool,
 ) -> error::Result<JobUpdate> {
-    // Unauthenticated callers may only read jobs whose creator is "anonymous".
-    // The non-only_result branch enforces this via `record.created_by` from its
-    // main query, but the only_result branch below fetches solely the result by
-    // (workspace_id, job_id), so we guard here to cover both paths. The
-    // `anonymous_verified` flag is preserved across SSE poll iterations so the
-    // lookup only happens once per stream — `created_by` cannot change for a
-    // given job once it has been created.
-    if opt_authed.is_none() && !*anonymous_verified {
-        let created_by = sqlx::query_scalar!(
-            "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
-            job_id,
-            w_id,
-        )
-        .fetch_optional(db)
-        .await?
-        .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?;
-
-        if created_by != "anonymous" {
-            return Err(Error::BadRequest(
-                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
-            ));
-        }
-        *anonymous_verified = true;
-    }
-
     let tags = if log_view {
         log_job_view(
             db,
@@ -7638,6 +7613,32 @@ async fn get_job_update_data(
     let ignore_flow_stream_job_id = is_flow.is_some_and(|x| !x) || flow_stream_job_id.is_some();
 
     if only_result.unwrap_or(false) {
+        // Unauthenticated callers may only read jobs whose creator is "anonymous".
+        // The non-only_result branch enforces this via `record.created_by` from its
+        // main query, but the only_result branch below fetches solely the result by
+        // (workspace_id, job_id), so we guard here to close the gap. The
+        // `anonymous_verified` flag is preserved across SSE poll iterations so the
+        // lookup only happens once per stream — `created_by` cannot change for a
+        // given job once it has been created.
+        if opt_authed.is_none() && !*anonymous_verified {
+            let created_by = sqlx::query_scalar!(
+                "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+                job_id,
+                w_id,
+            )
+            .fetch_optional(db)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?;
+
+            if created_by != "anonymous" {
+                return Err(Error::BadRequest(
+                    "As a non logged in user, you can only see jobs ran by anonymous users"
+                        .to_string(),
+                ));
+            }
+            *anonymous_verified = true;
+        }
+
         let (result, running, mut result_stream, mut new_stream_offset, new_flow_stream_job_id) =
             if let Some(tags) = tags {
                 let r = sqlx::query!(
