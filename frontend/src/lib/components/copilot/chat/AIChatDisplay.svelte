@@ -9,6 +9,7 @@
 		ChevronDown,
 		ChevronsRight,
 		CheckIcon,
+		Hand,
 		HistoryIcon,
 		Hourglass,
 		MousePointer2,
@@ -48,6 +49,16 @@
 	const autonomyModeLabel = (mode: AIAutonomyMode) =>
 		autonomyModeOptions.find((option) => option.mode === mode)?.label ??
 		autonomyModeOptions[0].label
+	// Off requires confirmation (raised hand), on/yolo fast-forward. Color ramps
+	// from muted (off) to accent (on) to red (yolo) as autonomy increases.
+	const autonomyModeIcon = (mode: AIAutonomyMode) =>
+		mode === AIAutonomyMode.DEFAULT ? Hand : ChevronsRight
+	const autonomyModeIconColor = (mode: AIAutonomyMode) =>
+		mode === AIAutonomyMode.YOLO
+			? 'text-red-500'
+			: mode === AIAutonomyMode.DEFAULT
+				? 'text-secondary'
+				: 'text-accent'
 
 	let {
 		messages,
@@ -532,11 +543,8 @@
 										variant="default"
 										title={autonomyModeTooltip}
 										startIcon={{
-											icon: ChevronsRight,
-											classes:
-												effectiveAutonomyMode === AIAutonomyMode.YOLO
-													? 'text-red-500'
-													: 'text-accent'
+											icon: autonomyModeIcon(effectiveAutonomyMode),
+											classes: autonomyModeIconColor(effectiveAutonomyMode)
 										}}
 										endIcon={{ icon: ChevronDown }}
 									>
