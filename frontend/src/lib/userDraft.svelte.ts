@@ -354,10 +354,13 @@ export const UserDraft = {
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) {
-			// Notify observers; preserve existing rev metadata. `untrack`ed
-			// read — see `set draft` below for why.
+			// Static writes are external mutations. Update live observers and
+			// force the storage slot to match, even if the live entry still has
+			// its initial-write skip armed.
 			const current = untrack(() => entry.state.val as StoredDraft<unknown> | undefined)
-			entry.state.val = wrap(value, extractMeta(current))
+			const meta = extractMeta(current)
+			entry.state.setWithoutPersist(wrap(value, meta))
+			persistDirect(localStorageKey(ws, itemKind, path), value, meta)
 			return
 		}
 		// No live handle: preserve any persisted meta so the staleness
@@ -384,10 +387,10 @@ export const UserDraft = {
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) {
-			entry.state.val = wrap(value, meta)
 			// Static writes represent explicit external draft mutations. A
 			// freshly acquired live entry may still have the initial-write skip
 			// armed, so force the storage slot to match the live value.
+			entry.state.setWithoutPersist(wrap(value, meta))
 			persistDirect(localStorageKey(ws, itemKind, path), value, meta)
 			return
 		}
@@ -563,14 +566,6 @@ export const UserDraft = {
 		const ws = resolveWorkspace(opts)
 		const draft = liveEditorDrafts.get(liveEditorDraftKey(ws, itemKind))
 		return draft ? { ...draft } : undefined
-	},
-
-	listLiveEditorDrafts(opts?: UserDraftListOptions): LiveEditorDraft[] {
-		const ws = resolveWorkspace(opts)
-		const itemKinds = opts?.itemKinds ?? USER_DRAFT_ITEM_KINDS
-		return Array.from(liveEditorDrafts.values())
-			.filter((draft) => draft.workspace === ws && itemKinds.includes(draft.itemKind))
-			.map((draft) => ({ ...draft }))
 	},
 
 	clearLiveEditorDraft(itemKind: UserDraftItemKind, opts?: ClearLiveEditorDraftOptions): void {

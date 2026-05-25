@@ -499,7 +499,7 @@ Rules:
 - Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
 - If the user refers to the open editor, use the item marked isLiveDraft=true.
 - Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a local draft to the workspace.
-- Use discard_local_draft to remove an unsaved local draft. Use delete_workspace_item only to delete a deployed workspace item.
+- Use discard_local_draft to remove an unsaved local draft, including the matching open editor draft. Use delete_workspace_item only to delete a deployed workspace item.
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
 - Use search_resource_types before write_resource.
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
@@ -880,13 +880,15 @@ function normalizeRawAppData(value: Record<string, any>): AppDraftValue['data'] 
 	return { ...DEFAULT_RAW_APP_DATA }
 }
 
-function appSourceToDraftValue(app: any): AppDraftValue {
+function appSourceToDraftValue(app: any, fallback?: any): AppDraftValue {
 	const value = (app.value ?? {}) as Record<string, any>
 	return {
 		summary: app.summary ?? '',
 		files: { ...(value.files ?? {}) },
 		runnables: { ...(value.runnables ?? {}) },
-		data: normalizeRawAppData(value)
+		data: normalizeRawAppData(value),
+		policy: app.policy ?? fallback?.policy,
+		custom_path: app.custom_path ?? fallback?.custom_path
 	}
 }
 
@@ -904,7 +906,7 @@ async function loadAppValueForRead(path: string, workspace: string): Promise<App
 	}
 
 	const app = await AppService.getAppByPathWithDraft({ workspace, path })
-	return appSourceToDraftValue(app.draft ?? app)
+	return appSourceToDraftValue(app.draft ?? app, app)
 }
 
 async function loadAppDraftValue(path: string, workspace: string): Promise<LoadedAppDraftValue> {
@@ -914,7 +916,7 @@ async function loadAppDraftValue(path: string, workspace: string): Promise<Loade
 	}
 
 	const app = await AppService.getAppByPathWithDraft({ workspace, path })
-	const value = appSourceToDraftValue(app.draft ?? app)
+	const value = appSourceToDraftValue(app.draft ?? app, app)
 	return { value, meta: appDraftMeta(app) }
 }
 
@@ -1528,7 +1530,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			discardLocalDraftSchema,
 			'discard_local_draft',
-			'Discard a local draft only. Does not mutate deployed workspace items.'
+			'Discard a local draft only. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted.'
 		),
 		showDetails: true,
 		showFade: true,

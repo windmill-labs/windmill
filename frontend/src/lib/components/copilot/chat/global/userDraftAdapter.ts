@@ -65,7 +65,9 @@ function normalizeAppDraftValue(value: AppDraftValue): AppDraftValue {
 		summary: value.summary,
 		files: { ...(value.files ?? {}) },
 		runnables: { ...(value.runnables ?? {}) },
-		data: value.data ?? { ...DEFAULT_RAW_APP_DATA }
+		data: value.data ?? { ...DEFAULT_RAW_APP_DATA },
+		policy: value.policy === undefined ? undefined : clone(value.policy),
+		custom_path: value.custom_path
 	}
 }
 

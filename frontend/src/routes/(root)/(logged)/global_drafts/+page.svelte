@@ -30,6 +30,7 @@
 			if (event.key?.startsWith('userdraft/')) refreshDrafts()
 		}
 		window.addEventListener('storage', onStorage)
+		// Same-tab saves and live editor registry changes don't emit `storage`.
 		const interval = window.setInterval(refreshDrafts, 1000)
 
 		return () => {

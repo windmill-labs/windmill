@@ -134,14 +134,6 @@ describe('UserDraft live editor draft registry', () => {
 			storagePath: '',
 			effectivePath: 'u/me/generated_script'
 		})
-		expect(UserDraft.listLiveEditorDrafts()).toEqual([
-			{
-				workspace: 'test_ws',
-				itemKind: 'script',
-				storagePath: '',
-				effectivePath: 'u/me/generated_script'
-			}
-		])
 	})
 
 	it('keeps live editor registrations isolated by workspace', () => {
@@ -219,21 +211,16 @@ describe('UserDraft.use() — observer sync', () => {
 		expect(a.draft).toBe(99)
 	})
 
-	it('save() propagates to live use() handles (in-memory)', () => {
+	it('save() propagates to live use() handles and persists immediately', () => {
 		const handle = UserDraft.use<number>('flow', 'u/me/observed')
 		expect(handle.draft).toBeUndefined()
 
-		// First write through a live entry is treated as the "initial value"
-		// (saveInitialValue=false) and is NOT persisted — observers still see it.
 		UserDraft.save('flow', 'u/me/observed', 7)
 		expect(handle.draft).toBe(7)
-		flushPersist()
-		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/observed')).toBeNull()
+		expect(storedShape('userdraft/w/test_ws/flow/u/me/observed')).toBe(wrapped(7))
 
-		// Subsequent writes persist.
 		UserDraft.save('flow', 'u/me/observed', 9)
 		expect(handle.draft).toBe(9)
-		flushPersist()
 		expect(storedShape('userdraft/w/test_ws/flow/u/me/observed')).toBe(wrapped(9))
 	})
 
@@ -502,6 +489,28 @@ describe('UserDraft — rev metadata for staleness checks', () => {
 		)
 	})
 
+	it('UserDraft.save persists immediately when a live handle exists', () => {
+		const handle = UserDraft.use<string>('flow', 'u/me/live-save')
+
+		UserDraft.save('flow', 'u/me/live-save', 'external')
+
+		expect(handle.draft).toBe('external')
+		expect(storedShape('userdraft/w/test_ws/flow/u/me/live-save')).toBe(wrapped('external'))
+	})
+
+	it('UserDraft.save preserves live rev metadata while forcing persistence', () => {
+		const handle = UserDraft.use<string>('flow', 'u/me/live-save-meta')
+		handle.setDraftAndMeta('baseline', { remoteRev: 5 })
+		expect(localStorage.getItem('userdraft/w/test_ws/flow/u/me/live-save-meta')).toBeNull()
+
+		UserDraft.save('flow', 'u/me/live-save-meta', 'external')
+
+		expect(handle.draft).toBe('external')
+		expect(storedShape('userdraft/w/test_ws/flow/u/me/live-save-meta')).toBe(
+			JSON.stringify({ value: 'external', remoteRev: 5 })
+		)
+	})
+
 	it('handle.meta is empty for a draft persisted without rev (forward compat with older entries)', () => {
 		localStorage.setItem(
 			'userdraft/w/test_ws/flow/u/me/legacy',
@@ -594,8 +603,7 @@ describe('UserDraft.use() — reference counting & cleanup', () => {
 
 		UserDraft.save('flow', 'u/me/ref', 2)
 		expect(a.draft).toBe(2)
-		// Now persisted (second write after the baseline).
-		flushPersist()
+		// External save() calls persist immediately, even with a live handle.
 		expect(storedShape('userdraft/w/test_ws/flow/u/me/ref')).toBe(wrapped(2))
 
 		// Releasing the second handle drops the entry; subsequent save()

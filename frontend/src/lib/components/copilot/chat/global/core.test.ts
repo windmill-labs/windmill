@@ -780,10 +780,10 @@ describe('global AI tools', () => {
 					inlineScript: { language: 'bun', content: 'export async function main() {}' }
 				}
 			},
-			data: { tables: ['orders'], datatable: 'db', schema: 'public' }
+			data: { tables: ['orders'], datatable: 'db', schema: 'public' },
+			policy: { execution_mode: 'anonymous' },
+			custom_path: 'report'
 		})
-		expect(draft).not.toHaveProperty('policy')
-		expect(draft).not.toHaveProperty('custom_path')
 		expect(UserDraft.getMeta('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toEqual({
 			remoteRev: 4,
 			remoteDraftRev: '2026-05-22T10:30:00Z'
@@ -1146,7 +1146,9 @@ describe('prepareGlobalSystemMessage', () => {
 		const content = message.content
 
 		expect(content).toContain('Draft tools create or update local drafts only')
-		expect(content).toContain('Use discard_local_draft to remove an unsaved local draft')
+		expect(content).toContain(
+			'Use discard_local_draft to remove an unsaved local draft, including the matching open editor draft'
+		)
 		expect(content).not.toContain('AI draft')
 		expect(content).not.toContain('UserDraft')
 		expect(content).not.toContain('localStorage')
@@ -1158,7 +1160,7 @@ describe('prepareGlobalSystemMessage', () => {
 		const deleteItem = getGlobalTool('delete_workspace_item')
 
 		expect(discard.def.function.description).toBe(
-			'Discard a local draft only. Does not mutate deployed workspace items.'
+			'Discard a local draft only. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted.'
 		)
 		expect(deleteItem.def.function.description).toBe(
 			'Delete a deployed workspace item. Mutates the workspace.'

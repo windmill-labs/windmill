@@ -32,6 +32,8 @@
 		runnables: Record<string, any>
 		data: RawAppData
 		summary: string
+		policy?: any
+		custom_path?: string
 	}
 
 	let files: Record<string, string> | undefined = $state(undefined)
@@ -105,25 +107,45 @@
 
 	// Persist the bundle whenever any of the four pieces of state changes.
 	$effect(() => {
-		if (!files) return
-		readFieldsRecursively(files)
+		const currentFiles = files
+		if (!currentFiles) return
+		readFieldsRecursively(currentFiles)
 		readFieldsRecursively(runnables)
 		readFieldsRecursively(data)
+		readFieldsRecursively(policy)
 		void summary
-		draftHandle.draft = { files, runnables, data, summary }
+		draftHandle.draft = {
+			files: currentFiles,
+			runnables,
+			data,
+			summary,
+			policy,
+			custom_path: savedApp?.custom_path
+		}
 	})
 
 	// Reflect an external UserDraft.save into the form. Idempotent; the
 	// `!files` guard skips the reload window so it doesn't fight loadApp.
 	$effect(() => {
 		const d = draftHandle.draft
-		if (d == null || !files) return
+		const currentFiles = files
+		if (d == null || !currentFiles) return
 		untrack(() => {
-			if (localDraftDiffers(d, { files, runnables, data, summary })) {
+			if (
+				localDraftDiffers(d, {
+					files: currentFiles,
+					runnables,
+					data,
+					summary,
+					policy,
+					custom_path: savedApp?.custom_path
+				})
+			) {
 				files = d.files
 				runnables = d.runnables
 				data = d.data
 				summary = d.summary
+				if (d.policy !== undefined) policy = d.policy
 			}
 		})
 	})
@@ -192,7 +214,9 @@
 				(backendSource.value?.datatables
 					? { ...DEFAULT_DATA, tables: backendSource.value.datatables }
 					: { ...DEFAULT_DATA }),
-			summary: backendSource.summary ?? ''
+			summary: backendSource.summary ?? '',
+			policy: backendSource.policy ?? app_w_draft.policy,
+			custom_path: backendSource.custom_path ?? app_w_draft.custom_path
 		}
 
 		if (
@@ -240,7 +264,7 @@
 			runnables = localDraft.runnables
 			data = localDraft.data
 			summary = localDraft.summary
-			policy = app_w_draft.policy
+			policy = localDraft.policy ?? app_w_draft.policy
 			newPath = app_w_draft.path
 			files = localDraft.files
 		} else {
