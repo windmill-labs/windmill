@@ -136,6 +136,27 @@ Validation:
 - `cargo check -p windmill-ai -p windmill-api`
 - `cargo check -p windmill-ai -p windmill-api --features bedrock`
 
+## Known Follow-Ups
+
+These are not blockers for the current migration PR because they either preserve
+existing behavior or need a separate product decision, but they should stay
+visible for later hardening work.
+
+- **Google AI/Gemini native proxy custom headers**: the native Google AI proxy
+  path intentionally does not apply `AI_HTTP_HEADERS` or resource-level custom
+  headers today. Decide whether and how env/resource custom-header injection
+  should apply to Google AI once the proxy behavior is unified further.
+- **Bedrock SSE tool-call indexing**: Bedrock streaming currently increments
+  the OpenAI tool-call index on every Bedrock `ContentBlockStop`, including text
+  content blocks. This behavior existed before the move from `windmill-api` to
+  `windmill-ai`, but a later cleanup should advance the index only when the
+  stopped block was a tool-use block.
+- **Bedrock SSE keepalives**: Bedrock native SSE streams are still returned
+  directly without the API proxy keepalive injection used by other SSE paths.
+  This also preserves the pre-move behavior. A later cleanup can generalize the
+  keepalive wrapper so it works for both `reqwest::Error` streams and Bedrock's
+  SDK-backed `std::io::Error` streams.
+
 ## Step-by-Step Plan
 
 Each step produces a compiling, working backend.
