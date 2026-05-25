@@ -46,25 +46,9 @@
 		{ label: 'Auto-accept on', mode: AIAutonomyMode.ACCEPT_EDIT },
 		{ label: 'YOLO mode', mode: AIAutonomyMode.YOLO }
 	]
-	const autonomyModeLabel = (
-		mode: AIAutonomyMode,
-		options: AutonomyModeOption[] = autonomyModeOptions
-	) => options.find((option) => option.mode === mode)?.label ?? autonomyModeOptions[0].label
-	const isAutonomyModeAvailable = (
-		mode: AIAutonomyMode,
-		autoAcceptEditsAvailable: boolean,
-		autoAcceptToolConfirmationsAvailable: boolean
-	) => {
-		switch (mode) {
-			case AIAutonomyMode.DEFAULT:
-				return true
-			case AIAutonomyMode.ACCEPT_EDIT:
-				return autoAcceptEditsAvailable
-			case AIAutonomyMode.YOLO:
-				return autoAcceptToolConfirmationsAvailable
-		}
-		return false
-	}
+	const autonomyModeLabel = (mode: AIAutonomyMode) =>
+		autonomyModeOptions.find((option) => option.mode === mode)?.label ??
+		autonomyModeOptions[0].label
 
 	let {
 		messages,
@@ -211,21 +195,15 @@
 			aiChatManager.mode === AIMode.GLOBAL ||
 			aiChatManager.mode === AIMode.APP
 	)
-	const availableAutonomyModeOptions = $derived.by(() =>
-		autonomyModeOptions.filter((option) =>
-			isAutonomyModeAvailable(
-				option.mode,
-				aiChatManager.autoAcceptEditsAvailable,
-				aiChatManager.autoAcceptToolConfirmationsAvailable
-			)
-		)
+	const effectiveAutonomyMode = $derived(aiChatManager.autonomyMode)
+	// The picker always offers the three autonomy levels (off / on / yolo). It's
+	// shown whenever the current mode can auto-accept anything (edits or tool
+	// confirmations); in modes without edits, "Auto-accept on" simply has no
+	// edits to accept.
+	const showAutonomyModeSelector = $derived(
+		!disabled &&
+			(aiChatManager.autoAcceptEditsAvailable || aiChatManager.autoAcceptToolConfirmationsAvailable)
 	)
-	const effectiveAutonomyMode = $derived(
-		availableAutonomyModeOptions.some((option) => option.mode === aiChatManager.autonomyMode)
-			? aiChatManager.autonomyMode
-			: AIAutonomyMode.DEFAULT
-	)
-	const showAutonomyModeSelector = $derived(!disabled && availableAutonomyModeOptions.length > 1)
 	const autonomyModeTooltip = $derived.by(() => {
 		switch (effectiveAutonomyMode) {
 			case AIAutonomyMode.ACCEPT_EDIT:
@@ -539,7 +517,7 @@
 						{#if showAutonomyModeSelector}
 							<DropdownV2
 								items={() =>
-									availableAutonomyModeOptions.map((option) => ({
+									autonomyModeOptions.map((option) => ({
 										displayName: option.label,
 										selected: effectiveAutonomyMode === option.mode,
 										action: () => aiChatManager.setAutonomyMode(option.mode)
@@ -560,12 +538,7 @@
 													: 'text-accent'
 											)}
 										/>
-										<span class="truncate"
-											>{autonomyModeLabel(
-												effectiveAutonomyMode,
-												availableAutonomyModeOptions
-											)}</span
-										>
+										<span class="truncate">{autonomyModeLabel(effectiveAutonomyMode)}</span>
 										<ChevronDown size={14} class="shrink-0" />
 									</div>
 								{/snippet}
