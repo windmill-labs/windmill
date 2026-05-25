@@ -9,6 +9,8 @@
 	import { goto } from '$lib/navigation'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import Toggle from './Toggle.svelte'
+	import Tooltip from './Tooltip.svelte'
 	import { UserPlus } from 'lucide-svelte'
 
 	const dispatch = createEventDispatcher()
@@ -39,7 +41,8 @@
 				requestBody: {
 					username: username!,
 					is_admin: serviceAccountRole === 'admin',
-					operator: serviceAccountRole === 'operator'
+					operator: serviceAccountRole === 'operator',
+					add_to_deployers: serviceAccountRole === 'developer' && addToDeployers
 				}
 			})
 			sendUserToast(`Service account '${username}' created`)
@@ -87,6 +90,7 @@
 	type ServiceAccountRole = 'operator' | 'developer' | 'admin'
 	let selected: UserRole = $state('developer' as UserRole)
 	let serviceAccountRole: ServiceAccountRole = $state('operator' as ServiceAccountRole)
+	let addToDeployers: boolean = $state(true)
 	let isServiceAccount = $derived(selected === 'service_account')
 </script>
 
@@ -175,6 +179,26 @@
 						/>
 					{/snippet}
 				</ToggleButtonGroup>
+
+				{#if serviceAccountRole === 'developer'}
+					<div class="flex items-center gap-2 mb-4">
+						<Toggle bind:checked={addToDeployers} size="xs" />
+						<span class="text-xs leading-6">
+							Add to <code>wm_deployers</code>
+							<Tooltip>
+								Recommended when this service account will be used as a <code>wmill sync push</code>
+								/ CI deploy identity. Members of <code>wm_deployers</code> can deploy on behalf of
+								other users in the target workspace.
+								<a
+									href="https://www.windmill.dev/docs/core_concepts/staging_prod#run-on-behalf-of"
+									target="_blank"
+									rel="noopener noreferrer"
+									class="underline">Learn more</a
+								>.
+							</Tooltip>
+						</span>
+					</div>
+				{/if}
 			{/if}
 			<Button
 				variant="accent"

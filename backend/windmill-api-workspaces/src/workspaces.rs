@@ -5455,6 +5455,8 @@ pub struct NewServiceAccount {
     pub is_admin: bool,
     #[serde(default = "default_true")]
     pub operator: bool,
+    #[serde(default)]
+    pub add_to_deployers: bool,
 }
 
 fn default_true() -> bool {
