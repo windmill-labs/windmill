@@ -1,14 +1,26 @@
 <script lang="ts">
-	// NOTE: mocked preview for a team demo. No backend calls.
-	// Push/override model: a single "Deploy to Hub" action bundles the whole workspace
-	// and republishes it as a new version on the Hub. No per-item diff / merge / drift.
-	// Recording per script/flow is kept as an orthogonal feature attached to the
-	// current published version.
+	// Hub deploy + share-as-iframe surface for the workspace.
+	// - Items list is fetched live from the workspace (apps, raw_apps, flows, scripts, resources).
+	// - Rate limit is read live from WorkspaceService.getSettings.
+	// - Share-as-iframe flips the app's execution_mode to 'anonymous' via AppService.updateApp
+	//   and resolves the real secret URL via AppService.getPublicSecretOfApp.
+	// - The "Deploy to Hub" bundle/version flow is still mocked: no backend endpoint exists yet.
+	// - Recording per script/flow is also mocked for the same reason.
 	import { Badge, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import WorkspaceDeployLayout from '$lib/components/WorkspaceDeployLayout.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import {
+		AppService,
+		FlowService,
+		RawAppService,
+		ResourceService,
+		ScriptService,
+		WorkspaceService
+	} from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
+	import { computeSecretUrl } from '$lib/components/apps/editor/appDeploy.svelte'
 	import {
 		Check,
 		Cloud,
@@ -34,71 +46,14 @@
 		publicUrl?: string
 		[k: string]: unknown
 	}
-	// MOCK: would be fetched via WorkspaceService.getSettings().public_app_execution_limit_per_minute
-	let workspaceRateLimit = $state<number | undefined>(120)
 
 	const canRecord = (k: Kind) => k === 'script' || k === 'flow'
 	const canPublishApp = (k: Kind) => k === 'app' || k === 'raw_app'
 
-	// --- MOCK DATA -------------------------------------------------------------
-	let items = $state<DeployItem[]>([
-		{
-			key: 'raw_app:crm/dashboard',
-			path: 'crm/dashboard',
-			kind: 'raw_app',
-			summary: 'Sales dashboard',
-			rec: 'none'
-		},
-		{
-			key: 'raw_app:crm/onboarding',
-			path: 'crm/onboarding',
-			kind: 'raw_app',
-			summary: 'Customer onboarding portal',
-			rec: 'none'
-		},
-		{
-			key: 'flow:crm/sync_contacts',
-			path: 'crm/sync_contacts',
-			kind: 'flow',
-			summary: 'Sync contacts from HubSpot',
-			rec: 'none'
-		},
-		{
-			key: 'flow:crm/enrich_lead',
-			path: 'crm/enrich_lead',
-			kind: 'flow',
-			summary: 'Enrich lead with Clearbit',
-			rec: 'none'
-		},
-		{
-			key: 'script:crm/send_slack_digest',
-			path: 'crm/send_slack_digest',
-			kind: 'script',
-			summary: 'Daily Slack digest',
-			rec: 'none'
-		},
-		{
-			key: 'script:crm/upsert_postgres',
-			path: 'crm/upsert_postgres',
-			kind: 'script',
-			summary: 'Upsert rows to Postgres',
-			rec: 'none'
-		},
-		{
-			key: 'resource:postgresql',
-			path: 'postgresql',
-			kind: 'resource',
-			resourceType: 'postgresql',
-			rec: 'none'
-		},
-		{
-			key: 'resource:slack_bot',
-			path: 'slack_bot',
-			kind: 'resource',
-			resourceType: 'slack_bot',
-			rec: 'none'
-		}
-	])
+	let items = $state<DeployItem[]>([])
+	let loading = $state(false)
+	let workspaceRateLimit = $state<number | undefined>(undefined)
+
 	const FAKE_SCHEMA = {
 		type: 'object',
 		properties: {
@@ -107,9 +62,9 @@
 		},
 		required: ['customer']
 	}
-	const hubSlug = 'twenty-crm'
-	const hubUrl = `https://hub.windmill.dev/workspaces/${hubSlug}`
-	// ---------------------------------------------------------------------------
+	// MOCK: no backend endpoint exposes a hub-slug or hub version per workspace yet.
+	let hubSlug = $derived($workspaceStore ?? '')
+	let hubUrl = $derived(`https://hub.windmill.dev/workspaces/${hubSlug}`)
 
 	let phase = $state<Phase>('predeploy')
 	let hubVersion = $state<number>(0)
@@ -127,11 +82,97 @@
 	let publishTarget = $state<DeployItem | undefined>()
 	let publishing = $state(false)
 
-	const mockPublicUrl = (path: string) => `https://app.windmill.dev/public/${hubSlug}/${path}`
-
 	const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+	async function loadWorkspace(workspace: string) {
+		loading = true
+		try {
+			const [apps, rawApps, flows, scripts, resources, settings] = await Promise.all([
+				AppService.listApps({ workspace, perPage: 100 }),
+				RawAppService.listRawApps({ workspace, perPage: 100 }),
+				FlowService.listFlows({ workspace, perPage: 100 }),
+				ScriptService.listScripts({ workspace, perPage: 100 }),
+				ResourceService.listResource({ workspace, perPage: 100 }),
+				WorkspaceService.getSettings({ workspace }).catch(() => undefined)
+			])
+
+			workspaceRateLimit = settings?.public_app_execution_limit_per_minute
+
+			const next: DeployItem[] = []
+			for (const a of apps) {
+				const isPublic = a.execution_mode === 'anonymous'
+				next.push({
+					key: `app:${a.path}`,
+					path: a.path,
+					kind: 'app',
+					summary: a.summary,
+					rec: 'none',
+					published: isPublic,
+					publicUrl: isPublic ? await resolvePublicUrl(workspace, a.path) : undefined
+				})
+			}
+			for (const a of rawApps) {
+				next.push({
+					key: `raw_app:${a.path}`,
+					path: a.path,
+					kind: 'raw_app',
+					summary: a.summary,
+					rec: 'none'
+				})
+			}
+			for (const f of flows) {
+				next.push({
+					key: `flow:${f.path}`,
+					path: f.path,
+					kind: 'flow',
+					summary: f.summary,
+					rec: 'none'
+				})
+			}
+			for (const s of scripts) {
+				next.push({
+					key: `script:${s.path}`,
+					path: s.path,
+					kind: 'script',
+					summary: s.summary,
+					rec: 'none'
+				})
+			}
+			for (const r of resources) {
+				if (r.resource_type === 'app_theme') continue
+				next.push({
+					key: `resource:${r.path}`,
+					path: r.path,
+					kind: 'resource',
+					resourceType: r.resource_type,
+					rec: 'none'
+				})
+			}
+			items = next
+		} catch (e: any) {
+			sendUserToast(`Failed to load workspace items: ${e?.message ?? e}`, true)
+		} finally {
+			loading = false
+		}
+	}
+
+	async function resolvePublicUrl(workspace: string, path: string): Promise<string | undefined> {
+		try {
+			const secret = await AppService.getPublicSecretOfApp({ workspace, path })
+			return computeSecretUrl(secret)
+		} catch {
+			return undefined
+		}
+	}
+
+	$effect(() => {
+		if ($workspaceStore) {
+			loadWorkspace($workspaceStore)
+		}
+	})
+
 	async function deployAll() {
+		// MOCK: bundle/version push to the Hub is not implemented backend-side.
 		deploying = true
 		try {
 			for (const it of items) {
@@ -141,7 +182,6 @@
 			}
 			await delay(150)
 			hubVersion += 1
-			// Reset recordings on republish: they were tied to the previous version.
 			if (phase === 'live') {
 				items = items.map((i) => ({ ...i, rec: i.rec === 'recorded' ? 'none' : i.rec }))
 			}
@@ -164,6 +204,7 @@
 		recordDrawer?.openDrawer()
 	}
 	async function confirmRecord() {
+		// MOCK: recording feature not implemented backend-side.
 		const it = recordTarget
 		if (!it) return
 		recordDrawer?.closeDrawer()
@@ -178,22 +219,45 @@
 	}
 	async function confirmPublish() {
 		const it = publishTarget
-		if (!it) return
+		const workspace = $workspaceStore
+		if (!it || !workspace || it.kind !== 'app') return
 		publishing = true
 		try {
-			await delay(500)
-			items = items.map((i) =>
-				i.key === it.key ? { ...i, published: true, publicUrl: mockPublicUrl(i.path) } : i
-			)
+			const app = await AppService.getAppByPath({ workspace, path: it.path })
+			const policy = { ...(app.policy ?? {}), execution_mode: 'anonymous' as const }
+			await AppService.updateApp({
+				workspace,
+				path: it.path,
+				requestBody: { policy, deployment_message: 'Share as iframe' }
+			})
+			const url = await resolvePublicUrl(workspace, it.path)
+			items = items.map((i) => (i.key === it.key ? { ...i, published: true, publicUrl: url } : i))
 			sendUserToast(`${it.path} is now public`)
 			publishDrawer?.closeDrawer()
+		} catch (e: any) {
+			sendUserToast(`Failed to publish: ${e?.message ?? e}`, true)
 		} finally {
 			publishing = false
 		}
 	}
-	async function unpublishApp(key: string) {
-		items = items.map((i) => (i.key === key ? { ...i, published: false, publicUrl: undefined } : i))
-		sendUserToast('App unpublished')
+	async function unpublishApp(it: DeployItem) {
+		const workspace = $workspaceStore
+		if (!workspace || it.kind !== 'app') return
+		try {
+			const app = await AppService.getAppByPath({ workspace, path: it.path })
+			const policy = { ...(app.policy ?? {}), execution_mode: 'publisher' as const }
+			await AppService.updateApp({
+				workspace,
+				path: it.path,
+				requestBody: { policy, deployment_message: 'Unshare iframe' }
+			})
+			items = items.map((i) =>
+				i.key === it.key ? { ...i, published: false, publicUrl: undefined } : i
+			)
+			sendUserToast('App unpublished')
+		} catch (e: any) {
+			sendUserToast(`Failed to unpublish: ${e?.message ?? e}`, true)
+		}
 	}
 	async function copyIframeSnippet(url: string) {
 		const snippet = `<iframe src="${url}" width="100%" height="600" frameborder="0"></iframe>`
@@ -212,10 +276,10 @@
 		selectedItems={[]}
 		{deploymentStatus}
 		hideSelection
-		emptyMessage="No items to publish"
+		emptyMessage={loading ? 'Loading workspace items…' : 'No items to publish'}
 	>
 		{#snippet header()}
-			<div class="flex flex-col gap-2 w-full pb-4 border-b">
+			<div class="flex flex-col gap-2 w-full pb-4">
 				<div class="flex flex-wrap items-center gap-2">
 					{#if phase === 'predeploy'}
 						<Badge color="gray" size="xs">Not on the Hub yet</Badge>
@@ -273,7 +337,7 @@
 					</Button>
 				{/if}
 			{/if}
-			{#if phase === 'live' && canPublishApp(it.kind)}
+			{#if canPublishApp(it.kind)}
 				{#if it.published && it.publicUrl}
 					<Badge color="green" size="xs">
 						<Globe size={10} class="mr-0.5" />Public
@@ -294,8 +358,10 @@
 					>
 						Copy iframe
 					</Button>
-					<Button size="xs" variant="subtle" onclick={() => unpublishApp(it.key)}>Unpublish</Button>
-				{:else}
+					{#if it.kind === 'app'}
+						<Button size="xs" variant="subtle" onclick={() => unpublishApp(it)}>Unpublish</Button>
+					{/if}
+				{:else if it.kind === 'app'}
 					<Button
 						size="xs"
 						variant="subtle"
@@ -317,6 +383,7 @@
 					<Button
 						variant="accent"
 						loading={deploying}
+						disabled={items.length === 0}
 						startIcon={{ icon: Cloud }}
 						onclick={deployAll}
 					>
@@ -412,15 +479,6 @@
 					Edit in Workspace settings → Apps
 				</a>
 			</div>
-
-			{#if publishTarget}
-				<div class="flex flex-col gap-1 text-xs">
-					<span class="text-secondary">Public URL once published:</span>
-					<code class="rounded bg-surface-secondary p-2 break-all">
-						{mockPublicUrl(publishTarget.path)}
-					</code>
-				</div>
-			{/if}
 		</div>
 		{#snippet actions()}
 			<Button variant="default" onclick={() => publishDrawer?.closeDrawer()}>Cancel</Button>
