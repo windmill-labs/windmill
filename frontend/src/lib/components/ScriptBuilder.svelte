@@ -134,7 +134,8 @@
 		onSaveDraftError,
 		onSaveDraft,
 		onNavigate,
-		disableAi
+		disableAi,
+		initialTestPanelCollapsed = false
 	}: ScriptBuilderProps = $props()
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
@@ -2091,6 +2092,7 @@
 			bind:assets={script.assets}
 			bind:modules={script.modules}
 			enablePreprocessorSnippet
+			{initialTestPanelCollapsed}
 		/>
 	</div>
 {:else}
