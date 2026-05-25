@@ -841,6 +841,79 @@ describe('global AI tools', () => {
 		expect(item.value.backend[0]).not.toHaveProperty('content')
 	})
 
+	it('summarizes backend raw app drafts from the same source as file reads', async () => {
+		const appWithDraft = {
+			path: 'f/apps/report',
+			summary: 'deployed app',
+			versions: [5],
+			value: {
+				files: { '/src/App.tsx': 'deployed content' },
+				runnables: {},
+				data: { tables: ['deployed'] }
+			},
+			draft: {
+				summary: 'saved app draft',
+				value: {
+					files: {
+						'/src/App.tsx': 'draft content',
+						'/src/DraftOnly.tsx': 'draft-only content'
+					},
+					runnables: {
+						main: {
+							type: 'inline',
+							inlineScript: {
+								language: 'bun',
+								content: 'export async function main() { return "draft" }'
+							}
+						}
+					},
+					data: { tables: ['draft'] }
+				}
+			}
+		}
+		vi.mocked(AppService.getAppByPathWithDraft)
+			.mockResolvedValueOnce(appWithDraft as any)
+			.mockResolvedValueOnce(appWithDraft as any)
+
+		const raw = await callGlobalTool('read_workspace_item', {
+			type: 'app',
+			path: 'f/apps/report'
+		})
+		const item = JSON.parse(raw)
+
+		expect(raw).not.toContain('draft-only content')
+		expect(item).toMatchObject({
+			type: 'app',
+			path: 'f/apps/report',
+			summary: 'saved app draft',
+			value: {
+				frontend: [
+					{ path: '/src/App.tsx', size: 'draft content'.length },
+					{ path: '/src/DraftOnly.tsx', size: 'draft-only content'.length }
+				],
+				backend: [
+					expect.objectContaining({
+						key: 'main',
+						name: 'main',
+						type: 'inline',
+						language: 'bun',
+						contentSize: 'export async function main() { return "draft" }'.length
+					})
+				],
+				data: { tables: ['draft'] }
+			},
+			isDraft: false
+		})
+
+		await expect(
+			callGlobalTool('read_app_file', {
+				path: 'f/apps/report',
+				file_path: '/src/DraftOnly.tsx'
+			})
+		).resolves.toBe('draft-only content')
+		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
+	})
+
 	it('reads raw app files without creating a local draft', async () => {
 		vi.mocked(AppService.getAppByPathWithDraft).mockResolvedValueOnce({
 			path: 'f/apps/report',
@@ -867,6 +940,77 @@ describe('global AI tools', () => {
 				file_path: '/src/App.tsx'
 			})
 		).resolves.toBe('draft content')
+		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
+	})
+
+	it('does not persist a raw app draft when patch_app_file validation fails', async () => {
+		vi.mocked(AppService.getAppByPathWithDraft).mockResolvedValueOnce({
+			path: 'f/apps/report',
+			summary: 'deployed app',
+			versions: [5],
+			value: {
+				files: { '/src/App.tsx': 'deployed content' },
+				runnables: {},
+				data: { tables: [] }
+			}
+		} as any)
+
+		await expect(
+			callGlobalTool('patch_app_file', {
+				path: 'f/apps/report',
+				file_path: '/src/App.tsx',
+				old_string: 'missing content',
+				new_string: 'replacement',
+				replace_all: false
+			})
+		).rejects.toThrow()
+		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
+	})
+
+	it('does not persist a raw app draft when delete_app_file validation fails', async () => {
+		vi.mocked(AppService.getAppByPathWithDraft).mockResolvedValueOnce({
+			path: 'f/apps/report',
+			summary: 'deployed app',
+			versions: [5],
+			value: {
+				files: { '/src/App.tsx': 'deployed content' },
+				runnables: {},
+				data: { tables: [] }
+			}
+		} as any)
+
+		await expect(
+			callGlobalTool('delete_app_file', {
+				path: 'f/apps/report',
+				file_path: '/src/Missing.tsx'
+			})
+		).rejects.toThrow('Frontend file "/src/Missing.tsx" not found in app "f/apps/report".')
+		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
+	})
+
+	it('does not persist a raw app draft when delete_app_runnable validation fails', async () => {
+		vi.mocked(AppService.getAppByPathWithDraft).mockResolvedValueOnce({
+			path: 'f/apps/report',
+			summary: 'deployed app',
+			versions: [5],
+			value: {
+				files: { '/src/App.tsx': 'deployed content' },
+				runnables: {
+					main: {
+						type: 'inline',
+						inlineScript: { language: 'bun', content: 'export async function main() {}' }
+					}
+				},
+				data: { tables: [] }
+			}
+		} as any)
+
+		await expect(
+			callGlobalTool('delete_app_runnable', {
+				path: 'f/apps/report',
+				key: 'missing'
+			})
+		).rejects.toThrow('Backend runnable "missing" not found in app "f/apps/report".')
 		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
