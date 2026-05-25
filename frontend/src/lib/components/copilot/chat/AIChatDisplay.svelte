@@ -6,6 +6,7 @@
 	import {
 		AlertTriangle,
 		ArrowDown,
+		AtSign,
 		ChevronDown,
 		ChevronsRight,
 		CheckIcon,
@@ -40,15 +41,18 @@
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
 	const aiChatManager = getAiChatManager()
-	type AutonomyModeOption = { label: string; mode: AIAutonomyMode }
+	// `label` is shown in the dropdown; `shortLabel` (when set) is shown in the
+	// compact trigger pill to save horizontal space.
+	type AutonomyModeOption = { label: string; shortLabel?: string; mode: AIAutonomyMode }
 	const autonomyModeOptions: AutonomyModeOption[] = [
 		{ label: 'Ask permission', mode: AIAutonomyMode.DEFAULT },
 		{ label: 'Auto-accept edits', mode: AIAutonomyMode.ACCEPT_EDIT },
-		{ label: 'Bypass permissions', mode: AIAutonomyMode.YOLO }
+		{ label: 'Yolo (bypass permissions)', shortLabel: 'Yolo', mode: AIAutonomyMode.YOLO }
 	]
-	const autonomyModeLabel = (mode: AIAutonomyMode) =>
-		autonomyModeOptions.find((option) => option.mode === mode)?.label ??
-		autonomyModeOptions[0].label
+	const autonomyModeLabel = (mode: AIAutonomyMode) => {
+		const option = autonomyModeOptions.find((o) => o.mode === mode) ?? autonomyModeOptions[0]
+		return option.shortLabel ?? option.label
+	}
 	// "Auto-accept edits" only applies where script/flow edits can be accepted,
 	// "Bypass permissions" only where tool confirmations exist; filter the picker
 	// to the levels that actually do something in the current mode.
@@ -519,9 +523,14 @@
 						{#if showContextPicker && !disabled}
 							<Popover>
 								{#snippet trigger()}
-									<Button nonCaptureEvent unifiedSize="xs" variant="default" title="Add context">
-										@
-									</Button>
+									<Button
+										nonCaptureEvent
+										unifiedSize="2xs"
+										variant="default"
+										title="Add context"
+										iconOnly
+										startIcon={{ icon: AtSign }}
+									/>
 								{/snippet}
 								{#snippet content({ close })}
 									{#if aiChatManager.mode === AIMode.APP}
@@ -565,7 +574,7 @@
 								{#snippet buttonReplacement()}
 									<Button
 										nonCaptureEvent
-										unifiedSize="xs"
+										unifiedSize="2xs"
 										variant="default"
 										title={autonomyModeTooltip}
 										startIcon={{

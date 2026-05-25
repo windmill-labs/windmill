@@ -39,17 +39,17 @@
 		{#snippet buttonReplacement()}
 			<Button
 				nonCaptureEvent
-				unifiedSize="xs"
+				unifiedSize="2xs"
 				variant="subtle"
 				endIcon={{ icon: ChevronDown }}
-				btnClasses="max-w-[160px]"
+				btnClasses="max-w-[160px] text-secondary font-normal"
 			>
 				<span class="truncate">{providerModel.model}</span>
 			</Button>
 		{/snippet}
 	</DropdownV2>
 {:else}
-	<Button unifiedSize="xs" variant="subtle" btnClasses="max-w-[160px]">
+	<Button unifiedSize="2xs" variant="subtle" btnClasses="max-w-[160px] text-secondary font-normal">
 		<span class="truncate">{providerModel.model}</span>
 	</Button>
 {/if}

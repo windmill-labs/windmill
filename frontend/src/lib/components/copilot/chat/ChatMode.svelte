@@ -25,13 +25,13 @@
 		customWidth={170}
 	>
 		{#snippet buttonReplacement()}
-			<Button nonCaptureEvent unifiedSize="xs" variant="subtle" endIcon={{ icon: ChevronDown }}>
+			<Button nonCaptureEvent unifiedSize="2xs" variant="subtle" endIcon={{ icon: ChevronDown }}>
 				{modeLabel(aiChatManager.mode)}
 			</Button>
 		{/snippet}
 	</DropdownV2>
 {:else}
-	<Button unifiedSize="xs" variant="subtle">
+	<Button unifiedSize="2xs" variant="subtle">
 		{modeLabel(aiChatManager.mode)}
 	</Button>
 {/if}
