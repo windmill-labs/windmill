@@ -13,7 +13,6 @@
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
-	import LocalChangesBadge from '$lib/components/LocalChangesBadge.svelte'
 	import NewBadge from '$lib/components/NewBadge.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -53,7 +52,6 @@
 		menuOpen?: boolean
 		showEditButton?: boolean
 		keyboardSelected?: boolean
-		hasLocalChanges?: boolean
 		localOnly?: boolean
 		newItem?: boolean
 	}
@@ -70,7 +68,6 @@
 		menuOpen = $bindable(false),
 		showEditButton = $bindable(true),
 		keyboardSelected = false,
-		hasLocalChanges = false,
 		localOnly = false,
 		newItem = false
 	}: Props = $props()
@@ -128,6 +125,7 @@
 	summary={flow.summary}
 	{errorHandlerMuted}
 	canFavorite={!flow.draft_only && !localOnly}
+	faded={localOnly}
 	{depth}
 	{keyboardSelected}
 >
@@ -138,7 +136,6 @@
 		<SharedBadge canWrite={flow.canWrite} extraPerms={flow.extra_perms} />
 		<DraftBadge has_draft={flow.has_draft} draft_only={flow.draft_only} />
 		<NewBadge is_new={localOnly} />
-		<LocalChangesBadge has_local_changes={hasLocalChanges && !localOnly} />
 		{#if flow.labels?.length}
 			<div class="flex items-center gap-0.5">
 				{#each flow.labels.slice(0, 3) as label}

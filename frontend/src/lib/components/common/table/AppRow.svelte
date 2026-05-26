@@ -10,7 +10,6 @@
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
-	import LocalChangesBadge from '$lib/components/LocalChangesBadge.svelte'
 	import NewBadge from '$lib/components/NewBadge.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import Badge from '../badge/Badge.svelte'
@@ -50,7 +49,6 @@
 		menuOpen?: boolean
 		showEditButton?: boolean
 		keyboardSelected?: boolean
-		hasLocalChanges?: boolean
 		localOnly?: boolean
 		newItem?: boolean
 	}
@@ -66,7 +64,6 @@
 		menuOpen = $bindable(false),
 		showEditButton = $bindable(true),
 		keyboardSelected = false,
-		hasLocalChanges = false,
 		localOnly = false,
 		newItem = false
 	}: Props = $props()
@@ -104,6 +101,7 @@
 	summary={app.summary}
 	workspaceId={app.workspace_id ?? $workspaceStore ?? ''}
 	canFavorite={!app.draft_only && !localOnly}
+	faded={localOnly}
 	{depth}
 	{keyboardSelected}
 >
@@ -117,7 +115,6 @@
 		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
 		<DraftBadge has_draft={app.has_draft} draft_only={app.draft_only} />
 		<NewBadge is_new={localOnly} />
-		<LocalChangesBadge has_local_changes={hasLocalChanges && !localOnly} />
 		{#if app.labels?.length}
 			<div class="flex items-center gap-0.5">
 				{#each app.labels.slice(0, 3) as label}

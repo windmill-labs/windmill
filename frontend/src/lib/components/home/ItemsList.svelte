@@ -64,8 +64,6 @@
 		starred?: boolean
 		has_draft?: boolean
 		hash?: string
-		// Whether a localStorage draft (UserDraft) exists for this item's path
-		hasLocalChanges?: boolean
 		// Synthesized row backed only by a localStorage draft (no server record)
 		localOnly?: boolean
 		// Local-only draft created in the /add route (stored under the empty path)
@@ -325,14 +323,9 @@
 		if (flows == undefined || scripts == undefined || apps == undefined || raw_apps == undefined) {
 			return undefined
 		}
-		// localStorage drafts → flag existing rows ("Local changes") and synthesize
-		// rows for items that exist only locally ("New", never saved to the
-		// workspace). Display path: the storage-key path, or the value's path for a
-		// brand-new item created under the empty path (/scripts/add, /flows/add).
-		const scriptChangePaths = new Set<string>()
-		const flowChangePaths = new Set<string>()
-		const appChangePaths = new Set<string>()
-		const rawAppChangePaths = new Set<string>()
+		// localStorage drafts that exist ONLY locally (never saved to the workspace)
+		// are synthesized as "New" rows. Display path: the storage-key path, or the
+		// value's path for a brand-new item under the empty path (/scripts/add etc.).
 		const localOnlyScripts: TableScript[] = []
 		const localOnlyFlows: TableFlow[] = []
 		const localOnlyApps: TableApp[] = []
@@ -346,7 +339,6 @@
 			const isNew = entry.path === ''
 			const displayPath = isNew ? (entry.value?.path ?? '') : entry.path
 			if (!displayPath) continue
-			scriptChangePaths.add(displayPath)
 			if (serverScriptPaths.has(displayPath) || archived || seenScript.has(displayPath)) continue
 			seenScript.add(displayPath)
 			const value = entry.value
@@ -365,15 +357,12 @@
 				is_template: false,
 				starred: false,
 				extra_perms: {},
-				// A local-only item is NOT a server draft — leave the server draft
-				// flags off; localOnly drives the blue "New" badge, href and favorite.
 				draft_only: false,
 				has_draft: false,
 				canWrite: !$userStore?.operator,
 				use_codebase: false,
 				type: 'script',
 				time: Date.now(),
-				hasLocalChanges: true,
 				localOnly: true,
 				newItem: isNew
 			} as unknown as TableScript)
@@ -384,7 +373,6 @@
 			const isNew = entry.path === ''
 			const displayPath = isNew ? (entry.value?.path ?? '') : entry.path
 			if (!displayPath) continue
-			flowChangePaths.add(displayPath)
 			if (serverFlowPaths.has(displayPath) || archived || seenFlow.has(displayPath)) continue
 			seenFlow.add(displayPath)
 			const value = entry.value
@@ -402,7 +390,6 @@
 				workspace_id: $workspaceStore,
 				type: 'flow',
 				time: Date.now(),
-				hasLocalChanges: true,
 				localOnly: true,
 				newItem: isNew
 			} as unknown as TableFlow)
@@ -412,14 +399,13 @@
 		// path. New apps live under the empty slot (/apps[_raw]/add) with no usable
 		// path. Both kinds render through AppRow (type 'app'); `raw_app` flags which.
 		const seenApp = new Set<string>()
-		for (const { kind, drafts, changePaths } of [
-			{ kind: 'app' as const, drafts: localAppDrafts, changePaths: appChangePaths },
-			{ kind: 'raw_app' as const, drafts: localRawAppDrafts, changePaths: rawAppChangePaths }
+		for (const { kind, drafts } of [
+			{ kind: 'app' as const, drafts: localAppDrafts },
+			{ kind: 'raw_app' as const, drafts: localRawAppDrafts }
 		]) {
 			for (const entry of drafts) {
 				const displayPath = entry.path
 				if (!displayPath) continue
-				changePaths.add(displayPath)
 				if (serverAppPaths.has(displayPath) || archived || seenApp.has(displayPath)) continue
 				seenApp.add(displayPath)
 				const value = entry.value
@@ -435,7 +421,6 @@
 					workspace_id: $workspaceStore,
 					type: 'app',
 					time: Date.now(),
-					hasLocalChanges: true,
 					localOnly: true,
 					newItem: false
 				} as unknown as TableApp)
@@ -446,22 +431,17 @@
 			...flows.map((x) => ({
 				...x,
 				type: 'flow' as 'flow',
-				time: new Date(x.edited_at).getTime(),
-				hasLocalChanges: flowChangePaths.has(x.path)
+				time: new Date(x.edited_at).getTime()
 			})),
 			...scripts.map((x) => ({
 				...x,
 				type: 'script' as 'script',
-				time: new Date(x.created_at).getTime(),
-				hasLocalChanges: scriptChangePaths.has(x.path)
+				time: new Date(x.created_at).getTime()
 			})),
 			...apps.map((x) => ({
 				...x,
 				type: 'app' as 'app',
-				time: new Date(x.edited_at).getTime(),
-				// listApps returns both visual and raw apps; match the draft kind to
-				// the row's kind so a same-path app/raw_app can't cross-badge.
-				hasLocalChanges: x.raw_app ? rawAppChangePaths.has(x.path) : appChangePaths.has(x.path)
+				time: new Date(x.edited_at).getTime()
 			})),
 			...raw_apps.map((x) => ({
 				...x,

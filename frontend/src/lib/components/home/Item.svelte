@@ -54,7 +54,6 @@
 		{showCode}
 		{showEditButton}
 		{keyboardSelected}
-		hasLocalChanges={item.hasLocalChanges}
 		localOnly={item.localOnly}
 		newItem={item.newItem}
 	/>
@@ -75,7 +74,6 @@
 		bind:menuOpen
 		{showEditButton}
 		{keyboardSelected}
-		hasLocalChanges={item.hasLocalChanges}
 		localOnly={item.localOnly}
 		newItem={item.newItem}
 	/>
@@ -92,7 +90,6 @@
 		bind:menuOpen
 		{showEditButton}
 		{keyboardSelected}
-		hasLocalChanges={item.hasLocalChanges}
 		localOnly={item.localOnly}
 		newItem={item.newItem}
 	/>
