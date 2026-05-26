@@ -186,7 +186,7 @@
 							displayName: 'Discard local draft',
 							icon: Trash,
 							action: () => {
-								UserDraft.clear('raw_app', newItem ? '' : path)
+								UserDraft.clear(app.raw_app ? 'raw_app' : 'app', newItem ? '' : path)
 								dispatch('change')
 							},
 							type: 'delete' as 'delete'

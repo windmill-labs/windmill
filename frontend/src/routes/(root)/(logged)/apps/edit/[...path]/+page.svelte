@@ -97,10 +97,27 @@
 	let loadAppToken = 0
 	async function loadApp(): Promise<void> {
 		const tok = ++loadAppToken
-		const app_w_draft = await AppService.getAppByPathWithDraft({
-			path: page.params.path ?? '',
-			workspace: $workspaceStore!
-		})
+		let app_w_draft: AppWithLastVersionWDraft
+		try {
+			app_w_draft = await AppService.getAppByPathWithDraft({
+				path: page.params.path ?? '',
+				workspace: $workspaceStore!
+			})
+		} catch (err) {
+			if (tok !== loadAppToken) return
+			// Only a genuine 404 means "no server record" (e.g. an app that exists
+			// only as a local draft). Other errors must surface rather than silently
+			// loading a stale local draft over a newer deployed version.
+			if ((err as { status?: number })?.status !== 404) throw err
+			const localDraftValue = UserDraft.get<App>('app', path)
+			if (localDraftValue != undefined) {
+				// Initialize the editor from the localStorage autosave so it isn't blank.
+				app = { value: localDraftValue, summary: '', path, policy: {} } as typeof app
+				redraw++
+				return
+			}
+			throw err
+		}
 		if (tok !== loadAppToken) return
 		const app_w_draft_: AppWithLastVersionWDraft = structuredClone(stateSnapshot(app_w_draft))
 		savedApp = {

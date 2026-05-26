@@ -98,7 +98,13 @@
 			? UserDraft.list<Partial<Flow>>({ workspace: $workspaceStore, itemKinds: ['flow'] })
 			: []
 	})
-	// raw_app draft values don't carry a path — the storage key is the path.
+	// app/raw_app draft values don't carry a path — the storage key is the path.
+	let localAppDrafts = $derived.by(() => {
+		localDraftToken
+		return $workspaceStore
+			? UserDraft.list<{ summary?: string }>({ workspace: $workspaceStore, itemKinds: ['app'] })
+			: []
+	})
 	let localRawAppDrafts = $derived.by(() => {
 		localDraftToken
 		return $workspaceStore
@@ -325,6 +331,7 @@
 		// brand-new item created under the empty path (/scripts/add, /flows/add).
 		const scriptChangePaths = new Set<string>()
 		const flowChangePaths = new Set<string>()
+		const appChangePaths = new Set<string>()
 		const rawAppChangePaths = new Set<string>()
 		const localOnlyScripts: TableScript[] = []
 		const localOnlyFlows: TableFlow[] = []
@@ -401,32 +408,38 @@
 			} as unknown as TableFlow)
 		}
 
-		// raw_app drafts: the value carries no path, so the storage key is the path.
-		// New raw apps live under the empty slot (/apps_raw/add) with no usable path.
+		// app/raw_app drafts: the value carries no path, so the storage key is the
+		// path. New apps live under the empty slot (/apps[_raw]/add) with no usable
+		// path. Both kinds render through AppRow (type 'app'); `raw_app` flags which.
 		const seenApp = new Set<string>()
-		for (const entry of localRawAppDrafts) {
-			const displayPath = entry.path
-			if (!displayPath) continue
-			rawAppChangePaths.add(displayPath)
-			if (serverAppPaths.has(displayPath) || archived || seenApp.has(displayPath)) continue
-			seenApp.add(displayPath)
-			const value = entry.value
-			localOnlyApps.push({
-				path: displayPath,
-				summary: value?.summary ?? '',
-				raw_app: true,
-				starred: false,
-				extra_perms: {},
-				draft_only: false,
-				has_draft: false,
-				canWrite: !$userStore?.operator,
-				workspace_id: $workspaceStore,
-				type: 'app',
-				time: Date.now(),
-				hasLocalChanges: true,
-				localOnly: true,
-				newItem: false
-			} as unknown as TableApp)
+		for (const { kind, drafts, changePaths } of [
+			{ kind: 'app' as const, drafts: localAppDrafts, changePaths: appChangePaths },
+			{ kind: 'raw_app' as const, drafts: localRawAppDrafts, changePaths: rawAppChangePaths }
+		]) {
+			for (const entry of drafts) {
+				const displayPath = entry.path
+				if (!displayPath) continue
+				changePaths.add(displayPath)
+				if (serverAppPaths.has(displayPath) || archived || seenApp.has(displayPath)) continue
+				seenApp.add(displayPath)
+				const value = entry.value
+				localOnlyApps.push({
+					path: displayPath,
+					summary: value?.summary ?? '',
+					raw_app: kind === 'raw_app',
+					starred: false,
+					extra_perms: {},
+					draft_only: false,
+					has_draft: false,
+					canWrite: !$userStore?.operator,
+					workspace_id: $workspaceStore,
+					type: 'app',
+					time: Date.now(),
+					hasLocalChanges: true,
+					localOnly: true,
+					newItem: false
+				} as unknown as TableApp)
+			}
 		}
 
 		return [
@@ -446,7 +459,9 @@
 				...x,
 				type: 'app' as 'app',
 				time: new Date(x.edited_at).getTime(),
-				hasLocalChanges: rawAppChangePaths.has(x.path)
+				// listApps returns both visual and raw apps; match the draft kind to
+				// the row's kind so a same-path app/raw_app can't cross-badge.
+				hasLocalChanges: x.raw_app ? rawAppChangePaths.has(x.path) : appChangePaths.has(x.path)
 			})),
 			...raw_apps.map((x) => ({
 				...x,

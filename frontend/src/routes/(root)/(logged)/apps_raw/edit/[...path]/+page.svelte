@@ -189,9 +189,12 @@
 			})
 		} catch (err) {
 			if (tok !== loadAppToken) return
-			// No server record (e.g. a raw app that exists only as a local draft,
-			// created via the global AI chat). Initialize the editor from the
-			// localStorage autosave so it isn't left blank.
+			// Only treat a genuine 404 as "no server record" (e.g. a raw app that
+			// exists only as a local draft, created via the global AI chat). Other
+			// errors (500, network, auth) must surface so we don't silently load a
+			// stale local draft over a newer deployed version.
+			if ((err as { status?: number })?.status !== 404) throw err
+			// Initialize the editor from the localStorage autosave so it isn't blank.
 			const localDraft = draftHandle.draft
 			if (localDraft != undefined) {
 				files = localDraft.files
