@@ -54,20 +54,33 @@
 			UserDraft.clearLiveEditorDraft('flow', { workspace: workspaceId, storagePath: path })
 	})
 
-	// Bidirectional sync between this preview and `UserDraft<Flow>`. Same
-	// one-way-reactive discipline as before: inbound tracks only the store,
+	// Bidirectional sync between this preview and `UserDraft<Flow>`.
+	// We hold a *live* handle (useMany) rather than reading via the static
+	// `UserDraft.get`. The handle materializes UserDraft's shared reactive
+	// `$state` cell for (workspace, 'flow', path), and that cell is what lets
+	// the chat's writes (UserDraft.save, from write_flow / patch_flow_json /
+	// set_flow_module_code) reach this preview. Without a live entry those
+	// writes only touch localStorage and the inbound effect below never
+	// re-fires. A reactive getter is used (not `use()`) because switching
+	// open_preview to another flow swaps `path` without remounting this view,
+	// so the handle must re-acquire.
+	//
+	// One-way-reactive discipline: inbound tracks only the handle's draft,
 	// outbound tracks only `flowStore.val`; the read on the "other side"
 	// inside each effect goes through `untrack()`. Without that asymmetry, a
 	// user keystroke would re-fire the inbound effect with the pre-keystroke
 	// stored value and revert the edit.
+	const draftHandles = UserDraft.useMany<Flow>(() => [
+		{ itemKind: 'flow', path, workspace: workspaceId }
+	])
 	let lastInboundSig: string | undefined = $state(undefined)
 
-	// Store → editor. Re-runs on UserDraft changes (AI write from this
-	// session's chat or another session). flowStore reads are untracked so
-	// the editor's own mutations don't refire this effect.
+	// Store → editor. Re-runs when the handle's draft changes (AI write from
+	// this session's chat or another session). flowStore reads are untracked
+	// so the editor's own mutations don't refire this effect.
 	$effect(() => {
 		if (!workspaceId || !path) return
-		const incoming = UserDraft.get<Flow>('flow', path, { workspace: workspaceId })
+		const incoming = draftHandles[0]?.draft
 		if (!incoming) return
 		const sig = JSON.stringify({ value: incoming.value, schema: incoming.schema })
 		untrack(() => {
