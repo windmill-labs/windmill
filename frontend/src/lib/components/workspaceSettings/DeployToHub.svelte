@@ -565,7 +565,7 @@
 								? 'text-green-900 dark:text-green-100'
 								: 'text-yellow-900 dark:text-yellow-100'}"
 						>
-							{allRecorded ? 'Ready to submit' : 'Recordings needed'}
+							{allRecorded ? 'Full recordings' : 'Recordings recommended'}
 						</span>
 					</div>
 				{/if}
@@ -607,6 +607,7 @@
 						</Button>
 					{/if}
 				{:else if phase === 'draft'}
+					<Badge color="yellow" size="xs">No recording</Badge>
 					<Button
 						size="xs"
 						variant="subtle"
@@ -616,6 +617,8 @@
 					>
 						Add recording
 					</Button>
+				{:else}
+					<Badge color="yellow" size="xs">No recording</Badge>
 				{/if}
 			{/if}
 			{#if canPublishApp(it.kind)}
@@ -673,16 +676,15 @@
 				{:else if phase === 'draft'}
 					<span class="text-[11px] text-hint">
 						{#if allRecorded}
-							All scripts and flows have a recording. Ready to submit.
+							All scripts and flows have a recording — best chance of approval and featuring.
 						{:else}
 							{recordableItems.filter((i) => i.rec === 'recorded').length} of {recordableItems.length}
-							scripts/flows recorded. Add a recording to each before submitting.
+							recorded. Bundles with full recordings get approved faster and featured on the public Hub.
 						{/if}
 					</span>
 					<Button
 						variant="accent"
 						loading={submitting}
-						disabled={!allRecorded}
 						startIcon={{ icon: Check }}
 						onclick={submitForReview}
 					>
