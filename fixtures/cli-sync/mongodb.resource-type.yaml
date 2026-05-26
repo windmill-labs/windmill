@@ -1,0 +1,41 @@
+description: MongoDb connection infos
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    credential:
+      db:
+        type: string
+        description: ''
+      mechanism:
+        type: string
+        description: ''
+        default: SCRAM-SHA-1
+      password:
+        type: string
+        description: ''
+      username:
+        type: string
+        description: ''
+    db:
+      type: string
+      description: ''
+    servers:
+      - host:
+          type: string
+          description: ''
+        port:
+          type: integer
+          description: ''
+          default: 27017
+    tls:
+      type: boolean
+      description: ''
+      default: true
+  required:
+    - db
+    - tls
+    - servers
+    - credential

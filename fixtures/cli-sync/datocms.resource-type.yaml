@@ -1,0 +1,14 @@
+description: |-
+  1. On a project page, select "project settings" from the top navigation bar.
+  2. Switch to "api tokens" tab and copy the `full-access API token`.
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    apiKey:
+      type: string
+      description: API key obtained from the DatoCMS dashboard
+  required:
+    - apiKey

@@ -1,0 +1,6 @@
+summary: Materialize datatable into ducklake://main/km_real_lake
+description: ''
+lock: '!inline f/km/r_to_ducklake.script.lock'
+has_on_behalf_of: false
+kind: script
+schema: {}

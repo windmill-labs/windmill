@@ -1,0 +1,37 @@
+description: Parameters required to access an ODK Central server.
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - base_url
+    - username
+    - password
+    - default_project_id
+  properties:
+    base_url:
+      type: string
+      description: The base URL of your ODK server
+      default: ''
+      nullable: false
+      pattern: ^(https?://)([^/]+)$
+      placeholder: https://your-odk-central-instance.org
+    default_project_id:
+      type: integer
+      description: The default project ID of your ODK project
+    password:
+      type: string
+      description: The password to authenticate with the ODK server
+      default: ''
+      nullable: false
+      password: true
+    username:
+      type: string
+      description: The username to authenticate with the ODK server
+      default: ''
+      nullable: false
+  required:
+    - password
+    - username
+    - base_url

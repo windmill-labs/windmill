@@ -1,0 +1,23 @@
+description: Bluesky credentials
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - username
+    - password
+  properties:
+    password:
+      type: string
+      description: Create an App password in Settings -> Privacy and Security -> App
+        passwords
+      default: ''
+      password: true
+    username:
+      type: string
+      description: User handle without the @
+      default: ''
+      placeholder: johnsmith.bsky.social
+      title: ''
+  required: []

@@ -1,0 +1,16 @@
+description: ''
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft-07/schema#
+  type: object
+  properties:
+    client_id:
+      type: string
+      description: OAuth client ID
+    client_secret:
+      type: string
+      description: OAuth client secret
+  required:
+    - client_id
+    - client_secret

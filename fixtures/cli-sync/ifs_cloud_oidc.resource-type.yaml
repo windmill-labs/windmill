@@ -1,0 +1,40 @@
+description: >-
+  Create new IFS IAM client, use client ID and client secret in resource.
+
+  Specify base URL as the server, ex: https://mycorp-cfg.ifs.cloud
+
+  Get OIDC path from API Docs generated for your deployment, ex:
+  /auth/realms/mycocfg1/.well-known/openid-configuration
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - server
+    - oidcPath
+    - clientId
+    - clientSecret
+  properties:
+    clientId:
+      type: string
+      description: The exact clientId from the IAM Client created in IFS Cloud
+      default: ''
+    clientSecret:
+      type: string
+      description: The exact client secret from the IAM Client created in IFS Cloud
+      default: ''
+    oidcPath:
+      type: string
+      description: Path from the full URL for the OIDC configuration, found in the API
+        Docs generated within the IFS Cloud deployment
+      default: ''
+    server:
+      type: string
+      description: Base URL of IFS Cloud deployment
+      default: ''
+  required:
+    - server
+    - oidcPath
+    - clientId
+    - clientSecret

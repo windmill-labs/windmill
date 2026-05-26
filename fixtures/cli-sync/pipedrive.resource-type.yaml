@@ -1,0 +1,12 @@
+description: ''
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    apiToken:
+      type: string
+      description: API token retrieved from the dashboard.
+  required:
+    - apiToken

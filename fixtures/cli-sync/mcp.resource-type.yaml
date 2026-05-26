@@ -1,0 +1,32 @@
+description: MCP (Model Context Protocol) server resource type
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - name
+    - url
+    - token
+    - headers
+  properties:
+    name:
+      type: string
+      description: The name of the MCP server
+      default: ''
+      nullable: false
+    headers:
+      type: object
+      description: Optional headers to be sent with the request
+    token:
+      type: string
+      description: Optional bearer token to be used for authentication
+      default: ''
+    url:
+      type: string
+      description: The URL of the HTTP streamable endpoint of the MCP server
+      default: ''
+      nullable: false
+  required:
+    - name
+    - url

@@ -1,0 +1,12 @@
+description: The airtable OAuth token
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    apiKey:
+      type: string
+      description: ''
+      default: keyXXXXXXXXXXXXXX
+  required: []

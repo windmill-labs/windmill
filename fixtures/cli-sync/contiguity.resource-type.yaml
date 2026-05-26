@@ -1,0 +1,16 @@
+description: >-
+  1. On the dashboard, click on `generate & use revokable tokens` under the
+  `authenticating with revokable tokens` section
+
+  2. Provide a name for the token and create it, then copy it
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    token:
+      type: string
+      description: Revokable token generated from the dashboard
+  required:
+    - token

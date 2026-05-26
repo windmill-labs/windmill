@@ -1,0 +1,17 @@
+description: ''
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    baseUrl:
+      type: string
+      description: https://api.segmentapis.com for US workspace and
+        https://eu1.api.segmentapis.com for EU workspace.
+    token:
+      type: string
+      description: Access token generated using the OAuth flow.
+  required:
+    - token
+    - baseUrl

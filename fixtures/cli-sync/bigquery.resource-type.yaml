@@ -1,0 +1,43 @@
+description: ''
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    type:
+      type: string
+    auth_provider_x509_cert_url:
+      type: string
+      format: url
+    auth_uri:
+      type: string
+      format: url
+    client_email:
+      type: string
+      format: email
+    client_id:
+      type: string
+    client_x509_cert_url:
+      type: string
+      format: url
+    private_key:
+      type: string
+    private_key_id:
+      type: string
+    project_id:
+      type: string
+    token_uri:
+      type: string
+      format: url
+  required:
+    - type
+    - auth_uri
+    - client_id
+    - token_uri
+    - project_id
+    - private_key
+    - client_email
+    - private_key_id
+    - client_x509_cert_url
+    - auth_provider_x509_cert_url

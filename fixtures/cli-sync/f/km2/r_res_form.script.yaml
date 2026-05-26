@@ -1,0 +1,6 @@
+summary: 'Showcase: res:// resource form + freshness 30m'
+description: ''
+lock: '!inline f/km2/r_res_form.script.lock'
+has_on_behalf_of: false
+kind: script
+schema: {}

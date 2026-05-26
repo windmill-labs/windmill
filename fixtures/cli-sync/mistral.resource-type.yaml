@@ -1,0 +1,20 @@
+description: Connect to Mistral API
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - apiKey
+    - base_url
+  properties:
+    apiKey:
+      type: string
+      description: https://docs.mistral.ai/
+      default: ''
+    base_url:
+      type: string
+      description: Optional. Only needed to overwrite the default base URL.
+      default: ''
+  required:
+    - apiKey

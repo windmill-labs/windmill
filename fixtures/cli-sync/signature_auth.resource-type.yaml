@@ -1,0 +1,78 @@
+description: ''
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - signature_provider
+    - secret_key
+    - authentication_config
+  properties:
+    authentication_config:
+      type: object
+      description: ''
+      format: ''
+      order:
+        - signature_header_name
+        - algorithm
+        - encoding
+        - signature_prefix
+      properties:
+        algorithm:
+          type: string
+          description: ''
+          default: sha256
+          disableCreate: true
+          enum:
+            - sha1
+            - sha256
+            - sha512
+          enumLabels: {}
+          nullable: false
+        encoding:
+          type: string
+          description: ''
+          default: hex
+          disableCreate: true
+          enum:
+            - hex
+            - base64
+            - base64uri
+          enumLabels: {}
+          nullable: false
+        signature_header_name:
+          type: string
+          description: ''
+          default: ''
+          nullable: false
+        signature_prefix:
+          type: string
+          description: ''
+          default: ''
+      required:
+        - signature_header_name
+        - algorithm
+        - encoding
+      showExpr: fields.signature_provider === 'Custom'
+    secret_key:
+      type: string
+      default: ''
+    signature_provider:
+      type: string
+      description: ''
+      default: Custom
+      disableCreate: true
+      enum:
+        - Github
+        - Slack
+        - Stripe
+        - TikTok
+        - Twitch
+        - Zoom
+        - Custom
+      enumLabels: {}
+      nullable: false
+  required:
+    - signature_provider
+    - secret_key

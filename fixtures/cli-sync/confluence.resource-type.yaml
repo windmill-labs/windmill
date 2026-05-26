@@ -1,0 +1,20 @@
+description: ''
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    apiToken:
+      type: string
+      description: Token generated from Atlassian dashboard.
+    baseUrl:
+      type: string
+      description: Base URL of confluence account.
+    email:
+      type: string
+      description: Email used to register the Confluence account.
+  required:
+    - email
+    - apiToken
+    - baseUrl

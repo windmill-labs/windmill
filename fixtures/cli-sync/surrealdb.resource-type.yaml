@@ -1,0 +1,18 @@
+description: ''
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    token:
+      type: string
+      description: Authentication token
+      default: ''
+    url:
+      type: string
+      description: The endpoint of the database you want to connect to.
+      default: ''
+  required:
+    - url
+    - token

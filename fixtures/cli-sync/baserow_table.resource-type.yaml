@@ -1,0 +1,18 @@
+description: Specifies a particular Baserow table, to be used in conjunction
+  with the 'baserow' resource that contains the access token and URL.
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - database_id
+    - table_id
+  properties:
+    database_id:
+      type: integer
+      description: The numeric database id
+    table_id:
+      type: integer
+      description: The numeric table id
+  required: []

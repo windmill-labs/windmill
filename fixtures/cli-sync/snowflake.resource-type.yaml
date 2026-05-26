@@ -1,0 +1,50 @@
+description: ''
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    account_identifier:
+      type: string
+      description: <orgname>-<account_name>
+      default: ''
+    database:
+      type: string
+      description: ''
+      default: ''
+    private_key:
+      type: string
+      description: |-
+        -----BEGIN PRIVATE KEY-----
+        ....
+        -----END PRIVATE KEY-----
+      default: ''
+    public_key:
+      type: string
+      description: |-
+        -----BEGIN PUBLIC KEY-----
+        ....
+        -----END PUBLIC KEY-----
+      default: ''
+    role:
+      type: string
+      description: ''
+      default: ''
+    schema:
+      type: string
+      description: ''
+      default: ''
+    username:
+      type: string
+      description: ''
+      default: ''
+    warehouse:
+      type: string
+      description: ''
+      default: ''
+  required:
+    - account_identifier
+    - private_key
+    - public_key
+    - username

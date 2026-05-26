@@ -1,0 +1,16 @@
+description: Visit apps.intercom.com, create an app, navigate inside, check the
+  API Version it is using and find the access token inside the authentication
+  tab.
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    apiVersion:
+      type: string
+    token:
+      type: string
+  required:
+    - apiVersion
+    - token

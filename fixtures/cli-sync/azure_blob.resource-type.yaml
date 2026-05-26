@@ -1,0 +1,37 @@
+description: An Azure Blob Storage connection info
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - accountName
+    - containerName
+    - accessKey
+    - useSSL
+    - endpoint
+  properties:
+    accessKey:
+      type: string
+      description: ''
+      default: ''
+    accountName:
+      type: string
+      description: ''
+      default: ''
+    containerName:
+      type: string
+      description: ''
+      default: ''
+    endpoint:
+      type: string
+      description: ''
+      default: ''
+    useSSL:
+      type: boolean
+      description: ''
+      default: true
+  required:
+    - accountName
+    - containerName
+    - useSSL

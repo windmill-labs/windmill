@@ -1,0 +1,16 @@
+description: ''
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft-07/schema#
+  type: object
+  properties:
+    apiKey:
+      type: string
+      description: API key
+    companyDomain:
+      type: string
+      description: Company domain
+  required:
+    - companyDomain
+    - apiKey

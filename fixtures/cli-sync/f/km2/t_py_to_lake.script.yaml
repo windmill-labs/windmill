@@ -1,0 +1,5 @@
+summary: 'Transform: datatable → ducklake (Python SDK)'
+description: ''
+has_on_behalf_of: false
+kind: script
+schema: {}

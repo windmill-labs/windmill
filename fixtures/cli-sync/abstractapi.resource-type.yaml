@@ -1,0 +1,16 @@
+description: >-
+  Abstract API has a bunch of standalone API products, each with their own
+  endpoints and API keys.
+
+  Head to desired API page, and copy the `Primary Key`.
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    apiKey:
+      type: string
+      description: Key obtained from the dashboard page for each API product
+  required:
+    - apiKey

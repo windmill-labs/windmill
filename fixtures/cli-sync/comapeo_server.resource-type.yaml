@@ -1,0 +1,21 @@
+description: A server URL and access token pair to connect to a CoMapeo archive server.
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - server_url
+    - access_token
+  properties:
+    access_token:
+      type: string
+      description: Your access token for the CoMapeo archive server
+      default: ''
+    server_url:
+      type: string
+      description: The base URL of your CoMapeo archive server
+      default: ''
+  required:
+    - server_url
+    - access_token

@@ -1,0 +1,15 @@
+description: ''
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - token
+  properties:
+    token:
+      type: string
+      description: ''
+      default: ''
+  required:
+    - token

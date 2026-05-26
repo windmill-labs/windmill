@@ -1,0 +1,16 @@
+description: >-
+  1. After completing the onboarding, click the puzzle icon on the left
+  navigation bar to switch to the integrations tab.
+
+  2. Copy the `REST API KEY` under `Canva`.
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    apiKey:
+      type: string
+      description: API key obtained from the Certopus dashboard
+  required:
+    - apiKey

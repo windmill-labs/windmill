@@ -1,0 +1,20 @@
+description: ''
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    host:
+      type: string
+      description: Database host
+      default: ''
+    password:
+      type: string
+      description: Database password or API key secret (Cloud API)
+      default: ''
+    username:
+      type: string
+      description: Database username or API key id (Cloud API)
+      default: ''
+  required: []

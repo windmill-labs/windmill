@@ -1,0 +1,16 @@
+description: 'Noco DB table request structure '
+format_extension: null
+is_fileset: false
+schema:
+  type: object
+  additionalProperties: false
+  properties:
+    apiUrl:
+      type: string
+    table:
+      type: string
+    workspace:
+      type: string
+    xc_token:
+      type: string
+  required: []

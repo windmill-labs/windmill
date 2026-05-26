@@ -1,0 +1,24 @@
+description: Credentials for connecting to a Dynatrace tenant
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    accessToken:
+      type: string
+      description: 'Documentation:
+        https://www.dynatrace.com/support/help/manage/access-control/access-tokens'
+      default: ''
+    environmentId:
+      type: string
+      description: "In Dynatrace SaaS, your environment ID is the first part of your
+        Dynatrace environment's URL: {environmentId}.live.dynatrace.com"
+      default: ''
+    environmentUrl:
+      type: string
+      description: URL of your environment. Default is live.dynatrace.com
+      default: live.dynatrace.com
+  required:
+    - environmentId
+    - accessToken

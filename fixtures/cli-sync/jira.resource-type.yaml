@@ -1,0 +1,23 @@
+description: ''
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    domain:
+      type: string
+      description: ''
+      default: ''
+    password:
+      type: string
+      description: ''
+      default: ''
+    username:
+      type: string
+      description: ''
+      default: ''
+  required:
+    - username
+    - password
+    - domain

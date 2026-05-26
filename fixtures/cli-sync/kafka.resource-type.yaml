@@ -1,0 +1,220 @@
+description: ''
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - brokers
+    - security
+  properties:
+    brokers:
+      type: array
+      description: ''
+      default: []
+      items:
+        type: string
+      nullable: false
+    security:
+      type: object
+      description: ''
+      oneOf:
+        - type: object
+          properties:
+            label:
+              type: string
+              enum:
+                - PLAINTEXT
+          title: PLAINTEXT
+        - type: object
+          order:
+            - mechanism
+            - username
+            - password
+          properties:
+            label:
+              type: string
+              enum:
+                - SASL_PLAINTEXT
+            mechanism:
+              type: string
+              description: ''
+              default: ''
+              disableCreate: true
+              enum:
+                - PLAIN
+                - SCRAM-SHA-256
+                - SCRAM-SHA-512
+              enumLabels: {}
+              nullable: false
+            password:
+              type: string
+              description: ''
+              default: ''
+              nullable: false
+              password: true
+            username:
+              type: string
+              description: ''
+              default: ''
+              nullable: false
+          required:
+            - mechanism
+            - username
+            - password
+          title: SASL_PLAINTEXT
+        - type: object
+          order:
+            - ca
+            - certificate
+            - key
+            - key_password
+          properties:
+            ca:
+              type: string
+              description: CA certificate to verify the server certificate, in PEM format
+              default: ''
+            certificate:
+              type: string
+              description: Client certificate for authentication to the server, in PEM format
+            key:
+              type: string
+              description: Client key for authentication to the server, in PEM format
+              default: ''
+            key_password:
+              type: string
+              description: Password to decrypt the client key, if encrypted
+              password: true
+            label:
+              type: string
+              enum:
+                - SSL
+          title: SSL
+        - type: object
+          order:
+            - mechanism
+            - username
+            - password
+            - ca
+            - certificate
+            - key
+            - key_password
+          properties:
+            ca:
+              type: string
+              description: CA certificate to verify the server certificate, in PEM format
+            certificate:
+              type: string
+              description: Client certificate for authentication to the server, in PEM format
+            key:
+              type: string
+              description: Client key for authentication to the server, in PEM format
+              default: ''
+            key_password:
+              type: string
+              description: Password to decrypt the client key, if encrypted
+              default: ''
+              password: true
+            label:
+              type: string
+              enum:
+                - SASL_SSL
+            mechanism:
+              type: string
+              description: ''
+              default: ''
+              disableCreate: true
+              enum:
+                - PLAIN
+                - SCRAM-SHA-256
+                - SCRAM-SHA-512
+              enumLabels: {}
+              nullable: false
+            password:
+              type: string
+              description: ''
+              default: ''
+              nullable: false
+              password: true
+            username:
+              type: string
+              description: ''
+              default: ''
+              nullable: false
+          required:
+            - mechanism
+            - username
+            - password
+          title: SASL_SSL
+        - type: object
+          order:
+            - kerberos_service_name
+            - kerberos_principal
+            - keytab_path
+            - keytab_base64
+          properties:
+            kerberos_principal:
+              type: string
+              description: Client's Kerberos principal (e.g., user@REALM.COM)
+            kerberos_service_name:
+              type: string
+              description: Kerberos principal name of the Kafka broker service
+              default: kafka
+            keytab_base64:
+              type: string
+              description: Base64-encoded keytab content (alternative to keytab_path)
+              password: true
+            keytab_path:
+              type: string
+              description: Path to keytab file mounted on the worker
+            label:
+              type: string
+              enum:
+                - SASL_GSSAPI
+          title: SASL_GSSAPI
+        - type: object
+          order:
+            - kerberos_service_name
+            - kerberos_principal
+            - keytab_path
+            - keytab_base64
+            - ca
+            - certificate
+            - key
+            - key_password
+          properties:
+            ca:
+              type: string
+              description: CA certificate to verify the server certificate, in PEM format
+            certificate:
+              type: string
+              description: Client certificate for authentication to the server, in PEM format
+            kerberos_principal:
+              type: string
+              description: Client's Kerberos principal (e.g., user@REALM.COM)
+            kerberos_service_name:
+              type: string
+              description: Kerberos principal name of the Kafka broker service
+              default: kafka
+            key:
+              type: string
+              description: Client key for authentication to the server, in PEM format
+            key_password:
+              type: string
+              description: Password to decrypt the client key, if encrypted
+              password: true
+            keytab_base64:
+              type: string
+              description: Base64-encoded keytab content (alternative to keytab_path)
+              password: true
+            keytab_path:
+              type: string
+              description: Path to keytab file mounted on the worker
+            label:
+              type: string
+              enum:
+                - SASL_SSL_GSSAPI
+          title: SASL_SSL_GSSAPI
+  required:
+    - brokers
+    - security

@@ -1,0 +1,7 @@
+type: script
+name: u/admin/unassailable_script
+fields:
+  api: {}
+  name3:
+    value: []
+path: u/admin/unassailable_script

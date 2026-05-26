@@ -1,0 +1,10 @@
+args: null
+cron_version: v2
+enabled: true
+has_permissioned_as: false
+is_flow: false
+no_flow_overlap: false
+schedule: 5 * * * *
+script_path: f/km2/s_seed
+timezone: UTC
+ws_error_handler_muted: false

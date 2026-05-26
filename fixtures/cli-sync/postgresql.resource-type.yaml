@@ -1,0 +1,41 @@
+description: PostgreSQL connection
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    dbname:
+      type: string
+      description: The database name
+    host:
+      type: string
+      description: The instance host
+    password:
+      type: string
+      description: The postgres users password
+    port:
+      type: integer
+      description: The instance port
+    root_certificate_pem:
+      type: string
+      description: The root certificate in pe format
+      default: ''
+    sslmode:
+      type: string
+      description: Most cloud databases (Heroku, AWS, Supabase, etc.) require SSL.
+        Self-hosted databases typically don't.
+      enum:
+        - disable
+        - allow
+        - prefer
+        - require
+        - verify-ca
+        - verify-full
+    user:
+      type: string
+      description: The postgres username
+  required:
+    - dbname
+    - user
+    - password

@@ -1,0 +1,50 @@
+description: |-
+  Remote Git repository
+
+  Only token-based authentication is supported for this resource type currently. When authentication is needed, the username and token can be included directly in the URL (i.e. `https://[USERNAME]:[TOKEN]@github.com/[ORG|USER]/[REPO_NAME].git`).
+
+  Scoped token can be generated from most git repository platforms (see [Github](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens), [Gitlab](https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html) or [Bitbucket](https://support.atlassian.com/bitbucket-cloud/docs/create-a-repository-access-token/), [Azure DevOps PAT](https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate?view=azure-devops&tabs=Windows), [Azure DevOps Service Principal](https://windmill.dev/docs/advanced/git_sync#azure-devops-with-service-principal-setup))
+
+  Instead of using a PAT for GitHub, you can also install the [Windmill GitHub App](https://windmill.dev/docs/integrations/git_repository#github-app) to authenticate with GitHub using a short lived token.
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - url
+    - branch
+    - folder
+    - gpg_key
+    - is_github_app
+  properties:
+    branch:
+      type: string
+      description: Custom branch to use for this repository. If unset, the repository
+        default branch will be used. Certain script might expects that the
+        branch is already created (it is the case of the Windmill Git Sync
+        script).
+      default: ''
+    folder:
+      type: string
+      description: Optional path to a folder inside the repository. The path should be
+        relative to the root of the repository. Certain scripts might expects
+        that the folder already exists in the repo (it is the case of the
+        Windmill Git Sync script).
+      default: ''
+    gpg_key:
+      type: object
+      description: Optional GPG Key resource if the repo requires signed commits
+      format: resource-gpg_key
+    is_github_app:
+      type: boolean
+      description: Use GitHub App installation token for authentication. Requires a
+        GitHub App installation in your organization / user account as well as
+        configuring it in the customer portal.
+      default: false
+    url:
+      type: string
+      description: URL of the remote
+      default: ''
+  required:
+    - url

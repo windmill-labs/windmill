@@ -1,0 +1,6 @@
+summary: 'Sink: annotation-only s3 read (retry 3)'
+description: ''
+lock: ''
+has_on_behalf_of: false
+kind: script
+schema: {}

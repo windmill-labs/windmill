@@ -1,0 +1,34 @@
+description: Langfuse is an open-source LLM observability platform that supports
+  self-hosting.
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - base_url
+    - public_key
+    - secret_key
+  properties:
+    base_url:
+      type: string
+      description: Official cloud service URL or a custom domain for self-hosted
+        environments.
+      default: https://cloud.langfuse.com
+      nullable: false
+    public_key:
+      type: string
+      description: public key of workspace
+      default: ''
+      nullable: false
+      placeholder: pk-lf-xxxx
+    secret_key:
+      type: string
+      description: secret key of workspace
+      default: ''
+      nullable: false
+      password: true
+      placeholder: sk-lf-xxxx
+  required:
+    - public_key
+    - secret_key

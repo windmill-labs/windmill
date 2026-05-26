@@ -1,0 +1,18 @@
+description: ''
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    serviceToken:
+      type: string
+      description: The OAuth token to use for authentication
+        (https://api-docs.planetscale.com/reference/oauth)
+    serviceTokenId:
+      type: string
+      description: The OAuth token ID to use for authentication
+        (https://api-docs.planetscale.com/reference/oauth)
+  required:
+    - oauthTokenId
+    - oauthToken

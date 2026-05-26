@@ -1,0 +1,27 @@
+description: Webhook config needed to create an Apify webhook with URL and token
+  from your Windmill flow.
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - url
+    - token
+  properties:
+    token:
+      type: string
+      description: Webhook-specific token from your Windmill flow.
+      default: ''
+      nullable: false
+      password: true
+      title: Token
+    url:
+      type: string
+      description: Webhook URL from your Windmill flow.
+      default: ''
+      nullable: false
+      title: URL
+  required:
+    - url
+    - token

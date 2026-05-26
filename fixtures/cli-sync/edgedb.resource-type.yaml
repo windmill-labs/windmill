@@ -1,0 +1,49 @@
+description: Connection details for an EdgeDB database, either hosted on EdgeDB
+  Cloud or self-hosted
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    database:
+      type: string
+      description: Name of the database to connect to. (Required unless a DSN or an
+        EdgeDB Cloud instance are provided)
+      default: ''
+    dsn:
+      type: string
+      description: Overrides any other settings except password. (Required unless
+        host, port, user, and database, or an EdgeDB Cloud instance name are
+        provided)
+      default: ''
+    host:
+      type: string
+      description: Hostname of the EdgeDB instance. (Required unless a DSN or an
+        EdgeDB Cloud instance are provided)
+      default: ''
+      format: hostname
+    instanceName:
+      type: string
+      description: Only for use with EdgeDB Cloud instances. Format is
+        <github-username>/<instance-name> (Required for EdgeDB Cloud instances
+        unless a DSN is provided)
+      default: ''
+    password:
+      type: string
+      description: (Required unless a secret key for an EdgeDB Cloud instance is provided)
+      default: ''
+    port:
+      type: number
+      description: (Required unless a DSN or an EdgeDB Cloud instance are provided)
+    secretKey:
+      type: string
+      description: Specifies the secret key to use for authentication with EdgeDB
+        Cloud instances. (Required for EdgeDB Cloud instance)
+      default: ''
+    user:
+      type: string
+      description: Username to use for connecting to the database. (Required unless a
+        DSN or an EdgeDB Cloud instance are provided)
+      default: ''
+  required: []

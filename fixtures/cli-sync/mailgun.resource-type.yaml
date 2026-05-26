@@ -1,0 +1,13 @@
+description: ''
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    api_key:
+      type: string
+      description: Mailgun API key
+      default: ''
+  required:
+    - api_key

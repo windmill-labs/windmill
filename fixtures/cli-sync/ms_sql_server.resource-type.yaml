@@ -1,0 +1,75 @@
+description: Microsoft SQL Server resource. Supports username/password, AAD
+  token, or Windows Integrated Authentication.
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - host
+    - user
+    - password
+    - integrated_auth
+    - aad_token
+    - port
+    - dbname
+    - instance_name
+    - trust_cert
+    - ca_cert
+    - encrypt
+  properties:
+    aad_token:
+      type: object
+      description: AAD token for authentication
+      format: resource-azure_oauth
+      nullable: true
+    ca_cert:
+      type: string
+      description: CA certificate in PEM format for verifying the server identity.
+        Only needed if the certificate used by the server is not in the
+        workers's trust store.
+      default: ''
+      pattern: ^(-----BEGIN CERTIFICATE-----\s+([A-Za-z0-9+/=\s]+?)-----END
+        CERTIFICATE-----)?$
+    dbname:
+      type: string
+      description: ''
+      default: ''
+    encrypt:
+      type: boolean
+      description: Enable TLS encryption. When false, all data including passwords are
+        sent unencrypted over the network. Set to false only for local
+        development.
+      default: true
+    host:
+      type: string
+      description: ''
+      default: ''
+    instance_name:
+      type: string
+      description: ''
+      default: ''
+    integrated_auth:
+      type: boolean
+      description: Use Windows Integrated Authentication (Kerberos). When enabled, the
+        worker's service account credentials are used instead of
+        username/password. Requires the worker to have a valid Kerberos ticket.
+      default: false
+    password:
+      type: string
+      description: ''
+      default: ''
+    port:
+      type: number
+      description: ''
+    trust_cert:
+      type: boolean
+      description: Trust any certificate presented by the server
+      default: true
+    user:
+      type: string
+      description: ''
+      default: ''
+  required:
+    - host
+    - dbname

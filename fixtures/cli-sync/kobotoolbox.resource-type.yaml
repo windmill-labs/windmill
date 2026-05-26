@@ -1,0 +1,23 @@
+description: An API Key to access a KoboToolbox server
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - server_url
+    - api_key
+  properties:
+    api_key:
+      type: string
+      description: In KoboToolbox, found under Account Settings > Security
+      default: ''
+    server_url:
+      type: string
+      description: The base URL of your KoboToolbox server
+      default: ''
+      nullable: false
+      pattern: ^(https?://)([^/]+)$
+      placeholder: https://kf.kobotoolbox.org
+  required:
+    - server_url

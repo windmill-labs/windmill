@@ -1,0 +1,10 @@
+summary: f/test/mixed_script_1766785792704 script
+description: A deno script for testing
+lock: '!inline f/test/mixed_script_1766785792704.script.lock'
+has_on_behalf_of: false
+kind: script
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

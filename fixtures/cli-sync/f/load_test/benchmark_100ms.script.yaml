@@ -1,0 +1,6 @@
+summary: Load test benchmark (100ms sleep)
+description: Auto-generated script for load testing
+lock: ''
+has_on_behalf_of: false
+kind: script
+schema: null

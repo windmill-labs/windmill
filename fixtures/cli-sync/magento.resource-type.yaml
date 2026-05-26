@@ -1,0 +1,29 @@
+description: ''
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - consumerKey
+    - consumerSecret
+    - accessToken
+    - accessTokenSecret
+  properties:
+    accessToken:
+      type: string
+      description: ''
+      default: ''
+    accessTokenSecret:
+      type: string
+      description: ''
+      default: ''
+    consumerKey:
+      type: string
+      description: ''
+      default: ''
+    consumerSecret:
+      type: string
+      description: ''
+      default: ''
+  required: []

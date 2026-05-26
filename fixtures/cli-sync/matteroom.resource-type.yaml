@@ -1,0 +1,27 @@
+description: Matteroom Key Resource
+format_extension: null
+is_fileset: false
+schema:
+  type: object
+  order:
+    - base_url
+    - username
+    - password
+  properties:
+    base_url:
+      type: string
+      description: ''
+      default: https://qa-prime.matteroom.com
+      title: Base API URL
+    password:
+      type: string
+      format: password
+      title: Password
+    username:
+      type: string
+      title: Username (Email)
+  required:
+    - base_url
+    - username
+    - password
+  title: Matteroom API Connector

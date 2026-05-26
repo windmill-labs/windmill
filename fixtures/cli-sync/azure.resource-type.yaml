@@ -1,0 +1,23 @@
+description: Azure Service Principal Credentials
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    azureClientId:
+      type: string
+      description: Client ID of the Azure AD app registration
+      default: ''
+    azureClientSecret:
+      type: string
+      description: Client Secret of the Azure AD app registration
+      default: ''
+    azureTenantId:
+      type: string
+      description: Azure AD tenant ID
+      default: ''
+  required:
+    - azureTenantId
+    - azureClientId
+    - azureClientSecret

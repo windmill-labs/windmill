@@ -1,0 +1,35 @@
+description: ''
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - url
+    - consumerKey
+    - consumerSecret
+    - version
+    - queryStringAuth
+  properties:
+    version:
+      type: string
+      description: The version of the WooCommerce API, default is v3
+      default: wc/v3
+    consumerKey:
+      type: string
+      description: The consumer key for WooCommerce API authentication
+    consumerSecret:
+      type: string
+      description: The consumer secret for WooCommerce API authentication
+    queryStringAuth:
+      type: boolean
+      description: When true and using under HTTPS, forces Basic Authentication as
+        query string, default is false
+      default: false
+    url:
+      type: string
+      description: Your Store URL
+  required:
+    - url
+    - consumerKey
+    - consumerSecret

@@ -1,0 +1,35 @@
+description: ''
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - apiKey
+    - base_url
+    - platform
+    - enable_1M_context
+  properties:
+    apiKey:
+      type: string
+      description: ''
+      default: ''
+    base_url:
+      type: string
+      description: 'Optional. Only needed to overwrite the default base URL. For
+        google_vertex_ai:
+        https://{region}-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{region}/publishers/anthropic/models/'
+      default: ''
+    enable_1M_context:
+      type: boolean
+      description: Enable beta header for 1M context on eligible models.
+      default: false
+    platform:
+      type: string
+      description: Platform to use for Anthropic API.
+      default: standard
+      enum:
+        - standard
+        - google_vertex_ai
+  required:
+    - apiKey

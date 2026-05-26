@@ -1,0 +1,6 @@
+summary: 'Transform: ducklake → s3 parquet (ATTACH+COPY)'
+description: ''
+lock: ''
+has_on_behalf_of: false
+kind: script
+schema: {}

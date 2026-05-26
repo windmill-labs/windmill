@@ -1,0 +1,21 @@
+description: Username and password of an ArcGIS Account to be able to access
+  Feature Services.
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - username
+    - password
+  properties:
+    password:
+      type: string
+      description: ''
+      default: ''
+      password: true
+    username:
+      type: string
+      description: ''
+      default: ''
+  required: []

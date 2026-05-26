@@ -1,0 +1,22 @@
+description: >-
+  1. On the workspace console, switch to the `Build` tab, open `Developer Tools`
+  -> `API Keys`, and create a new API key
+
+  2. Next, open up `Settings` -> `Workspace`. The URL of this page will look
+  something like the following: `https://dust.tt/w/{workspace_id}/workspace`.
+  Copy the `workspace_id` part
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    apiKey:
+      type: string
+      description: API Key generated from the dashboard
+    workspaceId:
+      type: string
+      description: Workspace id in the URL bar after w/
+  required:
+    - apiKey
+    - workspaceId

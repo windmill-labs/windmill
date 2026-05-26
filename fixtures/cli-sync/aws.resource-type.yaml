@@ -1,0 +1,22 @@
+description: AWS credentials
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties:
+    awsAccessKeyId:
+      type: string
+      description: ''
+      default: ''
+    awsSecretAccessKey:
+      type: string
+      description: ''
+      default: ''
+    region:
+      type: string
+      description: ''
+      default: ''
+  required:
+    - awsAccessKeyId
+    - awsSecretAccessKey

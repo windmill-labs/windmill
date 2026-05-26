@@ -1,0 +1,28 @@
+description: The configuration to use s3 with the oidc integration
+  https://www.windmill.dev/docs/core_concepts/oidc#use-oidc-with-aws
+format_extension: null
+is_fileset: false
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - bucket
+    - roleArn
+    - region
+  properties:
+    bucket:
+      type: string
+      description: ''
+      default: ''
+    region:
+      type: string
+      description: ''
+      default: ''
+    roleArn:
+      type: string
+      description: ''
+      default: ''
+  required:
+    - bucket
+    - region
+    - roleArn
