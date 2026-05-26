@@ -159,6 +159,18 @@
 		defaultValue: templatePath || hubPath || urlScript ? undefined : defaultScript()
 	})
 
+	$effect(() => {
+		if (!$workspaceStore) return
+		const workspace = $workspaceStore
+		UserDraft.setLiveEditorDraft({
+			workspace,
+			itemKind: 'script',
+			storagePath: '',
+			effectivePath: scriptHandle.draft?.path
+		})
+		return () => UserDraft.clearLiveEditorDraft('script', { workspace, storagePath: '' })
+	})
+
 	// === BEGIN TEMP URL-HASH SYNC (remove with future PR) ===
 	// Legacy behavior: the URL hash both seeds the editor on load AND stays in
 	// sync with edits (encoded back into the hash, debounced). Asks the user

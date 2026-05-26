@@ -303,6 +303,54 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: 'You can only adjust this setting to above 30 days in the EE version',
 			cloudonly: false
+		},
+		{
+			label: 'Workspace fairness — enabled',
+			description:
+				'Multi-tenant safeguard against a single workspace dominating the shared worker pool. <strong>Only relevant on instances where multiple workspaces share one worker group</strong> — single-tenant deployments do not need this. When a workspace accounts for at least <em>Workspace fairness — max percent</em> of cluster activity over the last <em>Workspace fairness — duration</em> seconds, each worker pull stochastically excludes that workspace so its share converges to the cap without on/off oscillation. Idle workers always fall back to running its jobs, so capping never starves the queue.',
+			key: 'workspace_fairness_enabled',
+			fieldType: 'boolean',
+			storage: 'setting',
+			cloudonly: false,
+			ee_only:
+				'Workspace fairness is an Enterprise feature — only useful on multi-tenant clusters where one noisy workspace would otherwise degrade QoS for other workspaces sharing the same worker pool.',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Workspace fairness — max percent',
+			description:
+				'Maximum share of cluster activity any single workspace may sustain before being stochastically throttled by the pull query. The admitted probability for capped workspaces is set just above this value so the cap is statistically stable rather than oscillating. Default 50.',
+			key: 'workspace_fairness_max_percent',
+			fieldType: 'number',
+			placeholder: '50',
+			storage: 'setting',
+			cloudonly: false,
+			ee_only: 'Workspace fairness is an Enterprise feature.',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Workspace fairness — duration (seconds)',
+			description:
+				'Rolling window used to measure workspace share. Activity = currently running jobs ∪ jobs completed in the last N seconds. Default 10.',
+			key: 'workspace_fairness_duration_secs',
+			fieldType: 'seconds',
+			placeholder: '10',
+			storage: 'setting',
+			cloudonly: false,
+			ee_only: 'Workspace fairness is an Enterprise feature.',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Workspace fairness — minimum total jobs',
+			description:
+				'Cap is only applied when cluster-wide activity exceeds this floor. Prevents over-eager capping on small clusters or quiet periods. Default 4.',
+			key: 'workspace_fairness_min_total_jobs',
+			fieldType: 'number',
+			placeholder: '4',
+			storage: 'setting',
+			cloudonly: false,
+			ee_only: 'Workspace fairness is an Enterprise feature.',
+			hideInQuickSetup: true
 		}
 	],
 	'Object Storage': [

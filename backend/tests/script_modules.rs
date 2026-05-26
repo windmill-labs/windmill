@@ -40,8 +40,8 @@ def main(name: str):
         path: Some("f/test/my_script".to_string()),
         language: ScriptLang::Python3,
         modules: Some(modules),
-        ..RawCode::default()
         tag: None,
+        ..RawCode::default()
     });
 
     let result = RunJob::from(job)
@@ -93,8 +93,8 @@ def main(a: int, b: int):
         path: Some("f/test/my_script".to_string()),
         language: ScriptLang::Python3,
         modules: Some(modules),
-        ..RawCode::default()
         tag: None,
+        ..RawCode::default()
     });
 
     let result = RunJob::from(job)
@@ -145,8 +145,8 @@ export function main(name: string) {
         path: Some("f/test/my_script".to_string()),
         language: ScriptLang::Bun,
         modules: Some(modules),
-        ..RawCode::default()
         tag: None,
+        ..RawCode::default()
     });
 
     let result = RunJob::from(job)

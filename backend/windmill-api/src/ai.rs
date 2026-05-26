@@ -1,5 +1,3 @@
-#[cfg(feature = "bedrock")]
-use crate::bedrock;
 use crate::db::{ApiAuthed, DB};
 use crate::utils::check_scopes;
 
@@ -20,8 +18,12 @@ use windmill_ai::ai_cache::current_instance_ai_config_revision;
 use windmill_ai::ai_providers::{
     empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel,
 };
+#[cfg(feature = "bedrock")]
+use windmill_ai::providers::bedrock::{
+    handle_bedrock_proxy, BedrockProxyResponse, BedrockProxyResponseBody,
+};
 use windmill_ai::providers::{
-    create_proxy_query_builder,
+    create_query_builder,
     google_ai::{
         handle_google_ai_chat_proxy, handle_google_ai_models_proxy, GoogleAIProxyResponse,
         GoogleAIProxyResponseBody,
@@ -112,7 +114,7 @@ lazy_static::lazy_static! {
 
     static ref OPENAI_AZURE_BASE_PATH: Option<String> = std::env::var("OPENAI_AZURE_BASE_PATH").ok();
 
-    pub static ref AI_REQUEST_CACHE: Cache<(String, AIProvider), ExpiringAIRequestConfig> = Cache::new(500);
+    pub static ref AI_REQUEST_CACHE: Cache<(String, AIProvider), ExpiringProviderCredentials> = Cache::new(500);
 
 }
 
@@ -179,26 +181,6 @@ enum AIResource {
     Standard(AIStandardResource),
 }
 
-#[derive(Deserialize, Clone, Debug)]
-struct AIRequestConfig {
-    pub base_url: String,
-    pub api_key: Option<String>,
-    pub access_token: Option<String>,
-    pub organization_id: Option<String>,
-    pub user: Option<String>,
-    #[allow(dead_code)]
-    pub region: Option<String>,
-    #[allow(dead_code)]
-    pub aws_access_key_id: Option<String>,
-    #[allow(dead_code)]
-    pub aws_secret_access_key: Option<String>,
-    #[allow(dead_code)]
-    pub aws_session_token: Option<String>,
-    pub platform: AIPlatform,
-    pub enable_1m_context: bool,
-    pub custom_headers: HashMap<String, String>,
-}
-
 /// Resolve a `$var:` reference. When `user_db`/`authed` are provided the query
 /// goes through an RLS-scoped connection so the caller can only read variables
 /// they are authorised to access.  Without auth context the raw pool is used
@@ -216,196 +198,142 @@ async fn resolve_var(
     }
 }
 
-impl AIRequestConfig {
-    pub async fn new(
-        provider: &AIProvider,
-        db: &DB,
-        w_id: &str,
-        resource: AIResource,
-        authed: Option<&ApiAuthed>,
-    ) -> Result<Self> {
-        // When authed is provided, resolve $var: references through RLS so that
-        // users can only read variables they have permission to access.
-        let user_db = authed.map(|_| UserDB::new(db.clone()));
+async fn resolve_provider_credentials(
+    provider: &AIProvider,
+    db: &DB,
+    w_id: &str,
+    resource: AIResource,
+    authed: Option<&ApiAuthed>,
+) -> Result<ProviderCredentials> {
+    // When authed is provided, resolve $var: references through RLS so that
+    // users can only read variables they have permission to access.
+    let user_db = authed.map(|_| UserDB::new(db.clone()));
 
-        let (
-            api_key,
-            access_token,
-            organization_id,
-            base_url,
-            user,
-            region,
-            aws_access_key_id,
-            aws_secret_access_key,
-            aws_session_token,
-            platform,
-            enable_1m_context,
-            custom_headers,
-        ) = match resource {
-            AIResource::Standard(resource) => {
-                let region = resource.region.clone();
-                let platform = resource.platform.clone();
-                let enable_1m_context = resource.enable_1m_context;
-                let custom_headers = resource.headers.clone();
-                // Skip get_base_url for Bedrock - it uses SDK directly, not HTTP
-                let base_url = if matches!(provider, AIProvider::AWSBedrock) {
-                    String::new()
-                } else {
-                    provider.get_base_url(resource.base_url, db).await?
-                };
-                let api_key = if let Some(api_key) = resource.api_key {
-                    Some(resolve_var(api_key, db, w_id, user_db.as_ref(), authed).await?)
-                } else {
-                    None
-                };
-                let organization_id = if let Some(organization_id) = resource.organization_id {
-                    Some(resolve_var(organization_id, db, w_id, user_db.as_ref(), authed).await?)
-                } else {
-                    None
-                };
-                let aws_access_key_id = if let Some(access_key_id) = resource.aws_access_key_id {
-                    Some(resolve_var(access_key_id, db, w_id, user_db.as_ref(), authed).await?)
-                } else {
-                    None
-                };
-                let aws_secret_access_key = if let Some(secret_access_key) =
-                    resource.aws_secret_access_key
-                {
+    match resource {
+        AIResource::Standard(resource) => {
+            // Skip get_base_url for Bedrock - it uses SDK directly, not HTTP
+            let base_url = if matches!(provider, AIProvider::AWSBedrock) {
+                String::new()
+            } else {
+                provider.get_base_url(resource.base_url, db).await?
+            };
+            let api_key = if let Some(api_key) = resource.api_key {
+                Some(resolve_var(api_key, db, w_id, user_db.as_ref(), authed).await?)
+            } else {
+                None
+            };
+            let organization_id = if let Some(organization_id) = resource.organization_id {
+                Some(resolve_var(organization_id, db, w_id, user_db.as_ref(), authed).await?)
+            } else {
+                None
+            };
+            let aws_access_key_id = if let Some(access_key_id) = resource.aws_access_key_id {
+                Some(resolve_var(access_key_id, db, w_id, user_db.as_ref(), authed).await?)
+            } else {
+                None
+            };
+            let aws_secret_access_key =
+                if let Some(secret_access_key) = resource.aws_secret_access_key {
                     Some(resolve_var(secret_access_key, db, w_id, user_db.as_ref(), authed).await?)
                 } else {
                     None
                 };
-                let aws_session_token = if let Some(session_token) = resource.aws_session_token {
-                    Some(resolve_var(session_token, db, w_id, user_db.as_ref(), authed).await?)
-                } else {
-                    None
-                };
+            let aws_session_token = if let Some(session_token) = resource.aws_session_token {
+                Some(resolve_var(session_token, db, w_id, user_db.as_ref(), authed).await?)
+            } else {
+                None
+            };
 
-                (
-                    api_key,
-                    None,
-                    organization_id,
-                    base_url,
-                    None,
-                    region,
-                    aws_access_key_id,
-                    aws_secret_access_key,
-                    aws_session_token,
-                    platform,
-                    enable_1m_context,
-                    custom_headers,
-                )
-            }
-            AIResource::OAuth(resource) => {
-                let user = if let Some(user) = resource.user.clone() {
-                    Some(resolve_var(user, db, w_id, user_db.as_ref(), authed).await?)
-                } else {
-                    None
-                };
-                let token =
-                    Self::get_token_using_oauth(resource, db, w_id, user_db.as_ref(), authed)
-                        .await?;
-                let base_url = provider.get_base_url(None, db).await?;
+            Ok(ProviderCredentials {
+                provider: provider.clone(),
+                base_url,
+                api_key,
+                access_token: None,
+                organization_id,
+                user: None,
+                region: resource.region,
+                aws_access_key_id,
+                aws_secret_access_key,
+                aws_session_token,
+                platform: resource.platform,
+                enable_1m_context: resource.enable_1m_context,
+                custom_headers: resource.headers,
+            })
+        }
+        AIResource::OAuth(resource) => {
+            let user = if let Some(user) = resource.user.clone() {
+                Some(resolve_var(user, db, w_id, user_db.as_ref(), authed).await?)
+            } else {
+                None
+            };
+            let token = get_token_using_oauth(resource, db, w_id, user_db.as_ref(), authed).await?;
+            let base_url = provider.get_base_url(None, db).await?;
 
-                (
-                    None,
-                    Some(token),
-                    None,
-                    base_url,
-                    user,
-                    None,
-                    None,
-                    None,
-                    None,
-                    AIPlatform::Standard,
-                    false,
-                    HashMap::new(),
-                )
-            }
-        };
-
-        Ok(Self {
-            base_url,
-            organization_id,
-            api_key,
-            access_token,
-            user,
-            region,
-            aws_access_key_id,
-            aws_secret_access_key,
-            aws_session_token,
-            platform,
-            enable_1m_context,
-            custom_headers,
-        })
-    }
-
-    async fn get_token_using_oauth(
-        mut resource: AIOAuthResource,
-        db: &DB,
-        w_id: &str,
-        user_db: Option<&UserDB>,
-        authed: Option<&ApiAuthed>,
-    ) -> Result<String> {
-        resource.client_id = resolve_var(resource.client_id, db, w_id, user_db, authed).await?;
-        resource.client_secret =
-            resolve_var(resource.client_secret, db, w_id, user_db, authed).await?;
-        resource.token_url = resolve_var(resource.token_url, db, w_id, user_db, authed).await?;
-        let mut params = HashMap::new();
-        params.insert("grant_type", "client_credentials");
-        params.insert("scope", "https://cognitiveservices.azure.com/.default");
-        let response = HTTP_CLIENT
-            .post(resource.token_url)
-            .form(&params)
-            .basic_auth(resource.client_id, Some(resource.client_secret))
-            .send()
-            .await
-            .and_then(|r| r.error_for_status())
-            .map_err(|err| {
-                Error::internal_err(format!(
-                    "Failed to get access token using credentials flow: {}",
-                    err
-                ))
-            })?;
-        let response = response.json::<OAuthTokens>().await.map_err(|err| {
-            Error::internal_err(format!(
-                "Failed to parse access token from credentials flow: {}",
-                err
-            ))
-        })?;
-        Ok(response.access_token)
-    }
-
-    fn into_provider_credentials(self, provider: AIProvider) -> ProviderCredentials {
-        ProviderCredentials {
-            provider,
-            base_url: self.base_url,
-            api_key: self.api_key,
-            access_token: self.access_token,
-            organization_id: self.organization_id,
-            user: self.user,
-            region: self.region,
-            aws_access_key_id: self.aws_access_key_id,
-            aws_secret_access_key: self.aws_secret_access_key,
-            aws_session_token: self.aws_session_token,
-            platform: self.platform,
-            enable_1m_context: self.enable_1m_context,
-            custom_headers: self.custom_headers,
+            Ok(ProviderCredentials {
+                provider: provider.clone(),
+                base_url,
+                api_key: None,
+                access_token: Some(token),
+                organization_id: None,
+                user,
+                region: None,
+                aws_access_key_id: None,
+                aws_secret_access_key: None,
+                aws_session_token: None,
+                platform: AIPlatform::Standard,
+                enable_1m_context: false,
+                custom_headers: HashMap::new(),
+            })
         }
     }
 }
 
+async fn get_token_using_oauth(
+    mut resource: AIOAuthResource,
+    db: &DB,
+    w_id: &str,
+    user_db: Option<&UserDB>,
+    authed: Option<&ApiAuthed>,
+) -> Result<String> {
+    resource.client_id = resolve_var(resource.client_id, db, w_id, user_db, authed).await?;
+    resource.client_secret = resolve_var(resource.client_secret, db, w_id, user_db, authed).await?;
+    resource.token_url = resolve_var(resource.token_url, db, w_id, user_db, authed).await?;
+    let mut params = HashMap::new();
+    params.insert("grant_type", "client_credentials");
+    params.insert("scope", "https://cognitiveservices.azure.com/.default");
+    let response = HTTP_CLIENT
+        .post(resource.token_url)
+        .form(&params)
+        .basic_auth(resource.client_id, Some(resource.client_secret))
+        .send()
+        .await
+        .and_then(|r| r.error_for_status())
+        .map_err(|err| {
+            Error::internal_err(format!(
+                "Failed to get access token using credentials flow: {}",
+                err
+            ))
+        })?;
+    let response = response.json::<OAuthTokens>().await.map_err(|err| {
+        Error::internal_err(format!(
+            "Failed to parse access token from credentials flow: {}",
+            err
+        ))
+    })?;
+    Ok(response.access_token)
+}
+
 #[derive(Clone, Debug)]
-pub struct ExpiringAIRequestConfig {
-    config: AIRequestConfig,
+pub struct ExpiringProviderCredentials {
+    credentials: ProviderCredentials,
     expires_at: std::time::Instant,
     instance_ai_config_revision: Option<u64>,
 }
 
-impl ExpiringAIRequestConfig {
-    fn new(config: AIRequestConfig, instance_ai_config_revision: Option<u64>) -> Self {
+impl ExpiringProviderCredentials {
+    fn new(credentials: ProviderCredentials, instance_ai_config_revision: Option<u64>) -> Self {
         Self {
-            config,
+            credentials,
             expires_at: std::time::Instant::now() + std::time::Duration::from_secs(60),
             instance_ai_config_revision,
         }
@@ -540,6 +468,18 @@ fn google_ai_proxy_response_to_body(
     (response.status_code, response.headers, body)
 }
 
+#[cfg(feature = "bedrock")]
+fn bedrock_proxy_response_to_body(
+    response: BedrockProxyResponse,
+) -> (http::StatusCode, HeaderMap, axum::body::Body) {
+    let body = match response.body {
+        BedrockProxyResponseBody::Fixed(body) => axum::body::Body::from(body),
+        BedrockProxyResponseBody::Stream(stream) => axum::body::Body::from_stream(stream),
+    };
+
+    (response.status_code, response.headers, body)
+}
+
 pub(crate) fn inject_keepalives<S>(
     upstream: S,
     interval: Duration,
@@ -608,7 +548,7 @@ async fn global_proxy(
             enable_1m_context: false,
             custom_headers: HashMap::new(),
         };
-        let query_builder = create_proxy_query_builder(&credentials);
+        let query_builder = create_query_builder(&credentials);
         let proxy_request = query_builder.build_proxy_request(&ProxyBuildArgs {
             method: &method,
             path: &ai_path,
@@ -701,9 +641,9 @@ async fn proxy(
         check_scopes(&authed, || format!("resources:read:{}", resource_path))?;
     }
 
-    let request_config = match workspace_cache {
+    let credentials = match workspace_cache {
         Some(request_cache) if !request_cache.is_expired() && forced_resource_path.is_none() => {
-            request_cache.config
+            request_cache.credentials
         }
         _ => {
             let (resource_path, save_to_cache, resource_workspace, instance_ai_config_revision) =
@@ -811,7 +751,7 @@ async fn proxy(
             } else {
                 None
             };
-            let request_config = AIRequestConfig::new(
+            let credentials = resolve_provider_credentials(
                 &provider,
                 &db,
                 &resource_workspace,
@@ -822,13 +762,13 @@ async fn proxy(
             if save_to_cache {
                 AI_REQUEST_CACHE.insert(
                     (w_id.clone(), provider.clone()),
-                    ExpiringAIRequestConfig::new(
-                        request_config.clone(),
+                    ExpiringProviderCredentials::new(
+                        credentials.clone(),
                         instance_ai_config_revision,
                     ),
                 );
             }
-            request_config
+            credentials
         }
     };
 
@@ -862,7 +802,6 @@ async fn proxy(
         .await?;
         tx.commit().await?;
 
-        let credentials = request_config.into_provider_credentials(provider.clone());
         let proxy_args = ProxyBuildArgs {
             method: &method,
             path: &ai_path,
@@ -885,95 +824,30 @@ async fn proxy(
 
     // Handle Bedrock-specific logic when the feature is enabled
     #[cfg(feature = "bedrock")]
-    {
-        // Extract model and streaming flag for Bedrock transformation (only for POST requests)
-        let (model, is_streaming) = if matches!(proxy_mode, ProxyExecutionMode::NativeAwsBedrock)
-            && method == Method::POST
-        {
-            #[derive(Deserialize, Debug)]
-            struct BedrockRequest {
-                model: String,
-                #[serde(default)]
-                stream: bool,
-            }
-            let parsed: BedrockRequest = serde_json::from_slice(&body)
-                .map_err(|e| Error::internal_err(format!("Failed to parse request body: {}", e)))?;
-            (Some(parsed.model), parsed.stream)
-        } else {
-            (None, false)
-        };
+    if matches!(proxy_mode, ProxyExecutionMode::NativeAwsBedrock) {
+        let mut tx = db.begin().await?;
+        audit_log(
+            &mut *tx,
+            &authed,
+            "ai.request",
+            ActionKind::Execute,
+            &w_id,
+            Some(&authed.email),
+            Some([("ai_config_path", &format!("{:?}", ai_path)[..])].into()),
+        )
+        .await?;
+        tx.commit().await?;
 
-        // For Bedrock requests, use the SDK-based approach
-        if matches!(proxy_mode, ProxyExecutionMode::NativeAwsBedrock) {
-            let region = request_config
-                .region
-                .as_deref()
-                .unwrap_or(windmill_ai::ai_providers::USE_ENV_REGION);
+        let response = handle_bedrock_proxy(&ProxyBuildArgs {
+            method: &method,
+            path: &ai_path,
+            headers: &headers,
+            body: &body,
+            credentials: &credentials,
+        })
+        .await?;
 
-            // Audit log before making the SDK request
-            let mut tx = db.begin().await?;
-            audit_log(
-                &mut *tx,
-                &authed,
-                "ai.request",
-                ActionKind::Execute,
-                &w_id,
-                Some(&authed.email),
-                Some([("ai_config_path", &format!("{:?}", ai_path)[..])].into()),
-            )
-            .await?;
-            tx.commit().await?;
-
-            // Handle GET requests for control plane operations
-            if method == Method::GET {
-                if ai_path == "foundation-models" {
-                    return bedrock::list_foundation_models(
-                        request_config.api_key.as_deref(),
-                        request_config.aws_access_key_id.as_deref(),
-                        request_config.aws_secret_access_key.as_deref(),
-                        request_config.aws_session_token.as_deref(),
-                        region,
-                    )
-                    .await;
-                } else if ai_path == "inference-profiles" {
-                    return bedrock::list_inference_profiles(
-                        request_config.api_key.as_deref(),
-                        request_config.aws_access_key_id.as_deref(),
-                        request_config.aws_secret_access_key.as_deref(),
-                        request_config.aws_session_token.as_deref(),
-                        region,
-                    )
-                    .await;
-                }
-            }
-
-            // Handle POST requests for inference
-            if method == Method::POST && model.is_some() {
-                if is_streaming {
-                    return bedrock::handle_bedrock_sdk_streaming(
-                        model.as_ref().unwrap(),
-                        &body,
-                        request_config.api_key.as_deref(),
-                        request_config.aws_access_key_id.as_deref(),
-                        request_config.aws_secret_access_key.as_deref(),
-                        request_config.aws_session_token.as_deref(),
-                        region,
-                    )
-                    .await;
-                } else {
-                    return bedrock::handle_bedrock_sdk_non_streaming(
-                        model.as_ref().unwrap(),
-                        &body,
-                        request_config.api_key.as_deref(),
-                        request_config.aws_access_key_id.as_deref(),
-                        request_config.aws_secret_access_key.as_deref(),
-                        request_config.aws_session_token.as_deref(),
-                        region,
-                    )
-                    .await;
-                }
-            }
-        }
+        return Ok(bedrock_proxy_response_to_body(response));
     }
 
     // When bedrock feature is disabled, return error for Bedrock provider
@@ -986,8 +860,7 @@ async fn proxy(
 
     let request = match proxy_mode {
         ProxyExecutionMode::HttpForward => {
-            let credentials = request_config.into_provider_credentials(provider.clone());
-            let query_builder = create_proxy_query_builder(&credentials);
+            let query_builder = create_query_builder(&credentials);
             let proxy_request = query_builder.build_proxy_request(&ProxyBuildArgs {
                 method: &method,
                 path: &ai_path,
@@ -1053,8 +926,9 @@ mod tests {
 
     static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
-    fn sample_request_config() -> AIRequestConfig {
-        AIRequestConfig {
+    fn sample_provider_credentials() -> ProviderCredentials {
+        ProviderCredentials {
+            provider: AIProvider::OpenAI,
             base_url: "https://example.com".to_string(),
             api_key: None,
             access_token: None,
@@ -1071,69 +945,20 @@ mod tests {
     }
 
     #[test]
-    fn maps_request_config_to_provider_credentials() {
-        let mut custom_headers = HashMap::new();
-        custom_headers.insert("X-Test".to_string(), "yes".to_string());
-
-        let config = AIRequestConfig {
-            base_url: "https://example.com".to_string(),
-            api_key: Some("api-key".to_string()),
-            access_token: Some("access-token".to_string()),
-            organization_id: Some("org-id".to_string()),
-            user: Some("user-id".to_string()),
-            region: Some("us-east-1".to_string()),
-            aws_access_key_id: Some("aws-access-key".to_string()),
-            aws_secret_access_key: Some("aws-secret-key".to_string()),
-            aws_session_token: Some("aws-session-token".to_string()),
-            platform: AIPlatform::GoogleVertexAi,
-            enable_1m_context: true,
-            custom_headers,
-        };
-
-        let credentials = config.into_provider_credentials(AIProvider::Anthropic);
-
-        assert_eq!(credentials.provider, AIProvider::Anthropic);
-        assert_eq!(credentials.base_url, "https://example.com");
-        assert_eq!(credentials.api_key.as_deref(), Some("api-key"));
-        assert_eq!(credentials.access_token.as_deref(), Some("access-token"));
-        assert_eq!(credentials.organization_id.as_deref(), Some("org-id"));
-        assert_eq!(credentials.user.as_deref(), Some("user-id"));
-        assert_eq!(credentials.region.as_deref(), Some("us-east-1"));
-        assert_eq!(
-            credentials.aws_access_key_id.as_deref(),
-            Some("aws-access-key")
-        );
-        assert_eq!(
-            credentials.aws_secret_access_key.as_deref(),
-            Some("aws-secret-key")
-        );
-        assert_eq!(
-            credentials.aws_session_token.as_deref(),
-            Some("aws-session-token")
-        );
-        assert_eq!(credentials.platform, AIPlatform::GoogleVertexAi);
-        assert!(credentials.enable_1m_context);
-        assert_eq!(
-            credentials.custom_headers.get("X-Test").map(String::as_str),
-            Some("yes")
-        );
-    }
-
-    #[test]
     fn invalidates_all_cached_providers_for_workspace() {
         let _guard = TEST_LOCK.lock().unwrap();
         AI_REQUEST_CACHE.clear();
         AI_REQUEST_CACHE.insert(
             ("workspace-a".to_string(), AIProvider::OpenAI),
-            ExpiringAIRequestConfig::new(sample_request_config(), None),
+            ExpiringProviderCredentials::new(sample_provider_credentials(), None),
         );
         AI_REQUEST_CACHE.insert(
             ("workspace-a".to_string(), AIProvider::Anthropic),
-            ExpiringAIRequestConfig::new(sample_request_config(), None),
+            ExpiringProviderCredentials::new(sample_provider_credentials(), None),
         );
         AI_REQUEST_CACHE.insert(
             ("workspace-b".to_string(), AIProvider::OpenAI),
-            ExpiringAIRequestConfig::new(sample_request_config(), None),
+            ExpiringProviderCredentials::new(sample_provider_credentials(), None),
         );
 
         invalidate_ai_request_cache_for_workspace("workspace-a");
@@ -1154,8 +979,8 @@ mod tests {
         let _guard = TEST_LOCK.lock().unwrap();
         AI_REQUEST_CACHE.clear();
 
-        let cached = ExpiringAIRequestConfig::new(
-            sample_request_config(),
+        let cached = ExpiringProviderCredentials::new(
+            sample_provider_credentials(),
             Some(current_instance_ai_config_revision()),
         );
         assert!(!cached.is_expired());

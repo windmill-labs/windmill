@@ -126,15 +126,18 @@ function isWorkspacePath(path: string | undefined): path is string {
 
 function getPersistedAutonomyMode(): AIAutonomyMode {
 	if (!BROWSER || typeof localStorage === 'undefined') {
-		return AIAutonomyMode.DEFAULT
+		return AIAutonomyMode.ACCEPT_EDIT
 	}
 	const persistedMode = localStorage.getItem(AI_AUTONOMY_MODE_STORAGE_KEY)
 	if (isAIAutonomyMode(persistedMode)) {
 		return persistedMode
 	}
+	// No stored preference: default to auto-accepting edits (tool calls still
+	// require confirmation; only YOLO bypasses those). Note this means users who
+	// never opened the autonomy picker now start with edit auto-accept on.
 	return localStorage.getItem(LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY) === 'true'
 		? AIAutonomyMode.YOLO
-		: AIAutonomyMode.DEFAULT
+		: AIAutonomyMode.ACCEPT_EDIT
 }
 
 function persistAutonomyMode(mode: AIAutonomyMode) {

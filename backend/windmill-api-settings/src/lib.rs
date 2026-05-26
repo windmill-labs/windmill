@@ -47,6 +47,7 @@ use windmill_common::secret_backend::{
     AwsSecretsManagerSettings, AzureKeyVaultSettings, SecretMigrationReport, VaultSettings,
 };
 use windmill_common::{
+    ee_oss::{get_license_plan, LicensePlan},
     email_oss::send_email_plain_text,
     error::{self, JsonResult, Result},
     get_database_url,
@@ -54,12 +55,15 @@ use windmill_common::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_HUB_SETTING,
         EMAIL_DOMAIN_SETTING, ENV_SETTINGS, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
-        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING, RUFF_CONFIG_SETTING, WS_BASE_URL_SETTING,
+        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING, RUFF_CONFIG_SETTING,
+        WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
+        WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
+        WS_BASE_URL_SETTING,
     },
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
 };
-use windmill_common::{error::to_anyhow, PgDatabase};
+use windmill_common::{error::to_anyhow, worker::CLOUD_HOSTED, PgDatabase};
 
 /// Unauthenticated settings routes.
 ///
@@ -446,6 +450,27 @@ pub async fn delete_global_setting(db: &DB, key: &str) -> error::Result<()> {
     tracing::info!("Unset global setting {}", key);
     Ok(())
 }
+/// Returns true when `key` is one of the workspace-fairness settings whose
+/// writes must be gated to cloud only.
+fn is_workspace_fairness_setting(key: &str) -> bool {
+    matches!(
+        key,
+        WORKSPACE_FAIRNESS_ENABLED_SETTING
+            | WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING
+            | WORKSPACE_FAIRNESS_DURATION_SECS_SETTING
+            | WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING
+    )
+}
+
+/// Enterprise gate for the workspace-fairness settings. Workspace fairness is
+/// only useful on multi-tenant clusters where one workspace can starve other
+/// workspaces sharing the same worker pool, and the feature is licensed as
+/// part of Enterprise. Non-EE installs are rejected at write time; the runtime
+/// dispatch additionally honours the `WORKSPACE_FAIRNESS_ENABLED` toggle.
+async fn workspace_fairness_settings_allowed() -> bool {
+    matches!(get_license_plan().await, LicensePlan::Enterprise)
+}
+
 pub async fn set_global_setting(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
@@ -467,6 +492,31 @@ pub async fn set_global_setting_internal(
     } else {
         value
     };
+
+    // EE gate for workspace-fairness settings. Workspace fairness only matters
+    // on multi-tenant clusters; it is licensed as an Enterprise feature so the
+    // setter rejects writes from non-EE builds. Disabling/clearing writes are
+    // *always* allowed regardless of license, so an admin who downgrades from
+    // EE (or imports a row from a cloned EE DB) can always turn the cap off:
+    //   - `Null` / empty-string  → row delete
+    //   - `Bool(false)` on `workspace_fairness_enabled` → explicit disable
+    // Without the `Bool(false)` carve-out, a stale `enabled=true` row from a
+    // downgrade would be impossible to flip off through the normal API/UI
+    // and the runtime path (which only checks the toggle) would keep
+    // throttling.
+    let is_clearing_value = matches!(&value, serde_json::Value::Null)
+        || matches!(&value, serde_json::Value::String(s) if s.trim().is_empty())
+        || (key == WORKSPACE_FAIRNESS_ENABLED_SETTING
+            && matches!(&value, serde_json::Value::Bool(false)));
+    if is_workspace_fairness_setting(&key)
+        && !is_clearing_value
+        && !workspace_fairness_settings_allowed().await
+    {
+        return Err(error::Error::BadRequest(format!(
+            "{} requires an Enterprise license",
+            key
+        )));
+    }
 
     run_setting_pre_write_hook(db, &key, &value).await?;
 
@@ -545,7 +595,10 @@ async fn run_setting_pre_write_hook(
                 )));
             };
 
-            if !*workspaced_route {
+            // Cloud always scopes app custom paths by workspace_id (see
+            // `custom_path_exists` in apps.rs), so duplicates across workspaces
+            // are expected and this setting has no runtime effect on cloud.
+            if !*workspaced_route && !*CLOUD_HOSTED {
                 #[derive(Debug, Deserialize, Serialize)]
                 #[allow(unused)]
                 struct DuplicateApp {
@@ -608,7 +661,11 @@ async fn run_setting_pre_write_hook(
                 )));
             };
 
-            if !*workspaced_route {
+            // Cloud always scopes routes by workspace_id (see
+            // `route_path_key_exists` in windmill-trigger-http), so duplicates
+            // across workspaces are expected and this setting has no runtime
+            // effect on cloud.
+            if !*workspaced_route && !*CLOUD_HOSTED {
                 #[derive(Debug, Deserialize, Serialize)]
                 #[allow(unused)]
                 struct DuplicateRoute {
@@ -725,6 +782,27 @@ async fn set_instance_config(
             .upserts
             .iter()
             .any(|(key, _)| key == AI_CONFIG_SETTING);
+
+        // Mirror the per-key EE gate in `set_global_setting_internal`. Without
+        // this, the bulk endpoint would let a non-EE superadmin persist
+        // `workspace_fairness_*` rows even though the per-key API rejects them.
+        // Only block *non-disabling* upserts; deletes are allowed everywhere
+        // (already filtered into `settings_diff.removals`) and a
+        // `workspace_fairness_enabled=false` upsert is treated as a disable,
+        // so a downgraded instance can always turn the cap off via the bulk
+        // YAML endpoint too.
+        let upserts_touch_fairness_non_disable = settings_diff.upserts.iter().any(|(k, v)| {
+            if !is_workspace_fairness_setting(k) {
+                return false;
+            }
+            !(k == WORKSPACE_FAIRNESS_ENABLED_SETTING
+                && matches!(v, serde_json::Value::Bool(false)))
+        });
+        if upserts_touch_fairness_non_disable && !workspace_fairness_settings_allowed().await {
+            return Err(error::Error::BadRequest(
+                "Workspace fairness settings require an Enterprise license".to_string(),
+            ));
+        }
 
         for (key, value) in &settings_diff.upserts {
             run_setting_pre_write_hook(&db, key, value).await?;

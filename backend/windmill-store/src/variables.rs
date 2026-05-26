@@ -6,7 +6,10 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use windmill_api_auth::{check_scopes, maybe_refresh_folders, require_owner_of_path, ApiAuthed};
+use windmill_api_auth::{
+    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
+    ApiAuthed,
+};
 use windmill_common::db::DB;
 use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
 
@@ -188,9 +191,13 @@ async fn list_variables(
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
+    let allowed = build_scope_path_predicate(&authed, "variables", "read");
     let rows = sqlx::query_as::<_, ListableVariable>(&sql)
         .fetch_all(&mut *tx)
-        .await?;
+        .await?
+        .into_iter()
+        .filter(|r| allowed(&r.path))
+        .collect::<Vec<_>>();
 
     tx.commit().await?;
     Ok(Json(rows))

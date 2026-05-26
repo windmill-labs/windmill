@@ -33,6 +33,7 @@ export type FlowBuilderProps = {
 		stepsState: Record<string, stepState>
 	}
 	noInitial?: boolean
+	liveEditorDraftStoragePath?: string
 	onSaveInitial?: ({ path, id }: { path: string; id: string }) => void
 	onSaveDraft?: ({
 		path,
