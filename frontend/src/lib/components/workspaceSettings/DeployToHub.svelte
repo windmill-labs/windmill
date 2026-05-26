@@ -957,7 +957,7 @@
 			</p>
 			<label class="flex flex-col gap-1 text-xs">
 				<span class="font-semibold text-primary">Name</span>
-				<TextInput bind:value={bundleName} placeholder="e.g. Acme CRM toolkit" />
+				<TextInput bind:value={bundleName} inputProps={{ placeholder: 'e.g. Acme CRM toolkit' }} />
 			</label>
 			<label class="flex flex-col gap-1 text-xs">
 				<span class="font-semibold text-primary">Readme</span>
