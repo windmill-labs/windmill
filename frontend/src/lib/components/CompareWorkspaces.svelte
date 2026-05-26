@@ -42,6 +42,12 @@
 		type DeployResult
 	} from '$lib/utils_workspace_deploy'
 	import { isTriggerOrScheduleKind } from 'windmill-utils-internal'
+	import {
+		augmentForkComparisonWithLocalDrafts,
+		getForkItemValue,
+		type AugmentedWorkspaceComparison,
+		type AugmentedWorkspaceItemDiff
+	} from './sessions/forkDraftDiff'
 	import Tooltip from './Tooltip.svelte'
 	import OnBehalfOfSelector, {
 		needsOnBehalfOfSelection,
@@ -64,7 +70,29 @@
 		comparison: WorkspaceComparison | undefined
 	}
 
-	let { currentWorkspaceId, parentWorkspaceId, comparison }: Props = $props()
+	let { currentWorkspaceId, parentWorkspaceId, comparison: comparisonProp }: Props = $props()
+
+	// Local (localStorage) drafts aren't in the fork's backend DB, so the
+	// backend `compareWorkspaces` can't see them. Augment the comparison with
+	// them for display. `comparisonProp` stays as the raw backend result for
+	// deploy-equality checks (isComparisonUpToDate); `comparison` is the
+	// augmented view everything renders from. Draft-only items are flagged
+	// `draftOnly` and excluded from the deployable set below.
+	let comparison = $state<AugmentedWorkspaceComparison | undefined>(undefined)
+	$effect(() => {
+		const backend = comparisonProp
+		if (!backend) {
+			comparison = undefined
+			return
+		}
+		let cancelled = false
+		void augmentForkComparisonWithLocalDrafts(backend, currentWorkspaceId).then((augmented) => {
+			if (!cancelled) comparison = augmented
+		})
+		return () => {
+			cancelled = true
+		}
+	})
 
 	let currentWorkspaceInfo = $derived($userWorkspaces.find((w) => w.id == currentWorkspaceId))
 	let parentWorkspaceInfo = $derived($userWorkspaces.find((w) => w.id == parentWorkspaceId))
@@ -79,6 +107,9 @@
 
 	let selectableDiffs = $derived(
 		comparison?.diffs.filter((diff) => {
+			// Local-draft-only rows aren't backend fork-vs-parent diffs — they
+			// live in localStorage, not the fork DB, so they can't be deployed.
+			if (diff.localOnly) return false
 			if (mergeIntoParent) {
 				return diff.ahead > 0
 			} else {
@@ -252,23 +283,42 @@
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 	let isFlow = $state(true)
 
-	async function showDiff(kind: Kind, path: string) {
+	async function showDiff(kind: Kind, path: string, hasLocalChanges = false) {
+		if (!diffDrawer) return
+		isFlow = kind == 'flow'
+		diffDrawer.openDrawer()
 		const workspaceTo = mergeIntoParent ? parentWorkspaceId : currentWorkspaceId
 		const workspaceFrom = mergeIntoParent ? currentWorkspaceId : parentWorkspaceId
-		if (diffDrawer) {
-			isFlow = kind == 'flow'
-			diffDrawer?.openDrawer()
-			let values = await Promise.all([
-				getItemValue(kind, path, workspaceTo),
-				getItemValue(kind, path, workspaceFrom)
+		// Tab 1 — fork vs parent: deployed values on both sides.
+		const [toVal, fromVal] = await Promise.all([
+			getItemValue(kind, path, workspaceTo).catch(() => ({})),
+			getItemValue(kind, path, workspaceFrom).catch(() => ({}))
+		])
+		// Tab 2 — local draft vs fork: the uncommitted local changes a deploy
+		// would drop. Only when the item carries a local draft.
+		let secondary: { original: any; current: any; title: string } | undefined
+		if (hasLocalChanges) {
+			const [forkDeployed, forkDraft] = await Promise.all([
+				getItemValue(kind, path, currentWorkspaceId).catch(() => ({})),
+				getForkItemValue(kind, path, currentWorkspaceId)
 			])
-			diffDrawer?.setDiff({
-				mode: 'simple',
-				original: values?.[0] as any,
-				current: values?.[1] as any,
-				title: `${workspaceFrom} <> ${workspaceTo}`
-			})
+			secondary = {
+				original: forkDeployed as any,
+				current: forkDraft as any,
+				title: 'Local draft <> fork'
+			}
 		}
+		diffDrawer.setDiff({
+			mode: 'simple',
+			original: toVal as any,
+			current: fromVal as any,
+			title: `${workspaceFrom} <> ${workspaceTo}`,
+			secondary
+		})
+	}
+
+	function kindLabel(kind: string): string {
+		return KIND_DISPLAY_NAMES[kind] ?? (kind === 'raw_app' ? 'app' : kind)
 	}
 
 	// All *diff* items selected. Trigger items are opt-in and don't count
@@ -340,7 +390,7 @@
 	let allowBehindChangesOverride = $state(false)
 
 	async function isComparisonUpToDate(): Promise<boolean> {
-		if (!comparison) {
+		if (!comparisonProp) {
 			return false
 		}
 
@@ -350,7 +400,10 @@
 				targetWorkspaceId: currentWorkspaceId
 			})
 
-			const nonDeployedChanges = comparison.diffs.filter(
+			// Compare against the raw backend diff (not the local-draft-augmented
+			// view) — local drafts are never deployed here and would otherwise
+			// spuriously trip the "new changes detected" guard.
+			const nonDeployedChanges = comparisonProp.diffs.filter(
 				(e) => !(deploymentStatus[getItemKey(e)]?.status == 'deployed')
 			)
 
@@ -605,6 +658,17 @@
 				{selectedItems}
 				{deploymentStatus}
 				selectablePredicate={(item) => selectableDiffs.some((d) => getItemKey(d) === item.key)}
+				nonSelectableTooltip={(item) => {
+					const d = item.diff as AugmentedWorkspaceItemDiff
+					// Local-draft rows show a warning icon in the checkbox slot and stay
+					// full opacity. Both cases point to the same fix: deploy the item
+					// inside the fork first so it becomes a fork↔parent change here.
+					if (d?.newLocalDraft)
+						return `This ${kindLabel(d.kind)} only exists as a draft in your browser. Deploy it inside the fork first to be able to deploy it here.`
+					if (d?.localChanges)
+						return `This ${kindLabel(d.kind)} has changes saved only in your browser. Deploy it inside the fork first to be able to deploy them here.`
+					return undefined
+				}}
 				{allSelected}
 				onToggleItem={(item) => toggleKey(item.key)}
 				onSelectAll={selectAll}
@@ -668,7 +732,7 @@
 								{/if}
 								<div class="flex items-center gap-2 text-sm">
 									<Badge color="transparent">
-										{comparison.summary.total_diffs} total items
+										{comparison?.summary.total_diffs ?? 0} total items
 									</Badge>
 									<Badge color="transparent">
 										{selectableDiffs.length}
@@ -757,17 +821,17 @@
 							</span>
 						</Alert>
 					{/if}
-					{#if !comparison.all_ahead_items_visible || !comparison.all_behind_items_visible}
+					{#if !comparison?.all_ahead_items_visible || !comparison?.all_behind_items_visible}
 						<Alert
 							title="This fork has changes not visible to your user"
 							type="warning"
 							class="my-2"
 						>
-							{#if !comparison.all_ahead_items_visible && !comparison.all_behind_items_visible}
+							{#if !comparison?.all_ahead_items_visible && !comparison?.all_behind_items_visible}
 								This fork is ahead and behind its parent
-							{:else if !comparison.all_behind_items_visible}
+							{:else if !comparison?.all_behind_items_visible}
 								This fork is behind of its parent
-							{:else if !comparison.all_ahead_items_visible}
+							{:else if !comparison?.all_ahead_items_visible}
 								This fork is ahead of its parent
 							{/if}
 							and some of the changes are not visible by you. Only a user with access to the whole context
@@ -832,6 +896,20 @@
 							canPreserve={canPreserveOnBehalfOf}
 							customValue={customOnBehalfOf[key]?.permissionedAs}
 						/>
+					{/if}
+					{#if (diff as AugmentedWorkspaceItemDiff).localChanges}
+						<!-- Case 2 (new local draft) shows a warning icon in the checkbox
+						slot instead of a badge; Case 1 keeps this badge + diff link. -->
+						<Badge
+							small
+							color="yellow"
+							icon={{ icon: AlertTriangle }}
+							title="This {kindLabel(
+								diff.kind
+							)} has local changes. If you deploy the item, they will be dropped."
+						>
+							local changes detected
+						</Badge>
 					{/if}
 					{#if diff.kind === 'raw_app'}
 						<Badge small icon={{ icon: FileJson }}>Raw</Badge>
@@ -900,7 +978,12 @@
 							<Button
 								size="xs"
 								variant="subtle"
-								onclick={() => showDiff(diff.kind as Kind, diff.path)}
+								onclick={() =>
+									showDiff(
+										diff.kind as Kind,
+										diff.path,
+										(diff as AugmentedWorkspaceItemDiff).localChanges
+									)}
 							>
 								<DiffIcon class="w-3 h-3" />
 								Show diff
@@ -914,7 +997,7 @@
 						<div></div>
 
 						<div class="flex flex-col items-end gap-2">
-							{#if comparison.all_behind_items_visible && comparison.all_ahead_items_visible}
+							{#if comparison?.all_behind_items_visible && comparison?.all_ahead_items_visible}
 								<div class="flex items-center gap-2">
 									{#if mergeIntoParent && !hasOpenDeploymentRequest && !deploymentRequestPanel?.isDialogOpen()}
 										<Button

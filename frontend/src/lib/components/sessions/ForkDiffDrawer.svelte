@@ -6,6 +6,7 @@
 		ArrowRight,
 		ChevronDown,
 		ChevronRight,
+		FilePen,
 		Folder,
 		GitFork,
 		GitMerge,
@@ -23,8 +24,14 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { DiffIcon, ExternalLink, SquareSplitHorizontal } from 'lucide-svelte'
-	import { WorkspaceService, type WorkspaceComparison, type WorkspaceItemDiff } from '$lib/gen'
+	import { WorkspaceService, type WorkspaceItemDiff } from '$lib/gen'
 	import { getItemValue } from '$lib/utils_workspace_deploy'
+	import {
+		augmentForkComparisonWithLocalDrafts,
+		getForkItemValue,
+		type AugmentedWorkspaceComparison,
+		type AugmentedWorkspaceItemDiff
+	} from './forkDraftDiff'
 	import { userWorkspaces } from '$lib/stores'
 	import { editUrlFor as buildEditUrl } from './forkEditUrl'
 
@@ -34,7 +41,7 @@
 	}: { forkWorkspaceId: string; parentWorkspaceId: string } = $props()
 
 	let drawer: Drawer | undefined = $state(undefined)
-	let comparison: WorkspaceComparison | undefined = $state(undefined)
+	let comparison: AugmentedWorkspaceComparison | undefined = $state(undefined)
 	let loading = $state(false)
 	let error: string | undefined = $state(undefined)
 	let searchQuery = $state('')
@@ -60,10 +67,13 @@
 		loading = true
 		error = undefined
 		try {
-			comparison = await WorkspaceService.compareWorkspaces({
+			const backend = await WorkspaceService.compareWorkspaces({
 				workspace: parentWorkspaceId,
 				targetWorkspaceId: forkWorkspaceId
 			})
+			// Merge local (localStorage) drafts so uncommitted session changes
+			// show up alongside the backend fork-vs-parent diff.
+			comparison = await augmentForkComparisonWithLocalDrafts(backend, forkWorkspaceId)
 			// Diffs are expanded by default, so eagerly populate each row's
 			// content. Each loadDiffFor is idempotent and per-item, so
 			// rendering proceeds as values arrive.
@@ -81,9 +91,13 @@
 		}
 	}
 
-	type DiffStatus = 'added' | 'removed' | 'modified' | 'conflict'
+	type DiffStatus = 'added' | 'removed' | 'modified' | 'conflict' | 'localDraft'
 
 	function statusOf(d: WorkspaceItemDiff): DiffStatus {
+		// Items that exist only as a new local draft (not on the fork server) get
+		// their own status — they're uncommitted session changes, not a
+		// fork-vs-parent version delta.
+		if ((d as AugmentedWorkspaceItemDiff).newLocalDraft) return 'localDraft'
 		if (d.exists_in_fork && !d.exists_in_source) return 'added'
 		if (!d.exists_in_fork && d.exists_in_source) return 'removed'
 		if (d.ahead > 0 && d.behind > 0) return 'conflict'
@@ -148,7 +162,9 @@
 					? getItemValue(d.kind, d.path, parentWorkspaceId).catch(() => undefined)
 					: Promise.resolve(undefined),
 				d.exists_in_fork
-					? getItemValue(d.kind, d.path, forkWorkspaceId).catch(() => undefined)
+					? // Fork side prefers the local draft (uncommitted session change)
+						// over the deployed value, so the diff reflects pending edits.
+						getForkItemValue(d.kind, d.path, forkWorkspaceId).catch(() => undefined)
 					: Promise.resolve(undefined)
 			])
 			loadedDiffs[key] = { state: 'ready', parentRaw, forkRaw }
@@ -176,18 +192,24 @@
 		}
 	}
 
-	function statusBadgeColor(s: DiffStatus): 'green' | 'red' | 'orange' | 'blue' {
+	function statusBadgeColor(s: DiffStatus): 'green' | 'red' | 'orange' | 'blue' | 'violet' {
 		if (s === 'added') return 'green'
 		if (s === 'removed') return 'red'
 		if (s === 'conflict') return 'orange'
+		if (s === 'localDraft') return 'violet'
 		return 'blue'
+	}
+
+	function statusLabel(s: DiffStatus): string {
+		return s === 'localDraft' ? 'local draft' : s
 	}
 
 	const statusIcons = {
 		added: Plus,
 		removed: Minus,
 		modified: Pencil,
-		conflict: AlertTriangle
+		conflict: AlertTriangle,
+		localDraft: FilePen
 	}
 
 	// File tree built from the diff paths. Top-level rows mirror
@@ -526,7 +548,9 @@
 							? 'bg-red-500'
 							: status === 'conflict'
 								? 'bg-orange-500'
-								: 'bg-blue-500'}"
+								: status === 'localDraft'
+									? 'bg-violet-500'
+									: 'bg-blue-500'}"
 				></span>
 			{/snippet}
 		</WorkspaceItemRow>
@@ -686,9 +710,20 @@
 											{#if d.behind > 0}
 												<span class="text-2xs text-secondary">{d.behind} behind</span>
 											{/if}
+											{#if (d as AugmentedWorkspaceItemDiff).localChanges}
+												<Badge
+													color="yellow"
+													title="This {(
+														KIND_LABELS[d.kind] ?? d.kind
+													).toLowerCase()} has local changes; if you deploy it they will be dropped"
+												>
+													<AlertTriangle class="w-3 h-3 inline mr-0.5" />
+													local changes detected
+												</Badge>
+											{/if}
 											<Badge color={statusBadgeColor(status)}>
 												<StatusIcon class="w-3 h-3 inline mr-0.5" />
-												{status}
+												{statusLabel(status)}
 											</Badge>
 										</div>
 									</summary>

@@ -2,7 +2,8 @@
 	import { untrack } from 'svelte'
 	import Star from '$lib/components/Star.svelte'
 	import RowIcon from './RowIcon.svelte'
-	import { BellOff } from 'lucide-svelte'
+	import { BellOff, TriangleAlert } from 'lucide-svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { goto } from '$lib/navigation'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
@@ -15,6 +16,9 @@
 		canFavorite?: boolean
 		isSelectable?: boolean
 		alignWithSelectable?: boolean
+		/** When the row isn't selectable, show an info tooltip with this text in
+		 * the checkbox slot (instead of an empty placeholder), explaining why. */
+		selectTooltip?: string | undefined
 		errorHandlerMuted?: boolean
 		aiId?: string | undefined
 		aiDescription?: string | undefined
@@ -63,6 +67,7 @@
 		canFavorite = true,
 		isSelectable = false,
 		alignWithSelectable = false,
+		selectTooltip = undefined,
 		errorHandlerMuted = false,
 		aiId = undefined,
 		aiDescription = undefined,
@@ -118,6 +123,10 @@
 >
 	{#if isSelectable}
 		<input type="checkbox" checked={selected} onchange={onSelect} class="rounded max-w-4 w-full" />
+	{:else if selectTooltip}
+		<div class="max-w-4 w-full flex items-center justify-center">
+			<Tooltip small Icon={TriangleAlert} class="text-yellow-500">{selectTooltip}</Tooltip>
+		</div>
 	{:else if alignWithSelectable}
 		<div class="rounded max-w-4 w-full"></div>
 	{/if}

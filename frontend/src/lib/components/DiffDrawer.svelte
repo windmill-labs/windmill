@@ -19,14 +19,27 @@
 		metadata: string
 	}
 
-	let diffType: 'draft' | 'deployed' | 'custom' | undefined = $state(undefined)
+	let diffType: 'draft' | 'deployed' | 'custom' | 'custom2' | undefined = $state(undefined)
+
+	// The "before" (left) and "after" (right) sides for the selected tab,
+	// resolved across all modes. `simple` mode's optional `secondary` adds a
+	// second tab (`custom2`) with its own original/current pair.
+	let leftDiff = $derived.by((): DiffData | undefined => {
+		if (!data) return undefined
+		if (data.mode === 'normal') return diffType === 'draft' ? data.draft : data.deployed
+		return diffType === 'custom2' ? data.secondary?.original : data.original
+	})
+	let rightDiff = $derived.by((): DiffData | undefined => {
+		if (!data) return undefined
+		if (data.mode === 'simple' && diffType === 'custom2') return data.secondary?.current
+		return data.current
+	})
 
 	let contentType = $derived.by(() => {
-		if (!data || !diffType) return undefined
-		const dataType = diffType === 'custom' ? 'original' : diffType
-		return data[dataType]?.content !== data.current.content
+		if (!data || !diffType || !rightDiff) return undefined
+		return leftDiff?.content !== rightDiff.content
 			? 'content'
-			: data[dataType]?.metadata !== data.current.metadata
+			: leftDiff?.metadata !== rightDiff.metadata
 				? 'metadata'
 				: undefined
 	})
@@ -55,6 +68,7 @@
 				title: string
 				original: DiffData | undefined
 				current: DiffData
+				secondary?: { title: string; original: DiffData | undefined; current: DiffData }
 				button?: { text: string; onClick: () => void }
 		  }
 		| undefined = $state(undefined)
@@ -97,6 +111,7 @@
 					original: Value
 					current: Value
 					title: string
+					secondary?: { original: Value; current: Value; title: string }
 					button?: { text: string; onClick: () => void }
 			  }
 	) {
@@ -119,12 +134,19 @@
 				diffType = 'draft'
 			}
 		} else {
-			const { original, current, title, button } = diff
+			const { original, current, title, button, secondary } = diff
 			data = {
 				title,
 				mode: 'simple',
 				original: prepareDiff(original),
 				current: prepareDiff(current),
+				secondary: secondary
+					? {
+							title: secondary.title,
+							original: prepareDiff(secondary.original),
+							current: prepareDiff(secondary.current)
+						}
+					: undefined,
 				button
 			}
 			diffType = 'custom'
@@ -139,6 +161,9 @@
 				<Tabs bind:selected={diffType} wrapperClass="shrink-0">
 					{#if data.mode === 'simple'}
 						<Tab value="custom" label={data.title} />
+						{#if data.secondary}
+							<Tab value="custom2" label={data.secondary.title} />
+						{/if}
 					{:else}
 						<Tab
 							value="deployed"
@@ -179,36 +204,21 @@
 			{/if}
 			{#if data}
 				{#if contentType}
-					{@const content =
-						data.mode === 'normal'
-							? diffType === 'draft'
-								? data.draft?.content
-								: data.deployed?.content
-							: data.original?.content}
-					{@const metadata =
-						data.mode === 'normal'
-							? diffType === 'draft'
-								? data.draft?.metadata
-								: data.deployed?.metadata
-							: data.original?.metadata}
-					{@const lang =
-						data.mode === 'normal'
-							? diffType === 'draft'
-								? data.draft?.lang
-								: data.deployed?.lang
-							: data.original?.lang}
+					{@const content = leftDiff?.content}
+					{@const metadata = leftDiff?.metadata}
+					{@const lang = leftDiff?.lang}
 					<div class="flex flex-col h-full gap-4">
-						{#if data.current.content !== undefined}
+						{#if rightDiff?.content !== undefined}
 							<Tabs bind:selected={contentType}>
 								<Tab
 									value="content"
-									disabled={content === data.current.content}
-									label={`Content${content === data.current.content ? ' (no changes)' : ''}`}
+									disabled={content === rightDiff?.content}
+									label={`Content${content === rightDiff?.content ? ' (no changes)' : ''}`}
 								/>
 								<Tab
 									value="metadata"
-									disabled={metadata === data.current.metadata}
-									label={`Metadata${metadata === data.current.metadata ? ' (no changes)' : ''}`}
+									disabled={metadata === rightDiff?.metadata}
+									label={`Metadata${metadata === rightDiff?.metadata ? ' (no changes)' : ''}`}
 								/>
 							</Tabs>
 						{/if}
@@ -223,9 +233,9 @@
 											automaticLayout
 											className="h-full"
 											defaultLang={lang}
-											defaultModifiedLang={data.current.lang}
+											defaultModifiedLang={rightDiff?.lang}
 											defaultOriginal={content}
-											defaultModified={data.current.content}
+											defaultModified={rightDiff?.content}
 											readOnly
 										/>
 									{/await}
@@ -236,7 +246,7 @@
 										{:then Module}
 											<Module.default
 												beforeYaml={metadata ?? ''}
-												afterYaml={data.current.metadata}
+												afterYaml={rightDiff?.metadata ?? ''}
 											/>
 										{/await}
 									{:else}
@@ -249,7 +259,7 @@
 												className="h-full"
 												defaultLang="yaml"
 												defaultOriginal={metadata}
-												defaultModified={data.current.metadata}
+												defaultModified={rightDiff?.metadata}
 												readOnly
 											/>
 										{/await}
@@ -264,7 +274,7 @@
 							There are no differences between latest saved draft and current
 						{:else if diffType === 'deployed'}
 							There are no differences between deployed and current
-						{:else if diffType === 'custom'}
+						{:else if diffType === 'custom' || diffType === 'custom2'}
 							There are no differences
 						{/if}
 					</Alert>
