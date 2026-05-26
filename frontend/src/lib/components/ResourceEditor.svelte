@@ -14,7 +14,6 @@
 	import { getUserExt } from '$lib/user'
 	import type { UserExt } from '$lib/stores'
 	import { UserDraft, checkStaleness, type UserDraftHandle } from '$lib/userDraft.svelte'
-	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 	import LocalDraftStaleModal from './common/confirmationModal/LocalDraftStaleModal.svelte'
 
 	interface Props {
@@ -26,6 +25,9 @@
 		defaultValues?: Record<string, any> | undefined
 		workspace?: string | undefined
 		selected?: string | undefined
+		/** Notifies the parent drawer whether a local draft diverges from the deployed
+		 * baseline, so it can show the "unsaved changes" banner below its header. */
+		onDraftStateChange?: (hasDraft: boolean) => void
 	}
 
 	let {
@@ -36,7 +38,8 @@
 		onChange,
 		defaultValues = undefined,
 		workspace = undefined,
-		selected: selectedProp = $bindable()
+		selected: selectedProp = $bindable(),
+		onDraftStateChange
 	}: Props = $props()
 
 	type ResourceState = {
@@ -219,9 +222,7 @@
 			const s: ResourceState = {
 				path: '',
 				description: '',
-				args: (defaultValues && Object.keys(defaultValues).length > 0
-					? defaultValues
-					: {}) as any,
+				args: (defaultValues && Object.keys(defaultValues).length > 0 ? defaultValues : {}) as any,
 				labels: undefined,
 				wsSpecific: false
 			}
@@ -276,11 +277,6 @@
 								{ workspace: ws }
 							)
 						}
-						notifyRestoredFromLocal(false, true, {
-							onResetToDeployed: () => {
-								UserDraft.discard('resource', initialPath ?? '', s, { workspace: ws })
-							}
-						})
 					}
 				}
 				ensureHandle(ws, s)
@@ -328,6 +324,25 @@
 	$effect(() => {
 		canSave = anyDirty && dirtyValid && dirtyCanWrite
 	})
+
+	// Drive the parent drawer's "unsaved changes" banner. The drawer chrome
+	// (header + banner slot) lives in ResourceEditorDrawer, above this
+	// lazily-imported content, so the state is lifted up via these accessors.
+	$effect(() => {
+		onDraftStateChange?.(!!initialPath && anyDirty)
+	})
+
+	export function localDraftDeployed(): ResourceState | undefined {
+		return selected ? initialStates[selected] : undefined
+	}
+	export function localDraftCurrent(): ResourceState | undefined {
+		return current
+	}
+	export function discardLocalDraft(): void {
+		for (const ws of dirtyWorkspaces) {
+			UserDraft.discard('resource', initialPath ?? '', initialStates[ws], { workspace: ws })
+		}
+	}
 
 	$effect(() => {
 		if (current)

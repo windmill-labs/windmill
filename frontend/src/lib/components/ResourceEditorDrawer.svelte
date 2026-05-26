@@ -6,6 +6,7 @@
 	import { Loader2, Save } from 'lucide-svelte'
 	import WsSpecificVersions from './WsSpecificVersions.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import LocalDraftBanner from './LocalDraftBanner.svelte'
 
 	let {
 		workspace = undefined,
@@ -17,7 +18,15 @@
 	let resource_type: string | undefined = $state(undefined)
 	let defaultValues: Record<string, any> | undefined = $state(undefined)
 
-	let resourceEditor: { save: () => void } | undefined = $state(undefined)
+	let resourceEditor:
+		| {
+				save: () => void
+				localDraftDeployed: () => unknown
+				localDraftCurrent: () => unknown
+				discardLocalDraft: () => void
+		  }
+		| undefined = $state(undefined)
+	let hasLocalDraft = $state(false)
 
 	let path: string | undefined = $state(undefined)
 	let selected: string | undefined = $state(undefined)
@@ -62,8 +71,17 @@
 				bind:this={resourceEditor}
 				bind:canSave
 				bind:selected
+				onDraftStateChange={(v) => (hasLocalDraft = v)}
 			/>
 		{/await}
+		{#snippet banner()}
+			<LocalDraftBanner
+				show={hasLocalDraft}
+				getDeployed={() => resourceEditor?.localDraftDeployed()}
+				getCurrent={() => resourceEditor?.localDraftCurrent()}
+				onDiscard={() => resourceEditor?.discardLocalDraft()}
+			/>
+		{/snippet}
 		{#snippet actions()}
 			{#if mode == 'edit' && path && effectiveWorkspace}
 				<WsSpecificVersions

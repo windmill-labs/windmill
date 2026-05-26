@@ -17,8 +17,8 @@
 	import { getUserExt } from '$lib/user'
 	import type { UserExt } from '$lib/stores'
 	import { UserDraft, checkStaleness, type UserDraftHandle } from '$lib/userDraft.svelte'
-	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 	import LocalDraftStaleModal from './common/confirmationModal/LocalDraftStaleModal.svelte'
+	import LocalDraftBanner from './LocalDraftBanner.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -183,11 +183,6 @@
 						if (previousMeta.remoteRev === undefined && previousMeta.remoteDraftRev === undefined) {
 							UserDraft.saveMeta('variable', p, { remoteRev: v.edited_at }, { workspace: ws })
 						}
-						notifyRestoredFromLocal(false, true, {
-							onResetToDeployed: () => {
-								UserDraft.discard('variable', p, s, { workspace: ws })
-							}
-						})
 					}
 				}
 				ensureHandle(ws, s)
@@ -327,6 +322,18 @@
 		title={edit ? `Update variable at ${initialPath}` : 'Add a variable'}
 		on:close={drawer?.closeDrawer}
 	>
+		{#snippet banner()}
+			<LocalDraftBanner
+				show={edit && anyDirty}
+				getDeployed={() => (selected ? initialStates[selected] : undefined)}
+				getCurrent={() => current}
+				onDiscard={() => {
+					for (const ws of dirtyWorkspaces) {
+						UserDraft.discard('variable', editPath ?? '', initialStates[ws], { workspace: ws })
+					}
+				}}
+			/>
+		{/snippet}
 		<div class="flex flex-col gap-8">
 			{#if !can_write}
 				<Alert type="warning" title="Only read access">

@@ -1,6 +1,5 @@
 import { untrack } from 'svelte'
 import { UserDraft, localDraftDiffers, type UserDraftItemKind } from '$lib/userDraft.svelte'
-import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 
 type Cfg = Record<string, any>
 
@@ -28,11 +27,27 @@ export interface TriggerDraftSync {
 	/** The local autosave for the active (workspace, path), if any. */
 	readonly draft: Cfg | undefined
 	/**
+	 * Whether the form currently diverges from the deployed baseline — i.e. a
+	 * live local draft exists. Drives the "unsaved changes" banner. False while
+	 * loading and for brand-new triggers (no deployed baseline yet).
+	 */
+	readonly hasDraft: boolean
+	/** The deployed baseline the dirty check compares against. */
+	readonly deployed: Cfg | undefined
+	/** The current form config (the live local draft). */
+	readonly current: Cfg | undefined
+	/**
 	 * Restore-on-open: if a local autosave diverges from the just-loaded
-	 * backend config, overlay it and toast a "Reset to deployed" action.
-	 * Call right after the backend load, before clearing `drawerLoading`.
+	 * backend config, overlay it onto the form. Call right after the backend
+	 * load, before clearing `drawerLoading`, so the drawer opens on the draft
+	 * without a deployed→draft flash. The banner (via `hasDraft`) surfaces it.
 	 */
 	maybeRestore(path: string): Promise<void>
+	/**
+	 * Drop the local draft for `path` and reset the form to the deployed
+	 * baseline. Backs the banner's "Discard" action.
+	 */
+	resetToDeployed(path: string): Promise<void>
 	/**
 	 * Clear the draft for `path` and reset the handle's in-memory cell to
 	 * `fallback`. Use after a successful deploy, passing the just-saved cfg —
@@ -62,6 +77,16 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 		return p && ws ? [{ itemKind: opts.itemKind, path: p, workspace: ws }] : []
 	})
 	const handle = $derived(handles[0])
+
+	// Live "is there a local draft?" — the form diverges from the deployed
+	// baseline. Gated on `!drawerLoading` (the baseline isn't settled yet
+	// mid-load) and on a non-null baseline (a brand-new trigger has none, so
+	// "unsaved changes" / discard-to-deployed is meaningless there).
+	const hasDraft = $derived(
+		!opts.drawerLoading() &&
+			opts.deployed() != null &&
+			localDraftDiffers(opts.getCfg() as Cfg, opts.deployed() as Cfg)
+	)
 
 	function discard(path: string, fallback: Cfg | undefined): void {
 		UserDraft.discard(opts.itemKind, path, fallback, {
@@ -102,19 +127,25 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 		get draft() {
 			return handle?.draft
 		},
-		async maybeRestore(path: string) {
+		get hasDraft() {
+			return hasDraft
+		},
+		get deployed() {
+			return opts.deployed()
+		},
+		get current() {
+			return opts.getCfg()
+		},
+		async maybeRestore(_path: string) {
 			const d = handle?.draft
 			if (!localDraftDiffers(d, opts.getCfg() as Cfg)) return
-			// Snapshot the just-loaded backend config so "Reset to deployed"
-			// can re-apply it, then overlay the local autosave.
-			const deployedCfg = structuredClone($state.snapshot(opts.getCfg())) as Cfg
+			// Overlay the local autosave on the just-loaded backend config.
 			await opts.applyCfg(d)
-			notifyRestoredFromLocal(false, true, {
-				onResetToDeployed: async () => {
-					discard(path, deployedCfg)
-					await opts.applyCfg(deployedCfg)
-				}
-			})
+		},
+		async resetToDeployed(path: string) {
+			const deployedCfg = structuredClone($state.snapshot(opts.deployed())) as Cfg
+			discard(path, deployedCfg)
+			await opts.applyCfg(deployedCfg)
 		},
 		discard
 	}

@@ -39,6 +39,7 @@
 	import { handleConfigChange } from '../utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
+	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
@@ -296,6 +297,11 @@
 			drawer?.openDrawer()
 			runnable = undefined
 			edit = false
+			// No deployed baseline for a brand-new schedule. The editor instance
+			// is reused across open() calls, so clear any baseline left by a prior
+			// openEdit — otherwise the "unsaved changes" banner / dirty check would
+			// compare against a stale config.
+			initialConfig = undefined
 			itemKind = (s?.is_flow ?? nis_flow) ? 'flow' : 'script'
 			initialScriptPath = initial_script_path ?? ''
 			path = initNewPath
@@ -1340,6 +1346,15 @@
 				<div class="flex flex-row gap-4 items-center">
 					{@render saveButton()}
 				</div>
+			{/snippet}
+			{#snippet banner()}
+				<LocalDraftBanner
+					show={draftSync.hasDraft}
+					getDeployed={() => draftSync.deployed}
+					getCurrent={() => draftSync.current}
+					onDiscard={() => draftSync.resetToDeployed(initialPath)}
+					disabled={!can_write}
+				/>
 			{/snippet}
 			{@render content()}
 		</DrawerContent>

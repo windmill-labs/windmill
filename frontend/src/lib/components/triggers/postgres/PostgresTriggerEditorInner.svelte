@@ -46,6 +46,7 @@
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
+	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import { capitalize } from '$lib/utils'
 
 	interface Props {
@@ -541,6 +542,15 @@
 			on:close={drawer.closeDrawer}
 		>
 			{#snippet actions()}{@render actionsSnippet()}{/snippet}
+			{#snippet banner()}
+				<LocalDraftBanner
+					show={draftSync.hasDraft}
+					getDeployed={() => draftSync.deployed}
+					getCurrent={() => draftSync.current}
+					onDiscard={() => draftSync.resetToDeployed(initialPath)}
+					disabled={!can_write}
+				/>
+			{/snippet}
 			{@render content()}
 		</DrawerContent>
 	</Drawer>
