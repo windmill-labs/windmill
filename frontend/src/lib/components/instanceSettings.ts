@@ -307,22 +307,25 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Workspace fairness — enabled',
 			description:
-				'Cloud-only safeguard against a single workspace dominating the shared worker pool. When a workspace accounts for at least <em>Workspace fairness — max percent</em> of cluster activity over the last <em>Workspace fairness — duration</em> seconds, the pull query temporarily excludes that workspace until its share drops back below the threshold. Idle workers always fall back to running its jobs, so capping never starves the queue.',
+				'Multi-tenant safeguard against a single workspace dominating the shared worker pool. <strong>Only relevant on instances where multiple workspaces share one worker group</strong> — single-tenant deployments do not need this. When a workspace accounts for at least <em>Workspace fairness — max percent</em> of cluster activity over the last <em>Workspace fairness — duration</em> seconds, each worker pull stochastically excludes that workspace so its share converges to the cap without on/off oscillation. Idle workers always fall back to running its jobs, so capping never starves the queue.',
 			key: 'workspace_fairness_enabled',
 			fieldType: 'boolean',
 			storage: 'setting',
-			cloudonly: true,
+			cloudonly: false,
+			ee_only:
+				'Workspace fairness is an Enterprise feature — only useful on multi-tenant clusters where one noisy workspace would otherwise degrade QoS for other workspaces sharing the same worker pool.',
 			hideInQuickSetup: true
 		},
 		{
 			label: 'Workspace fairness — max percent',
 			description:
-				'Maximum percentage of cluster activity a single workspace may sustain before being temporarily excluded from the pull query. Default 50.',
+				'Maximum share of cluster activity any single workspace may sustain before being stochastically throttled by the pull query. The admitted probability for capped workspaces is set just above this value so the cap is statistically stable rather than oscillating. Default 50.',
 			key: 'workspace_fairness_max_percent',
 			fieldType: 'number',
 			placeholder: '50',
 			storage: 'setting',
-			cloudonly: true,
+			cloudonly: false,
+			ee_only: 'Workspace fairness is an Enterprise feature.',
 			hideInQuickSetup: true
 		},
 		{
@@ -333,7 +336,8 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'seconds',
 			placeholder: '10',
 			storage: 'setting',
-			cloudonly: true,
+			cloudonly: false,
+			ee_only: 'Workspace fairness is an Enterprise feature.',
 			hideInQuickSetup: true
 		},
 		{
@@ -344,7 +348,8 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'number',
 			placeholder: '4',
 			storage: 'setting',
-			cloudonly: true,
+			cloudonly: false,
+			ee_only: 'Workspace fairness is an Enterprise feature.',
 			hideInQuickSetup: true
 		}
 	],

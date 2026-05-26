@@ -45,7 +45,7 @@
 	}
 </script>
 
-<Section label="Workspace fairness events (cloud)">
+<Section label="Workspace fairness events">
 	{#snippet action()}
 		<Button
 			variant="subtle"
