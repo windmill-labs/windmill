@@ -1045,7 +1045,7 @@ describe('global AI tools', () => {
 				module_id: 'empty_step',
 				code
 			})
-		).resolves.toContain('Updated local draft flow')
+		).resolves.toContain('Updated flow')
 
 		await expect(
 			callGlobalTool('read_flow_module_code', {
