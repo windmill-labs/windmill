@@ -262,17 +262,35 @@ struct Stats {
     per_ws: HashMap<String, Vec<u64>>,
     /// Per-workspace queued counts (pushed by the workload generator).
     pushed: HashMap<String, u64>,
+    /// Per-workspace completion events as (elapsed_ms_since_scenario_start,
+    /// latency_ms). Used by the oscillation simulation to compute per-second
+    /// latency time series.
+    events: HashMap<String, Vec<(u64, u64)>>,
+    /// Reference t=0 for the current scenario, set by `run_scenario`.
+    started: Option<Instant>,
 }
 
 impl Stats {
     fn new() -> Self {
-        Self { per_ws: HashMap::new(), pushed: HashMap::new() }
+        Self {
+            per_ws: HashMap::new(),
+            pushed: HashMap::new(),
+            events: HashMap::new(),
+            started: None,
+        }
     }
     fn record(&mut self, ws: &str, latency_ms: u64) {
         self.per_ws
             .entry(ws.to_string())
             .or_default()
             .push(latency_ms);
+        if let Some(t0) = self.started {
+            let elapsed_ms = t0.elapsed().as_millis() as u64;
+            self.events
+                .entry(ws.to_string())
+                .or_default()
+                .push((elapsed_ms, latency_ms));
+        }
     }
     fn pushed_inc(&mut self, ws: &str) {
         *self.pushed.entry(ws.to_string()).or_insert(0) += 1;
@@ -550,6 +568,9 @@ struct ScenarioResult {
     summary: Vec<WsSummary>,
     /// Wall-clock duration the scenario actually ran for (push + drain).
     elapsed: Duration,
+    /// Per-workspace completion events: (elapsed_ms, latency_ms). Used for
+    /// the oscillation time-series analysis.
+    events: HashMap<String, Vec<(u64, u64)>>,
 }
 
 async fn run_scenario(
@@ -559,12 +580,10 @@ async fn run_scenario(
     duration: Duration,
     drain_timeout: Duration,
     n_workers: u32,
+    fairness_window_secs: u32,
 ) -> ScenarioResult {
     reset_fairness_state();
-    // Make the algorithm reactive enough to take effect within the 5-8s the
-    // simulation actually runs for. (Defaults are 10s — fine for prod, slow
-    // for tests.)
-    WORKSPACE_FAIRNESS_DURATION_SECS.store(3, Ordering::Relaxed);
+    WORKSPACE_FAIRNESS_DURATION_SECS.store(fairness_window_secs, Ordering::Relaxed);
     WORKSPACE_FAIRNESS_MIN_TOTAL.store(10, Ordering::Relaxed);
 
     // The sqlx::test-provided pool is capped at 10 connections — way too few
@@ -602,6 +621,10 @@ async fn run_scenario(
     let completed = Arc::new(AtomicU64::new(0));
 
     let started = Instant::now();
+    {
+        let mut s = stats.lock().await;
+        s.started = Some(started);
+    }
 
     // Spawn workers.
     let mut worker_handles = Vec::with_capacity(n_workers as usize);
@@ -747,7 +770,7 @@ async fn run_scenario(
     let stats = stats.lock().await;
     let summary = summarize(&stats);
     print_summary(label, &summary);
-    ScenarioResult { summary, elapsed }
+    ScenarioResult { summary, elapsed, events: stats.events.clone() }
 }
 
 fn pick<'a>(rows: &'a [WsSummary], ws: &str) -> &'a WsSummary {
@@ -782,6 +805,7 @@ async fn fairness_50_workers_diverse_workload(db: Pool<Postgres>) {
         push_dur,
         drain_dur,
         50,
+        3,
     )
     .await;
     // TREATMENT: fairness ON.
@@ -792,6 +816,7 @@ async fn fairness_50_workers_diverse_workload(db: Pool<Postgres>) {
         push_dur,
         drain_dur,
         50,
+        3,
     )
     .await;
 
@@ -921,5 +946,406 @@ async fn fairness_50_workers_diverse_workload(db: Pool<Postgres>) {
     assert!(
         noisy_treat.completed > 0,
         "noisy was completely starved by fairness — should be throttled, not excluded",
+    );
+}
+
+/// Bucket events by 1-second windows of `elapsed_ms`. Returns
+/// `Vec<(bucket_idx_seconds, count, p50, p95, max)>`.
+fn time_series(events: &[(u64, u64)], buckets: usize) -> Vec<(usize, usize, u64, u64, u64)> {
+    let mut by_bucket: Vec<Vec<u64>> = vec![vec![]; buckets];
+    for (elapsed_ms, lat_ms) in events {
+        let b = (*elapsed_ms / 1000) as usize;
+        if b < buckets {
+            by_bucket[b].push(*lat_ms);
+        }
+    }
+    by_bucket
+        .into_iter()
+        .enumerate()
+        .map(|(i, mut v)| {
+            v.sort_unstable();
+            let n = v.len();
+            (
+                i,
+                n,
+                percentile(&v, 50.0),
+                percentile(&v, 95.0),
+                *v.last().unwrap_or(&0),
+            )
+        })
+        .collect()
+}
+
+/// **Oscillation test.** A capped workspace's stale completions roll out of
+/// the rolling window after `WORKSPACE_FAIRNESS_DURATION_SECS` seconds — at
+/// which point its share drops to 0%, the algorithm un-caps it, the noisy
+/// queue (which has the oldest `scheduled_for`) jumps to the front of the
+/// pull, and victims briefly wait until the next refresh cycle re-caps. Over
+/// a long run this manifests as periodic spikes in victim latency, roughly
+/// every `(window + refresh_interval)` seconds.
+///
+/// This test runs a 25-second sustained workload (long enough to cross at
+/// least two cap/uncap cycles with the default 10s window) and prints
+/// per-second victim p95 latency. It then asserts that the oscillation peaks
+/// remain bounded — i.e. fairness still delivers good QoL on average even
+/// though the cap is not perfectly stable.
+///
+/// Marked `#[ignore]`. Run with:
+/// `cargo test --test workspace_fairness fairness_oscillation -- --ignored --nocapture`.
+#[sqlx::test(fixtures("base"))]
+#[ignore]
+#[serial]
+async fn fairness_oscillation_long_run(db: Pool<Postgres>) {
+    // Use the *production default* 10-second window so the cap/uncap cycle
+    // matches what the cluster actually sees. (Other tests use a 3s window
+    // to keep wall-clock short.)
+    reset_fairness_state();
+    WORKSPACE_FAIRNESS_DURATION_SECS.store(10, Ordering::Relaxed);
+
+    let push_dur = Duration::from_secs(25);
+    // No drain — we don't care about post-push tail; the time-series view
+    // already includes everything in the active window.
+    let drain_dur = Duration::from_secs(2);
+
+    let treatment = run_scenario(
+        &db,
+        "treatment (fairness ON) — long run, 10s window",
+        true,
+        push_dur,
+        drain_dur,
+        50,
+        10,
+    )
+    .await;
+
+    let total_buckets = (push_dur.as_secs() + drain_dur.as_secs() + 2) as usize;
+    let victims = ["victim_0", "victim_1", "victim_2", "victim_3", "victim_4"];
+
+    // Merge all victim events into one stream for the time-series view —
+    // QoL per-second across all victim workspaces is what we want to inspect.
+    let mut merged: Vec<(u64, u64)> = Vec::new();
+    for v in &victims {
+        if let Some(es) = treatment.events.get(*v) {
+            merged.extend_from_slice(es);
+        }
+    }
+    let series = time_series(&merged, total_buckets);
+
+    println!(
+        "\n=== victim latency per second (treatment, 10s window) ===\n{:>4} {:>6} {:>6} {:>6} {:>6}",
+        "sec", "count", "p50", "p95", "max"
+    );
+    for (sec, count, p50, p95, mx) in &series {
+        println!("{:>4} {:>6} {:>6} {:>6} {:>6}", sec, count, p50, p95, mx);
+    }
+
+    // Same view for noisy — visualises the cap on/off pattern. A capped
+    // bucket has near-zero completions; an uncapped bucket has many.
+    let noisy_events = treatment.events.get("noisy").cloned().unwrap_or_default();
+    let noisy_series = time_series(&noisy_events, total_buckets);
+    println!("\n=== noisy completions per second (treatment) ===");
+    for (sec, count, _, _, _) in &noisy_series {
+        println!("sec {:>3}: {:>5} noisy completions", sec, count);
+    }
+
+    // Aggregate p95 and worst-bucket p95 across the active window (skip the
+    // first second, which is dominated by warmup before the first refresh).
+    let active: Vec<&(usize, usize, u64, u64, u64)> = series
+        .iter()
+        .filter(|(sec, count, ..)| *sec >= 1 && *sec < push_dur.as_secs() as usize && *count > 0)
+        .collect();
+    let avg_p95: u64 = if active.is_empty() {
+        0
+    } else {
+        active.iter().map(|x| x.3).sum::<u64>() / active.len() as u64
+    };
+    let worst_p95: u64 = active.iter().map(|x| x.3).max().unwrap_or(0);
+    let buckets_over_2s = active.iter().filter(|x| x.3 > 2000).count();
+    let buckets_over_5s = active.iter().filter(|x| x.3 > 5000).count();
+    println!(
+        "\nactive window: {} sec, avg per-second victim p95 = {} ms, worst per-second p95 = {} ms",
+        active.len(),
+        avg_p95,
+        worst_p95,
+    );
+    println!(
+        "seconds with victim p95 > 2s: {} / {},  > 5s: {} / {}",
+        buckets_over_2s,
+        active.len(),
+        buckets_over_5s,
+        active.len(),
+    );
+
+    // The user's hypothesis under test: "10s latency on and off". The cycle
+    // period is ~window + refresh interval ≈ 12-15s; the oscillation peak
+    // (time spent in the uncapped state, which is when victims wait) is
+    // bounded by the refresh interval, NOT the window. So we expect:
+    //   - average per-second victim p95 well under 1s (cap mostly holds)
+    //   - worst-second p95 under 5s (oscillation peaks are bounded)
+    //   - only a small minority of seconds spent in the high-latency regime
+    //
+    // If any of these break, the cap/uncap cycle is too long or too costly,
+    // and the algorithm needs to revisit the refresh cadence vs window size.
+    let summary_v: Vec<&WsSummary> = victims
+        .iter()
+        .map(|v| pick(&treatment.summary, v))
+        .collect();
+    let total_completed: u64 = summary_v.iter().map(|s| s.completed).sum();
+    let total_pushed: u64 = summary_v.iter().map(|s| s.pushed).sum();
+    println!(
+        "total victim completion rate: {:.1}% ({}/{})",
+        100.0 * total_completed as f64 / total_pushed.max(1) as f64,
+        total_completed,
+        total_pushed,
+    );
+
+    assert!(
+        avg_p95 < 1500,
+        "average per-second victim p95 = {} ms — cap is not holding most of the time",
+        avg_p95,
+    );
+    assert!(
+        worst_p95 < 5_000,
+        "worst-second victim p95 = {} ms — oscillation peak exceeds 5s, \
+         which means uncapped windows are too long. Reduce refresh interval \
+         or shorten the duration window.",
+        worst_p95,
+    );
+    assert!(
+        buckets_over_2s <= active.len() / 4,
+        "victims spent > 2s p95 in {} / {} buckets — oscillation is more \
+         frequent than expected (more than 25% of the simulation)",
+        buckets_over_2s,
+        active.len(),
+    );
+}
+
+/// **Burst-then-stop scenario.** A noisy workspace enqueues 10,000 jobs in a
+/// single burst at t=0 (all with the same `scheduled_for = now()`, so they
+/// sit at the front of the FIFO queue forever after) and then stops pushing.
+/// Victim workspaces push modestly throughout.
+///
+/// This is the worst-case oscillation regime for the algorithm: once noisy is
+/// uncapped, every worker grabs from its backlog because it has the lowest
+/// `scheduled_for` in the queue — exactly the behavior the user pointed at.
+/// The question is how much that costs victims.
+///
+/// Mechanics with `WORKSPACE_FAIRNESS_DURATION_SECS = 10` (production default):
+/// 1. t ≈ 0–1 s: workers drain ~500 noisy jobs FIFO. First refresh sees
+///    noisy at ~100% of activity → CAPPED.
+/// 2. t ≈ 1–11 s: noisy capped. Workers serve victims only. Noisy queue
+///    stays at ~9,500.
+/// 3. t ≈ 11 s: the noisy completions from step 1 age out of the rolling
+///    window. Noisy share drops to 0% → UNCAPPED.
+/// 4. t ≈ 11 s – 11 s + (refresh_interval): workers all switch to noisy
+///    (oldest `scheduled_for`). Victims queue. Within ~1 refresh interval
+///    the next refresh sees noisy dominant again → RE-CAPPED.
+/// 5. Cycle repeats every ~(window + refresh_interval) ≈ 12 s.
+///
+/// Asserts:
+///   - average per-second victim p95 stays well under 1 s
+///   - worst per-second victim p95 stays under 3 s (uncapped bursts are bounded)
+///   - the bulk of noisy is still drained (the cap is throttling, not excluding)
+///
+/// Run with:
+/// `cargo test --test workspace_fairness fairness_burst -- --ignored --nocapture`.
+#[sqlx::test(fixtures("base"))]
+#[ignore]
+#[serial]
+async fn fairness_burst_then_stop(sqlx_db: Pool<Postgres>) {
+    reset_fairness_state();
+    WORKSPACE_FAIRNESS_DURATION_SECS.store(10, Ordering::Relaxed);
+    WORKSPACE_FAIRNESS_MIN_TOTAL.store(10, Ordering::Relaxed);
+
+    // Wider pool so 50 workers really run in parallel.
+    let opts = (*sqlx_db.connect_options()).clone();
+    let db = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(80)
+        .min_connections(20)
+        .acquire_timeout(Duration::from_secs(10))
+        .connect_with(opts)
+        .await
+        .expect("build burst pool");
+    let db = &db;
+
+    create_workspace(db, "noisy").await;
+    for i in 0..3 {
+        create_workspace(db, &format!("victim_{i}")).await;
+    }
+
+    sqlx::query(
+        "DELETE FROM v2_job_queue WHERE workspace_id IN ('noisy','victim_0','victim_1','victim_2')",
+    )
+    .execute(db)
+    .await
+    .unwrap();
+    sqlx::query(
+        "DELETE FROM v2_job_completed WHERE workspace_id IN ('noisy','victim_0','victim_1','victim_2')",
+    )
+    .execute(db)
+    .await
+    .unwrap();
+    sqlx::query("DELETE FROM background_task_state WHERE name = 'workspace_fairness'")
+        .execute(db)
+        .await
+        .unwrap();
+
+    // The burst: 10_000 noisy queued jobs, all with same scheduled_for. They
+    // will hold the front-of-queue position for the entire simulation, which
+    // is the scenario under test.
+    let burst_size = 10_000_i64;
+    sqlx::query(
+        "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, running, tag, extras)
+         SELECT gen_random_uuid(), 'noisy', NOW(), false, 'deno',
+                jsonb_build_object('duration_ms', 80)
+         FROM generate_series(1, $1::int)",
+    )
+    .bind(burst_size)
+    .execute(db)
+    .await
+    .unwrap();
+
+    let stats = Arc::new(Mutex::new(Stats::new()));
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let fairness_flag = Arc::new(AtomicBool::new(true));
+    let completed = Arc::new(AtomicU64::new(0));
+    let started = Instant::now();
+    {
+        let mut s = stats.lock().await;
+        s.started = Some(started);
+        for _ in 0..burst_size {
+            s.pushed_inc("noisy");
+        }
+    }
+
+    // 50 workers.
+    let mut worker_handles = Vec::new();
+    for wid in 0..50u32 {
+        let db = db.clone();
+        let stats = stats.clone();
+        let shutdown = shutdown.clone();
+        let fairness_flag = fairness_flag.clone();
+        let completed = completed.clone();
+        worker_handles.push(tokio::spawn(async move {
+            mock_worker(wid, db, fairness_flag, shutdown, stats, completed).await
+        }));
+    }
+
+    // Refresh task at 250ms cadence.
+    let refresh_handle = {
+        let db = db.clone();
+        let shutdown = shutdown.clone();
+        tokio::spawn(async move { refresh_loop(db, shutdown).await })
+    };
+
+    // Victim pushers: 3 workspaces, 20 jobs/s each, 80 ms durations,
+    // sustained for the full simulation. Total victim demand: 60 jobs/s.
+    let sim_dur = Duration::from_secs(30);
+    let mut pusher_handles = vec![];
+    for i in 0..3 {
+        let db = db.clone();
+        let stats = stats.clone();
+        let shutdown = shutdown.clone();
+        let ws = format!("victim_{i}");
+        pusher_handles.push(tokio::spawn(async move {
+            pusher(db, ws, 20, 80, 81, sim_dur, 100 + i as u64, stats, shutdown).await;
+        }));
+    }
+    for h in pusher_handles {
+        let _ = h.await;
+    }
+
+    // Brief drain so any queued victim jobs at the end have a chance to land.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    shutdown.store(true, Ordering::Relaxed);
+    for h in worker_handles {
+        let _ = h.await;
+    }
+    let _ = refresh_handle.await;
+
+    let stats = stats.lock().await;
+    let summary = summarize(&stats);
+    print_summary("burst-then-stop (fairness ON, 10s window)", &summary);
+
+    let total_buckets = (sim_dur.as_secs() + 4) as usize;
+    let victims = ["victim_0", "victim_1", "victim_2"];
+    let mut merged: Vec<(u64, u64)> = Vec::new();
+    for v in &victims {
+        if let Some(es) = stats.events.get(*v) {
+            merged.extend_from_slice(es);
+        }
+    }
+    let series = time_series(&merged, total_buckets);
+    println!("\n=== victim latency per second (burst-then-stop) ===");
+    println!(
+        "{:>4} {:>6} {:>6} {:>6} {:>6}",
+        "sec", "count", "p50", "p95", "max"
+    );
+    for (sec, count, p50, p95, mx) in &series {
+        println!("{:>4} {:>6} {:>6} {:>6} {:>6}", sec, count, p50, p95, mx);
+    }
+
+    let noisy_events = stats.events.get("noisy").cloned().unwrap_or_default();
+    let noisy_series = time_series(&noisy_events, total_buckets);
+    println!("\n=== noisy completions per second (burst-then-stop) ===");
+    for (sec, count, _, _, _) in &noisy_series {
+        let bar = "#".repeat((count / 10).min(60) as usize);
+        println!("sec {:>3}: {:>5}  {}", sec, count, bar);
+    }
+
+    let active: Vec<&(usize, usize, u64, u64, u64)> = series
+        .iter()
+        .filter(|(sec, count, ..)| *sec >= 1 && *sec < sim_dur.as_secs() as usize && *count > 0)
+        .collect();
+    let avg_p95: u64 = if active.is_empty() {
+        0
+    } else {
+        active.iter().map(|x| x.3).sum::<u64>() / active.len() as u64
+    };
+    let worst_p95: u64 = active.iter().map(|x| x.3).max().unwrap_or(0);
+    let buckets_over_1s = active.iter().filter(|x| x.3 > 1000).count();
+    println!(
+        "\nburst-then-stop summary: avg per-second victim p95 = {} ms, worst = {} ms, \
+         seconds with p95 > 1s: {} / {}",
+        avg_p95,
+        worst_p95,
+        buckets_over_1s,
+        active.len(),
+    );
+    let noisy_drained = noisy_events.len();
+    println!(
+        "noisy jobs drained over simulation: {} / {} ({:.1}%)",
+        noisy_drained,
+        burst_size,
+        100.0 * noisy_drained as f64 / burst_size as f64,
+    );
+
+    // Sanity: every victim still completes (cap is throttling not excluding).
+    for v in &victims {
+        let t = summary.iter().find(|s| s.workspace == *v).unwrap();
+        let rate = t.completed as f64 / t.pushed.max(1) as f64;
+        assert!(
+            rate > 0.95,
+            "victim {v} completion rate {:.1}% — fairness should protect victims even under burst",
+            rate * 100.0,
+        );
+    }
+
+    // The actual QoL claim we're testing against the user's hypothesis:
+    // even though workers fully switch to noisy during each uncapped interval,
+    // the uncap is bounded by the refresh interval, so the per-second victim
+    // p95 stays well under 1 s on average and under 3 s in the worst second.
+    assert!(
+        avg_p95 < 1_000,
+        "average per-second victim p95 under burst was {} ms — \
+         oscillation is degrading victim QoL more than expected",
+        avg_p95,
+    );
+    assert!(
+        worst_p95 < 3_000,
+        "worst per-second victim p95 under burst was {} ms — \
+         uncapped bursts are too long; check ACTIVE_REFRESH_SECS",
+        worst_p95,
     );
 }
