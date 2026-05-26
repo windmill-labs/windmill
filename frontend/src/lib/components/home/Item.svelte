@@ -54,6 +54,9 @@
 		{showCode}
 		{showEditButton}
 		{keyboardSelected}
+		hasLocalChanges={item.hasLocalChanges}
+		localOnly={item.localOnly}
+		newScript={item.newScript}
 	/>
 {:else if item.type == 'flow'}
 	<FlowRow

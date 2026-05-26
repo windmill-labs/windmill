@@ -15,6 +15,9 @@
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
+	import LocalChangesBadge from '$lib/components/LocalChangesBadge.svelte'
+	import NewBadge from '$lib/components/NewBadge.svelte'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { capitalize, copyToClipboard, DELETE, isOwner } from '$lib/utils'
 	import { isDeployable } from '$lib/utils_deployable'
@@ -63,6 +66,9 @@
 		menuOpen?: boolean
 		showEditButton?: boolean
 		keyboardSelected?: boolean
+		hasLocalChanges?: boolean
+		localOnly?: boolean
+		newScript?: boolean
 	}
 
 	let {
@@ -77,8 +83,15 @@
 		depth = 0,
 		menuOpen = $bindable(false),
 		showEditButton = $bindable(true),
-		keyboardSelected = false
+		keyboardSelected = false,
+		hasLocalChanges = false,
+		localOnly = false,
+		newScript = false
 	}: Props = $props()
+
+	// A new script created in /scripts/add is stored under the empty path, so it
+	// is only reachable from the add route, not /scripts/edit/<path>.
+	let editHref = $derived(newScript ? `${base}/scripts/add` : `${base}/scripts/edit/${script.path}`)
 
 	const dispatch = createEventDispatcher()
 
@@ -121,8 +134,10 @@
 <Row
 	aiId={`script-run-button-${script.path}`}
 	aiDescription={`Button to access the form to run the script ${script.summary ?? script.path}`}
-	href={script.draft_only || (script.auto_kind === 'lib' && script.kind !== 'preprocessor')
-		? `${base}/scripts/edit/${script.path}`
+	href={localOnly ||
+	script.draft_only ||
+	(script.auto_kind === 'lib' && script.kind !== 'preprocessor')
+		? editHref
 		: `${base}/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
 	kind="script"
 	{marked}
@@ -130,7 +145,7 @@
 	summary={script.summary}
 	{errorHandlerMuted}
 	workspaceId={$workspaceStore ?? ''}
-	canFavorite={!script.draft_only}
+	canFavorite={!script.draft_only && !localOnly}
 	{depth}
 	{keyboardSelected}
 >
@@ -169,6 +184,8 @@
 		{/if}
 		<SharedBadge canWrite={script.canWrite} extraPerms={script.extra_perms} />
 		<DraftBadge has_draft={script.has_draft} draft_only={script.draft_only} />
+		<NewBadge is_new={localOnly} />
+		<LocalChangesBadge has_local_changes={hasLocalChanges && !localOnly} />
 		{#if script.labels?.length}
 			<div class="flex items-center gap-0.5">
 				{#each script.labels.slice(0, 3) as label}
@@ -211,7 +228,7 @@
 								wrapperClasses="w-20"
 								unifiedSize="md"
 								startIcon={{ icon: Pen }}
-								href="{base}/scripts/edit/{script.path}"
+								href={editHref}
 							>
 								Edit
 							</Button>
@@ -239,6 +256,23 @@
 			items={async () => {
 				let owner = isOwner(script.path, $userStore, $workspaceStore)
 				const canEdit = script.canWrite && showEditButton
+				if (localOnly) {
+					// No server record exists, so server-backed actions (view code,
+					// delete by path) would 404. Only the localStorage draft can be removed.
+					return [
+						{
+							displayName: 'Discard local draft',
+							icon: Trash,
+							action: () => {
+								// clear() drops both the localStorage entry and the in-memory
+								// live state, so the row disappears without a reload.
+								UserDraft.clear('script', newScript ? '' : script.path)
+								dispatch('change')
+							},
+							type: dlt
+						}
+					]
+				}
 				if (script.draft_only) {
 					return [
 						{

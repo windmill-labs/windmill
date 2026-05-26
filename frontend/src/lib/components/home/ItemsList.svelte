@@ -12,6 +12,7 @@
 		type ListableRawApp
 	} from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
 		ChevronsDownUp,
@@ -40,7 +41,7 @@
 	import Item from './Item.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import { getContext, tick, untrack } from 'svelte'
+	import { getContext, onMount, tick, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	interface Props {
@@ -63,6 +64,12 @@
 		starred?: boolean
 		has_draft?: boolean
 		hash?: string
+		// Whether a localStorage draft (UserDraft) exists for this item's path
+		hasLocalChanges?: boolean
+		// Synthesized row backed only by a localStorage draft (no server record)
+		localOnly?: boolean
+		// Local-only draft created in /scripts/add (stored under the empty path)
+		newScript?: boolean
 	}
 
 	type TableScript = TableItem<Script, 'script'>
@@ -74,6 +81,31 @@
 	let flows: TableFlow[] | undefined = $state()
 	let apps: TableApp[] | undefined = $state()
 	let raw_apps: TableRawApp[] | undefined = $state()
+
+	// Bumped to recompute the localStorage draft list. localStorage writes from
+	// the same tab don't emit `storage` events, so we also refresh on window
+	// focus (returning from an editor) and on the row reload events.
+	let localDraftToken = $state(0)
+	let localScriptDrafts = $derived.by(() => {
+		localDraftToken
+		return $workspaceStore
+			? UserDraft.list<Partial<Script>>({ workspace: $workspaceStore, itemKinds: ['script'] })
+			: []
+	})
+
+	onMount(() => {
+		const onStorage = (event: StorageEvent) => {
+			if (event.key?.startsWith('userdraft/')) localDraftToken++
+		}
+		const onFocus = () => localDraftToken++
+		window.addEventListener('storage', onStorage)
+		window.addEventListener('focus', onFocus)
+		localDraftToken++
+		return () => {
+			window.removeEventListener('storage', onStorage)
+			window.removeEventListener('focus', onFocus)
+		}
+	})
 
 	let filteredItems: (TableScript | TableFlow | TableApp | TableRawApp)[] = $state([])
 
@@ -270,34 +302,82 @@
 		}
 	})
 
-	let combinedItems = $derived(
-		flows == undefined || scripts == undefined || apps == undefined || raw_apps == undefined
-			? undefined
-			: [
-					...flows.map((x) => ({
-						...x,
-						type: 'flow' as 'flow',
-						time: new Date(x.edited_at).getTime()
-					})),
-					...scripts.map((x) => ({
-						...x,
-						type: 'script' as 'script',
-						time: new Date(x.created_at).getTime()
-					})),
-					...apps.map((x) => ({
-						...x,
-						type: 'app' as 'app',
-						time: new Date(x.edited_at).getTime()
-					})),
-					...raw_apps.map((x) => ({
-						...x,
-						type: 'raw_app' as 'raw_app',
-						time: new Date(x.edited_at).getTime()
-					}))
-				].sort((a, b) =>
-					a.starred != b.starred ? (a.starred ? -1 : 1) : a.time - b.time > 0 ? -1 : 1
-				)
-	)
+	let combinedItems = $derived.by(() => {
+		if (flows == undefined || scripts == undefined || apps == undefined || raw_apps == undefined) {
+			return undefined
+		}
+		// Resolve a user-facing path for each local script draft: the storage key
+		// path for named scripts, or the value's path for a new script being
+		// created in /scripts/add (stored under the empty path).
+		const serverScriptPaths = new Set(scripts.map((s) => s.path))
+		const localChangePaths = new Set<string>()
+		const localOnlyScripts: TableScript[] = []
+		const seenLocalOnly = new Set<string>()
+		for (const entry of localScriptDrafts) {
+			const isNewScript = entry.path === ''
+			const displayPath = isNewScript ? (entry.value?.path ?? '') : entry.path
+			if (!displayPath) continue
+			localChangePaths.add(displayPath)
+			if (serverScriptPaths.has(displayPath)) continue
+			if (archived || seenLocalOnly.has(displayPath)) continue
+			seenLocalOnly.add(displayPath)
+			const value = entry.value
+			localOnlyScripts.push({
+				path: displayPath,
+				summary: value?.summary ?? '',
+				description: '',
+				content: value?.content ?? '',
+				language: value?.language,
+				kind: value?.kind ?? 'script',
+				hash: '',
+				created_at: new Date().toISOString(),
+				created_by: $userStore?.username ?? '',
+				archived: false,
+				deleted: false,
+				is_template: false,
+				starred: false,
+				extra_perms: {},
+				// A local-only script is NOT a server draft — don't set the
+				// server-side draft flags. The yellow "Local changes" badge (driven
+				// by localOnly) is what marks it; href/favorite use localOnly/newScript.
+				draft_only: false,
+				has_draft: false,
+				canWrite: !$userStore?.operator,
+				use_codebase: false,
+				type: 'script',
+				time: Date.now(),
+				hasLocalChanges: true,
+				localOnly: true,
+				newScript: isNewScript
+			} as unknown as TableScript)
+		}
+		return [
+			...flows.map((x) => ({
+				...x,
+				type: 'flow' as 'flow',
+				time: new Date(x.edited_at).getTime()
+			})),
+			...scripts.map((x) => ({
+				...x,
+				type: 'script' as 'script',
+				time: new Date(x.created_at).getTime(),
+				hasLocalChanges: localChangePaths.has(x.path)
+			})),
+			...apps.map((x) => ({
+				...x,
+				type: 'app' as 'app',
+				time: new Date(x.edited_at).getTime()
+			})),
+			...raw_apps.map((x) => ({
+				...x,
+				type: 'raw_app' as 'raw_app',
+				time: new Date(x.edited_at).getTime()
+			})),
+			...localOnlyScripts
+		].sort((a, b) =>
+			a.starred != b.starred ? (a.starred ? -1 : 1) : (a.time ?? 0) - (b.time ?? 0) > 0 ? -1 : 1
+		)
+	})
 	let allLabels = $derived(
 		Array.from(
 			new Set(combinedItems?.flatMap((x) => ('labels' in x && x.labels) || []) ?? [])
@@ -801,7 +881,10 @@
 				{nbDisplayed}
 				{collapseAll}
 				isSearching={filter !== ''}
-				on:scriptChanged={() => loadScripts(includeWithoutMain)}
+				on:scriptChanged={() => {
+					loadScripts(includeWithoutMain)
+					localDraftToken++
+				}}
 				on:flowChanged={loadFlows}
 				on:appChanged={loadApps}
 				on:rawAppChanged={loadRawApps}
@@ -810,6 +893,7 @@
 					loadFlows()
 					loadApps()
 					loadRawApps()
+					localDraftToken++
 				}}
 				{showCode}
 			/>
@@ -818,7 +902,10 @@
 				{#each displayedItems as item, i (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
 					<Item
 						{item}
-						on:scriptChanged={() => loadScripts(includeWithoutMain)}
+						on:scriptChanged={() => {
+							loadScripts(includeWithoutMain)
+							localDraftToken++
+						}}
 						on:flowChanged={loadFlows}
 						on:appChanged={loadApps}
 						on:rawAppChanged={loadRawApps}
@@ -827,6 +914,7 @@
 							loadFlows()
 							loadApps()
 							loadRawApps()
+							localDraftToken++
 						}}
 						{showCode}
 						showEditButton={showEditButtons}
