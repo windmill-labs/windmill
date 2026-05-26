@@ -18,6 +18,7 @@ pub struct McpToolSource {
 use crate::{
     ai_google::sanitize_schema_for_google,
     ai_providers::{empty_string_as_none, AIProvider},
+    proxy::ProviderCredentials,
 };
 use windmill_common::{db::DB, error::Error, flow_status::AgentAction, flows::FlowModule};
 use windmill_parser::Typ;
@@ -220,6 +221,34 @@ impl ProviderWithResource {
         self.kind
             .get_base_url(self.resource.base_url.clone(), db)
             .await
+    }
+
+    /// Convert worker agent provider input into resolved runtime credentials.
+    ///
+    /// Callers must only pass resources that were already authorized for the
+    /// current job/workspace; this helper does not perform access checks.
+    pub async fn to_provider_credentials(&self, db: &DB) -> Result<ProviderCredentials, Error> {
+        let base_url = if self.kind == AIProvider::AWSBedrock {
+            String::new()
+        } else {
+            self.get_base_url(db).await?
+        };
+
+        Ok(ProviderCredentials {
+            provider: self.kind.clone(),
+            base_url,
+            api_key: self.resource.api_key.clone(),
+            access_token: None,
+            organization_id: None,
+            user: None,
+            region: self.resource.region.clone(),
+            aws_access_key_id: self.resource.aws_access_key_id.clone(),
+            aws_secret_access_key: self.resource.aws_secret_access_key.clone(),
+            aws_session_token: self.resource.aws_session_token.clone(),
+            platform: self.resource.platform.clone(),
+            enable_1m_context: self.resource.enable_1m_context,
+            custom_headers: self.resource.headers.clone(),
+        })
     }
 
     #[cfg(feature = "bedrock")]
