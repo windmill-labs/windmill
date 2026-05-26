@@ -1,32 +1,32 @@
-//! Tests for the cloud workspace-fairness algorithm.
+//! Tests for the workspace-fairness algorithm (Enterprise feature).
 //!
-//! The cloud cluster runs a single shared worker pool. A "noisy" workspace
-//! that floods the queue can starve the rest of the cluster of slots. The
-//! algorithm in `windmill_queue::workspace_fairness` periodically aggregates
-//! per-workspace activity (running jobs + jobs completed in a rolling window)
-//! and excludes any workspace whose share of cluster activity exceeds
-//! `WORKSPACE_FAIRNESS_MAX_PERCENT`% of the total from the next pull cycles.
+//! Multi-tenant clusters with a single shared worker pool let one workspace
+//! starve the others if it floods the queue. The algorithm in
+//! `windmill_queue::workspace_fairness_ee` periodically aggregates
+//! per-workspace activity and stochastically excludes any workspace whose
+//! share of cluster activity exceeds `WORKSPACE_FAIRNESS_MAX_PERCENT`%.
 //!
 //! There are two layers of tests in this file:
 //!
-//! 1. **Unit-style tests** (the first five) exercise the algorithm's response
-//!    to fabricated activity tables. They are deterministic and fast.
+//! 1. **Unit-style tests** (the first six) exercise the algorithm's response
+//!    to fabricated activity tables and verify the audit-log writer. They are
+//!    deterministic and fast.
 //!
-//! 2. **Simulation test** `fairness_50_workers_diverse_workload` spins up 50
-//!    mock workers (async tasks doing the real pull → mark-running → sleep →
-//!    complete cycle over real `v2_job_queue` rows), drives sustained diverse
-//!    traffic from one noisy workspace + many victim workspaces, and measures
-//!    the per-workspace **quality of service** (completion count, latency
-//!    percentiles) both with fairness ON and OFF. It then asserts the
-//!    treatment beats the control on the metric that matters: victim p95
-//!    latency.
+//! 2. **Simulation tests** (`fairness_50_workers_diverse_workload`,
+//!    `fairness_oscillation_long_run`, `fairness_burst_then_stop`) spin up
+//!    50 mock workers (async tasks doing the real pull → mark-running →
+//!    sleep → complete cycle over real `v2_job_queue` rows), drive sustained
+//!    diverse traffic from one noisy workspace + many victim workspaces, and
+//!    measure the per-workspace **quality of service**. They are marked
+//!    `#[ignore]` so the default `cargo test` stays fast — run with
+//!    `--ignored` to exercise them.
 //!
-//! The cloud gate (`CLOUD_HOSTED` + `BASE_URL == app.windmill.dev`) is
-//! enforced only inside the wrapper `maybe_refresh_overloaded` and in the
-//! settings API. The algorithm itself (`refresh_overloaded`) is gate-free —
-//! these tests call it directly with the per-process atomics set to
-//! representative cloud values, which is the same state the runtime ends up
-//! in once the gate flips on.
+//! The entire file is gated on `private` because the algorithm itself only
+//! compiles into the binary in EE builds. In OSS the `workspace_fairness`
+//! module is a thin set of no-op stubs, so a test against it would have
+//! nothing to assert.
+
+#![cfg(feature = "private")]
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
