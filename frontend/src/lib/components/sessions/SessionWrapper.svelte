@@ -40,6 +40,7 @@
 		sessionState,
 		setSessionArchived,
 		setSessionTarget,
+		syncWorkspaceTo,
 		type SessionTarget
 	} from './sessionState.svelte'
 	import { editorWarmIds, getOrCreateRuntime, removeSession } from './sessionRuntime.svelte'
@@ -114,6 +115,11 @@
 		deleteConfirmOpen = false
 		if (!session) return
 		const forkToDelete = deleteAlsoFork ? sessionForkId : undefined
+		// Capture the fork's parent before the workspace list is refreshed
+		// below — afterwards the fork is gone from $userWorkspaces.
+		const forkParentId = forkToDelete
+			? $userWorkspaces.find((w) => w.id === forkToDelete)?.parent_workspace_id
+			: undefined
 		deleteAlsoFork = false
 		removeSession(session.id)
 		if (forkToDelete) {
@@ -124,6 +130,12 @@
 			} catch (e: any) {
 				sendUserToast(`Failed to delete fork ${forkToDelete}: ${e?.body ?? e}`, true)
 			}
+		}
+		// If the deleted fork was the active workspace, fall back to its parent
+		// so the new session (created below) opens against a live workspace
+		// instead of the one we just removed.
+		if (forkToDelete && forkParentId && $workspaceStore === forkToDelete) {
+			syncWorkspaceTo(forkParentId)
 		}
 		await resetToNewSession()
 	}

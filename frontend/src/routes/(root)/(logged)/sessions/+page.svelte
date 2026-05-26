@@ -1,8 +1,12 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
+	import { Plus } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
+	import { goto } from '$lib/navigation'
 	import SessionWrapper from '$lib/components/sessions/SessionWrapper.svelte'
 	import {
+		createSession,
 		getEffectiveWorkspaceId,
 		selectSession,
 		sessionState,
@@ -129,6 +133,11 @@
 		const count = rt.manager.displayMessages.length
 		untrack(() => markSessionSeen(id, count))
 	})
+
+	async function startNewSession() {
+		const fresh = createSession()
+		await goto(`/sessions?session_name=${encodeURIComponent(fresh.name)}`)
+	}
 </script>
 
 {#if !globalEnabled}
@@ -138,6 +147,19 @@
 	</div>
 {:else if !sessionName}
 	<div class="p-8 text-secondary">No session selected — pick one in the sidebar.</div>
+{:else if !sessionByName}
+	<!-- A session_name is in the URL but no session by that name exists — e.g. a
+	     deleted session or a link opened in a different browser. -->
+	<div class="p-8 flex flex-col items-start gap-3 text-secondary text-sm">
+		<div class="flex flex-col gap-1">
+			<p class="text-primary font-medium">Session not found</p>
+			<p>
+				No session named <code class="font-mono text-2xs">{sessionName}</code> exists. It may have been
+				deleted, or this link was created in a different browser.
+			</p>
+		</div>
+		<Button size="xs" startIcon={{ icon: Plus }} on:click={startNewSession}>New session</Button>
+	</div>
 {:else}
 	<div class="relative flex-1 min-h-0">
 		{#each warmSessions as s (s.id)}

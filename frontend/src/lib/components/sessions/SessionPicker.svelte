@@ -46,7 +46,7 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { visibleWorkspaceIds } from './sessionScope.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
-	import { userWorkspaces, usersWorkspaceStore } from '$lib/stores'
+	import { userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 
@@ -142,6 +142,19 @@
 	// collapsed-sidebar chat icon so the user sees there's pending
 	// AI activity in some session without expanding the sidebar.
 	const totalUnread = $derived(visibleSessions.reduce((acc, s) => acc + unreadFor(s), 0))
+
+	// Clear any persisted collapsed state while the list is empty. The
+	// empty-state header is a plain label with no toggle, so a collapse
+	// carried over from a previous session (or another workspace) would
+	// otherwise hide the user's first new session with no way to expand
+	// it. Resetting here keeps the section expanded by default whenever
+	// the first session arrives. Guarded on the current value so it writes
+	// once (true → false) rather than looping.
+	$effect(() => {
+		if (visibleSessions.length === 0 && sectionCollapsed.val) {
+			sectionCollapsed.val = false
+		}
+	})
 
 	// Eagerly create a runtime per VISIBLE session so the status dot reflects
 	// the persisted chat (last message, pending confirmation, etc.) without
@@ -240,6 +253,12 @@
 	async function handleConfirmedDelete() {
 		const session = pendingDelete
 		const forkToDelete = deleteAlsoFork ? pendingDeleteForkId : undefined
+		// Capture the fork's parent before the workspace list is refreshed
+		// below — afterwards the fork is gone from $userWorkspaces and the
+		// lookup would return undefined.
+		const forkParentId = forkToDelete
+			? $userWorkspaces.find((w) => w.id === forkToDelete)?.parent_workspace_id
+			: undefined
 		pendingDelete = undefined
 		deleteAlsoFork = true
 		if (!session) return
@@ -254,6 +273,11 @@
 			} catch (e: any) {
 				sendUserToast(`Failed to delete fork ${forkToDelete}: ${e?.body ?? e}`, true)
 			}
+		}
+		// If the deleted fork was the active workspace, fall back to its parent
+		// so the user isn't stranded on a workspace that no longer exists.
+		if (forkToDelete && forkParentId && $workspaceStore === forkToDelete) {
+			syncWorkspaceTo(forkParentId)
 		}
 		if (wasActive) {
 			const next = sessionState.sessions[0]
@@ -381,19 +405,28 @@
 {:else}
 	<div class="px-2 pt-3 pb-2 flex flex-col gap-1 border-b border-light dark:border-gray-700">
 		<div class="flex flex-row items-center justify-between pl-1 pr-0.5">
-			<button
-				type="button"
-				onclick={() => (sectionCollapsed.val = !sectionCollapsed.val)}
-				class="text-secondary text-[0.5rem] uppercase flex flex-row items-center gap-1 rounded px-1 -mx-1 py-0.5 hover:bg-surface-hover focus:outline-none"
-				aria-expanded={!sectionCollapsed.val}
-			>
-				AI sessions
-				{#if sectionCollapsed.val}
-					<ChevronRight size={10} />
-				{:else}
-					<ChevronDown size={10} />
-				{/if}
-			</button>
+			{#if visibleSessions.length > 0}
+				<button
+					type="button"
+					onclick={() => (sectionCollapsed.val = !sectionCollapsed.val)}
+					class="text-secondary text-[0.5rem] uppercase flex flex-row items-center gap-1 rounded px-1 -mx-1 py-0.5 hover:bg-surface-hover focus:outline-none"
+					aria-expanded={!sectionCollapsed.val}
+				>
+					AI sessions
+					{#if sectionCollapsed.val}
+						<ChevronRight size={10} />
+					{:else}
+						<ChevronDown size={10} />
+					{/if}
+				</button>
+			{:else}
+				<!-- No sessions yet: render the label as plain text (no collapse toggle). -->
+				<span
+					class="text-secondary text-[0.5rem] uppercase flex flex-row items-center gap-1 px-1 -mx-1 py-0.5"
+				>
+					AI sessions
+				</span>
+			{/if}
 			<div class="flex flex-row items-center gap-0.5">
 				<Popover placement="bottom-end" usePointerDownOutside disableFocusTrap class="inline-flex">
 					{#snippet trigger()}

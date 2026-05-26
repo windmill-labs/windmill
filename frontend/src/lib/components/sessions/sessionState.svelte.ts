@@ -470,12 +470,18 @@ export function ensureChatIdsSeeded(historyManager: HistoryManager): Promise<voi
 				const untagged = pastChats
 					.filter((c) => !c.sessionId)
 					.sort((a, b) => b.lastModified - a.lastModified)
+				// Only seed pre-existing (persisted) sessions. Transient
+				// sessions are freshly created via the "+" button and must
+				// start with an empty chat — if the seed catches one (e.g. the
+				// user clicks "New session" before this one-shot runs), it
+				// would graft a previous discussion onto the new session.
+				const seedable = sessionState.sessions.filter((s) => !s.transient)
 				let mutated = false
-				for (let i = 0; i < Math.min(sessionState.sessions.length, untagged.length); i++) {
-					if (!sessionState.sessions[i].chatId) {
+				for (let i = 0; i < Math.min(seedable.length, untagged.length); i++) {
+					if (!seedable[i].chatId) {
 						const chatId = untagged[i].id
-						const sessionId = sessionState.sessions[i].id
-						sessionState.sessions[i].chatId = chatId
+						const sessionId = seedable[i].id
+						seedable[i].chatId = chatId
 						await historyManager.tagChatWithSession(chatId, sessionId)
 						mutated = true
 					}
