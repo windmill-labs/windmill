@@ -214,3 +214,130 @@
       - deploy_workspace_item
       - delete_workspace_item
   skipJudge: true
+
+- id: global-test8-human-script-infer-path-language
+  prompt: |-
+    I need a small helper that formats a customer-facing welcome line.
+    It should take a person's name and return "Welcome aboard, <name>!".
+    Please just stage it as a draft for now.
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        valueIncludes:
+          - Welcome aboard
+          - name
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - creates a single script draft for a welcome-line helper
+    - accepts a person's name as input
+    - returns a message containing Welcome aboard, the provided name, and an exclamation mark
+    - chooses a reasonable workspace path and script language without needing the user to specify them
+    - leaves the result as an AI draft only
+
+- id: global-test9-human-weekday-trial-job
+  prompt: |-
+    Can you set up a draft daily job that checks a few hard-coded trial accounts and returns the ones whose trial has ended?
+    It should run every weekday morning around 9 in UTC with a 30 day cutoff.
+    Keep it as draft work only.
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 2
+    requiredDrafts:
+      - type: script
+        pathIncludes:
+          - trial
+        valueIncludes:
+          - trial
+          - "30"
+      - type: schedule
+        pathIncludes:
+          - trial
+        valueIncludes:
+          - UTC
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+      - write_schedule
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - creates a script draft that checks hard-coded trial accounts
+    - returns the accounts whose trial has ended based on a 30 day cutoff
+    - creates a schedule draft for weekday mornings around 09:00 UTC
+    - links the schedule to the generated script
+    - leaves both artifacts as drafts only
+
+- id: global-test10-human-secret-variable
+  prompt: |-
+    I need a placeholder Slack bot token stored securely for future notification work.
+    Use xoxb-redacted-test-token and note that it is for eval notifications.
+    Only prepare a draft.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: variable
+        pathIncludes:
+          - slack
+        valueIncludes:
+          - eval notifications
+          - "true"
+  toolExpect:
+    requiredToolsUsed:
+      - write_variable
+    forbiddenToolsUsed:
+      - write_resource
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: write_variable
+        field: value
+        stringStartsWithAnyOf:
+          - xoxb-redacted-test-token
+  skipJudge: true
+  judgeChecklist:
+    - creates a single secret variable draft for the Slack bot token placeholder
+    - uses the requested placeholder value
+    - includes a note or description that it is for eval notifications
+    - does not create a resource or deploy anything
+
+- id: global-test11-human-existing-flow-informal-edit
+  prompt: |-
+    There is an invoice processing flow in this workspace.
+    Can you adjust its total calculation so it adds 8% tax and returns subtotal, tax, and total?
+    Keep the change as a draft.
+  initial: ai_evals/fixtures/frontend/global/initial/process_invoice_flow.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: flow
+        pathIncludes:
+          - invoice
+        valueIncludes:
+          - calculate_total
+          - tax
+          - total
+  toolExpect:
+    requiredToolsUsed:
+      - read_workspace_item
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - finds and edits the existing invoice processing flow without the user providing its exact path
+    - updates the total calculation to apply 8% tax
+    - returns subtotal, tax, and total from the updated flow logic
+    - leaves the result as an AI draft only
