@@ -68,12 +68,15 @@
 		newItem = false
 	}: Props = $props()
 
-	// A local-only app opens its draft via the editor (no `nodraft`, which would
-	// discard the autosave); a brand-new one lives under the /add slot.
+	// Local-only apps (never saved to the workspace) open on the create page:
+	// a brand-new one resumes the empty-path slot; a named local draft is passed
+	// by path so /apps[_raw]/add restores it. Server apps open the edit page.
 	let editHref = $derived(
 		newItem
 			? `${base}/apps${app.raw_app ? '_raw' : ''}/add`
-			: `${base}/apps${app.raw_app ? '_raw' : ''}/edit/${app.path}`
+			: localOnly
+				? `${base}/apps${app.raw_app ? '_raw' : ''}/add?local_draft=${encodeURIComponent(app.path)}`
+				: `${base}/apps${app.raw_app ? '_raw' : ''}/edit/${app.path}`
 	)
 
 	const dispatch = createEventDispatcher()

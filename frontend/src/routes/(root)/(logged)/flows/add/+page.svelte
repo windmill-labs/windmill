@@ -15,13 +15,17 @@
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import { UserDraft } from '$lib/userDraft.svelte'
 
+	// Opening a local-only "New" flow from the home page: restore the draft stored
+	// at this path (instead of the empty new-item slot) so /flows/add resumes it.
+	const localDraftPath = page.url.searchParams.get('local_draft') ?? ''
+
 	// "+ Flow" buttons navigate with ?nodraft=true to signal "start fresh".
 	// Wipe the persisted empty-path autosave and strip the flag from the URL
 	// synchronously so a reload doesn't wipe the freshly-started draft. A
 	// plain reload of /flows/add (no nodraft) instead restores whatever the
 	// user was last working on.
 	if (page.url.searchParams.get('nodraft') && typeof window !== 'undefined') {
-		UserDraft.remove('flow', '')
+		UserDraft.remove('flow', localDraftPath)
 		const url = new URL(window.location.href)
 		url.searchParams.delete('nodraft')
 		window.history.replaceState(window.history.state, '', url.toString())
@@ -73,7 +77,9 @@
 		}
 	}
 
-	const flowHandle = UserDraft.use<Flow>('flow', '', { defaultValue: emptyFlow() })
+	const flowHandle = UserDraft.use<Flow>('flow', localDraftPath, {
+		defaultValue: localDraftPath ? undefined : emptyFlow()
+	})
 
 	const flowStore: StateStore<Flow> = {
 		get val() {

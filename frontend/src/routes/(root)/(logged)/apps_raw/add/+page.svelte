@@ -48,6 +48,9 @@
 	const templatePath = page.url.searchParams.get('template')
 	const templateId = page.url.searchParams.get('template_id')
 	const hubId = page.url.searchParams.get('hub')
+	// Opening a local-only "New" raw app from the home page: restore the draft
+	// stored at this path (instead of the empty new-item slot).
+	const localDraftPath = page.url.searchParams.get('local_draft') ?? ''
 
 	// "+ Raw App" / "+ App > Full code" buttons navigate with ?nodraft=true to
 	// signal "start fresh". Wipe the persisted empty-path autosave and strip
@@ -55,7 +58,7 @@
 	// freshly-started draft. A plain reload of /apps_raw/add (no nodraft)
 	// instead restores the previous session.
 	if (nodraft && typeof window !== 'undefined') {
-		UserDraft.discard('raw_app', '', undefined)
+		UserDraft.discard('raw_app', localDraftPath, undefined)
 		const url = new URL(window.location.href)
 		url.searchParams.delete('nodraft')
 		window.history.replaceState(window.history.state, '', url.toString())
@@ -81,7 +84,7 @@
 		summary: string
 		policy?: Policy
 		custom_path?: string
-	}>('raw_app', '')
+	}>('raw_app', localDraftPath)
 	// Restore the persisted autosave so a plain reload of /apps_raw/add
 	// resumes the last session. Captured once; the $effect below mirrors
 	// later edits back. Import/template/hub flows in loadApp() wipe the

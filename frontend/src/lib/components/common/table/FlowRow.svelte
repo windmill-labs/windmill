@@ -72,9 +72,16 @@
 		newItem = false
 	}: Props = $props()
 
-	// A local-only flow opens its draft via the editor (no `nodraft`, which would
-	// discard the autosave); a brand-new one lives under the /flows/add slot.
-	let editHref = $derived(newItem ? `${base}/flows/add` : `${base}/flows/edit/${flow.path}`)
+	// Local-only flows (never saved to the workspace) open on the create page:
+	// a brand-new one resumes the empty-path slot; a named local draft is passed
+	// by path so /flows/add restores it. Server flows open the edit page.
+	let editHref = $derived(
+		newItem
+			? `${base}/flows/add`
+			: localOnly
+				? `${base}/flows/add?local_draft=${encodeURIComponent(flow.path)}`
+				: `${base}/flows/edit/${flow.path}`
+	)
 
 	const dispatch = createEventDispatcher()
 

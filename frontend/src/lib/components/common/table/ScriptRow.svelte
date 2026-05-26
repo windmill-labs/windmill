@@ -86,9 +86,16 @@
 		newItem = false
 	}: Props = $props()
 
-	// A new script created in /scripts/add is stored under the empty path, so it
-	// is only reachable from the add route, not /scripts/edit/<path>.
-	let editHref = $derived(newItem ? `${base}/scripts/add` : `${base}/scripts/edit/${script.path}`)
+	// Local-only items (never saved to the workspace) open on the create page:
+	// a brand-new item resumes the empty-path slot; a named local draft is passed
+	// by path so /scripts/add restores it. Server items open the edit page.
+	let editHref = $derived(
+		newItem
+			? `${base}/scripts/add`
+			: localOnly
+				? `${base}/scripts/add?local_draft=${encodeURIComponent(script.path)}`
+				: `${base}/scripts/edit/${script.path}`
+	)
 
 	const dispatch = createEventDispatcher()
 

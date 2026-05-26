@@ -21,8 +21,12 @@
 	// synchronously so a reload doesn't wipe the freshly-started draft. A
 	// plain reload of /apps/add (no nodraft) instead restores the previous
 	// session via the child AppEditor's `UserDraft.use`.
+	// Opening a local-only "New" app from the home page: resume the draft stored
+	// at this path (instead of the empty new-item slot).
+	const localDraftPath = page.url.searchParams.get('local_draft') ?? ''
+
 	if (page.url.searchParams.get('nodraft') && typeof window !== 'undefined') {
-		UserDraft.remove('app', '')
+		UserDraft.remove('app', localDraftPath)
 		const url = new URL(window.location.href)
 		url.searchParams.delete('nodraft')
 		window.history.replaceState(window.history.state, '', url.toString())
@@ -131,7 +135,7 @@
 				}}
 				{summary}
 				app={value}
-				path={''}
+				path={localDraftPath}
 				{policy}
 				fromHub={hubId != null}
 				newApp={true}

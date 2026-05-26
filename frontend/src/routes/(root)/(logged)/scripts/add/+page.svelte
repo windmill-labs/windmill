@@ -44,6 +44,9 @@
 	const collabLang = page.url.searchParams.get('lang') as ScriptLang | null
 	const wacParam = page.url.searchParams.get('wac')
 	const importParam = page.url.searchParams.get('import')
+	// Opening a local-only "New" item from the home page: restore the draft stored
+	// at this path (instead of the empty new-item slot) so /scripts/add resumes it.
+	const localDraftPath = page.url.searchParams.get('local_draft') ?? ''
 
 	/** Some pages (run/[...run]'s "Fork" action, workspace_settings'
 	 * error/success-handler template buttons) base64-JSON-encode a NewScript
@@ -72,7 +75,7 @@
 	// plain reload of /scripts/add (no nodraft) instead restores the
 	// previous session.
 	if (page.url.searchParams.get('nodraft') && typeof window !== 'undefined') {
-		UserDraft.remove('script', '')
+		UserDraft.remove('script', localDraftPath)
 		const url = new URL(window.location.href)
 		url.searchParams.delete('nodraft')
 		window.history.replaceState(window.history.state, '', url.toString())
@@ -108,7 +111,10 @@
 	// templatePath/hubPath/import/url-hash flows replace the value before
 	// render, so defaultValue is left undefined for those to avoid flashing a
 	// blank editor.
-	const scriptHandle = UserDraft.use<Script>('script', '', {
+	const scriptHandle = UserDraft.use<Script>('script', localDraftPath, {
+		// defaultValue only applies when the key holds no draft, so keeping it for
+		// the local_draft case is safe: an existing draft still wins, while a
+		// missing one (stale link) falls back to a fresh script rather than blank.
 		defaultValue: templatePath || hubPath || urlScript ? undefined : defaultScript()
 	})
 
@@ -118,10 +124,11 @@
 		UserDraft.setLiveEditorDraft({
 			workspace,
 			itemKind: 'script',
-			storagePath: '',
+			storagePath: localDraftPath,
 			effectivePath: scriptHandle.draft?.path
 		})
-		return () => UserDraft.clearLiveEditorDraft('script', { workspace, storagePath: '' })
+		return () =>
+			UserDraft.clearLiveEditorDraft('script', { workspace, storagePath: localDraftPath })
 	})
 
 	// === BEGIN TEMP URL-HASH SYNC (remove with future PR) ===

@@ -84,7 +84,10 @@
 
 	migrateApp(untrack(() => app))
 
-	const appDraftPath = newApp ? '' : (path ?? '')
+	// Storage key for the autosave. For a new app this is normally the empty slot
+	// (path == ''), but /apps/add passes a real path when resuming a local-only
+	// "New" app from the home page, so honor `path` regardless of `newApp`.
+	const appDraftPath = path ?? ''
 	const appDraftHandle = UserDraft.use<App>('app', appDraftPath)
 	// Prefer the persisted autosave over the prop when both exist (e.g.
 	// /apps/add reload: the route always initializes `app` to an empty
