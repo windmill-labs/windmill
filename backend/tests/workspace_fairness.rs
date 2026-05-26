@@ -79,15 +79,28 @@ async fn create_workspace(db: &Pool<Postgres>, id: &str) {
     .unwrap();
 }
 
+/// Insert `n` completed jobs for `workspace_id`, each ending `secs_ago`
+/// seconds in the past with a 1-second wall-clock duration. The fairness
+/// algorithm weights contributions by `duration_ms` (clamped to the window),
+/// so each job contributes ~1 worker-second when fully inside the window.
 async fn insert_completed(db: &Pool<Postgres>, workspace_id: &str, n: usize, secs_ago: i32) {
     for _ in 0..n {
+        let id: Uuid = sqlx::query_scalar(
+            "INSERT INTO v2_job (id, workspace_id, kind)
+             VALUES (gen_random_uuid(), $1, 'script'::job_kind) RETURNING id",
+        )
+        .bind(workspace_id)
+        .fetch_one(db)
+        .await
+        .unwrap();
         sqlx::query(
             "INSERT INTO v2_job_completed (id, workspace_id, duration_ms, status,
                 started_at, completed_at)
-             VALUES (gen_random_uuid(), $1, 1, 'success'::job_status,
-                NOW() - make_interval(secs => $2::int),
-                NOW() - make_interval(secs => $2::int))",
+             VALUES ($1, $2, 1000, 'success'::job_status,
+                NOW() - make_interval(secs => ($3::int + 1)),
+                NOW() - make_interval(secs => $3::int))",
         )
+        .bind(id)
         .bind(workspace_id)
         .bind(secs_ago)
         .execute(db)
@@ -106,20 +119,42 @@ async fn insert_queued(
     let mut ids = Vec::with_capacity(n);
     for _ in 0..n {
         let id: Uuid = sqlx::query_scalar(
-            "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, running, tag)
-             VALUES (gen_random_uuid(), $1, NOW(), $2, $3) RETURNING id",
+            "INSERT INTO v2_job (id, workspace_id, kind, tag)
+             VALUES (gen_random_uuid(), $1, 'script'::job_kind, $2) RETURNING id",
         )
         .bind(workspace_id)
-        .bind(running)
         .bind(tag)
         .fetch_one(db)
         .await
         .unwrap();
+        // Running jobs need a `started_at` for the fairness algorithm to
+        // compute a positive elapsed-time contribution. Backdate by 1s so
+        // each running row contributes ~1 worker-second by the time the
+        // refresh runs, matching the `insert_completed` scale.
+        sqlx::query(
+            "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, running, tag, started_at)
+             VALUES ($1, $2, NOW(), $3, $4,
+                     CASE WHEN $3 THEN NOW() - interval '1 second' ELSE NULL END)",
+        )
+        .bind(id)
+        .bind(workspace_id)
+        .bind(running)
+        .bind(tag)
+        .execute(db)
+        .await
+        .unwrap();
         if running {
-            // The fairness algorithm reads slot occupancy from `worker_ping`,
-            // not from `v2_job_queue.running = true`. Mirror each running row
-            // with a paired live `worker_ping` so unit tests see the same
-            // signal a real cluster would.
+            // The fairness algorithm bounds the running contribution by the
+            // per-job `v2_job_runtime.ping`. Insert a fresh ping so each
+            // running row accrues real-time worker-seconds.
+            sqlx::query(
+                "INSERT INTO v2_job_runtime (id, ping) VALUES ($1, NOW())
+                 ON CONFLICT (id) DO UPDATE SET ping = NOW()",
+            )
+            .bind(id)
+            .execute(db)
+            .await
+            .unwrap();
             insert_live_worker_ping(db, workspace_id, id).await;
         }
         ids.push(id);
