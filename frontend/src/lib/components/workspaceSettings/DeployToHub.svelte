@@ -135,6 +135,7 @@
 	let runState = $state<RunState>('idle')
 	let runJobId = $state<string | undefined>(undefined)
 	let runResult = $state<unknown>(undefined)
+	let recordRunSeq = 0
 	let runError = $state<string | undefined>(undefined)
 	// MOCK STORAGE: backend has no recordings table yet; we keep the job_id per item locally.
 	let recordings = $state<Record<string, string>>({})
@@ -157,15 +158,28 @@
 		draftItems = draftItems.map((i) => (i.key === key ? { ...i, ...patch } : i))
 	}
 
+	async function listAllPages<T>(
+		fetcher: (params: { perPage: number; page: number }) => Promise<T[]>
+	): Promise<T[]> {
+		const perPage = 100
+		const out: T[] = []
+		for (let page = 1; page <= 1000; page++) {
+			const batch = await fetcher({ perPage, page })
+			out.push(...batch)
+			if (batch.length < perPage) return out
+		}
+		return out
+	}
+
 	async function loadWorkspace(workspace: string) {
 		loading = true
 		try {
 			const [apps, rawApps, flows, scripts, resources, settings] = await Promise.all([
-				AppService.listApps({ workspace, perPage: 100 }),
-				RawAppService.listRawApps({ workspace, perPage: 100 }),
-				FlowService.listFlows({ workspace, perPage: 100 }),
-				ScriptService.listScripts({ workspace, perPage: 100 }),
-				ResourceService.listResource({ workspace, perPage: 100 }),
+				listAllPages((p) => AppService.listApps({ workspace, ...p })),
+				listAllPages((p) => RawAppService.listRawApps({ workspace, ...p })),
+				listAllPages((p) => FlowService.listFlows({ workspace, ...p })),
+				listAllPages((p) => ScriptService.listScripts({ workspace, ...p })),
+				listAllPages((p) => ResourceService.listResource({ workspace, ...p })),
 				WorkspaceService.getSettings({ workspace }).catch(() => undefined)
 			])
 
@@ -339,6 +353,7 @@
 	}
 
 	async function openRecord(it: DeployItem) {
+		recordRunSeq++
 		recordTarget = it
 		recordArgs = {}
 		recordValid = true
@@ -372,6 +387,7 @@
 		const it = recordTarget
 		const workspace = $workspaceStore
 		if (!it || !workspace) return
+		const seq = ++recordRunSeq
 		runState = 'running'
 		runJobId = undefined
 		runResult = undefined
@@ -391,24 +407,28 @@
 					requestBody: recordArgs
 				})
 			} else {
-				runState = 'idle'
+				if (seq === recordRunSeq) runState = 'idle'
 				return
 			}
+			if (seq !== recordRunSeq) return
 			runJobId = jobId
-			await pollJobUntilComplete(workspace, jobId)
+			await pollJobUntilComplete(workspace, jobId, seq)
 		} catch (e: any) {
+			if (seq !== recordRunSeq) return
 			runState = 'failed'
 			runError = `Failed to start: ${e?.message ?? e}`
 		}
 	}
-	async function pollJobUntilComplete(workspace: string, jobId: string) {
+	async function pollJobUntilComplete(workspace: string, jobId: string, seq: number) {
 		for (let i = 0; i < 300; i++) {
 			await delay(1000)
+			if (seq !== recordRunSeq) return
 			try {
 				const r = await JobService.getCompletedJobResultMaybe({
 					workspace,
 					id: jobId
 				})
+				if (seq !== recordRunSeq) return
 				if (r.completed) {
 					runResult = r.result
 					if (r.success) {
@@ -420,11 +440,13 @@
 					return
 				}
 			} catch (e: any) {
+				if (seq !== recordRunSeq) return
 				runState = 'failed'
 				runError = `Polling failed: ${e?.message ?? e}`
 				return
 			}
 		}
+		if (seq !== recordRunSeq) return
 		runState = 'failed'
 		runError = 'Timed out after 5 minutes'
 	}
@@ -782,7 +804,7 @@
 	</WorkspaceDeployLayout>
 </div>
 
-<Drawer bind:this={recordDrawer} size="600px">
+<Drawer bind:this={recordDrawer} size="600px" on:close={() => recordRunSeq++}>
 	<DrawerContent
 		title={recordTarget ? `Record — ${recordTarget.path}` : 'Record'}
 		on:close={() => recordDrawer?.closeDrawer()}
