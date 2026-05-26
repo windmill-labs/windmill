@@ -467,6 +467,8 @@ const openPreviewSchema = z.object({
 	path: z.string().describe('Workspace path of the item to preview.')
 })
 
+const getPreviewStatusSchema = z.object({})
+
 const FRAMEWORK_KEYS = [
 	'react19',
 	'react18',
@@ -528,7 +530,7 @@ Rules:
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
 - Keep context targeted.
-- After writing or substantially editing a script / flow / app draft inside an AI session, offer to open the preview via open_preview(kind, path) — this lets the user see the editor and live preview right next to the chat. open_preview is a no-op outside of sessions and will return an error; don't call it from the regular global side-panel chat.
+- After writing or substantially editing a script / flow / app draft inside an AI session, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited. Both open_preview and get_preview_status are no-ops outside of sessions and return an error; don't call them from the regular global side-panel chat.
 
 Flows:
 - read_workspace_item returns compact flow JSON. Inline script bodies appear as "inline_script.<moduleId>".
@@ -1755,6 +1757,14 @@ export const globalTools: Tool<{}>[] = [
 			const parsed = openPreviewSchema.parse(ctx.args)
 			return openSessionPreview(parsed)
 		}
+	},
+	{
+		def: createToolDef(
+			getPreviewStatusSchema,
+			'get_preview_status',
+			'Check whether the side-panel preview is open in this AI session and which item (kind + path) it is showing. Call this before offering or calling open_preview so you do not re-open a preview that is already showing the item you just edited. Only meaningful inside a session.'
+		),
+		fn: async () => getSessionPreviewStatus()
 	}
 ]
 
@@ -1785,6 +1795,25 @@ function openSessionPreview(args: { kind: 'script' | 'flow' | 'app' | 'raw_app';
 		return 'Error: open_preview is only available inside an AI session. Tell the user to switch to a session to view the preview, or describe the item textually.'
 	}
 	return openPreviewHandler(args)
+}
+
+// Companion to `open_preview`: lets the assistant query the current preview
+// state (open? which item?) so it can avoid re-opening a preview already
+// showing the item it just edited. Registered by the session runtime
+// alongside the open-preview handler.
+export type GetPreviewStatusHandler = () => string
+
+let getPreviewStatusHandler: GetPreviewStatusHandler | undefined
+
+export function setGetPreviewStatusHandler(handler: GetPreviewStatusHandler | undefined): void {
+	getPreviewStatusHandler = handler
+}
+
+function getSessionPreviewStatus(): string {
+	if (!getPreviewStatusHandler) {
+		return 'Error: get_preview_status is only available inside an AI session.'
+	}
+	return getPreviewStatusHandler()
 }
 
 type DraftConfig = Record<string, any>

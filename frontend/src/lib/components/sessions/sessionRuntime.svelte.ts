@@ -30,7 +30,10 @@ import {
 } from './sessionState.svelte'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { applyDraftToRuntimeRawApp, runtimeRawAppToDraft, type RawAppDraft } from './appDraftCodec'
-import { setOpenPreviewHandler } from '$lib/components/copilot/chat/global/core'
+import {
+	setGetPreviewStatusHandler,
+	setOpenPreviewHandler
+} from '$lib/components/copilot/chat/global/core'
 
 export interface SessionRuntime {
 	readonly sessionId: string
@@ -621,10 +624,25 @@ setOpenPreviewHandler(({ kind, path }) => {
 	if (!sessionId) {
 		return 'Error: no active session to open the preview in.'
 	}
+	const current = sessionState.sessions.find((s) => s.id === sessionId)?.target
+	if (current && current.kind === kind && current.path === path) {
+		return `Preview is already open showing ${kind} "${path}".`
+	}
 	const target: SessionTarget = { kind, path }
 	setSessionTarget(sessionId, target)
 	promoteEditorWarm(sessionId)
 	return `Opened ${kind} preview for ${path} in the side panel.`
+})
+
+// Companion to the open_preview handler: report whether the active session's
+// preview is open and which item it shows, so the assistant can avoid
+// re-opening a preview already showing the item it just edited.
+setGetPreviewStatusHandler(() => {
+	const sessionId = sessionState.currentSessionId
+	if (!sessionId) return 'No active session; the preview panel is unavailable.'
+	const target = sessionState.sessions.find((s) => s.id === sessionId)?.target
+	if (!target) return 'No preview is currently open in the side panel.'
+	return `The preview is currently open showing ${target.kind} "${target.path}".`
 })
 
 export function getSessionChatStatus(runtime: SessionRuntime): SessionChatStatus {

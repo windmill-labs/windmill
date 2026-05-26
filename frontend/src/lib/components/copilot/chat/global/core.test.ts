@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('monaco-editor', () => ({
 	editor: {},
@@ -99,7 +99,13 @@ vi.mock('$lib/gen', async () => {
 	}
 })
 
-import { globalTools, prepareGlobalSystemMessage, prepareGlobalUserMessage } from './core'
+import {
+	globalTools,
+	prepareGlobalSystemMessage,
+	prepareGlobalUserMessage,
+	setGetPreviewStatusHandler,
+	setOpenPreviewHandler
+} from './core'
 import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
 import { clearGlobalDrafts } from './userDraftAdapter'
 import {
@@ -1240,6 +1246,34 @@ describe('prepareGlobalSystemMessage', () => {
 		)
 		expect(discard.requiresConfirmation).toBe(true)
 		expect(deleteItem.requiresConfirmation).toBe(true)
+	})
+
+	describe('get_preview_status', () => {
+		afterEach(() => {
+			setGetPreviewStatusHandler(undefined)
+			setOpenPreviewHandler(undefined)
+		})
+
+		it('takes no arguments', () => {
+			const tool = getGlobalTool('get_preview_status')
+			expect(tool.def.function.parameters).toMatchObject({
+				type: 'object',
+				properties: {},
+				required: []
+			})
+		})
+
+		it('returns the session-only error when no handler is registered', async () => {
+			setGetPreviewStatusHandler(undefined)
+			const result = await callGlobalTool('get_preview_status', {})
+			expect(result).toBe('Error: get_preview_status is only available inside an AI session.')
+		})
+
+		it('dispatches to the registered session handler', async () => {
+			setGetPreviewStatusHandler(() => 'The preview is currently open showing script "u/me/foo".')
+			const result = await callGlobalTool('get_preview_status', {})
+			expect(result).toBe('The preview is currently open showing script "u/me/foo".')
+		})
 	})
 })
 
