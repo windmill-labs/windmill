@@ -10,7 +10,9 @@ set -euo pipefail
 
 BASE_URL="http://localhost:8000"
 EMAIL="admin@windmill.dev"
-PASSWORD="changeme"
+# Prefer WMILL_PASSWORD env var over --password flag — flags leak into
+# /proc/<pid>/cmdline and shell history.
+PASSWORD="${WMILL_PASSWORD:-changeme}"
 DIR=""
 WORKSPACE=""
 
@@ -62,14 +64,13 @@ if [[ -z "$TOKEN" ]]; then
 fi
 
 # Clear previous snapshot content while preserving the fixture scaffold
-# (wmill.yaml, README.md, .gitkeep). Anything else is removed so the snapshot
-# reflects exactly what is in the workspace.
+# (wmill.yaml, .gitkeep). Anything else is removed so the snapshot reflects
+# exactly what is in the workspace.
 echo "→ Clearing previous snapshot in $DIR"
 (
   cd "$DIR"
   find . -mindepth 1 \
     ! -name 'wmill.yaml' \
-    ! -name 'README.md' \
     ! -name '.gitkeep' \
     -print0 | xargs -0 -r rm -rf
 )

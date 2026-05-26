@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DIR="${1:-$SCRIPT_DIR/cli-sync}"
 
-ALLOWED_RE='^fixtures/cli-sync/(\.gitkeep|README\.md|wmill\.yaml)$'
+ALLOWED_RE='^fixtures/cli-sync/(\.gitkeep|wmill\.yaml)$'
 
 # Use `git ls-files` so we only check tracked files. Untracked local snapshots
 # are fine — devs may keep them locally between sessions.

@@ -10,7 +10,9 @@ set -euo pipefail
 
 BASE_URL="http://localhost:8000"
 EMAIL="admin@windmill.dev"
-PASSWORD="changeme"
+# Prefer WMILL_PASSWORD env var over --password flag — flags leak into
+# /proc/<pid>/cmdline and shell history.
+PASSWORD="${WMILL_PASSWORD:-changeme}"
 WORKSPACE=""
 DIR=""
 
@@ -60,19 +62,20 @@ if [[ -z "$TOKEN" ]]; then
 fi
 
 echo "→ Creating workspace '$WORKSPACE'"
+CREATE_OUT="$(mktemp)"
+trap 'rm -f "$CREATE_OUT"' EXIT
 CREATE_BODY="$(printf '{"id":"%s","name":"%s"}' "$WORKSPACE" "$WORKSPACE")"
-HTTP_CODE="$(curl -sS -o /tmp/wm-fixture-create.out -w '%{http_code}' \
+HTTP_CODE="$(curl -sS -o "$CREATE_OUT" -w '%{http_code}' \
   -X POST "$BASE_URL/api/workspaces/create" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d "$CREATE_BODY")"
 if [[ "$HTTP_CODE" != "200" && "$HTTP_CODE" != "201" ]]; then
   echo "✗ Workspace creation failed (HTTP $HTTP_CODE):" >&2
-  cat /tmp/wm-fixture-create.out >&2
+  cat "$CREATE_OUT" >&2
   echo >&2
   exit 1
 fi
-rm -f /tmp/wm-fixture-create.out
 
 echo "→ Pushing $DIR to workspace '$WORKSPACE'"
 (

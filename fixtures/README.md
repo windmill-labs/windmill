@@ -34,7 +34,9 @@ the UI.
 Flags:
 - `--base-url <url>` (default `http://localhost:8000`)
 - `--email <email>` (default `admin@windmill.dev`)
-- `--password <pwd>` (default `changeme`)
+- `--password <pwd>` (default `changeme`) — prefer `WMILL_PASSWORD=<pwd>` env
+  var when using a real password, since `--password` ends up in `ps` /
+  shell history.
 - `--workspace <id>` (default `fixture-<random>`)
 - `--dir <path>` (default `fixtures/cli-sync`)
 
