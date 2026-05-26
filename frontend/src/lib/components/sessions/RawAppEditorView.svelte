@@ -50,17 +50,29 @@
 	})
 
 	// Bidirectional sync between this preview and `UserDraft<RawAppDraft>`.
-	// Same one-way-reactive discipline as ScriptEditorView / FlowEditorView:
-	// inbound tracks only UserDraft, outbound tracks only rawApp.val; each
-	// side's read of the other goes through untrack() to break the
-	// keystroke-revert race.
+	// We hold a *live* handle (useMany) rather than reading via the static
+	// `UserDraft.get`: the handle materializes UserDraft's shared reactive
+	// `$state` cell for (workspace, 'raw_app', path), and that cell is what
+	// lets the chat's writes (UserDraft.save / setDraftAndMeta, from
+	// write_app_file / patch_app_file / write_app_runnable) reach this preview.
+	// Without a live entry those writes only touch localStorage and the inbound
+	// effect below never re-fires. A reactive getter is used (not `use()`)
+	// because switching open_preview to another app swaps `path` without
+	// remounting this view, so the handle must re-acquire.
+	//
+	// Same one-way-reactive discipline as ScriptEditorView: inbound tracks only
+	// the handle's draft, outbound tracks only rawApp.val; each side's read of
+	// the other goes through untrack() to break the keystroke-revert race.
+	const draftHandles = UserDraft.useMany<RawAppDraft>(() => [
+		{ itemKind: 'raw_app', path, workspace: workspaceId }
+	])
 	let lastInboundSig: string | undefined = $state(undefined)
 
-	// Store → editor. Re-runs on UserDraft changes (chat write, other
-	// session edit).
+	// Store → editor. Re-runs when the handle's draft changes (chat write,
+	// other session edit).
 	$effect(() => {
 		if (!workspaceId || !path) return
-		const incoming = UserDraft.get<RawAppDraft>('raw_app', path, { workspace: workspaceId })
+		const incoming = draftHandles[0]?.draft
 		if (!incoming) return
 		const sig = JSON.stringify(incoming)
 		untrack(() => {
