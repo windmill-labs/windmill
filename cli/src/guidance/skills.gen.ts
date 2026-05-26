@@ -5168,6 +5168,7 @@ Once the flow has real content, **offer** to open the visual preview as a one-se
 After writing, tell the user which command fits what they want to do:
 
 - \`wmill flow preview <flow_path>\` — **default when iterating on a local flow.** Runs the local \`flow.yaml\` against local inline scripts without deploying. Add \`--remote\` to use deployed workspace scripts for PathScript steps instead of local files.
+- \`wmill flow test-step <flow_path> <step_id>\` — runs a single step of the local flow in isolation. Use when iterating on one module (rawscript / script / flow types) and you don't want to wait for upstream steps. Supports nested steps inside branchone/branchall/forloopflow/whileloopflow, plus the special \`preprocessor\` and \`failure\` modules by id. Pass step args with \`-d '<json>'\`.
 - \`wmill flow run <path>\` — runs the flow **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - \`wmill generate-metadata\` — regenerate stale \`.lock\` and \`.script.yaml\` files. By default it scans **scripts, flows, and apps** across the workspace; pass \`--skip-flows --skip-apps\` (or run from a subdirectory) to limit the scope when you only care about the flow you edited.
 - \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
@@ -5183,6 +5184,12 @@ Only use \`flow run\` when:
 Only use \`sync push\` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
+
+### Test a single step vs preview the whole flow
+
+Use \`flow test-step <flow_path> <step_id>\` when the user is iterating on one module and the flow's upstream steps aren't part of what they're trying to validate. It runs only that step's runnable (rawscript: the inline script; script: the PathScript fetched from the workspace; flow: the subflow by path) and is much faster than running the whole flow when previous steps are slow or expensive.
+
+Use \`flow preview <flow_path>\` when steps depend on each other's outputs, when the user is validating the overall control flow, or when \`test-step\` doesn't apply (branchone, branchall, forloopflow, whileloopflow, identity, and AI agent steps cannot themselves be tested in isolation — for branchone/branchall/forloopflow/whileloopflow, the *contained* steps can, by passing the inner step's id).
 
 ### After writing — offer to run, don't wait passively
 
@@ -6842,6 +6849,10 @@ flow related commands
   - \`-d --data <data:string>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - \`-s --silent\` - Do not output anything other then the final output. Useful for scripting.
   - \`--remote\` - Use deployed workspace scripts for PathScript steps instead of local files.
+- \`flow test-step <flow_path:string> <step_id:string>\` - Test a single step of a local flow in isolation. Resolves the step by id (including nested branchone/branchall/forloopflow/whileloopflow and the failure/preprocessor modules), runs only that step's runnable. Supported step types: rawscript, script (PathScript), flow (PathFlow).
+  - \`-d --data <data:string>\` - Step inputs as a JSON string or a file using @<filename> or stdin using @-.
+  - \`-s --silent\` - Do not output anything other then the final output. Useful for scripting.
+  - \`--json\` - Output the result as JSON (same as --silent)
 - \`flow new <flow_path:string>\` - create a new empty flow
   - \`--summary <summary:string>\` - flow summary
   - \`--description <description:string>\` - flow description
@@ -7056,6 +7067,42 @@ Validate Windmill flow, schedule, and trigger YAML files in a directory
 - \`--fail-on-warn\` - Exit with code 1 when warnings are emitted
 - \`--locks-required\` - Fail if scripts or flow inline scripts that need locks have no locks
 - \`-w, --watch\` - Watch for file changes and re-lint automatically
+
+### object-storage
+
+**Alias:** \`s3\`
+
+**Subcommands:**
+
+- \`object-storage list\` - List configured object storages for the workspace (default + secondary).
+  - \`--json\` - Output as JSON (for piping to jq)
+- \`object-storage files [prefix:string]\` - List files in an object storage. Optionally filter by prefix.
+  - \`--json\` - Output as JSON (for piping to jq)
+  - \`--max-keys <maxKeys:number>\` - Page size (default 100)
+  - \`--marker <marker:string>\` - Pagination marker from a previous response
+  - \`--storage <storage:string>\` - Secondary storage name (omit for the workspace default)
+- \`object-storage upload <local_path:string> <file_key:string>\` - Upload a local file to object storage at the given file key.
+  - \`--storage <storage:string>\` - Secondary storage name
+  - \`--content-type <contentType:string>\` - Content-Type header to set on the object
+  - \`--content-disposition <contentDisposition:string>\` - Content-Disposition header to set on the object
+- \`object-storage download <file_key:string> [output_path:string]\` - Download an object to a local file (or stdout). Default output path is the basename of the file key in the current directory.
+  - \`--storage <storage:string>\` - Secondary storage name
+  - \`--stdout\` - Write file contents to stdout instead of a file
+- \`object-storage delete <file_key:string>\` - Delete an object from object storage. Prompts for confirmation unless --yes is set.
+  - \`--storage <storage:string>\` - Secondary storage name
+  - \`--yes\` - Skip the confirmation prompt
+- \`object-storage move <src_file_key:string> <dest_file_key:string>\` - Move an object within the same storage (rename or relocate by key).
+  - \`--storage <storage:string>\` - Secondary storage name
+- \`object-storage info <file_key:string>\` - Show metadata (size, mime, last-modified) for an object.
+  - \`--json\` - Output as JSON (for piping to jq)
+  - \`--storage <storage:string>\` - Secondary storage name
+- \`object-storage preview <file_key:string>\` - Preview the contents of an object (text/CSV). Use --bytes-from / --bytes-length to peek at a slice of binary files.
+  - \`--storage <storage:string>\` - Secondary storage name
+  - \`--mime <mime:string>\` - Override the detected mime type (e.g. text/csv)
+  - \`--bytes-from <bytesFrom:number>\` - Start offset in bytes
+  - \`--bytes-length <bytesLength:number>\` - Number of bytes to read
+  - \`--csv-separator <csvSeparator:string>\` - CSV column separator (default ,)
+  - \`--csv-header\` - Treat the first CSV row as a header
 
 ### protection-rules
 
@@ -7393,6 +7440,26 @@ workspace related commands
   - \`--team-name <team_name:string>\` - Slack team name
 - \`workspace disconnect-slack\`
 
+
+
+# Object Storage CLI
+
+\`wmill object-storage\` (alias \`wmill s3\`) exposes the workspace's object storage (S3-compatible: AWS S3, MinIO, GCS, R2, Azure Blob) over the per-workspace \`/job_helpers/*\` endpoints.
+
+## Key concepts (not obvious from per-command --help)
+
+- **\`file_key\` is the path inside the bucket** (e.g. \`reports/2026-05/orders.csv\`), not a Windmill path. Do NOT pass \`u/...\` or \`f/...\` here — those are Windmill paths to scripts/flows/resources, unrelated to objects in the bucket.
+- **Scope is the active workspace.** Object storage is configured per-workspace (default storage + optional secondary storages). Switching workspaces switches which bucket the commands target.
+- **\`--storage <name>\` targets a secondary storage** configured on the workspace. Omit it to use the workspace's default object storage. Use \`wmill object-storage list\` to discover configured storages.
+- **\`preview\` vs \`download\`**: \`preview\` returns a peek (CSV first rows, text content, or a byte slice via \`--bytes-from\`/\`--bytes-length\`) without writing to disk. Use \`download\` when you want the full file on disk.
+
+## Choosing a subcommand
+
+- Look at what's there: \`wmill object-storage files [prefix]\` (alias \`ls\`) — paginated, use \`--marker\` to continue.
+- Inspect one file: \`wmill object-storage info <file_key>\` for size/mime/last-modified, \`wmill object-storage preview <file_key>\` for content peek.
+- Move data in: \`wmill object-storage upload <local_path> <file_key>\` — set \`--content-type\` if the receiver cares (e.g. \`text/csv\`).
+- Move data out: \`wmill object-storage download <file_key> [output_path]\` — \`--stdout\` to pipe.
+- Reorganize: \`wmill object-storage move <src> <dest>\` (same storage), \`wmill object-storage delete <file_key>\` (interactive confirm unless \`--yes\`).
 `,
   "preview": `---
 name: preview

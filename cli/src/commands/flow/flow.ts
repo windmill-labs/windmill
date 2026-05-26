@@ -4,7 +4,7 @@ import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import { Table } from "@cliffy/table";
 import * as log from "../../core/log.ts";
-import { sep as SEP } from "node:path";
+import { dirname, sep as SEP } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { yamlParseFile } from "../../utils/yaml.ts";
 import { readTextFile, validateRequiredArgs } from "../../utils/utils.ts";
@@ -562,7 +562,10 @@ async function preview(
   if (!isFlowDir) {
     // Check if it's a flow.yaml file
     if (flowPath.endsWith("flow.yaml") || flowPath.endsWith("flow.json")) {
-      flowPath = flowPath.substring(0, flowPath.lastIndexOf(SEP));
+      // Use dirname so a bare "flow.yaml" (no parent dir) becomes "."
+      // instead of "" — the latter, after appending SEP below, becomes "/"
+      // and silently reads from filesystem root.
+      flowPath = dirname(flowPath);
     } else {
       throw new Error(
         "Flow path must be a .flow/__flow directory or a flow.yaml file"
@@ -670,6 +673,185 @@ async function preview(
     console.log(JSON.stringify(result));
   } else {
     log.info(colors.bold.underline.green("Flow preview completed"));
+    log.info(JSON.stringify(result, null, 2));
+  }
+}
+
+function findStepInFlowValue(flowValue: any, stepId: string): any | undefined {
+  if (!flowValue) return undefined;
+  if (flowValue.failure_module?.id === stepId) return flowValue.failure_module;
+  if (flowValue.preprocessor_module?.id === stepId) return flowValue.preprocessor_module;
+  return findStepInModules(flowValue.modules ?? [], stepId);
+}
+
+function findStepInModules(modules: any[], stepId: string): any | undefined {
+  for (const m of modules) {
+    if (m?.id === stepId) return m;
+    const v = m?.value;
+    if (!v) continue;
+    if (v.type === "forloopflow" || v.type === "whileloopflow") {
+      const found = findStepInModules(v.modules ?? [], stepId);
+      if (found) return found;
+    } else if (v.type === "branchone") {
+      for (const b of v.branches ?? []) {
+        const found = findStepInModules(b.modules ?? [], stepId);
+        if (found) return found;
+      }
+      const found = findStepInModules(v.default ?? [], stepId);
+      if (found) return found;
+    } else if (v.type === "branchall") {
+      for (const b of v.branches ?? []) {
+        const found = findStepInModules(b.modules ?? [], stepId);
+        if (found) return found;
+      }
+    }
+  }
+  return undefined;
+}
+
+function collectStepIds(flowValue: any): string[] {
+  const ids: string[] = [];
+  const walkModules = (modules: any[]) => {
+    for (const m of modules) {
+      if (m?.id) ids.push(m.id);
+      const v = m?.value;
+      if (!v) continue;
+      if (v.type === "forloopflow" || v.type === "whileloopflow") {
+        walkModules(v.modules ?? []);
+      } else if (v.type === "branchone") {
+        for (const b of v.branches ?? []) walkModules(b.modules ?? []);
+        walkModules(v.default ?? []);
+      } else if (v.type === "branchall") {
+        for (const b of v.branches ?? []) walkModules(b.modules ?? []);
+      }
+    }
+  };
+  if (flowValue?.preprocessor_module?.id) ids.push(flowValue.preprocessor_module.id);
+  if (flowValue?.failure_module?.id) ids.push(flowValue.failure_module.id);
+  walkModules(flowValue?.modules ?? []);
+  return ids;
+}
+
+async function testStep(
+  opts: GlobalOptions & {
+    data?: string;
+    silent: boolean;
+    json?: boolean;
+  } & SyncOptions,
+  flowPath: string,
+  stepId: string
+) {
+  if (opts.silent || opts.json) log.setSilent(true);
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  // Normalize flow path (same logic as `preview`).
+  const isFlowDir = flowPath.endsWith(".flow") || flowPath.endsWith(".flow" + SEP)
+    || flowPath.endsWith("__flow") || flowPath.endsWith("__flow" + SEP);
+  if (!isFlowDir) {
+    if (flowPath.endsWith("flow.yaml") || flowPath.endsWith("flow.json")) {
+      // Use dirname so a bare "flow.yaml" (no parent dir) becomes "."
+      // instead of "" — the latter, after appending SEP below, becomes "/"
+      // and silently reads from filesystem root.
+      flowPath = dirname(flowPath);
+    } else {
+      throw new Error(
+        "Flow path must be a .flow/__flow directory or a flow.yaml file"
+      );
+    }
+  }
+  if (!flowPath.endsWith(SEP)) flowPath += SEP;
+
+  const localFlow = (await yamlParseFile(flowPath + "flow.yaml")) as FlowFile;
+  const fileReader = async (path: string) => await readTextFile(flowPath + path);
+  await replaceInlineScripts(localFlow.value.modules, fileReader, log, flowPath, SEP);
+  if (localFlow.value.failure_module) {
+    await replaceInlineScripts([localFlow.value.failure_module], fileReader, log, flowPath, SEP);
+  }
+  if (localFlow.value.preprocessor_module) {
+    await replaceInlineScripts([localFlow.value.preprocessor_module], fileReader, log, flowPath, SEP);
+  }
+
+  const module = findStepInFlowValue(localFlow.value, stepId);
+  if (!module) {
+    const available = collectStepIds(localFlow.value).join(", ") || "(none)";
+    throw new Error(`Step '${stepId}' not found in flow. Available steps: ${available}`);
+  }
+
+  const baseArgs = opts.data ? await resolve(opts.data) : {};
+  const args =
+    stepId === "preprocessor"
+      ? { _ENTRYPOINT_OVERRIDE: "preprocessor", ...baseArgs }
+      : baseArgs;
+
+  const moduleValue = module.value;
+  let jobId: string;
+  if (moduleValue?.type === "rawscript") {
+    if (!opts.silent && !opts.json) {
+      log.info(colors.yellow(`Testing rawscript step '${stepId}' (${moduleValue.language})...`));
+    }
+    jobId = await wmill.runScriptPreview({
+      workspace: workspace.workspaceId,
+      requestBody: {
+        content: moduleValue.content ?? "",
+        language: moduleValue.language,
+        args,
+      },
+    });
+  } else if (moduleValue?.type === "script") {
+    if (!opts.silent && !opts.json) {
+      log.info(colors.yellow(`Testing script step '${stepId}' (${moduleValue.path})...`));
+    }
+    const script = moduleValue.hash
+      ? await wmill.getScriptByHash({
+          workspace: workspace.workspaceId,
+          hash: moduleValue.hash,
+        })
+      : await wmill.getScriptByPath({
+          workspace: workspace.workspaceId,
+          path: moduleValue.path,
+        });
+    jobId = await wmill.runScriptPreview({
+      workspace: workspace.workspaceId,
+      requestBody: {
+        content: script.content,
+        language: script.language as any,
+        args,
+      },
+    });
+  } else if (moduleValue?.type === "flow") {
+    if (!opts.silent && !opts.json) {
+      log.info(colors.yellow(`Testing flow step '${stepId}' (${moduleValue.path})...`));
+    }
+    jobId = await wmill.runFlowByPath({
+      workspace: workspace.workspaceId,
+      path: moduleValue.path,
+      requestBody: args,
+    });
+  } else {
+    throw new Error(
+      `Cannot test step of type '${moduleValue?.type ?? "unknown"}'. Supported types: rawscript, script, flow.`
+    );
+  }
+
+  const { result, success } = await pollForJobResult(workspace.workspaceId, jobId);
+
+  if (!success) {
+    if (opts.silent || opts.json) {
+      console.log(JSON.stringify(result));
+    } else {
+      log.info(colors.yellow.bold(`Step '${stepId}' failed:`));
+      log.info(JSON.stringify(result, null, 2));
+    }
+    process.exitCode = 1;
+    return;
+  }
+
+  if (opts.silent || opts.json) {
+    console.log(JSON.stringify(result));
+  } else {
+    log.info(colors.bold.underline.green(`Step '${stepId}' completed`));
     log.info(JSON.stringify(result, null, 2));
   }
 }
@@ -906,6 +1088,21 @@ const command = new Command()
     "Use deployed workspace scripts for PathScript steps instead of local files."
   )
   .action(preview as any)
+  .command(
+    "test-step",
+    "Test a single step of a local flow in isolation. Resolves the step by id (including nested branchone/branchall/forloopflow/whileloopflow and the failure/preprocessor modules), runs only that step's runnable. Supported step types: rawscript, script (PathScript), flow (PathFlow)."
+  )
+  .arguments("<flow_path:string> <step_id:string>")
+  .option(
+    "-d --data <data:string>",
+    "Step inputs as a JSON string or a file using @<filename> or stdin using @-."
+  )
+  .option(
+    "-s --silent",
+    "Do not output anything other then the final output. Useful for scripting."
+  )
+  .option("--json", "Output the result as JSON (same as --silent)")
+  .action(testStep as any)
   .command(
     "generate-locks",
     'DEPRECATED: re-generate flow lock files. Use "wmill generate-metadata" instead.'
