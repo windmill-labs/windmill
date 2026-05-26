@@ -13,6 +13,8 @@ use anyhow::anyhow;
 use futures::TryFutureExt;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
+// Re-export proxy env-var snapshots so callers (including EE modules)
+// can keep importing them via `crate::{NO_PROXY, HTTP_PROXY, HTTPS_PROXY}`.
 use windmill_common::client::AuthedClient;
 use windmill_common::db::UserDbWithAuthed;
 use windmill_common::get_latest_deployed_hash_for_path;
@@ -48,6 +50,7 @@ use windmill_common::{
     worker_group_job_stats::JobStatsMap,
     KillpillSender,
 };
+pub use windmill_common::{HTTPS_PROXY, HTTP_PROXY, NO_PROXY};
 
 #[cfg(feature = "enterprise")]
 use windmill_common::ee_oss::LICENSE_KEY_VALID;
@@ -558,7 +561,6 @@ lazy_static::lazy_static! {
     /// The underlying `NO_PROXY` / `HTTP_PROXY` / `HTTPS_PROXY` snapshots live in `windmill_common`
     /// so other crates (e.g. native triggers) can reuse the same source of truth.
     pub static ref PROXY_ENVS: Vec<(&'static str, String)> = {
-        use windmill_common::{HTTP_PROXY, HTTPS_PROXY, NO_PROXY};
         let mut proxy_env = Vec::new();
         if let Some(no_proxy) = NO_PROXY.as_ref() {
             proxy_env.push(("NO_PROXY", no_proxy.to_string()));
