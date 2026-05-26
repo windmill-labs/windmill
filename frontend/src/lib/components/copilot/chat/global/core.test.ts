@@ -101,6 +101,7 @@ vi.mock('$lib/gen', async () => {
 
 import {
 	globalTools,
+	globalToolsFor,
 	prepareGlobalSystemMessage,
 	prepareGlobalUserMessage,
 	setGetPreviewStatusHandler,
@@ -1274,6 +1275,34 @@ describe('prepareGlobalSystemMessage', () => {
 			const result = await callGlobalTool('get_preview_status', {})
 			expect(result).toBe('The preview is currently open showing script "u/me/foo".')
 		})
+	})
+})
+
+describe('session-only preview tools gating', () => {
+	const toolNames = (sessionPreview: boolean) =>
+		globalToolsFor({ sessionPreview }).map((t) => t.def.function.name)
+
+	it('excludes open_preview / get_preview_status outside a session', () => {
+		const names = toolNames(false)
+		expect(names).not.toContain('open_preview')
+		expect(names).not.toContain('get_preview_status')
+		// other tools are still present
+		expect(names).toContain('write_script')
+	})
+
+	it('includes open_preview / get_preview_status inside a session', () => {
+		const names = toolNames(true)
+		expect(names).toContain('open_preview')
+		expect(names).toContain('get_preview_status')
+		// session set is the full globalTools
+		expect(names.length).toBe(globalTools.length)
+	})
+
+	it('mentions open_preview in the system prompt only when preview tools are enabled', () => {
+		const off = prepareGlobalSystemMessage(undefined, { previewTools: false }).content as string
+		const on = prepareGlobalSystemMessage(undefined, { previewTools: true }).content as string
+		expect(off).not.toContain('open_preview')
+		expect(on).toContain('open_preview')
 	})
 })
 

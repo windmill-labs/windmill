@@ -504,7 +504,8 @@ const initAppSchema = z.object({
 })
 
 const buildGlobalSystemPrompt = (
-	username: string
+	username: string,
+	previewTools: boolean
 ) => `You are Windmill's global workspace assistant.
 
 The current user's workspace username is "${username}".
@@ -529,8 +530,12 @@ Rules:
 - Use search_resource_types before write_resource.
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
-- Keep context targeted.
-- After writing or substantially editing a script / flow / app draft inside an AI session, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited. Both open_preview and get_preview_status are no-ops outside of sessions and return an error; don't call them from the regular global side-panel chat.
+- Keep context targeted.${
+	previewTools
+		? `
+- After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.`
+		: ''
+}
 
 Flows:
 - read_workspace_item returns compact flow JSON. Inline script bodies appear as "inline_script.<moduleId>".
@@ -1768,6 +1773,22 @@ export const globalTools: Tool<{}>[] = [
 	}
 ]
 
+// Tools that only make sense inside an AI session (they drive the session's
+// side-panel preview). The regular global side-panel chat shouldn't even be
+// offered them — see `globalToolsFor`.
+export const SESSION_PREVIEW_TOOL_NAMES = new Set(['open_preview', 'get_preview_status'])
+
+/**
+ * The global tool set for a given chat: the full `globalTools` for a session
+ * chat, or `globalTools` minus the session-only preview tools for the regular
+ * global side-panel chat.
+ */
+export function globalToolsFor({ sessionPreview }: { sessionPreview: boolean }): Tool<{}>[] {
+	return sessionPreview
+		? globalTools
+		: globalTools.filter((t) => !SESSION_PREVIEW_TOOL_NAMES.has(t.def.function.name))
+}
+
 type WriteDraftCtx = {
 	workspace: string
 	toolId: string
@@ -2991,10 +3012,11 @@ async function deleteWorkspaceItem(
 }
 
 export function prepareGlobalSystemMessage(
-	customPrompt?: string
+	customPrompt?: string,
+	opts?: { previewTools?: boolean }
 ): ChatCompletionSystemMessageParam {
 	const username = get(userStore)?.username ?? ''
-	let content = buildGlobalSystemPrompt(username)
+	let content = buildGlobalSystemPrompt(username, opts?.previewTools ?? false)
 	if (customPrompt?.trim()) {
 		content = `${content}\n\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
 	}

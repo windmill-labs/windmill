@@ -61,7 +61,7 @@ import { runChatLoop } from './chatLoop'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import { getCurrentModel, tryGetCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
-import { globalTools, prepareGlobalSystemMessage, prepareGlobalUserMessage } from './global/core'
+import { globalToolsFor, prepareGlobalSystemMessage, prepareGlobalUserMessage } from './global/core'
 import { isGlobalAiEnabled } from './global/gate'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
@@ -209,6 +209,10 @@ export class AIChatManager {
 	private appDatatablesRefreshTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
 	disabledModes: Partial<Record<AIMode, boolean>> = $state({})
+	// Set by AI sessions. Enables the session-only preview tools (open_preview /
+	// get_preview_status) and their system-prompt guidance in GLOBAL mode; the
+	// global side-panel chat leaves it false so those tools aren't offered.
+	isSessionChat = false
 
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script:
@@ -500,8 +504,10 @@ export class AIChatManager {
 			this.helpers = {}
 		} else if (mode === AIMode.GLOBAL) {
 			const customPrompt = getCombinedCustomPrompt(mode)
-			this.systemMessage = prepareGlobalSystemMessage(customPrompt)
-			this.tools = [...globalTools]
+			this.systemMessage = prepareGlobalSystemMessage(customPrompt, {
+				previewTools: this.isSessionChat
+			})
+			this.tools = globalToolsFor({ sessionPreview: this.isSessionChat })
 			this.helpers = {}
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)

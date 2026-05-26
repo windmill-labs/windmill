@@ -145,6 +145,10 @@ function createRuntime(session: Session): SessionRuntime {
 	// global-AI flag, so this is always available here. Mode is locked
 	// and the dropdown is hidden in the chat UI.
 	manager.mode = AIMode.GLOBAL
+	// Session chats drive a side-panel preview, so they get the session-only
+	// preview tools (open_preview / get_preview_status); the global side-panel
+	// chat does not.
+	manager.isSessionChat = true
 	// Pre-flight: materialise the (still-transient) session, then commit
 	// the workspace (creating a staged fork if needed) before any send.
 	// AIChatManager awaits this so the first message hits a persisted
