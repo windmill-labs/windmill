@@ -3,10 +3,15 @@
 //! `tokio-tungstenite::connect_async` opens a raw TCP socket and does not
 //! honour `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`. On networks without
 //! direct egress this leaves WebSocket triggers unable to reach the
-//! upstream service. This module replicates the env-var conventions used
-//! by `curl` / `reqwest` for outbound HTTP and establishes an HTTP CONNECT
-//! tunnel before delegating the TLS + WebSocket handshake back to
-//! tungstenite.
+//! upstream service. This module re-uses the env-var snapshots already
+//! parsed by `windmill-common` and, when a proxy applies to the target
+//! host, opens an HTTP CONNECT tunnel before delegating the TLS +
+//! WebSocket handshake back to tungstenite.
+//!
+//! When no proxy env vars are set (the common case), this module
+//! forwards straight to `tokio_tungstenite::connect_async` so the
+//! networking path stays byte-for-byte identical to the previous
+//! behaviour.
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use std::io;
@@ -15,7 +20,7 @@ use tokio::{
     net::TcpStream,
 };
 use tokio_tungstenite::{
-    client_async_tls_with_config,
+    client_async_tls_with_config, connect_async,
     tungstenite::{
         client::IntoClientRequest,
         error::{Error as WsError, UrlError},
@@ -23,16 +28,24 @@ use tokio_tungstenite::{
     },
     MaybeTlsStream, WebSocketStream,
 };
+use url::Url;
+use windmill_common::{HTTPS_PROXY, HTTP_PROXY, NO_PROXY};
 
 /// Drop-in replacement for `tokio_tungstenite::connect_async` that routes
 /// the underlying TCP connection through `HTTPS_PROXY` / `HTTP_PROXY`
-/// (with `NO_PROXY` exclusions) when those env vars are set.
+/// (with `NO_PROXY` exclusions) when those env vars are set. When none
+/// is set we short-circuit straight to `connect_async`, keeping the
+/// behaviour for non-proxied deployments unchanged.
 pub async fn connect_async_with_proxy<R>(
     request: R,
 ) -> Result<(WebSocketStream<MaybeTlsStream<TcpStream>>, Response), WsError>
 where
     R: IntoClientRequest + Unpin,
 {
+    if HTTPS_PROXY.is_none() && HTTP_PROXY.is_none() {
+        return connect_async(request).await;
+    }
+
     let request = request.into_client_request()?;
     let uri = request.uri().clone();
     let scheme = uri.scheme_str().unwrap_or_default().to_ascii_lowercase();
@@ -51,22 +64,22 @@ where
 
     let proxy = proxy_url_for(&scheme, &host).and_then(|raw| parse_proxy_target(&raw));
 
-    let socket = if let Some(proxy) = proxy {
-        tracing::debug!(
-            "Connecting to WebSocket {}:{} through HTTP proxy {}:{}",
-            host,
-            port,
-            proxy.host,
-            proxy.port,
-        );
-        http_connect_tunnel(&proxy, &host, port)
-            .await
-            .map_err(WsError::Io)?
-    } else {
-        TcpStream::connect((host.as_str(), port))
-            .await
-            .map_err(WsError::Io)?
+    let Some(proxy) = proxy else {
+        // Proxy env was set but doesn't apply to this host (NO_PROXY hit
+        // or unparseable URL): preserve the original connect path.
+        return connect_async(request).await;
     };
+
+    tracing::debug!(
+        "Connecting to WebSocket {}:{} through HTTP proxy {}:{}",
+        host,
+        port,
+        proxy.host,
+        proxy.port,
+    );
+    let socket = http_connect_tunnel(&proxy, &host, port)
+        .await
+        .map_err(WsError::Io)?;
 
     client_async_tls_with_config(request, socket, None, None).await
 }
@@ -80,31 +93,27 @@ struct ProxyTarget {
     basic_auth: Option<String>,
 }
 
-fn lookup_env(name: &str) -> Option<String> {
-    std::env::var(name)
-        .ok()
-        .or_else(|| std::env::var(name.to_lowercase()).ok())
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-}
-
 /// Resolve the proxy URL string to use for outbound `(scheme, host)`.
 ///
 /// `wss://`/`https://` reads `HTTPS_PROXY`, `ws://`/`http://` reads
-/// `HTTP_PROXY`, falling back to `ALL_PROXY`. `NO_PROXY` short-circuits
-/// to `None`. Lowercase variants are accepted as a fallback.
+/// `HTTP_PROXY`. `NO_PROXY` short-circuits to `None`. The env-var
+/// snapshots come from `windmill-common` so they share a single source
+/// of truth with the worker's `PROXY_ENVS`.
 fn proxy_url_for(scheme: &str, host: &str) -> Option<String> {
-    if let Some(no_proxy) = lookup_env("NO_PROXY") {
-        if matches_no_proxy(host, &no_proxy) {
+    if let Some(no_proxy) = NO_PROXY.as_deref() {
+        if matches_no_proxy(host, no_proxy) {
             return None;
         }
     }
     let primary = if scheme.eq_ignore_ascii_case("wss") || scheme.eq_ignore_ascii_case("https") {
-        "HTTPS_PROXY"
+        HTTPS_PROXY.as_deref()
     } else {
-        "HTTP_PROXY"
+        HTTP_PROXY.as_deref()
     };
-    lookup_env(primary).or_else(|| lookup_env("ALL_PROXY"))
+    primary
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
 }
 
 /// Match a host against a `NO_PROXY` value (comma-separated list).
@@ -159,42 +168,43 @@ fn parse_proxy_target(raw: &str) -> Option<ProxyTarget> {
         return None;
     }
 
-    let (scheme, after_scheme) = match raw.split_once("://") {
-        Some((s, r)) => (s.to_ascii_lowercase(), r),
-        None => (String::from("http"), raw),
-    };
-    let authority = after_scheme
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or(after_scheme);
-
-    let (userinfo, host_port) = match authority.rsplit_once('@') {
-        Some((u, h)) => (Some(u), h),
-        None => (None, authority),
-    };
-
-    let (host, port) = if let Some(rest) = host_port.strip_prefix('[') {
-        let end = rest.find(']')?;
-        let h = rest[..end].to_string();
-        let after = &rest[end + 1..];
-        let p = after.strip_prefix(':').and_then(|p| p.parse::<u16>().ok());
-        (h, p)
+    // `url::Url::parse` requires an explicit scheme — prepend `http://`
+    // when the user passed a bare `host[:port]`.
+    let prepended = if raw.contains("://") {
+        std::borrow::Cow::Borrowed(raw)
     } else {
-        match host_port.rsplit_once(':') {
-            Some((h, p)) => match p.parse::<u16>() {
-                Ok(p) => (h.to_string(), Some(p)),
-                Err(_) => (host_port.to_string(), None),
-            },
-            None => (host_port.to_string(), None),
-        }
+        std::borrow::Cow::Owned(format!("http://{raw}"))
     };
+    let url = Url::parse(&prepended).ok()?;
 
+    // `host_str()` keeps brackets around IPv6 literals; strip them so
+    // `TcpStream::connect((host, port))` resolves the address correctly.
+    let host = url
+        .host_str()?
+        .trim_start_matches('[')
+        .trim_end_matches(']');
     if host.is_empty() {
         return None;
     }
+    let host = host.to_string();
+    let port =
+        url.port_or_known_default()
+            .unwrap_or(if url.scheme().eq_ignore_ascii_case("https") {
+                443
+            } else {
+                80
+            });
 
-    let port = port.unwrap_or(if scheme == "https" { 443 } else { 80 });
-    let basic_auth = userinfo.map(|u| BASE64_STANDARD.encode(u));
+    let basic_auth = match (url.username(), url.password()) {
+        ("", None) => None,
+        (user, pass) => {
+            let creds = match pass {
+                Some(p) => format!("{user}:{p}"),
+                None => user.to_string(),
+            };
+            Some(BASE64_STANDARD.encode(creds))
+        }
+    };
 
     Some(ProxyTarget { host, port, basic_auth })
 }

@@ -554,12 +554,11 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false));
 
-    pub static ref NO_PROXY: Option<String> = std::env::var("no_proxy").ok().or(std::env::var("NO_PROXY").ok());
-    pub static ref HTTP_PROXY: Option<String> = std::env::var("http_proxy").ok().or(std::env::var("HTTP_PROXY").ok());
-    pub static ref HTTPS_PROXY: Option<String> = std::env::var("https_proxy").ok().or(std::env::var("HTTPS_PROXY").ok());
-
-    /// Static proxy environment variables from env vars (for languages not using dynamic OTEL tracing proxy config)
+    /// Static proxy environment variables from env vars (for languages not using dynamic OTEL tracing proxy config).
+    /// The underlying `NO_PROXY` / `HTTP_PROXY` / `HTTPS_PROXY` snapshots live in `windmill_common`
+    /// so other crates (e.g. native triggers) can reuse the same source of truth.
     pub static ref PROXY_ENVS: Vec<(&'static str, String)> = {
+        use windmill_common::{HTTP_PROXY, HTTPS_PROXY, NO_PROXY};
         let mut proxy_env = Vec::new();
         if let Some(no_proxy) = NO_PROXY.as_ref() {
             proxy_env.push(("NO_PROXY", no_proxy.to_string()));
