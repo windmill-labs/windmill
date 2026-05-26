@@ -13,6 +13,7 @@
 	} from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
 		ChevronsDownUp,
@@ -84,28 +85,30 @@
 	// the same tab don't emit `storage` events, so we also refresh on window
 	// focus (returning from an editor) and on the row reload events.
 	let localDraftToken = $state(0)
+	// Local-only "New" rows are part of the global AI draft experience — gate them
+	// behind the same dev flag as the rest of that feature.
 	let localScriptDrafts = $derived.by(() => {
 		localDraftToken
-		return $workspaceStore
+		return $workspaceStore && isGlobalAiEnabled()
 			? UserDraft.list<Partial<Script>>({ workspace: $workspaceStore, itemKinds: ['script'] })
 			: []
 	})
 	let localFlowDrafts = $derived.by(() => {
 		localDraftToken
-		return $workspaceStore
+		return $workspaceStore && isGlobalAiEnabled()
 			? UserDraft.list<Partial<Flow>>({ workspace: $workspaceStore, itemKinds: ['flow'] })
 			: []
 	})
 	// app/raw_app draft values don't carry a path — the storage key is the path.
 	let localAppDrafts = $derived.by(() => {
 		localDraftToken
-		return $workspaceStore
+		return $workspaceStore && isGlobalAiEnabled()
 			? UserDraft.list<{ summary?: string }>({ workspace: $workspaceStore, itemKinds: ['app'] })
 			: []
 	})
 	let localRawAppDrafts = $derived.by(() => {
 		localDraftToken
-		return $workspaceStore
+		return $workspaceStore && isGlobalAiEnabled()
 			? UserDraft.list<{ summary?: string }>({ workspace: $workspaceStore, itemKinds: ['raw_app'] })
 			: []
 	})
