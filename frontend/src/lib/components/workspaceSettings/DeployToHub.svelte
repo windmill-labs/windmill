@@ -76,6 +76,36 @@
 			: workspaceItems.filter((i) => selectedFolders.some((f) => i.path.startsWith(f + '/')))
 	)
 	let items = $derived(phase === 'predeploy' ? filteredWorkspaceItems : draftItems)
+	// Per-item selection inside the predeploy filter. Defaults to "all visible items".
+	let manualDeselected = $state<Set<string>>(new Set())
+	$effect(() => {
+		// Reset deselection when the folder filter changes.
+		selectedFolders
+		manualDeselected = new Set()
+	})
+	let selectedItemKeys = $derived(
+		phase === 'predeploy'
+			? filteredWorkspaceItems.filter((i) => !manualDeselected.has(i.key)).map((i) => i.key)
+			: []
+	)
+	let allSelected = $derived(
+		phase === 'predeploy' && selectedItemKeys.length === filteredWorkspaceItems.length
+	)
+	function toggleItem(item: { key: string }) {
+		const next = new Set(manualDeselected)
+		if (next.has(item.key)) next.delete(item.key)
+		else next.add(item.key)
+		manualDeselected = next
+	}
+	function selectAll() {
+		manualDeselected = new Set()
+	}
+	function deselectAll() {
+		manualDeselected = new Set(filteredWorkspaceItems.map((i) => i.key))
+	}
+	let selectedItems = $derived(
+		filteredWorkspaceItems.filter((i) => selectedItemKeys.includes(i.key))
+	)
 	let loading = $state(false)
 	let workspaceRateLimit = $state<number | undefined>(undefined)
 	let recordableItems = $derived(items.filter((i) => canRecord(i.kind)))
@@ -232,7 +262,7 @@
 		// MOCK: bundle/version push to the Hub is not implemented backend-side.
 		deploying = true
 		try {
-			for (const it of filteredWorkspaceItems) {
+			for (const it of selectedItems) {
 				deploymentStatus = { ...deploymentStatus, [it.key]: { status: 'loading' } }
 				await delay(120)
 				deploymentStatus = { ...deploymentStatus, [it.key]: { status: 'deployed' } }
@@ -241,7 +271,7 @@
 			deploymentStatus = {}
 			// Freeze the set of items for this draft cycle. Workspace changes after this point
 			// will not affect the draft until a new draft cycle is started.
-			draftItems = filteredWorkspaceItems.map((i) => ({ ...i, rec: 'none' }))
+			draftItems = selectedItems.map((i) => ({ ...i, rec: 'none' }))
 			recordings = {}
 			phase = 'draft'
 			sendUserToast(
@@ -445,9 +475,13 @@
 <div>
 	<WorkspaceDeployLayout
 		{items}
-		selectedItems={[]}
+		selectedItems={selectedItemKeys}
 		{deploymentStatus}
-		hideSelection
+		hideSelection={phase !== 'predeploy'}
+		{allSelected}
+		onToggleItem={toggleItem}
+		onSelectAll={selectAll}
+		onDeselectAll={deselectAll}
 		emptyMessage={loading ? 'Loading workspace items…' : 'No items to publish'}
 	>
 		{#snippet header()}
@@ -472,8 +506,7 @@
 					</li>
 					<li class={stepNum === 3 ? 'text-primary' : stepNum > 3 ? 'opacity-60' : 'opacity-40'}>
 						<span class="font-mono text-emphasis">{stepNum > 3 ? '✓' : '3.'}</span>
-						<span class="font-semibold text-primary">Submit for review</span> — send the bundle to the
-						Windmill team for approval.
+						<span class="font-semibold text-primary">Submit for review</span> — send the bundle for approval.
 					</li>
 				</ol>
 				<div class="flex flex-wrap items-center gap-2 pt-4">
@@ -513,9 +546,9 @@
 							placeholder="All folders"
 						/>
 						<span class="text-[11px] text-hint">
-							{selectedFolders.length === 0
-								? `Bundling the whole workspace — ${filteredWorkspaceItems.length} items.`
-								: `Bundling ${filteredWorkspaceItems.length} items from ${selectedFolders.length} folder${selectedFolders.length > 1 ? 's' : ''}.`}
+							{selectedItems.length} of {filteredWorkspaceItems.length} items selected{selectedFolders.length
+								? ` across ${selectedFolders.length} folder${selectedFolders.length > 1 ? 's' : ''}`
+								: ' from the whole workspace'}.
 						</span>
 					</div>
 				{/if}
@@ -662,16 +695,16 @@
 			<div class="flex items-center justify-end gap-3">
 				{#if phase === 'predeploy'}
 					<span class="text-[11px] text-hint">
-						Create a bundle with every script, flow, app and resource of your workspace.
+						Select the items to include — all selected by default.
 					</span>
 					<Button
 						variant="accent"
 						loading={deploying}
-						disabled={items.length === 0}
+						disabled={selectedItems.length === 0}
 						startIcon={{ icon: Cloud }}
 						onclick={openBundle}
 					>
-						Bundle to Hub ({items.length})
+						Bundle to Hub ({selectedItems.length})
 					</Button>
 				{:else if phase === 'draft'}
 					<span class="text-[11px] text-hint">
