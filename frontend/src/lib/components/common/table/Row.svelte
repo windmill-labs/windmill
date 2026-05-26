@@ -48,6 +48,9 @@
 		badges?: import('svelte').Snippet
 		actions?: import('svelte').Snippet
 		customSummary?: import('svelte').Snippet
+		/** Renders in place of the selection checkbox (e.g. a warning icon for
+		 * non-deployable items). Takes precedence over the checkbox when set. */
+		leading?: import('svelte').Snippet
 		onSelect?: (
 			e: Event & {
 				currentTarget: EventTarget & HTMLInputElement
@@ -76,6 +79,7 @@
 		badges,
 		actions,
 		customSummary,
+		leading,
 		onSelect = () => {}
 	}: Props = $props()
 
@@ -116,7 +120,11 @@
 	)}
 	style={depth > 0 ? `padding-left: ${depth * 32}px;` : ''}
 >
-	{#if isSelectable}
+	{#if leading}
+		<div class="flex items-center justify-center max-w-4 w-full">
+			{@render leading()}
+		</div>
+	{:else if isSelectable}
 		<input type="checkbox" checked={selected} onchange={onSelect} class="rounded max-w-4 w-full" />
 	{:else if alignWithSelectable}
 		<div class="rounded max-w-4 w-full"></div>

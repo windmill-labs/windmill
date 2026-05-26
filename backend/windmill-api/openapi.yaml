@@ -26837,6 +26837,10 @@ components:
           enum: [viewer, publisher, anonymous]
         raw_app:
           type: boolean
+        has_draft:
+          type: boolean
+        draft_only:
+          type: boolean
         labels:
           type: array
           items:

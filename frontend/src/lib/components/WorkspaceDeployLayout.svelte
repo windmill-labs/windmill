@@ -29,6 +29,10 @@
 		itemSummary?: Snippet<[DeployableItem]>
 		itemActions?: Snippet<[DeployableItem]>
 		footer?: Snippet
+		// Rendered in place of the selection checkbox for items matching
+		// `itemLeadingPredicate` (e.g. a warning icon for non-deployable items).
+		itemLeading?: Snippet<[DeployableItem]>
+		itemLeadingPredicate?: (item: DeployableItem) => boolean
 
 		// Callbacks
 		onToggleItem?: (item: DeployableItem) => void
@@ -48,6 +52,8 @@
 		itemSummary,
 		itemActions,
 		footer,
+		itemLeading,
+		itemLeadingPredicate,
 		onToggleItem,
 		onSelectAll,
 		onDeselectAll
@@ -95,12 +101,18 @@
 					{@const isSelected = selectedItems.includes(item.key)}
 					{@const status = deploymentStatus[item.key]}
 					{@const isDeployed = status?.status === 'deployed'}
+					{@const useLeading = (itemLeadingPredicate?.(item) ?? false) && !isDeployed}
+
+					{#snippet boundLeading()}
+						{@render itemLeading?.(item)}
+					{/snippet}
 
 					<Row
 						isSelectable={isSelectable && !isDeployed}
 						alignWithSelectable={true}
-						disabled={!isSelectable}
+						disabled={!isSelectable && !useLeading}
 						selected={isSelected && !isDeployed}
+						leading={useLeading && itemLeading ? boundLeading : undefined}
 						onSelect={() => onToggleItem?.(item)}
 						path={item.kind !== 'resource' &&
 						item.kind !== 'variable' &&

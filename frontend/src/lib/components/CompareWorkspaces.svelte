@@ -57,6 +57,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import DatatableSchemaDiff from './DatatableSchemaDiff.svelte'
+	import Popover from './meltComponents/Popover.svelte'
 
 	interface Props {
 		currentWorkspaceId: string
@@ -113,6 +114,36 @@
 	// Summary cache: stores summaries from both workspaces
 	type SummaryCache = Record<string, { current?: string; parent?: string; loading?: boolean }>
 	let summaryCache = $state<SummaryCache>({})
+
+	// Raw apps are never tallied into the workspace diff: `tally_deployed_object_changes`
+	// (backend) skips `DeployedObject::RawApp`, so a raw app's draft changes don't show
+	// up in `comparison.diffs` and can't be selected for merge here. We still surface the
+	// fork's draft raw apps as read-only rows so users know they exist, with a warning
+	// (instead of a deploy checkbox) explaining they must be deployed within the fork
+	// before they can be merged into the parent.
+	let forkRawAppDrafts = $state<{ path: string; summary: string }[]>([])
+
+	async function fetchForkRawAppDrafts() {
+		try {
+			const apps = await AppService.listApps({
+				workspace: currentWorkspaceId,
+				includeDraftOnly: true
+			})
+			forkRawAppDrafts = apps
+				.filter((a) => a.raw_app && (a.draft_only || a.has_draft))
+				.map((a) => ({ path: a.path, summary: a.summary }))
+			// Seed the summary cache so the injected rows render their summary.
+			for (const a of forkRawAppDrafts) {
+				const key = `raw_app:${a.path}`
+				if (!summaryCache[key]) {
+					summaryCache[key] = { current: a.summary, loading: false }
+				}
+			}
+		} catch (error) {
+			console.error('Failed to fetch fork raw app drafts', error)
+			forkRawAppDrafts = []
+		}
+	}
 
 	// On-behalf-of tracking for flows and scripts
 	// Source workspace on_behalf_of emails (keyed by workspace/kind:path)
@@ -479,6 +510,14 @@
 		}
 	})
 
+	// Fetch the fork's draft raw apps once the comparison is available.
+	$effect(() => {
+		;[currentWorkspaceId]
+		if (comparison) {
+			fetchForkRawAppDrafts()
+		}
+	})
+
 	// Auto-select items on initial load
 	$effect(() => {
 		if (comparison?.diffs && !hasAutoSelected && selectableDiffs.length > 0) {
@@ -493,11 +532,42 @@
 		allowBehindChangesOverride = false
 	})
 
+	// The fork's draft raw apps, surfaced as read-only rows. Only relevant when
+	// merging the fork into its parent (these drafts live in the fork). They are
+	// never selectable — `selectableDiffs` is derived from `comparison.diffs`, so
+	// these synthetic rows are excluded by construction.
+	let rawAppDraftItems = $derived.by(() => {
+		if (!mergeIntoParent) return []
+		const existingRawAppPaths = new Set(
+			(comparison?.diffs ?? []).filter((d) => d.kind === 'raw_app').map((d) => d.path)
+		)
+		return forkRawAppDrafts
+			.filter((a) => !existingRawAppPaths.has(a.path))
+			.map((a) => {
+				const diff: WorkspaceItemDiff = {
+					path: a.path,
+					kind: 'raw_app',
+					ahead: 1,
+					behind: 0,
+					has_changes: true,
+					exists_in_source: false,
+					exists_in_fork: true
+				}
+				return {
+					key: `raw_app:${a.path}`,
+					path: a.path,
+					kind: 'raw_app' as Kind,
+					diff,
+					rawAppDraft: true
+				}
+			})
+	})
+
 	// Trigger and schedule rows now flow through `comparison.diffs` like every
 	// other deployable kind — the backend's `compareWorkspaces` populates them
 	// from `workspace_diff`, with runtime fields ignored by `compare_two_*`.
 	let deployableItems = $derived.by(() => {
-		return (comparison?.diffs ?? [])
+		const fromDiffs = (comparison?.diffs ?? [])
 			.filter((diff) => {
 				const key = getItemKey(diff)
 				const isSelectable = selectableDiffs.includes(diff)
@@ -511,6 +581,7 @@
 				kind: diff.kind as Kind,
 				diff
 			}))
+		return [...fromDiffs, ...rawAppDraftItems]
 	})
 
 	let ciTestResults = $state<Record<string, CiTestResult[]>>({})
@@ -605,6 +676,7 @@
 				{selectedItems}
 				{deploymentStatus}
 				selectablePredicate={(item) => selectableDiffs.some((d) => getItemKey(d) === item.key)}
+				itemLeadingPredicate={(item) => item.rawAppDraft === true}
 				{allSelected}
 				onToggleItem={(item) => toggleKey(item.key)}
 				onSelectAll={selectAll}
@@ -777,6 +849,21 @@
 					{/if}
 				{/snippet}
 
+				{#snippet itemLeading(_item)}
+					<Popover openOnHover placement="right" contentClasses="p-3 max-w-xs">
+						{#snippet trigger()}
+							<AlertTriangle size={16} class="text-yellow-500" />
+						{/snippet}
+						{#snippet content()}
+							<p class="text-xs text-secondary">
+								This raw app has draft changes in this fork that haven't been deployed. Raw apps
+								must be deployed within the fork before they can be merged into
+								<b>{parentWorkspaceId}</b>.
+							</p>
+						{/snippet}
+					</Popover>
+				{/snippet}
+
 				{#snippet itemSummary(item)}
 					{@const diff = item.diff as WorkspaceItemDiff}
 					{@const key = item.key}
@@ -812,6 +899,7 @@
 				{#snippet itemActions(item)}
 					{@const diff = item.diff as WorkspaceItemDiff}
 					{@const key = item.key}
+					{@const isRawAppDraft = item.rawAppDraft === true}
 					{@const targetOnBehalfOf = getTargetOnBehalfOf(key)}
 					{@const isConflict = diff.ahead > 0 && diff.behind > 0}
 					{@const existsInBothWorkspaces = !(
@@ -836,76 +924,80 @@
 					{#if diff.kind === 'raw_app'}
 						<Badge small icon={{ icon: FileJson }}>Raw</Badge>
 					{/if}
-					<!-- Status badges -->
-					{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead == 0 && diff.behind > 0}
-						<Badge
-							title="This item was newly created in the parent workspace '{parentWorkspaceId}'"
-							color="indigo"
-							size="xs">New</Badge
-						>
-					{/if}
-					{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead > 0}
-						<Badge title="This item was deleted in '{currentWorkspaceId}'" color="red" size="xs"
-							>Deleted</Badge
-						>
-					{/if}
-					{#if diff.exists_in_fork && !diff.exists_in_source && diff.behind > 0}
-						<Badge
-							title="This item was deleted in the parent workspace '{parentWorkspaceId}'"
-							color="red"
-							size="xs">Deleted</Badge
-						>
-					{/if}
-					{#if diff.exists_in_fork && !diff.exists_in_source && diff.ahead > 0 && diff.behind == 0}
-						<Badge
-							title="This item was newly created in '{currentWorkspaceId}'"
-							color="indigo"
-							size="xs">New</Badge
-						>
-					{/if}
-					{@const ciStatus = getCiTestStatus(diff)}
-					{#if ciStatus === 'pass'}
-						<Badge color="green" size="xs"><CircleCheck size={10} class="mr-0.5" />CI pass</Badge>
-					{:else if ciStatus === 'fail'}
-						<Badge color="red" size="xs"><CircleX size={10} class="mr-0.5" />CI fail</Badge>
-					{:else if ciStatus === 'running'}
-						<Badge color="yellow" size="xs"
-							><Loader2 size={10} class="mr-0.5 animate-spin" />CI</Badge
-						>
-					{/if}
-					{#if !deploymentStatus[key] || deploymentStatus[key].status != 'deployed'}
-						<div class="flex items-center gap-2">
-							{#if isConflict || existsInBothWorkspaces}
-								{#if diff.ahead > 0}
-									<Badge color="green" size="xs">
-										<ArrowUpRight class="w-3 h-3 inline" />
-										{diff.ahead} ahead
-									</Badge>
-								{/if}
-								{#if diff.behind > 0}
-									<Badge color="blue" size="xs">
-										<ArrowDownRight class="w-3 h-3 inline" />
-										{diff.behind} behind
-									</Badge>
-								{/if}
-								{#if isConflict}
-									<Badge color="orange" size="xs">
-										<AlertTriangle class="w-3 h-3 inline" />
-										Conflict
-									</Badge>
-								{/if}
-							{/if}
-						</div>
-						<div class:invisible={!existsInBothWorkspaces}>
-							<Button
-								size="xs"
-								variant="subtle"
-								onclick={() => showDiff(diff.kind as Kind, diff.path)}
+					<!-- Synthetic draft-raw-app rows are informational only: skip the
+					     diff/deploy affordances (New/Deleted/ahead-behind/Show diff). -->
+					{#if !isRawAppDraft}
+						<!-- Status badges -->
+						{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead == 0 && diff.behind > 0}
+							<Badge
+								title="This item was newly created in the parent workspace '{parentWorkspaceId}'"
+								color="indigo"
+								size="xs">New</Badge
 							>
-								<DiffIcon class="w-3 h-3" />
-								Show diff
-							</Button>
-						</div>
+						{/if}
+						{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead > 0}
+							<Badge title="This item was deleted in '{currentWorkspaceId}'" color="red" size="xs"
+								>Deleted</Badge
+							>
+						{/if}
+						{#if diff.exists_in_fork && !diff.exists_in_source && diff.behind > 0}
+							<Badge
+								title="This item was deleted in the parent workspace '{parentWorkspaceId}'"
+								color="red"
+								size="xs">Deleted</Badge
+							>
+						{/if}
+						{#if diff.exists_in_fork && !diff.exists_in_source && diff.ahead > 0 && diff.behind == 0}
+							<Badge
+								title="This item was newly created in '{currentWorkspaceId}'"
+								color="indigo"
+								size="xs">New</Badge
+							>
+						{/if}
+						{@const ciStatus = getCiTestStatus(diff)}
+						{#if ciStatus === 'pass'}
+							<Badge color="green" size="xs"><CircleCheck size={10} class="mr-0.5" />CI pass</Badge>
+						{:else if ciStatus === 'fail'}
+							<Badge color="red" size="xs"><CircleX size={10} class="mr-0.5" />CI fail</Badge>
+						{:else if ciStatus === 'running'}
+							<Badge color="yellow" size="xs"
+								><Loader2 size={10} class="mr-0.5 animate-spin" />CI</Badge
+							>
+						{/if}
+						{#if !deploymentStatus[key] || deploymentStatus[key].status != 'deployed'}
+							<div class="flex items-center gap-2">
+								{#if isConflict || existsInBothWorkspaces}
+									{#if diff.ahead > 0}
+										<Badge color="green" size="xs">
+											<ArrowUpRight class="w-3 h-3 inline" />
+											{diff.ahead} ahead
+										</Badge>
+									{/if}
+									{#if diff.behind > 0}
+										<Badge color="blue" size="xs">
+											<ArrowDownRight class="w-3 h-3 inline" />
+											{diff.behind} behind
+										</Badge>
+									{/if}
+									{#if isConflict}
+										<Badge color="orange" size="xs">
+											<AlertTriangle class="w-3 h-3 inline" />
+											Conflict
+										</Badge>
+									{/if}
+								{/if}
+							</div>
+							<div class:invisible={!existsInBothWorkspaces}>
+								<Button
+									size="xs"
+									variant="subtle"
+									onclick={() => showDiff(diff.kind as Kind, diff.path)}
+								>
+									<DiffIcon class="w-3 h-3" />
+									Show diff
+								</Button>
+							</div>
+						{/if}
 					{/if}
 				{/snippet}
 
