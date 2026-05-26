@@ -63,7 +63,7 @@ Only use `sync push` when:
 
 Use `flow test-step <flow_path> <step_id>` when the user is iterating on one module and the flow's upstream steps aren't part of what they're trying to validate. It runs only that step's runnable (rawscript: the inline script; script: the PathScript fetched from the workspace; flow: the subflow by path) and is much faster than running the whole flow when previous steps are slow or expensive.
 
-Use `flow preview <flow_path>` when steps depend on each other's outputs, when the user is validating the overall control flow, or when `test-step` doesn't apply (branchone, branchall, forloopflow, whileloopflow, identity, and AI agent steps cannot themselves be tested in isolation — their *contained* steps can, by passing the inner step's id).
+Use `flow preview <flow_path>` when steps depend on each other's outputs, when the user is validating the overall control flow, or when `test-step` doesn't apply (branchone, branchall, forloopflow, whileloopflow, identity, and AI agent steps cannot themselves be tested in isolation — for branchone/branchall/forloopflow/whileloopflow, the *contained* steps can, by passing the inner step's id).
 
 ### After writing — offer to run, don't wait passively
 
