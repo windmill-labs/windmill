@@ -16,6 +16,7 @@
 	} from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { goto } from '$lib/navigation'
+	import { page } from '$app/state'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { slide } from 'svelte/transition'
 	import {
@@ -82,6 +83,11 @@
 	// Sessions piggyback on the same dev gate as the global AI chat — when
 	// the feature flag is off, the sidebar section is hidden entirely.
 	const globalEnabled = isGlobalAiEnabled()
+
+	// Only highlight the active session while we're actually on the session
+	// page — once the user navigates away, `currentSessionId` lingers but no
+	// row should appear selected.
+	const onSessionsPage = $derived(page.route.id?.includes('/sessions') ?? false)
 
 	interface Props {
 		isCollapsed?: boolean
@@ -219,7 +225,9 @@
 	}
 
 	let pendingDelete: Session | undefined = $state(undefined)
-	let deleteAlsoFork = $state(false)
+	// Default to also deleting the fork: it's tied to this session and would be
+	// orphaned otherwise. The user can still untick it in the modal.
+	let deleteAlsoFork = $state(true)
 	// Fork workspace tied to `pendingDelete`, if any, and still accessible.
 	const pendingDeleteForkId = $derived.by(() => {
 		const wsId = pendingDelete?.workspace_id
@@ -233,7 +241,7 @@
 		const session = pendingDelete
 		const forkToDelete = deleteAlsoFork ? pendingDeleteForkId : undefined
 		pendingDelete = undefined
-		deleteAlsoFork = false
+		deleteAlsoFork = true
 		if (!session) return
 		const wasActive = sessionState.currentSessionId === session.id
 		removeSession(session.id)
@@ -324,7 +332,8 @@
 								{#each visibleSessions as session (session.id)}
 									{@const runtime = getRuntime(session.id)}
 									{@const status = runtime ? getSessionChatStatus(runtime) : 'idle'}
-									{@const isSelected = session.id === sessionState.currentSessionId}
+									{@const isSelected =
+										onSessionsPage && session.id === sessionState.currentSessionId}
 									{@const unread = unreadFor(session)}
 									{@const draft = hasDraft(session)}
 									<MenuItem
@@ -438,7 +447,7 @@
 				{#each visibleSessions as session (session.id)}
 					{@const runtime = getRuntime(session.id)}
 					{@const status = runtime ? getSessionChatStatus(runtime) : 'idle'}
-					{@const isSelected = session.id === sessionState.currentSessionId}
+					{@const isSelected = onSessionsPage && session.id === sessionState.currentSessionId}
 					{@const isEditing = editingId === session.id}
 					{@const unread = unreadFor(session)}
 					{@const draft = hasDraft(session)}
@@ -561,7 +570,7 @@
 	onConfirmed={handleConfirmedDelete}
 	onCanceled={() => {
 		pendingDelete = undefined
-		deleteAlsoFork = false
+		deleteAlsoFork = true
 	}}
 >
 	<div class="flex flex-col gap-3">
