@@ -13,6 +13,9 @@
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
+	import LocalChangesBadge from '$lib/components/LocalChangesBadge.svelte'
+	import NewBadge from '$lib/components/NewBadge.svelte'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { DELETE, copyToClipboard, isOwner } from '$lib/utils'
 	import { isDeployable } from '$lib/utils_deployable'
@@ -50,6 +53,9 @@
 		menuOpen?: boolean
 		showEditButton?: boolean
 		keyboardSelected?: boolean
+		hasLocalChanges?: boolean
+		localOnly?: boolean
+		newItem?: boolean
 	}
 
 	let {
@@ -63,8 +69,15 @@
 		depth = 0,
 		menuOpen = $bindable(false),
 		showEditButton = $bindable(true),
-		keyboardSelected = false
+		keyboardSelected = false,
+		hasLocalChanges = false,
+		localOnly = false,
+		newItem = false
 	}: Props = $props()
+
+	// A local-only flow opens its draft via the editor (no `nodraft`, which would
+	// discard the autosave); a brand-new one lives under the /flows/add slot.
+	let editHref = $derived(newItem ? `${base}/flows/add` : `${base}/flows/edit/${flow.path}`)
 
 	const dispatch = createEventDispatcher()
 
@@ -103,16 +116,18 @@
 <Row
 	aiId={`flow-row-${flow.path}`}
 	aiDescription={`Button to access the form to run the flow ${flow.summary ?? flow.path}`}
-	href={flow.draft_only
-		? `${base}/flows/edit/${flow.path}?nodraft=true`
-		: `${base}/flows/get/${flow.path}?workspace=${$workspaceStore}`}
+	href={localOnly
+		? editHref
+		: flow.draft_only
+			? `${base}/flows/edit/${flow.path}?nodraft=true`
+			: `${base}/flows/get/${flow.path}?workspace=${$workspaceStore}`}
 	kind="flow"
 	workspaceId={flow.workspace_id ?? $workspaceStore ?? ''}
 	{marked}
 	path={flow.path}
 	summary={flow.summary}
 	{errorHandlerMuted}
-	canFavorite={!flow.draft_only}
+	canFavorite={!flow.draft_only && !localOnly}
 	{depth}
 	{keyboardSelected}
 >
@@ -122,6 +137,8 @@
 		{/if}
 		<SharedBadge canWrite={flow.canWrite} extraPerms={flow.extra_perms} />
 		<DraftBadge has_draft={flow.has_draft} draft_only={flow.draft_only} />
+		<NewBadge is_new={localOnly} />
+		<LocalChangesBadge has_local_changes={hasLocalChanges && !localOnly} />
 		{#if flow.labels?.length}
 			<div class="flex items-center gap-0.5">
 				{#each flow.labels.slice(0, 3) as label}
@@ -152,7 +169,7 @@
 							wrapperClasses="w-20"
 							unifiedSize="md"
 							startIcon={{ icon: Pen }}
-							href="{base}/flows/edit/{flow.path}?nodraft=true"
+							href={localOnly ? editHref : `${base}/flows/edit/${flow.path}?nodraft=true`}
 							aiId={`edit-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
 							aiDescription={`Edits the flow ${flow.summary?.length > 0 ? flow.summary : flow.path}`}
 						>
@@ -183,6 +200,20 @@
 				let { draft_only, path, archived, has_draft } = flow
 				let owner = isOwner(path, $userStore, $workspaceStore)
 				const canEdit = flow.canWrite && showEditButton
+				if (localOnly) {
+					// No server record exists; only the localStorage draft can be removed.
+					return [
+						{
+							displayName: 'Discard local draft',
+							icon: Trash,
+							action: () => {
+								UserDraft.clear('flow', newItem ? '' : path)
+								dispatch('change')
+							},
+							type: 'delete' as 'delete'
+						}
+					]
+				}
 				if (draft_only) {
 					return [
 						{

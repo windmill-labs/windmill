@@ -10,6 +10,9 @@
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
+	import LocalChangesBadge from '$lib/components/LocalChangesBadge.svelte'
+	import NewBadge from '$lib/components/NewBadge.svelte'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import Badge from '../badge/Badge.svelte'
 	import {
 		ExternalLink,
@@ -47,6 +50,9 @@
 		menuOpen?: boolean
 		showEditButton?: boolean
 		keyboardSelected?: boolean
+		hasLocalChanges?: boolean
+		localOnly?: boolean
+		newItem?: boolean
 	}
 
 	let {
@@ -59,8 +65,19 @@
 		depth = 0,
 		menuOpen = $bindable(false),
 		showEditButton = $bindable(true),
-		keyboardSelected = false
+		keyboardSelected = false,
+		hasLocalChanges = false,
+		localOnly = false,
+		newItem = false
 	}: Props = $props()
+
+	// A local-only app opens its draft via the editor (no `nodraft`, which would
+	// discard the autosave); a brand-new one lives under the /add slot.
+	let editHref = $derived(
+		newItem
+			? `${base}/apps${app.raw_app ? '_raw' : ''}/add`
+			: `${base}/apps${app.raw_app ? '_raw' : ''}/edit/${app.path}`
+	)
 
 	const dispatch = createEventDispatcher()
 
@@ -80,13 +97,13 @@
 {/if}
 
 <Row
-	href="{base}/apps{app.raw_app ? '_raw' : ''}/get/{app.path}"
+	href={localOnly ? editHref : `${base}/apps${app.raw_app ? '_raw' : ''}/get/${app.path}`}
 	kind="app"
 	{marked}
 	path={app.path}
 	summary={app.summary}
 	workspaceId={app.workspace_id ?? $workspaceStore ?? ''}
-	canFavorite={!app.draft_only}
+	canFavorite={!app.draft_only && !localOnly}
 	{depth}
 	{keyboardSelected}
 >
@@ -99,6 +116,8 @@
 		{/if}
 		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
 		<DraftBadge has_draft={app.has_draft} draft_only={app.draft_only} />
+		<NewBadge is_new={localOnly} />
+		<LocalChangesBadge has_local_changes={hasLocalChanges && !localOnly} />
 		{#if app.labels?.length}
 			<div class="flex items-center gap-0.5">
 				{#each app.labels.slice(0, 3) as label}
@@ -130,7 +149,9 @@
 							variant="subtle"
 							wrapperClasses="w-20"
 							startIcon={{ icon: Pen }}
-							href="{base}/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}?nodraft=true"
+							href={localOnly
+								? editHref
+								: `${base}/apps${app.raw_app ? '_raw' : ''}/edit/${app.path}?nodraft=true`}
 						>
 							Edit
 						</Button>
@@ -158,6 +179,20 @@
 				let { draft_only, canWrite, summary, execution_mode, path, has_draft } = app
 
 				const canEdit = canWrite && showEditButton
+				if (localOnly) {
+					// No server record exists; only the localStorage draft can be removed.
+					return [
+						{
+							displayName: 'Discard local draft',
+							icon: Trash,
+							action: () => {
+								UserDraft.clear('raw_app', newItem ? '' : path)
+								dispatch('change')
+							},
+							type: 'delete' as 'delete'
+						}
+					]
+				}
 				if (draft_only) {
 					return [
 						{

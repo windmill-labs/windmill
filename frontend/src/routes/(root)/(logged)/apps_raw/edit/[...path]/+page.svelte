@@ -181,10 +181,30 @@
 	let loadAppToken = 0
 	async function loadApp(): Promise<void> {
 		const tok = ++loadAppToken
-		const app_w_draft = await AppService.getAppByPathWithDraft({
-			path: page.params.path ?? '',
-			workspace: $workspaceStore!
-		})
+		let app_w_draft: Awaited<ReturnType<typeof AppService.getAppByPathWithDraft>>
+		try {
+			app_w_draft = await AppService.getAppByPathWithDraft({
+				path: page.params.path ?? '',
+				workspace: $workspaceStore!
+			})
+		} catch (err) {
+			if (tok !== loadAppToken) return
+			// No server record (e.g. a raw app that exists only as a local draft,
+			// created via the global AI chat). Initialize the editor from the
+			// localStorage autosave so it isn't left blank.
+			const localDraft = draftHandle.draft
+			if (localDraft != undefined) {
+				files = localDraft.files
+				runnables = localDraft.runnables
+				data = localDraft.data
+				summary = localDraft.summary
+				policy = localDraft.policy ?? {}
+				newPath = path
+				redraw++
+				return
+			}
+			throw err
+		}
 		if (tok !== loadAppToken) return
 		const app_w_draft_ = structuredClone(stateSnapshot(app_w_draft))
 		savedApp = {

@@ -68,8 +68,8 @@
 		hasLocalChanges?: boolean
 		// Synthesized row backed only by a localStorage draft (no server record)
 		localOnly?: boolean
-		// Local-only draft created in /scripts/add (stored under the empty path)
-		newScript?: boolean
+		// Local-only draft created in the /add route (stored under the empty path)
+		newItem?: boolean
 	}
 
 	type TableScript = TableItem<Script, 'script'>
@@ -90,6 +90,19 @@
 		localDraftToken
 		return $workspaceStore
 			? UserDraft.list<Partial<Script>>({ workspace: $workspaceStore, itemKinds: ['script'] })
+			: []
+	})
+	let localFlowDrafts = $derived.by(() => {
+		localDraftToken
+		return $workspaceStore
+			? UserDraft.list<Partial<Flow>>({ workspace: $workspaceStore, itemKinds: ['flow'] })
+			: []
+	})
+	// raw_app draft values don't carry a path — the storage key is the path.
+	let localRawAppDrafts = $derived.by(() => {
+		localDraftToken
+		return $workspaceStore
+			? UserDraft.list<{ summary?: string }>({ workspace: $workspaceStore, itemKinds: ['raw_app'] })
 			: []
 	})
 
@@ -306,21 +319,29 @@
 		if (flows == undefined || scripts == undefined || apps == undefined || raw_apps == undefined) {
 			return undefined
 		}
-		// Resolve a user-facing path for each local script draft: the storage key
-		// path for named scripts, or the value's path for a new script being
-		// created in /scripts/add (stored under the empty path).
-		const serverScriptPaths = new Set(scripts.map((s) => s.path))
-		const localChangePaths = new Set<string>()
+		// localStorage drafts → flag existing rows ("Local changes") and synthesize
+		// rows for items that exist only locally ("New", never saved to the
+		// workspace). Display path: the storage-key path, or the value's path for a
+		// brand-new item created under the empty path (/scripts/add, /flows/add).
+		const scriptChangePaths = new Set<string>()
+		const flowChangePaths = new Set<string>()
+		const rawAppChangePaths = new Set<string>()
 		const localOnlyScripts: TableScript[] = []
-		const seenLocalOnly = new Set<string>()
+		const localOnlyFlows: TableFlow[] = []
+		const localOnlyApps: TableApp[] = []
+
+		const serverScriptPaths = new Set(scripts.map((s) => s.path))
+		const serverFlowPaths = new Set(flows.map((f) => f.path))
+		const serverAppPaths = new Set(apps.map((a) => a.path))
+
+		const seenScript = new Set<string>()
 		for (const entry of localScriptDrafts) {
-			const isNewScript = entry.path === ''
-			const displayPath = isNewScript ? (entry.value?.path ?? '') : entry.path
+			const isNew = entry.path === ''
+			const displayPath = isNew ? (entry.value?.path ?? '') : entry.path
 			if (!displayPath) continue
-			localChangePaths.add(displayPath)
-			if (serverScriptPaths.has(displayPath)) continue
-			if (archived || seenLocalOnly.has(displayPath)) continue
-			seenLocalOnly.add(displayPath)
+			scriptChangePaths.add(displayPath)
+			if (serverScriptPaths.has(displayPath) || archived || seenScript.has(displayPath)) continue
+			seenScript.add(displayPath)
 			const value = entry.value
 			localOnlyScripts.push({
 				path: displayPath,
@@ -337,9 +358,8 @@
 				is_template: false,
 				starred: false,
 				extra_perms: {},
-				// A local-only script is NOT a server draft — don't set the
-				// server-side draft flags. The yellow "Local changes" badge (driven
-				// by localOnly) is what marks it; href/favorite use localOnly/newScript.
+				// A local-only item is NOT a server draft — leave the server draft
+				// flags off; localOnly drives the blue "New" badge, href and favorite.
 				draft_only: false,
 				has_draft: false,
 				canWrite: !$userStore?.operator,
@@ -348,32 +368,94 @@
 				time: Date.now(),
 				hasLocalChanges: true,
 				localOnly: true,
-				newScript: isNewScript
+				newItem: isNew
 			} as unknown as TableScript)
 		}
+
+		const seenFlow = new Set<string>()
+		for (const entry of localFlowDrafts) {
+			const isNew = entry.path === ''
+			const displayPath = isNew ? (entry.value?.path ?? '') : entry.path
+			if (!displayPath) continue
+			flowChangePaths.add(displayPath)
+			if (serverFlowPaths.has(displayPath) || archived || seenFlow.has(displayPath)) continue
+			seenFlow.add(displayPath)
+			const value = entry.value
+			localOnlyFlows.push({
+				path: displayPath,
+				summary: value?.summary ?? '',
+				edited_at: new Date().toISOString(),
+				edited_by: $userStore?.username ?? '',
+				archived: false,
+				starred: false,
+				extra_perms: {},
+				draft_only: false,
+				has_draft: false,
+				canWrite: !$userStore?.operator,
+				workspace_id: $workspaceStore,
+				type: 'flow',
+				time: Date.now(),
+				hasLocalChanges: true,
+				localOnly: true,
+				newItem: isNew
+			} as unknown as TableFlow)
+		}
+
+		// raw_app drafts: the value carries no path, so the storage key is the path.
+		// New raw apps live under the empty slot (/apps_raw/add) with no usable path.
+		const seenApp = new Set<string>()
+		for (const entry of localRawAppDrafts) {
+			const displayPath = entry.path
+			if (!displayPath) continue
+			rawAppChangePaths.add(displayPath)
+			if (serverAppPaths.has(displayPath) || archived || seenApp.has(displayPath)) continue
+			seenApp.add(displayPath)
+			const value = entry.value
+			localOnlyApps.push({
+				path: displayPath,
+				summary: value?.summary ?? '',
+				raw_app: true,
+				starred: false,
+				extra_perms: {},
+				draft_only: false,
+				has_draft: false,
+				canWrite: !$userStore?.operator,
+				workspace_id: $workspaceStore,
+				type: 'app',
+				time: Date.now(),
+				hasLocalChanges: true,
+				localOnly: true,
+				newItem: false
+			} as unknown as TableApp)
+		}
+
 		return [
 			...flows.map((x) => ({
 				...x,
 				type: 'flow' as 'flow',
-				time: new Date(x.edited_at).getTime()
+				time: new Date(x.edited_at).getTime(),
+				hasLocalChanges: flowChangePaths.has(x.path)
 			})),
 			...scripts.map((x) => ({
 				...x,
 				type: 'script' as 'script',
 				time: new Date(x.created_at).getTime(),
-				hasLocalChanges: localChangePaths.has(x.path)
+				hasLocalChanges: scriptChangePaths.has(x.path)
 			})),
 			...apps.map((x) => ({
 				...x,
 				type: 'app' as 'app',
-				time: new Date(x.edited_at).getTime()
+				time: new Date(x.edited_at).getTime(),
+				hasLocalChanges: rawAppChangePaths.has(x.path)
 			})),
 			...raw_apps.map((x) => ({
 				...x,
 				type: 'raw_app' as 'raw_app',
 				time: new Date(x.edited_at).getTime()
 			})),
-			...localOnlyScripts
+			...localOnlyScripts,
+			...localOnlyFlows,
+			...localOnlyApps
 		].sort((a, b) =>
 			a.starred != b.starred ? (a.starred ? -1 : 1) : (a.time ?? 0) - (b.time ?? 0) > 0 ? -1 : 1
 		)
@@ -885,8 +967,14 @@
 					loadScripts(includeWithoutMain)
 					localDraftToken++
 				}}
-				on:flowChanged={loadFlows}
-				on:appChanged={loadApps}
+				on:flowChanged={() => {
+					loadFlows()
+					localDraftToken++
+				}}
+				on:appChanged={() => {
+					loadApps()
+					localDraftToken++
+				}}
 				on:rawAppChanged={loadRawApps}
 				on:reload={() => {
 					loadScripts(includeWithoutMain)
@@ -906,8 +994,14 @@
 							loadScripts(includeWithoutMain)
 							localDraftToken++
 						}}
-						on:flowChanged={loadFlows}
-						on:appChanged={loadApps}
+						on:flowChanged={() => {
+							loadFlows()
+							localDraftToken++
+						}}
+						on:appChanged={() => {
+							loadApps()
+							localDraftToken++
+						}}
 						on:rawAppChanged={loadRawApps}
 						on:reload={() => {
 							loadScripts(includeWithoutMain)

@@ -56,7 +56,7 @@
 		{keyboardSelected}
 		hasLocalChanges={item.hasLocalChanges}
 		localOnly={item.localOnly}
-		newScript={item.newScript}
+		newItem={item.newItem}
 	/>
 {:else if item.type == 'flow'}
 	<FlowRow
@@ -75,6 +75,9 @@
 		bind:menuOpen
 		{showEditButton}
 		{keyboardSelected}
+		hasLocalChanges={item.hasLocalChanges}
+		localOnly={item.localOnly}
+		newItem={item.newItem}
 	/>
 {:else if item.type == 'app'}
 	<AppRow
@@ -89,6 +92,9 @@
 		bind:menuOpen
 		{showEditButton}
 		{keyboardSelected}
+		hasLocalChanges={item.hasLocalChanges}
+		localOnly={item.localOnly}
+		newItem={item.newItem}
 	/>
 {:else if item.type == 'raw_app'}
 	<RawAppRow

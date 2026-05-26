@@ -68,7 +68,7 @@
 		keyboardSelected?: boolean
 		hasLocalChanges?: boolean
 		localOnly?: boolean
-		newScript?: boolean
+		newItem?: boolean
 	}
 
 	let {
@@ -86,12 +86,12 @@
 		keyboardSelected = false,
 		hasLocalChanges = false,
 		localOnly = false,
-		newScript = false
+		newItem = false
 	}: Props = $props()
 
 	// A new script created in /scripts/add is stored under the empty path, so it
 	// is only reachable from the add route, not /scripts/edit/<path>.
-	let editHref = $derived(newScript ? `${base}/scripts/add` : `${base}/scripts/edit/${script.path}`)
+	let editHref = $derived(newItem ? `${base}/scripts/add` : `${base}/scripts/edit/${script.path}`)
 
 	const dispatch = createEventDispatcher()
 
@@ -266,7 +266,7 @@
 							action: () => {
 								// clear() drops both the localStorage entry and the in-memory
 								// live state, so the row disappears without a reload.
-								UserDraft.clear('script', newScript ? '' : script.path)
+								UserDraft.clear('script', newItem ? '' : script.path)
 								dispatch('change')
 							},
 							type: dlt
