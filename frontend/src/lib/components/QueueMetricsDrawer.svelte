@@ -3,7 +3,6 @@
 	import QueueMetricsDrawerInner from './QueueMetricsDrawerInner.svelte'
 	import QueueAlerts from './QueueAlerts.svelte'
 	import WorkspaceFairnessEvents from './WorkspaceFairnessEvents.svelte'
-	import { isCloudHosted } from '$lib/cloud'
 
 	let drawer: Drawer | undefined = $state()
 	export function openDrawer() {
@@ -23,10 +22,8 @@
 
 		<QueueMetricsDrawerInner />
 
-		{#if isCloudHosted()}
-			<div class="py-8"></div>
-			<WorkspaceFairnessEvents />
-		{/if}
+		<div class="py-8"></div>
+		<WorkspaceFairnessEvents />
 
 		<div class="py-8"></div>
 	</DrawerContent>

@@ -232,6 +232,93 @@ async fn fairness_lifts_when_load_drops(db: Pool<Postgres>) {
     assert!(overloaded_set().is_empty());
 }
 
+/// Ensure today's audit_partitioned partition exists — the migration only
+/// creates partitions for the day it ran + 3 days, after which production
+/// relies on `monitor::manage_audit_partitions` to roll new ones. That
+/// maintenance task does not run in the test binary, so inserts silently
+/// fail-and-warn without it.
+async fn ensure_today_audit_partition(db: &Pool<Postgres>) {
+    let today: chrono::NaiveDate = chrono::Utc::now().date_naive();
+    let next = today + chrono::Duration::days(1);
+    let partition = format!("audit_{}", today.format("%Y%m%d"));
+    let sql = format!(
+        "CREATE TABLE IF NOT EXISTS \"{partition}\" PARTITION OF audit_partitioned \
+         FOR VALUES FROM ('{today}') TO ('{next}')"
+    );
+    let _ = sqlx::query(&sql).execute(db).await;
+}
+
+/// Both cap AND uncap transitions must produce audit-log rows. This test
+/// drives a cap → uncap cycle and inspects `audit_partitioned` directly.
+#[sqlx::test(fixtures("base"))]
+#[serial]
+async fn fairness_audit_records_both_cap_and_uncap(db: Pool<Postgres>) {
+    reset_fairness_state();
+    ensure_today_audit_partition(&db).await;
+    create_workspace(&db, "noisy").await;
+    create_workspace(&db, "victim_a").await;
+    create_workspace(&db, "victim_b").await;
+
+    // Phase 1 — push noisy to dominate, cap it.
+    insert_completed(&db, "noisy", 60, 2).await;
+    insert_completed(&db, "victim_a", 5, 3).await;
+    insert_completed(&db, "victim_b", 5, 1).await;
+    refresh_overloaded(&db).await.expect("refresh ok");
+    assert_eq!(overloaded_set(), vec!["noisy".to_string()]);
+
+    // Phase 2 — roll noisy's completions outside the window, push balanced
+    // load, force a refresh; noisy should be uncapped.
+    sqlx::query(
+        "UPDATE v2_job_completed
+            SET completed_at = NOW() - make_interval(secs => 60),
+                started_at = NOW() - make_interval(secs => 60)
+          WHERE workspace_id IN ('noisy', 'victim_a', 'victim_b')",
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+    insert_completed(&db, "noisy", 10, 2).await;
+    insert_completed(&db, "victim_a", 10, 2).await;
+    insert_completed(&db, "victim_b", 10, 2).await;
+    sqlx::query(
+        "UPDATE background_task_state
+            SET updated_at = NOW() - INTERVAL '1 hour'
+          WHERE name = 'workspace_fairness'",
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+    refresh_overloaded(&db).await.expect("refresh ok");
+    assert!(overloaded_set().is_empty());
+
+    // Verify both audit rows actually landed.
+    let capped_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_partitioned
+         WHERE workspace_id = 'admins'
+           AND operation = 'workspace_fairness.capped'
+           AND resource = 'noisy'",
+    )
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    let uncapped_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_partitioned
+         WHERE workspace_id = 'admins'
+           AND operation = 'workspace_fairness.uncapped'
+           AND resource = 'noisy'",
+    )
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    println!("audit rows: capped={capped_count}, uncapped={uncapped_count}");
+    assert_eq!(capped_count, 1, "expected exactly 1 capped audit for noisy");
+    assert_eq!(
+        uncapped_count, 1,
+        "expected exactly 1 uncapped audit for noisy — \
+         if this is 0, the uncap transition is not being recorded"
+    );
+}
+
 #[sqlx::test(fixtures("base"))]
 #[serial]
 async fn fairness_catches_slot_hoggers(db: Pool<Postgres>) {
@@ -363,22 +450,7 @@ async fn mock_worker(
     completed_counter: Arc<AtomicU64>,
 ) {
     let _ = worker_id;
-    while !shutdown.load(Ordering::Relaxed) {
-        // Snapshot the overloaded set at pull time so each pull reflects the
-        // latest refresh.
-        let overloaded = if fairness_on.load(Ordering::Relaxed) {
-            (**WORKSPACE_FAIRNESS_OVERLOADED.load()).clone()
-        } else {
-            vec![]
-        };
-
-        // Atomically claim one queued job. Returns the workspace and the
-        // `created_at` so we can compute end-to-end latency at completion.
-        let row: Option<(Uuid, String, i32, chrono::DateTime<chrono::Utc>)> = if overloaded
-            .is_empty()
-        {
-            sqlx::query_as::<_, (Uuid, String, i32, chrono::DateTime<chrono::Utc>)>(
-                "WITH picked AS (
+    let standard_sql = "WITH picked AS (
                     SELECT id FROM v2_job_queue
                     WHERE running = false AND scheduled_for <= now()
                     ORDER BY priority DESC NULLS LAST, scheduled_for
@@ -388,14 +460,8 @@ async fn mock_worker(
                    SET running = true, started_at = now()
                   FROM picked
                  WHERE q.id = picked.id
-                RETURNING q.id, q.workspace_id, COALESCE((q.extras->>'duration_ms')::int, 30), q.created_at",
-            )
-            .fetch_optional(&db)
-            .await
-            .unwrap()
-        } else {
-            sqlx::query_as::<_, (Uuid, String, i32, chrono::DateTime<chrono::Utc>)>(
-                "WITH picked AS (
+                RETURNING q.id, q.workspace_id, COALESCE((q.extras->>'duration_ms')::int, 30), q.created_at";
+    let fairness_sql = "WITH picked AS (
                     SELECT id FROM v2_job_queue
                     WHERE running = false AND scheduled_for <= now()
                       AND workspace_id <> ALL($1::text[])
@@ -406,13 +472,47 @@ async fn mock_worker(
                    SET running = true, started_at = now()
                   FROM picked
                  WHERE q.id = picked.id
-                RETURNING q.id, q.workspace_id, COALESCE((q.extras->>'duration_ms')::int, 30), q.created_at",
+                RETURNING q.id, q.workspace_id, COALESCE((q.extras->>'duration_ms')::int, 30), q.created_at";
+
+    while !shutdown.load(Ordering::Relaxed) {
+        // Snapshot the overloaded set at pull time so each pull reflects the
+        // latest refresh. Mirror the production dispatch: if there is anything
+        // capped, flip the same coin the real pull does to decide whether to
+        // admit it. Empty overloaded set => standard query unconditionally.
+        let overloaded = if fairness_on.load(Ordering::Relaxed) {
+            (**WORKSPACE_FAIRNESS_OVERLOADED.load()).clone()
+        } else {
+            vec![]
+        };
+        let exclude_capped =
+            !overloaded.is_empty() && !windmill_queue::workspace_fairness::should_admit_capped();
+
+        // Primary query (chosen by the coin flip).
+        let mut row: Option<(Uuid, String, i32, chrono::DateTime<chrono::Utc>)> = if exclude_capped
+        {
+            sqlx::query_as::<_, (Uuid, String, i32, chrono::DateTime<chrono::Utc>)>(fairness_sql)
+                .bind(&overloaded)
+                .fetch_optional(&db)
+                .await
+                .unwrap()
+        } else {
+            sqlx::query_as::<_, (Uuid, String, i32, chrono::DateTime<chrono::Utc>)>(standard_sql)
+                .fetch_optional(&db)
+                .await
+                .unwrap()
+        };
+
+        // Fallback: if the fairness query returned nothing (every non-capped
+        // workspace queue is empty), retry without the filter so workers
+        // don't idle when only capped jobs remain.
+        if row.is_none() && exclude_capped {
+            row = sqlx::query_as::<_, (Uuid, String, i32, chrono::DateTime<chrono::Utc>)>(
+                standard_sql,
             )
-            .bind(&overloaded)
             .fetch_optional(&db)
             .await
-            .unwrap()
-        };
+            .unwrap();
+        }
 
         match row {
             Some((id, ws, dur_ms, created_at)) => {

@@ -1,9 +1,15 @@
-//! Per-workspace fairness for the shared worker pool (cloud-only).
+//! Per-workspace fairness for the shared worker pool (Enterprise feature).
 //!
-//! On `app.windmill.dev` the cluster runs a single default worker group, so a
-//! single workspace flooding the queue with jobs can degrade quality of service
-//! for everyone else. This module computes the set of "overloaded" workspaces
-//! that should be temporarily excluded from the pull query.
+//! On multi-tenant deployments (notably `app.windmill.dev`, but any EE
+//! cluster with a single shared worker group) a single workspace flooding
+//! the queue with jobs can degrade quality of service for everyone else.
+//! This module computes the set of "overloaded" workspaces whose share of
+//! the worker pool must be capped, and the dispatch in `jobs.rs` uses a
+//! **stochastic admission rule** at pull time: each pull flips a coin and
+//! admits capped workspaces' jobs with probability `(cap_percent + ε)/100`.
+//! Over many pulls the noisy workspace is held at a steady share around the
+//! cap — there is no on/off oscillation, so victim latency stays flat
+//! instead of breathing in/out with each refresh cycle.
 //!
 //! ## Detection signal
 //!
@@ -30,18 +36,20 @@
 //! Each process mirrors the result into [`WORKSPACE_FAIRNESS_OVERLOADED`]
 //! which the pull path reads at near-zero cost.
 //!
-//! ## Cloud gating
+//! ## Enterprise gating
 //!
-//! The feature is hard-gated to `CLOUD_HOSTED=true` **and** `BASE_URL` matching
-//! `app.windmill.dev` (belt-and-suspenders against an on-prem instance importing
-//! cloud's `global_settings` row). When either check fails, [`maybe_refresh_overloaded`]
-//! and the pull-side dispatch both treat the feature as disabled.
+//! The cap is an Enterprise feature. The `windmill-api-settings` setter
+//! rejects writes from non-EE builds, and on a self-hosted single-tenant
+//! deployment the operator simply leaves `workspace_fairness_enabled = false`
+//! (the default). At runtime the dispatch checks `WORKSPACE_FAIRNESS_ENABLED`
+//! only — when it is off the pull path is bit-identical to today's.
 
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
+use rand::Rng;
 use sqlx::{Pool, Postgres};
 
 use windmill_audit::audit_oss::audit_log;
@@ -49,7 +57,7 @@ use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
 use windmill_common::error::Result;
 use windmill_common::worker::{
-    is_cloud_production_host, WORKSPACE_FAIRNESS_DURATION_SECS, WORKSPACE_FAIRNESS_ENABLED,
+    WORKSPACE_FAIRNESS_DURATION_SECS, WORKSPACE_FAIRNESS_ENABLED,
     WORKSPACE_FAIRNESS_LAST_REFRESH_MICROS, WORKSPACE_FAIRNESS_MAX_PERCENT,
     WORKSPACE_FAIRNESS_MIN_TOTAL, WORKSPACE_FAIRNESS_OVERLOADED,
 };
@@ -67,12 +75,37 @@ const ACTIVE_REFRESH_SECS: u32 = 2;
 /// Hard cap on the size of the overloaded list bound into the pull query.
 const MAX_OVERLOADED_RETURNED: i64 = 64;
 
-/// Whether the feature can be active in this process. Combined gate:
-///   - `WORKSPACE_FAIRNESS_ENABLED` setting toggled on, AND
-///   - `CLOUD_HOSTED=true`, AND
-///   - `BASE_URL` host is the production cloud host.
+/// Hysteresis margin added to `MAX_PERCENT` when computing the admission
+/// probability. The noisy workspace ends up holding a share of pulls roughly
+/// equal to `(MAX_PERCENT + ε)/100`, which keeps its measured share strictly
+/// above the cap threshold so the cap doesn't auto-lift on each refresh
+/// cycle. Set to 0 for an exact-cap policy (allowed but more flap-prone).
+pub const ADMISSION_EPSILON_PERCENT: u32 = 5;
+
+/// Whether the feature can be active in this process. EE is enforced at
+/// settings-set time (see `windmill-api-settings`); at runtime we only check
+/// the toggle so the hot path stays a single atomic load.
 fn fairness_active() -> bool {
-    WORKSPACE_FAIRNESS_ENABLED.load(Ordering::Relaxed) && is_cloud_production_host()
+    WORKSPACE_FAIRNESS_ENABLED.load(Ordering::Relaxed)
+}
+
+/// Pull-time decision: should this pull admit capped workspaces?
+///
+/// Returns true with probability `(MAX_PERCENT + ADMISSION_EPSILON_PERCENT)/100`.
+/// The dispatch in `jobs.rs` uses this to decide between the standard pull
+/// (no fairness filter) and the fairness pull (excludes capped workspaces).
+/// Over many pulls this converges to a steady-state share around the cap
+/// without the on/off oscillation that a binary cap produces.
+///
+/// Fast path: a single atomic load + one f64 RNG draw. The RNG is the
+/// thread-local default `rand::rng()` (Xoshiro256++ in current `rand`),
+/// which is a few nanoseconds per call.
+pub fn should_admit_capped() -> bool {
+    let cap = WORKSPACE_FAIRNESS_MAX_PERCENT
+        .load(Ordering::Relaxed)
+        .clamp(1, 100) as f64;
+    let p = (cap + ADMISSION_EPSILON_PERCENT as f64).min(100.0) / 100.0;
+    rand::rng().random::<f64>() < p
 }
 
 #[derive(serde::Deserialize)]

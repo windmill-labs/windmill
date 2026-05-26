@@ -47,6 +47,7 @@ use windmill_common::secret_backend::{
     AwsSecretsManagerSettings, AzureKeyVaultSettings, SecretMigrationReport, VaultSettings,
 };
 use windmill_common::{
+    ee_oss::{get_license_plan, LicensePlan},
     email_oss::send_email_plain_text,
     error::{self, JsonResult, Result},
     get_database_url,
@@ -61,7 +62,6 @@ use windmill_common::{
     },
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
-    worker::is_cloud_production_host,
 };
 use windmill_common::{error::to_anyhow, worker::CLOUD_HOSTED, PgDatabase};
 
@@ -462,10 +462,13 @@ fn is_workspace_fairness_setting(key: &str) -> bool {
     )
 }
 
-/// Cloud-and-app.windmill.dev gate for workspace fairness. Must hold to persist
-/// the setting; the runtime path additionally verifies before applying the cap.
-fn workspace_fairness_settings_allowed() -> bool {
-    is_cloud_production_host()
+/// Enterprise gate for the workspace-fairness settings. Workspace fairness is
+/// only useful on multi-tenant clusters where one workspace can starve other
+/// workspaces sharing the same worker pool, and the feature is licensed as
+/// part of Enterprise. Non-EE installs are rejected at write time; the runtime
+/// dispatch additionally honours the `WORKSPACE_FAIRNESS_ENABLED` toggle.
+async fn workspace_fairness_settings_allowed() -> bool {
+    matches!(get_license_plan().await, LicensePlan::Enterprise)
 }
 
 pub async fn set_global_setting(
@@ -490,23 +493,19 @@ pub async fn set_global_setting_internal(
         value
     };
 
-    // Hard-gate the cloud-only workspace fairness settings: refuse to persist
-    // them on any instance that is not CLOUD_HOSTED + app.windmill.dev. This is
-    // belt-and-suspenders alongside the frontend `{#if isCloudHosted()}` wrap
-    // and the runtime check in `workspace_fairness::fairness_active`.
-    //
-    // Deletes (Null / empty-string) are *allowed* on non-cloud so admins can clear
-    // stale rows that ended up in `global_settings` via a cloned cloud DB. Without
-    // this exception a self-hosted instance would be stuck with cloud-only rows
-    // showing up in its instance-config YAML export.
+    // EE gate for workspace-fairness settings. Workspace fairness only matters
+    // on multi-tenant clusters; it is licensed as an Enterprise feature so the
+    // setter rejects writes from non-EE builds. Deletes (Null / empty-string)
+    // are *always* allowed so an admin can clear stale rows imported from a
+    // cloned EE DB without flipping their license.
     let is_clearing_value = matches!(&value, serde_json::Value::Null)
         || matches!(&value, serde_json::Value::String(s) if s.trim().is_empty());
     if is_workspace_fairness_setting(&key)
         && !is_clearing_value
-        && !workspace_fairness_settings_allowed()
+        && !workspace_fairness_settings_allowed().await
     {
         return Err(error::Error::BadRequest(format!(
-            "{} is only configurable on app.windmill.dev cloud (CLOUD_HOSTED + BASE_URL match required)",
+            "{} requires an Enterprise license",
             key
         )));
     }
@@ -776,22 +775,18 @@ async fn set_instance_config(
             .iter()
             .any(|(key, _)| key == AI_CONFIG_SETTING);
 
-        // Mirror the per-key cloud gate in `set_global_setting_internal`. Without this, the
-        // bulk endpoint would let a self-hosted superadmin persist `workspace_fairness_*` rows
-        // even though the per-key API rejects them. The runtime check in
-        // `workspace_fairness::fairness_active` still keeps the cap inert there, but persisting
-        // the rows would be a leak of cloud-only config into non-cloud DBs and would advertise
-        // the feature in the YAML export.
-        //
-        // Only block *upserts*; deletes are allowed everywhere so admins can clean up stale
-        // rows (e.g. from a cloned cloud DB) without flipping `CLOUD_HOSTED` on temporarily.
+        // Mirror the per-key EE gate in `set_global_setting_internal`. Without
+        // this, the bulk endpoint would let a non-EE superadmin persist
+        // `workspace_fairness_*` rows even though the per-key API rejects them.
+        // Only block *upserts*; deletes are allowed everywhere so admins can
+        // clean up stale rows (e.g. from a cloned EE DB).
         let upserts_touch_fairness = settings_diff
             .upserts
             .keys()
             .any(|k| is_workspace_fairness_setting(k));
-        if upserts_touch_fairness && !workspace_fairness_settings_allowed() {
+        if upserts_touch_fairness && !workspace_fairness_settings_allowed().await {
             return Err(error::Error::BadRequest(
-                "Workspace fairness settings are only configurable on app.windmill.dev cloud (CLOUD_HOSTED + BASE_URL match required)".to_string(),
+                "Workspace fairness settings require an Enterprise license".to_string(),
             ));
         }
 
