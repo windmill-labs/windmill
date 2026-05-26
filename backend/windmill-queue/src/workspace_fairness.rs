@@ -18,15 +18,6 @@ pub use crate::workspace_fairness_ee::*;
 #[cfg(not(feature = "private"))]
 mod oss_stubs {
     use sqlx::{Pool, Postgres};
-    use windmill_common::error::Result;
-
-    /// Background-task-state row name. Kept in OSS so it can be referenced
-    /// from any cross-crate query without dragging in EE code.
-    pub const TASK_STATE_NAME: &str = "workspace_fairness";
-
-    /// Hysteresis margin (see EE module). Exposed in OSS as a constant so
-    /// settings UI / tests can read it without enabling `private`.
-    pub const ADMISSION_EPSILON_PERCENT: u32 = 5;
 
     /// No-op on OSS — workspace fairness is an Enterprise feature.
     #[inline]
@@ -38,13 +29,6 @@ mod oss_stubs {
     #[inline]
     pub fn should_admit_capped() -> bool {
         true
-    }
-
-    /// No-op on OSS. Exposed so integration tests (which only run with
-    /// `--features private,enterprise`) can reference the symbol without
-    /// `#[cfg]` gating at every call site.
-    pub async fn refresh_overloaded(_db: &Pool<Postgres>) -> Result<()> {
-        Ok(())
     }
 }
 

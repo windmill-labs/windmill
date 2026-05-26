@@ -495,11 +495,19 @@ pub async fn set_global_setting_internal(
 
     // EE gate for workspace-fairness settings. Workspace fairness only matters
     // on multi-tenant clusters; it is licensed as an Enterprise feature so the
-    // setter rejects writes from non-EE builds. Deletes (Null / empty-string)
-    // are *always* allowed so an admin can clear stale rows imported from a
-    // cloned EE DB without flipping their license.
+    // setter rejects writes from non-EE builds. Disabling/clearing writes are
+    // *always* allowed regardless of license, so an admin who downgrades from
+    // EE (or imports a row from a cloned EE DB) can always turn the cap off:
+    //   - `Null` / empty-string  → row delete
+    //   - `Bool(false)` on `workspace_fairness_enabled` → explicit disable
+    // Without the `Bool(false)` carve-out, a stale `enabled=true` row from a
+    // downgrade would be impossible to flip off through the normal API/UI
+    // and the runtime path (which only checks the toggle) would keep
+    // throttling.
     let is_clearing_value = matches!(&value, serde_json::Value::Null)
-        || matches!(&value, serde_json::Value::String(s) if s.trim().is_empty());
+        || matches!(&value, serde_json::Value::String(s) if s.trim().is_empty())
+        || (key == WORKSPACE_FAIRNESS_ENABLED_SETTING
+            && matches!(&value, serde_json::Value::Bool(false)));
     if is_workspace_fairness_setting(&key)
         && !is_clearing_value
         && !workspace_fairness_settings_allowed().await
@@ -778,13 +786,19 @@ async fn set_instance_config(
         // Mirror the per-key EE gate in `set_global_setting_internal`. Without
         // this, the bulk endpoint would let a non-EE superadmin persist
         // `workspace_fairness_*` rows even though the per-key API rejects them.
-        // Only block *upserts*; deletes are allowed everywhere so admins can
-        // clean up stale rows (e.g. from a cloned EE DB).
-        let upserts_touch_fairness = settings_diff
-            .upserts
-            .keys()
-            .any(|k| is_workspace_fairness_setting(k));
-        if upserts_touch_fairness && !workspace_fairness_settings_allowed().await {
+        // Only block *non-disabling* upserts; deletes are allowed everywhere
+        // (already filtered into `settings_diff.removals`) and a
+        // `workspace_fairness_enabled=false` upsert is treated as a disable,
+        // so a downgraded instance can always turn the cap off via the bulk
+        // YAML endpoint too.
+        let upserts_touch_fairness_non_disable = settings_diff.upserts.iter().any(|(k, v)| {
+            if !is_workspace_fairness_setting(k) {
+                return false;
+            }
+            !(k == WORKSPACE_FAIRNESS_ENABLED_SETTING
+                && matches!(v, serde_json::Value::Bool(false)))
+        });
+        if upserts_touch_fairness_non_disable && !workspace_fairness_settings_allowed().await {
             return Err(error::Error::BadRequest(
                 "Workspace fairness settings require an Enterprise license".to_string(),
             ));

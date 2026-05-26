@@ -300,11 +300,10 @@ pub struct WorkspaceFairnessEvent {
     pub parameters: Option<serde_json::Value>,
 }
 
-/// Return the last 100 workspace-fairness cap/uncap transitions written by
-/// `workspace_fairness::emit_transition_audit`. Cloud-only: the underlying
-/// mechanism is hard-gated to `CLOUD_HOSTED=true` + `app.windmill.dev`, so on
-/// any other instance we short-circuit with an empty list rather than running
-/// a query that would always be empty.
+/// Return the most recent ~200 cap and ~200 uncap transitions (merged into
+/// at most 400 rows) written by `workspace_fairness::emit_transition_audit`.
+/// Workspace fairness is an Enterprise feature; on non-EE / non-enabled
+/// instances the table is naturally empty.
 async fn get_workspace_fairness_events(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
