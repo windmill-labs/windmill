@@ -153,14 +153,11 @@ flow related commands
 - `flow run <path:string>` - run a flow by path.
   - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - `-s --silent` - Do not ouput anything other then the final output. Useful for scripting.
-- `flow preview <flow_path:string>` - preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default.
+- `flow preview <flow_path:string>` - preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default. Pass --step <id> to run only one module in isolation (resolves nested steps inside branchone/branchall/forloopflow/whileloopflow plus the special preprocessor/failure modules; supported step types: rawscript, script, flow).
   - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - `-s --silent` - Do not output anything other then the final output. Useful for scripting.
   - `--remote` - Use deployed workspace scripts for PathScript steps instead of local files.
-- `flow test-step <flow_path:string> <step_id:string>` - Test a single step of a local flow in isolation. Resolves the step by id (including nested branchone/branchall/forloopflow/whileloopflow and the failure/preprocessor modules), runs only that step's runnable. Supported step types: rawscript, script (PathScript), flow (PathFlow).
-  - `-d --data <data:string>` - Step inputs as a JSON string or a file using @<filename> or stdin using @-.
-  - `-s --silent` - Do not output anything other then the final output. Useful for scripting.
-  - `--json` - Output the result as JSON (same as --silent)
+  - `--step <step_id:string>` - Run only the named step instead of the whole flow. Honors --data as the step's args and --remote / local-PathScript resolution the same way the full-flow preview does.
 - `flow new <flow_path:string>` - create a new empty flow
   - `--summary <summary:string>` - flow summary
   - `--description <description:string>` - flow description
