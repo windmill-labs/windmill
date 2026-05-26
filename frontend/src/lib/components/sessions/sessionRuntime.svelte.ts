@@ -10,7 +10,8 @@ import {
 	type AppWithLastVersion,
 	type Flow,
 	type NewScript,
-	type NewScriptWithDraft
+	type NewScriptWithDraft,
+	type WorkspaceComparison
 } from '$lib/gen'
 import type { App as AppValue, HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
@@ -33,10 +34,6 @@ import {
 	setGetPreviewStatusHandler,
 	setOpenPreviewHandler
 } from '$lib/components/copilot/chat/global/core'
-import {
-	augmentForkComparisonWithLocalDrafts,
-	type AugmentedWorkspaceComparison
-} from './forkDraftDiff'
 
 export interface SessionRuntime {
 	readonly sessionId: string
@@ -114,7 +111,7 @@ export interface SessionRuntime {
 	// and any future consumer that needs the parent ↔ fork diff list. Keyed
 	// implicitly by the (parent, fork) pair last passed to ensureForkComparison;
 	// invalidateForkComparison() forces a refresh after a known-mutating action.
-	readonly forkComparison: { val: AugmentedWorkspaceComparison | undefined }
+	readonly forkComparison: { val: WorkspaceComparison | undefined }
 	readonly loadingForkComparison: boolean
 	ensureForkComparison(parent: string, fork: string): Promise<void>
 	invalidateForkComparison(): void
@@ -187,9 +184,7 @@ function createRuntime(session: Session): SessionRuntime {
 	let notFoundRawApp = $state(false)
 	let loadedRawAppPath = $state<string | undefined>(undefined)
 
-	const forkComparison: { val: AugmentedWorkspaceComparison | undefined } = $state({
-		val: undefined
-	})
+	const forkComparison: { val: WorkspaceComparison | undefined } = $state({ val: undefined })
 	let loadingForkComparison = $state(false)
 	let forkComparisonKey: string | undefined = undefined
 
@@ -496,11 +491,10 @@ function createRuntime(session: Session): SessionRuntime {
 			forkComparisonKey = key
 			loadingForkComparison = true
 			try {
-				const backend = await WorkspaceService.compareWorkspaces({
+				forkComparison.val = await WorkspaceService.compareWorkspaces({
 					workspace: parent,
 					targetWorkspaceId: fork
 				})
-				forkComparison.val = await augmentForkComparisonWithLocalDrafts(backend, fork)
 			} catch (e) {
 				console.error('SessionRuntime: forkComparison fetch failed', e)
 				forkComparison.val = undefined
@@ -531,11 +525,10 @@ function createRuntime(session: Session): SessionRuntime {
 			if (loadingForkComparison) return
 			loadingForkComparison = true
 			try {
-				const backend = await WorkspaceService.compareWorkspaces({
+				forkComparison.val = await WorkspaceService.compareWorkspaces({
 					workspace: parent,
 					targetWorkspaceId: fork
 				})
-				forkComparison.val = await augmentForkComparisonWithLocalDrafts(backend, fork)
 			} catch (e) {
 				console.error('SessionRuntime: forkComparison refresh failed', e)
 			} finally {

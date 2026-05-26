@@ -18,11 +18,6 @@
 		items: DeployableItem[]
 		selectedItems: string[]
 		selectablePredicate?: (item: DeployableItem) => boolean
-		/** For non-selectable items, an optional warning shown in the checkbox
-		 * slot explaining why it can't be selected. When provided the row keeps
-		 * full opacity (the warning icon carries the meaning); other
-		 * non-selectable rows dim as before. */
-		nonSelectableTooltip?: (item: DeployableItem) => string | undefined
 		deploymentStatus: Record<string, { status: 'loading' | 'deployed' | 'failed'; error?: string }>
 		allSelected?: boolean
 		emptyMessage?: string
@@ -45,7 +40,6 @@
 		items,
 		selectedItems,
 		selectablePredicate = () => true,
-		nonSelectableTooltip = () => undefined,
 		deploymentStatus,
 		allSelected = false,
 		emptyMessage = 'No items to deploy',
@@ -101,13 +95,11 @@
 					{@const isSelected = selectedItems.includes(item.key)}
 					{@const status = deploymentStatus[item.key]}
 					{@const isDeployed = status?.status === 'deployed'}
-					{@const softReason = !isSelectable ? nonSelectableTooltip(item) : undefined}
 
 					<Row
 						isSelectable={isSelectable && !isDeployed}
 						alignWithSelectable={true}
-						selectTooltip={softReason}
-						disabled={!isSelectable && !softReason}
+						disabled={!isSelectable}
 						selected={isSelected && !isDeployed}
 						onSelect={() => onToggleItem?.(item)}
 						path={item.kind !== 'resource' &&
