@@ -10,6 +10,8 @@
 	import WorkspaceDeployLayout from '$lib/components/WorkspaceDeployLayout.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import {
 		AppService,
@@ -36,7 +38,7 @@
 	} from 'lucide-svelte'
 	import type { Kind } from '$lib/utils_deployable'
 
-	type Phase = 'predeploy' | 'live'
+	type Phase = 'predeploy' | 'draft' | 'under_review' | 'live'
 	type RecStatus = 'none' | 'recording' | 'recorded'
 	interface DeployItem {
 		key: string
@@ -53,16 +55,39 @@
 	const canRecord = (k: Kind) => k === 'script' || k === 'flow'
 	const canPublishApp = (k: Kind) => k === 'app' || k === 'raw_app'
 
-	let items = $state<DeployItem[]>([])
+	let phase = $state<Phase>('predeploy')
+	// Live workspace items (refreshed from API). Used in predeploy phase only.
+	let workspaceItems = $state<DeployItem[]>([])
+	// Snapshot frozen at deploy time. Used in draft / under_review / live phases.
+	let draftItems = $state<DeployItem[]>([])
+	let selectedFolders = $state<string[]>([])
+	let availableFolders = $derived(
+		Array.from(
+			new Set(
+				workspaceItems
+					.map((i) => i.path.split('/').slice(0, 2).join('/'))
+					.filter((p) => p.startsWith('f/') || p.startsWith('u/'))
+			)
+		).sort()
+	)
+	let filteredWorkspaceItems = $derived(
+		selectedFolders.length === 0
+			? workspaceItems
+			: workspaceItems.filter((i) => selectedFolders.some((f) => i.path.startsWith(f + '/')))
+	)
+	let items = $derived(phase === 'predeploy' ? filteredWorkspaceItems : draftItems)
 	let loading = $state(false)
 	let workspaceRateLimit = $state<number | undefined>(undefined)
+	let recordableItems = $derived(items.filter((i) => canRecord(i.kind)))
+	let allRecorded = $derived(
+		recordableItems.length > 0 && recordableItems.every((i) => i.rec === 'recorded')
+	)
 
 	const EMPTY_SCHEMA = { type: 'object', properties: {}, required: [] }
 	// MOCK: no backend endpoint exposes a hub-slug or hub version per workspace yet.
 	let hubSlug = $derived($workspaceStore ?? '')
 	let hubUrl = $derived(`https://hub.windmill.dev/workspaces/${hubSlug}`)
 
-	let phase = $state<Phase>('predeploy')
 	let hubVersion = $state<number>(0)
 	let deploymentStatus = $state<
 		Record<string, { status: 'loading' | 'deployed' | 'failed'; error?: string }>
@@ -87,7 +112,19 @@
 	let publishTarget = $state<DeployItem | undefined>()
 	let publishing = $state(false)
 
+	let bundleDrawer = $state<Drawer | undefined>()
+	let bundleName = $state('')
+	let bundleReadme = $state('')
+	// MOCK: would be persisted with the Hub draft.
+	let hubName = $state('')
+	let hubReadme = $state('')
+
 	const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+	function patchItem(key: string, patch: Partial<DeployItem>) {
+		workspaceItems = workspaceItems.map((i) => (i.key === key ? { ...i, ...patch } : i))
+		draftItems = draftItems.map((i) => (i.key === key ? { ...i, ...patch } : i))
+	}
 
 	async function loadWorkspace(workspace: string) {
 		loading = true
@@ -155,7 +192,7 @@
 					rec: 'none'
 				})
 			}
-			items = next
+			workspaceItems = next
 		} catch (e: any) {
 			sendUserToast(`Failed to load workspace items: ${e?.message ?? e}`, true)
 		} finally {
@@ -178,30 +215,76 @@
 		}
 	})
 
+	function openBundle() {
+		const folderShort =
+			selectedFolders.length === 1 ? selectedFolders[0].split('/').slice(1).join('/') : ''
+		bundleName = hubName || folderShort || ($workspaceStore ?? '')
+		bundleReadme = hubReadme
+		bundleDrawer?.openDrawer()
+	}
+	async function confirmBundle() {
+		hubName = bundleName.trim()
+		hubReadme = bundleReadme.trim()
+		bundleDrawer?.closeDrawer()
+		await deployAll()
+	}
 	async function deployAll() {
 		// MOCK: bundle/version push to the Hub is not implemented backend-side.
 		deploying = true
 		try {
-			for (const it of items) {
+			for (const it of filteredWorkspaceItems) {
 				deploymentStatus = { ...deploymentStatus, [it.key]: { status: 'loading' } }
 				await delay(120)
 				deploymentStatus = { ...deploymentStatus, [it.key]: { status: 'deployed' } }
 			}
 			await delay(150)
-			hubVersion += 1
-			if (phase === 'live') {
-				items = items.map((i) => ({ ...i, rec: i.rec === 'recorded' ? 'none' : i.rec }))
-			}
 			deploymentStatus = {}
-			phase = 'live'
+			// Freeze the set of items for this draft cycle. Workspace changes after this point
+			// will not affect the draft until a new draft cycle is started.
+			draftItems = filteredWorkspaceItems.map((i) => ({ ...i, rec: 'none' }))
+			recordings = {}
+			phase = 'draft'
 			sendUserToast(
-				hubVersion === 1
-					? `Published to the Hub as v1 (${items.length} items)`
-					: `Republished to the Hub as v${hubVersion}`
+				hubVersion === 0
+					? `Draft created on the Hub. Add recordings before submitting for review.`
+					: `New draft created (will become v${hubVersion + 1} after review).`
 			)
 		} finally {
 			deploying = false
 		}
+	}
+
+	let submitting = $state(false)
+	async function submitForReview() {
+		// MOCK: no review queue backend endpoint exists.
+		submitting = true
+		try {
+			await delay(400)
+			phase = 'under_review'
+			sendUserToast('Submitted for review by the Windmill team.')
+		} finally {
+			submitting = false
+		}
+	}
+	async function withdrawSubmission() {
+		// MOCK
+		await delay(200)
+		phase = 'draft'
+		sendUserToast('Submission withdrawn. Draft is editable again.')
+	}
+	async function approve() {
+		// MOCK: dev-only shortcut to simulate Windmill team approval.
+		await delay(200)
+		hubVersion += 1
+		phase = 'live'
+		sendUserToast(`Approved — published as v${hubVersion} on the Hub.`)
+	}
+	async function startNewDraft() {
+		// MOCK: re-snapshot from the live workspace and start a fresh draft cycle.
+		draftItems = filteredWorkspaceItems.map((i) => ({ ...i, rec: 'none' }))
+		recordings = {}
+		phase = 'draft'
+		sendUserToast(`New draft started (will become v${hubVersion + 1}).`)
 	}
 
 	async function openRecord(it: DeployItem) {
@@ -299,7 +382,7 @@
 		if (!it || !runJobId || runState !== 'success') return
 		// MOCK STORAGE: would persist {item_path, hub_version, job_id} server-side.
 		recordings = { ...recordings, [it.key]: runJobId }
-		items = items.map((i) => (i.key === it.key ? { ...i, rec: 'recorded' } : i))
+		patchItem(it.key, { rec: 'recorded' })
 		sendUserToast(`Recording saved — job ${runJobId}`)
 		recordDrawer?.closeDrawer()
 	}
@@ -322,7 +405,7 @@
 				requestBody: { policy, deployment_message: 'Share as iframe' }
 			})
 			const url = await resolvePublicUrl(workspace, it.path)
-			items = items.map((i) => (i.key === it.key ? { ...i, published: true, publicUrl: url } : i))
+			patchItem(it.key, { published: true, publicUrl: url })
 			sendUserToast(`${it.path} is now public`)
 			publishDrawer?.closeDrawer()
 		} catch (e: any) {
@@ -342,9 +425,7 @@
 				path: it.path,
 				requestBody: { policy, deployment_message: 'Unshare iframe' }
 			})
-			items = items.map((i) =>
-				i.key === it.key ? { ...i, published: false, publicUrl: undefined } : i
-			)
+			patchItem(it.key, { published: false, publicUrl: undefined })
 			sendUserToast('App unpublished')
 		} catch (e: any) {
 			sendUserToast(`Failed to unpublish: ${e?.message ?? e}`, true)
@@ -370,40 +451,122 @@
 		emptyMessage={loading ? 'Loading workspace items…' : 'No items to publish'}
 	>
 		{#snippet header()}
+			{@const stepNum =
+				phase === 'predeploy' ? 1 : phase === 'draft' ? 2 : phase === 'under_review' ? 3 : 4}
 			<div class="flex flex-col gap-2 w-full pb-4">
-				<div class="flex flex-wrap items-center gap-2">
+				<ol
+					class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3 text-xs text-secondary"
+				>
+					<span class="text-sm font-semibold text-primary">
+						How to publish your workspace to the Hub
+					</span>
+					<li class={stepNum === 1 ? 'text-primary' : stepNum > 1 ? 'opacity-60' : ''}>
+						<span class="font-mono text-emphasis">{stepNum > 1 ? '✓' : '1.'}</span>
+						<span class="font-semibold text-primary">Bundle your workspace</span> — pack every script,
+						flow, app and resource into a single draft.
+					</li>
+					<li class={stepNum === 2 ? 'text-primary' : stepNum > 2 ? 'opacity-60' : 'opacity-40'}>
+						<span class="font-mono text-emphasis">{stepNum > 2 ? '✓' : '2.'}</span>
+						<span class="font-semibold text-primary">Generate iframes &amp; recordings</span> — share
+						public apps as iframes and capture one execution per script/flow.
+					</li>
+					<li class={stepNum === 3 ? 'text-primary' : stepNum > 3 ? 'opacity-60' : 'opacity-40'}>
+						<span class="font-mono text-emphasis">{stepNum > 3 ? '✓' : '3.'}</span>
+						<span class="font-semibold text-primary">Submit for review</span> — send the bundle to the
+						Windmill team for approval.
+					</li>
+				</ol>
+				<div class="flex flex-wrap items-center gap-2 pt-4">
 					{#if phase === 'predeploy'}
-						<Badge color="gray" size="xs">Not on the Hub yet</Badge>
+						<span class="text-sm font-semibold text-primary"> Step 1: Bundle your workspace </span>
+					{:else if phase === 'draft'}
+						<span class="text-sm font-semibold text-primary">
+							Step 2: Generate iframes &amp; recordings
+						</span>
+					{:else if phase === 'under_review'}
+						<span class="text-sm font-semibold text-primary">Step 3: Awaiting review</span>
 					{:else}
+						<span class="text-sm font-semibold text-primary">Live on the Hub — v{hubVersion}</span>
+					{/if}
+					{#if phase !== 'predeploy'}
 						<Badge color="transparent" class="font-semibold">
 							<Cloud size={14} class="mr-1" />
 							<span class="text-secondary">on Hub:</span>
-							<span class="text-emphasis">{hubSlug}</span>
+							<span class="text-emphasis">{hubName || hubSlug}</span>
 						</Badge>
-						<Badge color="blue" size="xs">v{hubVersion}</Badge>
 						<a
 							href={hubUrl}
 							target="_blank"
 							rel="noopener noreferrer"
-							class="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+							class="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
 						>
 							<ExternalLink size={12} /> Open in Hub
 						</a>
 					{/if}
 				</div>
-				{#if phase === 'live'}
+				{#if phase === 'predeploy' && availableFolders.length > 0}
+					<div class="flex flex-col gap-1 text-xs">
+						<span class="font-semibold text-primary">Filter by folder (optional)</span>
+						<MultiSelect
+							bind:value={selectedFolders}
+							items={availableFolders.map((f) => ({ value: f, label: f }))}
+							placeholder="All folders"
+						/>
+						<span class="text-[11px] text-hint">
+							{selectedFolders.length === 0
+								? `Bundling the whole workspace — ${filteredWorkspaceItems.length} items.`
+								: `Bundling ${filteredWorkspaceItems.length} items from ${selectedFolders.length} folder${selectedFolders.length > 1 ? 's' : ''}.`}
+						</span>
+					</div>
+				{/if}
+				{#if phase === 'under_review'}
 					<div
-						class="flex items-start gap-2 rounded-md border bg-surface-secondary p-3 text-xs text-secondary"
+						class="flex items-start gap-2 rounded-md border border-blue-300 bg-blue-50 p-3 text-xs text-blue-900 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-100"
 					>
-						<Play size={14} class="mt-0.5 shrink-0 text-blue-600" />
+						<TriangleAlert size={14} class="mt-0.5 shrink-0 text-blue-600 dark:text-blue-400" />
 						<div class="flex flex-col gap-1">
-							<span class="font-semibold text-primary">What is a recording?</span>
+							<span class="font-semibold">Locked while under review</span>
 							<span>
-								A recording is one real execution of a script or flow, captured with its inputs,
-								logs, step outputs, and final result. Hub visitors can replay it step-by-step to
-								understand how the item works without needing access to your workspace.
+								The Windmill team is reviewing this submission. Editing, recording, and sharing
+								actions are disabled. Estimated turnaround: 1-2 business days.
 							</span>
 						</div>
+					</div>
+				{/if}
+				{#if phase === 'draft'}
+					{@const recordedCount = recordableItems.filter((i) => i.rec === 'recorded').length}
+					{@const pct = recordableItems.length
+						? Math.round((recordedCount / recordableItems.length) * 100)
+						: 0}
+					<div
+						class="flex items-center gap-3 rounded-md border {allRecorded
+							? 'border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-950/40'
+							: 'border-yellow-300 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950/40'} p-3 text-xs"
+					>
+						<span
+							class="font-mono text-sm {allRecorded
+								? 'text-green-900 dark:text-green-100'
+								: 'text-yellow-900 dark:text-yellow-100'}"
+						>
+							{recordedCount}/{recordableItems.length}
+						</span>
+						<div
+							class="h-1.5 flex-1 overflow-hidden rounded {allRecorded
+								? 'bg-green-200 dark:bg-green-900/60'
+								: 'bg-yellow-200 dark:bg-yellow-900/60'}"
+						>
+							<div
+								class="h-full {allRecorded ? 'bg-green-500' : 'bg-yellow-500'} transition-all"
+								style="width: {pct}%"
+							></div>
+						</div>
+						<span
+							class="font-semibold {allRecorded
+								? 'text-green-900 dark:text-green-100'
+								: 'text-yellow-900 dark:text-yellow-100'}"
+						>
+							{allRecorded ? 'Ready to submit' : 'Recordings needed'}
+						</span>
 					</div>
 				{/if}
 			</div>
@@ -418,30 +581,32 @@
 
 		{#snippet itemActions(item)}
 			{@const it = item as DeployItem}
-			{#if phase === 'live' && canRecord(it.kind)}
+			{#if phase !== 'predeploy' && canRecord(it.kind)}
 				{#if it.rec === 'recorded'}
 					<Badge color="green" size="xs">
-						<Check size={10} class="mr-0.5" />Recorded v{hubVersion}
+						<Check size={10} class="mr-0.5" />Recorded
 					</Badge>
 					{#if recordings[it.key]}
 						<a
 							href={`/run/${recordings[it.key]}?workspace=${$workspaceStore}`}
 							target="_blank"
 							rel="noopener noreferrer"
-							class="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+							class="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
 						>
-							<ExternalLink size={12} /> Job
+							<ExternalLink size={12} /> See recording
 						</a>
 					{/if}
-					<Button
-						size="xs"
-						variant="subtle"
-						startIcon={{ icon: RotateCcw }}
-						onclick={() => openRecord(it)}
-					>
-						Re-record
-					</Button>
-				{:else}
+					{#if phase === 'draft'}
+						<Button
+							size="xs"
+							variant="subtle"
+							startIcon={{ icon: RotateCcw }}
+							onclick={() => openRecord(it)}
+						>
+							Re-record
+						</Button>
+					{/if}
+				{:else if phase === 'draft'}
 					<Button
 						size="xs"
 						variant="subtle"
@@ -462,7 +627,7 @@
 						href={it.publicUrl}
 						target="_blank"
 						rel="noopener noreferrer"
-						class="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+						class="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
 					>
 						<ExternalLink size={12} /> Open
 					</a>
@@ -474,10 +639,10 @@
 					>
 						Copy iframe
 					</Button>
-					{#if it.kind === 'app'}
+					{#if it.kind === 'app' && phase !== 'under_review'}
 						<Button size="xs" variant="subtle" onclick={() => unpublishApp(it)}>Unpublish</Button>
 					{/if}
-				{:else if it.kind === 'app'}
+				{:else if it.kind === 'app' && phase !== 'under_review'}
 					<Button
 						size="xs"
 						variant="subtle"
@@ -494,28 +659,49 @@
 			<div class="flex items-center justify-end gap-3">
 				{#if phase === 'predeploy'}
 					<span class="text-[11px] text-hint">
-						Bundles the whole workspace and publishes it to the Hub as v1.
+						Create a bundle with every script, flow, app and resource of your workspace.
 					</span>
 					<Button
 						variant="accent"
 						loading={deploying}
 						disabled={items.length === 0}
 						startIcon={{ icon: Cloud }}
-						onclick={deployAll}
+						onclick={openBundle}
 					>
-						Deploy to Hub ({items.length})
+						Bundle to Hub ({items.length})
 					</Button>
-				{:else}
+				{:else if phase === 'draft'}
 					<span class="text-[11px] text-hint">
-						Republishes the current workspace state as v{hubVersion + 1}, overriding the Hub copy.
+						{#if allRecorded}
+							All scripts and flows have a recording. Ready to submit.
+						{:else}
+							{recordableItems.filter((i) => i.rec === 'recorded').length} of {recordableItems.length}
+							scripts/flows recorded. Add a recording to each before submitting.
+						{/if}
 					</span>
 					<Button
 						variant="accent"
-						loading={deploying}
-						startIcon={{ icon: Cloud }}
-						onclick={deployAll}
+						loading={submitting}
+						disabled={!allRecorded}
+						startIcon={{ icon: Check }}
+						onclick={submitForReview}
 					>
-						Update Hub (v{hubVersion} → v{hubVersion + 1})
+						Submit for review
+					</Button>
+				{:else if phase === 'under_review'}
+					<span class="text-[11px] text-hint">
+						Withdraw to keep editing, or wait for the team to approve.
+					</span>
+					<Button variant="default" onclick={withdrawSubmission}>Withdraw submission</Button>
+					<Button variant="accent" startIcon={{ icon: Check }} onclick={approve}>
+						Simulate approval (dev)
+					</Button>
+				{:else}
+					<span class="text-[11px] text-hint">
+						Iterate further by starting a new draft for v{hubVersion + 1}.
+					</span>
+					<Button variant="accent" startIcon={{ icon: RotateCcw }} onclick={startNewDraft}>
+						New draft (v{hubVersion + 1})
 					</Button>
 				{/if}
 			</div>
@@ -542,21 +728,23 @@
 				>
 					<div class="flex items-center gap-2 text-sm">
 						{#if runState === 'running'}
-							<Loader2 size={14} class="animate-spin text-blue-600" />
+							<Loader2 size={14} class="animate-spin text-blue-600 dark:text-blue-400" />
 							<span class="font-semibold">Running…</span>
 						{:else if runState === 'success'}
-							<Check size={14} class="text-green-600" />
-							<span class="font-semibold text-green-700">Execution succeeded</span>
+							<Check size={14} class="text-green-600 dark:text-green-400" />
+							<span class="font-semibold text-green-700 dark:text-green-300">
+								Execution succeeded
+							</span>
 						{:else}
-							<X size={14} class="text-red-600" />
-							<span class="font-semibold text-red-700">Execution failed</span>
+							<X size={14} class="text-red-600 dark:text-red-400" />
+							<span class="font-semibold text-red-700 dark:text-red-300">Execution failed</span>
 						{/if}
 						{#if runJobId}
 							<a
 								href={`/run/${runJobId}?workspace=${$workspaceStore}`}
 								target="_blank"
 								rel="noopener noreferrer"
-								class="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+								class="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
 							>
 								<ExternalLink size={12} /> Open job
 							</a>
@@ -571,15 +759,15 @@
 						</div>
 					{:else if runState === 'failed' && runError}
 						<pre
-							class="max-h-40 overflow-auto rounded bg-surface p-2 font-mono text-[11px] text-red-700"
+							class="max-h-40 overflow-auto rounded bg-surface p-2 font-mono text-[11px] text-red-700 dark:text-red-300"
 							>{runError}</pre
 						>
 					{/if}
 					{#if runState === 'success'}
 						<div
-							class="mt-1 flex items-center justify-between gap-3 rounded-md border border-green-300 bg-green-50 p-2"
+							class="mt-1 flex items-center justify-between gap-3 rounded-md border border-green-300 bg-green-50 p-2 dark:border-green-800 dark:bg-green-950/40"
 						>
-							<span class="text-xs text-green-900">
+							<span class="text-xs text-green-900 dark:text-green-100">
 								Looks good? Save this run as the Hub recording for v{hubVersion}.
 							</span>
 							<Button
@@ -642,7 +830,7 @@
 				<div class="flex items-center gap-2">
 					<TriangleAlert
 						size={14}
-						class={workspaceRateLimit ? 'text-secondary' : 'text-orange-600'}
+						class={workspaceRateLimit ? 'text-secondary' : 'text-orange-600 dark:text-orange-400'}
 					/>
 					<span class="text-sm font-semibold">Rate limit (workspace-wide)</span>
 					<Tooltip>
@@ -656,7 +844,7 @@
 						minute / server.
 					</span>
 				{:else}
-					<span class="text-xs text-orange-700">
+					<span class="text-xs text-orange-700 dark:text-orange-300">
 						No rate limit configured — anyone with the URL can hit this app at any rate.
 					</span>
 				{/if}
@@ -682,6 +870,44 @@
 				onclick={confirmPublish}
 			>
 				Generate iframe
+			</Button>
+		{/snippet}
+	</DrawerContent>
+</Drawer>
+
+<Drawer bind:this={bundleDrawer} size="600px">
+	<DrawerContent title="Bundle to Hub" on:close={() => bundleDrawer?.closeDrawer()}>
+		<div class="flex flex-col gap-4">
+			<p class="text-xs text-secondary">
+				Name and document your bundle. The readme can be updated later, but a clear one speeds up
+				the Windmill team's review.
+			</p>
+			<label class="flex flex-col gap-1 text-xs">
+				<span class="font-semibold text-primary">Name</span>
+				<TextInput bind:value={bundleName} placeholder="e.g. Acme CRM toolkit" />
+			</label>
+			<label class="flex flex-col gap-1 text-xs">
+				<span class="font-semibold text-primary">Readme</span>
+				<textarea
+					bind:value={bundleReadme}
+					placeholder={"# What this workspace does\n\n# Who it's for\n\n# How to use it\n"}
+					rows="10"
+					class="rounded border px-2 py-1.5 text-xs font-mono bg-surface"
+				></textarea>
+				<span class="text-[11px] text-hint">
+					Markdown supported. Editable any time before and after publication.
+				</span>
+			</label>
+		</div>
+		{#snippet actions()}
+			<Button
+				variant="accent"
+				loading={deploying}
+				disabled={!bundleName.trim()}
+				startIcon={{ icon: Cloud }}
+				onclick={confirmBundle}
+			>
+				Create bundle
 			</Button>
 		{/snippet}
 	</DrawerContent>
