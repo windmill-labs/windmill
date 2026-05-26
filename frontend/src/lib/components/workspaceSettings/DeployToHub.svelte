@@ -186,6 +186,11 @@
 			workspaceRateLimit = settings?.public_app_execution_limit_per_minute
 
 			const next: DeployItem[] = []
+			const publicApps = apps.filter((a) => a.execution_mode === 'anonymous')
+			const publicUrls = await Promise.all(
+				publicApps.map((a) => resolvePublicUrl(workspace, a.path))
+			)
+			const publicUrlByPath = new Map(publicApps.map((a, i) => [a.path, publicUrls[i]]))
 			for (const a of apps) {
 				const isPublic = a.execution_mode === 'anonymous'
 				next.push({
@@ -195,7 +200,7 @@
 					summary: a.summary,
 					rec: 'none',
 					published: isPublic,
-					publicUrl: isPublic ? await resolvePublicUrl(workspace, a.path) : undefined
+					publicUrl: isPublic ? publicUrlByPath.get(a.path) : undefined
 				})
 			}
 			for (const a of rawApps) {
