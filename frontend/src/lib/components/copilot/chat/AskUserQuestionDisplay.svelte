@@ -1,10 +1,17 @@
 <script lang="ts">
-	import { onMount, tick } from 'svelte'
+	import { getContext, onMount, tick } from 'svelte'
 	import { CircleHelp } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { aiChatManager } from './AIChatManager.svelte'
+	import { AIChatManager, aiChatManager as singletonAiChatManager } from './AIChatManager.svelte'
 	import type { UserQuestionDisplay } from './shared'
+
+	// Sessions inject a per-pane `AIChatManager` via context; outside of
+	// sessions we fall back to the global singleton. Without this, answers
+	// clicked inside a session would dispatch to the singleton's pending
+	// callbacks map (which doesn't have the session manager's question
+	// callback), and the AI loop would stall.
+	const aiChatManager = getContext<AIChatManager>('aiChatManager') ?? singletonAiChatManager
 
 	interface Props {
 		toolCallId: string
