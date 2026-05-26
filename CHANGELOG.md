@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.710.0](https://github.com/windmill-labs/windmill/compare/v1.709.0...v1.710.0) (2026-05-26)
+
+
+### Features
+
+* **queue:** stochastic admission + EE availability of workspace fairness algorithm ([#9321](https://github.com/windmill-labs/windmill/issues/9321)) ([8bf7fd2](https://github.com/windmill-labs/windmill/commit/8bf7fd2c921c48861b71731a085b18ea8f72fb68))
+
+
+### Bug Fixes
+
+* **websocket-trigger:** honor HTTPS_PROXY/HTTP_PROXY/NO_PROXY ([#9324](https://github.com/windmill-labs/windmill/issues/9324)) ([6f36316](https://github.com/windmill-labs/windmill/commit/6f363163df9cd15f5af7d56cf34a01b70d236830))
+
 ## [1.709.0](https://github.com/windmill-labs/windmill/compare/v1.708.0...v1.709.0) (2026-05-25)
 
 
