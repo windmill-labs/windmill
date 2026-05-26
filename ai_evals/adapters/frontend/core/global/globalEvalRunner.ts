@@ -7,7 +7,10 @@ import {
   prepareGlobalSystemMessage,
   prepareGlobalUserMessage,
 } from "../../../../../frontend/src/lib/components/copilot/chat/global/core";
-import { globalDraftStore } from "../../../../../frontend/src/lib/components/copilot/chat/global/draftStore.svelte";
+import {
+  clearGlobalDrafts,
+  listGlobalDrafts,
+} from "../../../../../frontend/src/lib/components/copilot/chat/global/userDraftAdapter";
 import type { Tool as ProductionTool } from "../../../../../frontend/src/lib/components/copilot/chat/shared";
 import type { ModeRunContext } from "../../../../core/types";
 import type { GlobalDraftState } from "../../../../core/validators";
@@ -55,7 +58,7 @@ export async function runGlobalEval(
     options.workspaceRoot ??
     (await mkdtemp(join(tmpdir(), "wmill-frontend-global-benchmark-")));
 
-  globalDraftStore.clearDrafts(workspaceRoot);
+  clearGlobalDrafts(workspaceRoot);
   registerBenchmarkWorkspaceRunnables(workspaceRoot, options.workspaceFixtures ?? {});
 
   try {
@@ -67,7 +70,7 @@ export async function runGlobalEval(
       tools: getGlobalEvalTools(),
       helpers: {},
       apiKey,
-      getOutput: () => ({ drafts: globalDraftStore.listDrafts(workspaceRoot) }),
+      getOutput: () => ({ drafts: listGlobalDrafts(workspaceRoot) }),
       onAssistantMessageStart: options.runContext?.onAssistantMessageStart,
       onAssistantToken: options.runContext?.onAssistantChunk,
       onAssistantMessageEnd: options.runContext?.onAssistantMessageEnd,
@@ -94,7 +97,7 @@ export async function runGlobalEval(
       tokenUsage: rawResult.tokenUsage,
     };
   } finally {
-    globalDraftStore.clearDrafts(workspaceRoot);
+    clearGlobalDrafts(workspaceRoot);
     unregisterBenchmarkWorkspaceRunnables(workspaceRoot);
     if (!options.workspaceRoot) {
       await rm(workspaceRoot, { recursive: true, force: true });
