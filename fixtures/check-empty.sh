@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fail if fixtures/cli-sync/ contains anything beyond the fixture scaffold
-# (wmill.yaml, README.md, .gitkeep). Used by CI to guard `main` against
-# accidentally merging PRs with a test workspace snapshot still committed.
+# (wmill.yaml, .gitkeep). Used by CI to guard `main` against accidentally
+# merging PRs with a test workspace snapshot still committed.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

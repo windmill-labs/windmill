@@ -17,8 +17,15 @@ All scripts assume:
 - A local Windmill backend running at `http://localhost:8000` (see top-level
   `AGENTS.md` for `cargo run` / `npm run dev`).
 - Default super-admin credentials `admin@windmill.dev` / `changeme`.
-- `bun` is installed and on `PATH`. No `wmill` install required — the scripts
-  invoke `cli/src/main.ts` via `bun run` directly.
+- `bun` and `python3` are installed and on `PATH`. No `wmill` install
+  required — the scripts invoke `cli/src/main.ts` via `bun run` directly.
+  `python3` is used only to build correctly-escaped JSON request bodies.
+
+The login token is passed to the CLI via `--token`, which means it appears in
+`/proc/<pid>/cmdline` for the duration of the `bun run` call. This is fine
+against a local dev instance; if you point the scripts at a real instance,
+the credentials are no more exposed than running `wmill` directly with
+explicit flags, but bear it in mind.
 
 ### `load.sh` — load the fixture into a fresh workspace
 
@@ -47,8 +54,8 @@ Flags:
 ```
 
 Pulls the given workspace into `fixtures/cli-sync/` via `wmill sync pull`.
-The target directory is cleared first (everything except `.gitkeep` and
-`README.md`) so the snapshot reflects exactly what's in the workspace.
+The target directory is cleared first (everything except `wmill.yaml` and
+`.gitkeep`) so the snapshot reflects exactly what's in the workspace.
 
 Flags: same as `load.sh` minus `--workspace` (passed as positional arg).
 

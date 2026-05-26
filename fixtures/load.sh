@@ -24,7 +24,7 @@ while [[ $# -gt 0 ]]; do
     --workspace) WORKSPACE="$2"; shift 2 ;;
     --dir) DIR="$2"; shift 2 ;;
     -h|--help)
-      sed -n '2,11p' "$0"; exit 0 ;;
+      sed -n '2,8p' "$0"; exit 0 ;;
     *) echo "Unknown flag: $1" >&2; exit 2 ;;
   esac
 done
@@ -49,13 +49,25 @@ if [[ ! -f "$DIR/wmill.yaml" ]]; then
 fi
 
 if [[ -z "$WORKSPACE" ]]; then
-  WORKSPACE="fixture-$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 8)"
+  # Use $RANDOM rather than piping /dev/urandom through head -c, which
+  # SIGPIPEs `tr` and aborts the script under `set -o pipefail`.
+  printf -v WORKSPACE 'fixture-%04x%04x' $RANDOM $RANDOM
 fi
+
+# JSON body builder — interpolation via printf '%s' is unsafe for arbitrary
+# emails / passwords / workspace ids. Python is universal enough for a dev
+# script and produces correctly escaped JSON.
+json_object() {
+  python3 -c '
+import json, sys
+print(json.dumps(dict(zip(sys.argv[1::2], sys.argv[2::2]))))
+' "$@"
+}
 
 echo "→ Logging in as $EMAIL on $BASE_URL"
 TOKEN="$(curl -sS -f -X POST "$BASE_URL/api/auth/login" \
   -H "Content-Type: application/json" \
-  -d "$(printf '{"email":"%s","password":"%s"}' "$EMAIL" "$PASSWORD")")"
+  -d "$(json_object email "$EMAIL" password "$PASSWORD")")"
 if [[ -z "$TOKEN" ]]; then
   echo "✗ Login failed (empty token)" >&2
   exit 1
@@ -64,12 +76,11 @@ fi
 echo "→ Creating workspace '$WORKSPACE'"
 CREATE_OUT="$(mktemp)"
 trap 'rm -f "$CREATE_OUT"' EXIT
-CREATE_BODY="$(printf '{"id":"%s","name":"%s"}' "$WORKSPACE" "$WORKSPACE")"
 HTTP_CODE="$(curl -sS -o "$CREATE_OUT" -w '%{http_code}' \
   -X POST "$BASE_URL/api/workspaces/create" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d "$CREATE_BODY")"
+  -d "$(json_object id "$WORKSPACE" name "$WORKSPACE")")"
 if [[ "$HTTP_CODE" != "200" && "$HTTP_CODE" != "201" ]]; then
   echo "✗ Workspace creation failed (HTTP $HTTP_CODE):" >&2
   cat "$CREATE_OUT" >&2

@@ -17,7 +17,7 @@ DIR=""
 WORKSPACE=""
 
 if [[ $# -lt 1 || "$1" == "-h" || "$1" == "--help" ]]; then
-  sed -n '2,11p' "$0"
+  sed -n '2,8p' "$0"
   echo
   echo "Usage: $(basename "$0") <workspace-id> [--base-url URL] [--email E] [--password P] [--dir PATH]"
   exit 0
@@ -54,10 +54,20 @@ if [[ ! -f "$DIR/wmill.yaml" ]]; then
   exit 1
 fi
 
+# JSON body builder — interpolation via printf '%s' is unsafe for arbitrary
+# emails / passwords. Python is universal enough for a dev script and
+# produces correctly escaped JSON.
+json_object() {
+  python3 -c '
+import json, sys
+print(json.dumps(dict(zip(sys.argv[1::2], sys.argv[2::2]))))
+' "$@"
+}
+
 echo "→ Logging in as $EMAIL on $BASE_URL"
 TOKEN="$(curl -sS -f -X POST "$BASE_URL/api/auth/login" \
   -H "Content-Type: application/json" \
-  -d "$(printf '{"email":"%s","password":"%s"}' "$EMAIL" "$PASSWORD")")"
+  -d "$(json_object email "$EMAIL" password "$PASSWORD")")"
 if [[ -z "$TOKEN" ]]; then
   echo "✗ Login failed (empty token)" >&2
   exit 1
@@ -69,10 +79,10 @@ fi
 echo "→ Clearing previous snapshot in $DIR"
 (
   cd "$DIR"
-  find . -mindepth 1 \
+  find . -mindepth 1 -maxdepth 1 \
     ! -name 'wmill.yaml' \
     ! -name '.gitkeep' \
-    -print0 | xargs -0 -r rm -rf
+    -exec rm -rf {} +
 )
 
 echo "→ Pulling workspace '$WORKSPACE' into $DIR"
