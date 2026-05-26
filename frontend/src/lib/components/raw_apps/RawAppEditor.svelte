@@ -75,6 +75,14 @@
 		 * preference. */
 		sidebarStorageKey?: string
 		liveEditorDraftStoragePath?: string
+		/** Initial value for the "Split with Preview" tab-bar toggle. Defaults
+		 * to `true` (split mode, preview always pinned to the right). Set
+		 * `false` when the editor mounts inside a context that wants single-
+		 * view by default with the Preview tab selected — e.g. session
+		 * previews, where the editor pane is already narrow. The user can
+		 * still toggle the mode after mount; this prop only seeds the
+		 * initial state. */
+		defaultSplitWithPreview?: boolean
 	}
 
 	let {
@@ -91,7 +99,8 @@
 		onNavigate,
 		defaultSidebarCollapsed = false,
 		sidebarStorageKey = 'raw-app-sidebar-collapsed',
-		liveEditorDraftStoragePath = undefined
+		liveEditorDraftStoragePath = undefined,
+		defaultSplitWithPreview = true
 	}: Props = $props()
 	export const version: number | undefined = undefined
 
@@ -223,7 +232,9 @@
 	}
 	let tabs: TabItem[] = $state([previewTab])
 	let activeTabId: string = $state(PREVIEW_TAB_ID)
-	let splitWithPreview: boolean = $state(true)
+	// Seed from the prop, then own the state locally so the user's toggle
+	// after mount sticks even if the prop reference changes.
+	let splitWithPreview: boolean = $state(untrack(() => defaultSplitWithPreview))
 	const activeTabKind = $derived<'file' | 'runnable' | 'preview'>(
 		activeTabId === PREVIEW_TAB_ID
 			? 'preview'
@@ -246,10 +257,15 @@
 	const showRunnable = $derived(activeTabKind === 'runnable')
 	// Mount the UI Builder iframe the first time a file is shown (paneA has
 	// width then; mounting it at 0-width breaks the VS Code workbench), and
-	// keep it mounted so tab switches don't reload it.
+	// keep it mounted so tab switches don't reload it. Mount it as soon as
+	// either pane needs it: `showSource` for the source-editor view, OR the
+	// preview tab is active — the Preview iframe is fed by `preview`
+	// postMessages bundled by the UI Builder iframe, so it needs to be
+	// mounted even when the user opens the editor straight on Preview (e.g.
+	// session previews seeded with `defaultSplitWithPreview=false`).
 	let iframeShouldMount = $state(false)
 	$effect(() => {
-		if (showSource) iframeShouldMount = true
+		if (showSource || activeTabKind === 'preview') iframeShouldMount = true
 	})
 
 	// Inner pane sizes are a pure function of mode + active tab → derived.
@@ -979,7 +995,11 @@
 					ensureFileTab(selectedDocument)
 					// Don't auto-activate — the user's tab choice wins.
 					// But if no file tab is currently active, fall in line.
-					if (activeTabKind === 'preview' && tabs.length === 2) {
+					// Skip this auto-activation in single-view-with-preview
+					// mode (the caller seeded `defaultSplitWithPreview=false`
+					// because Preview is the intended starting tab); the
+					// iframe's first setActiveDocument shouldn't fight that.
+					if (splitWithPreview && activeTabKind === 'preview' && tabs.length === 2) {
 						activateTab(id)
 					}
 				}
@@ -1143,9 +1163,14 @@
 		})
 	})
 
-	// Open a default file on mount (boots the iframe; avoids a blank preview).
-	// Layout isn't persisted — each open starts fresh in split mode.
+	// Open a default file on mount (boots the iframe in split mode and gives
+	// the user something to edit on the left). When the caller seeded
+	// `defaultSplitWithPreview=false` we instead want the Preview tab as the
+	// only-visible / active surface, so skip the file-tab activation — the
+	// iframe still boots via `populateFiles`/`setFilesInIframe` even without
+	// a selected document.
 	onMount(() => {
+		if (!splitWithPreview) return
 		if (tabs.length === 1) {
 			const def = pickDefaultFile(files)
 			if (def) activateTab(ensureFileTab(def))

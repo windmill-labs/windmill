@@ -124,5 +124,6 @@
 		{onNavigate}
 		defaultSidebarCollapsed
 		sidebarStorageKey="raw-app-sidebar-collapsed-preview"
+		defaultSplitWithPreview={false}
 	/>
 {/if}
