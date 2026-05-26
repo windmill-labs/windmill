@@ -4,7 +4,7 @@ import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import { Table } from "@cliffy/table";
 import * as log from "../../core/log.ts";
-import { sep as SEP } from "node:path";
+import { dirname, sep as SEP } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { yamlParseFile } from "../../utils/yaml.ts";
 import { readTextFile, validateRequiredArgs } from "../../utils/utils.ts";
@@ -562,7 +562,10 @@ async function preview(
   if (!isFlowDir) {
     // Check if it's a flow.yaml file
     if (flowPath.endsWith("flow.yaml") || flowPath.endsWith("flow.json")) {
-      flowPath = flowPath.substring(0, flowPath.lastIndexOf(SEP));
+      // Use dirname so a bare "flow.yaml" (no parent dir) becomes "."
+      // instead of "" — the latter, after appending SEP below, becomes "/"
+      // and silently reads from filesystem root.
+      flowPath = dirname(flowPath);
     } else {
       throw new Error(
         "Flow path must be a .flow/__flow directory or a flow.yaml file"
@@ -748,7 +751,10 @@ async function testStep(
     || flowPath.endsWith("__flow") || flowPath.endsWith("__flow" + SEP);
   if (!isFlowDir) {
     if (flowPath.endsWith("flow.yaml") || flowPath.endsWith("flow.json")) {
-      flowPath = flowPath.substring(0, flowPath.lastIndexOf(SEP));
+      // Use dirname so a bare "flow.yaml" (no parent dir) becomes "."
+      // instead of "" — the latter, after appending SEP below, becomes "/"
+      // and silently reads from filesystem root.
+      flowPath = dirname(flowPath);
     } else {
       throw new Error(
         "Flow path must be a .flow/__flow directory or a flow.yaml file"

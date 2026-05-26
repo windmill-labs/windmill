@@ -125,8 +125,9 @@ async function download(
 
   // The generated request layer (cli/gen/core/request.ts:getResponseBody)
   // routes by Content-Type: binary types → Blob, text/* → string, JSON → object.
-  // Normalize all three to a Buffer for disk/stdout write.
-  const body = await wmill.fileDownload({
+  // The generated return type is `Blob | File`, which is wrong for non-binary
+  // responses, so widen to unknown before normalizing.
+  const body: unknown = await wmill.fileDownload({
     workspace: workspace.workspaceId,
     fileKey,
     storage: opts.storage,
