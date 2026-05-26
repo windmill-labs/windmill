@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.710.1](https://github.com/windmill-labs/windmill/compare/v1.710.0...v1.710.1) (2026-05-26)
+
+
+### Bug Fixes
+
+* improve workspace fairness ([896add0](https://github.com/windmill-labs/windmill/commit/896add0350f4de31f5674d6be0907a582c5ec17e))
+
 ## [1.710.0](https://github.com/windmill-labs/windmill/compare/v1.709.0...v1.710.0) (2026-05-26)
 
 
