@@ -2312,6 +2312,13 @@ def main():
     print("Extracting CLI commands...")
     cli_data = extract_cli_commands()
     cli_commands = generate_cli_commands_markdown(cli_data)
+    # Append hand-written CLI guidance covering bits that aren't obvious from
+    # the auto-generated per-command --help (file_key semantics, --storage,
+    # workspace scope). The cli-commands skill is the entry point agents read
+    # to learn about `wmill`, so non-obvious usage notes belong here.
+    object_storage_cli = read_markdown_file(base_dir / "object-storage-cli.md")
+    if object_storage_cli:
+        cli_commands = f"{cli_commands}\n\n{object_storage_cli}"
     OUTPUT_CLI_DIR.mkdir(parents=True, exist_ok=True)
     (OUTPUT_CLI_DIR / "cli-commands.md").write_text(cli_commands)
     print(f"  Found {len(cli_data['commands'])} commands, {len(cli_data['global_options'])} global options")
