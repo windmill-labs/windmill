@@ -55,19 +55,32 @@
 	// chat (read_workspace_item / write_script / edit_script) and any other
 	// open editor on the same workspace.
 	//
-	// One-way-reactive discipline: inbound tracks ONLY UserDraft.get
-	// (and unwraps `script.content` via untrack); outbound tracks ONLY
-	// `script.content` (and unwraps UserDraft via untrack). Without that
-	// asymmetry, a user keystroke would re-fire the inbound effect with
-	// the pre-keystroke stored value and revert the edit.
+	// We hold a *live* handle (useMany) instead of reading via the static
+	// `UserDraft.get`. The handle materializes UserDraft's shared reactive
+	// `$state` cell for (workspace, 'script', path) — and that cell is what
+	// lets the chat's writes (UserDraft.save, from write_script / edit_script)
+	// reach this preview. Without a live entry those writes only touch
+	// localStorage and the inbound effect below never re-fires. A reactive
+	// getter is used (not `use()`) because switching open_preview to another
+	// script swaps `path` without remounting this view, so the handle must
+	// re-acquire.
+	//
+	// One-way-reactive discipline: inbound tracks ONLY the handle's `draft`
+	// (and reads `script.content` via untrack); outbound tracks ONLY
+	// `script.content` (and reads UserDraft via untrack). Without that
+	// asymmetry, a user keystroke would re-fire the inbound effect with the
+	// pre-keystroke stored value and revert the edit.
+	const draftHandles = UserDraft.useMany<NewScript>(() => [
+		{ itemKind: 'script', path, workspace: workspaceId }
+	])
 	let lastInboundContent: string | undefined = $state(undefined)
 
-	// Store → editor. Re-runs on UserDraft changes (chat write, other
-	// session edit, …). `script.content` is read inside untrack so user
+	// Store → editor. Re-runs when the handle's draft changes (chat write,
+	// other session edit, …). `script.content` is read inside untrack so user
 	// keystrokes don't refire this effect.
 	$effect(() => {
 		if (!workspaceId || !path) return
-		const draft = UserDraft.get<NewScript>('script', path, { workspace: workspaceId })
+		const draft = draftHandles[0]?.draft
 		if (!draft || typeof draft.content !== 'string') return
 		const incoming = draft.content
 		untrack(() => {
@@ -84,7 +97,9 @@
 
 	// Editor → store. Re-runs on `script.content` mutation (user typing
 	// or inbound write). UserDraft is read inside untrack so writing here
-	// doesn't ping-pong the inbound effect.
+	// doesn't ping-pong the inbound effect. `UserDraft.save` persists
+	// immediately and, now that the entry is live, updates the same cell the
+	// inbound effect reads (the content guard there makes it a no-op).
 	$effect(() => {
 		if (!workspaceId || !path) return
 		if (runtime.loadedScriptPath !== path) return
