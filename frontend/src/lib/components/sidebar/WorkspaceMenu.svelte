@@ -58,19 +58,26 @@
 			'/apps/get/'
 		]
 		const isOnEditPage = editPages.some((editPage) => page.route.id?.includes(editPage) ?? false)
+		// An AI session is scoped to its (forked) workspace, so it makes no sense
+		// to keep showing it after the user switches workspace — go home instead.
+		const isOnSessionPage = page.route.id?.includes('/sessions') ?? false
 
-		if (!isOnEditPage) {
-			switchWorkspace(id)
-			if (page.url.searchParams.get('workspace')) {
-				page.url.searchParams.set('workspace', id)
-			}
-		} else {
-			switchWorkspace(id)
+		switchWorkspace(id)
+		if (isOnEditPage || isOnSessionPage) {
 			await goto('/')
+		} else if (page.url.searchParams.get('workspace')) {
+			page.url.searchParams.set('workspace', id)
 		}
 	}
 
 	function workspaceHref(id: string): string {
+		// An AI session is scoped to its (forked) workspace, so switching
+		// workspace should leave for home. Point the link there — the link's
+		// navigation wins over onClick's preventDefault, so the href is what
+		// actually decides where we land; onClick still performs the switch.
+		if (page.route.id?.includes('/sessions')) {
+			return `${base}/`
+		}
 		const params = new URLSearchParams(page.url.searchParams)
 		params.set('workspace', id)
 		return `${page.url.pathname}?${params.toString()}`
