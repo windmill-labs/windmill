@@ -29,6 +29,7 @@
 		Cloud,
 		Copy,
 		ExternalLink,
+		GitCompare,
 		Globe,
 		Loader2,
 		Play,
@@ -296,18 +297,38 @@
 			submitting = false
 		}
 	}
-	async function withdrawSubmission() {
-		// MOCK
-		await delay(200)
-		phase = 'draft'
-		sendUserToast('Submission withdrawn. Draft is editable again.')
+	let syncing = $state(false)
+	async function showDiff() {
+		// MOCK: would diff the live workspace against the submitted bundle and open a viewer.
+		const workspace = $workspaceStore
+		if (!workspace) return
+		await loadWorkspace(workspace)
+		const draftKeys = new Set(draftItems.map((i) => i.key))
+		const workspaceKeys = new Set(workspaceItems.map((i) => i.key))
+		const added = workspaceItems.filter((i) => !draftKeys.has(i.key)).length
+		const removed = draftItems.filter((i) => !workspaceKeys.has(i.key)).length
+		sendUserToast(`Diff: +${added} added, -${removed} removed (vs submitted bundle).`)
 	}
-	async function approve() {
-		// MOCK: dev-only shortcut to simulate Windmill team approval.
-		await delay(200)
-		hubVersion += 1
-		phase = 'live'
-		sendUserToast(`Approved — published as v${hubVersion} on the Hub.`)
+	async function syncWithHub() {
+		// MOCK: would also pull the latest Hub-side state. For now, refresh the workspace
+		// items list and merge into the current draft (keeping recordings where the item path
+		// still exists).
+		const workspace = $workspaceStore
+		if (!workspace) return
+		syncing = true
+		try {
+			await loadWorkspace(workspace)
+			if (phase === 'draft') {
+				const prev = new Map(draftItems.map((i) => [i.key, { rec: i.rec }]))
+				draftItems = workspaceItems
+					.filter((i) => prev.has(i.key))
+					.map((i) => ({ ...i, rec: prev.get(i.key)?.rec ?? 'none' }))
+			}
+		} catch (e: any) {
+			sendUserToast(`Sync failed: ${e?.message ?? e}`, true)
+		} finally {
+			syncing = false
+		}
 	}
 	async function startNewDraft() {
 		// MOCK: re-snapshot from the live workspace and start a fresh draft cycle.
@@ -536,6 +557,18 @@
 							<ExternalLink size={12} /> Open in Hub
 						</a>
 					{/if}
+					{#if phase === 'live'}
+						<div class="ml-auto">
+							<Button
+								size="xs"
+								variant="subtle"
+								startIcon={{ icon: GitCompare }}
+								onclick={showDiff}
+							>
+								Diff vs submitted
+							</Button>
+						</div>
+					{/if}
 				</div>
 				{#if phase === 'predeploy' && availableFolders.length > 0}
 					<div class="flex flex-col gap-1 text-xs">
@@ -725,12 +758,17 @@
 					</Button>
 				{:else if phase === 'under_review'}
 					<span class="text-[11px] text-hint">
-						Withdraw to keep editing, or wait for the team to approve.
+						Waiting for the Windmill team to review the submission.
 					</span>
-					<Button variant="default" onclick={withdrawSubmission}>Withdraw submission</Button>
-					<Button variant="accent" startIcon={{ icon: Check }} onclick={approve}>
-						Simulate approval (dev)
-					</Button>
+					<Button
+						size="xs"
+						variant="subtle"
+						loading={syncing}
+						startIcon={{ icon: RotateCcw }}
+						iconOnly
+						title="Refresh review status"
+						onclick={syncWithHub}
+					/>
 				{:else}
 					<span class="text-[11px] text-hint">
 						Iterate further by starting a new draft for v{hubVersion + 1}.
