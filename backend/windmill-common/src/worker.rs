@@ -252,6 +252,15 @@ lazy_static::lazy_static! {
     pub static ref WORKSPACE_FAIRNESS_OVERLOADED: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
     pub static ref WORKSPACE_FAIRNESS_LAST_REFRESH_MICROS: AtomicI64 = AtomicI64::new(0);
 
+    /// Stochastic admission probability for capped workspaces, expressed in
+    /// parts per 10_000 (so `420` = 4.2%). The refresh computes this from the
+    /// observed worker-second distribution and the configured cap so that
+    /// admission converges to the target *worker-second* share — independent
+    /// of how the capped vs uncapped workspaces compare on per-job durations.
+    /// See `workspace_fairness_ee::refresh_overloaded` for the derivation.
+    /// `10_000` is the count-based default before the first refresh fires.
+    pub static ref WORKSPACE_FAIRNESS_ADMISSION_PPM: AtomicU32 = AtomicU32::new(10_000);
+
 
     pub static ref SMTP_CONFIG: arc_swap::ArcSwap<Option<Smtp>> = arc_swap::ArcSwap::from_pointee(None);
     pub static ref INDEXER_CONFIG: arc_swap::ArcSwap<TantivyIndexerSettings> = arc_swap::ArcSwap::from_pointee(TantivyIndexerSettings::default());
