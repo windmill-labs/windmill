@@ -1,0 +1,43 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT value as \"value!: sqlx::types::Json<Box<serde_json::value::RawValue>>\", created_at\n                       FROM draft\n                       WHERE workspace_id = $1\n                         AND username = $2\n                         AND path = $3\n                         AND typ = $4\n                         AND created_at > $5",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        {
+          "Custom": {
+            "name": "draft_type",
+            "kind": {
+              "Enum": [
+                "script",
+                "flow",
+                "app"
+              ]
+            }
+          }
+        },
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "0b8689175467c4720293faedc819a00016d0ece9ca8dcc62a23e639e44af872e"
+}

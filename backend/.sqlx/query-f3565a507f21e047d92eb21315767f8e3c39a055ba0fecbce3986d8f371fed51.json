@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT username, created_at\n           FROM draft\n           WHERE workspace_id = $1\n             AND path = $2\n             AND typ = $3\n           ORDER BY username NULLS LAST",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        {
+          "Custom": {
+            "name": "draft_type",
+            "kind": {
+              "Enum": [
+                "script",
+                "flow",
+                "app"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "f3565a507f21e047d92eb21315767f8e3c39a055ba0fecbce3986d8f371fed51"
+}

@@ -77,6 +77,7 @@ mod capture;
 mod concurrency_groups;
 mod db;
 mod db_health;
+mod drafts;
 
 #[cfg(feature = "private")]
 pub mod ee;
@@ -552,6 +553,7 @@ pub async fn run_server(
                             "/concurrency_groups",
                             concurrency_groups::workspaced_service(),
                         )
+                        .nest("/drafts", drafts::workspaced_service())
                         .nest("/embeddings", embeddings::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())
                         .nest("/flows", flows::workspaced_service())

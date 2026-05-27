@@ -7802,6 +7802,142 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/drafts/sync:
+    post:
+      summary: bi-directional user-draft sync
+      operationId: syncDrafts
+      tags:
+        - draft
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                last_sync:
+                  type: string
+                  format: date-time
+                  description: Server timestamp of the last successful sync. Omit on first sync.
+                drafts:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      path:
+                        type: string
+                      typ:
+                        type: string
+                        enum: [script, flow, app]
+                      value: {}
+                    required: [path, typ, value]
+                force:
+                  type: boolean
+                  description: Skip the conflict check and overwrite the server copy.
+              required: [drafts]
+      responses:
+        "200":
+          description: sync result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  missed_drafts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                        typ:
+                          type: string
+                          enum: [script, flow, app]
+                        value: {}
+                        created_at:
+                          type: string
+                          format: date-time
+                      required: [path, typ, value, created_at]
+                  statuses:
+                    type: array
+                    items:
+                      oneOf:
+                        - type: object
+                          properties:
+                            status:
+                              type: string
+                              enum: [saved]
+                            path:
+                              type: string
+                            typ:
+                              type: string
+                              enum: [script, flow, app]
+                            created_at:
+                              type: string
+                              format: date-time
+                          required: [status, path, typ, created_at]
+                        - type: object
+                          properties:
+                            status:
+                              type: string
+                              enum: [rejected]
+                            path:
+                              type: string
+                            typ:
+                              type: string
+                              enum: [script, flow, app]
+                            server_value: {}
+                            server_created_at:
+                              type: string
+                              format: date-time
+                            incoming_value: {}
+                          required:
+                            - status
+                            - path
+                            - typ
+                            - server_value
+                            - server_created_at
+                            - incoming_value
+                  current_timestamp:
+                    type: string
+                    format: date-time
+                required: [missed_drafts, statuses, current_timestamp]
+
+  /w/{workspace}/drafts/users_with_draft/{kind}/{path}:
+    get:
+      summary: list users with a saved draft on a path
+      operationId: listUsersWithDraftOnPath
+      tags:
+        - draft
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [script, flow, app]
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: list of usernames with a draft; `null` represents a legacy workspace-level draft
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    username:
+                      type: string
+                      nullable: true
+                    created_at:
+                      type: string
+                      format: date-time
+                  required: [created_at]
+
   /w/{workspace}/scripts/create:
     post:
       summary: create script
