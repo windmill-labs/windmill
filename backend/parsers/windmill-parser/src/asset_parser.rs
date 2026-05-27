@@ -123,17 +123,14 @@ pub enum TriggerSpec {
         #[serde(skip_serializing_if = "Option::is_none", default)]
         debounce: Option<String>,
     },
-    // Refresh on cron. The raw expression is passed through as-is so the
-    // existing schedule subsystem can validate it.
-    Schedule {
-        cron: String,
-    },
     // `// on <kind>` — marker-only declaration that this script wants to be
     // triggered by a native trigger of the given kind. No path: the binding
     // is the trigger row's own `script_path` field (set when the user creates
-    // the kafka/mqtt/… trigger in its dedicated UI). The graph endpoint
-    // discovers attached triggers by `WHERE script_path = <this script>` and
-    // surfaces a "missing" placeholder when an annotation has no matching row.
+    // the kafka/mqtt/schedule/… trigger in its dedicated UI). The graph
+    // endpoint discovers attached triggers by `WHERE script_path = <this
+    // script>` and surfaces a "missing" placeholder when an annotation has no
+    // matching row.
+    Schedule,
     Webhook,
     Email,
     Kafka,
@@ -509,22 +506,6 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
             continue;
         }
 
-        if let Some(after_kw) = rest.strip_prefix("schedule") {
-            if !after_kw.starts_with(|c: char| c.is_whitespace()) {
-                continue;
-            }
-            let after = after_kw.trim();
-            if let Some(cron) = unquote(after) {
-                if !cron.trim().is_empty() {
-                    let trig = TriggerSpec::Schedule { cron: cron.to_string() };
-                    if !out.triggers.contains(&trig) {
-                        out.triggers.push(trig);
-                    }
-                }
-            }
-            continue;
-        }
-
         if let Some(after_kw) = rest.strip_prefix("partitioned") {
             if !after_kw.starts_with(|c: char| c.is_whitespace()) {
                 continue;
@@ -683,14 +664,13 @@ fn parse_partitioned_spec(s: &str) -> Option<PartitionSpec> {
 // Native trigger keywords are *marker-only* — no trailing path. The actual
 // binding lives on the native trigger row (`script_path` column). Anything
 // trailing the keyword is rejected so the form stays unambiguous.
-//
-// Note: `on schedule "..."` is no longer accepted — schedule moved to a
-// top-level `// schedule "..."` annotation. The `Schedule` TriggerSpec
-// variant is still produced, just from a different keyword.
 fn parse_trigger_spec(s: &str) -> Option<TriggerSpec> {
     // Marker-only native trigger keywords. The match table keeps the
-    // annotation set in lockstep with `TriggerSpec`.
+    // annotation set in lockstep with `TriggerSpec`. `schedule` is in here
+    // too — the cron lives on the schedule row the user creates separately;
+    // the annotation is just the binding declaration.
     const NATIVE_KINDS: &[(&str, TriggerSpec)] = &[
+        ("schedule", TriggerSpec::Schedule),
         ("webhook", TriggerSpec::Webhook),
         ("email", TriggerSpec::Email),
         ("kafka", TriggerSpec::Kafka),
@@ -751,27 +731,21 @@ mod pipeline_annotation_tests {
     }
 
     #[test]
-    fn top_level_schedule() {
-        let out = parse_pipeline_annotations("// schedule \"0 */6 * * *\"");
+    fn on_schedule_marker() {
+        // `// on schedule` is marker-only — the binding is the schedule row's
+        // own `script_path` field, just like kafka/mqtt/etc.
+        let out = parse_pipeline_annotations("// on schedule");
         assert_eq!(out.triggers.len(), 1);
-        assert_eq!(
-            out.triggers[0],
-            TriggerSpec::Schedule { cron: "0 */6 * * *".to_string() }
-        );
+        assert_eq!(out.triggers[0], TriggerSpec::Schedule);
     }
 
     #[test]
-    fn top_level_schedule_single_quotes_and_other_prefixes() {
-        let out = parse_pipeline_annotations("# schedule '0 0 * * *'\n-- schedule \"@daily\"");
-        assert_eq!(out.triggers.len(), 2);
-    }
-
-    #[test]
-    fn rejects_on_schedule_form() {
-        // The old `on schedule "..."` form is no longer recognized — the
-        // `on` branch tries `schedule` as a native trigger kind and falls
-        // through.
+    fn rejects_schedule_with_trailing_content() {
+        // Marker-only — the old `// schedule "<cron>"` form is gone, and a
+        // trailing path/cron on the `on schedule` form is malformed.
         let out = parse_pipeline_annotations("// on schedule \"0 0 * * *\"");
+        assert!(out.triggers.is_empty());
+        let out = parse_pipeline_annotations("// schedule \"0 0 * * *\"");
         assert!(out.triggers.is_empty());
     }
 

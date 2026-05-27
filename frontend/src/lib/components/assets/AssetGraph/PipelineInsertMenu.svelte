@@ -62,8 +62,12 @@
 		onPick
 	}: Props = $props()
 
+	// When there's only one trigger kind, hide the Trigger column entirely
+	// and pre-select it so the user lands directly on the Language picker.
+	const singleKind = $derived(kinds.length === 1 ? kinds[0] : undefined)
+
 	const buildEmptySelected = () => ({
-		triggerId: undefined as undefined | string,
+		triggerId: singleKind?.id,
 		language: undefined as undefined | ScriptLang,
 		outputId: undefined as undefined | PipelineOutputKind,
 		scriptPath: `${defaultPathSuffix ?? 'pipeline_script'}_${shortSlug()}`,
@@ -152,45 +156,47 @@
 </Popover>
 
 {#snippet topSection()}
-	<div
-		class={twMerge('flex flex-col gap-1 p-2 w-56 shrink-0 overflow-auto')}
-		{@attach arrowTabNav({ onKeyDown: selectAndAdvanceTo(() => languageEl) })}
-	>
-		<div class="text-2xs font-normal text-secondary ml-2 mb-1">Trigger</div>
-		{#each kinds as k}
-			{@const isSelected = selected.triggerId == k.id}
-			<Button
-				variant="subtle"
-				btnClasses={'text-left'}
-				onClick={() => (selected.triggerId = k.id)}
-				selected={isSelected}
-			>
-				{#if k.icon}
-					{@const Icon = k.icon}
-					<Icon
-						size={14}
-						class={twMerge(
-							'shrink-0 my-auto mr-1.5',
-							isSelected ? 'text-accent' : 'text-secondary'
-						)}
-					/>
-				{/if}
-				<span class="flex flex-col items-start flex-1 min-w-0">
-					<span class="text-xs font-normal leading-tight">{k.label}</span>
-					{#if k.description}
-						<span
+	{#if !singleKind}
+		<div
+			class={twMerge('flex flex-col gap-1 p-2 w-56 shrink-0 overflow-auto')}
+			{@attach arrowTabNav({ onKeyDown: selectAndAdvanceTo(() => languageEl) })}
+		>
+			<div class="text-2xs font-normal text-secondary ml-2 mb-1">Trigger</div>
+			{#each kinds as k}
+				{@const isSelected = selected.triggerId == k.id}
+				<Button
+					variant="subtle"
+					btnClasses={'text-left'}
+					onClick={() => (selected.triggerId = k.id)}
+					selected={isSelected}
+				>
+					{#if k.icon}
+						{@const Icon = k.icon}
+						<Icon
+							size={14}
 							class={twMerge(
-								'text-2xs font-normal leading-snug mt-0.5',
-								isSelected ? 'text-accent/80' : 'text-hint'
+								'shrink-0 my-auto mr-1.5',
+								isSelected ? 'text-accent' : 'text-secondary'
 							)}
-						>
-							{k.description}
-						</span>
+						/>
 					{/if}
-				</span>
-			</Button>
-		{/each}
-	</div>
+					<span class="flex flex-col items-start flex-1 min-w-0">
+						<span class="text-xs font-normal leading-tight">{k.label}</span>
+						{#if k.description}
+							<span
+								class={twMerge(
+									'text-2xs font-normal leading-snug mt-0.5',
+									isSelected ? 'text-accent/80' : 'text-hint'
+								)}
+							>
+								{k.description}
+							</span>
+						{/if}
+					</span>
+				</Button>
+			{/each}
+		</div>
+	{/if}
 
 	<div
 		bind:this={languageEl}
@@ -257,7 +263,7 @@
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div bind:this={pathEl} class="flex" onkeydown={selectAndAdvanceTo(() => aiPromptEl)}>
 			<div
-				class="border rounded-md rounded-r-none border-r-0 text-xs w-fit flex items-center px-2 text-secondary bg-surface-input whitespace-nowrap"
+				class="border rounded-md rounded-r-none border-r-0 text-xs w-fit shrink-0 whitespace-nowrap flex items-center px-2 text-secondary bg-surface-input"
 			>
 				{pathPrefix}
 			</div>

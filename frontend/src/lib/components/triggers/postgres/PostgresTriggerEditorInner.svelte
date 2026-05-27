@@ -5,6 +5,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import PipelineLockedRunnableInfo from '$lib/components/triggers/PipelineLockedRunnableInfo.svelte'
 	import {
 		PostgresTriggerService,
 		type ErrorHandler,
@@ -230,7 +231,8 @@
 	export async function openEdit(
 		ePath: string,
 		isFlow: boolean,
-		defaultConfig?: Record<string, any>
+		defaultConfig?: Record<string, any>,
+		fixedScriptPath_?: string
 	) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
@@ -249,6 +251,7 @@
 			relations = []
 			transaction_to_track = []
 			tab = 'basic'
+			fixedScriptPath = fixedScriptPath_ ?? ''
 			await loadTrigger(defaultConfig)
 			if (!defaultConfig) {
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
@@ -629,43 +632,47 @@
 			</Label>
 			{#if !hideTarget}
 				<Section label="Runnable">
-					<p class="text-xs text-primary">
-						Pick a script or flow to be triggered <Required required={true} />
-					</p>
-					<div class="flex flex-row mb-2">
-						<ScriptPicker
-							disabled={fixedScriptPath != '' || !can_write}
-							initialPath={fixedScriptPath || initialScriptPath}
-							kinds={['script']}
-							allowFlow={true}
-							bind:itemKind
-							bind:scriptPath={script_path}
-							allowRefresh={can_write}
-							allowEdit={!$userStore?.operator}
-							clearable
-						/>
+					{#if fixedScriptPath != ''}
+						<PipelineLockedRunnableInfo path={fixedScriptPath} />
+					{:else}
+						<p class="text-xs text-primary">
+							Pick a script or flow to be triggered <Required required={true} />
+						</p>
+						<div class="flex flex-row mb-2">
+							<ScriptPicker
+								disabled={!can_write}
+								initialPath={initialScriptPath}
+								kinds={['script']}
+								allowFlow={true}
+								bind:itemKind
+								bind:scriptPath={script_path}
+								allowRefresh={can_write}
+								allowEdit={!$userStore?.operator}
+								clearable
+							/>
 
-						{#if emptyString(script_path) && is_flow === false}
-							<div class="flex">
-								<Button
-									disabled={!can_write}
-									btnClasses="ml-4"
-									variant="accent"
-									size="xs"
-									on:click={getTemplateScript}
-									target="_blank"
-									{loading}
-									>Create from template
-									<Tooltip light>
-										The conversion requires a <strong>database resource</strong> and at least one
-										<strong>schema</strong>
-										to be set.<br />
-										Please ensure these conditions are met before proceeding.
-									</Tooltip>
-								</Button>
-							</div>
-						{/if}
-					</div>
+							{#if emptyString(script_path) && is_flow === false}
+								<div class="flex">
+									<Button
+										disabled={!can_write}
+										btnClasses="ml-4"
+										variant="accent"
+										size="xs"
+										on:click={getTemplateScript}
+										target="_blank"
+										{loading}
+										>Create from template
+										<Tooltip light>
+											The conversion requires a <strong>database resource</strong> and at least one
+											<strong>schema</strong>
+											to be set.<br />
+											Please ensure these conditions are met before proceeding.
+										</Tooltip>
+									</Button>
+								</div>
+							{/if}
+						</div>
+					{/if}
 				</Section>
 			{/if}
 

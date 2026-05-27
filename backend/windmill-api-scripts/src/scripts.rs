@@ -45,7 +45,7 @@ use windmill_common::{
     assets::{
         clear_script_triggers, clear_static_asset_usage, clear_static_asset_usage_by_script_hash,
         delete_managed_pipeline_schedule, insert_script_trigger, insert_static_asset_usage,
-        parse_duration_secs, parse_pipeline_annotations, reconcile_pipeline_schedule,
+        parse_duration_secs, parse_pipeline_annotations,
         trigger_spec_to_row, AssetUsageKind, AssetWithAltAccessType, TriggerSpec,
     },
     error::{self, to_anyhow},
@@ -1622,28 +1622,11 @@ async fn create_script_internal<'c>(
         .await?;
     }
 
-    // Phase 4 reconciliation: a `// schedule "<cron>"` annotation creates or
-    // updates a managed schedule row that fires this script on the given
-    // cron. Removing the annotation deletes the managed row. Manual
-    // schedules at the same path are untouched (see
-    // `reconcile_pipeline_schedule` for the conflict policy). First-write
-    // wins if multiple `// schedule` lines are declared.
-    let pipeline_cron: Option<&str> = pipeline_triggers.iter().find_map(|t| match t {
-        TriggerSpec::Schedule { cron } => Some(cron.as_str()),
-        _ => None,
-    });
-    let permissioned_as_for_schedule = username_to_permissioned_as(&authed.username);
-    reconcile_pipeline_schedule(
-        &mut *tx,
-        &w_id,
-        &ns.path,
-        false, // is_flow — scripts only for now
-        &authed.email,
-        &authed.username,
-        &permissioned_as_for_schedule,
-        pipeline_cron,
-    )
-    .await?;
+    // Schedule annotations (`// on schedule`) are marker-only — the binding
+    // lives on the schedule row's own `script_path` field, which the user
+    // creates separately via the schedule editor. No script-create-time
+    // reconciliation is needed (and there are no "managed" schedules to
+    // upsert/delete anymore).
 
     let permissioned_as = username_to_permissioned_as(&authed.username);
     if let Some(parent_hash) = ns.parent_hash {

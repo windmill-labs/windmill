@@ -71,16 +71,30 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 
 	for (const [path, d] of drafts) {
 		const parsed = parsePipelineAnnotations(d.script.content)
-		runnables.push({
-			path,
-			usage_kind: 'script',
-			in_pipeline: true,
-			partition_kind: parsed.partition?.kind,
-			freshness: parsed.freshness?.duration,
-			tag: parsed.tag,
-			retry: parsed.retry,
-			unsaved: true
-		})
+		// A draft can coexist with a base entry — during save the refetch
+		// lands before drafts cleanup, and a user re-editing a deployed
+		// script also produces both. In that case we mutate the existing
+		// base runnable to carry `unsaved: true` instead of pushing a
+		// duplicate (which would crash svelte-flow's keyed each), so the
+		// canvas + trigger-node labels reflect that there's pending body
+		// editing for this path.
+		const baseIdx = runnables.findIndex(
+			(r) => r.usage_kind === 'script' && r.path === path
+		)
+		if (baseIdx === -1) {
+			runnables.push({
+				path,
+				usage_kind: 'script',
+				in_pipeline: true,
+				partition_kind: parsed.partition?.kind,
+				freshness: parsed.freshness?.duration,
+				tag: parsed.tag,
+				retry: parsed.retry,
+				unsaved: true
+			})
+		} else {
+			runnables[baseIdx] = { ...runnables[baseIdx], unsaved: true }
+		}
 		// Output asset(s): three-tier resolution.
 		//   1. Active draft (the body the user is editing right now):
 		//      live body inference is authoritative — renaming a
@@ -108,6 +122,15 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 		for (const out of writeOuts) {
 			const hasAsset = assets.some((a) => a.kind === out.kind && a.path === out.path)
 			if (!hasAsset) assets.push({ kind: out.kind, path: out.path })
+			const hasWriteEdge = base.edges.some(
+				(e) =>
+					e.runnable_kind === 'script' &&
+					e.runnable_path === path &&
+					e.asset_kind === out.kind &&
+					e.asset_path === out.path &&
+					(e.access_type === 'w' || e.access_type === 'rw')
+			)
+			if (hasWriteEdge) continue
 			edges.push({
 				runnable_path: path,
 				runnable_kind: 'script',
@@ -117,19 +140,10 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 				unsaved: true
 			})
 		}
-		// Seed trigger edges (schedule + asset) from the draft's template
-		// so the graph stays stable when the user clicks off this draft.
-		// Live annotations (below) take over for the currently-open draft
-		// so keystroke edits still update in real time.
-		for (const cron of parsed.schedules) {
-			extraTriggers.push({
-				trigger_kind: 'schedule',
-				cron,
-				runnable_kind: 'script',
-				runnable_path: path,
-				unsaved: true
-			})
-		}
+		// Seed trigger edges from the draft's template so the graph stays
+		// stable when the user clicks off this draft. Live annotations
+		// (below) take over for the currently-open draft so keystroke
+		// edits still update in real time.
 		for (const a of parsed.triggerAssets) {
 			extraTriggers.push({
 				trigger_kind: 'asset',
@@ -176,16 +190,6 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 				)
 				.map((t) => (t.trigger_kind === 'asset' ? `${t.asset_kind}:${t.asset_path}` : ''))
 		)
-		const persistedScheduleCrons = new Set(
-			base.triggers
-				.filter(
-					(t) =>
-						t.trigger_kind === 'schedule' &&
-						t.runnable_kind === 'script' &&
-						t.runnable_path === livePath
-				)
-				.map((t) => (t.trigger_kind === 'schedule' ? t.cron : ''))
-		)
 		// Strip seeded triggers we computed above for the active draft;
 		// live annotations are authoritative for the open buffer.
 		for (let i = extraTriggers.length - 1; i >= 0; i--) {
@@ -210,16 +214,6 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 				assets.push({ kind: a.kind, path: a.path })
 			}
 		}
-		for (const cron of liveAnnotations.annotations.schedules) {
-			if (persistedScheduleCrons.has(cron)) continue
-			extraTriggers.push({
-				trigger_kind: 'schedule',
-				cron,
-				runnable_kind: 'script',
-				runnable_path: livePath,
-				unsaved: true
-			})
-		}
 		// Native trigger annotations: kinds for which a matching trigger
 		// row was found in the backend response. If the live buffer
 		// declares `// on kafka` and at least one kafka_trigger row points
@@ -231,7 +225,6 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 				.filter(
 					(t) =>
 						t.trigger_kind !== 'asset' &&
-						t.trigger_kind !== 'schedule' &&
 						t.runnable_kind === 'script' &&
 						t.runnable_path === livePath
 				)
@@ -265,7 +258,6 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 				.filter(
 					(t) =>
 						t.trigger_kind !== 'asset' &&
-						t.trigger_kind !== 'schedule' &&
 						t.runnable_kind === 'script' &&
 						t.runnable_path === scriptPath
 				)

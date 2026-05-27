@@ -21,22 +21,19 @@
 	// source>". id === the SCRIPT_TRIGGER_KIND value, so the handler can
 	// dispatch on it uniformly. Asset-triggered scripts are not in this
 	// menu; those live under the per-asset + inside the graph.
-	type KindId = 'schedule' | NativeTriggerKind
+	type KindId = NativeTriggerKind
 
 	interface Props {
 		data: {
 			onAddPipelineScript: (
 				language: ScriptLang,
 				path: string,
-				source:
-					| { kind: 'schedule'; cron: string }
-					| { kind: NativeTriggerKind; path: string | undefined },
+				source: { kind: NativeTriggerKind; path: string | undefined },
 				outputKind: PipelineOutputKind,
 				aiPrompt?: string
 			) => void
 			pathPrefix: string
 			defaultPathSuffix: string
-			defaultScheduleCron: string
 		}
 	}
 	let { data }: Props = $props()
@@ -45,27 +42,16 @@
 		if (!pick.language || !pick.path) return
 		const kindId = pick.kindId as KindId
 		const outputKind = (pick.outputKind ?? 'none') as PipelineOutputKind
-		if (kindId === 'schedule') {
-			data.onAddPipelineScript(
-				pick.language as ScriptLang,
-				pick.path,
-				{ kind: 'schedule', cron: data.defaultScheduleCron },
-				outputKind,
-				pick.aiPrompt
-			)
-		} else {
-			// Native trigger reference: user is expected to fill in the
-			// trigger path themselves in the editor (or configure it in the
-			// trigger's own UI). We seed the annotation with an empty ref
-			// the user replaces.
-			data.onAddPipelineScript(
-				pick.language as ScriptLang,
-				pick.path,
-				{ kind: kindId, path: undefined },
-				outputKind,
-				pick.aiPrompt
-			)
-		}
+		// Native trigger annotation is marker-only — the binding lives on
+		// the trigger row's own `script_path`, which the user creates
+		// separately. Seed with `path: undefined`.
+		data.onAddPipelineScript(
+			pick.language as ScriptLang,
+			pick.path,
+			{ kind: kindId, path: undefined },
+			outputKind,
+			pick.aiPrompt
+		)
 	}
 </script>
 
@@ -74,7 +60,7 @@
 		{
 			id: 'schedule',
 			label: 'On schedule',
-			description: 'Cron-driven pipeline script',
+			description: 'Triggered by a schedule you create',
 			icon: Clock
 		},
 		{

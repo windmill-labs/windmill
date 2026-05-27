@@ -49,7 +49,12 @@ export interface AssetGraphEdge {
 // Declared `// on <trigger>` — the actual execution DAG edges.
 // `unsaved: true` marks overlays computed live from editor buffer that
 // haven't been persisted to script_trigger yet.
+//
+// `schedule` is in the family — the cron lives on the schedule row the user
+// creates separately; the annotation is just the binding declaration, same
+// as kafka/mqtt/etc.
 export type NativeTriggerKind =
+	| 'schedule'
 	| 'webhook'
 	| 'email'
 	| 'kafka'
@@ -69,16 +74,9 @@ export type AssetGraphTrigger =
 			unsaved?: boolean
 	  }
 	| {
-			trigger_kind: 'schedule'
-			cron: string
-			runnable_kind: GraphUsageKind
-			runnable_path: string
-			unsaved?: boolean
-	  }
-	| {
 			trigger_kind: NativeTriggerKind
-			// path of the matching trigger row (kafka_trigger.path, etc.).
-			// Undefined when `missing` is true — the script has the
+			// path of the matching trigger row (kafka_trigger.path, schedule.path,
+			// etc.). Undefined when `missing` is true — the script has the
 			// annotation marker but no trigger row points at it.
 			path?: string
 			runnable_kind: GraphUsageKind

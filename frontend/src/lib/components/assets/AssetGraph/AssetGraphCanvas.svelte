@@ -49,12 +49,10 @@
 		onAddPipelineScript?: (
 			language: import('$lib/gen').ScriptLang,
 			path: string,
-			source:
-				| { kind: 'schedule'; cron: string }
-				| {
-						kind: 'webhook' | 'email' | 'kafka' | 'mqtt' | 'nats' | 'postgres' | 'sqs' | 'gcp'
-						path: string | undefined
-				  },
+			source: {
+				kind: NativeTriggerKind
+				path: string | undefined
+			},
 			outputKind: import('./pipelineTemplates').PipelineOutputKind,
 			aiPrompt?: string
 		) => void
@@ -63,8 +61,6 @@
 		pathPrefix?: string
 		// Seeded editable suffix (e.g. `new_pipeline_script`).
 		defaultPathSuffix?: string
-		// Default cron expression seeded into the top + template.
-		defaultScheduleCron?: string
 		// Page-supplied dispatch for the per-asset run button. Receives the
 		// producer (kind/path/unsaved) and returns the new job id. The page
 		// implements the unsaved branch by calling runScriptPreview with the
@@ -110,6 +106,20 @@
 		// opens the matching editor with `script_path` pre-filled — no
 		// navigation, drafts stay intact.
 		onCreateMissingTrigger?: (kind: NativeTriggerKind, scriptPath: string) => void
+		// Click handler for an attached (non-missing) native trigger node —
+		// opens the matching editor in edit mode for the given trigger path.
+		// `scriptPath` is the related script — the drawer locks its
+		// script-picker to it so the trigger can't be reassigned off the
+		// pipeline from this entry point.
+		onEditTrigger?: (
+			kind: NativeTriggerKind,
+			triggerPath: string,
+			scriptPath: string
+		) => void
+		// Click handler for the kebab → Delete entry on an attached trigger.
+		// The page is expected to confirm + call the matching delete API
+		// and refetch the graph.
+		onDeleteTrigger?: (kind: NativeTriggerKind, triggerPath: string) => void
 	}
 	let {
 		graph,
@@ -119,13 +129,14 @@
 		onAddPipelineScript,
 		pathPrefix = '',
 		defaultPathSuffix = '',
-		defaultScheduleCron = '',
 		onRunProducer,
 		onRunnableMenuRemove,
 		activeRunnable,
 		activeRunnableIds,
 		runStates,
-		onCreateMissingTrigger
+		onCreateMissingTrigger,
+		onEditTrigger,
+		onDeleteTrigger
 	}: Props = $props()
 
 	const ADD_NODE_ID = '__add__'
@@ -142,7 +153,6 @@
 			| 'lineage-write'
 			| 'lineage-read'
 			| 'trigger-asset'
-			| 'trigger-schedule'
 			| 'trigger-native'
 			| 'add-anchor'
 		unsaved?: boolean
@@ -177,8 +187,7 @@
 				data: {
 					onAddPipelineScript: onAddPipelineScript!,
 					pathPrefix,
-					defaultPathSuffix,
-					defaultScheduleCron
+					defaultPathSuffix
 				}
 			})
 		}
@@ -249,6 +258,14 @@
 					onRunProducer
 				}
 			})
+		}
+		// Set of `script_path` values for runnables that are still drafts (no
+		// DB row yet). Trigger nodes use this to swap "Click to create" for
+		// "Click to create (after draft save)" so the user knows the create
+		// button is blocked until the script is deployed.
+		const unsavedRunnablePaths = new Set<string>()
+		for (const r of g.runnables) {
+			if (r.unsaved) unsavedRunnablePaths.add(r.path)
 		}
 		for (const r of g.runnables) {
 			const rid = `${r.usage_kind}:${r.path}`
@@ -372,15 +389,12 @@
 				})
 				continue
 			}
-			const isMissing = t.trigger_kind !== 'schedule' && (t as any).missing === true
-			// Schedule: cron is the ref. Native (attached): trigger row path.
-			// Native (missing): synthesize a per-script ref so each placeholder
-			// is its own node ("missing kafka on f/foo/bar").
-			const ref = isMissing
-				? `missing:${t.runnable_path}`
-				: t.trigger_kind === 'schedule'
-					? (t as any).cron
-					: ((t as any).path ?? '')
+			const isMissing = (t as any).missing === true
+			// Native (attached): trigger row path. Native (missing):
+			// synthesize a per-script ref so each placeholder is its own
+			// node ("missing kafka on f/foo/bar"). Schedule joins the native
+			// family — its ref is the schedule row's path, same shape.
+			const ref = isMissing ? `missing:${t.runnable_path}` : ((t as any).path ?? '')
 			const sourceId = `trigger:${t.trigger_kind}:${ref}`
 			recordSourceTrigger(
 				sourceId,
@@ -388,13 +402,19 @@
 				ref,
 				!!t.unsaved,
 				isMissing,
-				isMissing ? t.runnable_path : undefined
+				// Always thread the target script so the trigger node can
+				// reach back to it — drives both the missing-trigger "create"
+				// flow and the attached-trigger "edit" flow's script-path
+				// lock. Previously only set for missing, which silently
+				// disabled `canEdit` (and the resulting click affordance)
+				// on every attached native trigger.
+				t.runnable_path
 			)
 			edges.push({
 				id: `trig-${t.trigger_kind}:${sourceId}->${runnableId}`,
 				source: sourceId,
 				target: runnableId,
-				kind: t.trigger_kind === 'schedule' ? 'trigger-schedule' : 'trigger-native',
+				kind: 'trigger-native',
 				unsaved: t.unsaved,
 				missing: isMissing
 			})
@@ -409,7 +429,12 @@
 					unsaved: info.allUnsaved,
 					missing: info.missing,
 					runnable_path: info.runnable_path,
-					onCreateMissingTrigger
+					runnable_unsaved: info.runnable_path
+						? unsavedRunnablePaths.has(info.runnable_path)
+						: false,
+					onCreateMissingTrigger,
+					onEditTrigger,
+					onDeleteTrigger
 				}
 			})
 		}
@@ -451,25 +476,52 @@
 	// Bound on the outer wrapper; updates on pane resize via $state.
 	let paneWidth = $state(800)
 
+	// Compute layout positions strictly off the model — selection changing
+	// must NOT trigger a re-layout. Sugiyama's decross output depends on
+	// the order in which nodes/edges arrive, so two builds with identical
+	// topology but different insertion order can produce different layer
+	// orderings (selecting a node briefly re-emits `liveAnnotations`-
+	// driven trigger overlays in a different order, etc.). Sorting both
+	// arrays by their stable identity (node id, edge source→target)
+	// gives sugiyama a topology+path-deterministic input — same nodes +
+	// edges + paths → same layout. Renames *do* change the layout for
+	// the renamed entry, since its id moves in the sort, but that's
+	// expected: a rename is a path change, which is part of the input.
+	let layoutInput = $derived({
+		nodes: model.nodes
+			.map((n) => ({ id: n.id, data: n.data }))
+			.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
+		edges: model.edges
+			.map((e) => ({ source: e.source, target: e.target }))
+			.sort((a, b) =>
+				a.source === b.source
+					? a.target < b.target
+						? -1
+						: a.target > b.target
+							? 1
+							: 0
+					: a.source < b.source
+						? -1
+						: 1
+			)
+	})
+	let layoutPositions = $derived(layoutAssetGraph(layoutInput))
+
 	let positionedNodes = $derived.by(() => {
-		const positions = layoutAssetGraph({
-			nodes: model.nodes.map((n) => ({ id: n.id, data: n.data })),
-			edges: model.edges.map((e) => ({ source: e.source, target: e.target }))
-		})
 		// Compute bbox width from layout; shift every x so the graph is
 		// horizontally centered inside the pane. y is untouched so layer 0
 		// sits at the top of the viewport (matches flow editor's Trigger
 		// placement — no fitView reshuffling).
 		let minX = Infinity
 		let maxX = -Infinity
-		for (const p of positions.values()) {
+		for (const p of layoutPositions.values()) {
 			if (p.x < minX) minX = p.x
 			if (p.x > maxX) maxX = p.x
 		}
 		const bboxWidth = isFinite(minX) ? maxX - minX : 0
 		const xCenter = paneWidth / 2 - bboxWidth / 2
 		return model.nodes.map<Node>((n) => {
-			const p = positions.get(n.id) ?? { x: 0, y: 0 }
+			const p = layoutPositions.get(n.id) ?? { x: 0, y: 0 }
 			// Compensate for the + node being narrower than its layout slot
 			// so it visually centers over the node(s) below.
 			const xShift = n.id === ADD_NODE_ID ? (NODE.width - ADD_NODE_WIDTH) / 2 : 0
@@ -482,7 +534,10 @@
 				// All nodes non-draggable: the layout is sugiyama-computed,
 				// dragging would fight the reactive re-layout. Selection is
 				// still allowed on asset/runnable (not on the + or schedules)
-				// for the details-pane click-through.
+				// for the details-pane click-through. Trigger nodes opt out
+				// of selection but TriggerNode itself sets `pointer-events: auto`
+				// on its inner box so the edit/create button still receives
+				// clicks despite svelte-flow's wrapper-level pointer-events: none.
 				draggable: false,
 				selectable: n.id !== ADD_NODE_ID && n.type !== 'trigger'
 			}
@@ -529,13 +584,6 @@
 						markerColor = 'rgb(16 185 129)'
 						label = 'triggers'
 						labelStyle = 'fill: rgb(16 185 129); font-size: 10px; font-weight: 600;'
-						break
-					case 'trigger-schedule':
-						style = 'stroke: rgb(245 158 11); stroke-width: 2px;'
-						strokeDasharray = '6 3'
-						markerColor = 'rgb(245 158 11)'
-						label = 'schedule'
-						labelStyle = 'fill: rgb(245 158 11); font-size: 10px; font-weight: 600;'
 						break
 					case 'trigger-native':
 						// Colour neutral here because the trigger source node

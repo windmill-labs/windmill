@@ -110,7 +110,10 @@
 	import { Handle, Position } from '@xyflow/svelte'
 	import { NODE } from '$lib/components/graph/util'
 	import { twMerge } from 'tailwind-merge'
-	import { AlertTriangle } from 'lucide-svelte'
+	import { AlertTriangle, EllipsisVertical, Trash2 } from 'lucide-svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { stopPropagation, preventDefault } from 'svelte/legacy'
+	import type { Item } from '$lib/utils'
 
 	interface Props {
 		// `ref` is the cron expression for schedules, the trigger-path for
@@ -125,14 +128,38 @@
 			unsaved?: boolean
 			missing?: boolean
 			runnable_path?: string
+			// True iff the target script is still a draft (no DB row yet).
+			// Drives the "(after draft save)" hint on the missing
+			// placeholder, since the page-level handler refuses to open the
+			// create drawer until the script is deployed.
+			runnable_unsaved?: boolean
 			// Page-supplied dispatcher that opens the matching native
 			// trigger drawer with `script_path` pre-filled. When absent
 			// (e.g. webhook, schedule, or a kind without an editor) the
 			// placeholder is non-clickable.
 			onCreateMissingTrigger?: (kind: NativeTriggerKind, scriptPath: string) => void
+			// Page-supplied dispatcher to open the matching native trigger
+			// drawer in edit mode for an attached (non-missing) trigger.
+			// `triggerPath` is the trigger row's path (e.g. the mqtt_trigger
+			// row); `scriptPath` is the script the trigger targets — the
+			// drawer locks its script-picker to this so the user can't
+			// reassign the trigger off the pipeline. Absent for kinds
+			// without an editor.
+			onEditTrigger?: (
+				kind: NativeTriggerKind,
+				triggerPath: string,
+				scriptPath: string
+			) => void
+			// Page-supplied dispatcher to delete an attached (non-missing)
+			// trigger. Confirmation is the caller's responsibility — the
+			// node just exposes the entry point on the kebab menu.
+			onDeleteTrigger?: (kind: NativeTriggerKind, triggerPath: string) => void
 		}
 	}
 	let { data }: Props = $props()
+
+	let hover = $state(false)
+	let menuOpen = $state(false)
 
 	let style = $derived(TRIGGER_NODE_STYLE[data.kind])
 	let Icon = $derived(data.missing ? AlertTriangle : style.icon)
@@ -141,28 +168,71 @@
 			? `Missing ${style.label} trigger: ${data.runnable_path ?? ''} declares \`// on ${style.label}\` but no ${style.label} trigger targets it. Click to create one, or remove the annotation.`
 			: undefined
 	)
-	// Schedule and webhook have no dedicated drawer (schedules are
-	// inline-managed; webhooks are implicit endpoints), so the placeholder
-	// is not clickable for those kinds.
+	// Webhook has no dedicated drawer (it's an implicit endpoint), so the
+	// placeholder is not clickable for that kind. Schedule + the other
+	// native kinds all have dedicated editors.
 	let canCreate = $derived(
 		data.missing &&
-			data.kind !== 'schedule' &&
 			data.kind !== 'webhook' &&
 			!!data.runnable_path &&
 			!!data.onCreateMissingTrigger
+	)
+	// Attached native trigger → clickable to open its drawer in edit mode.
+	let canEdit = $derived(
+		!data.missing &&
+			data.kind !== 'webhook' &&
+			!!data.ref &&
+			!!data.runnable_path &&
+			!!data.onEditTrigger
+	)
+
+	// Same gating as `canEdit`: the trigger row only exists when there's a
+	// non-missing ref + a backing editor (i.e. excludes webhook). Schedule
+	// has its own delete endpoint, same shape as the other natives.
+	let canDelete = $derived(
+		!data.missing &&
+			data.kind !== 'webhook' &&
+			!!data.ref &&
+			!!data.onDeleteTrigger
+	)
+
+	let menuItems: Item[] = $derived(
+		canDelete
+			? [
+					{
+						displayName: 'Delete…',
+						icon: Trash2,
+						type: 'delete' as const,
+						action: () => {
+							if (!data.ref || !data.onDeleteTrigger) return
+							data.onDeleteTrigger(data.kind as NativeTriggerKind, data.ref)
+						}
+					}
+				]
+			: []
 	)
 
 	function handleMissingClick() {
 		if (!canCreate || !data.runnable_path || !data.onCreateMissingTrigger) return
 		data.onCreateMissingTrigger(data.kind as NativeTriggerKind, data.runnable_path)
 	}
+
+	function handleEditClick() {
+		if (!canEdit || !data.ref || !data.runnable_path || !data.onEditTrigger) return
+		data.onEditTrigger(data.kind as NativeTriggerKind, data.ref, data.runnable_path)
+	}
 </script>
 
-<div class="relative">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+	class="relative"
+	onmouseenter={() => (hover = true)}
+	onmouseleave={() => (hover = false)}
+>
 	{#if canCreate}
-		<!-- Whole missing placeholder is a button so the cursor + a11y
-		     affordance reads "clickable to fix". Sits in the same visual
-		     box as the non-clickable variants. -->
+		<!-- Same affordance as the asset's downstream + button: render the
+		     whole node as a button so the cursor + hover + click is obvious
+		     without depending on svelte-flow's wrapper-level handlers. -->
 		<button
 			type="button"
 			onclick={handleMissingClick}
@@ -180,7 +250,33 @@
 					{style.label} · missing
 				</span>
 				<span class="text-2xs font-mono truncate text-red-700 dark:text-red-400">
-					Click to create
+					{data.runnable_unsaved ? 'Click to create (after draft save)' : 'Click to create'}
+				</span>
+			</div>
+		</button>
+	{:else if canEdit}
+		<!-- Mirrors the missing-trigger pattern: render the whole node as a
+		     button so clicks open the editor drawer reliably (don't rely on
+		     svelte-flow's onnodeclick wiring). -->
+		<button
+			type="button"
+			onclick={handleEditClick}
+			class={twMerge(
+				'flex items-center rounded-md drop-shadow-sm overflow-hidden outline outline-1 w-full text-left',
+				style.bg,
+				data.unsaved ? `opacity-80 ${style.borderUnsaved}` : style.border,
+				'hover:brightness-95 dark:hover:brightness-110 transition-[filter]'
+			)}
+			style="width: {NODE.width}px; min-height: {NODE.height}px;"
+			title={`Edit ${style.label} trigger: ${data.ref}`}
+		>
+			<Icon size={14} class={`shrink-0 ml-2 mr-2 ${style.iconText}`} />
+			<div class="flex flex-col min-w-0 flex-1 pr-2 py-0.5 leading-tight">
+				<span class="text-3xs uppercase tracking-wide truncate text-tertiary">
+					{style.label}{data.unsaved ? ' · unsaved' : ''}
+				</span>
+				<span class="text-2xs font-mono truncate text-emphasis">
+					{data.ref}
 				</span>
 			</div>
 		</button>
@@ -219,6 +315,38 @@
 					{data.missing ? 'no trigger row' : data.ref}
 				</span>
 			</div>
+		</div>
+	{/if}
+
+	{#if menuItems.length > 0}
+		<!-- Hover-revealed kebab menu (Delete only for now). Mirrors the
+		     RunnableNode pattern: positioned just outside the top-right of
+		     the node, rendered only on hover or while the menu is open so
+		     the canvas stays clean at rest. `pointerdown` is stopped so
+		     svelte-flow doesn't kick off node selection / drag when the
+		     user reaches for the menu. -->
+		<div class="absolute -top-2 -right-2 h-7 p-1 min-w-7" style="will-change: transform;">
+			<DropdownV2
+				items={menuItems}
+				placement="bottom-end"
+				bind:open={menuOpen}
+				fixedHeight={false}
+				usePointerDownOutside
+			>
+				{#snippet buttonReplacement()}
+					<button
+						class={twMerge(
+							'center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary',
+							hover || menuOpen ? 'block' : '!hidden',
+							'shadow-md rounded-md'
+						)}
+						onpointerdown={stopPropagation(preventDefault(() => {}))}
+						title="Actions"
+					>
+						<EllipsisVertical size={12} />
+					</button>
+				{/snippet}
+			</DropdownV2>
 		</div>
 	{/if}
 </div>

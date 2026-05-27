@@ -7,7 +7,6 @@ import type { AssetWithAltAccessType } from '$lib/components/assets/lib'
 const ann = (over: Partial<PipelineAnnotations> = {}): PipelineAnnotations => ({
 	inPipeline: false,
 	triggerAssets: [],
-	schedules: [],
 	nativeTriggers: [],
 	...over
 })
@@ -209,7 +208,7 @@ describe('resolveGraph', () => {
 					{ kind: 's3object', path: '/persisted.json' }, // deduped
 					{ kind: 's3object', path: '/new-trigger.json' } // added unsaved
 				],
-				schedules: ['0 * * * *']
+				nativeTriggers: [{ kind: 'schedule' }]
 			})
 		}
 		const r = resolveGraph(input({ base, liveAnnotations }))
@@ -222,15 +221,22 @@ describe('resolveGraph', () => {
 				(t) => t.trigger_kind === 'asset' && (t as any).asset_path === '/new-trigger.json'
 			)?.unsaved
 		).toBe(true)
+		// Schedule joins the native-trigger family — marker-only, missing
+		// until the user creates the schedule row separately.
 		expect(
-			r.triggers.some((t) => t.trigger_kind === 'schedule' && (t as any).cron === '0 * * * *')
+			r.triggers.some(
+				(t) =>
+					t.trigger_kind === 'schedule' &&
+					(t as any).missing === true &&
+					t.runnable_path === 'f/x/open'
+			)
 		).toBe(true)
 	})
 
 	it('live annotations for a draft replace that draft’s seeded triggers', () => {
-		// Draft body seeds a schedule via `// schedule`; the live buffer has
+		// Draft body seeds a schedule annotation; the live buffer has
 		// replaced it with an asset trigger — only the live one should remain.
-		const drafts = new Map([['f/x/d', { script: { content: '// schedule "5 * * * *"' } }]])
+		const drafts = new Map([['f/x/d', { script: { content: '// on schedule' } }]])
 		const liveAnnotations = {
 			scriptPath: 'f/x/d',
 			annotations: ann({ triggerAssets: [{ kind: 's3object', path: '/live-trig.json' }] })

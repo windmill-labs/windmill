@@ -103,82 +103,13 @@ pub async fn clear_script_triggers<'e>(
     Ok(())
 }
 
-// Reconcile a managed schedule for a pipeline script based on its parsed
-// `// schedule "<cron>"` annotation. Idempotent: each call brings the
-// `schedule` row in line with the annotation as of *this* deploy.
-//
-// The schedule lives at the same path as the runnable. The `managed` flag
-// disambiguates auto-created rows from user-managed ones — only managed
-// rows are updated or removed by reconciliation; manually-created schedules
-// at the same path are left alone (the annotation is silently ignored).
-//
-// Pass `cron = None` when the annotation has been removed → drops the
-// managed row. Pass `cron = Some(...)` to upsert.
-pub async fn reconcile_pipeline_schedule<'e>(
-    executor: impl PgExecutor<'e>,
-    workspace_id: &str,
-    runnable_path: &str,
-    is_flow: bool,
-    email: &str,
-    edited_by: &str,
-    permissioned_as: &str,
-    cron: Option<&str>,
-) -> error::Result<()> {
-    match cron {
-        Some(cron) => {
-            // Upsert. ON CONFLICT only updates rows that are already managed
-            // (the WHERE clause guards against trampling user-created
-            // schedules that happen to live at the runnable's path).
-            sqlx::query!(
-                r#"
-                INSERT INTO schedule (
-                    workspace_id, path, schedule, timezone, edited_by, script_path,
-                    is_flow, enabled, email, permissioned_as,
-                    ws_error_handler_muted, no_flow_overlap, cron_version,
-                    managed
-                )
-                VALUES ($1, $2, $3, 'UTC', $4, $2, $5, true, $6, $7, false, false, 'v2', true)
-                ON CONFLICT (workspace_id, path) DO UPDATE
-                SET schedule = EXCLUDED.schedule,
-                    edited_at = now(),
-                    edited_by = EXCLUDED.edited_by,
-                    managed = true
-                WHERE schedule.managed
-                   OR schedule.script_path = EXCLUDED.script_path
-                "#,
-                workspace_id,
-                runnable_path,
-                cron,
-                edited_by,
-                is_flow,
-                email,
-                permissioned_as,
-            )
-            .execute(executor)
-            .await?;
-        }
-        None => {
-            // Drop any prior managed schedule for this runnable. Manual
-            // schedules at the same path keep `managed = false` and are
-            // unaffected.
-            sqlx::query!(
-                r#"DELETE FROM schedule
-                   WHERE workspace_id = $1
-                     AND script_path = $2
-                     AND managed"#,
-                workspace_id,
-                runnable_path,
-            )
-            .execute(executor)
-            .await?;
-        }
-    }
-    Ok(())
-}
-
-// Drop the managed schedule (if any) for a runnable that's been deleted.
-// Equivalent to `reconcile_pipeline_schedule(..., None)` but exposed
-// separately so script-delete sites can call it without parsing annotations.
+// Drop any managed schedule rows left over from an earlier release of the
+// pipeline editor (when `// schedule "<cron>"` annotations auto-created a
+// `managed = true` row on every deploy). Schedule annotations are now
+// marker-only — the binding lives on the schedule row's own `script_path`
+// field, same as kafka/mqtt/etc. — but this cleanup hook stays in place so
+// script archive/delete still nukes the orphaned managed rows. Manual
+// schedules at the same path keep `managed = false` and are untouched.
 pub async fn delete_managed_pipeline_schedule<'e>(
     executor: impl PgExecutor<'e>,
     workspace_id: &str,
@@ -314,8 +245,11 @@ pub fn trigger_spec_to_row(spec: &TriggerSpec) -> Option<(ScriptTriggerKind, Str
             };
             Some((ScriptTriggerKind::Asset, format!("{}{}", prefix, path)))
         }
-        TriggerSpec::Schedule { cron } => Some((ScriptTriggerKind::Schedule, cron.clone())),
-        TriggerSpec::Webhook
+        // Schedule joins the native-trigger family — no script_trigger row
+        // is inserted for the annotation. The binding lives on the schedule
+        // row's own `script_path` field, same as kafka/mqtt/etc.
+        TriggerSpec::Schedule
+        | TriggerSpec::Webhook
         | TriggerSpec::Email
         | TriggerSpec::Kafka
         | TriggerSpec::Mqtt

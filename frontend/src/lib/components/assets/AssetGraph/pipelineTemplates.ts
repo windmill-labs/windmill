@@ -232,10 +232,22 @@ function commentPrefix(lang: ScriptLang): string {
 }
 
 export type DraftTriggerSource =
-	| { kind: 'schedule'; cron: string }
 	| { kind: 'asset'; ref: string }
 	| {
-		kind: 'webhook' | 'email' | 'kafka' | 'mqtt' | 'nats' | 'postgres' | 'sqs' | 'gcp'
+		// All native triggers are marker-only — the binding lives on the
+		// trigger row's own `script_path` field. `path` is unused for
+		// drafts (kept as a no-op slot for shape parity with attached
+		// edges); the user creates the trigger row in its dedicated UI.
+		kind:
+			| 'schedule'
+			| 'webhook'
+			| 'email'
+			| 'kafka'
+			| 'mqtt'
+			| 'nats'
+			| 'postgres'
+			| 'sqs'
+			| 'gcp'
 		path: string | undefined
 	}
 
@@ -257,12 +269,11 @@ function header(language: ScriptLang, triggers: DraftTriggerSource[]): string {
 	const p = commentPrefix(language)
 	const lines = triggers.map((t) => {
 		switch (t.kind) {
-			case 'schedule':
-				return `${p} schedule "${t.cron}"`
 			case 'asset':
 				return `${p} on ${t.ref}`
 			default:
-				// Native triggers: marker-only — no trailing path.
+				// Native triggers (incl. schedule): marker-only — the
+				// binding lives on the trigger row's own `script_path`.
 				return `${p} on ${t.kind}`
 		}
 	})

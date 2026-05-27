@@ -63,7 +63,7 @@ describe('parsePipelineAnnotations: combined', () => {
 	it('parses all keywords together', () => {
 		const code = [
 			'// pipeline',
-			'// schedule "0 0 * * *"',
+			'// on schedule',
 			'// on s3://in.csv',
 			'// partitioned daily tz="UTC"',
 			'// freshness 2h',
@@ -72,7 +72,9 @@ describe('parsePipelineAnnotations: combined', () => {
 		].join('\n')
 		const out = parsePipelineAnnotations(code)
 		expect(out.inPipeline).toBe(true)
-		expect(out.schedules).toEqual(['0 0 * * *'])
+		// `// on schedule` joins the native-trigger family — marker-only,
+		// binding lives on the schedule row's `script_path`.
+		expect(out.nativeTriggers).toEqual([{ kind: 'schedule' }])
 		expect(out.triggerAssets).toHaveLength(1)
 		expect(out.partition).toBeDefined()
 		expect(out.freshness).toEqual({ duration: '2h' })

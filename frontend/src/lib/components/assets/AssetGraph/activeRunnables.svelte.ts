@@ -135,7 +135,7 @@ export function useActiveRunnableIds(
 		const since = lastPollTs
 		const pollStartedMs = Date.now()
 		let next = new Set<string>()
-		const inFlightThisTick = new Set<string>()
+		const runningThisTick = new Set<string>()
 		let anyInFlight = false
 		try {
 			const res = await JobService.listExtendedJobs({
@@ -150,13 +150,25 @@ export function useActiveRunnableIds(
 				if (!id) continue
 				const jobId: string | undefined = (j as any).id
 				const startedTs: string | undefined = (j as any).started_at ?? (j as any).created_at
+				// `type === 'QueuedJob'` covers both queued-and-waiting *and*
+				// actually-executing jobs. Only the latter (`running === true`)
+				// should drive the "running" badge / edge animation — queued
+				// jobs haven't started yet, so the node should keep its prior
+				// status until a worker picks it up. We still keep the queued
+				// row alive for the activity log (built further down) and treat
+				// it as "in flight" for poll-cadence purposes so the loop
+				// doesn't disarm while runs are pending.
 				const isQueued = (j as any).type === 'QueuedJob'
-				if (isQueued) {
-					// queued or running — currently active
+				const isRunning = isQueued && (j as any).running === true
+				if (isRunning) {
 					next.add(id)
-					inFlightThisTick.add(id)
+					runningThisTick.add(id)
 					anyInFlight = true
 					if (jobId) seenInFlightJobIds.add(jobId)
+				} else if (isQueued) {
+					// Queued but not yet running — keep the poll alive but
+					// don't surface this as an executing runnable.
+					anyInFlight = true
 				} else {
 					// completed: catch-up — a hop whose whole lifetime fell
 					// between two polls (never observed in-flight) still gets
@@ -214,13 +226,16 @@ export function useActiveRunnableIds(
 			anyInFlight = ids.size > 0
 		}
 		if (!setEq(ids, next)) ids = next
-		// Rebuild the badge snapshot: in-flight wins (spinner), otherwise the
-		// last completed status. completedHistory persists across `stop()`.
+		// Rebuild the badge snapshot: actually-running wins (spinner),
+		// otherwise the last completed status sticks. completedHistory
+		// persists across `stop()`. Queued-but-not-started jobs are
+		// intentionally NOT surfaced as 'running' — the node keeps its
+		// previous badge state until a worker picks the job up.
 		const snap = new Map<string, RunnableRunState>()
 		for (const [id, h] of completedHistory) {
-			snap.set(id, { status: inFlightThisTick.has(id) ? 'running' : h.lastStatus, runs: h.runs })
+			snap.set(id, { status: runningThisTick.has(id) ? 'running' : h.lastStatus, runs: h.runs })
 		}
-		for (const id of inFlightThisTick) {
+		for (const id of runningThisTick) {
 			if (!snap.has(id)) snap.set(id, { status: 'running', runs: 0 })
 		}
 		if (!statesEq(states, snap)) states = snap

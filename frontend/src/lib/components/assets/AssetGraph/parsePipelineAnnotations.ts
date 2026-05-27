@@ -21,8 +21,12 @@ const ASSET_PREFIXES: Array<[string, AssetKind]> = [
 	['volume://', 'volume']
 ]
 
-// Non-asset, non-schedule trigger keywords — `on <kind> <path>`.
+// Native trigger keywords — `// on <kind>`. Each is marker-only: the
+// binding lives on the matching trigger row's own `script_path` field.
+// Schedule joins the family — the cron is stored on the schedule row the
+// user creates separately, not in the annotation.
 const NATIVE_TRIGGER_KEYWORDS: NativeTriggerKind[] = [
+	'schedule',
 	'webhook',
 	'email',
 	'kafka',
@@ -72,22 +76,11 @@ export type RetrySpec = {
 export type PipelineAnnotations = {
 	inPipeline: boolean
 	triggerAssets: PipelineTriggerAsset[]
-	schedules: string[] // raw cron expressions, in insertion order
 	nativeTriggers: PipelineNativeTrigger[]
 	partition?: PartitionSpec
 	freshness?: FreshnessSpec
 	tag?: string
 	retry?: RetrySpec
-}
-
-function unquote(s: string): string | undefined {
-	if (s.length >= 2) {
-		const q = s[0]
-		if ((q === '"' || q === "'") && s.endsWith(q)) {
-			return s.slice(1, -1)
-		}
-	}
-	return undefined
 }
 
 // Tokenize a `key=value [key="quoted value"] ...` option string. Bare
@@ -241,7 +234,6 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 	const out: PipelineAnnotations = {
 		inPipeline: false,
 		triggerAssets: [],
-		schedules: [],
 		nativeTriggers: []
 	}
 
@@ -254,15 +246,6 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 		if (afterPipeline !== undefined) {
 			// Strict — keyword must be alone on the line.
 			if (afterPipeline.trim() === '') out.inPipeline = true
-			continue
-		}
-
-		const afterSchedule = consumeKeyword(inner, 'schedule')
-		if (afterSchedule !== undefined) {
-			const cron = unquote(afterSchedule.trim())
-			if (cron && cron.trim() !== '' && !out.schedules.includes(cron)) {
-				out.schedules.push(cron)
-			}
 			continue
 		}
 

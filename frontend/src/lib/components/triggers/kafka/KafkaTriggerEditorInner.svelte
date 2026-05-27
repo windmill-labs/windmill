@@ -6,6 +6,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import PipelineLockedRunnableInfo from '$lib/components/triggers/PipelineLockedRunnableInfo.svelte'
 	import { KafkaTriggerService, type ErrorHandler, type Retry, type TriggerMode } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
@@ -146,7 +147,8 @@
 	export async function openEdit(
 		ePath: string,
 		isFlow: boolean,
-		defaultConfig?: Record<string, any>
+		defaultConfig?: Record<string, any>,
+		fixedScriptPath_?: string
 	) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
@@ -158,6 +160,7 @@
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
 			dirtyPath = false
+			fixedScriptPath = fixedScriptPath_ ?? ''
 			await loadTrigger(defaultConfig)
 			if (!defaultConfig) {
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
@@ -497,32 +500,36 @@
 
 			{#if !hideTarget}
 				<Section label="Runnable">
-					<p class="text-xs mb-1 text-primary">
-						Pick a script or flow to be triggered<Required required={true} />
-					</p>
-					<div class="flex flex-row mb-2">
-						<ScriptPicker
-							disabled={fixedScriptPath != '' || !can_write}
-							initialPath={fixedScriptPath || initialScriptPath}
-							kinds={['script']}
-							allowFlow={true}
-							bind:itemKind
-							bind:scriptPath={script_path}
-							allowRefresh={can_write}
-							allowEdit={!$userStore?.operator}
-							clearable
-						/>
-						{#if emptyString(script_path)}
-							<Button
-								btnClasses="ml-4"
-								variant="accent"
-								size="xs"
+					{#if fixedScriptPath != ''}
+						<PipelineLockedRunnableInfo path={fixedScriptPath} />
+					{:else}
+						<p class="text-xs mb-1 text-primary">
+							Pick a script or flow to be triggered<Required required={true} />
+						</p>
+						<div class="flex flex-row mb-2">
+							<ScriptPicker
 								disabled={!can_write}
-								href={itemKind === 'flow' ? '/flows/add?hub=65' : '/scripts/add?hub=hub%2F19659'}
-								target="_blank">Create from template</Button
-							>
-						{/if}
-					</div>
+								initialPath={initialScriptPath}
+								kinds={['script']}
+								allowFlow={true}
+								bind:itemKind
+								bind:scriptPath={script_path}
+								allowRefresh={can_write}
+								allowEdit={!$userStore?.operator}
+								clearable
+							/>
+							{#if emptyString(script_path)}
+								<Button
+									btnClasses="ml-4"
+									variant="accent"
+									size="xs"
+									disabled={!can_write}
+									href={itemKind === 'flow' ? '/flows/add?hub=65' : '/scripts/add?hub=hub%2F19659'}
+									target="_blank">Create from template</Button
+								>
+							{/if}
+						</div>
+					{/if}
 				</Section>
 			{/if}
 

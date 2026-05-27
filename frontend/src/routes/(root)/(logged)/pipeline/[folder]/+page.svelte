@@ -9,6 +9,7 @@
 	import PipelineEventLog from '$lib/components/assets/AssetGraph/PipelineEventLog.svelte'
 	import AssetGraphDetailsPane from '$lib/components/assets/AssetGraph/AssetGraphDetailsPane.svelte'
 	import PipelinePickerModal from '$lib/components/assets/AssetGraph/PipelinePickerModal.svelte'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import {
 		extractWrites,
 		extractReads,
@@ -45,9 +46,17 @@
 		Save
 	} from 'lucide-svelte'
 	import {
+		EmailTriggerService,
+		GcpTriggerService,
 		JobService,
+		KafkaTriggerService,
+		MqttTriggerService,
+		NatsTriggerService,
 		OpenAPI,
+		PostgresTriggerService,
+		ScheduleService,
 		ScriptService,
+		SqsTriggerService,
 		type AssetKind,
 		type Script,
 		type ScriptLang
@@ -67,6 +76,7 @@
 	import SqsTriggerEditor from '$lib/components/triggers/sqs/SqsTriggerEditor.svelte'
 	import GcpTriggerEditor from '$lib/components/triggers/gcp/GcpTriggerEditor.svelte'
 	import EmailTriggerEditor from '$lib/components/triggers/email/EmailTriggerEditor.svelte'
+	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 
 	// Variables and resources are declarative config, not pipeline assets —
 	// they're hub-shaped (referenced by most runnables) and would swamp the
@@ -91,19 +101,27 @@
 	// with a placeholder name.
 	let pathPrefix = $derived(`f/${folder}/`)
 	const DEFAULT_PATH_SUFFIX = 'new_pipeline_script'
-	// Default cron for top + pipeline scripts (pipeline roots). Every hour is
-	// a sane middle ground between batch and real-time; users edit the
-	// `// schedule "..."` line in the editor before saving if they want
-	// something different. Asset-triggered scripts don't get a schedule by
-	// default — they inherit their trigger from the upstream asset.
-	const DEFAULT_SCHEDULE_CRON = '0 * * * *'
-
 	// In-flight drafts keyed by script path. Multiple can coexist — clicking
 	// + repeatedly creates additional drafts, each with its own random
 	// output asset, and they all render on the graph simultaneously.
 	// Saving removes a draft from the map; closing the pane keeps it so the
 	// user can come back to it.
+	// Counter-based id source — sufficient for "stable across renames in
+	// this session"; doesn't need to survive a reload. (We have crypto.
+	// randomUUID() too but a short numeric id keeps localStorage tidy.)
+	let nextDraftLocalIdCounter = 0
+	function newDraftLocalId(): string {
+		nextDraftLocalIdCounter += 1
+		return `d${nextDraftLocalIdCounter}-${Date.now()}`
+	}
+
 	type Draft = {
+		// Stable per-draft identifier, generated on first create and
+		// preserved across renames. Used to track concurrent deploys (a
+		// fast double-rename otherwise fires two saves that each leave a
+		// persisted script behind — the latest deploy archives the prior
+		// one keyed on this id).
+		localId: string
 		script: Script
 		// Undefined when the user picked `outputKind === 'none'` — the draft
 		// has no auto-generated output asset, so the graph overlay skips
@@ -180,7 +198,12 @@
 				const loaded = new Map<string, Draft>()
 				for (const entry of state.drafts) {
 					if (entry && typeof entry[0] === 'string' && entry[1]?.script) {
-						loaded.set(entry[0], entry[1] as Draft)
+						const d = entry[1] as Draft
+						// Backfill localId for state persisted by older builds.
+						if (typeof d.localId !== 'string' || d.localId === '') {
+							d.localId = newDraftLocalId()
+						}
+						loaded.set(entry[0], d)
 					}
 				}
 				if (loaded.size > 0) drafts = loaded
@@ -253,7 +276,6 @@
 		annotations: {
 			inPipeline: false,
 			triggerAssets: [],
-			schedules: [],
 			nativeTriggers: []
 		}
 	})
@@ -269,27 +291,79 @@
 		assets: AssetWithAltAccessType[]
 	}>({ scriptPath: undefined, assets: [] })
 
-	// Sticky cache of inferred body assets per script path — accumulates as
-	// the user opens scripts in this session, so once we've seen a write
-	// for `f/foo/bar`, the edge stays on the canvas even after the user
-	// selects a different node. Without this, switching selection would
-	// drop the previous script's edges back to whatever's in `base.edges`
-	// (often nothing for scripts whose deploy didn't extract body assets,
-	// e.g. when an older WASM was used at save time).
-	let inferredWritesByPath = $state<Map<string, Array<{ kind: AssetKind; path: string }>>>(
-		new Map()
-	)
-	// Same sticky cache for read usages (e.g. duckdb `read_parquet('s3://…')`,
-	// loadS3File). Keeps the asset → reader lineage edge live as the body is
-	// edited / across selection, instead of only after Save re-derives the
-	// persisted asset rows.
-	let inferredReadsByPath = $state<Map<string, Array<{ kind: AssetKind; path: string }>>>(new Map())
+	// Only-add cache of (script_path → body content) populated lazily by
+	// `bodyFetchEffect` for every script in the current folder. We never
+	// remove entries: stale keys (renamed-away, deleted) are simply ignored
+	// at read time because the derived maps below only iterate paths that
+	// appear in the current `g.runnables`. That self-cleaning property is
+	// the whole reason for the refactor — no rename/delete cleanup needed.
+	let bodiesByPath = $state<Map<string, string>>(new Map())
+	// Sibling cache: the parsed asset usages from `inferAssets` (wasm), one
+	// pass per body. Same only-add semantics as `bodiesByPath`.
+	let inferredAssetsByPath = $state<Map<string, AssetWithAltAccessType[]>>(new Map())
+	// Bumped on folder change so an in-flight prefetch sweep stops before
+	// writing into the new folder's state.
+	let bodyFetchGen = 0
 
-	// Sticky cache of native trigger kinds declared via `// on kafka` etc.
-	// in each deployed script's source. Filled by the prefetch sweep below.
-	// resolveGraph uses this to flag scripts whose annotation has no
-	// matching trigger row — red placeholder on the canvas.
-	let annotatedNativeKindsByPath = $state<Map<string, Set<NativeTriggerKind>>>(new Map())
+	// Inferred write/read edges per script-in-graph. Derived from
+	//   (a) the open pane's live overlay (`liveBodyAssets`) — current
+	//       keystrokes for the script the user is editing right now, and
+	//   (b) the prefetched assets cache for everyone else.
+	// Iteration is gated on `graphRes.current.runnables`, so a path that
+	// gets renamed / deleted disappears from the derived map as soon as
+	// the refetch lands — no manual rekey, no phantom edges.
+	let inferredWritesByPath = $derived.by(() => {
+		const out = new Map<string, Array<{ kind: AssetKind; path: string }>>()
+		const g = graphRes.current
+		if (!g) return out
+		const liveAssetsForPath = (path: string) =>
+			liveBodyAssets.scriptPath === path ? liveBodyAssets.assets : inferredAssetsByPath.get(path)
+		for (const r of g.runnables) {
+			if (r.usage_kind !== 'script') continue
+			const assets = liveAssetsForPath(r.path)
+			if (!assets) continue
+			const w = extractWrites(assets)
+			if (w.length > 0) out.set(r.path, w)
+		}
+		return out
+	})
+	let inferredReadsByPath = $derived.by(() => {
+		const out = new Map<string, Array<{ kind: AssetKind; path: string }>>()
+		const g = graphRes.current
+		if (!g) return out
+		const liveAssetsForPath = (path: string) =>
+			liveBodyAssets.scriptPath === path ? liveBodyAssets.assets : inferredAssetsByPath.get(path)
+		for (const r of g.runnables) {
+			if (r.usage_kind !== 'script') continue
+			const assets = liveAssetsForPath(r.path)
+			if (!assets) continue
+			const reads = extractReads(assets)
+			if (reads.length > 0) out.set(r.path, reads)
+		}
+		return out
+	})
+	// Same derived shape for `// on kafka` etc. annotations. Live buffer
+	// wins for the open script; everyone else is parsed from the
+	// prefetched body content.
+	let annotatedNativeKindsByPath = $derived.by(() => {
+		const out = new Map<string, Set<NativeTriggerKind>>()
+		const g = graphRes.current
+		if (!g) return out
+		const livePath = liveAnnotations.scriptPath
+		for (const r of g.runnables) {
+			if (r.usage_kind !== 'script') continue
+			let kinds: Set<NativeTriggerKind>
+			if (r.path === livePath) {
+				kinds = new Set(liveAnnotations.annotations.nativeTriggers.map((n) => n.kind))
+			} else {
+				const body = bodiesByPath.get(r.path)
+				if (!body) continue
+				kinds = new Set(parsePipelineAnnotations(body).nativeTriggers.map((n) => n.kind))
+			}
+			if (kinds.size > 0) out.set(r.path, kinds)
+		}
+		return out
+	})
 
 	// Build a runnable Script from picked language / triggers / output.
 	// Delegates to the shared template generator (pipelineTemplates.ts) so
@@ -346,7 +420,7 @@
 		// the user picked `none`, `outputAsset` is undefined and the graph
 		// overlay skips synthesizing a write edge.
 		const next = new Map(drafts)
-		next.set(scriptPath, { script, outputAsset: out })
+		next.set(scriptPath, { localId: newDraftLocalId(), script, outputAsset: out })
 		drafts = next
 		activeDraftPath = scriptPath
 		selection = undefined
@@ -542,7 +616,17 @@
 				if (!savedPaths.includes(k)) next.set(k, v)
 			}
 			drafts = next
+			// If the open draft just got deployed, transfer the focus to
+			// its now-persisted runnable so the pane stays on the same
+			// script the user was editing — otherwise the pane closes,
+			// the canvas re-fits, and the user has to re-find their
+			// script after every save.
 			if (activeDraftPath && savedPaths.includes(activeDraftPath)) {
+				selection = {
+					kind: 'runnable',
+					runnable_kind: 'script',
+					path: activeDraftPath
+				}
 				activeDraftPath = undefined
 			}
 			await graphRes.refetch()
@@ -563,8 +647,7 @@
 		const next = new Map(drafts)
 		next.delete(path)
 		drafts = next
-		if (activeDraftPath === path) activeDraftPath = undefined
-		clearSaveError(path)
+		forgetPath(path)
 	}
 
 	function clearSaveError(path: string) {
@@ -572,6 +655,30 @@
 		const next = new Map(saveErrors)
 		next.delete(path)
 		saveErrors = next
+	}
+
+	// "This path is gone" cleanup. The three big inferred-* / annotated-*
+	// maps used to live here too, but they're now derived from
+	// `bodiesByPath` × `g.runnables` — entries for missing paths drop out
+	// implicitly when `g.runnables` no longer mentions them, so the only
+	// things left to flush are the live overlays for the open pane + the
+	// selection + per-path save errors. `bodiesByPath` keeps its entry
+	// (only-add cache, harmless if stale).
+	function forgetPath(path: string) {
+		if (activeDraftPath === path) activeDraftPath = undefined
+		if (selection?.kind === 'runnable' && selection.path === path) {
+			selection = undefined
+		}
+		if (liveAnnotations.scriptPath === path) {
+			liveAnnotations = {
+				scriptPath: undefined,
+				annotations: { inPipeline: false, triggerAssets: [], nativeTriggers: [] }
+			}
+		}
+		if (liveBodyAssets.scriptPath === path) {
+			liveBodyAssets = { scriptPath: undefined, assets: [] }
+		}
+		clearSaveError(path)
 	}
 
 	// Rename a draft in place — re-key its entry in the drafts map and
@@ -596,6 +703,25 @@
 		}
 		drafts = next
 		if (activeDraftPath === oldPath) activeDraftPath = newPath
+		// Path-keyed live overlays: re-key for the renamed draft so the
+		// graph stays consistent between the moment we mutate `drafts`
+		// here and the next editor event that re-emits annotations /
+		// asset usages with the new path. Without this re-key,
+		// `resolveGraph` strips seeded triggers for the OLD path while
+		// re-applying live overlays against the same OLD path — leaving
+		// phantom edges that displace the + node off the top of the
+		// graph and shuffle the layout.
+		if (liveAnnotations.scriptPath === oldPath) {
+			liveAnnotations = { ...liveAnnotations, scriptPath: newPath }
+		}
+		if (liveBodyAssets.scriptPath === oldPath) {
+			liveBodyAssets = { ...liveBodyAssets, scriptPath: newPath }
+		}
+		// `inferredWritesByPath` / `inferredReadsByPath` /
+		// `annotatedNativeKindsByPath` are derived from `g.runnables` ×
+		// the body caches, so a rename naturally re-derives them when the
+		// drafts loop in `resolveGraph` swaps to the new path — no
+		// per-mutation rekey needed.
 		// Errors are keyed by path — re-key the entry so a previously
 		// failed draft keeps its error visible against the new path
 		// after rename.
@@ -606,7 +732,120 @@
 			nextErrors.set(newPath, msg)
 			saveErrors = nextErrors
 		}
+		// Auto-deploy the rename. Without this, native triggers can't be
+		// attached to the renamed script (the trigger row's script_path
+		// needs to point at a real script) and the user has to remember
+		// a separate "save" step. Backend `update_triggers_script_path`
+		// already cascades the path change across every trigger table on
+		// script create, so any triggers previously attached to the old
+		// path follow the rename automatically.
+		void deployRenamedDraft(newPath)
 		return true
+	}
+
+	// Per-draft deploy queue. Each draft (keyed by stable `localId`) has at
+	// most one deploy in flight; concurrent renames append to a single
+	// `queuedPath` slot so we only ever fire one extra deploy at the
+	// latest target. `lastDeployedPath` lets the runner archive any
+	// intermediate path it deployed before the user's final rename
+	// settled — otherwise a double-rename leaves a phantom script at the
+	// intermediate path.
+	const deployQueue = new Map<
+		string,
+		{ inflight: boolean; queuedPath: string | undefined; lastDeployedPath: string | undefined }
+	>()
+
+	function deployRenamedDraft(path: string) {
+		const draft = drafts.get(path)
+		if (!draft) return
+		const localId = draft.localId
+		let state = deployQueue.get(localId)
+		if (state?.inflight) {
+			// Coalesce: only the latest target matters. The runner picks
+			// it up when the current deploy completes.
+			state.queuedPath = path
+			return
+		}
+		state = state ?? { inflight: false, queuedPath: undefined, lastDeployedPath: undefined }
+		state.inflight = true
+		state.queuedPath = undefined
+		deployQueue.set(localId, state)
+		void runDeployQueue(localId, path)
+	}
+
+	async function runDeployQueue(localId: string, initialPath: string) {
+		let path = initialPath
+		const state = deployQueue.get(localId)!
+		try {
+			while (true) {
+				if (!$workspaceStore) break
+				const draft = drafts.get(path)
+				if (!draft) break
+				try {
+					await saveDraft(path, draft, $workspaceStore)
+					// Archive the previously-deployed intermediate path (if
+					// any) — a double-rename otherwise leaves it as an
+					// orphan script visible on the canvas as a "deployed"
+					// runnable that the user never intended to keep.
+					const prev = state.lastDeployedPath
+					if (prev && prev !== path) {
+						try {
+							await ScriptService.archiveScriptByPath({
+								workspace: $workspaceStore,
+								path: prev
+							})
+						} catch (archiveErr) {
+							// Non-fatal: surface a warning so the user
+							// knows to clean up manually. The fresh deploy
+							// at the new path still landed.
+							const msg = (archiveErr as any)?.body ?? (archiveErr as any)?.message ?? String(archiveErr)
+							sendUserToast(
+								`Renamed to "${path}" but couldn't archive the old "${prev}": ${msg}`,
+								true
+							)
+						}
+					}
+					state.lastDeployedPath = path
+					// Drop the now-deployed draft from the local map only
+					// if no newer rename was queued during the save; if a
+					// queued path is waiting, the next loop iteration will
+					// pick it up and we keep the draft live.
+					if (!state.queuedPath) {
+						const nextDrafts = new Map(drafts)
+						nextDrafts.delete(path)
+						drafts = nextDrafts
+						if (activeDraftPath === path) {
+							selection = { kind: 'runnable', runnable_kind: 'script', path }
+							activeDraftPath = undefined
+						}
+						if (saveErrors.has(path)) {
+							const nextErrors = new Map(saveErrors)
+							nextErrors.delete(path)
+							saveErrors = nextErrors
+						}
+						await graphRes.refetch()
+					}
+				} catch (e: any) {
+					const msg = e?.body ?? e?.message ?? String(e)
+					sendUserToast(`Could not deploy rename to "${path}": ${msg}`, true)
+					const nextErrors = new Map(saveErrors)
+					nextErrors.set(path, msg)
+					saveErrors = nextErrors
+				}
+				// Pick up the next queued rename, if any.
+				const next = state.queuedPath
+				if (!next || next === path) break
+				path = next
+				state.queuedPath = undefined
+			}
+		} finally {
+			state.inflight = false
+			// On the rare path where the draft is also gone (deployed +
+			// no queued path), drop the slot to keep the map bounded.
+			if (!drafts.has(path) && !state.queuedPath) {
+				deployQueue.delete(localId)
+			}
+		}
 	}
 
 	// Currently-open draft shape (if any) — fed into the details pane.
@@ -626,31 +865,13 @@
 		liveAnnotations = { scriptPath, annotations }
 	}
 	function handleAssetsChange(scriptPath: string | undefined, assets: AssetWithAltAccessType[]) {
+		// Single update site for the live overlay. `inferredWritesByPath`
+		// / `inferredReadsByPath` are now derived from `liveBodyAssets`
+		// (for the open script) + `inferredAssetsByPath` (prefetched
+		// snapshot for every other script), so we don't have to write
+		// into those caches here — the derive picks up our update on the
+		// next reactive tick.
 		liveBodyAssets = { scriptPath, assets }
-		// Seed the sticky cache so the script's writes survive selection
-		// changes. Only the active script's entry is updated (the
-		// scriptPath the WASM just parsed); other entries are untouched
-		// so previously-seen scripts retain their last-known writes.
-		// `untrack` around the read+write of `inferredWritesByPath` is
-		// crucial: this fn is called from AssetGraphDetailsPane's $effect
-		// for onAssetsChange, and Svelte tracks every state read inside
-		// that effect's closure. Without `untrack`, cloning the Map
-		// registers it as a dep, and writing the new Map immediately
-		// re-fires the effect → infinite loop.
-		if (scriptPath) {
-			const writes = extractWrites(assets)
-			const reads = extractReads(assets)
-			untrack(() => {
-				const nextW = new Map(inferredWritesByPath)
-				if (writes.length > 0) nextW.set(scriptPath, writes)
-				else nextW.delete(scriptPath)
-				inferredWritesByPath = nextW
-				const nextR = new Map(inferredReadsByPath)
-				if (reads.length > 0) nextR.set(scriptPath, reads)
-				else nextR.delete(scriptPath)
-				inferredReadsByPath = nextR
-			})
-		}
 	}
 	function handleDraftPersist(
 		p: string,
@@ -829,9 +1050,24 @@
 	let sqsEditor: SqsTriggerEditor | undefined = $state()
 	let gcpEditor: GcpTriggerEditor | undefined = $state()
 	let emailEditor: EmailTriggerEditor | undefined = $state()
+	let scheduleEditor: ScheduleEditor | undefined = $state()
 
 	function openMissingTriggerDrawer(kind: NativeTriggerKind, scriptPath: string) {
+		// A native trigger row stores `script_path` as a hard reference —
+		// pointing it at a never-saved draft would either fail at create
+		// time or silently bind to nothing. Surface that as a toast and
+		// keep the drawer closed; the user needs to save the script first
+		// (which also creates it under the new path if they renamed it).
+		if (drafts.has(scriptPath)) {
+			sendUserToast(
+				`Save the script "${scriptPath}" first — triggers can only be attached to deployed scripts.`,
+				true
+			)
+			return
+		}
 		switch (kind) {
+			case 'schedule':
+				return scheduleEditor?.openNew(false, scriptPath, undefined, scriptPath)
 			case 'kafka':
 				return kafkaEditor?.openNew(false, scriptPath)
 			case 'mqtt':
@@ -846,7 +1082,98 @@
 				return gcpEditor?.openNew(false, scriptPath)
 			case 'email':
 				return emailEditor?.openNew(false, scriptPath)
-			// webhook has no dedicated editor; schedule is inline-managed.
+			// webhook has no dedicated editor.
+			default:
+				return
+		}
+	}
+
+	// Lock the script-picker to the related script so the user can't
+	// reassign the trigger off this pipeline from the canvas. The trigger
+	// can still be edited everywhere else (TriggersPanel, etc.) where the
+	// picker stays editable.
+	// Delete-trigger confirmation state. Kebab → Delete opens the standard
+	// ConfirmationModal; the actual delete is dispatched from onConfirmed
+	// so the dialog stays consistent with the rest of the app.
+	let triggerDeleteTarget = $state<
+		{ kind: NativeTriggerKind; path: string } | undefined
+	>(undefined)
+	let triggerDeleteLoading = $state(false)
+	let triggerDeleteOpen = $derived(triggerDeleteTarget != undefined)
+
+	function deleteAttachedTrigger(kind: NativeTriggerKind, triggerPath: string) {
+		triggerDeleteTarget = { kind, path: triggerPath }
+	}
+
+	async function confirmDeleteAttachedTrigger() {
+		if (!triggerDeleteTarget || !$workspaceStore) return
+		const { kind, path: triggerPath } = triggerDeleteTarget
+		const workspace = $workspaceStore
+		triggerDeleteLoading = true
+		try {
+			switch (kind) {
+				case 'schedule':
+					await ScheduleService.deleteSchedule({ workspace, path: triggerPath })
+					break
+				case 'kafka':
+					await KafkaTriggerService.deleteKafkaTrigger({ workspace, path: triggerPath })
+					break
+				case 'mqtt':
+					await MqttTriggerService.deleteMqttTrigger({ workspace, path: triggerPath })
+					break
+				case 'nats':
+					await NatsTriggerService.deleteNatsTrigger({ workspace, path: triggerPath })
+					break
+				case 'postgres':
+					await PostgresTriggerService.deletePostgresTrigger({ workspace, path: triggerPath })
+					break
+				case 'sqs':
+					await SqsTriggerService.deleteSqsTrigger({ workspace, path: triggerPath })
+					break
+				case 'gcp':
+					await GcpTriggerService.deleteGcpTrigger({ workspace, path: triggerPath })
+					break
+				case 'email':
+					await EmailTriggerService.deleteEmailTrigger({ workspace, path: triggerPath })
+					break
+				default:
+					return
+			}
+			sendUserToast(`Deleted ${kind} trigger "${triggerPath}"`)
+			triggerDeleteTarget = undefined
+			await graphRes.refetch()
+		} catch (e: any) {
+			sendUserToast(
+				`Could not delete ${kind} trigger "${triggerPath}": ${e?.body ?? e?.message ?? String(e)}`,
+				true
+			)
+		} finally {
+			triggerDeleteLoading = false
+		}
+	}
+
+	function openEditTriggerDrawer(
+		kind: NativeTriggerKind,
+		triggerPath: string,
+		scriptPath: string
+	) {
+		switch (kind) {
+			case 'schedule':
+				return scheduleEditor?.openEdit(triggerPath, false, scriptPath)
+			case 'kafka':
+				return kafkaEditor?.openEdit(triggerPath, false, scriptPath)
+			case 'mqtt':
+				return mqttEditor?.openEdit(triggerPath, false, scriptPath)
+			case 'nats':
+				return natsEditor?.openEdit(triggerPath, false, scriptPath)
+			case 'postgres':
+				return postgresEditor?.openEdit(triggerPath, false, scriptPath)
+			case 'sqs':
+				return sqsEditor?.openEdit(triggerPath, false, scriptPath)
+			case 'gcp':
+				return gcpEditor?.openEdit(triggerPath, false, scriptPath)
+			case 'email':
+				return emailEditor?.openEdit(triggerPath, false, scriptPath)
 			default:
 				return
 		}
@@ -920,74 +1247,52 @@
 		}
 	)
 
-	// Eagerly infer every folder script's writes on load and seed the same
-	// `inferredWritesByPath` overlay the open-script path uses — otherwise a
-	// script whose persisted asset rows are missing only gets edges when
-	// clicked, which re-layouts the graph. WHY untrack: deps must stay
-	// (workspace, base-graph) only so a keystroke/new draft doesn't re-sweep;
-	// the generation token cancels an in-flight sweep on folder change.
-	let assetPrefetchGen = 0
-	// True while the load-time sweep above is still parsing scripts — drives
-	// a small "parsing assets…" hint so the user knows the graph is still
-	// settling (edges may still appear) rather than already complete.
+	// Body / inferred-assets prefetch sweep. Watches `g.runnables`; for any
+	// non-draft path we haven't fetched yet, fetches `getScriptByPath` and
+	// `inferAssets`, and stores both in their respective only-add caches.
+	// All three previously-sticky maps (`inferredWritesByPath`,
+	// `inferredReadsByPath`, `annotatedNativeKindsByPath`) are now derived
+	// from these caches × the current graph, so rename / delete cleanup
+	// happens implicitly when `g.runnables` changes — no per-mutation
+	// cache surgery needed. A generation counter cancels in-flight work on
+	// folder change so the previous folder's results never leak into the
+	// new one.
 	let prefetchingAssets = $state(false)
 	$effect(() => {
 		const ws = $workspaceStore
 		const g = graphRes.current
 		if (!ws || !g) return
-		const gen = ++assetPrefetchGen
+		const gen = ++bodyFetchGen
 		const targets = untrack(() =>
 			g.runnables
 				.filter((r) => r.usage_kind === 'script')
 				.map((r) => r.path)
-				.filter(
-					(p) =>
-						!drafts.has(p) &&
-						!inferredWritesByPath.has(p) &&
-						!inferredReadsByPath.has(p) &&
-						!annotatedNativeKindsByPath.has(p)
-				)
+				.filter((p) => !drafts.has(p) && !bodiesByPath.has(p))
 		)
 		if (targets.length === 0) return
 		let i = 0
 		const POOL = 6
 		const worker = async () => {
-			while (i < targets.length && gen === assetPrefetchGen) {
+			while (i < targets.length && gen === bodyFetchGen) {
 				const path = targets[i++]
 				try {
 					const s = await ScriptService.getScriptByPath({ workspace: ws, path })
-					if (gen !== assetPrefetchGen) return
+					if (gen !== bodyFetchGen) return
 					const content = s.content ?? ''
 					const res = await inferAssets(s.language, content)
-					if (gen !== assetPrefetchGen) return
+					if (gen !== bodyFetchGen) return
 					const inferred = (res?.assets ?? []) as AssetWithAltAccessType[]
-					const writes = extractWrites(inferred)
-					const reads = extractReads(inferred)
-					// Parse `// on kafka` markers in parallel with the asset
-					// inference. Cheap pure-TS pass — runs on the same content
-					// we already loaded for inferAssets.
-					const annotated = new Set(
-						parsePipelineAnnotations(content).nativeTriggers.map((n) => n.kind)
-					)
 					untrack(() => {
-						// A live edit / prior sweep may have filled either meanwhile.
-						if (writes.length > 0 && !inferredWritesByPath.has(path)) {
-							const next = new Map(inferredWritesByPath)
-							next.set(path, writes)
-							inferredWritesByPath = next
+						if (!bodiesByPath.has(path)) {
+							const nextBodies = new Map(bodiesByPath)
+							nextBodies.set(path, content)
+							bodiesByPath = nextBodies
 						}
-						if (reads.length > 0 && !inferredReadsByPath.has(path)) {
-							const next = new Map(inferredReadsByPath)
-							next.set(path, reads)
-							inferredReadsByPath = next
+						if (!inferredAssetsByPath.has(path)) {
+							const nextAssets = new Map(inferredAssetsByPath)
+							nextAssets.set(path, inferred)
+							inferredAssetsByPath = nextAssets
 						}
-						// Always seed the annotation map (even if empty) so a
-						// later removal of all `// on kafka` lines retires the
-						// placeholder on the next deploy + refetch.
-						const nextAnnot = new Map(annotatedNativeKindsByPath)
-						if (annotated.size > 0) nextAnnot.set(path, annotated)
-						else nextAnnot.delete(path)
-						annotatedNativeKindsByPath = nextAnnot
 					})
 				} catch {
 					// Skip — that node just falls back to base-graph edges.
@@ -997,9 +1302,7 @@
 		prefetchingAssets = true
 		const pool = Array.from({ length: Math.min(POOL, targets.length) }, () => worker())
 		void Promise.all(pool).then(() => {
-			// Only clear for the sweep still current — a folder change starts
-			// a new gen (and its own true) that this stale resolve mustn't undo.
-			if (gen === assetPrefetchGen) prefetchingAssets = false
+			if (gen === bodyFetchGen) prefetchingAssets = false
 		})
 	})
 
@@ -1155,8 +1458,9 @@
 								runStates={activeRunnables.states}
 								{pathPrefix}
 								defaultPathSuffix={DEFAULT_PATH_SUFFIX}
-								defaultScheduleCron={DEFAULT_SCHEDULE_CRON}
 								onCreateMissingTrigger={openMissingTriggerDrawer}
+								onEditTrigger={openEditTriggerDrawer}
+								onDeleteTrigger={deleteAttachedTrigger}
 								onselect={(s) => {
 									// Clicking a draft runnable node re-opens it in the pane;
 									// clicking anything else selects it normally and detaches
@@ -1365,7 +1669,6 @@
 										annotations: {
 											inPipeline: false,
 											triggerAssets: [],
-											schedules: [],
 											nativeTriggers: []
 										}
 									}
@@ -1375,7 +1678,24 @@
 									if (activeDraftPath) discardDraft(activeDraftPath)
 								}}
 								onDraftSaved={async (savedPath) => {
-									discardDraft(savedPath)
+									// Drop the now-deployed draft and hand focus to its
+									// persisted runnable so the pane stays open on the
+									// same script. `discardDraft` would clear
+									// activeDraftPath without setting selection — the
+									// canvas would deselect and the view reset on the
+									// next refetch.
+									const nextDrafts = new Map(drafts)
+									nextDrafts.delete(savedPath)
+									drafts = nextDrafts
+									if (activeDraftPath === savedPath) {
+										selection = {
+											kind: 'runnable',
+											runnable_kind: 'script',
+											path: savedPath
+										}
+										activeDraftPath = undefined
+									}
+									clearSaveError(savedPath)
 									await graphRes.refetch()
 								}}
 								onPersistedSaved={async () => {
@@ -1400,12 +1720,15 @@
 									await graphRes.refetch()
 								}}
 								onScriptRemoved={async (removedPath) => {
-									// Drop the selection (the script is gone) and
-									// refetch so the runnable node disappears from
-									// the canvas.
-									if (selection?.kind === 'runnable' && selection.path === removedPath) {
-										selection = undefined
-									}
+									// Drop every path-keyed overlay / cache entry
+									// pointing at the now-archived runnable so
+									// resolveGraph doesn't keep emitting lineage
+									// edges or missing-trigger placeholders against
+									// a script that no longer exists. Without this
+									// the inferred writes / annotation maps would
+									// keep dragging phantom nodes onto the canvas
+									// until the next folder change.
+									forgetPath(removedPath)
 									await graphRes.refetch()
 								}}
 							/>
@@ -1418,6 +1741,26 @@
 
 	<PipelinePickerModal bind:open={pickerModalOpen} currentFolder={folder} />
 
+	<ConfirmationModal
+		open={triggerDeleteOpen}
+		loading={triggerDeleteLoading}
+		title={triggerDeleteTarget ? `Delete ${triggerDeleteTarget.kind} trigger` : 'Delete trigger'}
+		confirmationText="Delete"
+		onConfirmed={confirmDeleteAttachedTrigger}
+		onCanceled={() => {
+			if (!triggerDeleteLoading) triggerDeleteTarget = undefined
+		}}
+	>
+		{#if triggerDeleteTarget}
+			<p>
+				Delete <code class="font-mono">{triggerDeleteTarget.path}</code>? The
+				<code class="font-mono">// on {triggerDeleteTarget.kind}</code> annotation on the script
+				stays — the trigger will read as missing on the canvas until you recreate it or remove
+				the annotation.
+			</p>
+		{/if}
+	</ConfirmationModal>
+
 	<!-- Native trigger editors mounted off-screen. Each only renders its
 	     inner drawer when `open=true` (set by openNew/openEdit), so this
 	     adds ~zero render cost while idle. `onUpdate` refreshes the graph
@@ -1429,6 +1772,7 @@
 	<SqsTriggerEditor bind:this={sqsEditor} onUpdate={() => graphRes.refetch()} />
 	<GcpTriggerEditor bind:this={gcpEditor} onUpdate={() => graphRes.refetch()} />
 	<EmailTriggerEditor bind:this={emailEditor} onUpdate={() => graphRes.refetch()} />
+	<ScheduleEditor bind:this={scheduleEditor} onUpdate={() => graphRes.refetch()} />
 
 	{#if leaveModalOpen}
 		<!-- Three-button leave guard. Built inline rather than reusing

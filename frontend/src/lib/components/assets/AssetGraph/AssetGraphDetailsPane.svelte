@@ -325,16 +325,29 @@
 
 	// React to the parent's remove-signal counter and pop the same modal
 	// the in-pane trash button uses. Skipped for drafts (the parent calls
-	// `onDiscard` directly there) and while the script hasn't loaded.
-	// Counter pattern (not boolean) so successive triggers re-fire even if
-	// the modal was just closed without acting.
+	// `onDiscard` directly there). Counter pattern (not boolean) so
+	// successive triggers re-fire even if the modal was just closed without
+	// acting. The intent is held in `pendingRemoveSignal` until the script
+	// is loaded — otherwise a kebab→Delete on a non-selected node consumes
+	// the signal before the pane has the script, and the modal never opens.
+	// The first observation of the counter is treated as the baseline (not
+	// a fresh request) — the parent ships an initial 0 and clicking a
+	// script must NOT trigger the delete modal.
 	let lastRemoveSignal = $state<number | undefined>(undefined)
+	let pendingRemoveSignal = $state<number | undefined>(undefined)
 	$effect(() => {
 		if (requestRemoveSignal === undefined) return
-		if (requestRemoveSignal === lastRemoveSignal) return
+		const baseline = lastRemoveSignal === undefined
+		if (!baseline && requestRemoveSignal === lastRemoveSignal) return
 		lastRemoveSignal = requestRemoveSignal
+		if (baseline) return
 		if (isDraft) return
+		pendingRemoveSignal = requestRemoveSignal
+	})
+	$effect(() => {
+		if (pendingRemoveSignal === undefined) return
 		if (!script || !script.hash) return
+		pendingRemoveSignal = undefined
 		removeOpen = true
 	})
 

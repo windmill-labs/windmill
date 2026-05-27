@@ -407,10 +407,10 @@ struct GraphEdge {
 }
 
 // Declared `// on <trigger>` trigger edge — the actual execution DAG.
-// Asset / Schedule come from `script_trigger`; the seven native variants
-// (Email/Kafka/…/Gcp) come from the per-kind trigger tables joined on
-// `script_path`. Each native variant carries just the trigger row's path;
-// the config (broker, topic, auth, …) lives in its own UI.
+// Asset edges come from `script_trigger`; the eight native variants
+// (Schedule/Email/Kafka/…/Gcp) come from the per-kind trigger tables joined
+// on `script_path`. Each native variant carries just the trigger row's path;
+// the config (cron, broker, topic, auth, …) lives in its own UI.
 //
 // `webhook` is parsed as an annotation marker but has no dedicated trigger
 // table — every script gets an implicit webhook endpoint — so no variant
@@ -425,7 +425,7 @@ enum TriggerEdge {
         runnable_path: String,
     },
     Schedule {
-        cron: String,
+        path: String,
         runnable_kind: AssetUsageKind,
         runnable_path: String,
     },
@@ -518,10 +518,10 @@ async fn asset_graph(
     .fetch_all(&mut *tx)
     .await?;
 
-    // Pipeline asset / schedule trigger edges, fetched separately so we can
-    // widen the runnable_set for trigger-only endpoints (e.g. an asset
-    // trigger whose asset has no usage in the pipeline yet). Native trigger
-    // kinds (kafka, mqtt, …) are *not* in `script_trigger` anymore — they're
+    // Pipeline asset trigger edges, fetched separately so we can widen the
+    // runnable_set for trigger-only endpoints (e.g. an asset trigger whose
+    // asset has no usage in the pipeline yet). Native trigger kinds
+    // (schedule, kafka, mqtt, …) are *not* in `script_trigger` — they're
     // discovered below by querying each native trigger table directly.
     let trigger_rows = sqlx::query!(
         r#"
@@ -532,7 +532,7 @@ async fn asset_graph(
             trigger_ref   AS "trigger_ref!"
         FROM script_trigger
         WHERE workspace_id = $1
-          AND trigger_kind IN ('asset', 'schedule')
+          AND trigger_kind = 'asset'
           AND ($2::text IS NULL OR runnable_path LIKE $2)
         "#,
         &w_id,
@@ -545,11 +545,17 @@ async fn asset_graph(
     // single-destination `script_path` directly, so we resolve attachment by
     // joining on that field rather than via `script_trigger`. UNION ALL keeps
     // it a single round trip; the `kind` column drives the TriggerEdge ctor
-    // below.
+    // below. `schedule` lives in the `schedule` table, which has its own
+    // shape (no workspace_id-only filter — it shares `is_flow` like the
+    // others), but the columns we need line up.
     let native_trigger_rows = sqlx::query!(
         r#"
         SELECT kind, path, script_path, is_flow FROM (
-            SELECT 'email' AS kind, path, script_path, is_flow FROM email_trigger
+            SELECT 'schedule' AS kind, path, script_path, is_flow FROM schedule
+                WHERE workspace_id = $1
+                  AND script_path IS NOT NULL
+            UNION ALL
+            SELECT 'email', path, script_path, is_flow FROM email_trigger
                 WHERE workspace_id = $1
             UNION ALL
             SELECT 'kafka', path, script_path, is_flow FROM kafka_trigger
@@ -595,10 +601,43 @@ async fn asset_graph(
     .fetch_all(&mut *tx)
     .await?;
 
+    // Existing scripts / flows in the workspace. Used to filter out
+    // orphan trigger rows whose `script_path` no longer resolves — those
+    // would otherwise be added to `runnable_set` below and surface as
+    // phantom "deployed" runnables on the canvas (matching what the user
+    // can deploy a new trigger against: nothing).
+    let existing_script_paths = sqlx::query_scalar!(
+        r#"SELECT path AS "path!" FROM script
+           WHERE workspace_id = $1
+             AND archived = false
+             AND deleted = false"#,
+        &w_id,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    let existing_flow_paths = sqlx::query_scalar!(
+        r#"SELECT path AS "path!" FROM flow WHERE workspace_id = $1 AND archived = false"#,
+        &w_id,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
     tx.commit().await?;
 
     let pipeline_member_script_paths: std::collections::HashSet<String> =
         pipeline_member_paths.into_iter().map(|r| r.path).collect();
+    let existing_script_paths: std::collections::HashSet<String> =
+        existing_script_paths.into_iter().collect();
+    let existing_flow_paths: std::collections::HashSet<String> =
+        existing_flow_paths.into_iter().collect();
+    let runnable_exists = |kind: AssetUsageKind, path: &str| match kind {
+        AssetUsageKind::Script => existing_script_paths.contains(path),
+        AssetUsageKind::Flow => existing_flow_paths.contains(path),
+        // `Job` is a runtime-detected ephemeral runnable (asset usage rows
+        // only), never a target of a stored trigger row. Treat as existing
+        // so we don't accidentally drop ephemeral lineage edges.
+        AssetUsageKind::Job => true,
+    };
 
     let mut edges = Vec::with_capacity(rows.len());
     let mut asset_set: std::collections::HashSet<(AssetKind, String)> = Default::default();
@@ -613,6 +652,14 @@ async fn asset_graph(
     }
 
     for r in rows {
+        // Drop asset usage rows whose runnable target was archived/deleted
+        // but whose row in `asset` is still around — those would otherwise
+        // surface as a phantom "deployed" runnable on the canvas with no
+        // way to interact with it, since the underlying script/flow no
+        // longer exists.
+        if !runnable_exists(r.usage_kind, &r.usage_path) {
+            continue;
+        }
         asset_set.insert((r.asset_kind, r.asset_path.clone()));
         runnable_set.insert((r.usage_kind, r.usage_path.clone()));
         edges.push(GraphEdge {
@@ -627,37 +674,38 @@ async fn asset_graph(
     let mut triggers: Vec<TriggerEdge> =
         Vec::with_capacity(trigger_rows.len() + native_trigger_rows.len());
     for t in trigger_rows {
+        // Drop orphan asset-trigger rows — their target runnable no longer
+        // exists (script/flow archived or deleted, or was never deployed).
+        // Without this, an orphan row would surface as a phantom "deployed"
+        // runnable on the canvas (no `unsaved` flag, can't actually be
+        // run / re-targeted by a new trigger).
+        if !runnable_exists(t.runnable_kind, &t.runnable_path) {
+            continue;
+        }
         runnable_set.insert((t.runnable_kind, t.runnable_path.clone()));
-        match t.trigger_kind.as_str() {
-            "asset" => {
-                // trigger_ref is `<prefix><path>` — parse back out so both
-                // endpoints match what the frontend uses for node ids.
-                if let Some((asset_kind, asset_path)) = parse_asset_trigger_ref(&t.trigger_ref) {
-                    // Make sure the source asset has a node even if nothing
-                    // reads/writes it in this folder.
-                    asset_set.insert((asset_kind, asset_path.clone()));
-                    triggers.push(TriggerEdge::Asset {
-                        asset_kind,
-                        asset_path,
-                        runnable_kind: t.runnable_kind,
-                        runnable_path: t.runnable_path,
-                    });
-                }
-            }
-            "schedule" => {
-                triggers.push(TriggerEdge::Schedule {
-                    cron: t.trigger_ref,
+        if t.trigger_kind.as_str() == "asset" {
+            // trigger_ref is `<prefix><path>` — parse back out so both
+            // endpoints match what the frontend uses for node ids.
+            if let Some((asset_kind, asset_path)) = parse_asset_trigger_ref(&t.trigger_ref) {
+                // Make sure the source asset has a node even if nothing
+                // reads/writes it in this folder.
+                asset_set.insert((asset_kind, asset_path.clone()));
+                triggers.push(TriggerEdge::Asset {
+                    asset_kind,
+                    asset_path,
                     runnable_kind: t.runnable_kind,
                     runnable_path: t.runnable_path,
                 });
             }
-            _ => {} // Native kinds come from per-kind trigger tables below.
         }
+        // Native kinds (schedule, kafka, mqtt, …) come from per-kind trigger
+        // tables below.
     }
 
     // Native trigger attachments — one TriggerEdge per row, the kind chosen
     // from the discriminator. Add the runnable to the set so a script with
-    // no asset edges but a kafka attachment still renders on the canvas.
+    // no asset edges but a kafka/schedule attachment still renders on the
+    // canvas.
     for t in native_trigger_rows {
         let kind = t.kind.unwrap_or_default();
         let path = t.path.unwrap_or_default();
@@ -667,8 +715,15 @@ async fn asset_graph(
         } else {
             AssetUsageKind::Script
         };
+        // Same orphan filter as the asset-trigger loop above — drop trigger
+        // rows whose target script/flow no longer exists so the graph
+        // doesn't synthesize a phantom deployed runnable.
+        if !runnable_exists(runnable_kind, &script_path) {
+            continue;
+        }
         runnable_set.insert((runnable_kind, script_path.clone()));
         let edge = match kind.as_str() {
+            "schedule" => TriggerEdge::Schedule { path, runnable_kind, runnable_path: script_path },
             "email" => TriggerEdge::Email { path, runnable_kind, runnable_path: script_path },
             "kafka" => TriggerEdge::Kafka { path, runnable_kind, runnable_path: script_path },
             "mqtt" => TriggerEdge::Mqtt { path, runnable_kind, runnable_path: script_path },

@@ -19,6 +19,7 @@
 	} from '$lib/gen'
 	import Section from '$lib/components/Section.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import PipelineLockedRunnableInfo from '$lib/components/triggers/PipelineLockedRunnableInfo.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import GcpTriggerEditorConfigSection from './GcpTriggerEditorConfigSection.svelte'
 	import { untrack, type Snippet } from 'svelte'
@@ -127,7 +128,8 @@
 	export async function openEdit(
 		ePath: string,
 		isFlow: boolean,
-		defaultValues?: Record<string, any>
+		defaultValues?: Record<string, any>,
+		fixedScriptPath_?: string
 	) {
 		drawerLoading = true
 		try {
@@ -136,6 +138,7 @@
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
 			dirtyPath = false
+			fixedScriptPath = fixedScriptPath_ ?? ''
 			await loadTrigger(defaultValues)
 			if (!defaultValues) {
 				initialConfig = structuredClone($state.snapshot(getGcpConfig()))
@@ -448,32 +451,36 @@
 
 			{#if !hideTarget}
 				<Section label="Runnable">
-					<p class="text-xs mb-1 text-primary">
-						Pick a script or flow to be triggered <Required required={true} />
-					</p>
-					<div class="flex flex-row mb-2">
-						<ScriptPicker
-							disabled={fixedScriptPath != '' || !can_write}
-							initialPath={fixedScriptPath || initialScriptPath}
-							kinds={['script']}
-							allowFlow={true}
-							bind:itemKind
-							bind:scriptPath={script_path}
-							allowRefresh={can_write}
-							allowEdit={!$userStore?.operator}
-							clearable
-						/>
-						{#if emptyString(script_path)}
-							<Button
-								btnClasses="ml-4"
-								variant="default"
-								unifiedSize="md"
+					{#if fixedScriptPath != ''}
+						<PipelineLockedRunnableInfo path={fixedScriptPath} />
+					{:else}
+						<p class="text-xs mb-1 text-primary">
+							Pick a script or flow to be triggered <Required required={true} />
+						</p>
+						<div class="flex flex-row mb-2">
+							<ScriptPicker
 								disabled={!can_write}
-								href={itemKind === 'flow' ? '/flows/add?hub=68' : '/scripts/add?hub=hub%2F19796'}
-								target="_blank">Create from template</Button
-							>
-						{/if}
-					</div>
+								initialPath={initialScriptPath}
+								kinds={['script']}
+								allowFlow={true}
+								bind:itemKind
+								bind:scriptPath={script_path}
+								allowRefresh={can_write}
+								allowEdit={!$userStore?.operator}
+								clearable
+							/>
+							{#if emptyString(script_path)}
+								<Button
+									btnClasses="ml-4"
+									variant="default"
+									unifiedSize="md"
+									disabled={!can_write}
+									href={itemKind === 'flow' ? '/flows/add?hub=68' : '/scripts/add?hub=hub%2F19796'}
+									target="_blank">Create from template</Button
+								>
+							{/if}
+						</div>
+					{/if}
 				</Section>
 			{/if}
 
