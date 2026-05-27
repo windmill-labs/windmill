@@ -120,6 +120,12 @@ export interface SessionRuntime {
 	// for session-activation hooks that need a fresh count regardless of
 	// the dedupe key match.
 	refreshForkComparison(): Promise<void>
+	// Re-fetch the comparison shortly after a local mutation (e.g. an
+	// editor "Save draft"). The backend tally that registers the change
+	// lands asynchronously, so an immediate refresh races it — this
+	// schedules a couple of delayed refreshes so the fork-bar count
+	// updates without waiting for an AI turn or a tab refocus.
+	scheduleForkComparisonRefresh(): void
 }
 
 const runtimes = new SvelteMap<string, SessionRuntime>()
@@ -191,6 +197,30 @@ function createRuntime(session: Session): SessionRuntime {
 	const forkComparison: { val: WorkspaceComparison | undefined } = $state({ val: undefined })
 	let loadingForkComparison = $state(false)
 	let forkComparisonKey: string | undefined = undefined
+	let forkRefreshTimers: ReturnType<typeof setTimeout>[] = []
+
+	// Stale-while-revalidate re-fetch against the last (parent, fork) pair.
+	// Shared by refreshForkComparison() and scheduleForkComparisonRefresh().
+	async function refreshForkComparisonNow() {
+		const key = forkComparisonKey
+		if (!key) return
+		const sep = key.indexOf('|')
+		if (sep < 0) return
+		const parent = key.slice(0, sep)
+		const fork = key.slice(sep + 1)
+		if (loadingForkComparison) return
+		loadingForkComparison = true
+		try {
+			forkComparison.val = await WorkspaceService.compareWorkspaces({
+				workspace: parent,
+				targetWorkspaceId: fork
+			})
+		} catch (e) {
+			console.error('SessionRuntime: forkComparison refresh failed', e)
+		} finally {
+			loadingForkComparison = false
+		}
+	}
 
 	return {
 		sessionId: session.id,
@@ -514,30 +544,26 @@ function createRuntime(session: Session): SessionRuntime {
 			forkComparison.val = undefined
 		},
 
-		async refreshForkComparison() {
-			const key = forkComparisonKey
-			if (!key) return
-			const sep = key.indexOf('|')
-			if (sep < 0) return
-			const parent = key.slice(0, sep)
-			const fork = key.slice(sep + 1)
-			// Stale-while-revalidate: re-fetch in place so the cached
-			// status (driving the sidebar dot, fork bar, etc.) stays put
-			// until the new result lands. Clearing forkComparison.val
-			// here flickered the icon back to the neutral GitFork on
-			// every session-activate refresh.
-			if (loadingForkComparison) return
-			loadingForkComparison = true
-			try {
-				forkComparison.val = await WorkspaceService.compareWorkspaces({
-					workspace: parent,
-					targetWorkspaceId: fork
-				})
-			} catch (e) {
-				console.error('SessionRuntime: forkComparison refresh failed', e)
-			} finally {
-				loadingForkComparison = false
-			}
+		// Stale-while-revalidate: re-fetch in place so the cached status
+		// (driving the sidebar dot, fork bar, etc.) stays put until the new
+		// result lands. Clearing forkComparison.val here flickered the icon
+		// back to the neutral GitFork on every session-activate refresh.
+		refreshForkComparison() {
+			return refreshForkComparisonNow()
+		},
+
+		scheduleForkComparisonRefresh() {
+			// The backend fork tally registers a draft save (createScript
+			// draft_only / DraftService.createDraft) asynchronously — ~300ms
+			// after the API call returns — so an immediate refresh races it.
+			// Fetch once after the tally typically lands, then again as a
+			// backstop for slower backends. Coalesce rapid saves by clearing
+			// any still-pending timers first.
+			for (const t of forkRefreshTimers) clearTimeout(t)
+			forkRefreshTimers = [
+				setTimeout(() => void refreshForkComparisonNow(), 700),
+				setTimeout(() => void refreshForkComparisonNow(), 2200)
+			]
 		}
 	}
 }

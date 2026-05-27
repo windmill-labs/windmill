@@ -156,5 +156,6 @@
 		{diffDrawer}
 		{onNavigate}
 		customUi={{ topBar: { aiBuilder: false } }}
+		onSaveDraft={() => runtime.scheduleForkComparisonRefresh()}
 	/>
 {/if}

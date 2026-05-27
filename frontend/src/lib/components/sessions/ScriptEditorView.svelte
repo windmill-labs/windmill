@@ -152,5 +152,6 @@
 		{diffDrawer}
 		{onNavigate}
 		{initialTestPanelCollapsed}
+		onSaveDraft={() => runtime.scheduleForkComparisonRefresh()}
 	/>
 {/if}
