@@ -18,7 +18,6 @@
 	} from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
-	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import { get } from 'svelte/store'
@@ -82,8 +81,6 @@
 	if (get(initialArgsStore)) $initialArgsStore = undefined
 
 	const path = page.url.searchParams.get('path')
-
-	let scriptBuilder: ScriptBuilder | undefined = $state(undefined)
 
 	function defaultScript(): Script {
 		return {
@@ -268,7 +265,6 @@
 {#if scriptHandle.draft}
 	<ScriptBuilder
 		{initialArgs}
-		bind:this={scriptBuilder}
 		lockedLanguage={templatePath != null || hubPath != null}
 		template={importedWacTemplate ??
 			(wacParam === 'python'
@@ -284,11 +280,7 @@
 		searchParams={page.url.searchParams}
 		bind:script={scriptHandle.draft}
 		{showMeta}
-	>
-		<UnsavedConfirmationModal
-			getInitialAndModifiedValues={scriptBuilder?.getInitialAndModifiedValues}
-		/>
-	</ScriptBuilder>
+	/>
 {:else}
 	<ScriptEditorSkeleton />
 {/if}

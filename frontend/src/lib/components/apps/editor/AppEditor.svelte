@@ -77,7 +77,6 @@
 		newPath = undefined,
 		replaceStateFn = (path: string) => window.history.replaceState(null, '', path),
 		gotoFn = (path: string, opt?: Record<string, any>) => window.history.pushState(null, '', path),
-		unsavedConfirmationModal,
 		onSavedNewAppPath,
 		initialRevs
 	}: AppEditorProps = $props()
@@ -848,8 +847,6 @@
 		;[!!$connectingInput.opened, !$panzoomActive]
 		untrack(() => updateCursorStyle(!!$connectingInput.opened && !$panzoomActive))
 	})
-
-	const unsavedConfirmationModal_render = $derived(unsavedConfirmationModal)
 </script>
 
 <svelte:head></svelte:head>
@@ -890,19 +887,7 @@
 			onHideLeftPanel={() => hideLeftPanel()}
 			onHideRightPanel={() => hideRightPanel()}
 			onHideBottomPanel={() => hideBottomPanel()}
-		>
-			{#snippet unsavedConfirmationModal({
-				diffDrawer,
-				additionalExitAction,
-				getInitialAndModifiedValues
-			})}
-				{@render unsavedConfirmationModal_render?.({
-					diffDrawer,
-					additionalExitAction,
-					getInitialAndModifiedValues
-				})}
-			{/snippet}
-		</AppEditorHeader>
+		/>
 		{#if $mode === 'preview'}
 			<SplitPanesWrapper class="border-t">
 				<div

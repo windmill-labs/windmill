@@ -61,7 +61,7 @@
 	import EditorHeader from '$lib/components/EditorHeader.svelte'
 	import { editPathFor, invalidate as invalidatePicker } from '$lib/components/workspacePicker'
 	import { invalidateWorkspacePaths } from '$lib/components/PathNameAutocomplete.svelte'
-	import { goto } from '$app/navigation'
+	import { beforeNavigate, goto } from '$app/navigation'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 
@@ -94,7 +94,6 @@
 		bottomPanelHidden?: boolean
 		newApp: boolean
 		newPath?: string
-		unsavedConfirmationModal?: import('svelte').Snippet<[any]>
 		onSavedNewAppPath?: (path: string) => void
 		onShowRightPanel?: () => void
 		onShowLeftPanel?: () => void
@@ -115,7 +114,6 @@
 		bottomPanelHidden = false,
 		newApp,
 		newPath = '',
-		unsavedConfirmationModal,
 		onSavedNewAppPath,
 		onShowLeftPanel,
 		onShowRightPanel,
@@ -622,6 +620,12 @@
 	let priorDarkMode = document.documentElement.classList.contains('dark')
 	setTheme($app?.darkMode)
 
+	// Restore the user's prior theme on navigation away from the editor; the
+	// app's darkMode override would otherwise leak into the next page.
+	beforeNavigate(() => {
+		setTheme(priorDarkMode)
+	})
+
 	let customPath = $state(savedApp?.custom_path)
 
 	$effect(() => {
@@ -641,24 +645,6 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
-{#if unsavedConfirmationModal}
-	{@render unsavedConfirmationModal?.({
-		diffDrawer,
-		additionalExitAction: () => {
-			setTheme(priorDarkMode)
-		},
-		getInitialAndModifiedValues: () => ({
-			savedValue: savedApp,
-			modifiedValue: {
-				summary: $summary,
-				value: $app,
-				path: newEditedPath || savedApp?.path,
-				policy,
-				custom_path: customPath
-			}
-		})
-	})}
-{/if}
 <DeployOverrideConfirmationModal
 	{deployedBy}
 	{confirmCallback}

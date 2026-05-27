@@ -7,7 +7,6 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type { App } from '$lib/components/apps/types'
 	import { replaceState } from '$app/navigation'
-	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -137,19 +136,7 @@
 				newApp={true}
 				replaceStateFn={(path) => replaceState(path, page.state)}
 				gotoFn={(path, opt) => goto(path, opt)}
-			>
-				{#snippet unsavedConfirmationModal({
-					diffDrawer,
-					additionalExitAction,
-					getInitialAndModifiedValues
-				})}
-					<UnsavedConfirmationModal
-						{diffDrawer}
-						{additionalExitAction}
-						{getInitialAndModifiedValues}
-					/>
-				{/snippet}
-			</AppEditor>
+			/>
 		{/key}
 	</div>
 {/if}

@@ -4,7 +4,6 @@
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
-	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { importFlowStore, initFlow } from '$lib/components/flows/flowStore.svelte'
 	import { FlowService, type Flow } from '$lib/gen'
 	import { initialArgsStore, userStore, workspaceStore } from '$lib/stores'
@@ -206,8 +205,4 @@
 	{draftTriggersFromUrl}
 	{selectedTriggerIndexFromUrl}
 	noInitial
->
-	<UnsavedConfirmationModal
-		getInitialAndModifiedValues={flowBuilder?.getInitialAndModifiedValues}
-	/>
-</FlowBuilder>
+/>

@@ -32,7 +32,6 @@
 	// import {  allItems, toStatic } from '../apps/editor/settingsPanel/utils'
 	import AppExportButton from '../apps/editor/AppExportButton.svelte'
 
-	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import DeploymentHistory from '../apps/editor/DeploymentHistory.svelte'
 	import Awareness from '$lib/components/Awareness.svelte'
@@ -43,7 +42,6 @@
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 
 	import AppJobsDrawer from '../apps/editor/AppJobsDrawer.svelte'
-	import type { SavedAndModifiedValue } from '../common/confirmationModal/unsavedTypes'
 	import DropdownV2 from '../DropdownV2.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import AppEditorHeaderDeploy from '../apps/editor/AppEditorHeaderDeploy.svelte'
@@ -515,26 +513,12 @@
 
 	let jobsDrawerOpen = $state(false)
 
-	function getInitialAndModifiedValues(): SavedAndModifiedValue {
-		return {
-			savedValue: savedApp,
-			modifiedValue: {
-				summary: summary,
-				value: app,
-				path: newEditedPath || savedApp?.path,
-				policy,
-				custom_path: customPath
-			}
-		}
-	}
 	let app = $derived(files ? { runnables: runnables, files, data } : undefined)
 
 	$effect(() => {
 		saveDrawerOpen && compareVersions()
 	})
 </script>
-
-<UnsavedConfirmationModal {diffDrawer} {getInitialAndModifiedValues} />
 
 <DeployOverrideConfirmationModal
 	{deployedBy}

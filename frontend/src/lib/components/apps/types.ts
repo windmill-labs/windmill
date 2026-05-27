@@ -149,11 +149,9 @@ export interface AppEditorProps {
 	savedApp?:
 		| {
 				value: App
-				draft?: any
 				path: string
 				summary: string
 				policy: any
-				draft_only?: boolean
 				custom_path?: string
 		  }
 		| undefined
@@ -162,7 +160,6 @@ export interface AppEditorProps {
 	newPath?: string | undefined
 	replaceStateFn?: (path: string) => void
 	gotoFn?: (path: string, opt?: Record<string, any> | undefined) => void
-	unsavedConfirmationModal?: import('svelte').Snippet<[any]>
 	onSavedNewAppPath?: (path: string) => void
 	/**
 	 * Backend revs at the load that produced `app`. Used as the seed

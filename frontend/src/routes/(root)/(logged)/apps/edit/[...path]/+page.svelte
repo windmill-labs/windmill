@@ -8,7 +8,6 @@
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { App } from '$lib/components/apps/types'
-	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { untrack } from 'svelte'
@@ -224,19 +223,7 @@
 				initialRevs={currentRevs}
 				replaceStateFn={(path) => replaceState(path, page.state)}
 				gotoFn={(path, opt) => goto(path, opt)}
-			>
-				{#snippet unsavedConfirmationModal({
-					diffDrawer,
-					additionalExitAction,
-					getInitialAndModifiedValues
-				})}
-					<UnsavedConfirmationModal
-						{diffDrawer}
-						{additionalExitAction}
-						{getInitialAndModifiedValues}
-					/>
-				{/snippet}
-			</AppEditor>
+			/>
 		</div>
 	{/if}
 {/key}

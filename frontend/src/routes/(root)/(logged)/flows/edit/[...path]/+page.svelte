@@ -16,7 +16,6 @@
 
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
@@ -275,10 +274,5 @@
 		{selectedTriggerIndexFromUrl}
 		{version}
 		{loadedFromHistoryFromUrl}
-	>
-		<UnsavedConfirmationModal
-			{diffDrawer}
-			getInitialAndModifiedValues={flowBuilder?.getInitialAndModifiedValues}
-		/>
-	</FlowBuilder>
+	/>
 {/if}
