@@ -726,7 +726,13 @@
 	})
 </script>
 
-<UnsavedConfirmationModal {diffDrawer} {getInitialAndModifiedValues} />
+<!-- Inside a session pane the editor's content is continuously persisted to the
+     UserDraft (localStorage), so tearing the editor down on navigation loses
+     nothing — skip the unsaved-changes prompt. The standalone /apps_raw editor
+     keeps it. -->
+{#if !inSessionPane}
+	<UnsavedConfirmationModal {diffDrawer} {getInitialAndModifiedValues} />
+{/if}
 
 <DeployOverrideConfirmationModal
 	{deployedBy}
