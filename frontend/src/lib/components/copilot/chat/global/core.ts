@@ -2862,6 +2862,9 @@ async function deployDraft(
 			}
 			const summary = appValue.summary ?? draft.summary ?? ''
 			if (await AppService.existsApp({ workspace, path })) {
+				// Omit custom_path on update for now. The backend preserves it when absent, while
+				// sending it requires admin privileges; this chat deploy path does not yet mirror
+				// the raw app editor's user/admin-specific custom_path handling.
 				await AppService.updateAppRaw({
 					workspace,
 					path,
