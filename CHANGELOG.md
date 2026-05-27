@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.711.0](https://github.com/windmill-labs/windmill/compare/v1.710.1...v1.711.0) (2026-05-26)
+
+
+### Features
+
+* **cli:** add object-storage commands and flow test-step ([#9326](https://github.com/windmill-labs/windmill/issues/9326)) ([36f574f](https://github.com/windmill-labs/windmill/commit/36f574ff951198a4d40ee068a27d74c41ce32154))
+
+
+### Bug Fixes
+
+* **cli:** handle __flow suffix when deriving the flow's Windmill path ([#9333](https://github.com/windmill-labs/windmill/issues/9333)) ([6f77034](https://github.com/windmill-labs/windmill/commit/6f770346fb330997a836c39fba347df4c088a83c))
+* **queue:** duration-weighted workspace fairness signal ([#9329](https://github.com/windmill-labs/windmill/issues/9329)) ([42d2121](https://github.com/windmill-labs/windmill/commit/42d2121af925de50f549ecb72ffb5132f5c41079))
+
+## [1.710.1](https://github.com/windmill-labs/windmill/compare/v1.710.0...v1.710.1) (2026-05-26)
+
+
+### Bug Fixes
+
+* improve workspace fairness ([896add0](https://github.com/windmill-labs/windmill/commit/896add0350f4de31f5674d6be0907a582c5ec17e))
+
+## [1.710.0](https://github.com/windmill-labs/windmill/compare/v1.709.0...v1.710.0) (2026-05-26)
+
+
+### Features
+
+* **queue:** stochastic admission + EE availability of workspace fairness algorithm ([#9321](https://github.com/windmill-labs/windmill/issues/9321)) ([8bf7fd2](https://github.com/windmill-labs/windmill/commit/8bf7fd2c921c48861b71731a085b18ea8f72fb68))
+
+
+### Bug Fixes
+
+* **websocket-trigger:** honor HTTPS_PROXY/HTTP_PROXY/NO_PROXY ([#9324](https://github.com/windmill-labs/windmill/issues/9324)) ([6f36316](https://github.com/windmill-labs/windmill/commit/6f363163df9cd15f5af7d56cf34a01b70d236830))
+
 ## [1.709.0](https://github.com/windmill-labs/windmill/compare/v1.708.0...v1.709.0) (2026-05-25)
 
 

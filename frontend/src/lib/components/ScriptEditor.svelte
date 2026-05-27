@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { buildWsUrl } from '$lib/wsUrl'
+	import { paneMinPercent } from '$lib/utils/splitpaneSizing'
 	import { processSecretArgs } from './secretArgUtils'
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import {
@@ -1432,9 +1433,7 @@
 	const splitAxisExtent = $derived(
 		previewLayout === 'bottom' ? splitContainerHeight : splitContainerWidth
 	)
-	const testPaneMinPercent = $derived(
-		splitAxisExtent > 0 ? Math.min(80, (testPaneMinPx / splitAxisExtent) * 100) : 0
-	)
+	const testPaneMinPercent = $derived(paneMinPercent(splitAxisExtent, testPaneMinPx))
 
 	// Raw user-controlled test size (what the splitter wrote, or what the
 	// toggle set). The size we actually pass to <Pane> is clamped to the

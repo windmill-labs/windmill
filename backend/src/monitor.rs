@@ -2710,6 +2710,26 @@ pub async fn monitor_db(
     };
 
     // run every hour (120 iterations * 30s = 3600s)
+    let cleanup_stale_server_heartbeats_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
+            if let Some(db) = conn.as_sql() {
+                match windmill_api::cleanup_stale_server_heartbeats(db).await {
+                    Ok(count) if count > 0 => {
+                        tracing::info!(
+                            "Deleted {} stale server_heartbeat background_task_state rows",
+                            count
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!("Error cleaning up stale server_heartbeat rows: {:?}", e);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    };
+
+    // run every hour (120 iterations * 30s = 3600s)
     let manage_audit_partitions_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
             if let Some(db) = conn.as_sql() {
@@ -2767,6 +2787,7 @@ pub async fn monitor_db(
         native_triggers_sync_f,
         cleanup_notify_events_f,
         check_expiring_tokens_f,
+        cleanup_stale_server_heartbeats_f,
         manage_audit_partitions_f,
         export_audit_logs_to_object_store_f,
         cleanup_scheduled_job_deletions_f,
