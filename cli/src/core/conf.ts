@@ -88,6 +88,7 @@ export interface SyncOptions {
   includeGroups?: boolean;
   includeSettings?: boolean;
   includeKey?: boolean;
+  showEncryptionKeyDiff?: boolean;
   skipBranchValidation?: boolean;
   message?: string;
   includes?: string[];

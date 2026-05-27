@@ -127,10 +127,29 @@ export function showDiff(local: string, remote: string) {
   log.info(finalString);
 }
 
-export function showConflict(path: string, local: string, remote: string) {
+export function showConflict(
+  path: string,
+  local: string,
+  remote: string,
+  showEncryptionKeyDiff: boolean = false,
+) {
   log.info(colors.yellow(`- ${path}`));
-  showDiff(local, remote);
-  log.info("\x1b[31mlocal\x1b[31m - \x1b[32mremote\x1b[32m");
+  let isEncryptionKey = false;
+  try {
+    isEncryptionKey = getTypeStrFromPath(path) === "encryption_key";
+  } catch {
+    // ignore
+  }
+  if (isEncryptionKey && !showEncryptionKeyDiff) {
+    log.info(
+      colors.gray(
+        "  (diff redacted — pass --show-encryption-key-diff to display)",
+      ),
+    );
+  } else {
+    showDiff(local, remote);
+    log.info("\x1b[31mlocal\x1b[31m - \x1b[32mremote\x1b[32m");
+  }
   log.info("\n");
 }
 
