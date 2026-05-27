@@ -23,7 +23,12 @@
 	import { untrack } from 'svelte'
 	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
 	import { page } from '$app/state'
-	import { UserDraft, checkStaleness, type UserDraftMeta } from '$lib/userDraft.svelte'
+	import {
+		UserDraft,
+		checkStaleness,
+		type UserDraftMeta,
+		type UserDraftHandle
+	} from '$lib/userDraft.svelte'
 	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 
 	let version: undefined | number = $state(undefined)
@@ -48,7 +53,8 @@
 		  })
 		| undefined = $state(undefined)
 
-	const flowDraftPath = page.params.path ?? ''
+	// Derived so client-side nav (breadcrumb) re-keys the handle to the new path.
+	let flowDraftPath = $derived(page.params.path ?? '')
 
 	// `?nodraft=true` is the callers' way of saying "skip the local autosave
 	// on this load." Wipe the UserDraft entry and strip the flag from the
@@ -61,7 +67,27 @@
 		window.history.replaceState(window.history.state, '', url.toString())
 	}
 
-	const flowHandle = UserDraft.use<Flow>('flow', flowDraftPath)
+	// `useMany` keyed off the reactive `flowDraftPath` re-keys the handle on nav;
+	// `flowHandle` proxies the current handle so `flowStore` keeps a fixed ref.
+	const flowHandles = UserDraft.useMany<Flow>(() => [{ itemKind: 'flow', path: flowDraftPath }])
+	const flowHandle: UserDraftHandle<Flow> = {
+		get draft() {
+			return flowHandles[0]?.draft
+		},
+		set draft(value) {
+			const handle = flowHandles[0]
+			if (handle) handle.draft = value
+		},
+		get meta() {
+			return flowHandles[0]?.meta ?? {}
+		},
+		setDraftAndMeta(value, meta) {
+			flowHandles[0]?.setDraftAndMeta(value, meta)
+		},
+		setMeta(meta, opts) {
+			flowHandles[0]?.setMeta(meta, opts)
+		}
+	}
 
 	function emptyFlow(): Flow {
 		return {
@@ -87,6 +113,10 @@
 	const flowStateStore = $state({ val: {} })
 
 	let loading = $state(false)
+
+	// Remounts FlowBuilder on nav: false while a reload runs, true once data is
+	// ready, so it mounts fresh instead of reusing the previous flow's state.
+	let renderEditor = $state(false)
 
 	let selectedId: string = $state('settings-metadata')
 
@@ -284,6 +314,7 @@
 		loading = false
 		selectedId = page.url.searchParams.get('selected') ?? 'settings-metadata'
 		flowBuilder?.loadFlowState()
+		renderEditor = true
 	}
 
 	$effect(() => {
@@ -291,7 +322,11 @@
 		// to another (e.g. via the workspace picker) reloads the new flow.
 		page.params.path
 		if ($workspaceStore) {
-			untrack(() => loadFlow())
+			untrack(() => {
+				nobackenddraft = false // fresh nav reconsiders the backend draft
+				renderEditor = false // remount the builder for the navigated-to flow
+				loadFlow()
+			})
 		}
 	})
 
@@ -347,7 +382,7 @@
 		<h1 class="text-2xl font-bold">Flow not found at path {page.params.path}</h1>
 		<p class="text-gray-500">The flow you are looking for does not exist.</p>
 	</div>
-{:else}
+{:else if renderEditor}
 	<FlowBuilder
 		onDeploy={(e) => {
 			UserDraft.remove('flow', flowDraftPath)
