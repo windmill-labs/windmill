@@ -147,6 +147,7 @@
 		bind:savedScript={runtime.savedScript.val}
 		initialPath={runtime.savedScript.val ? path : ''}
 		initialPathChosen={true}
+		neverShowMeta={true}
 		fullyLoaded={!runtime.loadingScript}
 		disableHistoryChange={true}
 		{diffDrawer}
