@@ -4,11 +4,10 @@
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import { untrack } from 'svelte'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
-	import type { NewScript } from '$lib/gen'
+	import { DraftService, type NewScript } from '$lib/gen'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import SessionItemNotFound from './SessionItemNotFound.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { cleanValueProperties } from '$lib/utils'
 
 	let {
 		runtime,
@@ -32,9 +31,43 @@
 		}
 	})
 
-	async function restoreFromCurrentTarget() {
+	// Restore actions for the diff drawer. The previous shared
+	// `loadScript`-based handler was a no-op: loadScript early-returns on the
+	// already-loaded path (and would re-read the local draft anyway). Instead
+	// reset the live UserDraft handle to the target baseline — the inbound
+	// effect then syncs the editor preview. Mirrors /scripts/edit's restore.
+	async function restoreDeployed() {
+		const saved = runtime.savedScript.val
+		if (!saved) {
+			sendUserToast('Could not restore to deployed', true)
+			return
+		}
 		diffDrawer?.closeDrawer()
-		await runtime.loadScript(workspaceId, path)
+		// Drop the backend (DB) draft too, so "deployed" sticks across a reload.
+		if (saved.draft) {
+			try {
+				await DraftService.deleteDraft({ workspace: workspaceId, kind: 'script', path: saved.path })
+				saved.draft = undefined
+			} catch (e: any) {
+				sendUserToast(`Could not delete draft: ${e?.body ?? e}`, true)
+				return
+			}
+		}
+		const deployed = structuredClone($state.snapshot(saved)) as NewScript & { draft?: unknown }
+		delete deployed.draft
+		UserDraft.discard<NewScript>('script', path, deployed, { workspace: workspaceId })
+	}
+
+	async function restoreDraft() {
+		const backendDraft = runtime.savedScript.val?.draft as NewScript | undefined
+		if (!backendDraft) {
+			sendUserToast('Could not restore to draft', true)
+			return
+		}
+		diffDrawer?.closeDrawer()
+		UserDraft.discard<NewScript>('script', path, structuredClone($state.snapshot(backendDraft)), {
+			workspace: workspaceId
+		})
 	}
 
 	// Mark this editor as the live editor draft for the session's workspace
@@ -122,59 +155,10 @@
 			)
 		})
 	})
-
-	// Mirror the regular /scripts/edit affordance: when a script lands in the
-	// preview carrying a local (AI/user) draft that diverges from its saved
-	// baseline, surface a toast offering to view the diff or discard the
-	// local draft — the session's parallel loader otherwise lands the draft
-	// silently. Fires once per loaded path (guarded by `affordancePath`).
-	// Brand-new AI scripts (no backend baseline → savedScript undefined) are
-	// skipped: there's nothing to diff/reset against, and ScriptBuilder
-	// already exposes Deploy / Save draft for them like /scripts/add.
-	let affordancePath: string | undefined = $state(undefined)
-	$effect(() => {
-		if (!workspaceId || !path) return
-		if (runtime.loadedScriptPath !== path) return
-		if (affordancePath === path) return
-		const saved = runtime.savedScript.val
-		const current = runtime.scriptStore.val
-		if (!saved || !current) return
-		untrack(() => {
-			affordancePath = path
-			const baseline = (saved.draft as NewScript | undefined) ?? (saved as NewScript)
-			const diverged =
-				baseline.content !== current.content ||
-				baseline.summary !== current.summary ||
-				baseline.language !== current.language
-			if (!diverged) return
-			const discard = () =>
-				UserDraft.discard<NewScript>('script', path, baseline, { workspace: workspaceId })
-			sendUserToast('AI saved a local draft', false, [
-				{
-					label: 'Show diff',
-					callback: () => {
-						diffDrawer?.openDrawer()
-						diffDrawer?.setDiff({
-							mode: 'simple',
-							original: cleanValueProperties(saved),
-							current: cleanValueProperties(current),
-							title: 'Deployed <> Draft',
-							button: { text: 'Discard draft', onClick: discard }
-						})
-					}
-				},
-				{ label: 'Discard local draft', callback: discard }
-			])
-		})
-	})
 </script>
 
 {#if runtime.savedScript.val}
-	<DiffDrawer
-		bind:this={diffDrawer}
-		restoreDeployed={restoreFromCurrentTarget}
-		restoreDraft={restoreFromCurrentTarget}
-	/>
+	<DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
 {/if}
 {#if runtime.loadingScript && !runtime.loadedScriptPath}
 	<div class="p-4 text-secondary text-sm">Loading script {path}…</div>
@@ -201,6 +185,13 @@
 		{onNavigate}
 		{initialTestPanelCollapsed}
 		onSaveDraft={() => runtime.scheduleForkComparisonRefresh()}
-		onDeploy={() => runtime.scheduleForkComparisonRefresh()}
+		onDeploy={() => {
+			// The default "Deploy" (stay=false) takes ScriptBuilder's no-toast
+			// branch — the regular editor's onDeploy navigates to the deployed
+			// script instead. The session stays put, so surface the success
+			// toast ourselves and refresh the fork diff count.
+			sendUserToast('Deployed')
+			runtime.scheduleForkComparisonRefresh()
+		}}
 	/>
 {/if}
