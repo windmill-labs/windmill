@@ -341,7 +341,7 @@
 			buttons.push({
 				label: 'Edit',
 				buttonProps: {
-					href: `${base}/flows/edit/${path}?nodraft=true`,
+					href: `${base}/flows/edit/${path}`,
 					variant: 'accent',
 					unifiedSize: 'md',
 					disabled: !can_write || !showEditButtons,

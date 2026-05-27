@@ -128,7 +128,7 @@
 							variant="subtle"
 							wrapperClasses="w-20"
 							startIcon={{ icon: Pen }}
-							href="{base}/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}?nodraft=true"
+							href="{base}/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}"
 						>
 							Edit
 						</Button>

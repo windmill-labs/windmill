@@ -103,7 +103,7 @@
 	aiId={`flow-row-${flow.path}`}
 	aiDescription={`Button to access the form to run the flow ${flow.summary ?? flow.path}`}
 	href={flow.draft_only
-		? `${base}/flows/edit/${flow.path}?nodraft=true`
+		? `${base}/flows/edit/${flow.path}`
 		: `${base}/flows/get/${flow.path}?workspace=${$workspaceStore}`}
 	kind="flow"
 	workspaceId={flow.workspace_id ?? $workspaceStore ?? ''}
