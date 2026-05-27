@@ -299,23 +299,4 @@ describe('validateFlowGroups', () => {
 		const result = validateFlowGroups([{ start_id: 'a', end_id: 'c', summary: 'G' }], moduleIds)
 		expect(result).toEqual([{ start_id: 'a', end_id: 'c', summary: 'G' }])
 	})
-
-	it('rejects an unknown color name', () => {
-		expect(() => validateFlowGroups([{ start_id: 'a', end_id: 'b', color: '#ff00aa' }])).toThrow(
-			/color must be one of/
-		)
-		expect(() => validateFlowGroups([{ start_id: 'a', end_id: 'b', color: 'magenta' }])).toThrow(
-			/color must be one of/
-		)
-	})
-
-	it('accepts a known color name', () => {
-		const result = validateFlowGroups([{ start_id: 'a', end_id: 'b', color: 'blue' }])
-		expect(result).toEqual([{ start_id: 'a', end_id: 'b', color: 'blue' }])
-	})
-
-	it('accepts a group with no color', () => {
-		const result = validateFlowGroups([{ start_id: 'a', end_id: 'b' }])
-		expect(result).toEqual([{ start_id: 'a', end_id: 'b' }])
-	})
 })

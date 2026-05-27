@@ -183,7 +183,7 @@ const setFlowJsonToolSchema = z.object({
 		.optional()
 		.nullable()
 		.describe(
-			'JSON string containing the optional array of semantic flow groups. Each group has summary, note, autocollapse, start_id, end_id, color. color MUST be one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray — never hex codes or other strings. Pass null to clear groups.'
+			'JSON string containing the optional array of semantic flow groups (summary, note, autocollapse, start_id, end_id, color). Pass null to clear groups.'
 		)
 })
 
@@ -949,7 +949,7 @@ Use the \`set_flow_json\` tool to set the entire flow structure at once. Provide
 - \`schema\`: Flow input schema in JSON Schema format (optional)
 - \`preprocessor_module\`: Special module that runs before \`modules\` (optional, separate from \`modules\`)
 - \`failure_module\`: Special module that runs on failure (optional, separate from \`modules\`)
-- \`groups\`: Array of semantic groups for organizing modules in the editor (optional). Each group has \`summary\` (display name), \`note\` (markdown description shown below the group header — attached directly to the group, not a separate sticky note), \`autocollapse\`, \`start_id\`, \`end_id\`, and \`color\`. \`start_id\` and \`end_id\` must reference existing module IDs in the flow (not \`preprocessor\` or \`failure\`). \`color\` MUST be one of these exact names: \`yellow\`, \`blue\`, \`green\`, \`purple\`, \`pink\`, \`orange\`, \`red\`, \`cyan\`, \`lime\`, \`gray\` — do NOT use hex codes, CSS colors, or any other strings. Omit \`color\` entirely if no preference and the editor will assign one automatically. Groups do not affect execution — they provide naming and collapsibility in the editor. Pass \`null\` to clear existing groups.
+- \`groups\`: Array of semantic groups for organizing modules in the editor (optional). Each group has \`summary\` (display name), \`note\` (markdown description shown below the group header — attached directly to the group, not a separate sticky note), \`autocollapse\`, \`start_id\`, \`end_id\`, and \`color\`. \`start_id\` and \`end_id\` must reference existing module IDs in the flow (not \`preprocessor\` or \`failure\`). Groups do not affect execution — they provide naming and collapsibility in the editor. Pass \`null\` to clear existing groups.
 
 **Example - Simple flow:**
 \`\`\`javascript
