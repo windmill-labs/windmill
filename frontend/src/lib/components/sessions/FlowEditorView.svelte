@@ -143,6 +143,8 @@
 {:else if runtime.notFound && !runtime.loadedPath}
 	<SessionItemNotFound kind="flow" {path} {onNavigate} />
 {:else}
+	<!-- customUi hides the in-editor "Flow AI Chat" button: the session already
+	     has its own AI chat in the left pane, so the toggle is redundant here. -->
 	<FlowBuilder
 		flowStore={runtime.flowStore}
 		flowStateStore={runtime.flowStateStore}
@@ -153,5 +155,6 @@
 		bind:savedFlow={runtime.savedFlow.val}
 		{diffDrawer}
 		{onNavigate}
+		customUi={{ topBar: { aiBuilder: false } }}
 	/>
 {/if}
