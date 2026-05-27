@@ -32,7 +32,6 @@ use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use serde_json::value::RawValue;
 use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
 use std::{collections::HashMap, sync::Arc};
@@ -44,7 +43,7 @@ use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
 use windmill_common::{
     assets::{
         clear_static_asset_usage, clear_static_asset_usage_by_script_hash,
-        insert_static_asset_usage, AssetUsageKind, AssetWithAltAccessType,
+        insert_static_asset_usage, AssetUsageKind,
     },
     error::{self, to_anyhow},
     min_version::{MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2},
@@ -81,122 +80,6 @@ use windmill_queue::{
 
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
 
-#[derive(Serialize, sqlx::FromRow)]
-pub struct ScriptWDraft<SR> {
-    pub hash: ScriptHash,
-    pub path: String,
-    pub summary: String,
-    pub description: String,
-    pub content: String,
-    pub language: ScriptLang,
-    pub kind: ScriptKind,
-    pub tag: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft: Option<sqlx::types::Json<Box<RawValue>>>,
-    /// Timestamp at which the most recent DB draft was created.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_created_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub schema: Option<Schema>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub envs: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cache_ttl: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cache_ignore_s3_path: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dedicated_worker: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ws_error_handler_muted: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub priority: Option<i16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub restart_unless_cancelled: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub delete_after_use: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub delete_after_secs: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub timeout: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub visible_to_runner_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub auto_kind: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub has_preprocessor: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub on_behalf_of_email: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[sqlx(json(nullable))]
-    pub assets: Option<Vec<AssetWithAltAccessType>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[sqlx(json(nullable))]
-    pub modules: Option<HashMap<String, ScriptModule>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub labels: Option<Vec<String>>,
-    #[serde(flatten)]
-    #[sqlx(flatten)]
-    pub runnable_settings: SR,
-}
-
-impl ScriptWDraft<ScriptRunnableSettingsHandle> {
-    pub async fn prefetch_cached<'a>(
-        self,
-        db: &DB,
-    ) -> error::Result<ScriptWDraft<ScriptRunnableSettingsInline>> {
-        let (debouncing_settings, concurrency_settings) =
-            windmill_common::runnable_settings::prefetch_cached_from_handle(
-                self.runnable_settings.runnable_settings_handle,
-                db,
-            )
-            .await?;
-
-        Ok(ScriptWDraft {
-            runnable_settings: ScriptRunnableSettingsInline {
-                concurrency_settings: concurrency_settings.maybe_fallback(
-                    self.runnable_settings.concurrency_key,
-                    self.runnable_settings.concurrent_limit,
-                    self.runnable_settings.concurrency_time_window_s,
-                ),
-                debouncing_settings: debouncing_settings.maybe_fallback(
-                    self.runnable_settings.debounce_key,
-                    self.runnable_settings.debounce_delay_s,
-                ),
-            },
-            hash: self.hash,
-            path: self.path,
-            summary: self.summary,
-            description: self.description,
-            content: self.content,
-            language: self.language,
-            kind: self.kind,
-            tag: self.tag,
-            draft: self.draft,
-            draft_created_at: self.draft_created_at,
-            schema: self.schema,
-            draft_only: self.draft_only,
-            envs: self.envs,
-            cache_ttl: self.cache_ttl,
-            cache_ignore_s3_path: self.cache_ignore_s3_path,
-            dedicated_worker: self.dedicated_worker,
-            ws_error_handler_muted: self.ws_error_handler_muted,
-            priority: self.priority,
-            restart_unless_cancelled: self.restart_unless_cancelled,
-            delete_after_use: self.delete_after_use,
-            delete_after_secs: self.delete_after_secs,
-            timeout: self.timeout,
-            visible_to_runner_only: self.visible_to_runner_only,
-            auto_kind: self.auto_kind,
-            has_preprocessor: self.has_preprocessor,
-            on_behalf_of_email: self.on_behalf_of_email,
-            assets: self.assets,
-            modules: self.modules,
-            labels: self.labels,
-        })
-    }
-}
-
 pub fn global_service() -> Router {
     Router::new()
         .route("/hub/top", get(get_top_hub_scripts))
@@ -221,7 +104,6 @@ pub fn workspaced_service() -> Router {
         .route("/create", post(create_script))
         .route("/create_snapshot", post(create_snapshot_script))
         .route("/archive/p/{*path}", post(archive_script_by_path))
-        .route("/get/draft/{*path}", get(get_script_by_path_w_draft))
         .route("/get/p/{*path}", get(get_script_by_path))
         .route("/list_tokens/{*path}", get(list_tokens))
         .route("/raw/p/{*path}", get(raw_script_by_path))
@@ -302,7 +184,7 @@ async fn list_scripts(
             "hash",
             "o.path",
             "summary",
-            "COALESCE(draft.created_at, o.created_at) as created_at",
+            "o.created_at as created_at",
             "archived",
             "extra_perms",
             if !lq.without_description.unwrap_or(false) {
@@ -314,7 +196,6 @@ async fn list_scripts(
             "language",
             "favorite.path IS NOT NULL as starred",
             "tag",
-            "draft.path IS NOT NULL as has_draft",
             "draft_only",
             "ws_error_handler_muted",
             "auto_kind",
@@ -327,11 +208,6 @@ async fn list_scripts(
         .on(
             "favorite.favorite_kind = 'script' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?"
                 .bind(&authed.username),
-        )
-        .left()
-        .join("draft")
-        .on(
-            "draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'script'"
         )
         .order_desc("favorite.path IS NOT NULL")
         .order_by("created_at", lq.order_desc.unwrap_or(true))
@@ -1814,32 +1690,6 @@ async fn list_tokens(
     list_tokens_internal(&db, &w_id, &path, false).await
 }
 
-async fn get_script_by_path_w_draft(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<ScriptWDraft<ScriptRunnableSettingsInline>> {
-    let path = path.to_path();
-    check_scopes(&authed, || format!("scripts:read:{}", path))?;
-    let mut tx = user_db.begin(&authed).await?;
-
-    let script_o = sqlx::query_as::<_, ScriptWDraft<ScriptRunnableSettingsHandle>>(
-        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, runnable_settings_handle, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, ws_error_handler_muted, draft.value as draft, draft.created_at as draft_created_at, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, has_preprocessor, on_behalf_of_email, assets, modules, debounce_key, debounce_delay_s, labels FROM script LEFT JOIN draft ON
-         script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
-         WHERE script.path = $1 AND script.workspace_id = $2
-         ORDER BY script.created_at DESC LIMIT 1",
-    )
-    .bind(path)
-    .bind(w_id)
-    .fetch_optional(&mut *tx)
-    .await?;
-    tx.commit().await?;
-
-    let script = not_found_if_none(script_o, "Script", path)?;
-    Ok(Json(script.prefetch_cached(&db).await?))
-}
-
 async fn get_script_history(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -2402,18 +2252,6 @@ async fn get_deployment_status(
 
     tx.commit().await?;
     Ok(Json(deployment_status))
-}
-
-pub async fn require_is_writer(authed: &ApiAuthed, path: &str, w_id: &str, db: DB) -> Result<()> {
-    return windmill_api_auth::require_is_writer(
-        authed,
-        path,
-        w_id,
-        db,
-        "SELECT extra_perms FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
-        "script",
-    )
-    .await;
 }
 
 async fn archive_script_by_path(

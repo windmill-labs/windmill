@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ScriptService, type NewScript, type NewScriptWithDraft, DraftService } from '$lib/gen'
+	import { ScriptService, type NewScript, type Script } from '$lib/gen'
 
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
@@ -82,7 +82,7 @@
 
 	let scriptBuilder: ScriptBuilder | undefined = $state(undefined)
 
-	let savedScript: NewScriptWithDraft | undefined = $state(undefined)
+	let savedScript: Script | NewScript | undefined = $state(undefined)
 	let fullyLoaded = $state(false)
 
 	let savedPrimarySchedule: ScheduleTrigger | undefined = $state(undefined)
@@ -169,24 +169,20 @@
 				hash
 			})
 			if (tok !== loadScriptToken) return
-			savedScript = structuredClone($state.snapshot(scriptByHash)) as NewScriptWithDraft
+			savedScript = structuredClone($state.snapshot(scriptByHash))
 			scriptHandle.draft = { ...scriptByHash, parent_hash: hash, lock: undefined }
 		} else {
-			const scriptWithDraft = await ScriptService.getScriptByPathWithDraft({
+			const backendScript = await ScriptService.getScriptByPath({
 				workspace: $workspaceStore!,
 				path: page.params.path ?? ''
 			})
 			if (tok !== loadScriptToken) return
-			savedScript = structuredClone($state.snapshot(scriptWithDraft))
+			savedScript = structuredClone($state.snapshot(backendScript))
 
 			const localDraft = scriptHandle.draft
 			const previousMeta = scriptHandle.meta
-			const backendDraft = scriptWithDraft.draft
-				? ({ ...scriptWithDraft.draft } as EditableScript)
-				: undefined
 			const newRevs: UserDraftMeta = {
-				remoteRev: scriptWithDraft.hash,
-				remoteDraftRev: scriptWithDraft.draft_created_at
+				remoteRev: backendScript.hash
 			}
 
 			// Compute the fully-baked initial value once so the assignment
@@ -194,10 +190,9 @@
 			// `parent_hash = ...` would count as a second write under
 			// useLocalStorageValue's saveInitialValue=false contract and get
 			// persisted before the user has touched anything.
-			const baseline = (backendDraft ?? (scriptWithDraft as EditableScript)) as EditableScript
 			const bakedBaseline: EditableScript = {
-				...baseline,
-				parent_hash: topHash ?? scriptWithDraft.hash
+				...(backendScript as EditableScript),
+				parent_hash: topHash ?? backendScript.hash
 			}
 
 			if (urlScriptSeed) {
@@ -226,8 +221,7 @@
 				urlScriptSeed = undefined
 				// === END TEMP URL-HASH SYNC branch ===
 			} else if (localDraft != undefined) {
-				const reference = backendDraft ?? scriptWithDraft
-				const referenceClean = cleanValueProperties(reference)
+				const referenceClean = cleanValueProperties(backendScript)
 				const localClean = cleanValueProperties(localDraft)
 				if (orderedJsonStringify(referenceClean) === orderedJsonStringify(localClean)) {
 					// Local matches the saved version — silently drop it and use the saved one.
@@ -249,21 +243,13 @@
 							scriptHandle.setMeta(newRevs, { force: true })
 						}
 						const scriptPath = bakedBaseline.path
-						const hasBackendDraft = !!backendDraft
-						notifyRestoredFromLocal(hasBackendDraft, !scriptWithDraft.draft_only, {
+						notifyRestoredFromLocal(false, true, {
 							onResetToSavedDraft: () => {
 								UserDraft.remove('script', draftPath)
 								scriptHandle.setDraftAndMeta(bakedBaseline, newRevs)
 								applyBaseline(bakedBaseline)
 							},
 							onResetToDeployed: async () => {
-								if (hasBackendDraft) {
-									await DraftService.deleteDraft({
-										workspace: $workspaceStore!,
-										kind: 'script',
-										path: scriptPath
-									})
-								}
 								UserDraft.remove('script', draftPath)
 								// UserDraft.remove only clears localStorage. The entry's
 								// in-memory state is kept alive by this route's handle, so
@@ -275,55 +261,6 @@
 							}
 						})
 					}
-				}
-			} else if (backendDraft) {
-				scriptHandle.setDraftAndMeta(bakedBaseline, newRevs)
-				if (bakedBaseline['primary_schedule']) {
-					savedPrimarySchedule = bakedBaseline['primary_schedule']
-					scriptBuilder?.setPrimarySchedule(savedPrimarySchedule)
-				}
-				scriptBuilder?.setDraftTriggers(bakedBaseline.draft_triggers)
-
-				if (!scriptWithDraft.draft_only) {
-					const reloadAction = async () => {
-						await DraftService.deleteDraft({
-							workspace: $workspaceStore!,
-							kind: 'script',
-							path: bakedBaseline.path
-						})
-						UserDraft.remove('script', draftPath)
-						// UserDraft.remove only clears localStorage. The
-						// scriptHandle's in-memory state still holds the now-
-						// deleted DB draft + its meta — loadScript would treat
-						// it as a local autosave and the staleness check
-						// would fire a spurious "newer version was deployed"
-						// modal because remoteDraftRev moved from "defined"
-						// to "undefined". Drop the in-memory state first.
-						scriptHandle.setDraftAndMeta(undefined, {})
-						goto(`/scripts/edit/${bakedBaseline.path}`)
-						loadScript()
-					}
-					const deployed = cleanValueProperties(scriptWithDraft)
-					const draft = cleanValueProperties(bakedBaseline)
-					sendUserToast('Script loaded from latest saved draft', false, [
-						{
-							label: 'Reset to deployed',
-							callback: reloadAction
-						},
-						{
-							label: 'Show diff',
-							callback: async () => {
-								diffDrawer?.openDrawer()
-								diffDrawer?.setDiff({
-									mode: 'simple',
-									original: deployed,
-									current: draft,
-									title: 'Deployed <> Draft',
-									button: { text: 'Discard draft', onClick: reloadAction }
-								})
-							}
-						}
-					])
 				}
 			} else {
 				scriptHandle.setDraftAndMeta(bakedBaseline, newRevs)
@@ -374,35 +311,12 @@
 
 	let diffDrawer: DiffDrawer | undefined = $state()
 
-	async function restoreDraft() {
-		if (!savedScript || !savedScript.draft) {
-			sendUserToast('Could not restore to draft', true)
-			return
-		}
-		diffDrawer?.closeDrawer()
-		UserDraft.remove('script', draftPath)
-		// Drop the in-memory handle state so loadScript sees no local draft
-		// on the next pass — otherwise the staleness check would compare the
-		// stale in-memory meta against the freshly fetched backend and fire
-		// a spurious modal.
-		scriptHandle.setDraftAndMeta(undefined, {})
-		goto(`/scripts/edit/${savedScript.draft.path}`)
-		loadScript()
-	}
-
 	async function restoreDeployed() {
 		if (!savedScript) {
 			sendUserToast('Could not restore to deployed', true)
 			return
 		}
 		diffDrawer?.closeDrawer()
-		if (savedScript.draft) {
-			await DraftService.deleteDraft({
-				workspace: $workspaceStore!,
-				kind: 'script',
-				path: savedScript.path
-			})
-		}
 		UserDraft.remove('script', draftPath)
 		scriptHandle.setDraftAndMeta(undefined, {})
 		goto(`/scripts/edit/${savedScript.path}`)
@@ -410,7 +324,7 @@
 	}
 </script>
 
-<DiffDrawer bind:this={diffDrawer} {restoreDraft} {restoreDeployed} />
+<DiffDrawer bind:this={diffDrawer} {restoreDeployed} />
 <LocalDraftStaleModal
 	open={staleModalOpen}
 	cause={staleModalCause}
@@ -439,10 +353,6 @@
 			UserDraft.remove('script', draftPath)
 			if ($workspaceStore) invalidate($workspaceStore, 'script')
 			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
-		}}
-		onSaveInitial={(e) => {
-			if ($workspaceStore) invalidate($workspaceStore, 'script')
-			goto(`/scripts/edit/${e.path}`)
 		}}
 		onSeeDetails={(e) => {
 			goto(`/scripts/get/${e.path}?workspace=${$workspaceStore}`)

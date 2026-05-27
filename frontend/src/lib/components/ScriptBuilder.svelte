@@ -3,10 +3,9 @@
 
 	const bubble = createBubbler()
 	import {
-		DraftService,
 		ScriptService,
-		type NewScriptWithDraft,
 		type Script,
+		type NewScript,
 		type TriggersCount,
 		PostgresTriggerService,
 		CaptureService,
@@ -31,7 +30,6 @@
 		workspaceStore
 	} from '$lib/stores'
 	import {
-		cleanValueProperties,
 		emptySchema,
 		emptyString,
 		generateRandomString,
@@ -58,14 +56,13 @@
 		EllipsisVertical,
 		Plus,
 		Rocket,
-		Save,
 		Settings,
 		Shuffle,
 		Tag,
 		X
 	} from 'lucide-svelte'
 	import DropdownV2 from './DropdownV2.svelte'
-	import { isMac, type Item } from '$lib/utils'
+	import { type Item } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import Awareness from './Awareness.svelte'
@@ -91,13 +88,7 @@
 	import CaptureTable from './triggers/CaptureTable.svelte'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import DeployButton from './DeployButton.svelte'
-	import {
-		type NewScriptWithDraftAndDraftTriggers,
-		type Trigger,
-		deployTriggers,
-		filterDraftTriggers,
-		handleSelectTriggerFromKind
-	} from './triggers/utils'
+	import { type Trigger, deployTriggers, handleSelectTriggerFromKind } from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
 	import type { ScriptBuilderProps } from './script_builder'
@@ -129,10 +120,7 @@
 		children,
 		onDeploy,
 		onDeployError,
-		onSaveInitial,
 		onSeeDetails,
-		onSaveDraftError,
-		onSaveDraft,
 		onNavigate,
 		disableAi
 	}: ScriptBuilderProps = $props()
@@ -163,18 +151,10 @@
 	// Top-bar responsive collapse — container width, not viewport.
 	let topbarWidth = $state(0)
 	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
-	const mod = isMac() ? '⌘' : 'Ctrl+'
 
 	function getCompactMenuItems(): Item[] {
 		const hasTags = ($workerTags?.length ?? 0) > 0
 		return [
-			{
-				displayName: 'Save draft',
-				icon: Save,
-				action: () => saveDraft(),
-				shortcut: `${mod}S`,
-				disabled: initialPath != '' && !savedScript
-			},
 			...(customUi?.topBar?.tagEdit != false && hasTags
 				? [
 						{
@@ -289,13 +269,6 @@
 			$primaryScheduleStore,
 			$userStore
 		)
-
-		if (savedScript && savedScript.draft && savedScript.draft.draft_triggers) {
-			savedScript = filterDraftTriggers(
-				savedScript,
-				triggersState
-			) as NewScriptWithDraftAndDraftTriggers
-		}
 	}
 
 	// Add triggers context store
@@ -366,7 +339,6 @@
 
 	let pathError = $state('')
 	let loadingSave = $state(false)
-	let loadingDraft = $state(false)
 
 	if (script.content == '') {
 		if (template === 'wac_python') {
@@ -620,7 +592,7 @@
 			}
 
 			const { draft_triggers: _, ...newScript } = structuredClone($state.snapshot(script))
-			savedScript = structuredClone($state.snapshot(newScript)) as NewScriptWithDraft
+			savedScript = structuredClone($state.snapshot(newScript))
 			setDraftTriggers([])
 
 			if (!disableHistoryChange) {
@@ -644,158 +616,12 @@
 		loadingSave = false
 	}
 
-	async function saveDraft(forceSave = false): Promise<void> {
-		scriptEditor?.flushModuleState()
-		if (initialPath != '' && !savedScript) {
-			return
-		}
-
-		if (savedScript) {
-			const draftOrDeployed = cleanValueProperties(savedScript.draft || savedScript)
-			const currentTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
-			const current = cleanValueProperties({ ...script, draft_triggers: currentTriggers })
-			if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
-				sendUserToast('No changes detected, ignoring', false, [
-					{
-						label: 'Save anyway',
-						callback: () => {
-							saveDraft(true)
-						}
-					}
-				])
-				return
-			}
-		}
-
-		loadingDraft = true
-		try {
-			script.schema = script.schema ?? emptySchema()
-			try {
-				const result = await inferArgs(
-					script.language,
-					script.content,
-					script.schema as any,
-					script.kind === 'preprocessor' ? 'preprocessor' : undefined
-				)
-				if (script.kind === 'preprocessor') {
-					script.auto_kind = undefined
-					script.has_preprocessor = undefined
-				} else {
-					script.auto_kind = result?.auto_kind || undefined
-					script.has_preprocessor = result?.has_preprocessor || undefined
-				}
-			} catch (error) {
-				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
-			}
-			let newHash = ''
-			if (initialPath == '' || savedScript?.draft_only) {
-				if (savedScript?.draft_only) {
-					await ScriptService.deleteScriptByPath({
-						workspace: $workspaceStore!,
-						path: initialPath,
-						keepCaptures: true
-					})
-					script.parent_hash = undefined
-				}
-				if (!initialPath || script.path != initialPath) {
-					await CaptureService.moveCapturesAndConfigs({
-						workspace: $workspaceStore!,
-						path: initialPath || fakeInitialPath,
-						requestBody: {
-							new_path: script.path
-						},
-						runnableKind: 'script'
-					})
-				}
-				newHash = await ScriptService.createScript({
-					workspace: $workspaceStore!,
-					requestBody: {
-						path: script.path,
-						summary: script.summary,
-						description: script.description ?? '',
-						content: script.content,
-						schema: script.schema,
-						is_template: script.is_template,
-						language: script.language,
-						kind: script.kind,
-						tag: script.tag,
-						draft_only: true,
-						envs: script.envs,
-						concurrent_limit: script.concurrent_limit,
-						concurrency_time_window_s: script.concurrency_time_window_s,
-						debounce_key: emptyString(script.debounce_key) ? undefined : script.debounce_key,
-						debounce_delay_s: script.debounce_delay_s,
-						debounce_args_to_accumulate:
-							script.debounce_args_to_accumulate && script.debounce_args_to_accumulate.length > 0
-								? script.debounce_args_to_accumulate
-								: undefined,
-						max_total_debouncing_time: script.max_total_debouncing_time,
-						max_total_debounces_amount: script.max_total_debounces_amount,
-						cache_ttl: script.cache_ttl,
-						cache_ignore_s3_path: script.cache_ignore_s3_path,
-						ws_error_handler_muted: script.ws_error_handler_muted,
-						priority: script.priority,
-						restart_unless_cancelled: script.restart_unless_cancelled,
-						timeout: script.timeout,
-						concurrency_key: emptyString(script.concurrency_key)
-							? undefined
-							: script.concurrency_key,
-						visible_to_runner_only: script.visible_to_runner_only,
-						auto_kind: script.auto_kind,
-						has_preprocessor: script.has_preprocessor,
-						on_behalf_of_email: script.on_behalf_of_email,
-						assets: script.assets,
-						modules: script.modules,
-						labels: script.labels
-					}
-				})
-			}
-			const draftTriggers = triggersState.getDraftTriggersSnapshot()
-			await DraftService.createDraft({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path: initialPath == '' || savedScript?.draft_only ? script.path : initialPath,
-					typ: 'script',
-					value: {
-						...script,
-						draft_triggers: draftTriggers
-					}
-				}
-			})
-
-			const clonedScript = structuredClone($state.snapshot(script))
-			savedScript = {
-				...(initialPath == '' || savedScript?.draft_only
-					? { ...clonedScript, draft_only: true }
-					: savedScript),
-				draft: {
-					...clonedScript,
-					draft_triggers: draftTriggers
-				}
-			} as NewScriptWithDraftAndDraftTriggers
-
-			let savedAtNewPath = false
-			if (initialPath == '' || (savedScript?.draft_only && script.path !== initialPath)) {
-				savedAtNewPath = true
-				initialPath = script.path
-				onSaveInitial?.({ path: script.path, hash: newHash })
-			}
-			onSaveDraft?.({ path: script.path, savedAtNewPath, script })
-
-			sendUserToast('Saved as draft')
-		} catch (error) {
-			sendUserToast(
-				`Error while saving the script as a draft: ${error.body || error.message}`,
-				true
-			)
-			onSaveDraftError?.({ path: script.path, error })
-		}
-		loadingDraft = false
-	}
+	// No-op: persistence happens via the page-level UserDraft autosave.
+	function saveDraft(): void {}
 
 	function computeDropdownItems(
 		initialPath: string,
-		savedScript: NewScriptWithDraftAndDraftTriggers | undefined,
+		savedScript: Script | NewScript | undefined,
 		diffDrawer: DiffDrawerI | undefined
 	) {
 		let dropdownItems: { label: string; onClick: () => void }[] =
@@ -972,17 +798,7 @@
 		}
 	}
 
-	function handleDeployTrigger(trigger: Trigger) {
-		const { id, path, type } = trigger
-		//Update the saved script to remove the draft trigger that is deployed
-		if (savedScript && savedScript.draft && savedScript.draft.draft_triggers) {
-			const newSavedDraftTrigers = savedScript.draft.draft_triggers.filter(
-				(t) => t.id !== id || t.path !== path || t.type !== type
-			)
-			savedScript.draft.draft_triggers =
-				newSavedDraftTrigers.length > 0 ? newSavedDraftTrigers : undefined
-		}
-	}
+	function handleDeployTrigger(_trigger: Trigger) {}
 
 	function onScriptLanguageTrigger(lang: 'docker' | 'bunnative' | ScriptLang) {
 		if (lang == 'docker') {
@@ -2035,17 +1851,6 @@
 						{/if}
 					{/if}
 					{@render settingsButton()}
-					<Button
-						loading={loadingDraft}
-						unifiedSize="md"
-						variant="accent"
-						startIcon={{ icon: Save }}
-						on:click={() => saveDraft()}
-						disabled={initialPath != '' && !savedScript}
-						shortCut={{ key: 'S' }}
-					>
-						<span> Draft </span>
-					</Button>
 				{/if}
 
 				<DeployButton
@@ -2083,8 +1888,8 @@
 			autoKind={script.auto_kind}
 			{template}
 			tag={script.tag}
-			lastSavedCode={savedScript?.draft?.content}
-			lastDeployedCode={savedScript?.draft_only ? undefined : savedScript?.content}
+			lastSavedCode={savedScript?.content}
+			lastDeployedCode={savedScript?.content}
 			bind:args
 			bind:hasPreprocessor
 			bind:captureTable

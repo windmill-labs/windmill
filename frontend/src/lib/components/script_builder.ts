@@ -1,10 +1,10 @@
-import type { NewScript } from '$lib/gen'
+import type { NewScript, Script } from '$lib/gen'
 import type { AssetWithAltAccessType } from './assets/lib'
 import type { ScriptBuilderWhitelabelCustomUi } from './custom_ui'
 import type { DiffDrawerI } from './diff_drawer'
 import type { ScriptBuilderFunctionExports } from './scriptBuilder'
 import type { ScheduleTrigger } from './triggers'
-import type { NewScriptWithDraftAndDraftTriggers, Trigger } from './triggers/utils'
+import type { Trigger } from './triggers/utils'
 import type { WorkspaceItem } from './workspacePicker'
 
 export interface ScriptBuilderProps {
@@ -29,7 +29,7 @@ export interface ScriptBuilderProps {
 	showMeta?: boolean
 	neverShowMeta?: boolean
 	diffDrawer?: DiffDrawerI | undefined
-	savedScript?: NewScriptWithDraftAndDraftTriggers | undefined
+	savedScript?: Script | NewScript | undefined
 	searchParams?: URLSearchParams
 	disableHistoryChange?: boolean
 	customUi?: ScriptBuilderWhitelabelCustomUi
@@ -38,11 +38,7 @@ export interface ScriptBuilderProps {
 	children?: import('svelte').Snippet
 	onDeploy?: (e: { path: string; hash: string }) => void
 	onDeployError?: (e: { path: string; error: any }) => void
-	onSaveInitial?: (e: { path: string; hash: string }) => void
 	onHistoryRestore?: () => void
-	onSaveDraftOnlyAtNewPath?: (e: { path: string }) => void
-	onSaveDraft?: (e: { path: string; savedAtNewPath: boolean; script: NewScript }) => void
 	onSeeDetails?: (e: { path: string }) => void
-	onSaveDraftError?: (e: { path: string; error: any }) => void
 	onNavigate?: (item: WorkspaceItem) => void
 }

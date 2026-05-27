@@ -2,7 +2,6 @@
 	import {
 		FlowService,
 		type Flow,
-		DraftService,
 		type PathScript,
 		type OpenFlow,
 		type InputTransform,
@@ -13,7 +12,6 @@
 	import { initHistory, redo, undo } from '$lib/history.svelte'
 	import { enterpriseLicense, userStore, workspaceStore, usedTriggerKinds } from '$lib/stores'
 	import {
-		cleanValueProperties,
 		generateRandomString,
 		orderedJsonStringify,
 		readFieldsRecursively,
@@ -29,7 +27,7 @@
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
 
-	import { createRawSnippet, onMount, setContext, untrack } from 'svelte'
+	import { createRawSnippet, setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Button } from './common'
@@ -46,7 +44,6 @@
 	import { GroupEditor, setGroupEditorContext } from './graph/groupEditor.svelte'
 	import { cleanFlow } from './flows/utils.svelte'
 	import {
-		Save,
 		DiffIcon,
 		HistoryIcon,
 		FileJson,
@@ -77,12 +74,8 @@
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import DeployButton from './DeployButton.svelte'
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
-	import type { FlowWithDraftAndDraftTriggers, Trigger } from './triggers/utils'
-	import {
-		deployTriggers,
-		filterDraftTriggers,
-		handleSelectTriggerFromKind
-	} from './triggers/utils'
+	import type { Trigger } from './triggers/utils'
+	import { deployTriggers, handleSelectTriggerFromKind } from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
 	import { StepsInputArgs } from './flows/stepsInputArgs.svelte'
@@ -118,20 +111,15 @@
 		disabledFlowInputs = false,
 		savedPrimarySchedule = undefined,
 		version = undefined,
-		setSavedraftCb = undefined,
 		draftTriggersFromUrl = undefined,
 		selectedTriggerIndexFromUrl = undefined,
 		children,
 		loadedFromHistoryFromUrl,
 		noInitial = false,
 		liveEditorDraftStoragePath = undefined,
-		onSaveInitial,
-		onSaveDraft,
 		onDeploy,
 		onDeployError,
 		onDetails,
-		onSaveDraftError,
-		onSaveDraftOnlyAtNewPath,
 		onHistoryRestore,
 		onNavigate
 	}: FlowBuilderProps = $props()
@@ -261,128 +249,9 @@
 	}
 
 	let loadingSave = $state(false)
-	let loadingDraft = $state(false)
 
-	export async function saveDraft(forceSave = false): Promise<void> {
-		withAIChangesWarning(async () => {
-			await saveDraftInternal(forceSave)
-		})
-	}
-
-	async function saveDraftInternal(forceSave = false): Promise<void> {
-		if (!newFlow && !savedFlow) {
-			return
-		}
-
-		if (savedFlow) {
-			const draftOrDeployed = cleanValueProperties(savedFlow.draft || savedFlow)
-			const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
-			const current = cleanValueProperties(
-				$state.snapshot({
-					...flowStore.val,
-					path: $pathStore,
-					draft_triggers: currentDraftTriggers
-				})
-			)
-			if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
-				sendUserToast('No changes detected, ignoring', false, [
-					{
-						label: 'Save anyway',
-						callback: () => {
-							saveDraftInternal(true)
-						}
-					}
-				])
-				return
-			}
-		}
-		loadingDraft = true
-		try {
-			const flow = cleanFlow(flowStore.val)
-			if (newFlow || savedFlow?.draft_only) {
-				if (savedFlow?.draft_only) {
-					await FlowService.deleteFlowByPath({
-						workspace: $workspaceStore!,
-						path: initialPath,
-						keepCaptures: true
-					})
-				}
-				if (!initialPath || $pathStore != initialPath) {
-					await CaptureService.moveCapturesAndConfigs({
-						workspace: $workspaceStore!,
-						path: initialPath || fakeInitialPath,
-						requestBody: {
-							new_path: $pathStore
-						},
-						runnableKind: 'flow'
-					})
-				}
-				await FlowService.createFlow({
-					workspace: $workspaceStore!,
-					requestBody: {
-						path: $pathStore,
-						summary: flow.summary ?? '',
-						description: flow.description ?? '',
-						value: flow.value,
-						schema: flow.schema,
-						tag: flow.tag,
-						draft_only: true,
-						ws_error_handler_muted: flow.ws_error_handler_muted,
-						visible_to_runner_only: flow.visible_to_runner_only,
-						on_behalf_of_email: flow.on_behalf_of_email,
-						labels: (flow as any).labels
-					}
-				})
-			}
-			await DraftService.createDraft({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path: newFlow || savedFlow?.draft_only ? $pathStore : initialPath,
-					typ: 'flow',
-					value: {
-						...flow,
-						path: $pathStore,
-						draft_triggers: triggersState.getDraftTriggersSnapshot()
-					}
-				}
-			})
-
-			savedFlow = {
-				...(newFlow || savedFlow?.draft_only
-					? {
-							...structuredClone($state.snapshot(flowStore.val)),
-							path: $pathStore,
-							draft_only: true
-						}
-					: savedFlow),
-				draft: {
-					...structuredClone($state.snapshot(flowStore.val)),
-					path: $pathStore,
-					draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
-				}
-			} as FlowWithDraftAndDraftTriggers
-
-			let savedAtNewPath = false
-			if (newFlow) {
-				onSaveInitial?.({ path: $pathStore, id: getSelectedId() ?? 'settings' })
-			} else if (savedFlow?.draft_only && $pathStore !== initialPath) {
-				savedAtNewPath = true
-				initialPath = $pathStore
-				onSaveDraftOnlyAtNewPath?.({ path: $pathStore, selectedId: getSelectedId() ?? 'settings' })
-				// this is so we can use the flow builder outside of sveltekit
-			}
-			onSaveDraft?.({ path: $pathStore, savedAtNewPath, newFlow })
-			sendUserToast('Saved as draft')
-		} catch (error) {
-			sendUserToast(`Error while saving the flow as a draft: ${error.body || error.message}`, true)
-			onSaveDraftError?.({ error })
-		}
-		loadingDraft = false
-	}
-
-	onMount(() => {
-		setSavedraftCb?.(() => saveDraft())
-	})
+	// No-op: persistence happens via the page-level UserDraft autosave.
+	export function saveDraft(): void {}
 
 	export function computeUnlockedSteps(flow: Flow) {
 		return Object.fromEntries(
@@ -677,7 +546,7 @@
 			[
 				{ type: 'webhook', path: '', isDraft: false },
 				{ type: 'default_email', path: '', isDraft: false },
-				...(untrack(() => draftTriggersFromUrl) ?? savedFlow?.draft?.draft_triggers ?? [])
+				...(untrack(() => draftTriggersFromUrl) ?? [])
 			],
 			untrack(() => selectedTriggerIndexFromUrl)
 		)
@@ -706,10 +575,6 @@
 			$primaryScheduleStore,
 			$userStore
 		)
-
-		if (savedFlow && savedFlow.draft) {
-			savedFlow = filterDraftTriggers(savedFlow, triggersState) as FlowWithDraftAndDraftTriggers
-		}
 	}
 
 	function handleUndo() {
@@ -834,7 +699,6 @@
 		diffDrawer?.setDiff({
 			mode: 'normal',
 			deployed: deployedValue ?? savedFlow,
-			draft: savedFlow?.draft,
 			current: {
 				...currentFlow,
 				path: $pathStore,
@@ -879,25 +743,7 @@
 	const mod = isMac() ? '⌘' : 'Ctrl+'
 
 	function getMoreItems(): Item[] {
-		// When the top bar is compact, fold the inline Diff + Save draft buttons
-		// in here so they stay reachable. Save draft keeps its keyboard shortcut.
-		const compactExtras: Item[] = compactTopbar
-			? [
-					...(customUi?.topBar?.draft !== false
-						? [
-								{
-									displayName: 'Save draft',
-									icon: Save,
-									action: () => saveDraft(),
-									shortcut: `${mod}S`,
-									disabled: (!newFlow && !savedFlow) || loading
-								}
-							]
-						: [])
-				]
-			: []
 		return [
-			...compactExtras,
 			...baseMenuItems,
 			{
 				displayName: 'Undo',
@@ -905,7 +751,7 @@
 				action: () => handleUndo(),
 				disabled: $history.index === 0,
 				shortcut: `${mod}Z`,
-				separatorTop: compactExtras.length > 0 || baseMenuItems.length > 0
+				separatorTop: baseMenuItems.length > 0
 			},
 			{
 				displayName: 'Redo',
@@ -1018,17 +864,7 @@
 		]
 	}
 
-	function handleDeployTrigger(trigger: Trigger) {
-		const { id, path, type } = trigger
-		//Update the saved flow to remove the draft trigger that is deployed
-		if (savedFlow && savedFlow.draft && savedFlow.draft.draft_triggers) {
-			const newSavedDraftTrigers = savedFlow.draft.draft_triggers.filter(
-				(t) => t.id !== id || t.path !== path || t.type !== type
-			)
-			savedFlow.draft.draft_triggers =
-				newSavedDraftTrigers.length > 0 ? newSavedDraftTrigers : undefined
-		}
-	}
+	function handleDeployTrigger(_trigger: Trigger) {}
 
 	let forceTestTab: Record<string, boolean> = $state({})
 	let highlightArg: Record<string, string | undefined> = $state({})
@@ -1217,19 +1053,6 @@
 					{/if}
 					{#if !compactTopbar}
 						{@render previewButtons()}
-					{/if}
-					{#if customUi?.topBar?.draft !== false && !compactTopbar}
-						<Button
-							loading={loadingDraft}
-							unifiedSize="md"
-							variant="accent"
-							startIcon={{ icon: Save }}
-							on:click={() => saveDraft()}
-							disabled={(!newFlow && !savedFlow) || loading}
-							shortCut={{ key: 'S' }}
-						>
-							Draft
-						</Button>
 					{/if}
 
 					<DeployButton

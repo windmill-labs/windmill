@@ -82,12 +82,6 @@ async fn test_flow_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let resp = authed_get(port, "get", "u/test-user/nonexistent").await;
     assert_eq!(resp.status(), 404);
 
-    // --- get draft ---
-    let resp = authed_get(port, "get/draft", "u/test-user/test_flow").await;
-    assert_eq!(resp.status(), 200);
-    let body = resp.json::<serde_json::Value>().await?;
-    assert_eq!(body["path"], "u/test-user/test_flow");
-
     // --- list ---
     let resp = authed(client().get(format!("{base}/list")))
         .send()
@@ -259,12 +253,10 @@ async fn test_flow_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     // ===== Hub endpoints (require external network, expect 500 or 200) =====
 
     // --- hub/list ---
-    let resp = authed(client().get(format!(
-        "http://localhost:{port}/api/flows/hub/list"
-    )))
-    .send()
-    .await
-    .unwrap();
+    let resp = authed(client().get(format!("http://localhost:{port}/api/flows/hub/list")))
+        .send()
+        .await
+        .unwrap();
     assert!(
         resp.status() == 200 || resp.status() == 500,
         "hub/list: unexpected status {}",
@@ -272,12 +264,10 @@ async fn test_flow_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     // --- hub/get ---
-    let resp = authed(client().get(format!(
-        "http://localhost:{port}/api/flows/hub/get/1"
-    )))
-    .send()
-    .await
-    .unwrap();
+    let resp = authed(client().get(format!("http://localhost:{port}/api/flows/hub/get/1")))
+        .send()
+        .await
+        .unwrap();
     assert!(
         resp.status() == 200 || resp.status() == 500,
         "hub/get: unexpected status {}",

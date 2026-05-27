@@ -4,12 +4,11 @@
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
-	import { AppService, DraftService, type ListableApp } from '$lib/gen'
+	import { AppService, type ListableApp } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
-	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import Badge from '../badge/Badge.svelte'
 	import {
 		ExternalLink,
@@ -28,7 +27,7 @@
 	import { goto as gotoUrl } from '$app/navigation'
 	import { page } from '$app/state'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import { DELETE, copyToClipboard } from '$lib/utils'
+	import { copyToClipboard } from '$lib/utils'
 	import AppDeploymentHistory from '$lib/components/apps/editor/AppDeploymentHistory.svelte'
 	import { isDeployable } from '$lib/utils_deployable'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
@@ -37,7 +36,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
-		app: ListableApp & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
+		app: ListableApp & { draft_only?: boolean; canWrite: boolean }
 		marked: string | undefined
 		shareModal: ShareModal
 		moveDrawer: MoveDrawer
@@ -98,7 +97,6 @@
 			<Badge small icon={{ icon: FileJson }}>Raw</Badge>
 		{/if}
 		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
-		<DraftBadge has_draft={app.has_draft} draft_only={app.draft_only} />
 		{#if app.labels?.length}
 			<div class="flex items-center gap-0.5">
 				{#each app.labels.slice(0, 3) as label}
@@ -155,7 +153,7 @@
 			aiId={`app-row-dropdown-${app.summary?.length > 0 ? app.summary : app.path}`}
 			aiDescription={`Open dropdown for app ${app.summary?.length > 0 ? app.summary : app.path} options`}
 			items={async () => {
-				let { draft_only, canWrite, summary, execution_mode, path, has_draft } = app
+				let { draft_only, canWrite, summary, execution_mode, path } = app
 
 				const canEdit = canWrite && showEditButton
 				if (draft_only) {
@@ -268,25 +266,6 @@
 											`${page.url.hostname}/public/${$workspaceStore}/${secretUrl}`
 										gotoUrl(url)
 									}
-								}
-							]
-						: []),
-					...(has_draft
-						? [
-								{
-									displayName: 'Delete Draft',
-									icon: Trash,
-									action: async () => {
-										await DraftService.deleteDraft({
-											workspace: $workspaceStore ?? '',
-											path,
-											kind: 'app'
-										})
-										dispatch('change')
-									},
-									type: DELETE,
-									disabled: !canWrite,
-									hide: $userStore?.operator
 								}
 							]
 						: []),

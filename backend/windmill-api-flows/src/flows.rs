@@ -48,7 +48,6 @@ use windmill_common::{
     flows::{Flow, FlowWithStarred, ListFlowQuery, ListableFlow, NewFlow},
     jobs::JobPayload,
     schedule::Schedule,
-    scripts::Schema,
     utils::{http_get_from_hub, not_found_if_none, paginate, Pagination, RunnableKind, StripPath},
 };
 use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
@@ -67,7 +66,6 @@ pub fn workspaced_service() -> Router {
         .route("/list_tokens/{*path}", get(list_tokens))
         .route("/get/{*path}", get(get_flow_by_path))
         .route("/deployment_status/p/{*path}", get(get_deployment_status))
-        .route("/get/draft/{*path}", get(get_flow_by_path_w_draft))
         .route("/exists/{*path}", get(exists_flow_by_path))
         .route("/list_paths", get(list_paths))
         .route("/history/p/{*path}", get(get_flow_history))
@@ -148,7 +146,6 @@ async fn list_flows(
             "archived",
             "extra_perms",
             "favorite.path IS NOT NULL as starred",
-            "draft.path IS NOT NULL as has_draft",
             "draft_only",
             "ws_error_handler_muted",
             "o.labels"
@@ -158,11 +155,6 @@ async fn list_flows(
         .on(
             "favorite.favorite_kind = 'flow' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?"
                 .bind(&authed.username),
-        )
-        .left()
-        .join("draft")
-        .on(
-            "draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'flow'"
         )
         .left()
         .join("flow_version fv")
@@ -701,18 +693,6 @@ async fn check_schedule_conflict<'c>(
         )));
     };
     Ok(())
-}
-
-pub async fn require_is_writer(authed: &ApiAuthed, path: &str, w_id: &str, db: DB) -> Result<()> {
-    return windmill_api_auth::require_is_writer(
-        authed,
-        path,
-        w_id,
-        db,
-        "SELECT extra_perms FROM flow WHERE path = $1 AND workspace_id = $2",
-        "flow",
-    )
-    .await;
 }
 
 #[derive(Serialize)]
@@ -1463,81 +1443,6 @@ async fn get_flow_by_path(
         .fetch_optional(&mut *tx)
         .await?
     };
-
-    tx.commit().await?;
-
-    let flow = not_found_if_none(flow_o, "Flow", path)?;
-    Ok(Json(flow))
-}
-
-#[derive(Serialize, sqlx::FromRow)]
-pub struct FlowWDraft {
-    pub path: String,
-    pub summary: String,
-    pub description: String,
-    pub schema: Option<Schema>,
-    pub value: sqlx::types::Json<Box<serde_json::value::RawValue>>,
-    pub extra_perms: serde_json::Value,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
-    /// Timestamp at which the most recent DB draft was created.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_created_at: Option<chrono::DateTime<chrono::Utc>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tag: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ws_error_handler_muted: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dedicated_worker: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub visible_to_runner_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub on_behalf_of_email: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub labels: Option<Vec<String>>,
-}
-
-async fn get_flow_by_path_w_draft(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<FlowWDraft> {
-    let path = path.to_path();
-    check_scopes(&authed, || format!("flows:read:{}", path))?;
-    let mut tx = user_db.begin(&authed).await?;
-    let flow_o = sqlx::query_as::<_, FlowWDraft>(
-        "SELECT
-            flow.path,
-            flow.summary,
-            flow.description,
-            flow_version.schema,
-            flow_version.value,
-            flow.extra_perms,
-            flow.draft_only,
-            flow.ws_error_handler_muted,
-            flow.dedicated_worker,
-            draft.value AS draft,
-            draft.created_at AS draft_created_at,
-            flow.tag,
-            flow.visible_to_runner_only,
-            flow.on_behalf_of_email,
-            flow.labels
-        FROM flow
-        LEFT JOIN draft
-            ON flow.path = draft.path
-            AND draft.workspace_id = $2
-            AND draft.typ = 'flow'
-        LEFT JOIN flow_version
-            ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-        WHERE flow.path = $1
-        AND flow.workspace_id = $2",
-    )
-    .bind(path)
-    .bind(w_id)
-    .fetch_optional(&mut *tx)
-    .await?;
 
     tx.commit().await?;
 

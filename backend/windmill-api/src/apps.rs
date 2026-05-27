@@ -88,7 +88,6 @@ pub fn workspaced_service(raw_app_body_limit: usize) -> Router {
         .route("/list_search", get(list_search_apps))
         .route("/get/p/{*path}", get(get_app))
         .route("/get/lite/{*path}", get(get_app_lite))
-        .route("/get/draft/{*path}", get(get_app_w_draft))
         .route("/secret_of/{*path}", get(get_secret_id))
         .route(
             "/secret_of_latest_version/{*path}",
@@ -153,7 +152,6 @@ pub struct ListableApp {
     pub execution_mode: String,
     pub starred: bool,
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub has_draft: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
     #[sqlx(default)]
@@ -206,20 +204,6 @@ pub struct AppWithLastVersionAndStarred {
     pub app: AppWithLastVersion,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub starred: Option<bool>,
-}
-
-#[derive(Serialize, Deserialize, FromRow)]
-pub struct AppWithLastVersionAndDraft {
-    #[sqlx(flatten)]
-    #[serde(flatten)]
-    pub app: AppWithLastVersion,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft: Option<sqlx::types::Json<Box<RawValue>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_only: Option<bool>,
-    /// Timestamp at which the most recent DB draft was created.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_created_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Serialize)]
@@ -371,7 +355,6 @@ async fn list_apps(
             "app_version.created_at as edited_at",
             "app.extra_perms",
             "favorite.path IS NOT NULL as starred",
-            "draft.path IS NOT NULL as has_draft",
             "draft_only",
             "app_version.raw_app",
             "app.labels",
@@ -386,11 +369,6 @@ async fn list_apps(
         .join("app_version")
         .on(
             "app_version.id = versions[array_upper(versions, 1)]"
-        )
-        .left()
-        .join("draft")
-        .on(
-            "draft.path = app.path AND draft.workspace_id = app.workspace_id AND draft.typ = 'app'"
         )
         .order_desc("favorite.path IS NOT NULL")
         .order_by("app_version.created_at", true)
@@ -622,55 +600,6 @@ async fn get_app_lite(
         FROM app, app_version
         LEFT JOIN app_version_lite ON app_version_lite.id = app_version.id
         WHERE app.path = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
-    )
-    .bind(path.to_owned())
-    .bind(&w_id)
-    .fetch_optional(&mut *tx)
-    .await?;
-
-    tx.commit().await?;
-
-    let app = not_found_if_none(app_o, "App", path)?;
-    Ok(Json(app))
-}
-
-async fn get_app_w_draft(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<AppWithLastVersionAndDraft> {
-    let path = path.to_path();
-    check_scopes(&authed, || format!("apps:read:{}", path))?;
-    let mut tx = user_db.begin(&authed).await?;
-
-    let app_o = sqlx::query_as::<_, AppWithLastVersionAndDraft>(
-        r#"
-        SELECT
-            app.id,
-            app.path,
-            app.summary,
-            app.versions,
-            app.policy,
-            app.custom_path,
-            app.extra_perms,
-            app_version.value,
-            app_version.created_at,
-            app_version.created_by,
-            app.draft_only,
-            draft.value AS "draft",
-            draft.created_at AS "draft_created_at",
-            app_version.raw_app,
-            app.labels
-        FROM app
-        INNER JOIN app_version
-            ON app_version.id = app.versions[array_upper(app.versions, 1)]
-        LEFT JOIN draft
-            ON app.path = draft.path
-        AND draft.workspace_id = $2
-        AND draft.typ = 'app'
-        WHERE app.path = $1
-        AND app.workspace_id = $2
-    "#,
     )
     .bind(path.to_owned())
     .bind(&w_id)
@@ -3188,18 +3117,6 @@ fn get_on_behalf_of(policy: &Policy) -> Result<(String, String)> {
         })?
         .to_string();
     Ok((permissioned_as, email))
-}
-
-pub async fn require_is_writer(authed: &ApiAuthed, path: &str, w_id: &str, db: DB) -> Result<()> {
-    return crate::users::require_is_writer(
-        authed,
-        path,
-        w_id,
-        db,
-        "SELECT extra_perms FROM app WHERE path = $1 AND workspace_id = $2",
-        "app",
-    )
-    .await;
 }
 
 async fn exists_app(

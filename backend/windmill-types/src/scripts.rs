@@ -446,8 +446,6 @@ pub struct ListableScript {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub has_draft: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
     pub has_deploy_errors: bool,
     pub ws_error_handler_muted: Option<bool>,

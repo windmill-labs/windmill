@@ -282,7 +282,6 @@ where
                     "edited_by",
                     "permissioned_as",
                     "archived",
-                    "has_draft",
                     "error",
                     "last_server_ping",
                     "server_id",

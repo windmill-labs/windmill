@@ -7802,65 +7802,6 @@ paths:
                 items:
                   type: string
 
-  /w/{workspace}/drafts/create:
-    post:
-      summary: create draft
-      operationId: createDraft
-      tags:
-        - draft
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                path:
-                  type: string
-                typ:
-                  type: string
-                  enum: ["flow", "script", "app"]
-                value: {}
-              required:
-                - path
-                - typ
-                - enum
-      responses:
-        "201":
-          description: draft created
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /w/{workspace}/drafts/delete/{kind}/{path}:
-    delete:
-      summary: delete draft
-      operationId: deleteDraft
-      tags:
-        - draft
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - name: kind
-          in: path
-          required: true
-          schema:
-            type: string
-            enum:
-              - script
-              - flow
-              - app
-        - $ref: "#/components/parameters/ScriptPath"
-      responses:
-        "200":
-          description: draft deleted
-          content:
-            text/plain:
-              schema:
-                type: string
-
   /w/{workspace}/scripts/create:
     post:
       summary: create script
@@ -8281,23 +8222,6 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/TruncatedToken"
-
-  /w/{workspace}/scripts/get/draft/{path}:
-    get:
-      summary: get script by path with draft
-      operationId: getScriptByPathWithDraft
-      tags:
-        - script
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptPath"
-      responses:
-        "200":
-          description: script details
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/NewScriptWithDraft"
 
   /w/{workspace}/scripts/history/p/{path}:
     get:
@@ -9447,8 +9371,6 @@ paths:
                     - $ref: "#/components/schemas/Flow"
                     - type: object
                       properties:
-                        has_draft:
-                          type: boolean
                         draft_only:
                           type: boolean
 
@@ -9673,32 +9595,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
-  /w/{workspace}/flows/get/draft/{path}:
-    get:
-      summary: get flow by path with draft
-      operationId: getFlowByPathWithDraft
-      tags:
-        - flow
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptPath"
-      responses:
-        "200":
-          description: flow details with draft
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/Flow"
-                  - type: object
-                    properties:
-                      draft:
-                        $ref: "#/components/schemas/Flow"
-                      draft_created_at:
-                        type: string
-                        format: date-time
-                        description: Timestamp at which the most recent DB draft was created. Used by the frontend's UserDraft staleness check.
 
   /w/{workspace}/flows/exists/{path}:
     get:
@@ -10413,23 +10309,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AppWithLastVersion"
-
-  /w/{workspace}/apps/get/draft/{path}:
-    get:
-      summary: get app by path with draft
-      operationId: getAppByPathWithDraft
-      tags:
-        - app
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptPath"
-      responses:
-        "200":
-          description: app details with draft
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AppWithLastVersionWDraft"
 
   /w/{workspace}/apps/history/p/{path}:
     get:
@@ -21692,8 +21571,6 @@ components:
           type: boolean
         tag:
           type: string
-        has_draft:
-          type: boolean
         draft_only:
           type: boolean
         envs:
@@ -21889,22 +21766,6 @@ components:
         - summary
         - content
         - language
-
-    NewScriptWithDraft:
-      allOf:
-        - $ref: "#/components/schemas/NewScript"
-        - type: object
-          properties:
-            draft:
-              $ref: "#/components/schemas/NewScript"
-            draft_created_at:
-              type: string
-              format: date-time
-              description: Timestamp at which the most recent DB draft was created. Used by the frontend's UserDraft staleness check.
-            hash:
-              type: string
-          required:
-            - hash
 
     ScriptHistory:
       type: object
@@ -26975,19 +26836,6 @@ components:
         - extra_perms
         - raw_app
 
-
-    AppWithLastVersionWDraft:
-      allOf:
-        - $ref: "#/components/schemas/AppWithLastVersion"
-        - type: object
-          properties:
-            draft_only:
-              type: boolean
-            draft: {}
-            draft_created_at:
-              type: string
-              format: date-time
-              description: Timestamp at which the most recent DB draft was created. Used by the frontend's UserDraft staleness check.
 
     AppHistory:
       type: object

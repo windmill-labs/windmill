@@ -576,7 +576,12 @@ function serializeWorkspaceItemForRead(item: WorkspaceItem): unknown {
 		}
 	}
 
-	if (item.type === 'app' && item.value && typeof item.value === 'object' && 'files' in item.value) {
+	if (
+		item.type === 'app' &&
+		item.value &&
+		typeof item.value === 'object' &&
+		'files' in item.value
+	) {
 		return {
 			type: 'app',
 			path: item.path,
@@ -892,10 +897,9 @@ function appSourceToDraftValue(app: any, fallback?: any): AppDraftValue {
 	}
 }
 
-function appDraftMeta(app: { versions?: number[]; draft_created_at?: string }): UserDraftMeta {
+function appDraftMeta(app: { versions?: number[] }): UserDraftMeta {
 	return {
-		remoteRev: app.versions ? app.versions[app.versions.length - 1] : undefined,
-		remoteDraftRev: app.draft_created_at
+		remoteRev: app.versions ? app.versions[app.versions.length - 1] : undefined
 	}
 }
 
@@ -905,8 +909,8 @@ async function loadAppValueForRead(path: string, workspace: string): Promise<App
 		return draft.value as AppDraftValue
 	}
 
-	const app = await AppService.getAppByPathWithDraft({ workspace, path })
-	return appSourceToDraftValue(app.draft ?? app, app)
+	const app = await AppService.getAppByPath({ workspace, path })
+	return appSourceToDraftValue(app, app)
 }
 
 async function loadAppDraftValue(path: string, workspace: string): Promise<LoadedAppDraftValue> {
@@ -915,8 +919,8 @@ async function loadAppDraftValue(path: string, workspace: string): Promise<Loade
 		return { value: draft.value as AppDraftValue }
 	}
 
-	const app = await AppService.getAppByPathWithDraft({ workspace, path })
-	const value = appSourceToDraftValue(app.draft ?? app, app)
+	const app = await AppService.getAppByPath({ workspace, path })
+	const value = appSourceToDraftValue(app, app)
 	return { value, meta: appDraftMeta(app) }
 }
 
@@ -1065,8 +1069,8 @@ async function readWorkspaceItem(
 			)
 		case 'app': {
 			// Returns lightweight metadata only — file/runnable contents come via read_app_file.
-			const app = await AppService.getAppByPathWithDraft({ workspace, path })
-			const value = appSourceToDraftValue(app.draft ?? app)
+			const app = await AppService.getAppByPath({ workspace, path })
+			const value = appSourceToDraftValue(app)
 			const metadata = summarizeAppValue(value)
 			return {
 				type: 'app',
@@ -1903,11 +1907,11 @@ async function writeScriptDraft(
 		}
 		UserDraft.save('script', storagePath, draft, { workspace })
 	} else if (backendExists) {
-		const existing = await ScriptService.getScriptByPathWithDraft({
+		const existing = await ScriptService.getScriptByPath({
 			workspace,
 			path: args.path
 		})
-		const base = (existing.draft ?? existing) as NewScript
+		const base = existing as unknown as NewScript
 		const draft: NewScript = {
 			...structuredClone(base),
 			parent_hash: existing.hash,
@@ -1920,7 +1924,7 @@ async function writeScriptDraft(
 			'script',
 			storagePath,
 			draft,
-			{ remoteRev: existing.hash, remoteDraftRev: existing.draft_created_at },
+			{ remoteRev: existing.hash },
 			{ workspace }
 		)
 	} else {
@@ -1974,22 +1978,21 @@ async function writeFlowDraft(
 		UserDraft.save('flow', storagePath, draft, { workspace })
 	} else if (backendExists) {
 		const [existing, latestVersion] = await Promise.all([
-			FlowService.getFlowByPathWithDraft({ workspace, path: args.path }),
+			FlowService.getFlowByPath({ workspace, path: args.path }),
 			FlowService.getFlowLatestVersion({ workspace, path: args.path })
 		])
-		const base = (existing.draft ?? existing) as Flow
 		const draft: Flow = {
-			...structuredClone(base),
+			...structuredClone(existing),
 			path: args.path,
-			summary: args.summary ?? base.summary,
+			summary: args.summary ?? existing.summary,
 			value,
-			schema: draftValue.schema ?? base.schema
+			schema: draftValue.schema ?? existing.schema
 		}
 		UserDraft.setDraftAndMeta(
 			'flow',
 			storagePath,
 			draft,
-			{ remoteRev: latestVersion.id, remoteDraftRev: existing.draft_created_at },
+			{ remoteRev: latestVersion.id },
 			{ workspace }
 		)
 	} else {

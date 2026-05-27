@@ -184,11 +184,6 @@
 <!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
 
 <FlowBuilder
-	onSaveInitial={(e) => {
-		UserDraft.remove('flow', '')
-		if ($workspaceStore) invalidate($workspaceStore, 'flow')
-		goto(`/flows/edit/${e.path}?selected=${e.id}`)
-	}}
 	onDeploy={(e) => {
 		UserDraft.remove('flow', '')
 		if ($workspaceStore) invalidate($workspaceStore, 'flow')

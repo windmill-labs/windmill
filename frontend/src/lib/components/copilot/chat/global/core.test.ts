@@ -45,8 +45,8 @@ vi.mock('$lib/gen', async () => {
 		ScriptService: wrapService(actual.ScriptService, {
 			existsScriptByPath: vi.fn(async () => false),
 			createScript: vi.fn(async () => 'created'),
-			getScriptByPathWithDraft: vi.fn(async () => {
-				throw new Error('getScriptByPathWithDraft mock not configured')
+			getScriptByPath: vi.fn(async () => {
+				throw new Error('getScriptByPath mock not configured')
 			}),
 			listScripts: vi.fn(async () => [])
 		}),
@@ -56,9 +56,6 @@ vi.mock('$lib/gen', async () => {
 			updateFlow: vi.fn(async () => 'updated'),
 			getFlowByPath: vi.fn(async () => {
 				throw new Error('getFlowByPath mock not configured')
-			}),
-			getFlowByPathWithDraft: vi.fn(async () => {
-				throw new Error('getFlowByPathWithDraft mock not configured')
 			}),
 			getFlowLatestVersion: vi.fn(async () => ({ id: 1 })),
 			listFlows: vi.fn(async () => [])
@@ -77,8 +74,8 @@ vi.mock('$lib/gen', async () => {
 		}),
 		AppService: wrapService(actual.AppService, {
 			existsApp: vi.fn(async () => false),
-			getAppByPathWithDraft: vi.fn(async () => {
-				throw new Error('getAppByPathWithDraft mock not configured')
+			getAppByPath: vi.fn(async () => {
+				throw new Error('getAppByPath mock not configured')
 			}),
 			listApps: vi.fn(async () => [])
 		}),
@@ -537,23 +534,14 @@ describe('global AI tools', () => {
 
 	it('preserves existing script metadata and seeds freshness on first script write', async () => {
 		vi.mocked(ScriptService.existsScriptByPath).mockResolvedValueOnce(true)
-		vi.mocked(ScriptService.getScriptByPathWithDraft).mockResolvedValueOnce({
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
 			path: 'f/scripts/existing',
 			hash: 'deployed-hash',
-			draft_created_at: '2026-05-22T10:00:00Z',
 			summary: 'deployed summary',
 			description: 'deployed description',
 			content: 'old deployed content',
 			language: 'bun',
-			kind: 'script',
-			draft: {
-				path: 'f/scripts/existing',
-				summary: 'db draft summary',
-				description: 'db draft description',
-				content: 'old draft content',
-				language: 'bun',
-				kind: 'script'
-			}
+			kind: 'script'
 		} as any)
 
 		await callGlobalTool('write_script', {
@@ -569,20 +557,19 @@ describe('global AI tools', () => {
 			path: 'f/scripts/existing',
 			parent_hash: 'deployed-hash',
 			summary: 'new summary',
-			description: 'db draft description',
+			description: 'deployed description',
 			content: 'new content',
 			language: 'bun'
 		})
 		expect(UserDraft.getMeta('script', 'f/scripts/existing', { workspace: WORKSPACE })).toEqual({
-			remoteRev: 'deployed-hash',
-			remoteDraftRev: '2026-05-22T10:00:00Z'
+			remoteRev: 'deployed-hash'
 		})
 	})
 
 	it('preserves existing flow metadata and seeds freshness on first flow write', async () => {
 		vi.mocked(FlowService.existsFlowByPath).mockResolvedValueOnce(true)
 		vi.mocked(FlowService.getFlowLatestVersion).mockResolvedValueOnce({ id: 42 } as any)
-		vi.mocked(FlowService.getFlowByPathWithDraft).mockResolvedValueOnce({
+		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
 			path: 'f/flows/existing',
 			summary: 'deployed summary',
 			description: 'deployed description',
@@ -591,19 +578,7 @@ describe('global AI tools', () => {
 			edited_by: 'admin',
 			edited_at: '2026-05-22T09:00:00Z',
 			archived: false,
-			extra_perms: {},
-			draft_created_at: '2026-05-22T10:00:00Z',
-			draft: {
-				path: 'f/flows/existing',
-				summary: 'db draft summary',
-				description: 'db draft description',
-				value: { modules: [] },
-				schema: { properties: { draft: { type: 'string' } } },
-				edited_by: 'admin',
-				edited_at: '2026-05-22T09:30:00Z',
-				archived: false,
-				extra_perms: {}
-			}
+			extra_perms: {}
 		} as any)
 
 		await callGlobalTool('write_flow', {
@@ -615,12 +590,11 @@ describe('global AI tools', () => {
 		expect(UserDraft.get<any>('flow', 'f/flows/existing', { workspace: WORKSPACE })).toMatchObject({
 			path: 'f/flows/existing',
 			summary: 'new summary',
-			description: 'db draft description',
+			description: 'deployed description',
 			value: { modules: [{ id: 'step', value: { type: 'identity' } }] }
 		})
 		expect(UserDraft.getMeta('flow', 'f/flows/existing', { workspace: WORKSPACE })).toEqual({
-			remoteRev: 42,
-			remoteDraftRev: '2026-05-22T10:00:00Z'
+			remoteRev: 42
 		})
 	})
 
@@ -733,32 +707,22 @@ describe('global AI tools', () => {
 	})
 
 	it('seeds raw app draft metadata on first app write', async () => {
-		vi.mocked(AppService.getAppByPathWithDraft).mockResolvedValueOnce({
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
 			path: 'f/apps/report',
 			summary: 'deployed app',
 			versions: [3, 4],
-			draft_created_at: '2026-05-22T10:30:00Z',
 			value: {
 				files: { '/src/App.tsx': 'deployed content' },
-				runnables: {},
-				data: { tables: [] }
+				runnables: {
+					main: {
+						type: 'inline',
+						inlineScript: { language: 'bun', content: 'export async function main() {}' }
+					}
+				},
+				data: { tables: ['orders'], datatable: 'db', schema: 'public' }
 			},
 			policy: { execution_mode: 'publisher' },
-			custom_path: 'report',
-			draft: {
-				summary: 'saved app draft',
-				value: {
-					files: { '/src/App.tsx': 'draft content' },
-					runnables: {
-						main: {
-							type: 'inline',
-							inlineScript: { language: 'bun', content: 'export async function main() {}' }
-						}
-					},
-					data: { tables: ['orders'], datatable: 'db', schema: 'public' }
-				},
-				policy: { execution_mode: 'anonymous' }
-			}
+			custom_path: 'report'
 		} as any)
 
 		await callGlobalTool('write_app_file', {
@@ -769,9 +733,9 @@ describe('global AI tools', () => {
 
 		const draft = UserDraft.get<any>('raw_app', 'f/apps/report', { workspace: WORKSPACE })
 		expect(draft).toMatchObject({
-			summary: 'saved app draft',
+			summary: 'deployed app',
 			files: {
-				'/src/App.tsx': 'draft content',
+				'/src/App.tsx': 'deployed content',
 				'/src/New.tsx': 'export default function New() { return null }'
 			},
 			runnables: {
@@ -781,12 +745,11 @@ describe('global AI tools', () => {
 				}
 			},
 			data: { tables: ['orders'], datatable: 'db', schema: 'public' },
-			policy: { execution_mode: 'anonymous' },
+			policy: { execution_mode: 'publisher' },
 			custom_path: 'report'
 		})
 		expect(UserDraft.getMeta('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toEqual({
-			remoteRev: 4,
-			remoteDraftRev: '2026-05-22T10:30:00Z'
+			remoteRev: 4
 		})
 	})
 
@@ -841,39 +804,31 @@ describe('global AI tools', () => {
 		expect(item.value.backend[0]).not.toHaveProperty('content')
 	})
 
-	it('summarizes backend raw app drafts from the same source as file reads', async () => {
-		const appWithDraft = {
+	it('summarizes backend raw apps from the same source as file reads', async () => {
+		const deployedApp = {
 			path: 'f/apps/report',
 			summary: 'deployed app',
 			versions: [5],
 			value: {
-				files: { '/src/App.tsx': 'deployed content' },
-				runnables: {},
-				data: { tables: ['deployed'] }
-			},
-			draft: {
-				summary: 'saved app draft',
-				value: {
-					files: {
-						'/src/App.tsx': 'draft content',
-						'/src/DraftOnly.tsx': 'draft-only content'
-					},
-					runnables: {
-						main: {
-							type: 'inline',
-							inlineScript: {
-								language: 'bun',
-								content: 'export async function main() { return "draft" }'
-							}
+				files: {
+					'/src/App.tsx': 'deployed content',
+					'/src/Helper.tsx': 'helper content'
+				},
+				runnables: {
+					main: {
+						type: 'inline',
+						inlineScript: {
+							language: 'bun',
+							content: 'export async function main() { return "deployed" }'
 						}
-					},
-					data: { tables: ['draft'] }
-				}
+					}
+				},
+				data: { tables: ['deployed'] }
 			}
 		}
-		vi.mocked(AppService.getAppByPathWithDraft)
-			.mockResolvedValueOnce(appWithDraft as any)
-			.mockResolvedValueOnce(appWithDraft as any)
+		vi.mocked(AppService.getAppByPath)
+			.mockResolvedValueOnce(deployedApp as any)
+			.mockResolvedValueOnce(deployedApp as any)
 
 		const raw = await callGlobalTool('read_workspace_item', {
 			type: 'app',
@@ -881,15 +836,14 @@ describe('global AI tools', () => {
 		})
 		const item = JSON.parse(raw)
 
-		expect(raw).not.toContain('draft-only content')
 		expect(item).toMatchObject({
 			type: 'app',
 			path: 'f/apps/report',
-			summary: 'saved app draft',
+			summary: 'deployed app',
 			value: {
 				frontend: [
-					{ path: '/src/App.tsx', size: 'draft content'.length },
-					{ path: '/src/DraftOnly.tsx', size: 'draft-only content'.length }
+					{ path: '/src/App.tsx', size: 'deployed content'.length },
+					{ path: '/src/Helper.tsx', size: 'helper content'.length }
 				],
 				backend: [
 					expect.objectContaining({
@@ -897,10 +851,10 @@ describe('global AI tools', () => {
 						name: 'main',
 						type: 'inline',
 						language: 'bun',
-						contentSize: 'export async function main() { return "draft" }'.length
+						contentSize: 'export async function main() { return "deployed" }'.length
 					})
 				],
-				data: { tables: ['draft'] }
+				data: { tables: ['deployed'] }
 			},
 			isDraft: false
 		})
@@ -908,14 +862,14 @@ describe('global AI tools', () => {
 		await expect(
 			callGlobalTool('read_app_file', {
 				path: 'f/apps/report',
-				file_path: '/src/DraftOnly.tsx'
+				file_path: '/src/Helper.tsx'
 			})
-		).resolves.toBe('draft-only content')
+		).resolves.toBe('helper content')
 		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
 	it('reads raw app files without creating a local draft', async () => {
-		vi.mocked(AppService.getAppByPathWithDraft).mockResolvedValueOnce({
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
 			path: 'f/apps/report',
 			summary: 'deployed app',
 			versions: [5],
@@ -923,14 +877,6 @@ describe('global AI tools', () => {
 				files: { '/src/App.tsx': 'deployed content' },
 				runnables: {},
 				data: { tables: [] }
-			},
-			draft: {
-				summary: 'saved app draft',
-				value: {
-					files: { '/src/App.tsx': 'draft content' },
-					runnables: {},
-					data: { tables: [] }
-				}
 			}
 		} as any)
 
@@ -939,12 +885,12 @@ describe('global AI tools', () => {
 				path: 'f/apps/report',
 				file_path: '/src/App.tsx'
 			})
-		).resolves.toBe('draft content')
+		).resolves.toBe('deployed content')
 		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
 	it('does not persist a raw app draft when patch_app_file validation fails', async () => {
-		vi.mocked(AppService.getAppByPathWithDraft).mockResolvedValueOnce({
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
 			path: 'f/apps/report',
 			summary: 'deployed app',
 			versions: [5],
@@ -968,7 +914,7 @@ describe('global AI tools', () => {
 	})
 
 	it('does not persist a raw app draft when delete_app_file validation fails', async () => {
-		vi.mocked(AppService.getAppByPathWithDraft).mockResolvedValueOnce({
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
 			path: 'f/apps/report',
 			summary: 'deployed app',
 			versions: [5],
@@ -989,7 +935,7 @@ describe('global AI tools', () => {
 	})
 
 	it('does not persist a raw app draft when delete_app_runnable validation fails', async () => {
-		vi.mocked(AppService.getAppByPathWithDraft).mockResolvedValueOnce({
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
 			path: 'f/apps/report',
 			summary: 'deployed app',
 			versions: [5],

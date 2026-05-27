@@ -6,15 +6,14 @@
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
-	import { FlowService, type Flow, DraftService } from '$lib/gen'
+	import { FlowService, type Flow } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
-	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { DELETE, copyToClipboard, isOwner } from '$lib/utils'
+	import { copyToClipboard, isOwner } from '$lib/utils'
 	import { isDeployable } from '$lib/utils_deployable'
 
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
@@ -39,7 +38,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
-		flow: Flow & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
+		flow: Flow & { draft_only?: boolean; canWrite: boolean }
 		marked: string | undefined
 		shareModal: ShareModal
 		moveDrawer: MoveDrawer
@@ -121,7 +120,6 @@
 			<Badge color="red" baseClass="border">archived</Badge>
 		{/if}
 		<SharedBadge canWrite={flow.canWrite} extraPerms={flow.extra_perms} />
-		<DraftBadge has_draft={flow.has_draft} draft_only={flow.draft_only} />
 		{#if flow.labels?.length}
 			<div class="flex items-center gap-0.5">
 				{#each flow.labels.slice(0, 3) as label}
@@ -180,7 +178,7 @@
 			aiId={`flow-row-dropdown-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
 			aiDescription={`Open dropdown for flow ${flow.summary?.length > 0 ? flow.summary : flow.path} options`}
 			items={async () => {
-				let { draft_only, path, archived, has_draft } = flow
+				let { draft_only, path, archived } = flow
 				let owner = isOwner(path, $userStore, $workspaceStore)
 				const canEdit = flow.canWrite && showEditButton
 				if (draft_only) {
@@ -293,25 +291,6 @@
 						disabled: !owner || !canEdit,
 						hide: $userStore?.operator
 					},
-					...(has_draft
-						? [
-								{
-									displayName: 'Delete Draft',
-									icon: Trash,
-									action: async () => {
-										await DraftService.deleteDraft({
-											workspace: $workspaceStore ?? '',
-											path,
-											kind: 'flow'
-										})
-										dispatch('change')
-									},
-									type: DELETE,
-									disabled: !owner,
-									hide: $userStore?.operator
-								}
-							]
-						: []),
 					{
 						displayName: 'Delete',
 						icon: Trash,

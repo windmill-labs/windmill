@@ -79,7 +79,6 @@ pub struct ListableFlow {
     pub archived: bool,
     pub extra_perms: serde_json::Value,
     pub starred: bool,
-    pub has_draft: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]

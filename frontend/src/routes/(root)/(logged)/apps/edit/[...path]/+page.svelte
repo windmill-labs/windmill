@@ -1,13 +1,8 @@
 <script lang="ts">
 	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
-	import {
-		AppService,
-		type AppWithLastVersion,
-		type AppWithLastVersionWDraft,
-		DraftService
-	} from '$lib/gen'
+	import { AppService, type AppWithLastVersion } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { cleanValueProperties, orderedJsonStringify, type Value } from '$lib/utils'
+	import { cleanValueProperties, orderedJsonStringify } from '$lib/utils'
 	import { replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -21,17 +16,13 @@
 	import { UserDraft, checkStaleness, type UserDraftMeta } from '$lib/userDraft.svelte'
 	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 
-	let app = $state(
-		undefined as (AppWithLastVersion & { draft_only?: boolean; value: any }) | undefined
-	)
+	let app = $state(undefined as (AppWithLastVersion & { value: any }) | undefined)
 	let savedApp:
 		| {
 				value: App
-				draft?: any
 				path: string
 				summary: string
 				policy: any
-				draft_only?: boolean
 				custom_path?: string
 		  }
 		| undefined = $state(undefined)
@@ -43,7 +34,7 @@
 	let staleModalOpen = $state(false)
 	let staleModalCause = $state<'draft' | 'version'>('version')
 	let pendingBaseline:
-		| { baseline: AppWithLastVersion & { draft_only?: boolean; value: any }; revs: UserDraftMeta }
+		| { baseline: AppWithLastVersion & { value: any }; revs: UserDraftMeta }
 		| undefined = undefined
 
 	// Backend revs at the most recent `loadApp` — handed to AppEditor as
@@ -97,60 +88,32 @@
 	let loadAppToken = 0
 	async function loadApp(): Promise<void> {
 		const tok = ++loadAppToken
-		const app_w_draft = await AppService.getAppByPathWithDraft({
+		const backendApp = await AppService.getAppByPath({
 			path: page.params.path ?? '',
 			workspace: $workspaceStore!
 		})
 		if (tok !== loadAppToken) return
-		const app_w_draft_: AppWithLastVersionWDraft = structuredClone(stateSnapshot(app_w_draft))
+		const backendApp_ = structuredClone(stateSnapshot(backendApp))
 		savedApp = {
-			summary: app_w_draft_.summary,
-			value: app_w_draft_.value as App,
-			path: app_w_draft_.path,
-			policy: app_w_draft_.policy,
-			draft_only: app_w_draft_.draft_only,
-			draft:
-				app_w_draft_.draft?.['summary'] !== undefined // backward compatibility for old drafts missing metadata
-					? app_w_draft_.draft
-					: app_w_draft_.draft
-						? {
-								summary: app_w_draft_.summary,
-								value: app_w_draft_.draft,
-								path: app_w_draft_.path,
-								policy: app_w_draft_.policy,
-								custom_path: app_w_draft_.custom_path
-							}
-						: undefined,
-			custom_path: app_w_draft_.custom_path
+			summary: backendApp_.summary,
+			value: backendApp_.value as App,
+			path: backendApp_.path,
+			policy: backendApp_.policy,
+			custom_path: backendApp_.custom_path
 		}
-
-		// Resolve the app value: backend draft > deployed, then overlay any
-		// local autosave from UserDraft if present.
-		const backendApp = app_w_draft.draft
-			? app_w_draft.summary !== undefined
-				? ({ ...app_w_draft, ...app_w_draft.draft } as AppWithLastVersion & {
-						draft_only?: boolean
-						value: any
-					})
-				: ({ ...app_w_draft, value: app_w_draft.draft } as AppWithLastVersion & {
-						draft_only?: boolean
-						value: any
-					})
-			: app_w_draft
 
 		const localDraftValue = UserDraft.get<App>('app', path)
 		const previousMeta = UserDraft.getMeta('app', path)
 		const newRevs: UserDraftMeta = {
-			remoteRev: app_w_draft.versions
-				? app_w_draft.versions[app_w_draft.versions.length - 1]
-				: undefined,
-			remoteDraftRev: app_w_draft.draft_created_at
+			remoteRev: backendApp.versions
+				? backendApp.versions[backendApp.versions.length - 1]
+				: undefined
 		}
 		currentRevs = newRevs
 		if (
 			localDraftValue != undefined &&
 			orderedJsonStringify(cleanValueProperties(localDraftValue)) !==
-				orderedJsonStringify(cleanValueProperties(backendApp.value))
+				orderedJsonStringify(cleanValueProperties(backendApp.value as any))
 		) {
 			const cause = checkStaleness(previousMeta, newRevs.remoteRev, newRevs.remoteDraftRev)
 			if (cause) {
@@ -162,9 +125,7 @@
 					// Legacy entry — backfill meta so the next load can detect staleness.
 					UserDraft.saveMeta('app', path, newRevs)
 				}
-				const appPath = backendApp.path
-				const hasBackendDraft = app_w_draft.draft != undefined
-				notifyRestoredFromLocal(hasBackendDraft, !app_w_draft.draft_only, {
+				notifyRestoredFromLocal(false, true, {
 					onResetToSavedDraft: () => {
 						UserDraft.discard('app', path, undefined)
 						currentRevs = newRevs
@@ -172,15 +133,8 @@
 						redraw++
 					},
 					onResetToDeployed: async () => {
-						if (hasBackendDraft) {
-							await DraftService.deleteDraft({
-								workspace: $workspaceStore!,
-								kind: 'app',
-								path: appPath
-							})
-						}
 						UserDraft.discard('app', path, undefined)
-						goto(`/apps/edit/${appPath}`)
+						goto(`/apps/edit/${backendApp.path}`)
 						await loadApp()
 						redraw++
 					}
@@ -192,35 +146,6 @@
 			// doesn't haunt the next session and use the backend value.
 			if (localDraftValue != undefined) UserDraft.remove('app', path)
 			app = backendApp
-		}
-
-		if (app_w_draft.draft && !app_w_draft.draft_only && localDraftValue == undefined) {
-			const reloadAction = () => {
-				app = app_w_draft
-				redraw++
-			}
-
-			const deployed = cleanValueProperties(app_w_draft as Value)
-			const draft = cleanValueProperties(app ?? {})
-			sendUserToast('app loaded from latest saved draft', false, [
-				{
-					label: 'Reset to deployed',
-					callback: reloadAction
-				},
-				{
-					label: 'Show diff',
-					callback: async () => {
-						diffDrawer?.openDrawer()
-						diffDrawer?.setDiff({
-							mode: 'simple',
-							original: deployed,
-							current: draft,
-							title: 'Deployed <> Draft',
-							button: { text: 'Discard draft', onClick: reloadAction }
-						})
-					}
-				}
-			])
 		}
 	}
 
@@ -239,31 +164,12 @@
 		}
 	})
 
-	async function restoreDraft() {
-		if (!savedApp || !savedApp.draft) {
-			sendUserToast('Could not restore to draft', true)
-			return
-		}
-		diffDrawer?.closeDrawer()
-		UserDraft.discard('app', path, undefined)
-		goto(`/apps/edit/${savedApp.draft.path}`)
-		await loadApp()
-		redraw++
-	}
-
 	async function restoreDeployed() {
 		if (!savedApp) {
 			sendUserToast('Could not restore to deployed', true)
 			return
 		}
 		diffDrawer?.closeDrawer()
-		if (savedApp.draft) {
-			await DraftService.deleteDraft({
-				workspace: $workspaceStore!,
-				kind: 'app',
-				path: savedApp.path
-			})
-		}
 		UserDraft.discard('app', path, undefined)
 		goto(`/apps/edit/${savedApp.path}`)
 		await loadApp()
@@ -287,7 +193,7 @@
 	}
 </script>
 
-<DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
+<DiffDrawer bind:this={diffDrawer} {restoreDeployed} />
 <LocalDraftStaleModal
 	open={staleModalOpen}
 	cause={staleModalCause}

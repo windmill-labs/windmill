@@ -280,10 +280,6 @@
 			if ($workspaceStore) invalidate($workspaceStore, 'script')
 			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
 		}}
-		onSaveInitial={(e) => {
-			if ($workspaceStore) invalidate($workspaceStore, 'script')
-			goto(`/scripts/edit/${e.path}`)
-		}}
 		onNavigate={(item) => goto(editPathFor(item))}
 		searchParams={page.url.searchParams}
 		bind:script={scriptHandle.draft}

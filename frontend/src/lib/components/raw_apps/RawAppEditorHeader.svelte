@@ -5,7 +5,7 @@
 	import { editPathFor, invalidate as invalidatePicker } from '$lib/components/workspacePicker'
 	import { invalidateWorkspacePaths } from '$lib/components/PathNameAutocomplete.svelte'
 
-	import { AppService, DraftService, type Policy } from '$lib/gen'
+	import { AppService, type Policy } from '$lib/gen'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { rawAppToHubUrl } from '$lib/hub'
 	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
@@ -26,12 +26,7 @@
 		WandSparkles
 	} from 'lucide-svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
-	import {
-		cleanValueProperties,
-		orderedJsonStringify,
-		type Value,
-		replaceFalseWithUndefined
-	} from '../../utils'
+	import { orderedJsonStringify, type Value, replaceFalseWithUndefined } from '../../utils'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 
 	// import {  allItems, toStatic } from '../apps/editor/settingsPanel/utils'
@@ -51,7 +46,6 @@
 	import type { SavedAndModifiedValue } from '../common/confirmationModal/unsavedTypes'
 	import DropdownV2 from '../DropdownV2.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
-	import AppEditorHeaderDeployInitialDraft from '../apps/editor/AppEditorHeaderDeployInitialDraft.svelte'
 	import AppEditorHeaderDeploy from '../apps/editor/AppEditorHeaderDeploy.svelte'
 	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 	import { updateRawAppPolicy } from './rawAppPolicy'
@@ -96,11 +90,9 @@
 		savedApp?:
 			| {
 					value: any
-					draft?: any
 					path: string
 					summary: string
 					policy: any
-					draft_only?: boolean
 					custom_path?: string
 			  }
 			| undefined
@@ -186,14 +178,12 @@
 
 	const loading = $state({
 		publish: false,
-		save: false,
-		saveDraft: false
+		save: false
 	})
 
 	let pathError: string = $state('')
 	let appExport = $state() as AppExportButton | undefined
 
-	let draftDrawerOpen = $state(false)
 	let saveDrawerOpen = $state(false)
 	let historyBrowserDrawerOpen = $state(false)
 	let publishToHubDrawerOpen = $state(false)
@@ -237,10 +227,6 @@
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
-	}
-
-	function closeDraftDrawer() {
-		draftDrawerOpen = false
 	}
 
 	async function computeTriggerables() {
@@ -313,7 +299,7 @@
 						replaceFalseWithUndefined({
 							summary: summary,
 							value: app,
-							path: newEditedPath || savedApp.draft?.path || savedApp.path,
+							path: newEditedPath || savedApp.path,
 							policy,
 							custom_path: customPath
 						})
@@ -422,175 +408,6 @@
 		return
 	}
 
-	async function saveInitialDraft() {
-		if (!app) {
-			sendUserToast(`App hasn't been loaded yet`, true)
-			return
-		}
-		await computeTriggerables()
-		try {
-			let { css, js } = await getBundle()
-			await AppService.createAppRaw({
-				workspace: $workspaceStore!,
-				formData: {
-					app: {
-						value: app,
-						path: newEditedPath,
-						summary: summary,
-						policy,
-						draft_only: true,
-						custom_path: customPath
-					},
-					js,
-					css
-				}
-			})
-			await DraftService.createDraft({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path: newEditedPath,
-					typ: 'app',
-					value: {
-						value: app,
-						path: newEditedPath,
-						summary: summary,
-						policy,
-						custom_path: customPath
-					}
-				}
-			})
-			savedApp = {
-				summary: summary,
-				value: structuredClone(stateSnapshot(app)),
-				path: newEditedPath,
-				policy,
-				draft_only: true,
-				draft: {
-					summary: summary,
-					value: structuredClone(stateSnapshot(app)),
-					path: newEditedPath,
-					policy,
-					custom_path: customPath
-				},
-				custom_path: customPath
-			}
-
-			draftDrawerOpen = false
-			// The initial draft was promoted to a real path on the backend —
-			// drop the autosave keyed on the prior (possibly empty) path so
-			// a future "+ App" click opens on a clean slate.
-			UserDraft.remove('raw_app', appPath)
-			dispatch('savedNewAppPath', newEditedPath)
-		} catch (e) {
-			sendUserToast(`Error saving initial draft: ${e.body ?? e.message}`, true)
-		}
-		draftDrawerOpen = false
-	}
-
-	async function saveDraft(forceSave = false) {
-		if (!app) {
-			sendUserToast(`App hasn't been loaded yet`, true)
-			return
-		}
-		if (newApp) {
-			// initial draft
-			draftDrawerOpen = true
-			return
-		}
-		if (!savedApp) {
-			return
-		}
-		const draftOrDeployed = cleanValueProperties(savedApp.draft || savedApp)
-		const current = cleanValueProperties({
-			summary: summary,
-			value: app,
-			path: newEditedPath || savedApp.draft?.path || savedApp.path,
-			policy
-		})
-		if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
-			sendUserToast('No changes detected, ignoring', false, [
-				{
-					label: 'Save anyway',
-					callback: () => {
-						saveDraft(true)
-					}
-				}
-			])
-			return
-		}
-		loading.saveDraft = true
-		try {
-			await computeTriggerables()
-			let path = appPath
-			if (savedApp.draft_only) {
-				await AppService.deleteApp({
-					workspace: $workspaceStore!,
-					path: path
-				})
-				let { css, js } = await getBundle()
-
-				await AppService.createAppRaw({
-					workspace: $workspaceStore!,
-					formData: {
-						app: {
-							value: app!,
-							summary: summary,
-							policy,
-							path: newEditedPath || path,
-							draft_only: true,
-							custom_path: customPath
-						},
-						js,
-						css
-					}
-				})
-			}
-			await DraftService.createDraft({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path: savedApp.draft_only ? newEditedPath || path : path,
-					typ: 'app',
-					value: {
-						value: app!,
-						summary: summary,
-						policy,
-						path: newEditedPath || path
-					}
-				}
-			})
-
-			savedApp = {
-				...(savedApp?.draft_only
-					? {
-							summary: summary,
-							value: structuredClone(stateSnapshot(app)),
-							path: savedApp.draft_only ? newEditedPath || path : path,
-							policy,
-							draft_only: true,
-							custom_path: customPath
-						}
-					: savedApp),
-				draft: {
-					summary: summary,
-					value: structuredClone(stateSnapshot(app)),
-					path: newEditedPath || path,
-					policy,
-					custom_path: customPath
-				}
-			}
-
-			sendUserToast('Draft saved')
-			UserDraft.remove('raw_app', path)
-			loading.saveDraft = false
-			if (newApp || savedApp.draft_only) {
-				dispatch('savedNewAppPath', newEditedPath || path)
-			}
-		} catch (e) {
-			loading.saveDraft = false
-			throw e
-		}
-	}
-
 	let onLatest = $state(true)
 	async function compareVersions() {
 		if (version === undefined) {
@@ -613,13 +430,6 @@
 	let moreItems = $derived([
 		...(compactTopbar
 			? [
-					{
-						displayName: 'Save draft',
-						icon: Save,
-						action: () => saveDraft(),
-						shortcut: `${mod}S`,
-						disabled: !newApp && !savedApp
-					},
 					{
 						displayName: `Jobs (${jobs?.length > 99 ? '99+' : (jobs?.length ?? 0)})`,
 						icon: Bug,
@@ -685,11 +495,10 @@
 				diffDrawer?.setDiff({
 					mode: 'normal',
 					deployed: deployedValue ?? savedApp,
-					draft: savedApp.draft,
 					current: {
 						summary: summary,
 						value: app,
-						path: newEditedPath || savedApp.draft?.path || savedApp.path,
+						path: newEditedPath || savedApp.path,
 						policy,
 						custom_path: customPath
 					}
@@ -712,7 +521,7 @@
 			modifiedValue: {
 				summary: summary,
 				value: app,
-				path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
+				path: newEditedPath || savedApp?.path,
 				policy,
 				custom_path: customPath
 			}
@@ -736,44 +545,19 @@
 	currentValue={{
 		summary: summary,
 		value: app,
-		path: newEditedPath || savedApp?.draft?.path || savedApp?.path,
+		path: newEditedPath || savedApp?.path,
 		policy,
 		custom_path: customPath
 	}}
 />
 
-{#if appPath == ''}
-	<Drawer bind:open={draftDrawerOpen} size="800px">
-		<DrawerContent title="Initial draft save" on:close={() => closeDraftDrawer()}>
-			{#snippet actions()}
-				<div>
-					<Button
-						startIcon={{ icon: Save }}
-						disabled={pathError != '' || app == undefined}
-						on:click={() => saveInitialDraft()}
-						unifiedSize="md"
-						variant="accent"
-					>
-						Save initial draft
-					</Button>
-				</div>
-			{/snippet}
-			<AppEditorHeaderDeployInitialDraft
-				bind:summary
-				bind:appPath
-				bind:pathError
-				bind:newEditedPath
-			/>
-		</DrawerContent>
-	</Drawer>
-{/if}
 <Drawer bind:open={saveDrawerOpen} size="800px">
 	<DrawerContent title="Deploy" on:close={() => closeSaveDrawer()}>
 		{#snippet actions()}
 			<div class="flex flex-row gap-2">
 				<Button
 					variant="default"
-					disabled={!savedApp || savedApp.draft_only}
+					disabled={!savedApp}
 					on:click={async () => {
 						if (!savedApp) {
 							return
@@ -786,11 +570,10 @@
 						diffDrawer?.setDiff({
 							mode: 'normal',
 							deployed: deployedValue ?? savedApp,
-							draft: savedApp.draft,
 							current: {
 								summary: summary,
 								value: app,
-								path: newEditedPath || savedApp.draft?.path || savedApp.path,
+								path: newEditedPath || savedApp.path,
 								policy,
 								custom_path: customPath
 							},
@@ -976,19 +759,6 @@
 				btnClasses={AIBtnClasses('default')}
 			>
 				AI
-			</Button>
-		{/if}
-		{#if !compactTopbar}
-			<Button
-				loading={loading.save}
-				startIcon={{ icon: Save }}
-				on:click={() => saveDraft()}
-				unifiedSize="md"
-				variant="default"
-				disabled={!newApp && !savedApp}
-				shortCut={{ key: 'S' }}
-			>
-				Draft
 			</Button>
 		{/if}
 		<Button
