@@ -209,9 +209,14 @@
 			custom_path: backendSource.custom_path ?? backendApp.custom_path
 		}
 
+		// Merge defaults from `backendBundle` first so a localDraft with a
+		// missing key (e.g. legacy autosaves written before `policy` /
+		// `custom_path` were added to the bundle) doesn't read as "user has
+		// unsaved changes" and fire the restore toast on every open.
+		const localBundle = localDraft != undefined ? { ...backendBundle, ...localDraft } : undefined
 		if (
-			localDraft != undefined &&
-			orderedJsonStringify(cleanValueProperties(localDraft)) !==
+			localBundle != undefined &&
+			orderedJsonStringify(cleanValueProperties(localBundle)) !==
 				orderedJsonStringify(cleanValueProperties(backendBundle))
 		) {
 			const cause = checkStaleness(previousMeta, newRevs.remoteRev, newRevs.remoteDraftRev)
@@ -242,12 +247,12 @@
 					}
 				})
 			}
-			runnables = localDraft.runnables
-			data = localDraft.data
-			summary = localDraft.summary
-			policy = localDraft.policy ?? backendApp.policy
+			runnables = localBundle.runnables
+			data = localBundle.data
+			summary = localBundle.summary
+			policy = localBundle.policy ?? backendApp.policy
 			newPath = backendApp.path
-			files = localDraft.files
+			files = localBundle.files
 		} else {
 			if (localDraft != undefined) UserDraft.remove('raw_app', path)
 			extractRawApp(backendSource)
