@@ -22,6 +22,7 @@ import {
   showConflict,
   showDiff,
   extractNativeTriggerInfo,
+  redactEncryptionKey,
 } from "../../types.ts";
 import { downloadZip } from "./pull.ts";
 import { runLint, printReport, checkMissingLocks } from "../lint/lint.ts";
@@ -3095,16 +3096,22 @@ function prettyChanges(
         ),
       );
     } else if (change.name === "edited") {
+      const changeType = getTypeStrFromPath(change.path);
       log.info(
         colors.yellow(
-          `~ ${getTypeStrFromPath(change.path)} ` +
+          `~ ${changeType} ` +
             displayPath +
             colors.gray(wsNote) +
             (change.codebase ? ` (codebase changed)` : ""),
         ),
       );
       if (change.before != change.after) {
-        if (change.path.endsWith(".yaml")) {
+        if (changeType === "encryption_key") {
+          showDiff(
+            redactEncryptionKey(change.before),
+            redactEncryptionKey(change.after),
+          );
+        } else if (change.path.endsWith(".yaml")) {
           try {
             showDiff(
               yamlStringify(
