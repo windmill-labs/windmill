@@ -640,7 +640,7 @@
 		'grow flex flex-col overflow-x-hidden scrollbar-hidden px-2 md:pb-2 justify-between gap-2'
 	)}
 >
-	<div class={twMerge('pt-4 mb-6 md:mb-10 flex flex-col grow')}>
+	<div class={twMerge('pt-4 flex flex-col grow')}>
 		<div class="space-y-1">
 			{#each mainMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
 				<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
@@ -717,8 +717,8 @@
 				</div>
 			{/if}
 		</div>
-		<div class="flex flex-col mt-auto">
-			<Menubar class="flex flex-col gap-1 mb-6 md:mb-10">
+		<div class="flex flex-col gap-2 mt-auto pt-4">
+			<Menubar class="flex flex-col gap-1">
 				{#snippet children({ createMenu })}
 					<UserMenu {isCollapsed} {createMenu} />
 
