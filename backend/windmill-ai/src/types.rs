@@ -164,6 +164,30 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
 pub struct ProviderResource {
     #[serde(alias = "apiKey", default, deserialize_with = "empty_string_as_none")]
     pub api_key: Option<String>,
+    #[serde(
+        alias = "accessToken",
+        default,
+        deserialize_with = "empty_string_as_none"
+    )]
+    pub access_token: Option<String>,
+    #[serde(
+        alias = "refreshToken",
+        default,
+        deserialize_with = "empty_string_as_none"
+    )]
+    pub refresh_token: Option<String>,
+    #[serde(
+        alias = "expiresAt",
+        default,
+        deserialize_with = "empty_string_as_none"
+    )]
+    pub expires_at: Option<String>,
+    #[serde(
+        alias = "accountId",
+        default,
+        deserialize_with = "empty_string_as_none"
+    )]
+    pub account_id: Option<String>,
     #[serde(alias = "baseUrl", default, deserialize_with = "empty_string_as_none")]
     pub base_url: Option<String>,
     #[allow(dead_code)]
@@ -234,11 +258,18 @@ impl ProviderWithResource {
             self.get_base_url(db).await?
         };
 
+        let mut custom_headers = self.resource.headers.clone();
+        if self.kind == AIProvider::OpenAIChatGPTAccount {
+            if let Some(account_id) = self.resource.account_id.as_ref() {
+                custom_headers.insert("chatgpt-account-id".to_string(), account_id.clone());
+            }
+        }
+
         Ok(ProviderCredentials {
             provider: self.kind.clone(),
             base_url,
             api_key: self.resource.api_key.clone(),
-            access_token: None,
+            access_token: self.resource.access_token.clone(),
             organization_id: None,
             user: None,
             region: self.resource.region.clone(),
@@ -247,7 +278,7 @@ impl ProviderWithResource {
             aws_session_token: self.resource.aws_session_token.clone(),
             platform: self.resource.platform.clone(),
             enable_1m_context: self.resource.enable_1m_context,
-            custom_headers: self.resource.headers.clone(),
+            custom_headers,
         })
     }
 

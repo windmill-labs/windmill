@@ -1,6 +1,7 @@
 pub mod anthropic;
 #[cfg(feature = "bedrock")]
 pub mod bedrock;
+pub(crate) mod codex;
 pub mod google_ai;
 pub mod openai;
 pub mod openrouter;
@@ -19,7 +20,9 @@ use self::{
 pub fn create_query_builder(credentials: &ProviderCredentials) -> Box<dyn QueryBuilder> {
     match credentials.provider {
         AIProvider::GoogleAI => Box::new(GoogleAIQueryBuilder::new(credentials.platform.clone())),
-        AIProvider::OpenAI => Box::new(OpenAIQueryBuilder::new(credentials.provider.clone())),
+        AIProvider::OpenAI | AIProvider::OpenAIChatGPTAccount => {
+            Box::new(OpenAIQueryBuilder::new(credentials.provider.clone()))
+        }
         AIProvider::Anthropic => Box::new(AnthropicQueryBuilder::new(
             credentials.provider.clone(),
             credentials.platform.clone(),

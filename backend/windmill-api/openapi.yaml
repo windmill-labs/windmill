@@ -4071,6 +4071,66 @@ paths:
                   - has_instance_ai_config
                   - uses_instance_ai_config
 
+  /w/{workspace}/ai/openai_chatgpt_account/device/start:
+    post:
+      summary: start OpenAI ChatGPT account device auth
+      operationId: startOpenAIChatGPTAccountDeviceAuth
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: OpenAI Device Flow challenge
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenAIChatGPTAccountDeviceStartResponse"
+
+  /w/{workspace}/ai/openai_chatgpt_account/device/complete:
+    post:
+      summary: complete OpenAI ChatGPT account device auth
+      operationId: completeOpenAIChatGPTAccountDeviceAuth
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenAIChatGPTAccountDeviceCompleteRequest"
+      responses:
+        "200":
+          description: OpenAI Device Flow completion status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenAIChatGPTAccountDeviceCompleteResponse"
+
+  /w/{workspace}/ai/openai_chatgpt_account/status:
+    post:
+      summary: get OpenAI ChatGPT account auth status
+      operationId: getOpenAIChatGPTAccountStatus
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenAIChatGPTAccountStatusRequest"
+      responses:
+        "200":
+          description: OpenAI ChatGPT account auth status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenAIChatGPTAccountStatusResponse"
+
   /w/{workspace}/workspaces/get_copilot_settings_state:
     get:
       summary: get copilot settings state
@@ -20971,6 +21031,77 @@ components:
           format: int64
           description: Number of workers that pinged within last 5 minutes
 
+    OpenAIChatGPTAccountDeviceStartResponse:
+      type: object
+      properties:
+        verification_uri:
+          type: string
+        user_code:
+          type: string
+        device_auth_id:
+          type: string
+        interval_ms:
+          type: integer
+          format: uint64
+        expires_at:
+          type: string
+      required:
+        - verification_uri
+        - user_code
+        - device_auth_id
+        - interval_ms
+        - expires_at
+
+    OpenAIChatGPTAccountDeviceCompleteRequest:
+      type: object
+      properties:
+        device_auth_id:
+          type: string
+        user_code:
+          type: string
+        resource_path:
+          type: string
+      required:
+        - device_auth_id
+        - user_code
+
+    OpenAIChatGPTAccountDeviceCompleteResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        resource_path:
+          type: string
+        account_id:
+          type: string
+        expires_at:
+          type: string
+      required:
+        - status
+
+    OpenAIChatGPTAccountStatusRequest:
+      type: object
+      properties:
+        resource_path:
+          type: string
+      required:
+        - resource_path
+
+    OpenAIChatGPTAccountStatusResponse:
+      type: object
+      properties:
+        connected:
+          type: boolean
+        resource_path:
+          type: string
+        account_id:
+          type: string
+        expires_at:
+          type: string
+      required:
+        - connected
+        - resource_path
+
     DetailedHealthResponse:
       type: object
       description: Detailed health status response (always fresh, no caching)
@@ -21460,6 +21591,7 @@ components:
       enum:
         [
           openai,
+          openai_chatgpt_account,
           azure_openai,
           anthropic,
           mistral,
