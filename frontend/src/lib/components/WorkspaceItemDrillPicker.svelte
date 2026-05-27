@@ -32,6 +32,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		type WorkspaceItemKind
 	} from './workspacePicker'
 	import { listGlobalDrafts } from '$lib/components/copilot/chat/global/userDraftAdapter'
+	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 
 	type Kind = WorkspaceItemKind
 	type Item = WorkspaceItem
@@ -157,8 +158,15 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	// `UserDraft` (workspace-scoped, localStorage-backed). Merge those into
 	// the picker so users can navigate to in-flight items that haven't been
 	// deployed yet. Filter to kinds the picker actually displays.
+	//
+	// Gated on the same dev flag as the rest of the sessions feature: without
+	// it there are no sessions, so the only UserDrafts present are the
+	// standalone editors' autosaves — surfacing those in the breadcrumb picker
+	// would be surprising (they'd appear as navigable items that 404 on the
+	// backend draft fetch). When the flag is off this is a no-op.
 	const KIND_TO_DRAFT_TYPE = { flow: 'flow', script: 'script', app: 'app' } as const
 	function aiDraftsForKind(k: Kind): Item[] {
+		if (!isGlobalAiEnabled()) return []
 		if (!$workspaceStore) return []
 		const targetType = KIND_TO_DRAFT_TYPE[k]
 		return listGlobalDrafts($workspaceStore)
