@@ -150,7 +150,7 @@
 							wrapperClasses="w-20"
 							unifiedSize="md"
 							startIcon={{ icon: Pen }}
-							href="{base}/flows/edit/{flow.path}?nodraft=true"
+							href="{base}/flows/edit/{flow.path}"
 							aiId={`edit-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
 							aiDescription={`Edits the flow ${flow.summary?.length > 0 ? flow.summary : flow.path}`}
 						>
