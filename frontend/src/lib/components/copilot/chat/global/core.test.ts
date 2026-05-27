@@ -77,6 +77,8 @@ vi.mock('$lib/gen', async () => {
 		}),
 		AppService: wrapService(actual.AppService, {
 			existsApp: vi.fn(async () => false),
+			createAppRaw: vi.fn(async () => 'created'),
+			updateAppRaw: vi.fn(async () => 'updated'),
 			getAppByPathWithDraft: vi.fn(async () => {
 				throw new Error('getAppByPathWithDraft mock not configured')
 			}),
@@ -99,9 +101,17 @@ vi.mock('$lib/gen', async () => {
 	}
 })
 
+vi.mock('./rawAppBundlerBridge', () => ({
+	bundleRawAppDraft: vi.fn(async () => ({
+		js: 'bundled js',
+		css: 'bundled css'
+	}))
+}))
+
 import { globalTools, prepareGlobalSystemMessage, prepareGlobalUserMessage } from './core'
 import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
 import { clearGlobalDrafts } from './userDraftAdapter'
+import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
 	AppService,
 	FlowService,
@@ -1011,6 +1021,111 @@ describe('global AI tools', () => {
 				key: 'missing'
 			})
 		).rejects.toThrow('Backend runnable "missing" not found in app "f/apps/report".')
+		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
+	})
+
+	it('deploys a new raw app draft by bundling files and creating a raw app', async () => {
+		UserDraft.save(
+			'raw_app',
+			'f/apps/report',
+			{
+				summary: 'AI report',
+				files: {
+					'/index.tsx': 'console.log("app")',
+					'/package.json': '{"dependencies":{"react":"19.0.0"}}'
+				},
+				runnables: {},
+				data: { tables: [] }
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		const raw = await callGlobalTool('deploy_workspace_item', {
+			type: 'app',
+			path: 'f/apps/report',
+			deployment_message: 'ship report'
+		})
+
+		expect(bundleRawAppDraft).toHaveBeenCalledWith(
+			expect.objectContaining({
+				workspace: WORKSPACE,
+				files: expect.objectContaining({
+					'/index.tsx': 'console.log("app")'
+				})
+			})
+		)
+		expect(AppService.createAppRaw).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			formData: {
+				app: {
+					path: 'f/apps/report',
+					value: {
+						files: {
+							'/index.tsx': 'console.log("app")',
+							'/package.json': '{"dependencies":{"react":"19.0.0"}}'
+						},
+						runnables: {},
+						data: { tables: [] }
+					},
+					summary: 'AI report',
+					policy: expect.objectContaining({ execution_mode: 'publisher' }),
+					deployment_message: 'ship report',
+					custom_path: undefined
+				},
+				js: 'bundled js',
+				css: 'bundled css'
+			}
+		})
+		expect(AppService.updateAppRaw).not.toHaveBeenCalled()
+		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
+		expect(JSON.parse(raw)).toMatchObject({
+			success: true,
+			type: 'app',
+			path: 'f/apps/report'
+		})
+	})
+
+	it('deploys an existing raw app draft by bundling files and updating the raw app', async () => {
+		vi.mocked(AppService.existsApp).mockResolvedValueOnce(true)
+		UserDraft.save(
+			'raw_app',
+			'f/apps/report',
+			{
+				summary: 'Updated report',
+				files: { '/index.tsx': 'console.log("updated")' },
+				runnables: {},
+				data: { tables: ['orders'] },
+				policy: { execution_mode: 'anonymous' },
+				custom_path: 'kept-by-backend'
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'app',
+			path: 'f/apps/report'
+		})
+
+		expect(AppService.updateAppRaw).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'f/apps/report',
+			formData: {
+				app: {
+					path: 'f/apps/report',
+					value: {
+						files: { '/index.tsx': 'console.log("updated")' },
+						runnables: {},
+						data: { tables: ['orders'] }
+					},
+					summary: 'Updated report',
+					policy: expect.objectContaining({ execution_mode: 'anonymous' }),
+					deployment_message: undefined
+				},
+				js: 'bundled js',
+				css: 'bundled css'
+			}
+		})
+		expect(AppService.createAppRaw).not.toHaveBeenCalled()
 		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
