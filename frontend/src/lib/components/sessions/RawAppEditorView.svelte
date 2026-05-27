@@ -134,6 +134,10 @@
 		newApp={!runtime.savedRawApp.val}
 		{diffDrawer}
 		{onNavigate}
+		onDeploy={(e) => {
+			// Sync the preview to deployed (raw apps deploy only from this editor).
+			runtime.syncPreviewWithDeployed(workspaceId, 'raw_app', e.path)
+		}}
 		defaultSidebarCollapsed
 		sidebarStorageKey="raw-app-sidebar-collapsed-preview"
 		defaultSplitWithPreview={false}

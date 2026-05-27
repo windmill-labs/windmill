@@ -66,6 +66,8 @@
 			| undefined
 		diffDrawer?: DiffDrawer | undefined
 		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
+		/** Fired after a successful deploy; the session preview reloads on it. */
+		onDeploy?: (e: { path: string }) => void
 		/** Initial collapsed state for the file/runnable sidebar. The user's
 		 * toggled preference is persisted under `sidebarStorageKey`; this prop
 		 * only seeds the very first open. */
@@ -97,6 +99,7 @@
 		savedApp = $bindable(undefined),
 		diffDrawer = undefined,
 		onNavigate,
+		onDeploy = undefined,
 		defaultSidebarCollapsed = false,
 		sidebarStorageKey = 'raw-app-sidebar-collapsed',
 		liveEditorDraftStoragePath = undefined,
@@ -1350,6 +1353,7 @@
 		{runnables}
 		{getBundle}
 		{onNavigate}
+		{onDeploy}
 		canUndo={historyManager.canUndo}
 		canRedo={historyManager.canRedo}
 		onUndo={handleUndo}

@@ -127,6 +127,8 @@
 		onToggleSidebar?: () => void
 		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
 		liveEditorDraftStoragePath?: string
+		// Fired after a successful deploy; lets the session preview reload.
+		onDeploy?: (e: { path: string }) => void
 	}
 
 	let {
@@ -152,13 +154,14 @@
 		sidebarCollapsed = false,
 		onToggleSidebar = undefined,
 		onNavigate = undefined,
-		liveEditorDraftStoragePath = undefined
+		liveEditorDraftStoragePath = undefined,
+		onDeploy = undefined
 	}: Props = $props()
 
 	let newEditedPath = $state(
 		untrack(() =>
 			newApp
-				? userPathPrefix($userStore?.username) + random_adj() + '_app'
+				? newPath || userPathPrefix($userStore?.username) + random_adj() + '_app'
 				: newPath || appPath || ''
 		)
 	)
@@ -289,6 +292,7 @@
 			sendUserToast('App deployed successfully')
 			if (!inSessionPane) UserDraft.remove('raw_app', path)
 			dispatch('savedNewAppPath', path)
+			onDeploy?.({ path })
 		} catch (e) {
 			sendUserToast(`Error creating app: ${e.body ?? e.message}`, true)
 		}
@@ -402,6 +406,7 @@
 		if (appPath !== npath) {
 			dispatch('savedNewAppPath', npath)
 		}
+		onDeploy?.({ path: npath })
 	}
 
 	async function setPublishState() {
@@ -804,7 +809,7 @@
 							button: {
 								text: 'Looks good, deploy',
 								onClick: () => {
-									if (appPath == '') {
+									if (newApp || appPath == '') {
 										createApp(newEditedPath)
 									} else {
 										handleUpdateApp(newEditedPath)
@@ -825,7 +830,7 @@
 					startIcon={{ icon: Save }}
 					disabled={pathError != '' || customPathError != '' || app == undefined}
 					on:click={() => {
-						if (appPath == '') {
+						if (newApp || appPath == '') {
 							createApp(newEditedPath)
 						} else {
 							handleUpdateApp(newEditedPath)

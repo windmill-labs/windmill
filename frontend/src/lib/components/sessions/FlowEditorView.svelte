@@ -8,6 +8,7 @@
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { initFlowState } from '$lib/components/flows/flowState'
 	import SessionItemNotFound from './SessionItemNotFound.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	let {
 		runtime,
@@ -157,5 +158,11 @@
 		{onNavigate}
 		customUi={{ topBar: { aiBuilder: false } }}
 		onSaveDraft={() => runtime.scheduleForkComparisonRefresh()}
+		onDeploy={() => {
+			// FlowBuilder has no deploy toast and the session stays put, so toast
+			// here, then sync the preview to deployed (pulls the new locks + version_id).
+			sendUserToast('Deployed')
+			runtime.syncPreviewWithDeployed(workspaceId, 'flow', path)
+		}}
 	/>
 {/if}

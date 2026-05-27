@@ -4,7 +4,7 @@
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import { untrack } from 'svelte'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
-	import { DraftService, type NewScript } from '$lib/gen'
+	import { DraftService, ScriptService, type NewScript } from '$lib/gen'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import SessionItemNotFound from './SessionItemNotFound.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -184,14 +184,26 @@
 		{diffDrawer}
 		{onNavigate}
 		{initialTestPanelCollapsed}
-		onSaveDraft={() => runtime.scheduleForkComparisonRefresh()}
-		onDeploy={() => {
-			// The default "Deploy" (stay=false) takes ScriptBuilder's no-toast
-			// branch — the regular editor's onDeploy navigates to the deployed
-			// script instead. The session stays put, so surface the success
-			// toast ourselves and refresh the fork diff count.
-			sendUserToast('Deployed')
+		onSaveDraft={async (e) => {
 			runtime.scheduleForkComparisonRefresh()
+			// Re-pin parent_hash to the latest version so the next Deploy's conflict
+			// check (which runs before deploy, while the session stays mounted)
+			// doesn't misfire.
+			try {
+				const latest = await ScriptService.getScriptLatestVersion({
+					workspace: workspaceId,
+					path: e.path
+				})
+				const cur = runtime.scriptStore.val
+				if (latest?.script_hash && cur) cur.parent_hash = latest.script_hash
+			} catch (err) {
+				console.error('Failed to sync parent_hash after save draft', err)
+			}
+		}}
+		onDeploy={(e) => {
+			// Session stays put, so toast here, then sync the preview to deployed.
+			sendUserToast('Deployed')
+			runtime.syncPreviewWithDeployed(workspaceId, 'script', e.path)
 		}}
 	/>
 {/if}

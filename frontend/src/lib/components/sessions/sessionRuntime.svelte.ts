@@ -30,6 +30,7 @@ import {
 import { UserDraft } from '$lib/userDraft.svelte'
 import { applyDraftToRuntimeRawApp, runtimeRawAppToDraft, type RawAppDraft } from './appDraftCodec'
 import {
+	setDeployedInSessionHandler,
 	setGetPreviewStatusHandler,
 	setOpenPreviewHandler
 } from '$lib/components/copilot/chat/global/core'
@@ -44,14 +45,14 @@ export interface SessionRuntime {
 	readonly loadingFlow: boolean
 	readonly notFound: boolean
 	readonly loadedPath: string | undefined
-	loadFlow(workspace: string, path: string): Promise<void>
+	loadFlow(workspace: string, path: string, force?: boolean): Promise<void>
 	// Script target state (parallel to flow, populated only for script-targeted sessions)
 	readonly scriptStore: { val: NewScript | undefined }
 	readonly savedScript: { val: NewScriptWithDraft | undefined }
 	readonly loadingScript: boolean
 	readonly notFoundScript: boolean
 	readonly loadedScriptPath: string | undefined
-	loadScript(workspace: string, path: string): Promise<void>
+	loadScript(workspace: string, path: string, force?: boolean): Promise<void>
 	// Note: legacy drag-and-drop apps are intentionally NOT hosted in the
 	// session preview pane (only code-based raw apps are), so there's no
 	// app target state here.
@@ -87,7 +88,15 @@ export interface SessionRuntime {
 	readonly loadingRawApp: boolean
 	readonly notFoundRawApp: boolean
 	readonly loadedRawAppPath: string | undefined
-	loadRawApp(workspace: string, path: string): Promise<void>
+	loadRawApp(workspace: string, path: string, force?: boolean): Promise<void>
+	// Discard the local draft + refresh the fork diff + force-reload the editor,
+	// so the preview matches the deployed version. Used by editor onDeploy + the
+	// chat deploy handler.
+	syncPreviewWithDeployed(
+		workspace: string,
+		kind: 'script' | 'flow' | 'raw_app',
+		path: string
+	): void
 	// Fork comparison cache: shared between SessionForkBar (count + dropdown)
 	// and any future consumer that needs the parent ↔ fork diff list. Keyed
 	// implicitly by the (parent, fork) pair last passed to ensureForkComparison;
@@ -211,8 +220,10 @@ function createRuntime(session: Session): SessionRuntime {
 			return loadedPath
 		},
 
-		async loadFlow(workspace: string, path: string) {
-			if (loadedPath === path) return
+		async loadFlow(workspace: string, path: string, force = false) {
+			if (loadedPath === path && !force) return
+			// See loadScript: forced reload remounts via the render gate.
+			if (force) loadedPath = undefined
 			loadingFlow = true
 			notFound = false
 			try {
@@ -222,6 +233,16 @@ function createRuntime(session: Session): SessionRuntime {
 				// write through it. If a draft exists we render from it, even
 				// when the path has never been deployed.
 				const aiDraft = UserDraft.get<Flow>('flow', path, { workspace })
+
+				// getFlowByPathWithDraft omits version_id (the diff's deployed side,
+				// via getFlowByPath, has it) — stamp it onto the editing flow so it
+				// doesn't always diff. Best-effort (a never-deployed flow has none).
+				let deployedVersionId: number | undefined
+				try {
+					deployedVersionId = (await FlowService.getFlowByPath({ workspace, path }))?.version_id
+				} catch {
+					deployedVersionId = undefined
+				}
 
 				if (aiDraft) {
 					// Best-effort fetch the backend baseline for the diff
@@ -234,6 +255,8 @@ function createRuntime(session: Session): SessionRuntime {
 						savedFlow.val = undefined
 					}
 					await initFlow(aiDraft, flowStore, flowStateStore)
+					if (deployedVersionId != null && flowStore.val)
+						flowStore.val.version_id = deployedVersionId
 					loadedPath = path
 					return
 				}
@@ -245,6 +268,7 @@ function createRuntime(session: Session): SessionRuntime {
 				const flow: Flow = (result.draft as Flow | undefined) ?? (result as Flow)
 				UserDraft.save('flow', path, flow, { workspace })
 				await initFlow(flow, flowStore, flowStateStore)
+				if (deployedVersionId != null && flowStore.val) flowStore.val.version_id = deployedVersionId
 				loadedPath = path
 			} catch (err) {
 				console.error('Failed to load flow', err)
@@ -266,8 +290,12 @@ function createRuntime(session: Session): SessionRuntime {
 			return loadedScriptPath
 		},
 
-		async loadScript(workspace: string, path: string) {
-			if (loadedScriptPath === path) return
+		async loadScript(workspace: string, path: string, force = false) {
+			if (loadedScriptPath === path && !force) return
+			// Forced reload: clearing loadedScriptPath drops us into the
+			// `{#if loading && !loadedScriptPath}` gate, which unmounts then remounts
+			// the editor — avoids the Monaco init race a synchronous {#key} would hit.
+			if (force) loadedScriptPath = undefined
 			loadingScript = true
 			notFoundScript = false
 			try {
@@ -346,8 +374,10 @@ function createRuntime(session: Session): SessionRuntime {
 			return loadedRawAppPath
 		},
 
-		async loadRawApp(workspace: string, path: string) {
-			if (loadedRawAppPath === path) return
+		async loadRawApp(workspace: string, path: string, force = false) {
+			if (loadedRawAppPath === path && !force) return
+			// See loadScript: forced reload remounts via the render gate.
+			if (force) loadedRawAppPath = undefined
 			loadingRawApp = true
 			notFoundRawApp = false
 			try {
@@ -438,6 +468,14 @@ function createRuntime(session: Session): SessionRuntime {
 			} finally {
 				loadingRawApp = false
 			}
+		},
+
+		syncPreviewWithDeployed(workspace, kind, path) {
+			this.scheduleForkComparisonRefresh()
+			UserDraft.discard(kind, path, undefined, { workspace })
+			if (kind === 'script') void this.loadScript(workspace, path, true)
+			else if (kind === 'flow') void this.loadFlow(workspace, path, true)
+			else void this.loadRawApp(workspace, path, true)
 		},
 
 		forkComparison,
@@ -600,6 +638,21 @@ setGetPreviewStatusHandler(() => {
 	const target = sessionState.sessions.find((s) => s.id === sessionId)?.target
 	if (!target) return 'No preview is currently open in the side panel.'
 	return `The preview is currently open showing ${target.kind} "${target.path}".`
+})
+
+// After a chat deploy, reload the active session's preview — only if it's open
+// showing that exact item.
+setDeployedInSessionHandler(({ kind, path }) => {
+	const sessionId = sessionState.currentSessionId
+	if (!sessionId) return
+	const session = sessionState.sessions.find((s) => s.id === sessionId)
+	const runtime = runtimes.get(sessionId)
+	if (!session?.workspace_id || !runtime) return
+	const open =
+		(kind === 'script' && runtime.loadedScriptPath === path) ||
+		(kind === 'flow' && runtime.loadedPath === path)
+	if (!open) return
+	runtime.syncPreviewWithDeployed(session.workspace_id, kind, path)
 })
 
 export function getSessionChatStatus(runtime: SessionRuntime): SessionChatStatus {

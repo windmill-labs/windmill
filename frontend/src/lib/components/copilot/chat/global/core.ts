@@ -1837,6 +1837,16 @@ function getSessionPreviewStatus(): string {
 	return getPreviewStatusHandler()
 }
 
+// Registered by the session runtime to reload the open preview after a chat
+// deploy. Undefined outside a session.
+export type DeployedInSessionHandler = (req: { kind: 'script' | 'flow'; path: string }) => void
+
+let deployedInSessionHandler: DeployedInSessionHandler | undefined
+
+export function setDeployedInSessionHandler(handler: DeployedInSessionHandler | undefined): void {
+	deployedInSessionHandler = handler
+}
+
 type DraftConfig = Record<string, any>
 type ScheduleDraftConfig = NewSchedule & DraftConfig
 type TriggerDraftConfig = TriggerRequestBody & DraftConfig & { path: string }
@@ -2934,6 +2944,11 @@ async function deployDraft(
 	}
 
 	deleteGlobalDraft(workspace, type, path, triggerKind, { preserveLiveDraft: true })
+
+	// Reload the session preview if it's open on the deployed item.
+	if (type === 'script' || type === 'flow') {
+		deployedInSessionHandler?.({ kind: type, path })
+	}
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deployed ${type} "${path}"`,
