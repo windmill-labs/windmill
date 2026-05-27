@@ -672,124 +672,124 @@
 		</div>
 	</div>
 	<div class="flex flex-col h-full justify-end">
-		<Menubar class="flex flex-col gap-1 mb-6 md:mb-10">
+		<Menubar class="flex flex-col">
 			{#snippet children({ createMenu })}
-				<UserMenu {isCollapsed} {createMenu} />
+				<div class="flex flex-col gap-1 mb-6 md:mb-10">
+					<UserMenu {isCollapsed} {createMenu} />
 
-				{#each secondaryMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
-					{#if menuLink.subItems}
-						{@const notificationsCount = computeAllNotificationsCount(menuLink.subItems)}
-						<Menu {createMenu} usePointerDownOutside>
-							{#snippet triggr({ trigger })}
-								<MenuButton
-									class="!text-2xs"
-									{...menuLink}
-									{isCollapsed}
-									{notificationsCount}
-									{trigger}
-								/>
-							{/snippet}
+					{#each secondaryMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
+						{#if menuLink.subItems}
+							{@const notificationsCount = computeAllNotificationsCount(menuLink.subItems)}
+							<Menu {createMenu} usePointerDownOutside>
+								{#snippet triggr({ trigger })}
+									<MenuButton
+										class="!text-2xs"
+										{...menuLink}
+										{isCollapsed}
+										{notificationsCount}
+										{trigger}
+									/>
+								{/snippet}
 
-							{#snippet children({ item })}
-								{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
-									<MenuItem
-										class={itemClass}
-										href={subItem.href}
-										{item}
-										onClick={() => {
-											subItem?.['action']?.()
-										}}
-										aiId={subItem.aiId}
-										aiDescription={subItem.aiDescription}
-									>
-										<div class="flex flex-row items-center gap-2">
-											{#if subItem.icon}
-												<subItem.icon size={16} />
-											{/if}
-											{subItem.label}
-											{#if subItem?.['notificationCount']}
-												<div class="ml-auto">
-													<SideBarNotification notificationCount={subItem['notificationCount']} />
-												</div>
-											{/if}
-										</div>
-									</MenuItem>
-								{/each}
-							{/snippet}
-						</Menu>
-					{:else}
-						<MenuSingleItem>
-							{#snippet children({})}
-								<MenuLink class="!text-2xs" {...menuLink} {isCollapsed} />
-							{/snippet}
-						</MenuSingleItem>
-					{/if}
-				{/each}
-			{/snippet}
-		</Menubar>
-
-		<Menubar class="flex flex-col gap-1">
-			{#snippet children({ createMenu })}
-				{#each thirdMenuLinks as menuLink (menuLink)}
-					{#if menuLink.subItems}
-						<Menu {createMenu} usePointerDownOutside>
-							{#snippet triggr({ trigger })}
-								<button
-									class="relative w-full"
-									onclick={() => {
-										if (menuLink.label === 'Help') {
-											openChangelogs()
-										}
-									}}
-								>
-									<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} {trigger} />
-									{#if menuLink.label === 'Help' && hasNewChangelogs}
-										<span
-											class={twMerge(
-												'flex h-2 w-2 absolute',
-												isCollapsed ? 'top-1 right-1' : 'right-2 top-1/2 -translate-y-1/2'
-											)}
+								{#snippet children({ item })}
+									{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
+										<MenuItem
+											class={itemClass}
+											href={subItem.href}
+											{item}
+											onClick={() => {
+												subItem?.['action']?.()
+											}}
+											aiId={subItem.aiId}
+											aiDescription={subItem.aiDescription}
 										>
-											<span
-												class="animate-ping absolute inline-flex h-full w-full rounded-full bg-frost-400 opacity-75"
-											></span>
-											<span class="relative inline-flex rounded-full h-2 w-2 bg-frost-500"></span>
-										</span>
-									{/if}
-								</button>
-							{/snippet}
-							{#snippet children({ item })}
-								{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
-									<MenuItem
-										href={subItem.href}
-										class={itemClass}
-										target={subItem.external !== false ? '_blank' : undefined}
-										{item}
-									>
-										<div class="flex flex-row items-center gap-2">
-											{#if subItem.icon}
-												<subItem.icon size={16} />
-											{/if}
-
-											{subItem.label}
-										</div>
-									</MenuItem>
-								{/each}
-								{#if recentChangelogs.length > 0}
-									<div class="w-full h-1 border-t"></div>
-									<span class="text-xs px-4 font-bold"> Latest changelogs </span>
-									{#each recentChangelogs as changelog}
-										<MenuItem href={changelog.href} class={itemClass} target="_blank" {item}>
 											<div class="flex flex-row items-center gap-2">
-												{changelog.label}
+												{#if subItem.icon}
+													<subItem.icon size={16} />
+												{/if}
+												{subItem.label}
+												{#if subItem?.['notificationCount']}
+													<div class="ml-auto">
+														<SideBarNotification notificationCount={subItem['notificationCount']} />
+													</div>
+												{/if}
 											</div>
 										</MenuItem>
 									{/each}
-								{/if}
-							{/snippet}
-						</Menu>
-					{/if}
-				{/each}
+								{/snippet}
+							</Menu>
+						{:else}
+							<MenuSingleItem>
+								{#snippet children({})}
+									<MenuLink class="!text-2xs" {...menuLink} {isCollapsed} />
+								{/snippet}
+							</MenuSingleItem>
+						{/if}
+					{/each}
+				</div>
+
+				<div class="flex flex-col gap-1">
+					{#each thirdMenuLinks as menuLink (menuLink)}
+						{#if menuLink.subItems}
+							<Menu {createMenu} usePointerDownOutside>
+								{#snippet triggr({ trigger })}
+									<button
+										class="relative w-full"
+										onclick={() => {
+											if (menuLink.label === 'Help') {
+												openChangelogs()
+											}
+										}}
+									>
+										<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} {trigger} />
+										{#if menuLink.label === 'Help' && hasNewChangelogs}
+											<span
+												class={twMerge(
+													'flex h-2 w-2 absolute',
+													isCollapsed ? 'top-1 right-1' : 'right-2 top-1/2 -translate-y-1/2'
+												)}
+											>
+												<span
+													class="animate-ping absolute inline-flex h-full w-full rounded-full bg-frost-400 opacity-75"
+												></span>
+												<span class="relative inline-flex rounded-full h-2 w-2 bg-frost-500"></span>
+											</span>
+										{/if}
+									</button>
+								{/snippet}
+								{#snippet children({ item })}
+									{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
+										<MenuItem
+											href={subItem.href}
+											class={itemClass}
+											target={subItem.external !== false ? '_blank' : undefined}
+											{item}
+										>
+											<div class="flex flex-row items-center gap-2">
+												{#if subItem.icon}
+													<subItem.icon size={16} />
+												{/if}
+
+												{subItem.label}
+											</div>
+										</MenuItem>
+									{/each}
+									{#if recentChangelogs.length > 0}
+										<div class="w-full h-1 border-t"></div>
+										<span class="text-xs px-4 font-bold"> Latest changelogs </span>
+										{#each recentChangelogs as changelog}
+											<MenuItem href={changelog.href} class={itemClass} target="_blank" {item}>
+												<div class="flex flex-row items-center gap-2">
+													{changelog.label}
+												</div>
+											</MenuItem>
+										{/each}
+									{/if}
+								{/snippet}
+							</Menu>
+						{/if}
+					{/each}
+				</div>
 			{/snippet}
 		</Menubar>
 	</div>

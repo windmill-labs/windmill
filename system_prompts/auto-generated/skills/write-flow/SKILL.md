@@ -46,7 +46,7 @@ Once the flow has real content, **offer** to open the visual preview as a one-se
 
 After writing, tell the user which command fits what they want to do:
 
-- `wmill flow preview <flow_path>` — **default when iterating on a local flow.** Runs the local `flow.yaml` against local inline scripts without deploying. Add `--remote` to use deployed workspace scripts for PathScript steps instead of local files.
+- `wmill flow preview <flow_path>` — **default when iterating on a local flow.** Runs the local `flow.yaml` against local inline scripts without deploying. Add `--remote` to use deployed workspace scripts for PathScript steps instead of local files. Add `--step <step_id>` to run only one module in isolation (see "Single-step vs whole-flow preview" below).
 - `wmill flow run <path>` — runs the flow **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - `wmill generate-metadata` — regenerate stale `.lock` and `.script.yaml` files. By default it scans **scripts, flows, and apps** across the workspace; pass `--skip-flows --skip-apps` (or run from a subdirectory) to limit the scope when you only care about the flow you edited.
 - `wmill sync push` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
@@ -62,6 +62,12 @@ Only use `flow run` when:
 Only use `sync push` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
+
+### Single-step vs whole-flow preview
+
+Use `flow preview <flow_path> --step <step_id>` when the user is iterating on one module and the flow's upstream steps aren't part of what they're trying to validate. It runs only that step's runnable (rawscript: the inline script; script: the PathScript, locally if available; flow: the subflow by path) and is much faster than running the whole flow when previous steps are slow or expensive. The step id is resolved by walking nested branchone/branchall/forloopflow/whileloopflow modules and includes the special `preprocessor` and `failure` modules.
+
+Use `flow preview <flow_path>` (no `--step`) when steps depend on each other's outputs, when the user is validating the overall control flow, or when `--step` doesn't apply (branchone, branchall, forloopflow, whileloopflow, identity, and AI agent steps cannot themselves be tested in isolation — for branchone/branchall/forloopflow/whileloopflow, the *contained* steps can, by passing the inner step's id).
 
 ### After writing — offer to run, don't wait passively
 
