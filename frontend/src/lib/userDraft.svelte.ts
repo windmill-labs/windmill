@@ -1,8 +1,10 @@
 import { get } from 'svelte/store'
 import { onDestroy, untrack } from 'svelte'
 import { deepEqual } from 'fast-equals'
-import { workspaceStore } from './stores'
+import { userStore, workspaceStore } from './stores'
 import { useLocalStorageValue } from './svelte5Utils.svelte'
+import { UserDraftDbSyncer, isSyncableKind } from './userDraftDbSyncer.svelte'
+import { UserDraftConflictStore } from './userDraftConflictStore.svelte'
 
 export const USER_DRAFT_ITEM_KINDS = [
 	'script',
@@ -348,8 +350,49 @@ export function localDraftDiffers<V>(
 	return !deepEqual(normalizeForCompare(localDraft), normalizeForCompare(currentConfig))
 }
 
+/**
+ * Persist a draft to localStorage and (when the kind has a backend `draft`
+ * row) push it through the DbSyncer. Internal `_skipSync` opts pass-through
+ * lets the syncer write missed drafts back to LS without re-syncing them.
+ */
+function pushToSyncer(
+	itemKind: UserDraftItemKind,
+	path: string,
+	value: unknown,
+	workspace: string
+): void {
+	if (!isSyncableKind(itemKind)) return
+	const user = get(userStore)?.username
+	if (!user) return
+	UserDraftDbSyncer.pushDrafts({
+		workspace,
+		user,
+		drafts: [{ itemKind, path, value }],
+		onMissedDrafts: (drafts) => {
+			for (const d of drafts) {
+				UserDraft.save(d.typ as UserDraftItemKind, d.path, d.value, {
+					workspace,
+					_skipSync: true
+				})
+			}
+		},
+		onDraftsRejected: (rejected) => {
+			UserDraftConflictStore.enqueue(
+				rejected.map((r) => ({
+					workspace,
+					user,
+					itemKind: r.typ,
+					rejected: r
+				}))
+			)
+		}
+	})
+}
+
+type SaveOptions = UserDraftOptions & { _skipSync?: boolean }
+
 export const UserDraft = {
-	save<V>(itemKind: UserDraftItemKind, path: string, value: V, opts?: UserDraftOptions): void {
+	save<V>(itemKind: UserDraftItemKind, path: string, value: V, opts?: SaveOptions): void {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
@@ -361,18 +404,21 @@ export const UserDraft = {
 			const meta = extractMeta(current)
 			entry.state.setWithoutPersist(wrap(value, meta))
 			persistDirect(localStorageKey(ws, itemKind, path), value, meta)
-			return
+		} else {
+			// No live handle: preserve any persisted meta so the staleness
+			// signal survives a write while the editor is closed.
+			const existing = readPersisted<unknown>(localStorageKey(ws, itemKind, path))
+			try {
+				localStorage.setItem(
+					localStorageKey(ws, itemKind, path),
+					JSON.stringify(stamp(wrap(value, extractMeta(existing))))
+				)
+			} catch (e) {
+				console.error('UserDraft.save: localStorage write failed', e)
+			}
 		}
-		// No live handle: preserve any persisted meta so the staleness
-		// signal survives a write while the editor is closed.
-		const existing = readPersisted<unknown>(localStorageKey(ws, itemKind, path))
-		try {
-			localStorage.setItem(
-				localStorageKey(ws, itemKind, path),
-				JSON.stringify(stamp(wrap(value, extractMeta(existing))))
-			)
-		} catch (e) {
-			console.error('UserDraft.save: localStorage write failed', e)
+		if (!opts?._skipSync) {
+			pushToSyncer(itemKind, path, value, ws)
 		}
 	},
 
@@ -729,6 +775,22 @@ function acquireEntry(
 			undefined,
 			useLocalStorageOptions
 		)
+		// Mirror live-handle writes (e.g. `handle.draft = X` from an editor's
+		// $effect) to the DbSyncer. Skip the first run — the initial value
+		// came from localStorage or the default, not from a user mutation, so
+		// echoing it back would create a redundant request on every editor
+		// mount.
+		let firstRun = true
+		$effect(() => {
+			const stored = stateRef!.val
+			if (firstRun) {
+				firstRun = false
+				return
+			}
+			const value = stored === undefined ? undefined : (stored.value as unknown)
+			if (value === undefined) return
+			pushToSyncer(itemKind, path, value, workspace)
+		})
 	})
 	if (stateRef) {
 		entries.set(mk, { count: 1, workspace, itemKind, path, state: stateRef, destroyRoot })

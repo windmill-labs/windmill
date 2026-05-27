@@ -16,6 +16,8 @@
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
 	import ForkConflictModal from '$lib/components/ForkConflictModal.svelte'
+	import UserDraftConflictModal from '$lib/components/common/confirmationModal/UserDraftConflictModal.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import {
 		enterpriseLicense,
 		isPremiumStore,
@@ -98,6 +100,11 @@
 	if (page.status == 404) {
 		goto('/user/login')
 	}
+
+	// Bind UserDraftDbSyncer's lastSync cell to this layout's Svelte scope.
+	// Without this it still works via raw localStorage reads, but the value
+	// isn't reactive across tabs.
+	UserDraftDbSyncer.mount()
 
 	function onQueryChangeUserSettings() {
 		if (userSettings && page.url.hash.startsWith(USER_SETTINGS_HASH)) {
@@ -855,6 +862,8 @@
 {/if}
 
 <ForkConflictModal />
+
+<UserDraftConflictModal />
 
 <Modal2
 	title="Forking {$workspaceStore}"
