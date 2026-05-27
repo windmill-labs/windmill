@@ -58,24 +58,10 @@ export function bundleRawAppFiles({
 		const requestId = makeRequestId()
 		const iframe = document.createElement('iframe')
 		let settled = false
-		let bundleProtocolReady = false
-		let bundleProtocolRequestSent = false
-		let bundleProtocolReadyRequestSent = false
-		let legacyProtocolRequestSent = false
-		let legacyBuildStarted = false
-		let legacyBuildSucceeded = false
-		let loadFallback: number | undefined
-		let legacyFallback: number | undefined
+		let bundleRequestSent = false
 
 		const cleanup = () => {
 			window.removeEventListener('message', onMessage)
-			iframe.removeEventListener('load', onLoad)
-			if (loadFallback !== undefined) {
-				clearTimeout(loadFallback)
-			}
-			if (legacyFallback !== undefined) {
-				clearTimeout(legacyFallback)
-			}
 			clearTimeout(timeout)
 			iframe.remove()
 		}
@@ -95,18 +81,9 @@ export function bundleRawAppFiles({
 			iframe.contentWindow.postMessage(message, window.location.origin)
 		}
 
-		const sendBundleProtocolRequest = (forceAfterReady = false) => {
-			if (
-				settled ||
-				(!forceAfterReady && bundleProtocolRequestSent) ||
-				(forceAfterReady && bundleProtocolReadyRequestSent)
-			) {
-				return
-			}
-			bundleProtocolRequestSent = true
-			if (bundleProtocolReady) {
-				bundleProtocolReadyRequestSent = true
-			}
+		const sendBundleProtocolRequest = () => {
+			if (settled || bundleRequestSent) return
+			bundleRequestSent = true
 			postToBundler({
 				type: 'bundleRawApp',
 				requestId,
@@ -114,16 +91,6 @@ export function bundleRawAppFiles({
 				sharedUiFiles,
 				bundlerType
 			})
-		}
-
-		const sendLegacyProtocolRequest = () => {
-			if (settled || bundleProtocolReady || legacyProtocolRequestSent) return
-			legacyProtocolRequestSent = true
-			postToBundler({ type: 'setBundlerType', bundlerType })
-			if (Object.keys(sharedUiFiles).length > 0) {
-				postToBundler({ type: 'setSharedUi', files: sharedUiFiles })
-			}
-			postToBundler({ type: 'setFiles', files })
 		}
 
 		const timeout = window.setTimeout(() => {
@@ -136,44 +103,8 @@ export function bundleRawAppFiles({
 			if (!data) return
 
 			if (data.type === 'bundleRawAppReady') {
-				bundleProtocolReady = true
-				sendBundleProtocolRequest(true)
+				sendBundleProtocolRequest()
 				return
-			}
-
-			if (legacyProtocolRequestSent) {
-				if (data.type === 'appendLogs') {
-					const delta = String(data.delta ?? '')
-					if (delta.includes('Build started')) {
-						legacyBuildStarted = true
-						legacyBuildSucceeded = false
-					}
-					if (legacyBuildStarted && delta.includes('Build successful')) {
-						legacyBuildSucceeded = true
-						postToBundler({ type: 'getBundle' })
-					}
-					onLog?.(delta)
-				} else if (data.type === 'preview') {
-					if (!legacyBuildStarted) return
-					if (!data.js) {
-						settle(reject, new Error('Raw app bundler returned an empty JavaScript bundle.'))
-						return
-					}
-					settle(resolve, {
-						js: String(data.js),
-						css: String(data.css ?? '')
-					})
-				} else if (data.type === 'getBundle') {
-					const bundle = data.bundle
-					if (legacyBuildSucceeded && bundle?.js) {
-						settle(resolve, {
-							js: String(bundle.js),
-							css: String(bundle.css ?? '')
-						})
-					}
-				} else if (data.type === 'buildError' && data.message) {
-					settle(reject, new Error(String(data.message)))
-				}
 			}
 
 			if (data.requestId !== requestId) return
@@ -195,11 +126,6 @@ export function bundleRawAppFiles({
 			}
 		}
 
-		function onLoad() {
-			loadFallback = window.setTimeout(sendBundleProtocolRequest, 250)
-			legacyFallback = window.setTimeout(sendLegacyProtocolRequest, 1_500)
-		}
-
 		iframe.title = 'Raw app bundler'
 		iframe.tabIndex = -1
 		// Windmill pages use COEP=require-corp; the static UI builder iframe must be credentialless.
@@ -213,7 +139,6 @@ export function bundleRawAppFiles({
 		iframe.src = '/ui_builder/index.html?mode=bundle'
 
 		window.addEventListener('message', onMessage)
-		iframe.addEventListener('load', onLoad)
 		document.body.appendChild(iframe)
 	})
 }
