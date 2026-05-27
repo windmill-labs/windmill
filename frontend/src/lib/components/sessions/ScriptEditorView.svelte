@@ -134,10 +134,19 @@
 {:else if runtime.notFoundScript && !runtime.loadedScriptPath}
 	<SessionItemNotFound kind="script" {path} {onNavigate} />
 {:else if runtime.scriptStore.val}
+	<!--
+		A script with no backend version yet (AI-created, never saved or deployed
+		→ savedScript undefined) is a *new* script: pass an empty initialPath so
+		ScriptBuilder behaves exactly like /scripts/add — Save draft is enabled and
+		creates it on first save. On that save ScriptBuilder writes savedScript back
+		through the bind and sets its own initialPath to the path, flipping us into
+		edit mode (Save draft + Show diff) without navigating away.
+	-->
 	<ScriptBuilder
 		bind:script={runtime.scriptStore.val}
 		bind:savedScript={runtime.savedScript.val}
-		initialPath={path}
+		initialPath={runtime.savedScript.val ? path : ''}
+		initialPathChosen={true}
 		fullyLoaded={!runtime.loadingScript}
 		disableHistoryChange={true}
 		{diffDrawer}

@@ -135,7 +135,8 @@
 		onSaveDraft,
 		onNavigate,
 		disableAi,
-		initialTestPanelCollapsed = false
+		initialTestPanelCollapsed = false,
+		initialPathChosen = false
 	}: ScriptBuilderProps = $props()
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
@@ -902,7 +903,11 @@
 	}
 
 	let path: Path | undefined = $state(undefined)
-	let dirtyPath = $state(false)
+	// Seed "path is already chosen" so the summary→path auto-slug (which only
+	// runs for new scripts with initialPath == '') doesn't clobber a path the
+	// caller pre-assigned. The session preview opens AI-created scripts as new
+	// (empty initialPath) but with a path the AI already picked.
+	let dirtyPath = $state(initialPathChosen)
 
 	let selectedTab: 'metadata' | 'runtime' | 'ui' | 'triggers' = $state(
 		(() => {

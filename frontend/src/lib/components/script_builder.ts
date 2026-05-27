@@ -48,4 +48,9 @@ export interface ScriptBuilderProps {
 	// Forwarded to the underlying ScriptEditor. When true, the right-hand
 	// test/run pane opens collapsed. Used by the session preview.
 	initialTestPanelCollapsed?: boolean
+	// Treat the path as already chosen (seeds the path "dirty" flag) so the
+	// summary→path auto-slug for new scripts (initialPath == '') doesn't
+	// overwrite it. Used by the session preview, which opens AI-created scripts
+	// as new but with a path the AI already assigned.
+	initialPathChosen?: boolean
 }
