@@ -7,13 +7,12 @@ import {
 	FlowService,
 	ScriptService,
 	WorkspaceService,
-	type AppWithLastVersion,
 	type Flow,
 	type NewScript,
 	type NewScriptWithDraft,
 	type WorkspaceComparison
 } from '$lib/gen'
-import type { App as AppValue, HiddenRunnable } from '$lib/components/apps/types'
+import type { HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { workspaceStore } from '$lib/stores'
 import { emptySchema, type StateStore } from '$lib/utils'
@@ -53,27 +52,9 @@ export interface SessionRuntime {
 	readonly notFoundScript: boolean
 	readonly loadedScriptPath: string | undefined
 	loadScript(workspace: string, path: string): Promise<void>
-	// App (regular drag-and-drop apps) target state
-	readonly appStore: {
-		val: (AppWithLastVersion & { draft_only?: boolean; value: any }) | undefined
-	}
-	readonly savedApp: {
-		val:
-			| {
-					value: AppValue
-					draft?: any
-					path: string
-					summary: string
-					policy: any
-					draft_only?: boolean
-					custom_path?: string
-			  }
-			| undefined
-	}
-	readonly loadingApp: boolean
-	readonly notFoundApp: boolean
-	readonly loadedAppPath: string | undefined
-	loadApp(workspace: string, path: string): Promise<void>
+	// Note: legacy drag-and-drop apps are intentionally NOT hosted in the
+	// session preview pane (only code-based raw apps are), so there's no
+	// app target state here.
 	// Raw App (HTML-based) target state
 	readonly rawApp: {
 		val:
@@ -179,14 +160,6 @@ function createRuntime(session: Session): SessionRuntime {
 	let loadingScript = $state(false)
 	let notFoundScript = $state(false)
 	let loadedScriptPath = $state<string | undefined>(undefined)
-
-	const appStore: {
-		val: (AppWithLastVersion & { draft_only?: boolean; value: any }) | undefined
-	} = $state({ val: undefined })
-	const savedApp: { val: SessionRuntime['savedApp']['val'] } = $state({ val: undefined })
-	let loadingApp = $state(false)
-	let notFoundApp = $state(false)
-	let loadedAppPath = $state<string | undefined>(undefined)
 
 	const rawApp: { val: SessionRuntime['rawApp']['val'] } = $state({ val: undefined })
 	const savedRawApp: { val: SessionRuntime['savedRawApp']['val'] } = $state({ val: undefined })
@@ -349,61 +322,6 @@ function createRuntime(session: Session): SessionRuntime {
 				notFoundScript = true
 			} finally {
 				loadingScript = false
-			}
-		},
-
-		appStore,
-		savedApp,
-		get loadingApp() {
-			return loadingApp
-		},
-		get notFoundApp() {
-			return notFoundApp
-		},
-		get loadedAppPath() {
-			return loadedAppPath
-		},
-
-		async loadApp(workspace: string, path: string) {
-			if (loadedAppPath === path) return
-			loadingApp = true
-			notFoundApp = false
-			try {
-				const result = await AppService.getAppByPathWithDraft({ workspace, path })
-				savedApp.val = {
-					summary: result.summary,
-					value: result.value as AppValue,
-					path: result.path,
-					policy: result.policy,
-					draft_only: result.draft_only,
-					draft:
-						result.draft?.['summary'] !== undefined
-							? result.draft
-							: result.draft
-								? {
-										summary: result.summary,
-										value: result.draft,
-										path: result.path,
-										policy: result.policy,
-										custom_path: result.custom_path
-									}
-								: undefined,
-					custom_path: result.custom_path
-				}
-				if (result.draft) {
-					appStore.val =
-						result.summary !== undefined
-							? { ...result, ...(result.draft as Record<string, any>) }
-							: ({ ...result, value: result.draft as any } as any)
-				} else {
-					appStore.val = result as any
-				}
-				loadedAppPath = path
-			} catch (err) {
-				console.error('Failed to load app', err)
-				notFoundApp = true
-			} finally {
-				loadingApp = false
 			}
 		},
 

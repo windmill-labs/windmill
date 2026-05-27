@@ -460,9 +460,9 @@ const deleteAppRunnableSchema = z.object({
 
 const openPreviewSchema = z.object({
 	kind: z
-		.enum(['script', 'flow', 'app', 'raw_app'])
+		.enum(['script', 'flow', 'raw_app'])
 		.describe(
-			'Item kind to preview. Use "raw_app" for code-based apps (created via init_app); use "app" for the legacy drag-and-drop app builder.'
+			'Item kind to preview. Use "raw_app" for code-based apps (created via init_app). The legacy drag-and-drop app builder ("app") is not previewable in the session panel — don\'t pass it.'
 		),
 	path: z.string().describe('Workspace path of the item to preview.')
 })
@@ -1756,7 +1756,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			openPreviewSchema,
 			'open_preview',
-			'Open the live preview / editor for a workspace item in the side panel next to the chat. ONLY works inside an AI session — call this after writing or editing a script, flow, or app to let the user see and interact with it. The path you pass is the path of the item; for raw apps use kind="raw_app" instead of "app". Returns an error if there is no active session.'
+			'Open the live preview / editor for a workspace item in the side panel next to the chat. ONLY works inside an AI session — call this after writing or editing a script, flow, or raw app to let the user see and interact with it. The path you pass is the path of the item; for code-based apps use kind="raw_app" (legacy drag-and-drop apps are not previewable). Returns an error if there is no active session.'
 		),
 		fn: async (ctx) => {
 			const parsed = openPreviewSchema.parse(ctx.args)
@@ -1801,7 +1801,7 @@ type WriteDraftCtx = {
 // has somewhere to dispatch. When no session is active the handler is
 // undefined and the tool returns a polite error.
 export type OpenPreviewHandler = (req: {
-	kind: 'script' | 'flow' | 'app' | 'raw_app'
+	kind: 'script' | 'flow' | 'raw_app'
 	path: string
 }) => string
 
@@ -1811,7 +1811,7 @@ export function setOpenPreviewHandler(handler: OpenPreviewHandler | undefined): 
 	openPreviewHandler = handler
 }
 
-function openSessionPreview(args: { kind: 'script' | 'flow' | 'app' | 'raw_app'; path: string }) {
+function openSessionPreview(args: { kind: 'script' | 'flow' | 'raw_app'; path: string }) {
 	if (!openPreviewHandler) {
 		return 'Error: open_preview is only available inside an AI session. Tell the user to switch to a session to view the preview, or describe the item textually.'
 	}

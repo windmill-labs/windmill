@@ -26,7 +26,6 @@
 	import WorkspaceItemDrillPicker from '$lib/components/WorkspaceItemDrillPicker.svelte'
 	import FlowEditorView from './FlowEditorView.svelte'
 	import ScriptEditorView from './ScriptEditorView.svelte'
-	import AppEditorView from './AppEditorView.svelte'
 	import RawAppEditorView from './RawAppEditorView.svelte'
 	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
 	import SessionForkBar from './SessionForkBar.svelte'
@@ -202,10 +201,17 @@
 	}
 
 	function pickEditorTarget(item: WorkspaceItem) {
-		// WorkspaceItem.kind is 'flow'|'script'|'app'; raw apps are flagged
-		// via item.raw_app. The diff-API uses 'raw_app' as its kind so we
-		// align SessionTarget on the same canonical string.
-		const kind: SessionTarget['kind'] = item.kind === 'app' && item.raw_app ? 'raw_app' : item.kind
+		// Legacy drag-and-drop apps aren't hosted in the session preview pane —
+		// open them in the standalone app editor instead. Only code-based raw
+		// apps (item.raw_app) are previewable here.
+		if (item.kind === 'app' && !item.raw_app) {
+			goto(`/apps/edit/${item.path}?workspace=${effectiveWorkspaceId}`)
+			return
+		}
+		// WorkspaceItem.kind is 'flow'|'script'|'app'; any 'app' reaching here is
+		// a raw app. The diff-API uses 'raw_app' as its kind so we align
+		// SessionTarget on the same canonical string.
+		const kind: SessionTarget['kind'] = item.kind === 'app' ? 'raw_app' : item.kind
 		applyEditorTarget({ kind, path: item.path }, item.summary)
 	}
 
@@ -256,7 +262,6 @@
 	{@const hasTarget =
 		session.target?.kind === 'flow' ||
 		session.target?.kind === 'script' ||
-		session.target?.kind === 'app' ||
 		session.target?.kind === 'raw_app'}
 	{@const hasEditor = mountEditor && hasTarget && editorVisible}
 
@@ -412,13 +417,6 @@
 							workspaceId={effectiveWorkspaceId}
 							onNavigate={pickEditorTarget}
 							initialTestPanelCollapsed
-						/>
-					{:else if session.target.kind === 'app'}
-						<AppEditorView
-							{runtime}
-							path={session.target.path}
-							workspaceId={effectiveWorkspaceId}
-							onNavigate={pickEditorTarget}
 						/>
 					{:else if session.target.kind === 'raw_app'}
 						<RawAppEditorView

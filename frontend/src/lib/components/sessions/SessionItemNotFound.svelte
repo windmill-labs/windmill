@@ -6,7 +6,6 @@
 	const KIND_NOT_FOUND_LABEL: Record<SessionTarget['kind'], string> = {
 		flow: 'Flow',
 		script: 'Script',
-		app: 'App',
 		raw_app: 'Raw app'
 	}
 

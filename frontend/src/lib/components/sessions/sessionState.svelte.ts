@@ -23,14 +23,14 @@ import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import type HistoryManager from '$lib/components/copilot/chat/HistoryManager.svelte'
 
-export type SessionTarget = { kind: 'flow' | 'script' | 'app' | 'raw_app'; path: string }
+// Kinds the in-session editor pane can host. Legacy drag-and-drop apps are
+// intentionally not previewable — only code-based 'raw_app' apps are.
+export type SessionTarget = { kind: 'flow' | 'script' | 'raw_app'; path: string }
 
-// Kinds the in-session editor pane can host. Useful for filtering
-// dropdowns / pickers to "items the side panel can open".
+// Useful for filtering dropdowns / pickers to "items the side panel can open".
 export const EDITOR_TARGET_KINDS: ReadonlySet<SessionTarget['kind']> = new Set([
 	'flow',
 	'script',
-	'app',
 	'raw_app'
 ])
 
