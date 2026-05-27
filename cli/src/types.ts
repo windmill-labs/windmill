@@ -127,12 +127,7 @@ export function showDiff(local: string, remote: string) {
   log.info(finalString);
 }
 
-export function showConflict(
-  path: string,
-  local: string,
-  remote: string,
-  showEncryptionKeyDiff: boolean = false,
-) {
+export function showConflict(path: string, local: string, remote: string) {
   log.info(colors.yellow(`- ${path}`));
   let isEncryptionKey = false;
   try {
@@ -140,17 +135,38 @@ export function showConflict(
   } catch {
     // ignore
   }
-  if (isEncryptionKey && !showEncryptionKeyDiff) {
-    log.info(
-      colors.gray(
-        "  (diff redacted — pass --show-encryption-key-diff to display)",
-      ),
-    );
+  if (isEncryptionKey) {
+    showDiff(redactEncryptionKey(local), redactEncryptionKey(remote));
   } else {
     showDiff(local, remote);
-    log.info("\x1b[31mlocal\x1b[31m - \x1b[32mremote\x1b[32m");
   }
+  log.info("\x1b[31mlocal\x1b[31m - \x1b[32mremote\x1b[32m");
   log.info("\n");
+}
+
+// Reveal only the first 5 chars of the key so a rotation is still visible in
+// the diff (different prefixes), without leaking the whole secret to stdout.
+// The remaining chars are replaced with `*`, preserving length so the diff
+// keeps showing whether the key length changed.
+export function redactEncryptionKey(content: string): string {
+  if (!content) return content;
+  // The encryption_key payload is JSON-encoded (a quoted string). Parse it so
+  // we redact the key value itself, then re-serialize to JSON to preserve the
+  // file's shape; fall back to raw redaction if parsing fails.
+  try {
+    const parsed = JSON.parse(content);
+    if (typeof parsed === "string") {
+      return JSON.stringify(redactString(parsed));
+    }
+  } catch {
+    // not JSON — treat content as the raw key
+  }
+  return redactString(content);
+}
+
+function redactString(s: string): string {
+  if (s.length <= 5) return s;
+  return s.slice(0, 5) + "*".repeat(s.length - 5);
 }
 
 /**

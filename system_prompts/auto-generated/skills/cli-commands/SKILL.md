@@ -558,7 +558,6 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--include-groups` - Include syncing groups
   - `--include-settings` - Include syncing workspace settings
   - `--include-key` - Include workspace encryption key
-  - `--show-encryption-key-diff` - Show the encryption_key diff in stdout (redacted by default)
   - `--skip-branch-validation` - Skip git branch validation and prompts
   - `--json-output` - Output results in JSON format
   - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Overrides wmill.yaml includes
@@ -589,7 +588,6 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--include-groups` - Include syncing groups
   - `--include-settings` - Include syncing workspace settings
   - `--include-key` - Include workspace encryption key
-  - `--show-encryption-key-diff` - Show the encryption_key diff in stdout (redacted by default)
   - `--skip-branch-validation` - Skip git branch validation and prompts
   - `--json-output` - Output results in JSON format
   - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)

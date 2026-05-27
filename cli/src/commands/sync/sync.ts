@@ -22,6 +22,7 @@ import {
   showConflict,
   showDiff,
   extractNativeTriggerInfo,
+  redactEncryptionKey,
 } from "../../types.ts";
 import { downloadZip } from "./pull.ts";
 import { runLint, printReport, checkMissingLocks } from "../lint/lint.ts";
@@ -2656,13 +2657,7 @@ export async function pull(
 
   if (changes.length > 0) {
     if (!opts.jsonOutput) {
-      prettyChanges(
-        changes,
-        specificItems,
-        wsNameForFiles,
-        undefined,
-        opts.showEncryptionKeyDiff ?? false,
-      );
+      prettyChanges(changes, specificItems, wsNameForFiles);
     }
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
@@ -2724,12 +2719,7 @@ export async function pull(
                   ),
                 );
               } else {
-                showConflict(
-                  change.path,
-                  currentLocal,
-                  change.after,
-                  opts.showEncryptionKeyDiff ?? false,
-                );
+                showConflict(change.path, currentLocal, change.after);
                 if (
                   await Confirm.prompt(
                     "Preserve local (push to change remote and avoid seeing this again)?",
@@ -2813,12 +2803,7 @@ export async function pull(
         console.error(colors.red(`Conflicts were found`));
         log.info("Conflicts:");
         for (const conflict of conflicts) {
-          showConflict(
-            conflict.path,
-            conflict.local,
-            conflict.change.after,
-            opts.showEncryptionKeyDiff ?? false,
-          );
+          showConflict(conflict.path, conflict.local, conflict.change.after);
         }
         log.info(
           colors.red(`Please resolve these conflicts manually by either:
@@ -3071,7 +3056,6 @@ function prettyChanges(
   specificItems?: SpecificItemsConfig,
   branchOverride?: string,
   folderDefaultAnnotations?: Map<string, string>,
-  showEncryptionKeyDiff: boolean = false,
 ) {
   for (const change of changes) {
     let displayPath = change.path;
@@ -3122,11 +3106,10 @@ function prettyChanges(
         ),
       );
       if (change.before != change.after) {
-        if (changeType === "encryption_key" && !showEncryptionKeyDiff) {
-          log.info(
-            colors.gray(
-              "  (diff redacted — pass --show-encryption-key-diff to display)",
-            ),
+        if (changeType === "encryption_key") {
+          showDiff(
+            redactEncryptionKey(change.before),
+            redactEncryptionKey(change.after),
           );
         } else if (change.path.endsWith(".yaml")) {
           try {
@@ -3759,13 +3742,7 @@ export async function push(
     }
 
     if (!opts.jsonOutput) {
-      prettyChanges(
-        changes,
-        specificItems,
-        wsNameForFiles,
-        folderDefaultAnnotations,
-        opts.showEncryptionKeyDiff ?? false,
-      );
+      prettyChanges(changes, specificItems, wsNameForFiles, folderDefaultAnnotations);
     }
 
     if (opts.dryRun) {
@@ -4637,10 +4614,6 @@ const command = new Command()
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
   .option("--include-key", "Include workspace encryption key")
-  .option(
-    "--show-encryption-key-diff",
-    "Show the encryption_key diff in stdout (redacted by default)",
-  )
   .option("--skip-branch-validation", "Skip git branch validation and prompts")
   .option("--json-output", "Output results in JSON format")
   .option(
@@ -4697,10 +4670,6 @@ const command = new Command()
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
   .option("--include-key", "Include workspace encryption key")
-  .option(
-    "--show-encryption-key-diff",
-    "Show the encryption_key diff in stdout (redacted by default)",
-  )
   .option("--skip-branch-validation", "Skip git branch validation and prompts")
   .option("--json-output", "Output results in JSON format")
   .option(
