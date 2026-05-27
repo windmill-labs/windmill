@@ -3403,6 +3403,7 @@ async fn set_encryption_key(
     .execute(&mut *tx)
     .await?;
 
+    let mut reencrypted_secret_paths: Vec<String> = Vec::new();
     if !request.skip_reencrypt.unwrap_or(false) {
         // Build the new cipher directly from the key string, since the transaction
         // hasn't committed yet and build_crypt() would read the old key from the pool.
@@ -3448,6 +3449,7 @@ async fn set_encryption_key(
             )
             .execute(&mut *tx)
             .await?;
+            reencrypted_secret_paths.push(variable.path);
         }
     }
 
@@ -3468,6 +3470,30 @@ async fn set_encryption_key(
         None,
     )
     .await?;
+
+    // Re-encrypted secret values changed on disk: trigger a git sync per variable
+    // so that repos with Secrets sync enabled receive the new ciphertexts. Errors
+    // are logged but not surfaced so the key rotation itself isn't rolled back.
+    for path in reencrypted_secret_paths {
+        if let Err(e) = handle_deployment_metadata(
+            &authed.email,
+            &authed.username,
+            &db,
+            &w_id,
+            DeployedObject::Variable { path: path.clone(), parent_path: Some(path.clone()) },
+            Some("Variable re-encrypted after workspace key rotation".to_string()),
+            true,
+            None,
+        )
+        .await
+        {
+            tracing::error!(
+                "Failed to trigger git sync for re-encrypted variable {}: {}",
+                path,
+                e
+            );
+        }
+    }
 
     return Ok(());
 }
