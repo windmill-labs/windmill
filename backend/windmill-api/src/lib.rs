@@ -97,6 +97,7 @@ mod indexer_oss;
 #[cfg(feature = "private")]
 mod inkeep_ee;
 mod inkeep_oss;
+mod hub_publish;
 mod integration;
 mod internal_db;
 mod live_migrations;
@@ -627,6 +628,7 @@ pub async fn run_server(
                         .nest("/volumes", volumes_oss::workspaced_service())
                         .nest("/workers", windmill_api_workers::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
+                        .nest("/hub", hub_publish::workspaced_service())
                         .nest(
                             "/deployment_request",
                             windmill_api_workspaces::deployment_requests::workspaced_service(),
