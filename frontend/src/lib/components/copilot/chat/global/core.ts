@@ -1840,7 +1840,10 @@ function getSessionPreviewStatus(): string {
 
 // Registered by the session runtime to reload the open preview after a chat
 // deploy. Undefined outside a session.
-export type DeployedInSessionHandler = (req: { kind: 'script' | 'flow'; path: string }) => void
+export type DeployedInSessionHandler = (req: {
+	kind: 'script' | 'flow' | 'raw_app'
+	path: string
+}) => void
 
 let deployedInSessionHandler: DeployedInSessionHandler | undefined
 
@@ -3028,9 +3031,13 @@ async function deployDraft(
 
 	deleteGlobalDraft(workspace, type, path, triggerKind, { preserveLiveDraft: true })
 
-	// Reload the session preview if it's open on the deployed item.
+	// Reload the session preview if it's open on the deployed item. A raw app
+	// deploys under type 'app' (bundle + createAppRaw/updateAppRaw above) but the
+	// session preview addresses it as 'raw_app'.
 	if (type === 'script' || type === 'flow') {
 		deployedInSessionHandler?.({ kind: type, path })
+	} else if (type === 'app') {
+		deployedInSessionHandler?.({ kind: 'raw_app', path })
 	}
 
 	toolCallbacks.setToolStatus(toolId, {

@@ -113,6 +113,7 @@ import {
 	globalToolsFor,
 	prepareGlobalSystemMessage,
 	prepareGlobalUserMessage,
+	setDeployedInSessionHandler,
 	setGetPreviewStatusHandler,
 	setOpenPreviewHandler
 } from './core'
@@ -1134,6 +1135,31 @@ describe('global AI tools', () => {
 		})
 		expect(AppService.createAppRaw).not.toHaveBeenCalled()
 		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
+	})
+
+	it('notifies the session preview (as raw_app) after deploying a raw app', async () => {
+		const onDeployed = vi.fn()
+		setDeployedInSessionHandler(onDeployed)
+		try {
+			UserDraft.save(
+				'raw_app',
+				'f/apps/report',
+				{
+					summary: 'AI report',
+					files: { '/index.tsx': 'console.log("app")' },
+					runnables: {},
+					data: { tables: [] }
+				},
+				{ workspace: WORKSPACE }
+			)
+
+			await callGlobalTool('deploy_workspace_item', { type: 'app', path: 'f/apps/report' })
+
+			// A raw app deploys under type 'app' but the preview addresses it as 'raw_app'.
+			expect(onDeployed).toHaveBeenCalledWith({ kind: 'raw_app', path: 'f/apps/report' })
+		} finally {
+			setDeployedInSessionHandler(undefined)
+		}
 	})
 
 	it('fills an empty rawscript module through set_flow_module_code', async () => {

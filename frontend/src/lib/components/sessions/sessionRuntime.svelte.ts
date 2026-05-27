@@ -650,7 +650,8 @@ setDeployedInSessionHandler(({ kind, path }) => {
 	if (!session?.workspace_id || !runtime) return
 	const open =
 		(kind === 'script' && runtime.loadedScriptPath === path) ||
-		(kind === 'flow' && runtime.loadedPath === path)
+		(kind === 'flow' && runtime.loadedPath === path) ||
+		(kind === 'raw_app' && runtime.loadedRawAppPath === path)
 	if (!open) return
 	runtime.syncPreviewWithDeployed(session.workspace_id, kind, path)
 })
