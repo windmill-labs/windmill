@@ -38,8 +38,10 @@ ENV UV_TOOL_DIR=/usr/local/uv
 ENV PATH=/usr/local/bin:/root/.local/bin:/tmp/.local/bin:$PATH
 
 # Install system dependencies
+# libgnutls30 is pinned to a known-good Debian bookworm security build.
+# When Debian ships a newer +deb12uN, this build will fail loudly — bump the pin (or remove it) on review.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates wget curl git jq unzip unixodbc xmlsec1 gnupg lsb-release libgnutls30=3.7.9-2+deb12u* \
+    && apt-get install -y --no-install-recommends ca-certificates wget curl git jq unzip unixodbc xmlsec1 gnupg lsb-release libgnutls30=3.7.9-2+deb12u7 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
