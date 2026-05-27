@@ -813,6 +813,9 @@ export async function getNonStreamingCompletion(
 			)
 			return response
 		} catch (error) {
+			if (provider === 'openai_chatgpt_account') {
+				throw error
+			}
 			console.error('Error using Responses API:', error)
 		}
 	}

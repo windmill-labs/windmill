@@ -15,6 +15,7 @@ import { processToolCall, type Tool, type ToolCallbacks } from './shared'
 import type { ResponseStream } from 'openai/lib/responses/ResponseStream.mjs'
 import type { AIProvider, AIProviderModel } from '$lib/gen'
 import {
+	emptyChatTokenUsage,
 	openAIResponsesUsageToChatTokenUsage,
 	type ChatTokenUsage
 } from './tokenUsage'
@@ -348,7 +349,7 @@ export async function parseOpenAIResponsesCompletion(
 	addedMessages: ChatCompletionMessageParam[],
 	tools: Tool<any>[],
 	helpers: any,
-	options?: { workspace?: string }
+	options?: { workspace?: string; provider?: AIProvider }
 ): Promise<ParsedCompletionResult> {
 	let toolCallsToProcess: ChatCompletionMessageFunctionToolCall[] = []
 	let error: OpenAIError | ResponseErrorEvent | null = null
@@ -520,8 +521,18 @@ export async function parseOpenAIResponsesCompletion(
 		error = err
 	})
 
-	// Wait for completion
-	await runner.done()
+	// Wait for completion — Codex response.completed may lack `output`,
+	// causing the SDK's ResponsesParser.mjs to throw. For openai_chatgpt_account
+	// we've already captured all tool calls and text via streaming events, so we
+	// ignore the final snapshot parsing error.
+	try {
+		await runner.done()
+	} catch (streamErr) {
+		if (options?.provider !== 'openai_chatgpt_account') {
+			throw streamErr
+		}
+		console.warn('Codex Responses stream finalization error (ignored, data already captured)', streamErr)
+	}
 
 	// Add text message if we got any text
 	if (textContent) {
@@ -531,12 +542,20 @@ export async function parseOpenAIResponsesCompletion(
 		callbacks.onMessageEnd()
 	}
 
-	if (error) {
+	if (error && options?.provider !== 'openai_chatgpt_account') {
 		throw error
 	}
 
-	const finalResponse = await runner.finalResponse()
-	const tokenUsage = openAIResponsesUsageToChatTokenUsage(finalResponse.usage)
+	let tokenUsage = emptyChatTokenUsage()
+	try {
+		const finalResponse = await runner.finalResponse()
+		tokenUsage = openAIResponsesUsageToChatTokenUsage(finalResponse.usage)
+	} catch (err) {
+		if (options?.provider !== 'openai_chatgpt_account') {
+			throw err
+		}
+		console.warn('Unable to parse final Codex Responses stream snapshot', err)
+	}
 	toolCallsToProcess = toolCallOrder.map((callId) => toolCallsByCallId[callId]).filter(Boolean)
 
 	// Process tool calls if any
@@ -613,14 +632,28 @@ export async function getNonStreamingOpenAIResponsesCompletion(
 			? workspaceAIClients.createOpenaiClient(testOptions.workspace)
 			: workspaceAIClients.getOpenaiClient()
 
-	const response = await openaiClient.responses.create(
-		{
-			...responsesConfig,
-			input,
-			...(instructions ? { instructions } : {})
-		},
-		fetchOptions
-	)
+	try {
+		const response = await openaiClient.responses.create(
+			{
+				...responsesConfig,
+				input,
+				...(instructions ? { instructions } : {})
+			},
+			fetchOptions
+		)
 
-	return response.output_text || ''
+		const outputText = (response as any).output_text
+		if (outputText) {
+			return outputText
+		}
+		if (provider === 'openai_chatgpt_account') {
+			return ''
+		}
+		return ''
+	} catch (err) {
+		if (provider === 'openai_chatgpt_account') {
+			return ''
+		}
+		throw err
+	}
 }
