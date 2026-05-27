@@ -288,8 +288,17 @@ function createRuntime(session: Session): SessionRuntime {
 					} catch {
 						savedScript.val = undefined
 					}
+					// Clone the deployed/backend baseline before layering the AI
+					// draft on top — otherwise we'd mutate `savedScript.val` in
+					// place (it's the same object) and lose the pristine baseline
+					// that the diff drawer + the deploy/discard affordance compare
+					// against.
 					const baseline: NewScript = savedScript.val
-						? ((savedScript.val.draft as NewScript | undefined) ?? (savedScript.val as NewScript))
+						? (structuredClone(
+								$state.snapshot(
+									(savedScript.val.draft as NewScript | undefined) ?? (savedScript.val as NewScript)
+								)
+							) as NewScript)
 						: {
 								path,
 								summary: aiDraft.summary ?? '',

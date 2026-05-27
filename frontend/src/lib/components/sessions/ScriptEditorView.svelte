@@ -7,6 +7,8 @@
 	import type { NewScript } from '$lib/gen'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import SessionItemNotFound from './SessionItemNotFound.svelte'
+	import { sendUserToast } from '$lib/toast'
+	import { cleanValueProperties } from '$lib/utils'
 
 	let {
 		runtime,
@@ -120,6 +122,51 @@
 			)
 		})
 	})
+
+	// Mirror the regular /scripts/edit affordance: when a script lands in the
+	// preview carrying a local (AI/user) draft that diverges from its saved
+	// baseline, surface a toast offering to view the diff or discard the
+	// local draft — the session's parallel loader otherwise lands the draft
+	// silently. Fires once per loaded path (guarded by `affordancePath`).
+	// Brand-new AI scripts (no backend baseline → savedScript undefined) are
+	// skipped: there's nothing to diff/reset against, and ScriptBuilder
+	// already exposes Deploy / Save draft for them like /scripts/add.
+	let affordancePath: string | undefined = $state(undefined)
+	$effect(() => {
+		if (!workspaceId || !path) return
+		if (runtime.loadedScriptPath !== path) return
+		if (affordancePath === path) return
+		const saved = runtime.savedScript.val
+		const current = runtime.scriptStore.val
+		if (!saved || !current) return
+		untrack(() => {
+			affordancePath = path
+			const baseline = (saved.draft as NewScript | undefined) ?? (saved as NewScript)
+			const diverged =
+				baseline.content !== current.content ||
+				baseline.summary !== current.summary ||
+				baseline.language !== current.language
+			if (!diverged) return
+			const discard = () =>
+				UserDraft.discard<NewScript>('script', path, baseline, { workspace: workspaceId })
+			sendUserToast('AI saved a local draft', false, [
+				{
+					label: 'Show diff',
+					callback: () => {
+						diffDrawer?.openDrawer()
+						diffDrawer?.setDiff({
+							mode: 'simple',
+							original: cleanValueProperties(saved),
+							current: cleanValueProperties(current),
+							title: 'Deployed <> Draft',
+							button: { text: 'Discard draft', onClick: discard }
+						})
+					}
+				},
+				{ label: 'Discard local draft', callback: discard }
+			])
+		})
+	})
 </script>
 
 {#if runtime.savedScript.val}
@@ -154,5 +201,6 @@
 		{onNavigate}
 		{initialTestPanelCollapsed}
 		onSaveDraft={() => runtime.scheduleForkComparisonRefresh()}
+		onDeploy={() => runtime.scheduleForkComparisonRefresh()}
 	/>
 {/if}
