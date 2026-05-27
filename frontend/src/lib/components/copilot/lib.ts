@@ -15,7 +15,7 @@ import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
 import { getDefaultChatTemperature } from './modelConfig'
-import { buildReasoningPayload } from './reasoning'
+import { buildReasoningPayload, type AIReasoningEffort } from './reasoning'
 import { formatResourceTypes } from './utils'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
 import {
@@ -341,10 +341,16 @@ function getModelSpecificConfig(
 	}
 	const maxTokens = customMaxTokensStore?.[modelKey] ?? defaultMaxTokens
 	const defaultTemperature = getDefaultChatTemperature(modelProvider)
+	let reasoningEffort: AIReasoningEffort | undefined
+	try {
+		reasoningEffort = get(copilotReasoningEffort)
+	} catch {
+		// copilotReasoningEffort store may not be initialized in vitest
+	}
 	const reasoningPayload = buildReasoningPayload(
 		modelProvider.provider,
 		modelProvider.model,
-		get(copilotReasoningEffort)
+		reasoningEffort
 	)
 	if (
 		(modelProvider.provider === 'openai' ||

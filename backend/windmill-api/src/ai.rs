@@ -248,8 +248,15 @@ struct OpenAIChatGPTAccountResourceStatus {
 struct CodexDeviceAuthorizationResponse {
     device_auth_id: String,
     user_code: String,
-    interval: Option<String>,
+    interval: Option<CodexDeviceInterval>,
     expires_in: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum CodexDeviceInterval {
+    Seconds(u64),
+    Text(String),
 }
 
 #[derive(Deserialize)]
@@ -516,8 +523,11 @@ async fn start_openai_chatgpt_account_device_auth(
         .map_err(to_anyhow)?;
     let interval_seconds = challenge
         .interval
-        .as_deref()
-        .and_then(|s| s.parse::<u64>().ok())
+        .as_ref()
+        .and_then(|interval| match interval {
+            CodexDeviceInterval::Seconds(seconds) => Some(*seconds),
+            CodexDeviceInterval::Text(value) => value.parse::<u64>().ok(),
+        })
         .unwrap_or(5)
         .max(1);
     let expires_at = Utc::now()
