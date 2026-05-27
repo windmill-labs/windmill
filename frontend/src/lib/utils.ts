@@ -1289,7 +1289,7 @@ export function cleanValueProperties(obj: Value) {
 	} else {
 		let newObj: any = {}
 		for (const key of Object.keys(obj)) {
-			if (key !== 'parent_hash' && key !== 'draft' && key !== 'draft_only') {
+			if (key !== 'parent_hash' && key !== 'hash' && key !== 'draft' && key !== 'draft_only') {
 				newObj[key] = structuredClone(stateSnapshot(obj[key]))
 			}
 		}
