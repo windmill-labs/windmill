@@ -15,6 +15,7 @@ import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
 import { getDefaultChatTemperature } from './modelConfig'
+import { buildReasoningPayload } from './reasoning'
 import { formatResourceTypes } from './utils'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
 import {
@@ -24,7 +25,7 @@ import {
 import { convertOpenAIToAnthropicMessages } from './chat/anthropic'
 import type { Stream } from 'openai/core/streaming.mjs'
 import { generateRandomString } from '$lib/utils'
-import { copilotInfo, getCurrentModel } from '$lib/aiStore'
+import { copilotInfo, copilotReasoningEffort, getCurrentModel } from '$lib/aiStore'
 import {
 	emptyChatTokenUsage,
 	openAICompletionsUsageToChatTokenUsage,
@@ -59,6 +60,10 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	openai: {
 		label: 'OpenAI',
 		defaultModels: OPENAI_MODELS
+	},
+	openai_chatgpt_account: {
+		label: 'OpenAI ChatGPT Account',
+		defaultModels: []
 	},
 	azure_openai: {
 		label: 'Azure OpenAI',
@@ -223,8 +228,26 @@ export async function fetchAvailableModels(
 		throw new Error(`Failed to fetch models for provider ${provider}`)
 	}
 
-	const data = (await models.json()) as { data: ModelResponse[] }
-	if (data.data.length > 0) {
+	const data = (await models.json()) as {
+		data?: ModelResponse[]
+		models?: Array<{ slug?: string; id?: string; visibility?: string; priority?: number }>
+	}
+	if (provider === 'openai_chatgpt_account') {
+		const codexModels = (data.models ?? [])
+			.filter((m) => (m.visibility ?? 'list') === 'list')
+			.sort((a, b) => (a.priority ?? Number.MAX_SAFE_INTEGER) - (b.priority ?? Number.MAX_SAFE_INTEGER))
+			.map((m) => m.slug ?? m.id)
+			.filter((id): id is string => !!id)
+
+		if (codexModels.length === 0) {
+			throw new Error('OpenAI ChatGPT Account did not return any Codex models')
+		}
+
+		return codexModels
+	}
+
+	const modelData = data.data ?? []
+	if (modelData.length > 0) {
 		const sortFunc = (provider: AIProvider) => (a: string, b: string) => {
 			// First prioritize models in defaultModels array
 			const defaultModels = AI_PROVIDERS[provider]?.defaultModels || []
@@ -237,14 +260,14 @@ export async function fetchAvailableModels(
 		}
 		switch (provider) {
 			case 'openai':
-				return data.data
+				return modelData
 					.filter(
 						(m) => m.id.startsWith('gpt-') || m.id.startsWith('o') || m.id.startsWith('codex')
 					)
 					.map((m) => m.id)
 					.sort(sortFunc(provider))
 			case 'azure_openai':
-				return data.data
+				return modelData
 					.filter(
 						(m) =>
 							(m.id.startsWith('gpt-') || m.id.startsWith('o') || m.id.startsWith('codex')) &&
@@ -253,19 +276,22 @@ export async function fetchAvailableModels(
 					.map((m) => m.id)
 					.sort(sortFunc(provider))
 			case 'googleai':
-				return data.data.map((m) => m.id.split('/')[1]).sort(sortFunc(provider))
+				return modelData.map((m) => m.id.split('/')[1]).sort(sortFunc(provider))
 			default:
-				return data.data.map((m) => m.id).sort(sortFunc(provider))
+				return modelData.map((m) => m.id).sort(sortFunc(provider))
 		}
 	}
 
-	return data?.data.map((m) => m.id) ?? []
+	return modelData.map((m) => m.id)
 }
 
 export function getModelMaxTokens(provider: AIProvider, model: string) {
 	if (model.includes('gpt-5')) {
 		return 128000
-	} else if ((provider === 'azure_openai' || provider === 'openai') && model.startsWith('o')) {
+	} else if (
+		(provider === 'azure_openai' || provider === 'openai' || provider === 'openai_chatgpt_account') &&
+		model.startsWith('o')
+	) {
 		return 100000
 	} else if (
 		model.includes('claude-sonnet') ||
@@ -315,13 +341,21 @@ function getModelSpecificConfig(
 	}
 	const maxTokens = customMaxTokensStore?.[modelKey] ?? defaultMaxTokens
 	const defaultTemperature = getDefaultChatTemperature(modelProvider)
+	const reasoningPayload = buildReasoningPayload(
+		modelProvider.provider,
+		modelProvider.model,
+		get(copilotReasoningEffort)
+	)
 	if (
-		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
+		(modelProvider.provider === 'openai' ||
+			modelProvider.provider === 'azure_openai' ||
+			modelProvider.provider === 'openai_chatgpt_account') &&
 		(modelProvider.model.startsWith('o') || modelProvider.model.startsWith('gpt-5'))
 	) {
 		return {
 			model: modelProvider.model,
 			...(tools && tools.length > 0 ? { tools } : {}),
+			...reasoningPayload,
 			max_completion_tokens: maxTokens
 		}
 	} else {
@@ -339,6 +373,7 @@ function getModelSpecificConfig(
 						...(defaultTemperature !== undefined ? { temperature: defaultTemperature } : {})
 					}),
 			...(tools && tools.length > 0 ? { tools } : {}),
+			...reasoningPayload,
 			max_tokens: maxTokens
 		}
 	}
@@ -376,6 +411,7 @@ const DEFAULT_COMPLETION_CONFIG: ChatCompletionCreateParams = {
 
 export const PROVIDER_COMPLETION_CONFIG_MAP: Record<AIProvider, ChatCompletionCreateParams> = {
 	openai: DEFAULT_COMPLETION_CONFIG,
+	openai_chatgpt_account: DEFAULT_COMPLETION_CONFIG,
 	azure_openai: DEFAULT_COMPLETION_CONFIG,
 	groq: DEFAULT_COMPLETION_CONFIG,
 	openrouter: DEFAULT_COMPLETION_CONFIG,
@@ -767,8 +803,8 @@ export async function getNonStreamingCompletion(
 		forceModelProvider: testOptions?.forceModelProvider
 	})
 
-	// Use Responses API for OpenAI and Azure OpenAI
-	if (provider === 'openai' || provider === 'azure_openai') {
+	// Use Responses API for OpenAI-compatible Responses providers
+	if (provider === 'openai' || provider === 'azure_openai' || provider === 'openai_chatgpt_account') {
 		try {
 			const response = await getNonStreamingOpenAIResponsesCompletion(
 				messages,
@@ -892,8 +928,11 @@ export async function getCompletion(
 		forceModelProvider: options?.forceModelProvider
 	})
 
-	// Use Responses API for OpenAI and Azure OpenAI
-	if ((provider === 'openai' || provider === 'azure_openai') && !options?.forceCompletions) {
+	// Use Responses API for OpenAI-compatible Responses providers
+	if (
+		(provider === 'openai' || provider === 'azure_openai' || provider === 'openai_chatgpt_account') &&
+		!options?.forceCompletions
+	) {
 		try {
 			const stream = getOpenAIResponsesCompletionStream(messages, abortController, tools) as any
 			return stream
@@ -905,7 +944,10 @@ export async function getCompletion(
 	// Use Completions API for other providers
 	const client = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
 	const completionConfig =
-		(provider === 'openai' || provider === 'azure_openai' || provider === 'googleai') &&
+		(provider === 'openai' ||
+			provider === 'azure_openai' ||
+			provider === 'openai_chatgpt_account' ||
+			provider === 'googleai') &&
 		config.stream
 			? {
 					...config,

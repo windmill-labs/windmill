@@ -641,17 +641,17 @@ export async function processToolCall<T>({
 			})
 		} catch (err) {
 			console.error(err)
-			toolCallbacks.setToolStatus(toolCall.id, {
-				isLoading: false,
-				isStreamingArguments: false,
-				error: 'An error occurred while calling the tool'
-			})
 			const errorMessage =
-				typeof err === 'object' && 'message' in err
-					? err.message
+				typeof err === 'object' && err && 'message' in err
+					? String(err.message)
 					: typeof err === 'string'
 						? err
 						: 'An error occurred while calling the tool'
+			toolCallbacks.setToolStatus(toolCall.id, {
+				isLoading: false,
+				isStreamingArguments: false,
+				error: errorMessage
+			})
 			result = `Error while calling tool: ${errorMessage}`
 		}
 		const toAdd = {

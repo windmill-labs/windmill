@@ -1,11 +1,14 @@
 <script lang="ts">
 	import {
+		AiService,
 		ResourceService,
 		WorkspaceService,
 		type AIConfig,
 		type AIProvider,
 		type GetCopilotSettingsStateResponse,
-		type InstanceAISummary
+		type InstanceAISummary,
+		type OpenAIChatGPTAccountDeviceCompleteResponse,
+		type OpenAIChatGPTAccountDeviceStartResponse
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -26,7 +29,7 @@
 	import { setCopilotInfo } from '$lib/aiStore'
 	import AIPromptsModal from '../settings/AIPromptsModal.svelte'
 	import { Settings } from 'lucide-svelte'
-	import { untrack } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import { slide } from 'svelte/transition'
 	import SettingsFooter from './SettingsFooter.svelte'
 	import InstanceFallbackSettings from './InstanceFallbackSettings.svelte'
@@ -72,6 +75,10 @@
 	let maxTokensPerModel: Record<string, number> = $state({})
 	let usingOpenaiClientCredentialsOauth = $state(false)
 	let workspaceOverrideEditorOpened = $state(false)
+	let chatgptDeviceAuth = $state<OpenAIChatGPTAccountDeviceStartResponse | undefined>(undefined)
+	let chatgptDeviceStatus = $state<string | undefined>(undefined)
+	let chatgptDeviceConnecting = $state(false)
+	let chatgptDevicePollTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
 	// --- Initial state for dirty tracking ---
 	let initialAiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
@@ -218,7 +225,8 @@
 					availableAiModels[provider] = models
 				} catch (e) {
 					console.error('failed to fetch models for provider', provider, e)
-					availableAiModels[provider] = AI_PROVIDERS[provider].defaultModels
+					availableAiModels[provider] =
+						provider === 'openai_chatgpt_account' ? [] : AI_PROVIDERS[provider].defaultModels
 				}
 			}
 			fetchedAiModels = true
@@ -311,7 +319,11 @@
 				availableAiModels[provider] = models
 			} catch (e) {
 				console.error('failed to fetch models for provider', provider, e)
-				availableAiModels[provider] = AI_PROVIDERS[provider].defaultModels
+				availableAiModels[provider] =
+					provider === 'openai_chatgpt_account' ? [] : AI_PROVIDERS[provider].defaultModels
+				if (provider === 'openai_chatgpt_account') {
+					chatgptDeviceStatus = 'ChatGPT connected, but Codex models could not be loaded.'
+				}
 			}
 		}
 
@@ -323,6 +335,84 @@
 			aiProviders[provider].models = availableAiModels[provider].slice(0, 1)
 		}
 	}
+
+	function clearChatGPTDevicePoll() {
+		if (chatgptDevicePollTimeout) {
+			clearTimeout(chatgptDevicePollTimeout)
+			chatgptDevicePollTimeout = undefined
+		}
+	}
+
+	async function startChatGPTAccountDeviceAuth(provider: AIProvider) {
+		clearChatGPTDevicePoll()
+		chatgptDeviceConnecting = true
+		chatgptDeviceAuth = undefined
+		chatgptDeviceStatus = undefined
+
+		try {
+			chatgptDeviceAuth = await AiService.startOpenAiChatGptAccountDeviceAuth({
+				workspace: effectiveWorkspace
+			})
+			chatgptDeviceStatus = 'Waiting for authorization in OpenAI...'
+			void pollChatGPTAccountDeviceAuth(provider)
+		} catch (error) {
+			console.error('failed to start ChatGPT device auth', error)
+			sendUserToast('Failed to start ChatGPT login', true)
+			chatgptDeviceConnecting = false
+		}
+	}
+
+	async function pollChatGPTAccountDeviceAuth(provider: AIProvider) {
+		if (!chatgptDeviceAuth) {
+			return
+		}
+
+		if (new Date(chatgptDeviceAuth.expires_at).getTime() <= Date.now()) {
+			chatgptDeviceConnecting = false
+			chatgptDeviceStatus = 'The login code expired. Start a new connection.'
+			return
+		}
+
+		try {
+			const response: OpenAIChatGPTAccountDeviceCompleteResponse =
+				await AiService.completeOpenAiChatGptAccountDeviceAuth({
+					workspace: effectiveWorkspace,
+					requestBody: {
+						device_auth_id: chatgptDeviceAuth.device_auth_id,
+						user_code: chatgptDeviceAuth.user_code,
+						resource_path: aiProviders[provider]?.resource_path || undefined
+					}
+				})
+
+			if (response.status === 'connected' && response.resource_path) {
+				if (!aiProviders[provider]) {
+					chatgptDeviceConnecting = false
+					chatgptDeviceAuth = undefined
+					chatgptDeviceStatus = 'ChatGPT connected, but the provider was disabled.'
+					return
+				}
+				aiProviders[provider].resource_path = response.resource_path
+				chatgptDeviceConnecting = false
+				chatgptDeviceStatus = 'ChatGPT account connected.'
+				chatgptDeviceAuth = undefined
+				await onAiProviderChange(provider)
+				sendUserToast('ChatGPT account connected')
+				return
+			}
+
+			chatgptDeviceStatus = 'Waiting for authorization in OpenAI...'
+			chatgptDevicePollTimeout = setTimeout(
+				() => pollChatGPTAccountDeviceAuth(provider),
+				chatgptDeviceAuth.interval_ms
+			)
+		} catch (error) {
+			console.error('failed to complete ChatGPT device auth', error)
+			sendUserToast('Failed to complete ChatGPT login', true)
+			chatgptDeviceConnecting = false
+		}
+	}
+
+	onDestroy(clearChatGPTDevicePoll)
 
 	const autocompleteModels = $derived(selectedAiModels.filter(supportsAutocomplete))
 </script>
@@ -417,6 +507,45 @@
 								transition:slide|local={{ duration: 150 }}
 							>
 								<Label label="Resource">
+									{#if provider === 'openai_chatgpt_account'}
+										<div class="mb-3 flex flex-col gap-3 rounded-md border bg-surface-secondary p-3 text-xs">
+											<div class="flex flex-col gap-1">
+												<span class="font-medium text-primary">Connect with ChatGPT</span>
+												<span class="text-secondary">
+													Use OpenAI Device Flow to create a Windmill resource backed by your
+													ChatGPT account session.
+												</span>
+											</div>
+											<Button
+												onclick={() => startChatGPTAccountDeviceAuth(provider as AIProvider)}
+												variant="default"
+												unifiedSize="sm"
+												disabled={chatgptDeviceConnecting}
+											>
+												{chatgptDeviceConnecting ? 'Waiting for OpenAI' : 'Connect with ChatGPT'}
+											</Button>
+											{#if chatgptDeviceAuth}
+												<div class="flex flex-col gap-2 rounded bg-surface p-3">
+													<a
+														class="text-blue-600 underline"
+														href={chatgptDeviceAuth.verification_uri}
+														target="_blank"
+														rel="noreferrer"
+													>
+														Open OpenAI device login
+													</a>
+													<div>
+														Enter code <code class="rounded bg-surface-tertiary px-1 py-0.5">{chatgptDeviceAuth.user_code}</code>
+													</div>
+													{#if chatgptDeviceStatus}
+														<div class="text-secondary">{chatgptDeviceStatus}</div>
+													{/if}
+												</div>
+											{:else if chatgptDeviceStatus}
+												<div class="text-secondary">{chatgptDeviceStatus}</div>
+											{/if}
+										</div>
+									{/if}
 									<div class="flex flex-row gap-1">
 										<ResourcePicker
 											selectFirst
