@@ -114,7 +114,10 @@
 
 <Popover
 	enableFlyTransition
-	contentClasses="p-0 bg-surface overflow-hidden"
+	contentClasses={twMerge(
+		'p-0 bg-surface overflow-hidden relative transition-height',
+		showBottomPanel ? 'h-[26rem]' : 'h-[22rem]'
+	)}
 	class="inline-block"
 	usePointerDownOutside
 	floatingConfig={{
@@ -132,21 +135,18 @@
 		{@render triggerSnippet?.()}
 	{/snippet}
 	{#snippet content({ close })}
-		<div
-			class={twMerge(
-				'flex flex-row transition-height divide-x',
-				showBottomPanel ? 'h-[14rem]' : 'h-[22rem]'
-			)}
-		>
-			{@render topSection()}
-		</div>
-		<div
-			class={twMerge(
-				'flex flex-col gap-5 transition-height',
-				showBottomPanel ? 'h-[14rem] border-t p-4' : 'h-0'
-			)}
-		>
-			{@render bottomSection(close)}
+		<div class="flex flex-col h-full">
+			<div class={'flex flex-row transition-height divide-x overflow-y-scroll'}>
+				{@render topSection()}
+			</div>
+			<div
+				class={twMerge(
+					'flex flex-col gap-5 grow transition-height px-4 border-t',
+					showBottomPanel ? 'h-[14rem] py-4' : 'h-0'
+				)}
+			>
+				{@render bottomSection(close)}
+			</div>
 		</div>
 	{/snippet}
 </Popover>
@@ -257,7 +257,7 @@
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div bind:this={pathEl} class="flex" onkeydown={selectAndAdvanceTo(() => aiPromptEl)}>
 			<div
-				class="border rounded-md rounded-r-none border-r-0 text-xs w-fit flex items-center px-2 text-secondary bg-surface-input"
+				class="border rounded-md rounded-r-none border-r-0 text-xs w-fit flex items-center px-2 text-secondary bg-surface-input whitespace-nowrap"
 			>
 				{pathPrefix}
 			</div>
