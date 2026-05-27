@@ -90,6 +90,8 @@ doesn't steal focus from a sibling search input (matches the picker).
 		target="_blank"
 		rel="noopener noreferrer"
 		{id}
+		role="option"
+		aria-selected={highlighted}
 		aria-current={current ? 'true' : undefined}
 		data-nav-key={navKey}
 		title={title ?? secondary}

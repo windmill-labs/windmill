@@ -463,7 +463,7 @@
 					size="xs2"
 					iconOnly
 					startIcon={{ icon: Plus }}
-					on:click={createAndOpen}
+					onclick={createAndOpen}
 					title="New session"
 				/>
 			</div>

@@ -145,7 +145,7 @@
 				unifiedSize="sm"
 				startIcon={{ icon: Archive }}
 				dropdownItems={[{ label: 'Delete', icon: Trash2, onClick: () => onDelete?.() }]}
-				on:click={() => onArchive?.()}
+				onclick={() => onArchive?.()}
 			>
 				Archive
 			</Button>
@@ -194,7 +194,7 @@
 				startIcon={{ icon: GitCompareArrows }}
 				disabled={totalDiffs === 0}
 				title="{totalDiffs} modified item{totalDiffs === 1 ? '' : 's'}"
-				on:click={() => diffDrawer?.open()}
+				onclick={() => diffDrawer?.open()}
 			>
 				{totalDiffs}
 			</Button>
@@ -202,7 +202,7 @@
 				variant="default"
 				unifiedSize="xs"
 				startIcon={{ icon: GitMerge }}
-				on:click={openReview}
+				onclick={openReview}
 			>
 				Review
 			</Button>

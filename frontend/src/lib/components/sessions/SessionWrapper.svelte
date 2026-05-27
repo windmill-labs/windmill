@@ -363,7 +363,7 @@
 							variant="subtle"
 							unifiedSize="xs"
 							startIcon={{ icon: PanelRightOpen }}
-							on:click={() => (editorVisible = true)}
+							onclick={() => (editorVisible = true)}
 						>
 							Show editor
 						</Button>

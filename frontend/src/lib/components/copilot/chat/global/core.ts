@@ -1546,7 +1546,7 @@ export const globalTools: Tool<{}>[] = [
 		confirmationMessage: 'Deploy local draft to workspace',
 		fn: async (ctx) => {
 			const parsed = deployWorkspaceItemSchema.parse(ctx.args)
-			return deployDraft(parsed, ctx)
+			return deployDraft(parsed, { ...ctx, sessionId: sessionIdFromCtx(ctx) })
 		}
 	},
 	{
@@ -1761,7 +1761,7 @@ export const globalTools: Tool<{}>[] = [
 		),
 		fn: async (ctx) => {
 			const parsed = openPreviewSchema.parse(ctx.args)
-			return openSessionPreview(parsed)
+			return openSessionPreview(parsed, sessionIdFromCtx(ctx))
 		}
 	},
 	{
@@ -1770,7 +1770,7 @@ export const globalTools: Tool<{}>[] = [
 			'get_preview_status',
 			'Check whether the side-panel preview is open in this AI session and which item (kind + path) it is showing. Call this before offering or calling open_preview so you do not re-open a preview that is already showing the item you just edited. Only meaningful inside a session.'
 		),
-		fn: async () => getSessionPreviewStatus()
+		fn: async (ctx) => getSessionPreviewStatus(sessionIdFromCtx(ctx))
 	}
 ]
 
@@ -1794,6 +1794,10 @@ type WriteDraftCtx = {
 	workspace: string
 	toolId: string
 	toolCallbacks: ToolCallbacks
+	// Calling session id (session chats only), threaded through so a deploy
+	// reloads the preview of the session that issued the deploy — not the
+	// UI-active one. Undefined for the global side-panel chat.
+	sessionId?: string
 }
 
 // Sessions are the only context where `open_preview` makes sense — the global
@@ -1801,7 +1805,19 @@ type WriteDraftCtx = {
 // The session runtime registers a handler at construction time so the tool
 // has somewhere to dispatch. When no session is active the handler is
 // undefined and the tool returns a polite error.
+// Per-manager tool helpers for a session chat. Each session's AIChatManager
+// sets `helpers = { sessionId }`, so a tool call carries the *calling* session's
+// id even when a different session is the UI-active one. Without this the
+// handlers below would route a backgrounded session's tool call to whatever
+// session the user happens to be viewing.
+export type SessionToolHelpers = { sessionId?: string }
+
+function sessionIdFromCtx(ctx: { helpers?: unknown }): string | undefined {
+	return (ctx.helpers as SessionToolHelpers | undefined)?.sessionId
+}
+
 export type OpenPreviewHandler = (req: {
+	sessionId: string | undefined
 	kind: 'script' | 'flow' | 'raw_app'
 	path: string
 }) => string
@@ -1812,18 +1828,21 @@ export function setOpenPreviewHandler(handler: OpenPreviewHandler | undefined): 
 	openPreviewHandler = handler
 }
 
-function openSessionPreview(args: { kind: 'script' | 'flow' | 'raw_app'; path: string }) {
+function openSessionPreview(
+	args: { kind: 'script' | 'flow' | 'raw_app'; path: string },
+	sessionId: string | undefined
+) {
 	if (!openPreviewHandler) {
 		return 'Error: open_preview is only available inside an AI session. Tell the user to switch to a session to view the preview, or describe the item textually.'
 	}
-	return openPreviewHandler(args)
+	return openPreviewHandler({ ...args, sessionId })
 }
 
 // Companion to `open_preview`: lets the assistant query the current preview
 // state (open? which item?) so it can avoid re-opening a preview already
 // showing the item it just edited. Registered by the session runtime
 // alongside the open-preview handler.
-export type GetPreviewStatusHandler = () => string
+export type GetPreviewStatusHandler = (sessionId: string | undefined) => string
 
 let getPreviewStatusHandler: GetPreviewStatusHandler | undefined
 
@@ -1831,16 +1850,17 @@ export function setGetPreviewStatusHandler(handler: GetPreviewStatusHandler | un
 	getPreviewStatusHandler = handler
 }
 
-function getSessionPreviewStatus(): string {
+function getSessionPreviewStatus(sessionId: string | undefined): string {
 	if (!getPreviewStatusHandler) {
 		return 'Error: get_preview_status is only available inside an AI session.'
 	}
-	return getPreviewStatusHandler()
+	return getPreviewStatusHandler(sessionId)
 }
 
 // Registered by the session runtime to reload the open preview after a chat
 // deploy. Undefined outside a session.
 export type DeployedInSessionHandler = (req: {
+	sessionId: string | undefined
 	kind: 'script' | 'flow' | 'raw_app'
 	path: string
 }) => void
@@ -2848,7 +2868,7 @@ async function deployDraft(
 	},
 	ctx: WriteDraftCtx
 ): Promise<string> {
-	const { workspace, toolId, toolCallbacks } = ctx
+	const { workspace, toolId, toolCallbacks, sessionId } = ctx
 	const { type, path, trigger_kind: triggerKind, deployment_message: deploymentMessage } = args
 
 	if (type === 'trigger' && !triggerKind) {
@@ -3035,9 +3055,9 @@ async function deployDraft(
 	// deploys under type 'app' (bundle + createAppRaw/updateAppRaw above) but the
 	// session preview addresses it as 'raw_app'.
 	if (type === 'script' || type === 'flow') {
-		deployedInSessionHandler?.({ kind: type, path })
+		deployedInSessionHandler?.({ sessionId, kind: type, path })
 	} else if (type === 'app') {
-		deployedInSessionHandler?.({ kind: 'raw_app', path })
+		deployedInSessionHandler?.({ sessionId, kind: 'raw_app', path })
 	}
 
 	toolCallbacks.setToolStatus(toolId, {

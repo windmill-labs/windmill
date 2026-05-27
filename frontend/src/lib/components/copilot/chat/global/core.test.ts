@@ -149,12 +149,13 @@ function getGlobalTool(name: string): Tool<{}> {
 async function callGlobalTool(
 	name: string,
 	args: Record<string, unknown>,
-	callbacks: ToolCallbacks = toolCallbacks
+	callbacks: ToolCallbacks = toolCallbacks,
+	helpers: Record<string, unknown> = {}
 ): Promise<string> {
 	return getGlobalTool(name).fn({
 		args,
 		workspace: WORKSPACE,
-		helpers: {},
+		helpers,
 		toolCallbacks: callbacks,
 		toolId: `test-${name}`
 	})
@@ -1153,10 +1154,23 @@ describe('global AI tools', () => {
 				{ workspace: WORKSPACE }
 			)
 
-			await callGlobalTool('deploy_workspace_item', { type: 'app', path: 'f/apps/report' })
+			await callGlobalTool(
+				'deploy_workspace_item',
+				{ type: 'app', path: 'f/apps/report' },
+				toolCallbacks,
+				{
+					sessionId: 'sess-123'
+				}
+			)
 
-			// A raw app deploys under type 'app' but the preview addresses it as 'raw_app'.
-			expect(onDeployed).toHaveBeenCalledWith({ kind: 'raw_app', path: 'f/apps/report' })
+			// A raw app deploys under type 'app' but the preview addresses it as
+			// 'raw_app'; the calling session id is threaded through so the deploy
+			// reloads the issuing session's preview, not the UI-active one.
+			expect(onDeployed).toHaveBeenCalledWith({
+				sessionId: 'sess-123',
+				kind: 'raw_app',
+				path: 'f/apps/report'
+			})
 		} finally {
 			setDeployedInSessionHandler(undefined)
 		}

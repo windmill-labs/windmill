@@ -116,6 +116,10 @@ export interface SessionRuntime {
 	// schedules a couple of delayed refreshes so the fork-bar count
 	// updates without waiting for an AI turn or a tab refocus.
 	scheduleForkComparisonRefresh(): void
+	// Cancel pending fork-comparison refresh timers. Called by disposeRuntime so
+	// a torn-down (e.g. LRU-evicted, deleted) runtime can't fire a stray
+	// refreshForkComparisonNow / compareWorkspaces after it's gone.
+	dispose(): void
 }
 
 const runtimes = new SvelteMap<string, SessionRuntime>()
@@ -145,6 +149,9 @@ function createRuntime(session: Session): SessionRuntime {
 	// preview tools (open_preview / get_preview_status); the global side-panel
 	// chat does not.
 	manager.isSessionChat = true
+	// Carried into the tool helpers so this session's preview/deploy tool calls
+	// dispatch to THIS session even when another session is the UI-active one.
+	manager.sessionId = session.id
 	// Pre-flight: materialise the (still-transient) session, then commit
 	// the workspace (creating a staged fork if needed) before any send.
 	// AIChatManager awaits this so the first message hits a persisted
@@ -529,6 +536,10 @@ function createRuntime(session: Session): SessionRuntime {
 				setTimeout(() => void refreshForkComparisonNow(), 700),
 				setTimeout(() => void refreshForkComparisonNow(), 2200)
 			]
+		},
+		dispose() {
+			for (const t of forkRefreshTimers) clearTimeout(t)
+			forkRefreshTimers = []
 		}
 	}
 }
@@ -561,6 +572,7 @@ export function getOrCreateRuntime(session: Session): SessionRuntime {
 export function disposeRuntime(sessionId: string) {
 	const runtime = runtimes.get(sessionId)
 	if (!runtime) return
+	runtime.dispose()
 	runtime.manager.cancel('runtime disposed')
 	runtime.manager.historyManager.close()
 	runtimes.delete(sessionId)
@@ -609,13 +621,14 @@ export function promoteEditorWarm(sessionId: string): void {
 	}
 }
 
-// Register the global open_preview tool handler once at module load. The
-// handler dispatches to the currently active session — if no session is
-// active (chat is in the right side panel singleton), the tool returns an
-// error message via `setOpenPreviewHandler(undefined)`-style guard inside
-// core.ts.
-setOpenPreviewHandler(({ kind, path }) => {
-	const sessionId = sessionState.currentSessionId
+// Register the global open_preview tool handler once at module load. It
+// dispatches to the *calling* session (sessionId threaded from the tool ctx),
+// falling back to the UI-active session only when none was passed — so a
+// backgrounded session's tool call opens its OWN preview, not the one the user
+// happens to be viewing. Outside a session there is no calling/active id and
+// the tool returns a polite error.
+setOpenPreviewHandler(({ sessionId: callerSessionId, kind, path }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
 	if (!sessionId) {
 		return 'Error: no active session to open the preview in.'
 	}
@@ -629,21 +642,21 @@ setOpenPreviewHandler(({ kind, path }) => {
 	return `Opened ${kind} preview for ${path} in the side panel.`
 })
 
-// Companion to the open_preview handler: report whether the active session's
+// Companion to the open_preview handler: report whether the calling session's
 // preview is open and which item it shows, so the assistant can avoid
 // re-opening a preview already showing the item it just edited.
-setGetPreviewStatusHandler(() => {
-	const sessionId = sessionState.currentSessionId
+setGetPreviewStatusHandler((callerSessionId) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
 	if (!sessionId) return 'No active session; the preview panel is unavailable.'
 	const target = sessionState.sessions.find((s) => s.id === sessionId)?.target
 	if (!target) return 'No preview is currently open in the side panel.'
 	return `The preview is currently open showing ${target.kind} "${target.path}".`
 })
 
-// After a chat deploy, reload the active session's preview — only if it's open
+// After a chat deploy, reload the calling session's preview — only if it's open
 // showing that exact item.
-setDeployedInSessionHandler(({ kind, path }) => {
-	const sessionId = sessionState.currentSessionId
+setDeployedInSessionHandler(({ sessionId: callerSessionId, kind, path }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
 	if (!sessionId) return
 	const session = sessionState.sessions.find((s) => s.id === sessionId)
 	const runtime = runtimes.get(sessionId)

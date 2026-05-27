@@ -127,23 +127,12 @@ export type Session = {
 
 const STORAGE_KEY = 'windmill_sessions'
 
-const now = Date.now()
-const defaultSessions: Session[] = [
-	{
-		id: createLongHash(),
-		name: 'session-1',
-		summary: 'testing_flow',
-		target: { kind: 'flow', path: 'u/guilhempw/testing_flow' },
-		createdAt: now
-	},
-	{
-		id: createLongHash(),
-		name: 'session-2',
-		summary: 'demo_groups',
-		target: { kind: 'flow', path: 'u/guilhempw/demo_groups' },
-		createdAt: now
-	}
-]
+// New users (empty/cleared/private-browsing localStorage) start with no
+// sessions — the sidebar + /sessions page render their empty states and the
+// user creates the first session with `+`. Do NOT seed placeholder sessions
+// here: hardcoded example paths won't resolve for other users and render as
+// "session not found".
+const defaultSessions: Session[] = []
 
 function loadSessions(): Session[] {
 	if (!BROWSER) return defaultSessions
@@ -387,8 +376,17 @@ export async function materializeFork(fork: PendingFork): Promise<string | undef
 	} catch (e: any) {
 		const msg = String(e?.body ?? e?.message ?? e)
 		if (/workspace_pkey|duplicate key/i.test(msg)) {
-			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-			if (get(userWorkspaces).some((w) => w.id === fork.id)) return fork.id
+			// Self-heal: the create likely already succeeded. Refresh + adopt the
+			// existing row. Guard this refresh — a second network failure here must
+			// NOT rethrow out of materializeFork (callers rely on the
+			// toast-and-return-undefined contract; an uncaught throw would bypass
+			// it and propagate up through commitSessionWorkspace/beforeSend).
+			try {
+				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+				if (get(userWorkspaces).some((w) => w.id === fork.id)) return fork.id
+			} catch (refreshErr) {
+				console.error('Failed to refresh workspaces during fork self-heal', refreshErr)
+			}
 		}
 		sendUserToast(`Could not create fork: ${msg}`, true)
 		return undefined

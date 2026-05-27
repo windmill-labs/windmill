@@ -158,7 +158,7 @@
 				deleted, or this link was created in a different browser.
 			</p>
 		</div>
-		<Button size="xs" startIcon={{ icon: Plus }} on:click={startNewSession}>New session</Button>
+		<Button size="xs" startIcon={{ icon: Plus }} onclick={startNewSession}>New session</Button>
 	</div>
 {:else}
 	<div class="relative flex-1 min-h-0">

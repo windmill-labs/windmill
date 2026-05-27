@@ -585,7 +585,7 @@
 				variant="accent"
 				unifiedSize="sm"
 				startIcon={{ icon: GitMerge }}
-				on:click={openReview}
+				onclick={openReview}
 			>
 				Review
 			</Button>
