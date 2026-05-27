@@ -267,6 +267,13 @@
 	$effect(() => {
 		if (showSource || activeTabKind === 'preview') iframeShouldMount = true
 	})
+	// Width of the editor area (both inner panes). The UI Builder iframe is
+	// pre-mounted while it's the inactive tab so the editor is ready instantly;
+	// but the VS Code workbench inside crashes if it boots at 0 size. So while
+	// inactive we keep the iframe at this real width and hide it with
+	// `visibility` instead of collapsing it — Monaco boots correctly and
+	// revealing a file is just an unhide (no reload, no relayout, no latency).
+	let editorAreaWidth = $state(0)
 
 	// Inner pane sizes are a pure function of mode + active tab → derived.
 	// `paneARatio` is the user's last manual split drag (set by rememberPaneDrag).
@@ -1426,6 +1433,7 @@
 				Preview previously hid every tab.
 			-->
 				<div
+					bind:clientWidth={editorAreaWidth}
 					class="h-full w-full min-h-0 {splitWithPreview && activeTabKind !== 'preview'
 						? 'tabs-content-split'
 						: 'tabs-content-single'}"
@@ -1459,7 +1467,21 @@
 									{/snippet}
 								</DraggableTabs>
 								<div class="flex-1 min-h-0 relative">
-									<div class="absolute inset-0" style="display: {showSource ? 'block' : 'none'}">
+									<!--
+									Keep the UI Builder iframe mounted at a real (non-zero) size even
+									when it isn't the active tab: a hidden 0×0 mount crashes the VS
+									Code workbench's layout ("Unable to figure out browser width and
+									height") and wedges it on "Loading editor" with no recovery. While
+									inactive we size it to the editor area's width and hide it with
+									`visibility` (not `display`), so Monaco boots correctly and
+									revealing a file is an instant unhide.
+									-->
+									<div
+										class="absolute inset-0"
+										style={showSource
+											? ''
+											: `right: auto; width: ${editorAreaWidth || 800}px; visibility: hidden; pointer-events: none;`}
+									>
 										{#if iframeShouldMount}
 											<iframe
 												bind:this={iframe}
