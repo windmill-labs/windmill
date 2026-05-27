@@ -428,7 +428,7 @@
 			inputBaseClass,
 			inputBorderClass({ error: !!error }),
 			inputSizeClasses[size],
-			'relative flex gap-0 pb-0 mb-1 flex-col flex-wrap sm:flex-row sm:items-center',
+			'relative flex gap-0 pb-0 mb-1 flex-wrap flex-row items-center',
 			disabled && '!bg-surface-disabled cursor-not-allowed border-none'
 		)}
 	>
@@ -486,7 +486,7 @@
 						/>
 					</label>
 				{:else if meta.ownerKind === 'folder'}
-					<label class="block grow w-42">
+					<label class="block grow">
 						<FolderPicker
 							bind:folderName={meta.owner}
 							{initialPath}
@@ -500,7 +500,7 @@
 				{/if}
 			</div>
 			<div class="text-sm text-secondary">/</div>
-			<label class="block grow min-w-32 mr-3">
+			<label class="block grow mr-3">
 				<!-- svelte-ignore a11y_autofocus -->
 				<PathNameAutocomplete
 					bind:this={inputP}
