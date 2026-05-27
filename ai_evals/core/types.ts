@@ -110,7 +110,9 @@ export interface AppValidationSpec {
 
 export interface GlobalDraftRequirement {
   type: string;
-  path: string;
+  path?: string;
+  pathIncludes?: string[];
+  pathStartsWith?: string;
   triggerKind?: string;
   language?: string;
   summaryIncludes?: string[];

@@ -7,10 +7,11 @@ use windmill_common::error::{Error, Result};
 use crate::ai_providers::{AIPlatform, AIProvider};
 use crate::utils::AI_HTTP_HEADERS;
 
-/// Resolved provider credentials and proxy-specific context.
+/// Resolved provider credentials shared by API proxy and worker execution.
 ///
-/// This is intentionally separate from the worker's `ProviderWithResource`: API
-/// proxy credentials are already resolved from workspace or instance resources.
+/// Raw API resources and worker agent payloads convert into this shape at their
+/// execution boundaries. Request-specific state such as the selected model stays
+/// outside this type.
 #[derive(Clone, Debug)]
 pub struct ProviderCredentials {
     pub provider: AIProvider,

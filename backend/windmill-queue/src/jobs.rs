@@ -3633,17 +3633,24 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
                 return Ok((None, false));
             }
 
-            // Workspace fairness (cloud-only): if the fairness refresh has flagged any
-            // overloaded workspaces, try the fairness-aware pull queries first (which
-            // exclude those workspace_ids). When fairness is off or no workspace is
-            // currently capped, this branch is skipped and the hot path is identical
-            // to today's. Lazy refresh is fired from the same place; it runs at most
-            // once per process per refresh interval and never blocks this pull.
+            // Workspace fairness (Enterprise): if the fairness refresh has flagged
+            // any overloaded workspaces, this pull is randomly routed between two
+            // pull queries:
+            //   * with probability `(cap + ε)/100`, the standard query (capped
+            //     workspaces are admissible — they win via FIFO when noisy)
+            //   * with probability `1 - (cap + ε)/100`, the fairness query (the
+            //     overloaded workspace_ids are filtered out)
+            // Over many pulls this converges to a steady share around the cap,
+            // without the on/off oscillation a binary cap/uncap dispatch produces.
+            // If the chosen query returns nothing, we always fall back to the
+            // standard query so workers don't idle when only capped jobs remain.
+            // Lazy refresh fires from the same place: runs at most once per
+            // process per refresh interval, never blocks this pull.
             crate::workspace_fairness::maybe_refresh_overloaded(db);
             let overloaded = WORKSPACE_FAIRNESS_OVERLOADED.load_full();
             let fairness_active = !overloaded.is_empty();
 
-            if fairness_active {
+            if fairness_active && !crate::workspace_fairness::should_admit_capped() {
                 let fairness_queries = WORKER_PULL_QUERIES_FAIRNESS.load();
                 let overloaded_slice: &[String] = overloaded.as_slice();
                 for query in fairness_queries.iter() {
@@ -3667,10 +3674,10 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
             }
 
             if highest_priority_job.is_none() {
-                // Standard pull path. Also acts as the fallback when fairness filtered
-                // out every candidate: prefer running a capped workspace's job over
-                // leaving a worker idle. The cap re-engages on the next refresh as
-                // soon as the workspace's footprint exceeds the threshold again.
+                // Standard pull path. Also acts as the fallback when fairness
+                // filtered out every candidate: prefer running a capped
+                // workspace's job over leaving a worker idle. (The cap is
+                // re-asserted statistically on subsequent pulls.)
                 for query in queries.iter() {
                     // tracing::info!("Pulling job with query: {}", query);
                     // let instant = std::time::Instant::now();

@@ -15,6 +15,8 @@ pub use jobs::*;
 pub mod flow_status;
 pub mod tags;
 pub mod workspace_fairness;
+#[cfg(feature = "private")]
+pub mod workspace_fairness_ee;
 
 #[cfg(feature = "cloud")]
 pub mod cloud_usage;

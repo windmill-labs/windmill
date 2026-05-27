@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM background_task_state\n         WHERE name LIKE $1\n           AND updated_at < NOW() - INTERVAL '7 days'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8597cd40f80e69edbf1bc7d7402baca32e33e871be454acb5175c11361fe1b0a"
+}

@@ -315,10 +315,11 @@ export function validateGlobalState(input: {
   }
 
   for (const required of validate.requiredDrafts ?? []) {
-    const draft = findGlobalDraft(drafts, required.type, required.path, required.triggerKind);
+    const requirementLabel = formatGlobalDraftRequirement(required);
+    const draft = findGlobalDraft(drafts, required);
     checks.push(
       check(
-        `global includes ${required.type} draft ${required.path}`,
+        `global includes ${requirementLabel}`,
         Boolean(draft),
         summarizeGlobalDrafts(drafts)
       )
@@ -330,7 +331,7 @@ export function validateGlobalState(input: {
     if (required.language !== undefined) {
       checks.push(
         check(
-          `${required.type} draft ${required.path} uses ${required.language}`,
+          `${requirementLabel} uses ${required.language}`,
           draft.language === required.language,
           `language=${draft.language ?? "(none)"}`
         )
@@ -340,7 +341,7 @@ export function validateGlobalState(input: {
     for (const snippet of required.summaryIncludes ?? []) {
       checks.push(
         check(
-          `${required.type} draft ${required.path} summary includes '${snippet}'`,
+          `${requirementLabel} summary includes '${snippet}'`,
           normalizeText(draft.summary ?? "").includes(normalizeText(snippet)),
           `summary=${draft.summary ?? ""}`
         )
@@ -351,7 +352,7 @@ export function validateGlobalState(input: {
     for (const snippet of required.valueIncludes ?? []) {
       checks.push(
         check(
-          `${required.type} draft ${required.path} value includes '${snippet}'`,
+          `${requirementLabel} value includes '${snippet}'`,
           normalizeText(valueText).includes(normalizeText(snippet)),
           truncateForDetails(valueText)
         )
@@ -361,7 +362,7 @@ export function validateGlobalState(input: {
     for (const snippet of required.valueExcludes ?? []) {
       checks.push(
         check(
-          `${required.type} draft ${required.path} value excludes '${snippet}'`,
+          `${requirementLabel} value excludes '${snippet}'`,
           !normalizeText(valueText).includes(normalizeText(snippet)),
           truncateForDetails(valueText)
         )
@@ -373,7 +374,7 @@ export function validateGlobalState(input: {
     checks.push(
       check(
         `global does not include ${forbidden.type} draft ${forbidden.path}`,
-        !findGlobalDraft(drafts, forbidden.type, forbidden.path, forbidden.triggerKind),
+        !findGlobalDraft(drafts, forbidden),
         summarizeGlobalDrafts(drafts)
       )
     );
@@ -615,16 +616,100 @@ function summarizeProblems(problems: string[], limit = 5): string | undefined {
 
 function findGlobalDraft(
   drafts: GlobalDraft[],
-  type: string,
-  path: string,
-  triggerKind?: string
+  requirement: {
+    type: string;
+    path?: string;
+    pathIncludes?: string[];
+    pathStartsWith?: string;
+    triggerKind?: string;
+    summaryIncludes?: string[];
+    valueIncludes?: string[];
+    valueExcludes?: string[];
+  }
 ): GlobalDraft | undefined {
-  return drafts.find(
-    (draft) =>
-      draft.type === type &&
-      draft.path === path &&
-      (triggerKind === undefined || draft.triggerKind === triggerKind)
+  const candidates = drafts.filter((draft) =>
+    globalDraftMatchesLocator(draft, requirement)
   );
+  return (
+    candidates.find((draft) => globalDraftMatchesContent(draft, requirement)) ??
+    candidates[0]
+  );
+}
+
+function globalDraftMatchesLocator(
+  draft: GlobalDraft,
+  requirement: {
+    type: string;
+    path?: string;
+    pathIncludes?: string[];
+    pathStartsWith?: string;
+    triggerKind?: string;
+  }
+): boolean {
+  return (
+    draft.type === requirement.type &&
+    (requirement.path === undefined || draft.path === requirement.path) &&
+    (requirement.pathStartsWith === undefined ||
+      draft.path.startsWith(requirement.pathStartsWith)) &&
+    (requirement.pathIncludes ?? []).every((snippet) =>
+      normalizeText(draft.path).includes(normalizeText(snippet))
+    ) &&
+    (requirement.triggerKind === undefined ||
+      draft.triggerKind === requirement.triggerKind)
+  );
+}
+
+function globalDraftMatchesContent(
+  draft: GlobalDraft,
+  requirement: {
+    summaryIncludes?: string[];
+    valueIncludes?: string[];
+    valueExcludes?: string[];
+  }
+): boolean {
+  const summary = normalizeText(draft.summary ?? "");
+  const value = normalizeText(stringifyGlobalDraftValue(draft.value));
+  return (
+    (requirement.summaryIncludes ?? []).every((snippet) =>
+      summary.includes(normalizeText(snippet))
+    ) &&
+    (requirement.valueIncludes ?? []).every((snippet) =>
+      value.includes(normalizeText(snippet))
+    ) &&
+    (requirement.valueExcludes ?? []).every(
+      (snippet) => !value.includes(normalizeText(snippet))
+    )
+  );
+}
+
+function formatGlobalDraftRequirement(
+  requirement: {
+    type: string;
+    path?: string;
+    pathIncludes?: string[];
+    pathStartsWith?: string;
+    triggerKind?: string;
+  }
+): string {
+  const typeLabel =
+    requirement.triggerKind === undefined
+      ? requirement.type
+      : `${requirement.triggerKind} ${requirement.type}`;
+  if (requirement.path !== undefined) {
+    return `${typeLabel} draft ${requirement.path}`;
+  }
+
+  const filters = [
+    ...(requirement.pathStartsWith === undefined
+      ? []
+      : [`path starts with ${requirement.pathStartsWith}`]),
+    ...(requirement.pathIncludes ?? []).map(
+      (snippet) => `path includes ${snippet}`
+    ),
+  ];
+  return filters.length === 0
+    ? `${typeLabel} draft`
+    : `${typeLabel} draft (${filters.join(", ")})`;
 }
 
 function summarizeGlobalDrafts(drafts: GlobalDraft[]): string {
