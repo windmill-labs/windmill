@@ -146,9 +146,11 @@
 
 	let bundleDrawer = $state<Drawer | undefined>()
 	let bundleName = $state('')
+	let bundleSummary = $state('')
 	let bundleReadme = $state('')
 	// MOCK: would be persisted with the Hub draft.
 	let hubName = $state('')
+	let hubSummary = $state('')
 	let hubReadme = $state('')
 
 	const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -269,36 +271,166 @@
 		const folderShort =
 			selectedFolders.length === 1 ? selectedFolders[0].split('/').slice(1).join('/') : ''
 		bundleName = hubName || folderShort || ($workspaceStore ?? '')
+		bundleSummary = hubSummary
 		bundleReadme = hubReadme
 		bundleDrawer?.openDrawer()
 	}
+	function sanitizeSlug(s: string): string {
+		return s
+			.toLowerCase()
+			.replace(/[_\s]+/g, '-')
+			.replace(/[^a-z0-9-]/g, '')
+			.slice(0, 50)
+	}
+
 	async function confirmBundle() {
 		hubName = bundleName.trim()
+		hubSummary = bundleSummary.trim()
 		hubReadme = bundleReadme.trim()
+		const workspace = $workspaceStore
+		if (!workspace) return
+		try {
+			const res = await fetch(`/api/w/${workspace}/hub/publish_draft`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				credentials: 'include',
+				body: JSON.stringify({
+					slug: sanitizeSlug(hubSlug),
+					name: hubName,
+					summary: hubSummary || hubName,
+					readme: hubReadme || undefined
+				})
+			})
+			if (!res.ok) {
+				const text = await res.text()
+				sendUserToast(`Hub draft creation failed: ${text}`, true)
+				return
+			}
+		} catch (e: any) {
+			sendUserToast(`Hub draft creation failed: ${e?.message ?? e}`, true)
+			return
+		}
 		bundleDrawer?.closeDrawer()
 		await deployAll()
 	}
+
+	let hubItemIds = $state<Record<string, number>>({})
+
+	async function pushItem(workspace: string, slug: string, it: DeployItem): Promise<void> {
+		if (it.kind === 'script') {
+			const s = await ScriptService.getScriptByPath({ workspace, path: it.path })
+			const body = {
+				summary: s.summary || it.path,
+				app: slug,
+				description: s.description ?? '',
+				kind: typeof s.kind === 'string' ? s.kind.toLowerCase() : 'script',
+				content: s.content,
+				language: s.language,
+				schema: s.schema ?? undefined,
+				lockfile: s.lock ?? undefined,
+				workspace_slug: slug
+			}
+			const resp = await postHub(workspace, '/hub/scripts', body)
+			const id = resp?.id
+			if (typeof id === 'number') hubItemIds = { ...hubItemIds, [it.key]: id }
+		} else if (it.kind === 'flow') {
+			const f = await FlowService.getFlowByPath({ workspace, path: it.path })
+			const body = {
+				flow: {
+					summary: f.summary || it.path,
+					description: f.description ?? undefined,
+					value: f.value,
+					schema: f.schema ?? undefined
+				},
+				apps: [],
+				workspace_slug: slug
+			}
+			const resp = await postHub(workspace, '/hub/flows', body)
+			const id = resp?.id
+			if (typeof id === 'number') hubItemIds = { ...hubItemIds, [it.key]: id }
+		} else if (it.kind === 'app') {
+			const a = await AppService.getAppByPath({ workspace, path: it.path })
+			const body = {
+				app: a.value,
+				apps: [],
+				summary: a.summary || it.path,
+				description: undefined,
+				workspace_slug: slug
+			}
+			await postHub(workspace, '/hub/apps', body)
+		} else if (it.kind === 'raw_app') {
+			const r = await fetch(`/api/w/${workspace}/raw_apps/get_data/0/${it.path}`, {
+				credentials: 'include'
+			})
+			if (!r.ok) throw new Error(`fetch raw_app ${it.path}: ${await r.text()}`)
+			const raw = await r.text()
+			const body = {
+				raw,
+				apps: [],
+				summary: it.summary || it.path,
+				description: undefined,
+				workspace_slug: slug
+			}
+			await postHub(workspace, '/hub/raw_apps', body)
+		} else {
+			throw new Error(`unsupported kind ${it.kind} in v1`)
+		}
+	}
+
+	async function postHub(
+		workspace: string,
+		path: string,
+		body: unknown
+	): Promise<Record<string, any> | undefined> {
+		const res = await fetch(`/api/w/${workspace}${path}`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			credentials: 'include',
+			body: JSON.stringify(body)
+		})
+		const text = await res.text()
+		if (!res.ok) throw new Error(text)
+		try {
+			return JSON.parse(text)
+		} catch {
+			return undefined
+		}
+	}
+
 	async function deployAll() {
-		// MOCK: bundle/version push to the Hub is not implemented backend-side.
+		const workspace = $workspaceStore
+		if (!workspace) return
+		const slug = sanitizeSlug(hubSlug)
 		deploying = true
+		let failures = 0
 		try {
 			for (const it of selectedItems) {
 				deploymentStatus = { ...deploymentStatus, [it.key]: { status: 'loading' } }
-				await delay(120)
-				deploymentStatus = { ...deploymentStatus, [it.key]: { status: 'deployed' } }
+				try {
+					await pushItem(workspace, slug, it)
+					deploymentStatus = { ...deploymentStatus, [it.key]: { status: 'deployed' } }
+				} catch (e: any) {
+					failures++
+					deploymentStatus = {
+						...deploymentStatus,
+						[it.key]: { status: 'failed', error: e?.message ?? String(e) }
+					}
+				}
 			}
 			await delay(150)
 			deploymentStatus = {}
-			// Freeze the set of items for this draft cycle. Workspace changes after this point
-			// will not affect the draft until a new draft cycle is started.
 			draftItems = selectedItems.map((i) => ({ ...i, rec: 'none' }))
 			recordings = {}
 			phase = 'draft'
-			sendUserToast(
-				hubVersion === 0
-					? `Draft created on the Hub. Add recordings before submitting for review.`
-					: `New draft created (will become v${hubVersion + 1} after review).`
-			)
+			if (failures > 0) {
+				sendUserToast(`Draft pushed with ${failures} failed item(s).`, true)
+			} else {
+				sendUserToast(
+					hubVersion === 0
+						? `Draft created on the Hub. Add recordings before submitting for review.`
+						: `New draft created (will become v${hubVersion + 1} after review).`
+				)
+			}
 		} finally {
 			deploying = false
 		}
@@ -455,14 +587,98 @@
 		runState = 'failed'
 		runError = 'Timed out after 5 minutes'
 	}
-	function saveRecording() {
+	async function buildScriptRecording(workspace: string, it: DeployItem, jobId: string) {
+		const s = await ScriptService.getScriptByPath({ workspace, path: it.path })
+		const job = await JobService.getCompletedJob({ workspace, id: jobId })
+		const initial_job = { ...(job as any), type: 'CompletedJob' }
+		const events = [{ t: 0, data: { completed: true, job: initial_job } }]
+		const duration = (initial_job.duration_ms as number) ?? 0
+		return {
+			version: 1,
+			type: 'script' as const,
+			recorded_at: new Date().toISOString(),
+			script_path: it.path,
+			total_duration_ms: duration,
+			code: s.content,
+			language: s.language,
+			args: (job.args ?? {}) as Record<string, any>,
+			schema: s.schema,
+			job: { initial_job, events }
+		}
+	}
+
+	async function buildFlowRecording(workspace: string, it: DeployItem, jobId: string) {
+		const f = await FlowService.getFlowByPath({ workspace, path: it.path })
+		const root = (await JobService.getCompletedJob({ workspace, id: jobId })) as any
+		const jobs: Record<string, { initial_job: any; events: any[] }> = {}
+		const collect = async (j: any) => {
+			const stamped = { ...j, type: 'CompletedJob' }
+			jobs[j.id] = {
+				initial_job: stamped,
+				events: [{ t: 0, data: { completed: true, job: stamped } }]
+			}
+			const modules = j.flow_status?.modules ?? []
+			for (const m of modules) {
+				if (m.job && typeof m.job === 'string') {
+					try {
+						const sub = (await JobService.getCompletedJob({ workspace, id: m.job })) as any
+						await collect(sub)
+					} catch {
+						/* sub-job missing — skip */
+					}
+				}
+			}
+		}
+		await collect(root)
+		return {
+			version: 1,
+			recorded_at: new Date().toISOString(),
+			flow_path: it.path,
+			total_duration_ms: (root.duration_ms as number) ?? 0,
+			flow: {
+				path: it.path,
+				value: f.value,
+				schema: f.schema ?? { type: 'object', properties: {}, required: [] },
+				summary: f.summary ?? '',
+				archived: false,
+				edited_at: '',
+				edited_by: '',
+				extra_perms: {}
+			},
+			jobs
+		}
+	}
+
+	async function saveRecording() {
 		const it = recordTarget
-		if (!it || !runJobId || runState !== 'success') return
-		// MOCK STORAGE: would persist {item_path, hub_version, job_id} server-side.
-		recordings = { ...recordings, [it.key]: runJobId }
-		patchItem(it.key, { rec: 'recorded' })
-		sendUserToast(`Recording saved — job ${runJobId}`)
-		recordDrawer?.closeDrawer()
+		const workspace = $workspaceStore
+		if (!it || !runJobId || runState !== 'success' || !workspace) return
+		const hubId = hubItemIds[it.key]
+		if (!hubId) {
+			sendUserToast(`Push the bundle to the Hub first before saving recordings`, true)
+			return
+		}
+		if (it.kind !== 'script' && it.kind !== 'flow') {
+			sendUserToast(`Recordings only supported for script/flow`, true)
+			return
+		}
+		try {
+			const recording =
+				it.kind === 'script'
+					? await buildScriptRecording(workspace, it, runJobId)
+					: await buildFlowRecording(workspace, it, runJobId)
+			const path = it.kind === 'script' ? 'scripts' : 'flows'
+			await postHub(workspace, `/hub/${path}/${hubId}/recording`, {
+				recording,
+				workspace_slug: sanitizeSlug(hubSlug)
+			})
+			recordings = { ...recordings, [it.key]: runJobId }
+			patchItem(it.key, { rec: 'recorded' })
+			sendUserToast(`Recording saved — job ${runJobId}`)
+			recordDrawer?.closeDrawer()
+		} catch (e: any) {
+			sendUserToast(`Failed to save recording: ${e?.message ?? e}`, true)
+		}
 	}
 
 	function openPublish(it: DeployItem) {
@@ -985,6 +1201,13 @@
 			<label class="flex flex-col gap-1 text-xs">
 				<span class="font-semibold text-primary">Name</span>
 				<TextInput bind:value={bundleName} inputProps={{ placeholder: 'e.g. Acme CRM toolkit' }} />
+			</label>
+			<label class="flex flex-col gap-1 text-xs">
+				<span class="font-semibold text-primary">Summary</span>
+				<TextInput
+					bind:value={bundleSummary}
+					inputProps={{ placeholder: 'Short one-liner shown on the Hub card' }}
+				/>
 			</label>
 			<label class="flex flex-col gap-1 text-xs">
 				<span class="font-semibold text-primary">Readme</span>
