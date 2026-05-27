@@ -81,7 +81,7 @@
 						size="sm"
 						startIcon={{ icon: Pen }}
 						variant="subtle"
-						href="{base}/apps/edit/{app.path}?nodraft=true">Edit</Button
+						href="{base}/apps/edit/{app.path}">Edit</Button
 					>
 				</div>
 			{/if}
