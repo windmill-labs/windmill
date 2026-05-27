@@ -55,7 +55,10 @@ use windmill_common::{
 use windmill_dep_map::scoped_dependency_map::{
     DependencyDependent, DependencyMap, ScopedDependencyMap,
 };
-use windmill_git_sync::{handle_deployment_metadata, handle_fork_branch_creation, DeployedObject};
+use windmill_git_sync::{
+    handle_deployment_metadata, handle_deployment_metadata_batch, handle_fork_branch_creation,
+    DeployedObject,
+};
 use windmill_types::s3::LargeFileStorage;
 
 use hyper::StatusCode;
@@ -3458,42 +3461,25 @@ async fn set_encryption_key(
     // Invalidate the cache only after the transaction has committed
     WORKSPACE_CRYPT_CACHE.remove(w_id.as_str());
 
-    // Trigger git sync for encryption key changes
-    handle_deployment_metadata(
+    // Build the batch: one event for the encryption key itself plus one per
+    // re-encrypted secret variable. The batch entrypoint dispatches a single
+    // git-sync job per repo carrying all items, so repos with Secrets sync
+    // enabled receive the new ciphertexts in one commit.
+    let mut batch: Vec<DeployedObject> = Vec::with_capacity(reencrypted_secret_paths.len() + 1);
+    batch.push(DeployedObject::Key { key_type: "encryption_key".to_string() });
+    for path in reencrypted_secret_paths {
+        batch.push(DeployedObject::Variable { path: path.clone(), parent_path: Some(path) });
+    }
+
+    handle_deployment_metadata_batch(
         &authed.email,
         &authed.username,
         &db,
         &w_id,
-        windmill_git_sync::DeployedObject::Key { key_type: "encryption_key".to_string() },
+        batch,
         Some("Encryption key updated".to_string()),
-        false,
-        None,
     )
     .await?;
-
-    // Re-encrypted secret values changed on disk: trigger a git sync per variable
-    // so that repos with Secrets sync enabled receive the new ciphertexts. Errors
-    // are logged but not surfaced so the key rotation itself isn't rolled back.
-    for path in reencrypted_secret_paths {
-        if let Err(e) = handle_deployment_metadata(
-            &authed.email,
-            &authed.username,
-            &db,
-            &w_id,
-            DeployedObject::Variable { path: path.clone(), parent_path: Some(path.clone()) },
-            Some("Variable re-encrypted after workspace key rotation".to_string()),
-            true,
-            None,
-        )
-        .await
-        {
-            tracing::error!(
-                "Failed to trigger git sync for re-encrypted variable {}: {}",
-                path,
-                e
-            );
-        }
-    }
 
     return Ok(());
 }
