@@ -754,6 +754,26 @@ pub fn bedrock_stream_event_to_tool_start(
     }
 }
 
+pub fn bedrock_stream_event_to_tool_start_with_block_index(
+    event: &ConverseStreamOutput,
+) -> Option<(usize, StreamingToolCall)> {
+    match event {
+        ConverseStreamOutput::ContentBlockStart(start) => {
+            let block_index = usize::try_from(start.content_block_index()).ok()?;
+            let tool_use = start.start().and_then(|s| s.as_tool_use().ok())?;
+            Some((
+                block_index,
+                StreamingToolCall {
+                    id: tool_use.tool_use_id().to_string(),
+                    name: tool_use.name().to_string(),
+                    arguments: String::new(),
+                },
+            ))
+        }
+        _ => None,
+    }
+}
+
 /// Extract tool use input delta from stream
 pub fn bedrock_stream_event_to_tool_delta(event: &ConverseStreamOutput) -> Option<String> {
     match event {
@@ -761,6 +781,22 @@ pub fn bedrock_stream_event_to_tool_delta(event: &ConverseStreamOutput) -> Optio
             .delta()
             .and_then(|d| d.as_tool_use().ok())
             .map(|tool_use| tool_use.input().to_string()),
+        _ => None,
+    }
+}
+
+pub fn bedrock_stream_event_to_tool_delta_with_block_index(
+    event: &ConverseStreamOutput,
+) -> Option<(usize, String)> {
+    match event {
+        ConverseStreamOutput::ContentBlockDelta(delta) => {
+            let block_index = usize::try_from(delta.content_block_index()).ok()?;
+            let input = delta
+                .delta()
+                .and_then(|d| d.as_tool_use().ok())
+                .map(|tool_use| tool_use.input().to_string())?;
+            Some((block_index, input))
+        }
         _ => None,
     }
 }

@@ -691,7 +691,7 @@ impl QueryBuilder for GoogleAIQueryBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ai_providers::AIProvider, proxy::ProviderCredentials};
+    use crate::{ai_providers::AIProvider, credentials::ProviderCredentials};
     use std::collections::HashMap;
 
     fn credentials(base_url: &str, platform: AIPlatform) -> ProviderCredentials {
