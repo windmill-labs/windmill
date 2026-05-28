@@ -7830,7 +7830,7 @@ paths:
                         type: string
                       typ:
                         type: string
-                        enum: [script, flow, app]
+                        description: UserDraft item kind. Stored verbatim; the client owns the value set.
                       value: {}
                       force:
                         type: boolean
@@ -7854,7 +7854,6 @@ paths:
                           type: string
                         typ:
                           type: string
-                          enum: [script, flow, app]
                         value: {}
                         created_at:
                           type: string
@@ -7873,7 +7872,6 @@ paths:
                               type: string
                             typ:
                               type: string
-                              enum: [script, flow, app]
                             created_at:
                               type: string
                               format: date-time
@@ -7887,7 +7885,6 @@ paths:
                               type: string
                             typ:
                               type: string
-                              enum: [script, flow, app]
                             server_value: {}
                             server_created_at:
                               type: string
@@ -7918,11 +7915,10 @@ paths:
           required: true
           schema:
             type: string
-            enum: [script, flow, app]
         - $ref: "#/components/parameters/ScriptPath"
       responses:
         "200":
-          description: list of usernames with a draft; `null` represents a legacy workspace-level draft
+          description: list of users (by email) with a draft; `null` represents a legacy workspace-level draft
           content:
             application/json:
               schema:
@@ -7930,7 +7926,7 @@ paths:
                 items:
                   type: object
                   properties:
-                    username:
+                    email:
                       type: string
                       nullable: true
                     created_at:

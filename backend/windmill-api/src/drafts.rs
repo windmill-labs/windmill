@@ -14,7 +14,10 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use windmill_common::error::Result;
+use windmill_common::{
+    db::UserDB,
+    error::{Error, Result},
+};
 
 pub fn workspaced_service() -> Router {
     Router::new().route("/sync", post(sync_drafts)).route(
@@ -23,19 +26,14 @@ pub fn workspaced_service() -> Router {
     )
 }
 
-#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
-#[sqlx(type_name = "DRAFT_TYPE", rename_all = "lowercase")]
-#[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
-pub enum DraftType {
-    Script,
-    Flow,
-    App,
-}
-
 #[derive(Deserialize, Debug, Clone)]
 pub struct IncomingDraft {
     pub path: String,
-    pub typ: DraftType,
+    /// Free-form item kind matching the frontend's `UserDraftItemKind`
+    /// (`script`, `flow`, `app`, `raw_app`, `resource`, `variable`,
+    /// `trigger_*`, ...). Stored verbatim — no server-side validation,
+    /// since the set of kinds is owned by the client.
+    pub typ: String,
     pub value: sqlx::types::Json<Box<serde_json::value::RawValue>>,
     /// When true, skip the conflict check for this entry and overwrite the
     /// server copy. Only the matching entry is forced — other entries in
@@ -57,7 +55,7 @@ pub struct SyncDraftsRequest {
 #[derive(Serialize, Debug)]
 pub struct MissedDraft {
     pub path: String,
-    pub typ: DraftType,
+    pub typ: String,
     pub value: sqlx::types::Json<Box<serde_json::value::RawValue>>,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
@@ -67,12 +65,12 @@ pub struct MissedDraft {
 pub enum DraftSyncStatus {
     Saved {
         path: String,
-        typ: DraftType,
+        typ: String,
         created_at: chrono::DateTime<chrono::Utc>,
     },
     Rejected {
         path: String,
-        typ: DraftType,
+        typ: String,
         /// Current server copy at conflict-detection time.
         server_value: sqlx::types::Json<Box<serde_json::value::RawValue>>,
         server_created_at: chrono::DateTime<chrono::Utc>,
@@ -95,7 +93,7 @@ async fn sync_drafts(
     Path(w_id): Path<String>,
     Json(req): Json<SyncDraftsRequest>,
 ) -> Result<Json<SyncDraftsResponse>> {
-    let username = &authed.username;
+    let email = &authed.email;
     let current_timestamp = sqlx::query_scalar!("SELECT now()")
         .fetch_one(&db)
         .await?
@@ -104,13 +102,13 @@ async fn sync_drafts(
     let missed_drafts = if let Some(last_sync) = req.last_sync {
         sqlx::query_as!(
             MissedDraft,
-            r#"SELECT path, typ as "typ: DraftType", value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>", created_at
+            r#"SELECT path, typ, value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>", created_at
                FROM draft
                WHERE workspace_id = $1
-                 AND username = $2
+                 AND email = $2
                  AND created_at > $3"#,
             &w_id,
-            username,
+            email,
             last_sync,
         )
         .fetch_all(&db)
@@ -119,12 +117,12 @@ async fn sync_drafts(
         // Initial sync — return everything the user has on the server.
         sqlx::query_as!(
             MissedDraft,
-            r#"SELECT path, typ as "typ: DraftType", value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>", created_at
+            r#"SELECT path, typ, value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>", created_at
                FROM draft
                WHERE workspace_id = $1
-                 AND username = $2"#,
+                 AND email = $2"#,
             &w_id,
-            username,
+            email,
         )
         .fetch_all(&db)
         .await?
@@ -139,14 +137,14 @@ async fn sync_drafts(
                     r#"SELECT value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>", created_at
                        FROM draft
                        WHERE workspace_id = $1
-                         AND username = $2
+                         AND email = $2
                          AND path = $3
                          AND typ = $4
                          AND created_at > $5"#,
                     &w_id,
-                    username,
+                    email,
                     incoming.path,
-                    incoming.typ as DraftType,
+                    incoming.typ,
                     last_sync,
                 )
                 .fetch_optional(&db)
@@ -155,7 +153,7 @@ async fn sync_drafts(
                 if let Some(row) = conflict {
                     statuses.push(DraftSyncStatus::Rejected {
                         path: incoming.path.clone(),
-                        typ: incoming.typ,
+                        typ: incoming.typ.clone(),
                         server_value: row.value,
                         server_created_at: row.created_at,
                         incoming_value: sqlx::types::Json(
@@ -171,15 +169,15 @@ async fn sync_drafts(
         }
 
         let row = sqlx::query!(
-            r#"INSERT INTO draft (workspace_id, username, path, typ, value, created_at)
+            r#"INSERT INTO draft (workspace_id, email, path, typ, value, created_at)
                VALUES ($1, $2, $3, $4, $5::text::json, now())
-               ON CONFLICT (workspace_id, path, typ, username) WHERE username IS NOT NULL
+               ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL
                DO UPDATE SET value = EXCLUDED.value, created_at = now()
                RETURNING created_at"#,
             &w_id,
-            username,
+            email,
             incoming.path,
-            incoming.typ as DraftType,
+            incoming.typ,
             serde_json::to_string(&incoming.value).unwrap(),
         )
         .fetch_one(&db)
@@ -187,7 +185,7 @@ async fn sync_drafts(
 
         statuses.push(DraftSyncStatus::Saved {
             path: incoming.path.clone(),
-            typ: incoming.typ,
+            typ: incoming.typ.clone(),
             created_at: row.created_at,
         });
     }
@@ -202,29 +200,79 @@ async fn sync_drafts(
 #[derive(Serialize, Debug)]
 pub struct UserWithDraft {
     /// `None` represents a legacy workspace-level draft (no owner).
-    pub username: Option<String>,
+    pub email: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
 async fn list_users_with_draft_on_path(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Path((w_id, kind, path)): Path<(String, DraftType, windmill_common::utils::StripPath)>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, kind, path)): Path<(String, String, windmill_common::utils::StripPath)>,
 ) -> Result<Json<Vec<UserWithDraft>>> {
+    let path = path.to_path();
+    require_access_to_path(&authed, &user_db, &w_id, &kind, path).await?;
+
     let rows = sqlx::query_as!(
         UserWithDraft,
-        r#"SELECT username, created_at
+        r#"SELECT email, created_at
            FROM draft
            WHERE workspace_id = $1
              AND path = $2
              AND typ = $3
-           ORDER BY username NULLS LAST"#,
+           ORDER BY email NULLS LAST"#,
         &w_id,
-        path.to_path(),
-        kind as DraftType,
+        path,
+        kind,
     )
     .fetch_all(&db)
     .await?;
 
     Ok(Json(rows))
+}
+
+/// Resolves to `Ok(())` only if `authed` can read the underlying item at
+/// `path`. Implemented by issuing a `SELECT 1` through `user_db` (which
+/// applies row-level extra_perms via `set_session_user`), so a user who
+/// can't see the script/flow/app gets back zero rows. We don't leak the
+/// set of paths that exist either way — both "not readable" and "doesn't
+/// exist" return the same 404.
+async fn require_access_to_path(
+    authed: &ApiAuthed,
+    user_db: &UserDB,
+    w_id: &str,
+    kind: &str,
+    path: &str,
+) -> Result<()> {
+    if authed.is_admin {
+        return Ok(());
+    }
+    let table = match kind {
+        "script" => "script",
+        "flow" => "flow",
+        "app" => "app",
+        // Item kinds without a backing path-permission table (raw_app,
+        // resource, variable, trigger_*, ...) fall back to the user's own
+        // `u/{authed.username}/...` path namespace.
+        _ => {
+            let prefix = format!("u/{}/", authed.username);
+            if path.starts_with(&prefix) {
+                return Ok(());
+            }
+            return Err(Error::NotFound(format!("no draft visible at {path}")));
+        }
+    };
+    let mut tx = user_db.clone().begin(authed).await?;
+    let query =
+        format!("SELECT 1 AS exists FROM {table} WHERE path = $1 AND workspace_id = $2 LIMIT 1");
+    let row = sqlx::query_scalar::<_, i32>(&query)
+        .bind(path)
+        .bind(w_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    if row.is_none() {
+        return Err(Error::NotFound(format!("no {kind} visible at {path}")));
+    }
+    Ok(())
 }

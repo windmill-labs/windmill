@@ -3,7 +3,7 @@ import { onDestroy, untrack } from 'svelte'
 import { deepEqual } from 'fast-equals'
 import { userStore, workspaceStore } from './stores'
 import { useLocalStorageValue } from './svelte5Utils.svelte'
-import { UserDraftDbSyncer, isSyncableKind } from './userDraftDbSyncer.svelte'
+import { UserDraftDbSyncer } from './userDraftDbSyncer.svelte'
 import { UserDraftConflictStore } from './userDraftConflictStore.svelte'
 
 export const USER_DRAFT_ITEM_KINDS = [
@@ -351,9 +351,9 @@ export function localDraftDiffers<V>(
 }
 
 /**
- * Persist a draft to localStorage and (when the kind has a backend `draft`
- * row) push it through the DbSyncer. Internal `_skipSync` opts pass-through
- * lets the syncer write missed drafts back to LS without re-syncing them.
+ * Persist a draft via the DbSyncer queue. Internal `_skipSync` opts
+ * pass-through lets the syncer write missed drafts back to LS without
+ * re-syncing them.
  */
 function pushToSyncer(
 	itemKind: UserDraftItemKind,
@@ -361,12 +361,11 @@ function pushToSyncer(
 	value: unknown,
 	workspace: string
 ): void {
-	if (!isSyncableKind(itemKind)) return
-	const user = get(userStore)?.username
-	if (!user) return
+	const email = get(userStore)?.email
+	if (!email) return
 	UserDraftDbSyncer.pushDrafts({
 		workspace,
-		user,
+		email,
 		drafts: [{ itemKind, path, value }],
 		onMissedDrafts: (drafts) => {
 			for (const d of drafts) {
@@ -380,8 +379,8 @@ function pushToSyncer(
 			UserDraftConflictStore.enqueue(
 				rejected.map((r) => ({
 					workspace,
-					user,
-					itemKind: r.typ,
+					email,
+					itemKind: r.typ as UserDraftItemKind,
 					rejected: r
 				}))
 			)

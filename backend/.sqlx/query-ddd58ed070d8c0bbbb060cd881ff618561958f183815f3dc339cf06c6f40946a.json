@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO draft (workspace_id, email, path, typ, value, created_at)\n               VALUES ($1, $2, $3, $4, $5::text::json, now())\n               ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL\n               DO UPDATE SET value = EXCLUDED.value, created_at = now()\n               RETURNING created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ddd58ed070d8c0bbbb060cd881ff618561958f183815f3dc339cf06c6f40946a"
+}

@@ -6,12 +6,13 @@
  * conflict; the single `UserDraftConflictModal` mounted in the root layout
  * consumes them one at a time so the user can decide per-conflict.
  */
-import type { RejectedDraft, SyncableItemKind } from './userDraftDbSyncer.svelte'
+import type { UserDraftItemKind } from './userDraft.svelte'
+import type { RejectedDraft } from './userDraftDbSyncer.svelte'
 
 export type ConflictEntry = {
 	workspace: string
-	user: string
-	itemKind: SyncableItemKind
+	email: string
+	itemKind: UserDraftItemKind
 	rejected: RejectedDraft
 }
 

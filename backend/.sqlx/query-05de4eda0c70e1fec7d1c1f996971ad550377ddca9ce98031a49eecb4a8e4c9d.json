@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT path, typ as \"typ: DraftType\", value as \"value!: sqlx::types::Json<Box<serde_json::value::RawValue>>\", created_at\n               FROM draft\n               WHERE workspace_id = $1\n                 AND username = $2",
+  "query": "SELECT path, typ, value as \"value!: sqlx::types::Json<Box<serde_json::value::RawValue>>\", created_at\n               FROM draft\n               WHERE workspace_id = $1\n                 AND email = $2",
   "describe": {
     "columns": [
       {
@@ -10,19 +10,8 @@
       },
       {
         "ordinal": 1,
-        "name": "typ: DraftType",
-        "type_info": {
-          "Custom": {
-            "name": "draft_type",
-            "kind": {
-              "Enum": [
-                "script",
-                "flow",
-                "app"
-              ]
-            }
-          }
-        }
+        "name": "typ",
+        "type_info": "Varchar"
       },
       {
         "ordinal": 2,
@@ -48,5 +37,5 @@
       false
     ]
   },
-  "hash": "dce6d995445a30ff6d2ead7545c67bbde86e00dc4db3020e9905d1893908bd71"
+  "hash": "05de4eda0c70e1fec7d1c1f996971ad550377ddca9ce98031a49eecb4a8e4c9d"
 }

@@ -17,24 +17,11 @@ const LAST_SYNC_KEY = 'userdraft/lastSync'
 const DEBOUNCE_MS = 2_000
 const MAX_DEBOUNCE_MS = 10_000
 
-export type SyncableItemKind = 'script' | 'flow' | 'app'
-
-/**
- * UserDraft item kinds that have a matching backend `draft.typ` enum value.
- * Other kinds (resources, variables, individual triggers...) only exist in
- * localStorage for now and are filtered out of every push.
- */
-const SYNCABLE_KINDS: ReadonlySet<UserDraftItemKind> = new Set(['script', 'flow', 'app'])
-
-export function isSyncableKind(kind: UserDraftItemKind): kind is SyncableItemKind {
-	return SYNCABLE_KINDS.has(kind)
-}
-
 export type MissedDraft = SyncDraftsResponse['missed_drafts'][number]
 export type RejectedDraft = Extract<SyncDraftsResponse['statuses'][number], { status: 'rejected' }>
 
 export type PendingDraft<V = unknown> = {
-	itemKind: SyncableItemKind
+	itemKind: UserDraftItemKind
 	path: string
 	value: V
 	/**
@@ -50,21 +37,26 @@ export type RejectedDraftsCallback = (rejected: RejectedDraft[]) => void
 
 export type SyncOptions<V = unknown> = {
 	workspace: string
-	user: string
+	email: string
 	drafts: PendingDraft<V>[]
 	onMissedDrafts?: MissedDraftCallback
 	onDraftsRejected?: RejectedDraftsCallback
 }
 
 type QueueKey = string
-function queueKey(workspace: string, user: string, kind: SyncableItemKind, path: string): QueueKey {
-	return `${workspace}|${user}|${kind}|${path}`
+function queueKey(
+	workspace: string,
+	email: string,
+	kind: UserDraftItemKind,
+	path: string
+): QueueKey {
+	return `${workspace}|${email}|${kind}|${path}`
 }
 
 type QueuedEntry = {
 	workspace: string
-	user: string
-	itemKind: SyncableItemKind
+	email: string
+	itemKind: UserDraftItemKind
 	path: string
 	value: unknown
 	force: boolean
@@ -113,13 +105,13 @@ async function flushQueue(): Promise<void> {
 	const entries = Array.from(queue.values())
 	queue.clear()
 
-	// Group entries by (workspace, user) — every sync call is scoped to a
-	// single user, so we issue one request per distinct group. In practice
-	// the queue is dominated by the active session's workspace+user, so
+	// Group entries by (workspace, email) — every sync call is scoped to a
+	// single email, so we issue one request per distinct group. In practice
+	// the queue is dominated by the active session's workspace+email, so
 	// there's almost always exactly one group.
 	const groups = new Map<string, QueuedEntry[]>()
 	for (const entry of entries) {
-		const key = `${entry.workspace}|${entry.user}`
+		const key = `${entry.workspace}|${entry.email}`
 		const list = groups.get(key)
 		if (list) list.push(entry)
 		else groups.set(key, [entry])
@@ -141,7 +133,7 @@ async function runSync(workspace: string, group: QueuedEntry[]): Promise<void> {
 	}))
 	await syncDrafts({
 		workspace,
-		user: group[0].user,
+		email: group[0].email,
 		drafts,
 		onMissedDrafts,
 		onDraftsRejected
@@ -194,17 +186,17 @@ export const UserDraftDbSyncer = {
 
 	/**
 	 * Enqueue drafts for a batched sync. Repeated pushes for the same
-	 * (workspace, user, itemKind, path) coalesce — only the latest value /
+	 * (workspace, email, itemKind, path) coalesce — only the latest value /
 	 * callbacks survive. Returns the same Promise as the eventual
 	 * `syncDrafts` so callers can `await` flush completion.
 	 */
 	pushDrafts<V = unknown>(opts: SyncOptions<V>): void {
 		const ws = opts.workspace
-		const user = opts.user
+		const email = opts.email
 		for (const d of opts.drafts) {
-			queue.set(queueKey(ws, user, d.itemKind, d.path), {
+			queue.set(queueKey(ws, email, d.itemKind, d.path), {
 				workspace: ws,
-				user,
+				email,
 				itemKind: d.itemKind,
 				path: d.path,
 				value: d.value,
