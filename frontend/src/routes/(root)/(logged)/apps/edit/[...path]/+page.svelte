@@ -1,7 +1,7 @@
 <script lang="ts">
 	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
 	import { AppService, type AppWithLastVersion } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { cleanValueProperties, orderedJsonStringify } from '$lib/utils'
 	import { replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
@@ -9,6 +9,7 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { App } from '$lib/components/apps/types'
 	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
+	import OtherUsersDraftsModal from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
@@ -199,6 +200,21 @@
 	onLoadLatest={onStaleLoadLatest}
 	onKeepDraft={onStaleKeepDraft}
 />
+{#if $workspaceStore && path}
+	<OtherUsersDraftsModal
+		workspace={$workspaceStore}
+		itemKind="app"
+		{path}
+		currentValue={app?.value}
+		currentUserEmail={$userStore?.email}
+		{diffDrawer}
+		userHasLocalDraft={UserDraft.has('app', path)}
+		onFork={(otherValue) => {
+			UserDraft.save('app', path, otherValue, { workspace: $workspaceStore })
+			diffDrawer?.closeDrawer()
+		}}
+	/>
+{/if}
 
 {#key redraw}
 	{#if app}

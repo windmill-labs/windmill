@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ScriptService, type NewScript, type Script } from '$lib/gen'
 
-	import { initialArgsStore, workspaceStore } from '$lib/stores'
+	import { initialArgsStore, userStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
 	import {
@@ -14,6 +14,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
+	import OtherUsersDraftsModal from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import { get } from 'svelte/store'
@@ -330,6 +331,21 @@
 	onLoadLatest={onStaleLoadLatest}
 	onKeepDraft={onStaleKeepDraft}
 />
+{#if !hash && $workspaceStore && page.params.path}
+	<OtherUsersDraftsModal
+		workspace={$workspaceStore}
+		itemKind="script"
+		path={page.params.path}
+		currentValue={scriptHandle.draft}
+		currentUserEmail={$userStore?.email}
+		{diffDrawer}
+		userHasLocalDraft={UserDraft.has('script', draftPath)}
+		onFork={(otherValue) => {
+			UserDraft.save('script', draftPath, otherValue, { workspace: $workspaceStore })
+			diffDrawer?.closeDrawer()
+		}}
+	/>
+{/if}
 <!-- TEMP URL-HASH SYNC: conflict modal (remove with future PR) -->
 <LocalDraftStaleModal
 	open={urlConflictModalOpen}

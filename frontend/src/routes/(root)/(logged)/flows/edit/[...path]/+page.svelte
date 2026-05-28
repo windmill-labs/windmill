@@ -3,7 +3,7 @@
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
-	import { initialArgsStore, workspaceStore } from '$lib/stores'
+	import { initialArgsStore, userStore, workspaceStore } from '$lib/stores'
 	import {
 		cleanValueProperties,
 		decodeState,
@@ -17,6 +17,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
+	import OtherUsersDraftsModal from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import { untrack } from 'svelte'
@@ -239,6 +240,21 @@
 	onLoadLatest={onStaleLoadLatest}
 	onKeepDraft={onStaleKeepDraft}
 />
+{#if $workspaceStore && flowDraftPath}
+	<OtherUsersDraftsModal
+		workspace={$workspaceStore}
+		itemKind="flow"
+		path={flowDraftPath}
+		currentValue={flowHandle.draft}
+		currentUserEmail={$userStore?.email}
+		{diffDrawer}
+		userHasLocalDraft={UserDraft.has('flow', flowDraftPath)}
+		onFork={(otherValue) => {
+			UserDraft.save('flow', flowDraftPath, otherValue, { workspace: $workspaceStore })
+			diffDrawer?.closeDrawer()
+		}}
+	/>
+{/if}
 {#if notFound}
 	<div class="flex flex-col items-center justify-center h-full">
 		<h1 class="text-2xl font-bold">Flow not found at path {page.params.path}</h1>

@@ -7947,6 +7947,42 @@ paths:
                       format: date-time
                   required: [created_at]
 
+  /w/{workspace}/drafts/get/{kind}/{path}:
+    get:
+      summary: fetch a single draft's content (own draft, another user's, or the legacy workspace-level row)
+      operationId: getDraftForUser
+      tags:
+        - draft
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/ScriptPath"
+        - name: email
+          in: query
+          required: false
+          description: Owner of the draft to fetch. Omit to fetch the legacy workspace-level (NULL email) row.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: draft content
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  value: {}
+                  created_at:
+                    type: string
+                    format: date-time
+                required: [value, created_at]
+        "404":
+          description: no draft for that owner at that path
+
   /w/{workspace}/scripts/create:
     post:
       summary: create script

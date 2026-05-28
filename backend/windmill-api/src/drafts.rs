@@ -20,10 +20,13 @@ use windmill_common::{
 };
 
 pub fn workspaced_service() -> Router {
-    Router::new().route("/sync", post(sync_drafts)).route(
-        "/users_with_draft/{kind}/{*path}",
-        get(list_users_with_draft_on_path),
-    )
+    Router::new()
+        .route("/sync", post(sync_drafts))
+        .route(
+            "/users_with_draft/{kind}/{*path}",
+            get(list_users_with_draft_on_path),
+        )
+        .route("/get/{kind}/{*path}", get(get_draft_for_user))
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -270,6 +273,57 @@ async fn list_users_with_draft_on_path(
     .await?;
 
     Ok(Json(rows))
+}
+
+#[derive(Deserialize, Debug)]
+pub struct GetDraftQuery {
+    /// Owner of the draft to fetch. Omit to fetch the legacy
+    /// workspace-level (NULL email) row, if any.
+    pub email: Option<String>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct DraftForUser {
+    pub value: sqlx::types::Json<Box<serde_json::value::RawValue>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Fetch a specific user's (or the legacy NULL row's) draft content at a
+/// path. Used by the "other users' drafts" modal in editors after the list
+/// endpoint has surfaced who has a draft. Same path-permission check as
+/// the list endpoint.
+async fn get_draft_for_user(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, kind, path)): Path<(String, String, windmill_common::utils::StripPath)>,
+    axum::extract::Query(query): axum::extract::Query<GetDraftQuery>,
+) -> Result<Json<DraftForUser>> {
+    let path = path.to_path();
+    require_can_read_path(&authed, &user_db, &w_id, &kind, path).await?;
+
+    let row = sqlx::query_as!(
+        DraftForUser,
+        r#"SELECT value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>", created_at
+           FROM draft
+           WHERE workspace_id = $1
+             AND path = $2
+             AND typ = $3
+             AND email IS NOT DISTINCT FROM $4"#,
+        &w_id,
+        path,
+        kind,
+        query.email,
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    row.map(Json).ok_or_else(|| {
+        Error::NotFound(format!(
+            "no draft for {} at {path}",
+            query.email.as_deref().unwrap_or("<legacy>")
+        ))
+    })
 }
 
 /// Each `UserDraftItemKind` maps to either its own table (where RLS can

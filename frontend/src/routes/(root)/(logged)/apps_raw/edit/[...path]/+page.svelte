@@ -3,7 +3,7 @@
 	import { untrack } from 'svelte'
 
 	import { AppService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { cleanValueProperties, orderedJsonStringify, readFieldsRecursively } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -21,6 +21,7 @@
 	} from '$lib/userDraft.svelte'
 	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
+	import OtherUsersDraftsModal from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 
 	type RawAppDraft = {
 		files: Record<string, string>
@@ -310,6 +311,21 @@
 	onLoadLatest={onStaleLoadLatest}
 	onKeepDraft={onStaleKeepDraft}
 />
+{#if $workspaceStore && path}
+	<OtherUsersDraftsModal
+		workspace={$workspaceStore}
+		itemKind="raw_app"
+		{path}
+		currentValue={draftHandle.draft}
+		currentUserEmail={$userStore?.email}
+		{diffDrawer}
+		userHasLocalDraft={UserDraft.has('raw_app', path)}
+		onFork={(otherValue) => {
+			UserDraft.save('raw_app', path, otherValue, { workspace: $workspaceStore })
+			diffDrawer?.closeDrawer()
+		}}
+	/>
+{/if}
 
 {#if files}
 	{#key redraw}
