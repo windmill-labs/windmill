@@ -1,5 +1,8 @@
 import { readFile } from "node:fs/promises";
-import { runGlobalEval } from "../adapters/frontend/core/global/globalEvalRunner";
+import {
+  runGlobalEval,
+  type GlobalLiveEditorDraftFixture,
+} from "../adapters/frontend/core/global/globalEvalRunner";
 import type { BenchmarkWorkspaceRunnables } from "../adapters/frontend/mockBackend";
 import type { FrontendEvalModelConfig } from "../core/models";
 import type { BenchmarkArtifactFile, GlobalValidationSpec, ModeRunner } from "../core/types";
@@ -9,6 +12,7 @@ import { getFrontendApiKey } from "./frontendCommon";
 
 export interface GlobalInitialFixture {
   workspace?: BenchmarkWorkspaceRunnables;
+  liveEditorDrafts?: GlobalLiveEditorDraftFixture[];
 }
 
 export function createGlobalModeRunner(
@@ -31,6 +35,7 @@ export function createGlobalModeRunner(
         getFrontendApiKey(modelConfig.provider),
         {
           workspaceFixtures: initial?.workspace,
+          liveEditorDrafts: initial?.liveEditorDrafts,
           maxIterations: context.evalCase?.runtime?.maxTurns,
           provider: modelConfig.provider,
           model: modelConfig.model,
@@ -73,6 +78,7 @@ async function loadGlobalInitialFixture(path: string): Promise<GlobalInitialFixt
   const parsed = JSON.parse(await readFile(path, "utf8")) as GlobalInitialFixture;
   return {
     workspace: parsed.workspace ?? {},
+    liveEditorDrafts: parsed.liveEditorDrafts ?? [],
   };
 }
 

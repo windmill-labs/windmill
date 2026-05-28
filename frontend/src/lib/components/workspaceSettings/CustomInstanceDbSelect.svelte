@@ -9,6 +9,8 @@
 	import { ArrowRight, TriangleAlert } from 'lucide-svelte'
 	import type { ConfirmationModalHandle } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import type { Snippet } from 'svelte'
+	import Tooltip from '../meltComponents/Tooltip.svelte'
+	import { workspaceStore } from '$lib/stores'
 
 	type Props = {
 		value: string | undefined
@@ -37,6 +39,11 @@
 		)
 	)
 	let open = $state(false)
+
+	function otherWorkspaces(dbname: string): string[] {
+		const all = customInstanceDbs.current?.[dbname]?.used_by_workspaces ?? []
+		return all.filter((w) => w !== $workspaceStore)
+	}
 </script>
 
 <div class="flex relative items-center {className}">
@@ -52,11 +59,17 @@
 		disabled={!$isCustomInstanceDbEnabled}
 	>
 		{#snippet endSnippet({ item })}
-			{@render customInstanceDbWizardButton(item.value)}
+			<div class="flex items-center gap-1">
+				{@render sharedWorkspacesWarning(item.value)}
+				{@render customInstanceDbWizardButton(item.value)}
+			</div>
 		{/snippet}
 	</Select>
 	{#if value}
-		{@render customInstanceDbWizardButton(value, 'absolute right-1.5')}
+		<div class="absolute right-1.5 flex items-center gap-1">
+			{@render sharedWorkspacesWarning(value)}
+			{@render customInstanceDbWizardButton(value)}
+		</div>
 	{/if}
 </div>
 
@@ -74,12 +87,12 @@
 	}
 />
 
-{#snippet customInstanceDbWizardButton(dbname: string, clazz: string = '')}
+{#snippet customInstanceDbWizardButton(dbname: string)}
 	{@const status = customInstanceDbs.current?.[dbname]}
 	<Button
 		spacingSize="xs2"
 		variant="default"
-		wrapperClasses="bg-surface-input h-6 -my-2 {clazz}"
+		wrapperClasses="bg-surface-input h-6 -my-2"
 		onClick={() => ((openedDbNameWizard = dbname), (open = false))}
 	>
 		{#if !status}
@@ -94,4 +107,22 @@
 			<div class="w-1.5 h-1.5 rounded-full bg-green-400"></div>
 		{/if}
 	</Button>
+{/snippet}
+
+{#snippet sharedWorkspacesWarning(dbname: string)}
+	{@const others = otherWorkspaces(dbname)}
+	{#if others.length > 0}
+		<Tooltip placement="top">
+			<TriangleAlert
+				class="text-orange-500 dark:text-orange-400"
+				size={16}
+				aria-label="Database is shared with other workspaces"
+			/>
+			{#snippet text()}
+				This database is also used by workspace{others.length > 1 ? 's' : ''}
+				<span class="font-semibold">{others.join(', ')}</span>. Any data written here will be shared
+				with {others.length > 1 ? 'them' : 'it'}.
+			{/snippet}
+		</Tooltip>
+	{/if}
 {/snippet}

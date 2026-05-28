@@ -211,7 +211,7 @@ async function handleRun(input: {
   const summaries: Array<{
     label: string;
     passRate: number;
-    averageDurationMs: number;
+    averagePassedDurationMs: number | null;
   }> = [];
 
   for (const [index, model] of models.entries()) {
@@ -259,7 +259,7 @@ async function handleRun(input: {
     summaries.push({
       label: `${model.id} (${runModel})`,
       passRate: result.passRate,
-      averageDurationMs: result.averageDurationMs,
+      averagePassedDurationMs: result.averagePassedDurationMs ?? null,
     });
   }
 
@@ -267,7 +267,7 @@ async function handleRun(input: {
     process.stdout.write("\nModel summary\n");
     for (const summary of summaries) {
       process.stdout.write(
-        `- ${summary.label}: ${formatPercent(summary.passRate)} | ${Math.round(summary.averageDurationMs)}ms\n`,
+        `- ${summary.label}: ${formatPercent(summary.passRate)} | passed avg ${formatNullableDuration(summary.averagePassedDurationMs)}\n`,
       );
     }
   }
@@ -349,6 +349,10 @@ function resolveRequestedModels(
 
 function formatPercent(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
+}
+
+function formatNullableDuration(value: number | null): string {
+  return value === null ? "n/a" : `${Math.round(value)}ms`;
 }
 
 void main().catch((error) => {

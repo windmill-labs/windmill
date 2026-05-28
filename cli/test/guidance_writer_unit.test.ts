@@ -391,6 +391,13 @@ describe("writeAiGuidanceFiles — referencesAgentsCli (via reconciliation)", ()
     ["between blank lines", "before\n\n@AGENTS.cli.md\n\nafter"],
     ["leading whitespace then include", "  @AGENTS.cli.md\n"],
     ["CRLF line endings", "line one\r\n@AGENTS.cli.md\r\nline three"],
+    // Mid-sentence include: this is how our own CLAUDE.md default looks
+    // ("Instructions are in @AGENTS.md"). A strict line-equality check made
+    // `wmill refresh prompts` re-prompt every run on files wmill wrote.
+    ["mid-sentence include", "Instructions are in @AGENTS.cli.md\n"],
+    // `>` blockquote prefix doesn't disable Claude's `@`-import expansion,
+    // so we treat it as a reference too.
+    ["blockquoted include", "> @AGENTS.cli.md"],
   ])("treats %s as a reference (no append)", async (_label, content) => {
     await withTempDir(async (tempDir) => {
       await writeFile(join(tempDir, "AGENTS.md"), content, "utf8");
@@ -406,7 +413,6 @@ describe("writeAiGuidanceFiles — referencesAgentsCli (via reconciliation)", ()
     ["@AGENTS-cli-md (lookalike)", "@AGENTS-cli-md"],
     ["@AGENTS.cli.md without surrounding whitespace", "foo@AGENTS.cli.md"],
     ["commented-out include", "<!-- @AGENTS.cli.md -->"],
-    ["blockquoted include", "> @AGENTS.cli.md"],
   ])("does not treat %s as a reference (append happens)", async (_label, content) => {
     await withTempDir(async (tempDir) => {
       await writeFile(join(tempDir, "AGENTS.md"), content, "utf8");
