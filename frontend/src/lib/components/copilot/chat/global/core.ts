@@ -64,6 +64,7 @@ import {
 import type { ContextElement } from '../context'
 import { UserDraft, type UserDraftMeta } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
+import { inferArgs } from '$lib/infer'
 import {
 	resourceRequestSchema,
 	scheduleRequestSchema,
@@ -83,6 +84,7 @@ import {
 	type WorkspaceItemType
 } from './workspaceItems'
 import { buildFlowDeployRequestBody, buildScriptDeployRequestBody } from './deployRequests'
+import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
 	clearEphemeralSecretVariableDraftValue,
 	deleteGlobalDraft,
@@ -111,6 +113,28 @@ const INSTRUCTION_SUBJECTS = [
 	'app'
 ] as const satisfies readonly WorkspaceItemType[]
 const MAX_LIST_LIMIT = 100
+type ActiveGlobalEditorType = Extract<WorkspaceItemType, 'script' | 'flow' | 'app'>
+type LiveEditorDraftKind = Parameters<typeof UserDraft.getLiveEditorDraft>[0]
+
+const ACTIVE_GLOBAL_EDITOR_DRAFTS: readonly {
+	itemKind: LiveEditorDraftKind
+	type: ActiveGlobalEditorType
+}[] = [
+	{ itemKind: 'script', type: 'script' },
+	{ itemKind: 'flow', type: 'flow' },
+	{ itemKind: 'raw_app', type: 'app' }
+]
+
+export type GlobalActiveEditorContext = {
+	type: ActiveGlobalEditorType
+	path: string
+	isLiveDraft: true
+}
+
+export type GlobalUserMessageOptions = {
+	workspace?: string
+	activeEditor?: GlobalActiveEditorContext
+}
 
 const itemTypeSchema = z.enum(ITEM_TYPES)
 const instructionSubjectSchema = z.enum(INSTRUCTION_SUBJECTS)
@@ -497,7 +521,7 @@ Use tools to inspect workspace items and create local drafts for scripts, flows,
 Rules:
 - Draft tools create or update local drafts only; they do not deploy or mutate deployed workspace items.
 - Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
-- If the user refers to the open editor, use the item marked isLiveDraft=true.
+- If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".
 - Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a local draft to the workspace.
 - Use discard_local_draft to remove an unsaved local draft, including the matching open editor draft. Use delete_workspace_item only to delete a deployed workspace item.
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
@@ -516,7 +540,7 @@ Raw apps:
 - Use write_app_file, patch_app_file, and delete_app_file for frontend files.
 - Use write_app_runnable and delete_app_runnable for backend runnables.
 - Use init_app only after confirming framework, path, and summary with the user.
-- Apps cannot be deployed from chat; tell the user to open the app editor.`
+- Use deploy_workspace_item after explicit user deploy intent; raw app deploy bundles JS/CSS before saving.`
 
 const DEFAULT_LIST_TYPES = ['script', 'flow'] as const satisfies readonly WorkspaceItemType[]
 
@@ -1211,7 +1235,7 @@ type InstructionSubject = (typeof INSTRUCTION_SUBJECTS)[number]
 function getAppInstructions(): string {
 	return `# Global draft app instructions
 
-- Global mode edits raw app drafts only; it does not save, deploy, or bundle.
+- Global mode edits raw app drafts only; it does not save or deploy unless the user explicitly asks to deploy.
 - App drafts are addressed by workspace path (e.g. \`f/folder/my_app\`). The first write tool snapshots the workspace app onto the draft, and subsequent writes accumulate.
 - To create a new app, use \`init_app\` with a path, optional summary, and a framework (\`react19\` / \`react18\` / \`svelte5\` / \`vue\`). Confirm framework + path + summary with the user before calling — do not silently default to \`react19\` even though it is the recommended choice. \`init_app\` errors if an app already exists at the path or a draft is already in flight; in that case, edit the existing one rather than re-initializing.
 - \`init_app\` seeds a starter inline runnable named \`a\` (bun, \`main(x: string) => string\`) so the React/Svelte demo button works on first render. Replace or remove it once you start building real backend runnables.
@@ -1219,7 +1243,7 @@ function getAppInstructions(): string {
 - Backend inline runnables are addressed as \`backend/<key>/main.{ts|py}\` from the file tools, but you create or update them via \`write_app_runnable\` / \`delete_app_runnable\` (which take the runnable shape directly: \`{ name, type, inlineScript?, path?, staticInputs? }\`).
 - \`/wmill.d.ts\` (or \`wmill.ts\`) is generated automatically from the backend runnables — never write it directly.
 - Inline runnables only support \`bun\` or \`python3\` in chat. Path runnables (\`script\`/\`flow\`/\`hubscript\`) reference an existing item.
-- Apps cannot be deployed from chat. The app editor bundles JS/CSS before save; tell the user to open the app editor to deploy app drafts.
+- Use \`deploy_workspace_item\` after explicit user deploy intent. The deploy tool bundles JS/CSS before saving the raw app.
 - Use \`read_workspace_item\` with \`type: 'app'\` for a metadata summary (file paths and runnable list, no contents). Use \`read_app_file\` to read an individual file.
 - Note: the authoring reference below mentions the CLI on-disk layout (\`backend/<id>.<ext>\`, \`raw_app.yaml\`, \`sql_to_apply/\`). That layout is only relevant for the terminal workflow — in chat, apps are addressed via the tool surface above.
 
@@ -2544,7 +2568,13 @@ async function patchAppFile(
 }
 
 async function recomputeAppPolicy(value: AppDraftValue): Promise<void> {
-	value.policy = (await updateRawAppPolicy(value.runnables as any, value.policy as any)) as any
+	const policy = (await updateRawAppPolicy(value.runnables as any, value.policy as any)) as NonNullable<
+		AppDraftValue['policy']
+	>
+	if (!policy.execution_mode) {
+		policy.execution_mode = 'publisher'
+	}
+	value.policy = policy
 }
 
 async function writeAppRunnable(
@@ -2719,12 +2749,6 @@ async function deployDraft(
 	const { workspace, toolId, toolCallbacks } = ctx
 	const { type, path, trigger_kind: triggerKind, deployment_message: deploymentMessage } = args
 
-	if (type === 'app') {
-		throw new Error(
-			'Apps cannot be deployed from chat. Open the app editor to deploy (the editor bundles JS/CSS before save).'
-		)
-	}
-
 	if (type === 'trigger' && !triggerKind) {
 		throw new Error('trigger_kind is required when deploying a trigger.')
 	}
@@ -2748,10 +2772,16 @@ async function deployDraft(
 			const existing = (await ScriptService.existsScriptByPath({ workspace, path }))
 				? await ScriptService.getScriptByPath({ workspace, path })
 				: undefined
-			await ScriptService.createScript({
-				workspace,
-				requestBody: buildScriptDeployRequestBody(path, draft, existing, deploymentMessage)
-			})
+			const requestBody = buildScriptDeployRequestBody(path, draft, existing, deploymentMessage)
+			// Infer the arg schema from the content so it matches the code, like the editor does.
+			try {
+				const schema = emptySchema()
+				await inferArgs(requestBody.language, requestBody.content, schema)
+				requestBody.schema = schema
+			} catch (e) {
+				console.error('Failed to infer script schema before deploy', e)
+			}
+			await ScriptService.createScript({ workspace, requestBody })
 			break
 		}
 		case 'flow': {
@@ -2818,6 +2848,87 @@ async function deployDraft(
 				await VariableService.createVariable({ workspace, requestBody })
 			}
 			actions = [createOpenVariableAction(path)]
+			break
+		}
+		case 'app': {
+			const appDraft = draft.value as AppDraftValue
+			const appValue: AppDraftValue = {
+				...appDraft,
+				files: { ...(appDraft.files ?? {}) },
+				runnables: { ...(appDraft.runnables ?? {}) },
+				data: appDraft.data ?? { ...DEFAULT_RAW_APP_DATA }
+			}
+			await recomputeAppPolicy(appValue)
+			const policy = appValue.policy
+			if (!policy) {
+				throw new Error(`Draft app "${path}" has no policy to deploy.`)
+			}
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Bundling app "${path}"...`
+			})
+			const bundle = await bundleRawAppDraft({
+				workspace,
+				files: appValue.files,
+				onLog: (delta) => {
+					const lines = delta
+						.split('\n')
+						.map((line) => line.trim())
+						.filter(Boolean)
+					const latest = lines[lines.length - 1]
+					if (latest) {
+						toolCallbacks.setToolStatus(toolId, {
+							content: `Bundling app "${path}"... ${latest}`
+						})
+					}
+				}
+			})
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Deploying app "${path}"...`
+			})
+			const rawAppValue = {
+				files: appValue.files,
+				runnables: appValue.runnables,
+				data: appValue.data ?? { ...DEFAULT_RAW_APP_DATA }
+			}
+			const summary = appValue.summary ?? draft.summary ?? ''
+			if (await AppService.existsApp({ workspace, path })) {
+				// Omit custom_path on update for now. The backend preserves it when absent, while
+				// sending it requires admin privileges; this chat deploy path does not yet mirror
+				// the raw app editor's user/admin-specific custom_path handling.
+				await AppService.updateAppRaw({
+					workspace,
+					path,
+					formData: {
+						app: {
+							path,
+							value: rawAppValue,
+							summary,
+							policy,
+							deployment_message: deploymentMessage
+						},
+						js: bundle.js,
+						css: bundle.css
+					}
+				})
+			} else {
+				await AppService.createAppRaw({
+					workspace,
+					formData: {
+						app: {
+							path,
+							value: rawAppValue,
+							summary,
+							policy,
+							deployment_message: deploymentMessage,
+							custom_path: appValue.custom_path
+						},
+						js: bundle.js,
+						css: bundle.css
+					}
+				})
+			}
 			break
 		}
 	}
@@ -2914,14 +3025,35 @@ export function prepareGlobalSystemMessage(
 	}
 }
 
+export function getActiveGlobalEditorContext(
+	workspace: string
+): GlobalActiveEditorContext | undefined {
+	for (const { itemKind, type } of ACTIVE_GLOBAL_EDITOR_DRAFTS) {
+		const liveDraft = UserDraft.getLiveEditorDraft(itemKind, { workspace })
+		const path = liveDraft?.effectivePath || liveDraft?.storagePath
+		if (!path) continue
+		return { type, path, isLiveDraft: true }
+	}
+}
+
 export function prepareGlobalUserMessage(
 	instructions: string,
-	selectedContext: ContextElement[] = []
+	selectedContext: ContextElement[] = [],
+	options: GlobalUserMessageOptions = {}
 ): ChatCompletionUserMessageParam {
 	const selectedWorkspaceItems = selectedContext.filter(
 		(context) => context.type === 'workspace_script' || context.type === 'workspace_flow'
 	)
+	const activeEditor =
+		options.activeEditor ?? (options.workspace ? getActiveGlobalEditorContext(options.workspace) : undefined)
 	let content = ''
+
+	if (activeEditor) {
+		content += '## ACTIVE EDITOR\n'
+		content += `type: ${activeEditor.type}\n`
+		content += `path: ${activeEditor.path}\n`
+		content += `isLiveDraft: true\n\n`
+	}
 
 	if (selectedWorkspaceItems.length > 0) {
 		content += '## SELECTED CONTEXT\n'

@@ -142,6 +142,15 @@ For `global` mode, `validate` can express draft-level requirements such as:
 - required or forbidden draft counts
 - forbidden draft paths
 
+Global initial fixtures can also seed `liveEditorDrafts` with `type`,
+`storagePath`, `effectivePath`, and `value` fields. These drafts emulate the
+currently open script, flow, or raw app editor so cases can test prompts that
+refer to "this" or the "current" item.
+
+Set `WMILL_AI_EVAL_DISABLE_ACTIVE_EDITOR_CONTEXT=1` to run those cases with
+the old behavior where the live editor is only discoverable through
+`list_workspace_items`.
+
 App fixtures can also include an optional `datatables.json` file at the fixture root.
 
 For `flow` mode, an `initial` fixture can also include a benchmark workspace catalog of
@@ -189,10 +198,14 @@ If `--record` is used, the CLI also appends one compact JSON line to:
 Each recorded line contains:
 
 - run metadata (`createdAt`, `gitSha`, `mode`, `runModel`, `judgeModel`)
-- suite totals (`caseCount`, `attemptCount`, `passedAttempts`, `passRate`, `averageDurationMs`, `averageJudgeScore`)
-- average token usage (`averageTokenUsagePerAttempt`)
-- per-case metrics under `cases[]` (`averageDurationMs`, `averageJudgeScore`, `averageTokenUsagePerAttempt`, pass rate)
+- suite totals (`caseCount`, `attemptCount`, `passedAttempts`, `passRate`, `averageDurationMs`, `averagePassedDurationMs`, `averageJudgeScore`)
+- average token usage (`averageTokenUsagePerAttempt`, `averageTokenUsagePerPassedAttempt`)
+- per-case metrics under `cases[]` (`averageDurationMs`, `averagePassedDurationMs`, `averageJudgeScore`, `averageTokenUsagePerAttempt`, `averageTokenUsagePerPassedAttempt`, pass rate)
 - `failedCaseIds`
+
+The CLI headline duration and token averages use passed attempts only.
+All-attempt averages are still recorded to make failures auditable without
+letting failed attempts skew success cost comparisons.
 
 Example:
 

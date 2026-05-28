@@ -74,6 +74,8 @@ vi.mock('$lib/gen', async () => {
 		}),
 		AppService: wrapService(actual.AppService, {
 			existsApp: vi.fn(async () => false),
+			createAppRaw: vi.fn(async () => 'created'),
+			updateAppRaw: vi.fn(async () => 'updated'),
 			getAppByPath: vi.fn(async () => {
 				throw new Error('getAppByPath mock not configured')
 			}),
@@ -96,9 +98,17 @@ vi.mock('$lib/gen', async () => {
 	}
 })
 
+vi.mock('./rawAppBundlerBridge', () => ({
+	bundleRawAppDraft: vi.fn(async () => ({
+		js: 'bundled js',
+		css: 'bundled css'
+	}))
+}))
+
 import { globalTools, prepareGlobalSystemMessage, prepareGlobalUserMessage } from './core'
 import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
 import { clearGlobalDrafts } from './userDraftAdapter'
+import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
 	AppService,
 	FlowService,
@@ -960,6 +970,111 @@ describe('global AI tools', () => {
 		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
+	it('deploys a new raw app draft by bundling files and creating a raw app', async () => {
+		UserDraft.save(
+			'raw_app',
+			'f/apps/report',
+			{
+				summary: 'AI report',
+				files: {
+					'/index.tsx': 'console.log("app")',
+					'/package.json': '{"dependencies":{"react":"19.0.0"}}'
+				},
+				runnables: {},
+				data: { tables: [] }
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		const raw = await callGlobalTool('deploy_workspace_item', {
+			type: 'app',
+			path: 'f/apps/report',
+			deployment_message: 'ship report'
+		})
+
+		expect(bundleRawAppDraft).toHaveBeenCalledWith(
+			expect.objectContaining({
+				workspace: WORKSPACE,
+				files: expect.objectContaining({
+					'/index.tsx': 'console.log("app")'
+				})
+			})
+		)
+		expect(AppService.createAppRaw).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			formData: {
+				app: {
+					path: 'f/apps/report',
+					value: {
+						files: {
+							'/index.tsx': 'console.log("app")',
+							'/package.json': '{"dependencies":{"react":"19.0.0"}}'
+						},
+						runnables: {},
+						data: { tables: [] }
+					},
+					summary: 'AI report',
+					policy: expect.objectContaining({ execution_mode: 'publisher' }),
+					deployment_message: 'ship report',
+					custom_path: undefined
+				},
+				js: 'bundled js',
+				css: 'bundled css'
+			}
+		})
+		expect(AppService.updateAppRaw).not.toHaveBeenCalled()
+		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
+		expect(JSON.parse(raw)).toMatchObject({
+			success: true,
+			type: 'app',
+			path: 'f/apps/report'
+		})
+	})
+
+	it('deploys an existing raw app draft by bundling files and updating the raw app', async () => {
+		vi.mocked(AppService.existsApp).mockResolvedValueOnce(true)
+		UserDraft.save(
+			'raw_app',
+			'f/apps/report',
+			{
+				summary: 'Updated report',
+				files: { '/index.tsx': 'console.log("updated")' },
+				runnables: {},
+				data: { tables: ['orders'] },
+				policy: { execution_mode: 'anonymous' },
+				custom_path: 'kept-by-backend'
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'app',
+			path: 'f/apps/report'
+		})
+
+		expect(AppService.updateAppRaw).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'f/apps/report',
+			formData: {
+				app: {
+					path: 'f/apps/report',
+					value: {
+						files: { '/index.tsx': 'console.log("updated")' },
+						runnables: {},
+						data: { tables: ['orders'] }
+					},
+					summary: 'Updated report',
+					policy: expect.objectContaining({ execution_mode: 'anonymous' }),
+					deployment_message: undefined
+				},
+				js: 'bundled js',
+				css: 'bundled css'
+			}
+		})
+		expect(AppService.createAppRaw).not.toHaveBeenCalled()
+		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
+	})
+
 	it('fills an empty rawscript module through set_flow_module_code', async () => {
 		await callGlobalTool('write_flow', {
 			path: 'f/flows/empty-module',
@@ -1168,6 +1283,7 @@ describe('prepareGlobalSystemMessage', () => {
 		expect(content).toContain(
 			'Use discard_local_draft to remove an unsaved local draft, including the matching open editor draft'
 		)
+		expect(content).toContain('If the user message includes an ACTIVE EDITOR section')
 		expect(content).not.toContain('AI draft')
 		expect(content).not.toContain('UserDraft')
 		expect(content).not.toContain('localStorage')
@@ -1190,6 +1306,27 @@ describe('prepareGlobalSystemMessage', () => {
 })
 
 describe('prepareGlobalUserMessage', () => {
+	it('injects the active editor reference without contents', () => {
+		__resetUserDraftForTesting()
+		localStorage.clear()
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'script',
+			storagePath: '',
+			effectivePath: 'f/scripts/live_greeting'
+		})
+
+		const message = prepareGlobalUserMessage('Update this script', [], { workspace: WORKSPACE })
+
+		expect(message.content).toContain('## ACTIVE EDITOR')
+		expect(message.content).toContain('type: script')
+		expect(message.content).toContain('path: f/scripts/live_greeting')
+		expect(message.content).toContain('isLiveDraft: true')
+		expect(message.content).toContain('## INSTRUCTIONS:\nUpdate this script')
+		expect(message.content).not.toContain('When the user says')
+		expect(message.content).not.toContain('content')
+	})
+
 	it('includes selected workspace item references without contents', () => {
 		const message = prepareGlobalUserMessage('Update these items', [
 			{
