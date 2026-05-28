@@ -2504,8 +2504,20 @@ export async function pull(
     }
 
     if (opts.onlyCreateBranch) {
-      // Branch is checked out locally; the caller pushes it. Symmetric with
-      // the non-onlyCreateBranch path: CLI does branch + pull, never push.
+      // Branch-only publish: there is no commit here, so the GPG-cache-warmth
+      // invariant that motivated moving commit+push to the hub script (WIN-1974,
+      // #9284) does not apply — a bare `git push` of the (empty) branch ref needs
+      // no signing. The hub script only runs its in-process commit+push for the
+      // non-onlyCreateBranch path (`if (!only_create_branch) git_push(...)`), so
+      // the CLI MUST publish the fork branch here or it is never pushed at all.
+      gitSyncDeployPush({
+        items: deployItems,
+        authorName: process.env["WM_USERNAME"] || "windmill",
+        authorEmail: process.env["WM_EMAIL"] || "windmill@windmill.dev",
+        committerName: opts.gitCommitterName,
+        committerEmail: opts.gitCommitterEmail,
+        onlyCreateBranch: true,
+      });
       return;
     }
   }
