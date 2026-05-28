@@ -155,7 +155,14 @@
 			// — with an empty list, every committed session falls into the
 			// "workspace_id set but not in user's list" branch and renders
 			// as "Fork — no longer available" until a hard reload.
-			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+			try {
+				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+			} catch (e) {
+				// A transient list-refresh failure must not strand the user on the
+				// just-deleted workspace — still switch + navigate (the list reloads
+				// on the next page load).
+				console.error('Failed to refresh workspaces after delete', e)
+			}
 			switchWorkspace(parentId)
 			await goto('/')
 		} else {

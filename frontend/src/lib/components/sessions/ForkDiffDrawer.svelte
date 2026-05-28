@@ -395,9 +395,13 @@
 		const parts = path.split('/')
 		// `f/foo` (scope) has no parent.
 		if (entry.type === 'folder' && parts.length <= 2) return undefined
-		// File directly under a scope: parent is the scope (f/foo).
-		if (entry.type === 'file' && parts.length === 3) {
-			return `folder:${parts.slice(0, 2).join('/')}`
+		if (entry.type === 'file') {
+			// A single-segment leaf sits at the tree root with no scope folder.
+			if (parts.length < 2) return undefined
+			// A file sitting directly at its scope (`f/foo` or `f/foo/bar`) belongs to
+			// the scope folder (first 2 segments, key `folder:f/foo`); deeper files
+			// fall through to their immediate folder below.
+			if (parts.length <= 3) return `folder:${parts.slice(0, 2).join('/')}`
 		}
 		return `folder:${parts.slice(0, -1).join('/')}`
 	}

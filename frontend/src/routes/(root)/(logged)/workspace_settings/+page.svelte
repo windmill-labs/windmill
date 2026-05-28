@@ -1555,6 +1555,14 @@
 										await WorkspaceService.archiveWorkspace({ workspace: ws })
 										sendUserToast(`Archived workspace ${ws}`)
 										if (parentStillAccessible && parentId) {
+											// Refresh the list so the just-archived workspace drops out before
+											// we land on the parent. Guarded: a refresh failure must not block
+											// the switch (the list reloads on next page load).
+											try {
+												usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+											} catch (e) {
+												console.error('Failed to refresh workspaces after archive', e)
+											}
 											switchWorkspace(parentId)
 											await goto('/')
 										} else {

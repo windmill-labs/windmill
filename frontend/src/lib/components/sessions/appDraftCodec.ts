@@ -23,17 +23,20 @@ export type RuntimeRawApp = {
 	runnables: Record<string, any>
 	data: RawAppData
 	policy: any
+	custom_path?: string
 }
 
 // Strip runtime-only metadata (just `path`, the storage key) when persisting
-// to UserDraft.
+// to UserDraft. `custom_path` is a real draft field and must round-trip — else
+// session sync erases a draft's custom URL.
 export function runtimeRawAppToDraft(raw: RuntimeRawApp): RawAppDraft {
 	return {
 		summary: raw.summary,
 		files: raw.files,
 		runnables: raw.runnables,
 		data: raw.data,
-		policy: raw.policy
+		policy: raw.policy,
+		custom_path: raw.custom_path
 	}
 }
 
@@ -46,6 +49,7 @@ export function applyDraftToRuntimeRawApp(raw: RuntimeRawApp, dv: RawAppDraft): 
 		files: dv.files,
 		runnables: dv.runnables,
 		data: dv.data,
-		policy: dv.policy ?? raw.policy
+		policy: dv.policy ?? raw.policy,
+		custom_path: dv.custom_path ?? raw.custom_path
 	}
 }

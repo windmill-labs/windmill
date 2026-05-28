@@ -95,7 +95,7 @@ doesn't steal focus from a sibling search input (matches the picker).
 		aria-current={current ? 'true' : undefined}
 		data-nav-key={navKey}
 		title={title ?? secondary}
-		style={indent ? `padding-left: ${indent}px` : undefined}
+		style={indent ? `padding-left: calc(0.75rem + ${indent}px)` : undefined}
 		class={rootClass}
 		{onclick}
 		{onmouseenter}
@@ -124,7 +124,7 @@ doesn't steal focus from a sibling search input (matches the picker).
 		aria-current={current ? 'true' : undefined}
 		data-nav-key={navKey}
 		title={title ?? secondary}
-		style={indent ? `padding-left: ${indent}px` : undefined}
+		style={indent ? `padding-left: calc(0.75rem + ${indent}px)` : undefined}
 		class={rootClass}
 		onmousedown={(e) => e.preventDefault()}
 		{onclick}

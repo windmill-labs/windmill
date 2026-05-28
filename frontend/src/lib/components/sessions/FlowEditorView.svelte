@@ -83,7 +83,7 @@
 		if (!workspaceId || !path) return
 		const incoming = draftHandles[0]?.draft
 		if (!incoming) return
-		const sig = JSON.stringify({ value: incoming.value, schema: incoming.schema })
+		const sig = JSON.stringify({ value: incoming.value, schema: incoming.schema, summary: incoming.summary })
 		untrack(() => {
 			if (runtime.loadedPath !== path) return
 			if (sig === lastInboundSig) return
@@ -114,13 +114,13 @@
 		if (runtime.loadedPath !== path) return
 		const flow = runtime.flowStore.val
 		if (!flow) return
-		const sig = JSON.stringify({ value: flow.value, schema: flow.schema })
+		const sig = JSON.stringify({ value: flow.value, schema: flow.schema, summary: flow.summary })
 		if (sig === lastInboundSig) return
 		if (outboundTimer) clearTimeout(outboundTimer)
 		outboundTimer = setTimeout(() => {
 			untrack(() => {
 				const current = UserDraft.get<Flow>('flow', path, { workspace: workspaceId })
-				if (current && JSON.stringify({ value: current.value, schema: current.schema }) === sig)
+				if (current && JSON.stringify({ value: current.value, schema: current.schema, summary: current.summary }) === sig)
 					return
 				UserDraft.save('flow', path, flow, { workspace: workspaceId })
 			})

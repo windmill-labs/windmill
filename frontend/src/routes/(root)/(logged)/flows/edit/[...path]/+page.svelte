@@ -20,7 +20,7 @@
 	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
-	import { untrack } from 'svelte'
+	import { tick, untrack } from 'svelte'
 	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
 	import { page } from '$app/state'
 	import {
@@ -168,6 +168,11 @@
 		const tok = ++loadFlowToken
 		loading = true
 		let flow: Flow
+		// Builder-dependent setup is captured here and applied AFTER the builder
+		// remounts (see end of loadFlow): during a reload renderEditor is false,
+		// so flowBuilder is unmounted and direct calls would no-op.
+		let draftTriggersToApply: Trigger[] | undefined = undefined
+		let applyPrimarySchedule = false
 		// Currently there is no way to get version of flow with flow.
 		// So we have to request it here
 		const v = (
@@ -261,8 +266,8 @@
 
 		if (flowWithDraft.draft != undefined && !nobackenddraft) {
 			savedPrimarySchedule = flowWithDraft?.draft?.['primary_schedule']
-			flowBuilder?.setPrimarySchedule(savedPrimarySchedule)
-			flowBuilder?.setDraftTriggers(flowWithDraft?.draft?.['draft_triggers'])
+			applyPrimarySchedule = true
+			draftTriggersToApply = flowWithDraft?.draft?.['draft_triggers']
 
 			if (!flowWithDraft.draft_only && localDraft == undefined) {
 				const deployed = cleanValueProperties(flowWithDraft)
@@ -306,15 +311,22 @@
 				])
 			}
 		} else {
-			flowBuilder?.setDraftTriggers(undefined)
+			draftTriggersToApply = undefined
 		}
 
 		await initFlow(flow, flowStore, flowStateStore)
 		if (tok !== loadFlowToken) return
 		loading = false
 		selectedId = page.url.searchParams.get('selected') ?? 'settings-metadata'
-		flowBuilder?.loadFlowState()
+		// Remount the builder first, then apply builder-dependent setup once it
+		// has mounted — otherwise (during a reload) these would no-op on the
+		// unmounted builder and editor state restoration would be skipped.
 		renderEditor = true
+		await tick()
+		if (tok !== loadFlowToken) return
+		if (applyPrimarySchedule) flowBuilder?.setPrimarySchedule(savedPrimarySchedule)
+		flowBuilder?.setDraftTriggers(draftTriggersToApply)
+		flowBuilder?.loadFlowState()
 	}
 
 	$effect(() => {

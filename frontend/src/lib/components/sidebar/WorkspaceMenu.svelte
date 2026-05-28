@@ -76,7 +76,10 @@
 		// navigation wins over onClick's preventDefault, so the href is what
 		// actually decides where we land; onClick still performs the switch.
 		if (page.route.id?.includes('/sessions')) {
-			return `${base}/`
+			// Keep the workspace in the href so a modifier/middle click (open in new
+			// tab, which bypasses onClick's preventDefault) still lands in the
+			// clicked workspace's home rather than the default one.
+			return `${base}/?workspace=${id}`
 		}
 		const params = new URLSearchParams(page.url.searchParams)
 		params.set('workspace', id)

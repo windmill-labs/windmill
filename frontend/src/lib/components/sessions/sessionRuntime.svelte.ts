@@ -66,6 +66,7 @@ export interface SessionRuntime {
 					policy: any
 					summary: string
 					path: string
+					custom_path?: string
 			  }
 			| undefined
 	}
@@ -368,7 +369,12 @@ function createRuntime(session: Session): SessionRuntime {
 				// No draft yet. Seed from backend.
 				const result = await ScriptService.getScriptByPathWithDraft({ workspace, path })
 				savedScript.val = result
-				const baseline = (result.draft as NewScript | undefined) ?? (result as NewScript)
+				// Clone before mutating: when result.draft is falsy, `baseline` would
+				// otherwise alias `result` (= savedScript.val), so baseline.parent_hash
+				// would corrupt the pristine deployed baseline the diff drawer reads.
+				const baseline = structuredClone(
+					(result.draft as NewScript | undefined) ?? (result as NewScript)
+				)
 				baseline.parent_hash = result.hash
 				UserDraft.save<NewScript>('script', path, baseline, { workspace })
 				scriptStore.val = baseline
@@ -476,7 +482,8 @@ function createRuntime(session: Session): SessionRuntime {
 					data,
 					policy: result.policy,
 					summary: result.summary ?? '',
-					path: result.path
+					path: result.path,
+					custom_path: result.custom_path
 				}
 				UserDraft.save('raw_app', path, runtimeRawAppToDraft(runtimeValue), { workspace })
 				rawApp.val = runtimeValue
