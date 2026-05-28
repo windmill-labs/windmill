@@ -64,6 +64,7 @@ import {
 import type { ContextElement } from '../context'
 import { UserDraft, type UserDraftMeta } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
+import { inferArgs } from '$lib/infer'
 import {
 	resourceRequestSchema,
 	scheduleRequestSchema,
@@ -2894,10 +2895,16 @@ async function deployDraft(
 			const existing = (await ScriptService.existsScriptByPath({ workspace, path }))
 				? await ScriptService.getScriptByPath({ workspace, path })
 				: undefined
-			await ScriptService.createScript({
-				workspace,
-				requestBody: buildScriptDeployRequestBody(path, draft, existing, deploymentMessage)
-			})
+			const requestBody = buildScriptDeployRequestBody(path, draft, existing, deploymentMessage)
+			// Infer the arg schema from the content so it matches the code, like the editor does.
+			try {
+				const schema = emptySchema()
+				await inferArgs(requestBody.language, requestBody.content, schema)
+				requestBody.schema = schema
+			} catch (e) {
+				console.error('Failed to infer script schema before deploy', e)
+			}
+			await ScriptService.createScript({ workspace, requestBody })
 			break
 		}
 		case 'flow': {
