@@ -277,6 +277,11 @@
 					? 'wac_typescript'
 					: 'script')}
 		onDeploy={(e) => {
+			// "Deploy & Stay here" / lib: stay on the editor (just confirm).
+			if (e.stay) {
+				sendUserToast('Deployed')
+				return
+			}
 			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
 		}}
 		onSaveInitial={(e) => {

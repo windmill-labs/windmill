@@ -474,6 +474,11 @@
 		{savedPrimarySchedule}
 		searchParams={page.url.searchParams}
 		onDeploy={(e) => {
+			// "Deploy & Stay here" / lib: stay on the editor (just confirm).
+			if (e.stay) {
+				sendUserToast('Deployed')
+				return
+			}
 			UserDraft.remove('script', draftPath)
 			if ($workspaceStore) invalidate($workspaceStore, 'script')
 			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)

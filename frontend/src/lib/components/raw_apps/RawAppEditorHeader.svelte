@@ -66,6 +66,13 @@
 	// session-pane PR lands. Untyped getContext to avoid coupling to the
 	// AIChatManager class export (which lives on the chat-visuals PR).
 	const inSessionPane = !!getContext('aiChatManager')
+	// In a session pane the editor does NOT own the localStorage draft — the
+	// session runtime does, keyed by the session's (fork) workspace. So the
+	// `if (!inSessionPane) UserDraft.remove(...)` guards below skip the editor's
+	// own removal (it would target the wrong, main-`$workspaceStore` key). The
+	// session-side equivalent is RawAppEditorView's `onDeploy` →
+	// `runtime.syncPreviewWithDeployed`, which discards the fork draft + reloads
+	// the preview to the deployed version.
 	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
 	import type { RawAppData } from './dataTableRefUtils'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'

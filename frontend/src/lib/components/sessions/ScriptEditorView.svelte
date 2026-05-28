@@ -201,7 +201,9 @@
 			}
 		}}
 		onDeploy={(e) => {
-			// Session stays put, so toast here, then sync the preview to deployed.
+			// Fires on every deploy (primary, "Deploy & Stay here", and lib — we
+			// ignore e.stay since the session always stays). Toast, then sync the
+			// preview to the deployed version.
 			sendUserToast('Deployed')
 			runtime.syncPreviewWithDeployed(workspaceId, 'script', e.path)
 		}}
