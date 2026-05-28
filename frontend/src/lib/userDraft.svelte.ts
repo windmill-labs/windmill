@@ -3,6 +3,7 @@ import { onDestroy, untrack } from 'svelte'
 import { deepEqual } from 'fast-equals'
 import { userStore, workspaceStore } from './stores'
 import { useLocalStorageValue } from './svelte5Utils.svelte'
+import { readFieldsRecursively } from './utils'
 import { UserDraftDbSyncer } from './userDraftDbSyncer.svelte'
 import { UserDraftConflictStore } from './userDraftConflictStore.svelte'
 import type { UserDraftItemKind } from './gen'
@@ -809,16 +810,24 @@ function acquireEntry(
 			undefined,
 			useLocalStorageOptions
 		)
-		// Mirror live-handle writes (e.g. `handle.draft = X` from an editor's
-		// $effect) to the DbSyncer. Skip the first run — the initial value
-		// came from localStorage or the default, not from a user mutation, so
+		// Mirror live-handle writes (both setter assignments and in-place
+		// deep mutations like `handle.draft.summary = '...'`) to the
+		// DbSyncer. `readFieldsRecursively` is what makes deep mutations
+		// observable — reading `stateRef!.val` alone only tracks the proxy
+		// root, so nested edits would update localStorage (via the inner
+		// persist effect, which does the same recursive read) but never
+		// reach the syncer. Skip the first run — the initial value came
+		// from localStorage or the default, not from a user mutation, so
 		// echoing it back would create a redundant request on every editor
 		// mount. Also honor the entry's `skipNextSync` flag, which callers
 		// set when they already know what's on the server (missed_drafts
-		// echo, "Load server draft" in the conflict modal).
+		// echo, "Load server draft" in the conflict modal). Per-keystroke
+		// firings here are fine — the DbSyncer queue coalesces by path and
+		// only fetches at its own 2s/10s cadence.
 		let firstRun = true
 		$effect(() => {
 			const stored = stateRef!.val
+			if (stored !== undefined) readFieldsRecursively(stored.value)
 			if (firstRun) {
 				firstRun = false
 				return
