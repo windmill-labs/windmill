@@ -59,7 +59,7 @@
 		}
 	})
 
-	const windmillBuiltins = [
+	const windmillBuiltinsBase = [
 		'azure_oauth',
 		'github',
 		'gitlab',
@@ -82,7 +82,17 @@
 		'teams',
 		'zoho',
 		'xero',
-		'apify'
+		'apify',
+		'docusign'
+	]
+	// Providers whose registry entry (`backend/oauth_connect.json`) has a
+	// `sandbox` URL block. Each one gets a sibling `<name>_sandbox` dropdown
+	// entry and is treated as a builtin so we don't render the custom-URL form
+	// — the URLs come from the registry sandbox block.
+	const windmillBuiltinsWithSandbox = ['docusign']
+	const windmillBuiltins = [
+		...windmillBuiltinsBase,
+		...windmillBuiltinsWithSandbox.map((n) => `${n}_sandbox`)
 	]
 
 	let showCustomOAuthForm = $state(false)
@@ -175,32 +185,48 @@
 	}
 
 	function getOAuthProviderIcon(name: string) {
+		// Sandbox variants share the parent provider's icon.
+		const lookup = name.endsWith('_sandbox') ? name.slice(0, -'_sandbox'.length) : name
+
 		// Handle special cases
-		if (name === 'teams') {
+		if (lookup === 'teams') {
 			return APP_TO_ICON_COMPONENT.ms_teams_webhook
 		}
-		if (name === 'snowflake_oauth') {
+		if (lookup === 'snowflake_oauth') {
 			return APP_TO_ICON_COMPONENT.snowflake
 		}
-		if (name === 'azure_oauth') {
+		if (lookup === 'azure_oauth') {
 			return APP_TO_ICON_COMPONENT.azure
 		}
 
 		// Try direct mapping, fallback to Circle icon if not found
-		return APP_TO_ICON_COMPONENT[name as keyof typeof APP_TO_ICON_COMPONENT] || Circle
+		return APP_TO_ICON_COMPONENT[lookup as keyof typeof APP_TO_ICON_COMPONENT] || Circle
 	}
 
 	function generateOAuthDropdownItems(): Item[] {
 		const items: Item[] = []
 
 		// Add built-in providers that are not already configured
-		windmillBuiltins.forEach((name) => {
+		windmillBuiltinsBase.forEach((name) => {
 			// Only show providers that are not already in the oauths object
 			if (!oauths || !oauths[name]) {
 				const icon = getOAuthProviderIcon(name)
 				items.push({
 					displayName: capitalize(name),
 					action: () => createOAuthClient(name),
+					icon: icon
+				})
+			}
+		})
+
+		// Add sandbox variants for providers that have sandbox URLs in the registry
+		windmillBuiltinsWithSandbox.forEach((name) => {
+			const sandboxKey = `${name}_sandbox`
+			if (!oauths || !oauths[sandboxKey]) {
+				const icon = getOAuthProviderIcon(name)
+				items.push({
+					displayName: `${capitalize(name)} (sandbox)`,
+					action: () => createOAuthClient(sandboxKey),
 					icon: icon
 				})
 			}

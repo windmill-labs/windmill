@@ -89,6 +89,56 @@ pub struct OAuthConfig {
     pub req_body_auth: Option<bool>,
     #[serde(default = "default_grant_types")]
     pub grant_types: Vec<String>,
+    /// Optional URL overrides for the provider's sandbox environment. When
+    /// present and the admin has configured a `<name>_sandbox` credentials
+    /// entry, `build_oauth_clients` registers a second client under that key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<OAuthSandboxOverride>,
+}
+
+/// URL overrides for an OAuth provider's sandbox environment. Inherits
+/// scopes, extra_params, etc. from the parent [`OAuthConfig`].
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct OAuthSandboxOverride {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub userinfo_url: Option<String>,
+}
+
+impl OAuthConfig {
+    /// Returns a copy of this config with sandbox URL overrides applied and
+    /// the nested `sandbox` field cleared. Returns `None` if no overrides are
+    /// set.
+    pub fn as_sandbox(&self) -> Option<OAuthConfig> {
+        let sb = self.sandbox.as_ref()?;
+        let mut out = self.clone();
+        out.sandbox = None;
+        if let Some(u) = &sb.auth_url {
+            out.auth_url = u.clone();
+        }
+        if let Some(u) = &sb.token_url {
+            out.token_url = u.clone();
+        }
+        if sb.userinfo_url.is_some() {
+            out.userinfo_url = sb.userinfo_url.clone();
+        }
+        Some(out)
+    }
+}
+
+/// Suffix appended to a provider name to identify its sandbox variant in the
+/// instance credentials map and in `account.client`.
+pub const SANDBOX_SUFFIX: &str = "_sandbox";
+
+/// Strips [`SANDBOX_SUFFIX`] from a client name, returning the canonical
+/// provider name. Returns the input unchanged if no suffix is present.
+pub fn canonical_provider_name(client_name: &str) -> &str {
+    client_name
+        .strip_suffix(SANDBOX_SUFFIX)
+        .unwrap_or(client_name)
 }
 
 /// OAuth client credentials
@@ -188,9 +238,23 @@ pub async fn build_oauth_clients(
     connect_configs_json: &str,
     login_configs_json: &str,
 ) -> anyhow::Result<AllClients> {
-    let connect_configs =
+    let mut connect_configs =
         serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json)?;
     let login_configs = serde_json::from_str::<HashMap<String, OAuthConfig>>(login_configs_json)?;
+
+    // Expand sandbox URL overrides into synthetic `<name>_sandbox` entries so
+    // the rest of the pipeline treats sandbox like any other provider, keyed
+    // off the matching `<name>_sandbox` credentials in instance settings.
+    let sandbox_configs: Vec<(String, OAuthConfig)> = connect_configs
+        .iter()
+        .filter_map(|(name, cfg)| {
+            cfg.as_sandbox()
+                .map(|sb_cfg| (format!("{name}{SANDBOX_SUFFIX}"), sb_cfg))
+        })
+        .collect();
+    for (name, cfg) in sandbox_configs {
+        connect_configs.entry(name).or_insert(cfg);
+    }
 
     let oauths = if let Some(oauths) = oauths_from_config {
         tracing::info!("Using OAuth clients from config: {oauths:?}");
@@ -281,8 +345,12 @@ pub async fn build_oauth_clients(
         .into_iter()
         .filter_map(|x| oauths.get(&x.0).map(|c| (x.0, (c, x.1))))
         .chain(oauths.iter().filter_map(|x| {
+            // Skip per-client connect_configs with empty URLs so they don't
+            // shadow the registry entry (in particular, the synthetic
+            // `<name>_sandbox` entry built from a `sandbox` block).
             x.1.connect_config
                 .as_ref()
+                .filter(|c| !c.auth_url.is_empty() || !c.token_url.is_empty())
                 .map(|c| (x.0.clone(), (x.1, c.clone())))
         }))
         .filter_map(|(k, (client_params, config))| {
@@ -336,6 +404,7 @@ pub async fn build_oauth_clients(
                     extra_params_callback: None,
                     req_body_auth: None,
                     grant_types: vec!["authorization_code".to_string()],
+                    sandbox: None,
                 },
                 v.clone(),
                 false,
