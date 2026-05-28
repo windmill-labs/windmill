@@ -79,15 +79,28 @@ async fn create_workspace(db: &Pool<Postgres>, id: &str) {
     .unwrap();
 }
 
+/// Insert `n` completed jobs for `workspace_id`, each ending `secs_ago`
+/// seconds in the past with a 1-second wall-clock duration. The fairness
+/// algorithm weights contributions by `duration_ms` (clamped to the window),
+/// so each job contributes ~1 worker-second when fully inside the window.
 async fn insert_completed(db: &Pool<Postgres>, workspace_id: &str, n: usize, secs_ago: i32) {
     for _ in 0..n {
+        let id: Uuid = sqlx::query_scalar(
+            "INSERT INTO v2_job (id, workspace_id, kind)
+             VALUES (gen_random_uuid(), $1, 'script'::job_kind) RETURNING id",
+        )
+        .bind(workspace_id)
+        .fetch_one(db)
+        .await
+        .unwrap();
         sqlx::query(
             "INSERT INTO v2_job_completed (id, workspace_id, duration_ms, status,
                 started_at, completed_at)
-             VALUES (gen_random_uuid(), $1, 1, 'success'::job_status,
-                NOW() - make_interval(secs => $2::int),
-                NOW() - make_interval(secs => $2::int))",
+             VALUES ($1, $2, 1000, 'success'::job_status,
+                NOW() - make_interval(secs => ($3::int + 1)),
+                NOW() - make_interval(secs => $3::int))",
         )
+        .bind(id)
         .bind(workspace_id)
         .bind(secs_ago)
         .execute(db)
@@ -106,12 +119,98 @@ async fn insert_queued(
     let mut ids = Vec::with_capacity(n);
     for _ in 0..n {
         let id: Uuid = sqlx::query_scalar(
-            "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, running, tag)
-             VALUES (gen_random_uuid(), $1, NOW(), $2, $3) RETURNING id",
+            "INSERT INTO v2_job (id, workspace_id, kind, tag)
+             VALUES (gen_random_uuid(), $1, 'script'::job_kind, $2) RETURNING id",
         )
+        .bind(workspace_id)
+        .bind(tag)
+        .fetch_one(db)
+        .await
+        .unwrap();
+        // Running jobs need a `started_at` for the fairness algorithm to
+        // compute a positive elapsed-time contribution. Backdate by 1s so
+        // each running row contributes ~1 worker-second by the time the
+        // refresh runs, matching the `insert_completed` scale.
+        sqlx::query(
+            "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, running, tag, started_at)
+             VALUES ($1, $2, NOW(), $3, $4,
+                     CASE WHEN $3 THEN NOW() - interval '1 second' ELSE NULL END)",
+        )
+        .bind(id)
         .bind(workspace_id)
         .bind(running)
         .bind(tag)
+        .execute(db)
+        .await
+        .unwrap();
+        if running {
+            // The fairness algorithm bounds the running contribution by the
+            // per-job `v2_job_runtime.ping`. Insert a fresh ping so each
+            // running row accrues real-time worker-seconds.
+            sqlx::query(
+                "INSERT INTO v2_job_runtime (id, ping) VALUES ($1, NOW())
+                 ON CONFLICT (id) DO UPDATE SET ping = NOW()",
+            )
+            .bind(id)
+            .execute(db)
+            .await
+            .unwrap();
+            insert_live_worker_ping(db, workspace_id, id).await;
+        }
+        ids.push(id);
+    }
+    ids
+}
+
+/// Insert a live `worker_ping` row claiming the given job. Each insert uses
+/// a fresh randomly-named worker so callers can stack multiple pings without
+/// PK collisions on `worker`.
+async fn insert_live_worker_ping(db: &Pool<Postgres>, workspace_id: &str, job_id: Uuid) {
+    let worker_name = format!("test-worker-{}", Uuid::new_v4());
+    sqlx::query(
+        "INSERT INTO worker_ping (worker, worker_instance, ping_at, ip, current_job_id, current_job_workspace_id)
+         VALUES ($1, 'test', NOW(), '127.0.0.1', $2, $3)",
+    )
+    .bind(&worker_name)
+    .bind(job_id)
+    .bind(workspace_id)
+    .execute(db)
+    .await
+    .unwrap();
+}
+
+/// Insert a "zombie" running row: a row in `v2_job_queue` with `running=true`
+/// but **no** live `worker_ping` claiming it (no paired worker, or the worker
+/// has stopped pinging). The fairness algorithm must NOT count these — they
+/// don't consume any worker slot.
+async fn insert_zombie_running(db: &Pool<Postgres>, workspace_id: &str, n: usize) -> Vec<Uuid> {
+    let mut ids = Vec::with_capacity(n);
+    for _ in 0..n {
+        let id: Uuid = sqlx::query_scalar(
+            "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, running, tag, started_at)
+             VALUES (gen_random_uuid(), $1, NOW() - interval '1 hour', true, 'deno',
+                     NOW() - interval '1 hour') RETURNING id",
+        )
+        .bind(workspace_id)
+        .fetch_one(db)
+        .await
+        .unwrap();
+        ids.push(id);
+    }
+    ids
+}
+
+/// Insert a concurrency-suspended row: `running=true` AND `suspend > 0`. These
+/// rows are not being processed by any worker (the flow is paused), so the
+/// algorithm must not count them as slot occupancy.
+async fn insert_suspended_running(db: &Pool<Postgres>, workspace_id: &str, n: usize) -> Vec<Uuid> {
+    let mut ids = Vec::with_capacity(n);
+    for _ in 0..n {
+        let id: Uuid = sqlx::query_scalar(
+            "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, running, suspend, tag)
+             VALUES (gen_random_uuid(), $1, NOW(), true, 1, 'deno') RETURNING id",
+        )
+        .bind(workspace_id)
         .fetch_one(db)
         .await
         .unwrap();
@@ -334,6 +433,76 @@ async fn fairness_catches_slot_hoggers(db: Pool<Postgres>) {
     assert_eq!(overloaded_set(), vec!["hogger".to_string()]);
 }
 
+/// Regression: a workspace with a large backlog of `running = true` rows that
+/// have **no live worker** claiming them (worker died, ping went stale, etc.)
+/// must not be counted as "active". A previous version of the algorithm
+/// counted `v2_job_queue.running = true` directly and was perpetually pinned
+/// on the workspace with the most zombie rows, masking every other workspace.
+#[sqlx::test(fixtures("base"))]
+#[serial]
+#[ignore = "flaky in CI"]
+async fn fairness_ignores_zombie_running_rows(db: Pool<Postgres>) {
+    reset_fairness_state();
+    create_workspace(&db, "stuck_backlog").await;
+    create_workspace(&db, "real_noisy").await;
+    create_workspace(&db, "victim").await;
+
+    // 100 zombie running rows for `stuck_backlog`. No paired worker_ping ⇒
+    // no live worker is processing them. Old algorithm: 100 units of fake
+    // activity. New algorithm: 0 units.
+    insert_zombie_running(&db, "stuck_backlog", 100).await;
+    // `real_noisy` is genuinely flooding the cluster.
+    insert_completed(&db, "real_noisy", 60, 2).await;
+    insert_completed(&db, "victim", 5, 3).await;
+
+    refresh_overloaded(&db).await.expect("refresh ok");
+
+    let set = overloaded_set();
+    assert!(
+        !set.contains(&"stuck_backlog".to_string()),
+        "zombie running rows must not flag a workspace as overloaded; got {set:?}"
+    );
+    assert_eq!(
+        set,
+        vec!["real_noisy".to_string()],
+        "the actually noisy workspace must surface even when another workspace \
+         has a large backlog of zombie running rows; got {set:?}"
+    );
+}
+
+/// Regression: concurrency-suspended rows (`running = true AND suspend > 0`)
+/// are not consuming worker slots — the flow is paused at a suspend step —
+/// and must not contribute to the activity share.
+#[sqlx::test(fixtures("base"))]
+#[serial]
+#[ignore = "flaky in CI"]
+async fn fairness_ignores_concurrency_suspended_rows(db: Pool<Postgres>) {
+    reset_fairness_state();
+    create_workspace(&db, "concurrency_capped").await;
+    create_workspace(&db, "real_noisy").await;
+    create_workspace(&db, "victim").await;
+
+    // 100 concurrency-suspended rows. Each has `running = true` (the legacy
+    // signal) but `suspend > 0` (not actually on a worker).
+    insert_suspended_running(&db, "concurrency_capped", 100).await;
+    insert_completed(&db, "real_noisy", 60, 2).await;
+    insert_completed(&db, "victim", 5, 3).await;
+
+    refresh_overloaded(&db).await.expect("refresh ok");
+
+    let set = overloaded_set();
+    assert!(
+        !set.contains(&"concurrency_capped".to_string()),
+        "concurrency-suspended rows must not flag a workspace as overloaded; got {set:?}"
+    );
+    assert_eq!(
+        set,
+        vec!["real_noisy".to_string()],
+        "noisy workspace must still surface despite another workspace's large \
+         suspended backlog; got {set:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Simulation test
 // ---------------------------------------------------------------------------
@@ -449,7 +618,21 @@ async fn mock_worker(
     stats: Arc<Mutex<Stats>>,
     completed_counter: Arc<AtomicU64>,
 ) {
-    let _ = worker_id;
+    let worker_name = format!("mock-worker-{worker_id}");
+    // Each mock worker maintains its own `worker_ping` row, the way a real
+    // worker would: `current_job_*` set on pick-up, cleared on completion.
+    // The fairness algorithm now reads slot occupancy from `worker_ping` (so
+    // that concurrency-suspended rows and zombies with no live ping do not
+    // inflate the denominator), so the simulation must keep this in sync.
+    sqlx::query(
+        "INSERT INTO worker_ping (worker, worker_instance, ping_at) VALUES ($1, 'sim', NOW())
+         ON CONFLICT (worker) DO UPDATE SET ping_at = NOW(),
+            current_job_id = NULL, current_job_workspace_id = NULL",
+    )
+    .bind(&worker_name)
+    .execute(&db)
+    .await
+    .unwrap();
     let standard_sql = "WITH picked AS (
                     SELECT id FROM v2_job_queue
                     WHERE running = false AND scheduled_for <= now()
@@ -516,6 +699,20 @@ async fn mock_worker(
 
         match row {
             Some((id, ws, dur_ms, created_at)) => {
+                // Claim the slot on this worker's ping so the fairness
+                // algorithm counts this workspace's slot occupancy.
+                sqlx::query(
+                    "UPDATE worker_ping SET ping_at = NOW(),
+                        current_job_id = $1, current_job_workspace_id = $2
+                     WHERE worker = $3",
+                )
+                .bind(id)
+                .bind(&ws)
+                .bind(&worker_name)
+                .execute(&db)
+                .await
+                .unwrap();
+
                 tokio::time::sleep(Duration::from_millis(dur_ms as u64)).await;
 
                 // Move to completed atomically: insert + delete in one query.
@@ -534,6 +731,17 @@ async fn mock_worker(
                 .await
                 .unwrap();
 
+                // Release the slot.
+                sqlx::query(
+                    "UPDATE worker_ping SET ping_at = NOW(),
+                        current_job_id = NULL, current_job_workspace_id = NULL
+                     WHERE worker = $1",
+                )
+                .bind(&worker_name)
+                .execute(&db)
+                .await
+                .unwrap();
+
                 let latency_ms = (completed_at - created_at).num_milliseconds().max(0) as u64;
                 {
                     let mut s = stats.lock().await;
@@ -543,7 +751,13 @@ async fn mock_worker(
             }
             None => {
                 // Empty queue (or every queued workspace is capped). Back off
-                // briefly so we don't hammer the DB.
+                // briefly so we don't hammer the DB. Refresh the heartbeat so
+                // this worker's ping doesn't go stale during long idle gaps.
+                sqlx::query("UPDATE worker_ping SET ping_at = NOW() WHERE worker = $1")
+                    .bind(&worker_name)
+                    .execute(&db)
+                    .await
+                    .unwrap();
                 tokio::time::sleep(Duration::from_millis(2)).await;
             }
         }

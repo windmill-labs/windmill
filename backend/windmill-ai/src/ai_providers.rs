@@ -27,6 +27,7 @@ lazy_static::lazy_static! {
 }
 
 pub const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+pub const DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com/v1";
 pub const GOOGLE_AI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
 
 /// Empty string signals BedrockClient::from_env() to use the region from AWS environment/config
@@ -106,7 +107,7 @@ impl AIProvider {
 
                 Ok(azure_base_path.unwrap_or("https://api.openai.com/v1".to_string()))
             }
-            AIProvider::DeepSeek => Ok("https://api.deepseek.com/v1".to_string()),
+            AIProvider::DeepSeek => Ok(DEEPSEEK_BASE_URL.to_string()),
             AIProvider::GoogleAI => Ok(GOOGLE_AI_BASE_URL.to_string()),
             AIProvider::Groq => Ok("https://api.groq.com/openai/v1".to_string()),
             AIProvider::OpenRouter => Ok("https://openrouter.ai/api/v1".to_string()),

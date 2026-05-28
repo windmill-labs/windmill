@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.710.0
+  version: 1.711.0
   title: Windmill API
 
   contact:
@@ -25405,6 +25405,11 @@ components:
           example: "Connection timeout"
         tag:
           $ref: "#/components/schemas/CustomInstanceDbTag"
+        used_by_workspaces:
+          type: array
+          items:
+            type: string
+          description: Workspaces that reference this database via a ducklake catalog or datatable database with resource_type 'instance'. Computed at request time, not persisted.
 
     NewSqsTrigger:
       type: object

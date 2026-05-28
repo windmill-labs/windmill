@@ -11,13 +11,14 @@ use http::{HeaderMap, Method};
 use quick_cache::sync::Cache;
 use reqwest::{Client, RequestBuilder};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, value::RawValue};
+use serde_json::value::RawValue;
 use std::collections::HashMap;
 use std::time::Duration;
 use windmill_ai::ai_cache::current_instance_ai_config_revision;
 use windmill_ai::ai_providers::{
     empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel,
 };
+use windmill_ai::credentials::ProviderCredentials;
 #[cfg(feature = "bedrock")]
 use windmill_ai::providers::bedrock::{
     handle_bedrock_proxy, BedrockProxyResponse, BedrockProxyResponseBody,
@@ -30,10 +31,9 @@ use windmill_ai::providers::{
     },
 };
 use windmill_ai::proxy::{
-    proxy_execution_mode, supports_query_builder_proxy, ProviderCredentials, ProxyBuildArgs,
-    ProxyExecutionMode, ProxyRequest,
+    fim::maybe_transform_fim_request, proxy_execution_mode, ProxyBuildArgs, ProxyExecutionMode,
+    ProxyRequest,
 };
-use windmill_ai::utils::AI_HTTP_HEADERS;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::db::UserDB;
 use windmill_common::error::{to_anyhow, Error, Result};
@@ -369,53 +369,6 @@ impl AIConfig {
     }
 }
 
-// FIM (Fill-in-the-Middle) simulation for providers that don't support native FIM
-#[derive(Deserialize, Debug)]
-struct FimRequest {
-    model: String,
-    prompt: String,         // code before cursor
-    suffix: Option<String>, // code after cursor
-    temperature: Option<f32>,
-    max_tokens: Option<u32>,
-    stop: Option<Vec<String>>,
-}
-
-/// Checks if the AI provider supports native FIM (Fill-in-the-Middle) endpoint
-fn supports_native_fim(provider: &AIProvider) -> bool {
-    matches!(provider, AIProvider::Mistral)
-}
-
-/// Transforms a FIM request to chat/completions format for providers that don't support native FIM.
-fn transform_fim_to_chat_completions(body: &Bytes) -> Result<(Bytes, String)> {
-    let fim_req: FimRequest = serde_json::from_slice(body)
-        .map_err(|e| Error::internal_err(format!("Failed to parse FIM request: {}", e)))?;
-
-    let suffix = fim_req.suffix.unwrap_or_default();
-
-    let system_prompt = "You are a code completion assistant. Complete the code at the <CURSOR/> position between the given prefix and suffix. Output ONLY the code that goes at the cursor - no explanations, no markdown, no repeating the prefix or suffix.";
-
-    let user_content = format!(
-        "<PREFIX>\n{}\n<CURSOR/>\n<SUFFIX>\n{}",
-        fim_req.prompt, suffix
-    );
-
-    let chat_req = json!({
-        "model": fim_req.model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content}
-        ],
-        "temperature": fim_req.temperature.unwrap_or(0.0),
-        "max_tokens": fim_req.max_tokens.unwrap_or(256),
-        "stop": fim_req.stop
-    });
-
-    let chat_body = serde_json::to_vec(&chat_req)
-        .map_err(|e| Error::internal_err(format!("Failed to serialize chat request: {}", e)))?;
-
-    Ok((Bytes::from(chat_body), "chat/completions".to_string()))
-}
-
 pub fn global_service() -> Router {
     Router::new().route("/proxy/{*ai}", post(global_proxy).get(global_proxy))
 }
@@ -453,6 +406,24 @@ fn proxy_request_to_request_builder(proxy_request: ProxyRequest) -> RequestBuild
         request = request.header(header_name.as_str(), header_value.as_str());
     }
     request.body(proxy_request.body)
+}
+
+async fn audit_global_ai_request(db: &DB, authed: &ApiAuthed) -> Result<()> {
+    let mut tx = db.begin().await?;
+
+    audit_log(
+        &mut *tx,
+        authed,
+        "ai.global_request",
+        ActionKind::Execute,
+        "global",
+        Some(&authed.email),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(())
 }
 
 fn google_ai_proxy_response_to_body(
@@ -530,63 +501,78 @@ async fn global_proxy(
         return Err(Error::BadRequest("API key is required".to_string()));
     };
 
-    let base_url = provider.get_base_url(None, &db).await?;
+    let proxy_mode = proxy_execution_mode(&provider);
 
-    let request = if supports_query_builder_proxy(&provider) {
-        let credentials = ProviderCredentials {
-            provider: provider.clone(),
-            base_url,
-            api_key: Some(api_key.clone()),
-            access_token: None,
-            organization_id: None,
-            user: None,
-            region: None,
-            aws_access_key_id: None,
-            aws_secret_access_key: None,
-            aws_session_token: None,
-            platform: AIPlatform::Standard,
-            enable_1m_context: false,
-            custom_headers: HashMap::new(),
-        };
-        let query_builder = create_query_builder(&credentials);
-        let proxy_request = query_builder.build_proxy_request(&ProxyBuildArgs {
+    if matches!(proxy_mode, ProxyExecutionMode::NativeAwsBedrock) {
+        return Err(Error::BadRequest(
+            "AWS Bedrock global proxy is not supported; use a workspace AI resource with a region"
+                .to_string(),
+        ));
+    }
+
+    let base_url = provider.get_base_url(None, &db).await?;
+    let credentials = ProviderCredentials {
+        provider: provider.clone(),
+        base_url,
+        api_key: Some(api_key.clone()),
+        access_token: None,
+        organization_id: None,
+        user: None,
+        region: None,
+        aws_access_key_id: None,
+        aws_secret_access_key: None,
+        aws_session_token: None,
+        platform: AIPlatform::Standard,
+        enable_1m_context: false,
+        custom_headers: HashMap::new(),
+    };
+
+    if matches!(proxy_mode, ProxyExecutionMode::NativeGoogleAi) {
+        let proxy_args = ProxyBuildArgs {
             method: &method,
             path: &ai_path,
             headers: &headers,
             body: &body,
             credentials: &credentials,
-        })?;
-        proxy_request_to_request_builder(proxy_request)
-    } else {
-        let url = format!("{}/{}", base_url, ai_path);
-        let mut request = HTTP_CLIENT
-            .request(method, url)
-            .header("content-type", "application/json")
-            .header("Authorization", format!("Bearer {}", &api_key));
+        };
 
-        // Apply custom headers from AI_HTTP_HEADERS environment variable
-        for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
-            request = request.header(header_name.as_str(), header_value.as_str());
+        audit_global_ai_request(&db, &authed).await?;
+
+        let response = match ai_path.as_str() {
+            "chat/completions" => handle_google_ai_chat_proxy(&HTTP_CLIENT, &proxy_args).await,
+            "models" => handle_google_ai_models_proxy(&HTTP_CLIENT, &proxy_args).await,
+            _ => Err(Error::BadRequest(format!(
+                "Unsupported Google AI path: {}",
+                ai_path
+            ))),
+        }?;
+
+        return Ok(google_ai_proxy_response_to_body(response));
+    }
+
+    let request = match proxy_mode {
+        ProxyExecutionMode::HttpForward => {
+            let query_builder = create_query_builder(&credentials);
+            let proxy_request = query_builder.build_proxy_request(&ProxyBuildArgs {
+                method: &method,
+                path: &ai_path,
+                headers: &headers,
+                body: &body,
+                credentials: &credentials,
+            })?;
+            proxy_request_to_request_builder(proxy_request)
         }
-
-        request.body(body)
+        ProxyExecutionMode::NativeGoogleAi | ProxyExecutionMode::NativeAwsBedrock => {
+            return Err(Error::BadRequest(format!(
+                "Unsupported global proxy mode for provider {:?}",
+                provider
+            )))
+        }
     };
 
     let response = request.send().await.map_err(to_anyhow)?;
 
-    let mut tx = db.begin().await?;
-
-    audit_log(
-        &mut *tx,
-        &authed,
-        "ai.global_request",
-        ActionKind::Execute,
-        "global",
-        Some(&authed.email),
-        None,
-    )
-    .await?;
-    tx.commit().await?;
+    audit_global_ai_request(&db, &authed).await?;
 
     if response.error_for_status_ref().is_err() {
         let err_msg = response.text().await.unwrap_or("".to_string());
@@ -641,7 +627,7 @@ async fn proxy(
         check_scopes(&authed, || format!("resources:read:{}", resource_path))?;
     }
 
-    let credentials = match workspace_cache {
+    let mut credentials = match workspace_cache {
         Some(request_cache) if !request_cache.is_expired() && forced_resource_path.is_none() => {
             request_cache.credentials
         }
@@ -772,17 +758,25 @@ async fn proxy(
         }
     };
 
-    // Check if this is a FIM request to a provider that doesn't support native FIM endpoint
-    // For such providers, transform to use FIM sentinel tokens with the chat/completions endpoint
-    let is_fim_request = ai_path.contains("fim/completions");
-    if is_fim_request && !supports_native_fim(&provider) {
-        tracing::debug!(
-            "Transforming FIM request to chat/completions with FIM tokens for provider {:?}",
-            provider
-        );
-        let (chat_body, chat_path) = transform_fim_to_chat_completions(&body)?;
-        body = chat_body;
-        ai_path = chat_path;
+    if let Some(fim_transform) =
+        maybe_transform_fim_request(&provider, &ai_path, &credentials.base_url, &body)?
+    {
+        if fim_transform.base_url.is_some() {
+            tracing::debug!(
+                "Routing native FIM request through provider-specific endpoint for {:?}",
+                provider
+            );
+        } else {
+            tracing::debug!(
+                "Transforming FIM request to chat/completions with FIM tokens for provider {:?}",
+                provider
+            );
+        }
+        if let Some(base_url) = fim_transform.base_url {
+            credentials.base_url = base_url;
+        }
+        body = fim_transform.body;
+        ai_path = fim_transform.path;
     }
 
     let proxy_mode = proxy_execution_mode(&provider);
