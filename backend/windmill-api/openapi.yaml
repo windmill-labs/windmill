@@ -7832,10 +7832,10 @@ paths:
                         type: string
                         enum: [script, flow, app]
                       value: {}
+                      force:
+                        type: boolean
+                        description: Skip the conflict check for this entry and overwrite the server copy.
                     required: [path, typ, value]
-                force:
-                  type: boolean
-                  description: Skip the conflict check and overwrite the server copy.
               required: [drafts]
       responses:
         "200":

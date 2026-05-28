@@ -37,6 +37,12 @@ export type PendingDraft<V = unknown> = {
 	itemKind: SyncableItemKind
 	path: string
 	value: V
+	/**
+	 * Skip the conflict check for this single entry and overwrite the
+	 * server copy. Used by the conflict-resolution modal's "Overwrite
+	 * server draft" action; routine autosaves leave this `false`.
+	 */
+	force?: boolean
 }
 
 export type MissedDraftCallback = (drafts: MissedDraft[]) => void
@@ -46,7 +52,6 @@ export type SyncOptions<V = unknown> = {
 	workspace: string
 	user: string
 	drafts: PendingDraft<V>[]
-	force?: boolean
 	onMissedDrafts?: MissedDraftCallback
 	onDraftsRejected?: RejectedDraftsCallback
 }
@@ -128,17 +133,16 @@ async function flushQueue(): Promise<void> {
 async function runSync(workspace: string, group: QueuedEntry[]): Promise<void> {
 	const onMissedDrafts = group.find((e) => e.onMissedDrafts)?.onMissedDrafts
 	const onDraftsRejected = group.find((e) => e.onDraftsRejected)?.onDraftsRejected
-	const force = group.some((e) => e.force)
-	const drafts: PendingDraft[] = group.map(({ itemKind, path, value }) => ({
+	const drafts: PendingDraft[] = group.map(({ itemKind, path, value, force }) => ({
 		itemKind,
 		path,
-		value
+		value,
+		force
 	}))
 	await syncDrafts({
 		workspace,
 		user: group[0].user,
 		drafts,
-		force,
 		onMissedDrafts,
 		onDraftsRejected
 	})
@@ -153,14 +157,14 @@ export async function syncDrafts<V = unknown>(opts: SyncOptions<V>): Promise<voi
 	const payloadDrafts = opts.drafts.map((d) => ({
 		path: d.path,
 		typ: d.itemKind,
-		value: d.value as any
+		value: d.value as any,
+		force: d.force ?? false
 	}))
 	const result = await DraftService.syncDrafts({
 		workspace: opts.workspace,
 		requestBody: {
 			last_sync: lastSync,
-			drafts: payloadDrafts,
-			force: opts.force ?? false
+			drafts: payloadDrafts
 		}
 	})
 	bumpLastSync(result.current_timestamp as unknown as string)
@@ -204,7 +208,7 @@ export const UserDraftDbSyncer = {
 				itemKind: d.itemKind,
 				path: d.path,
 				value: d.value,
-				force: opts.force ?? false,
+				force: d.force ?? false,
 				onMissedDrafts: opts.onMissedDrafts,
 				onDraftsRejected: opts.onDraftsRejected
 			})

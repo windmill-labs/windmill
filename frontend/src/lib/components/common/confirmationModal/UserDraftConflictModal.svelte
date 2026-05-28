@@ -32,10 +32,10 @@
 					{
 						itemKind: conflict.itemKind,
 						path: conflict.rejected.path,
-						value: conflict.rejected.incoming_value
+						value: conflict.rejected.incoming_value,
+						force: true
 					}
-				],
-				force: true
+				]
 			})
 			UserDraftConflictStore.dismiss()
 		} catch (e) {

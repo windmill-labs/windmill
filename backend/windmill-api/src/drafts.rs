@@ -37,6 +37,11 @@ pub struct IncomingDraft {
     pub path: String,
     pub typ: DraftType,
     pub value: sqlx::types::Json<Box<serde_json::value::RawValue>>,
+    /// When true, skip the conflict check for this entry and overwrite the
+    /// server copy. Only the matching entry is forced — other entries in
+    /// the same batch still run through the normal conflict check.
+    #[serde(default)]
+    pub force: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -47,9 +52,6 @@ pub struct SyncDraftsRequest {
     /// push a draft whose server copy moved forward (`status: rejected`).
     pub last_sync: Option<chrono::DateTime<chrono::Utc>>,
     pub drafts: Vec<IncomingDraft>,
-    /// When true, skip the conflict check and always overwrite the server copy.
-    #[serde(default)]
-    pub force: bool,
 }
 
 #[derive(Serialize, Debug)]
@@ -131,7 +133,7 @@ async fn sync_drafts(
     let mut statuses = Vec::with_capacity(req.drafts.len());
 
     for incoming in &req.drafts {
-        if !req.force {
+        if !incoming.force {
             if let Some(last_sync) = req.last_sync {
                 let conflict = sqlx::query!(
                     r#"SELECT value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>", created_at
