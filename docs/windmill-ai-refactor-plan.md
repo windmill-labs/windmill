@@ -68,7 +68,7 @@ Validation:
 
 Follow-up status: Anthropic/Vertex proxy handling has since moved into
 `windmill-ai`, and the dead `AIRequestConfig::prepare_request` fallback has
-been removed.
+been removed. FIM normalization has also moved into `windmill-ai`.
 
 ## Completed Phase: Proxy Execution Mode + Google AI Proxy Migration ✅
 
@@ -146,16 +146,6 @@ visible for later hardening work.
   path intentionally does not apply `AI_HTTP_HEADERS` or resource-level custom
   headers today. Decide whether and how env/resource custom-header injection
   should apply to Google AI once the proxy behavior is unified further.
-- **Bedrock SSE tool-call indexing**: Bedrock streaming currently increments
-  the OpenAI tool-call index on every Bedrock `ContentBlockStop`, including text
-  content blocks. This behavior existed before the move from `windmill-api` to
-  `windmill-ai`, but a later cleanup should advance the index only when the
-  stopped block was a tool-use block.
-- **Bedrock SSE keepalives**: Bedrock native SSE streams are still returned
-  directly without the API proxy keepalive injection used by other SSE paths.
-  This also preserves the pre-move behavior. A later cleanup can generalize the
-  keepalive wrapper so it works for both `reqwest::Error` streams and Bedrock's
-  SDK-backed `std::io::Error` streams.
 
 ## Completed Phase: Credential Unification Phase 1 ✅
 
@@ -375,7 +365,7 @@ pub struct ProxyRequest {
 
 ---
 
-### Step 9: Unify credential resolution
+### Step 9: Unify credential resolution ✅
 
 Make `ProviderCredentials` the single resolved runtime credential shape in
 windmill-ai, while keeping raw API and worker input/deserialization types at
@@ -420,8 +410,9 @@ windmill-ai/src/
 ├── ai_google.rs        # Gemini types and conversions
 ├── ai_bedrock.rs       # Bedrock SDK wrapper (feature: bedrock)
 ├── ai_cache.rs         # Instance AI config revision
+├── credentials.rs      # ProviderCredentials resolved runtime credential shape
 ├── types.rs            # TokenUsage, Tool, OpenAPISchema, etc.
-├── proxy.rs            # ProviderCredentials, ProxyBuildArgs, ProxyRequest
+├── proxy.rs            # ProxyBuildArgs, ProxyRequest, execution mode, FIM normalization
 ├── query_builder.rs    # QueryBuilder trait, BuildRequestArgs, ParsedResponse, StreamEventSink
 ├── sse.rs              # SSE parsers (OpenAI, Anthropic, Gemini, Responses)
 ├── image_handler.rs    # S3 image upload/download
