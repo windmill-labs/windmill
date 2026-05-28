@@ -258,7 +258,9 @@ lazy_static::lazy_static! {
     /// admission converges to the target *worker-second* share — independent
     /// of how the capped vs uncapped workspaces compare on per-job durations.
     /// See `workspace_fairness_ee::refresh_overloaded` for the derivation.
-    /// `10_000` is the count-based default before the first refresh fires.
+    /// `10_000` (= admit all) is the default until the first refresh
+    /// classifies an overloaded set — before that, no workspace is capped so
+    /// `should_admit_capped` is moot and "admit all" is the correct no-op.
     pub static ref WORKSPACE_FAIRNESS_ADMISSION_PPM: AtomicU32 = AtomicU32::new(10_000);
 
 
