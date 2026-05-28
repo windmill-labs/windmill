@@ -1,5 +1,6 @@
 ALTER TABLE draft DROP COLUMN id;
 
+DROP INDEX IF EXISTS draft_user_sync_idx;
 DROP INDEX IF EXISTS draft_pkey_legacy;
 DROP INDEX IF EXISTS draft_pkey_with_user;
 
