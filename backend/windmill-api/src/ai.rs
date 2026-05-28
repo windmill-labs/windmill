@@ -108,6 +108,13 @@ lazy_static::lazy_static! {
         .timeout(std::time::Duration::from_secs(*AI_TIMEOUT_SECS))
         .pool_max_idle_per_host(HTTP_POOL_MAX_IDLE_PER_HOST)
         .pool_idle_timeout(Some(std::time::Duration::from_secs(HTTP_POOL_IDLE_TIMEOUT_SECS)))
+        // The SSRF check in `get_base_url` only validates the configured `base_url`.
+        // reqwest follows up to 10 redirects by default and does not revalidate the
+        // hops, so a public base_url could 3xx the server into a private/internal
+        // address. Disable redirect following so the validated host is the only one
+        // we ever connect to. AI APIs respond directly and do not rely on redirects,
+        // so this holds even for ALLOW_PRIVATE_AI_BASE_URLS deployments.
+        .redirect(reqwest::redirect::Policy::none())
         .user_agent("windmill/beta"))
         .build()
         .expect("Failed to build AI HTTP client - check system TLS configuration");
