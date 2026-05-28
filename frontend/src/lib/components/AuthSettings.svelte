@@ -26,6 +26,7 @@
 	import { tick } from 'svelte'
 	import { Popover } from './meltComponents'
 	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
+	import oauthConnectRegistry from '$oauth_connect_registry'
 
 	interface Props {
 		snowflakeAccountIdentifier?: string
@@ -85,11 +86,15 @@
 		'apify',
 		'docusign'
 	]
-	// Providers whose registry entry (`backend/oauth_connect.json`) has a
+	// Providers whose registry entry (`backend/oauth_connect.json`) carries a
 	// `sandbox` URL block. Each one gets a sibling `<name>_sandbox` dropdown
 	// entry and is treated as a builtin so we don't render the custom-URL form
-	// — the URLs come from the registry sandbox block.
-	const windmillBuiltinsWithSandbox = ['docusign']
+	// — the URLs come from the registry sandbox block. Derived at build time
+	// from the registry so adding a sandbox to a provider needs no frontend
+	// change.
+	const windmillBuiltinsWithSandbox = Object.entries(oauthConnectRegistry)
+		.filter(([, cfg]) => cfg && typeof cfg === 'object' && 'sandbox' in cfg)
+		.map(([name]) => name)
 	const windmillBuiltins = [
 		...windmillBuiltinsBase,
 		...windmillBuiltinsWithSandbox.map((n) => `${n}_sandbox`)
