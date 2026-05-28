@@ -30,9 +30,9 @@ export async function autocompleteRequest(
 		throw new Error('No code completion model selected')
 	}
 
-	// Only add context lines for Mistral (native FIM) - other providers use chat completion
+	// Only add context lines for native FIM providers - other providers use chat completion
 	// too much context degrades significantly the quality of the completion
-	if (providerModel.provider === 'mistral') {
+	if (providerModel.provider === 'mistral' || providerModel.provider === 'deepseek') {
 		let commentSymbol = getCommentSymbol(context.scriptLang)
 		let contextLines = comment(
 			commentSymbol,

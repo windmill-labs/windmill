@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use windmill_ai::ai_cache::current_instance_ai_config_revision;
 use windmill_ai::ai_providers::{
-    empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel,
+    empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel, DEEPSEEK_BASE_URL,
 };
 #[cfg(feature = "bedrock")]
 use windmill_ai::providers::bedrock::{
@@ -382,7 +382,29 @@ struct FimRequest {
 
 /// Checks if the AI provider supports native FIM (Fill-in-the-Middle) endpoint
 fn supports_native_fim(provider: &AIProvider) -> bool {
-    matches!(provider, AIProvider::Mistral)
+    matches!(provider, AIProvider::Mistral | AIProvider::DeepSeek)
+}
+
+fn deepseek_fim_base_url(base_url: &str) -> String {
+    let trimmed = base_url.trim_end_matches('/');
+    let deepseek_root_base_url = DEEPSEEK_BASE_URL
+        .strip_suffix("/v1")
+        .unwrap_or(DEEPSEEK_BASE_URL);
+
+    if trimmed == DEEPSEEK_BASE_URL || trimmed == deepseek_root_base_url {
+        return format!("{deepseek_root_base_url}/beta");
+    }
+
+    if let Some(prefix) = trimmed.strip_suffix("/v1") {
+        return format!("{prefix}/beta");
+    }
+
+    trimmed.to_string()
+}
+
+fn prepare_deepseek_fim_request(credentials: &mut ProviderCredentials, ai_path: &mut String) {
+    credentials.base_url = deepseek_fim_base_url(&credentials.base_url);
+    *ai_path = "completions".to_string();
 }
 
 /// Transforms a FIM request to chat/completions format for providers that don't support native FIM.
@@ -641,7 +663,7 @@ async fn proxy(
         check_scopes(&authed, || format!("resources:read:{}", resource_path))?;
     }
 
-    let credentials = match workspace_cache {
+    let mut credentials = match workspace_cache {
         Some(request_cache) if !request_cache.is_expired() && forced_resource_path.is_none() => {
             request_cache.credentials
         }
@@ -772,17 +794,22 @@ async fn proxy(
         }
     };
 
-    // Check if this is a FIM request to a provider that doesn't support native FIM endpoint
-    // For such providers, transform to use FIM sentinel tokens with the chat/completions endpoint
+    // Check if this is a FIM request to a provider that doesn't support native FIM endpoint.
+    // For such providers, transform to use FIM sentinel tokens with the chat/completions endpoint.
     let is_fim_request = ai_path.contains("fim/completions");
-    if is_fim_request && !supports_native_fim(&provider) {
-        tracing::debug!(
-            "Transforming FIM request to chat/completions with FIM tokens for provider {:?}",
-            provider
-        );
-        let (chat_body, chat_path) = transform_fim_to_chat_completions(&body)?;
-        body = chat_body;
-        ai_path = chat_path;
+    if is_fim_request {
+        if matches!(provider, AIProvider::DeepSeek) {
+            tracing::debug!("Routing DeepSeek FIM request to beta completions endpoint");
+            prepare_deepseek_fim_request(&mut credentials, &mut ai_path);
+        } else if !supports_native_fim(&provider) {
+            tracing::debug!(
+                "Transforming FIM request to chat/completions with FIM tokens for provider {:?}",
+                provider
+            );
+            let (chat_body, chat_path) = transform_fim_to_chat_completions(&body)?;
+            body = chat_body;
+            ai_path = chat_path;
+        }
     }
 
     let proxy_mode = proxy_execution_mode(&provider);
@@ -942,6 +969,49 @@ mod tests {
             enable_1m_context: false,
             custom_headers: HashMap::new(),
         }
+    }
+
+    #[test]
+    fn native_fim_support_includes_deepseek() {
+        assert!(supports_native_fim(&AIProvider::Mistral));
+        assert!(supports_native_fim(&AIProvider::DeepSeek));
+        assert!(!supports_native_fim(&AIProvider::OpenAI));
+    }
+
+    #[test]
+    fn deepseek_fim_base_url_uses_beta_endpoint() {
+        assert_eq!(
+            deepseek_fim_base_url("https://api.deepseek.com/v1"),
+            "https://api.deepseek.com/beta"
+        );
+        assert_eq!(
+            deepseek_fim_base_url("https://api.deepseek.com/v1/"),
+            "https://api.deepseek.com/beta"
+        );
+        assert_eq!(
+            deepseek_fim_base_url("https://api.deepseek.com"),
+            "https://api.deepseek.com/beta"
+        );
+        assert_eq!(
+            deepseek_fim_base_url("https://proxy.example/deepseek/v1"),
+            "https://proxy.example/deepseek/beta"
+        );
+        assert_eq!(
+            deepseek_fim_base_url("https://proxy.example/deepseek/beta"),
+            "https://proxy.example/deepseek/beta"
+        );
+    }
+
+    #[test]
+    fn prepare_deepseek_fim_request_sets_beta_completions_path() {
+        let mut credentials = sample_provider_credentials();
+        credentials.base_url = DEEPSEEK_BASE_URL.to_string();
+        let mut ai_path = "fim/completions".to_string();
+
+        prepare_deepseek_fim_request(&mut credentials, &mut ai_path);
+
+        assert_eq!(credentials.base_url, "https://api.deepseek.com/beta");
+        assert_eq!(ai_path, "completions");
     }
 
     #[test]
