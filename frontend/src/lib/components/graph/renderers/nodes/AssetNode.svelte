@@ -63,7 +63,7 @@
 					type: 'asset' as const,
 					parentId: node.id,
 					data: { asset, displayedAccessType: 'r' },
-					id: `${node.id}-asset-in-${asset.kind}-${asset.path}`,
+					id: `${node.id}-asset-in-${asset.kind}-${asset.path}-${i}`,
 					width: inputAssetWidth,
 					position: {
 						x:
@@ -100,7 +100,7 @@
 					type: 'asset' as const,
 					parentId: node.id,
 					data: { asset, displayedAccessType: 'w' },
-					id: `${node.id}-asset-out-${asset.kind}-${asset.path}`,
+					id: `${node.id}-asset-out-${asset.kind}-${asset.path}-${i}`,
 					width: outputAssetWidth,
 					position: {
 						x:
@@ -136,7 +136,7 @@
 			allAssetNodes.push(...(inputAssetNodes ?? []), ...(outputAssetNodes ?? []))
 
 			// If there are more than 3 assets, we create an overflow node
-			if (overflowedInputAssets.length)
+			if (overflowedInputAssets.length) {
 				allAssetNodes.push({
 					type: 'assetsOverflowed',
 					data: { overflowedAssets: overflowedInputAssets, displayedAccessType: 'r' },
@@ -148,14 +148,15 @@
 						y: READ_ASSET_Y_OFFSET
 					}
 				} satisfies Node & AssetsOverflowedN)
-			allAssetEdges.push({
-				id: `${node.id}-assets-overflowed-in-edge`,
-				source: `${node.id}-assets-overflowed-in`,
-				target: node.id,
-				type: 'empty',
-				data: { class: '!opacity-35 dark:!opacity-20' }
-			})
-			if (overflowedOutputAssets.length)
+				allAssetEdges.push({
+					id: `${node.id}-assets-overflowed-in-edge`,
+					source: `${node.id}-assets-overflowed-in`,
+					target: node.id,
+					type: 'empty',
+					data: { class: '!opacity-35 dark:!opacity-20' }
+				})
+			}
+			if (overflowedOutputAssets.length) {
 				allAssetNodes.push({
 					type: 'assetsOverflowed',
 					data: { overflowedAssets: overflowedOutputAssets, displayedAccessType: 'w' },
@@ -167,13 +168,14 @@
 						y: WRITE_ASSET_Y_OFFSET
 					}
 				} satisfies Node & AssetsOverflowedN)
-			allAssetEdges.push({
-				id: `${node.id}-assets-overflowed-out-edge`,
-				source: node.id,
-				target: `${node.id}-assets-overflowed-out`,
-				type: 'empty',
-				data: { class: '!opacity-35 dark:!opacity-25' }
-			})
+				allAssetEdges.push({
+					id: `${node.id}-assets-overflowed-out-edge`,
+					source: node.id,
+					target: `${node.id}-assets-overflowed-out`,
+					type: 'empty',
+					data: { class: '!opacity-35 dark:!opacity-25' }
+				})
+			}
 		}
 
 		let ret: ReturnType<typeof computeAssetNodes> = {
@@ -274,8 +276,8 @@
 					<Tooltip class={'pr-1 flex items-center justify-center'}>
 						<AlertTriangle size={16} class="text-orange-500" />
 						{#snippet text()}
-												Could not find resource
-											{/snippet}
+							Could not find resource
+						{/snippet}
 					</Tooltip>
 				{:else if isSelected && assetCanBeExplored(data.asset, cachedResourceMetadata) && !$userStore?.operator}
 					<div transition:slide={{ axis: 'x', duration: 100 }}>
@@ -291,29 +293,27 @@
 				{/if}
 			</div>
 			{#snippet text()}
-					
-					{#if usageCount !== undefined}
-						Used in {pluralize(usageCount, 'step')}<br />
-					{/if}
-					<a
-						href={undefined}
-						class={twMerge(
-							'text-xs',
-							data.asset.kind === 'resource' ? 'text-accent cursor-pointer' : 'text-hint'
-						)}
-						onclick={() => {
-							if (data.asset.kind === 'resource')
-								flowGraphAssetsCtx?.val.resourceEditorDrawer?.initEdit(data.asset.path)
-						}}
-					>
-						{data.asset.path}
-					</a><br />
-					<span class="text-hint text-xs">
-						{formatAssetKind({ ...data.asset, metadata: cachedResourceMetadata })}</span
-					>
-					<AssetColumnBadges columns={assetColumns} disableTooltip />
-				
-					{/snippet}
+				{#if usageCount !== undefined}
+					Used in {pluralize(usageCount, 'step')}<br />
+				{/if}
+				<a
+					href={undefined}
+					class={twMerge(
+						'text-xs',
+						data.asset.kind === 'resource' ? 'text-accent cursor-pointer' : 'text-hint'
+					)}
+					onclick={() => {
+						if (data.asset.kind === 'resource')
+							flowGraphAssetsCtx?.val.resourceEditorDrawer?.initEdit(data.asset.path)
+					}}
+				>
+					{data.asset.path}
+				</a><br />
+				<span class="text-hint text-xs">
+					{formatAssetKind({ ...data.asset, metadata: cachedResourceMetadata })}</span
+				>
+				<AssetColumnBadges columns={assetColumns} disableTooltip />
+			{/snippet}
 		</Tooltip>
 	{/snippet}
 </NodeWrapper>
