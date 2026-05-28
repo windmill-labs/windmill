@@ -296,10 +296,17 @@
 	}
 
 	function isSaveDisabled(): boolean {
+		const hasInvalidDefaultModel =
+			defaultModelKey != undefined &&
+			(defaultModelKey.length === 0 || !modelProviderMap[defaultModelKey])
+		const hasInvalidCodeCompletionModel =
+			codeCompletionModelKey != undefined &&
+			(codeCompletionModelKey.length === 0 || !modelProviderMap[codeCompletionModelKey])
+
 		return (
 			!Object.values(aiProviders).every((p) => p.resource_path) ||
-			(codeCompletionModelKey != undefined && codeCompletionModelKey.length === 0) ||
-			(Object.keys(aiProviders).length > 0 && !defaultModelKey)
+			hasInvalidCodeCompletionModel ||
+			(Object.keys(aiProviders).length > 0 && (!defaultModelKey || hasInvalidDefaultModel))
 		)
 	}
 
