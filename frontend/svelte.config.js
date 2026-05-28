@@ -28,7 +28,8 @@ const config = {
 			base: process.env.VITE_BASE_URL ?? ''
 		},
 		alias: {
-			'$system_prompts': '../system_prompts/auto-generated'
+			$system_prompts: '../system_prompts/auto-generated',
+			$oauth_connect_registry: '../backend/oauth_connect.json'
 		}
 	},
 
