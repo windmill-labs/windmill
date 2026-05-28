@@ -789,4 +789,103 @@ mod tests {
         let verifier = SlackVerifier::new("test_secret").unwrap();
         assert!(verifier.verify("123", "body", "wrong_sig").is_err());
     }
+
+    #[test]
+    fn canonical_provider_name_strips_sandbox_suffix() {
+        assert_eq!(canonical_provider_name("docusign_sandbox"), "docusign");
+        assert_eq!(canonical_provider_name("docusign"), "docusign");
+        assert_eq!(canonical_provider_name(""), "");
+        // Only strips the suffix once; trailing suffix on already-canonical name.
+        assert_eq!(
+            canonical_provider_name("foo_sandbox_sandbox"),
+            "foo_sandbox"
+        );
+    }
+
+    fn sample_oauth_config(with_sandbox: bool) -> OAuthConfig {
+        OAuthConfig {
+            auth_url: "https://account.example.com/oauth/auth".to_string(),
+            token_url: "https://account.example.com/oauth/token".to_string(),
+            userinfo_url: Some("https://account.example.com/userinfo".to_string()),
+            scopes: Some(vec!["signature".to_string()]),
+            extra_params: None,
+            extra_params_callback: None,
+            req_body_auth: None,
+            grant_types: default_grant_types(),
+            sandbox: with_sandbox.then(|| OAuthSandboxOverride {
+                auth_url: Some("https://account-d.example.com/oauth/auth".to_string()),
+                token_url: Some("https://account-d.example.com/oauth/token".to_string()),
+                userinfo_url: None,
+            }),
+        }
+    }
+
+    #[test]
+    fn as_sandbox_returns_none_when_no_override() {
+        assert!(sample_oauth_config(false).as_sandbox().is_none());
+    }
+
+    #[test]
+    fn as_sandbox_overlays_urls_and_inherits_rest() {
+        let resolved = sample_oauth_config(true).as_sandbox().unwrap();
+        // URLs overridden by sandbox block
+        assert_eq!(
+            resolved.auth_url,
+            "https://account-d.example.com/oauth/auth"
+        );
+        assert_eq!(
+            resolved.token_url,
+            "https://account-d.example.com/oauth/token"
+        );
+        // userinfo_url not in override → inherits from parent
+        assert_eq!(
+            resolved.userinfo_url,
+            Some("https://account.example.com/userinfo".to_string())
+        );
+        // Scopes/grant_types inherited from parent
+        assert_eq!(resolved.scopes, Some(vec!["signature".to_string()]));
+        assert_eq!(resolved.grant_types, default_grant_types());
+        // Nested sandbox field cleared on the resolved config
+        assert!(resolved.sandbox.is_none());
+    }
+
+    #[test]
+    fn resolve_registry_config_direct_lookup() {
+        let mut registry = HashMap::new();
+        registry.insert("docusign".to_string(), sample_oauth_config(true));
+
+        let resolved = resolve_registry_config(&registry, "docusign").unwrap();
+        assert_eq!(resolved.auth_url, "https://account.example.com/oauth/auth");
+        // Direct lookup returns the entry as-is (sandbox block still attached).
+        assert!(resolved.sandbox.is_some());
+    }
+
+    #[test]
+    fn resolve_registry_config_sandbox_fallback() {
+        let mut registry = HashMap::new();
+        registry.insert("docusign".to_string(), sample_oauth_config(true));
+
+        let resolved = resolve_registry_config(&registry, "docusign_sandbox").unwrap();
+        // Sandbox-suffixed lookup resolves to parent's sandbox-overlaid config.
+        assert_eq!(
+            resolved.auth_url,
+            "https://account-d.example.com/oauth/auth"
+        );
+        assert!(resolved.sandbox.is_none());
+    }
+
+    #[test]
+    fn resolve_registry_config_missing_returns_none() {
+        let registry: HashMap<String, OAuthConfig> = HashMap::new();
+        assert!(resolve_registry_config(&registry, "docusign").is_none());
+        assert!(resolve_registry_config(&registry, "docusign_sandbox").is_none());
+    }
+
+    #[test]
+    fn resolve_registry_config_sandbox_without_block_returns_none() {
+        let mut registry = HashMap::new();
+        // Parent exists but has no sandbox override.
+        registry.insert("docusign".to_string(), sample_oauth_config(false));
+        assert!(resolve_registry_config(&registry, "docusign_sandbox").is_none());
+    }
 }
