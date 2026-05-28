@@ -235,6 +235,138 @@ where
     Ok(())
 }
 
+/// Returns the caller's "real" scope restrictions: every scope other than
+/// `if_jobs:filter_tags:` tag filters. `None` means the token is unscoped and
+/// has the full privileges of its user; `Some` means it is restricted to the
+/// returned scopes. An empty or filter-tags-only scope list is treated as
+/// unscoped, mirroring `check_scopes`/`check_route_access`.
+fn scope_restrictions(scopes: Option<&[String]>) -> Option<Vec<&String>> {
+    let restrictions: Vec<&String> = scopes?
+        .iter()
+        .filter(|s| !s.starts_with("if_jobs:filter_tags:"))
+        .collect();
+    (!restrictions.is_empty()).then_some(restrictions)
+}
+
+/// Enforce monotonic privilege when a token lifecycle endpoint mints or rescopes
+/// a credential on behalf of `authed`: the resulting credential must never be
+/// more privileged than the caller's own token.
+///
+/// - An unscoped caller may grant any scopes (this is the existing UI/CLI flow).
+/// - A scope-restricted caller may only grant scopes that are a subset of its
+///   own, and may never produce an unscoped credential.
+///
+/// Without this, a `users:write` token could create or rescope a token to be
+/// unscoped, and a `users:read` token could refresh into an unscoped session —
+/// escaping its own restrictions.
+pub fn ensure_scopes_within_caller(
+    authed: &ApiAuthed,
+    requested_scopes: Option<&[String]>,
+) -> error::Result<()> {
+    let Some(caller_restrictions) = scope_restrictions(authed.scopes.as_deref()) else {
+        return Ok(());
+    };
+
+    let Some(requested_restrictions) = scope_restrictions(requested_scopes) else {
+        return Err(Error::PermissionDenied(
+            "A scope-restricted token cannot create or update a token with broader (unscoped) \
+             privileges"
+                .to_string(),
+        ));
+    };
+
+    let parsed_caller: Vec<ScopeDefinition> = caller_restrictions
+        .iter()
+        .filter_map(|s| ScopeDefinition::from_scope_string(s).ok())
+        .collect();
+
+    for requested in requested_restrictions {
+        let requested_scope = ScopeDefinition::from_scope_string(requested)?;
+        let covered = parsed_caller
+            .iter()
+            .any(|caller_scope| scope_contains(caller_scope, &requested_scope));
+        if !covered {
+            return Err(Error::PermissionDenied(format!(
+                "A scope-restricted token cannot grant scope '{requested}' which exceeds its own \
+                 scopes"
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+/// Whether `caller` grants at least everything `requested` grants (directional
+/// containment).
+///
+/// This is intentionally NOT `ScopeDefinition::includes`: that method answers
+/// "does this scope grant access to a required action" using OR semantics over
+/// resources (any overlap counts, and a `*` on either side matches), which is
+/// correct for access checks but unsafe for subset checks — it would let a
+/// token scoped to `scripts:read:f/team/a` mint `scripts:read:*` or
+/// `scripts:read:f/team/a,f/other/b`. Subset containment instead requires that
+/// EVERY requested resource is covered by SOME caller resource.
+fn scope_contains(caller: &ScopeDefinition, requested: &ScopeDefinition) -> bool {
+    if caller.domain != requested.domain {
+        return false;
+    }
+
+    // write subsumes read; otherwise the action must match exactly.
+    match (caller.action.as_str(), requested.action.as_str()) {
+        (c, r) if c == r || (c == "write" && r == "read") => {}
+        _ => return false,
+    }
+
+    if caller.domain == "jobs" && caller.action == "run" {
+        match (&caller.kind, &requested.kind) {
+            (Some(caller_kind), Some(requested_kind)) if caller_kind != requested_kind => {
+                return false
+            }
+            // Caller pinned to a kind, but the request covers any kind.
+            (Some(_), None) => return false,
+            _ => {}
+        }
+    }
+
+    match (&caller.resource, &requested.resource) {
+        // Caller is unrestricted on resources: covers everything.
+        (None, _) => true,
+        // Caller is resource-restricted but the request is not: broader.
+        (Some(_), None) => false,
+        (Some(caller_resources), Some(requested_resources)) => {
+            resource_set_contains(caller_resources, requested_resources)
+        }
+    }
+}
+
+/// Every resource in `requested` must be covered by some resource in `caller`.
+fn resource_set_contains(caller: &[String], requested: &[String]) -> bool {
+    if caller.iter().any(|r| r == "*") {
+        return true;
+    }
+    requested
+        .iter()
+        .all(|req| req != "*" && caller.iter().any(|c| resource_covers(c, req)))
+}
+
+/// Directional: does the single caller resource pattern cover `requested`?
+/// `caller` may be an exact path or a `<prefix>/*` subtree wildcard; `requested`
+/// may itself be a subtree wildcard, in which case the whole requested subtree
+/// must fall within the caller's subtree.
+fn resource_covers(caller: &str, requested: &str) -> bool {
+    if caller == requested {
+        return true;
+    }
+    let Some(prefix) = caller.strip_suffix("/*") else {
+        // An exact caller resource only covers itself (handled above).
+        return false;
+    };
+    let requested_base = requested.strip_suffix("/*").unwrap_or(requested);
+    requested_base == prefix
+        || (requested_base.starts_with(prefix)
+            && requested_base.as_bytes().get(prefix.len()) == Some(&b'/'))
+}
+
 /// Returns a predicate that checks whether `path` is within the token's
 /// scope for `{domain}:{action}:{path}`. For tokens without scope
 /// restrictions (no scopes at all, or only `if_jobs:filter_tags:*` scopes),
@@ -574,6 +706,13 @@ impl NewToken {
     }
 }
 
+/// Low-level token mint shared by trusted callers (the user-facing
+/// `tokens/create` handler and internal mints such as native-trigger webhook
+/// tokens). It does NOT enforce that `token_config.scopes` is within the
+/// caller's own scopes — callers exposed to untrusted input must call
+/// [`ensure_scopes_within_caller`] first (internal narrowing mints intentionally
+/// skip it, since their scopes derive from the action being authorized, not the
+/// caller's token).
 pub async fn create_token_internal(
     tx: &mut sqlx::PgConnection,
     db: &DB,
@@ -907,5 +1046,169 @@ mod tests {
         let allowed = build_scope_path_predicate(&authed, "resources", "read");
         assert!(allowed("u/alice/foo"));
         assert!(!allowed("u/alice/bar"));
+    }
+
+    fn opt_scopes(scopes: Option<Vec<&str>>) -> Option<Vec<String>> {
+        scopes.map(|v| v.into_iter().map(String::from).collect())
+    }
+
+    // Regression tests for WIN-1999: scoped user tokens must not be able to
+    // mint or rescope credentials with broader privileges than themselves.
+
+    #[test]
+    fn unscoped_caller_can_grant_anything() {
+        let authed = authed_with_scopes(None);
+        assert!(ensure_scopes_within_caller(&authed, None).is_ok());
+        assert!(ensure_scopes_within_caller(
+            &authed,
+            opt_scopes(Some(vec!["jobs:run:scripts"])).as_deref()
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn filter_tags_only_caller_is_treated_as_unscoped() {
+        let authed = authed_with_scopes(Some(vec!["if_jobs:filter_tags:default"]));
+        assert!(ensure_scopes_within_caller(&authed, None).is_ok());
+        assert!(ensure_scopes_within_caller(
+            &authed,
+            opt_scopes(Some(vec!["users:write"])).as_deref()
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn scoped_caller_cannot_mint_unscoped_token() {
+        // Primitive 2 in the report: a users:write token minting an unscoped token.
+        let authed = authed_with_scopes(Some(vec!["users:write"]));
+        assert!(ensure_scopes_within_caller(&authed, None).is_err());
+        // Empty scope list is effectively unscoped and must also be rejected.
+        assert!(ensure_scopes_within_caller(&authed, Some(&[])).is_err());
+        // A scope list of only tag filters is effectively unscoped too.
+        assert!(ensure_scopes_within_caller(
+            &authed,
+            opt_scopes(Some(vec!["if_jobs:filter_tags:default"])).as_deref()
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn scoped_caller_cannot_remove_its_own_scopes() {
+        // Primitive 3 in the report: a users:write token setting its scopes to null.
+        let authed = authed_with_scopes(Some(vec!["users:write"]));
+        assert!(ensure_scopes_within_caller(&authed, None).is_err());
+    }
+
+    #[test]
+    fn scoped_caller_cannot_grant_scope_it_lacks() {
+        let authed = authed_with_scopes(Some(vec!["users:write"]));
+        assert!(ensure_scopes_within_caller(
+            &authed,
+            opt_scopes(Some(vec!["jobs:run:scripts"])).as_deref()
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn scoped_caller_can_grant_subset_of_own_scopes() {
+        let authed = authed_with_scopes(Some(vec!["users:write", "jobs:run:scripts"]));
+        // Equal scope is allowed.
+        assert!(ensure_scopes_within_caller(
+            &authed,
+            opt_scopes(Some(vec!["jobs:run:scripts"])).as_deref()
+        )
+        .is_ok());
+        // write implies read, so a narrower read scope is allowed.
+        assert!(ensure_scopes_within_caller(
+            &authed,
+            opt_scopes(Some(vec!["users:read"])).as_deref()
+        )
+        .is_ok());
+        // Tag filters narrow further and are always permitted.
+        assert!(ensure_scopes_within_caller(
+            &authed,
+            opt_scopes(Some(vec!["users:read", "if_jobs:filter_tags:default"])).as_deref()
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn scoped_caller_cannot_broaden_resource_scope() {
+        let authed = authed_with_scopes(Some(vec!["scripts:read:f/team/*"]));
+        // Narrower resource within the subtree is allowed.
+        assert!(ensure_scopes_within_caller(
+            &authed,
+            opt_scopes(Some(vec!["scripts:read:f/team/sub"])).as_deref()
+        )
+        .is_ok());
+        // A nested subtree within the caller's subtree is allowed.
+        assert!(ensure_scopes_within_caller(
+            &authed,
+            opt_scopes(Some(vec!["scripts:read:f/team/sub/*"])).as_deref()
+        )
+        .is_ok());
+        // The subtree root itself is allowed.
+        assert!(ensure_scopes_within_caller(
+            &authed,
+            opt_scopes(Some(vec!["scripts:read:f/team"])).as_deref()
+        )
+        .is_ok());
+        // A path outside the subtree is rejected.
+        assert!(ensure_scopes_within_caller(
+            &authed,
+            opt_scopes(Some(vec!["scripts:read:f/other/x"])).as_deref()
+        )
+        .is_err());
+        // read caller cannot grant write.
+        assert!(ensure_scopes_within_caller(
+            &authed,
+            opt_scopes(Some(vec!["scripts:write:f/team/db"])).as_deref()
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn scoped_caller_cannot_escalate_to_wildcard_or_superset() {
+        // Regression for the access-grant-OR vs subset-containment confusion:
+        // ScopeDefinition::includes would (incorrectly) allow all of these.
+        let star = authed_with_scopes(Some(vec!["scripts:read:f/team/a"]));
+        // Minting `*` from a single-path scope must be rejected.
+        assert!(ensure_scopes_within_caller(
+            &star,
+            opt_scopes(Some(vec!["scripts:read:*"])).as_deref()
+        )
+        .is_err());
+        // Minting a broader subtree must be rejected.
+        assert!(ensure_scopes_within_caller(
+            &star,
+            opt_scopes(Some(vec!["scripts:read:f/team/*"])).as_deref()
+        )
+        .is_err());
+
+        // A comma-separated list that adds an uncovered resource must be rejected,
+        // even though one element overlaps the caller's scope.
+        let list = authed_with_scopes(Some(vec!["scripts:read:f/team/a"]));
+        assert!(ensure_scopes_within_caller(
+            &list,
+            opt_scopes(Some(vec!["scripts:read:f/team/a,f/other/b"])).as_deref()
+        )
+        .is_err());
+
+        // A subset of a multi-resource caller scope is allowed.
+        let multi = authed_with_scopes(Some(vec!["scripts:read:f/team/a,f/team/b"]));
+        assert!(ensure_scopes_within_caller(
+            &multi,
+            opt_scopes(Some(vec!["scripts:read:f/team/a"])).as_deref()
+        )
+        .is_ok());
+
+        // A wildcard caller covers any subset, but not `*`-less escalation rules apply
+        // only when the caller itself lacks `*`.
+        let wildcard = authed_with_scopes(Some(vec!["scripts:read:*"]));
+        assert!(ensure_scopes_within_caller(
+            &wildcard,
+            opt_scopes(Some(vec!["scripts:read:f/team/a"])).as_deref()
+        )
+        .is_ok());
     }
 }

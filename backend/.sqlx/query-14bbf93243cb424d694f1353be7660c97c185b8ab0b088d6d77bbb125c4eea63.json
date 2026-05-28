@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO token\n            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes)\n            VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' seconds')::interval, $7, $8)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Bool",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "14bbf93243cb424d694f1353be7660c97c185b8ab0b088d6d77bbb125c4eea63"
+}
