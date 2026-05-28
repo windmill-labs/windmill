@@ -137,15 +137,18 @@ struct DeploymentCallbackJob {
     args: Option<serde_json::Value>,
 }
 
+/// Poll until at least `min_count` deployment-callback jobs exist for the
+/// script path, or the timeout elapses. Returns whatever was found.
 #[allow(dead_code)]
-async fn wait_for_deployment_callback(
+async fn wait_for_deployment_callbacks(
     db: &Pool<Postgres>,
     script_path: &str,
+    min_count: usize,
     timeout: Duration,
-) -> anyhow::Result<Option<DeploymentCallbackJob>> {
+) -> anyhow::Result<Vec<DeploymentCallbackJob>> {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
-        let row = sqlx::query_as!(
+        let rows = sqlx::query_as!(
             DeploymentCallbackJob,
             r#"
             SELECT j.id, j.args
@@ -155,17 +158,13 @@ async fn wait_for_deployment_callback(
               AND j.kind = 'deploymentcallback'
               AND j.workspace_id = 'test-workspace'
             ORDER BY j.created_at DESC
-            LIMIT 1
             "#,
             script_path,
         )
-        .fetch_optional(db)
+        .fetch_all(db)
         .await?;
-        if row.is_some() {
-            return Ok(row);
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return Ok(None);
+        if rows.len() >= min_count || tokio::time::Instant::now() >= deadline {
+            return Ok(rows);
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
@@ -211,9 +210,15 @@ async fn test_encryption_key_rotation_dispatches_batched_git_sync(
 
     // The git-sync dispatch runs in a tokio::spawn'd task. Poll up to a few
     // seconds for the deployment callback to land in the queue.
-    let job = wait_for_deployment_callback(&db, sync_script_path, Duration::from_secs(5))
-        .await?
-        .expect("expected a deployment callback job to be queued after key rotation");
+    let jobs =
+        wait_for_deployment_callbacks(&db, sync_script_path, 1, Duration::from_secs(5)).await?;
+    assert_eq!(
+        jobs.len(),
+        1,
+        "expected exactly one batched deployment callback job, got {}",
+        jobs.len()
+    );
+    let job = &jobs[0];
 
     let args = job.args.as_ref().expect("job should have args");
     let items = args
@@ -265,6 +270,88 @@ async fn test_encryption_key_rotation_dispatches_batched_git_sync(
     assert!(
         !skip_secret,
         "skip_secret should be false when Secret is included in the repo's types"
+    );
+
+    Ok(())
+}
+
+/// Regression test for the non-debouncing fallback: a workspace whose sync
+/// script predates hub version 28103 must still receive git-sync jobs for the
+/// encryption_key entry and every re-encrypted secret. Before the fallback was
+/// added, the batch path `continue`d past such repos and queued nothing,
+/// silently leaving the repo stale after a key rotation.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_encryption_key_rotation_falls_back_without_debouncing(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    // Folder/path encodes a hub version BELOW 28103, so
+    // is_script_meets_min_version(28103) is false → debouncing unsupported.
+    create_folder(&db, "28000").await?;
+    create_git_repo_resource(&db).await?;
+    let sync_script_path = "f/28000/test_sync_script_legacy";
+    create_sync_script(&db, sync_script_path).await?;
+    setup_git_sync_config(&db, sync_script_path).await?;
+
+    let secret_paths = ["u/test-user/secret_a", "u/test-user/secret_b"];
+    insert_secret_variables(&db, &secret_paths).await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+
+    let new_key = "b".repeat(64);
+    let resp = authed(client().post(format!("{base}/encryption_key")))
+        .json(&json!({"new_key": new_key, "skip_reencrypt": false}))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "set_encryption_key failed: {}",
+        resp.text().await?
+    );
+
+    // Legacy fallback pushes one job per item (flat args, no `items` array):
+    // the Key entry + one per re-encrypted variable.
+    let expected = secret_paths.len() + 1;
+    let jobs =
+        wait_for_deployment_callbacks(&db, sync_script_path, expected, Duration::from_secs(5))
+            .await?;
+    assert_eq!(
+        jobs.len(),
+        expected,
+        "expected {expected} legacy deployment-callback jobs (key + {} variables), got {} — a repo on an old sync script must not be silently skipped",
+        secret_paths.len(),
+        jobs.len()
+    );
+
+    let mut variable_paths: Vec<String> = Vec::new();
+    let mut saw_key = false;
+    for job in &jobs {
+        let args = job.args.as_ref().expect("job should have args");
+        // Legacy format: flat fields, never an `items` array.
+        assert!(
+            args.get("items").is_none(),
+            "fallback jobs must use the flat legacy format, not an items array: {args:#?}"
+        );
+        let path_type = args.get("path_type").and_then(|v| v.as_str()).unwrap_or("");
+        let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+        match path_type {
+            "variable" => variable_paths.push(path.to_string()),
+            "key" => saw_key = true,
+            other => panic!("unexpected path_type in fallback job: {other}"),
+        }
+    }
+    assert!(saw_key, "expected a path_type=key fallback job");
+    variable_paths.sort();
+    let mut expected_paths: Vec<String> = secret_paths.iter().map(|s| s.to_string()).collect();
+    expected_paths.sort();
+    assert_eq!(
+        variable_paths, expected_paths,
+        "fallback must queue a job for every re-encrypted secret variable"
     );
 
     Ok(())
