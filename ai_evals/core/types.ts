@@ -326,8 +326,11 @@ export interface BenchmarkRunResult {
   passedAttempts: number;
   passRate: number;
   averageDurationMs: number;
+  averagePassedDurationMs?: number | null;
   totalTokenUsage?: BenchmarkTokenUsage | null;
+  totalPassedTokenUsage?: BenchmarkTokenUsage | null;
   averageTokenUsagePerAttempt?: BenchmarkTokenUsage | null;
+  averageTokenUsagePerPassedAttempt?: BenchmarkTokenUsage | null;
   artifactsPath?: string | null;
   cases: BenchmarkCaseResult[];
 }

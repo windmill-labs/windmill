@@ -64,6 +64,7 @@ import {
 import type { ContextElement } from '../context'
 import { UserDraft, type UserDraftMeta } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
+import { inferArgs } from '$lib/infer'
 import {
 	resourceRequestSchema,
 	scheduleRequestSchema,
@@ -112,6 +113,28 @@ const INSTRUCTION_SUBJECTS = [
 	'app'
 ] as const satisfies readonly WorkspaceItemType[]
 const MAX_LIST_LIMIT = 100
+type ActiveGlobalEditorType = Extract<WorkspaceItemType, 'script' | 'flow' | 'app'>
+type LiveEditorDraftKind = Parameters<typeof UserDraft.getLiveEditorDraft>[0]
+
+const ACTIVE_GLOBAL_EDITOR_DRAFTS: readonly {
+	itemKind: LiveEditorDraftKind
+	type: ActiveGlobalEditorType
+}[] = [
+	{ itemKind: 'script', type: 'script' },
+	{ itemKind: 'flow', type: 'flow' },
+	{ itemKind: 'raw_app', type: 'app' }
+]
+
+export type GlobalActiveEditorContext = {
+	type: ActiveGlobalEditorType
+	path: string
+	isLiveDraft: true
+}
+
+export type GlobalUserMessageOptions = {
+	workspace?: string
+	activeEditor?: GlobalActiveEditorContext
+}
 
 const itemTypeSchema = z.enum(ITEM_TYPES)
 const instructionSubjectSchema = z.enum(INSTRUCTION_SUBJECTS)
@@ -498,7 +521,7 @@ Use tools to inspect workspace items and create local drafts for scripts, flows,
 Rules:
 - Draft tools create or update local drafts only; they do not deploy or mutate deployed workspace items.
 - Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
-- If the user refers to the open editor, use the item marked isLiveDraft=true.
+- If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".
 - Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a local draft to the workspace.
 - Use discard_local_draft to remove an unsaved local draft, including the matching open editor draft. Use delete_workspace_item only to delete a deployed workspace item.
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
@@ -2746,10 +2769,16 @@ async function deployDraft(
 			const existing = (await ScriptService.existsScriptByPath({ workspace, path }))
 				? await ScriptService.getScriptByPath({ workspace, path })
 				: undefined
-			await ScriptService.createScript({
-				workspace,
-				requestBody: buildScriptDeployRequestBody(path, draft, existing, deploymentMessage)
-			})
+			const requestBody = buildScriptDeployRequestBody(path, draft, existing, deploymentMessage)
+			// Infer the arg schema from the content so it matches the code, like the editor does.
+			try {
+				const schema = emptySchema()
+				await inferArgs(requestBody.language, requestBody.content, schema)
+				requestBody.schema = schema
+			} catch (e) {
+				console.error('Failed to infer script schema before deploy', e)
+			}
+			await ScriptService.createScript({ workspace, requestBody })
 			break
 		}
 		case 'flow': {
@@ -2993,14 +3022,35 @@ export function prepareGlobalSystemMessage(
 	}
 }
 
+export function getActiveGlobalEditorContext(
+	workspace: string
+): GlobalActiveEditorContext | undefined {
+	for (const { itemKind, type } of ACTIVE_GLOBAL_EDITOR_DRAFTS) {
+		const liveDraft = UserDraft.getLiveEditorDraft(itemKind, { workspace })
+		const path = liveDraft?.effectivePath || liveDraft?.storagePath
+		if (!path) continue
+		return { type, path, isLiveDraft: true }
+	}
+}
+
 export function prepareGlobalUserMessage(
 	instructions: string,
-	selectedContext: ContextElement[] = []
+	selectedContext: ContextElement[] = [],
+	options: GlobalUserMessageOptions = {}
 ): ChatCompletionUserMessageParam {
 	const selectedWorkspaceItems = selectedContext.filter(
 		(context) => context.type === 'workspace_script' || context.type === 'workspace_flow'
 	)
+	const activeEditor =
+		options.activeEditor ?? (options.workspace ? getActiveGlobalEditorContext(options.workspace) : undefined)
 	let content = ''
+
+	if (activeEditor) {
+		content += '## ACTIVE EDITOR\n'
+		content += `type: ${activeEditor.type}\n`
+		content += `path: ${activeEditor.path}\n`
+		content += `isLiveDraft: true\n\n`
+	}
 
 	if (selectedWorkspaceItems.length > 0) {
 		content += '## SELECTED CONTEXT\n'
