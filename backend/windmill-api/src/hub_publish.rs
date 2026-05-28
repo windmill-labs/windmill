@@ -21,6 +21,8 @@ pub fn workspaced_service() -> Router {
             post(publish_script_recording),
         )
         .route("/flows/{flow_id}/recording", post(publish_flow_recording))
+        .route("/resource_types", post(publish_resource_type))
+        .route("/resources", post(publish_resources))
 }
 
 #[derive(Deserialize)]
@@ -162,6 +164,54 @@ async fn publish_flow_recording(
     Json(body): Json<RecordingBody>,
 ) -> Result<impl IntoResponse, Error> {
     forward_to_hub(&format!("/flows/{}/recording", flow_id), &body).await
+}
+
+#[derive(Deserialize, Serialize)]
+struct PublishResourceTypeBody {
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    schema: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    app: Option<String>,
+    workspace_slug: String,
+}
+
+async fn publish_resource_type(
+    Path(_workspace): Path<String>,
+    Json(body): Json<PublishResourceTypeBody>,
+) -> Result<impl IntoResponse, Error> {
+    forward_to_hub(
+        &format!("/workspaces/{}/resource_types", body.workspace_slug),
+        &body,
+    )
+    .await
+}
+
+#[derive(Deserialize, Serialize)]
+struct PublishResourceBody {
+    path: String,
+    resource_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+}
+
+#[derive(Deserialize, Serialize)]
+struct PublishResourcesBody {
+    resources: Vec<PublishResourceBody>,
+    workspace_slug: String,
+}
+
+async fn publish_resources(
+    Path(_workspace): Path<String>,
+    Json(body): Json<PublishResourcesBody>,
+) -> Result<impl IntoResponse, Error> {
+    forward_to_hub(
+        &format!("/workspaces/{}/resources", body.workspace_slug),
+        &body,
+    )
+    .await
 }
 
 async fn forward_to_hub<T: Serialize>(path: &str, body: &T) -> Result<(StatusCode, String), Error> {
