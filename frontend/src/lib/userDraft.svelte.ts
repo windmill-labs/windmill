@@ -112,6 +112,14 @@ type DraftEntry = {
 	path: string
 	state: DraftState<unknown>
 	/**
+	 * Set to `true` by callers that already know what's on the server
+	 * (e.g. an `onMissedDrafts` echo, or the conflict modal's "Load server
+	 * draft" branch). The acquireEntry `$effect` consumes the flag —
+	 * skipping exactly one pushToSyncer call — to break the otherwise
+	 * inevitable ping-pong between live-cell writes and the syncer.
+	 */
+	skipNextSync: boolean
+	/**
 	 * Tears down the `$effect.root` scope that owns the entry's
 	 * `useLocalStorageValue` reactivity — its `$state` cell and the persist
 	 * `$effect` deep-mutation loop. Called when the refcount hits 0.
@@ -351,14 +359,14 @@ export function localDraftDiffers<V>(
 }
 
 /**
- * Persist a draft via the DbSyncer queue. Internal `_skipSync` opts
- * pass-through lets the syncer write missed drafts back to LS without
- * re-syncing them.
+ * Persist a draft via the DbSyncer queue. `value === null` signals a
+ * delete (matches the wire shape). Internal `_skipSync` opts pass-through
+ * lets the syncer write missed drafts back to LS without re-syncing.
  */
 function pushToSyncer(
 	itemKind: UserDraftItemKind,
 	path: string,
-	value: unknown,
+	value: unknown | null,
 	workspace: string
 ): void {
 	// Skip sync until a user is signed in — without a session the request
@@ -401,6 +409,11 @@ export const UserDraft = {
 			// its initial-write skip armed.
 			const current = untrack(() => entry.state.val as StoredDraft<unknown> | undefined)
 			const meta = extractMeta(current)
+			// Arm the sync-skip BEFORE the reactive write, so the cell's
+			// $effect — which fires on a microtask after `setWithoutPersist`
+			// — sees the flag and bails. Otherwise a `_skipSync` save would
+			// still bounce to the server through the live-cell push path.
+			if (opts?._skipSync) entry.skipNextSync = true
 			entry.state.setWithoutPersist(wrap(value, meta))
 			persistDirect(localStorageKey(ws, itemKind, path), value, meta)
 		} else {
@@ -530,16 +543,19 @@ export const UserDraft = {
 		return readPersisted(localStorageKey(ws, itemKind, path)) !== undefined
 	},
 
-	remove(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
+	remove(itemKind: UserDraftItemKind, path: string, opts?: SaveOptions): void {
 		const ws = resolveWorkspace(opts)
 		try {
 			localStorage.removeItem(localStorageKey(ws, itemKind, path))
 		} catch (e) {
 			console.error('UserDraft.remove: localStorage remove failed', e)
 		}
+		if (!opts?._skipSync) {
+			pushToSyncer(itemKind, path, null, ws)
+		}
 	},
 
-	clear(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
+	clear(itemKind: UserDraftItemKind, path: string, opts?: SaveOptions): void {
 		UserDraft.discard(itemKind, path, undefined, opts)
 	},
 
@@ -632,7 +648,7 @@ export const UserDraft = {
 		itemKind: UserDraftItemKind,
 		path: string,
 		fallback: V | undefined,
-		opts?: UserDraftOptions
+		opts?: SaveOptions
 	): void {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
@@ -642,12 +658,16 @@ export const UserDraft = {
 			// resetting the in-memory value. Otherwise a timer from the old
 			// entry can outlive unmount and later delete a freshly written
 			// draft for the same key.
+			if (opts?._skipSync) entry.skipNextSync = true
 			entry.state.setWithoutPersist(wrap(fallback) as StoredDraft<unknown> | undefined)
 		}
 		try {
 			localStorage.removeItem(localStorageKey(ws, itemKind, path))
 		} catch (e) {
 			console.error('UserDraft.discard: localStorage remove failed', e)
+		}
+		if (!opts?._skipSync) {
+			pushToSyncer(itemKind, path, null, ws)
 		}
 	},
 
@@ -781,7 +801,9 @@ function acquireEntry(
 		// $effect) to the DbSyncer. Skip the first run — the initial value
 		// came from localStorage or the default, not from a user mutation, so
 		// echoing it back would create a redundant request on every editor
-		// mount.
+		// mount. Also honor the entry's `skipNextSync` flag, which callers
+		// set when they already know what's on the server (missed_drafts
+		// echo, "Load server draft" in the conflict modal).
 		let firstRun = true
 		$effect(() => {
 			const stored = stateRef!.val
@@ -789,13 +811,25 @@ function acquireEntry(
 				firstRun = false
 				return
 			}
-			const value = stored === undefined ? undefined : (stored.value as unknown)
-			if (value === undefined) return
+			const entry = entries.get(mk)
+			if (entry?.skipNextSync) {
+				entry.skipNextSync = false
+				return
+			}
+			const value = stored === undefined ? null : (stored.value as unknown)
 			pushToSyncer(itemKind, path, value, workspace)
 		})
 	})
 	if (stateRef) {
-		entries.set(mk, { count: 1, workspace, itemKind, path, state: stateRef, destroyRoot })
+		entries.set(mk, {
+			count: 1,
+			workspace,
+			itemKind,
+			path,
+			state: stateRef,
+			skipNextSync: false,
+			destroyRoot
+		})
 		return
 	}
 	// Fallback for the vitest runtime where `$effect.root`'s callback isn't
@@ -806,7 +840,7 @@ function acquireEntry(
 		undefined,
 		useLocalStorageOptions
 	)
-	entries.set(mk, { count: 1, workspace, itemKind, path, state })
+	entries.set(mk, { count: 1, workspace, itemKind, path, state, skipNextSync: false })
 }
 
 function releaseEntry(mk: string): void {

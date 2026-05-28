@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM draft\n                       WHERE workspace_id = $1\n                         AND email = $2\n                         AND path = $3\n                         AND typ = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0f7ad07f2bef7e55d6fc15db11d420468770630c1805058edd14679062162b8c"
+}

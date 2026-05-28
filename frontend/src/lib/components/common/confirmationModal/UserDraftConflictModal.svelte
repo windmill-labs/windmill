@@ -4,6 +4,14 @@
 	 * top of the tree (root layout) so any UserDraft.save call can enqueue
 	 * a conflict via `UserDraftConflictStore.enqueue` and have it shown to
 	 * the user without coordinating with a route component.
+	 *
+	 * Two conflict shapes:
+	 *   • upsert rejected: `incoming_value` is non-null. The user tried to
+	 *     save and lost the race. Offer "Overwrite server draft" / "Load
+	 *     server draft".
+	 *   • delete rejected: `incoming_value` is null. The user tried to
+	 *     discard and lost the race. Offer "Delete anyway" / "Load server
+	 *     draft".
 	 */
 	import { classNames } from '$lib/utils'
 	import { fade } from 'svelte/transition'
@@ -16,12 +24,16 @@
 
 	const conflict = $derived(UserDraftConflictStore.current)
 	const open = $derived(conflict !== undefined)
+	const isDeleteAttempt = $derived(
+		conflict !== undefined &&
+			(conflict.rejected.incoming_value === null || conflict.rejected.incoming_value === undefined)
+	)
 
 	const lastSyncDate = $derived(UserDraftDbSyncer.getLastSync())
 
 	let busy = $state(false)
 
-	async function overwriteServer() {
+	async function forceLocal() {
 		if (!conflict) return
 		busy = true
 		try {
@@ -31,14 +43,14 @@
 					{
 						itemKind: conflict.itemKind,
 						path: conflict.rejected.path,
-						value: conflict.rejected.incoming_value,
+						value: isDeleteAttempt ? null : conflict.rejected.incoming_value,
 						force: true
 					}
 				]
 			})
 			UserDraftConflictStore.dismiss()
 		} catch (e) {
-			sendUserToast(`Could not overwrite server draft: ${e.body ?? e.message}`, true)
+			sendUserToast(`Could not apply local change: ${e.body ?? e.message}`, true)
 		} finally {
 			busy = false
 		}
@@ -82,11 +94,20 @@
 						</div>
 						<div class="ml-4 flex-1 text-left">
 							<h3 class="text-lg font-medium text-primary">
-								Your draft for <code>{conflict.rejected.path}</code> is out of date
+								{#if isDeleteAttempt}
+									Couldn't discard your draft for <code>{conflict.rejected.path}</code>
+								{:else}
+									Your draft for <code>{conflict.rejected.path}</code> is out of date
+								{/if}
 							</h3>
 							<p class="mt-2 text-sm text-secondary">
-								Another session saved a newer draft for this {conflict.itemKind} since this tab last
-								synced.
+								{#if isDeleteAttempt}
+									Another session saved a newer draft for this {conflict.itemKind} since this tab last
+									synced — discarding now would erase changes you haven't seen.
+								{:else}
+									Another session saved a newer draft for this {conflict.itemKind} since this tab last
+									synced.
+								{/if}
 							</p>
 							<dl
 								class="mt-3 text-xs text-tertiary grid grid-cols-[max-content_1fr] gap-x-2 gap-y-1"
@@ -113,13 +134,13 @@
 						<Button
 							disabled={busy}
 							loading={busy}
-							on:click={overwriteServer}
+							on:click={forceLocal}
 							color="dark"
 							size="sm"
 							shortCut={{ Icon: CornerDownLeft, withoutModifier: true }}
 							variant="accent"
 						>
-							Overwrite server draft
+							{isDeleteAttempt ? 'Discard anyway' : 'Overwrite server draft'}
 						</Button>
 					</div>
 				</div>

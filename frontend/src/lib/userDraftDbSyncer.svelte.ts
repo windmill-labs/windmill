@@ -23,11 +23,17 @@ export type RejectedDraft = Extract<SyncDraftsResponse['statuses'][number], { st
 export type PendingDraft<V = unknown> = {
 	itemKind: UserDraftItemKind
 	path: string
-	value: V
+	/**
+	 * Draft content. `null` (or omitted) signals a delete — the server
+	 * removes the row at this path, applying the same conflict semantics
+	 * as an upsert.
+	 */
+	value: V | null
 	/**
 	 * Skip the conflict check for this single entry and overwrite the
 	 * server copy. Used by the conflict-resolution modal's "Overwrite
-	 * server draft" action; routine autosaves leave this `false`.
+	 * server draft" / "Delete anyway" actions; routine autosaves leave
+	 * this `false`.
 	 */
 	force?: boolean
 }

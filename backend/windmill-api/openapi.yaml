@@ -7831,11 +7831,13 @@ paths:
                       typ:
                         type: string
                         description: UserDraft item kind. Stored verbatim; the client owns the value set.
-                      value: {}
+                      value:
+                        nullable: true
+                        description: Draft content. `null` (or omitted) means delete the draft at this path. Conflict semantics apply the same way to deletes.
                       force:
                         type: boolean
                         description: Skip the conflict check for this entry and overwrite the server copy.
-                    required: [path, typ, value]
+                    required: [path, typ]
               required: [drafts]
       responses:
         "200":
@@ -7880,6 +7882,16 @@ paths:
                           properties:
                             status:
                               type: string
+                              enum: [deleted]
+                            path:
+                              type: string
+                            typ:
+                              type: string
+                          required: [status, path, typ]
+                        - type: object
+                          properties:
+                            status:
+                              type: string
                               enum: [rejected]
                             path:
                               type: string
@@ -7889,14 +7901,15 @@ paths:
                             server_created_at:
                               type: string
                               format: date-time
-                            incoming_value: {}
+                            incoming_value:
+                              nullable: true
+                              description: The value the client tried to push, or `null` if the client attempted a delete.
                           required:
                             - status
                             - path
                             - typ
                             - server_value
                             - server_created_at
-                            - incoming_value
                   current_timestamp:
                     type: string
                     format: date-time

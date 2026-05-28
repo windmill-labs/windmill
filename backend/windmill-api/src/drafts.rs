@@ -34,7 +34,10 @@ pub struct IncomingDraft {
     /// `trigger_*`, ...). Stored verbatim — no server-side validation,
     /// since the set of kinds is owned by the client.
     pub typ: String,
-    pub value: sqlx::types::Json<Box<serde_json::value::RawValue>>,
+    /// `null` (or omitted) means delete the draft at this path. Conflict
+    /// semantics apply the same way to deletions as to upserts.
+    #[serde(default)]
+    pub value: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
     /// When true, skip the conflict check for this entry and overwrite the
     /// server copy. Only the matching entry is forced — other entries in
     /// the same batch still run through the normal conflict check.
@@ -68,15 +71,20 @@ pub enum DraftSyncStatus {
         typ: String,
         created_at: chrono::DateTime<chrono::Utc>,
     },
+    Deleted {
+        path: String,
+        typ: String,
+    },
     Rejected {
         path: String,
         typ: String,
         /// Current server copy at conflict-detection time.
         server_value: sqlx::types::Json<Box<serde_json::value::RawValue>>,
         server_created_at: chrono::DateTime<chrono::Utc>,
-        /// The value the client tried to push. Echoed back so the client can
-        /// retry with `force = true` without re-reading its local state.
-        incoming_value: sqlx::types::Json<Box<serde_json::value::RawValue>>,
+        /// The value the client tried to push. `None` when the client
+        /// attempted a delete; the modal interprets this as "you tried to
+        /// delete, but the server has a newer version".
+        incoming_value: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
     },
 }
 
@@ -94,10 +102,6 @@ async fn sync_drafts(
     Json(req): Json<SyncDraftsRequest>,
 ) -> Result<Json<SyncDraftsResponse>> {
     let email = &authed.email;
-    let current_timestamp = sqlx::query_scalar!("SELECT now()")
-        .fetch_one(&db)
-        .await?
-        .expect("now() is never null");
 
     let missed_drafts = if let Some(last_sync) = req.last_sync {
         sqlx::query_as!(
@@ -156,39 +160,76 @@ async fn sync_drafts(
                         typ: incoming.typ.clone(),
                         server_value: row.value,
                         server_created_at: row.created_at,
-                        incoming_value: sqlx::types::Json(
-                            serde_json::value::RawValue::from_string(
-                                incoming.value.0.get().to_string(),
+                        incoming_value: incoming.value.as_ref().map(|v| {
+                            sqlx::types::Json(
+                                serde_json::value::RawValue::from_string(v.0.get().to_string())
+                                    .expect("RawValue round-trip"),
                             )
-                            .expect("RawValue round-trip"),
-                        ),
+                        }),
                     });
                     continue;
                 }
             }
         }
 
-        let row = sqlx::query!(
-            r#"INSERT INTO draft (workspace_id, email, path, typ, value, created_at)
-               VALUES ($1, $2, $3, $4, $5::text::json, now())
-               ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL
-               DO UPDATE SET value = EXCLUDED.value, created_at = now()
-               RETURNING created_at"#,
-            &w_id,
-            email,
-            incoming.path,
-            incoming.typ,
-            serde_json::to_string(&incoming.value).unwrap(),
-        )
-        .fetch_one(&db)
-        .await?;
+        match &incoming.value {
+            Some(value) => {
+                let row = sqlx::query!(
+                    r#"INSERT INTO draft (workspace_id, email, path, typ, value, created_at)
+                       VALUES ($1, $2, $3, $4, $5::text::json, now())
+                       ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL
+                       DO UPDATE SET value = EXCLUDED.value, created_at = now()
+                       RETURNING created_at"#,
+                    &w_id,
+                    email,
+                    incoming.path,
+                    incoming.typ,
+                    serde_json::to_string(value).unwrap(),
+                )
+                .fetch_one(&db)
+                .await?;
 
-        statuses.push(DraftSyncStatus::Saved {
-            path: incoming.path.clone(),
-            typ: incoming.typ.clone(),
-            created_at: row.created_at,
-        });
+                statuses.push(DraftSyncStatus::Saved {
+                    path: incoming.path.clone(),
+                    typ: incoming.typ.clone(),
+                    created_at: row.created_at,
+                });
+            }
+            None => {
+                // Delete-only path. Idempotent: the DELETE is a no-op if
+                // the row was already gone (concurrent delete from another
+                // tab) — we still report `Deleted` so the client clears
+                // its pending state.
+                sqlx::query!(
+                    r#"DELETE FROM draft
+                       WHERE workspace_id = $1
+                         AND email = $2
+                         AND path = $3
+                         AND typ = $4"#,
+                    &w_id,
+                    email,
+                    incoming.path,
+                    incoming.typ,
+                )
+                .execute(&db)
+                .await?;
+
+                statuses.push(DraftSyncStatus::Deleted {
+                    path: incoming.path.clone(),
+                    typ: incoming.typ.clone(),
+                });
+            }
+        }
     }
+
+    // Compute after the inserts so the response's `current_timestamp` is
+    // >= every just-saved row's `created_at`. Otherwise a client that
+    // re-syncs immediately would see its own writes as newer than its
+    // `last_sync` and get rejected on the next push.
+    let current_timestamp = sqlx::query_scalar!("SELECT now()")
+        .fetch_one(&db)
+        .await?
+        .expect("now() is never null");
 
     Ok(Json(SyncDraftsResponse {
         missed_drafts,
