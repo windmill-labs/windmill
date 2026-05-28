@@ -627,7 +627,7 @@ async fn proxy(
         check_scopes(&authed, || format!("resources:read:{}", resource_path))?;
     }
 
-    let credentials = match workspace_cache {
+    let mut credentials = match workspace_cache {
         Some(request_cache) if !request_cache.is_expired() && forced_resource_path.is_none() => {
             request_cache.credentials
         }
@@ -758,11 +758,23 @@ async fn proxy(
         }
     };
 
-    if let Some(fim_transform) = maybe_transform_fim_request(&provider, &ai_path, &body)? {
-        tracing::debug!(
-            "Transforming FIM request to chat/completions with FIM tokens for provider {:?}",
-            provider
-        );
+    if let Some(fim_transform) =
+        maybe_transform_fim_request(&provider, &ai_path, &credentials.base_url, &body)?
+    {
+        if fim_transform.base_url.is_some() {
+            tracing::debug!(
+                "Routing native FIM request through provider-specific endpoint for {:?}",
+                provider
+            );
+        } else {
+            tracing::debug!(
+                "Transforming FIM request to chat/completions with FIM tokens for provider {:?}",
+                provider
+            );
+        }
+        if let Some(base_url) = fim_transform.base_url {
+            credentials.base_url = base_url;
+        }
         body = fim_transform.body;
         ai_path = fim_transform.path;
     }

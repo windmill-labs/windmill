@@ -16,7 +16,6 @@ import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
 import { getDefaultChatTemperature } from './modelConfig'
 import { formatResourceTypes } from './utils'
-import { z } from 'zod'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
 import {
 	getNonStreamingOpenAIResponsesCompletion,
@@ -36,6 +35,7 @@ import {
 	buildAssistantToolCallMessage,
 	getReasoningContentDelta
 } from './chat/openaiReasoning'
+import { parseFimCompletionChoice } from './fim'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
@@ -74,7 +74,7 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	},
 	deepseek: {
 		label: 'DeepSeek',
-		defaultModels: ['deepseek-chat', 'deepseek-reasoner']
+		defaultModels: ['deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner']
 	},
 	googleai: {
 		label: 'Google AI',
@@ -816,17 +816,6 @@ export async function getNonStreamingCompletion(
 	return response
 }
 
-const mistralFimResponseSchema = z.object({
-	choices: z.array(
-		z.object({
-			message: z.object({
-				content: z.string().optional()
-			}),
-			finish_reason: z.string()
-		})
-	)
-})
-
 export const FIM_MAX_TOKENS = 256
 const FIM_MAX_LINES = 8
 export async function getFimCompletion(
@@ -864,12 +853,10 @@ export async function getFimCompletion(
 	)
 
 	const body = await response.json()
-	const parsedBody = mistralFimResponseSchema.parse(body)
+	const choice = parseFimCompletionChoice(body, providerModel.provider)
 
-	const choice = parsedBody.choices[0]
-
-	if (choice && choice.message.content !== undefined) {
-		let lines = choice.message.content.split('\n')
+	if (choice?.content !== undefined) {
+		let lines = choice.content.split('\n')
 
 		// If finish_reason is 'length', remove the last line
 		if (choice.finish_reason === 'length') {
