@@ -1337,6 +1337,7 @@ describe('prepareGlobalSystemMessage', () => {
 		expect(content).toContain(
 			'Use discard_local_draft to remove an unsaved local draft, including the matching open editor draft'
 		)
+		expect(content).toContain('If the user message includes an ACTIVE EDITOR section')
 		expect(content).not.toContain('AI draft')
 		expect(content).not.toContain('UserDraft')
 		expect(content).not.toContain('localStorage')
@@ -1359,6 +1360,27 @@ describe('prepareGlobalSystemMessage', () => {
 })
 
 describe('prepareGlobalUserMessage', () => {
+	it('injects the active editor reference without contents', () => {
+		__resetUserDraftForTesting()
+		localStorage.clear()
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'script',
+			storagePath: '',
+			effectivePath: 'f/scripts/live_greeting'
+		})
+
+		const message = prepareGlobalUserMessage('Update this script', [], { workspace: WORKSPACE })
+
+		expect(message.content).toContain('## ACTIVE EDITOR')
+		expect(message.content).toContain('type: script')
+		expect(message.content).toContain('path: f/scripts/live_greeting')
+		expect(message.content).toContain('isLiveDraft: true')
+		expect(message.content).toContain('## INSTRUCTIONS:\nUpdate this script')
+		expect(message.content).not.toContain('When the user says')
+		expect(message.content).not.toContain('content')
+	})
+
 	it('includes selected workspace item references without contents', () => {
 		const message = prepareGlobalUserMessage('Update these items', [
 			{

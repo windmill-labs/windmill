@@ -1,0 +1,118 @@
+{
+  "workspace": {
+    "flows": [
+      {
+        "path": "f/evals/global/process_invoice",
+        "summary": "Deployed invoice processor",
+        "description": "Calculates invoice totals from a subtotal.",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "subtotal": {
+              "type": "number"
+            }
+          },
+          "required": ["subtotal"]
+        },
+        "value": {
+          "modules": [
+            {
+              "id": "calculate_total",
+              "summary": "Calculate total from subtotal",
+              "value": {
+                "type": "rawscript",
+                "language": "bun",
+                "content": "export async function main(subtotal: number) {\n  return { subtotal, total: subtotal }\n}\n",
+                "input_transforms": {
+                  "subtotal": {
+                    "type": "javascript",
+                    "expr": "flow_input.subtotal"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "path": "f/evals/global/process_refund",
+        "summary": "Refund processor",
+        "description": "Calculates refund totals.",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "subtotal": {
+              "type": "number"
+            }
+          },
+          "required": ["subtotal"]
+        },
+        "value": {
+          "modules": [
+            {
+              "id": "calculate_total",
+              "summary": "Calculate refund total",
+              "value": {
+                "type": "rawscript",
+                "language": "bun",
+                "content": "export async function main(subtotal: number) {\n  return { subtotal, total: subtotal }\n}\n",
+                "input_transforms": {
+                  "subtotal": {
+                    "type": "javascript",
+                    "expr": "flow_input.subtotal"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "liveEditorDrafts": [
+    {
+      "type": "flow",
+      "storagePath": "f/evals/global/current_invoice_flow",
+      "effectivePath": "f/evals/global/current_invoice_flow",
+      "value": {
+        "path": "f/evals/global/current_invoice_flow",
+        "summary": "Open invoice processor",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "subtotal": {
+              "type": "number"
+            }
+          },
+          "required": ["subtotal"]
+        },
+        "value": {
+          "modules": [
+            {
+              "id": "calculate_total",
+              "summary": "Calculate total from subtotal",
+              "value": {
+                "type": "rawscript",
+                "language": "bun",
+                "content": "export async function main(subtotal: number) {\n  return { subtotal, total: subtotal }\n}\n",
+                "input_transforms": {
+                  "subtotal": {
+                    "type": "javascript",
+                    "expr": "flow_input.subtotal"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "edited_by": "",
+        "edited_at": "",
+        "archived": false,
+        "extra_perms": {}
+      }
+    }
+  ]
+}

@@ -10,9 +10,10 @@ use crate::{
     ai_bedrock::{
         bedrock_model_supports_prompt_caching, bedrock_stream_event_is_block_stop,
         bedrock_stream_event_to_text, bedrock_stream_event_to_tool_delta,
-        bedrock_stream_event_to_tool_start, build_tool_config, create_inference_config,
-        format_bedrock_error, openai_messages_to_bedrock, streaming_tool_calls_to_openai,
-        BearerTokenProvider, BedrockClient, StreamingToolCall,
+        bedrock_stream_event_to_tool_delta_with_block_index, bedrock_stream_event_to_tool_start,
+        bedrock_stream_event_to_tool_start_with_block_index, build_tool_config,
+        create_inference_config, format_bedrock_error, openai_messages_to_bedrock,
+        streaming_tool_calls_to_openai, BearerTokenProvider, BedrockClient, StreamingToolCall,
     },
     ai_providers::USE_ENV_REGION,
     ai_types::{OpenAIFunction, OpenAIToolCall, ToolDefFunction},
@@ -403,137 +404,15 @@ pub fn sdk_stream_to_sse(
         .unwrap()
         .as_secs();
 
-    struct StreamState {
-        id: String,
-        model: String,
-        created: u64,
-        tool_calls: HashMap<usize, (String, String, String)>,
-        current_tool_index: usize,
-    }
-
-    let state = std::sync::Arc::new(tokio::sync::Mutex::new(StreamState {
-        id,
-        model,
-        created,
-        tool_calls: HashMap::new(),
-        current_tool_index: 0,
-    }));
-
     async_stream::stream! {
         let mut stream = stream;
-        let state = state.clone();
+        let mut state = BedrockSseStreamState::new(id, model, created);
 
         loop {
             match stream.recv().await {
                 Ok(Some(event)) => {
-                    let mut state = state.lock().await;
-
-                    if let Some(tool_call) = bedrock_stream_event_to_tool_start(&event) {
-                        let index = state.current_tool_index;
-                        state.tool_calls.insert(
-                            index,
-                            (tool_call.id.clone(), tool_call.name.clone(), String::new()),
-                        );
-
-                        let chunk = serde_json::json!({
-                            "id": state.id,
-                            "object": "chat.completion.chunk",
-                            "created": state.created,
-                            "model": state.model,
-                            "choices": [{
-                                "index": 0,
-                                "delta": {
-                                    "tool_calls": [{
-                                        "index": index,
-                                        "id": tool_call.id,
-                                        "type": "function",
-                                        "function": {
-                                            "name": tool_call.name,
-                                            "arguments": ""
-                                        }
-                                    }]
-                                },
-                                "finish_reason": serde_json::Value::Null
-                            }]
-                        });
-
-                        yield Ok(Bytes::from(format!("data: {}\n\n", chunk)));
-                    }
-
-                    if let Some(text) = bedrock_stream_event_to_text(&event) {
-                        let chunk = serde_json::json!({
-                            "id": state.id,
-                            "object": "chat.completion.chunk",
-                            "created": state.created,
-                            "model": state.model,
-                            "choices": [{
-                                "index": 0,
-                                "delta": {
-                                    "content": text
-                                },
-                                "finish_reason": serde_json::Value::Null
-                            }]
-                        });
-
-                        yield Ok(Bytes::from(format!("data: {}\n\n", chunk)));
-                    }
-
-                    if let Some(input_delta) = bedrock_stream_event_to_tool_delta(&event) {
-                        let index = state.current_tool_index;
-                        if let Some((_id, _name, ref mut args)) = state.tool_calls.get_mut(&index) {
-                            args.push_str(&input_delta);
-
-                            let chunk = serde_json::json!({
-                                "id": state.id,
-                                "object": "chat.completion.chunk",
-                                "created": state.created,
-                                "model": state.model,
-                                "choices": [{
-                                    "index": 0,
-                                    "delta": {
-                                        "tool_calls": [{
-                                            "index": index,
-                                            "function": {
-                                                "arguments": input_delta
-                                            }
-                                        }]
-                                    },
-                                    "finish_reason": serde_json::Value::Null
-                                }]
-                            });
-
-                            yield Ok(Bytes::from(format!("data: {}\n\n", chunk)));
-                        }
-                    }
-
-                    if bedrock_stream_event_is_block_stop(&event) {
-                        state.current_tool_index += 1;
-                    }
-
-                    if let aws_sdk_bedrockruntime::types::ConverseStreamOutput::MessageStop(stop) = &event {
-                        let stop_reason = stop.stop_reason().as_str();
-                        let finish_reason = match stop_reason {
-                            "end_turn" => "stop",
-                            "max_tokens" => "length",
-                            "tool_use" => "tool_calls",
-                            "stop_sequence" => "stop",
-                            "guardrail_intervened" | "content_filtered" => "content_filter",
-                            _ => "stop",
-                        };
-
-                        let chunk = serde_json::json!({
-                            "id": state.id,
-                            "object": "chat.completion.chunk",
-                            "created": state.created,
-                            "model": state.model,
-                            "choices": [{
-                                "index": 0,
-                                "delta": {},
-                                "finish_reason": finish_reason
-                            }]
-                        });
-
-                        yield Ok(Bytes::from(format!("data: {}\n\n", chunk)));
+                    for chunk in bedrock_sse_chunks_for_event(&event, &mut state) {
+                        yield Ok(chunk);
                     }
                 }
                 Ok(None) => break,
@@ -549,6 +428,149 @@ pub fn sdk_stream_to_sse(
 
         yield Ok(Bytes::from("data: [DONE]\n\n"));
     }
+}
+
+#[derive(Debug)]
+struct BedrockSseStreamState {
+    id: String,
+    model: String,
+    created: u64,
+    tool_calls: HashMap<usize, (String, String, String)>,
+    tool_block_indexes: HashMap<usize, usize>,
+    next_tool_index: usize,
+}
+
+impl BedrockSseStreamState {
+    fn new(id: String, model: String, created: u64) -> Self {
+        Self {
+            id,
+            model,
+            created,
+            tool_calls: HashMap::new(),
+            tool_block_indexes: HashMap::new(),
+            next_tool_index: 0,
+        }
+    }
+}
+
+fn bedrock_sse_chunks_for_event(
+    event: &aws_sdk_bedrockruntime::types::ConverseStreamOutput,
+    state: &mut BedrockSseStreamState,
+) -> Vec<Bytes> {
+    let mut chunks = Vec::new();
+
+    if let Some((block_index, tool_call)) =
+        bedrock_stream_event_to_tool_start_with_block_index(event)
+    {
+        let index = state.next_tool_index;
+        state.next_tool_index += 1;
+        state.tool_block_indexes.insert(block_index, index);
+        state.tool_calls.insert(
+            index,
+            (tool_call.id.clone(), tool_call.name.clone(), String::new()),
+        );
+
+        let chunk = serde_json::json!({
+            "id": state.id,
+            "object": "chat.completion.chunk",
+            "created": state.created,
+            "model": state.model,
+            "choices": [{
+                "index": 0,
+                "delta": {
+                    "tool_calls": [{
+                        "index": index,
+                        "id": tool_call.id,
+                        "type": "function",
+                        "function": {
+                            "name": tool_call.name,
+                            "arguments": ""
+                        }
+                    }]
+                },
+                "finish_reason": serde_json::Value::Null
+            }]
+        });
+
+        chunks.push(Bytes::from(format!("data: {}\n\n", chunk)));
+    }
+
+    if let Some(text) = bedrock_stream_event_to_text(event) {
+        let chunk = serde_json::json!({
+            "id": state.id,
+            "object": "chat.completion.chunk",
+            "created": state.created,
+            "model": state.model,
+            "choices": [{
+                "index": 0,
+                "delta": {
+                    "content": text
+                },
+                "finish_reason": serde_json::Value::Null
+            }]
+        });
+
+        chunks.push(Bytes::from(format!("data: {}\n\n", chunk)));
+    }
+
+    if let Some((block_index, input_delta)) =
+        bedrock_stream_event_to_tool_delta_with_block_index(event)
+    {
+        if let Some(index) = state.tool_block_indexes.get(&block_index).copied() {
+            if let Some((_id, _name, ref mut args)) = state.tool_calls.get_mut(&index) {
+                args.push_str(&input_delta);
+
+                let chunk = serde_json::json!({
+                    "id": state.id,
+                    "object": "chat.completion.chunk",
+                    "created": state.created,
+                    "model": state.model,
+                    "choices": [{
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [{
+                                "index": index,
+                                "function": {
+                                    "arguments": input_delta
+                                }
+                            }]
+                        },
+                        "finish_reason": serde_json::Value::Null
+                    }]
+                });
+
+                chunks.push(Bytes::from(format!("data: {}\n\n", chunk)));
+            }
+        }
+    }
+
+    if let aws_sdk_bedrockruntime::types::ConverseStreamOutput::MessageStop(stop) = event {
+        let stop_reason = stop.stop_reason().as_str();
+        let finish_reason = match stop_reason {
+            "end_turn" => "stop",
+            "max_tokens" => "length",
+            "tool_use" => "tool_calls",
+            "stop_sequence" => "stop",
+            "guardrail_intervened" | "content_filtered" => "content_filter",
+            _ => "stop",
+        };
+
+        let chunk = serde_json::json!({
+            "id": state.id,
+            "object": "chat.completion.chunk",
+            "created": state.created,
+            "model": state.model,
+            "choices": [{
+                "index": 0,
+                "delta": {},
+                "finish_reason": finish_reason
+            }]
+        });
+
+        chunks.push(Bytes::from(format!("data: {}\n\n", chunk)));
+    }
+
+    chunks
 }
 
 async fn handle_bedrock_sdk_non_streaming(
@@ -970,6 +992,19 @@ impl BedrockQueryBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aws_sdk_bedrockruntime::types::{
+        ContentBlockDelta, ContentBlockDeltaEvent, ContentBlockStart, ContentBlockStartEvent,
+        ContentBlockStopEvent, ConverseStreamOutput, ToolUseBlockDelta, ToolUseBlockStart,
+    };
+
+    fn sse_json(chunk: &Bytes) -> serde_json::Value {
+        let chunk = std::str::from_utf8(chunk).expect("SSE chunk should be UTF-8");
+        let payload = chunk
+            .strip_prefix("data: ")
+            .and_then(|chunk| chunk.strip_suffix("\n\n"))
+            .expect("chunk should be SSE data");
+        serde_json::from_str(payload).expect("chunk should contain JSON")
+    }
 
     #[test]
     fn determine_auth_config_prioritizes_bearer_token() {
@@ -1021,5 +1056,70 @@ mod tests {
     fn determine_auth_config_falls_back_to_environment() {
         let config = determine_auth_config(None, Some("AKIA123"), None, Some("session-token"));
         assert!(matches!(config, BedrockAuthConfig::Environment));
+    }
+
+    #[test]
+    fn bedrock_sse_tool_indexes_ignore_text_block_stops() {
+        let mut state =
+            BedrockSseStreamState::new("chatcmpl-test".to_string(), "model".to_string(), 1);
+
+        let text_delta = ConverseStreamOutput::ContentBlockDelta(
+            ContentBlockDeltaEvent::builder()
+                .content_block_index(0)
+                .delta(ContentBlockDelta::Text("hello".to_string()))
+                .build()
+                .unwrap(),
+        );
+        assert_eq!(
+            bedrock_sse_chunks_for_event(&text_delta, &mut state).len(),
+            1
+        );
+
+        let text_stop = ConverseStreamOutput::ContentBlockStop(
+            ContentBlockStopEvent::builder()
+                .content_block_index(0)
+                .build()
+                .unwrap(),
+        );
+        assert!(bedrock_sse_chunks_for_event(&text_stop, &mut state).is_empty());
+
+        let tool_start = ConverseStreamOutput::ContentBlockStart(
+            ContentBlockStartEvent::builder()
+                .content_block_index(1)
+                .start(ContentBlockStart::ToolUse(
+                    ToolUseBlockStart::builder()
+                        .tool_use_id("call_1")
+                        .name("lookup")
+                        .build()
+                        .unwrap(),
+                ))
+                .build()
+                .unwrap(),
+        );
+        let start_chunks = bedrock_sse_chunks_for_event(&tool_start, &mut state);
+        let start_json = sse_json(&start_chunks[0]);
+        assert_eq!(
+            start_json["choices"][0]["delta"]["tool_calls"][0]["index"],
+            0
+        );
+
+        let tool_delta = ConverseStreamOutput::ContentBlockDelta(
+            ContentBlockDeltaEvent::builder()
+                .content_block_index(1)
+                .delta(ContentBlockDelta::ToolUse(
+                    ToolUseBlockDelta::builder()
+                        .input("{\"city\":\"Paris\"}")
+                        .build()
+                        .unwrap(),
+                ))
+                .build()
+                .unwrap(),
+        );
+        let delta_chunks = bedrock_sse_chunks_for_event(&tool_delta, &mut state);
+        let delta_json = sse_json(&delta_chunks[0]);
+        assert_eq!(
+            delta_json["choices"][0]["delta"]["tool_calls"][0]["index"],
+            0
+        );
     }
 }

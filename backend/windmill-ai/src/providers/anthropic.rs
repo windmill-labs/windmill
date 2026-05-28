@@ -729,8 +729,7 @@ impl QueryBuilder for AnthropicQueryBuilder {
 mod tests {
     use super::*;
     use crate::{
-        proxy::{ProviderCredentials, ProxyBuildArgs},
-        query_builder::QueryBuilder,
+        credentials::ProviderCredentials, proxy::ProxyBuildArgs, query_builder::QueryBuilder,
     };
     use http::{HeaderMap, HeaderValue, Method};
     use std::collections::HashMap;
