@@ -67,57 +67,22 @@ type QueuedEntry = {
 	onDraftsRejected?: RejectedDraftsCallback
 }
 
-// `useLocalStorageValue` needs to run inside a Svelte effect scope to set up
-// its persist `$effect`. The module-level handle is lazily initialized on
-// first use so it gets a real scope (the calling component's) instead of
-// firing at import time where there's no scope.
-type LastSyncCell = {
-	val: string | undefined
-	skipNextWriteOnce(): void
-	setWithoutPersist(newVal: string | undefined): void
-}
-let lastSyncCell: LastSyncCell | undefined
-
-function readPersistedLastSync(): string | undefined {
-	if (typeof localStorage === 'undefined') return undefined
-	try {
-		const raw = localStorage.getItem(LAST_SYNC_KEY)
-		return raw ?? undefined
-	} catch {
-		return undefined
-	}
-}
-
-function writeLastSyncDirect(value: string | undefined): void {
-	if (typeof localStorage === 'undefined') return
-	try {
-		if (value === undefined) {
-			localStorage.removeItem(LAST_SYNC_KEY)
-		} else {
-			localStorage.setItem(LAST_SYNC_KEY, value)
-		}
-	} catch (e) {
-		console.error('UserDraftDbSyncer: failed to persist lastSync', e)
-	}
-}
+// Setter-only callers can use `useLocalStorageValue` at module scope by
+// disabling the nested-mutation `$effect`. The lastSync slot is a flat
+// string updated exclusively via `cell.val = ...`, so the effect is
+// unnecessary.
+const lastSyncCell = useLocalStorageValue<string | undefined>(LAST_SYNC_KEY, undefined, 'string', {
+	saveInitialValue: false
+})
 
 function getLastSync(): string | undefined {
-	if (lastSyncCell) return lastSyncCell.val
-	return readPersistedLastSync()
-}
-
-function setLastSync(value: string | undefined): void {
-	if (lastSyncCell) {
-		lastSyncCell.val = value
-	} else {
-		writeLastSyncDirect(value)
-	}
+	return lastSyncCell.val
 }
 
 function bumpLastSync(serverTimestamp: string): void {
-	const previous = getLastSync()
+	const previous = lastSyncCell.val
 	if (!previous || new Date(serverTimestamp).getTime() > new Date(previous).getTime()) {
-		setLastSync(serverTimestamp)
+		lastSyncCell.val = serverTimestamp
 	}
 }
 
@@ -211,29 +176,16 @@ export async function syncDrafts<V = unknown>(opts: SyncOptions<V>): Promise<voi
 }
 
 export const UserDraftDbSyncer = {
-	/**
-	 * Call inside a component (e.g. the root layout) to bind the persisted
-	 * `lastSync` cell to a Svelte effect scope. Without this the syncer
-	 * still works (it falls back to raw localStorage reads/writes) but the
-	 * value won't react across multiple tabs / SSR replays.
-	 */
-	mount(): void {
-		if (lastSyncCell) return
-		lastSyncCell = useLocalStorageValue<string | undefined>(LAST_SYNC_KEY, undefined, 'string', {
-			saveInitialValue: false
-		})
-	},
-
 	getLastSync,
 
 	/**
-	 * Test-only: clear the in-memory queue + lastSync cell so successive
+	 * Test-only: clear the in-memory queue + lastSync slot so successive
 	 * tests start with a clean slate.
 	 */
 	__resetForTesting(): void {
 		clearTimers()
 		queue.clear()
-		lastSyncCell = undefined
+		lastSyncCell.val = undefined
 	},
 
 	/**

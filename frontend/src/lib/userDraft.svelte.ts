@@ -765,7 +765,10 @@ function acquireEntry(
 		debounce: 500,
 		// Stamp `lastWrittenAt` at persist time so deep mutations also bump
 		// the GC clock (the setter doesn't re-run for those).
-		transformBeforePersist: stamp<unknown>
+		transformBeforePersist: stamp<unknown>,
+		// Form state writes the draft via deep mutations as well as setter
+		// assignments — both paths must persist.
+		reactToNestedUpdates: true
 	} as const
 	let stateRef: DraftState<unknown> | undefined
 	const destroyRoot = $effect.root(() => {

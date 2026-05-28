@@ -600,11 +600,21 @@ export function useLocalStorageValue<T>(
 		 * across long editing sessions.
 		 */
 		transformBeforePersist?: (val: T) => T
+		/**
+		 * Register a `$effect` that walks the stored value on every access and
+		 * persists when any nested field mutated. Required for callers that
+		 * mutate the value in place (`s.foo = bar`) rather than reassigning
+		 * via the setter. Setter-only callers (e.g. a flat string slot) should
+		 * leave this `false` — the `$effect` requires a Svelte effect scope,
+		 * so enabling it forces the hook to be called from inside a component.
+		 */
+		reactToNestedUpdates?: boolean
 	}
 ): { val: T; skipNextWriteOnce(): void; setWithoutPersist(newVal: T): void } {
 	const saveInitialValue = options?.saveInitialValue ?? true
 	const debounceMs = options?.debounce ?? 0
 	const transformBeforePersist = options?.transformBeforePersist
+	const reactToNestedUpdates = options?.reactToNestedUpdates ?? false
 	const serialize = (val: T) =>
 		typ === 'string' || typ === 'number' || typ === 'boolean' ? String(val) : JSON.stringify(val)
 	const deserialize = (val: string): T => {
@@ -672,17 +682,19 @@ export function useLocalStorageValue<T>(
 		pendingValue = undefined
 	}
 
-	$effect(() => {
-		readFieldsRecursively(s)
-		const next = s === undefined ? undefined : serialize(s)
-		if (next === lastSerialized) return
-		lastSerialized = next
-		if (skipNextWrite) {
-			skipNextWrite = false
-			return
-		}
-		schedulePersist(s)
-	})
+	if (reactToNestedUpdates) {
+		$effect(() => {
+			readFieldsRecursively(s)
+			const next = s === undefined ? undefined : serialize(s)
+			if (next === lastSerialized) return
+			lastSerialized = next
+			if (skipNextWrite) {
+				skipNextWrite = false
+				return
+			}
+			schedulePersist(s)
+		})
+	}
 
 	return {
 		get val() {
