@@ -1,6 +1,8 @@
 <script lang="ts">
 	// Hub deploy + share-as-iframe surface for the workspace.
-	// - Items list is fetched live from the workspace (apps, raw_apps, flows, scripts, resources).
+	// - Items list is fetched live from the workspace (apps, raw_apps, flows, scripts).
+	//   Resources are not items: they're derived from the items' $res: references
+	//   and synced as empty stubs (see resolveResourceSet / detectedResources).
 	// - Rate limit is read live from WorkspaceService.getSettings.
 	// - Share-as-iframe flips the app's execution_mode to 'anonymous' via AppService.updateApp
 	//   and resolves the real secret URL via AppService.getPublicSecretOfApp.
@@ -10,6 +12,7 @@
 	import WorkspaceDeployLayout from '$lib/components/WorkspaceDeployLayout.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -46,7 +49,6 @@
 		path: string
 		kind: Kind
 		summary?: string
-		resourceType?: string
 		rec: RecStatus
 		published?: boolean
 		publicUrl?: string
@@ -175,13 +177,14 @@
 
 	async function loadWorkspace(workspace: string) {
 		loading = true
+		resRefCache = new Map()
+		resTypeCache = new Map()
 		try {
-			const [apps, rawApps, flows, scripts, resources, settings] = await Promise.all([
+			const [apps, rawApps, flows, scripts, settings] = await Promise.all([
 				listAllPages((p) => AppService.listApps({ workspace, ...p })),
 				listAllPages((p) => RawAppService.listRawApps({ workspace, ...p })),
 				listAllPages((p) => FlowService.listFlows({ workspace, ...p })),
 				listAllPages((p) => ScriptService.listScripts({ workspace, ...p })),
-				listAllPages((p) => ResourceService.listResource({ workspace, ...p })),
 				WorkspaceService.getSettings({ workspace }).catch(() => undefined)
 			])
 
@@ -232,18 +235,9 @@
 					rec: 'none'
 				})
 			}
-			// Mirrors backend/workspaces_export.rs: skip internal types not meant for export.
-			const HIDDEN_RESOURCE_TYPES = new Set(['app_theme', 'state', 'cache'])
-			for (const r of resources) {
-				if (HIDDEN_RESOURCE_TYPES.has(r.resource_type)) continue
-				next.push({
-					key: `resource:${r.path}`,
-					path: r.path,
-					kind: 'resource',
-					resourceType: r.resource_type,
-					rec: 'none'
-				})
-			}
+			// Resources are NOT selectable items — they're dependencies derived from
+			// the $res: references in the selected scripts/flows/apps and shown
+			// read-only (see detectedResources).
 			workspaceItems = next
 		} catch (e: any) {
 			sendUserToast(`Failed to load workspace items: ${e?.message ?? e}`, true)
@@ -268,9 +262,7 @@
 	})
 
 	function openBundle() {
-		const folderShort =
-			selectedFolders.length === 1 ? selectedFolders[0].split('/').slice(1).join('/') : ''
-		bundleName = hubName || folderShort || ($workspaceStore ?? '')
+		bundleName = hubName
 		bundleSummary = hubSummary
 		bundleReadme = hubReadme
 		bundleDrawer?.openDrawer()
@@ -397,6 +389,179 @@
 		}
 	}
 
+	// Resource paths referenced via the canonical $res: form inside a piece of
+	// script content or a stringified flow/app value.
+	function extractResRefs(text: string): string[] {
+		const out: string[] = []
+		// Both canonical resource-reference forms the platform emits.
+		const re = /(?:\$res:|res:\/\/)([\w\-./]+)/g
+		let m: RegExpExecArray | null
+		while ((m = re.exec(text)) !== null) out.push(m[1])
+		return out
+	}
+
+	const HIDDEN_RESOURCE_TYPES = new Set(['app_theme', 'state', 'cache'])
+	// itemKey -> the $res: paths it references. Cached so toggling selection
+	// doesn't refetch unchanged items' content.
+	let resRefCache = new Map<string, string[]>()
+	// resource path -> its type. Only successful resolutions are cached; an
+	// unresolved path stays uncached so a later-created resource is picked up.
+	let resTypeCache = new Map<string, string>()
+
+	async function refsForItem(workspace: string, it: DeployItem): Promise<string[]> {
+		const cached = resRefCache.get(it.key)
+		if (cached) return cached
+		let refs: string[] = []
+		try {
+			if (it.kind === 'script') {
+				const s = await ScriptService.getScriptByPath({ workspace, path: it.path })
+				refs = extractResRefs(s.content ?? '')
+			} else if (it.kind === 'flow') {
+				const f = await FlowService.getFlowByPath({ workspace, path: it.path })
+				refs = extractResRefs(JSON.stringify(f.value ?? {}))
+			} else if (it.kind === 'app') {
+				const a = await AppService.getAppByPath({ workspace, path: it.path })
+				refs = extractResRefs(JSON.stringify(a.value ?? {}))
+			} else if (it.kind === 'raw_app') {
+				const r = await fetch(`/api/w/${workspace}/raw_apps/get_data/0/${it.path}`, {
+					credentials: 'include'
+				})
+				if (r.ok) refs = extractResRefs(await r.text())
+			}
+		} catch (e: any) {
+			// best-effort: a missing/unreadable item contributes no refs
+		}
+		resRefCache.set(it.key, refs)
+		return refs
+	}
+
+	async function typeForResource(workspace: string, path: string): Promise<string> {
+		const cached = resTypeCache.get(path)
+		if (cached) return cached
+		let rt = ''
+		try {
+			const r = await ResourceService.getResource({ workspace, path })
+			rt = r.resource_type ?? ''
+		} catch (e: any) {
+			// referenced path with no resource in the source workspace
+		}
+		if (rt) resTypeCache.set(path, rt)
+		return rt
+	}
+
+	interface DetectedResource {
+		path: string
+		resource_type: string
+		usedBy: { key: string; label: string; kind: Kind }[]
+	}
+
+	// Resources a fork needs: every $res: reference found in the selected
+	// scripts/flows/apps, resolved to {path, type} and tagged with which items
+	// reference it. Values are never read. A referenced path with no resource in
+	// the source workspace (or a hidden internal type) is skipped.
+	async function resolveResourceSet(workspace: string): Promise<DetectedResource[]> {
+		const byPath = new Map<string, { key: string; label: string; kind: Kind }[]>()
+		const items = selectedItems
+		const refsPerItem = await Promise.all(items.map((it) => refsForItem(workspace, it)))
+		items.forEach((it, i) => {
+			const origin = { key: it.key, label: it.summary?.trim() || it.path, kind: it.kind }
+			for (const p of refsPerItem[i]) {
+				const arr = byPath.get(p) ?? []
+				if (!arr.some((o) => o.key === origin.key)) arr.push(origin)
+				byPath.set(p, arr)
+			}
+		})
+		const paths = [...byPath.keys()]
+		const types = await Promise.all(paths.map((p) => typeForResource(workspace, p)))
+		const resolved: DetectedResource[] = []
+		paths.forEach((path, i) => {
+			const rt = types[i]
+			if (rt && !HIDDEN_RESOURCE_TYPES.has(rt))
+				resolved.push({ path, resource_type: rt, usedBy: byPath.get(path)! })
+		})
+		return resolved.sort((a, b) => a.path.localeCompare(b.path))
+	}
+
+	// Read-only preview of the resource stubs that will be synced, kept in sync
+	// with the current selection.
+	let detectedResources = $state<DetectedResource[]>([])
+	let detectingResources = $state(false)
+	$effect(() => {
+		const workspace = $workspaceStore
+		// re-run when the selection changes
+		selectedItemKeys
+		if (!workspace || phase !== 'predeploy') {
+			detectedResources = []
+			return
+		}
+		let cancelled = false
+		detectingResources = true
+		resolveResourceSet(workspace)
+			.then((r) => {
+				if (!cancelled) detectedResources = r
+			})
+			.finally(() => {
+				if (!cancelled) detectingResources = false
+			})
+		return () => {
+			cancelled = true
+		}
+	})
+
+	async function pushResourceTypes(
+		workspace: string,
+		slug: string,
+		resolved: { path: string; resource_type: string }[]
+	): Promise<number> {
+		const uniques = Array.from(new Set(resolved.map((r) => r.resource_type)))
+		const results = await Promise.all(
+			uniques.map(async (name) => {
+				let schema: unknown = undefined
+				let description: string | undefined = undefined
+				try {
+					const rt = await ResourceService.getResourceType({ workspace, path: name })
+					schema = rt.schema ?? undefined
+					description = rt.description ?? undefined
+				} catch (e: any) {
+					// Builtin types (e.g. git_repository) aren't in the workspace resource_type
+					// table; push with an empty schema so the Hub still tracks the dependency.
+				}
+				try {
+					await postHub(workspace, '/hub/resource_types', {
+						name,
+						schema,
+						description,
+						workspace_slug: slug
+					})
+					return 0
+				} catch (e: any) {
+					sendUserToast(`Resource type ${name} push failed: ${e?.message ?? e}`, true)
+					return 1
+				}
+			})
+		)
+		return results.reduce((a, b) => a + b, 0)
+	}
+
+	// Sync the empty resource stubs (path + type, never values) so a fork can
+	// recreate those paths and prompt the user to fill credentials. Must run
+	// after pushResourceTypes — the Hub rejects a resource whose type it doesn't
+	// yet know.
+	async function pushResources(
+		workspace: string,
+		slug: string,
+		resolved: { path: string; resource_type: string }[]
+	): Promise<number> {
+		if (resolved.length === 0) return 0
+		try {
+			await postHub(workspace, '/hub/resources', { resources: resolved, workspace_slug: slug })
+			return 0
+		} catch (e: any) {
+			sendUserToast(`Resource sync failed: ${e?.message ?? e}`, true)
+			return 1
+		}
+	}
+
 	async function deployAll() {
 		const workspace = $workspaceStore
 		if (!workspace) return
@@ -404,6 +569,20 @@
 		deploying = true
 		let failures = 0
 		try {
+			const resolvedResources = await resolveResourceSet(workspace)
+			const depFailures =
+				(await pushResourceTypes(workspace, slug, resolvedResources)) +
+				(await pushResources(workspace, slug, resolvedResources))
+			failures += depFailures
+			// Don't publish items whose resource dependencies failed to sync — a fork
+			// would get scripts/flows with $res: references that resolve to no stub.
+			if (depFailures > 0) {
+				sendUserToast(
+					`Resource dependency sync failed — items not published to avoid broken references.`,
+					true
+				)
+				return
+			}
 			for (const it of selectedItems) {
 				deploymentStatus = { ...deploymentStatus, [it.key]: { status: 'loading' } }
 				try {
@@ -828,6 +1007,53 @@
 						</span>
 					</div>
 				{/if}
+				{#if phase === 'predeploy'}
+					<div class="flex flex-col gap-1 text-xs">
+						<span class="font-semibold text-primary">
+							Resource dependencies
+							{#if detectingResources}
+								<Loader2 size={11} class="inline animate-spin text-hint" />
+							{:else}
+								<span class="text-hint">({detectedResources.length})</span>
+							{/if}
+							<Tooltip>
+								Resources referenced by the selected items. Synced to the Hub as empty stubs
+								(path + type only, never values) so a fork recreates them and prompts you to fill
+								credentials.
+							</Tooltip>
+						</span>
+						{#if detectedResources.length === 0}
+							<span class="text-[11px] text-hint">
+								No resource references detected in the current selection.
+							</span>
+						{:else}
+							<div class="flex flex-wrap gap-1.5 rounded-md border bg-surface-secondary p-2">
+								{#each detectedResources as r (r.path)}
+									<Popover notClickable placement="top">
+										<span
+											class="inline-flex items-center gap-1 rounded border bg-surface px-1.5 py-0.5 font-mono text-[11px] text-secondary"
+										>
+											{r.resource_type}
+											<span class="text-hint">({r.usedBy.length})</span>
+										</span>
+										{#snippet text()}
+											<div class="flex flex-col gap-1 text-left text-[11px]">
+												<div class="flex items-center gap-1.5">
+													<Badge color="transparent" size="xs">{r.resource_type}</Badge>
+													<span class="font-mono">{r.path}</span>
+												</div>
+												<div class="text-hint">used by</div>
+												{#each r.usedBy as u (u.key)}
+													<span class="font-mono">{u.kind}: {u.label}</span>
+												{/each}
+											</div>
+										{/snippet}
+									</Popover>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				{/if}
 				{#if phase === 'under_review'}
 					<div
 						class="flex items-start gap-2 rounded-md border border-blue-300 bg-blue-50 p-3 text-xs text-blue-900 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-100"
@@ -884,7 +1110,7 @@
 		{#snippet itemSummary(item)}
 			{@const it = item as DeployItem}
 			<span class="truncate">
-				{it.kind === 'resource' ? (it.resourceType ?? it.path) : it.summary?.trim() || it.path}
+				{it.summary?.trim() || it.path}
 			</span>
 		{/snippet}
 
