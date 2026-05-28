@@ -158,7 +158,19 @@ function createRuntime(session: Session): SessionRuntime {
 	// session targeting the right workspace. Both calls are idempotent.
 	manager.beforeSend = async () => {
 		materializeTransient(session.id)
-		await commitSessionWorkspace(session.id, get(workspaceStore) ?? undefined)
+		const committed = await commitSessionWorkspace(session.id, get(workspaceStore) ?? undefined)
+		// commitSessionWorkspace returns undefined only when the session did NOT
+		// commit to a workspace — most importantly when a staged fork failed to
+		// materialise (materializeFork is built to toast + return undefined rather
+		// than throw). Throwing here is what makes AIChatManager.sendRequest abort:
+		// otherwise the send proceeds against get(workspaceStore) (the parent for a
+		// staged-new-fork draft), shipping the message + its tool calls to the
+		// wrong workspace while the pending_fork is silently dropped.
+		if (!committed) {
+			throw new Error(
+				'the session workspace could not be created or committed (fork creation may have failed)'
+			)
+		}
 	}
 
 	const flowStore: StateStore<Flow> = $state({ val: emptyFlow() })

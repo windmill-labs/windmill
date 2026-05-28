@@ -244,6 +244,11 @@
 	async function moveAndActivate(targetWorkspaceId: string) {
 		if (!session) return
 		moveSessionToWorkspace(session.id, targetWorkspaceId)
+		// Point the app at the moved-to workspace too. Without this the global
+		// workspace stays on the old (now-unavailable) one, so scope/editor keep
+		// resolving against a dead workspace — mirrors what moveSessionToNewFork
+		// does internally and handleConfirmedDelete does explicitly.
+		syncWorkspaceTo(targetWorkspaceId)
 	}
 
 	async function createForkAndMove(fork: {

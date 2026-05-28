@@ -325,7 +325,14 @@
 			untrack(() => {
 				nobackenddraft = false // fresh nav reconsiders the backend draft
 				renderEditor = false // remount the builder for the navigated-to flow
-				loadFlow()
+				loadFlow().catch((e: any) => {
+					// A failed load must NOT leave renderEditor stuck false — otherwise
+					// the editor pane disappears and never remounts. Surface the error
+					// and remount so the user isn't stranded on a blank pane.
+					console.error('Failed to load flow', e)
+					sendUserToast(`Failed to load flow: ${e?.body ?? e?.message ?? e}`, true)
+					renderEditor = true
+				})
 			})
 		}
 	})

@@ -1,7 +1,27 @@
-import { describe, it, expect } from 'vitest'
-import { deriveForkStatus, isForkSession, type Session } from './sessionState.svelte'
+import { describe, it, expect, vi } from 'vitest'
+import {
+	commitSessionWorkspace,
+	deriveForkStatus,
+	isForkSession,
+	sessionState,
+	type Session
+} from './sessionState.svelte'
 import type { UserWorkspace } from '$lib/stores'
 import type { WorkspaceComparison } from '$lib/gen'
+
+// Force createWorkspaceFork to fail so we can pin commitSessionWorkspace's
+// failure contract (the invariant the beforeSend abort fix relies on).
+vi.mock('$lib/gen', async (orig) => {
+	const actual = await orig<typeof import('$lib/gen')>()
+	return {
+		...actual,
+		WorkspaceService: {
+			...actual.WorkspaceService,
+			createWorkspaceFork: vi.fn().mockRejectedValue(new Error('fork creation failed')),
+			listUserWorkspaces: vi.fn().mockResolvedValue([])
+		}
+	}
+})
 
 // Minimal fixtures — only the fields these pure helpers read matter; the rest
 // is filled via cast so we don't track unrelated schema churn.
@@ -94,5 +114,29 @@ describe('deriveForkStatus', () => {
 		expect(
 			deriveForkStatus(session({ workspace_id: 'fork' }), [ws('fork', 'root')], comparison(0, 2))
 		).toBe('in_sync')
+	})
+})
+
+describe('commitSessionWorkspace — fork-creation failure', () => {
+	it('returns undefined and drops pending_fork (so beforeSend aborts the send)', async () => {
+		const id = 'test-commit-fork-fail'
+		sessionState.sessions.push({
+			id,
+			name: 'fork-fail',
+			createdAt: 0,
+			pending_fork: { parent_workspace_id: 'parent_ws', id: 'wm-fork-nope', name: 'nope' }
+		} as Session)
+		try {
+			const committed = await commitSessionWorkspace(id, 'parent_ws')
+			// Not committed → undefined. This is what makes beforeSend throw rather
+			// than letting the first message ship to the parent workspace.
+			expect(committed).toBeUndefined()
+			const s = sessionState.sessions.find((x) => x.id === id)
+			expect(s?.workspace_id).toBeUndefined()
+			expect(s?.pending_fork).toBeUndefined()
+		} finally {
+			const i = sessionState.sessions.findIndex((x) => x.id === id)
+			if (i >= 0) sessionState.sessions.splice(i, 1)
+		}
 	})
 })
