@@ -44,7 +44,7 @@ use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
 use windmill_common::{
     assets::{
         clear_script_triggers, clear_static_asset_usage, clear_static_asset_usage_by_script_hash,
-        delete_managed_pipeline_schedule, insert_script_trigger, insert_static_asset_usage,
+        insert_script_trigger, insert_static_asset_usage,
         parse_duration_secs, parse_pipeline_annotations,
         trigger_spec_to_row, AssetUsageKind, AssetWithAltAccessType, TriggerSpec,
     },
@@ -2536,9 +2536,8 @@ async fn archive_script_by_path(
     clear_static_asset_usage(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
     // Pipeline event hygiene: an archived script must not be triggered by
     // anything. Wipe declared `// on ...` edges (asset-event subscribers
-    // look these up) and drop any managed schedule we auto-created.
+    // look these up).
     clear_script_triggers(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
-    delete_managed_pipeline_schedule(&mut *tx, &w_id, path).await?;
 
     audit_log(
         &mut *tx,
@@ -2617,10 +2616,8 @@ async fn archive_script_by_hash(
     check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
     clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
     // Pipeline event hygiene: archived scripts must not be triggered by
-    // anything. Wipe declared `// on ...` edges and drop any managed
-    // schedule.
+    // anything. Wipe declared `// on ...` edges.
     clear_script_triggers(&mut *tx, &w_id, &script.path, AssetUsageKind::Script).await?;
-    delete_managed_pipeline_schedule(&mut *tx, &w_id, &script.path).await?;
 
     audit_log(
         &mut *tx,
@@ -2682,11 +2679,9 @@ async fn delete_script_by_hash(
 
     clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
     // Pipeline event hygiene: a deleted script must not be triggered by
-    // anything. Wipe declared `// on ...` edges and drop any managed
-    // schedule. Idempotent — safe even if the script was never a pipeline
-    // member.
+    // anything. Wipe declared `// on ...` edges. Idempotent — safe even if
+    // the script was never a pipeline member.
     clear_script_triggers(&mut *tx, &w_id, &script.path, AssetUsageKind::Script).await?;
-    delete_managed_pipeline_schedule(&mut *tx, &w_id, &script.path).await?;
 
     audit_log(
         &mut *tx,
@@ -2811,11 +2806,9 @@ async fn delete_script_by_path(
     .await?;
 
     // Pipeline event hygiene: a deleted script must not be triggered by
-    // anything. Wipe declared `// on ...` edges and drop any managed
-    // schedule. Idempotent — safe even if the script was never a pipeline
-    // member.
+    // anything. Wipe declared `// on ...` edges. Idempotent — safe even if
+    // the script was never a pipeline member.
     clear_script_triggers(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
-    delete_managed_pipeline_schedule(&mut *tx, &w_id, path).await?;
 
     if !query.keep_captures.unwrap_or(false) {
         sqlx::query!(

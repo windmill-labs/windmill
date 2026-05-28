@@ -103,31 +103,6 @@ pub async fn clear_script_triggers<'e>(
     Ok(())
 }
 
-// Drop any managed schedule rows left over from an earlier release of the
-// pipeline editor (when `// schedule "<cron>"` annotations auto-created a
-// `managed = true` row on every deploy). Schedule annotations are now
-// marker-only — the binding lives on the schedule row's own `script_path`
-// field, same as kafka/mqtt/etc. — but this cleanup hook stays in place so
-// script archive/delete still nukes the orphaned managed rows. Manual
-// schedules at the same path keep `managed = false` and are untouched.
-pub async fn delete_managed_pipeline_schedule<'e>(
-    executor: impl PgExecutor<'e>,
-    workspace_id: &str,
-    runnable_path: &str,
-) -> error::Result<()> {
-    sqlx::query!(
-        r#"DELETE FROM schedule
-           WHERE workspace_id = $1
-             AND script_path = $2
-             AND managed"#,
-        workspace_id,
-        runnable_path,
-    )
-    .execute(executor)
-    .await?;
-    Ok(())
-}
-
 // Insert a single trigger declaration. Caller is expected to wipe first.
 // `join_all` is the script-level `// trigger all` flag (AND join barrier);
 // `retry_count` / `retry_delay_s` are the `// retry <n> [<delay>]` policy.
