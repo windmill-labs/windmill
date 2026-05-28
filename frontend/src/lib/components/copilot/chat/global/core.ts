@@ -3051,14 +3051,16 @@ async function deployDraft(
 
 	deleteGlobalDraft(workspace, type, path, triggerKind, { preserveLiveDraft: true })
 
-	// Reload the session preview if it's open on the deployed item. A raw app
-	// deploys under type 'app' (bundle + createAppRaw/updateAppRaw above) but the
-	// session preview addresses it as 'raw_app'.
-	if (type === 'script' || type === 'flow') {
-		deployedInSessionHandler?.({ sessionId, kind: type, path })
-	} else if (type === 'app') {
-		deployedInSessionHandler?.({ sessionId, kind: 'raw_app', path })
+	// Reload the session preview if it's open on the deployed item. Map the
+	// deploy type to the preview kind — a raw app deploys under 'app' but the
+	// preview addresses it as 'raw_app'; non-previewable types map to undefined.
+	const previewKindByType: Partial<Record<WorkspaceItemType, 'script' | 'flow' | 'raw_app'>> = {
+		script: 'script',
+		flow: 'flow',
+		app: 'raw_app'
 	}
+	const kind = previewKindByType[type]
+	if (kind) deployedInSessionHandler?.({ sessionId, kind, path })
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deployed ${type} "${path}"`,
