@@ -681,7 +681,11 @@ export class AIChatManager {
 					} else if (this.mode === AIMode.NAVIGATOR) {
 						return prepareNavigatorUserMessage(pendingPrompt)
 					} else if (this.mode === AIMode.GLOBAL) {
-						return prepareGlobalUserMessage(pendingPrompt, this.contextManager.getSelectedContext())
+						return prepareGlobalUserMessage(
+							pendingPrompt,
+							this.contextManager.getSelectedContext(),
+							{ workspace: get(workspaceStore) }
+						)
 					}
 					return undefined
 				},
@@ -898,7 +902,9 @@ export class AIChatManager {
 					userMessage = prepareApiUserMessage(oldInstructions)
 					break
 				case AIMode.GLOBAL:
-					userMessage = prepareGlobalUserMessage(oldInstructions, oldSelectedContext)
+					userMessage = prepareGlobalUserMessage(oldInstructions, oldSelectedContext, {
+						workspace: get(workspaceStore)
+					})
 					break
 				case AIMode.APP:
 					userMessage = prepareAppUserMessage(

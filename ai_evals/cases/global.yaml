@@ -341,3 +341,92 @@
     - updates the total calculation to apply 8% tax
     - returns subtotal, tax, and total from the updated flow logic
     - leaves the result as an AI draft only
+
+- id: global-test12-current-live-script-edit
+  prompt: |-
+    The script I have open formats greetings.
+    Can you update this script so it uppercases the name before greeting them and ends with an exclamation mark?
+    Keep it as draft work.
+  initial: ai_evals/fixtures/frontend/global/initial/current_greeting_live_script.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/current_greeting
+        language: bun
+        valueIncludes:
+          - toUpperCase
+          - "!"
+    forbiddenDrafts:
+      - type: script
+        path: f/evals/global/format_greeting
+      - type: script
+        path: f/evals/global/format_greeting_archive
+  toolExpect:
+    requiredToolsUsed:
+      - read_workspace_item
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - resolves "this script" to the active live editor script instead of another similarly named workspace script
+    - updates the greeting logic to uppercase the provided name
+    - returns a greeting ending with an exclamation mark
+    - leaves the result as a draft only
+
+- id: global-test13-current-live-flow-edit
+  prompt: |-
+    I have the invoice flow open.
+    In the current flow, update the total calculation to add 8% tax and return subtotal, tax, and total.
+    Keep the change as a draft.
+  initial: ai_evals/fixtures/frontend/global/initial/current_invoice_live_flow.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: flow
+        path: f/evals/global/current_invoice_flow
+        valueIncludes:
+          - calculate_total
+          - tax
+          - total
+    forbiddenDrafts:
+      - type: flow
+        path: f/evals/global/process_invoice
+      - type: flow
+        path: f/evals/global/process_refund
+  toolExpect:
+    requiredToolsUsed:
+      - read_workspace_item
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - resolves "current flow" to the active live editor flow
+    - does not edit the similarly named deployed invoice or refund flows
+    - updates the calculate_total logic to apply 8% tax
+    - returns subtotal, tax, and total from the updated flow logic
+    - leaves the result as a draft only
+
+- id: global-test14-current-without-live-editor-asks-question
+  prompt: |-
+    Please update this script so it returns `ok`.
+    Keep it as a draft.
+  runtime:
+    maxTurns: 4
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    forbiddenToolsUsed:
+      - write_script
+      - edit_script
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - asks which script to update when the user refers to "this script" without selected or active editor context
+    - does not guess a path or create a new script draft
