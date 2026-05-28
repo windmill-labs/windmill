@@ -50,6 +50,7 @@ use windmill_common::secret_backend::{
     AwsSecretsManagerSettings, AzureKeyVaultSettings, SecretMigrationReport, VaultSettings,
 };
 use windmill_common::{
+    auth::is_super_admin_email,
     ee_oss::{get_license_plan, LicensePlan},
     email_oss::send_email_plain_text,
     error::{self, JsonResult, Result},
@@ -1159,7 +1160,7 @@ struct CustomInstanceDbLogs {
 }
 
 async fn list_custom_instance_pg_databases(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<HashMap<String, CustomInstanceDb>> {
     let result = sqlx::query_scalar!(
@@ -1176,44 +1177,46 @@ async fn list_custom_instance_pg_databases(
             ))
         })?;
 
-    // Enrich each database with the list of workspaces referencing it through
-    // either a ducklake catalog or a datatable database whose resource_type is
-    // 'instance'. Not stored in DB to avoid drift.
-    let usages = sqlx::query!(
-        r#"
-        SELECT ws.workspace_id AS "workspace_id!", entry->'catalog'->>'resource_path' AS dbname
-        FROM workspace_settings ws
-        CROSS JOIN LATERAL jsonb_each(
-            CASE WHEN jsonb_typeof(ws.ducklake->'ducklakes') = 'object'
-                 THEN ws.ducklake->'ducklakes'
-                 ELSE '{}'::jsonb END
-        ) AS dl(k, entry)
-        WHERE entry->'catalog'->>'resource_type' = 'instance'
-          AND entry->'catalog'->>'resource_path' IS NOT NULL
-        UNION ALL
-        SELECT ws.workspace_id AS "workspace_id!", entry->'database'->>'resource_path' AS dbname
-        FROM workspace_settings ws
-        CROSS JOIN LATERAL jsonb_each(
-            CASE WHEN jsonb_typeof(ws.datatable->'datatables') = 'object'
-                 THEN ws.datatable->'datatables'
-                 ELSE '{}'::jsonb END
-        ) AS dt(k, entry)
-        WHERE entry->'database'->>'resource_type' = 'instance'
-          AND entry->'database'->>'resource_path' IS NOT NULL
-        "#,
-    )
-    .fetch_all(&db)
-    .await?;
+    if is_super_admin_email(&db, &authed.email).await? {
+        // Enrich each database with the list of workspaces referencing it through
+        // either a ducklake catalog or a datatable database whose resource_type is
+        // 'instance'. Not stored in DB to avoid drift.
+        let usages = sqlx::query!(
+            r#"
+            SELECT ws.workspace_id AS "workspace_id!", entry->'catalog'->>'resource_path' AS dbname
+            FROM workspace_settings ws
+            CROSS JOIN LATERAL jsonb_each(
+                CASE WHEN jsonb_typeof(ws.ducklake->'ducklakes') = 'object'
+                    THEN ws.ducklake->'ducklakes'
+                    ELSE '{}'::jsonb END
+            ) AS dl(k, entry)
+            WHERE entry->'catalog'->>'resource_type' = 'instance'
+            AND entry->'catalog'->>'resource_path' IS NOT NULL
+            UNION ALL
+            SELECT ws.workspace_id AS "workspace_id!", entry->'database'->>'resource_path' AS dbname
+            FROM workspace_settings ws
+            CROSS JOIN LATERAL jsonb_each(
+                CASE WHEN jsonb_typeof(ws.datatable->'datatables') = 'object'
+                    THEN ws.datatable->'datatables'
+                    ELSE '{}'::jsonb END
+            ) AS dt(k, entry)
+            WHERE entry->'database'->>'resource_type' = 'instance'
+            AND entry->'database'->>'resource_path' IS NOT NULL
+            "#,
+        )
+        .fetch_all(&db)
+        .await?;
 
-    let mut by_db: HashMap<String, BTreeSet<String>> = HashMap::new();
-    for row in usages {
-        if let Some(dbname) = row.dbname {
-            by_db.entry(dbname).or_default().insert(row.workspace_id);
+        let mut by_db: HashMap<String, BTreeSet<String>> = HashMap::new();
+        for row in usages {
+            if let Some(dbname) = row.dbname {
+                by_db.entry(dbname).or_default().insert(row.workspace_id);
+            }
         }
-    }
-    for (dbname, entry) in result.iter_mut() {
-        if let Some(workspaces) = by_db.remove(dbname) {
-            entry.used_by_workspaces = workspaces.into_iter().collect();
+        for (dbname, entry) in result.iter_mut() {
+            if let Some(workspaces) = by_db.remove(dbname) {
+                entry.used_by_workspaces = workspaces.into_iter().collect();
+            }
         }
     }
 
