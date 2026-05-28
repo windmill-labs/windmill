@@ -14,6 +14,11 @@
 		normalizeReasoningEffortForCapability,
 		type AIReasoningEffort
 	} from '../reasoning'
+	import { AI_PROVIDERS } from '../lib'
+
+	function providerLabel(provider: string): string {
+		return AI_PROVIDERS[provider as keyof typeof AI_PROVIDERS]?.label ?? provider
+	}
 
 	let providerModel = $derived(
 		$copilotSessionModel ??
@@ -53,8 +58,8 @@
 	<DropdownV2
 		items={() =>
 			$copilotInfo.aiModels.map((m) => ({
-				displayName: m.model,
-				selected: m.model === providerModel.model,
+				displayName: `${m.model} · ${providerLabel(m.provider)}`,
+				selected: m.model === providerModel.model && m.provider === providerModel.provider,
 				action: () => {
 					$copilotSessionModel = m
 					storeLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME, m.model)
@@ -62,6 +67,7 @@
 				}
 			}))}
 		placement="bottom-end"
+		customWidth={320}
 		fixedHeight={false}
 	>
 		{#snippet buttonReplacement()}
@@ -70,15 +76,15 @@
 				unifiedSize="2xs"
 				variant="subtle"
 				endIcon={{ icon: ChevronDown }}
-				btnClasses="max-w-[160px] text-secondary font-normal"
+				btnClasses="max-w-[260px] text-secondary font-normal"
 			>
-				<span class="truncate">{providerModel.model}</span>
+				<span class="truncate">{providerModel.model} · {providerLabel(providerModel.provider)}</span>
 			</Button>
 		{/snippet}
 	</DropdownV2>
 {:else}
-	<Button unifiedSize="2xs" variant="subtle" btnClasses="max-w-[160px] text-secondary font-normal">
-		<span class="truncate">{providerModel.model}</span>
+	<Button unifiedSize="2xs" variant="subtle" btnClasses="max-w-[260px] text-secondary font-normal">
+		<span class="truncate">{providerModel.model} · {providerLabel(providerModel.provider)}</span>
 	</Button>
 {/if}
 

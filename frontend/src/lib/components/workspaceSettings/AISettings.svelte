@@ -5,6 +5,7 @@
 		WorkspaceService,
 		type AIConfig,
 		type AIProvider,
+		type AIProviderModel,
 		type GetCopilotSettingsStateResponse,
 		type InstanceAISummary,
 		type OpenAIChatGPTAccountDeviceCompleteResponse,
@@ -69,8 +70,8 @@
 
 	// --- Internal state ---
 	let aiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
-	let codeCompletionModel: string | undefined = $state(undefined)
-	let defaultModel: string | undefined = $state(undefined)
+	let codeCompletionModelKey: string | undefined = $state(undefined)
+	let defaultModelKey: string | undefined = $state(undefined)
 	let customPrompts: Record<string, string> = $state({})
 	let maxTokensPerModel: Record<string, number> = $state({})
 	let usingOpenaiClientCredentialsOauth = $state(false)
@@ -82,8 +83,8 @@
 
 	// --- Initial state for dirty tracking ---
 	let initialAiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
-	let initialCodeCompletionModel: string | undefined = $state(undefined)
-	let initialDefaultModel: string | undefined = $state(undefined)
+	let initialCodeCompletionModelKey: string | undefined = $state(undefined)
+	let initialDefaultModelKey: string | undefined = $state(undefined)
 	let initialCustomPrompts: Record<string, string> = $state({})
 	let initialMaxTokensPerModel: Record<string, number> = $state({})
 	let initialPrompts: Record<string, string> = $state({})
@@ -93,10 +94,37 @@
 		return JSON.parse(JSON.stringify(v))
 	}
 
+	function providerLabel(provider: AIProvider): string {
+		return AI_PROVIDERS[provider]?.label ?? provider
+	}
+
+	function providerModelKeyFromParts(provider: AIProvider, model: string): string {
+		return `${provider}:${model}`
+	}
+
+	function providerModelKey(providerModel: AIProviderModel | undefined): string | undefined {
+		return providerModel
+			? providerModelKeyFromParts(providerModel.provider, providerModel.model)
+			: undefined
+	}
+
+	function providerModelLabel(providerModel: AIProviderModel): string {
+		return `${providerModel.model} · ${providerLabel(providerModel.provider)}`
+	}
+
+	function hasProviderModelKey(key: string | undefined): boolean {
+		if (!key) return false
+		return Object.entries(aiProviders).some(([provider, config]) =>
+			config.models.some(
+				(model) => providerModelKeyFromParts(provider as AIProvider, model) === key
+			)
+		)
+	}
+
 	function applyConfig(config: AIConfig | undefined) {
 		aiProviders = clone(config?.providers ?? {})
-		defaultModel = config?.default_model?.model
-		codeCompletionModel = config?.code_completion_model?.model
+		defaultModelKey = providerModelKey(config?.default_model)
+		codeCompletionModelKey = providerModelKey(config?.code_completion_model)
 		customPrompts = clone(config?.custom_prompts ?? {})
 		maxTokensPerModel = clone(config?.max_tokens_per_model ?? {})
 		for (const mode of ['edit', 'fix', 'gen']) {
@@ -108,8 +136,8 @@
 
 	function storeInitialState() {
 		initialAiProviders = clone(aiProviders)
-		initialDefaultModel = defaultModel
-		initialCodeCompletionModel = codeCompletionModel
+		initialDefaultModelKey = defaultModelKey
+		initialCodeCompletionModelKey = codeCompletionModelKey
 		initialCustomPrompts = clone(customPrompts)
 		initialMaxTokensPerModel = clone(maxTokensPerModel)
 		initialPrompts = clone(customPrompts)
@@ -122,8 +150,8 @@
 
 	export function discard() {
 		aiProviders = clone(initialAiProviders)
-		defaultModel = initialDefaultModel
-		codeCompletionModel = initialCodeCompletionModel
+		defaultModelKey = initialDefaultModelKey
+		codeCompletionModelKey = initialCodeCompletionModelKey
 		customPrompts = clone(initialCustomPrompts)
 		maxTokensPerModel = clone(initialMaxTokensPerModel)
 	}
@@ -155,8 +183,8 @@
 	// --- Dirty tracking ---
 	let dirty = $derived(
 		JSON.stringify(aiProviders) !== JSON.stringify(initialAiProviders) ||
-			defaultModel !== initialDefaultModel ||
-			codeCompletionModel !== initialCodeCompletionModel ||
+			defaultModelKey !== initialDefaultModelKey ||
+			codeCompletionModelKey !== initialCodeCompletionModelKey ||
 			JSON.stringify(customPrompts) !== JSON.stringify(initialCustomPrompts) ||
 			JSON.stringify(maxTokensPerModel) !== JSON.stringify(initialMaxTokensPerModel)
 	)
@@ -195,18 +223,26 @@
 		!usesInstanceAiConfig || Object.keys(aiProviders).length > 0 || workspaceOverrideEditorOpened
 	)
 
-	let selectedAiModels = $derived(Object.values(aiProviders).flatMap((p) => p.models))
+	let selectedAiModels = $derived(
+		Object.entries(aiProviders).flatMap(([provider, config]) =>
+			config.models.map((model) => ({ provider: provider as AIProvider, model }))
+		)
+	)
+	let selectedAiModelOptions = $derived(
+		selectedAiModels.map((model) => ({
+			value: providerModelKey(model)!,
+			label: providerModelLabel(model)
+		}))
+	)
 	let modelProviderMap = $derived(
 		Object.fromEntries(
-			Object.entries(aiProviders).flatMap(([provider, config]) =>
-				config.models.map((m) => [m, provider as AIProvider])
-			)
-		)
+			selectedAiModels.map((model) => [providerModelKey(model)!, model])
+		) as Record<string, AIProviderModel>
 	)
 	$effect(() => {
 		if (Object.keys(aiProviders).length < 1) {
-			codeCompletionModel = undefined
-			defaultModel = undefined
+			codeCompletionModelKey = undefined
+			defaultModelKey = undefined
 		}
 	})
 
@@ -239,14 +275,10 @@
 	}
 
 	function buildConfig(): AIConfig {
-		const code_completion_model =
-			codeCompletionModel && modelProviderMap[codeCompletionModel]
-				? { model: codeCompletionModel, provider: modelProviderMap[codeCompletionModel] }
-				: undefined
-		const default_model =
-			defaultModel && modelProviderMap[defaultModel]
-				? { model: defaultModel, provider: modelProviderMap[defaultModel] }
-				: undefined
+		const code_completion_model = codeCompletionModelKey
+			? modelProviderMap[codeCompletionModelKey]
+			: undefined
+		const default_model = defaultModelKey ? modelProviderMap[defaultModelKey] : undefined
 		const custom_prompts: Record<string, string> = Object.entries(customPrompts)
 			.filter(([_, prompt]) => prompt.trim().length > 0)
 			.reduce((acc, [mode, prompt]) => ({ ...acc, [mode]: prompt }), {})
@@ -266,8 +298,8 @@
 	function isSaveDisabled(): boolean {
 		return (
 			!Object.values(aiProviders).every((p) => p.resource_path) ||
-			(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
-			(Object.keys(aiProviders).length > 0 && !defaultModel)
+			(codeCompletionModelKey != undefined && codeCompletionModelKey.length === 0) ||
+			(Object.keys(aiProviders).length > 0 && !defaultModelKey)
 		)
 	}
 
@@ -414,7 +446,15 @@
 
 	onDestroy(clearChatGPTDevicePoll)
 
-	const autocompleteModels = $derived(selectedAiModels.filter(supportsAutocomplete))
+	const autocompleteModels = $derived(
+		selectedAiModels.filter((providerModel) => supportsAutocomplete(providerModel.model))
+	)
+	const autocompleteModelOptions = $derived(
+		autocompleteModels.map((model) => ({
+			value: providerModelKey(model)!,
+			label: providerModelLabel(model)
+		}))
+	)
 </script>
 
 <SettingsPageHeader {title} {description} {link} />
@@ -464,28 +504,21 @@
 											}
 										}
 
-										if (availableAiModels[provider].length > 0 && !defaultModel) {
-											defaultModel = availableAiModels[provider][0]
+										if (availableAiModels[provider].length > 0 && !defaultModelKey) {
+											defaultModelKey = providerModelKeyFromParts(
+												provider as AIProvider,
+												availableAiModels[provider][0]
+											)
 										}
 									} else {
 										aiProviders = Object.fromEntries(
 											Object.entries(aiProviders).filter(([key]) => key !== provider)
 										)
-										if (defaultModel) {
-											const currentDefaultModel = Object.values(aiProviders).find(
-												(p) => defaultModel && p.models.includes(defaultModel)
-											)
-											if (!currentDefaultModel) {
-												defaultModel = undefined
-											}
+										if (defaultModelKey && !hasProviderModelKey(defaultModelKey)) {
+											defaultModelKey = undefined
 										}
-										if (codeCompletionModel) {
-											const currentCodeCompletionModel = Object.values(aiProviders).find(
-												(p) => codeCompletionModel && p.models.includes(codeCompletionModel)
-											)
-											if (!currentCodeCompletionModel) {
-												codeCompletionModel = undefined
-											}
+										if (codeCompletionModelKey && !hasProviderModelKey(codeCompletionModelKey)) {
+											codeCompletionModelKey = undefined
 										}
 									}
 								}}
@@ -597,8 +630,8 @@
 		<SettingCard label="Default chat model">
 			{#key Object.keys(aiProviders).length}
 				<Select
-					items={safeSelectItems(selectedAiModels)}
-					bind:value={defaultModel}
+					items={safeSelectItems(selectedAiModelOptions)}
+					bind:value={defaultModelKey}
 					disabled={false}
 					placeholder="Select a default model"
 					size="sm"
@@ -613,13 +646,13 @@
 				<Toggle
 					on:change={(e) => {
 						if (e.detail) {
-							codeCompletionModel = autocompleteModels[0] ?? ''
+							codeCompletionModelKey = autocompleteModelOptions[0]?.value ?? ''
 						} else {
-							codeCompletionModel = undefined
+							codeCompletionModelKey = undefined
 						}
 					}}
-					checked={codeCompletionModel != undefined}
-					disabled={autocompleteModels.length == 0}
+					checked={codeCompletionModelKey != undefined}
+					disabled={autocompleteModelOptions.length == 0}
 					options={{
 						right: 'Enable code completion',
 						rightTooltip:
@@ -628,12 +661,12 @@
 				/>
 			</SettingCard>
 
-			{#if codeCompletionModel != undefined}
+			{#if codeCompletionModelKey != undefined}
 				<div transition:slide|local={{ duration: 150 }} class="mt-6">
 					<SettingCard label="Code completion model">
 						<Select
-							items={safeSelectItems(autocompleteModels)}
-							bind:value={codeCompletionModel}
+							items={safeSelectItems(autocompleteModelOptions)}
+							bind:value={codeCompletionModelKey}
 							disabled={false}
 							placeholder="Select a code completion model"
 							size="sm"
