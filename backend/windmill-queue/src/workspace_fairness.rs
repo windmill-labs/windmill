@@ -108,13 +108,31 @@
 //!   `p_c = t · D_u / ((1 − t) · D_c + t · D_u)`
 //!
 //! Same numbers, target 0.65: `p_c ≈ 0.054` — about 12× tighter than the
-//! count-based form. The per-refresh aggregation already produces the
-//! observed `D_c, D_u` for free (worker-seconds and job counts per
-//! workspace, partitioned by capped vs uncapped), so the refresh computes
-//! `p_c` and stores it in [`WORKSPACE_FAIRNESS_ADMISSION_PPM`] (parts-per-
-//! 10_000, fits in an `AtomicU32`). The pull-time check is one atomic load
-//! plus one `rand::rng().random_range(0..10_000)` draw — same hot-path
-//! cost as the count-based form.
+//! count-based form. The refresh computes `p_c` and stores it in
+//! [`WORKSPACE_FAIRNESS_ADMISSION_PPM`] (parts-per-10_000, fits in an
+//! `AtomicU32`). The pull-time check is one atomic load plus one
+//! `rand::rng().random_range(0..10_000)` draw — same hot-path cost as the
+//! count-based form.
+//!
+//! ### `D_c`/`D_u` come from a separate, longer service-time window
+//!
+//! Crucially, `D_c` and `D_u` must be **true mean service times**, because
+//! the share equation above is Little's-law-based
+//! (`occupancy = arrival_rate × mean_service_time`). They are **not** taken
+//! from the occupancy aggregation: that aggregation clamps each job's
+//! contribution to the short occupancy window (`DURATION_SECS`, 10s), so a
+//! job longer than the window contributes at most 10s — fine for measuring
+//! *share*, but it would truncate `D_c` to ≤ 10s and systematically
+//! under-admit the skew exactly when capped jobs are long (the case the cap
+//! exists for: e.g. true `D_c = 34s` clamped to 10s gives `p_c ≈ 0.157`, an
+//! 86 % effective share instead of 65 %). Instead, the refresh samples true
+//! unclamped `duration_ms` of completed jobs over a longer, decoupled
+//! service-time window (`DURATION_SAMPLE_SECS`, 60s) — long enough to avoid
+//! truncation and to keep the mean stable when few jobs complete within the
+//! 10s occupancy window. So the refresh emits two per-workspace signals:
+//! windowed occupancy worker-seconds (for classification) and a 60s
+//! service-time `(Σ duration_ms, count)` (for admission), merged per
+//! workspace.
 //!
 //! ### Why we kept the fallback when the fairness pull returns empty
 //!
@@ -131,11 +149,12 @@
 //!
 //! ### Degenerate cases
 //!
-//! If either bucket is empty (no capped jobs yet, or only capped jobs and
-//! no other workspaces are active), the formula is undefined. The refresh
+//! If either bucket is empty — no capped jobs, no uncapped jobs, or a
+//! capped workspace with zero completions in the 60s service-time window
+//! (all its jobs still running) — the formula is undefined. The refresh
 //! falls back to the count-based `p_c = t` in those cases — it matches
 //! the pre-refactor behaviour and is the safest thing to do when there's
-//! no duration signal yet to weight on.
+//! no service-time signal yet to weight on.
 //!
 //! ## 3. Coordinated refresh — exactly once per cycle, cluster-wide
 //!
