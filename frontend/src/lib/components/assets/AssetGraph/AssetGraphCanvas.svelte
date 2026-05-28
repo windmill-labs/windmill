@@ -111,15 +111,15 @@
 		// `scriptPath` is the related script — the drawer locks its
 		// script-picker to it so the trigger can't be reassigned off the
 		// pipeline from this entry point.
-		onEditTrigger?: (
-			kind: NativeTriggerKind,
-			triggerPath: string,
-			scriptPath: string
-		) => void
+		onEditTrigger?: (kind: NativeTriggerKind, triggerPath: string, scriptPath: string) => void
 		// Click handler for the kebab → Delete entry on an attached trigger.
 		// The page is expected to confirm + call the matching delete API
 		// and refetch the graph.
 		onDeleteTrigger?: (kind: NativeTriggerKind, triggerPath: string) => void
+		// Click handler for a webhook node — opens the webhook drawer (URLs +
+		// webhook-specific token creation) for the given script. Webhooks have
+		// no trigger row, so they don't use the create/edit/delete flows.
+		onOpenWebhook?: (scriptPath: string) => void
 	}
 	let {
 		graph,
@@ -136,7 +136,8 @@
 		runStates,
 		onCreateMissingTrigger,
 		onEditTrigger,
-		onDeleteTrigger
+		onDeleteTrigger,
+		onOpenWebhook
 	}: Props = $props()
 
 	const ADD_NODE_ID = '__add__'
@@ -149,12 +150,7 @@
 		// the DAG. They force sugiyama to put + at layer 0 (top) and center
 		// it horizontally over the roots — same mechanism the flow editor
 		// uses for its Trigger node. Filtered out of rendered edges.
-		kind:
-			| 'lineage-write'
-			| 'lineage-read'
-			| 'trigger-asset'
-			| 'trigger-native'
-			| 'add-anchor'
+		kind: 'lineage-write' | 'lineage-read' | 'trigger-asset' | 'trigger-native' | 'add-anchor'
 		unsaved?: boolean
 		// Edge from a missing-trigger placeholder — styled red dashed to
 		// signal "this script declared `// on kafka` but no trigger row
@@ -434,7 +430,8 @@
 						: false,
 					onCreateMissingTrigger,
 					onEditTrigger,
-					onDeleteTrigger
+					onDeleteTrigger,
+					onOpenWebhook
 				}
 			})
 		}

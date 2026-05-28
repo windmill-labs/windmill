@@ -135,9 +135,15 @@
 			runnable_unsaved?: boolean
 			// Page-supplied dispatcher that opens the matching native
 			// trigger drawer with `script_path` pre-filled. When absent
-			// (e.g. webhook, schedule, or a kind without an editor) the
-			// placeholder is non-clickable.
+			// (e.g. schedule, or a kind without an editor) the placeholder is
+			// non-clickable. Webhook is handled separately via `onOpenWebhook`.
 			onCreateMissingTrigger?: (kind: NativeTriggerKind, scriptPath: string) => void
+			// Page-supplied dispatcher that opens the webhook drawer (URLs +
+			// webhook-specific token creation) for `scriptPath`. Webhooks have
+			// no trigger row, so they never use the create/edit/delete flows —
+			// the node is always clickable to view its endpoint instead of
+			// rendering a dead "missing" placeholder.
+			onOpenWebhook?: (scriptPath: string) => void
 			// Page-supplied dispatcher to open the matching native trigger
 			// drawer in edit mode for an attached (non-missing) trigger.
 			// `triggerPath` is the trigger row's path (e.g. the mqtt_trigger
@@ -145,11 +151,7 @@
 			// drawer locks its script-picker to this so the user can't
 			// reassign the trigger off the pipeline. Absent for kinds
 			// without an editor.
-			onEditTrigger?: (
-				kind: NativeTriggerKind,
-				triggerPath: string,
-				scriptPath: string
-			) => void
+			onEditTrigger?: (kind: NativeTriggerKind, triggerPath: string, scriptPath: string) => void
 			// Page-supplied dispatcher to delete an attached (non-missing)
 			// trigger. Confirmation is the caller's responsibility — the
 			// node just exposes the entry point on the kebab menu.
@@ -162,20 +164,25 @@
 	let menuOpen = $state(false)
 
 	let style = $derived(TRIGGER_NODE_STYLE[data.kind])
-	let Icon = $derived(data.missing ? AlertTriangle : style.icon)
+	// Webhooks are never genuinely "missing" — every deployed runnable has an
+	// implicit endpoint. Suppress the broken/red treatment for them so they
+	// render as a normal clickable source node.
+	let isWebhook = $derived(data.kind === 'webhook')
+	let displayMissing = $derived(data.missing && !isWebhook)
+	let Icon = $derived(displayMissing ? AlertTriangle : style.icon)
 	let missingTitle = $derived(
-		data.missing
+		displayMissing
 			? `Missing ${style.label} trigger: ${data.runnable_path ?? ''} declares \`// on ${style.label}\` but no ${style.label} trigger targets it. Click to create one, or remove the annotation.`
 			: undefined
 	)
-	// Webhook has no dedicated drawer (it's an implicit endpoint), so the
-	// placeholder is not clickable for that kind. Schedule + the other
-	// native kinds all have dedicated editors.
+	// Webhook gets a drawer (URLs + webhook-specific token creation) rather
+	// than a create/edit flow, so it's clickable whenever the page supplies
+	// the handler.
+	let canOpenWebhook = $derived(isWebhook && !!data.runnable_path && !!data.onOpenWebhook)
+	// Schedule + the other native kinds all have dedicated editors. Webhook is
+	// excluded — it routes through `canOpenWebhook` instead.
 	let canCreate = $derived(
-		data.missing &&
-			data.kind !== 'webhook' &&
-			!!data.runnable_path &&
-			!!data.onCreateMissingTrigger
+		data.missing && data.kind !== 'webhook' && !!data.runnable_path && !!data.onCreateMissingTrigger
 	)
 	// Attached native trigger → clickable to open its drawer in edit mode.
 	let canEdit = $derived(
@@ -190,10 +197,7 @@
 	// non-missing ref + a backing editor (i.e. excludes webhook). Schedule
 	// has its own delete endpoint, same shape as the other natives.
 	let canDelete = $derived(
-		!data.missing &&
-			data.kind !== 'webhook' &&
-			!!data.ref &&
-			!!data.onDeleteTrigger
+		!data.missing && data.kind !== 'webhook' && !!data.ref && !!data.onDeleteTrigger
 	)
 
 	let menuItems: Item[] = $derived(
@@ -221,14 +225,15 @@
 		if (!canEdit || !data.ref || !data.runnable_path || !data.onEditTrigger) return
 		data.onEditTrigger(data.kind as NativeTriggerKind, data.ref, data.runnable_path)
 	}
+
+	function handleWebhookClick() {
+		if (!canOpenWebhook || !data.runnable_path || !data.onOpenWebhook) return
+		data.onOpenWebhook(data.runnable_path)
+	}
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-	class="relative"
-	onmouseenter={() => (hover = true)}
-	onmouseleave={() => (hover = false)}
->
+<div class="relative" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
 	{#if canCreate}
 		<!-- Same affordance as the asset's downstream + button: render the
 		     whole node as a button so the cursor + hover + click is obvious
@@ -280,14 +285,39 @@
 				</span>
 			</div>
 		</button>
+	{:else if canOpenWebhook}
+		<!-- Webhook endpoint: implicit (no trigger row), so the node opens a
+		     drawer with the URLs + webhook-specific token creation instead of
+		     an editor. Styled like an attached trigger, never the red
+		     "missing" state. -->
+		<button
+			type="button"
+			onclick={handleWebhookClick}
+			class={twMerge(
+				'flex items-center rounded-md drop-shadow-sm overflow-hidden outline outline-1 w-full text-left',
+				style.bg,
+				data.unsaved ? `opacity-80 ${style.borderUnsaved}` : style.border,
+				'hover:brightness-95 dark:hover:brightness-110 transition-[filter]'
+			)}
+			style="width: {NODE.width}px; min-height: {NODE.height}px;"
+			title={`Webhook endpoint for ${data.runnable_path ?? ''} — click to view URLs and create a token`}
+		>
+			<Icon size={14} class={`shrink-0 ml-2 mr-2 ${style.iconText}`} />
+			<div class="flex flex-col min-w-0 flex-1 pr-2 py-0.5 leading-tight">
+				<span class="text-3xs uppercase tracking-wide truncate text-tertiary">
+					{style.label}
+				</span>
+				<span class="text-2xs font-mono truncate text-emphasis"> URLs & token </span>
+			</div>
+		</button>
 	{:else}
 		<div
 			class={twMerge(
 				'flex items-center rounded-md drop-shadow-sm overflow-hidden outline outline-1',
-				data.missing
+				displayMissing
 					? 'bg-red-50 dark:bg-red-900/30 outline-dashed outline-red-400 dark:outline-red-500'
 					: style.bg,
-				data.missing ? '' : data.unsaved ? `opacity-80 ${style.borderUnsaved}` : style.border
+				displayMissing ? '' : data.unsaved ? `opacity-80 ${style.borderUnsaved}` : style.border
 			)}
 			style="width: {NODE.width}px; min-height: {NODE.height}px;"
 			title={missingTitle ??
@@ -295,24 +325,24 @@
 		>
 			<Icon
 				size={14}
-				class={`shrink-0 ml-2 mr-2 ${data.missing ? 'text-red-600 dark:text-red-400' : style.iconText}`}
+				class={`shrink-0 ml-2 mr-2 ${displayMissing ? 'text-red-600 dark:text-red-400' : style.iconText}`}
 			/>
 			<div class="flex flex-col min-w-0 flex-1 pr-2 py-0.5 leading-tight">
 				<span
 					class={twMerge(
 						'text-3xs uppercase tracking-wide truncate',
-						data.missing ? 'text-red-700 dark:text-red-400' : 'text-tertiary'
+						displayMissing ? 'text-red-700 dark:text-red-400' : 'text-tertiary'
 					)}
 				>
-					{style.label}{data.missing ? ' · missing' : data.unsaved ? ' · unsaved' : ''}
+					{style.label}{displayMissing ? ' · missing' : data.unsaved ? ' · unsaved' : ''}
 				</span>
 				<span
 					class={twMerge(
 						'text-2xs font-mono truncate',
-						data.missing ? 'text-red-700 dark:text-red-400' : 'text-emphasis'
+						displayMissing ? 'text-red-700 dark:text-red-400' : 'text-emphasis'
 					)}
 				>
-					{data.missing ? 'no trigger row' : data.ref}
+					{displayMissing ? 'no trigger row' : data.ref}
 				</span>
 			</div>
 		</div>

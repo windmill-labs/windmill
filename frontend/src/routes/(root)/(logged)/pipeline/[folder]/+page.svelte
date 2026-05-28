@@ -77,6 +77,7 @@
 	import GcpTriggerEditor from '$lib/components/triggers/gcp/GcpTriggerEditor.svelte'
 	import EmailTriggerEditor from '$lib/components/triggers/email/EmailTriggerEditor.svelte'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
+	import WebhookEditor from '$lib/components/triggers/webhook/WebhookEditor.svelte'
 
 	// Variables and resources are declarative config, not pipeline assets —
 	// they're hub-shaped (referenced by most runnables) and would swamp the
@@ -798,7 +799,8 @@
 							// Non-fatal: surface a warning so the user
 							// knows to clean up manually. The fresh deploy
 							// at the new path still landed.
-							const msg = (archiveErr as any)?.body ?? (archiveErr as any)?.message ?? String(archiveErr)
+							const msg =
+								(archiveErr as any)?.body ?? (archiveErr as any)?.message ?? String(archiveErr)
 							sendUserToast(
 								`Renamed to "${path}" but couldn't archive the old "${prev}": ${msg}`,
 								true
@@ -1051,6 +1053,22 @@
 	let gcpEditor: GcpTriggerEditor | undefined = $state()
 	let emailEditor: EmailTriggerEditor | undefined = $state()
 	let scheduleEditor: ScheduleEditor | undefined = $state()
+	let webhookEditor: WebhookEditor | undefined = $state()
+
+	// Webhooks have no trigger row to create — clicking the node opens a
+	// drawer with the endpoint URLs + the webhook-specific token creation
+	// flow. Drafts have no deployed endpoint yet, so nudge the user to save
+	// first (mirrors openMissingTriggerDrawer).
+	function openWebhookDrawer(scriptPath: string) {
+		if (drafts.has(scriptPath)) {
+			sendUserToast(
+				`Save the script "${scriptPath}" first — webhooks only trigger the deployed version.`,
+				true
+			)
+			return
+		}
+		webhookEditor?.openDrawer(scriptPath, false)
+	}
 
 	function openMissingTriggerDrawer(kind: NativeTriggerKind, scriptPath: string) {
 		// A native trigger row stores `script_path` as a hard reference —
@@ -1095,9 +1113,7 @@
 	// Delete-trigger confirmation state. Kebab → Delete opens the standard
 	// ConfirmationModal; the actual delete is dispatched from onConfirmed
 	// so the dialog stays consistent with the rest of the app.
-	let triggerDeleteTarget = $state<
-		{ kind: NativeTriggerKind; path: string } | undefined
-	>(undefined)
+	let triggerDeleteTarget = $state<{ kind: NativeTriggerKind; path: string } | undefined>(undefined)
 	let triggerDeleteLoading = $state(false)
 	let triggerDeleteOpen = $derived(triggerDeleteTarget != undefined)
 
@@ -1152,11 +1168,7 @@
 		}
 	}
 
-	function openEditTriggerDrawer(
-		kind: NativeTriggerKind,
-		triggerPath: string,
-		scriptPath: string
-	) {
+	function openEditTriggerDrawer(kind: NativeTriggerKind, triggerPath: string, scriptPath: string) {
 		switch (kind) {
 			case 'schedule':
 				return scheduleEditor?.openEdit(triggerPath, false, scriptPath)
@@ -1461,6 +1473,7 @@
 								onCreateMissingTrigger={openMissingTriggerDrawer}
 								onEditTrigger={openEditTriggerDrawer}
 								onDeleteTrigger={deleteAttachedTrigger}
+								onOpenWebhook={openWebhookDrawer}
 								onselect={(s) => {
 									// Clicking a draft runnable node re-opens it in the pane;
 									// clicking anything else selects it normally and detaches
@@ -1754,9 +1767,8 @@
 		{#if triggerDeleteTarget}
 			<p>
 				Delete <code class="font-mono">{triggerDeleteTarget.path}</code>? The
-				<code class="font-mono">// on {triggerDeleteTarget.kind}</code> annotation on the script
-				stays — the trigger will read as missing on the canvas until you recreate it or remove
-				the annotation.
+				<code class="font-mono">// on {triggerDeleteTarget.kind}</code> annotation on the script stays
+				— the trigger will read as missing on the canvas until you recreate it or remove the annotation.
 			</p>
 		{/if}
 	</ConfirmationModal>
@@ -1773,6 +1785,7 @@
 	<GcpTriggerEditor bind:this={gcpEditor} onUpdate={() => graphRes.refetch()} />
 	<EmailTriggerEditor bind:this={emailEditor} onUpdate={() => graphRes.refetch()} />
 	<ScheduleEditor bind:this={scheduleEditor} onUpdate={() => graphRes.refetch()} />
+	<WebhookEditor bind:this={webhookEditor} />
 
 	{#if leaveModalOpen}
 		<!-- Three-button leave guard. Built inline rather than reusing
