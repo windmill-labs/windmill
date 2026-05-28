@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { workspaceMenuHref } from './workspaceMenuHref'
 	import {
 		isPremiumStore,
 		superadmin,
@@ -70,20 +71,18 @@
 		}
 	}
 
+	// An AI session is scoped to its (forked) workspace, so switching workspace
+	// should leave for home (the link's navigation wins over onClick's
+	// preventDefault; onClick still performs the switch). Pure logic +
+	// new-tab/workspace-param handling lives in workspaceMenuHref (unit-tested).
 	function workspaceHref(id: string): string {
-		// An AI session is scoped to its (forked) workspace, so switching
-		// workspace should leave for home. Point the link there — the link's
-		// navigation wins over onClick's preventDefault, so the href is what
-		// actually decides where we land; onClick still performs the switch.
-		if (page.route.id?.includes('/sessions')) {
-			// Keep the workspace in the href so a modifier/middle click (open in new
-			// tab, which bypasses onClick's preventDefault) still lands in the
-			// clicked workspace's home rather than the default one.
-			return `${base}/?workspace=${id}`
-		}
-		const params = new URLSearchParams(page.url.searchParams)
-		params.set('workspace', id)
-		return `${page.url.pathname}?${params.toString()}`
+		return workspaceMenuHref({
+			routeId: page.route.id,
+			base,
+			pathname: page.url.pathname,
+			searchParams: page.url.searchParams,
+			id
+		})
 	}
 
 	function onWorkspaceItemClick(e: MouseEvent, workspace: { id: string; disabled?: boolean }) {

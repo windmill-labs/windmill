@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { parentFolderKey } from './forkDiffNav'
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import {
@@ -389,21 +390,11 @@
 	}
 
 	// The folder containing an entry, as a folder key (or undefined if the
-	// entry is at the top scope and has no parent folder).
+	// entry is at the top scope and has no parent folder). Pure logic lives in
+	// forkDiffNav.parentFolderKey (unit-tested).
 	function parentFolderKeyFor(entry: NavEntry): string | undefined {
 		const path = entry.type === 'folder' ? entry.node.fullPath : entry.diff.path
-		const parts = path.split('/')
-		// `f/foo` (scope) has no parent.
-		if (entry.type === 'folder' && parts.length <= 2) return undefined
-		if (entry.type === 'file') {
-			// A single-segment leaf sits at the tree root with no scope folder.
-			if (parts.length < 2) return undefined
-			// A file sitting directly at its scope (`f/foo` or `f/foo/bar`) belongs to
-			// the scope folder (first 2 segments, key `folder:f/foo`); deeper files
-			// fall through to their immediate folder below.
-			if (parts.length <= 3) return `folder:${parts.slice(0, 2).join('/')}`
-		}
-		return `folder:${parts.slice(0, -1).join('/')}`
+		return parentFolderKey(entry.type, path)
 	}
 
 	function firstChildKey(node: FolderNode): string | undefined {

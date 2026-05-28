@@ -6,6 +6,7 @@
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 	import type { Flow } from '$lib/gen'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { flowDraftSig } from './flowDraftSig'
 	import { initFlowState } from '$lib/components/flows/flowState'
 	import SessionItemNotFound from './SessionItemNotFound.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -83,7 +84,7 @@
 		if (!workspaceId || !path) return
 		const incoming = draftHandles[0]?.draft
 		if (!incoming) return
-		const sig = JSON.stringify({ value: incoming.value, schema: incoming.schema, summary: incoming.summary })
+		const sig = flowDraftSig(incoming)
 		untrack(() => {
 			if (runtime.loadedPath !== path) return
 			if (sig === lastInboundSig) return
@@ -114,13 +115,13 @@
 		if (runtime.loadedPath !== path) return
 		const flow = runtime.flowStore.val
 		if (!flow) return
-		const sig = JSON.stringify({ value: flow.value, schema: flow.schema, summary: flow.summary })
+		const sig = flowDraftSig(flow)
 		if (sig === lastInboundSig) return
 		if (outboundTimer) clearTimeout(outboundTimer)
 		outboundTimer = setTimeout(() => {
 			untrack(() => {
 				const current = UserDraft.get<Flow>('flow', path, { workspace: workspaceId })
-				if (current && JSON.stringify({ value: current.value, schema: current.schema, summary: current.summary }) === sig)
+				if (current && flowDraftSig(current) === sig)
 					return
 				UserDraft.save('flow', path, flow, { workspace: workspaceId })
 			})
