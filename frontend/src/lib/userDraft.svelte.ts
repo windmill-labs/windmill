@@ -5,7 +5,14 @@ import { userStore, workspaceStore } from './stores'
 import { useLocalStorageValue } from './svelte5Utils.svelte'
 import { UserDraftDbSyncer } from './userDraftDbSyncer.svelte'
 import { UserDraftConflictStore } from './userDraftConflictStore.svelte'
+import type { UserDraftItemKind } from './gen'
 
+export type { UserDraftItemKind }
+
+// Runtime array mirroring the generated `UserDraftItemKind` union. Used for
+// iteration in `tryParseLocalStorageKey`. The `satisfies` clause makes the
+// compiler reject this file if the two drift — adding a kind to the OpenAPI
+// schema without listing it here (or vice-versa) is a type error.
 export const USER_DRAFT_ITEM_KINDS = [
 	'script',
 	'flow',
@@ -31,9 +38,14 @@ export const USER_DRAFT_ITEM_KINDS = [
 	'trigger_nextcloud',
 	'trigger_google',
 	'trigger_github'
-] as const
+] as const satisfies readonly UserDraftItemKind[]
 
-export type UserDraftItemKind = (typeof USER_DRAFT_ITEM_KINDS)[number]
+// And the reverse direction: every member of the generated union must
+// appear in `USER_DRAFT_ITEM_KINDS`.
+type _AssertKindsExhaustive =
+	Exclude<UserDraftItemKind, (typeof USER_DRAFT_ITEM_KINDS)[number]> extends never ? true : never
+const _: _AssertKindsExhaustive = true
+void _
 
 export type UserDraftOptions = {
 	workspace?: string

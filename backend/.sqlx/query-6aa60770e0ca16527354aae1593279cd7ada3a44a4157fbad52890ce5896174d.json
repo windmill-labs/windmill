@@ -1,25 +1,17 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT value as \"value!: sqlx::types::Json<Box<serde_json::value::RawValue>>\", created_at\n                       FROM draft\n                       WHERE workspace_id = $1\n                         AND email = $2\n                         AND path = $3\n                         AND typ = $4\n                         AND created_at > $5",
+  "query": "SELECT path,\n                      typ as \"typ!: UserDraftItemKind\",\n                      value as \"value!: sqlx::types::Json<Box<serde_json::value::RawValue>>\",\n                      created_at\n               FROM draft\n               WHERE workspace_id = $1\n                 AND email = $2",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
-        "type_info": "Json"
+        "name": "path",
+        "type_info": "Varchar"
       },
       {
         "ordinal": 1,
-        "name": "created_at",
-        "type_info": "Timestamptz"
-      }
-    ],
-    "parameters": {
-      "Left": [
-        "Text",
-        "Text",
-        "Text",
-        {
+        "name": "typ!: UserDraftItemKind",
+        "type_info": {
           "Custom": {
             "name": "draft_kind",
             "kind": {
@@ -51,14 +43,31 @@
               ]
             }
           }
-        },
-        "Timestamptz"
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
       ]
     },
     "nullable": [
       false,
+      false,
+      false,
       false
     ]
   },
-  "hash": "2d8657ce809262cc261a381bcb19549970aa645f9e23c2525311fc1161fd21ff"
+  "hash": "6aa60770e0ca16527354aae1593279cd7ada3a44a4157fbad52890ce5896174d"
 }

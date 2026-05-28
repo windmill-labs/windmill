@@ -19,6 +19,44 @@ use windmill_common::{
     error::{Error, Result},
 };
 
+/// Closed set of item kinds a user can have an autosaved draft on. Mirrors
+/// the frontend's `USER_DRAFT_ITEM_KINDS`; the Postgres `DRAFT_KIND` enum
+/// must stay in lockstep — adding a kind requires both a new variant here
+/// and an `ALTER TYPE ... ADD VALUE` migration.
+///
+/// `snake_case` matches the wire/DB encoding so the same string round-trips
+/// through HTTP path params, JSON bodies, and the `draft.typ` column without
+/// per-edge mapping.
+#[derive(sqlx::Type, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[sqlx(type_name = "DRAFT_KIND", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum UserDraftItemKind {
+    Script,
+    Flow,
+    App,
+    RawApp,
+    Resource,
+    Variable,
+    TriggerSchedule,
+    TriggerWebhook,
+    TriggerDefaultEmail,
+    TriggerEmail,
+    TriggerHttp,
+    TriggerWebsocket,
+    TriggerPostgres,
+    TriggerKafka,
+    TriggerNats,
+    TriggerMqtt,
+    TriggerSqs,
+    TriggerGcp,
+    TriggerAzure,
+    TriggerPoll,
+    TriggerCli,
+    TriggerNextcloud,
+    TriggerGoogle,
+    TriggerGithub,
+}
+
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/sync", post(sync_drafts))
@@ -32,11 +70,7 @@ pub fn workspaced_service() -> Router {
 #[derive(Deserialize, Debug, Clone)]
 pub struct IncomingDraft {
     pub path: String,
-    /// Free-form item kind matching the frontend's `UserDraftItemKind`
-    /// (`script`, `flow`, `app`, `raw_app`, `resource`, `variable`,
-    /// `trigger_*`, ...). Stored verbatim — no server-side validation,
-    /// since the set of kinds is owned by the client.
-    pub typ: String,
+    pub typ: UserDraftItemKind,
     /// `null` (or omitted) means delete the draft at this path. Conflict
     /// semantics apply the same way to deletions as to upserts.
     #[serde(default)]
@@ -61,7 +95,7 @@ pub struct SyncDraftsRequest {
 #[derive(Serialize, Debug)]
 pub struct MissedDraft {
     pub path: String,
-    pub typ: String,
+    pub typ: UserDraftItemKind,
     pub value: sqlx::types::Json<Box<serde_json::value::RawValue>>,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
@@ -71,16 +105,16 @@ pub struct MissedDraft {
 pub enum DraftSyncStatus {
     Saved {
         path: String,
-        typ: String,
+        typ: UserDraftItemKind,
         created_at: chrono::DateTime<chrono::Utc>,
     },
     Deleted {
         path: String,
-        typ: String,
+        typ: UserDraftItemKind,
     },
     Rejected {
         path: String,
-        typ: String,
+        typ: UserDraftItemKind,
         /// Current server copy at conflict-detection time.
         server_value: sqlx::types::Json<Box<serde_json::value::RawValue>>,
         server_created_at: chrono::DateTime<chrono::Utc>,
@@ -109,7 +143,10 @@ async fn sync_drafts(
     let missed_drafts = if let Some(last_sync) = req.last_sync {
         sqlx::query_as!(
             MissedDraft,
-            r#"SELECT path, typ, value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>", created_at
+            r#"SELECT path,
+                      typ as "typ!: UserDraftItemKind",
+                      value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+                      created_at
                FROM draft
                WHERE workspace_id = $1
                  AND email = $2
@@ -124,7 +161,10 @@ async fn sync_drafts(
         // Initial sync — return everything the user has on the server.
         sqlx::query_as!(
             MissedDraft,
-            r#"SELECT path, typ, value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>", created_at
+            r#"SELECT path,
+                      typ as "typ!: UserDraftItemKind",
+                      value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+                      created_at
                FROM draft
                WHERE workspace_id = $1
                  AND email = $2"#,
@@ -151,7 +191,7 @@ async fn sync_drafts(
                     &w_id,
                     email,
                     incoming.path,
-                    incoming.typ,
+                    incoming.typ as UserDraftItemKind,
                     last_sync,
                 )
                 .fetch_optional(&db)
@@ -160,7 +200,7 @@ async fn sync_drafts(
                 if let Some(row) = conflict {
                     statuses.push(DraftSyncStatus::Rejected {
                         path: incoming.path.clone(),
-                        typ: incoming.typ.clone(),
+                        typ: incoming.typ,
                         server_value: row.value,
                         server_created_at: row.created_at,
                         incoming_value: incoming.value.as_ref().map(|v| {
@@ -186,7 +226,7 @@ async fn sync_drafts(
                     &w_id,
                     email,
                     incoming.path,
-                    incoming.typ,
+                    incoming.typ as UserDraftItemKind,
                     serde_json::to_string(value).unwrap(),
                 )
                 .fetch_one(&db)
@@ -194,7 +234,7 @@ async fn sync_drafts(
 
                 statuses.push(DraftSyncStatus::Saved {
                     path: incoming.path.clone(),
-                    typ: incoming.typ.clone(),
+                    typ: incoming.typ,
                     created_at: row.created_at,
                 });
             }
@@ -212,14 +252,14 @@ async fn sync_drafts(
                     &w_id,
                     email,
                     incoming.path,
-                    incoming.typ,
+                    incoming.typ as UserDraftItemKind,
                 )
                 .execute(&db)
                 .await?;
 
                 statuses.push(DraftSyncStatus::Deleted {
                     path: incoming.path.clone(),
-                    typ: incoming.typ.clone(),
+                    typ: incoming.typ,
                 });
             }
         }
@@ -252,10 +292,10 @@ async fn list_users_with_draft_on_path(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
-    Path((w_id, kind, path)): Path<(String, String, windmill_common::utils::StripPath)>,
+    Path((w_id, kind, path)): Path<(String, UserDraftItemKind, windmill_common::utils::StripPath)>,
 ) -> Result<Json<Vec<UserWithDraft>>> {
     let path = path.to_path();
-    require_can_read_path(&authed, &user_db, &w_id, &kind, path).await?;
+    require_can_read_path(&authed, &user_db, &w_id, kind, path).await?;
 
     let rows = sqlx::query_as!(
         UserWithDraft,
@@ -267,7 +307,7 @@ async fn list_users_with_draft_on_path(
            ORDER BY email NULLS LAST"#,
         &w_id,
         path,
-        kind,
+        kind as UserDraftItemKind,
     )
     .fetch_all(&db)
     .await?;
@@ -296,11 +336,11 @@ async fn get_draft_for_user(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
-    Path((w_id, kind, path)): Path<(String, String, windmill_common::utils::StripPath)>,
+    Path((w_id, kind, path)): Path<(String, UserDraftItemKind, windmill_common::utils::StripPath)>,
     axum::extract::Query(query): axum::extract::Query<GetDraftQuery>,
 ) -> Result<Json<DraftForUser>> {
     let path = path.to_path();
-    require_can_read_path(&authed, &user_db, &w_id, &kind, path).await?;
+    require_can_read_path(&authed, &user_db, &w_id, kind, path).await?;
 
     let row = sqlx::query_as!(
         DraftForUser,
@@ -312,7 +352,7 @@ async fn get_draft_for_user(
              AND email IS NOT DISTINCT FROM $4"#,
         &w_id,
         path,
-        kind,
+        kind as UserDraftItemKind,
         query.email,
     )
     .fetch_optional(&db)
@@ -330,28 +370,30 @@ async fn get_draft_for_user(
 /// resolve item-level extra_perms grants that bypass folder/owner checks)
 /// or `None` (kinds without a backing table fall through to the path-only
 /// access check below).
-fn table_for_kind(kind: &str) -> Option<&'static str> {
+fn table_for_kind(kind: UserDraftItemKind) -> Option<&'static str> {
+    use UserDraftItemKind::*;
     match kind {
-        "script" => Some("script"),
-        "flow" => Some("flow"),
-        "app" | "raw_app" => Some("app"),
-        "resource" => Some("resource"),
-        "variable" => Some("variable"),
-        "trigger_schedule" => Some("schedule"),
-        "trigger_http" => Some("http_trigger"),
-        "trigger_websocket" => Some("websocket_trigger"),
-        "trigger_postgres" => Some("postgres_trigger"),
-        "trigger_kafka" => Some("kafka_trigger"),
-        "trigger_nats" => Some("nats_trigger"),
-        "trigger_mqtt" => Some("mqtt_trigger"),
-        "trigger_sqs" => Some("sqs_trigger"),
-        "trigger_gcp" => Some("gcp_trigger"),
-        "trigger_azure" => Some("azure_trigger"),
-        "trigger_email" | "trigger_default_email" => Some("email_trigger"),
-        "trigger_poll" | "trigger_cli" | "trigger_nextcloud" | "trigger_google"
-        | "trigger_github" => Some("native_trigger"),
+        Script => Some("script"),
+        Flow => Some("flow"),
+        App | RawApp => Some("app"),
+        Resource => Some("resource"),
+        Variable => Some("variable"),
+        TriggerSchedule => Some("schedule"),
+        TriggerHttp => Some("http_trigger"),
+        TriggerWebsocket => Some("websocket_trigger"),
+        TriggerPostgres => Some("postgres_trigger"),
+        TriggerKafka => Some("kafka_trigger"),
+        TriggerNats => Some("nats_trigger"),
+        TriggerMqtt => Some("mqtt_trigger"),
+        TriggerSqs => Some("sqs_trigger"),
+        TriggerGcp => Some("gcp_trigger"),
+        TriggerAzure => Some("azure_trigger"),
+        TriggerEmail | TriggerDefaultEmail => Some("email_trigger"),
+        TriggerPoll | TriggerCli | TriggerNextcloud | TriggerGoogle | TriggerGithub => {
+            Some("native_trigger")
+        }
         // trigger_webhook is a property of script/flow rows, not its own row.
-        _ => None,
+        TriggerWebhook => None,
     }
 }
 
@@ -370,7 +412,7 @@ async fn require_can_read_path(
     authed: &ApiAuthed,
     user_db: &UserDB,
     w_id: &str,
-    kind: &str,
+    kind: UserDraftItemKind,
     path: &str,
 ) -> Result<()> {
     if authed.is_admin {

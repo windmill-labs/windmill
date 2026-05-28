@@ -16,7 +16,7 @@
 	import { fade } from 'svelte/transition'
 	import Button from '../button/Button.svelte'
 	import { Users, X } from 'lucide-svelte'
-	import { DraftService } from '$lib/gen'
+	import { DraftService, type UserDraftItemKind } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { onMount } from 'svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
@@ -27,7 +27,7 @@
 		workspace: string
 		/** UserDraft item kind — passed verbatim to the backend; matches the
 		 *  `draft.typ` column. */
-		itemKind: string
+		itemKind: UserDraftItemKind
 		path: string
 		/** Current local value (post-restore-from-localstorage) shown on the
 		 *  right side of the diff. */

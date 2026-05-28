@@ -7829,8 +7829,7 @@ paths:
                       path:
                         type: string
                       typ:
-                        type: string
-                        description: UserDraft item kind. Stored verbatim; the client owns the value set.
+                        $ref: "#/components/schemas/UserDraftItemKind"
                       value:
                         nullable: true
                         description: Draft content. `null` (or omitted) means delete the draft at this path. Conflict semantics apply the same way to deletes.
@@ -7855,7 +7854,7 @@ paths:
                         path:
                           type: string
                         typ:
-                          type: string
+                          $ref: "#/components/schemas/UserDraftItemKind"
                         value: {}
                         created_at:
                           type: string
@@ -7873,7 +7872,7 @@ paths:
                             path:
                               type: string
                             typ:
-                              type: string
+                              $ref: "#/components/schemas/UserDraftItemKind"
                             created_at:
                               type: string
                               format: date-time
@@ -7886,7 +7885,7 @@ paths:
                             path:
                               type: string
                             typ:
-                              type: string
+                              $ref: "#/components/schemas/UserDraftItemKind"
                           required: [status, path, typ]
                         - type: object
                           properties:
@@ -7896,7 +7895,7 @@ paths:
                             path:
                               type: string
                             typ:
-                              type: string
+                              $ref: "#/components/schemas/UserDraftItemKind"
                             server_value: {}
                             server_created_at:
                               type: string
@@ -7927,7 +7926,7 @@ paths:
           in: path
           required: true
           schema:
-            type: string
+            $ref: "#/components/schemas/UserDraftItemKind"
         - $ref: "#/components/parameters/ScriptPath"
       responses:
         "200":
@@ -7959,7 +7958,7 @@ paths:
           in: path
           required: true
           schema:
-            type: string
+            $ref: "#/components/schemas/UserDraftItemKind"
         - $ref: "#/components/parameters/ScriptPath"
         - name: email
           in: query
@@ -20936,6 +20935,36 @@ components:
     # This is why it is better to inline each of schemas for better compat
     # Do not change next line. It is used by python-client for pre-processing
     # -- INLINE START --
+    UserDraftItemKind:
+      type: string
+      description: |
+        Closed set of item kinds a user can autosave as a draft. Mirrors the
+        Postgres `DRAFT_KIND` enum and the backend `UserDraftItemKind`.
+      enum:
+        - script
+        - flow
+        - app
+        - raw_app
+        - resource
+        - variable
+        - trigger_schedule
+        - trigger_webhook
+        - trigger_default_email
+        - trigger_email
+        - trigger_http
+        - trigger_websocket
+        - trigger_postgres
+        - trigger_kafka
+        - trigger_nats
+        - trigger_mqtt
+        - trigger_sqs
+        - trigger_gcp
+        - trigger_azure
+        - trigger_poll
+        - trigger_cli
+        - trigger_nextcloud
+        - trigger_google
+        - trigger_github
     OpenFlow:
       $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
     FlowValue:
