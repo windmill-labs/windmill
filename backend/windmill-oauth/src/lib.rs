@@ -141,6 +141,26 @@ pub fn canonical_provider_name(client_name: &str) -> &str {
         .unwrap_or(client_name)
 }
 
+/// Resolves a registry [`OAuthConfig`] for `client_name`, transparently
+/// applying the `sandbox` override block when the name carries the sandbox
+/// suffix (e.g. `docusign_sandbox` resolves to `docusign` with sandbox URLs
+/// applied). Used so callers don't need to know whether a name is a sandbox
+/// variant before looking it up.
+pub fn resolve_registry_config(
+    static_configs: &HashMap<String, OAuthConfig>,
+    client_name: &str,
+) -> Option<OAuthConfig> {
+    if let Some(cfg) = static_configs.get(client_name) {
+        return Some(cfg.clone());
+    }
+    if client_name.ends_with(SANDBOX_SUFFIX) {
+        return static_configs
+            .get(canonical_provider_name(client_name))
+            .and_then(|cfg| cfg.as_sandbox());
+    }
+    None
+}
+
 /// OAuth client credentials
 #[derive(Clone, Serialize, Deserialize)]
 pub struct OAuthClient {
@@ -502,38 +522,29 @@ pub async fn build_client_credentials_oauth_client(
     let oauth_client_config: OAuthClient = serde_json::from_value(oauth_config.clone())
         .map_err(|e| error::Error::BadRequest(format!("Invalid OAuth config: {}", e)))?;
 
-    let mut connect_config = if let Some(ref config) = oauth_client_config.connect_config {
-        if !config.auth_url.is_empty() && !config.token_url.is_empty() {
-            config.clone()
-        } else {
-            let static_configs =
-                serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json)
-                    .map_err(|e| {
-                        error::Error::InternalErr(format!(
-                            "Failed to parse oauth_connect.json: {}",
-                            e
-                        ))
-                    })?;
-
-            static_configs.get(client_name).cloned().ok_or_else(|| {
-                error::Error::BadRequest(format!(
-                    "OAuth configuration not found for '{}' in either global settings or static config",
-                    client_name
-                ))
-            })?
-        }
-    } else {
-        let static_configs =
-            serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json).map_err(
-                |e| error::Error::InternalErr(format!("Failed to parse oauth_connect.json: {}", e)),
-            )?;
-
-        static_configs.get(client_name).cloned().ok_or_else(|| {
+    let parse_static_configs = || {
+        serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json).map_err(|e| {
+            error::Error::InternalErr(format!("Failed to parse oauth_connect.json: {}", e))
+        })
+    };
+    let resolve_from_registry = |client_name: &str| -> error::Result<OAuthConfig> {
+        let static_configs = parse_static_configs()?;
+        resolve_registry_config(&static_configs, client_name).ok_or_else(|| {
             error::Error::BadRequest(format!(
                 "OAuth configuration not found for '{}' in either global settings or static config",
                 client_name
             ))
-        })?
+        })
+    };
+
+    let mut connect_config = if let Some(ref config) = oauth_client_config.connect_config {
+        if !config.auth_url.is_empty() && !config.token_url.is_empty() {
+            config.clone()
+        } else {
+            resolve_from_registry(client_name)?
+        }
+    } else {
+        resolve_from_registry(client_name)?
     };
 
     if let Some(override_url) = cc_token_url_override {

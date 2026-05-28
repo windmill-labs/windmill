@@ -396,11 +396,14 @@
 				{#if oauths[k] && !(oauths[k] && 'login_config' in oauths[k])}
 					{#if !['slack', 'teams'].includes(k) && oauths[k]}
 						{@const IconComponent = getOAuthProviderIcon(k) as any}
+						{@const headerLabel = k.endsWith('_sandbox')
+							? `${k.slice(0, -'_sandbox'.length)} (sandbox)`
+							: k}
 						<div class="flex flex-col gap-2 pb-6">
 							<div class="flex flex-row items-center gap-2">
 								<IconComponent size={24} width="24" height="24" class="shrink-0" />
 								<!-- svelte-ignore a11y_label_has_associated_control -->
-								<label class="text-xs font-semibold text-emphasis">{k}</label>
+								<label class="text-xs font-semibold text-emphasis">{headerLabel}</label>
 								<Button
 									variant="subtle"
 									destructive
