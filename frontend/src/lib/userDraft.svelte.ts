@@ -361,11 +361,12 @@ function pushToSyncer(
 	value: unknown,
 	workspace: string
 ): void {
-	const email = get(userStore)?.email
-	if (!email) return
+	// Skip sync until a user is signed in — without a session the request
+	// would 401 and the queue would discard the entry. The next save after
+	// login will pick the draft up from localStorage and re-push.
+	if (get(userStore) === undefined) return
 	UserDraftDbSyncer.pushDrafts({
 		workspace,
-		email,
 		drafts: [{ itemKind, path, value }],
 		onMissedDrafts: (drafts) => {
 			for (const d of drafts) {
@@ -379,7 +380,6 @@ function pushToSyncer(
 			UserDraftConflictStore.enqueue(
 				rejected.map((r) => ({
 					workspace,
-					email,
 					itemKind: r.typ as UserDraftItemKind,
 					rejected: r
 				}))

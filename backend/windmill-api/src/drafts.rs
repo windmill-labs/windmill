@@ -211,7 +211,7 @@ async fn list_users_with_draft_on_path(
     Path((w_id, kind, path)): Path<(String, String, windmill_common::utils::StripPath)>,
 ) -> Result<Json<Vec<UserWithDraft>>> {
     let path = path.to_path();
-    require_access_to_path(&authed, &user_db, &w_id, &kind, path).await?;
+    require_can_read_path(&authed, &user_db, &w_id, &kind, path).await?;
 
     let rows = sqlx::query_as!(
         UserWithDraft,
@@ -231,13 +231,47 @@ async fn list_users_with_draft_on_path(
     Ok(Json(rows))
 }
 
-/// Resolves to `Ok(())` only if `authed` can read the underlying item at
-/// `path`. Implemented by issuing a `SELECT 1` through `user_db` (which
-/// applies row-level extra_perms via `set_session_user`), so a user who
-/// can't see the script/flow/app gets back zero rows. We don't leak the
-/// set of paths that exist either way — both "not readable" and "doesn't
-/// exist" return the same 404.
-async fn require_access_to_path(
+/// Each `UserDraftItemKind` maps to either its own table (where RLS can
+/// resolve item-level extra_perms grants that bypass folder/owner checks)
+/// or `None` (kinds without a backing table fall through to the path-only
+/// access check below).
+fn table_for_kind(kind: &str) -> Option<&'static str> {
+    match kind {
+        "script" => Some("script"),
+        "flow" => Some("flow"),
+        "app" | "raw_app" => Some("app"),
+        "resource" => Some("resource"),
+        "variable" => Some("variable"),
+        "trigger_schedule" => Some("schedule"),
+        "trigger_http" => Some("http_trigger"),
+        "trigger_websocket" => Some("websocket_trigger"),
+        "trigger_postgres" => Some("postgres_trigger"),
+        "trigger_kafka" => Some("kafka_trigger"),
+        "trigger_nats" => Some("nats_trigger"),
+        "trigger_mqtt" => Some("mqtt_trigger"),
+        "trigger_sqs" => Some("sqs_trigger"),
+        "trigger_gcp" => Some("gcp_trigger"),
+        "trigger_azure" => Some("azure_trigger"),
+        "trigger_email" | "trigger_default_email" => Some("email_trigger"),
+        "trigger_poll" | "trigger_cli" | "trigger_nextcloud" | "trigger_google"
+        | "trigger_github" => Some("native_trigger"),
+        // trigger_webhook is a property of script/flow rows, not its own row.
+        _ => None,
+    }
+}
+
+/// Resolves to `Ok(())` if `authed` can read at `path`. Three layers, in
+/// order of cheapness:
+///   1. admin → always.
+///   2. Path-prefix match against the user's own namespace (`u/{username}`)
+///      or any folder in `authed.folders` (which is the precomputed read
+///      set used to seed UserDB's session context, so groups + direct
+///      grants on the folder are already factored in).
+///   3. RLS-aware `SELECT 1` against the kind's backing table — covers
+///      item-level extra_perms grants that bypass folder/owner checks.
+/// Both "not readable" and "doesn't exist" return a 404 — we don't leak
+/// path existence to non-readers.
+async fn require_can_read_path(
     authed: &ApiAuthed,
     user_db: &UserDB,
     w_id: &str,
@@ -247,32 +281,31 @@ async fn require_access_to_path(
     if authed.is_admin {
         return Ok(());
     }
-    let table = match kind {
-        "script" => "script",
-        "flow" => "flow",
-        "app" => "app",
-        // Item kinds without a backing path-permission table (raw_app,
-        // resource, variable, trigger_*, ...) fall back to the user's own
-        // `u/{authed.username}/...` path namespace.
-        _ => {
-            let prefix = format!("u/{}/", authed.username);
-            if path.starts_with(&prefix) {
-                return Ok(());
+    let parts: Vec<&str> = path.splitn(3, '/').collect();
+    if parts.len() >= 2 {
+        match parts[0] {
+            "u" if parts[1] == authed.username => return Ok(()),
+            "f" => {
+                let folder = parts[1];
+                if authed.folders.iter().any(|(name, _, _)| name == folder) {
+                    return Ok(());
+                }
             }
-            return Err(Error::NotFound(format!("no draft visible at {path}")));
+            _ => {}
         }
-    };
-    let mut tx = user_db.clone().begin(authed).await?;
-    let query =
-        format!("SELECT 1 AS exists FROM {table} WHERE path = $1 AND workspace_id = $2 LIMIT 1");
-    let row = sqlx::query_scalar::<_, i32>(&query)
-        .bind(path)
-        .bind(w_id)
-        .fetch_optional(&mut *tx)
-        .await?;
-    tx.commit().await?;
-    if row.is_none() {
-        return Err(Error::NotFound(format!("no {kind} visible at {path}")));
     }
-    Ok(())
+    if let Some(table) = table_for_kind(kind) {
+        let mut tx = user_db.clone().begin(authed).await?;
+        let query = format!("SELECT 1 FROM {table} WHERE path = $1 AND workspace_id = $2 LIMIT 1");
+        let row = sqlx::query_scalar::<_, i32>(&query)
+            .bind(path)
+            .bind(w_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        if row.is_some() {
+            return Ok(());
+        }
+    }
+    Err(Error::NotFound(format!("no draft visible at {path}")))
 }

@@ -11,7 +11,6 @@ import type { RejectedDraft } from './userDraftDbSyncer.svelte'
 
 export type ConflictEntry = {
 	workspace: string
-	email: string
 	itemKind: UserDraftItemKind
 	rejected: RejectedDraft
 }

@@ -37,25 +37,18 @@ export type RejectedDraftsCallback = (rejected: RejectedDraft[]) => void
 
 export type SyncOptions<V = unknown> = {
 	workspace: string
-	email: string
 	drafts: PendingDraft<V>[]
 	onMissedDrafts?: MissedDraftCallback
 	onDraftsRejected?: RejectedDraftsCallback
 }
 
 type QueueKey = string
-function queueKey(
-	workspace: string,
-	email: string,
-	kind: UserDraftItemKind,
-	path: string
-): QueueKey {
-	return `${workspace}|${email}|${kind}|${path}`
+function queueKey(workspace: string, kind: UserDraftItemKind, path: string): QueueKey {
+	return `${workspace}|${kind}|${path}`
 }
 
 type QueuedEntry = {
 	workspace: string
-	email: string
 	itemKind: UserDraftItemKind
 	path: string
 	value: unknown
@@ -105,20 +98,18 @@ async function flushQueue(): Promise<void> {
 	const entries = Array.from(queue.values())
 	queue.clear()
 
-	// Group entries by (workspace, email) — every sync call is scoped to a
-	// single email, so we issue one request per distinct group. In practice
-	// the queue is dominated by the active session's workspace+email, so
-	// there's almost always exactly one group.
+	// One request per workspace. The server scopes every row by the
+	// session's authed email, so we don't track user identity on the
+	// client side — a tab can only be logged in as one user at a time.
 	const groups = new Map<string, QueuedEntry[]>()
 	for (const entry of entries) {
-		const key = `${entry.workspace}|${entry.email}`
-		const list = groups.get(key)
+		const list = groups.get(entry.workspace)
 		if (list) list.push(entry)
-		else groups.set(key, [entry])
+		else groups.set(entry.workspace, [entry])
 	}
 
-	for (const group of groups.values()) {
-		await runSync(group[0].workspace, group)
+	for (const [workspace, group] of groups.entries()) {
+		await runSync(workspace, group)
 	}
 }
 
@@ -133,7 +124,6 @@ async function runSync(workspace: string, group: QueuedEntry[]): Promise<void> {
 	}))
 	await syncDrafts({
 		workspace,
-		email: group[0].email,
 		drafts,
 		onMissedDrafts,
 		onDraftsRejected
@@ -186,17 +176,15 @@ export const UserDraftDbSyncer = {
 
 	/**
 	 * Enqueue drafts for a batched sync. Repeated pushes for the same
-	 * (workspace, email, itemKind, path) coalesce — only the latest value /
+	 * (workspace, itemKind, path) coalesce — only the latest value /
 	 * callbacks survive. Returns the same Promise as the eventual
 	 * `syncDrafts` so callers can `await` flush completion.
 	 */
 	pushDrafts<V = unknown>(opts: SyncOptions<V>): void {
 		const ws = opts.workspace
-		const email = opts.email
 		for (const d of opts.drafts) {
-			queue.set(queueKey(ws, email, d.itemKind, d.path), {
+			queue.set(queueKey(ws, d.itemKind, d.path), {
 				workspace: ws,
-				email,
 				itemKind: d.itemKind,
 				path: d.path,
 				value: d.value,

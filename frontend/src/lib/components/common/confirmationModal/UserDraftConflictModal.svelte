@@ -27,7 +27,6 @@
 		try {
 			await syncDrafts({
 				workspace: conflict.workspace,
-				email: conflict.email,
 				drafts: [
 					{
 						itemKind: conflict.itemKind,
