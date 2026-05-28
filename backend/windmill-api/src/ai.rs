@@ -536,6 +536,8 @@ async fn global_proxy(
             credentials: &credentials,
         };
 
+        audit_global_ai_request(&db, &authed).await?;
+
         let response = match ai_path.as_str() {
             "chat/completions" => handle_google_ai_chat_proxy(&HTTP_CLIENT, &proxy_args).await,
             "models" => handle_google_ai_models_proxy(&HTTP_CLIENT, &proxy_args).await,
@@ -545,7 +547,6 @@ async fn global_proxy(
             ))),
         }?;
 
-        audit_global_ai_request(&db, &authed).await?;
         return Ok(google_ai_proxy_response_to_body(response));
     }
 
