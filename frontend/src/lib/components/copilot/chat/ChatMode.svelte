@@ -2,16 +2,10 @@
 	import { ChevronDown } from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { getContext } from 'svelte'
-	import {
-		AIChatManager,
-		aiChatManager as singletonAiChatManager,
-		AIMode
-	} from './AIChatManager.svelte'
+	import { AIMode } from './AIChatManager.svelte'
+	import { getAiChatManager } from './aiChatManagerContext'
 
-	// Sessions inject their own per-session `AIChatManager` via context;
-	// elsewhere we fall back to the global singleton.
-	const aiChatManager = getContext<AIChatManager>('aiChatManager') ?? singletonAiChatManager
+	const aiChatManager = getAiChatManager()
 
 	const modeLabel = (mode: AIMode) => mode.charAt(0).toUpperCase() + mode.slice(1) + ' mode'
 

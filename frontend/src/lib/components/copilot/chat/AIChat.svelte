@@ -1,15 +1,12 @@
 <script lang="ts">
 	import AIChatDisplay from './AIChatDisplay.svelte'
-	import { getContext, untrack } from 'svelte'
+	import { untrack } from 'svelte'
 	import { type ScriptLang } from '$lib/gen'
 	import { dbSchemas, userStore, workspaceStore } from '$lib/stores'
-	import {
-		AIChatManager,
-		aiChatManager as singletonAiChatManager,
-		AIMode
-	} from './AIChatManager.svelte'
+	import { AIMode } from './AIChatManager.svelte'
+	import { getAiChatManager } from './aiChatManagerContext'
 
-	const aiChatManager = getContext<AIChatManager>('aiChatManager') ?? singletonAiChatManager
+	const aiChatManager = getAiChatManager()
 	import { base } from '$lib/base'
 	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './script/core'
