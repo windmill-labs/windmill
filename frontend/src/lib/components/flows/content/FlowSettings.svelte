@@ -78,6 +78,7 @@
 		{ name: 'Error Handler Muted', active: Boolean(flowStore.val.ws_error_handler_muted) },
 		{ name: 'Invisible to Others', active: Boolean(flowStore.val.visible_to_runner_only) },
 		{ name: 'Shared Directory', active: Boolean(flowStore.val.value.same_worker) },
+		{ name: 'Preserve Step Tags', active: Boolean(flowStore.val.value.preserve_step_tags) },
 		{ name: 'Cache Results', active: Boolean(flowStore.val.value.cache_ttl) },
 		{ name: 'Early Stop', active: Boolean(flowStore.val.value.skip_expr) },
 		{ name: 'Early Return', active: Boolean(flowStore.val.value.early_return) },
@@ -374,6 +375,19 @@
 						}}
 					/>
 				{/if}
+
+				<!-- Preserve Step Tags Section -->
+				<Toggle
+					textClass="font-medium"
+					size="xs"
+					bind:checked={flowStore.val.value.preserve_step_tags}
+					options={{
+						right: 'Preserve step worker tags',
+						rightTooltip:
+							'By default, when this flow runs on a custom worker tag, that tag is propagated to and overrides every step, script and nested sub-flow. Enable this to instead let steps that declare their own worker tag run on it. Steps without their own tag still inherit the flow tag.',
+						rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/worker_groups'
+					}}
+				/>
 
 				<!-- Visibility Section -->
 				<Toggle

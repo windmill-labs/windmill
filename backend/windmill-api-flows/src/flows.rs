@@ -2031,6 +2031,7 @@ mod tests {
             })),
             preprocessor_module: None,
             same_worker: false,
+            preserve_step_tags: false,
             skip_expr: None,
             cache_ttl: None,
             cache_ignore_s3_path: None,
