@@ -91,6 +91,15 @@
 			isCloudHosted() || globalWorkspacedRoute ? $workspaceStore + '/' : ''
 		}${customPath}`
 	)
+
+	// When embedding a public app in an iframe inside another Windmill app (or
+	// any cross-origin-isolated page), the embedded document must set COEP. The
+	// `wm_coep` flag opts the public app into the cross-origin isolation headers.
+	let embedMode = $state(false)
+	function toEmbedSnippet(url: string): string {
+		const sep = url.includes('?') ? '&' : '?'
+		return `<iframe src="${url}${sep}wm_coep=on" title="Windmill app" width="100%" height="600" style="border:none"></iframe>`
+	}
 	async function getSecretUrl() {
 		secretUrl = await AppService.getPublicSecretOfApp({
 			workspace: $workspaceStore!,
@@ -253,12 +262,31 @@
 		{#if appPath == ''}
 			<ClipboardPanel content={`Save this app once to get the public secret URL`} size="md" />
 		{:else if secretUrlHref}
-			<ClipboardPanel content={secretUrlHref} size="md" />
+			<div class="flex justify-end mb-1">
+				<Toggle
+					size="xs"
+					checked={embedMode}
+					on:change={(e) => (embedMode = e.detail)}
+					options={{ left: 'URL', right: 'Embed' }}
+				/>
+			</div>
+			<ClipboardPanel
+				content={embedMode ? toEmbedSnippet(secretUrlHref) : secretUrlHref}
+				size="md"
+			/>
 		{:else}<Loader2 class="animate-spin" />
 		{/if}
 		<div class="text-xs text-secondary mt-1">
-			Share this url directly or embed it using an iframe (if requiring login, top-level domain of
-			embedding app must be the same as the one of Windmill)
+			{#if embedMode}
+				Paste this iframe snippet into another app. The <code>wm_coep</code> flag
+				<Tooltip
+					>Sets the cross-origin isolation headers (COEP) so the app can be embedded inside another
+					Windmill app or any cross-origin-isolated page. Without it the browser blocks the iframe.</Tooltip
+				> lets the app load inside a cross-origin-isolated page.
+			{:else}
+				Share this url directly, or switch to <b>Embed</b> to get an iframe snippet.
+			{/if}
+			(if requiring login, top-level domain of embedding app must be the same as the one of Windmill)
 		</div>
 
 		<div class="mt-4">
@@ -305,7 +333,10 @@
 				<div class="text-secondary text-sm flex items-center gap-1 mt-2 w-full justify-between">
 					<div>Custom public URL</div>
 				</div>
-				<ClipboardPanel content={fullCustomUrl} size="md" />
+				<ClipboardPanel
+					content={embedMode ? toEmbedSnippet(fullCustomUrl) : fullCustomUrl}
+					size="md"
+				/>
 
 				<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
 					>{dirtyCustomPath ? customPathError : ''}
