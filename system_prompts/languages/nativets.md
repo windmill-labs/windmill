@@ -1,6 +1,6 @@
 # TypeScript (Native)
 
-Native TypeScript execution with fetch only - no external imports allowed. Every script MUST start with //native on its first line so Windmill routes it to the native worker; without it the script runs on the regular Bun worker.
+Native TypeScript execution. The only library import allowed is `windmill-client`. You may also import other Windmill scripts (e.g. `./helper.ts`), provided those scripts likewise import nothing except `windmill-client`. Use the globally available `fetch` for everything else. Every script MUST start with `//native` on its first line so Windmill routes it to the native worker; without it the script runs on the regular Bun worker.
 
 ## Structure
 
@@ -35,7 +35,7 @@ Before using a resource type, check the `rt.d.ts` file in the project root to se
 
 ## Imports
 
-**No imports allowed.** Use the globally available `fetch` function:
+**Only `windmill-client` may be imported, plus relative imports of other native scripts that obey the same rule.** Use the globally available `fetch` for everything else:
 
 ```typescript
 //native
@@ -47,7 +47,7 @@ export async function main(url: string) {
 
 ## Windmill Client
 
-The windmill client is not available in native TypeScript mode. Use fetch to call APIs directly.
+`windmill-client` is the one library available in native TypeScript mode — primarily for Windmill-specific primitives such as the S3 helpers below (`loadS3File`, `loadS3FileStream`, `writeS3File`, `S3Object`). Use `fetch` for everything else.
 
 ## Preprocessor Scripts
 
@@ -78,4 +78,40 @@ export async function preprocessor(event: Event) {
     param2: event.query.id
   };
 }
+```
+
+## S3 Object Operations
+
+Windmill provides built-in support for S3-compatible storage operations. The `wmill.S3Object` type covers both the `s3://storage/key` URI form (`s3:///key` for the workspace default storage) and the `{ s3, storage? }` record form — always use it instead of redefining your own.
+
+### Receiving an S3Object as a script parameter
+
+```typescript
+//native
+import * as wmill from "windmill-client";
+
+export async function main(file: wmill.S3Object) {
+  const content = await wmill.loadS3File(file);
+  // ...
+}
+```
+
+### S3 operations
+
+```typescript
+//native
+import * as wmill from "windmill-client";
+
+// Load file content from S3
+const content: Uint8Array = await wmill.loadS3File(s3object);
+
+// Load file as stream
+const blob: Blob = await wmill.loadS3FileStream(s3object);
+
+// Write file to S3
+const result: wmill.S3Object = await wmill.writeS3File(
+  s3object, // Target path (or undefined to auto-generate)
+  fileContent, // string or Blob
+  s3ResourcePath // Optional: specific S3 resource to use
+);
 ```

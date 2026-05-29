@@ -1,6 +1,6 @@
 # TypeScript (Bun Native)
 
-Native TypeScript execution with fetch only - no external imports allowed. Every script MUST start with //native on its first line so Windmill routes it to the native worker; without it the script runs on the regular Bun worker.
+Native TypeScript execution. The only library import allowed is `windmill-client`. You may also import other Windmill scripts (e.g. `./helper.ts`), provided those scripts likewise import nothing except `windmill-client`. Use the globally available `fetch` for everything else. Every script MUST start with `//native` on its first line so Windmill routes it to the native worker; without it the script runs on the regular Bun worker.
 
 ## Structure
 
@@ -35,7 +35,7 @@ Before using a resource type, check the `rt.d.ts` file in the project root to se
 
 ## Imports
 
-**No imports allowed.** Use the globally available `fetch` function:
+**Only `windmill-client` may be imported, plus relative imports of other native scripts that obey the same rule.** Use the globally available `fetch` for everything else:
 
 ```typescript
 //native
@@ -47,7 +47,7 @@ export async function main(url: string) {
 
 ## Windmill Client
 
-The windmill client is not available in native TypeScript mode. Use fetch to call APIs directly.
+`windmill-client` is the one library available in native TypeScript mode — primarily for Windmill-specific primitives such as the S3 helpers below (`loadS3File`, `loadS3FileStream`, `writeS3File`, `S3Object`). Use `fetch` for everything else.
 
 ## Preprocessor Scripts
 
