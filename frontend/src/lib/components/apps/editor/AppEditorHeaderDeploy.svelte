@@ -35,7 +35,8 @@
 		newEditedPath = $bindable(),
 		newPath,
 		hideSecretUrl = false,
-		preserveOnBehalfOf = $bindable(false)
+		preserveOnBehalfOf = $bindable(false),
+		rawApp = false
 	}: {
 		policy: any
 		setPublishState: () => void
@@ -51,6 +52,11 @@
 		newPath: string
 		hideSecretUrl?: boolean
 		preserveOnBehalfOf?: boolean
+		// Raw apps need cross-origin isolation (wm_coep) to be embeddable. Classic
+		// (low-code) apps must NOT get the flag — it would force COEP on the
+		// document and break no-CORP cross-origin subresources (external images,
+		// {@html} embeds, CDN imports).
+		rawApp?: boolean
 	} = $props()
 
 	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
@@ -92,13 +98,15 @@
 		}${customPath}`
 	)
 
-	// When embedding a public app in an iframe inside another Windmill app (or
-	// any cross-origin-isolated page), the embedded document must set COEP. The
+	// When embedding a raw app in an iframe inside another Windmill app (or any
+	// cross-origin-isolated page), the embedded document must set COEP. The
 	// `wm_coep` flag opts the public app into the cross-origin isolation headers.
+	// Only raw apps get it — for classic (low-code) apps COEP would break
+	// no-CORP cross-origin subresources, so their snippet stays a plain iframe.
 	let embedMode = $state(false)
 	function toEmbedSnippet(url: string): string {
-		const sep = url.includes('?') ? '&' : '?'
-		return `<iframe src="${url}${sep}wm_coep=on" title="Windmill app" width="100%" height="600"></iframe>`
+		const finalUrl = rawApp ? `${url}${url.includes('?') ? '&' : '?'}wm_coep=on` : url
+		return `<iframe src="${finalUrl}" title="Windmill app" width="100%" height="600"></iframe>`
 	}
 	async function getSecretUrl() {
 		secretUrl = await AppService.getPublicSecretOfApp({
@@ -278,11 +286,15 @@
 		{/if}
 		<div class="text-xs text-secondary mt-1">
 			{#if embedMode}
-				Paste this iframe snippet into another app. The <code>wm_coep</code> flag <Tooltip
-					>Sets the cross-origin isolation headers (COEP) so the app can be embedded inside another
-					Windmill app or any cross-origin-isolated page. Without it the browser blocks the iframe.</Tooltip
-				> lets the app load inside a cross-origin-isolated page. (if requiring login, top-level domain
-				of embedding app must be the same as the one of Windmill)
+				Paste this iframe snippet into another app.
+				{#if rawApp}
+					The <code>wm_coep</code> flag <Tooltip
+						>Sets the cross-origin isolation headers (COEP) so the app can be embedded inside
+						another Windmill app or any cross-origin-isolated page. Without it the browser blocks
+						the iframe.</Tooltip
+					> lets it load inside a cross-origin-isolated page.
+				{/if}
+				(if requiring login, top-level domain of embedding app must be the same as the one of Windmill)
 			{:else}
 				Share this url directly, or switch to <b>Embed</b> to get an iframe snippet.
 			{/if}
