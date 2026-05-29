@@ -110,6 +110,11 @@ pub struct NewFlow {
     pub ws_error_handler_muted: Option<bool>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
+    /// Caller-intent flag (set by the CLI / git sync): when true, deploying
+    /// this flow must NOT delete an existing user draft at the same path.
+    /// Transient — never persisted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip_draft_deletion: Option<bool>,
 }
 
 impl NewFlow {

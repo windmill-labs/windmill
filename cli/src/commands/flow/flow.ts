@@ -224,6 +224,8 @@ export async function pushFlow(
           deployment_message: message,
           ...localFlowBody,
           ...preserveFields,
+          // Preserve any user draft at this path (see backend skip_draft_deletion).
+          skip_draft_deletion: true,
         },
       });
     }
@@ -237,6 +239,8 @@ export async function pushFlow(
           deployment_message: message,
           ...localFlowBody,
           ...preserveFields,
+          // Preserve any user draft at this path (see backend skip_draft_deletion).
+          skip_draft_deletion: true,
         },
       });
     } catch (e) {
@@ -964,6 +968,8 @@ const command = new Command()
         path: flowPath,
         on_behalf_of_email: email,
         preserve_on_behalf_of: true,
+        // Preserve any user draft at this path (see backend skip_draft_deletion).
+        skip_draft_deletion: true,
       } as any,
     });
     log.info(colors.green(`Updated permissioned_as for flow ${flowPath} to ${email}`));
