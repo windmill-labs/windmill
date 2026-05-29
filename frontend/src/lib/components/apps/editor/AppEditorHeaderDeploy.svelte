@@ -278,12 +278,11 @@
 		{/if}
 		<div class="text-xs text-secondary mt-1">
 			{#if embedMode}
-				Paste this iframe snippet into another app. The <code>wm_coep</code> flag (if requiring
-				login, top-level domain of embedding app must be the same as the one of Windmill)
-				<Tooltip
+				Paste this iframe snippet into another app. The <code>wm_coep</code> flag <Tooltip
 					>Sets the cross-origin isolation headers (COEP) so the app can be embedded inside another
 					Windmill app or any cross-origin-isolated page. Without it the browser blocks the iframe.</Tooltip
-				> lets the app load inside a cross-origin-isolated page.
+				> lets the app load inside a cross-origin-isolated page. (if requiring login, top-level domain
+				of embedding app must be the same as the one of Windmill)
 			{:else}
 				Share this url directly, or switch to <b>Embed</b> to get an iframe snippet.
 			{/if}
