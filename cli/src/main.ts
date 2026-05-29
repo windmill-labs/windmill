@@ -301,6 +301,10 @@ async function main() {
     if (shouldRunFreshnessCheck(process.argv)) {
       const { warnIfPromptsStale } = await import("./guidance/freshness.ts");
       await warnIfPromptsStale({ argv: process.argv }).catch(() => {});
+      const { warnIfTsconfigStale } = await import(
+        "./commands/refresh/tsconfig.ts"
+      );
+      await warnIfTsconfigStale().catch(() => {});
     }
 
     await command.parse(args);
