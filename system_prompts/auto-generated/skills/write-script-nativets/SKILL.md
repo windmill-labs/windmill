@@ -1,6 +1,6 @@
 ---
 name: write-script-nativets
-description: MUST use when writing Native TypeScript scripts.
+description: MUST use when writing Native TypeScript scripts. The script must start with //native to run on the native worker.
 ---
 
 ## CLI Commands
@@ -40,13 +40,14 @@ Use `wmill resource-type list --schema` to discover available resource types.
 
 # TypeScript (Native)
 
-Native TypeScript execution with fetch only - no external imports allowed.
+Native TypeScript execution with fetch only - no external imports allowed. Every script MUST start with //native on its first line so Windmill routes it to the native worker; without it the script runs on the regular Bun worker.
 
 ## Structure
 
 Export a single **async** function called `main`:
 
 ```typescript
+//native
 export async function main(param1: string, param2: number) {
   // Your code here
   return { result: param1, count: param2 };
@@ -62,6 +63,7 @@ On Windmill, credentials and configuration are stored in resources and passed as
 Use the `RT` namespace for resource types:
 
 ```typescript
+//native
 export async function main(stripe: RT.Stripe) {
   // stripe contains API key and config from the resource
 }
@@ -76,6 +78,7 @@ Before using a resource type, check the `rt.d.ts` file in the project root to se
 **No imports allowed.** Use the globally available `fetch` function:
 
 ```typescript
+//native
 export async function main(url: string) {
   const response = await fetch(url);
   return await response.json();
@@ -91,6 +94,7 @@ The windmill client is not available in native TypeScript mode. Use fetch to cal
 For preprocessor scripts, the function should be named `preprocessor` and receives an `event` parameter:
 
 ```typescript
+//native
 type Event = {
   kind:
     | "webhook"

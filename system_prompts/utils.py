@@ -96,12 +96,12 @@ LANGUAGE_METADATA = {
     },
     'nativets': {
         'name': 'Native TypeScript',
-        'description': 'MUST use when writing Native TypeScript scripts.',
+        'description': 'MUST use when writing Native TypeScript scripts. The script must start with //native to run on the native worker.',
         'use_cases': 'simple API calls, lightweight TypeScript, no dependencies'
     },
     'bunnative': {
         'name': 'Bun Native',
-        'description': 'MUST use when writing Bun Native scripts.',
+        'description': 'MUST use when writing Bun Native scripts. The script must start with //native to run on the native worker.',
         'use_cases': 'simple Bun scripts, lightweight, no dependencies'
     },
     'python3': {
