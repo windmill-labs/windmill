@@ -98,7 +98,7 @@
 	let embedMode = $state(false)
 	function toEmbedSnippet(url: string): string {
 		const sep = url.includes('?') ? '&' : '?'
-		return `<iframe src="${url}${sep}wm_coep=on" title="Windmill app" width="100%" height="600" style="border:none"></iframe>`
+		return `<iframe src="${url}${sep}wm_coep=on" title="Windmill app" width="100%" height="600"></iframe>`
 	}
 	async function getSecretUrl() {
 		secretUrl = await AppService.getPublicSecretOfApp({
@@ -278,7 +278,8 @@
 		{/if}
 		<div class="text-xs text-secondary mt-1">
 			{#if embedMode}
-				Paste this iframe snippet into another app. The <code>wm_coep</code> flag
+				Paste this iframe snippet into another app. The <code>wm_coep</code> flag (if requiring
+				login, top-level domain of embedding app must be the same as the one of Windmill)
 				<Tooltip
 					>Sets the cross-origin isolation headers (COEP) so the app can be embedded inside another
 					Windmill app or any cross-origin-isolated page. Without it the browser blocks the iframe.</Tooltip
@@ -286,7 +287,6 @@
 			{:else}
 				Share this url directly, or switch to <b>Embed</b> to get an iframe snippet.
 			{/if}
-			(if requiring login, top-level domain of embedding app must be the same as the one of Windmill)
 		</div>
 
 		<div class="mt-4">
