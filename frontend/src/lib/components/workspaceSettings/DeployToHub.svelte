@@ -12,7 +12,6 @@
 	import WorkspaceDeployLayout from '$lib/components/WorkspaceDeployLayout.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import Popover from '$lib/components/Popover.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -28,18 +27,32 @@
 	import { workspaceStore } from '$lib/stores'
 	import { computeSecretUrl } from '$lib/components/apps/editor/appDeploy.svelte'
 	import {
+		buildProjectBundle,
+		extractScriptRefs,
+		extractFlowRefs,
+		extractAppRefs,
+		type BundleDeps,
+		type BundledItem,
+		type FetchedItem,
+		type ItemKind,
+		type ItemRef,
+		type ProjectBundle
+	} from './projectBundle'
+	import {
 		Check,
 		Cloud,
 		Copy,
 		ExternalLink,
 		GitCompare,
 		Globe,
+		Info,
 		Loader2,
 		Play,
 		RotateCcw,
 		TriangleAlert,
 		X
 	} from 'lucide-svelte'
+	import Popover from '$lib/components/Popover.svelte'
 	import type { Kind } from '$lib/utils_deployable'
 
 	type Phase = 'predeploy' | 'draft' | 'under_review' | 'live'
@@ -146,6 +159,7 @@
 	let publishTarget = $state<DeployItem | undefined>()
 	let publishing = $state(false)
 
+	let resourceDrawer = $state<Drawer | undefined>()
 	let bundleDrawer = $state<Drawer | undefined>()
 	let bundleName = $state('')
 	let bundleSummary = $state('')
@@ -177,8 +191,6 @@
 
 	async function loadWorkspace(workspace: string) {
 		loading = true
-		resRefCache = new Map()
-		resTypeCache = new Map()
 		try {
 			const [apps, rawApps, flows, scripts, settings] = await Promise.all([
 				listAllPages((p) => AppService.listApps({ workspace, ...p })),
@@ -308,64 +320,106 @@
 
 	let hubItemIds = $state<Record<string, number>>({})
 
-	async function pushItem(workspace: string, slug: string, it: DeployItem): Promise<void> {
-		if (it.kind === 'script') {
-			const s = await ScriptService.getScriptByPath({ workspace, path: it.path })
-			const body = {
-				summary: s.summary || it.path,
-				app: slug,
-				description: s.description ?? '',
-				kind: typeof s.kind === 'string' ? s.kind.toLowerCase() : 'script',
-				content: s.content,
-				language: s.language,
-				schema: s.schema ?? undefined,
-				lockfile: s.lock ?? undefined,
-				workspace_slug: slug
+	// Fetchers + resolver that turn workspace API responses into the shapes the
+	// project-bundle closure needs.
+	function buildBundleDeps(workspace: string): BundleDeps {
+		return {
+			fetchItem: async (ref: ItemRef): Promise<FetchedItem | undefined> => {
+				try {
+					if (ref.kind === 'script') {
+						const s = await ScriptService.getScriptByPath({ workspace, path: ref.path })
+						return {
+							kind: 'script',
+							path: ref.path,
+							summary: s.summary,
+							description: s.description ?? undefined,
+							content: s.content,
+							language: s.language,
+							schema: s.schema,
+							lock: s.lock ?? undefined,
+							scriptKind: typeof s.kind === 'string' ? s.kind.toLowerCase() : 'script'
+						}
+					} else if (ref.kind === 'flow') {
+						const f = await FlowService.getFlowByPath({ workspace, path: ref.path })
+						return {
+							kind: 'flow',
+							path: ref.path,
+							summary: f.summary,
+							description: f.description ?? undefined,
+							value: f.value,
+							schema: f.schema
+						}
+					} else if (ref.kind === 'app') {
+						const a = await AppService.getAppByPath({ workspace, path: ref.path })
+						return { kind: 'app', path: ref.path, summary: a.summary, value: a.value }
+					} else if (ref.kind === 'raw_app') {
+						const r = await fetch(`/api/w/${workspace}/raw_apps/get_data/0/${ref.path}`, {
+							credentials: 'include'
+						})
+						if (!r.ok) return undefined
+						return { kind: 'raw_app', path: ref.path, content: await r.text() }
+					}
+				} catch (e: any) {
+					return undefined
+				}
+				return undefined
+			},
+			resolveResourceType: async (path: string): Promise<string | undefined> => {
+				try {
+					const r = await ResourceService.getResource({ workspace, path })
+					return r.resource_type ?? undefined
+				} catch (e: any) {
+					return undefined
+				}
 			}
-			const resp = await postHub(workspace, '/hub/scripts', body)
-			const id = resp?.id
-			if (typeof id === 'number') hubItemIds = { ...hubItemIds, [it.key]: id }
+		}
+	}
+
+	// Push one already-rewritten bundle item to the Hub. Paths inside content/value
+	// have already been relocated under the project folder by buildProjectBundle.
+	async function pushBundledItem(workspace: string, slug: string, it: BundledItem): Promise<void> {
+		const key = `${it.kind}:${it.path}`
+		if (it.kind === 'script') {
+			const resp = await postHub(workspace, '/hub/scripts', {
+				summary: it.summary || it.newPath,
+				app: slug,
+				description: it.description ?? '',
+				kind: it.scriptKind ?? 'script',
+				content: it.content,
+				language: it.language,
+				schema: it.schema ?? undefined,
+				lockfile: it.lock ?? undefined,
+				workspace_slug: slug
+			})
+			if (typeof resp?.id === 'number') hubItemIds = { ...hubItemIds, [key]: resp.id }
 		} else if (it.kind === 'flow') {
-			const f = await FlowService.getFlowByPath({ workspace, path: it.path })
-			const body = {
+			const resp = await postHub(workspace, '/hub/flows', {
 				flow: {
-					summary: f.summary || it.path,
-					description: f.description ?? undefined,
-					value: f.value,
-					schema: f.schema ?? undefined
+					summary: it.summary || it.newPath,
+					description: it.description ?? undefined,
+					value: it.value,
+					schema: it.schema ?? undefined
 				},
 				apps: [],
 				workspace_slug: slug
-			}
-			const resp = await postHub(workspace, '/hub/flows', body)
-			const id = resp?.id
-			if (typeof id === 'number') hubItemIds = { ...hubItemIds, [it.key]: id }
-		} else if (it.kind === 'app') {
-			const a = await AppService.getAppByPath({ workspace, path: it.path })
-			const body = {
-				app: a.value,
-				apps: [],
-				summary: a.summary || it.path,
-				description: undefined,
-				workspace_slug: slug
-			}
-			await postHub(workspace, '/hub/apps', body)
-		} else if (it.kind === 'raw_app') {
-			const r = await fetch(`/api/w/${workspace}/raw_apps/get_data/0/${it.path}`, {
-				credentials: 'include'
 			})
-			if (!r.ok) throw new Error(`fetch raw_app ${it.path}: ${await r.text()}`)
-			const raw = await r.text()
-			const body = {
-				raw,
+			if (typeof resp?.id === 'number') hubItemIds = { ...hubItemIds, [key]: resp.id }
+		} else if (it.kind === 'app') {
+			await postHub(workspace, '/hub/apps', {
+				app: it.value,
 				apps: [],
-				summary: it.summary || it.path,
+				summary: it.summary || it.newPath,
 				description: undefined,
 				workspace_slug: slug
-			}
-			await postHub(workspace, '/hub/raw_apps', body)
-		} else {
-			throw new Error(`unsupported kind ${it.kind} in v1`)
+			})
+		} else if (it.kind === 'raw_app') {
+			await postHub(workspace, '/hub/raw_apps', {
+				raw: it.content ?? '',
+				apps: [],
+				summary: it.summary || it.newPath,
+				description: undefined,
+				workspace_slug: slug
+			})
 		}
 	}
 
@@ -389,116 +443,99 @@
 		}
 	}
 
-	// Resource paths referenced via the canonical $res: form inside a piece of
-	// script content or a stringified flow/app value.
-	function extractResRefs(text: string): string[] {
-		const out: string[] = []
-		// Both canonical resource-reference forms the platform emits.
-		const re = /(?:\$res:|res:\/\/)([\w\-./]+)/g
-		let m: RegExpExecArray | null
-		while ((m = re.exec(text)) !== null) out.push(m[1])
-		return out
-	}
-
 	const HIDDEN_RESOURCE_TYPES = new Set(['app_theme', 'state', 'cache'])
-	// itemKey -> the $res: paths it references. Cached so toggling selection
-	// doesn't refetch unchanged items' content.
-	let resRefCache = new Map<string, string[]>()
-	// resource path -> its type. Only successful resolutions are cached; an
-	// unresolved path stays uncached so a later-created resource is picked up.
-	let resTypeCache = new Map<string, string>()
 
-	async function refsForItem(workspace: string, it: DeployItem): Promise<string[]> {
-		const cached = resRefCache.get(it.key)
-		if (cached) return cached
-		let refs: string[] = []
-		try {
-			if (it.kind === 'script') {
-				const s = await ScriptService.getScriptByPath({ workspace, path: it.path })
-				refs = extractResRefs(s.content ?? '')
-			} else if (it.kind === 'flow') {
-				const f = await FlowService.getFlowByPath({ workspace, path: it.path })
-				refs = extractResRefs(JSON.stringify(f.value ?? {}))
-			} else if (it.kind === 'app') {
-				const a = await AppService.getAppByPath({ workspace, path: it.path })
-				refs = extractResRefs(JSON.stringify(a.value ?? {}))
-			} else if (it.kind === 'raw_app') {
-				const r = await fetch(`/api/w/${workspace}/raw_apps/get_data/0/${it.path}`, {
-					credentials: 'include'
-				})
-				if (r.ok) refs = extractResRefs(await r.text())
+	// Walk a JSON schema's properties for `format: resource-<type>` and return the
+	// distinct <type> names. This is how a flow/script declares it *takes* a
+	// resource as an input rather than hardcoding one.
+	function typesFromSchema(schema: any): string[] {
+		const out = new Set<string>()
+		const props = schema?.properties
+		if (props && typeof props === 'object') {
+			for (const key of Object.keys(props)) {
+				const fmt = props[key]?.format
+				if (typeof fmt === 'string' && fmt.startsWith('resource-')) {
+					out.add(fmt.slice('resource-'.length))
+				}
 			}
-		} catch (e: any) {
-			// best-effort: a missing/unreadable item contributes no refs
 		}
-		resRefCache.set(it.key, refs)
-		return refs
+		return [...out]
 	}
 
-	async function typeForResource(workspace: string, path: string): Promise<string> {
-		const cached = resTypeCache.get(path)
-		if (cached) return cached
-		let rt = ''
-		try {
-			const r = await ResourceService.getResource({ workspace, path })
-			rt = r.resource_type ?? ''
-		} catch (e: any) {
-			// referenced path with no resource in the source workspace
-		}
-		if (rt) resTypeCache.set(path, rt)
-		return rt
-	}
-
-	interface DetectedResource {
-		path: string
-		resource_type: string
-		usedBy: { key: string; label: string; kind: Kind }[]
-	}
-
-	// Resources a fork needs: every $res: reference found in the selected
-	// scripts/flows/apps, resolved to {path, type} and tagged with which items
-	// reference it. Values are never read. A referenced path with no resource in
-	// the source workspace (or a hidden internal type) is skipped.
-	async function resolveResourceSet(workspace: string): Promise<DetectedResource[]> {
-		const byPath = new Map<string, { key: string; label: string; kind: Kind }[]>()
-		const items = selectedItems
-		const refsPerItem = await Promise.all(items.map((it) => refsForItem(workspace, it)))
-		items.forEach((it, i) => {
-			const origin = { key: it.key, label: it.summary?.trim() || it.path, kind: it.kind }
-			for (const p of refsPerItem[i]) {
-				const arr = byPath.get(p) ?? []
-				if (!arr.some((o) => o.key === origin.key)) arr.push(origin)
-				byPath.set(p, arr)
-			}
-		})
-		const paths = [...byPath.keys()]
-		const types = await Promise.all(paths.map((p) => typeForResource(workspace, p)))
-		const resolved: DetectedResource[] = []
-		paths.forEach((path, i) => {
-			const rt = types[i]
-			if (rt && !HIDDEN_RESOURCE_TYPES.has(rt))
-				resolved.push({ path, resource_type: rt, usedBy: byPath.get(path)! })
-		})
-		return resolved.sort((a, b) => a.path.localeCompare(b.path))
-	}
-
-	// Read-only preview of the resource stubs that will be synced, kept in sync
-	// with the current selection.
-	let detectedResources = $state<DetectedResource[]>([])
+	// Live preview of the project bundle for the current selection. Built with the
+	// exact same closure logic used at deploy time, so the dependency list shown
+	// here is guaranteed to match what gets pushed.
+	let bundlePreview = $state<ProjectBundle | undefined>(undefined)
 	let detectingResources = $state(false)
+
+	// Dependency list shown to the user, by resource type. `hasHardcoded` marks a
+	// type that is pinned by a `$res:` path somewhere (relocated as a stub);
+	// otherwise it is taken as an input. Derived purely from the bundle preview.
+	type DependencyUsage =
+		| { role: 'input'; label: string; kind: ItemKind }
+		| { role: 'hardcoded'; label: string; kind: ItemKind; path: string }
+	interface DependencyType {
+		resource_type: string
+		hasHardcoded: boolean
+		usages: DependencyUsage[]
+	}
+	let dependencyTypes = $derived.by(() => {
+		const b = bundlePreview
+		if (!b) return [] as DependencyType[]
+		// Bundle item content is already relocated, so its $res: refs use newPath.
+		// Key the stub lookup by newPath; surface the originalPath to the user.
+		const stubByNewPath = new Map(b.resourceStubs.map((s) => [s.newPath, s]))
+		const byType = new Map<string, DependencyType>()
+		const ensure = (rt: string) => {
+			let e = byType.get(rt)
+			if (!e) {
+				e = { resource_type: rt, hasHardcoded: false, usages: [] }
+				byType.set(rt, e)
+			}
+			return e
+		}
+		for (const it of b.items) {
+			const label = (it.summary?.trim() || it.path) ?? it.path
+			// Hardcoded $res: refs in this item's code/graph.
+			const refs =
+				it.kind === 'flow'
+					? extractFlowRefs(it.value).filter((r) => r.kind === 'resource')
+					: it.kind === 'app'
+						? extractAppRefs(it.value)
+						: extractScriptRefs(it.content ?? '')
+			for (const r of refs) {
+				const stub = stubByNewPath.get(r.path)
+				if (!stub || HIDDEN_RESOURCE_TYPES.has(stub.resource_type)) continue
+				const e = ensure(stub.resource_type)
+				e.hasHardcoded = true
+				e.usages.push({ role: 'hardcoded', label, kind: it.kind, path: stub.originalPath })
+			}
+			// Resources taken as inputs (schema format: resource-<type>).
+			for (const t of typesFromSchema(it.schema)) {
+				if (HIDDEN_RESOURCE_TYPES.has(t)) continue
+				ensure(t).usages.push({ role: 'input', label, kind: it.kind })
+			}
+		}
+		return [...byType.values()].sort((a, b) => a.resource_type.localeCompare(b.resource_type))
+	})
+
 	$effect(() => {
 		const workspace = $workspaceStore
 		// re-run when the selection changes
 		selectedItemKeys
 		if (!workspace || phase !== 'predeploy') {
-			detectedResources = []
+			bundlePreview = undefined
 			return
 		}
 		let cancelled = false
 		detectingResources = true
-		resolveResourceSet(workspace)
-			.then((r) => {
-				if (!cancelled) detectedResources = r
+		const slug = sanitizeSlug(hubSlug)
+		const seed: ItemRef[] = selectedItems
+			.filter((i) => i.kind !== 'resource')
+			.map((i) => ({ kind: i.kind as ItemRef['kind'], path: i.path }))
+		buildProjectBundle(seed, slug, buildBundleDeps(workspace))
+			.then((b) => {
+				if (!cancelled) bundlePreview = b
 			})
 			.finally(() => {
 				if (!cancelled) detectingResources = false
@@ -508,14 +545,16 @@
 		}
 	})
 
+	// Push resource types for the bundle's stubs. Builtins (git_repository, …)
+	// aren't in the workspace resource_type table — we push them with an empty
+	// schema so the Hub still tracks the dependency.
 	async function pushResourceTypes(
 		workspace: string,
 		slug: string,
-		resolved: { path: string; resource_type: string }[]
+		types: string[]
 	): Promise<number> {
-		const uniques = Array.from(new Set(resolved.map((r) => r.resource_type)))
 		const results = await Promise.all(
-			uniques.map(async (name) => {
+			types.map(async (name) => {
 				let schema: unknown = undefined
 				let description: string | undefined = undefined
 				try {
@@ -523,8 +562,7 @@
 					schema = rt.schema ?? undefined
 					description = rt.description ?? undefined
 				} catch (e: any) {
-					// Builtin types (e.g. git_repository) aren't in the workspace resource_type
-					// table; push with an empty schema so the Hub still tracks the dependency.
+					// builtin type — push with empty schema
 				}
 				try {
 					await postHub(workspace, '/hub/resource_types', {
@@ -540,26 +578,7 @@
 				}
 			})
 		)
-		return results.reduce((a, b) => a + b, 0)
-	}
-
-	// Sync the empty resource stubs (path + type, never values) so a fork can
-	// recreate those paths and prompt the user to fill credentials. Must run
-	// after pushResourceTypes — the Hub rejects a resource whose type it doesn't
-	// yet know.
-	async function pushResources(
-		workspace: string,
-		slug: string,
-		resolved: { path: string; resource_type: string }[]
-	): Promise<number> {
-		if (resolved.length === 0) return 0
-		try {
-			await postHub(workspace, '/hub/resources', { resources: resolved, workspace_slug: slug })
-			return 0
-		} catch (e: any) {
-			sendUserToast(`Resource sync failed: ${e?.message ?? e}`, true)
-			return 1
-		}
+		return results.reduce((a: number, b) => a + b, 0)
 	}
 
 	async function deployAll() {
@@ -569,30 +588,74 @@
 		deploying = true
 		let failures = 0
 		try {
-			const resolvedResources = await resolveResourceSet(workspace)
-			const depFailures =
-				(await pushResourceTypes(workspace, slug, resolvedResources)) +
-				(await pushResources(workspace, slug, resolvedResources))
+			// 1. Build the self-contained project bundle: closure of the selection,
+			//    every path relocated under f/<slug>/ and all references rewritten.
+			const seed: ItemRef[] = selectedItems
+				.filter((i) => i.kind !== 'resource')
+				.map((i) => ({ kind: i.kind as ItemRef['kind'], path: i.path }))
+			const bundle = await buildProjectBundle(seed, slug, buildBundleDeps(workspace))
+
+			if (bundle.unresolved.length > 0) {
+				sendUserToast(
+					`Skipped ${bundle.unresolved.length} unresolved reference(s): ${bundle.unresolved.join(', ')}`,
+					true
+				)
+			}
+
+			// 2. Resource types then empty resource stubs (at their relocated paths).
+			//    Types come from two places: stubs (hardcoded $res: paths we relocated)
+			//    AND schema inputs (format: resource-<type>) — a flow/script that takes a
+			//    resource as a parameter still declares a dependency the Hub must know,
+			//    even though there's no path to stub.
+			const inputTypes = bundle.items
+				.flatMap((i) => typesFromSchema(i.schema))
+				.filter((t) => !HIDDEN_RESOURCE_TYPES.has(t))
+			const types = [
+				...new Set([...bundle.resourceStubs.map((s) => s.resource_type), ...inputTypes])
+			]
+			const depFailures = await pushResourceTypes(workspace, slug, types)
+
+			// Empty resource stubs at relocated paths. Hardcoded refs keep their
+			// relocated path; input-type deps (no path) get a conventional
+			// f/<slug>/<type> stub so they show up on the project and a fork can fill
+			// them. Dedup by path.
+			const stubsByPath = new Map<string, { path: string; resource_type: string }>()
+			for (const s of bundle.resourceStubs)
+				stubsByPath.set(s.newPath, { path: s.newPath, resource_type: s.resource_type })
+			for (const t of inputTypes) {
+				const path = `f/${slug}/${t}`
+				if (!stubsByPath.has(path)) stubsByPath.set(path, { path, resource_type: t })
+			}
+			const stubs = [...stubsByPath.values()]
+			if (stubs.length > 0) {
+				try {
+					await postHub(workspace, '/hub/resources', { resources: stubs, workspace_slug: slug })
+				} catch (e: any) {
+					sendUserToast(`Resource sync failed: ${e?.message ?? e}`, true)
+					failures++
+				}
+			}
 			failures += depFailures
-			// Don't publish items whose resource dependencies failed to sync — a fork
-			// would get scripts/flows with $res: references that resolve to no stub.
-			if (depFailures > 0) {
+			if (failures > 0) {
 				sendUserToast(
 					`Resource dependency sync failed — items not published to avoid broken references.`,
 					true
 				)
 				return
 			}
-			for (const it of selectedItems) {
-				deploymentStatus = { ...deploymentStatus, [it.key]: { status: 'loading' } }
+
+			// 3. Push every bundled item (already rewritten).
+			for (const it of bundle.items) {
+				const key = `${it.kind}:${it.path}`
+				deploymentStatus = { ...deploymentStatus, [key]: { status: 'loading' } }
 				try {
-					await pushItem(workspace, slug, it)
-					deploymentStatus = { ...deploymentStatus, [it.key]: { status: 'deployed' } }
+					await pushBundledItem(workspace, slug, it)
+					deploymentStatus = { ...deploymentStatus, [key]: { status: 'deployed' } }
 				} catch (e: any) {
 					failures++
 					deploymentStatus = {
 						...deploymentStatus,
-						[it.key]: { status: 'failed', error: e?.message ?? String(e) }
+						[key]: { status: 'failed', error: e?.message ?? String(e) }
 					}
 				}
 			}
@@ -1014,42 +1077,38 @@
 							{#if detectingResources}
 								<Loader2 size={11} class="inline animate-spin text-hint" />
 							{:else}
-								<span class="text-hint">({detectedResources.length})</span>
+								<span class="text-hint">({dependencyTypes.length})</span>
 							{/if}
 							<Tooltip>
-								Resources referenced by the selected items. Synced to the Hub as empty stubs
-								(path + type only, never values) so a fork recreates them and prompts you to fill
-								credentials.
+								Resource types the selected items depend on (whether passed as inputs or referenced
+								by a hardcoded path). Synced to the Hub so a fork knows what credentials it needs to
+								fill.
 							</Tooltip>
 						</span>
-						{#if detectedResources.length === 0}
+						{#if dependencyTypes.length === 0}
 							<span class="text-[11px] text-hint">
 								No resource references detected in the current selection.
 							</span>
 						{:else}
-							<div class="flex flex-wrap gap-1.5 rounded-md border bg-surface-secondary p-2">
-								{#each detectedResources as r (r.path)}
-									<Popover notClickable placement="top">
-										<span
-											class="inline-flex items-center gap-1 rounded border bg-surface px-1.5 py-0.5 font-mono text-[11px] text-secondary"
-										>
-											{r.resource_type}
-											<span class="text-hint">({r.usedBy.length})</span>
-										</span>
-										{#snippet text()}
-											<div class="flex flex-col gap-1 text-left text-[11px]">
-												<div class="flex items-center gap-1.5">
-													<Badge color="transparent" size="xs">{r.resource_type}</Badge>
-													<span class="font-mono">{r.path}</span>
-												</div>
-												<div class="text-hint">used by</div>
-												{#each r.usedBy as u (u.key)}
-													<span class="font-mono">{u.kind}: {u.label}</span>
-												{/each}
-											</div>
-										{/snippet}
-									</Popover>
+							<div
+								class="flex flex-wrap items-center gap-1.5 rounded-md border bg-surface-secondary p-2"
+							>
+								{#each dependencyTypes as r (r.resource_type)}
+									<span
+										class="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[11px] text-secondary {r.hasHardcoded
+											? 'border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40'
+											: 'bg-surface'}"
+									>
+										{r.resource_type}
+									</span>
 								{/each}
+								<Button
+									variant="subtle"
+									unifiedSize="sm"
+									onclick={() => resourceDrawer?.openDrawer()}
+								>
+									View details
+								</Button>
 							</div>
 						{/if}
 					</div>
@@ -1414,6 +1473,77 @@
 				Generate iframe
 			</Button>
 		{/snippet}
+	</DrawerContent>
+</Drawer>
+
+<Drawer bind:this={resourceDrawer} size="640px">
+	<DrawerContent title="Resource dependencies" on:close={() => resourceDrawer?.closeDrawer()}>
+		<div class="flex flex-col gap-4">
+			<p class="text-xs text-secondary">
+				Resource types the selected items depend on. Each is synced to the Hub so a fork knows what
+				credentials it needs to fill. <span class="font-semibold">Input</span> means the item takes
+				the resource as a parameter; <span class="font-semibold">hardcoded path</span> means the item
+				pins a specific resource path in its code.
+			</p>
+			{#if dependencyTypes.length === 0}
+				<span class="text-xs text-hint">No resource references in the current selection.</span>
+			{:else}
+				{#each dependencyTypes as r (r.resource_type)}
+					<div class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3">
+						<div class="flex items-center gap-2 border-b pb-2">
+							<span
+								class="rounded border px-1.5 py-0.5 font-mono text-xs text-primary {r.hasHardcoded
+									? 'border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40'
+									: 'bg-surface'}"
+							>
+								{r.resource_type}
+							</span>
+							<span class="text-[11px] text-hint">
+								{r.usages.length} usage{r.usages.length > 1 ? 's' : ''}
+							</span>
+						</div>
+						<div class="flex flex-col gap-3">
+							{#each r.usages as u (u.role + ':' + u.label + ':' + (u.role === 'hardcoded' ? u.path : ''))}
+								<div class="flex flex-col gap-1 text-xs">
+									<div class="flex items-center gap-2">
+										<span class="text-hint">{u.kind}</span>
+										<span class="break-all font-mono text-primary">{u.label}</span>
+										<span
+											class="ml-auto inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide {u.role ===
+											'hardcoded'
+												? 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200'
+												: 'bg-surface text-secondary'}"
+										>
+											{u.role === 'hardcoded' ? 'hardcoded path' : 'input'}
+											{#if u.role === 'hardcoded'}
+												<Popover notClickable placement="top">
+													<Info size={11} class="text-amber-600 dark:text-amber-400" />
+													{#snippet text()}
+														<div
+															class="flex w-80 max-w-[90vw] flex-col gap-2 text-left text-[11px] normal-case"
+														>
+															<span>
+																This {u.kind} references the resource by a hardcoded path
+																<span class="break-all font-mono">$res:{u.path}</span>.
+															</span>
+															<span class="text-hint">
+																For portability, prefer taking the resource as an input — a fork
+																won't have this exact path. It's relocated into the project on
+																publish, but converting it to an input keeps the item reusable.
+															</span>
+														</div>
+													{/snippet}
+												</Popover>
+											{/if}
+										</span>
+									</div>
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/each}
+			{/if}
+		</div>
 	</DrawerContent>
 </Drawer>
 
