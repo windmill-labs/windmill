@@ -581,6 +581,8 @@ pub(crate) async fn build_import_map(
               "{base_internal_url}/api/w/{w_id}/scripts/raw/p/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
               "{base_internal_url}": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
               "/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
+              "$f/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/f/",
+              "$u/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/u/",
               "./wrapper.ts": "./wrapper.ts",
               "./main.ts": "./main.ts"{relative_mounts}
               {extra_import_map}
