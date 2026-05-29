@@ -97,24 +97,6 @@ export const EVAL_MODELS: EvalModelSpec[] = [
     },
   },
   {
-    id: "gemini-flash",
-    label: "Gemini 2.5 Flash",
-    aliases: ["gemini", "gemini-flash", "gemini-2.5-flash"],
-    frontend: {
-      provider: "googleai",
-      model: "gemini-2.5-flash",
-    },
-  },
-  {
-    id: "gemini-pro",
-    label: "Gemini 2.5 Pro",
-    aliases: ["gemini-pro", "gemini-2.5-pro"],
-    frontend: {
-      provider: "googleai",
-      model: "gemini-2.5-pro",
-    },
-  },
-  {
     id: "gemini-3-flash-preview",
     label: "Gemini 3 Flash Preview",
     aliases: ["gemini-3-flash-preview", "gemini-3-flash"],
