@@ -586,6 +586,21 @@ pub struct OAuthConfig {
     pub req_body_auth: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub grant_types: Vec<String>,
+    /// Optional URL overrides for the provider's sandbox environment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<OAuthSandboxOverride>,
+}
+
+/// URL overrides for an OAuth provider's sandbox environment.
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+#[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
+pub struct OAuthSandboxOverride {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub userinfo_url: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
