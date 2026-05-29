@@ -66,6 +66,13 @@ export async function refreshTsconfig(): Promise<void> {
 function refreshManagedTsconfig(defaultTs: "bun" | "deno") {
   // Map "$f/*" -> ["./f/*"], "$u/*" -> ["./u/*"] so the editor resolves
   // workspace imports against the local script folders.
+  //
+  // Known limitation: this resolves imports written with a plain `.ts` extension
+  // (the canonical form). Scripts stored with a flavor-specific extension —
+  // `.bun.ts`/`.deno.ts`/`.fetch.ts` for languages other than the project default
+  // (see filePathExtensionFromContentType) — won't resolve via these aliases in a
+  // local editor. The worker (extension-agnostic API) and the in-app editor (ATA
+  // normalizes to `.ts`) handle those fine; only local tsc / VS Code is affected.
   const paths: Record<string, string[]> = {};
   for (const [alias, dir] of Object.entries(WORKSPACE_IMPORT_ALIASES)) {
     paths[`${alias}/*`] = [`./${dir}/*`];
@@ -124,6 +131,9 @@ function refreshManagedDenoImportMap() {
 
   ensureUserReferencesManaged({
     file: "deno.json",
+    // Don't write deno.json if the project already uses deno.jsonc — a new
+    // deno.json would take precedence and shadow the existing config.
+    altFiles: ["deno.jsonc"],
     create: { importMap: `./${MANAGED_IMPORT_MAP}` },
     token: MANAGED_IMPORT_MAP,
     hint: `"importMap": "./${MANAGED_IMPORT_MAP}"`,
@@ -137,31 +147,41 @@ function refreshManagedDenoImportMap() {
  */
 function ensureUserReferencesManaged(opts: {
   file: string;
+  // Sibling configs that, if already present, must not be shadowed by writing
+  // `opts.file` next to them (e.g. an existing deno.jsonc vs a new deno.json).
+  altFiles?: string[];
   create: Record<string, unknown>;
   token: string;
   hint: string;
 }) {
-  const userPath = path.join(process.cwd(), opts.file);
-  if (!existsSync(userPath)) {
+  // Prefer any existing config (including alternates) over creating a fresh one,
+  // so we never shadow a config the user already has.
+  const existing = [opts.file, ...(opts.altFiles ?? [])]
+    .map((f) => path.join(process.cwd(), f))
+    .find((p) => existsSync(p));
+
+  if (!existing) {
+    const userPath = path.join(process.cwd(), opts.file);
     writeFileSync(userPath, JSON.stringify(opts.create, null, 2) + "\n");
     log.info(colors.green(`Created ${opts.file} (references ${opts.token})`));
     return;
   }
 
+  const existingName = path.basename(existing);
   let text = "";
   try {
-    text = readFileSync(userPath, "utf-8");
+    text = readFileSync(existing, "utf-8");
   } catch {
     return;
   }
   if (text.includes(opts.token)) {
     log.info(
-      colors.gray(`${opts.file} already references ${opts.token}, leaving it untouched`)
+      colors.gray(`${existingName} already references ${opts.token}, leaving it untouched`)
     );
     return;
   }
   log.warn(
-    `${opts.file} exists but doesn't reference ${opts.token}. Add ${opts.hint} ` +
+    `${existingName} exists but doesn't reference ${opts.token}. Add ${opts.hint} ` +
       `to pick up wmill's recommended settings (incl. $f//$u/ import aliases).`
   );
 }
@@ -176,7 +196,7 @@ function ensureBunTypesAvailable(): boolean {
     execSync("bun --version", { stdio: "ignore" });
   } catch {
     log.info(
-      "Install bun (https://bun.sh) then run 'bun add -d bun-types' and add \"types\": [\"bun-types\"] to tsconfig.wmill.json for Bun API autocompletion."
+      "Install bun (https://bun.sh), run 'bun add -d bun-types', then re-run 'wmill refresh tsconfig' for Bun API autocompletion."
     );
     return false;
   }
@@ -195,7 +215,7 @@ function ensureBunTypesAvailable(): boolean {
       }`
     );
     log.info(
-      "Run 'bun add -d bun-types' manually for Bun API autocompletion."
+      "Run 'bun add -d bun-types' manually, then 'wmill refresh tsconfig', for Bun API autocompletion."
     );
     return false;
   }
