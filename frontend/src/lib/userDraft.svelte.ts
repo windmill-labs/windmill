@@ -1,11 +1,8 @@
 import { get } from 'svelte/store'
 import { onDestroy, untrack } from 'svelte'
 import { deepEqual } from 'fast-equals'
-import { userStore, workspaceStore } from './stores'
+import { workspaceStore } from './stores'
 import { useLocalStorageValue } from './svelte5Utils.svelte'
-import { readFieldsRecursively } from './utils'
-import { UserDraftDbSyncer } from './userDraftDbSyncer.svelte'
-import { UserDraftConflictStore } from './userDraftConflictStore.svelte'
 import type { UserDraftItemKind } from './gen'
 
 export type { UserDraftItemKind }
@@ -124,14 +121,6 @@ type DraftEntry = {
 	itemKind: UserDraftItemKind
 	path: string
 	state: DraftState<unknown>
-	/**
-	 * Set to `true` by callers that already know what's on the server
-	 * (e.g. an `onMissedDrafts` echo, or the conflict modal's "Load server
-	 * draft" branch). The acquireEntry `$effect` consumes the flag —
-	 * skipping exactly one pushToSyncer call — to break the otherwise
-	 * inevitable ping-pong between live-cell writes and the syncer.
-	 */
-	skipNextSync: boolean
 	/**
 	 * Tears down the `$effect.root` scope that owns the entry's
 	 * `useLocalStorageValue` reactivity — its `$state` cell and the persist
@@ -371,62 +360,16 @@ export function localDraftDiffers<V>(
 	return !deepEqual(normalizeForCompare(localDraft), normalizeForCompare(currentConfig))
 }
 
-/**
- * Persist a draft via the DbSyncer queue. `value === null` signals a
- * delete (matches the wire shape). Internal `_skipSync` opts pass-through
- * lets the syncer write missed drafts back to LS without re-syncing.
- */
-function pushToSyncer(
-	itemKind: UserDraftItemKind,
-	path: string,
-	value: unknown | null,
-	workspace: string
-): void {
-	// Skip sync until a user is signed in — without a session the request
-	// would 401 and the queue would discard the entry. The next save after
-	// login will pick the draft up from localStorage and re-push.
-	if (get(userStore) === undefined) return
-	UserDraftDbSyncer.pushDrafts({
-		workspace,
-		drafts: [{ itemKind, path, value }],
-		onMissedDrafts: (drafts) => {
-			for (const d of drafts) {
-				UserDraft.save(d.typ as UserDraftItemKind, d.path, d.value, {
-					workspace,
-					_skipSync: true
-				})
-			}
-		},
-		onDraftsRejected: (rejected) => {
-			UserDraftConflictStore.enqueue(
-				rejected.map((r) => ({
-					workspace,
-					itemKind: r.typ as UserDraftItemKind,
-					rejected: r
-				}))
-			)
-		}
-	})
-}
-
-type SaveOptions = UserDraftOptions & { _skipSync?: boolean }
-
 export const UserDraft = {
-	save<V>(itemKind: UserDraftItemKind, path: string, value: V, opts?: SaveOptions): void {
+	save<V>(itemKind: UserDraftItemKind, path: string, value: V, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) {
 			// Static writes are external mutations. Update live observers and
-			// force the storage slot to match, even if the live entry still has
-			// its initial-write skip armed.
+			// force the storage slot to match.
 			const current = untrack(() => entry.state.val as StoredDraft<unknown> | undefined)
 			const meta = extractMeta(current)
-			// Arm the sync-skip BEFORE the reactive write, so the cell's
-			// $effect — which fires on a microtask after `setWithoutPersist`
-			// — sees the flag and bails. Otherwise a `_skipSync` save would
-			// still bounce to the server through the live-cell push path.
-			if (opts?._skipSync) entry.skipNextSync = true
 			entry.state.setWithoutPersist(wrap(value, meta))
 			persistDirect(localStorageKey(ws, itemKind, path), value, meta)
 		} else {
@@ -441,9 +384,6 @@ export const UserDraft = {
 			} catch (e) {
 				console.error('UserDraft.save: localStorage write failed', e)
 			}
-		}
-		if (!opts?._skipSync) {
-			pushToSyncer(itemKind, path, value, ws)
 		}
 	},
 
@@ -556,19 +496,16 @@ export const UserDraft = {
 		return readPersisted(localStorageKey(ws, itemKind, path)) !== undefined
 	},
 
-	remove(itemKind: UserDraftItemKind, path: string, opts?: SaveOptions): void {
+	remove(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
 		try {
 			localStorage.removeItem(localStorageKey(ws, itemKind, path))
 		} catch (e) {
 			console.error('UserDraft.remove: localStorage remove failed', e)
 		}
-		if (!opts?._skipSync) {
-			pushToSyncer(itemKind, path, null, ws)
-		}
 	},
 
-	clear(itemKind: UserDraftItemKind, path: string, opts?: SaveOptions): void {
+	clear(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
 		UserDraft.discard(itemKind, path, undefined, opts)
 	},
 
@@ -661,7 +598,7 @@ export const UserDraft = {
 		itemKind: UserDraftItemKind,
 		path: string,
 		fallback: V | undefined,
-		opts?: SaveOptions
+		opts?: UserDraftOptions
 	): void {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
@@ -671,16 +608,12 @@ export const UserDraft = {
 			// resetting the in-memory value. Otherwise a timer from the old
 			// entry can outlive unmount and later delete a freshly written
 			// draft for the same key.
-			if (opts?._skipSync) entry.skipNextSync = true
 			entry.state.setWithoutPersist(wrap(fallback) as StoredDraft<unknown> | undefined)
 		}
 		try {
 			localStorage.removeItem(localStorageKey(ws, itemKind, path))
 		} catch (e) {
 			console.error('UserDraft.discard: localStorage remove failed', e)
-		}
-		if (!opts?._skipSync) {
-			pushToSyncer(itemKind, path, null, ws)
 		}
 	},
 
@@ -810,36 +743,6 @@ function acquireEntry(
 			undefined,
 			useLocalStorageOptions
 		)
-		// Mirror live-handle writes (both setter assignments and in-place
-		// deep mutations like `handle.draft.summary = '...'`) to the
-		// DbSyncer. `readFieldsRecursively` is what makes deep mutations
-		// observable — reading `stateRef!.val` alone only tracks the proxy
-		// root, so nested edits would update localStorage (via the inner
-		// persist effect, which does the same recursive read) but never
-		// reach the syncer. Skip the first run — the initial value came
-		// from localStorage or the default, not from a user mutation, so
-		// echoing it back would create a redundant request on every editor
-		// mount. Also honor the entry's `skipNextSync` flag, which callers
-		// set when they already know what's on the server (missed_drafts
-		// echo, "Load server draft" in the conflict modal). Per-keystroke
-		// firings here are fine — the DbSyncer queue coalesces by path and
-		// only fetches at its own 2s/10s cadence.
-		let firstRun = true
-		$effect(() => {
-			const stored = stateRef!.val
-			if (stored !== undefined) readFieldsRecursively(stored.value)
-			if (firstRun) {
-				firstRun = false
-				return
-			}
-			const entry = entries.get(mk)
-			if (entry?.skipNextSync) {
-				entry.skipNextSync = false
-				return
-			}
-			const value = stored === undefined ? null : (stored.value as unknown)
-			pushToSyncer(itemKind, path, value, workspace)
-		})
 	})
 	if (stateRef) {
 		entries.set(mk, {
@@ -848,7 +751,6 @@ function acquireEntry(
 			itemKind,
 			path,
 			state: stateRef,
-			skipNextSync: false,
 			destroyRoot
 		})
 		return
@@ -861,7 +763,7 @@ function acquireEntry(
 		undefined,
 		useLocalStorageOptions
 	)
-	entries.set(mk, { count: 1, workspace, itemKind, path, state, skipNextSync: false })
+	entries.set(mk, { count: 1, workspace, itemKind, path, state })
 }
 
 function releaseEntry(mk: string): void {

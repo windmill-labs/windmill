@@ -58,11 +58,8 @@
 
 	function loadServer() {
 		if (!conflict) return
-		// `_skipSync` so the write doesn't immediately bounce back to the
-		// server (which already has this value).
 		UserDraft.save(conflict.itemKind, conflict.rejected.path, conflict.rejected.server_value, {
-			workspace: conflict.workspace,
-			_skipSync: true
+			workspace: conflict.workspace
 		})
 		UserDraftConflictStore.dismiss()
 	}
