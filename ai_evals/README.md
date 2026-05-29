@@ -88,15 +88,18 @@ Today:
 - `sonnet`
 - `opus`
 - `4o`
+- `gpt-5.5`
 - `gemini-flash`
 - `gemini-pro`
 - `gemini-3-flash-preview`
 - `gemini-3.1-pro-preview`
+- `deepseek-v4-flash`
+- `deepseek-v4-pro`
 
 Notes:
 
-- the command also prints accepted alias spellings such as `gpt-4o`, `claude-opus-4.6`, and `claude-haiku-4.5`
-- frontend modes (`flow`, `script`, `app`, `global`) can use Anthropic, OpenAI, and Gemini-backed aliases
+- the command also prints accepted alias spellings such as `gpt-4o`, `gpt-55`, `claude-opus-4.6`, and `claude-haiku-4.5`
+- frontend modes (`flow`, `script`, `app`, `global`) can use Anthropic, OpenAI, Gemini, and DeepSeek-backed aliases
 - `cli` mode always uses the Anthropic agent SDK, so only Anthropic aliases are valid there
 - the judge model is separate and currently defaults to `claude-sonnet-4-6`
 

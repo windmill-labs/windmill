@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.712.0](https://github.com/windmill-labs/windmill/compare/v1.711.0...v1.712.0) (2026-05-28)
+
+
+### Features
+
+* add deepseek fim support ([#9365](https://github.com/windmill-labs/windmill/issues/9365)) ([2553fbf](https://github.com/windmill-labs/windmill/commit/2553fbfe31417bd985e7994eac695bf918f97ce2))
+* deploy raw apps from global chat ([#9349](https://github.com/windmill-labs/windmill/issues/9349)) ([dec58e6](https://github.com/windmill-labs/windmill/commit/dec58e6c4f55062b42a752c43c89ef05903e713a))
+* inject active editor into global chat ([#9361](https://github.com/windmill-labs/windmill/issues/9361)) ([9e7eaf3](https://github.com/windmill-labs/windmill/commit/9e7eaf36847ad3a004ec84e8b7d4784771b7b451))
+* **queue:** duration-weighted fairness admission ([#9334](https://github.com/windmill-labs/windmill/issues/9334)) ([045d120](https://github.com/windmill-labs/windmill/commit/045d12043e7c99830ef90bc0da798c94e2094711))
+* warn when custom instance db is shared across workspaces ([#9359](https://github.com/windmill-labs/windmill/issues/9359)) ([a9e5140](https://github.com/windmill-labs/windmill/commit/a9e514099585e5ee72df21bd551a223cceb20fb0))
+
+
+### Bug Fixes
+
+* **cli:** redact encryption_key diff in stdout by default ([#9347](https://github.com/windmill-labs/windmill/issues/9347)) ([88056f8](https://github.com/windmill-labs/windmill/commit/88056f8d4c91c1d14d85a08851ecf0bd97e2260d))
+* **cli:** stop re-prompting on wmill refresh prompts ([#9357](https://github.com/windmill-labs/windmill/issues/9357)) ([c2b5ba8](https://github.com/windmill-labs/windmill/commit/c2b5ba8871abbbcff6de69c90e2f09fee70586c1))
+* **frontend:** close other sidebar menus when hovering Help ([#9354](https://github.com/windmill-labs/windmill/issues/9354)) ([da882c5](https://github.com/windmill-labs/windmill/commit/da882c54b21e3eaf2c1d1abccd0996b243d96dce))
+* **frontend:** prevent duplicate asset node ids crashing flow graph ([#9367](https://github.com/windmill-labs/windmill/issues/9367)) ([9a659b6](https://github.com/windmill-labs/windmill/commit/9a659b636d713ee8fdfbdad41c58bb3d7c79e0d9))
+* **frontend:** prevent MultiSelect crash on undefined value ([#9364](https://github.com/windmill-labs/windmill/issues/9364)) ([aea0061](https://github.com/windmill-labs/windmill/commit/aea00611c41379be2afdad0eedd608c9537d03f7))
+* **git-sync:** publish fork branch on only_create_branch from the CLI ([#9366](https://github.com/windmill-labs/windmill/issues/9366)) ([2fdc51e](https://github.com/windmill-labs/windmill/commit/2fdc51e62985fc755884436130bdd58e294247c8))
+* infer script arg schema when deploying via AI chat ([#9356](https://github.com/windmill-labs/windmill/issues/9356)) ([4efc372](https://github.com/windmill-labs/windmill/commit/4efc37212a98571214aba135b0fbb10dc263fd4f))
+* **monitor:** cleanup stale server_heartbeat background_task_state rows ([#9338](https://github.com/windmill-labs/windmill/issues/9338)) ([59ab038](https://github.com/windmill-labs/windmill/commit/59ab038d7718d8a4c25efa5928f42e1393ebbf40))
+
 ## [1.711.0](https://github.com/windmill-labs/windmill/compare/v1.710.1...v1.711.0) (2026-05-26)
 
 

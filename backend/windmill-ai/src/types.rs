@@ -18,7 +18,7 @@ pub struct McpToolSource {
 use crate::{
     ai_google::sanitize_schema_for_google,
     ai_providers::{empty_string_as_none, AIProvider},
-    proxy::ProviderCredentials,
+    credentials::ProviderCredentials,
 };
 use windmill_common::{db::DB, error::Error, flow_status::AgentAction, flows::FlowModule};
 use windmill_parser::Typ;
