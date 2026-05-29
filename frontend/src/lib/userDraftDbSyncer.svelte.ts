@@ -4,18 +4,12 @@
  * which doubles as "what the server has for me that I haven't seen yet" and
  * "push these drafts up, rejecting any whose server copy moved forward
  * since my last sync".
- *
- * The syncer is a single shared module-level service (not per-handle) so
- * that pushes from any UserDraft.save call across the app coalesce into one
- * batched sync request.
  */
 import type { UserDraftItemKind } from './userDraft.svelte'
 import { DraftService, type SyncDraftsResponse } from './gen'
 import { useLocalStorageValue } from './svelte5Utils.svelte'
 
 const LAST_SYNC_KEY = 'userdraft/lastSync'
-const DEBOUNCE_MS = 2_000
-const MAX_DEBOUNCE_MS = 10_000
 
 export type MissedDraft = SyncDraftsResponse['missed_drafts'][number]
 export type RejectedDraft = Extract<SyncDraftsResponse['statuses'][number], { status: 'rejected' }>
@@ -48,21 +42,6 @@ export type SyncOptions<V = unknown> = {
 	onDraftsRejected?: RejectedDraftsCallback
 }
 
-type QueueKey = string
-function queueKey(workspace: string, kind: UserDraftItemKind, path: string): QueueKey {
-	return `${workspace}|${kind}|${path}`
-}
-
-type QueuedEntry = {
-	workspace: string
-	itemKind: UserDraftItemKind
-	path: string
-	value: unknown
-	force: boolean
-	onMissedDrafts?: MissedDraftCallback
-	onDraftsRejected?: RejectedDraftsCallback
-}
-
 // Setter-only callers can use `useLocalStorageValue` at module scope by
 // disabling the nested-mutation `$effect`. The lastSync slot is a flat
 // string updated exclusively via `cell.val = ...`, so the effect is
@@ -82,63 +61,9 @@ function bumpLastSync(serverTimestamp: string): void {
 	}
 }
 
-const queue = new Map<QueueKey, QueuedEntry>()
-let debounceTimer: ReturnType<typeof setTimeout> | undefined
-let maxDebounceTimer: ReturnType<typeof setTimeout> | undefined
-
-function clearTimers(): void {
-	if (debounceTimer !== undefined) {
-		clearTimeout(debounceTimer)
-		debounceTimer = undefined
-	}
-	if (maxDebounceTimer !== undefined) {
-		clearTimeout(maxDebounceTimer)
-		maxDebounceTimer = undefined
-	}
-}
-
-async function flushQueue(): Promise<void> {
-	clearTimers()
-	if (queue.size === 0) return
-
-	const entries = Array.from(queue.values())
-	queue.clear()
-
-	// One request per workspace. The server scopes every row by the
-	// session's authed email, so we don't track user identity on the
-	// client side — a tab can only be logged in as one user at a time.
-	const groups = new Map<string, QueuedEntry[]>()
-	for (const entry of entries) {
-		const list = groups.get(entry.workspace)
-		if (list) list.push(entry)
-		else groups.set(entry.workspace, [entry])
-	}
-
-	for (const [workspace, group] of groups.entries()) {
-		await runSync(workspace, group)
-	}
-}
-
-async function runSync(workspace: string, group: QueuedEntry[]): Promise<void> {
-	const onMissedDrafts = group.find((e) => e.onMissedDrafts)?.onMissedDrafts
-	const onDraftsRejected = group.find((e) => e.onDraftsRejected)?.onDraftsRejected
-	const drafts: PendingDraft[] = group.map(({ itemKind, path, value, force }) => ({
-		itemKind,
-		path,
-		value,
-		force
-	}))
-	await syncDrafts({
-		workspace,
-		drafts,
-		onMissedDrafts,
-		onDraftsRejected
-	})
-}
-
 /**
- * Immediate sync. Bypasses the queue. Caller is responsible for handling
- * the missed/rejected lists.
+ * Immediate sync. Caller is responsible for handling the missed/rejected
+ * lists via the callbacks.
  */
 export async function syncDrafts<V = unknown>(opts: SyncOptions<V>): Promise<void> {
 	const lastSync = getLastSync()
@@ -169,54 +94,4 @@ export async function syncDrafts<V = unknown>(opts: SyncOptions<V>): Promise<voi
 
 export const UserDraftDbSyncer = {
 	getLastSync,
-
-	/**
-	 * Test-only: clear the in-memory queue + lastSync slot so successive
-	 * tests start with a clean slate.
-	 */
-	__resetForTesting(): void {
-		clearTimers()
-		queue.clear()
-		lastSyncCell.val = undefined
-	},
-
-	/**
-	 * Enqueue drafts for a batched sync. Repeated pushes for the same
-	 * (workspace, itemKind, path) coalesce — only the latest value /
-	 * callbacks survive. Returns the same Promise as the eventual
-	 * `syncDrafts` so callers can `await` flush completion.
-	 */
-	pushDrafts<V = unknown>(opts: SyncOptions<V>): void {
-		const ws = opts.workspace
-		for (const d of opts.drafts) {
-			queue.set(queueKey(ws, d.itemKind, d.path), {
-				workspace: ws,
-				itemKind: d.itemKind,
-				path: d.path,
-				value: d.value,
-				force: d.force ?? false,
-				onMissedDrafts: opts.onMissedDrafts,
-				onDraftsRejected: opts.onDraftsRejected
-			})
-		}
-
-		if (debounceTimer !== undefined) clearTimeout(debounceTimer)
-		debounceTimer = setTimeout(() => {
-			void flushQueue()
-		}, DEBOUNCE_MS)
-
-		if (maxDebounceTimer === undefined) {
-			maxDebounceTimer = setTimeout(() => {
-				void flushQueue()
-			}, MAX_DEBOUNCE_MS)
-		}
-	},
-
-	/**
-	 * Force a synchronous flush of any queued pushes. Useful for tests and
-	 * for "logout" / "navigate away" hooks that want to guarantee delivery.
-	 */
-	async flush(): Promise<void> {
-		await flushQueue()
-	}
 }
