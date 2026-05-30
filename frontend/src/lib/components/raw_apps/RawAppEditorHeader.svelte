@@ -837,6 +837,7 @@
 			{appPath}
 			{onLatest}
 			{savedApp}
+			rawApp
 			bind:summary
 			bind:customPath
 			bind:deploymentMsg

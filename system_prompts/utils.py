@@ -94,14 +94,14 @@ LANGUAGE_METADATA = {
         'description': 'MUST use when writing Deno/TypeScript scripts.',
         'use_cases': 'TypeScript with Deno stdlib, secure sandboxed execution'
     },
-    'nativets': {
-        'name': 'Native TypeScript',
-        'description': 'MUST use when writing Native TypeScript scripts.',
-        'use_cases': 'simple API calls, lightweight TypeScript, no dependencies'
-    },
+    # 'nativets' is intentionally omitted: it is a legacy duplicate of
+    # 'bunnative' (a Bun script with a leading //native marker). No
+    # write-script-nativets skill is generated so agents always author native
+    # TypeScript as 'bunnative'. It remains in TS_SDK_LANGUAGES below so the
+    # TypeScript SDK still attaches when editing existing nativets scripts.
     'bunnative': {
         'name': 'Bun Native',
-        'description': 'MUST use when writing Bun Native scripts.',
+        'description': 'MUST use when writing Bun Native scripts. The script must start with //native to run on the native worker.',
         'use_cases': 'simple Bun scripts, lightweight, no dependencies'
     },
     'python3': {
@@ -186,7 +186,9 @@ LANGUAGE_METADATA = {
     },
 }
 
-# Languages that use TypeScript SDK
+# Languages that use TypeScript SDK. 'nativets' is kept here (despite having no
+# write-script skill — see LANGUAGE_METADATA) so the TS SDK still attaches when
+# editing pre-existing legacy nativets scripts.
 TS_SDK_LANGUAGES = ['bun', 'deno', 'nativets', 'bunnative']
 
 # Languages that use Python SDK

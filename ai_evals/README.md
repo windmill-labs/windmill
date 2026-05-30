@@ -56,7 +56,7 @@ bun run cli -- run flow flow-test4-order-processing-loop --model opus
 bun run cli -- run flow flow-test0-sum-two-numbers --models haiku,opus,4o
 bun run cli -- run flow flow-test0-sum-two-numbers --runs 3 --verbose
 bun run cli -- run flow --record
-GEMINI_API_KEY=... bun run cli -- run app app-test1-counter-create --model gemini-pro
+GEMINI_API_KEY=... bun run cli -- run app app-test1-counter-create --model gemini-3-flash-preview
 WMILL_AI_EVAL_BACKEND_URL=http://127.0.0.1:8000 bun run cli -- run flow --backend-validation preview
 bun run cli -- run global global-test1-script-create
 bun run cli -- run cli bun-hello-script
@@ -88,15 +88,16 @@ Today:
 - `sonnet`
 - `opus`
 - `4o`
-- `gemini-flash`
-- `gemini-pro`
+- `gpt-5.5`
 - `gemini-3-flash-preview`
 - `gemini-3.1-pro-preview`
+- `deepseek-v4-flash`
+- `deepseek-v4-pro`
 
 Notes:
 
-- the command also prints accepted alias spellings such as `gpt-4o`, `claude-opus-4.6`, and `claude-haiku-4.5`
-- frontend modes (`flow`, `script`, `app`, `global`) can use Anthropic, OpenAI, and Gemini-backed aliases
+- the command also prints accepted alias spellings such as `gpt-4o`, `gpt-55`, `claude-opus-4.6`, and `claude-haiku-4.5`
+- frontend modes (`flow`, `script`, `app`, `global`) can use Anthropic, OpenAI, Gemini, and DeepSeek-backed aliases
 - `cli` mode always uses the Anthropic agent SDK, so only Anthropic aliases are valid there
 - the judge model is separate and currently defaults to `claude-sonnet-4-6`
 
