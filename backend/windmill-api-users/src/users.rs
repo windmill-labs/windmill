@@ -1964,7 +1964,8 @@ async fn login(
             windmill_common::login_rate_limit::record_login_failure(&email);
             Err(Error::BadRequest("Invalid login".to_string()))
         } else {
-            let token = create_session_token(&email, super_admin, None, &mut tx, cookies).await?;
+            let token =
+                create_session_token(&email, super_admin, None, false, &mut tx, cookies).await?;
 
             let audit_author = AuditAuthor {
                 email: email.clone(),
@@ -2040,6 +2041,7 @@ async fn refresh_token(
         &authed.email,
         super_admin,
         authed.scopes.as_deref(),
+        authed.read_only,
         &mut tx,
         cookies,
     )
@@ -2074,6 +2076,7 @@ pub async fn create_session_token<'c>(
     email: &str,
     super_admin: bool,
     scopes: Option<&[String]>,
+    read_only: bool,
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
     cookies: Cookies,
 ) -> Result<String> {
@@ -2116,8 +2119,8 @@ pub async fn create_session_token<'c>(
 
     sqlx::query!(
         "INSERT INTO token
-            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes)
-            VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' seconds')::interval, $7, $8)",
+            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, read_only)
+            VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' seconds')::interval, $7, $8, $9)",
         t_hash,
         t_prefix,
         plaintext as Option<&str>,
@@ -2126,6 +2129,7 @@ pub async fn create_session_token<'c>(
         &MAX_SESSION_VALIDITY_SECONDS.to_string(),
         super_admin,
         scopes,
+        read_only,
     )
     .execute(&mut **tx)
     .await?;
