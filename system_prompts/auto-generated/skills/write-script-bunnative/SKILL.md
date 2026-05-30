@@ -40,7 +40,7 @@ Use `wmill resource-type list --schema` to discover available resource types.
 
 # TypeScript (Bun Native)
 
-Native TypeScript execution. The only library import allowed is `windmill-client`. You may also import other Windmill scripts (e.g. `./helper.ts`), provided those scripts likewise import nothing except `windmill-client`. Use the globally available `fetch` for everything else. Every script MUST start with `//native` on its first line so Windmill routes it to the native worker; without it the script runs on the regular Bun worker.
+Native TypeScript execution. Native scripts are Bun scripts that run on the native worker — a lightweight V8 isolate that exposes `fetch` and the JavaScript standard library — and can be heavily parallelized. Every script MUST start with `//native` on its first line so Windmill routes it to the native worker; without it the exact same script runs on the regular Bun worker. You may import npm packages and other Windmill scripts (e.g. `./helper.ts`) — imports are resolved and bundled just like a regular Bun script — as long as everything (your code and its dependencies) relies only on `fetch` and the standard library. Libraries that need Node/Bun runtime APIs (filesystem, `node:*` modules, child processes, native addons) will not work on the native worker; use the regular `bun` language for those.
 
 ## Structure
 
@@ -75,7 +75,7 @@ Before using a resource type, check the `rt.d.ts` file in the project root to se
 
 ## Imports
 
-**Only `windmill-client` may be imported, plus relative imports of other native scripts that obey the same rule.** Use the globally available `fetch` for everything else:
+**The constraint is the runtime, not the import list.** You may import npm packages and relative Windmill scripts; they are resolved and bundled exactly like a regular Bun script. But the native worker only provides `fetch` and the JavaScript standard library, so any imported code must work using only those. Anything requiring Node/Bun built-ins (`node:fs`, `child_process`, the `Bun` API, native modules) belongs in a regular `bun` script instead. Use the globally available `fetch` for HTTP:
 
 ```typescript
 //native
@@ -87,7 +87,7 @@ export async function main(url: string) {
 
 ## Windmill Client
 
-`windmill-client` is the one library available in native TypeScript mode — primarily for Windmill-specific primitives such as the S3 helpers below (`loadS3File`, `loadS3FileStream`, `writeS3File`, `S3Object`). Use `fetch` for everything else.
+`windmill-client` is available for Windmill-specific primitives such as the S3 helpers below (`loadS3File`, `loadS3FileStream`, `writeS3File`, `S3Object`). Use `fetch` for plain HTTP.
 
 ## Preprocessor Scripts
 
