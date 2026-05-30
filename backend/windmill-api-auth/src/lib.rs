@@ -263,37 +263,75 @@ pub fn ensure_scopes_within_caller(
     authed: &ApiAuthed,
     requested_scopes: Option<&[String]>,
 ) -> error::Result<()> {
-    let Some(caller_restrictions) = scope_restrictions(authed.scopes.as_deref()) else {
-        return Ok(());
-    };
+    if let Some(caller_restrictions) = scope_restrictions(authed.scopes.as_deref()) {
+        let Some(requested_restrictions) = scope_restrictions(requested_scopes) else {
+            return Err(Error::PermissionDenied(
+                "A scope-restricted token cannot create or update a token with broader (unscoped) \
+                 privileges"
+                    .to_string(),
+            ));
+        };
 
-    let Some(requested_restrictions) = scope_restrictions(requested_scopes) else {
-        return Err(Error::PermissionDenied(
-            "A scope-restricted token cannot create or update a token with broader (unscoped) \
-             privileges"
-                .to_string(),
-        ));
-    };
-
-    let parsed_caller: Vec<ScopeDefinition> = caller_restrictions
-        .iter()
-        .filter_map(|s| ScopeDefinition::from_scope_string(s).ok())
-        .collect();
-
-    for requested in requested_restrictions {
-        let requested_scope = ScopeDefinition::from_scope_string(requested)?;
-        let covered = parsed_caller
+        // Unparseable caller scopes are intentionally dropped (fail-closed): a
+        // caller scope that fails to parse can only narrow the set of requested
+        // scopes that get covered, never widen it. Unparseable requested scopes
+        // surface as a `BadRequest`, which is what we want — the client is
+        // sending garbage.
+        let parsed_caller: Vec<ScopeDefinition> = caller_restrictions
             .iter()
-            .any(|caller_scope| scope_contains(caller_scope, &requested_scope));
-        if !covered {
-            return Err(Error::PermissionDenied(format!(
-                "A scope-restricted token cannot grant scope '{requested}' which exceeds its own \
-                 scopes"
-            )));
+            .filter_map(|s| ScopeDefinition::from_scope_string(s).ok())
+            .collect();
+
+        for requested in requested_restrictions {
+            let requested_scope = ScopeDefinition::from_scope_string(requested)?;
+            let covered = parsed_caller
+                .iter()
+                .any(|caller_scope| scope_contains(caller_scope, &requested_scope));
+            if !covered {
+                return Err(Error::PermissionDenied(format!(
+                    "A scope-restricted token cannot grant scope '{requested}' which exceeds its \
+                     own scopes"
+                )));
+            }
+        }
+    }
+
+    // `if_jobs:filter_tags:` fences which job tags a token can run on (enforced
+    // at job operations as `v2_job.tag = ANY(...)`), and is checked independently
+    // of domain/action/resource subset. A caller restricted by filter_tags must
+    // not be able to mint or rescope a credential that drops or widens the fence
+    // — even if the caller has no other scope restrictions (filter_tags-only
+    // tokens otherwise look "unscoped" to `scope_restrictions`).
+    if let Some(caller_tags) = first_filter_tags(authed.scopes.as_deref()) {
+        let Some(requested_tags) = first_filter_tags(requested_scopes) else {
+            return Err(Error::PermissionDenied(
+                "A token restricted by if_jobs:filter_tags cannot mint or rescope a token that \
+                 drops the tag restriction"
+                    .to_string(),
+            ));
+        };
+        let caller_set: std::collections::HashSet<&str> = caller_tags.iter().copied().collect();
+        for tag in &requested_tags {
+            if !caller_set.contains(tag) {
+                return Err(Error::PermissionDenied(format!(
+                    "A token restricted by if_jobs:filter_tags cannot grant tag '{tag}' which is \
+                     not within its own filter_tags"
+                )));
+            }
         }
     }
 
     Ok(())
+}
+
+/// Tags from the first `if_jobs:filter_tags:<a,b,...>` scope, matching the
+/// semantics of [`get_scope_tags`] (which is what the job runtime consults).
+/// Returns `None` if no such scope is present.
+fn first_filter_tags(scopes: Option<&[String]>) -> Option<Vec<&str>> {
+    scopes?.iter().find_map(|s| {
+        s.strip_prefix("if_jobs:filter_tags:")
+            .map(|tags| tags.split(',').collect())
+    })
 }
 
 /// Whether `caller` grants at least everything `requested` grants (directional
@@ -1067,12 +1105,69 @@ mod tests {
     }
 
     #[test]
-    fn filter_tags_only_caller_is_treated_as_unscoped() {
+    fn filter_tags_only_caller_is_unrestricted_on_domain_action_dimension() {
+        // The domain/action/resource subset check treats filter-tags-only as
+        // unrestricted, mirroring check_scopes/check_route_access. The tag
+        // dimension is checked separately (see filter_tags_dimension_is_monotonic).
         let authed = authed_with_scopes(Some(vec!["if_jobs:filter_tags:default"]));
-        assert!(ensure_scopes_within_caller(&authed, None).is_ok());
         assert!(ensure_scopes_within_caller(
             &authed,
-            opt_scopes(Some(vec!["users:write"])).as_deref()
+            opt_scopes(Some(vec!["users:write", "if_jobs:filter_tags:default"])).as_deref()
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn filter_tags_dimension_is_monotonic() {
+        // Caller restricted to tag fence "a" cannot drop the fence …
+        let single = authed_with_scopes(Some(vec!["if_jobs:filter_tags:a"]));
+        assert!(ensure_scopes_within_caller(&single, None).is_err());
+        assert!(
+            ensure_scopes_within_caller(&single, opt_scopes(Some(vec!["users:read"])).as_deref())
+                .is_err(),
+            "minting a token without filter_tags must be rejected"
+        );
+        // … cannot widen to a tag it lacks …
+        assert!(ensure_scopes_within_caller(
+            &single,
+            opt_scopes(Some(vec!["if_jobs:filter_tags:a,b"])).as_deref()
+        )
+        .is_err());
+        // … and cannot mint a token fenced on a disjoint tag.
+        assert!(ensure_scopes_within_caller(
+            &single,
+            opt_scopes(Some(vec!["if_jobs:filter_tags:b"])).as_deref()
+        )
+        .is_err());
+        // Narrowing or matching the tag fence is allowed.
+        let multi = authed_with_scopes(Some(vec!["if_jobs:filter_tags:a,b"]));
+        assert!(ensure_scopes_within_caller(
+            &multi,
+            opt_scopes(Some(vec!["if_jobs:filter_tags:a"])).as_deref()
+        )
+        .is_ok());
+        assert!(ensure_scopes_within_caller(
+            &multi,
+            opt_scopes(Some(vec!["if_jobs:filter_tags:a,b"])).as_deref()
+        )
+        .is_ok());
+        // A caller with a real scope plus a tag fence cannot drop just the fence.
+        let mixed = authed_with_scopes(Some(vec!["jobs:run:scripts", "if_jobs:filter_tags:a"]));
+        assert!(ensure_scopes_within_caller(
+            &mixed,
+            opt_scopes(Some(vec!["jobs:run:scripts"])).as_deref()
+        )
+        .is_err());
+        assert!(ensure_scopes_within_caller(
+            &mixed,
+            opt_scopes(Some(vec!["jobs:run:scripts", "if_jobs:filter_tags:a"])).as_deref()
+        )
+        .is_ok());
+        // An unrestricted caller may grant filter_tags freely.
+        let unscoped = authed_with_scopes(None);
+        assert!(ensure_scopes_within_caller(
+            &unscoped,
+            opt_scopes(Some(vec!["if_jobs:filter_tags:x"])).as_deref()
         )
         .is_ok());
     }
