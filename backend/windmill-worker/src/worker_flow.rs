@@ -4903,6 +4903,7 @@ fn payload_from_modules<'a>(
     modules_node: Option<FlowNodeId>,
     failure_module: Option<&Box<FlowModule>>,
     same_worker: bool,
+    preserve_step_tags: bool,
     id: impl FnOnce() -> String,
     path: impl FnOnce() -> String,
     opt_empty_inner_flows: bool,
@@ -4923,7 +4924,13 @@ fn payload_from_modules<'a>(
     }
 
     Some(JobPayload::RawFlow {
-        value: FlowValue { modules, failure_module, same_worker, ..Default::default() },
+        value: FlowValue {
+            modules,
+            failure_module,
+            same_worker,
+            preserve_step_tags,
+            ..Default::default()
+        },
         path: Some(path()),
         restarted_from: None,
     })
@@ -5558,7 +5565,6 @@ async fn next_loop_iteration(
         modules_node,
         flow.failure_module.as_ref(),
         flow.same_worker,
-        flow.preserve_step_tags,
         || format!("{}-{}", status.step, ns.index),
         inner_path,
         true,
