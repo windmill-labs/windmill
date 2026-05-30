@@ -272,17 +272,43 @@ pub fn ensure_scopes_within_caller(
             ));
         };
 
-        // Unparseable caller scopes are intentionally dropped (fail-closed): a
-        // caller scope that fails to parse can only narrow the set of requested
-        // scopes that get covered, never widen it. Unparseable requested scopes
-        // surface as a `BadRequest`, which is what we want — the client is
-        // sending garbage.
+        // MCP scopes (`mcp:all`, `mcp:favorites`, `mcp:scripts:*`, etc.) use a
+        // custom format that ScopeDefinition::from_scope_string parses
+        // permissively but the MCP runtime interprets via its own parser
+        // (parse_mcp_scopes). The two views disagree — e.g. the generic parser
+        // accepts `mcp:scripts` as an unrestricted-resource scope, while the
+        // MCP runtime ignores it as unrecognized but interprets `mcp:scripts:*`
+        // as granting all scripts. So generic containment would silently allow
+        // `mcp:scripts` → `mcp:scripts:*` (a widening). Legitimate MCP token
+        // issuance goes through the OAuth gateway (mcp/oauth_server.rs), not
+        // these user-token endpoints, so require byte-identical match for MCP
+        // scopes here rather than trying to mirror MCP semantics in two places.
+        // Unparseable non-MCP caller scopes are intentionally dropped
+        // (fail-closed): a caller scope that fails to parse can only narrow
+        // the set of requested scopes that get covered, never widen it.
+        // Unparseable requested scopes surface as `BadRequest`, which is what
+        // we want — the client is sending garbage.
         let parsed_caller: Vec<ScopeDefinition> = caller_restrictions
             .iter()
+            .filter(|s| !s.starts_with("mcp:"))
             .filter_map(|s| ScopeDefinition::from_scope_string(s).ok())
+            .collect();
+        let caller_mcp: std::collections::HashSet<&str> = caller_restrictions
+            .iter()
+            .filter(|s| s.starts_with("mcp:"))
+            .map(|s| s.as_str())
             .collect();
 
         for requested in requested_restrictions {
+            if requested.starts_with("mcp:") {
+                if !caller_mcp.contains(requested.as_str()) {
+                    return Err(Error::PermissionDenied(format!(
+                        "A scope-restricted token cannot grant MCP scope '{requested}' unless the \
+                         caller holds the same scope verbatim"
+                    )));
+                }
+                continue;
+            }
             let requested_scope = ScopeDefinition::from_scope_string(requested)?;
             let covered = parsed_caller
                 .iter()
@@ -1258,6 +1284,59 @@ mod tests {
         assert!(ensure_scopes_within_caller(
             &authed,
             opt_scopes(Some(vec!["scripts:write:f/team/db"])).as_deref()
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn mcp_scopes_require_byte_identical_match() {
+        // Regression for the access-grant-OR vs runtime-MCP-parser confusion:
+        // ScopeDefinition treats `mcp:scripts` as an unrestricted-resource scope
+        // and `mcp:scripts:*` as a strictly narrower one, so generic containment
+        // would silently allow widening. The MCP runtime however ignores
+        // `mcp:scripts` (unrecognized) while `mcp:scripts:*` grants all scripts.
+        // Legitimate MCP token issuance is the OAuth gateway, not these
+        // user-token endpoints, so MCP scopes must match the caller verbatim.
+
+        // The bypass the reviewer flagged: malformed `mcp:scripts` would widen
+        // into the real `mcp:scripts:*` under generic containment.
+        let bypass = authed_with_scopes(Some(vec!["users:write", "mcp:scripts"]));
+        assert!(ensure_scopes_within_caller(
+            &bypass,
+            opt_scopes(Some(vec!["users:write", "mcp:scripts:*"])).as_deref()
+        )
+        .is_err());
+
+        // A caller without any MCP scope cannot grant one (widening on the MCP
+        // dimension), even if the rest of the requested scopes are within reach.
+        let no_mcp = authed_with_scopes(Some(vec!["users:write"]));
+        assert!(ensure_scopes_within_caller(
+            &no_mcp,
+            opt_scopes(Some(vec!["users:write", "mcp:scripts:*"])).as_deref()
+        )
+        .is_err());
+
+        // Byte-identical MCP scope passes; an additional non-matching MCP scope
+        // alongside it does not.
+        let mcp_caller = authed_with_scopes(Some(vec!["mcp:scripts:*"]));
+        assert!(ensure_scopes_within_caller(
+            &mcp_caller,
+            opt_scopes(Some(vec!["mcp:scripts:*"])).as_deref()
+        )
+        .is_ok());
+        assert!(ensure_scopes_within_caller(
+            &mcp_caller,
+            opt_scopes(Some(vec!["mcp:scripts:*", "mcp:flows:*"])).as_deref()
+        )
+        .is_err());
+
+        // Even a narrowing within MCP semantics (`mcp:all` → `mcp:scripts:*`)
+        // is rejected by the byte-identical rule. This is intentional — these
+        // endpoints are not the legitimate path for narrowing MCP tokens.
+        let mcp_all = authed_with_scopes(Some(vec!["mcp:all"]));
+        assert!(ensure_scopes_within_caller(
+            &mcp_all,
+            opt_scopes(Some(vec!["mcp:scripts:*"])).as_deref()
         )
         .is_err());
     }
