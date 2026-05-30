@@ -5565,6 +5565,7 @@ async fn next_loop_iteration(
         modules_node,
         flow.failure_module.as_ref(),
         flow.same_worker,
+        flow.preserve_step_tags,
         || format!("{}-{}", status.step, ns.index),
         inner_path,
         true,
