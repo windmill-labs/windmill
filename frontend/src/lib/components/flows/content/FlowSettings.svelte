@@ -63,7 +63,14 @@
 	let displayWorkerTagPicker = $state(false)
 
 	run(() => {
-		flowStore.val.tag ? (displayWorkerTagPicker = true) : null
+		if (flowStore.val.tag) {
+			displayWorkerTagPicker = true
+		} else if (flowStore.val.value.preserve_step_tags) {
+			// preserve_step_tags has no effect without a flow worker tag; clear it so it
+			// doesn't linger as invisible state when the tag is removed via any path
+			// (the picker, the toggle, or the YAML editor).
+			flowStore.val.value.preserve_step_tags = undefined
+		}
 	})
 
 	let activeAdvancedOptions = $derived([
@@ -183,10 +190,9 @@
 							on:change={() => {
 								displayWorkerTagPicker = !displayWorkerTagPicker
 								if (!displayWorkerTagPicker) {
+									// Clearing the tag triggers the reactive block above, which also
+									// resets preserve_step_tags so it doesn't linger as invisible state.
 									flowStore.val.tag = undefined
-									// preserve_step_tags only matters with a flow tag; clear it so it
-									// doesn't linger as invisible state once the tag is removed.
-									flowStore.val.value.preserve_step_tags = undefined
 								}
 							}}
 							options={{
