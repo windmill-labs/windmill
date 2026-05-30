@@ -198,6 +198,25 @@
 							<div transition:slide={{ duration: 120 }} class="mt-2">
 								<WorkerTagPicker bind:tag={flowStore.val.tag} popupPlacement="top-end" />
 							</div>
+							{#if flowStore.val.tag}
+								<div
+									transition:slide={{ duration: 120 }}
+									class="mt-2 pl-4 border-l border-surface-selected"
+								>
+									<Toggle
+										textClass="font-medium"
+										size="xs"
+										bind:checked={flowStore.val.value.preserve_step_tags}
+										options={{
+											right: 'Preserve step worker tags',
+											rightTooltip:
+												'By default the flow worker tag above is propagated to and overrides every step, script and nested sub-flow. Enable this to instead let steps that declare their own worker tag run on it. Steps without their own tag still inherit the flow tag.',
+											rightDocumentationLink:
+												'https://www.windmill.dev/docs/core_concepts/worker_groups'
+										}}
+									/>
+								</div>
+							{/if}
 						{/if}
 					</div>
 
@@ -375,19 +394,6 @@
 						}}
 					/>
 				{/if}
-
-				<!-- Preserve Step Tags Section -->
-				<Toggle
-					textClass="font-medium"
-					size="xs"
-					bind:checked={flowStore.val.value.preserve_step_tags}
-					options={{
-						right: 'Preserve step worker tags',
-						rightTooltip:
-							'By default, when this flow runs on a custom worker tag, that tag is propagated to and overrides every step, script and nested sub-flow. Enable this to instead let steps that declare their own worker tag run on it. Steps without their own tag still inherit the flow tag.',
-						rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/worker_groups'
-					}}
-				/>
 
 				<!-- Visibility Section -->
 				<Toggle
