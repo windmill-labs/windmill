@@ -1964,7 +1964,8 @@ async fn login(
             windmill_common::login_rate_limit::record_login_failure(&email);
             Err(Error::BadRequest("Invalid login".to_string()))
         } else {
-            let token = create_session_token(&email, super_admin, &mut tx, cookies).await?;
+            let token =
+                create_session_token(&email, super_admin, None, false, &mut tx, cookies).await?;
 
             let audit_author = AuditAuthor {
                 email: email.clone(),
@@ -2036,7 +2037,15 @@ async fn refresh_token(
     .await?
     .unwrap_or(false);
 
-    let new_token = create_session_token(&authed.email, super_admin, &mut tx, cookies).await?;
+    let new_token = create_session_token(
+        &authed.email,
+        super_admin,
+        authed.scopes.as_deref(),
+        authed.read_only,
+        &mut tx,
+        cookies,
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -2066,6 +2075,8 @@ lazy_static::lazy_static! {
 pub async fn create_session_token<'c>(
     email: &str,
     super_admin: bool,
+    scopes: Option<&[String]>,
+    read_only: bool,
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
     cookies: Cookies,
 ) -> Result<String> {
@@ -2108,15 +2119,17 @@ pub async fn create_session_token<'c>(
 
     sqlx::query!(
         "INSERT INTO token
-            (token_hash, token_prefix, token, email, label, expiration, super_admin)
-            VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' seconds')::interval, $7)",
+            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, read_only)
+            VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' seconds')::interval, $7, $8, $9)",
         t_hash,
         t_prefix,
         plaintext as Option<&str>,
         email,
         "session",
         &MAX_SESSION_VALIDITY_SECONDS.to_string(),
-        super_admin
+        super_admin,
+        scopes,
+        read_only,
     )
     .execute(&mut **tx)
     .await?;
@@ -2145,6 +2158,8 @@ async fn create_token(
     Json(token_config): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
     check_token_create_rate_limit(&authed.username)?;
+
+    windmill_api_auth::ensure_scopes_within_caller(&authed, token_config.scopes.as_deref())?;
 
     let mut tx = db.begin().await?;
 
@@ -2353,6 +2368,8 @@ async fn update_token_scopes(
     Path(token_prefix): Path<String>,
     Json(req): Json<UpdateTokenScopesRequest>,
 ) -> Result<String> {
+    windmill_api_auth::ensure_scopes_within_caller(&authed, req.scopes.as_deref())?;
+
     let mut tx = db.begin().await?;
 
     let updated: Option<String> = sqlx::query_scalar!(
