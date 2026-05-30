@@ -430,3 +430,191 @@
   judgeChecklist:
     - asks which script to update when the user refers to "this script" without selected or active editor context
     - does not guess a path or create a new script draft
+
+- id: global-test15-human-postgres-resource
+  prompt: |-
+    I'm wiring the eval reporting database into this workspace.
+    Can you stage a Postgres connection for it in the shared evals/global folder?
+    Use host `reports-db.internal`, port 5432, database `evals_reporting`, user `report_reader`, and password `pg-redacted-reporting-password`.
+    Keep the credentials safe.
+    This is just draft work for now.
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 2
+    requiredDrafts:
+      - type: variable
+        pathStartsWith: f/evals/global/
+        pathIncludes:
+          - evals
+          - global
+          - report
+          - password
+        valueIncludes:
+          - "true"
+          - report
+      - type: resource
+        pathStartsWith: f/evals/global/
+        pathIncludes:
+          - evals
+          - global
+          - report
+        valueIncludes:
+          - postgres
+          - reports-db.internal
+          - "5432"
+          - evals_reporting
+          - report_reader
+          - "$var:"
+        valueExcludes:
+          - pg-redacted-reporting-password
+  toolExpect:
+    requiredToolsUsed:
+      - write_variable
+      - search_resource_types
+      - write_resource
+    forbiddenToolsUsed:
+      - write_schedule
+      - write_trigger
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: write_variable
+        field: value
+        stringStartsWithAnyOf:
+          - pg-redacted-reporting-password
+  skipJudge: true
+  judgeChecklist:
+    - creates a Postgres resource draft for the eval reporting database
+    - creates a secret variable draft for the database password
+    - puts the drafts in sensible eval/global reporting-related paths
+    - uses the requested host, port, database, and user
+    - references the secret variable from the resource instead of embedding the password
+    - leaves the work as a draft only
+
+- id: global-test16-human-visible-variable
+  prompt: |-
+    We keep reusing a 30 day trial cutoff in eval notification jobs.
+    Can you stage that as a normal workspace variable in the shared evals/global folder, with a short description so people know what it controls?
+    It is not a secret.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: variable
+        pathStartsWith: f/evals/global/
+        pathIncludes:
+          - evals
+          - global
+          - trial
+        valueIncludes:
+          - "30"
+          - "false"
+          - trial
+  toolExpect:
+    requiredToolsUsed:
+      - write_variable
+    forbiddenToolsUsed:
+      - write_resource
+      - write_schedule
+      - write_trigger
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - creates exactly one non-secret variable draft for the trial cutoff
+    - stores the value 30
+    - chooses a sensible eval/global path related to trials or notifications
+    - includes a useful description of what the value controls
+    - does not create resources, schedules, triggers, or deployed workspace changes
+
+- id: global-test17-human-schedule-existing-helper
+  prompt: |-
+    The workspace already has a report digest helper.
+    Can you stage a weekday 8:30 AM UTC run for it with `dry_run` turned on?
+    I only want the schedule draft for review.
+  initial: ai_evals/fixtures/frontend/global/initial/report_digest_script.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: schedule
+        pathIncludes:
+          - digest
+        valueIncludes:
+          - f/evals/global/send_report_digest
+          - UTC
+          - dry_run
+          - "true"
+  toolExpect:
+    requiredToolsUsed:
+      - list_workspace_items
+      - write_schedule
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - write_resource
+      - write_variable
+      - write_trigger
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - finds the existing report digest helper rather than creating a new script or flow
+    - creates one schedule draft for that helper
+    - schedules it for weekdays around 08:30 UTC
+    - passes dry_run as true
+    - leaves only the schedule draft for review
+
+- id: global-test18-human-slack-resource-with-secret
+  prompt: |-
+    I'm preparing Slack notifications for eval failures.
+    Can you stage a Slack connection in the shared evals/global folder?
+    The bot token is `xoxb-redacted-test-token`; keep it safe.
+    Don't deploy anything yet.
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 2
+    requiredDrafts:
+      - type: variable
+        pathStartsWith: f/evals/global/
+        pathIncludes:
+          - evals
+          - global
+          - slack
+          - token
+        valueIncludes:
+          - "true"
+      - type: resource
+        pathStartsWith: f/evals/global/
+        pathIncludes:
+          - evals
+          - global
+          - slack
+        valueIncludes:
+          - slack
+          - "$var:"
+        valueExcludes:
+          - xoxb-redacted-test-token
+  toolExpect:
+    requiredToolsUsed:
+      - write_variable
+      - search_resource_types
+      - write_resource
+    forbiddenToolsUsed:
+      - write_schedule
+      - write_trigger
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: write_variable
+        field: value
+        stringStartsWithAnyOf:
+          - xoxb-redacted-test-token
+  skipJudge: true
+  judgeChecklist:
+    - creates a secret variable draft for the Slack bot token placeholder
+    - creates a Slack resource draft that references the secret variable instead of embedding the token
+    - keeps both drafts under a sensible eval/global Slack-related path
+    - does not create schedules, triggers, or deployed workspace changes

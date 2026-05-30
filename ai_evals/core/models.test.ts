@@ -18,14 +18,6 @@ describe("resolveEvalModel", () => {
   });
 
   it("supports Gemini aliases for frontend evals", () => {
-    expect(resolveEvalModel("flow", "gemini").frontend).toEqual({
-      provider: "googleai",
-      model: "gemini-2.5-flash",
-    });
-    expect(resolveEvalModel("app", "gemini-pro").frontend).toEqual({
-      provider: "googleai",
-      model: "gemini-2.5-pro",
-    });
     expect(
       resolveEvalModel("script", "gemini-3-flash-preview").frontend,
     ).toEqual({
@@ -52,8 +44,8 @@ describe("resolveEvalModel", () => {
   });
 
   it("rejects Gemini aliases for cli evals", () => {
-    expect(() => resolveEvalModel("cli", "gemini")).toThrow(
-      "Model gemini-flash is not supported for cli mode",
+    expect(() => resolveEvalModel("cli", "gemini-3-flash-preview")).toThrow(
+      "Model gemini-3-flash-preview is not supported for cli mode",
     );
   });
 });
