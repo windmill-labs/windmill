@@ -184,6 +184,9 @@
 								displayWorkerTagPicker = !displayWorkerTagPicker
 								if (!displayWorkerTagPicker) {
 									flowStore.val.tag = undefined
+									// preserve_step_tags only matters with a flow tag; clear it so it
+									// doesn't linger as invisible state once the tag is removed.
+									flowStore.val.value.preserve_step_tags = undefined
 								}
 							}}
 							options={{
