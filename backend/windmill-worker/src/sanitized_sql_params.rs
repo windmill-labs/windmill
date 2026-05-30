@@ -33,6 +33,23 @@ fn sanitize_identifier(arg: &Arg, input: &str) -> Result<(), error::Error> {
     }
 }
 
+/// Escape a value for safe interpolation inside a SQL single-quoted string
+/// literal by doubling single quotes (SQL-standard, accepted by every SQL
+/// dialect we target: pg, mysql, mssql, bigquery, snowflake, oracle, duckdb).
+///
+/// Contextual variables are substituted via plain string replacement, so a
+/// value containing a `'` could otherwise break out of the surrounding literal
+/// and inject arbitrary SQL. Most contextual values are charset-constrained
+/// (usernames, paths and ids cannot contain quotes), but emails are not: the
+/// `usr.email` CHECK constraint follows RFC 5321, whose local part allows `'`,
+/// `/`, `*` and `-` — enough to form a complete breakout payload such as
+/// `x'or/**/1=1--@evil.com`. `%%WM_EMAIL%%` / `%%WM_END_USER_EMAIL%%` are the
+/// reachable sinks, the latter from app end users. Escaping is a no-op for the
+/// charset-constrained vars, so this is backwards compatible.
+fn escape_contextual_value(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
 fn replace_contextual_variables(
     code: &mut String,
     contextual_variables: &HashMap<String, String>,
@@ -50,7 +67,7 @@ fn replace_contextual_variables(
             .unwrap();
         let var_value = contextual_variables.get(var_name);
         if let Some(var_value) = var_value {
-            *code = code.replace(&var_pattern, var_value);
+            *code = code.replace(&var_pattern, &escape_contextual_value(var_value));
         }
     }
 }
@@ -127,4 +144,49 @@ pub fn sanitize_and_interpolate_unsafe_sql_args(
     }
 
     Ok((ret, args_to_skip))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn contextual_var_with_quote_cannot_break_out_of_literal() {
+        // An email passing the RFC `usr.email` CHECK constraint can carry a
+        // quote-breakout payload. It must stay confined to the string literal.
+        let mut code =
+            "SELECT 1 WHERE email = '%%WM_END_USER_EMAIL%%'".to_string();
+        let mut ctx = HashMap::new();
+        ctx.insert(
+            "WM_END_USER_EMAIL".to_string(),
+            "x'or/**/1=1--@evil.com".to_string(),
+        );
+
+        replace_contextual_variables(&mut code, &ctx);
+
+        // The lone `'` is doubled, so it stays inside the literal instead of
+        // terminating it early and starting an injected clause.
+        assert_eq!(
+            code,
+            "SELECT 1 WHERE email = 'x''or/**/1=1--@evil.com'"
+        );
+    }
+
+    #[test]
+    fn quoteless_contextual_var_is_unchanged() {
+        let mut code = "SELECT '%%WM_USERNAME%%', '%%WM_JOB_ID%%'".to_string();
+        let mut ctx = HashMap::new();
+        ctx.insert("WM_USERNAME".to_string(), "alice".to_string());
+        ctx.insert(
+            "WM_JOB_ID".to_string(),
+            "0195e3b1-0000-0000-0000-000000000000".to_string(),
+        );
+
+        replace_contextual_variables(&mut code, &ctx);
+
+        assert_eq!(
+            code,
+            "SELECT 'alice', '0195e3b1-0000-0000-0000-000000000000'"
+        );
+    }
 }
