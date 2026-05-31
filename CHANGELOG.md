@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.713.0](https://github.com/windmill-labs/windmill/compare/v1.712.0...v1.713.0) (2026-05-31)
+
+
+### Features
+
+* **flows:** preserve step/subflow worker tags under a custom-tagged flow ([#9375](https://github.com/windmill-labs/windmill/issues/9375)) ([f0301b1](https://github.com/windmill-labs/windmill/commit/f0301b1605cee5fba4024803555333e6fa5c40ee))
+* **oauth:** support per-provider sandbox URLs ([#9358](https://github.com/windmill-labs/windmill/issues/9358)) ([2bf11dc](https://github.com/windmill-labs/windmill/commit/2bf11dcb15540c538ea2ac3cf70dcbe589060b4e))
+
+
+### Bug Fixes
+
+* **ai:** validate token_url for SSRF in OAuth credentials flow ([#9385](https://github.com/windmill-labs/windmill/issues/9385)) ([4b06881](https://github.com/windmill-labs/windmill/commit/4b06881918b76c5a411cc70b318e46efcc1393a7))
+* **api:** authorize and harden log-file reading endpoints ([#9368](https://github.com/windmill-labs/windmill/issues/9368)) ([bb90f4c](https://github.com/windmill-labs/windmill/commit/bb90f4ce83a0e60af219b11c12ab4fe1d13f47a4))
+* **apps:** make public apps opt into cross-origin isolation via wm_coep (GIT-884) ([#9374](https://github.com/windmill-labs/windmill/issues/9374)) ([2c0c2c4](https://github.com/windmill-labs/windmill/commit/2c0c2c467f163cd24c14c7be2db07af9cf2ce020))
+* **auth:** enforce monotonic privilege on user token lifecycle endpoints ([#9371](https://github.com/windmill-labs/windmill/issues/9371)) ([2ddf93d](https://github.com/windmill-labs/windmill/commit/2ddf93de96622b2a1b2b6f59398a7a1f59360efd))
+* batch encryption-key rotation into one git-sync job ([#9355](https://github.com/windmill-labs/windmill/issues/9355)) ([04a0897](https://github.com/windmill-labs/windmill/commit/04a08976aec4ba9b0516350316df303e9f96bfd3))
+* **cli:** preserve user drafts on sync push and permissioned-as ([#9381](https://github.com/windmill-labs/windmill/issues/9381)) ([b0c3b01](https://github.com/windmill-labs/windmill/commit/b0c3b01d31b0ab3a6566e1f5fec60e3e230cfadb))
+* **frontend:** sanitize user markdown to prevent stored XSS ([#9386](https://github.com/windmill-labs/windmill/issues/9386)) ([def01b8](https://github.com/windmill-labs/windmill/commit/def01b8ff6f331cc36ce02b947adc31c766042c4))
+* **security:** re-pin cached hub scripts to CVE-patched versions (+ HUB_BASE_URL override for cache mode) ([#9387](https://github.com/windmill-labs/windmill/issues/9387)) ([edf340c](https://github.com/windmill-labs/windmill/commit/edf340c4d4f18b16b142cb7deb67afa586f10946))
+
 ## [1.712.0](https://github.com/windmill-labs/windmill/compare/v1.711.0...v1.712.0) (2026-05-28)
 
 
