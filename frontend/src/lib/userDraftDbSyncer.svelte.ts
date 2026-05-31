@@ -92,6 +92,75 @@ export async function syncDrafts<V = unknown>(opts: SyncOptions<V>): Promise<voi
 	}
 }
 
+// Per-workspace single-flight serializer. Pushes are merged into
+// `pendingPushReq` so concurrent calls coalesce instead of fan-out; the
+// leader (the call that found no flush in progress) drains the queue.
+type WorkspaceState = {
+	isFlushing: boolean
+	pendingPushReq: SyncOptions | undefined
+}
+
+const workspaceStates = new Map<string, WorkspaceState>()
+
+/**
+ * Merge two `SyncOptions` into one. Drafts are keyed by `(itemKind, path)`
+ * with later wins, so a sequence like push([X₁]), push([X₂, Y₂]),
+ * push([Y₃]) ends up syncing [X₂, Y₃] — keys only in `prev` survive even
+ * when `next` doesn't repeat them. Callbacks fall back to `prev` when
+ * `next` doesn't provide one, so a caller that doesn't pass callbacks
+ * never silently disarms an earlier caller that did.
+ */
+function mergeSyncOptions(prev: SyncOptions, next: SyncOptions): SyncOptions {
+	const merged = new Map<string, PendingDraft>()
+	for (const d of prev.drafts) merged.set(`${d.itemKind}|${d.path}`, d)
+	for (const d of next.drafts) merged.set(`${d.itemKind}|${d.path}`, d)
+	return {
+		workspace: next.workspace,
+		drafts: [...merged.values()],
+		onMissedDrafts: next.onMissedDrafts ?? prev.onMissedDrafts,
+		onDraftsRejected: next.onDraftsRejected ?? prev.onDraftsRejected
+	}
+}
+
+/**
+ * Enqueue a push. At most one `syncDrafts` is in flight per workspace; any
+ * pushes that arrive during a flight are merged via `mergeSyncOptions` and
+ * sent as a single follow-up request when the in-flight call resolves.
+ *
+ * If `syncDrafts` throws while newer work is already queued, the error is
+ * dropped — the next request supersedes it. Otherwise the error propagates
+ * out of the leader's `pushDrafts` call.
+ */
+async function pushDrafts<V = unknown>(opts: SyncOptions<V>): Promise<void> {
+	let state = workspaceStates.get(opts.workspace)
+	if (!state) {
+		state = { isFlushing: false, pendingPushReq: undefined }
+		workspaceStates.set(opts.workspace, state)
+	}
+	state.pendingPushReq =
+		state.pendingPushReq === undefined
+			? (opts as SyncOptions)
+			: mergeSyncOptions(state.pendingPushReq, opts as SyncOptions)
+	if (state.isFlushing) return
+	state.isFlushing = true
+	try {
+		while (state.pendingPushReq !== undefined) {
+			const next = state.pendingPushReq
+			state.pendingPushReq = undefined
+			try {
+				await syncDrafts(next)
+			} catch (e) {
+				if (state.pendingPushReq === undefined) throw e
+				// Else: newer pushes arrived during the failed sync — drop
+				// the error and let the loop send the merged follow-up.
+			}
+		}
+	} finally {
+		state.isFlushing = false
+	}
+}
+
 export const UserDraftDbSyncer = {
 	getLastSync,
+	pushDrafts
 }
