@@ -2640,24 +2640,15 @@ async function testRunFlowByPath(
 		return executeTestRun({
 			jobStarter: async () => {
 				const jobId = await testActiveFlow(testArgs)
-				if (jobId) {
-					return jobId
+				if (!jobId) {
+					throw new Error('Failed to start test run - active flow editor returned undefined')
 				}
-
-				const flow = await loadFlowDraftValue(args.path, workspace)
-				return JobService.runFlowPreview({
-					workspace,
-					requestBody: {
-						path: args.path,
-						value: flowDraftValueForPreview(flow.flow),
-						args: testArgs
-					}
-				})
+				return jobId
 			},
 			workspace,
 			toolCallbacks,
 			toolId,
-			startMessage: `Starting flow test run for "${args.path}"...`,
+			startMessage: `Starting live editor flow test run for "${args.path}"...`,
 			contextName: 'flow'
 		})
 	}
