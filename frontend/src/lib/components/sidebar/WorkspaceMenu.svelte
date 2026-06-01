@@ -59,13 +59,11 @@
 		]
 		const isOnEditPage = editPages.some((editPage) => page.route.id?.includes(editPage) ?? false)
 
-		if (!isOnEditPage) {
-			switchWorkspace(id)
-			if (page.url.searchParams.get('workspace')) {
-				page.url.searchParams.set('workspace', id)
-			}
-		} else {
-			switchWorkspace(id)
+		switchWorkspace(id)
+		// On view/edit pages the path is scoped to a resource that may not exist
+		// in the target workspace, so return home. On other pages the logged
+		// layout's sync updates the ?workspace= param in place.
+		if (isOnEditPage) {
 			await goto('/')
 		}
 	}
