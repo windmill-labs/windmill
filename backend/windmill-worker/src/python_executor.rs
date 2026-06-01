@@ -2095,6 +2095,9 @@ async fn spawn_uv_install(
             "--no-cache",
             // If we invoke uv pip install, then we want to overwrite existing data
             "--reinstall",
+            // Compile .py to .pyc at install time so imports are fast even
+            // through read-only nsjail mounts (no in-memory compilation per job).
+            "--compile-bytecode",
         ];
 
         if let Some(py_path) = py_path.as_ref() {
