@@ -186,7 +186,7 @@
 
 	const EMPTY_SCHEMA = { type: 'object', properties: {}, required: [] }
 	let hubSlug = $derived($workspaceStore ?? '')
-	let hubUrl = $derived(`https://hub.windmill.dev/workspaces/${hubSlug}`)
+	let hubUrl = $derived(`https://hub.windmill.dev/projects/${hubSlug}`)
 
 	let hubVersion = $state<number>(0)
 	let deploymentStatus = $state<
@@ -307,7 +307,7 @@
 			workspaceItems = next
 		} catch (e: any) {
 			if (seq === workspaceLoadSeq) {
-				sendUserToast(`Failed to load workspace items: ${e?.message ?? e}`, true)
+				sendUserToast(`Failed to load project items: ${e?.message ?? e}`, true)
 			}
 		} finally {
 			if (seq === workspaceLoadSeq) loading = false
@@ -631,7 +631,7 @@
 				language: it.language,
 				schema: it.schema ?? undefined,
 				lockfile: it.lock ?? undefined,
-				workspace_slug: slug
+				project_slug: slug
 			})
 			if (typeof resp?.id === 'number') hubItemIds = { ...hubItemIds, [key]: resp.id }
 		} else if (it.kind === 'flow') {
@@ -643,7 +643,7 @@
 					schema: it.schema ?? undefined
 				},
 				apps: [],
-				workspace_slug: slug
+				project_slug: slug
 			})
 			if (typeof resp?.id === 'number') hubItemIds = { ...hubItemIds, [key]: resp.id }
 		} else if (it.kind === 'app') {
@@ -652,7 +652,7 @@
 				apps: [],
 				summary: it.summary || it.newPath,
 				description: undefined,
-				workspace_slug: slug
+				project_slug: slug
 			})
 		} else if (it.kind === 'raw_app') {
 			await postHub(workspace, '/hub/raw_apps', {
@@ -660,7 +660,7 @@
 				apps: [],
 				summary: it.summary || it.newPath,
 				description: undefined,
-				workspace_slug: slug
+				project_slug: slug
 			})
 		}
 	}
@@ -728,7 +728,7 @@
 			)
 		}
 		if (triggers.length === 0) return
-		await postHub(workspace, '/hub/triggers', { triggers, workspace_slug: slug })
+		await postHub(workspace, '/hub/triggers', { triggers, project_slug: slug })
 	}
 
 	async function postHub(
@@ -860,7 +860,7 @@
 						name,
 						schema,
 						description,
-						workspace_slug: slug
+						project_slug: slug
 					})
 					return 0
 				} catch (e: any) {
@@ -911,7 +911,7 @@
 			const stubs = [...stubsByPath.values()]
 			if (stubs.length > 0) {
 				try {
-					await postHub(workspace, '/hub/resources', { resources: stubs, workspace_slug: slug })
+					await postHub(workspace, '/hub/resources', { resources: stubs, project_slug: slug })
 				} catch (e: any) {
 					sendUserToast(`Resource sync failed: ${e?.message ?? e}`, true)
 					failures++
@@ -1194,7 +1194,7 @@
 			const path = it.kind === 'script' ? 'scripts' : 'flows'
 			await postHub(workspace, `/hub/${path}/${hubId}/recording`, {
 				recording,
-				workspace_slug: effectiveSlug || sanitizeSlug(hubName)
+				project_slug: effectiveSlug || sanitizeSlug(hubName)
 			})
 			recordings = { ...recordings, [it.key]: runJobId }
 			patchItem(it.key, { rec: 'recorded' })
@@ -1270,7 +1270,7 @@
 		onToggleItem={toggleItem}
 		onSelectAll={selectAll}
 		onDeselectAll={deselectAll}
-		emptyMessage={loading ? 'Loading workspace items…' : 'No items to publish'}
+		emptyMessage={loading ? 'Loading project items…' : 'No items to publish'}
 	>
 		{#snippet header()}
 			{@const stepNum =
@@ -1280,11 +1280,11 @@
 					class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3 text-xs text-secondary"
 				>
 					<span class="text-sm font-semibold text-primary">
-						How to publish your workspace to the Hub
+						How to publish your project to the Hub
 					</span>
 					<li class={stepNum === 1 ? 'text-primary' : stepNum > 1 ? 'opacity-60' : ''}>
 						<span class="font-mono text-emphasis">{stepNum > 1 ? '✓' : '1.'}</span>
-						<span class="font-semibold text-primary">Bundle your workspace</span> — pack every script,
+						<span class="font-semibold text-primary">Bundle your project</span> — pack every script,
 						flow, app and resource into a single draft.
 					</li>
 					<li class={stepNum === 2 ? 'text-primary' : stepNum > 2 ? 'opacity-60' : 'opacity-40'}>
@@ -1299,7 +1299,7 @@
 				</ol>
 				<div class="flex flex-wrap items-center gap-2 pt-4">
 					{#if phase === 'predeploy'}
-						<span class="text-sm font-semibold text-primary"> Step 1: Bundle your workspace </span>
+						<span class="text-sm font-semibold text-primary"> Step 1: Bundle your project </span>
 					{:else if phase === 'draft'}
 						<span class="text-sm font-semibold text-primary">
 							Step 2: Generate iframes &amp; recordings

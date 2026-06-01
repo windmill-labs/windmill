@@ -1103,9 +1103,9 @@
 				},
 				{
 					id: 'hub',
-					label: 'Deploy to Hub',
+					label: 'Publish project',
 					aiId: 'workspace-settings-hub',
-					aiDescription: 'Publish this workspace to the Hub'
+					aiDescription: 'Publish a project from this workspace to the Hub'
 				}
 			]
 		},
@@ -1968,8 +1968,8 @@ export async function main(
 							/>
 						{:else if tab == 'hub'}
 							<SettingsPageHeader
-								title="Deploy to Hub"
-								description="Publish this workspace to the Hub. Each deploy bundles every script, flow, app and resource and pushes them as a new version."
+								title="Publish project to Hub"
+								description="Bundle scripts, flows, apps and resources from this workspace into a project on the Hub. Each publish creates a new version."
 							/>
 							<div class="mt-4">
 								<DeployToHub />
