@@ -1,0 +1,162 @@
+<!--
+@component
+Inline diff renderer for a single workspace item. Mirrors the per-kind
+rendering that DiffDrawer does in its body (`DiffDrawer.svelte:181-271`):
+
+- `flow` → `<FlowDiffViewer>` (its own Graph / YAML toggle inside)
+- has `content` (scripts) → Tabs(Content | Metadata) with two Monaco diffs
+- everything else (apps, resources, variables, schedules, triggers…) →
+  a single Monaco YAML diff over the metadata
+
+`inlineDiff` flips Monaco's `renderSideBySide` to false (unified view).
+The component is content-sized — each Monaco block is sized to fit its
+diff text (no internal scroll) using `lines * 19 + 24`; for the
+Content+Metadata case we use the max of the two so switching tabs
+doesn't reflow the parent.
+-->
+<script lang="ts">
+	import Tabs from './common/tabs/Tabs.svelte'
+	import Tab from './common/tabs/Tab.svelte'
+	import FlowDiffViewer from './FlowDiffViewer.svelte'
+	import { Loader2 } from 'lucide-svelte'
+	import { cleanValueProperties, orderedYamlStringify, replaceFalseWithUndefined } from '$lib/utils'
+	import { scriptLangToEditorLang } from '$lib/scripts'
+
+	interface Props {
+		/** Any WorkspaceItemDiff['kind'] — used only to special-case `flow`. */
+		kind: string
+		/** Raw value from `getItemValue(kind, path, parentWorkspace)`. Undefined
+		 * for "added" items (don't exist in the parent). */
+		originalRaw?: unknown
+		/** Raw value from `getItemValue(kind, path, forkWorkspace)`. Undefined
+		 * for "removed" items (don't exist in the fork). */
+		currentRaw?: unknown
+		/** Force unified diff (Monaco renderSideBySide=false). Default false. */
+		inlineDiff?: boolean
+	}
+
+	let { kind, originalRaw, currentRaw, inlineDiff = false }: Props = $props()
+
+	type Prepared = { lang?: string; content?: string; metadata: string }
+
+	function prepareValue(raw: unknown): Prepared {
+		if (!raw || typeof raw !== 'object') {
+			return { metadata: raw == null ? '' : String(raw) }
+		}
+		const cleaned = structuredClone(
+			cleanValueProperties(replaceFalseWithUndefined(raw as Record<string, unknown>))
+		)
+		const content = (cleaned as Record<string, unknown>)['content']
+		if (content !== undefined) {
+			delete (cleaned as Record<string, unknown>)['content']
+		}
+		const language = (raw as Record<string, unknown>).language
+		return {
+			lang:
+				typeof language === 'string'
+					? scriptLangToEditorLang(language as Parameters<typeof scriptLangToEditorLang>[0])
+					: undefined,
+			content: typeof content === 'string' ? content : undefined,
+			metadata: orderedYamlStringify(cleaned)
+		}
+	}
+
+	const original = $derived(prepareValue(originalRaw))
+	const current = $derived(prepareValue(currentRaw))
+	const hasContent = $derived(original.content !== undefined || current.content !== undefined)
+
+	// For added / removed flows, the missing side feeds an empty YAML so
+	// the YAML-mode editor shows the whole new (or removed) flow as a
+	// single-sided diff. FlowGraphDiffViewer uses the *Missing flag to
+	// swap in its own OpenFlow stub for parsing and to draw a placeholder
+	// pane in side-by-side mode.
+	const beforeFlowYaml = $derived(originalRaw == null ? '' : original.metadata)
+	const afterFlowYaml = $derived(currentRaw == null ? '' : current.metadata)
+
+	let contentTab: 'content' | 'metadata' = $state('content')
+
+	// Per-tab height: each Monaco block sizes to its own content. Switching
+	// tabs reflows the row, which is the expected tab behavior; we don't
+	// over-allocate to the larger tab the way the previous max() did.
+	const LINE_HEIGHT = 19
+	const EDITOR_CHROME = 24
+	function linesIn(s?: string): number {
+		return Math.max((s ?? '').split('\n').length, 1)
+	}
+	const contentHeight = $derived(
+		`${Math.max(linesIn(original.content), linesIn(current.content)) * LINE_HEIGHT + EDITOR_CHROME}px`
+	)
+	const metadataHeight = $derived(
+		`${Math.max(linesIn(original.metadata), linesIn(current.metadata)) * LINE_HEIGHT + EDITOR_CHROME}px`
+	)
+	const activeTabHeight = $derived(contentTab === 'content' ? contentHeight : metadataHeight)
+</script>
+
+{#if kind === 'flow'}
+	<div class="h-[600px]">
+		<FlowDiffViewer
+			beforeYaml={beforeFlowYaml}
+			afterYaml={afterFlowYaml}
+			beforeMissing={originalRaw == null}
+			afterMissing={currentRaw == null}
+			{inlineDiff}
+		/>
+	</div>
+{:else if hasContent}
+	<div class="flex flex-col">
+		<Tabs bind:selected={contentTab}>
+			<Tab value="content" label="Content" />
+			<Tab value="metadata" label="Metadata" />
+		</Tabs>
+		<div style="height: {activeTabHeight}">
+			{#if contentTab === 'content'}
+				{#await import('$lib/components/DiffEditor.svelte')}
+					<div class="p-3"><Loader2 class="w-3.5 h-3.5 animate-spin" /></div>
+				{:then Module}
+					<Module.default
+						open={true}
+						automaticLayout
+						className="h-full"
+						defaultLang={original.lang ?? current.lang}
+						defaultOriginal={original.content ?? ''}
+						defaultModified={current.content ?? ''}
+						{inlineDiff}
+						readOnly
+					/>
+				{/await}
+			{:else}
+				{#await import('$lib/components/DiffEditor.svelte')}
+					<div class="p-3"><Loader2 class="w-3.5 h-3.5 animate-spin" /></div>
+				{:then Module}
+					<Module.default
+						open={true}
+						automaticLayout
+						className="h-full"
+						defaultLang="yaml"
+						defaultOriginal={original.metadata}
+						defaultModified={current.metadata}
+						{inlineDiff}
+						readOnly
+					/>
+				{/await}
+			{/if}
+		</div>
+	</div>
+{:else}
+	{#await import('$lib/components/DiffEditor.svelte')}
+		<div class="p-3"><Loader2 class="w-3.5 h-3.5 animate-spin" /></div>
+	{:then Module}
+		<div style="height: {metadataHeight}">
+			<Module.default
+				open={true}
+				automaticLayout
+				className="h-full"
+				defaultLang="yaml"
+				defaultOriginal={original.metadata}
+				defaultModified={current.metadata}
+				{inlineDiff}
+				readOnly
+			/>
+		</div>
+	{/await}
+{/if}

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('monaco-editor', () => ({
 	editor: {},
@@ -108,7 +108,15 @@ vi.mock('./rawAppBundlerBridge', () => ({
 	}))
 }))
 
-import { globalTools, prepareGlobalSystemMessage, prepareGlobalUserMessage } from './core'
+import {
+	globalTools,
+	globalToolsFor,
+	prepareGlobalSystemMessage,
+	prepareGlobalUserMessage,
+	setDeployedInSessionHandler,
+	setGetPreviewStatusHandler,
+	setOpenPreviewHandler
+} from './core'
 import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
 import { clearGlobalDrafts } from './userDraftAdapter'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
@@ -141,12 +149,13 @@ function getGlobalTool(name: string): Tool<{}> {
 async function callGlobalTool(
 	name: string,
 	args: Record<string, unknown>,
-	callbacks: ToolCallbacks = toolCallbacks
+	callbacks: ToolCallbacks = toolCallbacks,
+	helpers: Record<string, unknown> = {}
 ): Promise<string> {
 	return getGlobalTool(name).fn({
 		args,
 		workspace: WORKSPACE,
-		helpers: {},
+		helpers,
 		toolCallbacks: callbacks,
 		toolId: `test-${name}`
 	})
@@ -1129,6 +1138,44 @@ describe('global AI tools', () => {
 		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
+	it('notifies the session preview (as raw_app) after deploying a raw app', async () => {
+		const onDeployed = vi.fn()
+		setDeployedInSessionHandler(onDeployed)
+		try {
+			UserDraft.save(
+				'raw_app',
+				'f/apps/report',
+				{
+					summary: 'AI report',
+					files: { '/index.tsx': 'console.log("app")' },
+					runnables: {},
+					data: { tables: [] }
+				},
+				{ workspace: WORKSPACE }
+			)
+
+			await callGlobalTool(
+				'deploy_workspace_item',
+				{ type: 'app', path: 'f/apps/report' },
+				toolCallbacks,
+				{
+					sessionId: 'sess-123'
+				}
+			)
+
+			// A raw app deploys under type 'app' but the preview addresses it as
+			// 'raw_app'; the calling session id is threaded through so the deploy
+			// reloads the issuing session's preview, not the UI-active one.
+			expect(onDeployed).toHaveBeenCalledWith({
+				sessionId: 'sess-123',
+				kind: 'raw_app',
+				path: 'f/apps/report'
+			})
+		} finally {
+			setDeployedInSessionHandler(undefined)
+		}
+	})
+
 	it('fills an empty rawscript module through set_flow_module_code', async () => {
 		await callGlobalTool('write_flow', {
 			path: 'f/flows/empty-module',
@@ -1154,7 +1201,7 @@ describe('global AI tools', () => {
 				module_id: 'empty_step',
 				code
 			})
-		).resolves.toContain('Updated local draft flow')
+		).resolves.toContain('Updated flow')
 
 		await expect(
 			callGlobalTool('read_flow_module_code', {
@@ -1356,6 +1403,62 @@ describe('prepareGlobalSystemMessage', () => {
 		)
 		expect(discard.requiresConfirmation).toBe(true)
 		expect(deleteItem.requiresConfirmation).toBe(true)
+	})
+
+	describe('get_preview_status', () => {
+		afterEach(() => {
+			setGetPreviewStatusHandler(undefined)
+			setOpenPreviewHandler(undefined)
+		})
+
+		it('takes no arguments', () => {
+			const tool = getGlobalTool('get_preview_status')
+			expect(tool.def.function.parameters).toMatchObject({
+				type: 'object',
+				properties: {},
+				required: []
+			})
+		})
+
+		it('returns the session-only error when no handler is registered', async () => {
+			setGetPreviewStatusHandler(undefined)
+			const result = await callGlobalTool('get_preview_status', {})
+			expect(result).toBe('Error: get_preview_status is only available inside an AI session.')
+		})
+
+		it('dispatches to the registered session handler', async () => {
+			setGetPreviewStatusHandler(() => 'The preview is currently open showing script "u/me/foo".')
+			const result = await callGlobalTool('get_preview_status', {})
+			expect(result).toBe('The preview is currently open showing script "u/me/foo".')
+		})
+	})
+})
+
+describe('session-only preview tools gating', () => {
+	const toolNames = (sessionPreview: boolean) =>
+		globalToolsFor({ sessionPreview }).map((t) => t.def.function.name)
+
+	it('excludes open_preview / get_preview_status outside a session', () => {
+		const names = toolNames(false)
+		expect(names).not.toContain('open_preview')
+		expect(names).not.toContain('get_preview_status')
+		// other tools are still present
+		expect(names).toContain('write_script')
+	})
+
+	it('includes open_preview / get_preview_status inside a session', () => {
+		const names = toolNames(true)
+		expect(names).toContain('open_preview')
+		expect(names).toContain('get_preview_status')
+		// session set is the full globalTools
+		expect(names.length).toBe(globalTools.length)
+	})
+
+	it('mentions open_preview in the system prompt only when preview tools are enabled', () => {
+		const off = prepareGlobalSystemMessage(undefined, { previewTools: false }).content as string
+		const on = prepareGlobalSystemMessage(undefined, { previewTools: true }).content as string
+		expect(off).not.toContain('open_preview')
+		expect(on).toContain('open_preview')
 	})
 })
 

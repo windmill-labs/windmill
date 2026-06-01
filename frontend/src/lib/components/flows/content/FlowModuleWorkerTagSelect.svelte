@@ -34,7 +34,7 @@
 {#if $workerTags}
 	{#if $workerTags?.length > 0}
 		<div class="w-40">
-			{#if flowStore.val.tag == undefined || isPreprocessor}
+			{#if flowStore.val.tag == undefined || isPreprocessor || flowStore.val.value?.preserve_step_tags}
 				<WorkerTagSelect
 					{noLabel}
 					{placeholder}

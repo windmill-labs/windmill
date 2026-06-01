@@ -192,6 +192,8 @@ export async function pushApp(
           deployment_message: message,
           ...localAppBody,
           ...preserveFields,
+          // Preserve any user draft at this path (see backend skip_draft_deletion).
+          skip_draft_deletion: true,
         },
       });
     }
@@ -205,6 +207,8 @@ export async function pushApp(
         deployment_message: message,
         ...localAppBody,
         ...preserveFields,
+        // Preserve any user draft at this path (see backend skip_draft_deletion).
+        skip_draft_deletion: true,
       },
     });
   }
@@ -480,6 +484,8 @@ const command = new Command()
           on_behalf_of_email: email,
         } as any,
         preserve_on_behalf_of: true,
+        // Preserve any user draft at this path (see backend skip_draft_deletion).
+        skip_draft_deletion: true,
       },
     });
     log.info(colors.green(`Updated permissioned_as for app ${appPath} to ${email}`));
