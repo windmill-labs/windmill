@@ -25,6 +25,7 @@ use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
     schedule::Schedule,
+    user_drafts::{maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery},
     utils::{
         escape_ilike_pattern, not_found_if_none, paginate, Pagination, ScheduleType, StripPath,
     },
@@ -808,8 +809,10 @@ async fn list_schedule_with_jobs(
 async fn get_schedule(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<Schedule> {
+    Query(q): Query<WithDraftQuery>,
+) -> JsonResult<WithDraftOverlay> {
     let path = path.to_path();
     check_scopes(&authed, || format!("schedules:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
@@ -817,7 +820,17 @@ async fn get_schedule(
     let schedule_o = windmill_queue::schedule::get_schedule_opt(&mut *tx, &w_id, path).await?;
     let schedule = not_found_if_none(schedule_o, "Schedule", path)?;
     tx.commit().await?;
-    Ok(Json(schedule))
+    let overlay = maybe_overlay_draft(
+        &db,
+        &w_id,
+        &authed.email,
+        UserDraftItemKind::TriggerSchedule,
+        path,
+        q.get_draft,
+        schedule,
+    )
+    .await?;
+    Ok(Json(overlay))
 }
 
 async fn exists_schedule(

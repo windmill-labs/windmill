@@ -145,9 +145,13 @@
 
 		const backendFlow = await FlowService.getFlowByPath({
 			workspace: $workspaceStore!,
-			path: page.params.path ?? ''
+			path: page.params.path ?? '',
+			getDraft: true
 		})
 		if (tok !== loadFlowToken) return
+		if (backendFlow.is_draft) {
+			sendUserToast('Loaded your saved draft')
+		}
 		savedFlow = structuredClone($state.snapshot(backendFlow)) as Flow
 
 		const localDraft = flowHandle.draft

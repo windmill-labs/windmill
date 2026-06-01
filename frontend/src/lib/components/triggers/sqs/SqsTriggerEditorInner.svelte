@@ -228,8 +228,12 @@
 			} else {
 				const s = await SqsTriggerService.getSqsTrigger({
 					workspace: $workspaceStore!,
-					path: initialPath
+					path: initialPath,
+					getDraft: true
 				})
+				if (s?.is_draft) {
+					sendUserToast('Loaded your saved draft')
+				}
 				loadTriggerConfig(s)
 			}
 		} catch (error) {

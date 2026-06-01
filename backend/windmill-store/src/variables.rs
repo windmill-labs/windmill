@@ -35,6 +35,7 @@ use windmill_common::{
     db::{DbWithOptAuthed, UserDB},
     error::{Error, JsonResult, Result},
     scripts::ScriptHash,
+    user_drafts::{maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery},
     utils::{not_found_if_none, paginate, Pagination, StripPath, WarnAfterExt},
     variables::{
         build_crypt, get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable,
@@ -207,6 +208,8 @@ async fn list_variables(
 struct GetVariableQuery {
     decrypt_secret: Option<bool>,
     include_encrypted: Option<bool>,
+    #[serde(flatten)]
+    draft: WithDraftQuery,
 }
 
 async fn get_variable(
@@ -215,7 +218,7 @@ async fn get_variable(
     Extension(db): Extension<DB>,
     Query(q): Query<GetVariableQuery>,
     Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<ListableVariable> {
+) -> JsonResult<WithDraftOverlay> {
     let path = path.to_path();
     check_scopes(&authed, || format!("variables:read:{}", path))?;
 
@@ -302,7 +305,17 @@ async fn get_variable(
         variable
     };
 
-    Ok(Json(r))
+    let overlay = maybe_overlay_draft(
+        &db,
+        &w_id,
+        &authed.email,
+        UserDraftItemKind::Variable,
+        path,
+        q.draft.get_draft,
+        r,
+    )
+    .await?;
+    Ok(Json(overlay))
 }
 
 #[derive(Deserialize)]

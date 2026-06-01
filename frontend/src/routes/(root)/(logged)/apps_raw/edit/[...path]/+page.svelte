@@ -177,9 +177,13 @@
 		const tok = ++loadAppToken
 		const backendApp = await AppService.getAppByPath({
 			path: page.params.path ?? '',
-			workspace: $workspaceStore!
+			workspace: $workspaceStore!,
+			getDraft: true
 		})
 		if (tok !== loadAppToken) return
+		if (backendApp.is_draft) {
+			sendUserToast('Loaded your saved draft')
+		}
 		const backendApp_ = structuredClone(stateSnapshot(backendApp))
 		savedApp = {
 			summary: backendApp_.summary,

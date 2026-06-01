@@ -20,6 +20,7 @@ use windmill_api_auth::{
 };
 use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
 use windmill_common::{
+    user_drafts::{maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery},
     utils::{WithStarredInfoQuery, HTTP_CLIENT},
     webhook::{WebhookMessage, WebhookShared},
     DB,
@@ -1357,16 +1358,25 @@ async fn get_deployment_status(
     Ok(Json(deployment_status))
 }
 
+#[derive(Deserialize)]
+struct GetFlowByPathQuery {
+    #[serde(flatten)]
+    starred: WithStarredInfoQuery,
+    #[serde(flatten)]
+    draft: WithDraftQuery,
+}
+
 async fn get_flow_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Query(query): Query<WithStarredInfoQuery>,
-) -> JsonResult<FlowWithStarred> {
+    Query(query): Query<GetFlowByPathQuery>,
+) -> JsonResult<WithDraftOverlay> {
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
-    let flow_o = if query.with_starred_info.unwrap_or(false) {
+    let flow_o = if query.starred.with_starred_info.unwrap_or(false) {
         sqlx::query_as::<_, FlowWithStarred>(
             r#"
         SELECT 
@@ -1403,7 +1413,7 @@ async fn get_flow_by_path(
         "#,
         )
         .bind(path)
-        .bind(w_id)
+        .bind(&w_id)
         .bind(&authed.username)
         .fetch_optional(&mut *tx)
         .await?
@@ -1439,7 +1449,7 @@ async fn get_flow_by_path(
         "#,
         )
         .bind(path)
-        .bind(w_id)
+        .bind(&w_id)
         .fetch_optional(&mut *tx)
         .await?
     };
@@ -1447,7 +1457,17 @@ async fn get_flow_by_path(
     tx.commit().await?;
 
     let flow = not_found_if_none(flow_o, "Flow", path)?;
-    Ok(Json(flow))
+    let overlay = maybe_overlay_draft(
+        &db,
+        &w_id,
+        &authed.email,
+        UserDraftItemKind::Flow,
+        path,
+        query.draft.get_draft,
+        flow,
+    )
+    .await?;
+    Ok(Json(overlay))
 }
 
 async fn exists_flow_by_path(

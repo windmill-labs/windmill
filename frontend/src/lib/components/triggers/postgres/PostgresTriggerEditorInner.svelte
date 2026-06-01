@@ -377,8 +377,12 @@
 		} else {
 			const s = await PostgresTriggerService.getPostgresTrigger({
 				workspace: $workspaceStore!,
-				path: initialPath
+				path: initialPath,
+				getDraft: true
 			})
+			if (s?.is_draft) {
+				sendUserToast('Loaded your saved draft')
+			}
 
 			const publication_data = await PostgresTriggerService.getPostgresPublication({
 				path: s.postgres_resource_path,

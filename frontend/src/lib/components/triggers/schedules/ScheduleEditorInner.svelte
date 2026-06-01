@@ -285,10 +285,15 @@
 		try {
 			let s: Schedule | undefined
 			if (schedule_path) {
-				s = await ScheduleService.getSchedule({
+				const resp = await ScheduleService.getSchedule({
 					workspace: $workspaceStore!,
-					path: schedule_path
+					path: schedule_path,
+					getDraft: true
 				})
+				if (resp.is_draft) {
+					sendUserToast('Loaded your saved draft')
+				}
+				s = resp
 				initNewPath = true
 			} else if (defaultValues) {
 				s = defaultValues
@@ -451,8 +456,12 @@
 			try {
 				const s = await ScheduleService.getSchedule({
 					workspace: $workspaceStore!,
-					path: initialPath
+					path: initialPath,
+					getDraft: true
 				})
+				if (s.is_draft) {
+					sendUserToast('Loaded your saved draft')
+				}
 				await loadScheduleCfg(s)
 			} catch (err) {
 				sendUserToast(`Could not load schedule: ${err}`, true)

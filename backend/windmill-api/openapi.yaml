@@ -5324,13 +5324,16 @@ paths:
           in: query
           schema:
             type: boolean
+        - $ref: "#/components/parameters/GetDraft"
       responses:
         "200":
           description: variable
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ListableVariable"
+                allOf:
+                  - $ref: "#/components/schemas/ListableVariable"
+                  - $ref: "#/components/schemas/UserDraftOverlay"
 
   /w/{workspace}/variables/get_value/{path}:
     get:
@@ -6647,13 +6650,16 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/GetDraft"
       responses:
         "200":
           description: resource
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Resource"
+                allOf:
+                  - $ref: "#/components/schemas/ListableResource"
+                  - $ref: "#/components/schemas/UserDraftOverlay"
 
   /w/{workspace}/resources/get_value_interpolated/{path}:
     get:
@@ -9676,13 +9682,16 @@ paths:
           in: query
           schema:
             type: boolean
+        - $ref: "#/components/parameters/GetDraft"
       responses:
         "200":
           description: flow details
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Flow"
+                allOf:
+                  - $ref: "#/components/schemas/Flow"
+                  - $ref: "#/components/schemas/UserDraftOverlay"
 
   /w/{workspace}/flows/deployment_status/p/{path}:
     get:
@@ -10459,13 +10468,16 @@ paths:
           in: query
           schema:
             type: boolean
+        - $ref: "#/components/parameters/GetDraft"
       responses:
         "200":
           description: app details
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AppWithLastVersion"
+                allOf:
+                  - $ref: "#/components/schemas/AppWithLastVersion"
+                  - $ref: "#/components/schemas/UserDraftOverlay"
 
   /w/{workspace}/apps/get/lite/{path}:
     get:
@@ -13604,13 +13616,16 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/GetDraft"
       responses:
         "200":
           description: schedule deleted
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Schedule"
+                allOf:
+                  - $ref: "#/components/schemas/Schedule"
+                  - $ref: "#/components/schemas/UserDraftOverlay"
 
   /w/{workspace}/schedules/exists/{path}:
     get:
@@ -13893,13 +13908,16 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/GetDraft"
       responses:
         "200":
           description: http trigger deleted
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HttpTrigger"
+                allOf:
+                  - $ref: "#/components/schemas/HttpTrigger"
+                  - $ref: "#/components/schemas/UserDraftOverlay"
 
   /w/{workspace}/http_triggers/list:
     get:
@@ -14099,13 +14117,16 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/GetDraft"
       responses:
         "200":
           description: websocket trigger deleted
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WebsocketTrigger"
+                allOf:
+                  - $ref: "#/components/schemas/WebsocketTrigger"
+                  - $ref: "#/components/schemas/UserDraftOverlay"
 
   /w/{workspace}/websocket_triggers/list:
     get:
@@ -14304,13 +14325,16 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/GetDraft"
       responses:
         "200":
           description: kafka trigger deleted
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/KafkaTrigger"
+                allOf:
+                  - $ref: "#/components/schemas/KafkaTrigger"
+                  - $ref: "#/components/schemas/UserDraftOverlay"
 
   /w/{workspace}/kafka_triggers/list:
     get:
@@ -14550,13 +14574,16 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/GetDraft"
       responses:
         "200":
           description: nats trigger deleted
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/NatsTrigger"
+                allOf:
+                  - $ref: "#/components/schemas/NatsTrigger"
+                  - $ref: "#/components/schemas/UserDraftOverlay"
 
   /w/{workspace}/nats_triggers/list:
     get:
@@ -14750,13 +14777,16 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/GetDraft"
       responses:
         "200":
           description: sqs trigger deleted
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SqsTrigger"
+                allOf:
+                  - $ref: "#/components/schemas/SqsTrigger"
+                  - $ref: "#/components/schemas/UserDraftOverlay"
 
   /w/{workspace}/sqs_triggers/list:
     get:
@@ -15543,13 +15573,16 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/GetDraft"
       responses:
         "200":
           description: mqtt trigger deleted
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/MqttTrigger"
+                allOf:
+                  - $ref: "#/components/schemas/MqttTrigger"
+                  - $ref: "#/components/schemas/UserDraftOverlay"
 
   /w/{workspace}/mqtt_triggers/list:
     get:
@@ -15743,13 +15776,16 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/GetDraft"
       responses:
         "200":
           description: gcp trigger deleted
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GcpTrigger"
+                allOf:
+                  - $ref: "#/components/schemas/GcpTrigger"
+                  - $ref: "#/components/schemas/UserDraftOverlay"
 
   /w/{workspace}/gcp_triggers/list:
     get:
@@ -16010,13 +16046,16 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/GetDraft"
       responses:
         "200":
           description: azure trigger
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AzureTrigger"
+                allOf:
+                  - $ref: "#/components/schemas/AzureTrigger"
+                  - $ref: "#/components/schemas/UserDraftOverlay"
 
   /w/{workspace}/azure_triggers/list:
     get:
@@ -16553,13 +16592,16 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/GetDraft"
       responses:
         "200":
           description: get postgres trigger
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PostgresTrigger"
+                allOf:
+                  - $ref: "#/components/schemas/PostgresTrigger"
+                  - $ref: "#/components/schemas/UserDraftOverlay"
 
   /w/{workspace}/postgres_triggers/list:
     get:
@@ -16753,13 +16795,16 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/GetDraft"
       responses:
         "200":
           description: email trigger retrieved
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/EmailTrigger"
+                allOf:
+                  - $ref: "#/components/schemas/EmailTrigger"
+                  - $ref: "#/components/schemas/UserDraftOverlay"
 
   /w/{workspace}/email_triggers/list:
     get:

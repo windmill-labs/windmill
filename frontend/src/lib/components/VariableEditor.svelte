@@ -154,9 +154,17 @@
 		if (ws in states) return
 		untrack(() => {
 			Promise.all([
-				VariableService.getVariable({ workspace: ws, path: p, decryptSecret: false }),
+				VariableService.getVariable({
+					workspace: ws,
+					path: p,
+					decryptSecret: false,
+					getDraft: true
+				}),
 				getUserExt(ws)
 			]).then(([v, user]) => {
+				if (v.is_draft) {
+					sendUserToast('Loaded your saved draft')
+				}
 				fetchedRev[ws] = v.edited_at
 				const s: VariableState = {
 					path: v.path,

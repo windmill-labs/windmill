@@ -43,6 +43,7 @@ use windmill_common::{
     db::{DbWithOptAuthed, UserDB},
     error::{self, Error, JsonResult, Result},
     get_database_url,
+    user_drafts::{maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery},
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
     worker::{CLOUD_HOSTED, WINDMILL_DIR},
@@ -360,7 +361,8 @@ async fn get_resource(
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<ListableResource> {
+    Query(q): Query<WithDraftQuery>,
+) -> JsonResult<WithDraftOverlay> {
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
@@ -391,7 +393,17 @@ async fn get_resource(
         explain_resource_perm_error(&path, &w_id, &db, &authed).await?;
     }
     let resource = not_found_if_none(resource_o, "Resource", path)?;
-    Ok(Json(resource))
+    let overlay = maybe_overlay_draft(
+        &db,
+        &w_id,
+        &authed.email,
+        UserDraftItemKind::Resource,
+        path,
+        q.get_draft,
+        resource,
+    )
+    .await?;
+    Ok(Json(overlay))
 }
 
 async fn exists_resource(

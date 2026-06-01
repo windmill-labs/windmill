@@ -16,6 +16,7 @@ use windmill_api_auth::{check_scopes, ApiAuthed};
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
+    user_drafts::{maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery},
     utils::{paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
     DB,
@@ -104,6 +105,29 @@ pub trait TriggerCrud: Send + Sync + 'static {
 
     fn scope_domain_name() -> &'static str {
         &Self::ROUTE_PREFIX[1..]
+    }
+
+    /// `UserDraftItemKind` for the per-user `draft` table lookup. Defaults
+    /// to derive from `TRIGGER_TYPE` so each impl gets it for free as long
+    /// as the string matches the canonical kind (e.g. `"http"` →
+    /// `TriggerHttp`). Override only when the mapping isn't 1:1.
+    fn user_draft_item_kind() -> UserDraftItemKind {
+        match Self::TRIGGER_TYPE {
+            "http" => UserDraftItemKind::TriggerHttp,
+            "websocket" => UserDraftItemKind::TriggerWebsocket,
+            "kafka" => UserDraftItemKind::TriggerKafka,
+            "nats" => UserDraftItemKind::TriggerNats,
+            "sqs" => UserDraftItemKind::TriggerSqs,
+            "mqtt" => UserDraftItemKind::TriggerMqtt,
+            "gcp" => UserDraftItemKind::TriggerGcp,
+            "azure" => UserDraftItemKind::TriggerAzure,
+            "postgres" => UserDraftItemKind::TriggerPostgres,
+            "email" => UserDraftItemKind::TriggerEmail,
+            other => panic!(
+                "TriggerCrud impl with TRIGGER_TYPE = {:?} must override user_draft_item_kind()",
+                other
+            ),
+        }
     }
 
     async fn create_trigger(
@@ -551,8 +575,10 @@ async fn get_trigger<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((workspace_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<T::Trigger> {
+    Query(q): Query<WithDraftQuery>,
+) -> JsonResult<WithDraftOverlay> {
     let path = path.to_path();
     check_scopes(&authed, || {
         format!("{}:read:{}", T::scope_domain_name(), &path)
@@ -565,7 +591,17 @@ async fn get_trigger<T: TriggerCrud>(
 
     tx.commit().await?;
 
-    Ok(Json(trigger))
+    let overlay = maybe_overlay_draft(
+        &db,
+        &workspace_id,
+        &authed.email,
+        T::user_draft_item_kind(),
+        path,
+        q.get_draft,
+        trigger,
+    )
+    .await?;
+    Ok(Json(overlay))
 }
 
 async fn update_trigger<T: TriggerCrud>(

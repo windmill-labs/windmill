@@ -1081,10 +1081,7 @@ async function readWorkspaceItem(
 				true
 			)
 		case 'resource':
-			return resourceToItem(
-				(await ResourceService.getResource({ workspace, path })) as ListableResource,
-				true
-			)
+			return resourceToItem(await ResourceService.getResource({ workspace, path }), true)
 		case 'variable':
 			// Never expose the value, even when read directly. Pass decryptSecret=false
 			// to avoid materializing secret values server-side.
@@ -2568,9 +2565,10 @@ async function patchAppFile(
 }
 
 async function recomputeAppPolicy(value: AppDraftValue): Promise<void> {
-	const policy = (await updateRawAppPolicy(value.runnables as any, value.policy as any)) as NonNullable<
-		AppDraftValue['policy']
-	>
+	const policy = (await updateRawAppPolicy(
+		value.runnables as any,
+		value.policy as any
+	)) as NonNullable<AppDraftValue['policy']>
 	if (!policy.execution_mode) {
 		policy.execution_mode = 'publisher'
 	}
@@ -3045,7 +3043,8 @@ export function prepareGlobalUserMessage(
 		(context) => context.type === 'workspace_script' || context.type === 'workspace_flow'
 	)
 	const activeEditor =
-		options.activeEditor ?? (options.workspace ? getActiveGlobalEditorContext(options.workspace) : undefined)
+		options.activeEditor ??
+		(options.workspace ? getActiveGlobalEditorContext(options.workspace) : undefined)
 	let content = ''
 
 	if (activeEditor) {

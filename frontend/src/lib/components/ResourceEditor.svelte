@@ -219,9 +219,7 @@
 			const s: ResourceState = {
 				path: '',
 				description: '',
-				args: (defaultValues && Object.keys(defaultValues).length > 0
-					? defaultValues
-					: {}) as any,
+				args: (defaultValues && Object.keys(defaultValues).length > 0 ? defaultValues : {}) as any,
 				labels: undefined,
 				wsSpecific: false
 			}
@@ -238,9 +236,12 @@
 		if (ws in states) return
 		untrack(() => {
 			Promise.all([
-				ResourceService.getResource({ workspace: ws, path: initialPath }),
+				ResourceService.getResource({ workspace: ws, path: initialPath, getDraft: true }),
 				getUserExt(ws)
 			]).then(([r, user]) => {
+				if (r.is_draft) {
+					sendUserToast('Loaded your saved draft')
+				}
 				fetchedResources[ws] = r
 				fetchedRev[ws] = r.edited_at
 				const s: ResourceState = {

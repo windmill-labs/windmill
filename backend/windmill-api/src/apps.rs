@@ -58,6 +58,7 @@ use windmill_common::{
         get_payload_tag_from_prefixed_path, resolve_delete_after_secs, schedule_job_deletion,
         JobPayload, RawCode,
     },
+    user_drafts::{maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery},
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
@@ -535,17 +536,26 @@ async fn get_raw_app_data(
 //     Ok(Json(version))
 // }
 
+#[derive(Deserialize)]
+struct GetAppQuery {
+    #[serde(flatten)]
+    starred: WithStarredInfoQuery,
+    #[serde(flatten)]
+    draft: WithDraftQuery,
+}
+
 async fn get_app(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Query(query): Query<WithStarredInfoQuery>,
-) -> JsonResult<AppWithLastVersionAndStarred> {
+    Query(query): Query<GetAppQuery>,
+) -> JsonResult<WithDraftOverlay> {
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
-    let app_o = if query.with_starred_info.unwrap_or(false) {
+    let app_o = if query.starred.with_starred_info.unwrap_or(false) {
         sqlx::query_as::<_, AppWithLastVersionAndStarred>(
             "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
             app.extra_perms, app_version.value,
@@ -554,9 +564,9 @@ async fn get_app(
             JOIN app_version
             ON app_version.id = app.versions[array_upper(app.versions, 1)]
             LEFT JOIN favorite
-            ON favorite.favorite_kind = 'app' 
-                AND favorite.workspace_id = app.workspace_id 
-                AND favorite.path = app.path 
+            ON favorite.favorite_kind = 'app'
+                AND favorite.workspace_id = app.workspace_id
+                AND favorite.path = app.path
                 AND favorite.usr = $3
             WHERE app.path = $1 AND app.workspace_id = $2",
         )
@@ -581,7 +591,24 @@ async fn get_app(
     tx.commit().await?;
 
     let app = not_found_if_none(app_o, "App", path)?;
-    Ok(Json(app))
+    // The same `app` table backs both regular apps and raw apps; the
+    // `raw_app` flag on the row picks which draft kind to look up.
+    let kind = if app.app.raw_app {
+        UserDraftItemKind::RawApp
+    } else {
+        UserDraftItemKind::App
+    };
+    let overlay = maybe_overlay_draft(
+        &db,
+        &w_id,
+        &authed.email,
+        kind,
+        path,
+        query.draft.get_draft,
+        app,
+    )
+    .await?;
+    Ok(Json(overlay))
 }
 
 async fn get_app_lite(
