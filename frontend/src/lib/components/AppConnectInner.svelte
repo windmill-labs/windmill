@@ -74,6 +74,16 @@
 	let value: string = $state('')
 	let valueToken: TokenResponse | undefined = undefined
 	let connects: string[] | undefined = $state(undefined)
+
+	const SANDBOX_SUFFIX = '_sandbox'
+	function stripSandboxSuffix(name: string): string {
+		return name.endsWith(SANDBOX_SUFFIX) ? name.slice(0, -SANDBOX_SUFFIX.length) : name
+	}
+	// `resourceType` is always the canonical type (e.g. `docusign`) so resource
+	// rows are uniform. `connectClient` carries the suffixed OAuth client name
+	// (e.g. `docusign_sandbox`) used to look up credentials/URLs at runtime
+	// and stored on `account.client` so token refresh hits the right endpoint.
+	let connectClient: string = $state('')
 	let connectsManual: { key: string; img?: string; instructions: string[] }[] | undefined =
 		$state(undefined)
 	let args: any = $state({})
@@ -152,7 +162,9 @@
 		description = ''
 		labels = undefined
 		wsSpecific = false
-		resourceType = rt ?? ''
+		const rawRt = rt ?? ''
+		connectClient = rawRt
+		resourceType = stripSandboxSuffix(rawRt)
 		valueToken = undefined
 
 		// Reset client credentials state
@@ -163,7 +175,7 @@
 		tokenUrl = ''
 
 		await loadConnects()
-		manual = !connects?.includes(resourceType)
+		manual = !connects?.includes(connectClient)
 		if (manual && express) {
 			dispatch('error', 'Express OAuth setup is not available for non OAuth resource types')
 			return
@@ -312,7 +324,8 @@
 			sendUserToast(data.error, true)
 			step = 2
 		} else if (data.type === 'success') {
-			resourceType = data.resource_type
+			connectClient = data.resource_type
+			resourceType = stripSandboxSuffix(connectClient)
 			value = data.res.access_token!
 			valueToken = data.res
 			responseExtra = data.extra ?? {}
@@ -325,7 +338,7 @@
 	}
 
 	async function getScopesAndParams() {
-		const connect = await OauthService.getOauthConnect({ client: resourceType })
+		const connect = await OauthService.getOauthConnect({ client: connectClient })
 		scopes = connect.scopes ?? []
 		extra_params = Object.entries(connect.extra_params ?? {}) as [string, string][]
 
@@ -401,7 +414,7 @@
 					}
 
 					const tokenResponse = await OauthService.connectClientCredentials({
-						client: resourceType,
+						client: connectClient,
 						requestBody
 					})
 
@@ -428,7 +441,7 @@
 				 * Requires user interaction and consent
 				 * Opens popup for user to authenticate with OAuth provider
 				 */
-				const url = new URL(`/api/oauth/connect/${resourceType}`, window.location.origin)
+				const url = new URL(`/api/oauth/connect/${connectClient}`, window.location.origin)
 				url.searchParams.append('scopes', scopes.join('+'))
 				if (extra_params.length > 0) {
 					extra_params.forEach(([key, value]) => url.searchParams.append(key, value))
@@ -490,7 +503,7 @@
 				const accountData: any = {
 					refresh_token: valueToken.refresh_token ?? '',
 					expires_in: valueToken.expires_in,
-					client: resourceType,
+					client: connectClient,
 					grant_type: valueToken.grant_type || 'authorization_code'
 				}
 
@@ -602,6 +615,7 @@
 			)
 			step = 1
 			resourceType = ''
+			connectClient = ''
 		}
 	}
 
@@ -660,10 +674,11 @@
 					<Button
 						unifiedSize="md"
 						variant="default"
-						selected={key === resourceType}
+						selected={key === connectClient}
 						on:click={() => {
 							manual = false
-							resourceType = key
+							connectClient = key
+							resourceType = stripSandboxSuffix(key)
 							next()
 						}}
 					>
@@ -703,6 +718,7 @@
 							selected={key === resourceType}
 							on:click={() => {
 								manual = true
+								connectClient = key
 								resourceType = key
 								next()
 							}}
@@ -725,6 +741,7 @@
 							btnClasses={key === resourceType ? '!border-2' : 'm-[1px]'}
 							on:click={() => {
 								manual = true
+								connectClient = key
 								resourceType = key
 								next()
 							}}

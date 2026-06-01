@@ -200,3 +200,74 @@ test.skipIf(shouldSkipOnCI())(
     });
   },
 );
+
+/**
+ * Regression test for WIN-1997: forking a workspace with git sync configured
+ * must publish a `wm-fork/<branch>/<id>` branch to the remote.
+ *
+ * The fork-branch callback runs the sync script with `only_create_branch:
+ * true` and no items. The hub script delegates branch checkout + push of that
+ * empty ref to `wmill sync git-deploy --only-create-branch` — its own
+ * in-process commit+push runs ONLY for the `!only_create_branch` path. So if
+ * the CLI doesn't push the freshly checked-out branch here, nothing does and
+ * the fork branch never reaches the remote (the symptom that broke the e2e
+ * test after #9284 moved commit+push to the caller). This guards that the CLI
+ * owns the push for the branch-only case.
+ */
+test.skipIf(shouldSkipOnCI())(
+  "git-sync fork: only_create_branch publishes the wm-fork branch (CLI owns the push)",
+  async () => {
+    await withTestBackend(async (backend) => {
+      // Bare "remote" seeded with an initial `main` commit.
+      const bareDir = await mkdtemp(join(tmpdir(), "wmill_fork_bare_"));
+      execFileSync("git", ["init", "--bare", "--initial-branch=main", bareDir]);
+      const seedDir = await mkdtemp(join(tmpdir(), "wmill_fork_seed_"));
+      git(seedDir, "init", "--initial-branch=main");
+      git(seedDir, "config", "user.email", "seed@windmill.dev");
+      git(seedDir, "config", "user.name", "seed");
+      await writeFile(join(seedDir, "README.md"), "# fork test\n");
+      git(seedDir, "add", "-A");
+      git(seedDir, "commit", "-m", "seed");
+      git(seedDir, "remote", "add", "origin", `file://${bareDir}`);
+      git(seedDir, "push", "-u", "origin", "main");
+      const seedMain = remoteHead(bareDir, "main");
+
+      // The CWD the hub script runs git-deploy in: a clone of the repo on main.
+      const work = await mkdtemp(join(tmpdir(), "wmill_fork_work_"));
+      git(work, "clone", `file://${bareDir}`, ".");
+      await writeFile(
+        join(work, "wmill.yaml"),
+        "defaultTs: bun\nincludes:\n  - f/**\nexcludes: []\n",
+      );
+
+      // Branch creation happens BEFORE the fork workspace exists (step 1 of the
+      // fork flow), so we pass the fork workspace id straight through — whoami
+      // returns synthetic superadmin info for it. No items, only_create_branch.
+      const forkWs = "wm-fork-clitest";
+      const res = await backend.runCLICommand(
+        [
+          "sync",
+          "git-deploy",
+          "--repository",
+          "u/test/unused_on_branch_only_path",
+          "--git-deploy-items",
+          "[]",
+          "--only-create-branch",
+        ],
+        work,
+        { workspace: forkWs },
+      );
+      expect(res.code).toBe(0);
+
+      // The regression: with NO caller-side commit/push, the fork branch must
+      // already be on the remote because the CLI pushed it.
+      expect(remoteBranches(bareDir)).toContain("refs/heads/wm-fork/main/clitest");
+      // Base branch untouched — branch-only publish creates no commit.
+      expect(remoteHead(bareDir, "main")).toBe(seedMain);
+
+      await rm(bareDir, { recursive: true, force: true });
+      await rm(seedDir, { recursive: true, force: true });
+      await rm(work, { recursive: true, force: true });
+    });
+  },
+);

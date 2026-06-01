@@ -66,6 +66,7 @@ RUN npm ci
 COPY frontend .
 RUN mkdir /backend
 COPY /backend/windmill-api/openapi.yaml /backend/windmill-api/openapi.yaml
+COPY /backend/oauth_connect.json /backend/oauth_connect.json
 COPY /openflow.openapi.yaml /openflow.openapi.yaml
 COPY /backend/windmill-api/build_openapi.sh /backend/windmill-api/build_openapi.sh
 COPY /system_prompts/auto-generated /system_prompts/auto-generated

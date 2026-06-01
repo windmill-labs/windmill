@@ -122,7 +122,12 @@
 				{:else}
 					<SvelteComponent
 						size={16}
-						class={twMerge('flex-shrink-0', sidebarClasses.iconText, 'transition-colors', iconClasses)}
+						class={twMerge(
+							'flex-shrink-0',
+							sidebarClasses.iconText,
+							'transition-colors',
+							iconClasses
+						)}
 						{...iconProps}
 					/>
 				{/if}
@@ -140,9 +145,7 @@
 						title={label}
 					>
 						{label}
-						<span
-							class="pl-2 text-xs text-secondary font-semibold"
-						>
+						<span class="pl-2 text-xs text-secondary font-semibold">
 							{shortcut}
 						</span>
 					</div>
@@ -162,7 +165,7 @@
 			</div>
 
 			{#if isCollapsed && notificationsCount > 0}
-				<div class="absolute translate-x-1/2 translate-y-1/2 -top-2 right-1 flex h-fit w-fit">
+				<div class="absolute top-1 right-1 flex h-fit w-fit">
 					<SideBarNotification notificationCount={notificationsCount} small={true} />
 				</div>
 			{:else if notificationsCount > 0}

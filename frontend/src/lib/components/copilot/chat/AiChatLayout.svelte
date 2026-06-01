@@ -76,7 +76,7 @@
 								onClick={() => onMenuOpen?.()}
 								startIcon={{ icon: Menu }}
 								iconOnly
-							></Button>
+							/>
 						</div>
 						<div class="flex-1 min-h-0">
 							{@render children?.()}
@@ -96,5 +96,13 @@
 		{/if}
 	</Splitpanes>
 {:else}
-	{@render children?.()}
+	<div
+		class={classNames(
+			'flex-1 min-h-0 flex flex-col',
+			noBorder || $userStore?.operator || isMobile ? '' : isCollapsed ? 'pl-12' : 'pl-40',
+			'transition-all ease-in-out duration-200'
+		)}
+	>
+		{@render children?.()}
+	</div>
 {/if}

@@ -145,7 +145,7 @@
 						name: $userStore?.name,
 						groups: $userStore?.groups,
 						username: $userStore?.username,
-						query: urlParamsToObject(page.url.searchParams),
+						query: urlParamsToObject(page.url.searchParams, { stripReserved: true }),
 						hash: page.url.hash.substring(1)
 					}}
 					workspace={effectiveWorkspace}

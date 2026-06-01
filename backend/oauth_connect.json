@@ -176,6 +176,10 @@
     "token_url": "https://account.docusign.com/oauth/token",
     "scopes": [
       "signature"
-    ]
+    ],
+    "sandbox": {
+      "auth_url": "https://account-d.docusign.com/oauth/auth",
+      "token_url": "https://account-d.docusign.com/oauth/token"
+    }
   }
 }

@@ -11,6 +11,7 @@ interface ChatSchema extends IDBSchema {
 			displayMessages: DisplayMessage[]
 			title: string
 			lastModified: number
+			sessionId?: string
 		}
 	}
 }
@@ -26,14 +27,21 @@ export default class HistoryManager {
 			title: string
 			id: string
 			lastModified: number
+			sessionId?: string
 		}
 	> = $state({})
 
 	private currentChatId: string = $state(createLongHash())
 
+	// When set, this manager is bound to a session: only chats tagged with this id
+	// are surfaced and new chats are saved with this id. When undefined (singleton),
+	// session-tagged chats are excluded from history.
+	private sessionId: string | undefined = $state(undefined)
+
 	private pastChats = $derived(
 		Object.values(this.savedChats)
 			.filter((c) => c.id !== this.currentChatId)
+			.filter((c) => (this.sessionId ? c.sessionId === this.sessionId : !c.sessionId))
 			.sort((a, b) => b.lastModified - a.lastModified)
 	)
 
@@ -69,8 +77,31 @@ export default class HistoryManager {
 		return this.currentChatId
 	}
 
+	setCurrentChatId(id: string) {
+		this.currentChatId = id
+	}
+
+	setSessionId(id: string | undefined) {
+		this.sessionId = id
+	}
+
+	async tagChatWithSession(chatId: string, sessionId: string) {
+		const existing = this.savedChats[chatId]
+		if (!existing || existing.sessionId === sessionId) return
+		const snapshot = $state.snapshot(existing)
+		const updated = { ...snapshot, sessionId }
+		this.savedChats = { ...this.savedChats, [chatId]: updated }
+		if (this.indexDB) {
+			await this.indexDB.put('chats', updated)
+		}
+	}
+
 	getPastChats() {
 		return this.pastChats
+	}
+
+	getAllSavedChats() {
+		return Object.values(this.savedChats)
 	}
 
 	async saveChat(displayMessages: DisplayMessage[], messages: ChatCompletionMessageParam[]) {
@@ -84,7 +115,8 @@ export default class HistoryManager {
 				})),
 				title: displayMessages[0].content.slice(0, 50),
 				id: this.currentChatId,
-				lastModified: Date.now()
+				lastModified: Date.now(),
+				...(this.sessionId ? { sessionId: this.sessionId } : {})
 			}
 			this.savedChats = {
 				...this.savedChats,

@@ -1,7 +1,13 @@
 import type { FlowModule, FlowValue, OpenFlow, RawScript } from '$lib/gen'
 import { forEachFlowModule } from '$lib/components/flows/dfs'
 import { findModuleInFlow } from '$lib/components/flows/flowTree'
+import { NoteColor } from '$lib/components/graph/noteColors'
 import type { InlineScriptSession } from './inlineScriptsUtils'
+
+/** Allowed group color names — matches the NoteColor palette the group
+ * editor uses. Other strings would render with default-blue styling at best
+ * and break the color picker UI at worst. */
+const ALLOWED_GROUP_COLORS = new Set<string>(Object.values(NoteColor))
 
 type FlowLike = Pick<OpenFlow, 'value'> & {
 	schema?: Record<string, any>
@@ -68,6 +74,13 @@ export function validateFlowGroups(
 			if (!moduleIds.has(g.end_id)) {
 				throw new Error(
 					`Invalid group at index ${index}: end_id "${g.end_id}" does not match any flow module`
+				)
+			}
+		}
+		if (g.color !== undefined && g.color !== null) {
+			if (typeof g.color !== 'string' || !ALLOWED_GROUP_COLORS.has(g.color)) {
+				throw new Error(
+					`Invalid group at index ${index}: color must be one of ${[...ALLOWED_GROUP_COLORS].join(', ')}`
 				)
 			}
 		}

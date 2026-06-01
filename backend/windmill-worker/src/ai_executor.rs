@@ -45,7 +45,7 @@ use windmill_common::{
 use windmill_queue::{cancel_single_job, CanceledBy, MiniPulledJob};
 
 use crate::{
-    ai::query_builder::StreamEventProcessor,
+    ai::stream_event_processor::StreamEventProcessor,
     common::{build_args_map, resolve_job_timeout, OccupancyMetrics, StreamNotifier},
     handle_child::{run_future_with_polling_update_job_poller_graceful, GracefulPollOutcome},
 };
