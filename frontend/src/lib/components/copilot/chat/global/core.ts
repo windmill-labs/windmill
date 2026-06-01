@@ -572,20 +572,7 @@ const initAppSchema = z.object({
 		.enum(FRAMEWORK_KEYS)
 		.describe(
 			'Frontend framework template. Confirm with the user before calling — never default silently. react19 is recommended for new apps.'
-		),
-	data: z
-		.object({
-			datatable: z.string().optional().describe('Default datatable name (e.g. "main").'),
-			schema: z.string().optional().describe('Default schema (PostgreSQL schema, optional).'),
-			tables: z
-				.array(z.string())
-				.optional()
-				.describe(
-					'Initially-whitelisted tables, in the format "<datatable>/<table>" or "<datatable>/<schema>:<table>".'
-				)
-		})
-		.optional()
-		.describe('Optional datatable configuration. Omit unless the user asked to wire one up.')
+		)
 })
 
 const buildGlobalSystemPrompt = (
@@ -2746,12 +2733,11 @@ async function initApp(
 		path: string
 		summary?: string
 		framework: FrameworkKey
-		data?: { datatable?: string; schema?: string; tables?: string[] }
 	},
 	ctx: WriteDraftCtx
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
-	const { path, summary, framework, data } = args
+	const { path, summary, framework } = args
 
 	if (getGlobalDraft(workspace, 'app', path)) {
 		throw new Error(
@@ -2772,14 +2758,7 @@ async function initApp(
 	const value: AppDraftValue = {
 		summary,
 		files: { ...template },
-		runnables: { [STARTER_RUNNABLE_KEY]: { ...STARTER_RUNNABLE } },
-		...(data && {
-			data: {
-				tables: data.tables ?? [],
-				datatable: data.datatable,
-				schema: data.schema
-			}
-		})
+		runnables: { [STARTER_RUNNABLE_KEY]: { ...STARTER_RUNNABLE } }
 	}
 	await recomputeAppPolicy(value)
 	const stored = saveAppDraft(workspace, path, value)
