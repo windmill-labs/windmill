@@ -209,6 +209,28 @@ describe('global AI tools', () => {
 		vi.clearAllMocks()
 	})
 
+	it('defaults the datatable instruction subject to the TypeScript SQL SDK', async () => {
+		const result = await callGlobalTool('get_instructions', { subject: 'datatable' })
+		expect(result).toContain('wmill.datatable(')
+		expect(result).toContain('TypeScript Datatable API')
+		expect(result).toContain('fetchOne')
+		// Defaults to TypeScript only — no Python noise.
+		expect(result).not.toContain('Python Datatable API')
+	})
+
+	it('returns only the requested language SDK for the datatable subject', async () => {
+		const ts = await callGlobalTool('get_instructions', { subject: 'datatable', language: 'bun' })
+		expect(ts).toContain('TypeScript Datatable API')
+		expect(ts).not.toContain('Python Datatable API')
+
+		const py = await callGlobalTool('get_instructions', {
+			subject: 'datatable',
+			language: 'python3'
+		})
+		expect(py).toContain('Python Datatable API')
+		expect(py).not.toContain('TypeScript Datatable API')
+	})
+
 	it('exposes hub search and path-aware test tools', () => {
 		const names = globalTools.map((tool) => tool.def.function.name)
 
