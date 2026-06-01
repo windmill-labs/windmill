@@ -438,14 +438,14 @@
 		onDeploy={(e) => {
 			UserDraft.remove('script', draftPath)
 			if ($workspaceStore) invalidate($workspaceStore, 'script')
-			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
+			goto(`/scripts/get/${e.hash}`)
 		}}
 		onSaveInitial={(e) => {
 			if ($workspaceStore) invalidate($workspaceStore, 'script')
 			goto(`/scripts/edit/${e.path}`)
 		}}
 		onSeeDetails={(e) => {
-			goto(`/scripts/get/${e.path}?workspace=${$workspaceStore}`)
+			goto(`/scripts/get/${e.path}`)
 		}}
 		onNavigate={(item) => goto(editPathFor(item))}
 	>

@@ -369,7 +369,7 @@
 					})
 				}
 
-				await goto('/run/' + id + '?workspace=' + $workspaceStore)
+				await goto('/run/' + id)
 			} else {
 				sendUserToast('Cannot run this job immediately', true)
 			}
@@ -645,7 +645,7 @@
 					iterationCounts={restart.iterationCounts}
 					nestedPathIterationCounts={restart.nestedPathIterationCounts}
 					onRestartComplete={(newJobId) => {
-						goto('/run/' + newJobId + '?workspace=' + $workspaceStore)
+						goto('/run/' + newJobId)
 					}}
 					flowPath={job.script_path}
 					flowVersionId={job.script_hash ? parseInt(job.script_hash, 16) : undefined}
@@ -676,7 +676,7 @@
 				{#if !$userStore?.operator}
 					{#if canWrite(job?.script_path ?? '', {}, $userStore)}
 						<Button
-							href={`${stem}/edit/${job?.script_path}?workspace=${$workspaceStore}${isScript ? `` : `&nodraft=true`}`}
+							href={`${stem}/edit/${job?.script_path}${isScript ? `` : `?nodraft=true`}`}
 							on:click={() => {
 								$initialArgsStore = job?.args
 							}}

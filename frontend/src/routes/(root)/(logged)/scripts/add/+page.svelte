@@ -278,7 +278,7 @@
 					: 'script')}
 		onDeploy={(e) => {
 			if ($workspaceStore) invalidate($workspaceStore, 'script')
-			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
+			goto(`/scripts/get/${e.hash}`)
 		}}
 		onSaveInitial={(e) => {
 			if ($workspaceStore) invalidate($workspaceStore, 'script')
