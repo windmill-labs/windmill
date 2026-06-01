@@ -36,8 +36,9 @@
 		globalForkModal
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
-	import { afterNavigate, beforeNavigate } from '$app/navigation'
+	import { afterNavigate, beforeNavigate, replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
+	import { workspaceParamAllowed } from '$lib/workspaceParam'
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
@@ -113,14 +114,35 @@
 	}
 
 	function onQueryChange() {
-		let queryWorkspace = page.url.searchParams.get('workspace')
-		if (queryWorkspace) {
-			$workspaceStore = queryWorkspace
+		if (workspaceParamAllowed(page.url.pathname)) {
+			const queryWorkspace = page.url.searchParams.get('workspace')
+			if (queryWorkspace && queryWorkspace !== $workspaceStore) {
+				$workspaceStore = queryWorkspace
+			}
 		}
 
 		menuHidden =
 			page.url.searchParams.get('nomenubar') === 'true' ||
 			page.url.pathname.startsWith('/oauth/callback/')
+	}
+
+	// Reflect the active workspace into the URL as `?workspace=<id>` so links are
+	// workspace-explicit and shareable, and so separate tabs stay independent.
+	// Uses replaceState to avoid polluting browser history on every navigation.
+	// Guarded to be idempotent: it only writes when the param actually differs,
+	// which also prevents a ping-pong with the URL → store sync in onQueryChange.
+	function syncWorkspaceToUrl() {
+		if (!BROWSER) return
+		const ws = $workspaceStore
+		if (!ws || !workspaceParamAllowed(page.url.pathname)) return
+		if (page.url.searchParams.get('workspace') === ws) return
+		try {
+			const url = new URL(page.url)
+			url.searchParams.set('workspace', ws)
+			replaceState(url, page.state)
+		} catch (e) {
+			console.warn('Could not sync workspace to URL', e)
+		}
 	}
 
 	async function updateUserStore(workspace: string | undefined) {
@@ -412,6 +434,13 @@
 	})
 	$effect(() => {
 		page.url && untrack(() => onQueryChange())
+	})
+	$effect(() => {
+		// Re-run on both store changes (workspace switch) and navigation (route
+		// entered without the param). Both reads register as dependencies.
+		$workspaceStore
+		page.url
+		untrack(() => syncWorkspaceToUrl())
 	})
 	$effect(() => {
 		$workspaceStore
