@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.713.1](https://github.com/windmill-labs/windmill/compare/v1.713.0...v1.713.1) (2026-06-01)
+
+
+### Bug Fixes
+
+* **api:** handle multi-version scripts when removing granular ACL ([#9388](https://github.com/windmill-labs/windmill/issues/9388)) ([9d9c503](https://github.com/windmill-labs/windmill/commit/9d9c5038ce8b0016320a670c434ef9063cb40441))
+
 ## [1.713.0](https://github.com/windmill-labs/windmill/compare/v1.712.0...v1.713.0) (2026-05-31)
 
 
