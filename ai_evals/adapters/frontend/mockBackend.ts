@@ -32,19 +32,11 @@ type BenchmarkCompletedJob = CompletedJob & { type: 'CompletedJob' }
 const benchmarkWorkspaces = new Set<string>()
 const benchmarkWorkspaceRunnables = new Map<string, BenchmarkWorkspaceRunnables>()
 const benchmarkJobs = new Map<string, { workspace: string; job: BenchmarkCompletedJob }>()
-let lastBenchmarkFlowPreviewRequest:
-	| {
-			workspace: string
-			requestBody: Record<string, unknown>
-			memoryId?: string
-	  }
-	| undefined
 
 export function resetBenchmarkMockBackend(): void {
 	benchmarkWorkspaces.clear()
 	benchmarkWorkspaceRunnables.clear()
 	benchmarkJobs.clear()
-	lastBenchmarkFlowPreviewRequest = undefined
 }
 
 export function registerBenchmarkWorkspace(workspace: string): void {
@@ -233,46 +225,6 @@ export function runBenchmarkFlowByPath(input: {
 				? 'Mock benchmark flow run completed successfully.'
 				: `Flow "${input.path}" not found in benchmark workspace.`
 	})
-}
-
-export function runBenchmarkFlowPreview(input: {
-	workspace: string
-	requestBody: {
-		path?: string
-		value?: Record<string, unknown>
-		args?: Record<string, unknown>
-	}
-	memoryId?: string
-}): string {
-	lastBenchmarkFlowPreviewRequest = {
-		workspace: input.workspace,
-		requestBody: structuredClone(input.requestBody),
-		memoryId: input.memoryId
-	}
-
-	return createBenchmarkCompletedJob({
-		workspace: input.workspace,
-		jobKind: 'flowpreview',
-		success: true,
-		scriptPath: input.requestBody.path,
-		args: input.requestBody.args,
-		result: {
-			path: input.requestBody.path,
-			args: input.requestBody.args ?? {},
-			mocked: true
-		},
-		logs: 'Mock benchmark flow preview completed successfully.'
-	})
-}
-
-export function getLastBenchmarkFlowPreviewRequest():
-	| {
-			workspace: string
-			requestBody: Record<string, unknown>
-			memoryId?: string
-	  }
-	| undefined {
-	return lastBenchmarkFlowPreviewRequest
 }
 
 export function previewBenchmarkSchedule(input: {
