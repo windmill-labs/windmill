@@ -10,7 +10,7 @@ use crate::db::{ApiAuthed, DB};
 
 use axum::{
     extract::{Extension, Path},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -64,6 +64,161 @@ pub fn workspaced_service() -> Router {
             get(list_users_with_draft_on_path),
         )
         .route("/get/{kind}/{*path}", get(get_draft_for_user))
+        .route("/save_draft/{kind}/{*path}", post(save_draft))
+        .route("/list_drafts", get(list_drafts))
+        .route("/get_draft/{kind}/{*path}", get(get_draft))
+}
+
+#[derive(Deserialize, Debug)]
+pub struct SaveDraftRequest {
+    pub value: sqlx::types::Json<Box<serde_json::value::RawValue>>,
+    /// Server timestamp of the client's last known sync for this draft. When
+    /// present and `force` is false, the save is rejected if the server's
+    /// `created_at` is more recent (i.e. another writer moved the row
+    /// forward since this client last saw it). Omit on a first save.
+    #[serde(default)]
+    pub last_sync: Option<chrono::DateTime<chrono::Utc>>,
+    /// Skip the conflict check and unconditionally overwrite the server
+    /// copy. Use after the client has resolved the conflict locally.
+    #[serde(default)]
+    pub force: bool,
+}
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum SaveDraftStatus {
+    Saved,
+    Conflict,
+}
+
+#[derive(Serialize, Debug)]
+pub struct SaveDraftResponse {
+    pub status: SaveDraftStatus,
+    /// On `saved`: the new row's `created_at` (the client should remember
+    /// it as the next `last_sync`). On `conflict`: the existing row's
+    /// `created_at`, so the client knows what the server has.
+    pub current_timestamp: chrono::DateTime<chrono::Utc>,
+}
+
+/// Upsert the current user's draft at (workspace, kind, path). Conflict
+/// check is done inline via a `WHERE` clause on `DO UPDATE` — when the
+/// existing row is newer than `last_sync` (and `force` is false), the
+/// statement is a no-op and `RETURNING` yields nothing. The handler then
+/// reads the existing row's timestamp to report it back.
+async fn save_draft(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, kind, path)): Path<(String, UserDraftItemKind, windmill_common::utils::StripPath)>,
+    Json(req): Json<SaveDraftRequest>,
+) -> Result<Json<SaveDraftResponse>> {
+    let email = &authed.email;
+    let path = path.to_path();
+
+    let saved_at = sqlx::query_scalar!(
+        r#"INSERT INTO draft (workspace_id, email, path, typ, value, created_at)
+           VALUES ($1, $2, $3, $4, $5::text::json, now())
+           ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL
+           DO UPDATE SET value = EXCLUDED.value, created_at = now()
+           WHERE $7::bool = true
+              OR $6::timestamptz IS NULL
+              OR draft.created_at <= $6::timestamptz
+           RETURNING created_at"#,
+        &w_id,
+        email,
+        path,
+        kind as UserDraftItemKind,
+        serde_json::to_string(&req.value).unwrap(),
+        req.last_sync,
+        req.force,
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    match saved_at {
+        Some(created_at) => Ok(Json(SaveDraftResponse {
+            status: SaveDraftStatus::Saved,
+            current_timestamp: created_at,
+        })),
+        None => {
+            // No row returned ⇒ the existing row was newer than `last_sync`
+            // and `force` was false. Surface the server's timestamp so the
+            // client can rebase its draft (or retry with `force`).
+            let existing = sqlx::query_scalar!(
+                r#"SELECT created_at FROM draft
+                   WHERE workspace_id = $1 AND email = $2 AND path = $3 AND typ = $4"#,
+                &w_id,
+                email,
+                path,
+                kind as UserDraftItemKind,
+            )
+            .fetch_one(&db)
+            .await?;
+            Ok(Json(SaveDraftResponse {
+                status: SaveDraftStatus::Conflict,
+                current_timestamp: existing,
+            }))
+        }
+    }
+}
+
+#[derive(Serialize, Debug)]
+pub struct DraftListItem {
+    pub path: String,
+    pub typ: UserDraftItemKind,
+    pub saved_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Metadata-only listing of the current user's drafts in a workspace.
+/// Excludes the legacy NULL-email rows. Ordered most-recently-saved first.
+async fn list_drafts(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> Result<Json<Vec<DraftListItem>>> {
+    let rows = sqlx::query_as!(
+        DraftListItem,
+        r#"SELECT path,
+                  typ as "typ!: UserDraftItemKind",
+                  created_at as "saved_at!"
+           FROM draft
+           WHERE workspace_id = $1 AND email = $2
+           ORDER BY created_at DESC"#,
+        &w_id,
+        &authed.email,
+    )
+    .fetch_all(&db)
+    .await?;
+    Ok(Json(rows))
+}
+
+#[derive(Serialize, Debug)]
+pub struct OwnDraft {
+    pub value: sqlx::types::Json<Box<serde_json::value::RawValue>>,
+    pub saved_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Fetch the current user's draft content at (kind, path). 404 if no draft.
+async fn get_draft(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, kind, path)): Path<(String, UserDraftItemKind, windmill_common::utils::StripPath)>,
+) -> Result<Json<OwnDraft>> {
+    let path = path.to_path();
+    let row = sqlx::query_as!(
+        OwnDraft,
+        r#"SELECT value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+                  created_at as "saved_at!"
+           FROM draft
+           WHERE workspace_id = $1 AND email = $2 AND path = $3 AND typ = $4"#,
+        &w_id,
+        &authed.email,
+        path,
+        kind as UserDraftItemKind,
+    )
+    .fetch_optional(&db)
+    .await?;
+    row.map(Json)
+        .ok_or_else(|| Error::NotFound(format!("no draft for current user at {path}")))
 }
 
 #[derive(Serialize, Debug)]
