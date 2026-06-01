@@ -76,6 +76,27 @@
 		}
 	}
 
+	function handleBoxPointerDown(event: PointerEvent) {
+		const card = event.currentTarget as HTMLElement
+		const interactive = (event.target as HTMLElement | null)?.closest(
+			'button, input, textarea, a, [contenteditable]'
+		)
+		// A control inside the card (a choice, the answer input, the send button)
+		// manages its own focus — leave it alone. `closest` can also match the
+		// message-row button the chat wraps every message in, which is an ancestor
+		// of the card, so only bail out when the match is actually inside the card.
+		if (interactive && card.contains(interactive)) {
+			return
+		}
+		// Otherwise the click landed on the card's empty area; without this, focus
+		// stays on the chat's scroll container, where arrow keys scroll the
+		// conversation instead of moving the selection. Pull focus back to the
+		// active item so keyboard navigation keeps working.
+		event.preventDefault()
+		event.stopPropagation()
+		focusIndex(activeIndex)
+	}
+
 	function handleCustomAnswerKeydown(event: KeyboardEvent) {
 		// Only ArrowUp/ArrowDown roam out of the input — Left/Right stay free for
 		// moving the text caret within the answer.
@@ -101,9 +122,11 @@
 	}
 </script>
 
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	class="rounded-md border border-border-light bg-surface p-3"
 	data-chat-keyboard-scope="ask-user-question"
+	onpointerdown={handleBoxPointerDown}
 >
 	<div class="flex items-start gap-2">
 		<CircleHelp class="mt-0.5 h-4 w-4 shrink-0 text-accent" />
