@@ -22,7 +22,18 @@
 		RawAppService,
 		ResourceService,
 		ScriptService,
-		WorkspaceService
+		WorkspaceService,
+		HttpTriggerService,
+		WebsocketTriggerService,
+		KafkaTriggerService,
+		NatsTriggerService,
+		SqsTriggerService,
+		MqttTriggerService,
+		GcpTriggerService,
+		AzureTriggerService,
+		PostgresTriggerService,
+		EmailTriggerService,
+		ScheduleService
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { computeSecretUrl } from '$lib/components/apps/editor/appDeploy.svelte'
@@ -41,17 +52,20 @@
 	import {
 		Check,
 		Cloud,
+		Code2,
 		Copy,
 		ExternalLink,
 		GitCompare,
 		Globe,
 		Info,
+		LayoutDashboard,
 		Loader2,
 		Play,
 		RotateCcw,
 		TriangleAlert,
 		X
 	} from 'lucide-svelte'
+	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import type { Kind } from '$lib/utils_deployable'
 
@@ -71,11 +85,65 @@
 	const canRecord = (k: Kind) => k === 'script' || k === 'flow'
 	const canPublishApp = (k: Kind) => k === 'app' || k === 'raw_app'
 
+	type TriggerKindLabel =
+		| 'http'
+		| 'websocket'
+		| 'schedule'
+		| 'kafka'
+		| 'nats'
+		| 'sqs'
+		| 'mqtt'
+		| 'gcp'
+		| 'azure'
+		| 'postgres'
+		| 'email'
+	interface WorkspaceTrigger {
+		kind: TriggerKindLabel
+		path: string
+		script_path: string
+		is_flow: boolean
+		summary?: string
+		config: Record<string, unknown>
+	}
+	const TRIGGER_KIND_BADGE: Record<TriggerKindLabel, string> = {
+		http: 'HTTP',
+		websocket: 'WebSocket',
+		schedule: 'Schedule',
+		kafka: 'Kafka',
+		nats: 'NATS',
+		sqs: 'SQS',
+		mqtt: 'MQTT',
+		gcp: 'GCP Pub/Sub',
+		azure: 'Azure',
+		postgres: 'Postgres',
+		email: 'Email'
+	}
+	const TRIGGER_KIND_NOTE: Partial<Record<TriggerKindLabel, string>> = {
+		http: 'Webhook URL regenerates on import — re-register with the external service.',
+		websocket: 'Reconnect WebSocket auth after import if external service requires it.',
+		email: 'Email address regenerates on import.',
+		kafka: 'Verify Kafka broker access from the importing instance.',
+		nats: 'Verify NATS connection from the importing instance.',
+		gcp: 'Re-link GCP Pub/Sub subscription after import.',
+		azure: 'Re-link Azure Event Grid subscription after import.'
+	}
+
 	let phase = $state<Phase>('predeploy')
 	// Live workspace items (refreshed from API). Used in predeploy phase only.
 	let workspaceItems = $state<DeployItem[]>([])
 	// Snapshot frozen at deploy time. Used in draft / under_review / live phases.
 	let draftItems = $state<DeployItem[]>([])
+	let workspaceTriggers = $state<WorkspaceTrigger[]>([])
+	let triggersLoading = $state(false)
+	let triggerLoadErrors = $state<Set<TriggerKindLabel>>(new Set())
+	let workspaceLoadSeq = 0
+	let schedulePreviews = $state<Record<string, string[]>>({})
+	const schedulePreviewsInFlight = new Set<string>()
+	const dateFmt = new Intl.DateTimeFormat(undefined, {
+		dateStyle: 'medium',
+		timeStyle: 'short'
+	})
+
 	let selectedFolders = $state<string[]>([])
 	let availableFolders = $derived(
 		Array.from(
@@ -160,6 +228,7 @@
 	let publishing = $state(false)
 
 	let resourceDrawer = $state<Drawer | undefined>()
+	let triggerDrawer = $state<Drawer | undefined>()
 	let bundleDrawer = $state<Drawer | undefined>()
 	let bundleName = $state('')
 	let bundleSummary = $state('')
@@ -168,6 +237,8 @@
 	let hubName = $state('')
 	let hubSummary = $state('')
 	let hubReadme = $state('')
+
+	let effectiveSlug = $state('')
 
 	const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -189,7 +260,7 @@
 		return out
 	}
 
-	async function loadWorkspace(workspace: string) {
+	async function loadWorkspace(workspace: string, seq: number) {
 		loading = true
 		try {
 			const [apps, rawApps, flows, scripts, settings] = await Promise.all([
@@ -199,6 +270,7 @@
 				listAllPages((p) => ScriptService.listScripts({ workspace, ...p })),
 				WorkspaceService.getSettings({ workspace }).catch(() => undefined)
 			])
+			if (seq !== workspaceLoadSeq) return
 
 			workspaceRateLimit = settings?.public_app_execution_limit_per_minute
 
@@ -250,11 +322,81 @@
 			// Resources are NOT selectable items — they're dependencies derived from
 			// the $res: references in the selected scripts/flows/apps and shown
 			// read-only (see detectedResources).
+			if (seq !== workspaceLoadSeq) return
 			workspaceItems = next
 		} catch (e: any) {
-			sendUserToast(`Failed to load workspace items: ${e?.message ?? e}`, true)
+			if (seq === workspaceLoadSeq) {
+				sendUserToast(`Failed to load workspace items: ${e?.message ?? e}`, true)
+			}
 		} finally {
-			loading = false
+			if (seq === workspaceLoadSeq) loading = false
+		}
+	}
+
+	async function loadTriggers(workspace: string, seq: number) {
+		triggersLoading = true
+		const errors = new Set<TriggerKindLabel>()
+		try {
+			const listOrMark = async <T,>(kind: TriggerKindLabel, p: Promise<T[]>): Promise<T[]> => {
+				try {
+					return await p
+				} catch {
+					errors.add(kind)
+					return []
+				}
+			}
+			const [http, websocket, schedule, kafka, nats, sqs, mqtt, gcp, azure, postgres, email] =
+				await Promise.all([
+					listOrMark('http', HttpTriggerService.listHttpTriggers({ workspace })),
+					listOrMark('websocket', WebsocketTriggerService.listWebsocketTriggers({ workspace })),
+					listOrMark('schedule', ScheduleService.listSchedules({ workspace })),
+					listOrMark('kafka', KafkaTriggerService.listKafkaTriggers({ workspace })),
+					listOrMark('nats', NatsTriggerService.listNatsTriggers({ workspace })),
+					listOrMark('sqs', SqsTriggerService.listSqsTriggers({ workspace })),
+					listOrMark('mqtt', MqttTriggerService.listMqttTriggers({ workspace })),
+					listOrMark('gcp', GcpTriggerService.listGcpTriggers({ workspace })),
+					listOrMark('azure', AzureTriggerService.listAzureTriggers({ workspace })),
+					listOrMark('postgres', PostgresTriggerService.listPostgresTriggers({ workspace })),
+					listOrMark('email', EmailTriggerService.listEmailTriggers({ workspace }))
+				])
+			if (seq !== workspaceLoadSeq) return
+			const normalize = (
+				kind: TriggerKindLabel,
+				rows: Array<Record<string, any>>
+			): WorkspaceTrigger[] =>
+				rows.map((r) => ({
+					kind,
+					path: r.path,
+					script_path: r.script_path,
+					is_flow: r.is_flow ?? false,
+					summary: r.summary,
+					config: r
+				}))
+			workspaceTriggers = [
+				...normalize('http', http),
+				...normalize('websocket', websocket),
+				...normalize('schedule', schedule),
+				...normalize('kafka', kafka),
+				...normalize('nats', nats),
+				...normalize('sqs', sqs),
+				...normalize('mqtt', mqtt),
+				...normalize('gcp', gcp),
+				...normalize('azure', azure),
+				...normalize('postgres', postgres),
+				...normalize('email', email)
+			]
+			triggerLoadErrors = errors
+			if (errors.size > 0) {
+				const labels = Array.from(errors)
+					.map((k) => TRIGGER_KIND_BADGE[k])
+					.join(', ')
+				sendUserToast(
+					`Could not list triggers for: ${labels}. The bundle may miss stubs from those kinds.`,
+					true
+				)
+			}
+		} finally {
+			if (seq === workspaceLoadSeq) triggersLoading = false
 		}
 	}
 
@@ -269,8 +411,125 @@
 
 	$effect(() => {
 		if ($workspaceStore) {
-			loadWorkspace($workspaceStore)
+			const seq = ++workspaceLoadSeq
+			// Drop stale workspace state immediately so prior data can't bleed
+			// into the new workspace before the parallel fetches resolve.
+			workspaceItems = []
+			workspaceTriggers = []
+			triggerLoadErrors = new Set()
+			schedulePreviews = {}
+			loadWorkspace($workspaceStore, seq)
+			loadTriggers($workspaceStore, seq)
 		}
+	})
+
+	let relevantTriggers = $derived.by(() => {
+		const selectedScripts = new Set(
+			selectedItems.filter((i) => i.kind === 'script').map((i) => i.path)
+		)
+		const selectedFlows = new Set(selectedItems.filter((i) => i.kind === 'flow').map((i) => i.path))
+		return workspaceTriggers.filter((t) =>
+			t.is_flow ? selectedFlows.has(t.script_path) : selectedScripts.has(t.script_path)
+		)
+	})
+
+	let triggersByKind = $derived.by(() => {
+		const out = new Map<TriggerKindLabel, WorkspaceTrigger[]>()
+		for (const t of relevantTriggers) {
+			const arr = out.get(t.kind) ?? []
+			arr.push(t)
+			out.set(t.kind, arr)
+		}
+		return Array.from(out.entries()).sort((a, b) => a[0].localeCompare(b[0]))
+	})
+
+	$effect(() => {
+		for (const t of relevantTriggers) {
+			if (t.kind !== 'schedule') continue
+			const c = t.config as any
+			const key = `${c.schedule}|${c.timezone}`
+			if (schedulePreviews[key] || schedulePreviewsInFlight.has(key)) continue
+			schedulePreviewsInFlight.add(key)
+			ScheduleService.previewSchedule({
+				requestBody: {
+					schedule: c.schedule,
+					timezone: c.timezone,
+					cron_version: c.cron_version ?? 'v2'
+				}
+			})
+				.then((dates) => {
+					schedulePreviews = { ...schedulePreviews, [key]: dates.slice(0, 3) }
+				})
+				.catch(() => {})
+				.finally(() => schedulePreviewsInFlight.delete(key))
+		}
+	})
+
+	function triggerDetails(t: WorkspaceTrigger): Array<{ label: string; value: string }> {
+		const c = t.config as any
+		const out: Array<{ label: string; value: string }> = []
+		const push = (label: string, v: any) => {
+			if (v != null && v !== '') out.push({ label, value: String(v) })
+		}
+		switch (t.kind) {
+			case 'http':
+				push('Route', `${(c.http_method ?? '').toUpperCase()} /${c.route_path ?? ''}`)
+				push('Auth', c.authentication_method)
+				break
+			case 'schedule':
+				push('Cron', c.schedule)
+				push('Timezone', c.timezone)
+				break
+			case 'websocket':
+				push('URL', c.url)
+				break
+			case 'kafka':
+				push('Resource', c.kafka_resource_path)
+				push('Group', c.group_id)
+				push('Topics', (c.topics ?? []).join(', '))
+				break
+			case 'nats':
+				push('Resource', c.nats_resource_path)
+				push('Subjects', (c.subjects ?? []).join(', '))
+				push('Jetstream', c.use_jetstream)
+				break
+			case 'sqs':
+				push('Queue', c.queue_url)
+				push('Resource', c.aws_resource_path)
+				break
+			case 'mqtt':
+				push('Resource', c.mqtt_resource_path)
+				push('Topics', (c.subscribe_topics ?? []).map((x: any) => x?.topic ?? x).join(', '))
+				break
+			case 'gcp':
+				push('Resource', c.gcp_resource_path)
+				push('Topic', c.topic_id)
+				push('Subscription', c.subscription_id)
+				break
+			case 'azure':
+				push('Resource', c.azure_resource_path)
+				push('Scope', c.scope_resource_id)
+				push('Subscription', c.subscription_name)
+				break
+			case 'postgres':
+				push('Resource', c.postgres_resource_path)
+				push('Publication', c.publication_name)
+				break
+			case 'email':
+				push('Local part', c.local_part)
+				break
+		}
+		return out
+	}
+
+	let runnableSummaryByPath = $derived.by(() => {
+		const m = new Map<string, string | undefined>()
+		for (const it of workspaceItems) {
+			if (it.kind === 'script' || it.kind === 'flow') {
+				m.set(`${it.kind}:${it.path}`, it.summary)
+			}
+		}
+		return m
 	})
 
 	function openBundle() {
@@ -279,12 +538,21 @@
 		bundleReadme = hubReadme
 		bundleDrawer?.openDrawer()
 	}
+	// Mirror the Hub's SLUG_RE: ^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$
+	// (3-50 chars, alphanumeric start/end, dashes only in the middle).
 	function sanitizeSlug(s: string): string {
 		return s
 			.toLowerCase()
 			.replace(/[_\s]+/g, '-')
 			.replace(/[^a-z0-9-]/g, '')
+			.replace(/-+/g, '-')
+			.replace(/^-+|-+$/g, '')
 			.slice(0, 50)
+			.replace(/-+$/g, '')
+	}
+	const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/
+	function isValidSlug(s: string): boolean {
+		return SLUG_RE.test(s)
 	}
 
 	async function confirmBundle() {
@@ -299,17 +567,34 @@
 				headers: { 'Content-Type': 'application/json' },
 				credentials: 'include',
 				body: JSON.stringify({
-					slug: sanitizeSlug(hubSlug),
+					slug: effectiveSlug || sanitizeSlug(hubName),
 					name: hubName,
 					summary: hubSummary || hubName,
 					readme: hubReadme || undefined
 				})
 			})
+			const text = await res.text()
 			if (!res.ok) {
-				const text = await res.text()
 				sendUserToast(`Hub draft creation failed: ${text}`, true)
 				return
 			}
+			// The Hub returns the effective slug (locked once a project exists). If the
+			// response can't be parsed or omits the slug, abort instead of guessing —
+			// proceeding with a client-computed slug risks landing items under a
+			// folder the Hub never created (proxy-rewritten body, server-side
+			// collision suffix, etc.).
+			let returnedSlug: string | undefined
+			try {
+				const parsed = JSON.parse(text)
+				if (typeof parsed?.slug === 'string') returnedSlug = parsed.slug
+			} catch {
+				// fallthrough — handled below
+			}
+			if (!returnedSlug) {
+				sendUserToast(`Hub did not return a slug. Aborting publish to avoid path drift.`, true)
+				return
+			}
+			effectiveSlug = returnedSlug
 		} catch (e: any) {
 			sendUserToast(`Hub draft creation failed: ${e?.message ?? e}`, true)
 			return
@@ -529,7 +814,7 @@
 		}
 		let cancelled = false
 		detectingResources = true
-		const slug = sanitizeSlug(hubSlug)
+		const slug = effectiveSlug || sanitizeSlug(hubName)
 		const seed: ItemRef[] = selectedItems
 			.filter((i) => i.kind !== 'resource')
 			.map((i) => ({ kind: i.kind as ItemRef['kind'], path: i.path }))
@@ -584,7 +869,8 @@
 	async function deployAll() {
 		const workspace = $workspaceStore
 		if (!workspace) return
-		const slug = sanitizeSlug(hubSlug)
+		// Use the Hub's effective (locked) slug so relocated paths match the project.
+		const slug = effectiveSlug || sanitizeSlug(hubName)
 		deploying = true
 		let failures = 0
 		try {
@@ -695,7 +981,7 @@
 		// MOCK: would diff the live workspace against the submitted bundle and open a viewer.
 		const workspace = $workspaceStore
 		if (!workspace) return
-		await loadWorkspace(workspace)
+		await loadWorkspace(workspace, workspaceLoadSeq)
 		const draftKeys = new Set(draftItems.map((i) => i.key))
 		const workspaceKeys = new Set(workspaceItems.map((i) => i.key))
 		const added = workspaceItems.filter((i) => !draftKeys.has(i.key)).length
@@ -710,7 +996,7 @@
 		if (!workspace) return
 		syncing = true
 		try {
-			await loadWorkspace(workspace)
+			await loadWorkspace(workspace, workspaceLoadSeq)
 			if (phase === 'draft') {
 				const prev = new Map(draftItems.map((i) => [i.key, { rec: i.rec }]))
 				draftItems = workspaceItems
@@ -912,7 +1198,7 @@
 			const path = it.kind === 'script' ? 'scripts' : 'flows'
 			await postHub(workspace, `/hub/${path}/${hubId}/recording`, {
 				recording,
-				workspace_slug: sanitizeSlug(hubSlug)
+				workspace_slug: effectiveSlug || sanitizeSlug(hubName)
 			})
 			recordings = { ...recordings, [it.key]: runJobId }
 			patchItem(it.key, { rec: 'recorded' })
@@ -1071,13 +1357,13 @@
 					</div>
 				{/if}
 				{#if phase === 'predeploy'}
-					<div class="flex flex-col gap-1 text-xs">
-						<span class="font-semibold text-primary">
+					<div class="flex flex-wrap items-center gap-2 text-xs">
+						<span class="font-semibold text-primary shrink-0">
 							Resource dependencies
 							{#if detectingResources}
 								<Loader2 size={11} class="inline animate-spin text-hint" />
 							{:else}
-								<span class="text-hint">({dependencyTypes.length})</span>
+								<span class="text-hint font-normal">({dependencyTypes.length})</span>
 							{/if}
 							<Tooltip>
 								Resource types the selected items depend on (whether passed as inputs or referenced
@@ -1090,26 +1376,66 @@
 								No resource references detected in the current selection.
 							</span>
 						{:else}
-							<div
-								class="flex flex-wrap items-center gap-1.5 rounded-md border bg-surface-secondary p-2"
-							>
-								{#each dependencyTypes as r (r.resource_type)}
-									<span
-										class="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[11px] text-secondary {r.hasHardcoded
-											? 'border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40'
-											: 'bg-surface'}"
-									>
-										{r.resource_type}
-									</span>
-								{/each}
-								<Button
-									variant="subtle"
-									unifiedSize="sm"
-									onclick={() => resourceDrawer?.openDrawer()}
+							{#each dependencyTypes as r (r.resource_type)}
+								<span
+									class="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[11px] text-secondary {r.hasHardcoded
+										? 'border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40'
+										: 'bg-surface'}"
 								>
-									View details
-								</Button>
-							</div>
+									{r.resource_type}
+								</span>
+							{/each}
+							<Button
+								variant="subtle"
+								unifiedSize="sm"
+								wrapperClasses="ml-auto"
+								onclick={() => resourceDrawer?.openDrawer()}
+							>
+								View details
+							</Button>
+						{/if}
+					</div>
+				{/if}
+				{#if phase === 'predeploy'}
+					<div class="flex flex-wrap items-center gap-2 text-xs">
+						<span class="font-semibold text-primary shrink-0">
+							Triggers
+							{#if triggersLoading}
+								<Loader2 size={11} class="inline animate-spin text-hint" />
+							{:else}
+								<span class="text-hint font-normal">({relevantTriggers.length})</span>
+							{/if}
+						</span>
+						{#if triggerLoadErrors.size > 0}
+							<span
+								class="inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+							>
+								<TriangleAlert size={11} />
+								Could not list:
+								{Array.from(triggerLoadErrors)
+									.map((k) => TRIGGER_KIND_BADGE[k])
+									.join(', ')}
+							</span>
+						{/if}
+						{#if relevantTriggers.length === 0}
+							<span class="text-[11px] text-hint">No triggers reference the selected items.</span>
+						{:else}
+							{#each triggersByKind as [kind, triggers] (kind)}
+								<span
+									class="inline-flex items-center gap-1 rounded border bg-surface px-1.5 py-0.5 font-mono text-[11px] text-secondary"
+								>
+									{TRIGGER_KIND_BADGE[kind]}
+									<span class="text-hint">×{triggers.length}</span>
+								</span>
+							{/each}
+							<Button
+								variant="subtle"
+								unifiedSize="sm"
+								wrapperClasses="ml-auto"
+								onclick={() => triggerDrawer?.openDrawer()}
+							>
+								View details
+							</Button>
 						{/if}
 					</div>
 				{/if}
@@ -1506,7 +1832,13 @@
 							{#each r.usages as u (u.role + ':' + u.label + ':' + (u.role === 'hardcoded' ? u.path : ''))}
 								<div class="flex flex-col gap-1 text-xs">
 									<div class="flex items-center gap-2">
-										<span class="text-hint">{u.kind}</span>
+										{#if u.kind === 'script'}
+											<Code2 size={14} class="shrink-0 text-hint" />
+										{:else if u.kind === 'flow'}
+											<BarsStaggered size={14} class="shrink-0 text-hint" />
+										{:else}
+											<LayoutDashboard size={14} class="shrink-0 text-hint" />
+										{/if}
 										<span class="break-all font-mono text-primary">{u.label}</span>
 										<span
 											class="ml-auto inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide {u.role ===
@@ -1547,6 +1879,101 @@
 	</DrawerContent>
 </Drawer>
 
+<Drawer bind:this={triggerDrawer} size="640px">
+	<DrawerContent title="Triggers" on:close={() => triggerDrawer?.closeDrawer()}>
+		<div class="flex flex-col gap-4">
+			<p class="text-xs text-secondary">
+				Triggers attached to the selected scripts and flows. Synced to the Hub as
+				<span class="font-semibold">disabled stubs</span>. Recipients review and enable each one
+				manually after importing. External hooks (Slack/Discord webhooks, message-queue
+				subscriptions, etc.) must be re-registered against the importing instance.
+			</p>
+			{#if relevantTriggers.length === 0}
+				<span class="text-xs text-hint">No triggers reference the selected items.</span>
+			{:else}
+				{#each triggersByKind as [kind, triggers] (kind)}
+					<div class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3">
+						<div class="flex items-center gap-2 border-b pb-2">
+							<span class="rounded border bg-surface px-1.5 py-0.5 font-mono text-xs text-primary">
+								{TRIGGER_KIND_BADGE[kind]}
+							</span>
+							<span class="text-[11px] text-hint">
+								{triggers.length} trigger{triggers.length > 1 ? 's' : ''}
+							</span>
+							{#if TRIGGER_KIND_NOTE[kind]}
+								<span class="ml-auto">
+									<Popover notClickable placement="top">
+										<Info size={12} class="text-blue-600 dark:text-blue-400" />
+										{#snippet text()}
+											<div
+												class="flex w-72 max-w-[90vw] flex-col gap-1 text-left text-[11px] normal-case"
+											>
+												<span>{TRIGGER_KIND_NOTE[kind]}</span>
+											</div>
+										{/snippet}
+									</Popover>
+								</span>
+							{/if}
+						</div>
+						<div class="flex flex-col gap-3">
+							{#each triggers as t (t.path)}
+								{@const runnableSummary = runnableSummaryByPath.get(
+									`${t.is_flow ? 'flow' : 'script'}:${t.script_path}`
+								)}
+								{@const details = triggerDetails(t)}
+								{@const cfg = t.config as any}
+								{@const previewKey = t.kind === 'schedule' ? `${cfg.schedule}|${cfg.timezone}` : ''}
+								{@const preview = t.kind === 'schedule' ? schedulePreviews[previewKey] : undefined}
+								<div class="flex flex-col gap-1 text-xs">
+									<div class="flex items-center gap-2">
+										{#if t.is_flow}
+											<BarsStaggered size={14} class="shrink-0 text-hint" />
+										{:else}
+											<Code2 size={14} class="shrink-0 text-hint" />
+										{/if}
+										<span class="break-all font-mono text-primary">
+											{runnableSummary || t.script_path}
+										</span>
+										<span
+											class="ml-auto inline-flex shrink-0 items-center gap-1 rounded bg-surface px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-secondary"
+										>
+											{t.is_flow ? 'flow' : 'script'}
+										</span>
+									</div>
+									{#if details.length > 0}
+										<dl class="ml-5 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[11px]">
+											{#each details as d (d.label)}
+												<dt class="text-hint">{d.label}</dt>
+												<dd class="break-all font-mono text-tertiary">{d.value}</dd>
+											{/each}
+											{#if t.kind === 'schedule'}
+												<dt class="text-hint">Next runs</dt>
+												<dd class="text-tertiary">
+													{#if preview && preview.length > 0}
+														<div class="flex flex-col gap-0.5">
+															{#each preview as date (date)}
+																<span>{dateFmt.format(new Date(date))}</span>
+															{/each}
+														</div>
+													{:else if preview && preview.length === 0}
+														<span class="text-hint">No upcoming run</span>
+													{:else}
+														<span class="text-hint">Loading…</span>
+													{/if}
+												</dd>
+											{/if}
+										</dl>
+									{/if}
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/each}
+			{/if}
+		</div>
+	</DrawerContent>
+</Drawer>
+
 <Drawer bind:this={bundleDrawer} size="600px">
 	<DrawerContent title="Bundle to Hub" on:close={() => bundleDrawer?.closeDrawer()}>
 		<div class="flex flex-col gap-4">
@@ -1558,6 +1985,24 @@
 				<span class="font-semibold text-primary">Name</span>
 				<TextInput bind:value={bundleName} inputProps={{ placeholder: 'e.g. Acme CRM toolkit' }} />
 			</label>
+			<div class="flex flex-col gap-1 text-xs">
+				<span class="font-semibold text-primary">Project slug</span>
+				<span class="rounded border bg-surface-secondary px-2 py-1.5 font-mono text-secondary">
+					{effectiveSlug || sanitizeSlug(bundleName) || '—'}
+				</span>
+				<span class="text-[11px] text-hint">
+					{#if effectiveSlug}
+						Locked — items live under <span class="font-mono">f/{effectiveSlug}/</span>.
+					{:else if bundleName.trim() && !isValidSlug(sanitizeSlug(bundleName))}
+						<span class="text-red-600 dark:text-red-400">
+							The name yields an invalid slug. Use at least 3 letters/digits.
+						</span>
+					{:else}
+						Auto-generated from the name. Once project forked, items will live under
+						<span class="font-mono">f/{sanitizeSlug(bundleName) || '<slug>'}/</span>.
+					{/if}
+				</span>
+			</div>
 			<label class="flex flex-col gap-1 text-xs">
 				<span class="font-semibold text-primary">Summary</span>
 				<TextInput
@@ -1582,7 +2027,7 @@
 			<Button
 				variant="accent"
 				loading={deploying}
-				disabled={!bundleName.trim()}
+				disabled={!bundleName.trim() || (!effectiveSlug && !isValidSlug(sanitizeSlug(bundleName)))}
 				startIcon={{ icon: Cloud }}
 				onclick={confirmBundle}
 			>

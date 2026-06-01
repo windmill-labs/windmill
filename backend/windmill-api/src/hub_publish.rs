@@ -1,3 +1,4 @@
+use crate::db::ApiAuthed;
 use crate::HTTP_CLIENT;
 use axum::{
     extract::{Json, Path},
@@ -7,7 +8,7 @@ use axum::{
     Router,
 };
 use serde::{Deserialize, Serialize};
-use windmill_common::{error::Error, HUB_BASE_URL};
+use windmill_common::{error::Error, utils::require_admin, HUB_BASE_URL};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -36,6 +37,7 @@ struct PublishDraftBody {
 
 #[derive(Serialize)]
 struct HubWorkspaceBody {
+    source_id: String,
     slug: String,
     name: String,
     summary: String,
@@ -44,12 +46,15 @@ struct HubWorkspaceBody {
 }
 
 async fn publish_draft(
-    Path(_workspace): Path<String>,
+    authed: ApiAuthed,
+    Path(workspace): Path<String>,
     Json(body): Json<PublishDraftBody>,
 ) -> Result<impl IntoResponse, Error> {
+    require_admin(authed.is_admin, &authed.username)?;
     forward_to_hub(
         "/workspaces",
         &HubWorkspaceBody {
+            source_id: workspace,
             slug: body.slug,
             name: body.name,
             summary: body.summary,
@@ -77,9 +82,11 @@ struct PublishScriptBody {
 }
 
 async fn publish_script(
+    authed: ApiAuthed,
     Path(_workspace): Path<String>,
     Json(body): Json<PublishScriptBody>,
 ) -> Result<impl IntoResponse, Error> {
+    require_admin(authed.is_admin, &authed.username)?;
     forward_to_hub("/scripts/add", &body).await
 }
 
@@ -103,9 +110,11 @@ struct PublishFlowBody {
 }
 
 async fn publish_flow(
+    authed: ApiAuthed,
     Path(_workspace): Path<String>,
     Json(body): Json<PublishFlowBody>,
 ) -> Result<impl IntoResponse, Error> {
+    require_admin(authed.is_admin, &authed.username)?;
     forward_to_hub("/flows", &body).await
 }
 
@@ -120,9 +129,11 @@ struct PublishAppBody {
 }
 
 async fn publish_app(
+    authed: ApiAuthed,
     Path(_workspace): Path<String>,
     Json(body): Json<PublishAppBody>,
 ) -> Result<impl IntoResponse, Error> {
+    require_admin(authed.is_admin, &authed.username)?;
     forward_to_hub("/apps", &body).await
 }
 
@@ -139,9 +150,11 @@ struct PublishRawAppBody {
 }
 
 async fn publish_raw_app(
+    authed: ApiAuthed,
     Path(_workspace): Path<String>,
     Json(body): Json<PublishRawAppBody>,
 ) -> Result<impl IntoResponse, Error> {
+    require_admin(authed.is_admin, &authed.username)?;
     forward_to_hub("/raw_apps", &body).await
 }
 
@@ -153,16 +166,20 @@ struct RecordingBody {
 }
 
 async fn publish_script_recording(
+    authed: ApiAuthed,
     Path((_workspace, ask_id)): Path<(String, i64)>,
     Json(body): Json<RecordingBody>,
 ) -> Result<impl IntoResponse, Error> {
+    require_admin(authed.is_admin, &authed.username)?;
     forward_to_hub(&format!("/scripts/{}/recording", ask_id), &body).await
 }
 
 async fn publish_flow_recording(
+    authed: ApiAuthed,
     Path((_workspace, flow_id)): Path<(String, i64)>,
     Json(body): Json<RecordingBody>,
 ) -> Result<impl IntoResponse, Error> {
+    require_admin(authed.is_admin, &authed.username)?;
     forward_to_hub(&format!("/flows/{}/recording", flow_id), &body).await
 }
 
@@ -179,9 +196,11 @@ struct PublishResourceTypeBody {
 }
 
 async fn publish_resource_type(
+    authed: ApiAuthed,
     Path(_workspace): Path<String>,
     Json(body): Json<PublishResourceTypeBody>,
 ) -> Result<impl IntoResponse, Error> {
+    require_admin(authed.is_admin, &authed.username)?;
     forward_to_hub(
         &format!("/workspaces/{}/resource_types", body.workspace_slug),
         &body,
@@ -204,9 +223,11 @@ struct PublishResourcesBody {
 }
 
 async fn publish_resources(
+    authed: ApiAuthed,
     Path(_workspace): Path<String>,
     Json(body): Json<PublishResourcesBody>,
 ) -> Result<impl IntoResponse, Error> {
+    require_admin(authed.is_admin, &authed.username)?;
     forward_to_hub(
         &format!("/workspaces/{}/resources", body.workspace_slug),
         &body,

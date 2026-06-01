@@ -1,4 +1,4 @@
-// Pure logic for the "project = folder" Hub bundle (Stage 1).
+// Pure logic for the "project = folder" Hub bundle.
 //
 // A project is a single folder `f/<slug>/...`. Bundling it means:
 //  1. collect the transitive closure of what the folder references,
@@ -27,14 +27,12 @@ export type PathClass = 'internal' | 'hub' | 'external'
 /** A single `$res:PATH` / `res://PATH` token (path captured in group 1). */
 const RES_TOKEN_RE = /(?:\$res:|res:\/\/)([\w\-./]+)/g
 
-/** Classify a path relative to the project folder. */
 export function classifyPath(path: string, slug: string): PathClass {
 	if (path.startsWith(`f/${slug}/`) || path === `f/${slug}`) return 'internal'
 	if (path.startsWith('hub/')) return 'hub'
 	return 'external'
 }
 
-/** Resource references inside a script's code. */
 export function extractScriptRefs(content: string): Ref[] {
 	const out: Ref[] = []
 	const seen = new Set<string>()
@@ -94,7 +92,6 @@ export function extractFlowRefs(value: any): Ref[] {
 	return out
 }
 
-/** References inside an app value (resources only). */
 export function extractAppRefs(value: any): Ref[] {
 	return extractScriptRefs(JSON.stringify(value ?? {}))
 }
@@ -120,7 +117,7 @@ export function buildPathMap(externalPaths: Iterable<string>, slug: string): Map
 	return map
 }
 
-/** Rewrite `$res:` / `res://` tokens in code using the map (normalized to `$res:`). */
+// Both ref forms normalize to `$res:` on rewrite.
 export function rewriteContent(content: string, map: Map<string, string>): string {
 	return content.replace(RES_TOKEN_RE, (whole, path) => {
 		const next = map.get(path)
@@ -128,7 +125,6 @@ export function rewriteContent(content: string, map: Map<string, string>): strin
 	})
 }
 
-/** Deep-rewrite a flow value: inline code, static `$res:` inputs, and script paths. */
 export function rewriteFlowValue(value: any, map: Map<string, string>): any {
 	const cloned = JSON.parse(JSON.stringify(value ?? {}))
 	const visitModules = (modules: any[]) => {
@@ -160,16 +156,12 @@ export function rewriteFlowValue(value: any, map: Map<string, string>): any {
 	return cloned
 }
 
-/** Rewrite resource tokens inside an app value (round-trips via JSON). */
+// Round-trips through JSON since app values are opaque.
 export function rewriteAppValue(value: any, map: Map<string, string>): any {
 	if (value == null) return value
 	const json = JSON.stringify(value)
 	return JSON.parse(rewriteContent(json, map))
 }
-
-// ---------------------------------------------------------------------------
-// Closure orchestrator (Stage 2)
-// ---------------------------------------------------------------------------
 
 export type ItemKind = 'script' | 'flow' | 'app' | 'raw_app'
 
@@ -178,7 +170,6 @@ export interface ItemRef {
 	path: string
 }
 
-/** Everything needed to extract refs from, rewrite, and later push an item. */
 export interface FetchedItem {
 	kind: ItemKind
 	path: string
@@ -228,15 +219,8 @@ function refsForFetched(item: FetchedItem): Ref[] {
 	return []
 }
 
-/**
- * Build a self-contained project bundle from a set of seed items.
- *
- * Walks the transitive closure of references: scripts referenced by path are
- * pulled in as items (recursively), resources are pulled in as empty stubs.
- * `hub/...` references are external dependencies and left untouched. Every
- * collected path (items + resources) is relocated under `f/<slug>/...` and all
- * references are rewritten to the new paths.
- */
+// Walks the transitive closure: scripts referenced by path are pulled in
+// recursively, resources become empty stubs, hub refs stay external.
 export async function buildProjectBundle(
 	seed: ItemRef[],
 	slug: string,
