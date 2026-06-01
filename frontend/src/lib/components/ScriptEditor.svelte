@@ -28,6 +28,7 @@
 	import JobLoader from './JobLoader.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
 	import { createEventDispatcher, getContext, onDestroy, onMount, untrack } from 'svelte'
+	import { beforeNavigate } from '$app/navigation'
 	import { Button } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
 	import WindmillIcon from './icons/WindmillIcon.svelte'
@@ -1203,6 +1204,24 @@
 		}
 	})
 
+	// Preserve the chat across the /scripts/add → /scripts/edit/{path} promotion
+	// (and same-script reloads): ScriptEditor unmounts + remounts on those
+	// transitions, and without this its onDestroy would saveAndClear the
+	// SCRIPT-mode conversation the user is still actively having about this same
+	// script.
+	let preserveChatOnDestroy = $state(false)
+	beforeNavigate(({ to }) => {
+		const dest = to?.url.pathname ?? ''
+		if (!dest.startsWith('/scripts/edit/')) return
+		const destPath = dest.slice('/scripts/edit/'.length)
+		const currentPath = aiChatManager.scriptEditorOptions?.path
+		// !currentPath: on /scripts/add, dest is /scripts/edit/{path} (initial save).
+		// destPath === currentPath: same script (e.g. query change / reload).
+		if (!currentPath || destPath === currentPath) {
+			preserveChatOnDestroy = true
+		}
+	})
+
 	onMount(async () => {
 		await inferSchema(code, { applyInitialArgs: true })
 		// Retry once if the initial inference failed silently (e.g. transient WASM
@@ -1211,7 +1230,12 @@
 		if (!validCode && code && lang) {
 			await inferSchema(code, { applyInitialArgs: true })
 		}
-		aiChatManager.saveAndClear()
+		// The previous instance's onDestroy may have preserved the chat for
+		// intra-script-editor nav; in that case mode is still SCRIPT and the
+		// conversation is intact. Skip saveAndClear so we don't blow it away.
+		if (aiChatManager.mode !== AIMode.SCRIPT) {
+			aiChatManager.saveAndClear()
+		}
 		aiChatManager.changeMode(AIMode.SCRIPT)
 	})
 
@@ -1298,8 +1322,10 @@
 		aiChatManager.scriptEditorShowDiffMode = undefined
 		aiChatManager.scriptEditorGetLintErrors = undefined
 		aiChatManager.scriptEditorOptions = undefined
-		aiChatManager.saveAndClear()
-		aiChatManager.changeMode(AIMode.NAVIGATOR)
+		if (!preserveChatOnDestroy) {
+			aiChatManager.saveAndClear()
+			aiChatManager.changeMode(AIMode.NAVIGATOR)
+		}
 		// Clean up debug mode
 		if (debugMode) {
 			stopDebugging()
@@ -1357,9 +1383,7 @@
 	// width (Svelte wires a ResizeObserver for bind:clientWidth).
 	let splitContainerWidth = $state(0)
 	const TEST_PANE_MIN_PX = 400
-	const testPaneMinPercent = $derived(
-		paneMinPercent(splitContainerWidth, TEST_PANE_MIN_PX)
-	)
+	const testPaneMinPercent = $derived(paneMinPercent(splitContainerWidth, TEST_PANE_MIN_PX))
 
 	// Raw user-controlled test size (what the splitter wrote, or what the
 	// toggle set). The size we actually pass to <Pane> is clamped to the

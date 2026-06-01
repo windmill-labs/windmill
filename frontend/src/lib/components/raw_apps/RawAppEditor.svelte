@@ -21,7 +21,8 @@
 	import type { Modules } from './RawAppModules.svelte'
 	import { isRunnableByName, isRunnableByPath } from '../apps/inputType'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
-	import { onMount, untrack } from 'svelte'
+	import { onDestroy, onMount, untrack } from 'svelte'
+	import { beforeNavigate } from '$app/navigation'
 	import type {
 		AppDatatableMetadata,
 		LintResult,
@@ -618,8 +619,30 @@
 		)
 	}
 
+	// Preserve the chat across the /apps_raw/add → /apps_raw/edit/{path} promotion
+	// (and same-app reloads): RawAppEditor unmounts + remounts on those
+	// transitions, and without this the fresh onMount's saveAndClear would blow
+	// away the APP-mode conversation the user is still actively having about this
+	// same app.
+	let preserveChatOnDestroy = $state(false)
+	beforeNavigate(({ to }) => {
+		const dest = to?.url.pathname ?? ''
+		if (!dest.startsWith('/apps_raw/edit/')) return
+		const destPath = dest.slice('/apps_raw/edit/'.length)
+		// !path: on /apps_raw/add, dest is /apps_raw/edit/{path} (initial deploy).
+		// destPath === path: same app.
+		if (!path || destPath === path) {
+			preserveChatOnDestroy = true
+		}
+	})
+
 	onMount(() => {
-		aiChatManager.saveAndClear()
+		// The previous instance may have preserved the chat for intra-app-editor
+		// nav; in that case mode is still APP and the conversation is intact. Skip
+		// saveAndClear so we don't blow it away.
+		if (aiChatManager.mode !== AIMode.APP) {
+			aiChatManager.saveAndClear()
+		}
 		aiChatManager.changeMode(AIMode.APP)
 		rawAppLintStore.enable()
 		loadSharedUi()
@@ -642,6 +665,16 @@
 		return () => {
 			rawAppLintStore.disable()
 			historyManager.destroy()
+		}
+	})
+
+	onDestroy(() => {
+		// Cross-app / leave-editor navigation resets to NAVIGATOR; same-app /
+		// add→edit navigation keeps the chat (the fresh onMount detects mode is
+		// still APP and skips its clearing saveAndClear).
+		if (!preserveChatOnDestroy) {
+			aiChatManager.saveAndClear()
+			aiChatManager.changeMode(AIMode.NAVIGATOR)
 		}
 	})
 
@@ -1637,8 +1670,9 @@
 											title="Build failed"
 											class="relative before:absolute before:inset-0 before:-z-10 before:rounded-md before:bg-surface before:content-['']"
 										>
-											<pre
-												class="overflow-auto whitespace-pre-wrap text-xs max-h-60">{buildError}</pre>
+											<pre class="overflow-auto whitespace-pre-wrap text-xs max-h-60"
+												>{buildError}</pre
+											>
 										</Alert>
 									</div>
 								{/if}
