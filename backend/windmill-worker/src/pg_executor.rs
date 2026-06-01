@@ -325,6 +325,24 @@ fn otyp_to_pg_type(otyp: &str) -> error::Result<Type> {
     Ok(if is_array { array } else { scalar })
 }
 
+/// PostgreSQL forbids `CREATE/DROP INDEX CONCURRENTLY` (and `REINDEX
+/// CONCURRENTLY`) inside a transaction block. The normal execution path uses
+/// the extended query protocol (Parse/Bind/Execute), which wraps every
+/// statement in an implicit transaction — so these statements must instead be
+/// dispatched through the simple query protocol (`batch_execute`), which runs
+/// them in autocommit mode. Detection is conservative: the statement must both
+/// mention `concurrently` and begin with a relevant DDL keyword.
+fn statement_requires_no_transaction(stmt: &str) -> bool {
+    let s = stmt.trim_start().to_lowercase();
+    if !s.contains("concurrently") {
+        return false;
+    }
+    s.starts_with("create index")
+        || s.starts_with("create unique index")
+        || s.starts_with("drop index")
+        || s.starts_with("reindex")
+}
+
 fn do_postgresql_inner<'a>(
     mut query: String,
     param_idx_to_arg_and_value: &HashMap<i32, (&Arg, Option<&Value>)>,
@@ -789,6 +807,15 @@ pub async fn do_postgresql(
                     Err(e) => PrepareQueryResult { columns: None, error: Some(e.to_string()) },
                 };
                 results.push(vec![to_raw_value(&prepared)]);
+                continue;
+            }
+
+            if statement_requires_no_transaction(query) {
+                // Simple query protocol → autocommit, no implicit transaction,
+                // so CONCURRENTLY index builds are allowed. These statements
+                // return no rows.
+                client.batch_execute(query).await.map_err(to_anyhow)?;
+                results.push(vec![]);
                 continue;
             }
 
