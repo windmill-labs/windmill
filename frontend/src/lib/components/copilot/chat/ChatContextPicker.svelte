@@ -63,12 +63,7 @@ at message-prep time by `AIChatManager` — see PR #9216.
 	// at pick time) or a runtime ContextElement (added directly).
 	type ChatLeafData = WorkspaceItem | ContextElement
 
-	// svelte-check sees `DrillPicker` as a non-generic `Comp` here (fine in
-	// the workspace adapter — different import path, same component) and
-	// rejects any `DrillPicker<X>` annotation. `any` is the pragmatic
-	// escape hatch; the runtime is unaffected and `handleKeydown`'s shape
-	// is checked at the call site below via `inner?.handleKeydown(e)`.
-	let inner: any = $state(undefined)
+	let inner = $state<DrillPicker | undefined>(undefined)
 
 	export function handleKeydown(e: KeyboardEvent) {
 		inner?.handleKeydown(e)
