@@ -1,12 +1,10 @@
-#[cfg(feature = "bedrock")]
-use crate::ai::providers::bedrock::check_env_credentials;
 use crate::ai::tools::{execute_tool_calls, ToolAbortHandles, ToolExecutionContext};
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
     filter_schema_by_input_transforms, find_unique_tool_name, get_flow_context,
     get_flow_job_runnable_and_raw_flow, get_step_name_from_flow, load_mcp_tools,
-    parse_raw_script_schema, should_use_structured_output_tool,
-    update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
+    parse_raw_script_schema, update_flow_status_module_with_actions,
+    update_flow_status_module_with_actions_success,
 };
 use crate::memory_oss::{read_from_memory, write_to_memory};
 use crate::worker_flow::{get_previous_job_result, get_transform_context};
@@ -15,12 +13,21 @@ use regex::Regex;
 use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
+#[cfg(feature = "bedrock")]
+use windmill_ai::ai_bedrock::check_env_credentials;
 #[cfg(feature = "mcp")]
 use windmill_mcp::McpClient;
 
 #[cfg(not(feature = "mcp"))]
 use crate::ai::tools::McpClientStub as McpClient;
-use windmill_ai::ai_providers::AIProvider;
+use windmill_ai::{
+    ai_providers::AIProvider,
+    image_handler::upload_image_to_s3,
+    providers::create_query_builder,
+    query_builder::{BuildRequestArgs, ParsedResponse},
+    types::*,
+    utils::{should_use_structured_output_tool, AI_HTTP_HEADERS},
+};
 use windmill_common::{
     cache,
     client::AuthedClient,
@@ -38,46 +45,13 @@ use windmill_common::{
 use windmill_queue::{cancel_single_job, CanceledBy, MiniPulledJob};
 
 use crate::{
-    ai::{
-        image_handler::upload_image_to_s3,
-        query_builder::{
-            create_query_builder, BuildRequestArgs, ParsedResponse, StreamEventProcessor,
-        },
-        types::*,
-    },
+    ai::stream_event_processor::StreamEventProcessor,
     common::{build_args_map, resolve_job_timeout, OccupancyMetrics, StreamNotifier},
     handle_child::{run_future_with_polling_update_job_poller_graceful, GracefulPollOutcome},
 };
 
 lazy_static::lazy_static! {
     static ref TOOL_NAME_REGEX: Regex = Regex::new(r"^[a-zA-Z0-9_]+$").unwrap();
-
-    /// Parse AI_HTTP_HEADERS environment variable into a vector of (header_name, header_value) tuples
-    /// Format: "header1: value1, header2: value2"
-    static ref AI_HTTP_HEADERS: Vec<(String, String)> = {
-        std::env::var("AI_HTTP_HEADERS")
-            .ok()
-            .map(|headers_str| {
-                headers_str
-                    .split(',')
-                    .filter_map(|header| {
-                        let parts: Vec<&str> = header.splitn(2, ':').collect();
-                        if parts.len() == 2 {
-                            let name = parts[0].trim().to_string();
-                            let value = parts[1].trim().to_string();
-                            if !name.is_empty() && !value.is_empty() {
-                                Some((name, value))
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
 
     static ref AI_AGENT_TOOL_SCHEMA: Box<RawValue> = to_raw_value(&serde_json::json!({
         "type": "object",
@@ -612,16 +586,12 @@ pub async fn run_agent(
     tool_abort_handles: ToolAbortHandles,
 ) -> error::Result<Box<RawValue>> {
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
-    // Skip get_base_url for Bedrock - it uses SDK directly, not HTTP
-    let base_url = if args.provider.kind == AIProvider::AWSBedrock {
-        String::new()
-    } else {
-        args.provider.get_base_url(db).await?
-    };
-    let api_key = args.provider.get_api_key().unwrap_or("");
+    let credentials = args.provider.to_provider_credentials(db).await?;
+    let base_url = &credentials.base_url;
+    let api_key = credentials.api_key.as_deref().unwrap_or("");
 
     // Create the query builder for the provider
-    let query_builder = create_query_builder(&args.provider);
+    let query_builder = create_query_builder(&credentials);
 
     // Initialize messages
     let mut messages =
@@ -791,7 +761,7 @@ pub async fn run_agent(
 
     let mut actions = vec![];
     let mut content = None;
-    let mut final_usage: Option<crate::ai::types::TokenUsage> = None;
+    let mut final_usage: Option<TokenUsage> = None;
 
     // Check if this provider supports tools with the current output type
     let supports_tools = query_builder.supports_tools_with_output_type(output_type);
@@ -885,15 +855,15 @@ pub async fn run_agent(
         }
 
         // Handle AWS Bedrock provider specially using the official SDK
-        let parsed = if args.provider.kind == AIProvider::AWSBedrock {
+        let parsed = if credentials.provider == AIProvider::AWSBedrock {
             #[cfg(feature = "bedrock")]
             {
-                let region = args
-                    .provider
-                    .get_region()
+                let region = credentials
+                    .region
+                    .as_deref()
                     .unwrap_or(windmill_ai::ai_providers::USE_ENV_REGION);
                 // Use Bedrock SDK via dedicated query builder
-                crate::ai::providers::bedrock::BedrockQueryBuilder::default()
+                windmill_ai::providers::bedrock::BedrockQueryBuilder::default()
                     .execute_request(
                         &messages,
                         tool_defs.as_deref(),
@@ -906,9 +876,9 @@ pub async fn run_agent(
                         client,
                         &job.workspace_id,
                         structured_output_tool_name.as_deref(),
-                        args.provider.get_aws_access_key_id(),
-                        args.provider.get_aws_secret_access_key(),
-                        args.provider.get_aws_session_token(),
+                        credentials.aws_access_key_id.as_deref(),
+                        credentials.aws_secret_access_key.as_deref(),
+                        credentials.aws_session_token.as_deref(),
                     )
                     .await?
             }
@@ -939,14 +909,14 @@ pub async fn run_agent(
                 .await?;
 
             let endpoint =
-                query_builder.get_endpoint(&base_url, args.provider.get_model(), output_type);
-            let auth_headers = query_builder.get_auth_headers(api_key, &base_url, output_type);
+                query_builder.get_endpoint(base_url, args.provider.get_model(), output_type);
+            let auth_headers = query_builder.get_auth_headers(api_key, base_url, output_type);
 
             let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
                 .await
                 .0;
 
-            let resource_headers = args.provider.get_headers();
+            let resource_headers = &credentials.custom_headers;
 
             // Helper to build HTTP request with headers
             let build_http_request = |body: String| {
@@ -1231,7 +1201,8 @@ pub async fn run_agent(
             }
             ParsedResponse::Image { base64_data } => {
                 // For image output, upload to S3 and track in conversation
-                let s3_object = upload_image_to_s3(&base64_data, job, client).await?;
+                let s3_object =
+                    upload_image_to_s3(&base64_data, &job.workspace_id, &job.id, client).await?;
 
                 let content = to_raw_value(&s3_object);
 

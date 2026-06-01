@@ -78,7 +78,8 @@ use windmill_common::{
     utils::{not_found_if_none, report_critical_error, StripPath, WarnAfterExt},
     worker::{
         to_raw_value, CLOUD_HOSTED, DISABLE_FLOW_SCRIPT, NO_LOGS, PREVIEW_TAGS_OVERRIDE,
-        WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
+        WORKER_PULL_QUERIES, WORKER_PULL_QUERIES_FAIRNESS, WORKER_SUSPENDED_PULL_QUERY,
+        WORKSPACE_FAIRNESS_OVERLOADED,
     },
     DB, METRICS_ENABLED,
 };
@@ -630,12 +631,45 @@ pub struct WrappedError {
 pub trait ValidableJson {
     fn is_valid_json(&self) -> bool;
     fn wm_labels(&self) -> Option<Vec<String>>;
+    fn wm_failure(&self) -> Option<String>;
+    fn result_metadata(&self) -> ResultMetadata;
     fn size(&self) -> usize;
 }
 
-#[derive(serde::Deserialize)]
-struct ResultLabels {
-    wm_labels: Vec<String>,
+/// The Windmill-specific markers we look for inside a job's result.
+/// `wm_failure` retags a successful run as a failure with the
+/// given message; `wm_labels` adds runtime labels to the job row.
+#[derive(serde::Deserialize, Default, Debug, Clone)]
+pub struct ResultMetadata {
+    pub wm_labels: Option<Vec<String>>,
+    pub wm_failure: Option<String>,
+}
+
+/// Sentinel `error.name` we inject into a result when retagging a successful
+/// run as a failure due to `wm_failure`. Used downstream to detect that
+/// the result is already in the standard `{ error: { name, message }, ... }`
+/// shape and must not be wrapped a second time by `WrappedError`.
+pub const MANUAL_FAILURE_ERROR_NAME: &str = "ManualFailure";
+
+/// Returns true when the result already carries our injected
+/// `error: { name: "ManualFailure", ... }` marker — i.e. it was shaped by
+/// `process_jc`'s wm_failure path. A real runtime failure whose raw
+/// result happens to contain a `wm_failure` field but no such error
+/// key returns false (and so still goes through the standard wrap path).
+pub fn is_pre_shaped_wm_failure_result(result: &str) -> bool {
+    #[derive(serde::Deserialize)]
+    struct Marker {
+        error: Option<NameOnly>,
+    }
+    #[derive(serde::Deserialize)]
+    struct NameOnly {
+        name: String,
+    }
+    serde_json::from_str::<Marker>(result)
+        .ok()
+        .and_then(|m| m.error)
+        .map(|e| e.name == MANUAL_FAILURE_ERROR_NAME)
+        .unwrap_or(false)
 }
 
 impl ValidableJson for WrappedError {
@@ -645,6 +679,14 @@ impl ValidableJson for WrappedError {
 
     fn wm_labels(&self) -> Option<Vec<String>> {
         None
+    }
+
+    fn wm_failure(&self) -> Option<String> {
+        None
+    }
+
+    fn result_metadata(&self) -> ResultMetadata {
+        ResultMetadata::default()
     }
 
     fn size(&self) -> usize {
@@ -658,9 +700,15 @@ impl ValidableJson for Box<RawValue> {
     }
 
     fn wm_labels(&self) -> Option<Vec<String>> {
-        serde_json::from_str::<ResultLabels>(self.get())
-            .ok()
-            .map(|r| r.wm_labels)
+        self.result_metadata().wm_labels
+    }
+
+    fn wm_failure(&self) -> Option<String> {
+        self.result_metadata().wm_failure
+    }
+
+    fn result_metadata(&self) -> ResultMetadata {
+        serde_json::from_str::<ResultMetadata>(self.get()).unwrap_or_default()
     }
 
     fn size(&self) -> usize {
@@ -677,6 +725,14 @@ impl<T: ValidableJson> ValidableJson for Arc<T> {
         T::wm_labels(&self)
     }
 
+    fn wm_failure(&self) -> Option<String> {
+        T::wm_failure(&self)
+    }
+
+    fn result_metadata(&self) -> ResultMetadata {
+        T::result_metadata(&self)
+    }
+
     fn size(&self) -> usize {
         T::size(&self)
     }
@@ -688,9 +744,15 @@ impl ValidableJson for serde_json::Value {
     }
 
     fn wm_labels(&self) -> Option<Vec<String>> {
-        serde_json::from_value::<ResultLabels>(self.clone())
-            .ok()
-            .map(|r| r.wm_labels)
+        self.result_metadata().wm_labels
+    }
+
+    fn wm_failure(&self) -> Option<String> {
+        self.result_metadata().wm_failure
+    }
+
+    fn result_metadata(&self) -> ResultMetadata {
+        serde_json::from_value::<ResultMetadata>(self.clone()).unwrap_or_default()
     }
 
     fn size(&self) -> usize {
@@ -705,6 +767,14 @@ impl<T: ValidableJson> ValidableJson for Json<T> {
 
     fn wm_labels(&self) -> Option<Vec<String>> {
         self.0.wm_labels()
+    }
+
+    fn wm_failure(&self) -> Option<String> {
+        self.0.wm_failure()
+    }
+
+    fn result_metadata(&self) -> ResultMetadata {
+        self.0.result_metadata()
     }
 
     fn size(&self) -> usize {
@@ -742,16 +812,7 @@ where
     }
 }
 
-pub async fn add_completed_job_error(
-    db: &Pool<Postgres>,
-    completed_job: &MiniCompletedJob,
-    mem_peak: i32,
-    canceled_by: Option<CanceledBy>,
-    e: serde_json::Value,
-    _worker_name: &str,
-    flow_is_done: bool,
-    duration: Option<i64>,
-) -> Result<WrappedError, Error> {
+async fn record_failure_metrics(completed_job: &MiniCompletedJob, _worker_name: &str) {
     #[cfg(feature = "prometheus")]
     register_metric(
         &WORKER_EXECUTION_FAILED,
@@ -772,6 +833,64 @@ pub async fn add_completed_job_error(
     .await;
 
     otel_incr_worker_execution_failed(&completed_job.tag);
+}
+
+/// Tag a completed job as a failure while storing the result as-is, without
+/// the standard `WrappedError` `{ error: ... }` wrap. Use for jobs whose result
+/// is already shaped (e.g. when `wm_failure` injected a top-level
+/// `error` key, while preserving sibling fields like `windmill_status_code`).
+///
+/// This is a worker-internal helper called by trusted result-processing code
+/// after the worker has authenticated and pulled the job. Callers MUST verify
+/// upstream auth (i.e. the job was legitimately pulled by this worker) — this
+/// function performs no authorization check itself, mirroring the contract of
+/// `add_completed_job_error`.
+pub async fn add_completed_job_pre_shaped_failure<T: Serialize + Send + Sync + ValidableJson>(
+    db: &Pool<Postgres>,
+    completed_job: &MiniCompletedJob,
+    mem_peak: i32,
+    canceled_by: Option<CanceledBy>,
+    result: Json<&T>,
+    worker_name: &str,
+    flow_is_done: bool,
+    duration: Option<i64>,
+) -> Result<(), Error> {
+    record_failure_metrics(completed_job, worker_name).await;
+
+    tracing::error!(
+        "job {} in {} did not succeed (wm_failure)",
+        completed_job.id,
+        completed_job.workspace_id,
+    );
+    let _ = add_completed_job(
+        db,
+        completed_job,
+        false,
+        false,
+        result,
+        None,
+        mem_peak,
+        canceled_by,
+        flow_is_done,
+        duration,
+        false,
+    )
+    .warn_after_seconds(10)
+    .await?;
+    Ok(())
+}
+
+pub async fn add_completed_job_error(
+    db: &Pool<Postgres>,
+    completed_job: &MiniCompletedJob,
+    mem_peak: i32,
+    canceled_by: Option<CanceledBy>,
+    e: serde_json::Value,
+    worker_name: &str,
+    flow_is_done: bool,
+    duration: Option<i64>,
+) -> Result<WrappedError, Error> {
+    record_failure_metrics(completed_job, worker_name).await;
 
     let result = WrappedError { error: e };
     tracing::error!(
@@ -3262,12 +3381,15 @@ pub async fn pull(
     let mut pull_loop_count = 0;
     loop {
         pull_loop_count += 1;
-        if pull_loop_count % 10 == 0 {
-            tracing::warn!("Pull job loop count: {}", pull_loop_count);
-            tokio::task::yield_now().await;
-        }
-        if pull_loop_count > 1000 {
-            tracing::error!("Pull job loop count exceeded 1000, breaking");
+        // Cap to bound DB work per pull cycle. Each iteration on an over-limit job runs
+        // the full apply_concurrency_limit query stack (~7 queries), so without a tight
+        // cap a single pull() can issue thousands of queries when the queue is full of
+        // jobs sharing one over-limit concurrency key. Capping at 10 lets workers skip
+        // a few stale jobs in healthy conditions while preventing storm amplification.
+        if pull_loop_count > 10 {
+            tracing::warn!(
+                "Pull job loop count exceeded 10, backing off (likely concurrency re-queue storm)"
+            );
             return Ok(PulledJobResult {
                 job: None,
                 suspended: false,
@@ -3511,28 +3633,74 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
                 return Ok((None, false));
             }
 
-            for query in queries.iter() {
-                // tracing::info!("Pulling job with query: {}", query);
-                // let instant = std::time::Instant::now();
+            // Workspace fairness (Enterprise): if the fairness refresh has flagged
+            // any overloaded workspaces, this pull is randomly routed between two
+            // pull queries:
+            //   * with probability `(cap + ε)/100`, the standard query (capped
+            //     workspaces are admissible — they win via FIFO when noisy)
+            //   * with probability `1 - (cap + ε)/100`, the fairness query (the
+            //     overloaded workspace_ids are filtered out)
+            // Over many pulls this converges to a steady share around the cap,
+            // without the on/off oscillation a binary cap/uncap dispatch produces.
+            // If the chosen query returns nothing, we always fall back to the
+            // standard query so workers don't idle when only capped jobs remain.
+            // Lazy refresh fires from the same place: runs at most once per
+            // process per refresh interval, never blocks this pull.
+            crate::workspace_fairness::maybe_refresh_overloaded(db);
+            let overloaded = WORKSPACE_FAIRNESS_OVERLOADED.load_full();
+            let fairness_active = !overloaded.is_empty();
 
-                #[cfg(feature = "benchmark")]
-                add_time!(bench, "pre pull");
+            if fairness_active && !crate::workspace_fairness::should_admit_capped() {
+                let fairness_queries = WORKER_PULL_QUERIES_FAIRNESS.load();
+                let overloaded_slice: &[String] = overloaded.as_slice();
+                for query in fairness_queries.iter() {
+                    #[cfg(feature = "benchmark")]
+                    add_time!(bench, "pre pull (fairness)");
 
-                let r = sqlx::query_as::<_, PulledJob>(query)
-                    .bind(worker_name)
-                    .fetch_optional(db)
-                    .await?;
+                    let r = sqlx::query_as::<_, PulledJob>(query)
+                        .bind(worker_name)
+                        .bind(overloaded_slice)
+                        .fetch_optional(db)
+                        .await?;
 
-                #[cfg(feature = "benchmark")]
-                add_time!(bench, "post pull");
+                    #[cfg(feature = "benchmark")]
+                    add_time!(bench, "post pull (fairness)");
 
-                if let Some(pulled_job) = r {
-                    // tracing::info!("pulled job: {:?}", instant.elapsed().as_micros());
-
-                    highest_priority_job = Some(pulled_job);
-                    break;
+                    if let Some(pulled_job) = r {
+                        highest_priority_job = Some(pulled_job);
+                        break;
+                    }
                 }
-                // else continue pulling for lower priority tags
+            }
+
+            if highest_priority_job.is_none() {
+                // Standard pull path. Also acts as the fallback when fairness
+                // filtered out every candidate: prefer running a capped
+                // workspace's job over leaving a worker idle. (The cap is
+                // re-asserted statistically on subsequent pulls.)
+                for query in queries.iter() {
+                    // tracing::info!("Pulling job with query: {}", query);
+                    // let instant = std::time::Instant::now();
+
+                    #[cfg(feature = "benchmark")]
+                    add_time!(bench, "pre pull");
+
+                    let r = sqlx::query_as::<_, PulledJob>(query)
+                        .bind(worker_name)
+                        .fetch_optional(db)
+                        .await?;
+
+                    #[cfg(feature = "benchmark")]
+                    add_time!(bench, "post pull");
+
+                    if let Some(pulled_job) = r {
+                        // tracing::info!("pulled job: {:?}", instant.elapsed().as_micros());
+
+                        highest_priority_job = Some(pulled_job);
+                        break;
+                    }
+                    // else continue pulling for lower priority tags
+                }
             }
 
             // #[cfg(feature = "benchmark")]
@@ -5219,6 +5387,7 @@ async fn push_inner<'c, 'd>(
                 cache_ttl: cache_ttl.map(|val| val as u32),
                 cache_ignore_s3_path: cache_ignore_s3_path,
                 same_worker: false,
+                preserve_step_tags: false,
                 early_return: None,
                 skip_expr: None,
                 preprocessor_module: None,

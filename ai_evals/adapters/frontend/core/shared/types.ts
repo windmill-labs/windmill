@@ -1,6 +1,5 @@
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
 import type { AIProvider } from "$lib/gen/types.gen";
-import type { FrontendEvalTransport } from "../../../../core/frontendTransport";
 import type { WindmillBackendSettings } from "../../../../core/windmillBackendSettings";
 
 export interface TokenUsage {
@@ -15,14 +14,13 @@ export interface ToolCallDetail {
 }
 
 export interface EvalRunnerOptions {
+  backend: WindmillBackendSettings;
   maxIterations?: number;
   model?: string;
   workspace?: string;
   provider?: AIProvider;
-  transport?: FrontendEvalTransport;
-  backend?: WindmillBackendSettings;
-  proxyCaseId?: string;
-  proxyAttempt?: number;
+  caseId?: string;
+  attempt?: number;
 }
 
 export interface RawEvalResult<TOutput> {

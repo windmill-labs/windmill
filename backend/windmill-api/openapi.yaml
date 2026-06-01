@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.694.0
+  version: 1.713.1
   title: Windmill API
 
   contact:
@@ -1680,6 +1680,53 @@ paths:
                   - orphans_deleted
                   - errors
 
+  /settings/audit_logs_s3_status:
+    get:
+      summary: get status of the audit-log object-store export cursor
+      operationId: getAuditLogsS3Status
+      tags:
+        - setting
+      responses:
+        "200":
+          description: current export status (null if the feature was never enabled)
+          content:
+            application/json:
+              schema:
+                nullable: true
+                type: object
+                properties:
+                  last_xmin:
+                    type: integer
+                    format: int64
+                  last_ts:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  bootstrapping:
+                    type: boolean
+                  last_exported_audit_ts:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  last_run_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  last_run_exported:
+                    type: integer
+                    format: int64
+                  updated_at:
+                    type: string
+                    format: date-time
+                  owner:
+                    type: string
+                    nullable: true
+                required:
+                  - last_xmin
+                  - bootstrapping
+                  - last_run_exported
+                  - updated_at
+
   /settings/send_stats:
     post:
       summary: send stats
@@ -1778,6 +1825,63 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /settings/offline_license_status:
+    get:
+      summary: get cap-usage status for the currently-loaded offline license
+      description: |
+        Returns the live cap status (seats used vs cap, current CU vs cap) for
+        the offline license key currently in use. Returns `null` if no offline
+        license is loaded. Super-admin only.
+      operationId: getOfflineLicenseStatus
+      tags:
+        - setting
+      responses:
+        "200":
+          description: cap status (or null when no offline license)
+          content:
+            application/json:
+              schema:
+                type: object
+                nullable: true
+                properties:
+                  seats_used:
+                    type: number
+                    description: Author-equivalent seats consumed (authors + 0.5 × operators)
+                  seats_cap:
+                    type: integer
+                  author_count:
+                    type: integer
+                  operator_count:
+                    type: integer
+                  current_cu:
+                    type: number
+                    description: Sum of CU rate across workers that pinged in the last 2 minutes.
+                  cu_cap:
+                    type: number
+                  cu_over_cap:
+                    type: boolean
+
+  /settings/instance_hash:
+    get:
+      summary: per-instance binding hash for offline license issuance
+      description: |
+        Returns the hash a superadmin shares with Windmill support when
+        requesting an offline license. Super-admin only.
+      operationId: getInstanceHash
+      tags:
+        - setting
+      responses:
+        '200':
+          description: instance hash
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  instance_hash:
+                    type: string
+                    nullable: true
 
   /settings/customer_portal:
     post:
@@ -2470,6 +2574,104 @@ paths:
                   - app_slug
                   - client_id
 
+  /github_app/ghes/discover:
+    get:
+      summary: Discover GHES App installations
+      description: |
+        Lists every installation the configured self-managed GitHub App can see,
+        annotated with the workspaces in this Windmill instance the
+        installation is currently assigned to. Super-admin only.
+      operationId: discoverGhesInstallations
+      tags:
+        - Git Sync
+      responses:
+        "200":
+          description: Discovered installations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - installation_id
+                    - account_id
+                    - assigned_workspaces
+                  properties:
+                    installation_id:
+                      type: integer
+                      format: int64
+                    account_id:
+                      type: string
+                      description: GitHub login of the installation's account (org or user)
+                    assigned_workspaces:
+                      type: array
+                      items:
+                        type: object
+                        required:
+                          - workspace_id
+                          - provisioned_by_admin
+                        properties:
+                          workspace_id:
+                            type: string
+                          provisioned_by_admin:
+                            type: boolean
+
+  /github_app/ghes/assign:
+    post:
+      summary: Assign GHES installation to a workspace
+      description: |
+        Assigns a discovered GHES App installation to a workspace. The resulting
+        installation is marked as admin-provisioned, so workspace admins cannot
+        remove it. Super-admin only.
+      operationId: assignGhesInstallation
+      tags:
+        - Git Sync
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - workspace_id
+                - installation_id
+              properties:
+                workspace_id:
+                  type: string
+                installation_id:
+                  type: integer
+                  format: int64
+      responses:
+        "200":
+          description: Installation assigned
+
+  /github_app/ghes/assign/{workspace_id}/{installation_id}:
+    delete:
+      summary: Unassign GHES installation from a workspace
+      description: |
+        Removes an installation (admin-provisioned or otherwise) from a
+        workspace. Super-admin only. Does not affect the installation on the
+        GitHub side.
+      operationId: unassignGhesInstallation
+      tags:
+        - Git Sync
+      parameters:
+        - name: workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: installation_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: Installation unassigned
+
   /users/accept_invite:
     post:
       summary: accept invite to workspace
@@ -2614,6 +2816,15 @@ paths:
               properties:
                 username:
                   type: string
+                is_admin:
+                  type: boolean
+                  description: Grant the service account workspace admin. Defaults to false. Cannot be combined with operator=true.
+                operator:
+                  type: boolean
+                  description: Make the service account an operator. Defaults to true for backward compatibility. Set to false to count as a developer (1 seat) instead of 0.5 seat.
+                add_to_deployers:
+                  type: boolean
+                  description: Add the service account to the workspace `wm_deployers` group on creation. Recommended when the account will be used as a CLI sync / CI deploy identity so it can deploy on behalf of other users.
               required:
                 - username
       responses:
@@ -5755,6 +5966,63 @@ paths:
                     type: integer
                 required:
                   - pruned
+
+  /w/{workspace}/workspaces/list_ws_specific:
+    get:
+      summary: list all workspace-specific items
+      operationId: listWsSpecific
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of workspace-specific items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    item_kind:
+                      type: string
+                    path:
+                      type: string
+                  required:
+                    - item_kind
+                    - path
+
+  /w/{workspace}/workspaces/list_ws_specific_versions:
+    get:
+      summary: list workspace ids that have a version of the given item
+      operationId: listWsSpecificVersions
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          in: query
+          required: true
+          schema:
+            type: string
+            enum:
+              - resource
+              - variable
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: list of workspace ids that have a version of the item
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
 
   /w/{workspace}/workspaces/public_app_rate_limit:
     post:
@@ -9427,6 +9695,10 @@ paths:
                     properties:
                       draft:
                         $ref: "#/components/schemas/Flow"
+                      draft_created_at:
+                        type: string
+                        format: date-time
+                        description: Timestamp at which the most recent DB draft was created. Used by the frontend's UserDraft staleness check.
 
   /w/{workspace}/flows/exists/{path}:
     get:
@@ -9479,6 +9751,9 @@ paths:
                       type: boolean
                     deployment_message:
                       type: string
+                    skip_draft_deletion:
+                      type: boolean
+                      description: "When true (set by the CLI / git sync), deploying this flow does not delete an existing user draft at the same path."
       responses:
         "201":
           description: flow created
@@ -9520,6 +9795,9 @@ paths:
                   properties:
                     deployment_message:
                       type: string
+                    skip_draft_deletion:
+                      type: boolean
+                      description: "When true (set by the CLI / git sync), deploying this flow does not delete an existing user draft at the same path."
 
       responses:
         "200":
@@ -9675,6 +9953,13 @@ paths:
         - path_autocomplete
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: force
+          description: |
+            bypass the server-side cache and re-query the DB, refreshing the
+            cache. Used right after a deploy so the new path appears immediately.
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: deduplicated path list, sorted lexicographically
@@ -10011,6 +10296,9 @@ paths:
                   type: array
                   items:
                     type: string
+                skip_draft_deletion:
+                  type: boolean
+                  description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
               required:
                 - path
                 - value
@@ -10063,6 +10351,9 @@ paths:
                       type: array
                       items:
                         type: string
+                    skip_draft_deletion:
+                      type: boolean
+                      description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
                   required:
                     - path
                     - value
@@ -10381,6 +10672,9 @@ paths:
                   type: array
                   items:
                     type: string
+                skip_draft_deletion:
+                  type: boolean
+                  description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
       responses:
         "200":
           description: app updated
@@ -10427,6 +10721,9 @@ paths:
                       type: array
                       items:
                         type: string
+                    skip_draft_deletion:
+                      type: boolean
+                      description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
                 js:
                   type: string
                 css:
@@ -10551,6 +10848,12 @@ paths:
                 run_query_params:
                   type: object
                   description: Runnable query parameters
+                temp_script_refs:
+                  type: object
+                  nullable: true
+                  description: "Map of relative-import script path -> temp storage hash. Only honored for inline-script (raw_code) execution so app dev resolves those imports from not-yet-deployed local content."
+                  additionalProperties:
+                    type: string
               required:
                 - args
                 - component
@@ -11940,6 +12243,11 @@ paths:
             type: boolean
         - name: is_not_schedule
           description: is not a scheduled job
+          in: query
+          schema:
+            type: boolean
+        - name: excludes_entrypoint_override
+          description: exclude jobs that were started with a `_ENTRYPOINT_OVERRIDE` arg (e.g. dynamic-select helper runs and preprocessor previews)
           in: query
           schema:
             type: boolean
@@ -17401,6 +17709,38 @@ paths:
                 additionalProperties:
                   type: integer
 
+  /workers/workspace_fairness_events:
+    get:
+      summary: list last 100 workspace-fairness cap/uncap events (cloud-only)
+      operationId: getWorkspaceFairnessEvents
+      tags:
+        - worker
+      responses:
+        "200":
+          description: workspace fairness events (empty on non-cloud)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    timestamp:
+                      type: string
+                      format: date-time
+                    operation:
+                      type: string
+                    workspace_id:
+                      type: string
+                      nullable: true
+                    parameters:
+                      type: object
+                      nullable: true
+                      additionalProperties: true
+                  required:
+                    - timestamp
+                    - operation
+
   /configs/list_worker_groups:
     get:
       summary: list worker groups
@@ -19672,6 +20012,12 @@ paths:
                     properties:
                       is_alive:
                         type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - running
+                          - stale
+                          - never_started
                       last_locked_at:
                         type: string
                         format: date-time
@@ -19693,6 +20039,12 @@ paths:
                     properties:
                       is_alive:
                         type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - running
+                          - stale
+                          - never_started
                       last_locked_at:
                         type: string
                         format: date-time
@@ -20898,9 +21250,15 @@ components:
         mount_path:
           type: string
           description: KV v2 secrets engine mount path (e.g., windmill)
+        kv_secret_path_prefix:
+          type: string
+          description: Optional path prefix inserted between the KV data/metadata segment and the workspace id (e.g., "apps/windmill"). When set, secrets are stored at `<mount>/data/<prefix>/<workspace>/<secret>`, allowing a Vault policy scoped to exactly `<mount>/data/<prefix>/*`.
         jwt_role:
           type: string
           description: Vault JWT auth role name for Windmill (optional, if not provided token auth is used)
+        jwt_mount_path:
+          type: string
+          description: Mount path for the JWT auth method in Vault (optional, defaults to "jwt"). Set this when the JWT auth method is mounted at a non-default path, e.g. via `vault auth enable -path=<mount> jwt`.
         namespace:
           type: string
           description: Vault Enterprise namespace (optional)
@@ -20929,7 +21287,10 @@ components:
           description: Azure AD application (client) ID
         client_secret:
           type: string
-          description: Azure AD client secret
+          description: >-
+            Azure AD client secret. Optional — when omitted, the integration falls back to
+            Azure Workload Identity Federation, exchanging the Kubernetes-projected service-account
+            JWT at AZURE_FEDERATED_TOKEN_FILE for an access token (no long-lived secret stored).
         token:
           type: string
           description: Static Bearer token for testing/development (optional, if provided this is used instead of OAuth2 authentication)
@@ -21540,6 +21901,9 @@ components:
           type: array
           items:
             type: string
+        skip_draft_deletion:
+          type: boolean
+          description: "When true (set by the CLI / git sync), deploying this script does not delete an existing user draft at the same path."
 
       required:
         - path
@@ -21554,6 +21918,10 @@ components:
           properties:
             draft:
               $ref: "#/components/schemas/NewScript"
+            draft_created_at:
+              type: string
+              format: date-time
+              description: Timestamp at which the most recent DB draft was created. Used by the frontend's UserDraft staleness check.
             hash:
               type: string
           required:
@@ -22506,10 +22874,13 @@ components:
           type: string
         workspace_id:
           type: string
+        read_only:
+          type: boolean
       required:
         - token_prefix
         - created_at
         - last_used_at
+        - read_only
 
     ExternalJwtToken:
       type: object
@@ -22558,6 +22929,12 @@ components:
             type: string
         workspace_id:
           type: string
+        read_only:
+          type: boolean
+          description: |
+            If true, the token is restricted to read-only HTTP methods
+            (GET/HEAD/OPTIONS). Mutating endpoints and job-run actions are
+            rejected with 403, regardless of the scopes attached.
 
     NewTokenImpersonate:
       type: object
@@ -22610,6 +22987,13 @@ components:
           type: array
           items:
             type: string
+        ws_specific:
+          type: boolean
+        edited_at:
+          type: string
+          format: date-time
+        edited_by:
+          type: string
       required:
         - workspace_id
         - path
@@ -22662,6 +23046,8 @@ components:
           type: array
           items:
             type: string
+        ws_specific:
+          type: boolean
       required:
         - path
         - value
@@ -22687,6 +23073,8 @@ components:
           type: array
           items:
             type: string
+        ws_specific:
+          type: boolean
 
     AuditLog:
       type: object
@@ -23018,6 +23406,12 @@ components:
           description: "Additional script modules keyed by relative file path"
           additionalProperties:
             $ref: "#/components/schemas/ScriptModule"
+        temp_script_refs:
+          type: object
+          nullable: true
+          description: "Map of relative-import script path -> temp storage hash so the preview job resolves those imports from not-yet-deployed local content instead of the deployed script"
+          additionalProperties:
+            type: string
       required:
         - args
 
@@ -23083,6 +23477,8 @@ components:
           type: array
           items:
             type: string
+        ws_specific:
+          type: boolean
       required:
         - path
         - value
@@ -23105,6 +23501,8 @@ components:
           type: array
           items:
             type: string
+        ws_specific:
+          type: boolean
 
     Resource:
       type: object
@@ -23133,6 +23531,8 @@ components:
           type: array
           items:
             type: string
+        ws_specific:
+          type: boolean
       required:
         - path
         - resource_type
@@ -23175,6 +23575,8 @@ components:
           type: array
           items:
             type: string
+        ws_specific:
+          type: boolean
       required:
         - path
         - resource_type
@@ -25024,6 +25426,11 @@ components:
           example: "Connection timeout"
         tag:
           $ref: "#/components/schemas/CustomInstanceDbTag"
+        used_by_workspaces:
+          type: array
+          items:
+            type: string
+          description: Workspaces that reference this database via a ducklake catalog or datatable database with resource_type 'instance'. Computed at request time, not persisted.
 
     NewSqsTrigger:
       type: object
@@ -26215,7 +26622,7 @@ components:
           type: string
         login_type:
           type: string
-          enum: ["password", "github"]
+          enum: ["password", "github", "service_account"]
         super_admin:
           type: boolean
         devops:
@@ -26230,13 +26637,18 @@ components:
           type: string
         operator_only:
           type: boolean
+        is_workspace_admin:
+          type: boolean
+          description: Populated only for service accounts. True if the service account has workspace admin in its (single) workspace.
         first_time_user:
           type: boolean
         role_source:
           type: string
-          enum: ["manual", "instance_group"]
+          enum: ["manual", "instance_group", "service_account"]
         disabled:
           type: boolean
+        workspace_id:
+          type: string
 
       required:
         - email
@@ -26354,6 +26766,12 @@ components:
           type: string
         restarted_from:
           $ref: "#/components/schemas/RestartedFrom"
+        temp_script_refs:
+          type: object
+          nullable: true
+          description: "Map of relative-import script path -> temp storage hash, propagated to each flow step so inline-script relative imports resolve from not-yet-deployed local content instead of the deployed script"
+          additionalProperties:
+            type: string
 
       required:
         - value
@@ -26592,6 +27010,10 @@ components:
             draft_only:
               type: boolean
             draft: {}
+            draft_created_at:
+              type: string
+              format: date-time
+              description: Timestamp at which the most recent DB draft was created. Used by the frontend's UserDraft staleness check.
 
     AppHistory:
       type: object
@@ -27401,6 +27823,18 @@ components:
               "resource",
               "variable",
               "resource_type",
+              "folder",
+              "schedule",
+              "http_trigger",
+              "websocket_trigger",
+              "kafka_trigger",
+              "nats_trigger",
+              "postgres_trigger",
+              "mqtt_trigger",
+              "sqs_trigger",
+              "gcp_trigger",
+              "azure_trigger",
+              "email_trigger",
             ]
           description: Type of the item
         path:
@@ -27435,6 +27869,8 @@ components:
         - variables_changed
         - resource_types_changed
         - folders_changed
+        - schedules_changed
+        - triggers_changed
         - conflicts
       properties:
         total_diffs:
@@ -27467,6 +27903,12 @@ components:
         folders_changed:
           type: integer
           description: Number of folders with differences
+        schedules_changed:
+          type: integer
+          description: Number of schedules with differences
+        triggers_changed:
+          type: integer
+          description: Number of triggers with differences (sum across all trigger kinds)
         conflicts:
           type: integer
           description: Number of items that are both ahead and behind (conflicts)
@@ -27549,6 +27991,13 @@ components:
           error:
             type: string
             description: Error message if token retrieval failed
+          github_base_url:
+            type: string
+            nullable: true
+            description: Set for self-managed (GHES) installs. Cloud installs omit this field.
+          provisioned_by_admin:
+            type: boolean
+            description: True when the installation was assigned by the instance super-admin from instance settings. Workspace admins cannot remove these.
         required:
           - installation_id
           - account_id

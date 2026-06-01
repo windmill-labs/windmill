@@ -129,9 +129,44 @@ export function showDiff(local: string, remote: string) {
 
 export function showConflict(path: string, local: string, remote: string) {
   log.info(colors.yellow(`- ${path}`));
-  showDiff(local, remote);
+  let isEncryptionKey = false;
+  try {
+    isEncryptionKey = getTypeStrFromPath(path) === "encryption_key";
+  } catch {
+    // ignore
+  }
+  if (isEncryptionKey) {
+    showDiff(redactEncryptionKey(local), redactEncryptionKey(remote));
+  } else {
+    showDiff(local, remote);
+  }
   log.info("\x1b[31mlocal\x1b[31m - \x1b[32mremote\x1b[32m");
   log.info("\n");
+}
+
+// Reveal only the first 5 chars of the key so a rotation is still visible in
+// the diff (different prefixes), without leaking the whole secret to stdout.
+// The remaining chars are replaced with `*`, preserving length so the diff
+// keeps showing whether the key length changed.
+export function redactEncryptionKey(content: string): string {
+  if (!content) return content;
+  // The encryption_key payload is JSON-encoded (a quoted string). Parse it so
+  // we redact the key value itself, then re-serialize to JSON to preserve the
+  // file's shape; fall back to raw redaction if parsing fails.
+  try {
+    const parsed = JSON.parse(content);
+    if (typeof parsed === "string") {
+      return JSON.stringify(redactString(parsed));
+    }
+  } catch {
+    // not JSON — treat content as the raw key
+  }
+  return redactString(content);
+}
+
+function redactString(s: string): string {
+  if (s.length <= 5) return s;
+  return s.slice(0, 5) + "*".repeat(s.length - 5);
 }
 
 /**
@@ -154,7 +189,8 @@ export async function pushObj(
   alreadySynced: string[],
   message?: string,
   originalLocalPath?: string,
-  permissionedAsContext?: PermissionedAsContext
+  permissionedAsContext?: PermissionedAsContext,
+  wsSpecific?: boolean,
 ) {
   const typeEnding = getTypeStrFromPath(p);
 
@@ -173,7 +209,7 @@ export async function pushObj(
   } else if (typeEnding === "folder") {
     await pushFolder(workspace, p, befObj, newObj);
   } else if (typeEnding === "variable") {
-    await pushVariable(workspace, p, befObj, newObj, plainSecrets);
+    await pushVariable(workspace, p, befObj, newObj, plainSecrets, wsSpecific);
   } else if (typeEnding === "flow") {
     const flowName = extractResourceName(p, "flow");
     if (!flowName) {
@@ -183,7 +219,7 @@ export async function pushObj(
   } else if (typeEnding === "resource") {
     if (!alreadySynced.includes(p)) {
       alreadySynced.push(p);
-      await pushResource(workspace, p, befObj, newObj, originalLocalPath || p);
+      await pushResource(workspace, p, befObj, newObj, originalLocalPath || p, wsSpecific);
     }
   } else if (typeEnding === "resource-type") {
     await pushResourceType(workspace, p, befObj, newObj);

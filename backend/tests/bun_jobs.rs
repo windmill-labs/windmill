@@ -577,6 +577,63 @@ export function main() {
     Ok(())
 }
 
+/// Regression test: a `//nobundling` script that pulls a package whose CJS
+/// internals do bare-specifier `require()` of a sibling dependency.
+///
+/// Before the `--preserve-symlinks` fix, Bun 1.2/1.3+ would follow the
+/// directory symlink in `node_modules/@langchain/core` to its global cache
+/// entry, walk parent dirs from the cache realpath, and fail to find
+/// `node_modules/zod` — producing:
+///   ENOENT while resolving package 'zod/v3' from
+///   '.../cache_nomount/bun/@langchain/core@<ver>@@@1/dist/runnables/base.js'
+///
+/// The fix passes `--preserve-symlinks` so Bun resolves from the
+/// symlink path under `<job_dir>/node_modules/`, where `zod` is a sibling.
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_nobundling_transitive_require(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"//nobundling
+import { ChatPromptTemplate } from "@langchain/core/prompts";
+
+export async function main() {
+    const tpl = ChatPromptTemplate.fromMessages([
+        ["system", "you are a {role}"],
+        ["human", "{input}"],
+    ]);
+    const out = await tpl.formatMessages({ role: "tester", input: "ping" });
+    return out.length;
+}
+"#
+    .to_owned();
+
+    let job = JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        language: ScriptLang::Bun,
+        lock: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        modules: None,
+        tag: None,
+    });
+
+    let result = run_job_in_new_worker_until_complete(&db, false, job, port)
+        .await
+        .json_result()
+        .unwrap();
+
+    assert_eq!(result, serde_json::json!(2));
+    Ok(())
+}
+
 // ============================================================================
 // Native Mode Tests (requires deno_core feature)
 // ============================================================================
@@ -954,6 +1011,221 @@ export function main() {
     assert_eq!(result["workspace"], serde_json::json!("test-workspace"));
     assert_eq!(result["hasToken"], serde_json::json!(true));
     Ok(())
+}
+
+// ============================================================================
+// Bundle Wrapper Safety Tests
+// ============================================================================
+
+/// Regression test for the "TS source ends up in the bun bundle cache" bug.
+///
+/// The wrapper-side hardening: `node_builder.ts` discarded `Bun.build`'s
+/// return value, so any silent-failure mode (`success: false` without
+/// throwing — `throw: false`, or a future Bun where defaults change) made
+/// the wrapper exit 0 even though no `main.js` was written. Pair that with
+/// a pre-existing `main.js` containing raw TypeScript and `save_cache`
+/// happily copied that TS into the bundle cache; the worker later choked
+/// on `type GpgKey = {`.
+///
+/// This test patches `node_builder.ts` to force the silent-failure shape
+/// and asserts that our wrapper now refuses to silently succeed — bun must
+/// exit non-zero so prebundling fails loudly instead of writing TypeScript
+/// into the bundle cache.
+#[test]
+fn test_bun_bundle_wrapper_catches_silent_failure() {
+    use std::process::Command;
+    use windmill_worker::{build_loader, LoaderMode, BUN_PATH};
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let dir = temp_dir.path();
+    let dir_str = dir.to_str().unwrap();
+
+    // Script imports a package that won't exist in node_modules.
+    std::fs::write(
+        dir.join("main.ts"),
+        r#"
+import x from "definitely-not-a-real-pkg-windmill-test";
+export function main() { return x; }
+"#,
+    )
+    .unwrap();
+
+    // Generate the real node_builder.ts via the production code path.
+    tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(build_loader(
+            dir_str,
+            "http://localhost:8000",
+            "test_token",
+            "test-workspace",
+            "f/test/script",
+            LoaderMode::BunBundle,
+            &None,
+        ))
+        .expect("build_loader failed");
+
+    // Force the silent-failure shape by injecting `throw: false`. The
+    // wrapper's pre-fix `try/catch` would have swallowed this; the fixed
+    // wrapper inspects `result.success` and `result.outputs` and exits 1.
+    let path = dir.join("node_builder.ts");
+    let original = std::fs::read_to_string(&path).unwrap();
+    let patched = original.replace(
+        "external: [\"electron\"],",
+        "external: [\"electron\"], throw: false,",
+    );
+    assert_ne!(
+        original, patched,
+        "expected to find Bun.build options block to patch; node_builder.ts template changed?"
+    );
+    std::fs::write(&path, patched).unwrap();
+
+    // Pre-seed main.js with raw TypeScript (mimics the historical
+    // pre-write that originally seeded the bug).
+    std::fs::write(
+        dir.join("main.js"),
+        "type GpgKey = { email: string };\nexport const main = (): GpgKey => ({ email: \"\" });\n",
+    )
+    .unwrap();
+
+    let output = Command::new(BUN_PATH.as_str())
+        .args(["run", path.to_str().unwrap()])
+        .current_dir(dir)
+        .output()
+        .expect("Failed to run bun");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "node_builder.ts must exit non-zero when Bun.build silently fails to write a bundle.\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("Failed to build node bundle"),
+        "expected diagnostic in stdout, got:\n{stdout}"
+    );
+}
+
+/// Regression test for the actual root cause of the "TS source in bundle
+/// cache" bug: `generate_bun_bundle` was awaiting `child_process.wait()`
+/// without checking the exit code on the no-DB path (used by Docker-build
+/// `windmill cache hubPaths.json`). bun would exit 1 after Bun.build threw,
+/// `wait().await?` propagated only IO errors, and `generate_bun_bundle`
+/// returned `Ok(())`. `save_cache` then copied a stale `main.js` (raw TS
+/// source) straight into the bundle cache.
+///
+/// This test runs `generate_bun_bundle` with `db: None` against a `node_builder.ts`
+/// that calls `process.exit(1)`, and asserts the function now returns an error.
+#[test]
+fn test_generate_bun_bundle_propagates_exit_status() {
+    use windmill_worker::{generate_bun_bundle, get_common_bun_proc_envs};
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let dir = temp_dir.path();
+    let dir_str = dir.to_str().unwrap();
+
+    // node_builder.ts that exits 1, mimicking what bun does when Bun.build throws.
+    std::fs::write(
+        dir.join("node_builder.ts"),
+        "console.log('simulated bun build failure');\nprocess.exit(1);\n",
+    )
+    .unwrap();
+
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let envs = runtime.block_on(get_common_bun_proc_envs(None));
+
+    let result = runtime.block_on(generate_bun_bundle(
+        dir_str,
+        "test-workspace",
+        &uuid::Uuid::new_v4(),
+        "test-worker",
+        None, // db: None — this is the cache_hub_scripts path that had the bug
+        None,
+        &mut 0,
+        &mut None,
+        &envs,
+        &mut None,
+    ));
+
+    assert!(
+        result.is_err(),
+        "generate_bun_bundle must surface bun's non-zero exit on the no-DB path. \
+         If it returns Ok(()) when bun exited 1, save_cache will silently cache stale main.js content."
+    );
+    let err_msg = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_msg.contains("non-zero status"),
+        "expected exit-status error, got: {err_msg}"
+    );
+}
+
+/// Regression test for the install_bun_lockfile no-DB path: same code shape as
+/// `generate_bun_bundle` (site 3 of the original bug) — `wait().await?` ignored
+/// non-zero bun exits. A `bun install` failure (e.g. malformed package.json)
+/// must now surface as an error so callers don't proceed with a half-installed
+/// node_modules.
+#[test]
+fn test_install_bun_lockfile_propagates_exit_status() {
+    use windmill_worker::{get_common_bun_proc_envs, install_bun_lockfile};
+    let temp_dir = tempfile::tempdir().unwrap();
+    let dir = temp_dir.path();
+    let dir_str = dir.to_str().unwrap();
+    // Malformed package.json -> bun install fails with exit 1.
+    std::fs::write(dir.join("package.json"), "this is not valid json").unwrap();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let envs = runtime.block_on(get_common_bun_proc_envs(None));
+    let result = runtime.block_on(install_bun_lockfile(
+        &mut 0,
+        &mut None,
+        &uuid::Uuid::new_v4(),
+        "test-workspace",
+        None, // db: None — no-DB path that had the bug
+        dir_str,
+        "test-worker",
+        envs,
+        false, // npm_mode
+        &mut None,
+        true, // quiet
+    ));
+    assert!(
+        result.is_err(),
+        "install_bun_lockfile must surface bun's non-zero exit on the no-DB path"
+    );
+    let err_msg = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_msg.contains("non-zero status"),
+        "expected exit-status error, got: {err_msg}"
+    );
+}
+
+/// Regression test for the post-bundle existence check in `prebundle_bun_script`
+/// and `handle_bun_job`. Both call sites guard against the case where
+/// `generate_bun_bundle` returns `Ok(())` but `main.js` was never written —
+/// the upstream wait-status fix is the primary defense, this is the catch-all
+/// for any other silent-failure mode (Bun output-naming change, custom plugin
+/// swallowing the build, etc.). Without this check, `save_cache` would
+/// happily copy whatever's at the bundle path (often raw TypeScript that some
+/// other code path left there).
+#[test]
+fn test_ensure_bundle_output_exists_rejects_missing_file() {
+    use windmill_worker::ensure_bundle_output_exists;
+    let temp_dir = tempfile::tempdir().unwrap();
+    let dir = temp_dir.path();
+    let missing = dir.join("main.js").to_str().unwrap().to_string();
+
+    let result = ensure_bundle_output_exists(&missing);
+    assert!(
+        result.is_err(),
+        "ensure_bundle_output_exists must reject when the bundle file is missing"
+    );
+    let err_msg = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_msg.contains("bun bundle output missing"),
+        "expected 'bun bundle output missing' in error, got: {err_msg}"
+    );
+
+    // Sanity: when the file does exist, it returns Ok.
+    std::fs::write(&missing, "// @bun\n").unwrap();
+    assert!(ensure_bundle_output_exists(&missing).is_ok());
 }
 
 // ============================================================================

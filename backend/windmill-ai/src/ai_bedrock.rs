@@ -326,8 +326,10 @@ pub fn json_to_document(value: serde_json::Value) -> aws_smithy_types::Document 
         }
         Value::Array(arr) => Document::Array(arr.into_iter().map(json_to_document).collect()),
         Value::Number(num) => {
-            if let Some(i) = num.as_i64() {
-                Document::Number(aws_smithy_types::Number::PosInt(i as u64))
+            if let Some(u) = num.as_u64() {
+                Document::Number(aws_smithy_types::Number::PosInt(u))
+            } else if let Some(i) = num.as_i64() {
+                Document::Number(aws_smithy_types::Number::NegInt(i))
             } else if let Some(f) = num.as_f64() {
                 Document::Number(aws_smithy_types::Number::Float(f))
             } else {
@@ -752,6 +754,26 @@ pub fn bedrock_stream_event_to_tool_start(
     }
 }
 
+pub fn bedrock_stream_event_to_tool_start_with_block_index(
+    event: &ConverseStreamOutput,
+) -> Option<(usize, StreamingToolCall)> {
+    match event {
+        ConverseStreamOutput::ContentBlockStart(start) => {
+            let block_index = usize::try_from(start.content_block_index()).ok()?;
+            let tool_use = start.start().and_then(|s| s.as_tool_use().ok())?;
+            Some((
+                block_index,
+                StreamingToolCall {
+                    id: tool_use.tool_use_id().to_string(),
+                    name: tool_use.name().to_string(),
+                    arguments: String::new(),
+                },
+            ))
+        }
+        _ => None,
+    }
+}
+
 /// Extract tool use input delta from stream
 pub fn bedrock_stream_event_to_tool_delta(event: &ConverseStreamOutput) -> Option<String> {
     match event {
@@ -759,6 +781,22 @@ pub fn bedrock_stream_event_to_tool_delta(event: &ConverseStreamOutput) -> Optio
             .delta()
             .and_then(|d| d.as_tool_use().ok())
             .map(|tool_use| tool_use.input().to_string()),
+        _ => None,
+    }
+}
+
+pub fn bedrock_stream_event_to_tool_delta_with_block_index(
+    event: &ConverseStreamOutput,
+) -> Option<(usize, String)> {
+    match event {
+        ConverseStreamOutput::ContentBlockDelta(delta) => {
+            let block_index = usize::try_from(delta.content_block_index()).ok()?;
+            let input = delta
+                .delta()
+                .and_then(|d| d.as_tool_use().ok())
+                .map(|tool_use| tool_use.input().to_string())?;
+            Some((block_index, input))
+        }
         _ => None,
     }
 }
@@ -842,6 +880,36 @@ mod tests {
                 .expect("valid raw json"),
             },
         }
+    }
+
+    #[test]
+    fn json_to_document_preserves_negative_integers() {
+        let value = serde_json::json!(-1);
+        let doc = json_to_document(value);
+        assert!(matches!(
+            doc,
+            aws_smithy_types::Document::Number(aws_smithy_types::Number::NegInt(-1))
+        ));
+    }
+
+    #[test]
+    fn json_to_document_handles_large_u64_above_i64_max() {
+        let value = serde_json::json!(u64::MAX);
+        let doc = json_to_document(value);
+        assert!(matches!(
+            doc,
+            aws_smithy_types::Document::Number(aws_smithy_types::Number::PosInt(u)) if u == u64::MAX
+        ));
+    }
+
+    #[test]
+    fn json_to_document_handles_positive_integers() {
+        let value = serde_json::json!(42);
+        let doc = json_to_document(value);
+        assert!(matches!(
+            doc,
+            aws_smithy_types::Document::Number(aws_smithy_types::Number::PosInt(42))
+        ));
     }
 
     #[test]

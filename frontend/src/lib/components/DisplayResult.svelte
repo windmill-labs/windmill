@@ -5,6 +5,7 @@
 	import { json } from 'svelte-highlight/languages'
 	import { copyToClipboard, parseS3Object, roughSizeOfObject } from '$lib/utils'
 	import { base } from '$lib/base'
+	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { Button, Drawer, DrawerContent } from './common'
 	import {
 		ClipboardCopy,
@@ -172,6 +173,20 @@
 	}
 
 	let largeObject: boolean | undefined = $state(undefined)
+
+	let resultApiPath = $derived(
+		workspaceId && jobId
+			? nodeId
+				? `/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+				: `/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+			: undefined
+	)
+	let resultDownloadHref = $derived(
+		resultApiPath
+			? `${base}/api${resultApiPath}`
+			: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`
+	)
+	let resultDownloadName = $derived(`${filename ?? 'result'}.json`)
 
 	function checkIfS3(result: any, keys: string[]) {
 		return keys.includes('s3') && typeof result.s3 === 'string'
@@ -1000,16 +1015,17 @@
 					{:else}
 						{#if largeObject}
 							<div class="text-xs text-emphasis"
-								><a
-									download="{filename ?? 'result'}.json"
-									href={workspaceId && jobId
-										? nodeId
-											? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
-											: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-										: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
-								>
-									Download {filename ? '' : 'as JSON'}
-								</a>
+								>{#if resultApiPath && shouldDownloadViaClient()}
+									<button
+										onclick={() => downloadViaClient(resultApiPath!, resultDownloadName)}
+									>
+										Download {filename ? '' : 'as JSON'}
+									</button>
+								{:else}
+									<a download={resultDownloadName} href={resultDownloadHref}>
+										Download {filename ? '' : 'as JSON'}
+									</a>
+								{/if}
 								{#if download_as_csv}
 									<DownloadCsv
 										getContent={() => convertJsonToCsv(result)}
@@ -1074,19 +1090,26 @@
 			<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
 				{#snippet actions()}
 					{#if customUi?.disableDownload !== true}
-						<Button
-							download="{filename ?? 'result'}.json"
-							href={workspaceId && jobId
-								? nodeId
-									? `${base}/api/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
-									: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
-								: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
-							startIcon={{ icon: Download }}
-							variant="subtle"
-							unifiedSize="md"
-						>
-							Download
-						</Button>
+						{#if resultApiPath && shouldDownloadViaClient()}
+							<Button
+								on:click={() => downloadViaClient(resultApiPath!, resultDownloadName)}
+								startIcon={{ icon: Download }}
+								variant="subtle"
+								unifiedSize="md"
+							>
+								Download
+							</Button>
+						{:else}
+							<Button
+								download={resultDownloadName}
+								href={resultDownloadHref}
+								startIcon={{ icon: Download }}
+								variant="subtle"
+								unifiedSize="md"
+							>
+								Download
+							</Button>
+						{/if}
 					{/if}
 					<Button
 						on:click={() => copyToClipboard(toJsonStr(result))}

@@ -157,11 +157,77 @@ pub enum ObjectType {
     WorkspaceDependencies,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28217/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28238/sync-script-to-git-repo-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
 pub const WM_FORK_PREFIX: &str = "wm-fork-";
+
+/// Validate that a fork workspace id is safe to interpolate into a git branch name.
+///
+/// The id is appended verbatim to a branch like `wm-fork/<original_branch>/<id>`,
+/// so it must satisfy `git check-ref-format` rules. We validate synchronously at the API
+/// layer because the actual branch creation runs in a deferred git-sync worker job — without
+/// this check, the API returns 200 and the failure only surfaces later in the worker.
+pub fn validate_fork_workspace_id(id: &str) -> error::Result<()> {
+    if !id.starts_with(WM_FORK_PREFIX) {
+        return Err(Error::BadRequest(format!(
+            "The id `{}` is invalid for a forked workspace. It should be prefixed by {}",
+            id, WM_FORK_PREFIX
+        )));
+    }
+
+    if id.len() > 50 {
+        return Err(Error::BadRequest(format!(
+            "Fork workspace id `{}` is too long ({} chars). Maximum length is 50 characters (including the '{}' prefix).",
+            id, id.len(), WM_FORK_PREFIX
+        )));
+    }
+
+    let reject = |reason: &str| {
+        Err::<(), _>(Error::BadRequest(format!(
+            "Fork workspace id `{}` is invalid: {} (must be a valid git branch name component)",
+            id, reason
+        )))
+    };
+
+    if id.ends_with('.') {
+        return reject("cannot end with '.'");
+    }
+    if id.ends_with(".lock") {
+        return reject("cannot end with '.lock'");
+    }
+    if id.contains("..") {
+        return reject("cannot contain '..'");
+    }
+    if id.contains("@{") {
+        return reject("cannot contain '@{'");
+    }
+    if id.contains("//") {
+        return reject("cannot contain '//'");
+    }
+    for ch in id.chars() {
+        match ch {
+            ':' | '~' | '^' | '?' | '*' | '[' | '\\' | ' ' => {
+                return reject(&format!("contains forbidden character '{}'", ch));
+            }
+            c if c.is_ascii_control() || c == '\u{7f}' => {
+                return reject("contains a control character");
+            }
+            _ => {}
+        }
+    }
+    // Each slash-separated component cannot start with '.' or end with '.lock'.
+    for component in id.split('/') {
+        if component.starts_with('.') {
+            return reject("a path component cannot start with '.'");
+        }
+        if component.ends_with(".lock") {
+            return reject("a path component cannot end with '.lock'");
+        }
+    }
+    Ok(())
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GitRepositorySettings {
@@ -665,4 +731,60 @@ async fn transform_json_unchecked(
     };
 
     Ok(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_fork_workspace_id_accepts_valid() {
+        validate_fork_workspace_id("wm-fork-test-allow").unwrap();
+        validate_fork_workspace_id("wm-fork-my_workspace.42").unwrap();
+        validate_fork_workspace_id("wm-fork-a").unwrap();
+    }
+
+    #[test]
+    fn test_validate_fork_workspace_id_rejects_missing_prefix() {
+        assert!(validate_fork_workspace_id("not-a-fork").is_err());
+        assert!(validate_fork_workspace_id("wm-fork").is_err());
+    }
+
+    #[test]
+    fn test_validate_fork_workspace_id_rejects_git_unsafe_chars() {
+        for bad in [
+            "wm-fork-test:allow",
+            "wm-fork-test allow",
+            "wm-fork-test~allow",
+            "wm-fork-test^allow",
+            "wm-fork-test?allow",
+            "wm-fork-test*allow",
+            "wm-fork-test[allow",
+            "wm-fork-test\\allow",
+            "wm-fork-test\nallow",
+        ] {
+            assert!(
+                validate_fork_workspace_id(bad).is_err(),
+                "expected `{}` to be rejected",
+                bad
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_fork_workspace_id_rejects_git_unsafe_sequences() {
+        assert!(validate_fork_workspace_id("wm-fork-foo..bar").is_err());
+        assert!(validate_fork_workspace_id("wm-fork-foo@{bar").is_err());
+        assert!(validate_fork_workspace_id("wm-fork-foo//bar").is_err());
+        assert!(validate_fork_workspace_id("wm-fork-foo.").is_err());
+        assert!(validate_fork_workspace_id("wm-fork-foo.lock").is_err());
+        assert!(validate_fork_workspace_id("wm-fork-foo/.bar").is_err());
+        assert!(validate_fork_workspace_id("wm-fork-foo/bar.lock").is_err());
+    }
+
+    #[test]
+    fn test_validate_fork_workspace_id_rejects_too_long() {
+        let long_id = format!("wm-fork-{}", "a".repeat(43));
+        assert!(validate_fork_workspace_id(&long_id).is_err());
+    }
 }

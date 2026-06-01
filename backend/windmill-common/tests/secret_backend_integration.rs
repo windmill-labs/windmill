@@ -90,7 +90,9 @@ mod tests {
             address: std::env::var("VAULT_ADDR")
                 .unwrap_or_else(|_| "http://127.0.0.1:8200".to_string()),
             mount_path: "windmill".to_string(),
+            kv_secret_path_prefix: None,
             jwt_role: None, // Static token mode
+            jwt_mount_path: None,
             namespace: None,
             token: Some(
                 std::env::var("VAULT_TOKEN").unwrap_or_else(|_| "test-root-token".to_string()),
@@ -105,7 +107,9 @@ mod tests {
             address: std::env::var("VAULT_ADDR")
                 .unwrap_or_else(|_| "http://127.0.0.1:8200".to_string()),
             mount_path: "windmill".to_string(),
+            kv_secret_path_prefix: None,
             jwt_role: Some("windmill-secrets".to_string()), // JWT mode
+            jwt_mount_path: None,
             namespace: None,
             token: None, // No static token - use JWT
             skip_ssl_verify: None,
@@ -203,7 +207,10 @@ mod tests {
         println!("Testing Vault connection with JWT auth...");
         println!("  Address: {}", settings.address);
         println!("  JWT Role: {:?}", settings.jwt_role);
-        println!("  BASE_URL: {}", (**windmill_common::BASE_URL.load()).clone());
+        println!(
+            "  BASE_URL: {}",
+            (**windmill_common::BASE_URL.load()).clone()
+        );
 
         let result = test_vault_connection(&settings, Some(&db)).await;
         assert!(
@@ -274,13 +281,15 @@ mod tests {
         // Encrypt fixture placeholders with real workspace keys
         encrypt_fixture_secrets(&db).await;
 
-        let secret_count = sqlx::query_scalar!(
-            "SELECT COUNT(*) FROM variable WHERE is_secret = true"
-        )
-        .fetch_one(&db)
-        .await
-        .expect("Failed to count secrets");
-        println!("Found {} secrets in database before migration", secret_count.unwrap_or(0));
+        let secret_count =
+            sqlx::query_scalar!("SELECT COUNT(*) FROM variable WHERE is_secret = true")
+                .fetch_one(&db)
+                .await
+                .expect("Failed to count secrets");
+        println!(
+            "Found {} secrets in database before migration",
+            secret_count.unwrap_or(0)
+        );
 
         // Run migration
         println!("Migrating secrets to Vault...");
@@ -288,8 +297,10 @@ mod tests {
             .await
             .expect("Migration to Vault failed");
 
-        println!("Migration report: total={}, migrated={}, failed={}",
-            report.total_secrets, report.migrated_count, report.failed_count);
+        println!(
+            "Migration report: total={}, migrated={}, failed={}",
+            report.total_secrets, report.migrated_count, report.failed_count
+        );
 
         if !report.failures.is_empty() {
             for f in &report.failures {
@@ -307,7 +318,11 @@ mod tests {
                 .get_secret(ws, path)
                 .await
                 .unwrap_or_else(|e| panic!("Failed to read {}/{} from Vault: {:?}", ws, path, e));
-            assert_eq!(value, expected_plaintext, "Vault value mismatch for {}/{}", ws, path);
+            assert_eq!(
+                value, expected_plaintext,
+                "Vault value mismatch for {}/{}",
+                ws, path
+            );
             println!("  ✓ {}/{} correct in Vault", ws, path);
         }
 
@@ -346,8 +361,10 @@ mod tests {
             .await
             .expect("Migration to database failed");
 
-        println!("Migration report: total={}, migrated={}, failed={}",
-            report.total_secrets, report.migrated_count, report.failed_count);
+        println!(
+            "Migration report: total={}, migrated={}, failed={}",
+            report.total_secrets, report.migrated_count, report.failed_count
+        );
 
         assert_eq!(report.failed_count, 0, "Migration had failures");
         assert!(report.migrated_count > 0, "No secrets were migrated");
@@ -364,7 +381,11 @@ mod tests {
 
             let mc = build_crypt(&db, ws).await.unwrap();
             let decrypted = decrypt(&mc, row).expect("Failed to decrypt restored value");
-            assert_eq!(decrypted, expected_plaintext, "Restored value mismatch for {}/{}", ws, path);
+            assert_eq!(
+                decrypted, expected_plaintext,
+                "Restored value mismatch for {}/{}",
+                ws, path
+            );
             println!("  ✓ {}/{} correctly restored in DB", ws, path);
         }
 
@@ -488,11 +509,19 @@ mod tests {
             .await
             .unwrap_or_else(|_| panic!("Secret {}/{} not found after round-trip", ws, path));
 
-            assert_ne!(encrypted, "ROUND_TRIP_CLEARED", "Secret {}/{} was not restored", ws, path);
+            assert_ne!(
+                encrypted, "ROUND_TRIP_CLEARED",
+                "Secret {}/{} was not restored",
+                ws, path
+            );
 
             let mc = build_crypt(&db, ws).await.unwrap();
             let decrypted = decrypt(&mc, encrypted).expect("Failed to decrypt");
-            assert_eq!(decrypted, expected_plaintext, "Round-trip value mismatch for {}/{}", ws, path);
+            assert_eq!(
+                decrypted, expected_plaintext,
+                "Round-trip value mismatch for {}/{}",
+                ws, path
+            );
             println!("  ✓ {}/{}: round-trip OK", ws, path);
         }
 
@@ -522,10 +551,7 @@ mod tests {
             .get_secret("test-workspace", "u/test-user/other_secret")
             .await;
 
-        assert!(
-            cross_access.is_err(),
-            "Cross-workspace access should fail!"
-        );
+        assert!(cross_access.is_err(), "Cross-workspace access should fail!");
         println!("✓ Cross-workspace access correctly denied");
 
         // Verify own workspace access works

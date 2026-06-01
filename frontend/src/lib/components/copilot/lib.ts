@@ -16,7 +16,6 @@ import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
 import { getDefaultChatTemperature } from './modelConfig'
 import { formatResourceTypes } from './utils'
-import { z } from 'zod'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
 import {
 	getNonStreamingOpenAIResponsesCompletion,
@@ -31,6 +30,12 @@ import {
 	openAICompletionsUsageToChatTokenUsage,
 	type ChatTokenUsage
 } from './chat/tokenUsage'
+import {
+	buildAssistantTextMessage,
+	buildAssistantToolCallMessage,
+	getReasoningContentDelta
+} from './chat/openaiReasoning'
+import { parseFimCompletionChoice } from './fim'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
@@ -69,7 +74,7 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	},
 	deepseek: {
 		label: 'DeepSeek',
-		defaultModels: ['deepseek-chat', 'deepseek-reasoner']
+		defaultModels: ['deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner']
 	},
 	googleai: {
 		label: 'Google AI',
@@ -811,17 +816,6 @@ export async function getNonStreamingCompletion(
 	return response
 }
 
-const mistralFimResponseSchema = z.object({
-	choices: z.array(
-		z.object({
-			message: z.object({
-				content: z.string().optional()
-			}),
-			finish_reason: z.string()
-		})
-	)
-})
-
 export const FIM_MAX_TOKENS = 256
 const FIM_MAX_LINES = 8
 export async function getFimCompletion(
@@ -859,12 +853,10 @@ export async function getFimCompletion(
 	)
 
 	const body = await response.json()
-	const parsedBody = mistralFimResponseSchema.parse(body)
+	const choice = parseFimCompletionChoice(body, providerModel.provider)
 
-	const choice = parsedBody.choices[0]
-
-	if (choice && choice.message.content !== undefined) {
-		let lines = choice.message.content.split('\n')
+	if (choice?.content !== undefined) {
+		let lines = choice.content.split('\n')
 
 		// If finish_reason is 'length', remove the last line
 		if (choice.finish_reason === 'length') {
@@ -960,6 +952,9 @@ export async function parseOpenAICompletion(
 	let tokenUsage = emptyChatTokenUsage()
 
 	let answer = ''
+	let assistantContent = ''
+	let reasoningContent = ''
+	let hasReasoningContent = false
 	for await (const chunk of completion) {
 		if ('usage' in chunk && chunk.usage) {
 			tokenUsage = openAICompletionsUsageToChatTokenUsage(chunk.usage)
@@ -968,9 +963,11 @@ export async function parseOpenAICompletion(
 			continue
 		}
 		const c = chunk as ChatCompletionChunk
+		const choice = c.choices[0]
+		const delta = choice.delta
 
 		// Check for malformed function call error (e.g. from Gemini models)
-		const finishReason = c.choices[0].finish_reason
+		const finishReason = choice.finish_reason
 		if (
 			finishReason &&
 			typeof finishReason === 'string' &&
@@ -979,12 +976,19 @@ export async function parseOpenAICompletion(
 			malformedFunctionCallError = true
 		}
 
-		const delta = c.choices[0].delta.content
-		if (delta) {
-			answer += delta
-			callbacks.onNewToken(delta)
+		const reasoningDelta = getReasoningContentDelta(delta)
+		if (typeof reasoningDelta === 'string') {
+			hasReasoningContent = true
+			reasoningContent += reasoningDelta
 		}
-		const toolCalls = c.choices[0].delta.tool_calls || []
+
+		const contentDelta = delta.content
+		if (contentDelta) {
+			answer += contentDelta
+			assistantContent += contentDelta
+			callbacks.onNewToken(contentDelta)
+		}
+		const toolCalls = delta.tool_calls || []
 		if (toolCalls.length > 0 && answer) {
 			// if tool calls are present but we have some textual content already, we need to display it to the user first
 			callbacks.onMessageEnd()
@@ -1052,6 +1056,7 @@ export async function parseOpenAICompletion(
 						isStreamingArguments: shouldStream,
 						showFade: tool?.showFade,
 						showDetails: tool?.showDetails,
+						autoCollapseDetails: tool?.autoCollapseDetails,
 						parameters: parameters
 					})
 				}
@@ -1059,8 +1064,12 @@ export async function parseOpenAICompletion(
 		}
 	}
 
-	if (answer) {
-		const toAdd = { role: 'assistant' as const, content: answer }
+	const toolCalls = Object.values(finalToolCalls).filter(
+		(toolCall) => toolCall.id !== undefined && toolCall.function?.arguments !== undefined
+	) as ChatCompletionMessageFunctionToolCall[]
+
+	if (answer && toolCalls.length === 0) {
+		const toAdd = buildAssistantTextMessage(answer)
 		addedMessages.push(toAdd)
 		messages.push(toAdd)
 	}
@@ -1074,21 +1083,22 @@ export async function parseOpenAICompletion(
 		}
 	}
 
-	const toolCalls = Object.values(finalToolCalls).filter(
-		(toolCall) => toolCall.id !== undefined && toolCall.function?.arguments !== undefined
-	) as ChatCompletionMessageFunctionToolCall[]
-
 	if (toolCalls.length > 0) {
-		const toAdd = {
-			role: 'assistant' as const,
-			tool_calls: toolCalls.map((t) => ({
-				...t,
-				function: {
-					...t.function,
-					arguments: t.function.arguments || '{}'
-				}
-			}))
-		}
+		const normalizedToolCalls = toolCalls.map((t) => ({
+			...t,
+			function: {
+				...t.function,
+				arguments: t.function.arguments || '{}'
+			}
+		}))
+		const toAdd = buildAssistantToolCallMessage({
+			content: assistantContent,
+			reasoning: {
+				hasReasoningContent,
+				reasoningContent
+			},
+			toolCalls: normalizedToolCalls
+		})
 		messages.push(toAdd)
 		addedMessages.push(toAdd)
 		for (const toolCall of toolCalls) {

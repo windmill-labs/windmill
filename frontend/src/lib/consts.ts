@@ -1,5 +1,11 @@
 import type { DbType } from './components/dbTypes'
 
+// Sentinel written into a job's `logs` field when it was fetched with
+// `no_logs=true` (e.g. nested flow-status viewers during "Test flow").
+// It is NOT empty logs — it means logs were intentionally skipped and can
+// be lazily fetched. The log panel detects this and resolves the real logs.
+export const WM_LOGS_SKIPPED = '__WM_LOGS_SKIPPED__'
+
 export const DEFAULT_WEBHOOK_TYPE: 'async' | 'sync' = 'async'
 
 export const HOME_SHOW_HUB = true
@@ -43,6 +49,11 @@ export const DEFAULT_TAGS_PER_WORKSPACE_SETTING = 'default_tags_per_workspace'
 export const DEFAULT_TAGS_WORKSPACES_SETTING = 'default_tags_workspaces'
 export const FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING = 'fork_workspace_tag_append_fork_suffix'
 export const PREVIEW_TAGS_OVERRIDE_SETTING = 'preview_tags_override'
+
+export const WORKSPACE_FAIRNESS_ENABLED_SETTING = 'workspace_fairness_enabled'
+export const WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING = 'workspace_fairness_max_percent'
+export const WORKSPACE_FAIRNESS_DURATION_SECS_SETTING = 'workspace_fairness_duration_secs'
+export const WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING = 'workspace_fairness_min_total_jobs'
 
 export const WORKSPACE_SLACK_BOT_TOKEN_PATH = 'f/slack_bot/bot_token'
 

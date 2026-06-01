@@ -3990,6 +3990,94 @@ async fn test_failure_module(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_run_wait_result_early_return_with_failure_module(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [{
+            "id": "a",
+            "value": {
+                "type": "rawscript",
+                "language": "deno",
+                "input_transforms": {},
+                "content": "export function main() { throw new Error('boom'); }",
+            },
+        }],
+        "failure_module": {
+            "value": {
+                "type": "rawscript",
+                "language": "deno",
+                "input_transforms": {},
+                "content": "export function main() { return { recovered: true } }",
+            },
+        },
+    }))
+    .unwrap();
+
+    let completed =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, port)
+            .await;
+
+    // Sanity: flow result is the failure_module's output.
+    assert_eq!(
+        json!({ "recovered": true }),
+        completed.json_result().unwrap()
+    );
+
+    let read_body = |response: axum::response::Response| async move {
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()
+    };
+
+    // has_failure_module=false: legacy behavior — return the early_return node's failure.
+    let resp_a_only = windmill_api::jobs::run_wait_result(
+        &db,
+        completed.id,
+        "test-workspace",
+        Some("a".to_string()),
+        false,
+        "test-user",
+    )
+    .await
+    .unwrap();
+    let body_a_only = read_body(resp_a_only).await;
+    let body_a_only_str = body_a_only.to_string();
+    assert!(
+        body_a_only_str.contains("boom"),
+        "expected node 'a' failure, got {body_a_only_str}",
+    );
+    assert!(
+        !body_a_only_str.contains("recovered"),
+        "expected node 'a' failure, not failure_module output; got {body_a_only_str}",
+    );
+
+    // has_failure_module=true: skip the early_return node's failure and return the
+    // failure_module's recovered result instead.
+    let resp_with_fm = windmill_api::jobs::run_wait_result(
+        &db,
+        completed.id,
+        "test-workspace",
+        Some("a".to_string()),
+        true,
+        "test-user",
+    )
+    .await
+    .unwrap();
+    let body_with_fm = read_body(resp_with_fm).await;
+    assert_eq!(json!({ "recovered": true }), body_with_fm);
+
+    Ok(())
+}
+
 #[cfg(feature = "python")]
 #[sqlx::test(fixtures("base"))]
 async fn test_flow_lock_all(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -4783,6 +4871,7 @@ async fn test_result_format(db: Pool<Postgres>) -> anyhow::Result<()> {
         Uuid::parse_str(ordered_result_job_id).unwrap(),
         "test-workspace",
         None,
+        false,
         "test-user",
     )
     .await
@@ -5055,6 +5144,88 @@ async fn test_flow_substep_tag_availability_check(db: Pool<Postgres>) -> anyhow:
 
     // Clean up: reset custom tags
     CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::default()));
+
+    Ok(())
+}
+
+#[cfg(all(feature = "quickjs", feature = "python"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_whileloop_propagates_inner_iterator_eval_failure(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    // Regression test: while-loop with skip_failures=false whose body has
+    // a successful step followed by a for-loop whose iterator expression
+    // throws. Previously the iterator-eval failure was silently swallowed
+    // because `handle_flow` returning `Err` left the local `success` set to
+    // the prior step's outcome (true). The parent while-loop received
+    // success=true and kept iterating despite the inner failure.
+    let port = 123;
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [
+            {
+                "id": "outer",
+                "value": {
+                    "type": "whileloopflow",
+                    "skip_failures": false,
+                    "modules": [
+                        {
+                            "id": "prev",
+                            "value": {
+                                "input_transforms": {
+                                    "i": {
+                                        "type": "javascript",
+                                        "expr": "flow_input.iter.index",
+                                    },
+                                },
+                                "type": "rawscript",
+                                "language": "python3",
+                                "content": "def main(i): return i",
+                            },
+                        },
+                        {
+                            "id": "inner",
+                            "value": {
+                                "type": "forloopflow",
+                                // results.prev is null, so `.does_not_exist` throws.
+                                "iterator": {
+                                    "type": "javascript",
+                                    "expr": "results.prev.does_not_exist",
+                                },
+                                "skip_failures": false,
+                                "parallel": false,
+                                "modules": [{
+                                    "id": "leaf",
+                                    "value": {
+                                        "type": "rawscript",
+                                        "language": "python3",
+                                        "content": "def main(): return 1",
+                                    },
+                                }],
+                            },
+                        },
+                    ],
+                },
+                // bound iteration count so without the fix the test fails fast
+                // with success=true (rather than running forever); with the fix
+                // the loop stops at iter 0 with success=false.
+                "stop_after_if": {
+                    "expr": "result >= 2",
+                    "skip_if_stopped": false,
+                },
+            },
+        ],
+    }))
+    .unwrap();
+    let job = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
+
+    let cjob = RunJob::from(job).run_until_complete(&db, false, port).await;
+
+    assert!(
+        !cjob.success,
+        "flow should fail when inner forloop iterator throws inside a while-loop with skip_failures=false"
+    );
 
     Ok(())
 }

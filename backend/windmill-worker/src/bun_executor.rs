@@ -16,8 +16,8 @@ use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
         parse_npm_config, read_file, read_file_content, read_result, resolve_nsjail_timeout,
-        start_child_process, write_file_binary, MaybeLock, OccupancyMetrics, StreamNotifier,
-        DEV_CONF_NSJAIL,
+        resolve_nsjail_tmp_mount_block, start_child_process, write_file_binary, MaybeLock,
+        OccupancyMetrics, StreamNotifier, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
@@ -28,6 +28,7 @@ use crate::{
 };
 use windmill_common::{
     client::AuthedClient,
+    jobs::JobKind,
     scripts::{id_to_codebase_info, CodebaseInfo, ScriptLang},
     utils::WarnAfterExt,
     workspace_dependencies::WorkspaceDependenciesPrefetched,
@@ -439,7 +440,7 @@ pub async fn gen_bun_lockfile(
         #[cfg(windows)]
         child_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
 
-        let mut child_process = start_child_process(child_cmd, &*BUN_PATH, false).await?;
+        let child_process = start_child_process(child_cmd, &*BUN_PATH, false).await?;
 
         if let Some(db) = db {
             let mut quiet_buf = String::new();
@@ -471,7 +472,15 @@ pub async fn gen_bun_lockfile(
             }
             result?;
         } else {
-            Box::into_pin(child_process.wait()).await?;
+            let output = Box::into_pin(child_process.wait_with_output()).await?;
+            if !output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(error::Error::ExecutionErr(format!(
+                    "bun build exited with non-zero status: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+                    output.status
+                )));
+            }
         }
 
         let new_package_json = read_file_content(&format!("{job_dir}/package.json")).await?;
@@ -744,7 +753,7 @@ pub async fn install_bun_lockfile(
         gen_bunfig(job_dir, job_id, w_id, db).await?;
     }
 
-    let mut child_process = start_child_process(child_cmd, &*BUN_PATH, false).await?;
+    let child_process = start_child_process(child_cmd, &*BUN_PATH, false).await?;
     if let Some(db) = db {
         let mut quiet_buf = String::new();
         let result = handle_child(
@@ -777,7 +786,15 @@ pub async fn install_bun_lockfile(
         }
         result?;
     } else {
-        Box::into_pin(child_process.wait()).await?;
+        let output = Box::into_pin(child_process.wait_with_output()).await?;
+        if !output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(error::Error::ExecutionErr(format!(
+                "bun install exited with non-zero status: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+                output.status
+            )));
+        }
     }
 
     if has_file {
@@ -838,8 +855,9 @@ try {{
 }} catch (e) {{
 }}
 
+let result;
 try {{
-    await Bun.build({{
+    result = await Bun.build({{
         entrypoints: ["{job_dir_js}/wrapper.mjs"],
         outdir: "./",
         target: "node",
@@ -850,6 +868,11 @@ try {{
 }} catch(err) {{
     console.log(err);
     console.log("Failed to build node bundle");
+    process.exit(1);
+}}
+if (!result?.success || !(result.outputs?.length > 0)) {{
+    for (const log of result?.logs ?? []) console.log(log);
+    console.log("Failed to build node bundle: success=" + result?.success + ", outputs=" + (result?.outputs?.length ?? 0));
     process.exit(1);
 }}
 "#
@@ -880,8 +903,9 @@ plugin(p)
                 r#"
 {loader}
 
+let result;
 try {{
-    await Bun.build({{
+    result = await Bun.build({{
         entrypoints: ["{job_dir_js}/main.ts"],
         outdir: "./",
         target: "{}",
@@ -896,6 +920,11 @@ try {{
 }} catch(err) {{
     console.log(err)
     console.log("Failed to build node bundle");
+    process.exit(1);
+}}
+if (!result?.success || !(result.outputs?.length > 0)) {{
+    for (const log of result?.logs ?? []) console.log(log);
+    console.log("Failed to build node bundle: success=" + result?.success + ", outputs=" + (result?.outputs?.length ?? 0));
     process.exit(1);
 }}
 "#,
@@ -988,7 +1017,7 @@ pub async fn generate_bun_bundle(
     #[cfg(windows)]
     child.env("SystemRoot", SYSTEM_ROOT.as_str());
 
-    let mut child_process = start_child_process(child, &*BUN_PATH, false).await?;
+    let child_process = start_child_process(child, &*BUN_PATH, false).await?;
     if let Some(db) = db {
         handle_child(
             job_id,
@@ -1008,7 +1037,15 @@ pub async fn generate_bun_bundle(
         )
         .await?;
     } else {
-        Box::into_pin(child_process.wait()).await?;
+        let output = Box::into_pin(child_process.wait_with_output()).await?;
+        if !output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(error::Error::ExecutionErr(format!(
+                "bun build exited with non-zero status: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+                output.status
+            )));
+        }
     }
     Ok(())
 }
@@ -1073,7 +1110,11 @@ async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<PulledCode
                 let bytes = attempt_fetch_bytes(os, &path).await?;
                 tracing::info!("loading {bun_cache_path} from object store");
 
-                std::fs::write(&bun_cache_path, &bytes)?;
+                windmill_common::worker::atomic_write_file_bytes(
+                    &bun_cache_path,
+                    bytes.as_ref(),
+                    false,
+                )?;
                 extract_saved_codebase(job_dir, &bun_cache_path, is_tar, &dst, false)?;
             }
         }
@@ -1120,8 +1161,15 @@ pub async fn prebundle_bun_script(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     temp_script_refs: &Option<HashMap<String, String>>,
 ) -> Result<()> {
-    let (local_path, remote_path) =
-        compute_bundle_local_and_remote_path(inner_content, lock, script_path, db, w_id).await;
+    let (local_path, remote_path) = compute_bundle_local_and_remote_path(
+        inner_content,
+        lock,
+        script_path,
+        db,
+        w_id,
+        temp_script_refs,
+    )
+    .await;
     if exists_in_cache(&local_path, &remote_path).await {
         return Ok(());
     }
@@ -1137,6 +1185,9 @@ pub async fn prebundle_bun_script(
         content = format!("export {{ WorkflowCtx, StepSuspend, setWorkflowCtx }} from \"windmill-client\";\n{content}");
     }
     write_file(job_dir, "main.ts", &content)?;
+    // Remove any stale main.js so we never confuse a leftover (e.g. unbundled TS source
+    // a caller dropped at this path) with a fresh Bun bundle output.
+    let _ = std::fs::remove_file(&origin);
     build_loader(
         job_dir,
         base_internal_url,
@@ -1170,8 +1221,22 @@ pub async fn prebundle_bun_script(
     )
     .await?;
 
+    ensure_bundle_output_exists(&origin)?;
+
     save_cache(&local_path, &remote_path, &origin, false).await?;
 
+    Ok(())
+}
+
+/// Refuse to cache a bundle if `Bun.build` finished without producing the
+/// expected output file. Belt-and-suspenders for any silent-failure mode the
+/// upstream wait-status / `result.success` checks don't already trip on.
+pub fn ensure_bundle_output_exists(bundle_path: &str) -> Result<()> {
+    if !std::path::Path::new(bundle_path).exists() {
+        return Err(error::Error::ExecutionErr(format!(
+            "bun bundle output missing at {bundle_path} after Bun.build — refusing to cache"
+        )));
+    }
     Ok(())
 }
 
@@ -1195,6 +1260,7 @@ pub async fn compute_bundle_local_and_remote_path(
     script_path: &str,
     db: Option<&DB>,
     w_id: &str,
+    temp_script_refs: &Option<HashMap<String, String>>,
 ) -> (String, String) {
     let mut input_src = format!("{inner_content}{lock}",);
 
@@ -1211,6 +1277,18 @@ pub async fn compute_bundle_local_and_remote_path(
             }
         }
     };
+
+    // Keep temp-script-ref (preview) bundles in a distinct cache slot: their
+    // imports come from not-yet-deployed local content, so they must neither
+    // reuse a deployed-content bundle nor be saved under the deployed key.
+    if let Some(refs) = temp_script_refs {
+        let mut entries: Vec<(&String, &String)> = refs.iter().collect();
+        entries.sort();
+        for (path, hash) in entries {
+            input_src.push_str(path);
+            input_src.push_str(hash);
+        }
+    }
 
     let ws_suffix = crate::workspace_registry_cache_suffix(w_id).await;
     input_src.push_str(&ws_suffix);
@@ -1276,6 +1354,22 @@ pub async fn handle_bun_job(
 ) -> error::Result<Box<RawValue>> {
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
+    // Preview jobs may carry _TEMP_SCRIPT_REFS so relative imports resolve from
+    // not-yet-deployed local content uploaded to raw_script_temp. Extracted up
+    // front so it reaches both lockfile generation and the runtime loader.
+    // Gated on JobKind::Preview because job.args includes caller-controlled
+    // request args; honoring this key on deployed runs would let a caller swap
+    // import resolution targets in deployed code.
+    let temp_script_refs: Option<HashMap<String, String>> = if matches!(job.kind, JobKind::Preview)
+    {
+        job.args
+            .as_ref()
+            .and_then(|x| x.get("_TEMP_SCRIPT_REFS"))
+            .and_then(|v| serde_json::from_str(v.get()).ok())
+    } else {
+        None
+    };
+
     if annotation.sandbox && NSJAIL_AVAILABLE.is_none() {
         return Err(error::Error::ExecutionErr(
             "Script has //sandbox annotation but nsjail is not available on this worker. \
@@ -1296,6 +1390,7 @@ pub async fn handle_bun_job(
                     job.runnable_path(),
                     Some(db),
                     &job.workspace_id,
+                    &temp_script_refs,
                 )
                 .await
             }
@@ -1455,7 +1550,7 @@ pub async fn handle_bun_job(
                     workspace_dependencies,
                     annotation.npm,
                     &mut Some(occupancy_metrics),
-                    &None,
+                    &temp_script_refs,
                     wac_replay_info.is_some(),
                 )
                 .await?;
@@ -1829,7 +1924,7 @@ try {{
                 } else {
                     LoaderMode::BunBundle
                 },
-                &None,
+                &temp_script_refs,
             )
             .await?;
 
@@ -1846,7 +1941,7 @@ try {{
                 } else {
                     LoaderMode::Bun
                 },
-                &None,
+                &temp_script_refs,
             )
             .await
         } else {
@@ -1902,15 +1997,10 @@ try {{
                 &mut Some(occupancy_metrics),
             )
             .await?;
+            let bundle_path = format!("{job_dir}/main.js");
+            ensure_bundle_output_exists(&bundle_path)?;
             if !local_path.is_empty() {
-                match save_cache(
-                    &local_path,
-                    &remote_path,
-                    &format!("{job_dir}/main.js"),
-                    false,
-                )
-                .await
-                {
+                match save_cache(&local_path, &remote_path, &bundle_path, false).await {
                     Err(e) => {
                         let em = format!("could not save {local_path} to bundle cache: {e:?}");
                         tracing::error!(em)
@@ -2095,6 +2185,10 @@ try {{
                 )
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                )
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
 
@@ -2124,6 +2218,7 @@ try {{
                 "--",
                 &BUN_PATH,
                 "run",
+                "--preserve-symlinks",
                 "-i",
                 "--prefer-offline",
                 "-r",
@@ -2190,6 +2285,7 @@ try {{
             } else {
                 vec![
                     "run",
+                    "--preserve-symlinks",
                     "-i",
                     "--prefer-offline",
                     "-r",
@@ -3847,6 +3943,7 @@ pub async fn start_worker(
             common_bun_proc_envs,
             vec![
                 "run",
+                "--preserve-symlinks",
                 "-i",
                 "--prefer-offline",
                 "-r",

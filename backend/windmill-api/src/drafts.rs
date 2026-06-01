@@ -79,7 +79,8 @@ async fn create_draft(
         "INSERT INTO draft
             (workspace_id, path, value, typ)
             VALUES ($1, $2, $3::text::json, $4)
-            ON CONFLICT (workspace_id, path, typ) DO UPDATE SET value = EXCLUDED.value",
+            ON CONFLICT (workspace_id, path, typ)
+            DO UPDATE SET value = EXCLUDED.value, created_at = now()",
         &w_id,
         draft.path,
         //to preserve key orders

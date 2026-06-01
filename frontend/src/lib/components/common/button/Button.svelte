@@ -385,7 +385,11 @@
 				{@render children?.()}
 			{/if}
 			{#if endIcon?.icon}
-				<endIcon.icon class={twMerge('shrink-0', endIcon?.classes)} size={lucideIconSize} />
+				<endIcon.icon
+					class={twMerge('shrink-0', endIcon?.classes)}
+					size={lucideIconSize}
+					{...endIcon.props}
+				/>
 			{/if}
 			{#if shortCut && !shortCut.hide}
 				<div
@@ -434,7 +438,11 @@
 				{@render children?.()}
 			{/if}
 			{#if endIcon?.icon}
-				<endIcon.icon class={twMerge('shrink-0', endIcon?.classes)} size={lucideIconSize} />
+				<endIcon.icon
+					class={twMerge('shrink-0', endIcon?.classes)}
+					size={lucideIconSize}
+					{...endIcon.props}
+				/>
 			{/if}
 			{#if shortCut && !shortCut.hide}
 				{@const Icon = shortCut.Icon}

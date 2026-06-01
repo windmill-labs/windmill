@@ -25,6 +25,7 @@
 	import { saveAzureTriggerFromCfg } from './utils'
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import { deepEqual } from 'fast-equals'
+	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { base } from '$lib/base'
@@ -106,6 +107,16 @@
 
 	let hasChanged = $derived(!deepEqual(getAzureConfig(), originalConfig ?? {}))
 	const azureConfig = $derived.by(getAzureConfig)
+
+	const draftSync = useTriggerDraftSync({
+		itemKind: 'trigger_azure',
+		path: () => initialPath,
+		workspace: () => $workspaceStore,
+		drawerLoading: () => drawerLoading,
+		getCfg: () => azureConfig,
+		applyCfg: loadTriggerConfig,
+		deployed: () => originalConfig
+	})
 	const saveDisabled = $derived(
 		pathError != '' || emptyString(script_path) || !isValid || !can_write || !hasChanged
 	)
@@ -124,14 +135,15 @@
 			edit = true
 			dirtyPath = false
 			await loadTrigger(defaultValues)
+			if (!defaultValues) {
+				initialConfig = structuredClone($state.snapshot(getAzureConfig()))
+			}
 			originalConfig = structuredClone($state.snapshot(getAzureConfig()))
+			await draftSync.maybeRestore(ePath)
 		} catch (err) {
 			sendUserToast(`Could not load Azure trigger: ${err.body}`, true)
 		} finally {
 			drawerLoading = false
-			if (!defaultValues) {
-				initialConfig = structuredClone($state.snapshot(getAzureConfig()))
-			}
 		}
 	}
 
@@ -210,6 +222,7 @@
 
 	async function updateTrigger(): Promise<void> {
 		deploymentLoading = true
+		const previousPath = initialPath
 		const cfg = azureConfig
 		if (!cfg) return
 		const isSaved = await saveAzureTriggerFromCfg(
@@ -220,6 +233,7 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
+			draftSync.discard(previousPath, getAzureConfig())
 			onUpdate?.(cfg.path)
 			originalConfig = structuredClone($state.snapshot(getAzureConfig()))
 			initialPath = cfg.path

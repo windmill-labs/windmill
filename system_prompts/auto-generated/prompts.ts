@@ -324,6 +324,389 @@ Reference a specific resource using \`$res:\` prefix:
 \`\`\`
 `;
 
+export const RESOURCES_BASE = `# Windmill Resources
+
+Resources store credentials and configuration for external services.
+
+## File Format
+
+Resource files use the pattern: \`{path}.resource.json\`
+
+Example: \`f/databases/postgres_prod.resource.json\`
+
+## Resource Structure
+
+\`\`\`json
+{
+  "value": {
+    "host": "db.example.com",
+    "port": 5432,
+    "user": "admin",
+    "password": "$var:g/all/db_password",
+    "dbname": "production"
+  },
+  "description": "Production PostgreSQL database",
+  "resource_type": "postgresql"
+}
+\`\`\`
+
+## Required Fields
+
+- \`value\` - Object containing the resource configuration
+- \`resource_type\` - Name of the resource type (e.g., "postgresql", "slack")
+
+## Variable References
+
+Reference variables in resource values:
+
+\`\`\`json
+{
+  "value": {
+    "api_key": "$var:g/all/api_key",
+    "secret": "$var:u/admin/secret"
+  }
+}
+\`\`\`
+
+**Reference formats:**
+- \`$var:g/all/name\` - Global variable
+- \`$var:u/username/name\` - User variable
+- \`$var:f/folder/name\` - Folder variable
+
+## Resource References
+
+Reference other resources:
+
+\`\`\`json
+{
+  "value": {
+    "database": "$res:f/databases/postgres"
+  }
+}
+\`\`\`
+
+## Common Resource Types
+
+### PostgreSQL
+\`\`\`json
+{
+  "resource_type": "postgresql",
+  "value": {
+    "host": "localhost",
+    "port": 5432,
+    "user": "postgres",
+    "password": "$var:g/all/pg_password",
+    "dbname": "windmill",
+    "sslmode": "prefer"
+  }
+}
+\`\`\`
+
+### MySQL
+\`\`\`json
+{
+  "resource_type": "mysql",
+  "value": {
+    "host": "localhost",
+    "port": 3306,
+    "user": "root",
+    "password": "$var:g/all/mysql_password",
+    "database": "myapp"
+  }
+}
+\`\`\`
+
+### Slack
+\`\`\`json
+{
+  "resource_type": "slack",
+  "value": {
+    "token": "$var:g/all/slack_token"
+  }
+}
+\`\`\`
+
+### AWS S3
+\`\`\`json
+{
+  "resource_type": "s3",
+  "value": {
+    "bucket": "my-bucket",
+    "region": "us-east-1",
+    "accessKeyId": "$var:g/all/aws_access_key",
+    "secretAccessKey": "$var:g/all/aws_secret_key"
+  }
+}
+\`\`\`
+
+### HTTP/API
+\`\`\`json
+{
+  "resource_type": "http",
+  "value": {
+    "baseUrl": "https://api.example.com",
+    "headers": {
+      "Authorization": "Bearer $var:g/all/api_token"
+    }
+  }
+}
+\`\`\`
+
+### Kafka
+\`\`\`json
+{
+  "resource_type": "kafka",
+  "value": {
+    "brokers": "broker1:9092,broker2:9092",
+    "sasl_mechanism": "PLAIN",
+    "security_protocol": "SASL_SSL",
+    "username": "$var:g/all/kafka_user",
+    "password": "$var:g/all/kafka_password"
+  }
+}
+\`\`\`
+
+### NATS
+\`\`\`json
+{
+  "resource_type": "nats",
+  "value": {
+    "servers": ["nats://localhost:4222"],
+    "user": "$var:g/all/nats_user",
+    "password": "$var:g/all/nats_password"
+  }
+}
+\`\`\`
+
+### MQTT
+\`\`\`json
+{
+  "resource_type": "mqtt",
+  "value": {
+    "host": "mqtt.example.com",
+    "port": 8883,
+    "username": "$var:g/all/mqtt_user",
+    "password": "$var:g/all/mqtt_password",
+    "tls": true
+  }
+}
+\`\`\`
+
+## Custom Resource Types
+
+Create custom resource types with JSON Schema:
+
+\`\`\`json
+{
+  "name": "custom_api",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "base_url": {"type": "string", "format": "uri"},
+      "api_key": {"type": "string"},
+      "timeout": {"type": "integer", "default": 30}
+    },
+    "required": ["base_url", "api_key"]
+  },
+  "description": "Custom API connection"
+}
+\`\`\`
+
+Save as: \`custom_api.resource-type.json\`
+
+## OAuth Resources
+
+OAuth resources are managed through the Windmill UI and marked:
+
+\`\`\`json
+{
+  "is_oauth": true,
+  "account": 123
+}
+\`\`\`
+
+OAuth tokens are automatically refreshed by Windmill.
+
+## Using Resources in Scripts
+
+### TypeScript (Bun/Deno)
+\`\`\`typescript
+export async function main(db: RT.Postgresql) {
+  // db contains the resource values
+  const { host, port, user, password, dbname } = db;
+}
+\`\`\`
+
+### Python
+\`\`\`python
+class postgresql(TypedDict):
+    host: str
+    port: int
+    user: str
+    password: str
+    dbname: str
+
+def main(db: postgresql):
+    # db contains the resource values
+    pass
+\`\`\`
+
+## CLI Commands
+
+\`\`\`bash
+# List resources
+wmill resource list
+
+# List resource types with schemas
+wmill resource-type list --schema
+
+# Get specific resource type schema
+wmill resource-type get postgresql
+
+# Push resources (tell the user to run this, do NOT run it yourself)
+wmill sync push
+\`\`\`
+`;
+
+export const RAW_APP_BASE = `# Windmill Raw Apps
+
+Raw apps let you build custom frontends with React, Svelte, or Vue that connect to Windmill backend runnables and datatables.
+
+## App shape
+
+A raw app has three logical parts:
+
+- **Frontend** — bundled with esbuild from \`index.tsx\` as the entrypoint. Files include the entrypoint, components (\`App.tsx\`), styles, etc.
+- **Backend runnables** — server-side scripts the frontend calls, each addressed by a unique key.
+- **Data** — optional whitelisted datatables (managed PostgreSQL) that the backend runnables can query. The frontend never queries the database directly; backend runnables are the only bridge.
+
+## Frontend
+
+### Entrypoint
+
+\`index.tsx\` is the bundling entrypoint. It typically renders a top-level \`App\` component. The bundler is esbuild.
+
+### Generated bindings (\`wmill.d.ts\` / \`wmill.ts\`)
+
+The frontend imports a generated module that mirrors the backend runnables. **Never write to it directly** — it gets regenerated whenever backend runnables change. Modifying it by hand will be overwritten.
+
+### Calling backend runnables
+
+Import the generated bindings and call the runnable like a function:
+
+\`\`\`typescript
+import { backend } from './wmill';
+
+// Call a backend runnable
+const user = await backend.get_user({ user_id: '123' });
+\`\`\`
+
+The frontend cannot reach datatables, workspace items, or external services on its own — it goes through \`backend.<key>(args)\` for everything server-side.
+
+## Backend runnables
+
+Each runnable has a unique key (used to call it from the frontend) and one of four types:
+
+| Type | What it is |
+|---|---|
+| \`inline\` | Custom code stored on the app itself. Most common for app-specific logic. |
+| \`script\` | Reference to an existing workspace script by path. |
+| \`flow\` | Reference to an existing workspace flow by path. |
+| \`hubscript\` | Reference to a hub script by path. |
+
+### Inline runnables
+
+Inline runnables carry their own source code. For file-based raw apps, the runnable language is determined by the backend file extension. The script must expose a \`main\` function as its entrypoint.
+
+**TypeScript example** (\`backend/get_user.ts\`):
+
+\`\`\`typescript
+import * as wmill from 'windmill-client';
+
+export async function main(user_id: string) {
+  const sql = wmill.datatable();
+  const user = await sql\`SELECT * FROM users WHERE id = \${user_id}\`.fetchOne();
+  return user;
+}
+\`\`\`
+
+**Python example** (\`backend/get_user.py\`):
+
+\`\`\`python
+import wmill
+
+def main(user_id: str):
+    db = wmill.datatable()
+    user = db.query('SELECT * FROM users WHERE id = $1', user_id).fetch_one()
+    return user
+\`\`\`
+
+### Path runnables (script / flow / hubscript)
+
+When \`type\` is \`script\`, \`flow\`, or \`hubscript\`, the runnable just stores a \`path\` to an existing workspace or hub item — no inline code. The referenced item's input/output schema becomes the runnable's surface.
+
+### Static inputs
+
+\`staticInputs\` is an optional \`Record<string, any>\` for arguments not overridable from the frontend. Useful with path runnables to pre-fill some args while leaving the rest to the frontend caller.
+
+## Data Tables
+
+Data tables are PostgreSQL databases managed by Windmill. Backend runnables query them via the \`wmill\` client; the frontend never queries them directly.
+
+### Critical rules
+
+1. **Whitelisted tables only**: a runnable can only query tables listed in the app's \`data.tables\` config. Tables not in this list are not accessible.
+2. **Add tables before using**: queries against unlisted tables fail at runtime. When you introduce a new table, register it in \`data.tables\` first.
+3. **Use the configured datatable/schema**: the app's \`data\` config sets the default datatable and schema; reference them consistently across runnables.
+
+### Querying in TypeScript (Bun/Deno)
+
+\`\`\`typescript
+import * as wmill from 'windmill-client';
+
+export async function main(user_id: string) {
+  const sql = wmill.datatable();  // Or: wmill.datatable('other_datatable')
+
+  // Parameterized queries (safe from SQL injection)
+  const user = await sql\`SELECT * FROM users WHERE id = \${user_id}\`.fetchOne();
+  const users = await sql\`SELECT * FROM users WHERE active = \${true}\`.fetch();
+
+  // Insert/Update
+  await sql\`INSERT INTO users (name, email) VALUES (\${name}, \${email})\`;
+  await sql\`UPDATE users SET name = \${newName} WHERE id = \${user_id}\`;
+
+  return user;
+}
+\`\`\`
+
+### Querying in Python
+
+\`\`\`python
+import wmill
+
+def main(user_id: str):
+    db = wmill.datatable()  # Or: wmill.datatable('other_datatable')
+
+    # Use $1, $2, etc. for parameters
+    user = db.query('SELECT * FROM users WHERE id = $1', user_id).fetch_one()
+    users = db.query('SELECT * FROM users WHERE active = $1', True).fetch()
+
+    # Insert/Update
+    db.query('INSERT INTO users (name, email) VALUES ($1, $2)', name, email)
+    db.query('UPDATE users SET name = $1 WHERE id = $2', new_name, user_id)
+
+    return user
+\`\`\`
+
+## Best Practices
+
+1. **Check existing tables** before creating new ones — reuse beats schema growth.
+2. **Use parameterized queries** — never concatenate user input into SQL.
+3. **Keep runnables focused** — one function per runnable; small surface area.
+4. **Use descriptive keys** — \`get_user\`, not \`a\`.
+5. **Always whitelist tables** — adding a runnable that queries a new table requires the table to be in \`data.tables\` first.
+`;
+
 export const WORKFLOW_AS_CODE_BASE = `# Windmill Workflow-as-Code Writing Guide
 
 ## Scope
@@ -332,12 +715,12 @@ Use this guide when writing or modifying Windmill Workflow-as-Code (WAC) scripts
 WAC is authored as a Windmill script and deployed with the normal script workflow. It is not an OpenFlow YAML flow.
 
 Supported WAC authoring targets:
-- TypeScript scripts that import from \`windmill-client\`
+- Bun TypeScript scripts that import from \`windmill-client\`
 - Python 3 scripts that import from \`wmill\`
 
 ## File Shape
 
-TypeScript:
+Bun TypeScript:
 
 \`\`\`typescript
 import {
@@ -379,7 +762,7 @@ async def main(x: str):
 
 Rules:
 - Do not call \`main\`.
-- TypeScript should export the workflow entrypoint, preferably \`export const main = workflow(async (...) => { ... })\`.
+- Bun TypeScript should export the workflow entrypoint, preferably \`export const main = workflow(async (...) => { ... })\`.
 - Python must use \`@workflow\` on an async top-level function, usually \`main\`.
 - Define task functions and \`taskScript\`/\`task_script\` or \`taskFlow\`/\`task_flow\` assignments at module top level with stable names.
 - Use the exact SDK names. Do not alias \`workflow\`, \`task\`, \`taskScript\`, \`taskFlow\`, \`step\`, \`sleep\`, \`waitForApproval\`, \`task_script\`, \`task_flow\`, or \`wait_for_approval\`; the WAC parser recognizes these names directly.
@@ -782,9 +1165,10 @@ async duckdbConnectionSettings(s3_resource_path: string | undefined): Promise<an
 /**
  * Get S3 client settings from a resource or workspace default
  * @param s3_resource_path - Path to S3 resource (uses workspace default if undefined)
+ * @param workspace - Workspace to read from (defaults to the \`WM_WORKSPACE\` env var)
  * @returns S3 client configuration settings
  */
-async denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<DenoS3LightClientSettings>
+async denoS3LightClientSettings(s3_resource_path: string | undefined, workspace: string | undefined = undefined): Promise<DenoS3LightClientSettings>
 
 /**
  * Load the content of a file stored in S3. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
@@ -795,8 +1179,10 @@ async denoS3LightClientSettings(s3_resource_path: string | undefined): Promise<D
  * const text = new TextDecoder().decode(fileContentStream)
  * console.log(text);
  * \`\`\`
+ * 
+ * @param workspace - Workspace to read from (defaults to the \`WM_WORKSPACE\` env var)
  */
-async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Uint8Array | undefined>
+async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefined, workspace: string | undefined = undefined): Promise<Uint8Array | undefined>
 
 /**
  * Load the content of a file stored in S3 as a stream. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
@@ -806,8 +1192,10 @@ async loadS3File(s3object: S3Object, s3ResourcePath: string | undefined = undefi
  * // if the content is plain text, the blob can be read directly:
  * console.log(await fileContentBlob.text());
  * \`\`\`
+ * 
+ * @param workspace - Workspace to read from (defaults to the \`WM_WORKSPACE\` env var)
  */
-async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = undefined): Promise<Blob | undefined>
+async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = undefined, workspace: string | undefined = undefined): Promise<Blob | undefined>
 
 /**
  * Persist a file to the S3 bucket. If the s3ResourcePath is undefined, it will default to the workspace S3 resource.
@@ -817,8 +1205,22 @@ async loadS3FileStream(s3object: S3Object, s3ResourcePath: string | undefined = 
  * const fileContentAsUtf8Str = (await s3object.toArray()).toString('utf-8')
  * console.log(fileContentAsUtf8Str)
  * \`\`\`
+ * 
+ * @param workspace - Workspace to write to (defaults to the \`WM_WORKSPACE\` env var)
  */
-async writeS3File(s3object: S3Object | undefined, fileContent: string | Blob, s3ResourcePath: string | undefined = undefined, contentType: string | undefined = undefined, contentDisposition: string | undefined = undefined): Promise<S3Object>
+async writeS3File(s3object: S3Object | undefined, fileContent: string | Blob, s3ResourcePath: string | undefined = undefined, contentType: string | undefined = undefined, contentDisposition: string | undefined = undefined, workspace: string | undefined = undefined): Promise<S3Object>
+
+/**
+ * Permanently delete a file from S3 by key.
+ * 
+ * \`\`\`typescript
+ * await wmill.deleteS3File({ s3: "path/to/file.txt" })
+ * \`\`\`
+ * 
+ * @param s3object - S3 object identifying the file to delete (must have \`s3\` set)
+ * @param workspace - Workspace to delete from (defaults to the \`WM_WORKSPACE\` env var)
+ */
+async deleteS3File(s3object: S3Object, workspace: string | undefined = undefined): Promise<void>
 
 /**
  * Sign S3 objects to be used by anonymous users in public apps
@@ -2144,7 +2546,7 @@ class SqlQuery:
 
 export const OPENFLOW_SCHEMA = `## OpenFlow Schema
 
-{"OpenFlow":{"type":"object","description":"Top-level flow definition containing metadata, configuration, and the flow structure","properties":{"summary":{"type":"string","description":"Short description of what this flow does"},"description":{"type":"string","description":"Detailed documentation for this flow"},"value":{"$ref":"#/components/schemas/FlowValue"},"schema":{"type":"object","description":"JSON Schema for flow inputs. Use this to define input parameters, their types, defaults, and validation. For resource inputs, set type to 'object' and format to 'resource-<type>' (e.g., 'resource-stripe')"},"on_behalf_of_email":{"type":"string","description":"The flow will be run with the permissions of the user with this email."}},"required":["summary","value"]},"FlowValue":{"type":"object","description":"The flow structure containing modules and optional preprocessor/failure handlers","properties":{"modules":{"type":"array","description":"Array of steps that execute in sequence. Each step can be a script, subflow, loop, or branch","items":{"$ref":"#/components/schemas/FlowModule"}},"failure_module":{"description":"Special module that executes when the flow fails. Receives error object with message, name, stack, and step_id. Must have id 'failure'. Only supports script/rawscript types","$ref":"#/components/schemas/FlowModule"},"preprocessor_module":{"description":"Special module that runs before the first step on external triggers. Must have id 'preprocessor'. Only supports script/rawscript types. Cannot reference other step results","$ref":"#/components/schemas/FlowModule"},"same_worker":{"type":"boolean","description":"If true, all steps run on the same worker for better performance"},"concurrent_limit":{"type":"number","description":"Maximum number of concurrent executions of this flow"},"concurrency_key":{"type":"string","description":"Expression to group concurrent executions (e.g., by user ID)"},"concurrency_time_window_s":{"type":"number","description":"Time window in seconds for concurrent_limit"},"debounce_delay_s":{"type":"integer","description":"Delay in seconds to debounce flow executions"},"debounce_key":{"type":"string","description":"Expression to group debounced executions"},"debounce_args_to_accumulate":{"type":"array","description":"Arguments to accumulate across debounced executions","items":{"type":"string"}},"max_total_debouncing_time":{"type":"integer","description":"Maximum total time in seconds that a job can be debounced"},"max_total_debounces_amount":{"type":"integer","description":"Maximum number of times a job can be debounced"},"skip_expr":{"type":"string","description":"JavaScript expression to conditionally skip the entire flow"},"cache_ttl":{"type":"number","description":"Cache duration in seconds for flow results"},"cache_ignore_s3_path":{"type":"boolean"},"delete_after_secs":{"type":"integer","description":"If set, delete the flow job's args, result and logs after this many seconds following job completion"},"flow_env":{"type":"object","description":"Environment variables available to all steps. Values can be strings, JSON values, or special references: '$var:path' (workspace variable) or '$res:path' (resource).","additionalProperties":{}},"priority":{"type":"number","description":"Execution priority (higher numbers run first)"},"early_return":{"type":"string","description":"JavaScript expression to return early from the flow"},"chat_input_enabled":{"type":"boolean","description":"Whether this flow accepts chat-style input"},"notes":{"type":"array","description":"Sticky notes attached to the flow","items":{"$ref":"#/components/schemas/FlowNote"}},"groups":{"type":"array","description":"Semantic groups of modules for organizational purposes","items":{"$ref":"#/components/schemas/FlowGroup"}}},"required":["modules"]},"Retry":{"type":"object","description":"Retry configuration for failed module executions","properties":{"constant":{"type":"object","description":"Retry with constant delay between attempts","properties":{"attempts":{"type":"integer","description":"Number of retry attempts"},"seconds":{"type":"integer","description":"Seconds to wait between retries"}}},"exponential":{"type":"object","description":"Retry with exponential backoff (delay doubles each time)","properties":{"attempts":{"type":"integer","description":"Number of retry attempts"},"multiplier":{"type":"integer","description":"Multiplier for exponential backoff"},"seconds":{"type":"integer","minimum":1,"description":"Initial delay in seconds"},"random_factor":{"type":"integer","minimum":0,"maximum":100,"description":"Random jitter percentage (0-100) to avoid thundering herd"}}},"retry_if":{"$ref":"#/components/schemas/RetryIf"}}},"FlowNote":{"type":"object","description":"A sticky note attached to a flow for documentation and annotation","properties":{"id":{"type":"string","description":"Unique identifier for the note"},"text":{"type":"string","description":"Content of the note"},"position":{"type":"object","description":"Position of the note in the flow editor","properties":{"x":{"type":"number","description":"X coordinate"},"y":{"type":"number","description":"Y coordinate"}},"required":["x","y"]},"size":{"type":"object","description":"Size of the note in the flow editor","properties":{"width":{"type":"number","description":"Width in pixels"},"height":{"type":"number","description":"Height in pixels"}},"required":["width","height"]},"color":{"type":"string","description":"Color of the note (e.g., \\"yellow\\", \\"#ffff00\\")"},"type":{"type":"string","enum":["free","group"],"description":"Type of note - 'free' for standalone notes, 'group' for notes that group other nodes"},"locked":{"type":"boolean","default":false,"description":"Whether the note is locked and cannot be edited or moved"},"contained_node_ids":{"type":"array","items":{"type":"string"},"description":"For group notes, the IDs of nodes contained within this group"}},"required":["id","text","color","type"]},"FlowGroup":{"type":"object","description":"A semantic group of flow modules for organizational purposes. Does not affect execution \\u2014 modules remain in their original position in the flow. Groups provide naming and collapsibility in the editor. Members are computed dynamically from all nodes on paths between start_id and end_id.","properties":{"summary":{"type":"string","description":"Display name for this group"},"note":{"type":"string","description":"Markdown note shown below the group header"},"autocollapse":{"type":"boolean","default":false,"description":"If true, this group is collapsed by default in the flow editor. UI hint only."},"start_id":{"type":"string","description":"ID of the first flow module in this group (topological entry point)"},"end_id":{"type":"string","description":"ID of the last flow module in this group (topological exit point)"},"color":{"type":"string","description":"Color for the group in the flow editor"}},"required":["start_id","end_id"]},"RetryIf":{"type":"object","description":"Conditional retry based on error or result","properties":{"expr":{"type":"string","description":"JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables"}},"required":["expr"]},"StopAfterIf":{"type":"object","description":"Early termination condition for a module","properties":{"skip_if_stopped":{"type":"boolean","description":"If true, following steps are skipped when this condition triggers"},"expr":{"type":"string","description":"JavaScript expression evaluated after the module runs. Can use 'result' (step's result) or 'flow_input'. Return true to stop"},"error_message":{"type":"string","nullable":true,"description":"Custom error message when stopping with an error. Mutually exclusive with skip_if_stopped. If set to a non-empty string, the flow stops with this error. If empty string, a default error message is used. If null or omitted, no error is raised."}},"required":["expr"]},"FlowModule":{"type":"object","description":"A single step in a flow. Can be a script, subflow, loop, or branch","properties":{"id":{"type":"string","description":"Unique identifier for this step. Used to reference results via 'results.step_id'. Must be a valid identifier (alphanumeric, underscore, hyphen)"},"value":{"$ref":"#/components/schemas/FlowModuleValue"},"stop_after_if":{"description":"Early termination condition evaluated after this step completes","$ref":"#/components/schemas/StopAfterIf"},"stop_after_all_iters_if":{"description":"For loops only - early termination condition evaluated after all iterations complete","$ref":"#/components/schemas/StopAfterIf"},"skip_if":{"type":"object","description":"Conditionally skip this step based on previous results or flow inputs","properties":{"expr":{"type":"string","description":"JavaScript expression that returns true to skip. Can use 'flow_input' or 'results.<step_id>'"}},"required":["expr"]},"sleep":{"description":"Delay before executing this step (in seconds or as expression)","$ref":"#/components/schemas/InputTransform"},"cache_ttl":{"type":"number","description":"Cache duration in seconds for this step's results"},"cache_ignore_s3_path":{"type":"boolean"},"timeout":{"description":"Maximum execution time in seconds (static value or expression)","$ref":"#/components/schemas/InputTransform"},"delete_after_secs":{"type":"integer","description":"If set, delete the step's args, result and logs after this many seconds following job completion"},"summary":{"type":"string","description":"Short description of what this step does"},"mock":{"type":"object","description":"Mock configuration for testing without executing the actual step","properties":{"enabled":{"type":"boolean","description":"If true, return mock value instead of executing"},"return_value":{"description":"Value to return when mocked"}}},"suspend":{"type":"object","description":"Configuration for approval/resume steps that wait for user input","properties":{"required_events":{"type":"integer","description":"Number of approvals required before continuing"},"timeout":{"type":"integer","description":"Timeout in seconds before auto-continuing or canceling"},"resume_form":{"type":"object","description":"Form schema for collecting input when resuming","properties":{"schema":{"type":"object","description":"JSON Schema for the resume form"}}},"user_auth_required":{"type":"boolean","description":"If true, only authenticated users can approve"},"user_groups_required":{"description":"Expression or list of groups that can approve","$ref":"#/components/schemas/InputTransform"},"self_approval_disabled":{"type":"boolean","description":"If true, the user who started the flow cannot approve"},"hide_cancel":{"type":"boolean","description":"If true, hide the cancel button on the approval form"},"continue_on_disapprove_timeout":{"type":"boolean","description":"If true, continue flow on timeout instead of canceling"}}},"priority":{"type":"number","description":"Execution priority for this step (higher numbers run first)"},"continue_on_error":{"type":"boolean","description":"If true, flow continues even if this step fails"},"retry":{"description":"Retry configuration if this step fails","$ref":"#/components/schemas/Retry"},"debouncing":{"description":"Debounce configuration for this step (EE only)","type":"object","properties":{"debounce_delay_s":{"type":"integer","description":"Delay in seconds to debounce this step's executions across flow runs"},"debounce_key":{"type":"string","description":"Expression to group debounced executions. Supports $workspace and $args[name]. Default: $workspace/flow/<flow_path>-<step_id>"},"debounce_args_to_accumulate":{"type":"array","description":"Array-type arguments to accumulate across debounced executions","items":{"type":"string"}},"max_total_debouncing_time":{"type":"integer","description":"Maximum total time in seconds before forced execution"},"max_total_debounces_amount":{"type":"integer","description":"Maximum number of debounces before forced execution"}}}},"required":["value","id"]},"InputTransform":{"description":"Maps input parameters for a step. Can be a static value or a JavaScript expression that references previous results or flow inputs","oneOf":[{"$ref":"#/components/schemas/StaticTransform"},{"$ref":"#/components/schemas/JavascriptTransform"},{"$ref":"#/components/schemas/AiTransform"}],"discriminator":{"propertyName":"type","mapping":{"static":"#/components/schemas/StaticTransform","javascript":"#/components/schemas/JavascriptTransform","ai":"#/components/schemas/AiTransform"}}},"StaticTransform":{"type":"object","description":"Static value passed directly to the step. Use for hardcoded values or resource references like '$res:path/to/resource'","properties":{"value":{"description":"The static value. For resources, use format '$res:path/to/resource'"},"type":{"type":"string","enum":["static"]}},"required":["type"]},"JavascriptTransform":{"type":"object","description":"JavaScript expression evaluated at runtime. Can reference previous step results via 'results.step_id' or flow inputs via 'flow_input.property'. Inside loops, use 'flow_input.iter.value' for the current iteration value","properties":{"expr":{"type":"string","description":"JavaScript expression returning the value. Available variables - results (object with all previous step results), flow_input (flow inputs), flow_input.iter (in loops)"},"type":{"type":"string","enum":["javascript"]}},"required":["expr","type"]},"AiTransform":{"type":"object","description":"Value resolved by the AI runtime for this input. The AI engine decides how to satisfy the parameter.","properties":{"type":{"type":"string","enum":["ai"]}},"required":["type"]},"AIProviderKind":{"type":"string","description":"Supported AI provider types","enum":["openai","azure_openai","anthropic","mistral","deepseek","googleai","groq","openrouter","togetherai","customai","aws_bedrock"]},"ProviderConfig":{"type":"object","description":"Complete AI provider configuration with resource reference and model selection","properties":{"kind":{"$ref":"#/components/schemas/AIProviderKind"},"resource":{"type":"string","description":"Resource reference in format '$res:{resource_path}' pointing to provider credentials"},"model":{"type":"string","description":"Model identifier (e.g., 'gpt-4', 'claude-3-opus-20240229', 'gemini-pro')"}},"required":["kind","resource","model"]},"StaticProviderTransform":{"type":"object","description":"Static provider configuration passed directly to the AI agent","properties":{"value":{"$ref":"#/components/schemas/ProviderConfig"},"type":{"type":"string","enum":["static"]}},"required":["type","value"]},"ProviderTransform":{"description":"Provider configuration - can be static (ProviderConfig), JavaScript expression, or AI-determined","oneOf":[{"$ref":"#/components/schemas/StaticProviderTransform"},{"$ref":"#/components/schemas/JavascriptTransform"},{"$ref":"#/components/schemas/AiTransform"}],"discriminator":{"propertyName":"type","mapping":{"static":"#/components/schemas/StaticProviderTransform","javascript":"#/components/schemas/JavascriptTransform","ai":"#/components/schemas/AiTransform"}}},"MemoryOff":{"type":"object","description":"No conversation memory/context","properties":{"kind":{"type":"string","enum":["off"]}},"required":["kind"]},"MemoryAuto":{"type":"object","description":"Automatic context management","properties":{"kind":{"type":"string","enum":["auto"]},"context_length":{"type":"integer","description":"Maximum number of messages to retain in context"},"memory_id":{"type":"string","description":"Identifier for persistent memory across agent invocations"}},"required":["kind"]},"MemoryMessage":{"type":"object","description":"A single message in conversation history","properties":{"role":{"type":"string","enum":["user","assistant","system"]},"content":{"type":"string"}},"required":["role","content"]},"MemoryManual":{"type":"object","description":"Explicit message history","properties":{"kind":{"type":"string","enum":["manual"]},"messages":{"type":"array","items":{"$ref":"#/components/schemas/MemoryMessage"}}},"required":["kind","messages"]},"MemoryConfig":{"description":"Conversation memory configuration","oneOf":[{"$ref":"#/components/schemas/MemoryOff"},{"$ref":"#/components/schemas/MemoryAuto"},{"$ref":"#/components/schemas/MemoryManual"}],"discriminator":{"propertyName":"kind","mapping":{"off":"#/components/schemas/MemoryOff","auto":"#/components/schemas/MemoryAuto","manual":"#/components/schemas/MemoryManual"}}},"StaticMemoryTransform":{"type":"object","description":"Static memory configuration passed directly to the AI agent","properties":{"value":{"$ref":"#/components/schemas/MemoryConfig"},"type":{"type":"string","enum":["static"]}},"required":["type","value"]},"MemoryTransform":{"description":"Memory configuration - can be static (MemoryConfig), JavaScript expression, or AI-determined","oneOf":[{"$ref":"#/components/schemas/StaticMemoryTransform"},{"$ref":"#/components/schemas/JavascriptTransform"},{"$ref":"#/components/schemas/AiTransform"}],"discriminator":{"propertyName":"type","mapping":{"static":"#/components/schemas/StaticMemoryTransform","javascript":"#/components/schemas/JavascriptTransform","ai":"#/components/schemas/AiTransform"}}},"FlowModuleValue":{"description":"The actual implementation of a flow step. Can be a script (inline or referenced), subflow, loop, branch, or special module type","oneOf":[{"$ref":"#/components/schemas/RawScript"},{"$ref":"#/components/schemas/PathScript"},{"$ref":"#/components/schemas/PathFlow"},{"$ref":"#/components/schemas/ForloopFlow"},{"$ref":"#/components/schemas/WhileloopFlow"},{"$ref":"#/components/schemas/BranchOne"},{"$ref":"#/components/schemas/BranchAll"},{"$ref":"#/components/schemas/Identity"},{"$ref":"#/components/schemas/AiAgent"}],"discriminator":{"propertyName":"type","mapping":{"rawscript":"#/components/schemas/RawScript","script":"#/components/schemas/PathScript","flow":"#/components/schemas/PathFlow","forloopflow":"#/components/schemas/ForloopFlow","whileloopflow":"#/components/schemas/WhileloopFlow","branchone":"#/components/schemas/BranchOne","branchall":"#/components/schemas/BranchAll","identity":"#/components/schemas/Identity","aiagent":"#/components/schemas/AiAgent"}}},"RawScript":{"type":"object","description":"Inline script with code defined directly in the flow. Use 'bun' as default language if unspecified. The script receives arguments from input_transforms","properties":{"input_transforms":{"type":"object","description":"Map of parameter names to their values (static or JavaScript expressions). These become the script's input arguments","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}},"content":{"type":"string","description":"The script source code. Should export a 'main' function"},"language":{"type":"string","description":"Programming language for this script","enum":["deno","bun","python3","go","bash","powershell","postgresql","mysql","bigquery","snowflake","mssql","oracledb","graphql","nativets","php","rust","ansible","csharp","nu","java","ruby","rlang","duckdb"]},"path":{"type":"string","description":"Optional path for saving this script"},"lock":{"type":"string","description":"Lock file content for dependencies"},"type":{"type":"string","enum":["rawscript"]},"tag":{"type":"string","description":"Worker group tag for execution routing"},"concurrent_limit":{"type":"number","description":"Maximum concurrent executions of this script"},"concurrency_time_window_s":{"type":"number","description":"Time window for concurrent_limit"},"custom_concurrency_key":{"type":"string","description":"Custom key for grouping concurrent executions"},"is_trigger":{"type":"boolean","description":"If true, this script is a trigger that can start the flow"},"assets":{"type":"array","description":"External resources this script accesses (S3 objects, resources, etc.)","items":{"type":"object","required":["path","kind"],"properties":{"path":{"type":"string","description":"Path to the asset"},"kind":{"type":"string","description":"Type of asset","enum":["s3object","resource","ducklake","datatable","volume"]},"access_type":{"type":"string","nullable":true,"description":"Access level for this asset","enum":["r","w","rw"]},"alt_access_type":{"type":"string","nullable":true,"description":"Alternative access level","enum":["r","w","rw"]}}}}},"required":["type","content","language","input_transforms"]},"PathScript":{"type":"object","description":"Reference to an existing script by path. Use this when calling a previously saved script instead of writing inline code","properties":{"input_transforms":{"type":"object","description":"Map of parameter names to their values (static or JavaScript expressions). These become the script's input arguments","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}},"path":{"type":"string","description":"Path to the script in the workspace (e.g., 'f/scripts/send_email')"},"hash":{"type":"string","description":"Optional specific version hash of the script to use"},"type":{"type":"string","enum":["script"]},"tag_override":{"type":"string","description":"Override the script's default worker group tag"},"is_trigger":{"type":"boolean","description":"If true, this script is a trigger that can start the flow"}},"required":["type","path","input_transforms"]},"PathFlow":{"type":"object","description":"Reference to an existing flow by path. Use this to call another flow as a subflow","properties":{"input_transforms":{"type":"object","description":"Map of parameter names to their values (static or JavaScript expressions). These become the subflow's input arguments","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}},"path":{"type":"string","description":"Path to the flow in the workspace (e.g., 'f/flows/process_user')"},"type":{"type":"string","enum":["flow"]}},"required":["type","path","input_transforms"]},"ForloopFlow":{"type":"object","description":"Executes nested modules in a loop over an iterator. Inside the loop, use 'flow_input.iter.value' to access the current iteration value, and 'flow_input.iter.index' for the index. Supports parallel execution for better performance on I/O-bound operations","properties":{"modules":{"type":"array","description":"Steps to execute for each iteration. These can reference the iteration value via 'flow_input.iter.value'","items":{"$ref":"#/components/schemas/FlowModule"}},"iterator":{"description":"JavaScript expression that returns an array to iterate over. Can reference 'results.step_id' or 'flow_input'","$ref":"#/components/schemas/InputTransform"},"skip_failures":{"type":"boolean","description":"If true, iteration failures don't stop the loop. Failed iterations return null"},"type":{"type":"string","enum":["forloopflow"]},"parallel":{"type":"boolean","description":"If true, iterations run concurrently (faster for I/O-bound operations). Use with parallelism to control concurrency"},"parallelism":{"description":"Maximum number of concurrent iterations when parallel=true. Limits resource usage. Can be static number or expression","$ref":"#/components/schemas/InputTransform"},"squash":{"type":"boolean"}},"required":["modules","iterator","skip_failures","type"]},"WhileloopFlow":{"type":"object","description":"Executes nested modules repeatedly while a condition is true. The loop checks the condition after each iteration. Use stop_after_if on modules to control loop termination","properties":{"modules":{"type":"array","description":"Steps to execute in each iteration. Use stop_after_if to control when the loop ends","items":{"$ref":"#/components/schemas/FlowModule"}},"skip_failures":{"type":"boolean","description":"If true, iteration failures don't stop the loop. Failed iterations return null"},"type":{"type":"string","enum":["whileloopflow"]},"parallel":{"type":"boolean","description":"If true, iterations run concurrently (use with caution in while loops)"},"parallelism":{"description":"Maximum number of concurrent iterations when parallel=true","$ref":"#/components/schemas/InputTransform"},"squash":{"type":"boolean"}},"required":["modules","skip_failures","type"]},"BranchOne":{"type":"object","description":"Conditional branching where only the first matching branch executes. Branches are evaluated in order, and the first one with a true expression runs. If no branches match, the default branch executes","properties":{"branches":{"type":"array","description":"Array of branches to evaluate in order. The first branch with expr evaluating to true executes","items":{"type":"object","properties":{"summary":{"type":"string","description":"Short description of this branch condition"},"expr":{"type":"string","description":"JavaScript expression that returns boolean. Can use 'results.step_id' or 'flow_input'. First true expr wins"},"modules":{"type":"array","description":"Steps to execute if this branch's expr is true","items":{"$ref":"#/components/schemas/FlowModule"}}},"required":["modules","expr"]}},"default":{"type":"array","description":"Steps to execute if no branch expressions match","items":{"$ref":"#/components/schemas/FlowModule"}},"type":{"type":"string","enum":["branchone"]}},"required":["branches","default","type"]},"BranchAll":{"type":"object","description":"Parallel branching where all branches execute simultaneously. Unlike BranchOne, all branches run regardless of conditions. Useful for executing independent tasks concurrently","properties":{"branches":{"type":"array","description":"Array of branches that all execute (either in parallel or sequentially)","items":{"type":"object","properties":{"summary":{"type":"string","description":"Short description of this branch's purpose"},"skip_failure":{"type":"boolean","description":"If true, failure in this branch doesn't fail the entire flow"},"modules":{"type":"array","description":"Steps to execute in this branch","items":{"$ref":"#/components/schemas/FlowModule"}}},"required":["modules"]}},"type":{"type":"string","enum":["branchall"]},"parallel":{"type":"boolean","description":"If true, all branches execute concurrently. If false, they execute sequentially"}},"required":["branches","type"]},"AgentTool":{"type":"object","description":"A tool available to an AI agent. Can be a flow module or an external MCP (Model Context Protocol) tool","properties":{"id":{"type":"string","description":"Unique identifier for this tool. Cannot contain spaces - use underscores instead (e.g., 'get_user_data' not 'get user data')"},"summary":{"type":"string","description":"Short description of what this tool does (shown to the AI)"},"value":{"$ref":"#/components/schemas/ToolValue"}},"required":["id","value"]},"ToolValue":{"description":"The implementation of a tool. Can be a flow module (script/flow) or an MCP tool reference","oneOf":[{"$ref":"#/components/schemas/FlowModuleTool"},{"$ref":"#/components/schemas/McpToolValue"},{"$ref":"#/components/schemas/WebsearchToolValue"}],"discriminator":{"propertyName":"tool_type","mapping":{"flowmodule":"#/components/schemas/FlowModuleTool","mcp":"#/components/schemas/McpToolValue","websearch":"#/components/schemas/WebsearchToolValue"}}},"FlowModuleTool":{"description":"A tool implemented as a flow module (script, flow, etc.). The AI can call this like any other flow module","allOf":[{"type":"object","properties":{"tool_type":{"type":"string","enum":["flowmodule"]}},"required":["tool_type"]},{"$ref":"#/components/schemas/FlowModuleValue"}]},"WebsearchToolValue":{"type":"object","description":"A tool implemented as a websearch tool. The AI can call this like any other websearch tool","properties":{"tool_type":{"type":"string","enum":["websearch"]}},"required":["tool_type"]},"McpToolValue":{"type":"object","description":"Reference to an external MCP (Model Context Protocol) tool. The AI can call tools from MCP servers","properties":{"tool_type":{"type":"string","enum":["mcp"]},"resource_path":{"type":"string","description":"Path to the MCP resource/server configuration"},"include_tools":{"type":"array","description":"Whitelist of specific tools to include from this MCP server","items":{"type":"string"}},"exclude_tools":{"type":"array","description":"Blacklist of tools to exclude from this MCP server","items":{"type":"string"}}},"required":["tool_type","resource_path"]},"AiAgent":{"type":"object","description":"AI agent step that can use tools to accomplish tasks. The agent receives inputs and can call any of its configured tools to complete the task","properties":{"input_transforms":{"type":"object","description":"Input parameters for the AI agent mapped to their values","properties":{"provider":{"$ref":"#/components/schemas/ProviderTransform"},"output_type":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Output format type.\\nValid values: 'text' (default) - plain text response, 'image' - image generation\\n"},"user_message":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"The user's prompt/message to the AI agent. Supports variable interpolation with flow.input syntax."},"system_prompt":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"System instructions that guide the AI's behavior, persona, and response style. Optional."},"streaming":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Boolean. If true, stream the AI response incrementally.\\nStreaming events include: token_delta, tool_call, tool_call_arguments, tool_execution, tool_result\\n"},"memory":{"$ref":"#/components/schemas/MemoryTransform"},"output_schema":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"JSON Schema object defining structured output format. Used when you need the AI to return data in a specific shape.\\nSupports standard JSON Schema properties: type, properties, required, items, enum, pattern, minLength, maxLength, minimum, maximum, etc.\\nExample: { type: 'object', properties: { name: { type: 'string' }, age: { type: 'integer' } }, required: ['name'] }\\n"},"user_attachments":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Array of file references (images or PDFs) for the AI agent.\\nFormat: Array<{ bucket: string, key: string }> - S3 object references\\nExample: [{ bucket: 'my-bucket', key: 'documents/report.pdf' }]\\n"},"max_completion_tokens":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Integer. Maximum number of tokens the AI will generate in its response.\\nRange: 1 to 4,294,967,295. Typical values: 256-4096 for most use cases.\\n"},"temperature":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Float. Controls randomness/creativity of responses.\\nRange: 0.0 to 2.0 (provider-dependent)\\n- 0.0 = deterministic, focused responses\\n- 0.7 = balanced (common default)\\n- 1.0+ = more creative/random\\n"}},"required":["provider","user_message","output_type"]},"tools":{"type":"array","description":"Array of tools the agent can use. The agent decides which tools to call based on the task","items":{"$ref":"#/components/schemas/AgentTool"}},"type":{"type":"string","enum":["aiagent"]},"omit_output_from_conversation":{"type":"boolean","default":false,"description":"If true, this AI agent step does not persist its assistant or tool messages to the flow conversation when chat mode is enabled."},"parallel":{"type":"boolean","description":"If true, the agent can execute multiple tool calls in parallel"}},"required":["tools","type","input_transforms"]},"Identity":{"type":"object","description":"Pass-through module that returns its input unchanged. Useful for flow structure or as a placeholder","properties":{"type":{"type":"string","enum":["identity"]},"flow":{"type":"boolean","description":"If true, marks this as a flow identity (special handling)"}},"required":["type"]},"FlowStatus":{"type":"object","properties":{"step":{"type":"integer"},"modules":{"type":"array","items":{"$ref":"#/components/schemas/FlowStatusModule"}},"user_states":{"additionalProperties":true},"preprocessor_module":{"allOf":[{"$ref":"#/components/schemas/FlowStatusModule"}]},"failure_module":{"allOf":[{"$ref":"#/components/schemas/FlowStatusModule"},{"type":"object","properties":{"parent_module":{"type":"string"}}}]},"retry":{"type":"object","properties":{"fail_count":{"type":"integer"},"failed_jobs":{"type":"array","items":{"type":"string","format":"uuid"}}}}},"required":["step","modules","failure_module"]},"FlowStatusModule":{"type":"object","properties":{"type":{"type":"string","enum":["WaitingForPriorSteps","WaitingForEvents","WaitingForExecutor","InProgress","Success","Failure"]},"id":{"type":"string"},"job":{"type":"string","format":"uuid"},"count":{"type":"integer"},"progress":{"type":"integer"},"iterator":{"type":"object","properties":{"index":{"type":"integer"},"itered":{"type":"array","items":{}},"itered_len":{"type":"integer"},"args":{}}},"flow_jobs":{"type":"array","items":{"type":"string"}},"flow_jobs_success":{"type":"array","items":{"type":"boolean"}},"flow_jobs_duration":{"type":"object","properties":{"started_at":{"type":"array","items":{"type":"string"}},"duration_ms":{"type":"array","items":{"type":"integer"}}}},"branch_chosen":{"type":"object","properties":{"type":{"type":"string","enum":["branch","default"]},"branch":{"type":"integer"}},"required":["type"]},"branchall":{"type":"object","properties":{"branch":{"type":"integer"},"len":{"type":"integer"}},"required":["branch","len"]},"approvers":{"type":"array","items":{"type":"object","properties":{"resume_id":{"type":"integer"},"approver":{"type":"string"}},"required":["resume_id","approver"]}},"failed_retries":{"type":"array","items":{"type":"string","format":"uuid"}},"skipped":{"type":"boolean"},"agent_actions":{"type":"array","items":{"type":"object","oneOf":[{"type":"object","properties":{"job_id":{"type":"string","format":"uuid"},"function_name":{"type":"string"},"type":{"type":"string","enum":["tool_call"]},"module_id":{"type":"string"}},"required":["job_id","function_name","type","module_id"]},{"type":"object","properties":{"call_id":{"type":"string","format":"uuid"},"function_name":{"type":"string"},"resource_path":{"type":"string"},"type":{"type":"string","enum":["mcp_tool_call"]},"arguments":{"type":"object"}},"required":["call_id","function_name","resource_path","type"]},{"type":"object","properties":{"type":{"type":"string","enum":["web_search"]}},"required":["type"]},{"type":"object","properties":{"type":{"type":"string","enum":["message"]}},"required":["content","type"]}]}},"agent_actions_success":{"type":"array","items":{"type":"boolean"}}},"required":["type"]}}`;
+{"OpenFlow":{"type":"object","description":"Top-level flow definition containing metadata, configuration, and the flow structure","properties":{"summary":{"type":"string","description":"Short description of what this flow does"},"description":{"type":"string","description":"Detailed documentation for this flow"},"value":{"$ref":"#/components/schemas/FlowValue"},"schema":{"type":"object","description":"JSON Schema for flow inputs. Use this to define input parameters, their types, defaults, and validation. For resource inputs, set type to 'object' and format to 'resource-<type>' (e.g., 'resource-stripe')"},"on_behalf_of_email":{"type":"string","description":"The flow will be run with the permissions of the user with this email."}},"required":["summary","value"]},"FlowValue":{"type":"object","description":"The flow structure containing modules and optional preprocessor/failure handlers","properties":{"modules":{"type":"array","description":"Array of steps that execute in sequence. Each step can be a script, subflow, loop, or branch","items":{"$ref":"#/components/schemas/FlowModule"}},"failure_module":{"description":"Special module that executes when the flow fails. Receives error object with message, name, stack, and step_id. Must have id 'failure'. Only supports script/rawscript types","$ref":"#/components/schemas/FlowModule"},"preprocessor_module":{"description":"Special module that runs before the first step on external triggers. Must have id 'preprocessor'. Only supports script/rawscript types. Cannot reference other step results","$ref":"#/components/schemas/FlowModule"},"same_worker":{"type":"boolean","description":"If true, all steps run on the same worker for better performance"},"preserve_step_tags":{"type":"boolean","description":"If true and the flow runs on a custom worker tag, steps that declare their own non-empty tag run on it instead of inheriting the flow tag. Steps without their own tag still inherit the flow tag."},"concurrent_limit":{"type":"number","description":"Maximum number of concurrent executions of this flow"},"concurrency_key":{"type":"string","description":"Expression to group concurrent executions (e.g., by user ID)"},"concurrency_time_window_s":{"type":"number","description":"Time window in seconds for concurrent_limit"},"debounce_delay_s":{"type":"integer","description":"Delay in seconds to debounce flow executions"},"debounce_key":{"type":"string","description":"Expression to group debounced executions"},"debounce_args_to_accumulate":{"type":"array","description":"Arguments to accumulate across debounced executions","items":{"type":"string"}},"max_total_debouncing_time":{"type":"integer","description":"Maximum total time in seconds that a job can be debounced"},"max_total_debounces_amount":{"type":"integer","description":"Maximum number of times a job can be debounced"},"skip_expr":{"type":"string","description":"JavaScript expression to conditionally skip the entire flow"},"cache_ttl":{"type":"number","description":"Cache duration in seconds for flow results"},"cache_ignore_s3_path":{"type":"boolean"},"delete_after_secs":{"type":"integer","description":"If set, delete the flow job's args, result and logs after this many seconds following job completion"},"flow_env":{"type":"object","description":"Environment variables available to all steps. Values can be strings, JSON values, or special references: '$var:path' (workspace variable) or '$res:path' (resource).","additionalProperties":{}},"priority":{"type":"number","description":"Execution priority (higher numbers run first)"},"early_return":{"type":"string","description":"JavaScript expression to return early from the flow"},"chat_input_enabled":{"type":"boolean","description":"Whether this flow accepts chat-style input"},"notes":{"type":"array","description":"Sticky notes attached to the flow","items":{"$ref":"#/components/schemas/FlowNote"}},"groups":{"type":"array","description":"Semantic groups of modules for organizational purposes","items":{"$ref":"#/components/schemas/FlowGroup"}}},"required":["modules"]},"Retry":{"type":"object","description":"Retry configuration for failed module executions","properties":{"constant":{"type":"object","description":"Retry with constant delay between attempts","properties":{"attempts":{"type":"integer","description":"Number of retry attempts"},"seconds":{"type":"integer","description":"Seconds to wait between retries"}}},"exponential":{"type":"object","description":"Retry with exponential backoff (delay doubles each time)","properties":{"attempts":{"type":"integer","description":"Number of retry attempts"},"multiplier":{"type":"integer","description":"Multiplier for exponential backoff"},"seconds":{"type":"integer","minimum":1,"description":"Initial delay in seconds"},"random_factor":{"type":"integer","minimum":0,"maximum":100,"description":"Random jitter percentage (0-100) to avoid thundering herd"}}},"retry_if":{"$ref":"#/components/schemas/RetryIf"}}},"FlowNote":{"type":"object","description":"A sticky note attached to a flow for documentation and annotation","properties":{"id":{"type":"string","description":"Unique identifier for the note"},"text":{"type":"string","description":"Content of the note"},"position":{"type":"object","description":"Position of the note in the flow editor","properties":{"x":{"type":"number","description":"X coordinate"},"y":{"type":"number","description":"Y coordinate"}},"required":["x","y"]},"size":{"type":"object","description":"Size of the note in the flow editor","properties":{"width":{"type":"number","description":"Width in pixels"},"height":{"type":"number","description":"Height in pixels"}},"required":["width","height"]},"color":{"type":"string","description":"Color of the note (e.g., \\"yellow\\", \\"#ffff00\\")"},"type":{"type":"string","enum":["free","group"],"description":"Type of note - 'free' for standalone notes, 'group' for notes that group other nodes"},"locked":{"type":"boolean","default":false,"description":"Whether the note is locked and cannot be edited or moved"},"contained_node_ids":{"type":"array","items":{"type":"string"},"description":"For group notes, the IDs of nodes contained within this group"}},"required":["id","text","color","type"]},"FlowGroup":{"type":"object","description":"A semantic group of flow modules for organizational purposes. Does not affect execution \\u2014 modules remain in their original position in the flow. Groups provide naming and collapsibility in the editor. Members are computed dynamically from all nodes on paths between start_id and end_id.","properties":{"summary":{"type":"string","description":"Display name for this group"},"note":{"type":"string","description":"Markdown note shown below the group header"},"autocollapse":{"type":"boolean","default":false,"description":"If true, this group is collapsed by default in the flow editor. UI hint only."},"start_id":{"type":"string","description":"ID of the first flow module in this group (topological entry point)"},"end_id":{"type":"string","description":"ID of the last flow module in this group (topological exit point)"},"color":{"type":"string","description":"Color for the group in the flow editor"}},"required":["start_id","end_id"]},"RetryIf":{"type":"object","description":"Conditional retry based on error or result","properties":{"expr":{"type":"string","description":"JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables"}},"required":["expr"]},"StopAfterIf":{"type":"object","description":"Early termination condition for a module","properties":{"skip_if_stopped":{"type":"boolean","description":"If true, following steps are skipped when this condition triggers"},"expr":{"type":"string","description":"JavaScript expression evaluated after the module runs. Can use 'result' (step's result) or 'flow_input'. Return true to stop"},"error_message":{"type":"string","nullable":true,"description":"Custom error message when stopping with an error. Mutually exclusive with skip_if_stopped. If set to a non-empty string, the flow stops with this error. If empty string, a default error message is used. If null or omitted, no error is raised."}},"required":["expr"]},"FlowModule":{"type":"object","description":"A single step in a flow. Can be a script, subflow, loop, or branch","properties":{"id":{"type":"string","description":"Unique identifier for this step. Used to reference results via 'results.step_id'. Must be a valid identifier (alphanumeric, underscore, hyphen)"},"value":{"$ref":"#/components/schemas/FlowModuleValue"},"stop_after_if":{"description":"Early termination condition evaluated after this step completes","$ref":"#/components/schemas/StopAfterIf"},"stop_after_all_iters_if":{"description":"For loops only - early termination condition evaluated after all iterations complete","$ref":"#/components/schemas/StopAfterIf"},"skip_if":{"type":"object","description":"Conditionally skip this step based on previous results or flow inputs","properties":{"expr":{"type":"string","description":"JavaScript expression that returns true to skip. Can use 'flow_input' or 'results.<step_id>'"}},"required":["expr"]},"sleep":{"description":"Delay before executing this step (in seconds or as expression)","$ref":"#/components/schemas/InputTransform"},"cache_ttl":{"type":"number","description":"Cache duration in seconds for this step's results"},"cache_ignore_s3_path":{"type":"boolean"},"timeout":{"description":"Maximum execution time in seconds (static value or expression)","$ref":"#/components/schemas/InputTransform"},"delete_after_secs":{"type":"integer","description":"If set, delete the step's args, result and logs after this many seconds following job completion"},"summary":{"type":"string","description":"Short description of what this step does"},"mock":{"type":"object","description":"Mock configuration for testing without executing the actual step","properties":{"enabled":{"type":"boolean","description":"If true, return mock value instead of executing"},"return_value":{"description":"Value to return when mocked"}}},"suspend":{"type":"object","description":"Configuration for approval/resume steps that wait for user input","properties":{"required_events":{"type":"integer","description":"Number of approvals required before continuing"},"timeout":{"type":"integer","description":"Timeout in seconds before auto-continuing or canceling"},"resume_form":{"type":"object","description":"Form schema for collecting input when resuming","properties":{"schema":{"type":"object","description":"JSON Schema for the resume form"}}},"user_auth_required":{"type":"boolean","description":"If true, only authenticated users can approve"},"user_groups_required":{"description":"Expression or list of groups that can approve","$ref":"#/components/schemas/InputTransform"},"self_approval_disabled":{"type":"boolean","description":"If true, the user who started the flow cannot approve"},"hide_cancel":{"type":"boolean","description":"If true, hide the cancel button on the approval form"},"continue_on_disapprove_timeout":{"type":"boolean","description":"If true, continue flow on timeout instead of canceling"}}},"priority":{"type":"number","description":"Execution priority for this step (higher numbers run first)"},"continue_on_error":{"type":"boolean","description":"If true, flow continues even if this step fails"},"retry":{"description":"Retry configuration if this step fails","$ref":"#/components/schemas/Retry"},"debouncing":{"description":"Debounce configuration for this step (EE only)","type":"object","properties":{"debounce_delay_s":{"type":"integer","description":"Delay in seconds to debounce this step's executions across flow runs"},"debounce_key":{"type":"string","description":"Expression to group debounced executions. Supports $workspace and $args[name]. Default: $workspace/flow/<flow_path>-<step_id>"},"debounce_args_to_accumulate":{"type":"array","description":"Array-type arguments to accumulate across debounced executions","items":{"type":"string"}},"max_total_debouncing_time":{"type":"integer","description":"Maximum total time in seconds before forced execution"},"max_total_debounces_amount":{"type":"integer","description":"Maximum number of debounces before forced execution"}}}},"required":["value","id"]},"InputTransform":{"description":"Maps input parameters for a step. Can be a static value or a JavaScript expression that references previous results or flow inputs","oneOf":[{"$ref":"#/components/schemas/StaticTransform"},{"$ref":"#/components/schemas/JavascriptTransform"},{"$ref":"#/components/schemas/AiTransform"}],"discriminator":{"propertyName":"type","mapping":{"static":"#/components/schemas/StaticTransform","javascript":"#/components/schemas/JavascriptTransform","ai":"#/components/schemas/AiTransform"}}},"StaticTransform":{"type":"object","description":"Static value passed directly to the step. Use for hardcoded values or resource references like '$res:path/to/resource'","properties":{"value":{"description":"The static value. For resources, use format '$res:path/to/resource'"},"type":{"type":"string","enum":["static"]}},"required":["type"]},"JavascriptTransform":{"type":"object","description":"JavaScript expression evaluated at runtime. Can reference previous step results via 'results.step_id' or flow inputs via 'flow_input.property'. Inside loops, use 'flow_input.iter.value' for the current iteration value","properties":{"expr":{"type":"string","description":"JavaScript expression returning the value. Available variables - results (object with all previous step results), flow_input (flow inputs), flow_input.iter (in loops)"},"type":{"type":"string","enum":["javascript"]}},"required":["expr","type"]},"AiTransform":{"type":"object","description":"Value resolved by the AI runtime for this input. The AI engine decides how to satisfy the parameter.","properties":{"type":{"type":"string","enum":["ai"]}},"required":["type"]},"AIProviderKind":{"type":"string","description":"Supported AI provider types","enum":["openai","azure_openai","anthropic","mistral","deepseek","googleai","groq","openrouter","togetherai","customai","aws_bedrock"]},"ProviderConfig":{"type":"object","description":"Complete AI provider configuration with resource reference and model selection","properties":{"kind":{"$ref":"#/components/schemas/AIProviderKind"},"resource":{"type":"string","description":"Resource reference in format '$res:{resource_path}' pointing to provider credentials"},"model":{"type":"string","description":"Model identifier (e.g., 'gpt-4', 'claude-3-opus-20240229', 'gemini-pro')"}},"required":["kind","resource","model"]},"StaticProviderTransform":{"type":"object","description":"Static provider configuration passed directly to the AI agent","properties":{"value":{"$ref":"#/components/schemas/ProviderConfig"},"type":{"type":"string","enum":["static"]}},"required":["type","value"]},"ProviderTransform":{"description":"Provider configuration - can be static (ProviderConfig), JavaScript expression, or AI-determined","oneOf":[{"$ref":"#/components/schemas/StaticProviderTransform"},{"$ref":"#/components/schemas/JavascriptTransform"},{"$ref":"#/components/schemas/AiTransform"}],"discriminator":{"propertyName":"type","mapping":{"static":"#/components/schemas/StaticProviderTransform","javascript":"#/components/schemas/JavascriptTransform","ai":"#/components/schemas/AiTransform"}}},"MemoryOff":{"type":"object","description":"No conversation memory/context","properties":{"kind":{"type":"string","enum":["off"]}},"required":["kind"]},"MemoryAuto":{"type":"object","description":"Automatic context management","properties":{"kind":{"type":"string","enum":["auto"]},"context_length":{"type":"integer","description":"Maximum number of messages to retain in context"},"memory_id":{"type":"string","description":"Identifier for persistent memory across agent invocations"}},"required":["kind"]},"MemoryMessage":{"type":"object","description":"A single message in conversation history","properties":{"role":{"type":"string","enum":["user","assistant","system"]},"content":{"type":"string"}},"required":["role","content"]},"MemoryManual":{"type":"object","description":"Explicit message history","properties":{"kind":{"type":"string","enum":["manual"]},"messages":{"type":"array","items":{"$ref":"#/components/schemas/MemoryMessage"}}},"required":["kind","messages"]},"MemoryConfig":{"description":"Conversation memory configuration","oneOf":[{"$ref":"#/components/schemas/MemoryOff"},{"$ref":"#/components/schemas/MemoryAuto"},{"$ref":"#/components/schemas/MemoryManual"}],"discriminator":{"propertyName":"kind","mapping":{"off":"#/components/schemas/MemoryOff","auto":"#/components/schemas/MemoryAuto","manual":"#/components/schemas/MemoryManual"}}},"StaticMemoryTransform":{"type":"object","description":"Static memory configuration passed directly to the AI agent","properties":{"value":{"$ref":"#/components/schemas/MemoryConfig"},"type":{"type":"string","enum":["static"]}},"required":["type","value"]},"MemoryTransform":{"description":"Memory configuration - can be static (MemoryConfig), JavaScript expression, or AI-determined","oneOf":[{"$ref":"#/components/schemas/StaticMemoryTransform"},{"$ref":"#/components/schemas/JavascriptTransform"},{"$ref":"#/components/schemas/AiTransform"}],"discriminator":{"propertyName":"type","mapping":{"static":"#/components/schemas/StaticMemoryTransform","javascript":"#/components/schemas/JavascriptTransform","ai":"#/components/schemas/AiTransform"}}},"FlowModuleValue":{"description":"The actual implementation of a flow step. Can be a script (inline or referenced), subflow, loop, branch, or special module type","oneOf":[{"$ref":"#/components/schemas/RawScript"},{"$ref":"#/components/schemas/PathScript"},{"$ref":"#/components/schemas/PathFlow"},{"$ref":"#/components/schemas/ForloopFlow"},{"$ref":"#/components/schemas/WhileloopFlow"},{"$ref":"#/components/schemas/BranchOne"},{"$ref":"#/components/schemas/BranchAll"},{"$ref":"#/components/schemas/Identity"},{"$ref":"#/components/schemas/AiAgent"}],"discriminator":{"propertyName":"type","mapping":{"rawscript":"#/components/schemas/RawScript","script":"#/components/schemas/PathScript","flow":"#/components/schemas/PathFlow","forloopflow":"#/components/schemas/ForloopFlow","whileloopflow":"#/components/schemas/WhileloopFlow","branchone":"#/components/schemas/BranchOne","branchall":"#/components/schemas/BranchAll","identity":"#/components/schemas/Identity","aiagent":"#/components/schemas/AiAgent"}}},"RawScript":{"type":"object","description":"Inline script with code defined directly in the flow. Use 'bun' as default language if unspecified. The script receives arguments from input_transforms","properties":{"input_transforms":{"type":"object","description":"Map of parameter names to their values (static or JavaScript expressions). These become the script's input arguments","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}},"content":{"type":"string","description":"The script source code. Should export a 'main' function"},"language":{"type":"string","description":"Programming language for this script","enum":["deno","bun","python3","go","bash","powershell","postgresql","mysql","bigquery","snowflake","mssql","oracledb","graphql","nativets","php","rust","ansible","csharp","nu","java","ruby","rlang","duckdb"]},"path":{"type":"string","description":"Optional path for saving this script"},"lock":{"type":"string","description":"Lock file content for dependencies"},"type":{"type":"string","enum":["rawscript"]},"tag":{"type":"string","description":"Worker group tag for execution routing"},"concurrent_limit":{"type":"number","description":"Maximum concurrent executions of this script"},"concurrency_time_window_s":{"type":"number","description":"Time window for concurrent_limit"},"custom_concurrency_key":{"type":"string","description":"Custom key for grouping concurrent executions"},"is_trigger":{"type":"boolean","description":"If true, this script is a trigger that can start the flow"},"assets":{"type":"array","description":"External resources this script accesses (S3 objects, resources, etc.)","items":{"type":"object","required":["path","kind"],"properties":{"path":{"type":"string","description":"Path to the asset"},"kind":{"type":"string","description":"Type of asset","enum":["s3object","resource","ducklake","datatable","volume"]},"access_type":{"type":"string","nullable":true,"description":"Access level for this asset","enum":["r","w","rw"]},"alt_access_type":{"type":"string","nullable":true,"description":"Alternative access level","enum":["r","w","rw"]}}}}},"required":["type","content","language","input_transforms"]},"PathScript":{"type":"object","description":"Reference to an existing script by path. Use this when calling a previously saved script instead of writing inline code","properties":{"input_transforms":{"type":"object","description":"Map of parameter names to their values (static or JavaScript expressions). These become the script's input arguments","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}},"path":{"type":"string","description":"Path to the script in the workspace (e.g., 'f/scripts/send_email')"},"hash":{"type":"string","description":"Optional specific version hash of the script to use"},"type":{"type":"string","enum":["script"]},"tag_override":{"type":"string","description":"Override the script's default worker group tag"},"is_trigger":{"type":"boolean","description":"If true, this script is a trigger that can start the flow"}},"required":["type","path","input_transforms"]},"PathFlow":{"type":"object","description":"Reference to an existing flow by path. Use this to call another flow as a subflow","properties":{"input_transforms":{"type":"object","description":"Map of parameter names to their values (static or JavaScript expressions). These become the subflow's input arguments","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}},"path":{"type":"string","description":"Path to the flow in the workspace (e.g., 'f/flows/process_user')"},"type":{"type":"string","enum":["flow"]}},"required":["type","path","input_transforms"]},"ForloopFlow":{"type":"object","description":"Executes nested modules in a loop over an iterator. Inside the loop, use 'flow_input.iter.value' to access the current iteration value, and 'flow_input.iter.index' for the index. Supports parallel execution for better performance on I/O-bound operations","properties":{"modules":{"type":"array","description":"Steps to execute for each iteration. These can reference the iteration value via 'flow_input.iter.value'","items":{"$ref":"#/components/schemas/FlowModule"}},"iterator":{"description":"JavaScript expression that returns an array to iterate over. Can reference 'results.step_id' or 'flow_input'","$ref":"#/components/schemas/InputTransform"},"skip_failures":{"type":"boolean","description":"If true, iteration failures don't stop the loop. Failed iterations return null"},"type":{"type":"string","enum":["forloopflow"]},"parallel":{"type":"boolean","description":"If true, iterations run concurrently (faster for I/O-bound operations). Use with parallelism to control concurrency"},"parallelism":{"description":"Maximum number of concurrent iterations when parallel=true. Limits resource usage. Can be static number or expression","$ref":"#/components/schemas/InputTransform"},"squash":{"type":"boolean"}},"required":["modules","iterator","skip_failures","type"]},"WhileloopFlow":{"type":"object","description":"Executes nested modules repeatedly while a condition is true. The loop checks the condition after each iteration. Use stop_after_if on modules to control loop termination","properties":{"modules":{"type":"array","description":"Steps to execute in each iteration. Use stop_after_if to control when the loop ends","items":{"$ref":"#/components/schemas/FlowModule"}},"skip_failures":{"type":"boolean","description":"If true, iteration failures don't stop the loop. Failed iterations return null"},"type":{"type":"string","enum":["whileloopflow"]},"parallel":{"type":"boolean","description":"If true, iterations run concurrently (use with caution in while loops)"},"parallelism":{"description":"Maximum number of concurrent iterations when parallel=true","$ref":"#/components/schemas/InputTransform"},"squash":{"type":"boolean"}},"required":["modules","skip_failures","type"]},"BranchOne":{"type":"object","description":"Conditional branching where only the first matching branch executes. Branches are evaluated in order, and the first one with a true expression runs. If no branches match, the default branch executes","properties":{"branches":{"type":"array","description":"Array of branches to evaluate in order. The first branch with expr evaluating to true executes","items":{"type":"object","properties":{"summary":{"type":"string","description":"Short description of this branch condition"},"expr":{"type":"string","description":"JavaScript expression that returns boolean. Can use 'results.step_id' or 'flow_input'. First true expr wins"},"modules":{"type":"array","description":"Steps to execute if this branch's expr is true","items":{"$ref":"#/components/schemas/FlowModule"}}},"required":["modules","expr"]}},"default":{"type":"array","description":"Steps to execute if no branch expressions match","items":{"$ref":"#/components/schemas/FlowModule"}},"type":{"type":"string","enum":["branchone"]}},"required":["branches","default","type"]},"BranchAll":{"type":"object","description":"Parallel branching where all branches execute simultaneously. Unlike BranchOne, all branches run regardless of conditions. Useful for executing independent tasks concurrently","properties":{"branches":{"type":"array","description":"Array of branches that all execute (either in parallel or sequentially)","items":{"type":"object","properties":{"summary":{"type":"string","description":"Short description of this branch's purpose"},"skip_failure":{"type":"boolean","description":"If true, failure in this branch doesn't fail the entire flow"},"modules":{"type":"array","description":"Steps to execute in this branch","items":{"$ref":"#/components/schemas/FlowModule"}}},"required":["modules"]}},"type":{"type":"string","enum":["branchall"]},"parallel":{"type":"boolean","description":"If true, all branches execute concurrently. If false, they execute sequentially"}},"required":["branches","type"]},"AgentTool":{"type":"object","description":"A tool available to an AI agent. Can be a flow module or an external MCP (Model Context Protocol) tool","properties":{"id":{"type":"string","description":"Unique identifier for this tool. Cannot contain spaces - use underscores instead (e.g., 'get_user_data' not 'get user data')"},"summary":{"type":"string","description":"Short description of what this tool does (shown to the AI)"},"value":{"$ref":"#/components/schemas/ToolValue"}},"required":["id","value"]},"ToolValue":{"description":"The implementation of a tool. Can be a flow module (script/flow) or an MCP tool reference","oneOf":[{"$ref":"#/components/schemas/FlowModuleTool"},{"$ref":"#/components/schemas/McpToolValue"},{"$ref":"#/components/schemas/WebsearchToolValue"}],"discriminator":{"propertyName":"tool_type","mapping":{"flowmodule":"#/components/schemas/FlowModuleTool","mcp":"#/components/schemas/McpToolValue","websearch":"#/components/schemas/WebsearchToolValue"}}},"FlowModuleTool":{"description":"A tool implemented as a flow module (script, flow, etc.). The AI can call this like any other flow module","allOf":[{"type":"object","properties":{"tool_type":{"type":"string","enum":["flowmodule"]}},"required":["tool_type"]},{"$ref":"#/components/schemas/FlowModuleValue"}]},"WebsearchToolValue":{"type":"object","description":"A tool implemented as a websearch tool. The AI can call this like any other websearch tool","properties":{"tool_type":{"type":"string","enum":["websearch"]}},"required":["tool_type"]},"McpToolValue":{"type":"object","description":"Reference to an external MCP (Model Context Protocol) tool. The AI can call tools from MCP servers","properties":{"tool_type":{"type":"string","enum":["mcp"]},"resource_path":{"type":"string","description":"Path to the MCP resource/server configuration"},"include_tools":{"type":"array","description":"Whitelist of specific tools to include from this MCP server","items":{"type":"string"}},"exclude_tools":{"type":"array","description":"Blacklist of tools to exclude from this MCP server","items":{"type":"string"}}},"required":["tool_type","resource_path"]},"AiAgent":{"type":"object","description":"AI agent step that can use tools to accomplish tasks. The agent receives inputs and can call any of its configured tools to complete the task","properties":{"input_transforms":{"type":"object","description":"Input parameters for the AI agent mapped to their values","properties":{"provider":{"$ref":"#/components/schemas/ProviderTransform"},"output_type":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Output format type.\\nValid values: 'text' (default) - plain text response, 'image' - image generation\\n"},"user_message":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"The user's prompt/message to the AI agent. Supports variable interpolation with flow.input syntax."},"system_prompt":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"System instructions that guide the AI's behavior, persona, and response style. Optional."},"streaming":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Boolean. If true, stream the AI response incrementally.\\nStreaming events include: token_delta, tool_call, tool_call_arguments, tool_execution, tool_result\\n"},"memory":{"$ref":"#/components/schemas/MemoryTransform"},"output_schema":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"JSON Schema object defining structured output format. Used when you need the AI to return data in a specific shape.\\nSupports standard JSON Schema properties: type, properties, required, items, enum, pattern, minLength, maxLength, minimum, maximum, etc.\\nExample: { type: 'object', properties: { name: { type: 'string' }, age: { type: 'integer' } }, required: ['name'] }\\n"},"user_attachments":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Array of file references (images or PDFs) for the AI agent.\\nFormat: Array<{ bucket: string, key: string }> - S3 object references\\nExample: [{ bucket: 'my-bucket', key: 'documents/report.pdf' }]\\n"},"max_completion_tokens":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Integer. Maximum number of tokens the AI will generate in its response.\\nRange: 1 to 4,294,967,295. Typical values: 256-4096 for most use cases.\\n"},"temperature":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Float. Controls randomness/creativity of responses.\\nRange: 0.0 to 2.0 (provider-dependent)\\n- 0.0 = deterministic, focused responses\\n- 0.7 = balanced (common default)\\n- 1.0+ = more creative/random\\n"},"max_iterations":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Number. Limits how many times the agent can loop through reasoning and tool use.\\nRange: 1-1000.\\n"}},"required":["provider","user_message","output_type"]},"tools":{"type":"array","description":"Array of tools the agent can use. The agent decides which tools to call based on the task","items":{"$ref":"#/components/schemas/AgentTool"}},"type":{"type":"string","enum":["aiagent"]},"omit_output_from_conversation":{"type":"boolean","default":false,"description":"If true, this AI agent step does not persist its assistant or tool messages to the flow conversation when chat mode is enabled."},"parallel":{"type":"boolean","description":"If true, the agent can execute multiple tool calls in parallel"}},"required":["tools","type","input_transforms"]},"Identity":{"type":"object","description":"Pass-through module that returns its input unchanged. Useful for flow structure or as a placeholder","properties":{"type":{"type":"string","enum":["identity"]},"flow":{"type":"boolean","description":"If true, marks this as a flow identity (special handling)"}},"required":["type"]},"FlowStatus":{"type":"object","properties":{"step":{"type":"integer"},"modules":{"type":"array","items":{"$ref":"#/components/schemas/FlowStatusModule"}},"user_states":{"additionalProperties":true},"preprocessor_module":{"allOf":[{"$ref":"#/components/schemas/FlowStatusModule"}]},"failure_module":{"allOf":[{"$ref":"#/components/schemas/FlowStatusModule"},{"type":"object","properties":{"parent_module":{"type":"string"}}}]},"retry":{"type":"object","properties":{"fail_count":{"type":"integer"},"failed_jobs":{"type":"array","items":{"type":"string","format":"uuid"}}}}},"required":["step","modules","failure_module"]},"FlowStatusModule":{"type":"object","properties":{"type":{"type":"string","enum":["WaitingForPriorSteps","WaitingForEvents","WaitingForExecutor","InProgress","Success","Failure"]},"id":{"type":"string"},"job":{"type":"string","format":"uuid"},"count":{"type":"integer"},"progress":{"type":"integer"},"iterator":{"type":"object","properties":{"index":{"type":"integer"},"itered":{"type":"array","items":{}},"itered_len":{"type":"integer"},"args":{}}},"flow_jobs":{"type":"array","items":{"type":"string"}},"flow_jobs_success":{"type":"array","items":{"type":"boolean"}},"flow_jobs_duration":{"type":"object","properties":{"started_at":{"type":"array","items":{"type":"string"}},"duration_ms":{"type":"array","items":{"type":"integer"}}}},"branch_chosen":{"type":"object","properties":{"type":{"type":"string","enum":["branch","default"]},"branch":{"type":"integer"}},"required":["type"]},"branchall":{"type":"object","properties":{"branch":{"type":"integer"},"len":{"type":"integer"}},"required":["branch","len"]},"approvers":{"type":"array","items":{"type":"object","properties":{"resume_id":{"type":"integer"},"approver":{"type":"string"}},"required":["resume_id","approver"]}},"failed_retries":{"type":"array","items":{"type":"string","format":"uuid"}},"skipped":{"type":"boolean"},"agent_actions":{"type":"array","items":{"type":"object","oneOf":[{"type":"object","properties":{"job_id":{"type":"string","format":"uuid"},"function_name":{"type":"string"},"type":{"type":"string","enum":["tool_call"]},"module_id":{"type":"string"}},"required":["job_id","function_name","type","module_id"]},{"type":"object","properties":{"call_id":{"type":"string","format":"uuid"},"function_name":{"type":"string"},"resource_path":{"type":"string"},"type":{"type":"string","enum":["mcp_tool_call"]},"arguments":{"type":"object"}},"required":["call_id","function_name","resource_path","type"]},{"type":"object","properties":{"type":{"type":"string","enum":["web_search"]}},"required":["type"]},{"type":"object","properties":{"type":{"type":"string","enum":["message"]}},"required":["content","type"]}]}},"agent_actions_success":{"type":"array","items":{"type":"boolean"}}},"required":["type"]}}`;
 
 export const CLI_COMMANDS = `# Windmill CLI Commands
 
@@ -2174,7 +2576,7 @@ app related commands
   - \`--json\` - Output as JSON (for piping to jq)
 - \`app get <path:string>\` - get an app's details
   - \`--json\` - Output as JSON (for piping to jq)
-- \`app push <file_path:string> <remote_path:string>\` - push a local app 
+- \`app push [file_path:string] [remote_path:string]\` - push a local app. With no args, infers the app from the current directory and the remote path from its location relative to wmill.yaml.
 - \`app dev [app_folder:string]\` - Start a development server for building apps with live reload and hot module replacement
   - \`--port <port:number>\` - Port to run the dev server on (will find next available port if occupied)
   - \`--host <host:string>\` - Host to bind the dev server to
@@ -2214,6 +2616,27 @@ Show all available wmill.yaml configuration options
 
 - \`config migrate\` - Migrate wmill.yaml from gitBranches/environments to workspaces format
 
+### datatable
+
+datatable related commands
+
+**Subcommands:**
+
+- \`datatable list\` - list all datatables in the workspace
+  - \`--json\` - Output as JSON (for piping to jq)
+- \`datatable run <sql:string>\` - run a SQL query on a datatable
+  - \`-n --name <name:string>\` - Datatable name (default: main)
+  - \`-s --silent\` - Output only the final result as JSON. Useful for scripting.
+- \`datatable serve\` - Serve all datatables as a Postgres-wire endpoint (psql, DBeaver, pgAdmin); the client picks the datatable via the database name in its connection string
+  - \`--port <port:number>\` - Port to listen on (default: first free port in 5433-5500)
+  - \`--host <host:string>\` - Bind address (default: 127.0.0.1)
+  - \`--password <password:string>\` - Password for Postgres clients (default: generate a random password at startup)
+- \`datatable psql\` - Start a serve listener and launch psql connected to it
+  - \`-n --name <name:string>\` - Datatable to connect psql to (default: main)
+  - \`--port <port:number>\` - Port the proxy listens on (default: first free port in 5433-5500)
+  - \`--host <host:string>\` - Bind address for the proxy (default: 127.0.0.1)
+  - \`--password <password:string>\` - Password for the temporary Postgres proxy (default: generate a random password at startup)
+
 ### dependencies
 
 workspace dependencies related commands
@@ -2243,6 +2666,18 @@ Search Windmill documentation.
 **Options:**
 - \`--json\` - Output results as JSON.
 
+### ducklake
+
+ducklake related commands
+
+**Subcommands:**
+
+- \`ducklake list\` - list all ducklakes in the workspace
+  - \`--json\` - Output as JSON (for piping to jq)
+- \`ducklake run <sql:string>\` - run a SQL query on a ducklake
+  - \`-n --name <name:string>\` - Ducklake name (default: main)
+  - \`-s --silent\` - Output only the final result as JSON. Useful for scripting.
+
 ### flow
 
 flow related commands
@@ -2263,10 +2698,11 @@ flow related commands
 - \`flow run <path:string>\` - run a flow by path.
   - \`-d --data <data:string>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - \`-s --silent\` - Do not ouput anything other then the final output. Useful for scripting.
-- \`flow preview <flow_path:string>\` - preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default.
+- \`flow preview <flow_path:string>\` - preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default. Pass --step <id> to run only one module in isolation (resolves nested steps inside branchone/branchall/forloopflow/whileloopflow plus the special preprocessor/failure modules; supported step types: rawscript, script, flow).
   - \`-d --data <data:string>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - \`-s --silent\` - Do not output anything other then the final output. Useful for scripting.
   - \`--remote\` - Use deployed workspace scripts for PathScript steps instead of local files.
+  - \`--step <step_id:string>\` - Run only the named step instead of the whole flow. Honors --data as the step's args and --remote / local-PathScript resolution the same way the full-flow preview does.
 - \`flow new <flow_path:string>\` - create a new empty flow
   - \`--summary <summary:string>\` - flow summary
   - \`--description <description:string>\` - flow description
@@ -2316,6 +2752,7 @@ Generate metadata (locks, schemas) for all scripts, flows, and apps
 - \`--skip-flows\` - Skip processing flows
 - \`--skip-apps\` - Skip processing apps
 - \`--strict-folder-boundaries\` - Only update items inside the specified folder (requires folder argument)
+- \`--parallel <n:number>\` - Number of items to process in parallel
 - \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which files to include
 - \`-e --excludes <patterns:file[]>\` - Comma separated patterns to specify which files to exclude
 
@@ -2325,6 +2762,7 @@ Generate metadata (locks, schemas) for all scripts, flows, and apps
   - \`--skip-scripts\` - Skip processing scripts
   - \`--skip-flows\` - Skip processing flows
   - \`--skip-apps\` - Skip processing apps
+  - \`--parallel <n:number>\` - Number of items to process in parallel
   - \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which files to include
   - \`-e --excludes <patterns:file[]>\` - Comma separated patterns to specify which files to exclude
 
@@ -2447,6 +2885,10 @@ Manage jobs (list, inspect, cancel)
 - \`job logs <id:string>\` - Get job logs. For flows: aggregates all step logs
 - \`job cancel <id:string>\` - Cancel a running or queued job
   - \`--reason <reason:string>\` - Reason for cancellation
+- \`job rerun <id:string>\` - Re-run a completed job with the same args. Prints the new job UUID on stdout.
+- \`job restart <id:string>\` - Restart a completed flow at a given top-level step. Prints the new flow job UUID on stdout.
+  - \`--step <stepId:string>\` - Top-level step id to restart the flow from
+  - \`--iteration <n:number>\` - For a top-level branchall or for-loop step, the iteration to restart at
 
 ### jobs
 
@@ -2476,6 +2918,56 @@ Validate Windmill flow, schedule, and trigger YAML files in a directory
 - \`--locks-required\` - Fail if scripts or flow inline scripts that need locks have no locks
 - \`-w, --watch\` - Watch for file changes and re-lint automatically
 
+### object-storage
+
+**Alias:** \`s3\`
+
+**Subcommands:**
+
+- \`object-storage list\` - List configured object storages for the workspace (default + secondary).
+  - \`--json\` - Output as JSON (for piping to jq)
+- \`object-storage files [prefix:string]\` - List files in an object storage. Optionally filter by prefix.
+  - \`--json\` - Output as JSON (for piping to jq)
+  - \`--max-keys <maxKeys:number>\` - Page size (default 100)
+  - \`--marker <marker:string>\` - Pagination marker from a previous response
+  - \`--storage <storage:string>\` - Secondary storage name (omit for the workspace default)
+- \`object-storage upload <local_path:string> <file_key:string>\` - Upload a local file to object storage at the given file key.
+  - \`--storage <storage:string>\` - Secondary storage name
+  - \`--content-type <contentType:string>\` - Content-Type header to set on the object
+  - \`--content-disposition <contentDisposition:string>\` - Content-Disposition header to set on the object
+- \`object-storage download <file_key:string> [output_path:string]\` - Download an object to a local file (or stdout). Default output path is the basename of the file key in the current directory.
+  - \`--storage <storage:string>\` - Secondary storage name
+  - \`--stdout\` - Write file contents to stdout instead of a file
+- \`object-storage delete <file_key:string>\` - Delete an object from object storage. Prompts for confirmation unless --yes is set.
+  - \`--storage <storage:string>\` - Secondary storage name
+  - \`--yes\` - Skip the confirmation prompt
+- \`object-storage move <src_file_key:string> <dest_file_key:string>\` - Move an object within the same storage (rename or relocate by key).
+  - \`--storage <storage:string>\` - Secondary storage name
+- \`object-storage info <file_key:string>\` - Show metadata (size, mime, last-modified) for an object.
+  - \`--json\` - Output as JSON (for piping to jq)
+  - \`--storage <storage:string>\` - Secondary storage name
+- \`object-storage preview <file_key:string>\` - Preview the contents of an object (text/CSV). Use --bytes-from / --bytes-length to peek at a slice of binary files.
+  - \`--storage <storage:string>\` - Secondary storage name
+  - \`--mime <mime:string>\` - Override the detected mime type (e.g. text/csv)
+  - \`--bytes-from <bytesFrom:number>\` - Start offset in bytes
+  - \`--bytes-length <bytesLength:number>\` - Number of bytes to read
+  - \`--csv-separator <csvSeparator:string>\` - CSV column separator (default ,)
+  - \`--csv-header\` - Treat the first CSV row as a header
+
+### protection-rules
+
+**Subcommands:**
+
+- \`protection-rules pull [workspace:string]\` - Pull protection rules from Windmill into protection-rules.yaml for a workspace
+  - \`--all\` - Pull every workspace defined in wmill.yaml
+  - \`--dry-run\` - Show what would change without writing the file
+  - \`--json-output\` - Output in JSON format
+- \`protection-rules push [workspace:string]\` - Push protection rules from protection-rules.yaml to Windmill for a workspace (full reconcile: creates, updates, and deletes)
+  - \`--all\` - Push every workspace defined in protection-rules.yaml
+  - \`--dry-run\` - Show what would change without applying
+  - \`--json-output\` - Output in JSON format
+  - \`--yes\` - Skip the confirmation prompt (including deletions)
+
 ### queues
 
 List all queues with their metrics
@@ -2485,6 +2977,15 @@ List all queues with their metrics
 **Options:**
 - \`--instance [instance]\` - Name of the instance to push to, override the active instance
 - \`--base-url [baseUrl]\` - If used with --token, will be used as the base url for the instance
+
+### refresh
+
+Refresh wmill-managed project files (AGENTS.cli.md and skills)
+
+**Subcommands:**
+
+- \`refresh prompts\` - Refresh AGENTS.cli.md and managed skills. User-owned AGENTS.md and CLAUDE.md are never overwritten unless you opt in.
+  - \`--yes\` - Non-interactive: skip the migration prompt for existing AGENTS.md / CLAUDE.md without the expected include; defaults to appending the include.
 
 ### resource
 
@@ -2761,6 +3262,7 @@ workspace related commands
 - \`workspace whoami\` - Show the currently active user
 - \`workspace list\` - List local workspace profiles
 - \`workspace list-remote\` - List workspaces on the remote server that you have access to
+  - \`--as-superadmin\` - List ALL workspaces on the instance (requires the token to belong to a superadmin/devops user)
 - \`workspace list-forks\` - List forked workspaces on the remote server
 - \`workspace bind\` - Create or update a workspace entry in wmill.yaml from the active profile
   - \`--workspace <name:string>\` - Workspace name (default: current branch or workspaceId)
@@ -2788,6 +3290,26 @@ workspace related commands
   - \`--team-name <team_name:string>\` - Slack team name
 - \`workspace disconnect-slack\`
 
+
+
+# Object Storage CLI
+
+\`wmill object-storage\` (alias \`wmill s3\`) exposes the workspace's object storage (S3-compatible: AWS S3, MinIO, GCS, R2, Azure Blob) over the per-workspace \`/job_helpers/*\` endpoints.
+
+## Key concepts (not obvious from per-command --help)
+
+- **\`file_key\` is the path inside the bucket** (e.g. \`reports/2026-05/orders.csv\`), not a Windmill path. Do NOT pass \`u/...\` or \`f/...\` here — those are Windmill paths to scripts/flows/resources, unrelated to objects in the bucket.
+- **Scope is the active workspace.** Object storage is configured per-workspace (default storage + optional secondary storages). Switching workspaces switches which bucket the commands target.
+- **\`--storage <name>\` targets a secondary storage** configured on the workspace. Omit it to use the workspace's default object storage. Use \`wmill object-storage list\` to discover configured storages.
+- **\`preview\` vs \`download\`**: \`preview\` returns a peek (CSV first rows, text content, or a byte slice via \`--bytes-from\`/\`--bytes-length\`) without writing to disk. Use \`download\` when you want the full file on disk.
+
+## Choosing a subcommand
+
+- Look at what's there: \`wmill object-storage files [prefix]\` (alias \`ls\`) — paginated, use \`--marker\` to continue.
+- Inspect one file: \`wmill object-storage info <file_key>\` for size/mime/last-modified, \`wmill object-storage preview <file_key>\` for content peek.
+- Move data in: \`wmill object-storage upload <local_path> <file_key>\` — set \`--content-type\` if the receiver cares (e.g. \`text/csv\`).
+- Move data out: \`wmill object-storage download <file_key> [output_path]\` — \`--stdout\` to pipe.
+- Reorganize: \`wmill object-storage move <src> <dest>\` (same storage), \`wmill object-storage delete <file_key>\` (interactive confirm unless \`--yes\`).
 `;
 
 export const LANG_BASH = `# Bash
@@ -2852,6 +3374,37 @@ Name the parameters by adding comments before the statement:
 -- @name2 (int64) = 0
 SELECT * FROM users WHERE name = @name1 AND age > @name2;
 \`\`\`
+
+## Receiving an S3Object as a script parameter
+
+Declare the arg with type \`(s3object)\`. Windmill renders an S3 file picker for
+it, downloads the file, and binds it as a \`STRING\` JSON parameter — Parquet/CSV
+files are decoded server-side into a JSON array of records, JSON/JSONL pass
+through. Consume with \`JSON_EXTRACT_ARRAY\` / \`JSON_VALUE\`:
+
+\`\`\`sql
+-- @file (s3object)
+SELECT
+  CAST(JSON_VALUE(row, '$.id') AS INT64) AS id,
+  JSON_VALUE(row, '$.name') AS name
+FROM UNNEST(JSON_EXTRACT_ARRAY(@file)) AS row;
+\`\`\`
+
+## Streaming query results to S3
+
+Add a \`-- s3\` directive at the top of the script to stream the result set to S3
+instead of returning rows. Windmill writes the file and returns its \`S3Object\`
+as the script result.
+
+\`\`\`sql
+-- s3 prefix=exports/users format=parquet
+SELECT id, name FROM users;
+\`\`\`
+
+All keys are optional: \`prefix\` (object key prefix), \`storage\` (named storage —
+omit to use the workspace default), \`format\` (\`json\` (default), \`parquet\`, or
+\`csv\`). Use this for large result sets — rows stream directly to S3 instead of
+being buffered, bypassing the 10000-row return cap.
 `;
 
 export const LANG_BUN = `# TypeScript (Bun)
@@ -2936,19 +3489,20 @@ export async function preprocessor(event: Event) {
 
 ## S3 Object Operations
 
-Windmill provides built-in support for S3-compatible storage operations.
+Windmill provides built-in support for S3-compatible storage operations. The \`wmill.S3Object\` type covers both the \`s3://storage/key\` URI form (\`s3:///key\` for the workspace default storage) and the \`{ s3, storage? }\` record form — always use it instead of redefining your own.
 
-### S3Object Type
-
-The S3Object type represents a file in S3 storage:
+### Receiving an S3Object as a script parameter
 
 \`\`\`typescript
-type S3Object = {
-  s3: string; // Path within the bucket
-};
+import * as wmill from "windmill-client";
+
+export async function main(file: wmill.S3Object) {
+  const content = await wmill.loadS3File(file);
+  // ...
+}
 \`\`\`
 
-## TypeScript Operations
+### S3 operations
 
 \`\`\`typescript
 import * as wmill from "windmill-client";
@@ -2960,7 +3514,7 @@ const content: Uint8Array = await wmill.loadS3File(s3object);
 const blob: Blob = await wmill.loadS3FileStream(s3object);
 
 // Write file to S3
-const result: S3Object = await wmill.writeS3File(
+const result: wmill.S3Object = await wmill.writeS3File(
   s3object, // Target path (or undefined to auto-generate)
   fileContent, // string or Blob
   s3ResourcePath // Optional: specific S3 resource to use
@@ -2970,13 +3524,14 @@ const result: S3Object = await wmill.writeS3File(
 
 export const LANG_BUNNATIVE = `# TypeScript (Bun Native)
 
-Native TypeScript execution with fetch only - no external imports allowed.
+Native TypeScript execution. Native scripts are Bun scripts that run on the native worker — a lightweight V8 isolate that exposes \`fetch\` and the JavaScript standard library — and can be heavily parallelized. Every script MUST start with \`//native\` on its first line so Windmill routes it to the native worker; without it the exact same script runs on the regular Bun worker. You may import npm packages and other Windmill scripts (e.g. \`./helper.ts\`) — imports are resolved and bundled just like a regular Bun script — as long as everything (your code and its dependencies) relies only on \`fetch\` and the standard library. Libraries that need Node/Bun runtime APIs (filesystem, \`node:*\` modules, child processes, native addons) will not work on the native worker; use the regular \`bun\` language for those.
 
 ## Structure
 
 Export a single **async** function called \`main\`:
 
 \`\`\`typescript
+//native
 export async function main(param1: string, param2: number) {
   // Your code here
   return { result: param1, count: param2 };
@@ -2992,6 +3547,7 @@ On Windmill, credentials and configuration are stored in resources and passed as
 Use the \`RT\` namespace for resource types:
 
 \`\`\`typescript
+//native
 export async function main(stripe: RT.Stripe) {
   // stripe contains API key and config from the resource
 }
@@ -3003,9 +3559,10 @@ Before using a resource type, check the \`rt.d.ts\` file in the project root to 
 
 ## Imports
 
-**No imports allowed.** Use the globally available \`fetch\` function:
+**The constraint is the runtime, not the import list.** You may import npm packages and relative Windmill scripts; they are resolved and bundled exactly like a regular Bun script. But the native worker only provides \`fetch\` and the JavaScript standard library, so any imported code must work using only those. Anything requiring Node/Bun built-ins (\`node:fs\`, \`child_process\`, the \`Bun\` API, native modules) belongs in a regular \`bun\` script instead. Use the globally available \`fetch\` for HTTP:
 
 \`\`\`typescript
+//native
 export async function main(url: string) {
   const response = await fetch(url);
   return await response.json();
@@ -3014,13 +3571,14 @@ export async function main(url: string) {
 
 ## Windmill Client
 
-The windmill client is not available in native TypeScript mode. Use fetch to call APIs directly.
+\`windmill-client\` is available for Windmill-specific primitives such as the S3 helpers below (\`loadS3File\`, \`loadS3FileStream\`, \`writeS3File\`, \`S3Object\`). Use \`fetch\` for plain HTTP.
 
 ## Preprocessor Scripts
 
 For preprocessor scripts, the function should be named \`preprocessor\` and receives an \`event\` parameter:
 
 \`\`\`typescript
+//native
 type Event = {
   kind:
     | "webhook"
@@ -3048,21 +3606,24 @@ export async function preprocessor(event: Event) {
 
 ## S3 Object Operations
 
-Windmill provides built-in support for S3-compatible storage operations.
+Windmill provides built-in support for S3-compatible storage operations. The \`wmill.S3Object\` type covers both the \`s3://storage/key\` URI form (\`s3:///key\` for the workspace default storage) and the \`{ s3, storage? }\` record form — always use it instead of redefining your own.
 
-### S3Object Type
-
-The S3Object type represents a file in S3 storage:
+### Receiving an S3Object as a script parameter
 
 \`\`\`typescript
-type S3Object = {
-  s3: string; // Path within the bucket
-};
+//native
+import * as wmill from "windmill-client";
+
+export async function main(file: wmill.S3Object) {
+  const content = await wmill.loadS3File(file);
+  // ...
+}
 \`\`\`
 
-## TypeScript Operations
+### S3 operations
 
 \`\`\`typescript
+//native
 import * as wmill from "windmill-client";
 
 // Load file content from S3
@@ -3072,7 +3633,7 @@ const content: Uint8Array = await wmill.loadS3File(s3object);
 const blob: Blob = await wmill.loadS3FileStream(s3object);
 
 // Write file to S3
-const result: S3Object = await wmill.writeS3File(
+const result: wmill.S3Object = await wmill.writeS3File(
   s3object, // Target path (or undefined to auto-generate)
   fileContent, // string or Blob
   s3ResourcePath // Optional: specific S3 resource to use
@@ -3209,19 +3770,20 @@ export async function preprocessor(event: Event) {
 
 ## S3 Object Operations
 
-Windmill provides built-in support for S3-compatible storage operations.
+Windmill provides built-in support for S3-compatible storage operations. The \`wmill.S3Object\` type covers both the \`s3://storage/key\` URI form (\`s3:///key\` for the workspace default storage) and the \`{ s3, storage? }\` record form — always use it instead of redefining your own.
 
-### S3Object Type
-
-The S3Object type represents a file in S3 storage:
+### Receiving an S3Object as a script parameter
 
 \`\`\`typescript
-type S3Object = {
-  s3: string; // Path within the bucket
-};
+import * as wmill from "windmill-client";
+
+export async function main(file: wmill.S3Object) {
+  const content = await wmill.loadS3File(file);
+  // ...
+}
 \`\`\`
 
-## TypeScript Operations
+### S3 operations
 
 \`\`\`typescript
 import * as wmill from "windmill-client";
@@ -3233,7 +3795,7 @@ const content: Uint8Array = await wmill.loadS3File(s3object);
 const blob: Blob = await wmill.loadS3FileStream(s3object);
 
 // Write file to S3
-const result: S3Object = await wmill.writeS3File(
+const result: wmill.S3Object = await wmill.writeS3File(
   s3object, // Target path (or undefined to auto-generate)
   fileContent, // string or Blob
   s3ResourcePath // Optional: specific S3 resource to use
@@ -3292,6 +3854,30 @@ SELECT * FROM read_parquet('s3:///path/to/file.parquet');
 -- JSON files
 SELECT * FROM read_json('s3:///path/to/file.json');
 \`\`\`
+
+### Receiving an S3Object as a script parameter
+
+Declare the arg with type \`(s3object)\`. Windmill renders an S3 file picker for it
+and binds the arg as the bare \`s3://storage/key\` URI, which DuckDB's reader
+functions consume directly:
+
+\`\`\`sql
+-- $file (s3object)
+SELECT * FROM read_parquet($file);
+\`\`\`
+
+Works with any DuckDB reader: \`read_csv($file)\`, \`read_json($file)\`, etc.
+
+### Writing query results to S3
+
+DuckDB writes to S3 natively via \`COPY ... TO\`:
+
+\`\`\`sql
+COPY (SELECT * FROM users) TO 's3:///exports/users.parquet' (FORMAT PARQUET);
+\`\`\`
+
+Use this instead of the \`-- s3\` streaming directive supported by the other SQL
+dialects — that directive is not available in DuckDB.
 `;
 
 export const LANG_GO = `# Go
@@ -3452,6 +4038,36 @@ Name the parameters by adding comments before the statement:
 -- @P2 name2 (int) = 0
 SELECT * FROM users WHERE name = @P1 AND age > @P2;
 \`\`\`
+
+## Receiving an S3Object as a script parameter
+
+Declare the arg with type \`(s3object)\`. Windmill renders an S3 file picker for
+it, downloads the file, and binds it as \`nvarchar(max)\` JSON text — Parquet/CSV
+files are decoded server-side into a JSON array of records, JSON/JSONL pass
+through. Consume with \`OPENJSON\`:
+
+\`\`\`sql
+-- @P1 file (s3object)
+SELECT id, name
+FROM OPENJSON(@P1)
+WITH (id INT, name NVARCHAR(200));
+\`\`\`
+
+## Streaming query results to S3
+
+Add a \`-- s3\` directive at the top of the script to stream the result set to S3
+instead of returning rows. Windmill writes the file and returns its \`S3Object\`
+as the script result.
+
+\`\`\`sql
+-- s3 prefix=exports/users format=parquet
+SELECT id, name FROM users;
+\`\`\`
+
+All keys are optional: \`prefix\` (object key prefix), \`storage\` (named storage —
+omit to use the workspace default), \`format\` (\`json\` (default), \`parquet\`, or
+\`csv\`). Use this for large result sets — rows stream directly to S3 instead of
+being buffered as the script return value.
 `;
 
 export const LANG_MYSQL = `# MySQL
@@ -3465,85 +4081,37 @@ Name the parameters by adding comments before the statement:
 -- ? name2 (int) = 0
 SELECT * FROM users WHERE name = ? AND age > ?;
 \`\`\`
-`;
 
-export const LANG_NATIVETS = `# TypeScript (Native)
+## Receiving an S3Object as a script parameter
 
-Native TypeScript execution with fetch only - no external imports allowed.
+Declare the arg with type \`(s3object)\`. Windmill renders an S3 file picker for
+it, downloads the file, and binds it as JSON text — Parquet/CSV files are
+decoded server-side into a JSON array of records, JSON/JSONL pass through.
+Consume with \`JSON_TABLE\`:
 
-## Structure
-
-Export a single **async** function called \`main\`:
-
-\`\`\`typescript
-export async function main(param1: string, param2: number) {
-  // Your code here
-  return { result: param1, count: param2 };
-}
+\`\`\`sql
+-- ? file (s3object)
+SELECT id, name
+FROM JSON_TABLE(?, '$[*]'
+  COLUMNS (id INT PATH '$.id', name VARCHAR(200) PATH '$.name')
+) AS r;
 \`\`\`
 
-Do not call the main function.
+## Streaming query results to S3
 
-## Resource Types
+Add a \`-- s3\` directive at the top of the script to stream the result set to S3
+instead of returning rows. Windmill writes the file and returns its \`S3Object\`
+as the script result.
 
-On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
-
-Use the \`RT\` namespace for resource types:
-
-\`\`\`typescript
-export async function main(stripe: RT.Stripe) {
-  // stripe contains API key and config from the resource
-}
+\`\`\`sql
+-- s3 prefix=exports/users format=parquet
+SELECT id, name FROM users;
 \`\`\`
 
-Only use resource types if you need them to satisfy the instructions. Always use the RT namespace.
-
-Before using a resource type, check the \`rt.d.ts\` file in the project root to see all available resource types and their fields. This file is generated by \`wmill resource-type generate-namespace\`.
-
-## Imports
-
-**No imports allowed.** Use the globally available \`fetch\` function:
-
-\`\`\`typescript
-export async function main(url: string) {
-  const response = await fetch(url);
-  return await response.json();
-}
-\`\`\`
-
-## Windmill Client
-
-The windmill client is not available in native TypeScript mode. Use fetch to call APIs directly.
-
-## Preprocessor Scripts
-
-For preprocessor scripts, the function should be named \`preprocessor\` and receives an \`event\` parameter:
-
-\`\`\`typescript
-type Event = {
-  kind:
-    | "webhook"
-    | "http"
-    | "websocket"
-    | "kafka"
-    | "email"
-    | "nats"
-    | "postgres"
-    | "sqs"
-    | "mqtt"
-    | "gcp";
-  body: any;
-  headers: Record<string, string>;
-  query: Record<string, string>;
-};
-
-export async function preprocessor(event: Event) {
-  return {
-    param1: event.body.field1,
-    param2: event.query.id
-  };
-}
-\`\`\`
+All keys are optional: \`prefix\` (object key prefix), \`storage\` (named storage —
+omit to use the workspace default), \`format\` (\`json\` (default), \`parquet\`, or
+\`csv\`). Use this for large result sets — rows stream directly to S3 instead of
+being buffered as the script return value.
 `;
 
 export const LANG_PHP = `# PHP
@@ -3616,6 +4184,35 @@ Name the parameters by adding comments at the beginning of the script (without s
 -- $2 name2 = default_value
 SELECT * FROM users WHERE name = $1::TEXT AND age > $2::INT;
 \`\`\`
+
+## Receiving an S3Object as a script parameter
+
+Declare the arg with type \`(s3object)\`. Windmill renders an S3 file picker for
+it, downloads the file, and binds it as a \`jsonb\` parameter — Parquet/CSV files
+are decoded server-side into a JSON array of records, JSON/JSONL pass through.
+Consume with \`jsonb_to_recordset\` (or any \`jsonb\` API):
+
+\`\`\`sql
+-- $1 file (s3object)
+SELECT *
+FROM jsonb_to_recordset($1::jsonb) AS r(id INT, name TEXT);
+\`\`\`
+
+## Streaming query results to S3
+
+Add a \`-- s3\` directive at the top of the script to stream the result set to S3
+instead of returning rows. Windmill writes the file and returns its \`S3Object\`
+as the script result.
+
+\`\`\`sql
+-- s3 prefix=exports/users format=parquet
+SELECT id, name FROM users;
+\`\`\`
+
+All keys are optional: \`prefix\` (object key prefix), \`storage\` (named storage —
+omit to use the workspace default), \`format\` (\`json\` (default), \`parquet\`, or
+\`csv\`). Use this for large result sets — rows stream directly to S3 instead of
+being buffered as the script return value.
 `;
 
 export const LANG_POWERSHELL = `# PowerShell
@@ -3774,6 +4371,21 @@ def preprocessor(event: Event):
 ## S3 Object Operations
 
 Windmill provides built-in support for S3-compatible storage operations.
+
+### Receiving an S3Object as a script parameter
+
+To accept a file from S3 as input to a script, type the parameter with \`S3Object\` (imported from \`wmill\`):
+
+\`\`\`python
+import wmill
+from wmill import S3Object
+
+def main(file: S3Object):
+    content = wmill.load_s3_file(file)
+    # ...
+\`\`\`
+
+### S3 operations
 
 \`\`\`python
 import wmill
@@ -3970,5 +4582,36 @@ Name the parameters by adding comments before the statement:
 -- ? name2 (number) = 0
 SELECT * FROM users WHERE name = ? AND age > ?;
 \`\`\`
+
+## Receiving an S3Object as a script parameter
+
+Declare the arg with type \`(s3object)\`. Windmill renders an S3 file picker for
+it, downloads the file, and binds it as JSON text — Parquet/CSV files are
+decoded server-side into a JSON array of records, JSON/JSONL pass through.
+Wrap the bind with \`PARSE_JSON(?)\` and walk it with \`LATERAL FLATTEN\`:
+
+\`\`\`sql
+-- ? file (s3object)
+SELECT
+  v.value:id::NUMBER AS id,
+  v.value:name::STRING AS name
+FROM LATERAL FLATTEN(input => PARSE_JSON(?)) v;
+\`\`\`
+
+## Streaming query results to S3
+
+Add a \`-- s3\` directive at the top of the script to stream the result set to S3
+instead of returning rows. Windmill writes the file and returns its \`S3Object\`
+as the script result.
+
+\`\`\`sql
+-- s3 prefix=exports/users format=parquet
+SELECT id, name FROM users;
+\`\`\`
+
+All keys are optional: \`prefix\` (object key prefix), \`storage\` (named storage —
+omit to use the workspace default), \`format\` (\`json\` (default), \`parquet\`, or
+\`csv\`). Use this for large result sets — rows stream directly to S3 instead of
+being buffered, bypassing the 10000-row return cap.
 `;
 

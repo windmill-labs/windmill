@@ -246,6 +246,29 @@ export const settings: Record<string, Setting[]> = {
 			]
 		},
 		{
+			label: 'Nsjail /tmp backing',
+			key: 'nsjail_tmp_backing',
+			fieldType: 'select',
+			description:
+				'How <code>/tmp</code> is backed inside the nsjail sandbox. <strong>RAM (tmpfs)</strong> is the default — fast, with a hard size cap from <em>Nsjail tmpfs size</em>, but consumes worker memory. <strong>Disk (bind mount)</strong> uses a per-job directory on the worker disk — no RAM cost, but the only remaining per-file ceiling is <code>rlimit_fsize</code> (~1GB for python/ansible, unbounded for most other languages because they set <code>disable_rl: true</code>); pair with host disk monitoring or quotas.',
+			storage: 'setting',
+			placeholder: 'tmpfs',
+			defaultValue: () => 'tmpfs',
+			select_items: [
+				{ label: 'RAM (tmpfs) — default', value: 'tmpfs' },
+				{ label: 'Disk (bind mount)', value: 'disk' }
+			]
+		},
+		{
+			label: 'Nsjail tmpfs size (MB)',
+			key: 'nsjail_tmpfs_size_mb',
+			description:
+				'Override the size of the <code>/tmp</code> tmpfs mount inside the nsjail sandbox (in MB). When left empty, defaults to 800MB. Only applies when <em>Nsjail /tmp backing</em> is RAM (tmpfs).',
+			fieldType: 'number',
+			placeholder: '800',
+			storage: 'setting'
+		},
+		{
 			label: 'Default timeout',
 			key: 'job_default_timeout',
 			description:
@@ -280,6 +303,54 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: 'You can only adjust this setting to above 30 days in the EE version',
 			cloudonly: false
+		},
+		{
+			label: 'Workspace fairness — enabled',
+			description:
+				'Multi-tenant safeguard against a single workspace dominating the shared worker pool. <strong>Only relevant on instances where multiple workspaces share one worker group</strong> — single-tenant deployments do not need this. When a workspace accounts for at least <em>Workspace fairness — max percent</em> of cluster activity over the last <em>Workspace fairness — duration</em> seconds, each worker pull stochastically excludes that workspace so its share converges to the cap without on/off oscillation. Idle workers always fall back to running its jobs, so capping never starves the queue.',
+			key: 'workspace_fairness_enabled',
+			fieldType: 'boolean',
+			storage: 'setting',
+			cloudonly: false,
+			ee_only:
+				'Workspace fairness is an Enterprise feature — only useful on multi-tenant clusters where one noisy workspace would otherwise degrade QoS for other workspaces sharing the same worker pool.',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Workspace fairness — max percent',
+			description:
+				'Maximum share of cluster activity any single workspace may sustain before being stochastically throttled by the pull query. The admitted probability for capped workspaces is set just above this value so the cap is statistically stable rather than oscillating. Default 50.',
+			key: 'workspace_fairness_max_percent',
+			fieldType: 'number',
+			placeholder: '50',
+			storage: 'setting',
+			cloudonly: false,
+			ee_only: 'Workspace fairness is an Enterprise feature.',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Workspace fairness — duration (seconds)',
+			description:
+				'Rolling window used to measure workspace share. Activity = currently running jobs ∪ jobs completed in the last N seconds. Default 10.',
+			key: 'workspace_fairness_duration_secs',
+			fieldType: 'seconds',
+			placeholder: '10',
+			storage: 'setting',
+			cloudonly: false,
+			ee_only: 'Workspace fairness is an Enterprise feature.',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Workspace fairness — minimum total jobs',
+			description:
+				'Cap is only applied when cluster-wide activity exceeds this floor. Prevents over-eager capping on small clusters or quiet periods. Default 4.',
+			key: 'workspace_fairness_min_total_jobs',
+			fieldType: 'number',
+			placeholder: '4',
+			storage: 'setting',
+			cloudonly: false,
+			ee_only: 'Workspace fairness is an Enterprise feature.',
+			hideInQuickSetup: true
 		}
 	],
 	'Object Storage': [
@@ -304,6 +375,16 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'boolean',
 			storage: 'setting',
 			ee_only: ''
+		},
+		{
+			label: 'Store audit logs in object storage',
+			description:
+				'When enabled and instance object storage is configured, audit logs are also exported as newline-delimited JSON to the dedicated logs/audit/ folder (partitioned by day). Export is incremental and runs off the hot path. Pre-existing history is not backfilled: export starts from when the setting is enabled (transactions in flight at that moment may include a bounded set of just-prior rows). No audit log committed after enabling is ever skipped.',
+			key: 'store_audit_logs_s3',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
 		}
 	],
 	'Private Hub': [
@@ -449,6 +530,15 @@ export const settings: Record<string, Setting[]> = {
 			placeholder: 'https://username:password@pypi.company.com/simple',
 			storage: 'setting',
 			ee_only: ''
+		},
+		{
+			label: 'UV Python install mirror',
+			description:
+				'Mirror URL for downloading managed Python interpreters. Wires to <code>UV_PYTHON_INSTALL_MIRROR</code>. See <a href="https://docs.astral.sh/uv/configuration/environment/#uv_python_install_mirror">uv docs</a>.',
+			key: 'uv_python_install_mirror',
+			fieldType: 'text',
+			placeholder: 'https://mirror.example.com/python-build-standalone',
+			storage: 'setting'
 		},
 		{
 			label: 'UV index strategy',
@@ -1091,7 +1181,10 @@ export function buildSearchableSettingItems(
 	return items
 }
 
-/** Registry settings that support per-workspace overrides. Excludes instance_python_version and uv_index_strategy which are instance-wide only. */
+/** Registry settings that support per-workspace overrides. Excludes instance_python_version, uv_index_strategy, and uv_python_install_mirror which are instance-wide only. */
 export const WORKSPACE_REGISTRY_SETTINGS: Setting[] = settings['Registries'].filter(
-	(s) => s.key !== 'instance_python_version' && s.key !== 'uv_index_strategy'
+	(s) =>
+		s.key !== 'instance_python_version' &&
+		s.key !== 'uv_index_strategy' &&
+		s.key !== 'uv_python_install_mirror'
 )

@@ -16,13 +16,8 @@ import {
   type Workspace,
 } from "../workspace/workspace.ts";
 import { generateRTNamespace } from "../resource-type/resource-type.ts";
-import {
-  WMILL_INIT_AI_AGENTS_SOURCE_ENV,
-  WMILL_INIT_AI_CLAUDE_SOURCE_ENV,
-  WMILL_INIT_AI_SKILLS_SOURCE_ENV,
-  writeAiGuidanceFiles,
-} from "../../guidance/writer.ts";
 import { generateCommentedTemplate } from "./template.ts";
+import { refreshPrompts } from "../refresh/prompts.ts";
 
 export interface InitOptions {
   useDefault?: boolean;
@@ -241,45 +236,7 @@ async function initAction(opts: InitOptions) {
     }
   }
 
-  // Read nonDottedPaths from config
-  let nonDottedPaths = true; // default for new inits
-  try {
-    const { readConfigFile } = await import("../../core/conf.ts");
-    const config = await readConfigFile();
-    nonDottedPaths = config.nonDottedPaths ?? true;
-  } catch {
-    // If config can't be read, use defaults
-  }
-
-  // Create guidance files (AGENTS.md, CLAUDE.md, and agent skills)
-  try {
-    const guidanceResult = await writeAiGuidanceFiles({
-      targetDir: ".",
-      nonDottedPaths,
-      overwriteProjectGuidance: false,
-      skillsSourcePath: process.env[WMILL_INIT_AI_SKILLS_SOURCE_ENV],
-      agentsSourcePath: process.env[WMILL_INIT_AI_AGENTS_SOURCE_ENV],
-      claudeSourcePath: process.env[WMILL_INIT_AI_CLAUDE_SOURCE_ENV],
-    });
-
-    if (guidanceResult.agentsWritten) {
-      log.info(colors.green("Created AGENTS.md"));
-    }
-    if (guidanceResult.claudeWritten) {
-      log.info(colors.green("Created CLAUDE.md"));
-    }
-    log.info(
-      colors.green(
-        `Created .claude/skills/ and .agents/skills/ with ${guidanceResult.skillCount} skills`
-      )
-    );
-  } catch (error) {
-    if (error instanceof Error) {
-      log.warn(`Could not create guidance files: ${error.message}`);
-    } else {
-      log.warn(`Could not create guidance files: ${error}`);
-    }
-  }
+  await refreshPrompts({ yes: opts.useDefault === true });
 
   // Generate resource type namespace (only if a workspace was bound)
   if (didBindWorkspace && boundProfile) {

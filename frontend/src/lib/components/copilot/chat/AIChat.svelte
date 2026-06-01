@@ -3,30 +3,61 @@
 	import { untrack } from 'svelte'
 	import { type ScriptLang } from '$lib/gen'
 	import { dbSchemas, userStore, workspaceStore } from '$lib/stores'
-	import { aiChatManager, AIMode } from './AIChatManager.svelte'
+	import { AIMode } from './AIChatManager.svelte'
+	import { getAiChatManager } from './aiChatManagerContext'
+
+	const aiChatManager = getAiChatManager()
 	import { base } from '$lib/base'
 	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './script/core'
 	import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
 
+	let {
+		hideHeader = false,
+		hideModeSelector = false,
+		forceDisabled = false,
+		forceDisabledMessage = '',
+		wideLayout = false,
+		emptyHint,
+		inputPreface
+	}: {
+		hideHeader?: boolean
+		hideModeSelector?: boolean
+		// External "you can't type here" override. Used by sessions when
+		// the session's committed workspace was deleted/archived so the
+		// chat is effectively read-only until the user moves or discards
+		// the session. Wins over the internal disabled derivation.
+		forceDisabled?: boolean
+		forceDisabledMessage?: string
+		// Forwarded to AIChatDisplay. When true, the messages / input
+		// columns are centered in a max-w-3xl px-8 box. Sessions opt
+		// in; the narrow global-chat panel leaves it off.
+		wideLayout?: boolean
+		emptyHint?: import('svelte').Snippet
+		inputPreface?: import('svelte').Snippet
+	} = $props()
+
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const hasCopilot = $derived($copilotInfo.enabled)
 	const disabled = $derived(
-		!hasCopilot ||
+		forceDisabled ||
+			!hasCopilot ||
 			(aiChatManager.mode === AIMode.SCRIPT &&
 				aiChatManager.scriptEditorOptions?.lang &&
 				!SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(aiChatManager.scriptEditorOptions.lang))
 	)
 	const disabledMessage = $derived(
-		!hasCopilot
-			? isAdmin
-				? `Enable Windmill AI in your [workspace settings](${base}/workspace_settings?tab=ai) to use this chat`
-				: 'Ask an admin to enable Windmill AI in this workspace to use this chat'
-			: aiChatManager.mode === AIMode.SCRIPT &&
-				  aiChatManager.scriptEditorOptions?.lang &&
-				  !SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(aiChatManager.scriptEditorOptions.lang)
-				? `Windmill AI does not support the ${aiChatManager.scriptEditorOptions.lang} language yet.`
-				: ''
+		forceDisabled
+			? forceDisabledMessage
+			: !hasCopilot
+				? isAdmin
+					? `Enable Windmill AI in your [workspace settings](${base}/workspace_settings?tab=ai) to use this chat`
+					: 'Ask an admin to enable Windmill AI in this workspace to use this chat'
+				: aiChatManager.mode === AIMode.SCRIPT &&
+					  aiChatManager.scriptEditorOptions?.lang &&
+					  !SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(aiChatManager.scriptEditorOptions.lang)
+					? `Windmill AI does not support the ${aiChatManager.scriptEditorOptions.lang} language yet.`
+					: ''
 	)
 
 	const suggestions = [
@@ -51,6 +82,10 @@
 		} = {}
 	) {
 		aiChatManager.sendRequest(options)
+	}
+
+	export function focusInput() {
+		aiChatDisplay?.focusInput()
 	}
 
 	const historyManager = aiChatManager.historyManager
@@ -120,7 +155,6 @@
 	loadPastChat={(id) => {
 		aiChatManager.loadPastChat(id)
 	}}
-	cancel={aiChatManager.cancel}
 	askAi={aiChatManager.askAi}
 	{headerLeft}
 	hasDiff={aiChatManager.scriptEditorOptions &&
@@ -130,4 +164,9 @@
 	{disabled}
 	{disabledMessage}
 	{suggestions}
+	{hideHeader}
+	{hideModeSelector}
+	{wideLayout}
+	{emptyHint}
+	{inputPreface}
 ></AIChatDisplay>

@@ -35,8 +35,23 @@ python system_prompts/generate.py --plugin-dir ~/windmill-claude-plugin
 
 `--plugin-dir` accepts:
 - the `windmill-claude-plugin` repo root
-- a plugin root such as `plugins/windmill-code-plugin`
+- a plugin root such as `plugins/windmill`
 - a direct `skills/` directory
+
+To regenerate the public docs repo (consumed by context7):
+
+```bash
+python system_prompts/generate.py --context7-dir ~/windmill-cli-docs
+```
+
+`--context7-dir` writes a fully-rendered snapshot (`AGENTS.md`,
+`cli-commands.md`, `skills/<name>/SKILL.md`, `README.md`, `manifest.json`
+with the Windmill `version`) with all template placeholders resolved —
+suitable for ingestion by docs aggregators. In CI this runs from
+`.github/workflows/publish-cli-docs.yml` on every release tag. The
+generator refuses to wipe the target directory unless it's empty or has
+a context7 marker (`context7.json`, `manifest.json`, or a
+`windmill-cli-docs` git remote), so a typo can't delete unrelated files.
 
 This will:
 

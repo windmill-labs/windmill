@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            (elem->>'installation_id')::bigint as installation_id,\n            elem->>'account_id' as account_id,\n            elem->>'github_base_url' as github_base_url,\n            COALESCE((elem->>'provisioned_by_admin')::bool, false) as \"provisioned_by_admin!\"\n        FROM workspace_settings,\n        LATERAL jsonb_array_elements(git_app_installations) AS elem\n        WHERE workspace_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "installation_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "account_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "github_base_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "provisioned_by_admin!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "14bc9dd1d02a3d121297509beacc27f3c29d1b3877c1f2e7c206f0e36ef18701"
+}

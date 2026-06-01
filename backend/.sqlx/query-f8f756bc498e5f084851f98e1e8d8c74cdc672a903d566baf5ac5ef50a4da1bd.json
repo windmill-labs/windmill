@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT memory, worker, native_mode FROM worker_ping WHERE ping_at > now() - interval '2 minutes'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "memory",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "worker",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "native_mode",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "f8f756bc498e5f084851f98e1e8d8c74cdc672a903d566baf5ac5ef50a4da1bd"
+}

@@ -10,7 +10,7 @@
 	} from '$lib/gen'
 
 	import { sendUserToast } from '$lib/toast'
-	import { userStore, workspaceStore, userWorkspaces, superadmin } from '$lib/stores'
+	import { userStore, workspaceStore, userWorkspaces, superadmin, devopsRole } from '$lib/stores'
 	import {
 		Button,
 		ButtonType,
@@ -82,7 +82,7 @@
 			usernames,
 			folders,
 			jobTriggerKinds,
-			isSuperAdmin: !!$superadmin,
+			isSuperAdminOrDevops: !!$superadmin || !!$devopsRole,
 			isAdminsWorkspace: $workspaceStore === 'admins'
 		})
 	)
@@ -750,11 +750,12 @@
 				)}
 				schema={runsFilterSearchbarSchema}
 				presets={buildRunsFilterPresets({
-					isSuperadmin: !!$superadmin,
+					isSuperAdminOrDevops: !!$superadmin || !!$devopsRole,
 					isAdminsWorkspace: $workspaceStore === 'admins'
 				})}
 				bind:value={filters.val}
 				placeholder="Filter runs..."
+				autofocus
 			/>
 		</div>
 

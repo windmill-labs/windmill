@@ -12,6 +12,9 @@ use axum::{
     Json, Router,
 };
 use windmill_api_auth::require_owner_of_path;
+use windmill_audit::audit_oss::audit_log;
+use windmill_audit::ActionKind;
+use windmill_common::scripts::ScriptHash;
 use windmill_common::DB;
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
@@ -23,6 +26,31 @@ use windmill_common::{
     error::{Error, JsonResult, Result},
     utils::{not_found_if_none, StripPath},
 };
+
+/// Map a granular-ACL kind segment to the audit-log action prefix used by the
+/// per-kind CRUD endpoints (e.g. `flows.update`, `scripts.update`). The
+/// resulting action is suffixed with `.grant_acl` / `.revoke_acl` so the
+/// audit log keeps a per-resource record of every `/acls/*` mutation —
+/// folder/group already log via their dedicated permission-history tables.
+fn audit_action_prefix_for_acl_kind(kind: &str) -> Option<&'static str> {
+    match kind {
+        "script" => Some("scripts"),
+        "flow" => Some("flows"),
+        "app" => Some("apps"),
+        // Distinct prefix so dashboards aggregating on `action` can separate
+        // raw_app ACL mutations from regular app ones without parsing the
+        // `kind` parameters field. (The granular_acls SQL routes raw_app
+        // writes to the same `app` table; audit log identity is separate.)
+        "raw_app" => Some("raw_apps"),
+        "resource" => Some("resources"),
+        "variable" => Some("variables"),
+        "schedule" => Some("schedules"),
+        "http_trigger" | "websocket_trigger" | "kafka_trigger" | "nats_trigger"
+        | "postgres_trigger" | "mqtt_trigger" | "gcp_trigger" | "azure_trigger" | "sqs_trigger"
+        | "email_trigger" => Some("triggers"),
+        _ => None,
+    }
+}
 
 const KINDS: [&str; 20] = [
     "script",
@@ -131,9 +159,15 @@ async fn add_granular_acl(
         }
     }
 
+    // v2 raw apps are stored in the `app` table (with `app_version.raw_app = true`
+    // distinguishing them from regular apps); the legacy `raw_app` table no longer
+    // backs the workspace export, so granting/revoking on `raw_app` must hit `app`
+    // for the change to be visible. Git-sync dispatch still uses
+    // DeployedObject::RawApp so the worker writes back `<path>.raw_app.json`.
+    let table = if kind == "raw_app" { "app" } else { kind };
     // SAFETY: `kind` has been validated against the `KINDS` allowlist before reaching this function.
     let obj_o = sqlx::query_scalar::<_, serde_json::Value>(&format!(
-        "UPDATE {kind} SET extra_perms = jsonb_set(extra_perms, $1, to_jsonb($2), \
+        "UPDATE {table} SET extra_perms = jsonb_set(extra_perms, $1, to_jsonb($2), \
          true) WHERE {identifier} = $3 AND workspace_id = $4 RETURNING extra_perms"
     ))
     .bind(vec![owner.clone()])
@@ -175,6 +209,34 @@ async fn add_granular_acl(
             Some(&owner),
         )
         .await?;
+    } else if let Some(prefix) = audit_action_prefix_for_acl_kind(kind) {
+        // Mirror the folder/group permission-history coverage for every other
+        // ACLable kind. Folder/group already wrote a dedicated history row
+        // above; everything else (script/flow/app/raw_app/resource/...) lands
+        // in the general audit_log table here.
+        let access = if write.unwrap_or(false) {
+            "write"
+        } else {
+            "read"
+        };
+        let action = format!("{}.grant_acl", prefix);
+        audit_log(
+            &mut *tx,
+            &authed,
+            action.as_str(),
+            ActionKind::Update,
+            &w_id,
+            Some(path),
+            Some(
+                [
+                    ("kind", kind),
+                    ("owner", owner.as_str()),
+                    ("access", access),
+                ]
+                .into(),
+            ),
+        )
+        .await?;
     }
 
     tx.commit().await?;
@@ -193,46 +255,67 @@ async fn add_granular_acl(
             )
             .await?
         }
-        // "app" => {
-        //     handle_deployment_metadata(
-        //         &authed.email,
-        //         &authed.username,
-        //         &db,
-        //         &w_id,
-        //         DeployedObject::App { path: path.to_string(), parent_path: None, version: 0 },
-        //         Some(format!("App '{}' changed permissions", path)),
-        //         //         true,
-        //     )
-        //     .await?
-        // }
-        // "script" => {
-        //     handle_deployment_metadata(
-        //         &authed.email,
-        //         &authed.username,
-        //         &db,
-        //         &w_id,
-        //         DeployedObject::Script {
-        //             path: path.to_string(),
-        //             parent_path: None,
-        //             hash: ScriptHash(0),
-        //         },
-        //         Some(format!("Script '{}' changed permissions", path)),
-        //         //         true,
-        //     )
-        //     .await?
-        // }
-        // "flow" => {
-        //     handle_deployment_metadata(
-        //         &authed.email,
-        //         &authed.username,
-        //         &db,
-        //         &w_id,
-        //         DeployedObject::Flow { path: path.to_string(), parent_path: None },
-        //         Some(format!("Flow '{}' changed permissions", path)),
-        //         //         true,
-        //     )
-        //     .await?
-        // }
+        "app" => {
+            handle_deployment_metadata(
+                &authed.email,
+                &authed.username,
+                &db,
+                &w_id,
+                DeployedObject::App { path: path.to_string(), parent_path: None, version: 0 },
+                Some(format!("App '{}' changed permissions", path)),
+                true,
+                None,
+            )
+            .await?
+        }
+        "raw_app" => {
+            // RawApp deliberately uses its own DeployedObject variant: the
+            // git-sync worker reads `path_type` ("app" vs "raw_app") to decide
+            // whether to write `<path>.app.json` or `<path>.raw_app.json`.
+            // Collapsing this into `App` would dispatch raw_app perm changes
+            // against the wrong file in the repo.
+            handle_deployment_metadata(
+                &authed.email,
+                &authed.username,
+                &db,
+                &w_id,
+                DeployedObject::RawApp { path: path.to_string(), parent_path: None, version: 0 },
+                Some(format!("Raw App '{}' changed permissions", path)),
+                true,
+                None,
+            )
+            .await?
+        }
+        "script" => {
+            handle_deployment_metadata(
+                &authed.email,
+                &authed.username,
+                &db,
+                &w_id,
+                DeployedObject::Script {
+                    path: path.to_string(),
+                    parent_path: None,
+                    hash: ScriptHash(0),
+                },
+                Some(format!("Script '{}' changed permissions", path)),
+                true,
+                None,
+            )
+            .await?
+        }
+        "flow" => {
+            handle_deployment_metadata(
+                &authed.email,
+                &authed.username,
+                &db,
+                &w_id,
+                DeployedObject::Flow { path: path.to_string(), parent_path: None, version: 0 },
+                Some(format!("Flow '{}' changed permissions", path)),
+                true,
+                None,
+            )
+            .await?
+        }
         _ => (),
     }
 
@@ -295,15 +378,21 @@ async fn remove_granular_acl(
         require_owner_of_path(&authed, path)?;
     }
 
+    // See add_granular_acl: kind="raw_app" must hit the `app` table because v2
+    // raw apps live there and the legacy `raw_app` table no longer backs the
+    // workspace export.
+    let table = if kind == "raw_app" { "app" } else { kind };
     // SAFETY: `kind` has been validated against the `KINDS` allowlist before reaching this function.
+    // LIMIT 1: `script` shares (workspace_id, path) across versions, so `old` can
+    // return >1 row, which would break the scalar subquery in RETURNING.
     let obj_o = sqlx::query_scalar::<_, bool>(&format!(
         "WITH old AS (
-            SELECT extra_perms->$1 as old_write FROM {kind}
+            SELECT extra_perms->$1 as old_write FROM {table}
             WHERE {identifier} = $2 AND workspace_id = $3 AND extra_perms ? $1
         )
-        UPDATE {kind} SET extra_perms = extra_perms - $1
+        UPDATE {table} SET extra_perms = extra_perms - $1
         WHERE {identifier} = $2 AND workspace_id = $3 AND extra_perms ? $1
-        RETURNING (SELECT old_write FROM old)::bool"
+        RETURNING (SELECT old_write FROM old LIMIT 1)::bool"
     ))
     .bind(&owner)
     .bind(path)
@@ -335,6 +424,28 @@ async fn remove_granular_acl(
                 Some(&owner),
             )
             .await?;
+        } else if let Some(prefix) = audit_action_prefix_for_acl_kind(kind) {
+            // Mirror the add path: standard audit_log row for every kind that
+            // doesn't have a dedicated permission-history table.
+            let access = if write { "write" } else { "read" };
+            let action = format!("{}.revoke_acl", prefix);
+            audit_log(
+                &mut *tx,
+                &authed,
+                action.as_str(),
+                ActionKind::Update,
+                &w_id,
+                Some(path),
+                Some(
+                    [
+                        ("kind", kind),
+                        ("owner", owner.as_str()),
+                        ("access", access),
+                    ]
+                    .into(),
+                ),
+            )
+            .await?;
         }
 
         tx.commit().await?;
@@ -353,46 +464,68 @@ async fn remove_granular_acl(
                 )
                 .await?
             }
-            // "app" => {
-            //     handle_deployment_metadata(
-            //         &authed.email,
-            //         &authed.username,
-            //         &db,
-            //         &w_id,
-            //         DeployedObject::App { path: path.to_string(), parent_path: None, version: 0 },
-            //         Some(format!("App '{}' changed permissions", path)),
-            //         //         true,
-            //     )
-            //     .await?
-            // }
-            // "script" => {
-            //     handle_deployment_metadata(
-            //         &authed.email,
-            //         &authed.username,
-            //         &db,
-            //         &w_id,
-            //         DeployedObject::Script {
-            //             path: path.to_string(),
-            //             parent_path: None,
-            //             hash: ScriptHash(0),
-            //         },
-            //         Some(format!("Script '{}' changed permissions", path)),
-            //         //         true,
-            //     )
-            //     .await?
-            // }
-            // "flow" => {
-            //     handle_deployment_metadata(
-            //         &authed.email,
-            //         &authed.username,
-            //         &db,
-            //         &w_id,
-            //         DeployedObject::Flow { path: path.to_string(), parent_path: None },
-            //         Some(format!("Flow '{}' changed permissions", path)),
-            //         //         true,
-            //     )
-            //     .await?
-            // }
+            "app" => {
+                handle_deployment_metadata(
+                    &authed.email,
+                    &authed.username,
+                    &db,
+                    &w_id,
+                    DeployedObject::App { path: path.to_string(), parent_path: None, version: 0 },
+                    Some(format!("App '{}' changed permissions", path)),
+                    true,
+                    None,
+                )
+                .await?
+            }
+            "raw_app" => {
+                // See add_granular_acl: raw_app must use its own DeployedObject
+                // variant so git-sync writes `<path>.raw_app.json`.
+                handle_deployment_metadata(
+                    &authed.email,
+                    &authed.username,
+                    &db,
+                    &w_id,
+                    DeployedObject::RawApp {
+                        path: path.to_string(),
+                        parent_path: None,
+                        version: 0,
+                    },
+                    Some(format!("Raw App '{}' changed permissions", path)),
+                    true,
+                    None,
+                )
+                .await?
+            }
+            "script" => {
+                handle_deployment_metadata(
+                    &authed.email,
+                    &authed.username,
+                    &db,
+                    &w_id,
+                    DeployedObject::Script {
+                        path: path.to_string(),
+                        parent_path: None,
+                        hash: ScriptHash(0),
+                    },
+                    Some(format!("Script '{}' changed permissions", path)),
+                    true,
+                    None,
+                )
+                .await?
+            }
+            "flow" => {
+                handle_deployment_metadata(
+                    &authed.email,
+                    &authed.username,
+                    &db,
+                    &w_id,
+                    DeployedObject::Flow { path: path.to_string(), parent_path: None, version: 0 },
+                    Some(format!("Flow '{}' changed permissions", path)),
+                    true,
+                    None,
+                )
+                .await?
+            }
             _ => (),
         }
     }
@@ -421,9 +554,13 @@ async fn get_granular_acls(
     } else {
         "path"
     };
+    // See add_granular_acl: raw_app rows live in the `app` table now, so the
+    // read path must also target `app` — otherwise GET would return stale or
+    // 404 state while POST /acls/add and /acls/remove write to `app`.
+    let table = if kind == "raw_app" { "app" } else { kind };
     // SAFETY: `kind` has been validated against the `KINDS` allowlist before reaching this function.
     let obj_o = sqlx::query_scalar::<_, serde_json::Value>(&format!(
-        "SELECT extra_perms from {kind} WHERE {identifier} = $1 AND workspace_id = $2"
+        "SELECT extra_perms from {table} WHERE {identifier} = $1 AND workspace_id = $2"
     ))
     .bind(path)
     .bind(w_id)

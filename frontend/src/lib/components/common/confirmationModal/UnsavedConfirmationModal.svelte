@@ -58,11 +58,8 @@
 				open = true
 			}
 			if (savedValue && modifiedValue) {
-				const draftOrDeployed = cleanValueProperties({
-					...((savedValue.draft || savedValue) ?? {}),
-					path: undefined
-				})
-				const current = cleanValueProperties({ ...(modifiedValue ?? {}), path: undefined })
+				const draftOrDeployed = cleanValueProperties((savedValue.draft || savedValue) ?? {})
+				const current = cleanValueProperties(modifiedValue ?? {})
 
 				if (
 					orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed)) ===

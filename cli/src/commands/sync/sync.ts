@@ -18,9 +18,11 @@ import {
   GlobalOptions,
   parseFromPath,
   pushObj,
+  removeType,
   showConflict,
   showDiff,
   extractNativeTriggerInfo,
+  redactEncryptionKey,
 } from "../../types.ts";
 import { downloadZip } from "./pull.ts";
 import { runLint, printReport, checkMissingLocks } from "../lint/lint.ts";
@@ -67,7 +69,16 @@ import {
   isSpecificItem,
   SpecificItemsConfig,
 } from "../../core/specific_items.ts";
-import { getCurrentGitBranch, isGitRepository } from "../../utils/git.ts";
+import {
+  getCurrentGitBranch,
+  isGitRepository,
+  computeGitSyncDeployBranch,
+  checkoutGitSyncDeployBranch,
+  gitSyncDeployPush,
+  deriveGitSyncDeployIncludes,
+  isForkWorkspace,
+  type GitSyncDeployItem,
+} from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
 import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
@@ -79,6 +90,7 @@ import {
   MalformedLockfileError,
   workspaceDependenciesPathToLanguageAndFilename,
 } from "../../utils/metadata.ts";
+import { DoubleLinkedDependencyTree, uploadScripts } from "../../utils/dependency_tree.ts";
 import { OpenFlow, NativeServiceName, ScriptModule } from "../../../gen/types.gen.ts";
 import { pushResource } from "../resource/resource.ts";
 import {
@@ -118,6 +130,125 @@ import {
 } from "../../utils/resource_folders.ts";
 
 let branchDeprecationWarned = false;
+
+// Map a ws_specific `item_kind` returned by the backend to its corresponding
+// SpecificItemsConfig array. The backend currently only emits `resource` and
+// `variable`, but the mapping rule (kind → its plural — `_trigger` kinds all
+// fold into `triggers`) is generic so a future kind doesn't require a change
+// here. Returns null for kinds we have no place to store (e.g. `settings`,
+// which is a single boolean, not a list).
+function configKeyForItemKind(
+  kind: string,
+): keyof Omit<SpecificItemsConfig, "settings"> | null {
+  switch (kind) {
+    case "resource":
+      return "resources";
+    case "variable":
+      return "variables";
+      // case "schedule":
+      //   return "schedules";
+      // default:
+      //   return kind.endsWith("_trigger") ? "triggers" : null;
+    }
+    return null
+}
+
+// Fetch ws_specific items from the server and merge their paths into specificItems.
+// Each ws_specific entry (item_kind + path) is appended as an exact file-path pattern
+// to the corresponding array in the config, so the existing pattern-matching logic picks them up.
+// Returns the merged config plus the raw server list (or null if the server list could
+// not be fetched) — callers performing push-side reconciliation need to know which
+// (kind, path) pairs are *not yet* ws_specific on the server.
+async function mergeWsSpecificFromServer(
+  workspaceId: string,
+  specificItems: SpecificItemsConfig | undefined,
+): Promise<{
+  merged: SpecificItemsConfig | undefined;
+  serverItems: Array<{ item_kind: string; path: string }> | null;
+}> {
+  let wsSpecificItems: Array<{ item_kind: string; path: string }>;
+  try {
+    wsSpecificItems = await wmill.listWsSpecific({ workspace: workspaceId });
+  } catch (err) {
+    // 404 = endpoint not present on an older server: expected, log at debug.
+    // Anything else (401/403/network) is a real failure that produces an
+    // incomplete sync — surface it so the user notices.
+    const isApiError = err && typeof err === "object" &&
+      "name" in err && (err as { name: unknown }).name === "ApiError";
+    const status = isApiError ? (err as { status?: number }).status : undefined;
+    if (status === 404) {
+      log.debug("listWsSpecific endpoint not available on server, skipping");
+    } else {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.warn(
+        `Could not fetch ws_specific items from server (${status ?? "no status"}): ${msg}. ` +
+          `Sync will proceed without server-side ws_specific items.`,
+      );
+    }
+    return { merged: specificItems, serverItems: null };
+  }
+
+  if (wsSpecificItems.length === 0) {
+    return { merged: specificItems, serverItems: wsSpecificItems };
+  }
+
+  const merged: SpecificItemsConfig = specificItems ? { ...specificItems } : {};
+
+  for (const item of wsSpecificItems) {
+    const configKey = configKeyForItemKind(item.item_kind);
+    if (!configKey) continue;
+    if (!merged[configKey]) {
+      merged[configKey] = [];
+    }
+    // Patterns are .yaml regardless of opts.json — isSpecificItem normalizes
+    // .json file paths to .yaml before matching, so a single .yaml pattern
+    // covers both extensions for the same item.
+    merged[configKey]!.push(`${item.path}.${item.item_kind}.yaml`);
+  }
+
+  return { merged, serverItems: wsSpecificItems };
+}
+
+// Compute (kind, serverPath) pairs that are flagged ws_specific by the local
+// config (specificItems) but are *not* marked ws_specific on the server. These
+// represent flag-only changes that the file-content diff misses (because the
+// flag isn't part of the YAML body), so push needs to handle them explicitly.
+//
+// Generic over item kind (uses getTypeStrFromPath + removeType so .yaml/.json
+// work the same), gated by configKeyForItemKind so only kinds the backend can
+// mark ws_specific make it through. As of writing the backend only emits
+// `resource` and `variable`, but the gating handles future kinds without
+// touching this function.
+export function computeWsSpecificFlagOnlyPushes(
+  localMap: Record<string, string>,
+  localSpecificItems: SpecificItemsConfig | undefined,
+  serverItems: Array<{ item_kind: string; path: string }> | null,
+): Array<{ kind: string; serverPath: string; filePath: string }> {
+  if (!localSpecificItems || serverItems === null) return [];
+
+  const serverSet = new Set(
+    serverItems.map((i) => `${i.item_kind}:${i.path}`),
+  );
+
+  const out: Array<{ kind: string; serverPath: string; filePath: string }> = [];
+  for (const filePath of Object.keys(localMap)) {
+    let kind: string;
+    try {
+      kind = getTypeStrFromPath(filePath);
+    } catch {
+      continue;
+    }
+    if (configKeyForItemKind(kind) === null) continue;
+
+    if (!isSpecificItem(filePath, localSpecificItems)) continue;
+
+    const serverPath = removeType(filePath, kind);
+    if (serverSet.has(`${kind}:${serverPath}`)) continue;
+
+    out.push({ kind, serverPath, filePath });
+  }
+  return out;
+}
 
 // Resolve workspace name from a --branch override (git branch → workspace name).
 // Falls back to using the branch value as-is (backward compat: old key = branch name).
@@ -393,6 +524,30 @@ export const yamlOptions: DocumentOptions & SchemaOptions & CreateNodeOptions & 
   singleQuote: true,
 };
 
+/**
+ * Iterate object/array entries in the same order they will appear in the
+ * YAML output. Arrays preserve their index order; plain objects are sorted
+ * by the same comparator as `yamlOptions.sortMapEntries`.
+ *
+ * Use this whenever traversal order influences a side effect that the YAML
+ * representation also expresses (e.g. auto-numbered inline-script paths in
+ * `extractInlineScriptsForApps`). Without it, the path-assigner walks the
+ * in-memory key order returned by `JSON.parse` (server insertion order),
+ * but the YAML serializer reorders keys alphabetically — so identically
+ * named scripts get numbers that don't line up with their position on disk
+ * and shuffle between pulls when the server returns keys in a different order.
+ */
+export function yamlSortedEntries(rec: any): [string, any][] {
+  const entries = Object.entries(rec);
+  if (Array.isArray(rec)) {
+    return entries;
+  }
+  entries.sort(([a], [b]) =>
+    prioritizeName(a).localeCompare(prioritizeName(b)),
+  );
+  return entries;
+}
+
 export interface InlineScript {
   path: string;
   content: string;
@@ -551,7 +706,11 @@ export function extractInlineScriptsForApps(
     return [];
   }
   if (typeof rec == "object") {
-    return Object.entries(rec).flatMap(([k, v]) => {
+    // Iterate in YAML output order so that auto-numbered names assigned by
+    // the path-assigner line up with the position they will appear in the
+    // serialized YAML — and stay stable across pulls regardless of the key
+    // order the server returns. See yamlSortedEntries above.
+    return yamlSortedEntries(rec).flatMap(([k, v]) => {
       if (k == "inlineScript" && v != null && typeof v == "object") {
         rec["type"] = undefined;
         const o: Record<string, any> = v as any;
@@ -644,6 +803,7 @@ async function pushFilesetParentResource(
   workspaceId: string,
   alreadySynced: string[],
   cachedWsName: string | null,
+  specificItems?: SpecificItemsConfig,
 ): Promise<FilesetPushResult> {
   let resourceFilePath: string;
   try {
@@ -662,8 +822,12 @@ async function pushFilesetParentResource(
   );
 
   let serverPath = resourceFilePath;
+  let wsSpecific = false;
   if (cachedWsName && isWorkspaceSpecificFile(resourceFilePath)) {
     serverPath = fromWorkspaceSpecificPath(resourceFilePath, cachedWsName);
+    wsSpecific = true;
+  } else if (specificItems && isSpecificItem(childPath, specificItems)) {
+    wsSpecific = true;
   }
 
   await pushResource(
@@ -672,6 +836,7 @@ async function pushFilesetParentResource(
     undefined,
     newObj,
     resourceFilePath,
+    wsSpecific ? true : undefined,
   );
   return { status: "pushed", resourceFilePath };
 }
@@ -795,7 +960,7 @@ function ZipFSElement(
                 SEP,
                 defaultTs,
                 assigner,
-                { skipInlineScriptSuffix: getNonDottedPaths() },
+                { skipInlineScriptSuffix: getNonDottedPaths(), failOnInlineDirective: true },
               );
               if (flow.value.failure_module) {
                 inlineScripts.push(...extractInlineScriptsForFlows(
@@ -804,7 +969,7 @@ function ZipFSElement(
                   SEP,
                   defaultTs,
                   assigner,
-                  { skipInlineScriptSuffix: getNonDottedPaths() },
+                  { skipInlineScriptSuffix: getNonDottedPaths(), failOnInlineDirective: true },
                 ));
               }
               if (flow.value.preprocessor_module) {
@@ -814,7 +979,7 @@ function ZipFSElement(
                   SEP,
                   defaultTs,
                   assigner,
-                  { skipInlineScriptSuffix: getNonDottedPaths() },
+                  { skipInlineScriptSuffix: getNonDottedPaths(), failOnInlineDirective: true },
                 ));
               }
             } catch (error) {
@@ -1418,8 +1583,20 @@ type Edit = {
   after: string;
   codebase?: string;
 };
+// Flag-only change: the file content matches the server but the local
+// specificItems config flags the item as ws_specific while the server
+// does not (or vice-versa). Emitted only by computeWsSpecificFlagOnlyPushes
+// and routed through its own apply branch — do NOT model this as
+// Edit{before === after}, because any future "skip identical edits"
+// optimization would silently drop these.
+type WsSpecificFlag = {
+  name: "ws_specific_flag";
+  path: string;
+  kind: string;
+  wsSpecific: boolean;
+};
 
-type Change = Added | Deleted | Edit;
+type Change = Added | Deleted | Edit | WsSpecificFlag;
 
 export async function elementsToMap(
   els: DynFSElement,
@@ -2214,7 +2391,18 @@ async function pushParentScriptForModule(
 
 export async function pull(
   opts: GlobalOptions &
-    SyncOptions & { repository?: string; promotion?: string; branch?: string },
+    SyncOptions & {
+      repository?: string;
+      promotion?: string;
+      branch?: string;
+      useIndividualBranch?: boolean;
+      groupByFolder?: boolean;
+      gitDeployItems?: string;
+      onlyCreateBranch?: boolean;
+      parentWorkspaceId?: string;
+      gitCommitterEmail?: string;
+      gitCommitterName?: string;
+    },
 ) {
   if ((opts as any).jsonOutput) log.setSilent(true);
   const originalCliOpts = { ...opts };
@@ -2265,6 +2453,75 @@ export async function pull(
   const workspace = await resolveWorkspace(opts, wsNameForConfig);
   await requireLogin(opts);
 
+  // Git-sync deployment-callback mode: when invoked from the git-sync hub
+  // script with --git-deploy-items, the CWD is an existing clone of the repo.
+  // Switch to the dedicated wm_deploy/fork branch (when applicable) BEFORE any
+  // files are written so the deploy lands on the right branch instead of the
+  // protected base branch.
+  if (opts.gitDeployItems !== undefined) {
+    let deployItems: GitSyncDeployItem[];
+    try {
+      deployItems = JSON.parse(opts.gitDeployItems);
+    } catch (e) {
+      log.error(`Invalid --git-deploy-items JSON: ${e}`);
+      process.exit(1);
+    }
+    const clonedBranchName = getCurrentGitBranch() ?? "main";
+
+    // Fork workspaces force-disable use_individual_branch / group_by_folder
+    // (1:1 with the hub script's inner()).
+    const targetIsFork = isForkWorkspace(workspace.workspaceId);
+    const useIndividualBranch = targetIsFork
+      ? false
+      : !!opts.useIndividualBranch;
+    const groupByFolder = targetIsFork ? false : !!opts.groupByFolder;
+
+    // Fork-of-a-fork: only when the parent workspace is itself a fork, root
+    // the new branch on the parent's fork branch (mirrors the hub script's
+    // `parent_workspace_id?.startsWith(FORKED_…)` gate).
+    if (opts.parentWorkspaceId && isForkWorkspace(opts.parentWorkspaceId)) {
+      const parentBranch = computeGitSyncDeployBranch({
+        workspaceId: opts.parentWorkspaceId,
+        items: deployItems,
+        useIndividualBranch,
+        groupByFolder,
+        clonedBranchName,
+      });
+      if (parentBranch && parentBranch !== clonedBranchName) {
+        checkoutGitSyncDeployBranch(parentBranch);
+      }
+    }
+
+    const deployBranch = computeGitSyncDeployBranch({
+      workspaceId: workspace.workspaceId,
+      items: deployItems,
+      useIndividualBranch,
+      groupByFolder,
+      clonedBranchName,
+    });
+    if (deployBranch && deployBranch !== clonedBranchName) {
+      checkoutGitSyncDeployBranch(deployBranch);
+    }
+
+    if (opts.onlyCreateBranch) {
+      // Branch-only publish: there is no commit here, so the GPG-cache-warmth
+      // invariant that motivated moving commit+push to the hub script (WIN-1974,
+      // #9284) does not apply — a bare `git push` of the (empty) branch ref needs
+      // no signing. The hub script only runs its in-process commit+push for the
+      // non-onlyCreateBranch path (`if (!only_create_branch) git_push(...)`), so
+      // the CLI MUST publish the fork branch here or it is never pushed at all.
+      gitSyncDeployPush({
+        items: deployItems,
+        authorName: process.env["WM_USERNAME"] || "windmill",
+        authorEmail: process.env["WM_EMAIL"] || "windmill@windmill.dev",
+        committerName: opts.gitCommitterName,
+        committerEmail: opts.gitCommitterEmail,
+        onlyCreateBranch: true,
+      });
+      return;
+    }
+  }
+
   // If wsNameForConfig wasn't set from flags, infer from the resolved profile
   if (!wsNameForConfig) {
     wsNameForConfig = inferWsNameFromProfile(opts, workspace);
@@ -2279,10 +2536,15 @@ export async function pull(
   );
 
   // Extract specific items configuration
-  const specificItems = getSpecificItemsForCurrentBranch(opts, wsNameForConfig);
+  let specificItems = getSpecificItemsForCurrentBranch(opts, wsNameForConfig);
 
-  // Compute the workspace name for file naming
-  const wsNameForFiles = wsNameForConfig ? resolveWsNameForFiles(opts, wsNameForConfig) : undefined;
+  // Compute the workspace name for file naming (default to workspaceId)
+  let wsNameForFiles = wsNameForConfig ? resolveWsNameForFiles(opts, wsNameForConfig) : workspace.workspaceId;
+
+  // Augment specificItems with server-side ws_specific entries
+  const localSpecificItems = specificItems;
+  const wsSpecificMerge = await mergeWsSpecificFromServer(workspace.workspaceId, specificItems);
+  specificItems = wsSpecificMerge.merged;
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -2356,6 +2618,27 @@ export async function pull(
   log.info(
     `remote (${workspace.name}) -> local: ${changes.length} changes to apply`,
   );
+
+  // Warn about items the server marks ws_specific that aren't covered by
+  // wmill.yaml's specificItems patterns — but only for items affected by
+  // this pull (changes list), so unrelated server-flagged items don't
+  // spam the log. The merge above already ensures correctness for the
+  // pull itself; this is a heads-up that the user's config drifts from
+  // the remote and a future push from another machine without that config
+  // would push the item as non-ws_specific.
+  if (wsSpecificMerge.serverItems && wsSpecificMerge.serverItems.length > 0) {
+    const changedPaths = new Set(changes.map((c) => c.path));
+    for (const item of wsSpecificMerge.serverItems) {
+      const filePath = `${item.path}.${item.item_kind}.yaml`;
+      if (!changedPaths.has(filePath)) continue;
+      if (!isSpecificItem(filePath, localSpecificItems)) {
+        log.warn(
+          `${item.item_kind} ${item.path} is workspace-specific on the remote ` +
+            `but not flagged in wmill.yaml's specificItems — consider adding it.`,
+        );
+      }
+    }
+  }
 
   // Handle JSON output for dry-run
   if (opts.dryRun && opts.jsonOutput) {
@@ -2588,7 +2871,7 @@ export async function pull(
       await generateAppLocksInternal(
         change,
         true,
-        true,
+        false,
         workspace,
         opts,
         true,
@@ -2705,6 +2988,79 @@ export async function pull(
   } catch (e) {
     log.warn(`Failed to pull shared UI folder: ${e}`);
   }
+
+  // Git-sync deployment-callback mode stops here: branch checkout + pull have
+  // happened, but commit + push are the caller's job. The hub script does
+  // them in-process with `set_gpg_signing_secret` so the agent's pre-warmed
+  // passphrase cache is still warm at sign time (WIN-1974). `gitSyncDeployPush`
+  // stays exported for callers that want the same commit/push behavior.
+}
+
+// Internal git-sync deployment-callback entrypoint. Invoked only by the
+// git-sync hub script (not user-facing — see the hidden `git-deploy`
+// subcommand). Runs inside an existing clone of the repo: switches to the
+// wm_deploy/fork branch when applicable, pulls the workspace content, then
+// commits and pushes. Delegates to `pull` with deploy options set;
+// non-interactive and branch-validation-free since there is no TTY.
+export async function gitDeploy(
+  opts: GlobalOptions &
+    SyncOptions & {
+      repository?: string;
+      gitDeployItems?: string;
+      useIndividualBranch?: boolean;
+      groupByFolder?: boolean;
+      onlyCreateBranch?: boolean;
+      parentWorkspaceId?: string;
+      skipSecrets?: boolean;
+      gitCommitterEmail?: string;
+      gitCommitterName?: string;
+    },
+) {
+  let items: GitSyncDeployItem[] = [];
+  if (opts.gitDeployItems !== undefined) {
+    try {
+      items = JSON.parse(opts.gitDeployItems);
+    } catch (e) {
+      log.error(`Invalid --git-deploy-items JSON: ${e}`);
+      process.exit(1);
+    }
+  }
+
+  // Fork workspaces force-disable use_individual_branch / group_by_folder
+  // (1:1 with the hub script's inner()): a fork always syncs to its own
+  // wm-fork/<branch>/<id> branch, and — critically — that disabling also
+  // flips the include/promotion derivation below.
+  const isFork = isForkWorkspace(opts.workspace ?? "");
+  const useIndividualBranch = isFork ? false : !!opts.useIndividualBranch;
+
+  // Derive the include filters from the deployed items (replaces the hub
+  // script's regexFromPath + per-kind --include-* construction).
+  const includes = deriveGitSyncDeployIncludes(items, useIndividualBranch);
+
+  // Promotion: in individual-branch mode, apply promotionOverrides from the
+  // base branch the repo was cloned on (read now, before `pull` checks out
+  // the wm_deploy branch). Mirrors the hub script's `--promotion <branch>`.
+  const promotion =
+    useIndividualBranch && !opts.promotion
+      ? getCurrentGitBranch() ?? undefined
+      : opts.promotion;
+
+  await pull({
+    ...opts,
+    yes: true,
+    skipBranchValidation: true,
+    extraIncludes: [
+      ...(opts.extraIncludes ?? []),
+      ...includes.extraIncludes,
+    ],
+    includeSchedules: opts.includeSchedules || includes.includeSchedules,
+    includeGroups: opts.includeGroups || includes.includeGroups,
+    includeUsers: opts.includeUsers || includes.includeUsers,
+    includeTriggers: opts.includeTriggers || includes.includeTriggers,
+    includeSettings: opts.includeSettings || includes.includeSettings,
+    includeKey: opts.includeKey || includes.includeKey,
+    promotion,
+  } as any);
 }
 
 function prettyChanges(
@@ -2752,16 +3108,22 @@ function prettyChanges(
         ),
       );
     } else if (change.name === "edited") {
+      const changeType = getTypeStrFromPath(change.path);
       log.info(
         colors.yellow(
-          `~ ${getTypeStrFromPath(change.path)} ` +
+          `~ ${changeType} ` +
             displayPath +
             colors.gray(wsNote) +
             (change.codebase ? ` (codebase changed)` : ""),
         ),
       );
       if (change.before != change.after) {
-        if (change.path.endsWith(".yaml")) {
+        if (changeType === "encryption_key") {
+          showDiff(
+            redactEncryptionKey(change.before),
+            redactEncryptionKey(change.after),
+          );
+        } else if (change.path.endsWith(".yaml")) {
           try {
             showDiff(
               yamlStringify(
@@ -2780,6 +3142,15 @@ function prettyChanges(
           showDiff(change.before, change.after);
         }
       }
+    } else if (change.name === "ws_specific_flag") {
+      log.info(
+        colors.cyan(
+          `~ ${change.kind} ${displayPath} ` +
+            (change.wsSpecific
+              ? "(mark as workspace-specific)"
+              : "(unmark as workspace-specific)"),
+        ),
+      );
     }
   }
 }
@@ -2871,10 +3242,20 @@ export async function push(
   );
 
   // Extract specific items configuration
-  const specificItems = getSpecificItemsForCurrentBranch(opts, wsNameForConfig);
+  let specificItems = getSpecificItemsForCurrentBranch(opts, wsNameForConfig);
 
-  // Compute the workspace name for file naming
-  const wsNameForFiles = wsNameForConfig ? resolveWsNameForFiles(opts, wsNameForConfig) : undefined;
+  // Compute the workspace name for file naming (default to workspaceId)
+  let wsNameForFiles = wsNameForConfig ? resolveWsNameForFiles(opts, wsNameForConfig) : workspace.workspaceId;
+
+  // Keep the pre-merge specificItems so we can detect entries that are
+  // flagged locally but not yet ws_specific on the server (post-merge would
+  // include both, making the comparison impossible).
+  const localSpecificItems = specificItems;
+
+  // Augment specificItems with server-side ws_specific entries
+  const wsSpecificMerge = await mergeWsSpecificFromServer(workspace.workspaceId, specificItems);
+  specificItems = wsSpecificMerge.merged;
+  const serverWsSpecificItems = wsSpecificMerge.serverItems;
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -2967,7 +3348,7 @@ export async function push(
   );
 
   const local = await FSFSElement(path.join(process.cwd(), ""), codebases, false);
-  const { changes } = await compareDynFSElement(
+  const { changes, localMap } = await compareDynFSElement(
     local,
     remote,
     await ignoreF(opts),
@@ -2981,6 +3362,29 @@ export async function push(
     false, // els1 (local) is not the remote source
   );
 
+  // Detect resources/variables that the local config flags as ws_specific
+  // but that aren't ws_specific on the server. The file-content diff misses
+  // these because ws_specific isn't part of the YAML body — emit a dedicated
+  // "ws_specific_flag" change so the apply loop can call updateResource /
+  // updateVariable with just the metadata flag (no content payload). When the
+  // file *also* has a content change, the existing "edited" change handles
+  // both (push{Resource,Variable} forwards the wsSpecific arg), so we skip
+  // injection in that case to avoid pushing twice.
+  const wsSpecificFlagOnly = computeWsSpecificFlagOnlyPushes(
+    localMap,
+    localSpecificItems,
+    serverWsSpecificItems,
+  );
+  for (const item of wsSpecificFlagOnly) {
+    if (changes.some((c) => c.path === item.filePath)) continue;
+    changes.push({
+      name: "ws_specific_flag",
+      path: item.filePath,
+      kind: item.kind,
+      wsSpecific: true,
+    });
+  }
+
   const rawWorkspaceDependencies = await getRawWorkspaceDependencies(true);
 
   const tracker: ChangeTracker = await buildTracker(changes);
@@ -2990,19 +3394,157 @@ export async function push(
   const staleFlows: string[] = [];
   const staleApps: string[] = [];
 
+  // Auto-regenerate uses a DoubleLinkedDependencyTree so the dep job can
+  // resolve cross-folder relative imports against not-yet-deployed scripts via
+  // raw_script_temp + temp_script_refs. Without this the importer's lockgen
+  // 404s on its sibling/parent imports because nothing has been pushed yet.
+  const tree = autoRegenerate ? new DoubleLinkedDependencyTree() : undefined;
+  if (tree) tree.setWorkspaceDeps(rawWorkspaceDependencies);
+
+  // Pass 1: populate the tree (autoRegenerate) or run the legacy stale-check
+  // (no autoRegenerate, just collect warnings).
   for (const change of tracker.scripts) {
     const stale = await generateScriptMetadataInternal(
       change,
       workspace,
       opts,
-      !autoRegenerate, // dryRun=false when --auto is set
+      true, // dryRun: pass 1 only populates the tree / detects staleness
       true,
       rawWorkspaceDependencies,
       codebases,
       false,
+      tree,
     );
-    if (stale) {
+    if (!autoRegenerate && stale) {
       staleScripts.push(stale);
+    }
+  }
+  for (const change of tracker.flows) {
+    const stale = await generateFlowLockInternal(
+      change,
+      true,
+      workspace,
+      opts,
+      false,
+      true,
+      tree,
+    );
+    if (!autoRegenerate && stale) {
+      staleFlows.push(stale as string);
+    }
+  }
+  for (const change of tracker.apps) {
+    const stale = await generateAppLocksInternal(
+      change,
+      false,
+      true,
+      workspace,
+      opts,
+      true,
+      true,
+      tree,
+    );
+    if (!autoRegenerate && stale) {
+      staleApps.push(stale as string);
+    }
+  }
+  for (const change of tracker.rawApps) {
+    const stale = await generateAppLocksInternal(
+      change,
+      true,
+      true,
+      workspace,
+      opts,
+      true,
+      true,
+      tree,
+    );
+    if (!autoRegenerate && stale) {
+      staleApps.push(stale as string);
+    }
+  }
+
+  if (autoRegenerate && tree) {
+    // Propagate staleness through imports + upload script content to
+    // raw_script_temp so the dep job can resolve cross-folder relative imports
+    // via temp_script_refs (instead of hitting 404s for not-yet-deployed
+    // scripts and recording lock_error_logs).
+    tree.propagateStaleness();
+    try {
+      await uploadScripts(tree, workspace);
+    } catch (e) {
+      log.warn(
+        colors.yellow(
+          `Failed to upload scripts to temp storage (backend may be too old): ${e}. ` +
+            `Locks will be generated using deployed script versions only — locally modified ` +
+            `relative imports may not be reflected.`,
+        ),
+      );
+    }
+
+    // Pass 2: actually generate metadata/locks. Threading `tree` makes
+    // generateScriptMetadataInternal include temp_script_refs in the
+    // dependencies_async request so the dep job resolves relative imports
+    // against raw_script_temp.
+    for (const change of tracker.scripts) {
+      const generated = await generateScriptMetadataInternal(
+        change,
+        workspace,
+        opts,
+        false,
+        true,
+        rawWorkspaceDependencies,
+        codebases,
+        false,
+        tree,
+      );
+      if (generated) {
+        staleScripts.push(generated);
+      }
+    }
+    for (const change of tracker.flows) {
+      const generated = await generateFlowLockInternal(
+        change,
+        false,
+        workspace,
+        opts,
+        false,
+        true,
+        tree,
+      );
+      if (generated) {
+        staleFlows.push(generated as string);
+      }
+    }
+    for (const change of tracker.apps) {
+      const generated = await generateAppLocksInternal(
+        change,
+        false,
+        false,
+        workspace,
+        opts,
+        true,
+        true,
+        tree,
+      );
+      if (generated) {
+        staleApps.push(generated as string);
+      }
+    }
+    for (const change of tracker.rawApps) {
+      const generated = await generateAppLocksInternal(
+        change,
+        true,
+        false,
+        workspace,
+        opts,
+        true,
+        true,
+        tree,
+      );
+      if (generated) {
+        staleApps.push(generated as string);
+      }
     }
   }
 
@@ -3026,20 +3568,6 @@ export async function push(
     log.info("");
   }
 
-  for (const change of tracker.flows) {
-    const stale = await generateFlowLockInternal(
-      change,
-      !autoRegenerate, // dryRun=false when --auto is set
-      workspace,
-      opts,
-      false,
-      true,
-    );
-    if (stale) {
-      staleFlows.push(stale as string);
-    }
-  }
-
   if (staleFlows.length > 0) {
     if (autoRegenerate) {
       log.info("Auto-regenerated locks for stale flows:");
@@ -3056,36 +3584,6 @@ export async function push(
       }
     }
     log.info("");
-  }
-
-  for (const change of tracker.apps) {
-    const stale = await generateAppLocksInternal(
-      change,
-      false,
-      !autoRegenerate,
-      workspace,
-      opts,
-      true,
-      true,
-    );
-    if (stale) {
-      staleApps.push(stale as string);
-    }
-  }
-
-  for (const change of tracker.rawApps) {
-    const stale = await generateAppLocksInternal(
-      change,
-      true,
-      !autoRegenerate,
-      workspace,
-      opts,
-      true,
-      true,
-    );
-    if (stale) {
-      staleApps.push(stale as string);
-    }
   }
 
   if (staleApps.length > 0) {
@@ -3276,8 +3774,11 @@ export async function push(
         userEmail: user.email,
       };
 
+      // ws_specific_flag changes have no content payload, so they don't
+      // affect permissioned_as resolution — filter them out before the
+      // pre-check (which expects only added/edited/deleted).
       await preCheckPermissionedAs(
-        changes,
+        changes.filter((c) => c.name !== "ws_specific_flag"),
         user.email,
         userIsAdminOrDeployer,
         opts.acceptOverridingPermissionedAsWithSelf ?? false,
@@ -3468,12 +3969,16 @@ export async function push(
                   // This ensures workspace-specific files are stored with their base names in the workspace
                   let serverPath = resourceFilePath;
                   const currentBranch = cachedWsNameForPush;
+                  let isFileResWsSpecific = false;
 
                   if (currentBranch && isWorkspaceSpecificFile(resourceFilePath)) {
                     serverPath = fromWorkspaceSpecificPath(
                       resourceFilePath,
                       currentBranch,
                     );
+                    isFileResWsSpecific = true;
+                  } else if (specificItems && isSpecificItem(change.path, specificItems)) {
+                    isFileResWsSpecific = true;
                   }
 
                   await pushResource(
@@ -3482,6 +3987,7 @@ export async function push(
                     undefined,
                     newObj,
                     resourceFilePath,
+                    isFileResWsSpecific ? true : undefined,
                   );
                   if (stateTarget) {
                     await writeFile(stateTarget, change.after, "utf-8");
@@ -3495,6 +4001,7 @@ export async function push(
                   workspace.workspaceId,
                   alreadySynced,
                   cachedWsNameForPush,
+                  specificItems,
                 );
                 if (result.status === "parent-missing") {
                   throw new Error(
@@ -3514,7 +4021,8 @@ export async function push(
 
               // Check if this is a branch-specific item and get the original workspace-specific path
               let originalWorkspaceSpecificPath: string | undefined;
-              if (specificItems && isSpecificItem(change.path, specificItems)) {
+              const isWsSpecific = specificItems && isSpecificItem(change.path, specificItems);
+              if (isWsSpecific) {
                 originalWorkspaceSpecificPath = getWorkspaceSpecificPath(
                   change.path,
                   specificItems,
@@ -3532,6 +4040,7 @@ export async function push(
                 opts.message,
                 originalWorkspaceSpecificPath,
                 permissionedAsContext,
+                isWsSpecific ? true : undefined,
               );
 
               if (stateTarget) {
@@ -3547,6 +4056,7 @@ export async function push(
                   workspace.workspaceId,
                   alreadySynced,
                   cachedWsNameForPush,
+                  specificItems,
                 );
                 continue;
               }
@@ -3593,7 +4103,8 @@ export async function push(
               // Determine the actual local file path for this change
               // For branch-specific items, we read from workspace-specific files but push to base server paths
               let localFilePath = change.path;
-              if (specificItems && isSpecificItem(change.path, specificItems)) {
+              const isAddedWsSpecific = specificItems && isSpecificItem(change.path, specificItems);
+              if (isAddedWsSpecific) {
                 const workspaceSpecificPath = getWorkspaceSpecificPath(
                   change.path,
                   specificItems,
@@ -3614,6 +4125,7 @@ export async function push(
                 opts.message,
                 localFilePath, // Pass the actual local file path
                 permissionedAsContext,
+                isAddedWsSpecific ? true : undefined,
               );
 
               if (stateTarget) {
@@ -3645,6 +4157,7 @@ export async function push(
                   workspace.workspaceId,
                   alreadySynced,
                   cachedWsNameForPush,
+                  specificItems,
                 );
                 continue;
               }
@@ -3980,6 +4493,25 @@ export async function push(
                   // state target may not exist already
                 }
               }
+            } else if (change.name === "ws_specific_flag") {
+              const target = change.path.replaceAll(SEP, "/");
+              if (change.kind === "resource") {
+                await wmill.updateResource({
+                  workspace: workspace.workspaceId,
+                  path: removeType(target, "resource"),
+                  requestBody: { ws_specific: change.wsSpecific },
+                });
+              } else if (change.kind === "variable") {
+                await wmill.updateVariable({
+                  workspace: workspace.workspaceId,
+                  path: removeType(target, "variable"),
+                  requestBody: { ws_specific: change.wsSpecific },
+                });
+              } else {
+                log.warn(
+                  `ws_specific_flag change for unsupported kind '${change.kind}' at ${change.path} — skipping`,
+                );
+              }
             }
           }
         })();
@@ -4187,6 +4719,47 @@ const command = new Command()
     "--accept-overriding-permissioned-as-with-self",
     "Accept that items with a different permissioned_as will be updated with your own user",
   )
-  .action(push as any);
+  .action(push as any)
+  // Internal: invoked only by the git-sync hub script. Hidden from help and
+  // the generated agent system prompts (see system_prompts/generate.py).
+  .command("git-deploy")
+  .hidden()
+  .description(
+    "Internal git-sync deployment-callback step (used by the git-sync hub script). Runs inside an existing clone: switches to the wm_deploy/fork branch when applicable, pulls workspace content, then commits and pushes.",
+  )
+  .option(
+    "--repository <repo:string>",
+    "Repository resource path (e.g. u/user/repo)",
+  )
+  .option(
+    "--git-deploy-items <json:string>",
+    "JSON array of {path_type,path,parent_path,commit_msg} being deployed",
+  )
+  .option(
+    "--use-individual-branch",
+    "Push each deployed object to its own wm_deploy/<workspace>/<...> branch",
+  )
+  .option(
+    "--group-by-folder",
+    "With --use-individual-branch, group deployed objects per folder branch",
+  )
+  .option(
+    "--only-create-branch",
+    "Only create/push the deploy branch, skip pulling and committing files",
+  )
+  .option(
+    "--parent-workspace-id <id:string>",
+    "Parent workspace id, used to root a fork-of-a-fork branch",
+  )
+  .option("--skip-secrets", "Skip syncing only secrets variables")
+  .option(
+    "--git-committer-email <email:string>",
+    "Committer email for the deploy commit (GPG-signed repos pass the GPG key email; defaults to WM_EMAIL)",
+  )
+  .option(
+    "--git-committer-name <name:string>",
+    "Committer name for the deploy commit (defaults to WM_USERNAME)",
+  )
+  .action(gitDeploy as any);
 
 export default command;

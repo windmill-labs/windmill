@@ -397,6 +397,27 @@ export const azureTriggerRequestSchema = z.object({
 	"labels": z.array(z.string()).optional()
 }).describe("Data for creating or updating an Azure Event Grid trigger.")
 
+export const variableRequestSchema = z.object({
+	"path": z.string().describe("The path to the variable"),
+	"value": z.string().describe("The value of the variable"),
+	"is_secret": z.boolean().describe("Whether the variable is a secret"),
+	"description": z.string().describe("The description of the variable"),
+	"account": z.number().int().describe("The account identifier").optional(),
+	"is_oauth": z.boolean().describe("Whether the variable is an OAuth variable").optional(),
+	"expires_at": z.string().datetime({ offset: true }).describe("The expiration date of the variable").optional(),
+	"labels": z.array(z.string()).optional(),
+	"ws_specific": z.boolean().optional()
+})
+
+export const resourceRequestSchema = z.object({
+	"path": z.string().describe("The path to the resource"),
+	"value": z.any(),
+	"description": z.string().describe("The description of the resource").optional(),
+	"resource_type": z.string().describe("The resource_type associated with the resource"),
+	"labels": z.array(z.string()).optional(),
+	"ws_specific": z.boolean().optional()
+})
+
 export const triggerRequestSchemas = {
 	http: httpTriggerRequestSchema,
 	websocket: websocketTriggerRequestSchema,

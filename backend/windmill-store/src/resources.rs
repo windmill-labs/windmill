@@ -10,8 +10,8 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 
 use windmill_api_auth::{
-    check_scopes, maybe_refresh_folders, require_owner_of_path, require_super_admin, ApiAuthed,
-    Tokened,
+    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
+    require_super_admin, ApiAuthed, Tokened,
 };
 use windmill_common::db::DB;
 use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
@@ -147,6 +147,8 @@ pub struct ListableResource {
     pub account: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ws_specific: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -156,6 +158,8 @@ pub struct CreateResource {
     pub description: Option<String>,
     pub resource_type: String,
     pub labels: Option<Vec<String>>,
+    #[serde(default)]
+    pub ws_specific: Option<bool>,
 }
 #[derive(Deserialize)]
 struct EditResource {
@@ -163,6 +167,7 @@ struct EditResource {
     description: Option<String>,
     value: Option<Box<RawValue>>,
     labels: Option<Vec<String>>,
+    ws_specific: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -189,6 +194,7 @@ async fn list_names(
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<Vec<NamePath>> {
     let mut tx = user_db.begin(&authed).await?;
+    let allowed = build_scope_path_predicate(&authed, "resources", "read");
     let rows = sqlx::query!(
         "SELECT value->>'name' as name, path from resource WHERE resource_type = $1 AND workspace_id = $2",
         rt,
@@ -198,6 +204,7 @@ async fn list_names(
     .await?
     .into_iter()
     .filter_map(|x| x.name.map(|name| NamePath { name, path: x.path }))
+    .filter(|np| allowed(&np.path))
     .collect::<Vec<_>>();
     tx.commit().await?;
     Ok(Json(rows))
@@ -220,6 +227,7 @@ async fn list_search_resources(
     #[cfg(not(feature = "enterprise"))]
     let n = 3;
 
+    let allowed = build_scope_path_predicate(&authed, "resources", "read");
     let rows = sqlx::query_as!(
         SearchResource,
         "SELECT path, value from resource WHERE workspace_id = $1 LIMIT $2",
@@ -229,6 +237,7 @@ async fn list_search_resources(
     .fetch_all(&mut *tx)
     .await?
     .into_iter()
+    .filter(|r| allowed(&r.path))
     .collect::<Vec<_>>();
     tx.commit().await?;
     Ok(Json(rows))
@@ -260,10 +269,14 @@ async fn list_resources(
             "resource.created_by",
             "resource.edited_at",
             "resource.labels",
+            "ws_specific.path IS NOT NULL as ws_specific",
         ])
         .left()
         .join("variable")
         .on("variable.path = resource.path AND variable.workspace_id = resource.workspace_id")
+        .left()
+        .join("ws_specific")
+        .on("ws_specific.path = resource.path AND ws_specific.workspace_id = resource.workspace_id AND ws_specific.item_kind = 'resource'")
         .left()
         .join("account")
         .on("variable.account = account.id AND account.workspace_id = variable.workspace_id")
@@ -329,9 +342,13 @@ async fn list_resources(
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
+    let allowed = build_scope_path_predicate(&authed, "resources", "read");
     let rows = sqlx::query_as::<_, ListableResource>(&sql)
         .fetch_all(&mut *tx)
-        .await?;
+        .await?
+        .into_iter()
+        .filter(|r| allowed(&r.path))
+        .collect::<Vec<_>>();
 
     tx.commit().await?;
 
@@ -350,14 +367,19 @@ async fn get_resource(
 
     let resource_o = sqlx::query_as!(
         ListableResource,
-        "SELECT resource.*, (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,
+        "SELECT resource.workspace_id, resource.path, resource.value, resource.description,
+        resource.resource_type, resource.extra_perms, resource.created_by, resource.edited_at,
+        resource.labels,
+        (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,
         account.refresh_error,
         variable.path IS NOT NULL as is_linked,
         variable.is_oauth as \"is_oauth?\",
-        variable.account
+        variable.account,
+        ws_specific.path IS NOT NULL as ws_specific
         FROM resource
         LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = $2
         LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $2
+        LEFT JOIN ws_specific ON ws_specific.path = resource.path AND ws_specific.workspace_id = $2 AND ws_specific.item_kind = 'resource'
         WHERE resource.path = $1 AND resource.workspace_id = $2",
         path.to_owned(),
         &w_id
@@ -571,6 +593,14 @@ pub async fn get_resource_value_interpolated_internal<'a>(
     }
 }
 
+// Maximum recursion depth for variable/resource interpolation. Each nested
+// object/array level and each `$res:`/`$var:` indirection consumes one unit of
+// depth. This bounds runtime cost and, crucially, prevents a stack overflow
+// from mutually-recursive `$res:` references (e.g. resource A -> `$res:B` and
+// resource B -> `$res:A`), which any workspace member with resource write
+// access could otherwise use to crash the API process.
+pub const MAX_RESOURCE_INTERPOLATION_DEPTH: u8 = 50;
+
 #[async_recursion]
 pub async fn transform_json_value(
     db_with_opt_authed: &DbWithOptAuthed<ApiAuthed>,
@@ -580,6 +610,11 @@ pub async fn transform_json_value(
     token: Option<&str>,
     depth: u8,
 ) -> Result<Value> {
+    if depth >= MAX_RESOURCE_INTERPOLATION_DEPTH {
+        return Err(Error::internal_err(format!(
+            "Maximum resource/variable interpolation depth ({MAX_RESOURCE_INTERPOLATION_DEPTH}) exceeded; this usually indicates a circular `$res:` or `$var:` reference"
+        )));
+    }
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
@@ -849,6 +884,34 @@ async fn create_resource(
     )
     .execute(&mut *tx)
     .await?;
+
+    // Mirror update_resource: Some(true) inserts, Some(false) clears (only
+    // meaningful on the upsert path, since a pure create has no existing row),
+    // None leaves the existing flag alone.
+    match resource.ws_specific {
+        Some(true) => {
+            sqlx::query!(
+                "INSERT INTO ws_specific (workspace_id, item_kind, path) VALUES ($1, 'resource', $2) ON CONFLICT DO NOTHING",
+                w_id,
+                resource.path,
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            mark_linked_variables_ws_specific(&mut tx, &authed, &w_id, &resource.path).await?;
+        }
+        Some(false) if update_if_exists => {
+            sqlx::query!(
+                "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2",
+                w_id,
+                resource.path,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+        _ => {}
+    }
+
     audit_log(
         &mut *tx,
         &authed,
@@ -971,6 +1034,20 @@ async fn delete_resource(
     let deleted_linked_variables: Vec<String> = if linked_var_paths.is_empty() {
         Vec::new()
     } else {
+        // Clean up any ws_specific rows for these variables first
+        // (mark_linked_variables_ws_specific may have auto-inserted them) so
+        // they don't survive the variable deletion as orphans — a variable
+        // later recreated at the same path would otherwise inherit the stale
+        // ws_specific flag.
+        sqlx::query!(
+            "DELETE FROM ws_specific
+             WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
+            w_id,
+            &linked_var_paths
+        )
+        .execute(&mut *tx)
+        .await?;
+
         let placeholders: Vec<String> = linked_var_paths
             .iter()
             .enumerate()
@@ -1082,6 +1159,66 @@ fn collect_var_refs(value: &serde_json::Value, out: &mut Vec<String>) {
     }
 }
 
+async fn mark_linked_variables_ws_specific(
+    tx: &mut Transaction<'_, Postgres>,
+    authed: &ApiAuthed,
+    w_id: &str,
+    resource_path: &str,
+) -> Result<()> {
+    let resource_value: Option<Option<serde_json::Value>> =
+        sqlx::query_scalar("SELECT value FROM resource WHERE path = $1 AND workspace_id = $2")
+            .bind(resource_path)
+            .bind(w_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+
+    let mut linked_var_paths: Vec<String> = Vec::new();
+    if let Some(Some(ref value)) = resource_value {
+        collect_var_refs(value, &mut linked_var_paths);
+    }
+
+    linked_var_paths.sort();
+    linked_var_paths.dedup();
+
+    if linked_var_paths.is_empty() {
+        return Ok(());
+    }
+
+    // RETURNING gives us only the rows actually inserted (RFC: ON CONFLICT
+    // DO NOTHING + RETURNING returns the affected rows, i.e. the new ones).
+    let newly_marked: Vec<String> = sqlx::query_scalar(
+        "INSERT INTO ws_specific (workspace_id, item_kind, path)
+         SELECT workspace_id, 'variable', path
+         FROM variable
+         WHERE workspace_id = $1 AND path = ANY($2::text[])
+         ON CONFLICT DO NOTHING
+         RETURNING path",
+    )
+    .bind(w_id)
+    .bind(&linked_var_paths)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    // Audit each variable that was actually flipped to ws_specific so the
+    // change is traceable to the resource save that caused it.
+    for var_path in &newly_marked {
+        let mut params = HashMap::new();
+        params.insert("via_resource", resource_path);
+        audit_log(
+            &mut **tx,
+            authed,
+            "variables.set_ws_specific",
+            ActionKind::Update,
+            w_id,
+            Some(var_path),
+            Some(params),
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
 async fn delete_resources_bulk(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1108,7 +1245,10 @@ async fn delete_resources_bulk(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    // Capture resources for trashbin per path before bulk delete
+    // Capture resources for trashbin per path before bulk delete, and
+    // collect $var: references so we can cascade-delete the linked variables
+    // (matching single-resource delete semantics).
+    let mut linked_var_paths: Vec<String> = Vec::new();
     for path in &request.paths {
         let trash_resource: Option<serde_json::Value> = sqlx::query_scalar(
             "SELECT to_jsonb(t) FROM resource t WHERE path = $1 AND workspace_id = $2",
@@ -1119,7 +1259,39 @@ async fn delete_resources_bulk(
         .await?;
 
         if let Some(res_data) = trash_resource {
-            let trash_data = serde_json::json!({"row": res_data});
+            // Per-resource linked vars so each resource's trash entry carries
+            // exactly the variables that vanished with it (matching the
+            // single-delete shape: trash_data["linked_variables"]).
+            let mut this_linked: Vec<String> = Vec::new();
+            if let Some(value) = res_data.get("value") {
+                collect_var_refs(value, &mut this_linked);
+            }
+            this_linked.sort();
+            this_linked.dedup();
+
+            let trash_linked_vars: Vec<serde_json::Value> = if this_linked.is_empty() {
+                Vec::new()
+            } else {
+                let placeholders: Vec<String> = this_linked
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _)| format!("${}", i + 2))
+                    .collect();
+                let query = format!(
+                    "SELECT to_jsonb(t) FROM variable t WHERE workspace_id = $1 AND path IN ({})",
+                    placeholders.join(", ")
+                );
+                let mut q = sqlx::query_scalar::<_, serde_json::Value>(&query).bind(&w_id);
+                for var_path in &this_linked {
+                    q = q.bind(var_path);
+                }
+                q.fetch_all(&mut *tx).await?
+            };
+
+            let mut trash_data = serde_json::json!({"row": res_data});
+            if !trash_linked_vars.is_empty() {
+                trash_data["linked_variables"] = serde_json::Value::Array(trash_linked_vars);
+            }
             windmill_common::trashbin::move_to_trash(
                 &mut *tx,
                 &w_id,
@@ -1129,8 +1301,12 @@ async fn delete_resources_bulk(
                 &authed.username,
             )
             .await?;
+
+            linked_var_paths.extend(this_linked);
         }
     }
+    linked_var_paths.sort();
+    linked_var_paths.dedup();
 
     sqlx::query!(
         "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = ANY($2)",
@@ -1147,6 +1323,30 @@ async fn delete_resources_bulk(
     )
     .fetch_all(&mut *tx)
     .await?;
+
+    // Cascade-clean linked variables: delete any ws_specific 'variable' rows
+    // (typically auto-inserted by mark_linked_variables_ws_specific when the
+    // resource was ws_specific) BEFORE deleting the variable rows themselves
+    // — otherwise those ws_specific rows survive as orphans and a later
+    // variable created at the same path would inherit a stale flag.
+    if !linked_var_paths.is_empty() {
+        sqlx::query!(
+            "DELETE FROM ws_specific
+             WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
+            w_id,
+            &linked_var_paths
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query!(
+            "DELETE FROM variable WHERE workspace_id = $1 AND path = ANY($2)",
+            w_id,
+            &linked_var_paths
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,
@@ -1219,7 +1419,7 @@ async fn update_resource(
     if let Some(npath) = &ns.path {
         sqlb.set_str("path", npath);
     }
-    if let Some(nvalue) = ns.value {
+    if let Some(nvalue) = &ns.value {
         sqlb.set_str("value", nvalue.to_string());
     }
     if let Some(ndesc) = ns.description {
@@ -1302,6 +1502,15 @@ async fn update_resource(
             )
             .execute(&mut *tx)
             .await?;
+
+            sqlx::query!(
+                "UPDATE ws_specific SET path = $1 WHERE workspace_id = $2 AND item_kind = 'variable' AND path = $3",
+                npath,
+                w_id,
+                path
+            )
+            .execute(&mut *tx)
+            .await?;
         }
     }
 
@@ -1319,6 +1528,49 @@ async fn update_resource(
         )
         .execute(&mut *tx)
         .await?;
+    }
+
+    if let Some(ws_specific) = ns.ws_specific {
+        if ws_specific {
+            sqlx::query!(
+                "INSERT INTO ws_specific (workspace_id, item_kind, path) VALUES ($1, 'resource', $2) ON CONFLICT DO NOTHING",
+                w_id,
+                &npath,
+            )
+            .execute(&mut *tx)
+            .await?;
+        } else {
+            sqlx::query!(
+                "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2",
+                w_id,
+                &npath,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    // Only re-mark linked variables when something that could change them
+    // actually changed: a new value (different $var: refs) or ws_specific
+    // freshly enabled. Skipping when neither changed avoids re-running an
+    // INSERT (and audit logs) on every save.
+    let needs_remark = ns.value.is_some() || ns.ws_specific == Some(true);
+    if needs_remark {
+        let effective_ws_specific = if let Some(ws_specific) = ns.ws_specific {
+            ws_specific
+        } else {
+            sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2)",
+            )
+            .bind(&w_id)
+            .bind(&npath)
+            .fetch_one(&mut *tx)
+            .await?
+        };
+
+        if effective_ws_specific {
+            mark_linked_variables_ws_specific(&mut tx, &authed, &w_id, &npath).await?;
+        }
     }
 
     audit_log(
@@ -2356,6 +2608,86 @@ mod tests {
         let result = transform_json_value(&dba, "test", input, &None, None, 0).await;
 
         assert!(result.is_err());
+    }
+
+    // Regression test for WIN-1957: deeply nested structures must be bounded so
+    // that interpolation cannot recurse without limit (which would otherwise
+    // overflow the stack).
+    #[tokio::test]
+    async fn test_transform_json_value_bounds_recursion_depth() {
+        let db_url = std::env::var("DATABASE_URL")
+            .unwrap_or("postgres://postgres:changeme@localhost:5432/windmill".to_string());
+        let pool = sqlx::PgPool::connect(&db_url).await.unwrap();
+        let dba = test_db_with_opt_authed(pool);
+
+        // Build an object nested deeper than the allowed interpolation depth.
+        // No `$res:`/`$var:` leaves are involved, so this exercises the depth
+        // guard purely on structural recursion (no DB lookups required).
+        let mut input = Value::String("plain".to_string());
+        for _ in 0..(MAX_RESOURCE_INTERPOLATION_DEPTH as usize + 5) {
+            let mut m = serde_json::Map::new();
+            m.insert("a".to_string(), input);
+            input = Value::Object(m);
+        }
+
+        let result = transform_json_value(&dba, "test", input, &None, None, 0).await;
+
+        let err = result.expect_err("deeply nested value should be rejected");
+        assert!(
+            err.to_string().contains("interpolation depth"),
+            "unexpected error: {err}"
+        );
+    }
+
+    // Regression test for WIN-1957: two resources whose values reference each
+    // other via `$res:` must NOT recurse forever (stack overflow / process
+    // crash). With the depth guard the resolution terminates with an error.
+    //
+    // This test needs the real `workspace`/`resource` schema, so it uses
+    // `#[sqlx::test]` which provisions a migrated ephemeral database per test
+    // (the bare `DATABASE_URL` database in CI has no migrations applied, which
+    // previously made the workspace INSERT panic with `relation "workspace"
+    // does not exist` — WIN-1958).
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_transform_json_value_mutual_resource_recursion_terminates(pool: DB) {
+        let w_id = format!("dostest{}", Uuid::new_v4().simple());
+
+        sqlx::query("INSERT INTO workspace (id, name, owner) VALUES ($1, $1, 'test@windmill.dev')")
+            .bind(&w_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        sqlx::query(
+            "INSERT INTO resource (workspace_id, path, value, resource_type) VALUES \
+             ($1, 'f/test/dos_a', $2, 'object'), \
+             ($1, 'f/test/dos_b', $3, 'object')",
+        )
+        .bind(&w_id)
+        .bind(json!("$res:f/test/dos_b"))
+        .bind(json!("$res:f/test/dos_a"))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let dba = test_db_with_opt_authed(pool.clone());
+        let result = transform_json_value(
+            &dba,
+            &w_id,
+            Value::String("$res:f/test/dos_a".to_string()),
+            &None,
+            None,
+            0,
+        )
+        .await;
+
+        // The ephemeral test database is dropped automatically, so no manual
+        // row cleanup is required.
+        let err = result.expect_err("mutually recursive resources should error, not crash");
+        assert!(
+            err.to_string().contains("interpolation depth"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

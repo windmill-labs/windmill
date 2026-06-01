@@ -1,7 +1,15 @@
 import { cp, mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { readTextFile } from "../utils/utils.ts";
 import { join } from "node:path";
-import { generateAgentsMdContent } from "./core.ts";
+import {
+  AGENTS_CLI_INCLUDE_LINE,
+  generateAgentsCliMdContent,
+  generateAgentsMdSkeleton,
+} from "./core.ts";
+import {
+  currentPromptsHash,
+  injectPromptsHashMarker,
+} from "./freshness.ts";
 import {
   SCHEMAS,
   SCHEMA_MAPPINGS,
@@ -14,18 +22,47 @@ type ResolvedSkillMetadata = SkillMetadata & {
   directoryName: string;
 };
 
+/**
+ * How to reconcile an existing user-owned guidance file (AGENTS.md or
+ * CLAUDE.md) that doesn't reference the managed file below it
+ * (`@AGENTS.cli.md` for AGENTS.md, `@AGENTS.md` for CLAUDE.md).
+ *
+ * - `append`: leave the file as-is and append the include line.
+ * - `overwrite`: replace the file with the managed skeleton.
+ * - `skip`: leave the file alone. The managed downstream file is still
+ *   written/refreshed, but no link to it — the user is expected to wire it
+ *   manually later.
+ */
+export type AgentsMdMigration = "append" | "overwrite" | "skip";
+
+export type ReconcileOutcome =
+  | AgentsMdMigration
+  | "already-linked"
+  | "not-applicable";
+
 export interface WriteAiGuidanceOptions {
   targetDir: string;
   nonDottedPaths?: boolean;
-  overwriteProjectGuidance?: boolean;
+  /** Skill source override (testing / source-of-truth bundling). */
   skillsSourcePath?: string;
+  /** AGENTS.cli.md source override (testing). */
   agentsSourcePath?: string;
+  /** CLAUDE.md source override (testing). */
   claudeSourcePath?: string;
+  /**
+   * Optional resolver invoked when an existing AGENTS.md lacks an
+   * `@AGENTS.cli.md` reference. Callers are expected to prompt the user; if
+   * omitted, the writer defaults to `append` (non-destructive).
+   */
+  resolveAgentsMdMigration?: () => Promise<AgentsMdMigration>;
 }
 
 export interface WriteAiGuidanceResult {
-  agentsWritten: boolean;
-  claudeWritten: boolean;
+  agentsCliWritten: boolean;
+  agentsCreated: boolean;
+  agentsMigration: ReconcileOutcome;
+  claudeCreated: boolean;
+  claudeMigration: ReconcileOutcome;
   skillCount: number;
 }
 
@@ -34,32 +71,73 @@ export const WMILL_INIT_AI_AGENTS_SOURCE_ENV = "WMILL_INIT_AI_AGENTS_SOURCE";
 export const WMILL_INIT_AI_CLAUDE_SOURCE_ENV = "WMILL_INIT_AI_CLAUDE_SOURCE";
 
 const CLAUDE_MD_DEFAULT = "Instructions are in @AGENTS.md\n";
-const SKILL_TARGET_ROOTS = [".claude", ".agents"] as const;
+const CLAUDE_MD_INCLUDE_LINE = "@AGENTS.md";
+
+/**
+ * Both `.agents/skills/` (read by Codex, Pi) and `.claude/skills/` (read by
+ * Claude Code) receive the full skill content. We can't use `@<path>` to
+ * deduplicate because Claude's skill loader reads SKILL.md as-is — it does
+ * not expand `@` references inside skill bodies (those work only in
+ * AGENTS.md / CLAUDE.md).
+ */
+const SKILL_TARGET_ROOTS = [".agents", ".claude"] as const;
 
 export async function writeAiGuidanceFiles(
   options: WriteAiGuidanceOptions
 ): Promise<WriteAiGuidanceResult> {
-  const nonDottedPaths = options.nonDottedPaths ?? true;
+  // Match `core/conf.ts`'s missing-key default — if a legacy wmill.yaml
+  // omits `nonDottedPaths`, sync treats it as `false`, so we must too or
+  // the freshness hash will be permanently out of sync with the rest of
+  // the CLI's view of the project.
+  const nonDottedPaths = options.nonDottedPaths ?? false;
   const skillMetadata = options.skillsSourcePath
     ? await readSkillMetadataFromDirectory(options.skillsSourcePath)
     : getGeneratedSkillMetadata();
 
-  const agentsWritten = await writeProjectGuidanceFile({
-    targetPath: join(options.targetDir, "AGENTS.md"),
-    overwrite: options.overwriteProjectGuidance ?? false,
-    content:
-      options.agentsSourcePath != null
-        ? await readTextFile(options.agentsSourcePath)
-        : generateAgentsMdContent(buildSkillsReference(skillMetadata)),
+  // AGENTS.cli.md — always (re)written, this is the managed file.
+  // We embed a content-hash marker so other `wmill` commands can detect a
+  // stale bundle and prompt the user to `wmill refresh prompts`.
+  const rawAgentsCliContent =
+    options.agentsSourcePath != null
+      ? await readTextFile(options.agentsSourcePath)
+      : generateAgentsCliMdContent(buildSkillsReference(skillMetadata));
+  const agentsCliContent = injectPromptsHashMarker(
+    rawAgentsCliContent,
+    currentPromptsHash(nonDottedPaths)
+  );
+  const agentsCliPath = join(options.targetDir, "AGENTS.cli.md");
+  await writeFile(agentsCliPath, agentsCliContent, "utf8");
+  const agentsCliWritten = true;
+
+  // Cache the user's first migration answer and reuse it for every file
+  // that needs reconciling in this run — there's never a good reason to ask
+  // the same question twice in a row.
+  const resolveMigration = cacheOnce(options.resolveAgentsMdMigration);
+
+  // AGENTS.md — user-owned. Three paths:
+  //   1. doesn't exist → create skeleton (which already includes @AGENTS.cli.md).
+  //   2. exists and already references @AGENTS.cli.md → leave alone.
+  //   3. exists but doesn't reference @AGENTS.cli.md → ask caller via
+  //      resolveMigration (defaults to append).
+  const agentsMdResult = await reconcileIncludingFile({
+    path: join(options.targetDir, "AGENTS.md"),
+    includeLine: AGENTS_CLI_INCLUDE_LINE,
+    skeleton: generateAgentsMdSkeleton(),
+    resolveMigration,
   });
 
-  const claudeWritten = await writeProjectGuidanceFile({
-    targetPath: join(options.targetDir, "CLAUDE.md"),
-    overwrite: options.overwriteProjectGuidance ?? false,
-    content:
-      options.claudeSourcePath != null
-        ? await readTextFile(options.claudeSourcePath)
-        : CLAUDE_MD_DEFAULT,
+  // CLAUDE.md — user-owned wrapper that points at @AGENTS.md. Same three-way
+  // reconciliation: create if missing, leave alone if it already references
+  // AGENTS.md, otherwise ask via resolveMigration.
+  const claudeSkeleton =
+    options.claudeSourcePath != null
+      ? await readTextFile(options.claudeSourcePath)
+      : CLAUDE_MD_DEFAULT;
+  const claudeMdResult = await reconcileIncludingFile({
+    path: join(options.targetDir, "CLAUDE.md"),
+    includeLine: CLAUDE_MD_INCLUDE_LINE,
+    skeleton: claudeSkeleton,
+    resolveMigration,
   });
 
   if (options.skillsSourcePath) {
@@ -69,17 +147,93 @@ export async function writeAiGuidanceFiles(
   }
 
   return {
-    agentsWritten,
-    claudeWritten,
+    agentsCliWritten,
+    agentsCreated: agentsMdResult.created,
+    agentsMigration: agentsMdResult.migration,
+    claudeCreated: claudeMdResult.created,
+    claudeMigration: claudeMdResult.migration,
     skillCount: skillMetadata.length,
   };
+}
+
+function cacheOnce(
+  resolver: (() => Promise<AgentsMdMigration>) | undefined
+): (() => Promise<AgentsMdMigration>) | undefined {
+  if (!resolver) return undefined;
+  let cached: AgentsMdMigration | null = null;
+  return async () => {
+    if (cached !== null) return cached;
+    cached = await resolver();
+    return cached;
+  };
+}
+
+async function reconcileIncludingFile(options: {
+  path: string;
+  includeLine: string;
+  skeleton: string;
+  resolveMigration?: () => Promise<AgentsMdMigration>;
+}): Promise<{ created: boolean; migration: ReconcileOutcome }> {
+  const exists = (await stat(options.path).catch(() => null)) != null;
+  if (!exists) {
+    await writeFile(options.path, options.skeleton, "utf8");
+    return { created: true, migration: "not-applicable" };
+  }
+
+  const existing = await readTextFile(options.path);
+  if (referencesIncludeLine(existing, options.includeLine)) {
+    return { created: false, migration: "already-linked" };
+  }
+
+  const choice = options.resolveMigration
+    ? await options.resolveMigration()
+    : "append";
+
+  if (choice === "skip") {
+    return { created: false, migration: "skip" };
+  }
+
+  if (choice === "overwrite") {
+    await writeFile(options.path, options.skeleton, "utf8");
+    return { created: false, migration: "overwrite" };
+  }
+
+  // append — add the include at the end, leaving existing content untouched.
+  const appended = existing.endsWith("\n")
+    ? `${existing}\n${options.includeLine}\n`
+    : `${existing}\n\n${options.includeLine}\n`;
+  await writeFile(options.path, appended, "utf8");
+  return { created: false, migration: "append" };
+}
+
+function referencesIncludeLine(content: string, includeLine: string): boolean {
+  // Match when the include appears as a whitespace-separated token on any
+  // line that isn't an HTML comment. We can't require the include to be on a
+  // line by itself: our own CLAUDE.md default is `Instructions are in
+  // @AGENTS.md` (one sentence), and a strict equality check made `wmill
+  // refresh prompts` re-prompt every run on files wmill itself wrote.
+  // Skipping comment-bearing lines keeps `<!-- @AGENTS.cli.md -->` from
+  // false-positiving.
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("<!--") || trimmed.endsWith("-->")) {
+      continue;
+    }
+    if (trimmed.split(/\s+/).includes(includeLine)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function buildSkillsReference(
   skills: Pick<ResolvedSkillMetadata, "directoryName" | "description">[]
 ): string {
   return skills
-    .map((skill) => `- \`.claude/skills/${skill.directoryName}/SKILL.md\` - ${skill.description}`)
+    .map(
+      (skill) =>
+        `- \`.agents/skills/${skill.directoryName}/SKILL.md\` - ${skill.description}`
+    )
     .join("\n");
 }
 
@@ -89,7 +243,9 @@ async function copySkillsFromSource(
 ): Promise<ResolvedSkillMetadata[]> {
   const skillsDirs = await ensureSkillsDirectories(targetDir);
   await Promise.all(
-    skillsDirs.map((skillsDir) => copyDirectoryContents(skillsSourcePath, skillsDir))
+    skillsDirs.map((skillsDir) =>
+      copyDirectoryContents(skillsSourcePath, skillsDir)
+    )
   );
   return await readSkillMetadataFromDirectory(skillsDirs[0]);
 }
@@ -137,7 +293,10 @@ async function ensureSkillsDirectories(targetDir: string): Promise<string[]> {
   return skillsDirs;
 }
 
-async function copyDirectoryContents(sourceDir: string, targetDir: string): Promise<void> {
+async function copyDirectoryContents(
+  sourceDir: string,
+  targetDir: string
+): Promise<void> {
   const entries = await readdir(sourceDir, { withFileTypes: true });
 
   await Promise.all(
@@ -150,7 +309,10 @@ async function copyDirectoryContents(sourceDir: string, targetDir: string): Prom
   );
 }
 
-function renderGeneratedSkillContent(skillName: string, nonDottedPaths: boolean): string {
+function renderGeneratedSkillContent(
+  skillName: string,
+  nonDottedPaths: boolean
+): string {
   let skillContent = SKILL_CONTENT[skillName];
   if (!skillContent) {
     throw new Error(`Missing generated skill content for ${skillName}`);
@@ -187,7 +349,11 @@ function renderGeneratedSkillContent(skillName: string, nonDottedPaths: boolean)
       if (!schemaYaml) {
         return null;
       }
-      return formatSchemaForMarkdown(schemaYaml, mapping.name, mapping.filePattern);
+      return formatSchemaForMarkdown(
+        schemaYaml,
+        mapping.name,
+        mapping.filePattern
+      );
     })
     .filter((entry): entry is string => entry !== null);
 
@@ -198,11 +364,15 @@ function renderGeneratedSkillContent(skillName: string, nonDottedPaths: boolean)
   return `${skillContent}\n\n${schemaDocs.join("\n\n")}`;
 }
 
-async function readSkillMetadataFromDirectory(skillsDir: string): Promise<ResolvedSkillMetadata[]> {
+async function readSkillMetadataFromDirectory(
+  skillsDir: string
+): Promise<ResolvedSkillMetadata[]> {
   const entries = await readdir(skillsDir, { withFileTypes: true });
   const skills: ResolvedSkillMetadata[] = [];
 
-  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+  for (const entry of entries.sort((left, right) =>
+    left.name.localeCompare(right.name)
+  )) {
     if (!entry.isDirectory()) {
       continue;
     }
@@ -219,7 +389,10 @@ async function readSkillMetadataFromDirectory(skillsDir: string): Promise<Resolv
   return skills;
 }
 
-function parseSkillMetadata(content: string, fallbackName: string): ResolvedSkillMetadata {
+function parseSkillMetadata(
+  content: string,
+  fallbackName: string
+): ResolvedSkillMetadata {
   const frontMatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
   if (!frontMatterMatch) {
     return {
@@ -249,19 +422,6 @@ function parseSkillMetadata(content: string, fallbackName: string): ResolvedSkil
   }
 
   return { name, description, directoryName: fallbackName };
-}
-
-async function writeProjectGuidanceFile(options: {
-  targetPath: string;
-  content: string;
-  overwrite: boolean;
-}): Promise<boolean> {
-  if (!options.overwrite && (await stat(options.targetPath).catch(() => null))) {
-    return false;
-  }
-
-  await writeFile(options.targetPath, options.content, "utf8");
-  return true;
 }
 
 function formatSchemaForMarkdown(

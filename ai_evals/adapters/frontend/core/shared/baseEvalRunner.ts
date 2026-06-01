@@ -40,8 +40,8 @@ export interface RunEvalParams<THelpers, TOutput> {
   apiKey: string;
   /** Function to get the current output state */
   getOutput: () => TOutput;
-  /** Optional configuration */
-  options?: EvalRunnerOptions;
+  /** Model and Windmill backend configuration */
+  options: EvalRunnerOptions;
   onAssistantMessageStart?: () => void;
   onAssistantToken?: (token: string) => void;
   onAssistantMessageEnd?: () => void;
@@ -70,10 +70,10 @@ export async function runEval<THelpers, TOutput>(
   } = params;
   let shouldEmitMessageStart = true;
 
-  const model = options?.model ?? "gpt-4o";
-  const maxIterations = options?.maxIterations ?? 20;
-  const workspace = options?.workspace ?? "test-workspace";
-  const provider = toFrontendEvalProvider(options?.provider);
+  const model = options.model ?? "gpt-4o";
+  const maxIterations = options.maxIterations ?? 20;
+  const workspace = options.workspace ?? "test-workspace";
+  const provider = toFrontendEvalProvider(options.provider);
 
   const modelProvider = resolveEvalModelProvider(model, provider);
 
@@ -203,45 +203,31 @@ export async function runEval<THelpers, TOutput>(
     }
   };
 
-  if (options?.transport === "proxy") {
-    const backendSettings = options.backend;
-    if (!backendSettings) {
-      throw new Error("Missing backend settings for proxy transport");
-    }
-
-    const backendClient = new WindmillBackendClient(backendSettings);
-    return await backendClient.withWorkspace(
-      options.proxyCaseId ?? "eval",
-      options.proxyAttempt ?? 1,
-      async (proxyWorkspaceId) => {
-        const resourcePath = buildProxyResourcePath(modelProvider.provider);
-        await backendClient.upsertResource({
-          workspaceId: proxyWorkspaceId,
-          path: resourcePath,
-          resourceType: modelProvider.provider,
-          value: { api_key: apiKey },
-        });
-        const token = await backendClient.getToken();
-        const clients = createEvalClients({
-          provider: modelProvider.provider,
-          apiKey,
-          transport: "proxy",
-          proxy: {
-            baseURL: `${backendSettings.baseUrl}/api/w/${encodeURIComponent(proxyWorkspaceId)}/ai/proxy`,
-            bearerToken: token,
-            resourcePath,
-          },
-        }) as unknown as ChatClients;
-        return await executeChatLoop(clients);
-      },
-    );
-  }
-
-  const clients = createEvalClients({
-    provider: modelProvider.provider,
-    apiKey,
-  }) as unknown as ChatClients;
-  return await executeChatLoop(clients);
+  const backendSettings = options.backend;
+  const backendClient = new WindmillBackendClient(backendSettings);
+  return await backendClient.withWorkspace(
+    options.caseId ?? "eval",
+    options.attempt ?? 1,
+    async (proxyWorkspaceId) => {
+      const resourcePath = buildProxyResourcePath(modelProvider.provider);
+      await backendClient.upsertResource({
+        workspaceId: proxyWorkspaceId,
+        path: resourcePath,
+        resourceType: modelProvider.provider,
+        value: { api_key: apiKey },
+      });
+      const token = await backendClient.getToken();
+      const clients = createEvalClients({
+        provider: modelProvider.provider,
+        proxy: {
+          baseURL: `${backendSettings.baseUrl}/api/w/${encodeURIComponent(proxyWorkspaceId)}/ai/proxy`,
+          bearerToken: token,
+          resourcePath,
+        },
+      }) as unknown as ChatClients;
+      return await executeChatLoop(clients);
+    },
+  );
 }
 
 function toFrontendEvalProvider(
@@ -250,7 +236,8 @@ function toFrontendEvalProvider(
   if (
     provider === "anthropic" ||
     provider === "openai" ||
-    provider === "googleai"
+    provider === "googleai" ||
+    provider === "deepseek"
   ) {
     return provider;
   }

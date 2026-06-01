@@ -13,7 +13,7 @@ default = []
 private = ["windmill-worker-volumes/private", "windmill-queue/private", "windmill-common/private", "windmill-dep-map/private", "windmill-runtime-nativets?/private"]
 mcp = ["windmill-ai/mcp", "dep:windmill-mcp"]
 prometheus = ["dep:prometheus", "windmill-common/prometheus"]
-enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker-volumes/enterprise", "windmill-runtime-nativets?/enterprise", "dep:pem", "dep:tokio-util", "dep:opentelemetry-proto", "dep:prost", "dep:hudsucker", "dep:rcgen", "dep:hyper-http-proxy", "dep:hyper-tls", "dep:hyper-util"]
+enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker-volumes/enterprise", "windmill-runtime-nativets?/enterprise", "dep:pem", "dep:rsa", "dep:tokio-util", "dep:opentelemetry-proto", "dep:prost", "dep:hudsucker", "dep:rcgen", "dep:hyper-http-proxy", "dep:hyper-tls", "dep:hyper-util"]
 mssql = ["dep:tiberius"]
 mssql-kerberos = ["mssql", "tiberius/integrated-auth-gssapi"]  # Linux/Unix integrated auth
 mssql-winauth = ["mssql", "tiberius/winauth"]  # Windows integrated auth
@@ -39,7 +39,7 @@ ruby = ["dep:windmill-parser-ruby"]
 rlang = ["dep:windmill-parser-r"]
 duckdb = ["dep:libloading"]
 quickjs = ["windmill-jseval/quickjs"]
-bedrock = ["windmill-ai/bedrock", "dep:aws-sdk-bedrockruntime", "dep:aws-config", "dep:aws-credential-types", "dep:aws-smithy-types"]
+bedrock = ["windmill-ai/bedrock"]
 
 [dependencies]
 windmill-ai = { workspace = true, default-features = false }
@@ -71,10 +71,6 @@ windmill-parser-sql.workspace = true
 windmill-parser-graphql.workspace = true
 windmill-parser-php = { workspace = true, optional = true }
 windmill-git-sync.workspace = true
-aws-sdk-bedrockruntime = { workspace = true, optional = true }
-aws-config = { workspace = true, optional = true }
-aws-credential-types = { workspace = true, optional = true }
-aws-smithy-types = { workspace = true, optional = true }
 flume.workspace = true
 sqlx.workspace = true
 uuid.workspace = true
@@ -93,6 +89,7 @@ itertools.workspace = true
 regex.workspace = true
 prometheus = { workspace = true, optional = true }
 lazy_static.workspace = true
+quick_cache.workspace = true
 chrono.workspace = true
 dotenv.workspace = true
 rand.workspace = true # TODO: Remove. only used by token creation hack.
@@ -115,6 +112,7 @@ jsonwebtoken.workspace = true
 sha2.workspace = true
 hmac.workspace = true
 pem = { workspace = true, optional = true }
+rsa = { workspace = true, optional = true }
 urlencoding.workspace = true
 nix.workspace = true
 bytes.workspace = true

@@ -40,6 +40,7 @@ use windmill_common::flow_status::JobResult;
 #[derive(Debug, Clone)]
 pub struct IdContext {
     pub flow_job: Uuid,
+    pub root_flow_job: Uuid,
     #[allow(dead_code)]
     pub steps_results: HashMap<String, JobResult>,
     pub previous_id: String,
@@ -56,12 +57,21 @@ const END_BRACKET_PATTERN: &str = "\"]";
 // ── Regex statics ─────────────────────────────────────────────────────
 
 lazy_static! {
+    // `results` is fetched lazily via the `__getResult` async proxy, so we
+    // wrap each `results.X` access with `(await ...)` to drive the proxy.
+    // `flow_env` used to be wrapped here too (it was an async Deno op-backed
+    // proxy in the deno_core era); QuickJS now exposes flow_env as a plain
+    // in-memory object, so no await is needed.
     static ref RE: Regex = Regex::new(
-        r#"(?m)(?P<r>(?:results|flow_env)(?:\?)?(?:(?:\.[a-zA-Z_0-9]+)|(?:\[\".*?\"\])))"#
+        r#"(?m)(?P<r>results(?:\?)?(?:(?:\.[a-zA-Z_0-9]+)|(?:\[\".*?\"\])))"#
     )
     .unwrap();
+    // SQL fast-path: simple `results.X.Y[i]...` accesses are dispatched to
+    // the API endpoint to fetch a specific result without spinning the eval
+    // engine. flow_env is no longer dispatched here because QuickJS reads
+    // it directly from the in-process global set up by `eval_quickjs_inner`.
     static ref RE_FULL: Regex = Regex::new(
-        r"(?m)^(results|flow_env)(?:\?)?\.([a-zA-Z_0-9]+)(?:\[(\d+)\])?((?:\.[a-zA-Z_0-9]+)+)?$"
+        r"(?m)^results(?:\?)?\.([a-zA-Z_0-9]+)(?:\[(\d+)\])?((?:\.[a-zA-Z_0-9]+)+)?$"
     )
     .unwrap();
 }
@@ -173,10 +183,9 @@ pub async fn handle_full_regex(
     by_id: &IdContext,
 ) -> Option<anyhow::Result<Box<RawValue>>> {
     if let Some(captures) = RE_FULL.captures(&expr) {
-        let obj_name = captures.get(1).unwrap().as_str();
-        let obj_key = captures.get(2).unwrap().as_str();
-        let idx_o = captures.get(3).map(|y| y.as_str());
-        let rest = captures.get(4).map(|y| y.as_str());
+        let obj_key = captures.get(1).unwrap().as_str();
+        let idx_o = captures.get(2).map(|y| y.as_str());
+        let rest = captures.get(3).map(|y| y.as_str());
 
         // Skip the SQL fast path when the expression accesses a JS runtime
         // property (e.g. .length) that the PostgreSQL #> operator can't resolve.
@@ -193,33 +202,19 @@ pub async fn handle_full_regex(
             rest.map(|x| x.trim_start_matches('.').to_string())
         };
 
-        let result = if obj_name == "results" {
-            let res = authed_client
-                .get_result_by_id::<Option<Box<RawValue>>>(
-                    &by_id.flow_job.to_string(),
-                    obj_key,
-                    query,
-                )
-                .await
-                .ok()
-                .flatten();
-            match res {
-                Some(v) => Ok(v),
-                None => serde_json::value::to_raw_value(&serde_json::Value::Null)
-                    .map_err(|e| anyhow::anyhow!("Failed to serialize null: {}", e)),
-            }
-        } else if obj_name == "flow_env" {
-            authed_client
-                .get_flow_env_by_flow_job_id(&by_id.flow_job.to_string(), obj_key, query)
-                .await
-        } else {
-            unreachable!();
+        let res = authed_client
+            .get_result_by_id::<Option<Box<RawValue>>>(&by_id.flow_job.to_string(), obj_key, query)
+            .await
+            .ok()
+            .flatten();
+        let result = match res {
+            Some(v) => Ok(v),
+            None => serde_json::value::to_raw_value(&serde_json::Value::Null)
+                .map_err(|e| anyhow::anyhow!("Failed to serialize null: {}", e)),
         };
-
         return Some(result);
     }
-
-    return None;
+    None
 }
 
 #[cfg(feature = "quickjs")]
@@ -356,7 +351,7 @@ async fn eval_quickjs_inner(
     let by_id_clone = by_id.clone();
 
     // Transform expression to add await for variable/resource/results access
-    let expr_with_funcs = ["variable", "resource"]
+    let expr_with_funcs = ["variable", "resource", "flow_user_state"]
         .into_iter()
         .fold(expr.to_string(), replace_with_await);
     let transformed_expr = replace_with_await_result(expr_with_funcs);
@@ -450,6 +445,19 @@ async fn eval_quickjs_inner(
         if let Some(ref by_id) = by_id_clone {
             setup_results_proxy(&ctx, &globals, by_id, op_state_clone.clone())?;
         }
+
+        // The auto-await rewrite at the top of eval_timeout always rewrites
+        // `flow_user_state(...)` regardless of context, so install a stub if
+        // nothing above defined it (e.g. authed sleep transforms with no by_id).
+        ctx.eval::<(), _>(r#"
+            if (typeof flow_user_state === 'undefined') {
+                globalThis.flow_user_state = function(key) {
+                    return Promise.reject(new Error(`flow_user_state() is not available in this context`));
+                };
+            }
+        "#)
+        .catch(&ctx)
+        .map_err(quickjs_error_to_anyhow)?;
 
         // Determine if we need to add return statement.
         let code = if should_add_return_quickjs(&transformed_expr) {
@@ -553,6 +561,10 @@ fn setup_stub_functions<'js>(
         function resource(path) {
             return Promise.reject(new Error(`resource() is not available without an authenticated client`));
         }
+
+        function flow_user_state(key) {
+            return Promise.reject(new Error(`flow_user_state() is not available without an authenticated client`));
+        }
     "#;
 
     ctx.eval::<(), _>(setup_code)
@@ -573,6 +585,8 @@ fn setup_results_proxy<'js>(
 
     if let Some(state) = op_state {
         let by_id_for_result = by_id.clone();
+        let state_for_user_state = state.clone();
+        let root_flow_job_id_for_state = by_id.root_flow_job.to_string();
         globals.set(
             "__fetchResult",
             Func::from(Async(MutFn::new(move |step_id: String| {
@@ -644,14 +658,38 @@ fn setup_results_proxy<'js>(
             }))),
         )?;
 
+        globals.set(
+            "__fetchFlowUserState",
+            Func::from(Async(MutFn::new(move |key: String| {
+                let client = state_for_user_state.client.clone();
+                let job_id = root_flow_job_id_for_state.clone();
+                async move {
+                    const ERR_PREFIX: &str = "\x00__WINDMILL_ERR__\x00";
+                    match client.get_flow_user_state(&job_id, &key).await {
+                        Ok(value) => {
+                            serde_json::to_string(&value).unwrap_or_else(|_| "null".to_string())
+                        }
+                        Err(e) => format!("{}{}", ERR_PREFIX, e),
+                    }
+                }
+            }))),
+        )?;
+
         let wrapper_code = r#"
             const __RESULT_ERR_PREFIX = '\x00__WINDMILL_ERR__\x00';
-            async function __getResult(stepId) {
-                const result = await __fetchResult(stepId);
+            function __throwOrParse(result) {
                 if (typeof result === 'string' && result.startsWith(__RESULT_ERR_PREFIX)) {
                     throw new Error(result.substring(__RESULT_ERR_PREFIX.length));
                 }
                 return JSON.parse(result);
+            }
+
+            async function __getResult(stepId) {
+                return __throwOrParse(await __fetchResult(stepId));
+            }
+
+            async function flow_user_state(key) {
+                return __throwOrParse(await __fetchFlowUserState(key));
             }
         "#;
         ctx.eval::<(), _>(wrapper_code)
@@ -661,6 +699,10 @@ fn setup_results_proxy<'js>(
         let stub_code = r#"
             function __getResult(stepId) {
                 return Promise.reject(new Error('Result fetching not available without authenticated client'));
+            }
+
+            function flow_user_state(key) {
+                return Promise.reject(new Error(`flow_user_state() is not available without an authenticated client`));
             }
         "#;
         ctx.eval::<(), _>(stub_code)

@@ -6,7 +6,10 @@
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Editor from '$lib/components/Editor.svelte'
-	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from '$lib/components/EditorBar.svelte'
+	import EditorBar, {
+		EDITOR_BAR_WIDTH_THRESHOLD,
+		EDITOR_BAR_HELPERS_INLINE_THRESHOLD
+	} from '$lib/components/EditorBar.svelte'
 	import ModulePreview from '$lib/components/ModulePreview.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils.svelte'
@@ -79,9 +82,8 @@
 		signDebugRequest,
 		getDebugErrorMessage
 	} from '$lib/components/debug'
-	import { AlertTriangle, Bug, Terminal } from 'lucide-svelte'
-	import Modal from '$lib/components/common/modal/Modal.svelte'
-	import { getLocalSetting, sendUserToast, storeLocalSetting } from '$lib/utils'
+	import { Bug, Terminal } from 'lucide-svelte'
+	import { sendUserToast } from '$lib/utils'
 
 	const {
 		selectionManager,
@@ -400,8 +402,6 @@
 	)
 
 	// Debug mode state
-	const DEBUG_BETA_WARNING_KEY = 'debug_beta_warning_confirmed'
-	let showDebugBetaWarning = $state(false)
 	let debugMode = $state(false)
 	let debugBreakpoints = new SvelteSet<number>()
 	let breakpointDecorations: string[] = $state([])
@@ -621,23 +621,10 @@
 			clearAllBreakpoints()
 			updateCurrentLineDecoration(undefined)
 		} else {
-			// Entering debug mode - check if beta warning was confirmed
-			if (getLocalSetting(DEBUG_BETA_WARNING_KEY) !== 'true') {
-				showDebugBetaWarning = true
-			} else {
-				debugMode = true
-				// Switch to test tab when entering debug mode
-				selected = 'test'
-			}
+			debugMode = true
+			// Switch to test tab when entering debug mode
+			selected = 'test'
 		}
-	}
-
-	function confirmDebugBetaWarning(): void {
-		storeLocalSetting(DEBUG_BETA_WARNING_KEY, 'true')
-		showDebugBetaWarning = false
-		debugMode = true
-		// Switch to test tab when entering debug mode
-		selected = 'test'
 	}
 
 	// Subscribe to debug state changes for current line highlighting
@@ -815,6 +802,7 @@
 							lang={flowModule.value['language'] ?? 'deno'}
 							{websocketAlive}
 							iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD}
+							compactHelpers={width < EDITOR_BAR_HELPERS_INLINE_THRESHOLD}
 							kind={scriptKind}
 							template={scriptTemplate}
 							args={Object.entries(flowModule.value.input_transforms).reduce((acc, [key, obj]) => {
@@ -879,6 +867,7 @@
 														bind:this={editor}
 														class="h-full relative"
 														code={flowModule.value.content}
+														syncExternalCode
 														scriptLang={flowModule?.value?.language}
 														automaticLayout={true}
 														cmdEnterAction={async () => {
@@ -942,6 +931,7 @@
 												bind:this={editor}
 												class="h-full relative"
 												code={flowModule.value.content}
+												syncExternalCode
 												scriptLang={flowModule?.value?.language}
 												automaticLayout={true}
 												cmdEnterAction={async () => {
@@ -1540,25 +1530,3 @@
 {:else}
 	Incorrect flow module type
 {/if}
-
-<Modal title="Debug Feature (Beta)" bind:open={showDebugBetaWarning}>
-	<div class="flex items-start gap-3">
-		<div class="flex-shrink-0">
-			<div
-				class="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-100 dark:bg-yellow-800/50"
-			>
-				<AlertTriangle class="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
-			</div>
-		</div>
-		<div class="text-secondary text-sm">
-			<p
-				>The Debug feature is currently in <strong>beta</strong>. You may encounter unexpected
-				behavior or limitations.</p
-			>
-			<p class="mt-2">By continuing, you acknowledge that this feature is experimental.</p>
-		</div>
-	</div>
-	{#snippet actions()}
-		<Button size="sm" on:click={confirmDebugBetaWarning}>Continue</Button>
-	{/snippet}
-</Modal>

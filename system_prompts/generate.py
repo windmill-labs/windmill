@@ -12,6 +12,7 @@ This script:
 Usage:
     python generate.py
     python generate.py --plugin-dir /path/to/windmill-claude-plugin
+    python generate.py --context7-dir /path/to/windmill-cli-docs
 """
 
 import argparse
@@ -282,11 +283,12 @@ def extract_py_classes(content: str) -> list[dict]:
 # =============================================================================
 
 
-# Reusable option pattern for CLI parsing
+# Reusable option pattern for CLI parsing. Matches both `.option(...)` and
+# `.globalOption(...)` so subcommand-level global options surface in the docs.
 OPTION_PATTERN = re.compile(
-    r'\.option\(\s*"([^"]+)"\s*,\s*"([^"]+)"'  # double-quoted
+    r'\.(?:option|globalOption)\(\s*"([^"]+)"\s*,\s*"([^"]+)"'  # double-quoted
     r'|'
-    r"\.option\(\s*'([^']+)'\s*,\s*'([^']+)'",  # single-quoted
+    r"\.(?:option|globalOption)\(\s*'([^']+)'\s*,\s*'([^']+)'",  # single-quoted
     re.MULTILINE | re.DOTALL
 )
 
@@ -351,13 +353,36 @@ def parse_command_block(content: str, file_path: Path | None = None) -> dict:
     subcommand_sections = re.split(r'(?=\.command\()', block)
 
     for section in subcommand_sections:
-        cmd_match = re.match(r'\.command\(\s*["\']([^"\']+)["\']\s*(?:,\s*("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|[^)]+))?\s*\)', section)
+        # Second arg is either a quoted description, a bare identifier (imported
+        # command, e.g. `.command("app", app)`), or a more complex expression
+        # like `someWrapper(new Command()...)` — the `[^)]+` fallback covers
+        # the last case by matching up to the next `)`.
+        #
+        # Two subtleties:
+        #   - The quoted-string alts are tried first so a description containing
+        #     `(` like "(psql, DBeaver)" isn't truncated by the `[^)]+` fallback.
+        #   - The trailing `,?` accommodates the prettier-style `\n  )` close
+        #     paren that follows a comma. Without it, the quoted alt would
+        #     succeed but the outer `\s*\)` would fail, forcing a backtrack to
+        #     `[^)]+` and producing a truncated description with a trailing `",`.
+        cmd_match = re.match(
+            r'\.command\(\s*["\']([^"\']+)["\']\s*'
+            r'(?:,\s*("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|[^)]+))?'
+            r'\s*,?\s*\)',
+            section,
+        )
         if not cmd_match:
             continue
 
         # Explicit source marker for backwards-compatible CLI commands that
         # should not be suggested in generated system prompts.
         if '@deprecated' in section:
+            continue
+
+        # Hidden commands (Cliffy .hidden()) are internal — invoked by other
+        # Windmill components, not users — and must not surface in the
+        # generated agent system prompts or help.
+        if '.hidden()' in section:
             continue
 
         cmd_name = cmd_match.group(1)
@@ -680,6 +705,8 @@ WORKSPACE_TOOL_ZOD_SCHEMAS = [
     ('NewSqsTrigger', 'sqsTriggerRequestSchema'),
     ('GcpTriggerData', 'gcpTriggerRequestSchema'),
     ('AzureTriggerData', 'azureTriggerRequestSchema'),
+    ('CreateVariable', 'variableRequestSchema'),
+    ('CreateResource', 'resourceRequestSchema'),
 ]
 
 WORKSPACE_TOOL_TRIGGER_SCHEMAS = [
@@ -1486,11 +1513,17 @@ def generate_skills(
     # Ensure skills directory exists
     OUTPUT_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Read base files for additional skills
+    # Read base files for additional skills.
+    # Note: raw-app.md is the chat-relevant authoring guide. The CLI workflow
+    # (wmill app new wizard, on-disk layout, sql_to_apply/, CLI commands) lives
+    # in raw-app-cli.md. Concatenated here for the skill so CLI users see CLI
+    # guidance first, then the platform shape.
     base_dir = SCRIPT_DIR / "base"
+    raw_app_cli_md = read_markdown_file(base_dir / "raw-app-cli.md")
+    raw_app_authoring_md = read_markdown_file(base_dir / "raw-app.md")
     base_content = {
         'flow': f"{flow_cli}\n\n{flow_base}\n\n{openflow_content}",
-        'raw_app': read_markdown_file(base_dir / "raw-app.md"),
+        'raw_app': f"{raw_app_cli_md}\n\n{raw_app_authoring_md}",
         'triggers': read_markdown_file(base_dir / "triggers.md"),
         'schedules': read_markdown_file(base_dir / "schedules.md"),
         'resources': read_markdown_file(base_dir / "resources.md"),
@@ -1728,10 +1761,9 @@ def resolve_plugin_skills_dir(plugin_dir: Path) -> Path:
     """Resolve the plugin skills directory from a repo root, plugin root, or skills dir."""
     plugin_dir = plugin_dir.expanduser().resolve()
 
-    repo_skills_dir = plugin_dir / "plugins" / "windmill-code-plugin" / "skills"
-    repo_plugin_json = plugin_dir / "plugins" / "windmill-code-plugin" / ".claude-plugin" / "plugin.json"
-    if repo_plugin_json.exists():
-        return repo_skills_dir
+    plugin_root = plugin_dir / "plugins" / "windmill"
+    if (plugin_root / ".claude-plugin" / "plugin.json").exists():
+        return plugin_root / "skills"
 
     plugin_skills_dir = plugin_dir / "skills"
     plugin_json = plugin_dir / ".claude-plugin" / "plugin.json"
@@ -1771,6 +1803,406 @@ def generate_plugin_skills(
 
 
 # =============================================================================
+# Context7 Docs Repo Generation
+# =============================================================================
+
+# Files in the context7 target directory that must survive a regeneration
+# (everything else is wiped to keep the export deterministic).
+CONTEXT7_PRESERVE = frozenset(
+    {
+        ".git",
+        ".github",
+        ".gitignore",
+        ".gitattributes",
+        "CODEOWNERS",
+        "LICENSE",
+        "LICENSE.md",
+        "context7.json",
+    }
+)
+
+# Name written into manifest.json — also used to recognise the docs repo
+# when re-generating into an existing checkout.
+CONTEXT7_REPO_NAME = "windmill-cli-docs"
+
+
+def extract_agents_md_template() -> str:
+    """Extract the AGENTS.cli.md template string from cli/src/guidance/core.ts.
+
+    Keeping a single source of truth in TypeScript avoids drift between what
+    `wmill init` writes locally and what we publish for context7 ingestion.
+    """
+    core_ts_path = SCRIPT_DIR.parent / "cli" / "src" / "guidance" / "core.ts"
+    content = core_ts_path.read_text()
+    # Anchor on the function name so adding other template-literal-returning
+    # functions to core.ts can't silently re-target the regex. The function
+    # was renamed from `generateAgentsMdContent` → `generateAgentsCliMdContent`
+    # when the managed file split out of AGENTS.md into AGENTS.cli.md.
+    match = re.search(
+        r"function\s+generateAgentsCliMdContent\b[\s\S]*?return\s+`([\s\S]*?)`;",
+        content,
+    )
+    if not match:
+        raise RuntimeError(
+            f"Could not extract AGENTS.cli.md template from {core_ts_path}"
+        )
+    return _unescape_ts_template_literal(match.group(1))
+
+
+def _unescape_ts_template_literal(raw: str) -> str:
+    """Decode TS template-literal escapes in one pass.
+
+    Multi-pass `.replace()` would mangle e.g. `\\\\` -> `\\` -> `` ` `` if the
+    template ever contained a literal backslash followed by a backtick. A
+    single-pass scan is order-independent.
+    """
+    return re.sub(
+        r"\\(.)",
+        lambda m: {"`": "`", "$": "$", "\\": "\\"}.get(m.group(1), m.group(0)),
+        raw,
+    )
+
+
+def render_agents_md_for_docs(
+    skills: list[str], skill_desc_map: dict[str, str]
+) -> str:
+    """Render AGENTS.cli.md exactly as `wmill init` would, for the docs repo.
+
+    The skill reference paths point at `.agents/skills/` (the canonical tree
+    that Codex/Pi read directly and that Claude Code mirrors under
+    `.claude/skills/`) — matching `buildSkillsReference` in
+    `cli/src/guidance/writer.ts`.
+    """
+    template = extract_agents_md_template()
+    skills_reference = "\n".join(
+        f"- `.agents/skills/{name}/SKILL.md` - {skill_desc_map[name]}"
+        for name in skills
+        if name in skill_desc_map
+    )
+    return template.replace("${skillsReference}", skills_reference)
+
+
+def build_skill_desc_map(skills: list[str]) -> dict[str, str]:
+    """Map each skill name to its user-facing description.
+
+    Mirrors the logic in `generate_skills_ts_export`: language skills draw from
+    LANGUAGE_METADATA, everything else from SKILL_DEFINITIONS.
+    """
+    desc_map = {s["name"]: s["description"] for s in SKILL_DEFINITIONS}
+    for skill in skills:
+        if skill.startswith("write-script-"):
+            lang_key = skill.replace("write-script-", "")
+            metadata = LANGUAGE_METADATA.get(lang_key)
+            if metadata:
+                desc_map[skill] = metadata["description"]
+    return desc_map
+
+
+def _looks_like_windmill_manifest(path: Path) -> bool:
+    """Return True iff `path` is a JSON file whose top-level `name` is ours.
+
+    Used to distinguish a previously-generated docs repo from an unrelated
+    project that happens to have a `manifest.json` (Chrome extensions, npm
+    packages, web app manifests, etc.).
+    """
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return False
+    return isinstance(data, dict) and data.get("name") == CONTEXT7_REPO_NAME
+
+
+def _verify_context7_target(target_dir: Path) -> None:
+    """Refuse to wipe a non-empty dir that doesn't look like the docs repo.
+
+    A typo such as `--context7-dir .`, `~`, or the wrong checkout could
+    otherwise nuke unrelated files. We accept the target if it's empty/new,
+    if it has our ownership file, if its `manifest.json` self-identifies as
+    the windmill-cli-docs repo, or if its git origin points at one.
+    """
+    if not target_dir.exists() or not any(target_dir.iterdir()):
+        return
+
+    if (target_dir / "context7.json").exists():
+        return
+
+    manifest_path = target_dir / "manifest.json"
+    if manifest_path.exists() and _looks_like_windmill_manifest(manifest_path):
+        return
+
+    git_dir = target_dir / ".git"
+    if git_dir.exists():
+        import subprocess
+
+        try:
+            origin = subprocess.run(
+                ["git", "-C", str(target_dir), "config", "--get", "remote.origin.url"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            if CONTEXT7_REPO_NAME in origin:
+                return
+        except subprocess.CalledProcessError:
+            pass
+
+    raise RuntimeError(
+        f"Refusing to overwrite {target_dir}: target does not look like the "
+        f"{CONTEXT7_REPO_NAME} docs repo.\n"
+        f"Expected one of:\n"
+        f"  - a `context7.json` at the top level,\n"
+        f"  - a `manifest.json` whose top-level `name` is {CONTEXT7_REPO_NAME!r},\n"
+        f"  - a git remote `origin` containing '{CONTEXT7_REPO_NAME}'.\n"
+        f"If this is the right directory, add a `context7.json` and retry."
+    )
+
+
+def clear_context7_dir(target_dir: Path) -> None:
+    """Wipe the docs repo dir of previously generated content.
+
+    Preserves a small allowlist (.git, .github, LICENSE, context7.json, etc.)
+    so this can run against a real checkout without nuking version control or
+    CI config.
+    """
+    if not target_dir.exists():
+        return
+    for entry in target_dir.iterdir():
+        if entry.name in CONTEXT7_PRESERVE:
+            continue
+        if entry.is_dir():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+
+
+def _read_windmill_version() -> str | None:
+    """Return the Windmill release version (e.g. '1.700.2'), or None if absent.
+
+    Sourced from `version.txt` at the repo root — the same file release-please
+    updates on every release.
+    """
+    version_file = SCRIPT_DIR.parent / "version.txt"
+    if not version_file.exists():
+        return None
+    return version_file.read_text().strip() or None
+
+
+def generate_context7_repo(
+    target_dir: Path,
+    skills: list[str],
+    schema_yaml_content: dict[str, str],
+    cli_commands_md: str,
+) -> Path:
+    """Generate a fully-rendered docs repo suitable for context7 ingestion.
+
+    Layout written to `target_dir`:
+        AGENTS.md              # the prompt agents see in their projects
+        README.md              # stable intro for humans / context7
+        manifest.json          # version + skill list (for indexing)
+        cli-commands.md        # full CLI flag reference
+        skills/<name>/SKILL.md # one rendered skill per file
+    """
+    target_dir = target_dir.expanduser().resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    _verify_context7_target(target_dir)
+    clear_context7_dir(target_dir)
+
+    skill_desc_map = build_skill_desc_map(skills)
+
+    # AGENTS.md — the managed CLI guidance (what `wmill init` writes as
+    # AGENTS.cli.md locally). Kept under the `AGENTS.md` filename here to
+    # preserve the existing context7 ingest path; docs consumers read this
+    # as the canonical AGENTS file.
+    (target_dir / "AGENTS.md").write_text(
+        render_agents_md_for_docs(skills, skill_desc_map)
+    )
+
+    # Full CLI reference at top level.
+    (target_dir / "cli-commands.md").write_text(cli_commands_md)
+
+    # One markdown per skill, with schemas inlined (no template placeholders).
+    skills_dir = target_dir / "skills"
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    for skill_name in skills:
+        skill_dir = skills_dir / skill_name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text(
+            render_plugin_skill_content(skill_name, schema_yaml_content)
+        )
+
+    # Stable README so the GitHub repo landing page tells readers (and
+    # context7's crawler) what they're looking at.
+    (target_dir / "README.md").write_text(_context7_readme(skills))
+
+    # Machine-readable index for context7 / downstream consumers.
+    # Note: the `name` field is also the marker `_verify_context7_target`
+    # uses to distinguish our `manifest.json` from generic ones.
+    manifest = {
+        "name": CONTEXT7_REPO_NAME,
+        "description": (
+            "Auto-generated Windmill CLI docs: agent prompt, skills, and "
+            "full CLI reference. Source: github.com/windmill-labs/windmill."
+        ),
+        "skills": [
+            {"name": name, "description": skill_desc_map.get(name, "")}
+            for name in skills
+        ],
+    }
+    version = _read_windmill_version()
+    if version:
+        manifest["version"] = version
+    (target_dir / "manifest.json").write_text(
+        json.dumps(manifest, indent=2) + "\n"
+    )
+
+    print(f"\nGenerated for context7 docs repo:")
+    print(f"  - {target_dir} ({len(skills)} skills + AGENTS.md + cli-commands.md)")
+    return target_dir
+
+
+def _context7_readme(skills: list[str]) -> str:
+    """Render the README that ships at the root of the docs repo.
+
+    Doubles as a CLI quickstart for humans landing on the GitHub page and as
+    the top-level entry point context7 indexes first — keep it actionable.
+    """
+    skill_lines = "\n".join(f"- `skills/{name}/SKILL.md`" for name in skills)
+    return f"""# Windmill CLI Quickstart
+
+[`wmill`](https://www.windmill.dev/docs/advanced/cli) is the official command
+line interface for [Windmill](https://www.windmill.dev) — an open-source
+platform for internal tools, workflows, API integrations, background jobs, and
+UIs. Use it to authenticate against a workspace, scaffold local projects,
+sync scripts/flows/apps between your filesystem and a workspace, and run or
+debug jobs from your terminal.
+
+## Install
+
+```sh
+npm install -g windmill-cli
+wmill --version
+```
+
+Upgrade later with `wmill upgrade`.
+
+## Connect to a workspace
+
+```sh
+wmill workspace add
+```
+
+This walks you through adding a workspace profile — a `(name, remote URL,
+workspace id, token)` tuple stored under `~/.config/windmill`. You can have
+multiple profiles and switch between them with `wmill workspace switch <name>`.
+
+A workspace token is created from the Windmill UI under
+`User Settings → Tokens`. For self-hosted instances, point the remote at your
+own URL (e.g. `https://windmill.example.com`).
+
+## Initialize a project directory
+
+```sh
+wmill init
+```
+
+`wmill init` creates:
+
+- `wmill.yaml` — sync configuration (which folders/types to track).
+- `AGENTS.md` + `CLAUDE.md` — the agent prompt published in this repo.
+- `.claude/skills/` and `.agents/skills/` — per-task guides used by AI coding
+  assistants (Claude Code, Codex, Pi). These are the same `SKILL.md` files
+  you'll find under `skills/` in this repo.
+
+It also offers to bind a workspace profile to the current git branch and to
+import git-sync settings from the backend if any are configured.
+
+## Sync between local files and a workspace
+
+```sh
+wmill sync pull     # workspace → local (writes flows, scripts, apps, etc.)
+wmill sync push     # local → workspace
+```
+
+Sync is idempotent and diff-aware: `wmill sync push --dry-run` previews the
+changes without applying them. Use `--yaml` (recommended) to keep specs as
+YAML rather than JSON.
+
+For individual entities you can also use the type-specific commands:
+
+```sh
+wmill script push   path/to/script.ts
+wmill flow   push   path/to/flow.yaml
+wmill app    push   path/to/app.yaml
+wmill resource push path/to/resource.yaml
+```
+
+## Run, inspect, and debug jobs
+
+```sh
+wmill script run u/me/my_script --data '{{"foo": "bar"}}'
+wmill flow   run u/me/my_flow   --data @inputs.json
+wmill job list --failed --limit 20
+wmill job get  <job_id>
+wmill job logs <job_id>
+```
+
+Logs and flow steps stream as the job runs. For flow failures, `wmill job get`
+shows the step tree with each sub-job's id so you can drill in with
+`wmill job logs <sub_job_id>`.
+
+## Scaffold new entities
+
+```sh
+wmill script new u/me/path --language bun
+wmill flow   new u/me/path --summary "..."
+wmill app    new u/me/path --summary "..." --framework svelte
+```
+
+These create the correct folder layout and a minimal spec file, then print
+next-step hints. Prefer them over hand-creating the folders — they pick the
+right naming conventions for your workspace.
+
+## Triggers and schedules
+
+Triggers (HTTP routes, WebSocket, Kafka, NATS, MQTT, SQS, GCP Pub/Sub, Azure
+Event Hubs, Email, Postgres CDC) and cron schedules are tracked as YAML files
+synced alongside your scripts and flows. See `skills/triggers/SKILL.md` and
+`skills/schedules/SKILL.md` for the full schemas.
+
+## Completion
+
+```sh
+source <(wmill completions bash)        # bash, zsh: source <(wmill completions zsh)
+source (wmill completions fish | psub)  # fish
+```
+
+## Reference
+
+- `cli-commands.md` — every `wmill` command and flag, generated from the
+  source.
+- `AGENTS.md` — the top-level prompt the CLI installs into each project (and
+  the same instructions AI coding assistants follow when working in a
+  Windmill repo).
+- `skills/<name>/SKILL.md` — one self-contained guide per common task.
+
+### Skills index
+
+{skill_lines}
+
+## About this repo
+
+Auto-generated mirror of the Windmill CLI's bundled AI-agent guidance and
+command reference, published for ingestion by docs aggregators such as
+[context7](https://context7.com).
+
+**Do not edit by hand.** This repo is regenerated from
+[windmill-labs/windmill](https://github.com/windmill-labs/windmill) on every
+release. Open issues and PRs in the source repo, not here. The generator is
+`system_prompts/generate.py --context7-dir`.
+"""
+
+
+# =============================================================================
 # Main Entry Point
 # =============================================================================
 
@@ -1789,6 +2221,15 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Optional plugin target. Accepts a windmill-claude-plugin repo root, "
             "a plugin root, or a skills directory, and refreshes standalone skills there."
+        ),
+    )
+    parser.add_argument(
+        "--context7-dir",
+        type=Path,
+        help=(
+            "Optional path to a docs-repo checkout (e.g. windmill-cli-docs). "
+            "Writes AGENTS.md, cli-commands.md, skills/, README.md, and manifest.json "
+            "with all placeholders resolved, suitable for context7 ingestion."
         ),
     )
     return parser.parse_args()
@@ -1856,6 +2297,8 @@ def main():
 
     script_base = read_markdown_file(base_dir / "script-base.md")
     flow_base = read_markdown_file(base_dir / "flow-base.md")
+    resources_base = read_markdown_file(base_dir / "resources.md")
+    raw_app_base = read_markdown_file(base_dir / "raw-app.md")
     workflow_as_code_base = read_markdown_file(base_dir / "workflow-as-code.md")
     flow_cli = read_markdown_file(base_dir / "flow-cli.md")
     flow_chat_special_modules = read_markdown_file(base_dir / "flow-chat-special-modules.md")
@@ -1869,6 +2312,13 @@ def main():
     print("Extracting CLI commands...")
     cli_data = extract_cli_commands()
     cli_commands = generate_cli_commands_markdown(cli_data)
+    # Append hand-written CLI guidance covering bits that aren't obvious from
+    # the auto-generated per-command --help (file_key semantics, --storage,
+    # workspace scope). The cli-commands skill is the entry point agents read
+    # to learn about `wmill`, so non-obvious usage notes belong here.
+    object_storage_cli = read_markdown_file(base_dir / "object-storage-cli.md")
+    if object_storage_cli:
+        cli_commands = f"{cli_commands}\n\n{object_storage_cli}"
     OUTPUT_CLI_DIR.mkdir(parents=True, exist_ok=True)
     (OUTPUT_CLI_DIR / "cli-commands.md").write_text(cli_commands)
     print(f"  Found {len(cli_data['commands'])} commands, {len(cli_data['global_options'])} global options")
@@ -1913,6 +2363,8 @@ def main():
         # Base prompts
         'SCRIPT_BASE': script_base,
         'FLOW_BASE': flow_base,
+        'RESOURCES_BASE': resources_base,
+        'RAW_APP_BASE': raw_app_base,
         'WORKFLOW_AS_CODE_BASE': workflow_as_code_base,
         'FLOW_CHAT_SPECIAL_MODULES': flow_chat_special_modules,
 
@@ -1967,6 +2419,12 @@ const TS_SDK_LANGUAGES = ['bun', 'deno', 'nativets', 'bunnative'];
 // Languages that use the Python SDK
 const PY_SDK_LANGUAGES = ['python3'];
 
+// Languages that use the TypeScript Workflow-as-Code SDK
+const WAC_TS_SDK_LANGUAGES = ['bun'];
+
+// Languages that use the Python Workflow-as-Code SDK
+const WAC_PY_SDK_LANGUAGES = PY_SDK_LANGUAGES;
+
 // Helper to combine prompts for scripts
 export function getScriptPrompt(language: string): string {
   const langKey = `LANG_${language.toUpperCase()}` as keyof typeof prompts;
@@ -1995,6 +2453,16 @@ export function getFlowPrompt(): string {
   ].filter(Boolean).join('\\n\\n');
 }
 
+// Helper for resource & variable authoring
+export function getResourcePrompt(): string {
+  return prompts.RESOURCES_BASE;
+}
+
+// Helper for raw app authoring (chat consumers)
+export function getRawAppPrompt(): string {
+  return prompts.RAW_APP_BASE;
+}
+
 // Helper to get datatable SDK reference for app mode
 export function getDatatableSdkReference(): string {
   return [
@@ -2004,15 +2472,39 @@ export function getDatatableSdkReference(): string {
 }
 
 // Helper to combine prompts for Workflow-as-Code scripts
-export function getWorkflowAsCodePrompt(): string {
+export function getWorkflowAsCodePrompt(language?: string): string {
+  let sdkPrompt = '';
+
+  if (language == null) {
+    sdkPrompt = [
+      prompts.WAC_SDK_TYPESCRIPT,
+      prompts.WAC_SDK_PYTHON
+    ].filter(Boolean).join('\\n\\n');
+  } else if (WAC_TS_SDK_LANGUAGES.includes(language)) {
+    sdkPrompt = prompts.WAC_SDK_TYPESCRIPT;
+  } else if (WAC_PY_SDK_LANGUAGES.includes(language)) {
+    sdkPrompt = prompts.WAC_SDK_PYTHON;
+  } else {
+    return '';
+  }
+
   return [
     prompts.WORKFLOW_AS_CODE_BASE,
-    prompts.WAC_SDK_TYPESCRIPT,
-    prompts.WAC_SDK_PYTHON
+    sdkPrompt
   ].filter(Boolean).join('\\n\\n');
 }
 """
     (OUTPUT_GENERATED_DIR / "index.ts").write_text(index_content)
+
+    index_dts_content = """export * from './prompts';
+export declare function getScriptPrompt(language: string): string;
+export declare function getFlowPrompt(): string;
+export declare function getResourcePrompt(): string;
+export declare function getRawAppPrompt(): string;
+export declare function getDatatableSdkReference(): string;
+export declare function getWorkflowAsCodePrompt(language?: string): string;
+"""
+    (OUTPUT_GENERATED_DIR / "index.d.ts").write_text(index_dts_content)
 
     # Generate skill files for Claude Code
     CLI_GUIDANCE_DIR.mkdir(parents=True, exist_ok=True)
@@ -2064,6 +2556,11 @@ export function getWorkflowAsCodePrompt(): string {
 
     if args.plugin_dir:
         generate_plugin_skills(args.plugin_dir, skills, schema_yaml_content)
+
+    if args.context7_dir:
+        generate_context7_repo(
+            args.context7_dir, skills, schema_yaml_content, cli_commands
+        )
 
     print("\nDone!")
 

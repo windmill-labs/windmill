@@ -51,7 +51,8 @@ export async function pushResource(
   remotePath: string,
   resource: ResourceFile | Resource | undefined,
   localResource: ResourceFile,
-  originalLocalPath?: string
+  originalLocalPath?: string,
+  wsSpecific?: boolean,
 ): Promise<void> {
   remotePath = removeType(remotePath, "resource");
   try {
@@ -103,7 +104,7 @@ export async function pushResource(
     await wmill.updateResource({
       workspace: workspace,
       path: remotePath.replaceAll(SEP, "/"),
-      requestBody: { ...localResource },
+      requestBody: { ...localResource, ...(wsSpecific !== undefined ? { ws_specific: wsSpecific } : {}) },
     });
   } else {
     // New resource - resolve inline content
@@ -123,6 +124,7 @@ export async function pushResource(
       requestBody: {
         path: remotePath.replaceAll(SEP, "/"),
         ...localResource,
+        ...(wsSpecific !== undefined ? { ws_specific: wsSpecific } : {}),
       },
     });
   }

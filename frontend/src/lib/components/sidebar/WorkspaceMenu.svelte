@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { workspaceMenuHref } from './workspaceMenuHref'
 	import {
 		isPremiumStore,
 		superadmin,
@@ -58,16 +59,43 @@
 			'/apps/get/'
 		]
 		const isOnEditPage = editPages.some((editPage) => page.route.id?.includes(editPage) ?? false)
+		// An AI session is scoped to its (forked) workspace, so it makes no sense
+		// to keep showing it after the user switches workspace — go home instead.
+		const isOnSessionPage = page.route.id?.includes('/sessions') ?? false
 
-		if (!isOnEditPage) {
-			switchWorkspace(id)
-			if (page.url.searchParams.get('workspace')) {
-				page.url.searchParams.set('workspace', id)
-			}
-		} else {
-			switchWorkspace(id)
+		switchWorkspace(id)
+		if (isOnEditPage || isOnSessionPage) {
 			await goto('/')
+		} else if (page.url.searchParams.get('workspace')) {
+			page.url.searchParams.set('workspace', id)
 		}
+	}
+
+	// An AI session is scoped to its (forked) workspace, so switching workspace
+	// should leave for home (the link's navigation wins over onClick's
+	// preventDefault; onClick still performs the switch). Pure logic +
+	// new-tab/workspace-param handling lives in workspaceMenuHref (unit-tested).
+	function workspaceHref(id: string): string {
+		return workspaceMenuHref({
+			routeId: page.route.id,
+			base,
+			pathname: page.url.pathname,
+			searchParams: page.url.searchParams,
+			id
+		})
+	}
+
+	function onWorkspaceItemClick(e: MouseEvent, workspace: { id: string; disabled?: boolean }) {
+		if (workspace.disabled) {
+			e.preventDefault()
+			return
+		}
+		// Let modifier-keyed clicks fall through so the browser can open in a new tab.
+		if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) {
+			return
+		}
+		e.preventDefault()
+		toggleSwitchWorkspace(workspace.id)
 	}
 
 	function getForkedWorkspace(workspaceId: string) {
@@ -136,11 +164,8 @@
 									? ''
 									: 'cursor-pointer hover:bg-surface-hover data-[highlighted]:bg-surface-hover'
 						)}
-						onClick={async () => {
-							if (!workspace.disabled) {
-								await toggleSwitchWorkspace(workspace.id)
-							}
-						}}
+						href={workspace.disabled ? undefined : workspaceHref(workspace.id)}
+						onClick={(e) => onWorkspaceItemClick(e, workspace)}
 						{item}
 					>
 						<div class="flex items-center justify-between min-w-0 w-full">

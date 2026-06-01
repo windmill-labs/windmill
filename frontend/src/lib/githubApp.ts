@@ -16,6 +16,13 @@ export interface GitHubAppState {
 	installationCheckInterval: number | undefined
 	isCheckingInstallation: boolean
 	importJwt: string
+	/**
+	 * True when the instance has a self-managed (GHES) GitHub App configured.
+	 * Used to hide cloud-only UI like the Export/Import buttons, since those
+	 * JWTs carry no `github_base_url` and would round-trip into broken
+	 * github.com-pointed installs.
+	 */
+	isGhesSelfManaged: boolean
 }
 
 export interface GitHubRepository {
@@ -99,7 +106,8 @@ export function createGitHubAppState(): GitHubAppState {
 		githubInstallationUrl: undefined,
 		installationCheckInterval: undefined,
 		isCheckingInstallation: false,
-		importJwt: ''
+		importJwt: '',
+		isGhesSelfManaged: false
 	}
 }
 
@@ -137,6 +145,7 @@ export async function loadGithubInstallations(
 		try {
 			const ghesConfig: GetGhesConfigResponse = await GitSyncService.getGhesConfig()
 			if (ghesConfig?.base_url && ghesConfig?.app_slug) {
+				state.isGhesSelfManaged = true
 				const ghesBaseUrl = ghesConfig.base_url.replace(/\/$/, '')
 				// GHES (self-hosted) uses /github-apps/, github.com and GHE Cloud (*.ghe.com) use /apps/
 				const hostname = new URL(ghesBaseUrl).hostname
@@ -149,10 +158,12 @@ export async function loadGithubInstallations(
 						: ghesConfig.app_slug
 				state.githubInstallationUrl = `${ghesBaseUrl}/${appsPath}/${appPath}/installations/new?state=${stateParam}`
 			} else {
+				state.isGhesSelfManaged = false
 				state.githubInstallationUrl = `https://github.com/apps/windmill-sync-helper/installations/new?state=${stateParam}`
 			}
 		} catch {
 			// No GHES config — use default github.com URL
+			state.isGhesSelfManaged = false
 			state.githubInstallationUrl = `https://github.com/apps/windmill-sync-helper/installations/new?state=${stateParam}`
 		}
 	} catch (err) {

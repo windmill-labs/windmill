@@ -14,6 +14,7 @@
 	import ZitadelSetting from '$lib/components/ZitadelSetting.svelte'
 	import NextcloudSetting from '$lib/components/NextcloudSetting.svelte'
 	import CustomOauth from './CustomOauth.svelte'
+	import Password from './Password.svelte'
 	import { capitalize, type Item } from '$lib/utils'
 	import ClipboardPanel from './details/ClipboardPanel.svelte'
 	import Toggle from './Toggle.svelte'
@@ -25,6 +26,7 @@
 	import { tick } from 'svelte'
 	import { Popover } from './meltComponents'
 	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
+	import oauthConnectRegistry from '$oauth_connect_registry'
 
 	interface Props {
 		snowflakeAccountIdentifier?: string
@@ -58,7 +60,7 @@
 		}
 	})
 
-	const windmillBuiltins = [
+	const windmillBuiltinsBase = [
 		'azure_oauth',
 		'github',
 		'gitlab',
@@ -81,7 +83,21 @@
 		'teams',
 		'zoho',
 		'xero',
-		'apify'
+		'apify',
+		'docusign'
+	]
+	// Providers whose registry entry (`backend/oauth_connect.json`) carries a
+	// `sandbox` URL block. Each one gets a sibling `<name>_sandbox` dropdown
+	// entry and is treated as a builtin so we don't render the custom-URL form
+	// — the URLs come from the registry sandbox block. Derived at build time
+	// from the registry so adding a sandbox to a provider needs no frontend
+	// change.
+	const windmillBuiltinsWithSandbox = Object.entries(oauthConnectRegistry)
+		.filter(([, cfg]) => cfg && typeof cfg === 'object' && 'sandbox' in cfg)
+		.map(([name]) => name)
+	const windmillBuiltins = [
+		...windmillBuiltinsBase,
+		...windmillBuiltinsWithSandbox.map((n) => `${n}_sandbox`)
 	]
 
 	let showCustomOAuthForm = $state(false)
@@ -174,32 +190,48 @@
 	}
 
 	function getOAuthProviderIcon(name: string) {
+		// Sandbox variants share the parent provider's icon.
+		const lookup = name.endsWith('_sandbox') ? name.slice(0, -'_sandbox'.length) : name
+
 		// Handle special cases
-		if (name === 'teams') {
+		if (lookup === 'teams') {
 			return APP_TO_ICON_COMPONENT.ms_teams_webhook
 		}
-		if (name === 'snowflake_oauth') {
+		if (lookup === 'snowflake_oauth') {
 			return APP_TO_ICON_COMPONENT.snowflake
 		}
-		if (name === 'azure_oauth') {
+		if (lookup === 'azure_oauth') {
 			return APP_TO_ICON_COMPONENT.azure
 		}
 
 		// Try direct mapping, fallback to Circle icon if not found
-		return APP_TO_ICON_COMPONENT[name as keyof typeof APP_TO_ICON_COMPONENT] || Circle
+		return APP_TO_ICON_COMPONENT[lookup as keyof typeof APP_TO_ICON_COMPONENT] || Circle
 	}
 
 	function generateOAuthDropdownItems(): Item[] {
 		const items: Item[] = []
 
 		// Add built-in providers that are not already configured
-		windmillBuiltins.forEach((name) => {
+		windmillBuiltinsBase.forEach((name) => {
 			// Only show providers that are not already in the oauths object
 			if (!oauths || !oauths[name]) {
 				const icon = getOAuthProviderIcon(name)
 				items.push({
 					displayName: capitalize(name),
 					action: () => createOAuthClient(name),
+					icon: icon
+				})
+			}
+		})
+
+		// Add sandbox variants for providers that have sandbox URLs in the registry
+		windmillBuiltinsWithSandbox.forEach((name) => {
+			const sandboxKey = `${name}_sandbox`
+			if (!oauths || !oauths[sandboxKey]) {
+				const icon = getOAuthProviderIcon(name)
+				items.push({
+					displayName: `${capitalize(name)} (sandbox)`,
+					action: () => createOAuthClient(sandboxKey),
 					icon: icon
 				})
 			}
@@ -297,12 +329,12 @@
 										<span class="text-primary font-semibold text-xs">Client Id</span>
 										<input type="text" placeholder="Client Id" bind:value={oauths[k]['id']} />
 									</label>
-									<label class="block pb-6">
+									<label for="{k}_client_secret_sso" class="block pb-6">
 										<span class="text-primary font-semibold text-xs">Client Secret</span>
-										<input
-											type="text"
+										<Password
+											id="{k}_client_secret_sso"
 											placeholder="Client Secret"
-											bind:value={oauths[k]['secret']}
+											bind:password={oauths[k]['secret']}
 										/>
 									</label>
 									{#if !windmillBuiltins.includes(k) && k != 'slack'}
@@ -369,11 +401,14 @@
 				{#if oauths[k] && !(oauths[k] && 'login_config' in oauths[k])}
 					{#if !['slack', 'teams'].includes(k) && oauths[k]}
 						{@const IconComponent = getOAuthProviderIcon(k) as any}
+						{@const headerLabel = k.endsWith('_sandbox')
+							? `${k.slice(0, -'_sandbox'.length)} (sandbox)`
+							: k}
 						<div class="flex flex-col gap-2 pb-6">
 							<div class="flex flex-row items-center gap-2">
 								<IconComponent size={24} width="24" height="24" class="shrink-0" />
 								<!-- svelte-ignore a11y_label_has_associated_control -->
-								<label class="text-xs font-semibold text-emphasis">{k}</label>
+								<label class="text-xs font-semibold text-emphasis">{headerLabel}</label>
 								<Button
 									variant="subtle"
 									destructive
@@ -394,9 +429,13 @@
 									<span class="text-primary font-semibold text-xs">Client Id</span>
 									<input type="text" placeholder="Client Id" bind:value={oauths[k]['id']} />
 								</label>
-								<label>
+								<label for="{k}_client_secret_oauth">
 									<span class="text-primary font-semibold text-xs">Client Secret</span>
-									<input type="text" placeholder="Client Secret" bind:value={oauths[k]['secret']} />
+									<Password
+										id="{k}_client_secret_oauth"
+										placeholder="Client Secret"
+										bind:password={oauths[k]['secret']}
+									/>
 								</label>
 								{#if k === 'visma' || !windmillBuiltins.includes(k)}
 									<div class="mb-8">

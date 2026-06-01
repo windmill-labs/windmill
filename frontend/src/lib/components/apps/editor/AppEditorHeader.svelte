@@ -1,16 +1,24 @@
 <script lang="ts">
-	import { Drawer, DrawerContent, UndoRedo } from '$lib/components/common'
+	import { Drawer, DrawerContent } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AppService, DraftService, type Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history.svelte'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import type { Item } from '$lib/utils'
+	import { UserDraft } from '$lib/userDraft.svelte'
+	import { enterpriseLicense, tutorialsToDo, userStore, workspaceStore } from '$lib/stores'
+	import { isMac, type Item, userPathPrefix } from '$lib/utils'
+	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
+	import { getTutorialIndex } from '$lib/tutorials/config'
+	import { random_adj } from '$lib/components/random_positive_adjetive'
 	import {
 		AlignHorizontalSpaceAround,
 		BellOff,
+		BookOpen,
 		Bug,
+		CheckCheck,
+		CheckCircle,
+		Circle,
 		DiffIcon,
 		Expand,
 		FileJson,
@@ -18,12 +26,15 @@
 		FormInput,
 		History,
 		Laptop2,
+		RefreshCw,
 		Save,
 		Smartphone,
 		FileClock,
 		Sun,
 		Moon,
 		SunMoon,
+		Undo,
+		Redo,
 		Zap,
 		Globe
 	} from 'lucide-svelte'
@@ -52,7 +63,10 @@
 	import AppReportsDrawer from './AppReportsDrawer.svelte'
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
 
-	import Summary from '$lib/components/Summary.svelte'
+	import EditorHeader from '$lib/components/EditorHeader.svelte'
+	import { editPathFor } from '$lib/components/workspacePicker'
+	import { invalidateWorkspacePaths } from '$lib/components/PathNameAutocomplete.svelte'
+	import { goto } from '$app/navigation'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 
@@ -96,6 +110,7 @@
 		onHideRightPanel?: () => void
 		onHideLeftPanel?: () => void
 		onHideBottomPanel?: () => void
+		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
 	}
 
 	let {
@@ -116,10 +131,24 @@
 		onShowBottomPanel,
 		onHideLeftPanel,
 		onHideRightPanel,
-		onHideBottomPanel
+		onHideBottomPanel,
+		onNavigate = undefined
 	}: Props = $props()
 
-	let newEditedPath = $state('')
+	/** Mirror of the path the user is editing in the pen popover. Initialized
+	 * once from `newPath` (or a synthesized path for new apps) and only
+	 * updated by user input from then on — we deliberately do NOT sync from
+	 * `newPath` afterwards so the user's in-flight rename isn't clobbered by
+	 * a parent reload that re-supplies the saved path. The fallback chain at
+	 * read sites (`newEditedPath || savedApp?.draft?.path || savedApp?.path`)
+	 * handles the case where `newEditedPath` is briefly empty before the
+	 * synthesized initialization runs — falls through to the saved path so
+	 * rename detection still works. */
+	let newEditedPath = $state(
+		untrack(() =>
+			newApp ? userPathPrefix($userStore?.username) + random_adj() + '_app' : (newPath ?? '')
+		)
+	)
 	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
 	let deployedBy: string | undefined = $state(undefined) // Author
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
@@ -143,6 +172,14 @@
 	const { history, jobsDrawerOpen, refreshComponents } =
 		getContext<AppEditorContext>('AppEditorContext')
 
+	// Sessions inject an AIChatManager via context; AppEditor skips its
+	// UserDraft handle in that case, so the cleanup calls here must skip too
+	// (otherwise we'd wipe a non-session tab's autosave at the same path). The
+	// session-side equivalent is the View's `onDeploy` →
+	// `runtime.syncPreviewWithDeployed`, which discards the fork draft + reloads
+	// the preview to the deployed version.
+	const inSessionPane = !!getContext('aiChatManager')
+
 	const loading = $state({
 		publish: false,
 		save: false,
@@ -162,6 +199,10 @@
 	let lazyDrawerOpen = $state(false)
 	let deploymentMsg = $state('')
 	let preserveOnBehalfOf = $state(false)
+
+	// Top-bar responsive collapse — container width, not viewport.
+	let topbarWidth = $state(0)
+	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
@@ -186,6 +227,9 @@
 					preserve_on_behalf_of: preserveOnBehalfOf || undefined
 				}
 			})
+			// New path now exists server-side — drop the autocomplete cache so
+			// it shows up immediately instead of after the 60s TTL.
+			invalidateWorkspacePaths($workspaceStore!)
 			savedApp = {
 				summary: $summary,
 				value: structuredClone($state.snapshot($app)),
@@ -195,11 +239,7 @@
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
-			try {
-				localStorage.removeItem(`app-${path}`)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
+			if (!inSessionPane) UserDraft.remove('app', path)
 			onSavedNewAppPath?.(path)
 		} catch (e) {
 			sendUserToast('Error creating app', e)
@@ -283,6 +323,7 @@
 				preserve_on_behalf_of: preserveOnBehalfOf || undefined
 			}
 		})
+		invalidateWorkspacePaths($workspaceStore!)
 		savedApp = {
 			summary: $summary,
 			value: structuredClone($state.snapshot($app)),
@@ -298,12 +339,8 @@
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
+		if (!inSessionPane) UserDraft.remove('app', $appPath)
 		if ($appPath !== npath) {
-			try {
-				localStorage.removeItem(`app-${appPath}`)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
 			onSavedNewAppPath?.(npath)
 		}
 	}
@@ -375,6 +412,10 @@
 			}
 
 			draftDrawerOpen = false
+			// The initial draft was promoted to a real path on the backend —
+			// drop the autosave keyed on the prior (possibly empty) path so
+			// a future "+ App" click opens on a clean slate.
+			if (!inSessionPane) UserDraft.remove('app', $appPath)
 			onSavedNewAppPath?.(newEditedPath)
 		} catch (e) {
 			sendUserToast('Error saving initial draft', e)
@@ -465,11 +506,7 @@
 			}
 
 			sendUserToast('Draft saved')
-			try {
-				localStorage.removeItem(`app-${path}`)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
+			if (!inSessionPane) UserDraft.remove('app', path)
 			loading.saveDraft = false
 			if (newApp || savedApp.draft_only) {
 				onSavedNewAppPath?.(newEditedPath || path)
@@ -511,19 +548,12 @@
 
 		lock = true
 
-		switch (event.key) {
-			case 'Z':
-				if (event.ctrlKey || event.metaKey) {
-					const napp = redo(history)
-					for (const key in napp) {
-						$app[key] = napp[key]
-					}
-					event.preventDefault()
-				}
-				break
+		// Only lowercase single-char keys — named keys (`ArrowDown`, etc.) must
+		// stay PascalCase to match their switch cases.
+		switch (event.key.length === 1 ? event.key.toLowerCase() : event.key) {
 			case 'z':
 				if (event.ctrlKey || event.metaKey) {
-					const napp = undo(history, $app)
+					const napp = event.shiftKey ? redo(history) : undo(history, $app)
 					for (const key in napp) {
 						$app[key] = napp[key]
 					}
@@ -558,7 +588,59 @@
 		lock = false
 	}
 
+	const mod = isMac() ? '⌘' : 'Ctrl+'
+
+	function handleUndo() {
+		const napp = undo(history, $app)
+		for (const key in napp) {
+			$app[key] = napp[key]
+		}
+	}
+	function handleRedo() {
+		const napp = redo(history)
+		for (const key in napp) {
+			$app[key] = napp[key]
+		}
+	}
+
 	let moreItems = $derived([
+		...(compactTopbar
+			? [
+					{
+						displayName: 'Save draft',
+						icon: Save,
+						action: () => saveDraft(),
+						shortcut: `${mod}S`,
+						disabled: !newApp && !savedApp
+					},
+					{
+						displayName: `Debug runs (${$jobs?.length > 99 ? '99+' : ($jobs?.length ?? 0)})`,
+						icon: Bug,
+						action: () => {
+							if (selectedJobId == undefined && $jobs.length > 0) {
+								selectedJobId = $jobs[$jobs.length - 1]
+							}
+							$jobsDrawerOpen = true
+						},
+						separatorBottom: true
+					}
+				]
+			: []),
+		{
+			displayName: 'Undo',
+			icon: Undo,
+			action: () => handleUndo(),
+			disabled: $history?.index === 0,
+			shortcut: `${mod}Z`
+		},
+		{
+			displayName: 'Redo',
+			icon: Redo,
+			action: () => handleRedo(),
+			disabled: $history && $history?.index === $history.history.length - 1,
+			shortcut: `${mod}⇧Z`,
+			separatorBottom: true
+		},
 		{
 			displayName: 'Deployment history',
 			icon: History,
@@ -657,6 +739,40 @@
 			action: () => {
 				appExport?.open(toStatic($app, $staticExporter, $summary).app)
 			}
+		},
+		{
+			displayName: 'Tutorials',
+			icon: BookOpen,
+			separatorTop: true,
+			submenuItems: [
+				{
+					displayName: 'Background runnables',
+					action: () => appEditorTutorial?.runTutorialById('backgroundrunnables'),
+					icon: $tutorialsToDo.includes(getTutorialIndex('backgroundrunnables'))
+						? Circle
+						: CheckCircle,
+					iconColor: $tutorialsToDo.includes(getTutorialIndex('backgroundrunnables'))
+						? undefined
+						: 'green'
+				},
+				{
+					displayName: 'Connection',
+					action: () => appEditorTutorial?.runTutorialById('connection'),
+					icon: $tutorialsToDo.includes(getTutorialIndex('connection')) ? Circle : CheckCircle,
+					iconColor: $tutorialsToDo.includes(getTutorialIndex('connection')) ? undefined : 'green'
+				},
+				{
+					displayName: 'Reset tutorials',
+					action: () => resetAllTodos(),
+					icon: RefreshCw,
+					separatorTop: true
+				},
+				{
+					displayName: 'Skip tutorials',
+					action: () => skipAllTodos(),
+					icon: CheckCheck
+				}
+			]
 		}
 	]) as Item[]
 
@@ -890,28 +1006,18 @@
 <AppReportsDrawer bind:open={appReportingDrawerOpen} appPath={$appPath ?? ''} />
 
 <div
-	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto"
+	bind:clientWidth={topbarWidth}
+	class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto max-h-12 h-12 shrink-0"
 >
-	<div class="flex flex-row gap-2 items-center">
-		<Summary bind:value={$summary} />
-		<div class="flex gap-2">
-			<UndoRedo
-				undoProps={{ disabled: $history?.index === 0 }}
-				redoProps={{ disabled: $history && $history?.index === $history.history.length - 1 }}
-				on:undo={() => {
-					const napp = undo(history, $app)
-					for (const key in napp) {
-						$app[key] = napp[key]
-					}
-				}}
-				on:redo={() => {
-					const napp = redo(history)
-					for (const key in napp) {
-						$app[key] = napp[key]
-					}
-				}}
-			/>
-
+	<div class="flex flex-row gap-2 items-center min-w-[200px]">
+		<EditorHeader
+			bind:summary={$summary}
+			bind:path={newEditedPath}
+			savedPath={$appPath || newPath || undefined}
+			kind="app"
+			onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
+		/>
+		<div class="flex gap-2 {compactTopbar ? 'hidden' : ''}">
 			{#if $app}
 				<ToggleButtonGroup
 					selected={$app.fullscreen ? 'true' : 'false'}
@@ -1054,10 +1160,17 @@
 		<Awareness />
 	{/if}
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
-		<Dropdown items={moreItems} />
+		<div class="relative">
+			<Dropdown items={moreItems} />
+			{#if $tutorialsToDo.includes(getTutorialIndex('backgroundrunnables')) || $tutorialsToDo.includes(getTutorialIndex('connection'))}
+				<span
+					class="absolute top-0.5 right-0.5 block w-2 h-2 rounded-full bg-surface-accent-primary pointer-events-none"
+				></span>
+			{/if}
+		</div>
 		<AppEditorTutorial bind:this={appEditorTutorial} />
 
-		<div class="hidden md:inline relative overflow-visible shrink-0">
+		<div class="{compactTopbar ? 'hidden' : 'hidden md:inline'} relative overflow-visible shrink-0">
 			{#if hasErrors}
 				<span
 					class="animate-ping absolute inline-flex rounded-full bg-red-600 h-2 w-2 z-50 -right-0.5 -top-0.5"
@@ -1097,17 +1210,19 @@
 		</div>
 		<AppExportButton bind:this={appExport} />
 		<PreviewToggle loading={loading.save} />
-		<Button
-			variant="accent"
-			loading={loading.save}
-			startIcon={{ icon: Save }}
-			on:click={() => saveDraft()}
-			unifiedSize="md"
-			disabled={!newApp && !savedApp}
-			shortCut={{ key: 'S' }}
-		>
-			Draft
-		</Button>
+		{#if !compactTopbar}
+			<Button
+				variant="accent"
+				loading={loading.save}
+				startIcon={{ icon: Save }}
+				on:click={() => saveDraft()}
+				unifiedSize="md"
+				disabled={!newApp && !savedApp}
+				shortCut={{ key: 'S' }}
+			>
+				Draft
+			</Button>
+		{/if}
 		<Button
 			variant="accent"
 			loading={loading.save}

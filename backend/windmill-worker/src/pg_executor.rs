@@ -337,6 +337,7 @@ fn do_postgresql_inner<'a>(
     job_id: Uuid,
     workspace_id: &'a str,
     log_conn: &'a Connection,
+    raw_output: bool,
 ) -> error::Result<BoxFuture<'a, error::Result<Vec<Box<RawValue>>>>> {
     let mut query_params = vec![];
     let mut param_types: Vec<Type> = vec![];
@@ -522,26 +523,31 @@ fn do_postgresql_inner<'a>(
                 );
             }
 
-            for row in rows.into_iter() {
-                let r = postgres_row_to_json_value_with_state(row, &format_state);
-                if let Ok(v) = r.as_ref() {
-                    let size = sizeof_val(v);
-                    siz.fetch_add(size, Ordering::Relaxed);
-                }
-                if *CLOUD_HOSTED {
-                    let siz = siz.load(Ordering::Relaxed);
-                    if siz > MAX_RESULT_SIZE * 4 {
-                        return Err(Error::ExecutionErr(format!(
-                            "Query result too large for cloud (size = {} > {})",
-                            siz,
-                            MAX_RESULT_SIZE & 4,
-                        )));
+            if raw_output {
+                let envelope = crate::pg_raw_output::build_envelope(rows, &format_state, siz)?;
+                res.push(to_raw_value(&envelope));
+            } else {
+                for row in rows.into_iter() {
+                    let r = postgres_row_to_json_value_with_state(row, &format_state);
+                    if let Ok(v) = r.as_ref() {
+                        let size = sizeof_val(v);
+                        siz.fetch_add(size, Ordering::Relaxed);
                     }
-                }
-                if let Ok(v) = r {
-                    res.push(to_raw_value(&v));
-                } else {
-                    return Err(to_anyhow(r.err().unwrap()).into());
+                    if *CLOUD_HOSTED {
+                        let siz = siz.load(Ordering::Relaxed);
+                        if siz > MAX_RESULT_SIZE * 4 {
+                            return Err(Error::ExecutionErr(format!(
+                                "Query result too large for cloud (size = {} > {})",
+                                siz,
+                                MAX_RESULT_SIZE * 4,
+                            )));
+                        }
+                    }
+                    if let Ok(v) = r {
+                        res.push(to_raw_value(&v));
+                    } else {
+                        return Err(to_anyhow(r.err().unwrap()).into());
+                    }
                 }
             }
         }
@@ -610,7 +616,9 @@ pub async fn do_postgresql(
     };
 
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
-    let collection_strategy = if annotations.return_last_result {
+    let collection_strategy = if annotations.raw_output || annotations.return_last_result {
+        // raw_output emits a single envelope from the last statement, so the
+        // multi-statement collection modes don't apply.
         SqlResultCollectionStrategy::LastStatementAllRows
     } else {
         annotations.result_collection
@@ -784,11 +792,14 @@ pub async fn do_postgresql(
                 continue;
             }
 
+            let skip_collect = collection_strategy.collect_last_statement_only(queries.len())
+                && i < queries.len() - 1;
+            let is_last = i == queries.len() - 1;
             let result = do_postgresql_inner(
                 query.to_string(),
                 &param_idx_to_arg_and_value,
                 client,
-                if i == queries.len() - 1
+                if is_last
                     && s3.is_none()
                     && collection_strategy.collect_last_statement_only(queries.len())
                     && !collection_strategy.collect_scalar()
@@ -798,19 +809,26 @@ pub async fn do_postgresql(
                     None
                 },
                 size_ref,
-                collection_strategy.collect_last_statement_only(queries.len())
-                    && i < queries.len() - 1,
+                skip_collect,
                 collection_strategy.collect_first_row_only(),
                 s3.clone(),
                 job.id,
                 &job.workspace_id,
                 conn,
+                annotations.raw_output && is_last && !skip_collect,
             )?
             .await?;
             results.push(result);
         }
 
-        collection_strategy.collect(results)
+        if annotations.raw_output {
+            // The raw_output envelope already aggregates the last statement's
+            // result; skip the collection_strategy reshape that wraps rows in
+            // a JSON array.
+            Ok(crate::pg_raw_output::extract_envelope_or_empty(results))
+        } else {
+            collection_strategy.collect(results)
+        }
     };
 
     let result = if run_inline {

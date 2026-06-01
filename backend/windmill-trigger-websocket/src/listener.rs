@@ -1,4 +1,6 @@
-use super::{get_url_from_runnable_value, WebsocketConfig, WebsocketTrigger};
+use super::{
+    get_url_from_runnable_value, proxy::connect_async_with_proxy, WebsocketConfig, WebsocketTrigger,
+};
 use anyhow::Context;
 use async_trait::async_trait;
 use futures::{stream::SplitSink, SinkExt, StreamExt};
@@ -8,7 +10,7 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 use std::{borrow::Cow, collections::HashMap, sync::Arc};
 use tokio::{net::TcpStream, sync::RwLock};
-use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use windmill_common::{
     error::{to_anyhow, Error, Result},
     jobs::JobTriggerKind,
@@ -171,7 +173,7 @@ impl Listener for WebsocketTrigger {
             Cow::Borrowed(&url)
         };
 
-        let connection = connect_async(&*connect_url)
+        let connection = connect_async_with_proxy(&*connect_url)
             .await
             .map(|conn| Some(conn))
             .map_err(|err| to_anyhow(err).into());

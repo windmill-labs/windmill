@@ -2,6 +2,7 @@ import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
 import { writeFile, stat, mkdir } from "node:fs/promises";
 import { Buffer } from "node:buffer";
 import { colors } from "@cliffy/ansi/colors";
@@ -12,7 +13,8 @@ import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
 import * as path from "node:path";
 import { stringify as yamlStringify } from "yaml";
-import { deepEqual, readTextFile, readTextFileSync } from "../../utils/utils.ts";
+import { deepEqual, getHeaders, readTextFile, readTextFileSync } from "../../utils/utils.ts";
+import { detectAuthGatewayChallenge } from "../../utils/http_guards.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import * as specificItems from "../../core/specific_items.ts";
 import { getCurrentGitBranch } from "../../utils/git.ts";
@@ -82,6 +84,11 @@ export interface ScriptFile {
   is_template?: boolean;
   lock?: Array<string>;
   kind?: "script" | "failure" | "trigger" | "command" | "approval";
+  // Mirrors granular ACLs on the script path. Omitted from .script.yaml when
+  // no perms are set. The CLI applies diffs through /acls/add and /acls/remove
+  // (see applyExtraPermsDiff) — never through create_script — so a perm-only
+  // change never bumps the script hash/version.
+  extra_perms?: Record<string, boolean>;
 }
 
 /**
@@ -541,6 +548,15 @@ export async function handleFile(
             deepEqual(modules ?? null, remote.modules ?? null))
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));
+          // Even when the body is unchanged, perms may still drift — sync them
+          // independently before returning.
+          await applyExtraPermsDiff(
+            workspaceId,
+            "script",
+            remotePath.replaceAll(SEP, "/"),
+            (typed as any)?.extra_perms,
+            (remote as any)?.extra_perms,
+          );
           return true;
         }
       }
@@ -580,6 +596,27 @@ export async function handleFile(
         )
       );
     }
+
+    // Sync granular ACLs as an independent step — perm-only edits never reach
+    // create_script (which would bump the script hash) and instead route
+    // through /acls/* via applyExtraPermsDiff.
+    //
+    // No refetch is needed:
+    //  - folder perms are additive at auth time, never merged onto item rows;
+    //  - the body sent to create_script doesn't carry extra_perms, so a fresh
+    //    deploy of an existing path inherits the previous version's perms
+    //    unchanged. The diff against `remote` (captured before the deploy)
+    //    therefore matches what `wmill acl remove` would do — and the granular
+    //    ACL endpoint updates every matching row, so the inheritance on the
+    //    new version doesn't leave ghost entries.
+    await applyExtraPermsDiff(
+      workspaceId,
+      "script",
+      remotePath.replaceAll(SEP, "/"),
+      (typed as any)?.extra_perms,
+      (remote as any)?.extra_perms,
+    );
+
     return true;
   }
   return false;
@@ -721,10 +758,14 @@ async function createScript(
   workspace: Workspace
 ): Promise<number> {
   const start = performance.now();
+  // Preserve any user draft at this path: a CLI / git-sync deploy must not wipe
+  // an in-progress draft the way a UI "deploy from draft" intentionally does.
+  body = { ...body, skip_draft_deletion: true };
   // skip_if_noop asks the backend to treat deploys identical to the parent
   // (same content, lockfile, and metadata) as a no-op, so the CLI does not
   // produce phantom git-sync / promotion commits on re-pushes.
   const skipIfNoop = "skip_if_noop=true";
+  const extraHeaders = getHeaders();
   if (!bundleContent) {
     try {
       const url =
@@ -738,9 +779,11 @@ async function createScript(
         headers: {
           Authorization: `Bearer ${workspace.token}`,
           "Content-Type": "application/json",
+          ...extraHeaders,
         },
         body: JSON.stringify(body),
       });
+      await detectAuthGatewayChallenge(req, url);
       if (req.status != 201) {
         throw Error(
           `${req.status} - ${req.statusText} - ${await req.text()}`
@@ -771,9 +814,13 @@ async function createScript(
       skipIfNoop;
     const req = await fetch(url, {
       method: "POST",
-      headers: { Authorization: `Bearer ${workspace.token} ` },
+      headers: {
+        Authorization: `Bearer ${workspace.token} `,
+        ...extraHeaders,
+      },
       body: form,
     });
+    await detectAuthGatewayChallenge(req, url);
     if (req.status != 201) {
       throw Error(
         `Script snapshot creation was not successful: ${req.status} - ${
@@ -1380,7 +1427,42 @@ export async function generateMetadata(
       log.info(colors.green.bold("No metadata to update"));
       return;
     }
-    // TODO: test this
+
+    // Build a DoubleLinkedDependencyTree and upload mismatched scripts to
+    // raw_script_temp before the actual generation pass. Without this,
+    // dep jobs for scripts that import other not-yet-deployed scripts via
+    // relative paths would 404 on the import target (the very bug this
+    // alias was introducing on fresh-DB pushes).
+    const { DoubleLinkedDependencyTree, uploadScripts } = await import(
+      "../../utils/dependency_tree.ts"
+    );
+    const tree = new DoubleLinkedDependencyTree();
+    tree.setWorkspaceDeps(rawWorkspaceDependencies);
+    for (const e of Object.keys(elems)) {
+      await generateScriptMetadataInternal(
+        e,
+        workspace,
+        opts,
+        true, // dryRun: populate tree
+        true,
+        rawWorkspaceDependencies,
+        codebases,
+        false,
+        tree,
+      );
+    }
+    tree.propagateStaleness();
+    try {
+      await uploadScripts(tree, workspace);
+    } catch (e) {
+      log.warn(
+        colors.yellow(
+          `Failed to upload scripts to temp storage (backend may be too old): ${e}. ` +
+            `Locks will be generated using deployed script versions only — locally modified ` +
+            `relative imports may not be reflected.`,
+        ),
+      );
+    }
     for (const e of Object.keys(elems)) {
       await generateScriptMetadataInternal(
         e,
@@ -1390,7 +1472,8 @@ export async function generateMetadata(
         true,
         rawWorkspaceDependencies,
         codebases,
-        false
+        false,
+        tree,
       );
     }
   }
@@ -1440,6 +1523,33 @@ async function preview(
   // Check if this is a codebase script
   const codebase =
     language == "bun" ? findCodebase(filePath, codebases) : undefined;
+
+  // Resolve relative imports from local (not-yet-deployed) content so previewing
+  // a script that imports other locally-edited scripts uses the local versions
+  // instead of the deployed ones. Shared with `wmill flow preview` so both
+  // entry points behave identically; degrades gracefully on older backends.
+  // Short-circuit when the script has no relative imports: the full-workspace
+  // dependency walk + diff round-trip is pure overhead in that (common) case.
+  let tempScriptRefs: Record<string, string> | undefined = undefined;
+  const { extractRelativeImports } = await import(
+    "../../utils/relative_imports.ts"
+  );
+  const relImports = await extractRelativeImports(
+    content,
+    scriptPathToRemotePath(filePath),
+    language
+  );
+  if (relImports.length > 0) {
+    const { buildPreviewTempScriptRefs } = await import(
+      "../generate-metadata/generate-metadata.ts"
+    );
+    tempScriptRefs = await buildPreviewTempScriptRefs(
+      workspace,
+      opts,
+      codebases,
+      { kind: "script", path: filePath }
+    );
+  }
 
   let bundledContent: string | Blob | undefined = undefined;
   let isTar = false;
@@ -1536,6 +1646,7 @@ async function preview(
       language: language,
       kind: isTar ? "tarbundle" : "bundle",
       format: codebase?.format ?? "cjs",
+      temp_script_refs: tempScriptRefs,
     };
     form.append("preview", JSON.stringify(previewPayload));
     form.append(
@@ -1551,11 +1662,17 @@ async function preview(
       workspace.workspaceId +
       "/jobs/run/preview_bundle";
 
+    const extraHeaders = getHeaders();
     const response = await fetch(url, {
       method: "POST",
-      headers: { Authorization: `Bearer ${workspace.token}` },
+      headers: {
+        Authorization: `Bearer ${workspace.token}`,
+        ...extraHeaders,
+      },
       body: form,
     });
+
+    await detectAuthGatewayChallenge(response, url);
 
     if (!response.ok) {
       throw new Error(
@@ -1597,6 +1714,7 @@ async function preview(
         args: input,
         language: language as any,
         modules: modules ?? undefined,
+        temp_script_refs: tempScriptRefs,
       },
     });
 
@@ -1681,6 +1799,8 @@ async function setPermissionedAs(
       parent_hash: remote.hash,
       on_behalf_of_email: email,
       preserve_on_behalf_of: true,
+      // Preserve any user draft at this path (see backend skip_draft_deletion).
+      skip_draft_deletion: true,
     },
   });
   log.info(colors.green(`Updated permissioned_as for script ${scriptPath} to ${email}`));

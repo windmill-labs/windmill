@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT flow_version.path FROM flow_version\n         INNER JOIN flow\n            ON flow.path = flow_version.path AND\n               flow.workspace_id = flow_version.workspace_id\n         WHERE flow_version.id = $1 AND flow_version.workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0476ae2245aa678a50c5fd04cdee32cc151e29b177cc85caa088430b16336373"
+}

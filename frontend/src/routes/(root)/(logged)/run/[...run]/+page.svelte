@@ -77,7 +77,8 @@
 	import ExecutionDuration from '$lib/components/ExecutionDuration.svelte'
 	import { isWindmillTooBigObject } from '$lib/components/job_args'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
-	import { setContext, untrack } from 'svelte'
+	import { onDestroy, setContext, untrack } from 'svelte'
+	import { getJobStatusKind, resetFavicon, setStatusFavicon } from '$lib/favicon'
 
 	import FlowAssetsHandler, {
 		initFlowGraphAssetsCtx
@@ -391,6 +392,15 @@
 	$effect(() => {
 		job && untrack(() => onJobLoaded())
 	})
+	$effect(() => {
+		const status = getJobStatusKind(job)
+		if (status) {
+			setStatusFavicon(status)
+		} else {
+			resetFavicon()
+		}
+	})
+	onDestroy(resetFavicon)
 </script>
 
 <HighlightTheme />
@@ -666,9 +676,9 @@
 				{#if !$userStore?.operator}
 					{#if canWrite(job?.script_path ?? '', {}, $userStore)}
 						<Button
-							on:click|once={() => {
+							href={`${stem}/edit/${job?.script_path}?workspace=${$workspaceStore}${isScript ? `` : `&nodraft=true`}`}
+							on:click={() => {
 								$initialArgsStore = job?.args
-								goto(`${stem}/edit/${job?.script_path}${isScript ? `` : `?nodraft=true`}`)
 							}}
 							unifiedSize="md"
 							variant="default"

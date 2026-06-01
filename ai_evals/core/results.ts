@@ -4,11 +4,19 @@ import { execFileSync } from "node:child_process";
 import { getAiEvalsRoot, getRepoRoot } from "./cases";
 import type {
   BenchmarkArtifactFile,
+  BenchmarkAttemptResult,
   BenchmarkCaseResult,
   BenchmarkRunResult,
   BenchmarkTokenUsage,
   EvalMode,
 } from "./types";
+
+type AttemptAggregate = {
+  attemptCount: number;
+  durationTotal: number;
+  tokenUsageAttemptCount: number;
+  tokenUsageTotal: BenchmarkTokenUsage | null;
+};
 
 export async function writeRunResult(
   result: BenchmarkRunResult,
@@ -74,40 +82,15 @@ export function buildRunResult(input: {
   mode: EvalMode;
   runs: number;
   runModel: string | null;
-  transport?: BenchmarkRunResult["transport"];
   judgeModel: string | null;
   caseResults: BenchmarkCaseResult[];
 }): BenchmarkRunResult {
-  const attemptCount = input.caseResults.reduce(
-    (sum, entry) => sum + entry.attempts.length,
-    0,
-  );
-  const passedAttempts = input.caseResults.reduce(
-    (sum, entry) =>
-      sum + entry.attempts.filter((attempt) => attempt.passed).length,
-    0,
-  );
-  const durationTotal = input.caseResults.reduce(
-    (sum, entry) =>
-      sum +
-      entry.attempts.reduce((inner, attempt) => inner + attempt.durationMs, 0),
-    0,
-  );
-  const tokenUsageTotal = input.caseResults.reduce<BenchmarkTokenUsage | null>(
-    (sum, entry) => {
-      for (const attempt of entry.attempts) {
-        if (!attempt.tokenUsage) {
-          continue;
-        }
-        sum ??= { prompt: 0, completion: 0, total: 0 };
-        sum.prompt += attempt.tokenUsage.prompt;
-        sum.completion += attempt.tokenUsage.completion;
-        sum.total += attempt.tokenUsage.total;
-      }
-      return sum;
-    },
-    null,
-  );
+  const attempts = input.caseResults.flatMap((entry) => entry.attempts);
+  const passedAttemptResults = attempts.filter((attempt) => attempt.passed);
+  const attemptAggregate = aggregateAttempts(attempts);
+  const passedAttemptAggregate = aggregateAttempts(passedAttemptResults);
+  const attemptCount = attemptAggregate.attemptCount;
+  const passedAttempts = passedAttemptAggregate.attemptCount;
 
   return {
     version: 1,
@@ -116,22 +99,24 @@ export function buildRunResult(input: {
     gitSha: getGitSha(),
     runs: input.runs,
     runModel: input.runModel,
-    transport: input.transport ?? null,
     judgeModel: input.judgeModel,
     caseCount: input.caseResults.length,
     attemptCount,
     passedAttempts,
     passRate: attemptCount === 0 ? 0 : passedAttempts / attemptCount,
-    averageDurationMs: attemptCount === 0 ? 0 : durationTotal / attemptCount,
-    totalTokenUsage: tokenUsageTotal,
+    averageDurationMs:
+      attemptCount === 0 ? 0 : attemptAggregate.durationTotal / attemptCount,
+    averagePassedDurationMs: averageDuration(passedAttemptAggregate),
+    totalTokenUsage: attemptAggregate.tokenUsageTotal,
+    totalPassedTokenUsage: passedAttemptAggregate.tokenUsageTotal,
     averageTokenUsagePerAttempt:
-      attemptCount === 0 || !tokenUsageTotal
+      attemptCount === 0
         ? null
-        : {
-            prompt: tokenUsageTotal.prompt / attemptCount,
-            completion: tokenUsageTotal.completion / attemptCount,
-            total: tokenUsageTotal.total / attemptCount,
-          },
+        : averageTokenUsage(attemptAggregate, attemptCount),
+    averageTokenUsagePerPassedAttempt: averageTokenUsage(
+      passedAttemptAggregate,
+      passedAttempts,
+    ),
     cases: input.caseResults,
   };
 }
@@ -140,10 +125,23 @@ export function formatRunSummary(result: BenchmarkRunResult): string {
   const lines = [
     `${result.mode} benchmark complete`,
     `Pass rate: ${formatPercent(result.passRate)} (${result.passedAttempts}/${result.attemptCount})`,
-    `Average duration: ${Math.round(result.averageDurationMs)}ms`,
+    `Average duration (passed): ${formatNullableDuration(result.averagePassedDurationMs ?? null)}`,
   ];
-  if (result.transport) {
-    lines.splice(1, 0, `Transport: ${result.transport}`);
+
+  if (result.averageTokenUsagePerPassedAttempt) {
+    lines.push(
+      `Average tokens (passed): ${formatTokenUsage(result.averageTokenUsagePerPassedAttempt)}`,
+    );
+  }
+  if (result.passedAttempts < result.attemptCount) {
+    lines.push(
+      `Average duration (all attempts): ${Math.round(result.averageDurationMs)}ms`,
+    );
+    if (result.averageTokenUsagePerAttempt) {
+      lines.push(
+        `Average tokens (all attempts): ${formatTokenUsage(result.averageTokenUsagePerAttempt)}`,
+      );
+    }
   }
 
   const failures = collectFailures(result);
@@ -175,6 +173,60 @@ function collectFailures(result: BenchmarkRunResult): string[] {
   }
 
   return failures;
+}
+
+function aggregateAttempts(attempts: BenchmarkAttemptResult[]): AttemptAggregate {
+  const aggregate: AttemptAggregate = {
+    attemptCount: attempts.length,
+    durationTotal: 0,
+    tokenUsageAttemptCount: 0,
+    tokenUsageTotal: null,
+  };
+
+  for (const attempt of attempts) {
+    aggregate.durationTotal += attempt.durationMs;
+    if (!attempt.tokenUsage) {
+      continue;
+    }
+    aggregate.tokenUsageAttemptCount += 1;
+    aggregate.tokenUsageTotal ??= { prompt: 0, completion: 0, total: 0 };
+    aggregate.tokenUsageTotal.prompt += attempt.tokenUsage.prompt;
+    aggregate.tokenUsageTotal.completion += attempt.tokenUsage.completion;
+    aggregate.tokenUsageTotal.total += attempt.tokenUsage.total;
+  }
+
+  return aggregate;
+}
+
+function averageDuration(aggregate: AttemptAggregate): number | null {
+  return aggregate.attemptCount === 0
+    ? null
+    : aggregate.durationTotal / aggregate.attemptCount;
+}
+
+function averageTokenUsage(
+  aggregate: AttemptAggregate,
+  denominator: number,
+): BenchmarkTokenUsage | null {
+  if (denominator === 0 || !aggregate.tokenUsageTotal) {
+    return null;
+  }
+  return {
+    prompt: aggregate.tokenUsageTotal.prompt / denominator,
+    completion: aggregate.tokenUsageTotal.completion / denominator,
+    total: aggregate.tokenUsageTotal.total / denominator,
+  };
+}
+
+function formatNullableDuration(value: number | null): string {
+  return value === null ? "n/a" : `${Math.round(value)}ms`;
+}
+
+function formatTokenUsage(value: BenchmarkTokenUsage): string {
+  const total = Math.round(value.total);
+  const prompt = Math.round(value.prompt);
+  const completion = Math.round(value.completion);
+  return `${total} total (${prompt} prompt, ${completion} completion)`;
 }
 
 function defaultFileName(mode: EvalMode): string {
@@ -251,19 +303,21 @@ function toHistoryRecord(result: BenchmarkRunResult) {
     mode: result.mode,
     runs: result.runs,
     runModel: result.runModel,
-    transport: result.transport,
     judgeModel: result.judgeModel,
     caseCount: result.caseCount,
     attemptCount: result.attemptCount,
     passedAttempts: result.passedAttempts,
     passRate: result.passRate,
     averageDurationMs: result.averageDurationMs,
+    averagePassedDurationMs: result.averagePassedDurationMs ?? null,
     averageJudgeScore:
       judgeScores.length === 0
         ? null
         : judgeScores.reduce((sum, score) => sum + score, 0) /
           judgeScores.length,
     averageTokenUsagePerAttempt: result.averageTokenUsagePerAttempt ?? null,
+    averageTokenUsagePerPassedAttempt:
+      result.averageTokenUsagePerPassedAttempt ?? null,
     failedCaseIds: Array.from(
       new Set(
         result.cases
@@ -274,31 +328,15 @@ function toHistoryRecord(result: BenchmarkRunResult) {
       ),
     ),
     cases: result.cases.map((caseResult) => {
-      const attemptCount = caseResult.attempts.length;
-      const passedAttempts = caseResult.attempts.filter(
-        (attempt) => attempt.passed,
-      ).length;
-      const totalDurationMs = caseResult.attempts.reduce(
-        (sum, attempt) => sum + attempt.durationMs,
-        0,
+      const attemptAggregate = aggregateAttempts(caseResult.attempts);
+      const passedAttemptAggregate = aggregateAttempts(
+        caseResult.attempts.filter((attempt) => attempt.passed),
       );
+      const attemptCount = attemptAggregate.attemptCount;
+      const passedAttempts = passedAttemptAggregate.attemptCount;
       const judgeScores = caseResult.attempts.flatMap((attempt) =>
         typeof attempt.judgeScore === "number" ? [attempt.judgeScore] : [],
       );
-      const totalTokenUsage =
-        caseResult.attempts.reduce<BenchmarkTokenUsage | null>(
-          (sum, attempt) => {
-            if (!attempt.tokenUsage) {
-              return sum;
-            }
-            sum ??= { prompt: 0, completion: 0, total: 0 };
-            sum.prompt += attempt.tokenUsage.prompt;
-            sum.completion += attempt.tokenUsage.completion;
-            sum.total += attempt.tokenUsage.total;
-            return sum;
-          },
-          null,
-        );
 
       return {
         id: caseResult.id,
@@ -306,20 +344,23 @@ function toHistoryRecord(result: BenchmarkRunResult) {
         passedAttempts,
         passRate: attemptCount === 0 ? 0 : passedAttempts / attemptCount,
         averageDurationMs:
-          attemptCount === 0 ? 0 : totalDurationMs / attemptCount,
+          attemptCount === 0
+            ? 0
+            : attemptAggregate.durationTotal / attemptCount,
+        averagePassedDurationMs: averageDuration(passedAttemptAggregate),
         averageJudgeScore:
           judgeScores.length === 0
             ? null
             : judgeScores.reduce((sum, score) => sum + score, 0) /
               judgeScores.length,
         averageTokenUsagePerAttempt:
-          attemptCount === 0 || !totalTokenUsage
+          attemptCount === 0
             ? null
-            : {
-                prompt: totalTokenUsage.prompt / attemptCount,
-                completion: totalTokenUsage.completion / attemptCount,
-                total: totalTokenUsage.total / attemptCount,
-              },
+            : averageTokenUsage(attemptAggregate, attemptCount),
+        averageTokenUsagePerPassedAttempt: averageTokenUsage(
+          passedAttemptAggregate,
+          passedAttempts,
+        ),
       };
     }),
   };

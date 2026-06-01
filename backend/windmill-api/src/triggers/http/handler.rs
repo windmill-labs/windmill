@@ -424,6 +424,7 @@ async fn route_job(
                     .flatten()
                     .unwrap_or("application/octet-stream".parse().unwrap()),
             );
+            response_headers.insert("x-content-type-options", "nosniff".parse().unwrap());
             if !trigger.is_static_website {
                 response_headers.insert(
                     "content-disposition",
@@ -442,6 +443,19 @@ async fn route_job(
                                 .unwrap_or("inline".parse().unwrap())
                         },
                     ),
+                );
+                // For single-file triggers, sandbox any HTML/SVG so it can't
+                // reach the viewer's session cookie. Allow-scripts/forms/etc.
+                // keep the opaque origin (cookies still blocked) while
+                // preserving JS for legitimate HTML payloads. Static-website
+                // triggers intentionally serve a live web app and cannot be
+                // sandboxed; restrict write access to those buckets at the
+                // workspace level.
+                response_headers.insert(
+                    "content-security-policy",
+                    "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads"
+                        .parse()
+                        .unwrap(),
                 );
             }
 
@@ -515,7 +529,7 @@ async fn route_job(
     match trigger.request_type {
         RequestType::SyncSse => {
             // Trigger the job (always async when streaming)
-            let (uuid, _, early_return, _) = trigger_runnable_inner(
+            let (uuid, _, early_return, has_failure_module, _) = trigger_runnable_inner(
                 &db,
                 None,
                 Some(user_db.clone()),
@@ -564,6 +578,7 @@ async fn route_job(
                 tx,
                 None,
                 early_return,
+                has_failure_module,
             );
 
             let body = axum::body::Body::from_stream(

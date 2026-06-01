@@ -23,19 +23,22 @@
 use sqlx::{Pool, Postgres};
 use windmill_common::error::Result;
 use windmill_common::secret_backend::{
-    vault_oss::{migrate_secrets_to_database, migrate_secrets_to_vault, test_vault_connection, VaultBackend},
+    vault_oss::{
+        migrate_secrets_to_database, migrate_secrets_to_vault, test_vault_connection, VaultBackend,
+    },
     SecretBackend, VaultSettings,
 };
 
 fn test_vault_settings() -> VaultSettings {
     VaultSettings {
-        address: std::env::var("VAULT_ADDR").unwrap_or_else(|_| "http://127.0.0.1:8200".to_string()),
+        address: std::env::var("VAULT_ADDR")
+            .unwrap_or_else(|_| "http://127.0.0.1:8200".to_string()),
         mount_path: "windmill".to_string(),
+        kv_secret_path_prefix: None,
         jwt_role: Some("windmill-secrets".to_string()),
+        jwt_mount_path: None,
         namespace: None,
-        token: Some(
-            std::env::var("VAULT_TOKEN").unwrap_or_else(|_| "test-root-token".to_string()),
-        ),
+        token: Some(std::env::var("VAULT_TOKEN").unwrap_or_else(|_| "test-root-token".to_string())),
         skip_ssl_verify: None,
     }
 }
@@ -47,7 +50,11 @@ async fn test_vault_connection_works(db: Pool<Postgres>) {
     let settings = test_vault_settings();
 
     let result = test_vault_connection(&settings, Some(&db)).await;
-    assert!(result.is_ok(), "Failed to connect to Vault: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to connect to Vault: {:?}",
+        result.err()
+    );
     println!("✓ Successfully connected to Vault at {}", settings.address);
 }
 
@@ -70,7 +77,10 @@ async fn test_migrate_db_to_vault(db: Pool<Postgres>) {
     .await
     .expect("Failed to query secrets");
 
-    println!("Found {} secrets in database before migration:", secrets_before.len());
+    println!(
+        "Found {} secrets in database before migration:",
+        secrets_before.len()
+    );
     for s in &secrets_before {
         println!("  - {}/{}: {} chars", s.workspace_id, s.path, s.value.len());
     }
@@ -111,7 +121,10 @@ async fn test_migrate_db_to_vault(db: Pool<Postgres>) {
             secret.path,
             result.err()
         );
-        println!("  ✓ {}/{} exists in Vault", secret.workspace_id, secret.path);
+        println!(
+            "  ✓ {}/{} exists in Vault",
+            secret.workspace_id, secret.path
+        );
     }
 
     println!("\n✓ Migration to Vault completed successfully");
@@ -133,8 +146,14 @@ async fn test_migrate_vault_to_db(db: Pool<Postgres>) {
     let to_vault_report = migrate_secrets_to_vault(&db, &settings)
         .await
         .expect("Initial migration to Vault failed");
-    assert!(to_vault_report.migrated_count > 0, "No secrets to test with");
-    println!("  Migrated {} secrets to Vault", to_vault_report.migrated_count);
+    assert!(
+        to_vault_report.migrated_count > 0,
+        "No secrets to test with"
+    );
+    println!(
+        "  Migrated {} secrets to Vault",
+        to_vault_report.migrated_count
+    );
 
     // Clear the database values to simulate fresh migration back
     println!("\nClearing database secret values...");
@@ -150,7 +169,10 @@ async fn test_migrate_vault_to_db(db: Pool<Postgres>) {
     .fetch_one(&db)
     .await
     .expect("Failed to count cleared");
-    println!("  Cleared {} secret values in database", cleared.count.unwrap_or(0));
+    println!(
+        "  Cleared {} secret values in database",
+        cleared.count.unwrap_or(0)
+    );
 
     // Now migrate from Vault back to database
     println!("\nMigrating secrets from Vault to database...");
@@ -206,15 +228,14 @@ async fn test_full_round_trip_migration(db: Pool<Postgres>) {
         .expect("Failed to connect to Vault");
 
     // Get original secrets
-    let original_secrets: std::collections::HashMap<(String, String), String> = sqlx::query!(
-        "SELECT workspace_id, path, value FROM variable WHERE is_secret = true"
-    )
-    .fetch_all(&db)
-    .await
-    .expect("Failed to query original secrets")
-    .into_iter()
-    .map(|r| ((r.workspace_id, r.path), r.value))
-    .collect();
+    let original_secrets: std::collections::HashMap<(String, String), String> =
+        sqlx::query!("SELECT workspace_id, path, value FROM variable WHERE is_secret = true")
+            .fetch_all(&db)
+            .await
+            .expect("Failed to query original secrets")
+            .into_iter()
+            .map(|r| ((r.workspace_id, r.path), r.value))
+            .collect();
 
     println!("Original secrets: {} entries", original_secrets.len());
 
@@ -243,21 +264,23 @@ async fn test_full_round_trip_migration(db: Pool<Postgres>) {
 
     // Step 4: Verify round-trip integrity
     println!("\n=== Step 4: Verify round-trip integrity ===");
-    let restored_secrets: std::collections::HashMap<(String, String), String> = sqlx::query!(
-        "SELECT workspace_id, path, value FROM variable WHERE is_secret = true"
-    )
-    .fetch_all(&db)
-    .await
-    .expect("Failed to query restored secrets")
-    .into_iter()
-    .map(|r| ((r.workspace_id, r.path), r.value))
-    .collect();
+    let restored_secrets: std::collections::HashMap<(String, String), String> =
+        sqlx::query!("SELECT workspace_id, path, value FROM variable WHERE is_secret = true")
+            .fetch_all(&db)
+            .await
+            .expect("Failed to query restored secrets")
+            .into_iter()
+            .map(|r| ((r.workspace_id, r.path), r.value))
+            .collect();
 
     // Compare original and restored
     for ((ws, path), _original_value) in &original_secrets {
         let restored_value = restored_secrets
             .get(&(ws.clone(), path.clone()))
-            .expect(&format!("Secret {}/{} not found after round-trip", ws, path));
+            .expect(&format!(
+                "Secret {}/{} not found after round-trip",
+                ws, path
+            ));
 
         // Note: Values might differ slightly due to encryption/decryption
         // but they should not be the cleared value
@@ -266,7 +289,12 @@ async fn test_full_round_trip_migration(db: Pool<Postgres>) {
             "Secret {}/{} was not restored",
             ws, path
         );
-        println!("  ✓ {}/{}: restored ({} chars)", ws, path, restored_value.len());
+        println!(
+            "  ✓ {}/{}: restored ({} chars)",
+            ws,
+            path,
+            restored_value.len()
+        );
     }
 
     println!("\n✓ Full round-trip migration completed successfully!");
@@ -289,7 +317,10 @@ async fn test_workspace_isolation(db: Pool<Postgres>) {
         .await
         .expect("Migration failed");
 
-    println!("Migrated {} secrets across workspaces", report.migrated_count);
+    println!(
+        "Migrated {} secrets across workspaces",
+        report.migrated_count
+    );
 
     // Verify workspace isolation in Vault
     let vault_backend = VaultBackend::new(settings.clone());
@@ -309,13 +340,19 @@ async fn test_workspace_isolation(db: Pool<Postgres>) {
     let ws1_result: Result<String> = vault_backend
         .get_secret("test-workspace", "u/test-user/db_password")
         .await;
-    assert!(ws1_result.is_ok(), "test-workspace secret should be accessible");
+    assert!(
+        ws1_result.is_ok(),
+        "test-workspace secret should be accessible"
+    );
     println!("✓ test-workspace secrets accessible");
 
     let ws2_result: Result<String> = vault_backend
         .get_secret("test-workspace-2", "u/test-user/other_secret")
         .await;
-    assert!(ws2_result.is_ok(), "test-workspace-2 secret should be accessible");
+    assert!(
+        ws2_result.is_ok(),
+        "test-workspace-2 secret should be accessible"
+    );
     println!("✓ test-workspace-2 secrets accessible");
 
     println!("\n✓ Workspace isolation verified!");

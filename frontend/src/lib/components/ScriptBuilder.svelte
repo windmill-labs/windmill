@@ -4,7 +4,6 @@
 	const bubble = createBubbler()
 	import {
 		DraftService,
-		type NewScript,
 		ScriptService,
 		type NewScriptWithDraft,
 		type Script,
@@ -35,7 +34,6 @@
 		cleanValueProperties,
 		emptySchema,
 		emptyString,
-		encodeState,
 		generateRandomString,
 		orderedJsonStringify,
 		readFieldsRecursively,
@@ -43,8 +41,9 @@
 		type Value
 	} from '$lib/utils'
 	import Path from './Path.svelte'
+	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
-	import { Alert, Badge, Button, Drawer, SecondsInput, Tab, TabContent, Tabs } from './common'
+	import { Alert, Button, Drawer, SecondsInput, Tab, TabContent, Tabs } from './common'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage, Schema } from '$lib/common'
 	import Tooltip from './Tooltip.svelte'
@@ -54,17 +53,19 @@
 	import ErrorHandlerToggleButton from '$lib/components/details/ErrorHandlerToggleButton.svelte'
 	import {
 		Bug,
-		Calendar,
 		CheckCircle,
 		Code,
-		Pen,
+		EllipsisVertical,
 		Plus,
 		Rocket,
 		Save,
 		Settings,
 		Shuffle,
+		Tag,
 		X
 	} from 'lucide-svelte'
+	import DropdownV2 from './DropdownV2.svelte'
+	import { isMac, type Item } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import Awareness from './Awareness.svelte'
@@ -80,8 +81,8 @@
 	import { writable } from 'svelte/store'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { onMount, setContext, untrack } from 'svelte'
-	import Summary from './Summary.svelte'
+	import { getContext, onMount, setContext, untrack } from 'svelte'
+	import EditorHeader from './EditorHeader.svelte'
 	import LabelsInput from './LabelsInput.svelte'
 
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
@@ -102,31 +103,12 @@
 	import type { ScriptBuilderProps } from './script_builder'
 	import type { DiffDrawerI } from './diff_drawer'
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
-	import { inputSizeClasses } from './text_input/TextInput.svelte'
 	import type { ButtonType } from './common/button/model'
 	import DebounceLimit from './flows/DebounceLimit.svelte'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
 	import OnBehalfOfSelector, { type OnBehalfOfChoice } from './OnBehalfOfSelector.svelte'
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
-	import Modal from './common/modal/Modal.svelte'
-
-	const WAC_ALPHA_ACK_KEY = 'windmill_wac_alpha_ack'
-	let wacAlphaModalOpen = $state(false)
-
-	function showWacAlphaModalIfNeeded() {
-		if (
-			typeof sessionStorage !== 'undefined' &&
-			sessionStorage.getItem(WAC_ALPHA_ACK_KEY) !== 'true'
-		) {
-			wacAlphaModalOpen = true
-		}
-	}
-
-	function acknowledgeWacAlpha() {
-		sessionStorage.setItem(WAC_ALPHA_ACK_KEY, 'true')
-		wacAlphaModalOpen = false
-	}
 
 	let {
 		script = $bindable(),
@@ -141,7 +123,6 @@
 		savedScript = $bindable(undefined),
 		searchParams = new URLSearchParams(),
 		disableHistoryChange = false,
-		replaceStateFn = (url) => window.history.replaceState(null, '', url),
 		customUi = {},
 		savedPrimarySchedule = undefined,
 		functionExports = undefined,
@@ -152,7 +133,10 @@
 		onSeeDetails,
 		onSaveDraftError,
 		onSaveDraft,
-		disableAi
+		onNavigate,
+		disableAi,
+		initialTestPanelCollapsed = false,
+		initialPathChosen = false
 	}: ScriptBuilderProps = $props()
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
@@ -177,6 +161,36 @@
 	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
 	let deployedBy: string | undefined = $state(undefined) // Author
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
+
+	// Top-bar responsive collapse — container width, not viewport.
+	let topbarWidth = $state(0)
+	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
+	const mod = isMac() ? '⌘' : 'Ctrl+'
+
+	function getCompactMenuItems(): Item[] {
+		const hasTags = ($workerTags?.length ?? 0) > 0
+		return [
+			{
+				displayName: 'Save draft',
+				icon: Save,
+				action: () => saveDraft(),
+				shortcut: `${mod}S`,
+				disabled: initialPath != '' && !savedScript
+			},
+			...(customUi?.topBar?.tagEdit != false && hasTags
+				? [
+						{
+							displayName: 'Worker tag',
+							icon: Tag,
+							action: () => {
+								selectedTab = 'runtime'
+								metadataOpen = true
+							}
+						}
+					]
+				: [])
+		]
+	}
 	let open: boolean = $state(false) // Is confirmation modal open
 	let args: Record<string, any> = $state(untrack(() => initialArgs)) // Test args input
 	let selectedInputTab: 'main' | 'preprocessor' | 'diagram' = $state('main')
@@ -288,15 +302,11 @@
 
 	// Add triggers context store
 	const triggersState = $state(
-		new Triggers(
-			[
-				{ type: 'webhook', path: '', isDraft: false },
-				{ type: 'default_email', path: '', isDraft: false },
-				...(script.draft_triggers ?? [])
-			],
-			undefined,
-			saveSessionDraft
-		)
+		new Triggers([
+			{ type: 'webhook', path: '', isDraft: false },
+			{ type: 'default_email', path: '', isDraft: false },
+			...(script.draft_triggers ?? [])
+		])
 	)
 
 	const captureOn = writable<boolean | undefined>(undefined)
@@ -360,28 +370,6 @@
 	let loadingSave = $state(false)
 	let loadingDraft = $state(false)
 
-	let timeout2: number | undefined = undefined
-	function encodeScriptState(script: NewScript) {
-		untrack(() => timeout2 && clearTimeout(timeout2))
-		timeout2 = setTimeout(() => {
-			replaceStateFn(
-				'#' +
-					encodeState({
-						...script,
-						draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
-					})
-			)
-		}, 500)
-	}
-
-	let timeout: number | undefined = undefined
-	function saveSessionDraft() {
-		timeout && clearTimeout(timeout)
-		timeout = setTimeout(() => {
-			encodeScriptState(script)
-		}, 500)
-	}
-
 	if (script.content == '') {
 		if (template === 'wac_python') {
 			script.modules = {
@@ -390,7 +378,6 @@
 					language: 'python3'
 				}
 			}
-			showWacAlphaModalIfNeeded()
 		} else if (template === 'wac_typescript') {
 			script.modules = {
 				'helper.ts': {
@@ -398,7 +385,6 @@
 					language: 'bun'
 				}
 			}
-			showWacAlphaModalIfNeeded()
 		}
 		initContent(script.language, script.kind, template)
 	}
@@ -546,11 +532,6 @@
 
 		loadingSave = true
 		try {
-			try {
-				localStorage.removeItem(script.path)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
 			script.schema = script.schema ?? emptySchema()
 			try {
 				const result = await inferArgs(
@@ -614,6 +595,10 @@
 				}
 			})
 
+			// New/updated path now exists server-side — drop the autocomplete
+			// cache so it shows up immediately instead of after the 60s TTL.
+			invalidateWorkspacePaths($workspaceStore!)
+
 			if (!initialPath) {
 				await CaptureService.moveCapturesAndConfigs({
 					workspace: $workspaceStore!,
@@ -643,17 +628,23 @@
 			if (!disableHistoryChange) {
 				history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
 			}
-			if (
+			// "Stay" deploys (explicit "Deploy & Stay here" or lib scripts) keep the
+			// editor in place rather than navigating to the deployed item.
+			const stayHere =
 				stay ||
 				(script.auto_kind === 'lib' &&
 					script.kind !== 'preprocessor' &&
 					!isWorkflowAsCode(script.content, script.language))
-			) {
+			if (stayHere) {
+				// Re-pin parent_hash so the next deploy's conflict check is against
+				// the version we just wrote.
 				script.parent_hash = newHash
-				sendUserToast('Deployed')
-			} else {
-				onDeploy?.({ path: script.path, hash: newHash })
 			}
+			// Always notify on a successful deploy; the consumer decides whether to
+			// navigate (route) or stay + sync the preview (session). Previously the
+			// stay/lib branch skipped onDeploy, so session previews didn't sync after
+			// a "Deploy & Stay here" or lib-script deploy.
+			onDeploy?.({ path: script.path, hash: newHash, stay: stayHere })
 		} catch (error) {
 			onDeployError?.({ path: script.path, error })
 			sendUserToast(`Error while saving the script: ${error.body || error.message}`, true)
@@ -686,11 +677,6 @@
 
 		loadingDraft = true
 		try {
-			try {
-				localStorage.removeItem(script.path)
-			} catch (e) {
-				console.error('error interacting with local storage', e)
-			}
 			script.schema = script.schema ?? emptySchema()
 			try {
 				const result = await inferArgs(
@@ -815,6 +801,12 @@
 		loadingDraft = false
 	}
 
+	// Inside an AI session pane (which injects an aiChatManager via context) the
+	// extra deploy-dropdown options — Deploy & Stay here, Fork, Edit in workspace
+	// fork, Exit & See details, Export — don't make sense: the session always
+	// stays put and is already scoped to a fork. Only "Show diff" is kept.
+	const inSessionPane = !!getContext('aiChatManager')
+
 	function computeDropdownItems(
 		initialPath: string,
 		savedScript: NewScriptWithDraftAndDraftTriggers | undefined,
@@ -823,26 +815,30 @@
 		let dropdownItems: { label: string; onClick: () => void }[] =
 			initialPath != '' && customUi?.topBar?.extraDeployOptions != false
 				? [
-						{
-							label: 'Deploy & Stay here',
-							onClick: () => {
-								handleEditScript(true)
-							}
-						},
-						{
-							label: 'Fork',
-							onClick: () => {
-								window.open(`/scripts/add?template=${initialPath}`)
-							}
-						},
-						...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
+						...(!inSessionPane
 							? [
 									{
-										label: 'Edit in workspace fork',
+										label: 'Deploy & Stay here',
 										onClick: () => {
-											window.open(buildForkEditUrl('script', initialPath))
+											handleEditScript(true)
 										}
-									}
+									},
+									{
+										label: 'Fork',
+										onClick: () => {
+											window.open(`/scripts/add?template=${initialPath}`)
+										}
+									},
+									...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
+										? [
+												{
+													label: 'Edit in workspace fork',
+													onClick: () => {
+														window.open(buildForkEditUrl('script', initialPath))
+													}
+												}
+											]
+										: [])
 								]
 							: []),
 						...(customUi?.topBar?.diff !== false && savedScript && diffDrawer
@@ -874,7 +870,10 @@
 									}
 								]
 							: []),
-						...(!script.draft_only && script.kind === 'script' && !script.auto_kind
+						...(!inSessionPane &&
+						!script.draft_only &&
+						script.kind === 'script' &&
+						!script.auto_kind
 							? [
 									{
 										label: 'Exit & See details',
@@ -884,7 +883,7 @@
 									}
 								]
 							: []),
-						...(isWorkflowAsCode(script.content, script.language)
+						...(!inSessionPane && isWorkflowAsCode(script.content, script.language)
 							? [
 									{
 										label: 'Export as YAML/JSON',
@@ -897,7 +896,11 @@
 					]
 				: []
 
-		if (dropdownItems.length === 0 && isWorkflowAsCode(script.content, script.language)) {
+		if (
+			!inSessionPane &&
+			dropdownItems.length === 0 &&
+			isWorkflowAsCode(script.content, script.language)
+		) {
 			dropdownItems = [
 				{
 					label: 'Export as YAML/JSON',
@@ -923,7 +926,11 @@
 	}
 
 	let path: Path | undefined = $state(undefined)
-	let dirtyPath = $state(false)
+	// Seed "path is already chosen" so the summary→path auto-slug (which only
+	// runs for new scripts with initialPath == '') doesn't clobber a path the
+	// caller pre-assigned. The session preview opens AI-created scripts as new
+	// (empty initialPath) but with a path the AI already picked.
+	let dirtyPath = $state(initialPathChosen)
 
 	let selectedTab: 'metadata' | 'runtime' | 'ui' | 'triggers' = $state(
 		(() => {
@@ -1069,7 +1076,15 @@
 	})
 	$effect(() => {
 		readFieldsRecursively(script)
-		!disableHistoryChange && encodeScriptState(script)
+	})
+	// Mirror the draft triggers (held in a separate `triggersState` $state)
+	// back into `script.draft_triggers` so the UserDraft autosave — which
+	// deep-tracks `script` — picks them up. Pre-PR ScriptBuilder ran its own
+	// localStorage autosave that explicitly snapshotted triggersState; the
+	// switch to a unified UserDraft handle dropped that bridge.
+	$effect(() => {
+		readFieldsRecursively(triggersState.triggers)
+		script.draft_triggers = triggersState.getDraftTriggersSnapshot()
 	})
 
 	loadWorkerTags()
@@ -1218,6 +1233,14 @@
 													namePlaceholder="script"
 													kind="script"
 												/>
+												{#if initialPath && script.path && script.path !== initialPath}
+													<Alert
+														type="info"
+														size="xs"
+														title="Deploy the script to make the path change effective."
+														class="mt-2"
+													/>
+												{/if}
 											</Label>
 											<Label label="Description">
 												<MetadataGen
@@ -1272,9 +1295,6 @@
 															} as ButtonType.Icon}
 														>
 															<span class="truncate">{label}</span>
-															{#if lang === 'rlang'}
-																<span class="text-primary !text-xs"> BETA </span>
-															{/if}
 														</Button>
 														{#snippet text()}
 															{label} is only available with an enterprise license
@@ -1322,7 +1342,6 @@
 														}
 													}
 													initContent('bun', script.kind, template)
-													showWacAlphaModalIfNeeded()
 												}}
 											>
 												WAC TypeScript
@@ -1347,7 +1366,6 @@
 														}
 													}
 													initContent('python3', script.kind, template)
-													showWacAlphaModalIfNeeded()
 												}}
 											>
 												WAC Python
@@ -1966,79 +1984,33 @@
 	</Drawer>
 
 	<div class="flex flex-col h-screen">
-		<div class="flex h-12 items-center px-4">
+		<div bind:clientWidth={topbarWidth} class="flex h-12 items-center px-4">
 			<div class="flex gap-2 lg:gap-2 w-full items-center">
-				<div class="flex flex-row gap-2 grow max-w-md">
-					<div class="center-center">
-						<button
-							disabled={customUi?.topBar?.settings == false}
-							onclick={async () => {
-								metadataOpen = true
-							}}
-						>
-							<LanguageIcon lang={script.language} size={24} />
-						</button>
-					</div>
-					<Summary
-						disabled={customUi?.topBar?.editableSummary == false}
-						bind:value={script.summary}
-					/>
+				<div class="flex flex-row items-center gap-2 min-w-[200px] max-w-full">
+					<button
+						disabled={customUi?.topBar?.settings == false}
+						class="shrink-0"
+						onclick={async () => {
+							metadataOpen = true
+						}}
+					>
+						<LanguageIcon lang={script.language} size={24} />
+					</button>
+					{#if customUi?.topBar?.path != false}
+						<EditorHeader
+							bind:summary={script.summary}
+							bind:path={script.path}
+							savedPath={initialPath}
+							kind="script"
+							summaryEditable={customUi?.topBar?.editableSummary != false}
+							pathEditable={customUi?.topBar?.editablePath != false}
+							onNavigate={(item) => onNavigate?.(item)}
+						/>
+					{/if}
 				</div>
 
 				<!-- Separator -->
 				<div class="flex-1"></div>
-
-				<div class="gap-4 flex whitespace-nowrap">
-					{#if triggersState.triggers?.some((t) => t.type === 'schedule')}
-						{@const primarySchedule = triggersState.triggers.findIndex((t) => t.isPrimary)}
-						{@const schedule = triggersState.triggers.findIndex((t) => t.type === 'schedule')}
-
-						<Button
-							btnClasses="hidden lg:inline-flex"
-							startIcon={{ icon: Calendar }}
-							variant="contained"
-							color="light"
-							size="xs"
-							on:click={async () => {
-								metadataOpen = true
-								selectedTab = 'triggers'
-								triggersState.selectedTriggerIndex = primarySchedule ?? schedule
-							}}
-						>
-							{triggersState.triggers[primarySchedule]?.draftConfig?.schedule ??
-								triggersState.triggers[primarySchedule]?.lightConfig?.schedule ??
-								''}
-						</Button>
-					{/if}
-					{#if customUi?.topBar?.path != false}
-						<div class="flex justify-start w-full items-center">
-							{#if customUi?.topBar?.editablePath != false}
-								<button
-									onclick={async () => {
-										metadataOpen = true
-									}}
-								>
-									<Badge
-										color="gray"
-										class="center-center !bg-surface-secondary !text-primary {inputSizeClasses.md}  !w-[70px] rounded-r-none hover:!bg-surface-hover transition-all border border-r-0"
-									>
-										<Pen size={12} class="mr-2 shrink-0" /> Path
-									</Badge>
-								</button>
-							{/if}
-							<input
-								type="text"
-								readonly
-								value={script.path}
-								size={script.path?.length || 50}
-								class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full {inputSizeClasses.md} !my-0 !py-0 !rounded-l-none border border-l-0 !shadow-none"
-								onfocus={({ currentTarget }) => {
-									currentTarget.select()
-								}}
-							/>
-						</div>
-					{/if}
-				</div>
 
 				{#if $enterpriseLicense && initialPath != ''}
 					<Awareness />
@@ -2047,47 +2019,67 @@
 				<!-- Separator -->
 				<div class="flex-1"></div>
 
-				{#if customUi?.topBar?.tagEdit != false}
-					{#if $workerTags}
-						{#if $workerTags?.length ?? 0 > 0}
-							<div class="max-w-[200px]">
-								<WorkerTagSelect
-									nullTag={script.language}
-									placeholder={customUi?.tagSelectPlaceholder}
-									bind:tag={script.tag}
-								/>
-							</div>
+				{#snippet settingsButton()}
+					{#if customUi?.topBar?.settings != false}
+						<Button
+							aiId="script-builder-settings"
+							aiDescription="Script builder settings to configure metadata, runtime, triggers, and generated UI."
+							variant="default"
+							unifiedSize="md"
+							on:click={() => (metadataOpen = true)}
+							startIcon={{ icon: Settings }}
+							iconOnly={compactTopbar}
+							title="Settings"
+						>
+							<span> Settings </span>
+						</Button>
+					{/if}
+				{/snippet}
+				{#if compactTopbar}
+					<DropdownV2 items={getCompactMenuItems} placement="bottom-end">
+						{#snippet buttonReplacement()}
+							<Button
+								nonCaptureEvent
+								unifiedSize="md"
+								variant="subtle"
+								startIcon={{ icon: EllipsisVertical }}
+								iconOnly
+								title="More"
+							/>
+						{/snippet}
+					</DropdownV2>
+					{@render settingsButton()}
+				{:else}
+					{#if customUi?.topBar?.tagEdit != false}
+						{#if $workerTags}
+							{#if $workerTags?.length ?? 0 > 0}
+								<div class="max-w-[200px]">
+									<WorkerTagSelect
+										nullTag={script.language}
+										placeholder={customUi?.tagSelectPlaceholder}
+										bind:tag={script.tag}
+									/>
+								</div>
+							{/if}
 						{/if}
 					{/if}
-				{/if}
-				{#if customUi?.topBar?.settings != false}
+					{@render settingsButton()}
 					<Button
-						aiId="script-builder-settings"
-						aiDescription="Script builder settings to configure metadata, runtime, triggers, and generated UI."
-						variant="default"
+						loading={loadingDraft}
 						unifiedSize="md"
-						on:click={() => (metadataOpen = true)}
-						startIcon={{ icon: Settings }}
+						variant="accent"
+						startIcon={{ icon: Save }}
+						on:click={() => saveDraft()}
+						disabled={initialPath != '' && !savedScript}
+						shortCut={{ key: 'S' }}
 					>
-						<span class="hidden lg:flex"> Settings </span>
+						<span> Draft </span>
 					</Button>
 				{/if}
-				<Button
-					loading={loadingDraft}
-					unifiedSize="md"
-					variant="accent"
-					startIcon={{ icon: Save }}
-					on:click={() => saveDraft()}
-					disabled={initialPath != '' && !savedScript}
-					shortCut={{ key: 'S' }}
-				>
-					<span class="hidden lg:flex"> Draft </span>
-				</Button>
 
 				<DeployButton
 					loading={!fullyLoaded}
 					{loadingSave}
-					newFlow={false}
 					dropdownItems={computeDropdownItems(initialPath, savedScript, diffDrawer)}
 					on:save={({ detail }) => handleEditScript(false, detail)}
 				/>
@@ -2117,6 +2109,7 @@
 			bind:code={script.content}
 			lang={script.language}
 			kind={script.kind}
+			autoKind={script.auto_kind}
 			{template}
 			tag={script.tag}
 			lastSavedCode={savedScript?.draft?.content}
@@ -2127,6 +2120,7 @@
 			bind:assets={script.assets}
 			bind:modules={script.modules}
 			enablePreprocessorSnippet
+			{initialTestPanelCollapsed}
 		/>
 	</div>
 {:else}
@@ -2134,26 +2128,3 @@
 {/if}
 
 <WacExportDrawer bind:this={wacExportDrawer} />
-
-<Modal bind:open={wacAlphaModalOpen} title="Workflow-as-Code (Alpha)" kind="X">
-	<div class="flex flex-col gap-4 pr-4">
-		<p class="text-sm text-secondary">
-			Workflow-as-Code is in <strong>alpha</strong> — use in production at your own risk. It is an
-			alternative to the Flow editor for advanced users. Feedback welcome on
-			<a
-				href="https://github.com/windmill-labs/windmill/issues"
-				target="_blank"
-				class="text-blue-600 dark:text-blue-400 hover:underline">GitHub</a
-			>
-			or
-			<a
-				href="https://discord.com/invite/V7PM2YHsPB"
-				target="_blank"
-				class="text-blue-600 dark:text-blue-400 hover:underline">Discord</a
-			>.
-		</p>
-		<div class="flex justify-end">
-			<Button size="sm" on:click={acknowledgeWacAlpha}>Acknowledge</Button>
-		</div>
-	</div>
-</Modal>

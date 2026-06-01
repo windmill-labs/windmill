@@ -15,9 +15,10 @@ Open-source platform for internal tools, workflows, API integrations, background
 - **Enterprise**: `docs/enterprise.md` — EE file conventions and PR workflow
 - **Backend patterns**: use the `rust-backend` skill when writing Rust code
 - **Frontend patterns**: use the `svelte-frontend` skill when writing Svelte code. Do NOT edit svelte files unless you have read that skill.
-- **Code review**: use `/local-review` to review a PR for bugs and CLAUDE.md compliance
+- **Code review**: review the current PR or branch against the shared review policy in `REVIEW.md` (severity triage, public-surface checklist, AGENTS.md compliance, test-coverage assessment). The skill at `.agents/skills/local-review/SKILL.md` orchestrates it. All three CLIs auto-discover the same SKILL — Claude reads `.claude/skills/` (symlinked to the canonical `.agents/skills/` file), Codex and Pi read `.agents/skills/` directly. Invoke with `/local-review` in Claude Code, `$local-review` (or `/skills` selector) in Codex, or `pi --skill local-review` / `/skill:local-review` in Pi.
 - **Domain guides**: `.claude/skills/native-trigger/` and `frontend/tutorial-system-guide.mdc`
 - **Brand/UI guidelines**: `frontend/brand-guidelines.md`
+- **CLI commands**: when adding/modifying/removing a command, subcommand, option, or description in `cli/src/commands/`, run `python system_prompts/generate.py` to refresh `system_prompts/auto-generated/` and `cli/src/guidance/skills.gen.ts`. The CLI docs the agents use to operate `wmill` are derived from the source — stale generated files give agents the wrong flags.
 
 ## Dev Environment
 
@@ -27,6 +28,26 @@ Open-source platform for internal tools, workflows, API integrations, background
 - **Login**: `admin@windmill.dev` / `changeme`
 - **Instance settings**: navigate to `/#superadmin-settings`
 - **Migrations**: use `cargo sqlx migrate add -r <name>` from `backend/` to create new migrations (never generate timestamps manually)
+
+## Verifying Frontend Changes
+
+After modifying frontend code, drive the running dev server with the **Playwright MCP** to verify the change in a real browser — don't claim a UI change works without exercising it.
+
+Two MCP servers are registered in `.mcp.json`:
+- `playwright` — headless Chromium, default for devboxes (no display required)
+- `playwright-headed` — windowed Chromium, when a display is available
+
+**One-time setup:** run `npx playwright install chromium` to download the browser binary (Playwright won't fetch it automatically on first use).
+
+Typical flow:
+1. Ensure backend (`cargo run`) and frontend (`REMOTE=http://localhost:8000 npm run dev`) are running
+2. `mcp__playwright__browser_navigate` to the relevant page (login at `admin@windmill.dev` / `changeme`)
+3. `mcp__playwright__browser_snapshot` to inspect the accessibility tree (preferred over screenshots for reading the DOM)
+4. `mcp__playwright__browser_click` / `browser_fill_form` / `browser_type` to interact
+5. `mcp__playwright__browser_take_screenshot` for visual confirmation
+6. `mcp__playwright__browser_console_messages` / `browser_network_requests` to surface errors
+
+If you cannot exercise a UI change (no dev server, etc.), say so explicitly rather than claiming success.
 
 ## Banned Patterns
 

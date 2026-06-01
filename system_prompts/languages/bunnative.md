@@ -1,12 +1,13 @@
 # TypeScript (Bun Native)
 
-Native TypeScript execution with fetch only - no external imports allowed.
+Native TypeScript execution. Native scripts are Bun scripts that run on the native worker — a lightweight V8 isolate that exposes `fetch` and the JavaScript standard library — and can be heavily parallelized. Every script MUST start with `//native` on its first line so Windmill routes it to the native worker; without it the exact same script runs on the regular Bun worker. You may import npm packages and other Windmill scripts (e.g. `./helper.ts`) — imports are resolved and bundled just like a regular Bun script — as long as everything (your code and its dependencies) relies only on `fetch` and the standard library. Libraries that need Node/Bun runtime APIs (filesystem, `node:*` modules, child processes, native addons) will not work on the native worker; use the regular `bun` language for those.
 
 ## Structure
 
 Export a single **async** function called `main`:
 
 ```typescript
+//native
 export async function main(param1: string, param2: number) {
   // Your code here
   return { result: param1, count: param2 };
@@ -22,6 +23,7 @@ On Windmill, credentials and configuration are stored in resources and passed as
 Use the `RT` namespace for resource types:
 
 ```typescript
+//native
 export async function main(stripe: RT.Stripe) {
   // stripe contains API key and config from the resource
 }
@@ -33,9 +35,10 @@ Before using a resource type, check the `rt.d.ts` file in the project root to se
 
 ## Imports
 
-**No imports allowed.** Use the globally available `fetch` function:
+**The constraint is the runtime, not the import list.** You may import npm packages and relative Windmill scripts; they are resolved and bundled exactly like a regular Bun script. But the native worker only provides `fetch` and the JavaScript standard library, so any imported code must work using only those. Anything requiring Node/Bun built-ins (`node:fs`, `child_process`, the `Bun` API, native modules) belongs in a regular `bun` script instead. Use the globally available `fetch` for HTTP:
 
 ```typescript
+//native
 export async function main(url: string) {
   const response = await fetch(url);
   return await response.json();
@@ -44,13 +47,14 @@ export async function main(url: string) {
 
 ## Windmill Client
 
-The windmill client is not available in native TypeScript mode. Use fetch to call APIs directly.
+`windmill-client` is available for Windmill-specific primitives such as the S3 helpers below (`loadS3File`, `loadS3FileStream`, `writeS3File`, `S3Object`). Use `fetch` for plain HTTP.
 
 ## Preprocessor Scripts
 
 For preprocessor scripts, the function should be named `preprocessor` and receives an `event` parameter:
 
 ```typescript
+//native
 type Event = {
   kind:
     | "webhook"
@@ -78,21 +82,24 @@ export async function preprocessor(event: Event) {
 
 ## S3 Object Operations
 
-Windmill provides built-in support for S3-compatible storage operations.
+Windmill provides built-in support for S3-compatible storage operations. The `wmill.S3Object` type covers both the `s3://storage/key` URI form (`s3:///key` for the workspace default storage) and the `{ s3, storage? }` record form — always use it instead of redefining your own.
 
-### S3Object Type
-
-The S3Object type represents a file in S3 storage:
+### Receiving an S3Object as a script parameter
 
 ```typescript
-type S3Object = {
-  s3: string; // Path within the bucket
-};
+//native
+import * as wmill from "windmill-client";
+
+export async function main(file: wmill.S3Object) {
+  const content = await wmill.loadS3File(file);
+  // ...
+}
 ```
 
-## TypeScript Operations
+### S3 operations
 
 ```typescript
+//native
 import * as wmill from "windmill-client";
 
 // Load file content from S3
@@ -102,7 +109,7 @@ const content: Uint8Array = await wmill.loadS3File(s3object);
 const blob: Blob = await wmill.loadS3FileStream(s3object);
 
 // Write file to S3
-const result: S3Object = await wmill.writeS3File(
+const result: wmill.S3Object = await wmill.writeS3File(
   s3object, // Target path (or undefined to auto-generate)
   fileContent, // string or Blob
   s3ResourcePath // Optional: specific S3 resource to use

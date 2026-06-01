@@ -104,7 +104,8 @@ export async function pushVariable(
   remotePath: string,
   variable: VariableFile | ListableVariable | undefined,
   localVariable: VariableFile,
-  plainSecrets: boolean
+  plainSecrets: boolean,
+  wsSpecific?: boolean,
 ): Promise<void> {
   remotePath = removeType(remotePath, "variable");
   log.debug(`Processing local variable ${remotePath}`);
@@ -137,6 +138,7 @@ export async function pushVariable(
         ...localVariable,
         is_secret:
           localVariable.is_secret && !variable.is_secret ? true : undefined,
+        ...(wsSpecific !== undefined ? { ws_specific: wsSpecific } : {}),
       },
     });
   } else {
@@ -147,6 +149,7 @@ export async function pushVariable(
       requestBody: {
         path: remotePath.replaceAll(SEP, "/"),
         ...localVariable,
+        ...(wsSpecific !== undefined ? { ws_specific: wsSpecific } : {}),
       },
     });
   }

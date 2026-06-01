@@ -5,12 +5,11 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Preview, ScriptLang } from '$lib/gen'
 	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
-	import { AlertTriangle, Trash2, Bug, Terminal } from 'lucide-svelte'
-	import Modal from '$lib/components/common/modal/Modal.svelte'
+	import { Trash2, Bug, Terminal } from 'lucide-svelte'
 	import { inferArgs, inferAssets } from '$lib/infer'
 	import type { Schema } from '$lib/common'
 	import Editor from '$lib/components/Editor.svelte'
-	import { emptySchema, getLocalSetting, sendUserToast, storeLocalSetting } from '$lib/utils'
+	import { emptySchema, sendUserToast } from '$lib/utils'
 
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
@@ -19,7 +18,7 @@
 	import TagPopup from '../apps/editor/inlineScriptsPanel/TagPopup.svelte'
 	import DeleteAfterUsePopup from './DeleteAfterUsePopup.svelte'
 	import { computeFields } from '../apps/editor/inlineScriptsPanel/utils'
-	import EditorBar from '../EditorBar.svelte'
+	import EditorBar, { EDITOR_BAR_HELPERS_INLINE_THRESHOLD } from '../EditorBar.svelte'
 	import { LanguageIcon } from '../common/languageIcons'
 	import { resource } from 'runed'
 	import { usePreparedAssetSqlQueries } from '$lib/infer.svelte'
@@ -156,8 +155,6 @@
 	})
 
 	// Debug mode state
-	const DEBUG_BETA_WARNING_KEY = 'debug_beta_warning_confirmed'
-	let showDebugBetaWarning = $state(false)
 	let debugMode = $state(false)
 	let debugBreakpoints = new SvelteSet<number>()
 	let breakpointDecorations: string[] = $state([])
@@ -396,19 +393,8 @@
 			clearAllBreakpoints()
 			updateCurrentLineDecoration(undefined)
 		} else {
-			// Entering debug mode - check if beta warning was confirmed
-			if (getLocalSetting(DEBUG_BETA_WARNING_KEY) !== 'true') {
-				showDebugBetaWarning = true
-			} else {
-				debugMode = true
-			}
+			debugMode = true
 		}
-	}
-
-	function confirmDebugBetaWarning(): void {
-		storeLocalSetting(DEBUG_BETA_WARNING_KEY, 'true')
-		showDebugBetaWarning = false
-		debugMode = true
 	}
 
 	// Subscribe to debug state changes for current line highlighting
@@ -655,6 +641,7 @@
 				lang={inlineScript.language}
 				{websocketAlive}
 				iconOnly={width < 1250}
+				compactHelpers={width < EDITOR_BAR_HELPERS_INLINE_THRESHOLD}
 				kind={'script'}
 				template={'script'}
 				on:showDiffMode={showDiffMode}
@@ -801,25 +788,3 @@
 		</div>
 	</div>
 {/if}
-
-<Modal title="Debug Feature (Beta)" bind:open={showDebugBetaWarning}>
-	<div class="flex items-start gap-3">
-		<div class="flex-shrink-0">
-			<div
-				class="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-100 dark:bg-yellow-800/50"
-			>
-				<AlertTriangle class="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
-			</div>
-		</div>
-		<div class="text-secondary text-sm">
-			<p
-				>The Debug feature is currently in <strong>beta</strong>. You may encounter unexpected
-				behavior or limitations.</p
-			>
-			<p class="mt-2">By continuing, you acknowledge that this feature is experimental.</p>
-		</div>
-	</div>
-	{#snippet actions()}
-		<Button size="sm" on:click={confirmDebugBetaWarning}>Continue</Button>
-	{/snippet}
-</Modal>

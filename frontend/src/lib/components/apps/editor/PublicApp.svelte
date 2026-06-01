@@ -110,7 +110,7 @@
 	>
 	<div class="px-2 mx-auto mt-20 max-w-xl w-full">
 		{#if !jwtError}
-			<Login {onLoginSuccess} popup rd={page.url.toString()} />
+			<Login {onLoginSuccess} popup rd={page.url.pathname + page.url.search + page.url.hash} />
 		{/if}
 	</div>
 {:else if app}
@@ -145,7 +145,7 @@
 						name: $userStore?.name,
 						groups: $userStore?.groups,
 						username: $userStore?.username,
-						query: urlParamsToObject(page.url.searchParams),
+						query: urlParamsToObject(page.url.searchParams, { stripReserved: true }),
 						hash: page.url.hash.substring(1)
 					}}
 					workspace={effectiveWorkspace}

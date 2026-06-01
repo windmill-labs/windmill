@@ -805,14 +805,15 @@ export async function databaseUrlFromResource(path: string): Promise<string> {
 /**
  * Get S3 client settings from a resource or workspace default
  * @param s3_resource_path - Path to S3 resource (uses workspace default if undefined)
+ * @param workspace - Workspace to read from (defaults to the `WM_WORKSPACE` env var)
  * @returns S3 client configuration settings
  */
 export async function denoS3LightClientSettings(
-  s3_resource_path: string | undefined
+  s3_resource_path: string | undefined,
+  workspace: string | undefined = undefined
 ): Promise<DenoS3LightClientSettings> {
-  const workspace = getWorkspace();
   const s3Resource = await HelpersService.s3ResourceInfo({
-    workspace: workspace,
+    workspace: workspace ?? getWorkspace(),
     requestBody: {
       s3_resource_path:
         parseResourceSyntax(s3_resource_path) ?? s3_resource_path,
@@ -833,12 +834,19 @@ export async function denoS3LightClientSettings(
  * const text = new TextDecoder().decode(fileContentStream)
  * console.log(text);
  * ```
+ *
+ * @param workspace - Workspace to read from (defaults to the `WM_WORKSPACE` env var)
  */
 export async function loadS3File(
   s3object: S3Object,
-  s3ResourcePath: string | undefined = undefined
+  s3ResourcePath: string | undefined = undefined,
+  workspace: string | undefined = undefined
 ): Promise<Uint8Array | undefined> {
-  const fileContentBlob = await loadS3FileStream(s3object, s3ResourcePath);
+  const fileContentBlob = await loadS3FileStream(
+    s3object,
+    s3ResourcePath,
+    workspace
+  );
   if (fileContentBlob === undefined) {
     return undefined;
   }
@@ -874,10 +882,13 @@ export async function loadS3File(
  * // if the content is plain text, the blob can be read directly:
  * console.log(await fileContentBlob.text());
  * ```
+ *
+ * @param workspace - Workspace to read from (defaults to the `WM_WORKSPACE` env var)
  */
 export async function loadS3FileStream(
   s3object: S3Object,
-  s3ResourcePath: string | undefined = undefined
+  s3ResourcePath: string | undefined = undefined,
+  workspace: string | undefined = undefined
 ): Promise<Blob | undefined> {
   let s3Obj = s3object && parseS3Object(s3object);
   let params: Record<string, string> = {};
@@ -889,12 +900,11 @@ export async function loadS3FileStream(
     params["storage"] = s3Obj.storage;
   }
   const queryParams = new URLSearchParams(params);
+  const w = workspace ?? getWorkspace();
 
   // We use raw fetch here b/c OpenAPI generated client doesn't handle Blobs nicely
   const response = await fetch(
-    `${
-      OpenAPI.BASE
-    }/w/${getWorkspace()}/job_helpers/download_s3_file?${queryParams}`,
+    `${OpenAPI.BASE}/w/${w}/job_helpers/download_s3_file?${queryParams}`,
     {
       method: "GET",
       headers: {
@@ -922,13 +932,16 @@ export async function loadS3FileStream(
  * const fileContentAsUtf8Str = (await s3object.toArray()).toString('utf-8')
  * console.log(fileContentAsUtf8Str)
  * ```
+ *
+ * @param workspace - Workspace to write to (defaults to the `WM_WORKSPACE` env var)
  */
 export async function writeS3File(
   s3object: S3Object | undefined,
   fileContent: string | Blob,
   s3ResourcePath: string | undefined = undefined,
   contentType: string | undefined = undefined,
-  contentDisposition: string | undefined = undefined
+  contentDisposition: string | undefined = undefined,
+  workspace: string | undefined = undefined
 ): Promise<S3Object> {
   let fileContentBlob: Blob;
   if (typeof fileContent === "string") {
@@ -942,7 +955,7 @@ export async function writeS3File(
   let s3Obj = s3object && parseS3Object(s3object);
 
   const response = await HelpersService.fileUpload({
-    workspace: getWorkspace(),
+    workspace: workspace ?? getWorkspace(),
     fileKey: s3Obj?.s3,
     fileExtension: undefined,
     s3ResourcePath: s3ResourcePath,
@@ -955,6 +968,31 @@ export async function writeS3File(
     s3: response.file_key,
     ...(s3Obj?.storage && { storage: s3Obj?.storage }),
   };
+}
+
+/**
+ * Permanently delete a file from S3 by key.
+ *
+ * ```typescript
+ * await wmill.deleteS3File({ s3: "path/to/file.txt" })
+ * ```
+ *
+ * @param s3object - S3 object identifying the file to delete (must have `s3` set)
+ * @param workspace - Workspace to delete from (defaults to the `WM_WORKSPACE` env var)
+ */
+export async function deleteS3File(
+  s3object: S3Object,
+  workspace: string | undefined = undefined
+): Promise<void> {
+  const s3Obj = parseS3Object(s3object);
+  if (!s3Obj.s3) {
+    throw new Error("deleteS3File: s3 key is required");
+  }
+  await HelpersService.deleteS3File({
+    workspace: workspace ?? getWorkspace(),
+    fileKey: s3Obj.s3,
+    storage: s3Obj.storage,
+  });
 }
 
 /**

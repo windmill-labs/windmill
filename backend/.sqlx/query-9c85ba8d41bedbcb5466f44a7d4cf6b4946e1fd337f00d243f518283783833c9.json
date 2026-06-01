@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT bool_and(operator) FROM (\n            SELECT operator FROM usr WHERE email = $1\n            UNION ALL\n            SELECT operator FROM workspace_invite WHERE email = $1\n        ) t",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "bool_and",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9c85ba8d41bedbcb5466f44a7d4cf6b4946e1fd337f00d243f518283783833c9"
+}

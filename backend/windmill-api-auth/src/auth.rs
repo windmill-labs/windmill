@@ -194,6 +194,7 @@ impl AuthCache {
                             scopes: None,
                             username_override,
                             token_prefix: claims.audit_span,
+                            read_only: false,
                         };
                         let job_id = claims.job_id.and_then(|j| uuid::Uuid::from_str(&j).ok());
                         AUTH_CACHE.insert(
@@ -221,11 +222,20 @@ impl AuthCache {
                         token_hash = $1
                         AND (expiration > NOW() OR expiration IS NULL)
                         AND (workspace_id IS NULL OR workspace_id = $2)
-                    RETURNING owner, email, super_admin, scopes, label",
+                    RETURNING owner, email, super_admin, scopes, label, read_only",
                     t_hash,
                     w_id.as_ref(),
                 )
-                .map(|x| (x.owner, x.email, x.super_admin, x.scopes, x.label))
+                .map(|x| {
+                    (
+                        x.owner,
+                        x.email,
+                        x.super_admin,
+                        x.scopes,
+                        x.label,
+                        x.read_only,
+                    )
+                })
                 .fetch_optional(&self.db)
                 .await
                 .ok()
@@ -234,96 +244,130 @@ impl AuthCache {
                 if let Some(user) = user_o {
                     let authed_o = {
                         match user {
-                            (Some(owner), Some(email), super_admin, _, label) if w_id.is_some() => {
+                            (Some(owner), Some(email), super_admin, _, label, read_only)
+                                if w_id.is_some() =>
+                            {
                                 let username_override = username_override_from_label(label);
                                 if let Some((prefix, name)) = owner.split_once('/') {
                                     if prefix == "u" {
-                                        let (is_admin, is_operator) = if super_admin {
-                                            (true, false)
+                                        let lookup = if super_admin {
+                                            Some((true, false))
                                         } else {
-                                            let r = sqlx::query!(
+                                            sqlx::query!(
                                                 "SELECT is_admin, operator FROM usr where username = $1 AND \
                                                  workspace_id = $2 AND disabled = false",
                                                 name,
                                                 &w_id.as_ref().unwrap()
                                             )
-                                            .fetch_one(&self.db)
+                                            .fetch_optional(&self.db)
                                             .await
-                                            .ok();
-                                            if let Some(r) = r {
-                                                (r.is_admin, r.operator)
-                                            } else {
-                                                (false, true)
-                                            }
+                                            .ok()
+                                            .flatten()
+                                            .map(|r| (r.is_admin, r.operator))
                                         };
 
-                                        let w_id = &w_id.unwrap();
-                                        let groups =
-                                            get_groups_for_user(w_id, &name, &email, &self.db)
-                                                .await
-                                                .ok()
-                                                .unwrap_or_default();
+                                        if let Some((is_admin, is_operator)) = lookup {
+                                            let w_id = &w_id.unwrap();
+                                            let groups =
+                                                get_groups_for_user(w_id, &name, &email, &self.db)
+                                                    .await
+                                                    .ok()
+                                                    .unwrap_or_default();
 
-                                        let folders =
-                                            get_folders_for_user(w_id, &name, &groups, &self.db)
-                                                .await
-                                                .ok()
-                                                .unwrap_or_default();
+                                            let folders = get_folders_for_user(
+                                                w_id, &name, &groups, &self.db,
+                                            )
+                                            .await
+                                            .ok()
+                                            .unwrap_or_default();
 
-                                        Some(ApiAuthed {
-                                            email: email,
-                                            username: name.to_string(),
-                                            is_admin,
-                                            is_operator,
-                                            groups,
-                                            folders,
-                                            scopes: None,
-                                            username_override,
-                                            token_prefix: Some(safe_token_prefix(token)),
-                                        })
+                                            Some(ApiAuthed {
+                                                email: email,
+                                                username: name.to_string(),
+                                                is_admin,
+                                                is_operator,
+                                                groups,
+                                                folders,
+                                                scopes: None,
+                                                username_override,
+                                                token_prefix: Some(safe_token_prefix(token)),
+                                                read_only,
+                                            })
+                                        } else {
+                                            tracing::warn!(
+                                                "Token owner u/{} is not a member of workspace {}; rejecting auth",
+                                                name,
+                                                w_id.as_deref().unwrap_or("")
+                                            );
+                                            None
+                                        }
+                                    } else if prefix == "g" {
+                                        let group_exists = if super_admin {
+                                            true
+                                        } else {
+                                            sqlx::query_scalar!(
+                                                "SELECT EXISTS(SELECT 1 FROM group_ WHERE workspace_id = $1 AND name = $2)",
+                                                &w_id.as_ref().unwrap(),
+                                                name,
+                                            )
+                                            .fetch_one(&self.db)
+                                            .await
+                                            .ok()
+                                            .flatten()
+                                            .unwrap_or(false)
+                                        };
+
+                                        if group_exists {
+                                            let groups = vec![name.to_string()];
+                                            let folders = get_folders_for_user(
+                                                &w_id.unwrap(),
+                                                "",
+                                                &groups,
+                                                &self.db,
+                                            )
+                                            .await
+                                            .ok()
+                                            .unwrap_or_default();
+                                            Some(ApiAuthed {
+                                                email: email,
+                                                username: format!(
+                                                    "{}{name}",
+                                                    windmill_common::users::USERNAME_GROUP_PREFIX
+                                                ),
+                                                is_admin: false,
+                                                groups,
+                                                is_operator: false,
+                                                folders,
+                                                scopes: None,
+                                                username_override,
+                                                token_prefix: Some(safe_token_prefix(token)),
+                                                read_only,
+                                            })
+                                        } else {
+                                            tracing::warn!(
+                                                "Token owner g/{} is not a group in workspace {}; rejecting auth",
+                                                name,
+                                                w_id.as_deref().unwrap_or("")
+                                            );
+                                            None
+                                        }
                                     } else {
-                                        let groups = vec![name.to_string()];
-                                        let folders = get_folders_for_user(
-                                            &w_id.unwrap(),
-                                            "",
-                                            &groups,
-                                            &self.db,
-                                        )
-                                        .await
-                                        .ok()
-                                        .unwrap_or_default();
-                                        Some(ApiAuthed {
-                                            email: email,
-                                            username: format!(
-                                                "{}{name}",
-                                                windmill_common::users::USERNAME_GROUP_PREFIX
-                                            ),
-                                            is_admin: false,
-                                            groups,
-                                            is_operator: false,
-                                            folders,
-                                            scopes: None,
-                                            username_override,
-                                            token_prefix: Some(safe_token_prefix(token)),
-                                        })
+                                        tracing::warn!(
+                                            "Token owner '{}' has unrecognised prefix '{}'; rejecting auth",
+                                            owner,
+                                            prefix
+                                        );
+                                        None
                                     }
                                 } else {
-                                    let groups = vec![];
-                                    let folders = vec![];
-                                    Some(ApiAuthed {
-                                        email: email,
-                                        username: owner,
-                                        is_admin: super_admin,
-                                        is_operator: true,
-                                        groups,
-                                        folders,
-                                        scopes: None,
-                                        username_override,
-                                        token_prefix: Some(safe_token_prefix(token)),
-                                    })
+                                    tracing::warn!(
+                                        "Token owner '{}' is missing a prefix (expected u/ or g/); rejecting auth",
+                                        owner
+                                    );
+                                    None
                                 }
                             }
-                            (_, Some(email), super_admin, scopes, label) => {
+                            (_, Some(email), super_admin, scopes, label, read_only) => {
                                 let username_override = username_override_from_label(label);
                                 if w_id.is_some() {
                                     let row_o = sqlx::query!(
@@ -368,6 +412,7 @@ impl AuthCache {
                                                 scopes,
                                                 username_override,
                                                 token_prefix: Some(safe_token_prefix(token)),
+                                                read_only,
                                             })
                                         }
                                         None if super_admin => Some(ApiAuthed {
@@ -380,6 +425,7 @@ impl AuthCache {
                                             scopes,
                                             username_override,
                                             token_prefix: Some(safe_token_prefix(token)),
+                                            read_only,
                                         }),
                                         None => None,
                                     }
@@ -394,6 +440,7 @@ impl AuthCache {
                                         scopes,
                                         username_override,
                                         token_prefix: Some(safe_token_prefix(token)),
+                                        read_only,
                                     })
                                 }
                             }
@@ -428,6 +475,7 @@ impl AuthCache {
                         scopes: None,
                         username_override: None,
                         token_prefix: Some(safe_token_prefix(token)),
+                        read_only: false,
                     };
                     Some(OptJobAuthed { authed, job_id: None })
                 } else {
@@ -630,6 +678,7 @@ pub async fn resolve_opt_job_authed(
             scopes: None,
             username_override: None,
             token_prefix: None,
+            read_only: false,
         };
         return Ok((OptJobAuthed { authed, job_id: None }, parts));
     }
@@ -667,11 +716,10 @@ pub async fn resolve_opt_job_authed(
                 cache.get_opt_job_authed(workspace_id.clone(), &token).await
             {
                 let authed = &mut opt_job_authed.authed;
+                let path = original_uri.path();
+                let method = parts.method.as_str();
                 if authed.scopes.is_some() {
                     transform_old_scope_to_new_scope(authed.scopes.as_mut());
-
-                    let path = original_uri.path();
-                    let method = parts.method.as_str();
 
                     if let Err(err) = crate::scopes::check_scopes_for_route(
                         authed.scopes.as_deref(),
@@ -679,6 +727,27 @@ pub async fn resolve_opt_job_authed(
                         method,
                     ) {
                         return Err((err, parts));
+                    }
+                }
+                if authed.read_only {
+                    // MCP transport runs over POST (streamable HTTP / SSE handshake),
+                    // so the middleware can't safely reject mutating methods on it —
+                    // the MCP runner itself filters out write tools and rejects
+                    // mutating tool calls for read-only tokens. Narrow to the actual
+                    // transport endpoints: anything else under `/api/mcp/*` (OAuth
+                    // approve, token exchange, client registration) must still go
+                    // through the read-only check, otherwise a read-only token
+                    // could approve an OAuth flow that mints a new non-read-only
+                    // token.
+                    let is_mcp_transport = path == "/api/mcp/gateway"
+                        || (path.starts_with("/api/mcp/w/")
+                            && (path.ends_with("/mcp")
+                                || path.ends_with("/sse")
+                                || path.ends_with("/list_tools")));
+                    if !is_mcp_transport {
+                        if let Err(err) = crate::scopes::check_read_only_for_route(path, method) {
+                            return Err((err, parts));
+                        }
                     }
                 }
                 parts.extensions.insert(authed.clone());
@@ -715,7 +784,8 @@ pub async fn resolve_opt_job_authed(
 fn username_override_from_label(label: Option<String>) -> Option<String> {
     match label {
         Some(label)
-            if label.starts_with("webhook-")
+            if label.starts_with("ephemeral-webhook-")
+                || label.starts_with("webhook-")
                 || label.starts_with("http-")
                 || label.starts_with("email-")
                 || label.starts_with("ws-") =>

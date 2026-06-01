@@ -10,10 +10,12 @@
 	import { onDestroy } from 'svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Menu } from 'lucide-svelte'
+	import CreatedResourceActionDrawers from './CreatedResourceActionDrawers.svelte'
 
 	interface Props {
 		noPadding?: boolean
 		isCollapsed?: boolean
+		isMobile?: boolean
 		children: any
 		onMenuOpen?: () => void
 		disableAi?: boolean
@@ -21,6 +23,7 @@
 	let {
 		noPadding: noBorder = false,
 		isCollapsed = false,
+		isMobile = false,
 		children,
 		onMenuOpen,
 		disableAi
@@ -48,13 +51,14 @@
 </script>
 
 {#if !disableAi}
+	<CreatedResourceActionDrawers />
 	<Splitpanes horizontal={false} class="flex-1 min-h-0">
 		<Pane size={100 - chatState.size} minSize={50} class="flex flex-col grow min-h-0 ">
 			<div
 				id="content"
 				class={classNames(
 					'w-full flex-1 flex flex-col overflow-y-auto min-h-0',
-					noBorder || $userStore?.operator ? '!pl-0' : isCollapsed ? 'md:pl-12' : 'md:pl-40',
+					noBorder || $userStore?.operator || isMobile ? '!pl-0' : isCollapsed ? 'pl-12' : 'pl-40',
 					'transition-all ease-in-out duration-200'
 				)}
 			>
@@ -72,7 +76,7 @@
 								onClick={() => onMenuOpen?.()}
 								startIcon={{ icon: Menu }}
 								iconOnly
-							></Button>
+							/>
 						</div>
 						<div class="flex-1 min-h-0">
 							{@render children?.()}
@@ -92,5 +96,13 @@
 		{/if}
 	</Splitpanes>
 {:else}
-	{@render children?.()}
+	<div
+		class={classNames(
+			'flex-1 min-h-0 flex flex-col',
+			noBorder || $userStore?.operator || isMobile ? '' : isCollapsed ? 'pl-12' : 'pl-40',
+			'transition-all ease-in-out duration-200'
+		)}
+	>
+		{@render children?.()}
+	</div>
 {/if}

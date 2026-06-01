@@ -33,7 +33,8 @@ use windmill_common::db::UserDbWithAuthed;
 use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
-    format_completed_job_result, format_result, DynamicInput, ENTRYPOINT_OVERRIDE,
+    format_completed_job_result, format_result, is_valid_entrypoint_name, DynamicInput,
+    ENTRYPOINT_OVERRIDE,
 };
 #[cfg(feature = "run_inline")]
 use windmill_common::jobs::{
@@ -112,9 +113,9 @@ use windmill_common::{
 };
 
 use windmill_common::{
-    get_flow_version_info_from_version, get_latest_deployed_hash_for_path,
-    get_latest_flow_version_info_for_path, get_script_info_for_hash, utils::empty_as_none,
-    ScriptHashInfo, BASE_URL,
+    get_flow_path_for_version_authed, get_flow_version_info_from_version,
+    get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
+    get_script_info_for_hash, utils::empty_as_none, ScriptHashInfo, BASE_URL,
 };
 use windmill_queue::{
     get_result_and_success_by_id_from_flow, job_is_complete, push, PushArgs, PushArgsOwned,
@@ -343,10 +344,6 @@ pub fn workspaced_service() -> Router {
             "/result_by_id/{job_id}/{node_id}",
             get(get_result_by_id).layer(cors.clone()),
         )
-        .route(
-            "/flow_env_by_flow_job_id/{flow_job_id}/{var_name}",
-            get(get_flow_env_by_flow_job_id).layer(cors.clone()),
-        )
         .route("/run/dependencies", post(run_dependencies_job))
         .route("/run/dependencies_async", post(run_dependencies_job_async))
         .route("/run/flow_dependencies", post(run_flow_dependencies_job))
@@ -450,130 +447,6 @@ async fn get_root_job(
 ) -> windmill_common::error::JsonResult<String> {
     let res = compute_root_job_for_flow(&db, &w_id, id).await?;
     Ok(Json(res))
-}
-
-async fn get_flow_env_by_flow_job_id(
-    authed: ApiAuthed,
-    tokened: Tokened,
-    Extension(db): Extension<DB>,
-    Path((w_id, flow_job_id, var_name)): Path<(String, Uuid, String)>,
-    Query(JsonPath { json_path, .. }): Query<JsonPath>,
-) -> windmill_common::error::JsonResult<Box<JsonRawValue>> {
-    // Fetch raw value (without json_path) to check for $var:/$res: references
-    let raw_value = sqlx::query_scalar!(
-            r#"
-                SELECT
-                    CASE
-                        WHEN flow_version.id IS NOT NULL THEN
-                            flow_version.value -> 'flow_env' -> $3
-                        ELSE
-                            root_job.raw_flow -> 'flow_env' -> $3
-                    END AS "flow_env: sqlx::types::Json<Box<RawValue>>"
-                FROM
-                    v2_job current_job
-                JOIN
-                    v2_job root_job ON root_job.id = COALESCE(current_job.root_job, current_job.flow_innermost_root_job, current_job.parent_job, current_job.id)
-                    AND root_job.workspace_id = current_job.workspace_id
-                LEFT JOIN
-                    flow_version ON flow_version.id = root_job.runnable_id
-                    AND flow_version.path = root_job.runnable_path
-                    AND flow_version.workspace_id = root_job.workspace_id
-            WHERE
-                    current_job.id = $1 AND
-                    current_job.workspace_id = $2"#,
-            flow_job_id,
-            w_id,
-            var_name,
-        )
-        .fetch_optional(&db)
-        .await?
-        .and_then(|r| r.map(|x| x.0));
-
-    // Resolve $var:/$res: references if present
-    let resolved = if let Some(raw) = raw_value {
-        let raw_str = raw.get();
-        let db_authed = windmill_common::db::DbWithOptAuthed::<ApiAuthed>::from_authed(
-            &authed,
-            db.clone(),
-            None,
-        );
-        if let Some(path) = raw_str
-            .strip_prefix("\"$var:")
-            .and_then(|s| s.strip_suffix("\""))
-        {
-            match windmill_store::variables::get_value_internal(&db_authed, &w_id, path, false)
-                .await
-            {
-                Ok(val) => to_raw_value(&serde_json::Value::String(val)),
-                Err(e) => {
-                    tracing::warn!("Failed to resolve flow_env variable $var:{path}: {e}");
-                    raw
-                }
-            }
-        } else if let Some(path) = raw_str
-            .strip_prefix("\"$res:")
-            .and_then(|s| s.strip_suffix("\""))
-        {
-            match windmill_store::resources::get_resource_value_interpolated_internal(
-                &db_authed,
-                &w_id,
-                path,
-                Some(flow_job_id),
-                Some(&tokened.token),
-                false,
-            )
-            .await
-            {
-                Ok(Some(val)) => to_raw_value(&val),
-                Ok(None) => {
-                    tracing::warn!(
-                        "Failed to resolve flow_env resource $res:{path}: resource not found"
-                    );
-                    raw
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to resolve flow_env resource $res:{path}: {e}");
-                    raw
-                }
-            }
-        } else {
-            raw
-        }
-    } else {
-        to_raw_value(&serde_json::Value::Null)
-    };
-
-    // Apply json_path navigation on the (possibly resolved) value
-    let flow_env = if let Some(ref jp) = json_path {
-        let mut value: serde_json::Value =
-            serde_json::from_str(resolved.get()).unwrap_or(serde_json::Value::Null);
-        for part in jp.split('.') {
-            value = match value {
-                serde_json::Value::Object(ref mut map) => {
-                    map.remove(part).unwrap_or(serde_json::Value::Null)
-                }
-                serde_json::Value::Array(ref arr) => part
-                    .parse::<usize>()
-                    .ok()
-                    .and_then(|i| arr.get(i).cloned())
-                    .unwrap_or(serde_json::Value::Null),
-                _ => serde_json::Value::Null,
-            };
-        }
-        to_raw_value(&value)
-    } else {
-        resolved
-    };
-
-    log_job_view(
-        &db,
-        Some(&authed),
-        Some(&tokened.token),
-        &w_id,
-        &flow_job_id,
-    )
-    .await?;
-    Ok(Json(flow_env))
 }
 
 async fn compute_root_job_for_flow(db: &DB, w_id: &str, job_id: Uuid) -> error::Result<String> {
@@ -897,29 +770,75 @@ async fn list_selected_job_groups(
 ) -> error::Result<Response> {
     let mut tx = user_db.begin(&authed).await?;
 
+    // Single-step-flows wrap either a script or a flow. The wrapped runnable type
+    // sits in raw_flow.modules under id='a' (id='main' is also tolerated), and the
+    // wrapped script's hash (when pinned) sits in the same module's value.hash.
+    // We project singlestepflow rows onto the script/flow grouping the rest of the
+    // query uses, and use the wrapped hash (when present) so the per-version
+    // schemas subquery resolves real schemas instead of returning nulls. A
+    // path-based schema fallback covers flow-wrapped singlestepflow (no version
+    // pinning) and any singlestepflow whose pinned hash has since been deleted.
     let results = sqlx::query_scalar!(
-            r#"SELECT jsonb_build_object(
-                'kind', jb.kind,
-                'script_path', jb.runnable_path,
+            r#"WITH normalized AS (
+                SELECT
+                    jb.id,
+                    jb.workspace_id,
+                    jb.runnable_path,
+                    CASE
+                        WHEN jb.kind IN ('flow', 'script') THEN jb.kind::text
+                        WHEN jb.kind = 'singlestepflow' THEN
+                            COALESCE(
+                                (SELECT m->'value'->>'type'
+                                    FROM jsonb_array_elements(jb.raw_flow->'modules') m
+                                    WHERE m->>'id' IN ('a', 'main')
+                                    LIMIT 1),
+                                'script'
+                            )
+                        ELSE NULL
+                    END AS norm_kind,
+                    COALESCE(
+                        jb.runnable_id,
+                        CASE WHEN jb.kind = 'singlestepflow' THEN
+                            (SELECT ('x' || lpad(m->'value'->>'hash', 16, '0'))::bit(64)::bigint
+                                FROM jsonb_array_elements(jb.raw_flow->'modules') m
+                                WHERE m->>'id' IN ('a', 'main')
+                                  AND m->'value'->>'hash' IS NOT NULL
+                                LIMIT 1)
+                        END
+                    ) AS effective_hash
+                FROM v2_job jb
+                WHERE jb.kind IN ('flow', 'script', 'singlestepflow')
+                    AND jb.workspace_id = $1 AND jb.id = ANY($2)
+            )
+            SELECT jsonb_build_object(
+                'kind', n.norm_kind,
+                'script_path', n.runnable_path,
                 'latest_schema', COALESCE(
-                    (SELECT DISTINCT ON (s.path) s.schema FROM script s WHERE s.workspace_id = $1 AND s.path = jb.runnable_path AND jb.kind = 'script' ORDER BY s.path, s.created_at DESC),
-                    (SELECT flow_version.schema FROM flow LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)] WHERE flow.workspace_id = $1 AND flow.path = jb.runnable_path AND jb.kind = 'flow')
+                    (SELECT DISTINCT ON (s.path) s.schema FROM script s WHERE s.workspace_id = $1 AND s.path = n.runnable_path AND n.norm_kind = 'script' ORDER BY s.path, s.created_at DESC),
+                    (SELECT flow_version.schema FROM flow LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)] WHERE flow.workspace_id = $1 AND flow.path = n.runnable_path AND n.norm_kind = 'flow')
                 ),
                 'schemas', ARRAY(
                     SELECT jsonb_build_object(
-                        'script_hash', LPAD(TO_HEX(COALESCE(s.hash, f.id)), 16, '0'),
-                        'job_ids', ARRAY_AGG(DISTINCT j.id),
-                        'schema', (ARRAY_AGG(COALESCE(s.schema, f.schema)))[1]
-                    ) FROM v2_job j
-                    LEFT JOIN script s ON s.hash = j.runnable_id AND j.kind = 'script'
-                    LEFT JOIN flow_version f ON f.id = j.runnable_id AND j.kind = 'flow'
-                    WHERE j.id = ANY(ARRAY_AGG(jb.id))
+                        'script_hash', CASE WHEN COALESCE(s.hash, f.id) IS NULL THEN NULL ELSE LPAD(TO_HEX(COALESCE(s.hash, f.id)), 16, '0') END,
+                        'job_ids', ARRAY_AGG(DISTINCT n2.id),
+                        'schema', COALESCE(
+                            (ARRAY_AGG(COALESCE(s.schema, f.schema)))[1],
+                            CASE WHEN n.norm_kind = 'script' THEN
+                                (SELECT DISTINCT ON (s2.path) s2.schema FROM script s2 WHERE s2.workspace_id = $1 AND s2.path = n.runnable_path ORDER BY s2.path, s2.created_at DESC)
+                            END,
+                            CASE WHEN n.norm_kind = 'flow' THEN
+                                (SELECT fv.schema FROM flow LEFT JOIN flow_version fv ON fv.id = flow.versions[array_upper(flow.versions, 1)] WHERE flow.workspace_id = $1 AND flow.path = n.runnable_path)
+                            END
+                        )
+                    ) FROM normalized n2
+                    LEFT JOIN script s ON s.hash = n2.effective_hash AND n2.norm_kind = 'script'
+                    LEFT JOIN flow_version f ON f.id = n2.effective_hash AND n2.norm_kind = 'flow'
+                    WHERE n2.id = ANY(ARRAY_AGG(n.id))
                     GROUP BY COALESCE(s.hash, f.id)
                 )
-            ) FROM v2_job jb
-            WHERE (jb.kind = 'flow' OR jb.kind = 'script')
-                AND jb.workspace_id = $1 AND jb.id = ANY($2)
-            GROUP BY jb.kind, jb.runnable_path"#,
+            ) FROM normalized n
+            WHERE n.norm_kind IS NOT NULL
+            GROUP BY n.norm_kind, n.runnable_path"#,
             &w_id,
             &uuids
         )
@@ -1149,10 +1068,15 @@ impl<'a> GetQuery<'a> {
                 .ok()
                 .inspect(|data| job.raw_flow = Some(sqlx::types::Json(data.raw_flow.clone())));
         }
-        if self.with_code && job.job_kind() == &JobKind::Preview {
+        if self.with_code
+            && matches!(
+                job.job_kind(),
+                JobKind::Preview | JobKind::FlowScript | JobKind::AppScript
+            )
+        {
             // Try to fetch the code from the cache, fallback to the preview code.
-            // NOTE: This could check for the job kinds instead of the `or_else` but it's not
-            // necessary as `fetch_script` return early if the job kind is not a preview one.
+            // `fetch_script` resolves FlowScript / AppScript via their runnable_id; for
+            // Preview jobs it returns early and we fall through to `fetch_preview_script`.
             let conn = Connection::from(db.clone());
             cache::job::fetch_script(db.clone(), job.job_kind(), hash)
                 .or_else(|_| cache::job::fetch_preview_script(&conn, &id, raw_lock, raw_code))
@@ -3234,11 +3158,11 @@ async fn get_flow_info_for_resume(job_id: Uuid, db: &DB) -> error::Result<(FlowI
             q.suspend AS "suspend!",
             j.runnable_path AS script_path,
             j.permissioned_as_email AS email,
-            (ji.kind IN ('flow', 'flowpreview')) AS "is_flow_level!",
-            (ji.kind NOT IN ('flow', 'flowpreview') AND q.id = ji.id) AS "is_wac!"
+            (ji.kind IN ('flow', 'flowpreview', 'singlestepflow')) AS "is_flow_level!",
+            (ji.kind NOT IN ('flow', 'flowpreview', 'singlestepflow') AND q.id = ji.id) AS "is_wac!"
         FROM job_info ji
         JOIN v2_job_queue q ON q.id = CASE
-            WHEN ji.kind IN ('flow', 'flowpreview') THEN ji.id
+            WHEN ji.kind IN ('flow', 'flowpreview', 'singlestepflow') THEN ji.id
             ELSE COALESCE(ji.parent_job, ji.id)
         END
         JOIN v2_job j ON j.id = q.id
@@ -3536,7 +3460,7 @@ pub async fn set_flow_user_state(
             r#"
             UPDATE v2_job_status f SET flow_status = JSONB_SET(flow_status,  ARRAY['user_states'], JSONB_SET(COALESCE(flow_status->'user_states', '{}'::jsonb), ARRAY[$1], $2))
             FROM v2_job j
-            WHERE f.id = $3 AND f.id = j.id AND j.workspace_id = $4 AND kind IN ('flow', 'flowpreview', 'flownode') RETURNING 1
+            WHERE f.id = $3 AND f.id = j.id AND j.workspace_id = $4 AND kind IN ('flow', 'flowpreview', 'flownode', 'singlestepflow') RETURNING 1
             "#,
             key,
             value,
@@ -3709,6 +3633,10 @@ struct Preview {
     format: Option<String>,
     flow_path: Option<String>,
     modules: Option<HashMap<String, ScriptModule>>,
+    /// Map of relative-import script path -> temp storage hash. When set, the
+    /// preview job resolves those imports from not-yet-deployed local content
+    /// (uploaded to raw_script_temp) instead of the deployed script.
+    temp_script_refs: Option<HashMap<String, String>>,
 }
 
 #[cfg(feature = "run_inline")]
@@ -3737,6 +3665,10 @@ struct PreviewFlow {
     args: Option<HashMap<String, Box<JsonRawValue>>>,
     tag: Option<String>,
     restarted_from: Option<RestartedFrom>,
+    /// Map of relative-import script path -> temp storage hash. Propagated to
+    /// each flow step so inline-script relative imports resolve from
+    /// not-yet-deployed local content instead of the deployed script.
+    temp_script_refs: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -3827,23 +3759,74 @@ fn batch_rerun_jobs_inner(
     tokio::spawn(async move {
         let mut job_stream = sqlx::query_as!(
                 BatchReRunQueryReturnType,
-                r#"SELECT
-                        j.id,
-                        j.kind AS "kind: _",
-                        COALESCE(s.path, f.path) AS "script_path!",
-                        COALESCE(s.hash, f.id) AS "script_hash!: _",
+                r#"WITH norm AS (
+                        SELECT
+                            j.id, j.workspace_id, j.runnable_path, j.runnable_id, j.kind, j.args,
+                            -- Project effective kind for dispatch: pass script/flow through;
+                            -- for singlestepflow, read the wrapped runnable's type from
+                            -- raw_flow.modules[id='a'].value.type (always 'script' or 'flow').
+                            CASE
+                                WHEN j.kind IN ('script', 'flow') THEN j.kind::text
+                                WHEN j.kind = 'singlestepflow' THEN
+                                    COALESCE(
+                                        (SELECT m->'value'->>'type'
+                                            FROM jsonb_array_elements(j.raw_flow->'modules') m
+                                            WHERE m->>'id' = 'a'
+                                            LIMIT 1),
+                                        'script'
+                                    )
+                            END AS norm_kind,
+                            -- Pinned script hash for script-wrapped singlestepflow lives in
+                            -- raw_flow.modules[id='a'].value.hash. Flow-wrapped doesn't pin a
+                            -- version, so this is NULL there (Flow rerun pushes by path).
+                            (CASE WHEN j.kind = 'singlestepflow' THEN
+                                (SELECT ('x' || lpad(m->'value'->>'hash', 16, '0'))::bit(64)::bigint
+                                    FROM jsonb_array_elements(j.raw_flow->'modules') m
+                                    WHERE m->>'id' = 'a'
+                                      AND m->'value'->>'hash' IS NOT NULL
+                                    LIMIT 1)
+                            END) AS ssf_hash
+                        FROM v2_job j
+                        WHERE j.id = ANY($1)
+                            AND j.workspace_id = $2
+                            AND j.kind IN ('script', 'flow', 'singlestepflow')
+                    )
+                    SELECT
+                        n.id,
+                        n.norm_kind::JOB_KIND AS "kind!: _",
+                        COALESCE(s.path, f.path, n.runnable_path) AS "script_path!",
+                        -- script_hash is unused on the Flow rerun path (path-based push), so
+                        -- 0 is a safe placeholder when no version is pinned.
+                        COALESCE(s.hash, f.id, n.ssf_hash, 0::bigint) AS "script_hash!: _",
                         COALESCE(jc.started_at, jq.scheduled_for, make_date(1970, 1, 1)) AS "scheduled_for!: _",
-                        args AS input,
-                        COALESCE(s.schema, f.schema) AS "schema: _"
-                    FROM v2_job j
-                    LEFT JOIN script s ON j.runnable_id = s.hash AND j.kind = 'script'
-                    LEFT JOIN flow_version f ON j.runnable_id = f.id AND j.runnable_path = f.path AND j.kind = 'flow'
-                    LEFT JOIN v2_job_completed jc ON jc.id = j.id
-                    LEFT JOIN v2_job_queue jq ON jq.id = j.id
-                    WHERE j.id = ANY($1)
-                        AND j.workspace_id = $2
-                        AND COALESCE(s.hash, f.id) IS NOT NULL
-                        AND COALESCE(s.path, f.path) IS NOT NULL"#,
+                        n.args AS input,
+                        -- Pinned schema for script/flow; latest-by-path fallback for
+                        -- singlestepflow so input_transforms still resolve at rerun time.
+                        COALESCE(
+                            s.schema,
+                            f.schema,
+                            (CASE WHEN n.kind = 'singlestepflow' AND n.norm_kind = 'script' THEN
+                                (SELECT s2.schema FROM script s2
+                                    WHERE s2.workspace_id = $2 AND s2.path = n.runnable_path
+                                    ORDER BY s2.created_at DESC LIMIT 1)
+                            END),
+                            (CASE WHEN n.kind = 'singlestepflow' AND n.norm_kind = 'flow' THEN
+                                (SELECT fv.schema FROM flow
+                                    LEFT JOIN flow_version fv ON fv.id = flow.versions[array_upper(flow.versions, 1)]
+                                    WHERE flow.workspace_id = $2 AND flow.path = n.runnable_path)
+                            END)
+                        ) AS "schema: _"
+                    FROM norm n
+                    LEFT JOIN script s ON s.hash = n.runnable_id AND n.kind = 'script'
+                    LEFT JOIN flow_version f ON f.id = n.runnable_id AND f.path = n.runnable_path AND n.kind = 'flow'
+                    LEFT JOIN v2_job_completed jc ON jc.id = n.id
+                    LEFT JOIN v2_job_queue jq ON jq.id = n.id
+                    WHERE n.norm_kind IS NOT NULL
+                        AND COALESCE(s.path, f.path, n.runnable_path) IS NOT NULL
+                        AND (
+                            n.kind = 'singlestepflow'
+                            OR (COALESCE(s.hash, f.id) IS NOT NULL AND COALESCE(s.path, f.path) IS NOT NULL)
+                        )"#,
                 &body.job_ids,
                 w_id
             ).fetch(&db);
@@ -3890,13 +3873,27 @@ async fn batch_rerun_handle_job(
 
     let latest_schema;
     let schema = if use_latest_version {
+        // Project singlestepflow's wrapped runnable type so the path-based schema
+        // lookup resolves it to the underlying script/flow's latest schema —
+        // without this, transforms silently no-op for singlestepflow reruns.
         latest_schema = sqlx::query_scalar!(
                 r#"SELECT COALESCE(
-                    (SELECT DISTINCT ON (s.path) s.schema FROM script s WHERE s.path = jb.runnable_path AND jb.kind = 'script' ORDER BY s.path, s.created_at DESC),
-                    (SELECT flow_version.schema FROM flow LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)] WHERE flow.path = jb.runnable_path AND jb.kind = 'flow')
-                ) FROM v2_job jb
-                WHERE jb.id = $1 AND jb.workspace_id = $2
-                GROUP BY jb.kind, jb.runnable_path"#,
+                    (SELECT DISTINCT ON (s.path) s.schema FROM script s WHERE s.path = norm.path AND s.workspace_id = $2 AND norm.kind = 'script' ORDER BY s.path, s.created_at DESC),
+                    (SELECT flow_version.schema FROM flow LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)] WHERE flow.path = norm.path AND flow.workspace_id = $2 AND norm.kind = 'flow')
+                ) FROM (
+                    SELECT
+                        jb.runnable_path AS path,
+                        CASE
+                            WHEN jb.kind IN ('script', 'flow') THEN jb.kind::text
+                            WHEN jb.kind = 'singlestepflow' THEN COALESCE(
+                                (SELECT m->'value'->>'type' FROM jsonb_array_elements(jb.raw_flow->'modules') m WHERE m->>'id' IN ('a', 'main') LIMIT 1),
+                                'script'
+                            )
+                        END AS kind
+                    FROM v2_job jb
+                    WHERE jb.id = $1 AND jb.workspace_id = $2
+                ) norm
+                GROUP BY norm.kind, norm.path"#,
                 &job.id,
                 &w_id
             ).fetch_optional(db).await?.flatten();
@@ -3944,7 +3941,7 @@ async fn batch_rerun_handle_job(
                 None,
             )
             .await;
-            if let Ok((uuid, _, _)) = result {
+            if let Ok((uuid, _, _, _)) = result {
                 return Ok(uuid.to_string());
             }
         }
@@ -4006,7 +4003,7 @@ pub async fn run_flow_by_path(
     )
     .await?;
 
-    let (uuid, _, _) = push_flow_job_by_path_into_queue(
+    let (uuid, _, _, _) = push_flow_job_by_path_into_queue(
         authed,
         db,
         None,
@@ -4040,7 +4037,7 @@ pub async fn run_flow_by_version(
         )
         .await?;
 
-    let (uuid, _) =
+    let (uuid, _, _) =
         run_flow_by_version_inner(authed, db, user_db, w_id, version, run_query, args, None)
             .await?;
 
@@ -4056,32 +4053,19 @@ pub async fn run_flow_by_version_inner(
     run_query: RunJobQuery,
     args: PushArgsOwned,
     trigger: Option<TriggerMetadata>,
-) -> error::Result<(Uuid, Option<String>)> {
+) -> error::Result<(Uuid, Option<String>, bool)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let flow_path = sqlx::query_scalar!(
-        r#"
-            SELECT
-                path
-            FROM
-                flow_version
-            WHERE
-                id = $1 AND
-                workspace_id = $2
-            "#,
-        version,
-        &w_id
-    )
-    .fetch_one(&db)
-    .await?;
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+    let flow_path = get_flow_path_for_version_authed(&userdb_authed, &db, version, &w_id).await?;
 
     check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
 
     let flow_version_info =
         get_flow_version_info_from_version(&db, version, &w_id, &flow_path).await?;
 
-    let (uuid, early_return, _) = run_flow(
+    let (uuid, early_return, has_failure_module, _) = run_flow(
         &authed,
         &db,
         None,
@@ -4095,7 +4079,7 @@ pub async fn run_flow_by_version_inner(
     )
     .await?;
 
-    Ok((uuid, early_return))
+    Ok((uuid, early_return, has_failure_module))
 }
 
 #[cfg(not(feature = "enterprise"))]
@@ -4538,6 +4522,13 @@ pub async fn run_workflow_as_code(
     check_license_key_valid().await?;
     check_tag_available_for_workspace(&db, &w_id, &run_query.tag, &authed).await?;
     check_scopes(&authed, || format!("jobs:run"))?;
+
+    if !is_valid_entrypoint_name(&entrypoint) {
+        return Err(error::Error::BadRequest(format!(
+            "Invalid entrypoint {entrypoint:?}: must match ^[A-Za-z_][A-Za-z0-9_]*$ \
+             (letters, digits and underscores, not starting with a digit)"
+        )));
+    }
 
     let mut i = 1;
 
@@ -4992,7 +4983,7 @@ pub async fn run_wait_result_job_by_path_get(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, &w_id, None, &authed.username).await;
+    let wait_result = run_wait_result(&db, uuid, &w_id, None, false, &authed.username).await;
     handle_delete_after_completion(&db, uuid, &w_id, delete_after_use, delete_after_secs).await?;
     return wait_result;
 }
@@ -5136,7 +5127,7 @@ pub async fn run_wait_result_script_by_path_internal(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, &w_id, None, &authed.username).await;
+    let wait_result = run_wait_result(&db, uuid, &w_id, None, false, &authed.username).await;
     handle_delete_after_completion(&db, uuid, &w_id, delete_after_use, delete_after_secs).await?;
     return wait_result;
 }
@@ -5261,7 +5252,7 @@ pub async fn run_wait_result_script_by_hash(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, &w_id, None, &authed.username).await;
+    let wait_result = run_wait_result(&db, uuid, &w_id, None, false, &authed.username).await;
     handle_delete_after_completion(&db, uuid, &w_id, delete_after_use, delete_after_secs).await?;
     return wait_result;
 }
@@ -5414,7 +5405,7 @@ pub async fn stream_job(
     };
 
     let poll_delay_ms = run_query.poll_delay_ms;
-    let (uuid, early_return) = match runnable_id {
+    let (uuid, early_return, has_failure_module) = match runnable_id {
         RunnableId::ScriptId(ScriptId::ScriptPath(script_path))
         | RunnableId::HubScript(script_path) => {
             let (uuid, _, _) = push_script_job_by_path_into_queue(
@@ -5429,7 +5420,7 @@ pub async fn stream_job(
                 None,
             )
             .await?;
-            (uuid, None)
+            (uuid, None, false)
         }
         RunnableId::ScriptId(ScriptId::ScriptHash(script_hash)) => {
             let (uuid, _, _) = run_job_by_hash_inner(
@@ -5443,10 +5434,10 @@ pub async fn stream_job(
                 None,
             )
             .await?;
-            (uuid, None)
+            (uuid, None, false)
         }
         RunnableId::FlowId(FlowId::FlowPath(flow_path)) => {
-            let (uuid, early_return, _) = push_flow_job_by_path_into_queue(
+            let (uuid, early_return, has_failure_module, _) = push_flow_job_by_path_into_queue(
                 authed.clone(),
                 db.clone(),
                 None,
@@ -5458,10 +5449,10 @@ pub async fn stream_job(
                 None,
             )
             .await?;
-            (uuid, early_return)
+            (uuid, early_return, has_failure_module)
         }
         RunnableId::FlowId(FlowId::FlowVersion(version)) => {
-            let (uuid, early_return) = run_flow_by_version_inner(
+            let (uuid, early_return, has_failure_module) = run_flow_by_version_inner(
                 authed.clone(),
                 db.clone(),
                 user_db,
@@ -5472,7 +5463,7 @@ pub async fn stream_job(
                 None,
             )
             .await?;
-            (uuid, early_return)
+            (uuid, early_return, has_failure_module)
         }
     };
 
@@ -5504,6 +5495,7 @@ pub async fn stream_job(
         tx,
         poll_delay_ms,
         early_return,
+        has_failure_module,
     );
 
     let body = axum::body::Body::from_stream(stream.map(Result::<_, std::convert::Infallible>::Ok));
@@ -5562,13 +5554,8 @@ pub async fn run_wait_result_flow_by_version_get(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let flow_path = sqlx::query_scalar!(
-        "SELECT path FROM flow_version WHERE id = $1 AND workspace_id = $2",
-        version,
-        &w_id
-    )
-    .fetch_one(&db)
-    .await?;
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+    let flow_path = get_flow_path_for_version_authed(&userdb_authed, &db, version, &w_id).await?;
 
     check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
 
@@ -5618,21 +5605,8 @@ pub async fn run_wait_result_flow_by_version(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let flow_path = sqlx::query_scalar!(
-        r#"
-                SELECT
-                    path
-                FROM
-                    flow_version
-                WHERE
-                    id = $1 AND
-                    workspace_id = $2
-            "#,
-        version,
-        &w_id
-    )
-    .fetch_one(&db)
-    .await?;
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+    let flow_path = get_flow_path_for_version_authed(&userdb_authed, &db, version, &w_id).await?;
 
     check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
 
@@ -5678,6 +5652,11 @@ async fn run_preview_script(
             "Operators cannot run preview jobs for security reasons".to_string(),
         ));
     }
+    // Preview runs arbitrary, request-supplied code. require_path_read_access_for_preview
+    // only checks folder/namespace *read* access (and is a no-op when path is null), so a
+    // token scoped to a specific script/flow could otherwise escape its scope and run any
+    // code. Require the broad jobs:run scope, like other arbitrary-execution endpoints.
+    check_scopes(&authed, || format!("jobs:run"))?;
     require_path_read_access_for_preview(&authed, &preview.path)?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(preview.tag.clone());
@@ -5691,6 +5670,12 @@ async fn run_preview_script(
     }
     if let Some(ref modules) = preview.modules {
         extra.insert("_MODULES".to_string(), to_raw_value(modules));
+    }
+    if let Some(ref temp_script_refs) = preview.temp_script_refs {
+        extra.insert(
+            "_TEMP_SCRIPT_REFS".to_string(),
+            to_raw_value(temp_script_refs),
+        );
     }
     let extra = if extra.is_empty() { None } else { Some(extra) };
     let push_args = PushArgs { extra, args: &preview_args };
@@ -5759,6 +5744,9 @@ async fn run_inline_preview_script(
     Path(w_id): Path<String>,
     Json(preview): Json<PreviewInline>,
 ) -> error::Result<Response> {
+    // Same arbitrary-code class as run_preview_script: a narrowly-scoped token
+    // must not be able to run request-supplied code through inline preview.
+    check_scopes(&authed, || format!("jobs:run"))?;
     if let Some(job_id) = job_id {
         register_potential_assets_on_inline_execution(job_id, &w_id, &preview);
     }
@@ -5991,7 +5979,7 @@ async fn run_wait_result_preview_script(
     let uuid = uuid
         .parse::<Uuid>()
         .map_err(|_| Error::BadRequest("Invalid UUID".to_string()))?;
-    let result = run_wait_result(&db, uuid, &w_id, None, &authed.username).await;
+    let result = run_wait_result(&db, uuid, &w_id, None, false, &authed.username).await;
     return result;
 }
 
@@ -6008,6 +5996,9 @@ async fn run_bundle_preview_script(
             "Operators cannot run preview jobs for security reasons".to_string(),
         ));
     }
+    // Bundle preview runs arbitrary, request-supplied code; require the broad jobs:run
+    // scope so a narrowly-scoped token cannot escape its scope. See run_preview_script.
+    check_scopes(&authed, || format!("jobs:run"))?;
 
     let mut job_id = None;
     let mut tx = None;
@@ -6033,6 +6024,17 @@ async fn run_bundle_preview_script(
             let ltx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
 
             let args = preview.args.unwrap_or_default();
+
+            // The bundle's runtime still resolves workspace-path imports
+            // (`/f/...`) via loader.bun.js, so pass through temp_script_refs the
+            // same way `run_preview_script` does — otherwise codebase previews
+            // silently fall back to deployed content for those imports.
+            let extra = preview.temp_script_refs.as_ref().map(|refs| {
+                let mut m = HashMap::new();
+                m.insert("_TEMP_SCRIPT_REFS".to_string(), to_raw_value(refs));
+                m
+            });
+            let push_args = PushArgs { extra, args: &args };
 
             is_tar = match preview.kind {
                 Some(PreviewKind::Tarbundle) => true,
@@ -6062,7 +6064,7 @@ async fn run_bundle_preview_script(
                     modules: None,
                     tag: None,
                 }),
-                PushArgs::from(&args),
+                push_args,
                 authed.display_username(),
                 &authed.email,
                 username_to_permissioned_as(&authed.username),
@@ -6251,7 +6253,7 @@ async fn run_dependencies_job(
     Json(req): Json<RunDependenciesRequest>,
 ) -> error::Result<Response> {
     let uuid = push_dependencies_job(&authed, &db, &w_id, req).await?;
-    run_wait_result(&db, uuid, &w_id, None, &authed.username).await
+    run_wait_result(&db, uuid, &w_id, None, false, &authed.username).await
 }
 
 async fn run_dependencies_job_async(
@@ -6360,7 +6362,7 @@ async fn run_flow_dependencies_job(
     Json(req): Json<RunFlowDependenciesRequest>,
 ) -> error::Result<Response> {
     let uuid = push_flow_dependencies_job(&authed, &db, &w_id, req).await?;
-    run_wait_result(&db, uuid, &w_id, None, &authed.username).await
+    run_wait_result(&db, uuid, &w_id, None, false, &authed.username).await
 }
 
 async fn run_flow_dependencies_job_async(
@@ -6675,6 +6677,9 @@ async fn run_preview_flow_job(
             "Operators cannot run preview jobs for security reasons".to_string(),
         ));
     }
+    // Flow preview runs an arbitrary, request-supplied flow definition; require the broad
+    // jobs:run scope so a narrowly-scoped token cannot escape its scope. See run_preview_script.
+    check_scopes(&authed, || format!("jobs:run"))?;
     require_path_read_access_for_preview(&authed, &raw_flow.path)?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(raw_flow.tag.clone());
@@ -6689,6 +6694,14 @@ async fn run_preview_flow_job(
         .and_then(|args| args.get("user_message"))
         .cloned();
 
+    let mut flow_args = raw_flow.args.unwrap_or_default();
+    if let Some(ref temp_script_refs) = raw_flow.temp_script_refs {
+        flow_args.insert(
+            "_TEMP_SCRIPT_REFS".to_string(),
+            to_raw_value(temp_script_refs),
+        );
+    }
+
     let (uuid, mut tx) = push(
         &db,
         tx,
@@ -6698,7 +6711,7 @@ async fn run_preview_flow_job(
             path: raw_flow.path,
             restarted_from: raw_flow.restarted_from,
         },
-        PushArgs::from(&raw_flow.args.unwrap_or_default()),
+        PushArgs::from(&flow_args),
         authed.display_username(),
         &authed.email,
         username_to_permissioned_as(&authed.username),
@@ -6768,7 +6781,7 @@ async fn run_wait_result_preview_flow(
     let uuid = uuid
         .parse::<Uuid>()
         .map_err(|_| Error::BadRequest("Invalid UUID".to_string()))?;
-    let result = run_wait_result(&db, uuid, &w_id, None, &authed.username).await;
+    let result = run_wait_result(&db, uuid, &w_id, None, false, &authed.username).await;
     return result;
 }
 
@@ -6798,6 +6811,14 @@ async fn run_dynamic_select(
     match request.runnable_ref {
         DynamicSelectRunnableRef::Deployed { path, runnable_kind } => match runnable_kind {
             RunnableKind::Script => {
+                if !is_valid_entrypoint_name(&request.entrypoint_function) {
+                    return Err(error::Error::BadRequest(format!(
+                        "Invalid entrypoint_function {:?}: must match \
+                         ^[A-Za-z_][A-Za-z0-9_]*$ (letters, digits and underscores, \
+                         not starting with a digit)",
+                        request.entrypoint_function
+                    )));
+                }
                 let mut script_args = request.args.unwrap_or_default();
                 script_args.insert(
                     "_ENTRYPOINT_OVERRIDE".to_string(),
@@ -6822,6 +6843,11 @@ async fn run_dynamic_select(
                 return Ok((StatusCode::CREATED, uuid.to_string()).into_response());
             }
             RunnableKind::Flow => {
+                // Runs the deployed flow's dynamic-select code. Enforce the same
+                // path-scoped check the script branch gets via
+                // push_script_job_by_path_into_queue, so a token not scoped to this
+                // flow cannot trigger its code through dynamic select.
+                check_scopes(&authed, || format!("jobs:run:flows:{path}"))?;
                 let mut conn = user_db.clone().begin(&authed).await?;
 
                 let dynamic_input_res = match DYNAMIC_INPUT_CACHE.get(&format!("{}:{}", w_id, path))
@@ -6869,6 +6895,11 @@ async fn run_dynamic_select(
             }
         },
         DynamicSelectRunnableRef::Inline { code, lang: language } => {
+            // Inline dynamic select runs arbitrary, request-supplied code; require the broad
+            // jobs:run scope so a narrowly-scoped token cannot escape its scope. The Deployed
+            // branches are path-scoped instead (scripts via push_script_job_by_path_into_queue,
+            // flows via the check_scopes above).
+            check_scopes(&authed, || format!("jobs:run"))?;
             dynamic_input = DynamicInput {
                 x_windmill_dyn_select_code: code,
                 x_windmill_dyn_select_lang: language.unwrap_or_default(),
@@ -7075,7 +7106,11 @@ pub async fn run_job_by_hash_inner(
     Ok((uuid, delete_after_use, delete_after_secs))
 }
 
-async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::Result<Response> {
+async fn get_log_file(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, file_p)): Path<(String, String)>,
+) -> error::Result<Response> {
     if file_p.contains("..") {
         return Err(error::Error::BadRequest("Invalid path".to_string()));
     }
@@ -7087,27 +7122,58 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
             "Invalid path: must have exactly 2 components".to_string(),
         ));
     }
-    if Uuid::parse_str(parts[0]).is_err() {
-        return Err(error::Error::BadRequest(
-            "Invalid path: first component must be a valid UUID".to_string(),
-        ));
-    }
+    let job_id = Uuid::parse_str(parts[0]).map_err(|_| {
+        error::Error::BadRequest("Invalid path: first component must be a valid UUID".to_string())
+    })?;
     if !parts[1].ends_with(".txt") {
         return Err(error::Error::BadRequest(
             "Invalid path: file must end with .txt".to_string(),
         ));
     }
 
+    // Authorization: the log file directory is the job id, so gate access the same
+    // way as get_job_logs — the caller must be able to read the job. Non-logged-in
+    // callers may only read logs of jobs created by the anonymous user.
+    let tags = opt_authed
+        .as_ref()
+        .map(|authed| get_scope_tags(authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec()))
+        .flatten();
+    let created_by = sqlx::query_scalar!(
+        "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
+        job_id,
+        w_id,
+        tags.as_ref().map(|v| v.as_slice())
+    )
+    .fetch_optional(&db)
+    .await?
+    .ok_or_else(|| error::Error::NotFound(format!("Job {job_id} not found")))?;
+    if opt_authed.is_none() && created_by != "anonymous" {
+        return Err(error::Error::BadRequest(
+            "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+        ));
+    }
+
     let local_file = format!("{}/logs/{file_p}", *WINDMILL_DIR);
-    if tokio::fs::metadata(&local_file).await.is_ok() {
-        let mut file = tokio::fs::File::open(local_file).await.map_err(to_anyhow)?;
-        let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer).await.map_err(to_anyhow)?;
-        let res = Response::builder()
-            .header(http::header::CONTENT_TYPE, "text/plain")
-            .body(Body::from(bytes::Bytes::from(buffer)))
-            .unwrap();
-        return Ok(res);
+    // SECURITY (defense in depth): refuse to read through a symlink so a planted
+    // symlink in the logs directory cannot be used to exfiltrate arbitrary files.
+    // `symlink_metadata` returns the link's own metadata without following it.
+    match tokio::fs::symlink_metadata(&local_file).await {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            return Err(error::Error::BadRequest("Invalid path".to_string()));
+        }
+        Ok(_) => {
+            let mut file = tokio::fs::File::open(&local_file)
+                .await
+                .map_err(to_anyhow)?;
+            let mut buffer = Vec::new();
+            file.read_to_end(&mut buffer).await.map_err(to_anyhow)?;
+            let res = Response::builder()
+                .header(http::header::CONTENT_TYPE, "text/plain")
+                .body(Body::from(bytes::Bytes::from(buffer)))
+                .unwrap();
+            return Ok(res);
+        }
+        Err(_) => {}
     }
 
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
@@ -7184,6 +7250,9 @@ async fn get_job_update(
             is_flow,
             None,
             None,
+            false,
+            &mut false,
+            &mut false,
         )
         .await?,
     ))
@@ -7225,6 +7294,7 @@ async fn get_job_update_sse(
         tx,
         poll_delay_ms,
         None,
+        false,
     );
 
     let stream = tokio_stream::wrappers::ReceiverStream::new(rx).map(|x| {
@@ -7263,12 +7333,20 @@ pub fn start_job_update_sse_stream(
     tx: tokio::sync::mpsc::Sender<JobUpdateSSEStream>,
     poll_delay_ms: Option<u64>,
     early_return: Option<String>,
+    has_failure_module: bool,
 ) -> () {
     tokio::spawn(async move {
         let mut log_offset = initial_log_offset;
         let mut stream_offset = initial_stream_offset;
         let mut last_update_hash: Option<String> = None;
         let mut flow_stream_job_id = None;
+        // Latched once the early_return node's failure is observed alongside a
+        // failure_module — subsequent polls then skip the redundant per-node lookup.
+        let mut early_return_suppressed = false;
+        // Latched once we've verified the job was created by "anonymous" — for
+        // unauthenticated SSE streams, this gates access and is checked once per
+        // stream rather than once per poll (created_by cannot change).
+        let mut anonymous_verified = false;
 
         // Send initial update immediately
         let mut running = running;
@@ -7291,6 +7369,9 @@ pub fn start_job_update_sse_stream(
             is_flow,
             flow_stream_job_id,
             early_return.as_deref(),
+            has_failure_module,
+            &mut early_return_suppressed,
+            &mut anonymous_verified,
         )
         .await
         {
@@ -7409,6 +7490,9 @@ pub fn start_job_update_sse_stream(
                 is_flow,
                 flow_stream_job_id,
                 early_return.as_deref(),
+                has_failure_module,
+                &mut early_return_suppressed,
+                &mut anonymous_verified,
             )
             .await
             {
@@ -7540,6 +7624,9 @@ async fn get_job_update_data(
     is_flow: Option<bool>,
     flow_stream_job_id: Option<Uuid>,
     early_return: Option<&str>,
+    has_failure_module: bool,
+    early_return_suppressed: &mut bool,
+    anonymous_verified: &mut bool,
 ) -> error::Result<JobUpdate> {
     let tags = if log_view {
         log_job_view(
@@ -7561,6 +7648,32 @@ async fn get_job_update_data(
     let ignore_flow_stream_job_id = is_flow.is_some_and(|x| !x) || flow_stream_job_id.is_some();
 
     if only_result.unwrap_or(false) {
+        // Unauthenticated callers may only read jobs whose creator is "anonymous".
+        // The non-only_result branch enforces this via `record.created_by` from its
+        // main query, but the only_result branch below fetches solely the result by
+        // (workspace_id, job_id), so we guard here to close the gap. The
+        // `anonymous_verified` flag is preserved across SSE poll iterations so the
+        // lookup only happens once per stream — `created_by` cannot change for a
+        // given job once it has been created.
+        if opt_authed.is_none() && !*anonymous_verified {
+            let created_by = sqlx::query_scalar!(
+                "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+                job_id,
+                w_id,
+            )
+            .fetch_optional(db)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?;
+
+            if created_by != "anonymous" {
+                return Err(Error::BadRequest(
+                    "As a non logged in user, you can only see jobs ran by anonymous users"
+                        .to_string(),
+                ));
+            }
+            *anonymous_verified = true;
+        }
+
         let (result, running, mut result_stream, mut new_stream_offset, new_flow_stream_job_id) =
             if let Some(tags) = tags {
                 let r = sqlx::query!(
@@ -7703,11 +7816,21 @@ async fn get_job_update_data(
 
         let flow_stream_job_id = flow_stream_job_id.or(new_flow_stream_job_id);
 
-        let result = if let Some(early_return) = early_return {
+        let result = if let Some(early_return) = early_return.filter(|_| !*early_return_suppressed)
+        {
             match get_result_and_success_by_id_from_flow(db, w_id, job_id, early_return, None).await
             {
+                // When the early_return node failed but the flow has a failure_module,
+                // the error handler will run and may recover. Keep the completed flow
+                // result instead (it reflects the failure_module's output). Latch the
+                // observation so subsequent polls skip this query — the early-return
+                // node's failure is final once observed.
+                Ok((_, early_success)) if has_failure_module && !early_success => {
+                    *early_return_suppressed = true;
+                    result
+                }
                 Ok((early_result, _)) => Some(early_result),
-                Err(_) => result,
+                _ => result,
             }
         } else {
             result

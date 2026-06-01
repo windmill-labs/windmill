@@ -6,16 +6,13 @@ import type { BenchmarkArtifactFile, ModeRunner } from "../core/types";
 import { BackendPreviewClient } from "../adapters/frontend/backendPreview";
 import { runScriptEval } from "../adapters/frontend/core/script/scriptEvalRunner";
 import type { ScriptEvalState } from "../adapters/frontend/core/script/fileHelpers";
-import {
-  DEFAULT_FRONTEND_EVAL_MODEL,
-  getFrontendApiKey,
-} from "./frontendCommon";
-import type { FrontendEvalTransportSettings } from "../core/frontendTransport";
+import { getFrontendApiKey } from "./frontendCommon";
+import type { WindmillBackendSettings } from "../core/windmillBackendSettings";
 
 export function createScriptModeRunner(
-  modelConfig: FrontendEvalModelConfig = DEFAULT_FRONTEND_EVAL_MODEL,
-  backendValidation?: BackendValidationSettings,
-  transportSettings?: FrontendEvalTransportSettings,
+  modelConfig: FrontendEvalModelConfig,
+  backendValidation: BackendValidationSettings | undefined,
+  backendSettings: WindmillBackendSettings,
 ): ModeRunner<ScriptEvalState, ScriptEvalState, ScriptEvalState> {
   return {
     mode: "script",
@@ -40,8 +37,7 @@ export function createScriptModeRunner(
           maxIterations: context.evalCase?.runtime?.maxTurns,
           provider: modelConfig.provider,
           model: modelConfig.model,
-          transport: transportSettings?.transport,
-          backend: transportSettings?.backend,
+          backend: backendSettings,
           runContext: context,
         },
       );

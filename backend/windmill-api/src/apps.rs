@@ -11,7 +11,7 @@ use crate::{
     auth::{get_end_user_email, OptTokened},
     db::{ApiAuthed, DB},
     jobs::RunJobQuery,
-    users::{require_owner_of_path, OptAuthed},
+    users::{require_owner_of_path, require_path_read_access_for_preview, OptAuthed},
     utils::{check_scopes, WithStarredInfoQuery},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
@@ -217,6 +217,9 @@ pub struct AppWithLastVersionAndDraft {
     pub draft: Option<sqlx::types::Json<Box<RawValue>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
+    /// Timestamp at which the most recent DB draft was created.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_created_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Serialize)]
@@ -303,6 +306,11 @@ pub struct CreateApp {
     pub preserve_on_behalf_of: Option<bool>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
+    /// Caller-intent flag (set by the CLI / git sync): when true, deploying
+    /// this app must NOT delete an existing user draft at the same path.
+    /// Transient — never persisted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip_draft_deletion: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -316,6 +324,11 @@ pub struct EditApp {
     pub preserve_on_behalf_of: Option<bool>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
+    /// Caller-intent flag (set by the CLI / git sync): when true, deploying
+    /// this app must NOT delete an existing user draft at the same path.
+    /// Transient — never persisted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip_draft_deletion: Option<bool>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -642,29 +655,30 @@ async fn get_app_w_draft(
 
     let app_o = sqlx::query_as::<_, AppWithLastVersionAndDraft>(
         r#"
-        SELECT 
-            app.id, 
-            app.path, 
-            app.summary, 
-            app.versions, 
-            app.policy, 
+        SELECT
+            app.id,
+            app.path,
+            app.summary,
+            app.versions,
+            app.policy,
             app.custom_path,
-            app.extra_perms, 
+            app.extra_perms,
             app_version.value,
-            app_version.created_at, 
+            app_version.created_at,
             app_version.created_by,
             app.draft_only,
             draft.value AS "draft",
+            draft.created_at AS "draft_created_at",
             app_version.raw_app,
             app.labels
         FROM app
-        INNER JOIN app_version 
+        INNER JOIN app_version
             ON app_version.id = app.versions[array_upper(app.versions, 1)]
-        LEFT JOIN draft 
-            ON app.path = draft.path 
-        AND draft.workspace_id = $2 
+        LEFT JOIN draft
+            ON app.path = draft.path
+        AND draft.workspace_id = $2
         AND draft.typ = 'app'
-        WHERE app.path = $1 
+        WHERE app.path = $1
         AND app.workspace_id = $2
     "#,
     )
@@ -899,9 +913,13 @@ async fn get_public_resource(
 ) -> JsonResult<Option<serde_json::Value>> {
     let path = path.to_path();
 
+    // This endpoint is unauthenticated (anonymous public apps must fetch their
+    // theme and form schemas). Both branches MUST stay tightly constrained to
+    // the non-sensitive resource types they serve, otherwise an unauthenticated
+    // caller could read the raw value of any resource at the given path.
     let res = if path.starts_with("f/app_themes/") {
         sqlx::query_scalar!(
-            "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
+            "SELECT value from resource WHERE path = $1 AND workspace_id = $2 AND resource_type = 'app_theme'",
             path.to_owned(),
             &w_id
         )
@@ -1213,6 +1231,32 @@ async fn create_app(
     Ok((StatusCode::CREATED, path))
 }
 
+/// Actionable error when a custom path is already taken. In global mode (not
+/// CLOUD_HOSTED and `app_workspaced_route` off) custom paths are unique across
+/// the whole instance, so the conflicting copy may live in another workspace
+/// (e.g. the same app deployed/git-synced to staging and prod) — name it so
+/// the operator knows exactly what to remove.
+fn custom_path_conflict_error(
+    custom_path: &str,
+    conflict_path: &str,
+    conflict_workspace: &str,
+    scoped: bool,
+) -> Error {
+    if scoped {
+        Error::BadRequest(format!(
+            "Custom path '{}' is already used by app '{}' in this workspace",
+            custom_path, conflict_path
+        ))
+    } else {
+        Error::BadRequest(format!(
+            "Custom path '{}' is already used by app '{}' in workspace '{}'. \
+             Custom paths must be unique across the whole instance unless the \
+             'app_workspaced_route' instance setting is enabled.",
+            custom_path, conflict_path, conflict_workspace
+        ))
+    }
+}
+
 async fn create_app_internal<'a>(
     authed: ApiAuthed,
     db: sqlx::Pool<sqlx::Postgres>,
@@ -1284,30 +1328,37 @@ async fn create_app_internal<'a>(
     }
     if let Some(custom_path) = &app.custom_path {
         require_admin(authed.is_admin, &authed.username)?;
-        let as_workspaced_route = APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
+        let scoped =
+            *CLOUD_HOSTED || APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
 
-        let exists = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2))",
+        let conflict = sqlx::query!(
+            "SELECT workspace_id, path FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2) LIMIT 1",
             custom_path,
-            if *CLOUD_HOSTED || as_workspaced_route { Some(w_id) } else { None }
+            if scoped { Some(w_id) } else { None }
         )
-        .fetch_one(&mut *tx)
-        .await?.unwrap_or(false);
+        .fetch_optional(&mut *tx)
+        .await?;
 
-        if exists {
-            return Err(Error::BadRequest(format!(
-                "App with custom path {} already exists",
-                custom_path
-            )));
+        if let Some(conflict) = conflict {
+            return Err(custom_path_conflict_error(
+                custom_path,
+                &conflict.path,
+                &conflict.workspace_id,
+                scoped,
+            ));
         }
     }
-    sqlx::query!(
-        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
-        &app.path,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
+    // CLI / git-sync deploys ask us to preserve any existing user draft at this
+    // path instead of wiping it as part of the deploy.
+    if !app.skip_draft_deletion.unwrap_or(false) {
+        sqlx::query!(
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
+            &app.path,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
     let id = sqlx::query_scalar!(
         "INSERT INTO app
             (workspace_id, path, summary, policy, versions, draft_only, custom_path, labels)
@@ -1781,27 +1832,34 @@ async fn update_app_internal<'a>(
 
         if let Some(ncustom_path) = &ns.custom_path {
             require_admin(authed.is_admin, &authed.username)?;
-            let as_workspaced_route =
-                APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
+            let scoped =
+                *CLOUD_HOSTED || APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
 
             if ncustom_path.is_empty() {
                 sqlb.set("custom_path", "NULL");
             } else {
-                let exists = sqlx::query_scalar!(
-                    "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2) AND NOT (path = $3 AND workspace_id = $4))",
+                // Same predicate as before (the check is correct): the app's
+                // own row in this workspace is excluded, so a single-workspace
+                // edit still works. In global mode a copy of this app in
+                // another workspace is a genuine conflict (one global route) —
+                // surface which workspace so it can be resolved.
+                let conflict = sqlx::query!(
+                    "SELECT workspace_id, path FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2) AND NOT (path = $3 AND workspace_id = $4) LIMIT 1",
                     ncustom_path,
-                    if *CLOUD_HOSTED || as_workspaced_route { Some(w_id) } else { None },
+                    if scoped { Some(w_id) } else { None },
                     path,
                     w_id
                 )
-                .fetch_one(&mut *tx)
-                .await?.unwrap_or(false);
+                .fetch_optional(&mut *tx)
+                .await?;
 
-                if exists {
-                    return Err(Error::BadRequest(format!(
-                        "App with custom path {} already exists",
-                        ncustom_path
-                    )));
+                if let Some(conflict) = conflict {
+                    return Err(custom_path_conflict_error(
+                        ncustom_path,
+                        &conflict.path,
+                        &conflict.workspace_id,
+                        scoped,
+                    ));
                 }
                 sqlb.set_str("custom_path", ncustom_path);
             }
@@ -1899,13 +1957,17 @@ async fn update_app_internal<'a>(
             )));
         }
     };
-    sqlx::query!(
-        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
-        path,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
+    // CLI / git-sync deploys ask us to preserve any existing user draft at this
+    // path instead of wiping it as part of the deploy.
+    if !ns.skip_draft_deletion.unwrap_or(false) {
+        sqlx::query!(
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
+            path,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
     audit_log(
         &mut *tx,
         &authed,
@@ -1999,6 +2061,10 @@ pub struct ExecuteApp {
     pub force_viewer_delete_after_secs: Option<i32>,
     /// Runnable query parameters (e.g., memory_id for chat-enabled flows)
     pub run_query_params: Option<RunJobQuery>,
+    /// Map of relative-import script path -> temp storage hash. Only honored for
+    /// inline-script (raw_code, preview) execution so `wmill app dev` resolves
+    /// those imports from not-yet-deployed local content instead of deployed.
+    pub temp_script_refs: Option<HashMap<String, String>>,
 }
 
 fn digest(code: &str) -> String {
@@ -2073,8 +2139,16 @@ async fn execute_component(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Json(payload): Json<ExecuteApp>,
+    Json(mut payload): Json<ExecuteApp>,
 ) -> Result<String> {
+    // Only honor temp_script_refs for the inline-script preview path:
+    // preview/editor mode (force_viewer_static_fields set, == `is_preview`),
+    // raw_code present, and no deployed app_script id — i.e. `wmill app dev`.
+    let temp_script_refs = payload.temp_script_refs.take();
+    let inject_temp_refs = temp_script_refs.is_some()
+        && payload.force_viewer_static_fields.is_some()
+        && payload.raw_code.is_some()
+        && payload.id.is_none();
     match (payload.path.is_some(), payload.raw_code.is_some()) {
         (false, false) => {
             return Err(Error::BadRequest(
@@ -2097,6 +2171,54 @@ async fn execute_component(
     // on the inline script is honored. In any other case we must read the
     // tag from the deployed policy and ignore the request body.
     let is_preview = payload.force_viewer_static_fields.is_some();
+
+    // Preview mode runs request-supplied code as a `Viewer`-mode job (the
+    // app-editor equivalent of `/jobs/run/preview`), so it enforces the same
+    // guards. Operators must never run preview jobs. `jobs:run` is required
+    // because this route is reachable with an `apps:run`-scoped token (the
+    // route maps to the `apps` scope domain), which must not be able to escalate
+    // to arbitrary code execution. The client-supplied inline `raw_code.tag`
+    // must stay within the caller's allowed worker tags. A preview can also
+    // *reference* an existing runnable the caller may not be allowed to read — a
+    // deployed script/flow via `payload.path` or a persisted `app_script` via
+    // `payload.id`, both resolved with the root DB handle — so those (and only
+    // those) are confined to paths the caller can read. Inline `raw_code` is not
+    // path-gated: a non-operator member can already run arbitrary inline code
+    // via `/jobs/run/preview`.
+    if is_preview {
+        let authed = opt_authed.as_ref().ok_or_else(|| {
+            Error::NotAuthorized("App component preview requires authentication".to_string())
+        })?;
+        if authed.is_operator {
+            return Err(Error::NotAuthorized(
+                "Operators cannot run preview jobs for security reasons".to_string(),
+            ));
+        }
+        check_scopes(authed, || format!("jobs:run"))?;
+        if let Some(p) = payload.path.as_deref() {
+            let runnable_path = p
+                .strip_prefix("script/")
+                .or_else(|| p.strip_prefix("flow/"))
+                .unwrap_or(p);
+            require_path_read_access_for_preview(authed, &Some(runnable_path.to_string()))?;
+        }
+        if let Some(id) = payload.id {
+            let owner_path = sqlx::query_scalar!(
+                "SELECT a.path FROM app_script s JOIN app a ON a.id = s.app
+                 WHERE s.id = $1 AND a.workspace_id = $2",
+                id,
+                &w_id,
+            )
+            .fetch_optional(&db)
+            .await?
+            .ok_or_else(|| {
+                Error::NotAuthorized(format!(
+                    "App script {id} does not belong to an app in this workspace"
+                ))
+            })?;
+            require_path_read_access_for_preview(authed, &Some(owner_path))?;
+        }
+    }
 
     // Two cases here:
     // 1. The component is executed from the editor (i.e. in "preview" mode), then:
@@ -2255,7 +2377,7 @@ async fn execute_component(
     let resolved_delete_secs =
         resolve_delete_after_secs(None, policy_triggerables.delete_after_secs);
 
-    let (args, job_id) = build_args(
+    let (mut args, job_id) = build_args(
         policy,
         policy_triggerables,
         payload.args,
@@ -2265,6 +2387,14 @@ async fn execute_component(
         &w_id,
     )
     .await?;
+
+    if inject_temp_refs {
+        if let Some(refs) = temp_script_refs {
+            args.extra
+                .get_or_insert_with(HashMap::new)
+                .insert("_TEMP_SCRIPT_REFS".to_string(), to_raw_value(&refs));
+        }
+    }
 
     let is_flow = payload
         .path
@@ -2301,6 +2431,20 @@ async fn execute_component(
         ),
         _ => unreachable!(),
     };
+    // Preview honors the client-supplied inline tag (`resolved_inline_tag`), so
+    // — like `/jobs/run/preview` — confine it to worker tags the caller may use
+    // (a `if_jobs:filter_tags`-restricted token must not escape its filter).
+    // `is_preview` implies an authed caller (the guard above returns otherwise).
+    if is_preview {
+        if let Some(authed) = opt_authed.as_ref() {
+            crate::jobs::check_tag_available_for_workspace(&db, &w_id, &tag, authed).await?;
+        }
+    }
+    // Identity is already resolved to the requesting user in preview mode (the
+    // policy is forced to `ExecutionMode::Viewer`, so the job runs as the
+    // caller). The enqueue stays root-isolated as before — switching the insert
+    // to user-RLS is not what contains the bypass (the auth guards above are)
+    // and would add unnecessary breakage risk to the legitimate editor flow.
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
 
     let (email, permissioned_as) = if let Some(on_behalf_of) = on_behalf_of.as_ref() {
@@ -2467,6 +2611,21 @@ async fn upload_s3_file_from_app(
     request: axum::extract::Request,
 ) -> JsonResult<AppUploadFileResponse> {
     let policy = if let Some(file_key_regex) = query.force_viewer_file_key_regex {
+        // `force_viewer_*` lets the caller supply a synthetic upload policy that
+        // bypasses the deployed app's file_key_regex / resource restrictions.
+        // It is intended for the app editor's preview path, so it must enforce
+        // the same guards as `execute_component`'s preview mode (PR #9235):
+        // authed caller, not an operator, and `apps:write` scope to make sure
+        // an `apps:run`-scoped token cannot pick its own policy.
+        let authed = opt_authed.as_ref().ok_or_else(|| {
+            Error::NotAuthorized("App S3 preview upload requires authentication".to_string())
+        })?;
+        if authed.is_operator {
+            return Err(Error::NotAuthorized(
+                "Operators cannot run app S3 previews for security reasons".to_string(),
+            ));
+        }
+        check_scopes(authed, || format!("apps:write:{}", path.to_path()))?;
         Some(Policy {
             execution_mode: ExecutionMode::Viewer,
             triggerables: None,
@@ -2978,6 +3137,20 @@ async fn download_s3_file_from_app(
     let force_viewer_allowed_s3_keys = if let Some(force_viewer_allowed_s3_keys) =
         query.force_viewer_allowed_s3_keys.clone()
     {
+        // `force_viewer_allowed_s3_keys` lets the caller supply a synthetic
+        // allowlist that bypasses the deployed app policy. Apply the same
+        // preview-mode guard as `execute_component` (PR #9235): authed, not an
+        // operator, `apps:write` scope so an `apps:run`-scoped token cannot
+        // pick its own allowlist.
+        let authed = opt_authed.as_ref().ok_or_else(|| {
+            Error::NotAuthorized("App S3 preview download requires authentication".to_string())
+        })?;
+        if authed.is_operator {
+            return Err(Error::NotAuthorized(
+                "Operators cannot run app S3 previews for security reasons".to_string(),
+            ));
+        }
+        check_scopes(authed, || format!("apps:write:{}", path))?;
         Some(serde_json::from_str::<Vec<S3Key>>(&force_viewer_allowed_s3_keys).unwrap_or_default())
     } else {
         None

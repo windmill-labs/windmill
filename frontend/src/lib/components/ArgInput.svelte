@@ -406,6 +406,15 @@
 		if (nullable && emptyString(v)) {
 			error = ''
 			valid && (valid = true)
+		} else if (
+			typeof v === 'string' &&
+			(v.startsWith('$var:') || v.startsWith('$res:') || v.startsWith('$jsonvar:'))
+		) {
+			// $var/$res/$jsonvar are placeholders resolved at runtime; the literal
+			// string won't match format constraints (email/ipv4/uuid/custom pattern),
+			// so format-checking it produces a false-positive "invalid format" error.
+			error = ''
+			!valid && (valid = true)
 		} else if (required && (v == undefined || v == null || v === '') && inputCat != 'object') {
 			error = 'Required'
 			valid && (valid = false)

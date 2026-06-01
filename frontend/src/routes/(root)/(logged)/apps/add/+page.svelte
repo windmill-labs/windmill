@@ -4,10 +4,9 @@
 	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
 	import { AppService, type Policy } from '$lib/gen'
 	import { page } from '$app/state'
-	import { decodeState } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type { App } from '$lib/components/apps/types'
-	import { afterNavigate, replaceState } from '$app/navigation'
+	import { replaceState } from '$app/navigation'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	import { goto } from '$lib/navigation'
@@ -15,8 +14,19 @@
 	import { DEFAULT_THEME } from '$lib/components/apps/editor/componentsPanel/themeUtils'
 	import { emptyApp } from '$lib/components/apps/editor/appUtils'
 	import { tick } from 'svelte'
+	import { UserDraft } from '$lib/userDraft.svelte'
 
-	let nodraft = page.url.searchParams.get('nodraft')
+	// "+ App" buttons navigate with ?nodraft=true to signal "start fresh".
+	// Wipe the persisted empty-path autosave and strip the flag from the URL
+	// synchronously so a reload doesn't wipe the freshly-started draft. A
+	// plain reload of /apps/add (no nodraft) instead restores the previous
+	// session via the child AppEditor's `UserDraft.use`.
+	if (page.url.searchParams.get('nodraft') && typeof window !== 'undefined') {
+		UserDraft.remove('app', '')
+		const url = new URL(window.location.href)
+		url.searchParams.delete('nodraft')
+		window.history.replaceState(window.history.state, '', url.toString())
+	}
 	let appEditor: AppEditor | undefined = $state(undefined)
 	const hubId = page.url.searchParams.get('hub')
 	const templatePath = page.url.searchParams.get('template')
@@ -27,8 +37,6 @@
 		$importStore = undefined
 	}
 
-	const appState = nodraft ? undefined : localStorage.getItem('app')
-
 	let summary = $state('')
 	let value: App = $state({
 		grid: [],
@@ -38,13 +46,6 @@
 		theme: {
 			type: 'path',
 			path: DEFAULT_THEME
-		}
-	})
-	afterNavigate(() => {
-		if (nodraft) {
-			let url = new URL(page.url.href)
-			url.search = ''
-			replaceState(url.toString(), page.state)
 		}
 	})
 	let policy: Policy = $state({
@@ -59,6 +60,10 @@
 
 	async function loadApp() {
 		if (importRaw) {
+			// Import/template/hub loads are an explicit "start fresh from this
+			// content" — drop any previous empty-path autosave so it doesn't
+			// shadow the imported value on AppEditor mount.
+			UserDraft.remove('app', '')
 			sendUserToast('Loaded from YAML/JSON')
 			if ('value' in importRaw) {
 				summary = importRaw.summary
@@ -68,6 +73,7 @@
 				value = importRaw
 			}
 		} else if (templatePath) {
+			UserDraft.remove('app', '')
 			const template = await AppService.getAppByPath({
 				workspace: $workspaceStore!,
 				path: templatePath
@@ -76,6 +82,7 @@
 			sendUserToast('App loaded from template')
 			goto('?', { replaceState: true })
 		} else if (templateId) {
+			UserDraft.remove('app', '')
 			const template = await AppService.getAppByVersion({
 				workspace: $workspaceStore!,
 				id: parseInt(templateId)
@@ -84,6 +91,7 @@
 			sendUserToast('App loaded from template')
 			goto('?', { replaceState: true })
 		} else if (hubId) {
+			UserDraft.remove('app', '')
 			const hub = await AppService.getHubAppById({ id: Number(hubId) })
 			value = {
 				hiddenInlineScripts: [],
@@ -94,22 +102,6 @@
 			summary = hub.app.summary
 			sendUserToast('App loaded from Hub')
 			goto('?', { replaceState: true })
-		} else if (!templatePath && !hubId && appState) {
-			sendUserToast('App restored from browser stored autosave', false, [
-				{
-					label: 'Start from blank',
-					callback: () => {
-						value = {
-							grid: [],
-							fullscreen: false,
-							unusedInlineScripts: [],
-							hiddenInlineScripts: [],
-							theme: undefined
-						}
-					}
-				}
-			])
-			value = decodeState(appState)
 		} else {
 			value = emptyApp()
 		}
@@ -121,7 +113,7 @@
 			await tick()
 			let attempts = 0
 			while (attempts < 20 && !document.querySelector('#app-editor-runnable-panel')) {
-				await new Promise(resolve => setTimeout(resolve, 100))
+				await new Promise((resolve) => setTimeout(resolve, 100))
 				attempts++
 			}
 			appEditor?.triggerTutorial()

@@ -119,7 +119,9 @@ async fn test_compare_workspaces_comprehensive(db: Pool<Postgres>) -> anyhow::Re
 
     let fork_response = client
         .client()
-        .post(&format!("{base_url}/w/test-workspace/workspaces/create_fork"))
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
         .json(&json!({
             "id": "wm-fork-test-workspace",
             "name": "Test Fork",
@@ -129,7 +131,11 @@ async fn test_compare_workspaces_comprehensive(db: Pool<Postgres>) -> anyhow::Re
         .await?;
 
     let status = fork_response.status();
-    assert!(status.is_success(), "Fork creation should succeed: {}", status);
+    assert!(
+        status.is_success(),
+        "Fork creation should succeed: {}",
+        status
+    );
 
     // Verify fork was created
     let fork_exists = sqlx::query_scalar!(
@@ -346,16 +352,24 @@ async fn test_compare_workspaces_comprehensive(db: Pool<Postgres>) -> anyhow::Re
 
     let comparison: serde_json::Value = client
         .client()
-        .get(&format!("{base_url}/w/test-workspace/workspaces/compare/wm-fork-test-workspace"))
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-test-workspace"
+        ))
         .send()
         .await?
         .json()
         .await?;
 
     // Verify basic structure
-    assert!(!comparison["skipped_comparison"].as_bool().unwrap_or(true), "Should not skip comparison");
+    assert!(
+        !comparison["skipped_comparison"].as_bool().unwrap_or(true),
+        "Should not skip comparison"
+    );
     assert!(comparison["diffs"].is_array(), "Should have diffs array");
-    assert!(comparison["summary"].is_object(), "Should have summary object");
+    assert!(
+        comparison["summary"].is_object(),
+        "Should have summary object"
+    );
 
     let diffs = comparison["diffs"].as_array().unwrap();
     let summary = &comparison["summary"];
@@ -379,12 +393,30 @@ async fn test_compare_workspaces_comprehensive(db: Pool<Postgres>) -> anyhow::Re
     assert!(conflicts >= 1, "Should have at least 1 conflict (flow)");
 
     // Verify per-item-type counts
-    assert!(summary["scripts_changed"].as_u64().unwrap() > 0, "Should have script changes");
-    assert!(summary["flows_changed"].as_u64().unwrap() > 0, "Should have flow changes");
-    assert!(summary["apps_changed"].as_u64().unwrap() > 0, "Should have app changes");
-    assert!(summary["resources_changed"].as_u64().unwrap() > 0, "Should have resource changes");
-    assert!(summary["variables_changed"].as_u64().unwrap() > 0, "Should have variable changes");
-    assert!(summary["resource_types_changed"].as_u64().unwrap() > 0, "Should have resource_type changes");
+    assert!(
+        summary["scripts_changed"].as_u64().unwrap() > 0,
+        "Should have script changes"
+    );
+    assert!(
+        summary["flows_changed"].as_u64().unwrap() > 0,
+        "Should have flow changes"
+    );
+    assert!(
+        summary["apps_changed"].as_u64().unwrap() > 0,
+        "Should have app changes"
+    );
+    assert!(
+        summary["resources_changed"].as_u64().unwrap() > 0,
+        "Should have resource changes"
+    );
+    assert!(
+        summary["variables_changed"].as_u64().unwrap() > 0,
+        "Should have variable changes"
+    );
+    assert!(
+        summary["resource_types_changed"].as_u64().unwrap() > 0,
+        "Should have resource_type changes"
+    );
     // Note: folders_changed may be 0 if folder comparison didn't detect changes
     // assert!(summary["folders_changed"].as_u64().unwrap() > 0, "Should have folder changes");
 
@@ -393,51 +425,130 @@ async fn test_compare_workspaces_comprehensive(db: Pool<Postgres>) -> anyhow::Re
     // ==============================================================
 
     // Scenario 1: New in parent
-    let new_in_parent = diffs.iter()
+    let new_in_parent = diffs
+        .iter()
         .find(|d| d["path"] == "f/shared/new_in_parent" && d["kind"] == "script")
         .expect("Should find new_in_parent diff");
-    assert_eq!(new_in_parent["ahead"].as_i64().unwrap(), 1, "new_in_parent should be ahead");
-    assert_eq!(new_in_parent["behind"].as_i64().unwrap(), 0, "new_in_parent should not be behind");
-    assert_eq!(new_in_parent["has_changes"].as_bool().unwrap(), true, "new_in_parent should have changes");
-    assert_eq!(new_in_parent["exists_in_source"].as_bool().unwrap(), true, "new_in_parent should exist in source");
-    assert_eq!(new_in_parent["exists_in_fork"].as_bool().unwrap(), false, "new_in_parent should not exist in fork");
+    assert_eq!(
+        new_in_parent["ahead"].as_i64().unwrap(),
+        1,
+        "new_in_parent should be ahead"
+    );
+    assert_eq!(
+        new_in_parent["behind"].as_i64().unwrap(),
+        0,
+        "new_in_parent should not be behind"
+    );
+    assert_eq!(
+        new_in_parent["has_changes"].as_bool().unwrap(),
+        true,
+        "new_in_parent should have changes"
+    );
+    assert_eq!(
+        new_in_parent["exists_in_source"].as_bool().unwrap(),
+        true,
+        "new_in_parent should exist in source"
+    );
+    assert_eq!(
+        new_in_parent["exists_in_fork"].as_bool().unwrap(),
+        false,
+        "new_in_parent should not exist in fork"
+    );
 
     // Scenario 2: New in fork
-    let new_in_fork = diffs.iter()
+    let new_in_fork = diffs
+        .iter()
         .find(|d| d["path"] == "f/shared/new_in_fork" && d["kind"] == "script")
         .expect("Should find new_in_fork diff");
-    assert_eq!(new_in_fork["ahead"].as_i64().unwrap(), 0, "new_in_fork should not be ahead");
-    assert_eq!(new_in_fork["behind"].as_i64().unwrap(), 1, "new_in_fork should be behind");
-    assert_eq!(new_in_fork["has_changes"].as_bool().unwrap(), true, "new_in_fork should have changes");
-    assert_eq!(new_in_fork["exists_in_source"].as_bool().unwrap(), false, "new_in_fork should not exist in source");
-    assert_eq!(new_in_fork["exists_in_fork"].as_bool().unwrap(), true, "new_in_fork should exist in fork");
+    assert_eq!(
+        new_in_fork["ahead"].as_i64().unwrap(),
+        0,
+        "new_in_fork should not be ahead"
+    );
+    assert_eq!(
+        new_in_fork["behind"].as_i64().unwrap(),
+        1,
+        "new_in_fork should be behind"
+    );
+    assert_eq!(
+        new_in_fork["has_changes"].as_bool().unwrap(),
+        true,
+        "new_in_fork should have changes"
+    );
+    assert_eq!(
+        new_in_fork["exists_in_source"].as_bool().unwrap(),
+        false,
+        "new_in_fork should not exist in source"
+    );
+    assert_eq!(
+        new_in_fork["exists_in_fork"].as_bool().unwrap(),
+        true,
+        "new_in_fork should exist in fork"
+    );
 
     // Scenario 5: Conflict
-    let conflict_flow = diffs.iter()
+    let conflict_flow = diffs
+        .iter()
         .find(|d| d["path"] == "f/shared/original_flow" && d["kind"] == "flow")
         .expect("Should find conflict flow diff");
-    assert!(conflict_flow["ahead"].as_i64().unwrap() > 0, "conflict should be ahead");
-    assert!(conflict_flow["behind"].as_i64().unwrap() > 0, "conflict should be behind");
-    assert_eq!(conflict_flow["has_changes"].as_bool().unwrap(), true, "conflict should have changes");
-    assert_eq!(conflict_flow["exists_in_source"].as_bool().unwrap(), true, "conflict should exist in source");
-    assert_eq!(conflict_flow["exists_in_fork"].as_bool().unwrap(), true, "conflict should exist in fork");
+    assert!(
+        conflict_flow["ahead"].as_i64().unwrap() > 0,
+        "conflict should be ahead"
+    );
+    assert!(
+        conflict_flow["behind"].as_i64().unwrap() > 0,
+        "conflict should be behind"
+    );
+    assert_eq!(
+        conflict_flow["has_changes"].as_bool().unwrap(),
+        true,
+        "conflict should have changes"
+    );
+    assert_eq!(
+        conflict_flow["exists_in_source"].as_bool().unwrap(),
+        true,
+        "conflict should exist in source"
+    );
+    assert_eq!(
+        conflict_flow["exists_in_fork"].as_bool().unwrap(),
+        true,
+        "conflict should exist in fork"
+    );
 
     // Scenario 6: Deleted in fork
-    let deleted = diffs.iter()
+    let deleted = diffs
+        .iter()
         .find(|d| d["path"] == "f/shared/to_delete" && d["kind"] == "script")
         .expect("Should find deleted diff");
-    assert_eq!(deleted["exists_in_source"].as_bool().unwrap(), true, "deleted should exist in source");
-    assert_eq!(deleted["exists_in_fork"].as_bool().unwrap(), false, "deleted should not exist in fork (archived)");
-    assert_eq!(deleted["has_changes"].as_bool().unwrap(), true, "deleted should have changes");
+    assert_eq!(
+        deleted["exists_in_source"].as_bool().unwrap(),
+        true,
+        "deleted should exist in source"
+    );
+    assert_eq!(
+        deleted["exists_in_fork"].as_bool().unwrap(),
+        false,
+        "deleted should not exist in fork (archived)"
+    );
+    assert_eq!(
+        deleted["has_changes"].as_bool().unwrap(),
+        true,
+        "deleted should have changes"
+    );
 
     // Scenario 7: Rename (should show as two entries)
-    let old_name = diffs.iter()
+    let old_name = diffs
+        .iter()
         .find(|d| d["path"] == "f/shared/old_name" && d["kind"] == "resource");
-    let new_name = diffs.iter()
+    let new_name = diffs
+        .iter()
         .find(|d| d["path"] == "f/shared/new_name" && d["kind"] == "resource");
 
     // At least one of these should exist (depending on how the comparison handles renames)
-    assert!(old_name.is_some() || new_name.is_some(), "Should find at least one rename-related diff");
+    assert!(
+        old_name.is_some() || new_name.is_some(),
+        "Should find at least one rename-related diff"
+    );
 
     // ==============================================================
     // Database State Assertions
@@ -450,9 +561,21 @@ async fn test_compare_workspaces_comprehensive(db: Pool<Postgres>) -> anyhow::Re
     )
     .fetch_one(&db)
     .await?;
-    assert_eq!(cached_new_in_parent.has_changes, Some(true), "has_changes should be cached as true");
-    assert_eq!(cached_new_in_parent.exists_in_source, Some(true), "exists_in_source should be cached");
-    assert_eq!(cached_new_in_parent.exists_in_fork, Some(false), "exists_in_fork should be cached");
+    assert_eq!(
+        cached_new_in_parent.has_changes,
+        Some(true),
+        "has_changes should be cached as true"
+    );
+    assert_eq!(
+        cached_new_in_parent.exists_in_source,
+        Some(true),
+        "exists_in_source should be cached"
+    );
+    assert_eq!(
+        cached_new_in_parent.exists_in_fork,
+        Some(false),
+        "exists_in_fork should be cached"
+    );
 
     // Verify unchanged items were deleted from workspace_diff
     let unchanged_original_script = sqlx::query!(
@@ -465,7 +588,11 @@ async fn test_compare_workspaces_comprehensive(db: Pool<Postgres>) -> anyhow::Re
     // The unchanged item should either be deleted or marked as has_changes = false
     // Based on the code, items with has_changes = false are deleted
     if let Some(record) = unchanged_original_script {
-        assert_ne!(record.has_changes, Some(false), "unchanged items with has_changes=false should be deleted");
+        assert_ne!(
+            record.has_changes,
+            Some(false),
+            "unchanged items with has_changes=false should be deleted"
+        );
     }
 
     // ==============================================================
@@ -485,7 +612,9 @@ async fn test_compare_workspaces_comprehensive(db: Pool<Postgres>) -> anyhow::Re
     // Call the endpoint again
     let _comparison2: serde_json::Value = client
         .client()
-        .get(&format!("{base_url}/w/test-workspace/workspaces/compare/wm-fork-test-workspace"))
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-test-workspace"
+        ))
         .send()
         .await?
         .json()
@@ -500,7 +629,647 @@ async fn test_compare_workspaces_comprehensive(db: Pool<Postgres>) -> anyhow::Re
     .await?;
 
     // Should be deleted since the item doesn't actually exist in either workspace
-    assert!(lazy_test.is_none(), "Non-existent item should be deleted from workspace_diff");
+    assert!(
+        lazy_test.is_none(),
+        "Non-existent item should be deleted from workspace_diff"
+    );
+
+    Ok(())
+}
+
+/// Trigger/schedule diffs go through the same `compare_workspaces` flow as
+/// scripts/flows once tally tracks them. The compare_two_trigger_or_schedule
+/// helper strips runtime fields (mode/enabled/server_id/last_server_ping/
+/// edited_at-by/email/error/extra_perms/permissioned_as), so:
+///   - a real config change shows `has_changes = true`
+///   - a runtime-only change (mode toggle, enabled flip) shows `has_changes = false`
+///     and the row is deleted from `workspace_diff`
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_compare_workspaces_trigger_and_schedule(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    let base_url = format!("http://localhost:{port}/api");
+
+    // Parent + fork workspaces (fork created via INSERT to bypass
+    // clone_triggers_and_schedules — we want to control the rows manually).
+    sqlx::query!(
+        "INSERT INTO workspace (id, name, owner, parent_workspace_id)
+         VALUES ('wm-fork-test-workspace', 'Fork', 'test-user', 'test-workspace')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!("INSERT INTO workspace_settings (workspace_id) VALUES ('wm-fork-test-workspace')")
+        .execute(&db)
+        .await?;
+    sqlx::query!(
+        "INSERT INTO workspace_key(workspace_id, kind, key)
+         VALUES ('wm-fork-test-workspace', 'cloud', 'test-key')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO usr(workspace_id, email, username, is_admin, role)
+         VALUES ('wm-fork-test-workspace', 'test@windmill.dev', 'test-user', true, 'Admin')"
+    )
+    .execute(&db)
+    .await?;
+
+    // ------ Schedule: identical config in parent and fork, except `enabled`.
+    // Should be filtered out (no real diff).
+    sqlx::query!(
+        "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, enabled,
+            script_path, args, is_flow, email, timezone, summary, permissioned_as)
+         VALUES
+         ('test-workspace', 'f/sch/runtime_only', 'test-user', NOW(), '0 * * * * *', true,
+            'f/scripts/x', '{}', false, 'test@windmill.dev', 'UTC', 'sch', 'u/test-user'),
+         ('wm-fork-test-workspace', 'f/sch/runtime_only', 'test-user', NOW(), '0 * * * * *', false,
+            'f/scripts/x', '{}', false, 'test@windmill.dev', 'UTC', 'sch', 'u/test-user')"
+    )
+    .execute(&db)
+    .await?;
+
+    // ------ Schedule: config change (script_path) in fork. Should diff.
+    sqlx::query!(
+        "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, enabled,
+            script_path, args, is_flow, email, timezone, summary, permissioned_as)
+         VALUES
+         ('test-workspace', 'f/sch/config_change', 'test-user', NOW(), '0 * * * * *', false,
+            'f/scripts/parent_path', '{}', false, 'test@windmill.dev', 'UTC', 'sch', 'u/test-user'),
+         ('wm-fork-test-workspace', 'f/sch/config_change', 'test-user', NOW(), '0 * * * * *', false,
+            'f/scripts/fork_path', '{}', false, 'test@windmill.dev', 'UTC', 'sch', 'u/test-user')"
+    )
+    .execute(&db)
+    .await?;
+
+    // ------ HTTP trigger: identical config except `mode`. Should be filtered out.
+    sqlx::query!(
+        "INSERT INTO http_trigger (workspace_id, path, edited_by, edited_at, route_path,
+            route_path_key, script_path, is_flow, http_method, request_type,
+            authentication_method, mode, permissioned_as)
+         VALUES
+         ('test-workspace', 'f/rt/runtime_only', 'test-user', NOW(), 'foo', 'foo',
+            'f/scripts/y', false, 'get', 'sync',
+            'none', 'enabled', 'u/test-user'),
+         ('wm-fork-test-workspace', 'f/rt/runtime_only', 'test-user', NOW(), 'foo', 'foo',
+            'f/scripts/y', false, 'get', 'sync',
+            'none', 'disabled', 'u/test-user')"
+    )
+    .execute(&db)
+    .await?;
+
+    // ------ HTTP trigger: config change (route_path) in fork. Should diff.
+    sqlx::query!(
+        "INSERT INTO http_trigger (workspace_id, path, edited_by, edited_at, route_path,
+            route_path_key, script_path, is_flow, http_method, request_type,
+            authentication_method, mode, permissioned_as)
+         VALUES
+         ('test-workspace', 'f/rt/config_change', 'test-user', NOW(), 'parent', 'parent',
+            'f/scripts/y', false, 'get', 'sync',
+            'none', 'disabled', 'u/test-user'),
+         ('wm-fork-test-workspace', 'f/rt/config_change', 'test-user', NOW(), 'fork', 'fork',
+            'f/scripts/y', false, 'get', 'sync',
+            'none', 'disabled', 'u/test-user')"
+    )
+    .execute(&db)
+    .await?;
+
+    // Seed workspace_diff with NULL has_changes so compare_workspaces evaluates them lazily.
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+            (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes)
+         VALUES
+         ('test-workspace', 'wm-fork-test-workspace', 'f/sch/runtime_only', 'schedule', 0, 1, NULL),
+         ('test-workspace', 'wm-fork-test-workspace', 'f/sch/config_change', 'schedule', 0, 1, NULL),
+         ('test-workspace', 'wm-fork-test-workspace', 'f/rt/runtime_only', 'http_trigger', 0, 1, NULL),
+         ('test-workspace', 'wm-fork-test-workspace', 'f/rt/config_change', 'http_trigger', 0, 1, NULL)"
+    )
+    .execute(&db)
+    .await?;
+
+    let comparison: serde_json::Value = client
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-test-workspace"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    let diffs = comparison["diffs"].as_array().unwrap();
+
+    // The runtime-only rows should be filtered out (compare_two_trigger_or_schedule
+    // returned has_changes=false → row deleted from workspace_diff).
+    assert!(
+        !diffs.iter().any(|d| d["path"] == "f/sch/runtime_only"),
+        "schedule with only enabled-flag difference should be filtered out"
+    );
+    assert!(
+        !diffs.iter().any(|d| d["path"] == "f/rt/runtime_only"),
+        "http_trigger with only mode difference should be filtered out"
+    );
+
+    // The config-change rows should be present with has_changes=true.
+    let sch_change = diffs
+        .iter()
+        .find(|d| d["path"] == "f/sch/config_change" && d["kind"] == "schedule")
+        .expect("schedule with config change should appear in diffs");
+    assert_eq!(sch_change["has_changes"].as_bool().unwrap(), true);
+    assert_eq!(sch_change["exists_in_source"].as_bool().unwrap(), true);
+    assert_eq!(sch_change["exists_in_fork"].as_bool().unwrap(), true);
+
+    let rt_change = diffs
+        .iter()
+        .find(|d| d["path"] == "f/rt/config_change" && d["kind"] == "http_trigger")
+        .expect("http_trigger with config change should appear in diffs");
+    assert_eq!(rt_change["has_changes"].as_bool().unwrap(), true);
+
+    // Summary counts.
+    let summary = &comparison["summary"];
+    assert_eq!(summary["schedules_changed"].as_u64().unwrap(), 1);
+    assert_eq!(summary["triggers_changed"].as_u64().unwrap(), 1);
+
+    Ok(())
+}
+
+/// Regression for the "superadmin-still-sees-the-warning" case in WIN-1975.
+///
+/// `compare_workspaces` historically trusted `authed.is_admin` for RLS — but
+/// that flag is derived from the *token's* cached `super_admin` column at
+/// auth time (windmill-api-auth/src/auth.rs), not from a live
+/// `password.super_admin` read. A user who is *currently* an instance
+/// superadmin can have a token from before the promotion (or via a session
+/// refresh race) where `token.super_admin = false`. If they're also not a
+/// workspace admin in the source workspace (only in the fork),
+/// `authed.is_admin` lands as `false` and source-scoped RLS gets applied to
+/// fork-side visibility queries — same bug as the regular non-admin case.
+///
+/// With the fix, `load_workspace_authed` re-checks `is_super_admin_email`
+/// against `password.super_admin` at request time, so the fork-scoped authed
+/// gets `is_admin = true` and RLS bypass kicks back in for the fork queries.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_compare_workspaces_stale_superadmin_token(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+
+    // Promote test-user-2 to instance superadmin AFTER their token was issued
+    // (base.sql inserts SECRET_TOKEN_2 with super_admin=false). The token row
+    // keeps super_admin=false; password.super_admin flips to true.
+    sqlx::query!("UPDATE password SET super_admin = true WHERE email = 'test2@windmill.dev'")
+        .execute(&db)
+        .await?;
+
+    let stale_super = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN_2".to_string(),
+    );
+
+    // Fork test-workspace.
+    let resp = stale_super
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({
+            "id": "wm-fork-stale-super",
+            "name": "Stale Super Fork",
+            "color": "#0000ff"
+        }))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "fork creation failed: {} — {}",
+        resp.status(),
+        resp.text().await?
+    );
+
+    // Fork-only folder + script, with empty extra_perms so the only way to
+    // see them is via fork's folder-based RLS or admin bypass.
+    sqlx::query!(
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, created_by)
+         VALUES ('wm-fork-stale-super', 'folder2', 'folder2', ARRAY['u/test-user-2']::varchar[], $1, '', 'test-user-2')",
+        json!({"u/test-user-2": true})
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, archived, schema_validation, ws_error_handler_muted, deleted, extra_perms)
+         VALUES ('wm-fork-stale-super', 'f/folder2/myscript', 333333, 'echo 1', '', '', 'bash', 'test-user-2', NOW(), false, false, false, false, $1)",
+        json!({})
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes)
+         VALUES ('test-workspace', 'wm-fork-stale-super', 'f/folder2/myscript', 'script', 1, 0, NULL)"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!("DELETE FROM skip_workspace_diff_tally")
+        .execute(&db)
+        .await?;
+
+    let comparison: serde_json::Value = stale_super
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-stale-super"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    assert_eq!(
+        comparison["all_ahead_items_visible"].as_bool(),
+        Some(true),
+        "current superadmin with stale token should still see ahead items: {comparison}"
+    );
+    let diffs = comparison["diffs"].as_array().unwrap();
+    assert!(
+        diffs
+            .iter()
+            .any(|d| d["path"] == "f/folder2/myscript" && d["kind"] == "script"),
+        "fork-only script should appear in diffs; got {diffs:?}"
+    );
+
+    Ok(())
+}
+
+/// End-to-end regression for WIN-1975 against the real EE tally path.
+/// Reproduces the reporter's exact steps with the API: fork → create script
+/// in folder1 → rename to folder2 → compare. Folder2 only exists in the
+/// fork, so before the fix the source-scoped authed in `filter_visible_diffs`
+/// hid the script and the response set `all_ahead_items_visible = false`.
+///
+/// Gated on `private` because the OSS build of `handle_deployment_metadata`
+/// is a no-op (`windmill-git-sync/src/git_sync_oss.rs`) — without it the
+/// `workspace_diff` rows never get written and the test would assert against
+/// an empty diff set.
+#[cfg(feature = "private")]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_compare_workspaces_rename_visibility_ee_e2e(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+    let admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    let non_admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN_2".to_string(),
+    );
+
+    // The base fixture pre-populates `skip_workspace_diff_tally` for every
+    // workspace existing at migration time — that bypasses the diff
+    // accounting. Clear it so tally + compare run normally for this test.
+    sqlx::query!("DELETE FROM skip_workspace_diff_tally")
+        .execute(&db)
+        .await?;
+
+    // ------ Fork the existing test-workspace.
+    let resp = admin
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({
+            "id": "wm-fork-rename-test",
+            "name": "Rename Fork",
+            "color": "#0000ff"
+        }))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "fork creation failed: {}",
+        resp.status()
+    );
+
+    // Non-admin user must be a member of both workspaces. They already are in
+    // test-workspace (base fixture); add them to the fork. Same username as
+    // the source so RLS extra_perms keys still resolve.
+    sqlx::query!(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role)
+         VALUES ('wm-fork-rename-test', 'test2@windmill.dev', 'test-user-2', false, 'User')"
+    )
+    .execute(&db)
+    .await?;
+
+    // ------ Non-admin creates folder1 in the fork (owner = self).
+    let resp = non_admin
+        .client()
+        .post(&format!("{base_url}/w/wm-fork-rename-test/folders/create"))
+        .json(&json!({"name": "folder1", "owners": [], "summary": ""}))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "folder1 create failed: {} — {}",
+        resp.status(),
+        resp.text().await?
+    );
+
+    // ------ Deploy a script in folder1 (initial deploy, no parent_hash).
+    let resp = non_admin
+        .client()
+        .post(&format!("{base_url}/w/wm-fork-rename-test/scripts/create"))
+        .json(&json!({
+            "path": "f/folder1/myscript",
+            "summary": "renamed test",
+            "description": "",
+            // Use bash so we don't trigger the dependency-job code path —
+            // create_script defers `handle_deployment_metadata` (and the
+            // tally) to the dep job for languages that need lock generation
+            // (Deno/Bun/Python/etc), which never runs in this test.
+            "content": "echo 1",
+            "language": "bash",
+            "schema": {"type": "object", "properties": {}, "required": []},
+            "deployment_message": "initial",
+        }))
+        .send()
+        .await?;
+    let status = resp.status();
+    let initial_hash = resp.text().await?;
+    assert!(
+        status.is_success(),
+        "initial script create failed: {} — {}",
+        status,
+        initial_hash
+    );
+
+    // ------ Create folder2 in fork.
+    let resp = non_admin
+        .client()
+        .post(&format!("{base_url}/w/wm-fork-rename-test/folders/create"))
+        .json(&json!({"name": "folder2", "owners": [], "summary": ""}))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "folder2 create failed: {}",
+        resp.status()
+    );
+
+    // ------ Rename: re-deploy the same script at the new path with the old
+    // hash as parent_hash. This is exactly what the script editor sends when
+    // the user changes the path field and clicks Deploy. The EE tally upserts
+    // a workspace_diff row for both the new path AND the renamed_from path.
+    let resp = non_admin
+        .client()
+        .post(&format!("{base_url}/w/wm-fork-rename-test/scripts/create"))
+        .json(&json!({
+            "path": "f/folder2/myscript",
+            "summary": "renamed test",
+            "description": "",
+            // Use bash so we don't trigger the dependency-job code path —
+            // create_script defers `handle_deployment_metadata` (and the
+            // tally) to the dep job for languages that need lock generation
+            // (Deno/Bun/Python/etc), which never runs in this test.
+            "content": "echo 1",
+            "language": "bash",
+            "schema": {"type": "object", "properties": {}, "required": []},
+            // The API returns hash as hex (ScriptHash Serialize impl); pass it
+            // through verbatim — the backend deserializer parses hex back.
+            "parent_hash": initial_hash.trim().trim_matches('"'),
+            "deployment_message": "rename to folder2",
+        }))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "rename failed: {} — {}",
+        resp.status(),
+        resp.text().await?
+    );
+
+    // The tally is fired via `tokio::spawn` in `handle_deployment_metadata`
+    // (windmill-git-sync/src/git_sync_ee.rs) — wait specifically for the
+    // renamed script row to appear so we don't race the actual case under
+    // test.
+    let mut script_diff_written = false;
+    for _ in 0..40 {
+        let row_count: i64 = sqlx::query_scalar!(
+            "SELECT COUNT(*) AS \"count!\" FROM workspace_diff
+             WHERE source_workspace_id = 'test-workspace'
+               AND fork_workspace_id = 'wm-fork-rename-test'
+               AND kind = 'script'
+               AND path = 'f/folder2/myscript'"
+        )
+        .fetch_one(&db)
+        .await?;
+        if row_count >= 1 {
+            script_diff_written = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(
+        script_diff_written,
+        "tally never wrote the renamed-script row to workspace_diff"
+    );
+
+    // ------ Compare as the non-admin who owns folder2 in the fork. With the
+    // bug, the source-scoped authed has no folder2 entry → fork visibility
+    // query hides f/folder2/myscript → all_ahead_items_visible flips to
+    // false. With the fix, the fork-scoped authed sees folder2 and the
+    // visibility check passes.
+    let comparison: serde_json::Value = non_admin
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-rename-test"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    assert_eq!(
+        comparison["all_ahead_items_visible"].as_bool(),
+        Some(true),
+        "non-admin owner of fork-only folder should see ahead items as visible; got {comparison}"
+    );
+
+    let diffs = comparison["diffs"].as_array().unwrap();
+    assert!(
+        diffs
+            .iter()
+            .any(|d| d["path"] == "f/folder2/myscript" && d["kind"] == "script"),
+        "renamed script at f/folder2/myscript should appear in diffs; got {diffs:?}"
+    );
+    // The renamed_from row (f/folder1/myscript) must NOT appear: both sides'
+    // archived=false views show it missing, so compare_two_scripts returns
+    // has_changes=false and the row is deleted. Keep an explicit assertion
+    // so a future regression that leaks the old path is caught here.
+    assert!(
+        !diffs
+            .iter()
+            .any(|d| d["path"] == "f/folder1/myscript" && d["kind"] == "script"),
+        "renamed-from path f/folder1/myscript should be cleaned up; got {diffs:?}"
+    );
+
+    // ------ Also confirm the superadmin path still works (this used to be
+    // the only path that worked because RLS bypass masked the bug).
+    let comparison: serde_json::Value = admin
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-rename-test"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        comparison["all_ahead_items_visible"].as_bool(),
+        Some(true),
+        "superadmin must always see all ahead items: {comparison}"
+    );
+
+    Ok(())
+}
+
+/// Regression test for WIN-1975. A non-admin user creating a script in a fork-
+/// only folder used to get the spurious
+/// "this fork has changes not visible to your user" warning because
+/// `filter_visible_diffs` ran every RLS query with the source-workspace
+/// authed, so any item only reachable via fork-specific folders/groups was
+/// hidden from the visibility check.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_compare_workspaces_fork_only_folder_visibility(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client_user_2 = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN_2".to_string(),
+    );
+    let base_url = format!("http://localhost:{port}/api");
+
+    // ----- Set up parent workspace folder1 owned by test-user-2, then fork it.
+    sqlx::query!(
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, created_by)
+         VALUES ('test-workspace', 'folder1', 'folder1', ARRAY['u/test-user-2']::varchar[], $1, '', 'test-user-2')",
+        json!({"u/test-user-2": true})
+    )
+    .execute(&db)
+    .await?;
+
+    // Create fork via the API so cloning + workspace_settings.deploy_to wiring
+    // matches what production sees.
+    let client_admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    let fork_response = client_admin
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({
+            "id": "wm-fork-visibility-test",
+            "name": "Test Fork",
+            "color": "#0000ff"
+        }))
+        .send()
+        .await?;
+    assert!(
+        fork_response.status().is_success(),
+        "Fork creation failed: {}",
+        fork_response.status()
+    );
+
+    // test-user-2 must be a member of the fork. The fork's clone copies the
+    // creator's usr row only — add test-user-2 manually so they can hit the
+    // compare endpoint and own a fork-only folder.
+    sqlx::query!(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role) VALUES
+         ('wm-fork-visibility-test', 'test2@windmill.dev', 'test-user-2', false, 'User')"
+    )
+    .execute(&db)
+    .await?;
+
+    // ----- Fork-only folder2 (does not exist in source) owned by test-user-2.
+    sqlx::query!(
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, created_by)
+         VALUES ('wm-fork-visibility-test', 'folder2', 'folder2', ARRAY['u/test-user-2']::varchar[], $1, '', 'test-user-2')",
+        json!({"u/test-user-2": true})
+    )
+    .execute(&db)
+    .await?;
+
+    // Script in the fork-only folder with empty extra_perms (typical: scripts
+    // inherit access through their containing folder, not direct perms).
+    sqlx::query!(
+        "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, archived, schema_validation, ws_error_handler_muted, deleted, extra_perms)
+         VALUES ('wm-fork-visibility-test', 'f/folder2/myscript', 222222, 'def main():\n    return 1', '', '', 'python3', 'test-user-2', NOW(), false, false, false, false, $1)",
+        json!({})
+    )
+    .execute(&db)
+    .await?;
+
+    // Seed workspace_diff to mirror what the tally would write.
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes)
+         VALUES ('test-workspace', 'wm-fork-visibility-test', 'f/folder2/myscript', 'script', 1, 0, NULL)"
+    )
+    .execute(&db)
+    .await?;
+
+    // Clear the skip flag added by the bootstrap migration so compare actually
+    // runs against this fork (it short-circuits otherwise).
+    sqlx::query!(
+        "DELETE FROM skip_workspace_diff_tally WHERE workspace_id IN ('test-workspace', 'wm-fork-visibility-test')"
+    )
+    .execute(&db)
+    .await?;
+
+    let comparison: serde_json::Value = client_user_2
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-visibility-test"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    assert_eq!(
+        comparison["all_ahead_items_visible"].as_bool(),
+        Some(true),
+        "ahead items should be visible to the fork-only folder owner; full response: {comparison}"
+    );
+    assert_eq!(
+        comparison["all_behind_items_visible"].as_bool(),
+        Some(true),
+        "behind items should be visible (no behind items here)"
+    );
+
+    let diffs = comparison["diffs"].as_array().unwrap();
+    assert!(
+        diffs
+            .iter()
+            .any(|d| d["path"] == "f/folder2/myscript" && d["kind"] == "script"),
+        "fork-only script should appear in diffs; got {diffs:?}"
+    );
 
     Ok(())
 }

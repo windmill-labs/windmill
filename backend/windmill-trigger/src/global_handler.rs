@@ -84,6 +84,7 @@ struct JobWithArgs {
     id: Uuid,
     args: Option<sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     created_at: chrono::DateTime<chrono::Utc>,
+    kind: windmill_common::jobs::JobKind,
 }
 
 #[derive(Deserialize, Serialize, Default)]
@@ -113,7 +114,8 @@ pub async fn resume_suspended_trigger_jobs(
                     SELECT
                         id,
                         args as "args: _",
-                        created_at
+                        created_at,
+                        kind AS "kind: _"
                     FROM v2_job
                     WHERE workspace_id = $1
                       AND (
@@ -140,7 +142,8 @@ pub async fn resume_suspended_trigger_jobs(
                 SELECT
                     id,
                     args as "args: _",
-                    created_at
+                    created_at,
+                    kind AS "kind: _"
                 FROM v2_job
                 WHERE workspace_id = $1
                   AND (
@@ -167,10 +170,21 @@ pub async fn resume_suspended_trigger_jobs(
         // If job was created before trigger was edited, simply update it to unsuspend
         // instead of deleting and repushing
         if job.created_at > trigger.edited_at {
-            let job_kind = if trigger.is_flow {
-                windmill_common::jobs::JobKind::Flow
-            } else {
-                windmill_common::jobs::JobKind::Script
+            // Map the placeholder unassigned kind back to its assigned counterpart so
+            // singlestepflow wrappers (retry/error_handler/skip_handler) keep their
+            // flow-orchestrator identity.
+            let job_kind = match job.kind {
+                windmill_common::jobs::JobKind::UnassignedSinglestepFlow => {
+                    windmill_common::jobs::JobKind::SingleStepFlow
+                }
+                windmill_common::jobs::JobKind::UnassignedFlow => {
+                    windmill_common::jobs::JobKind::Flow
+                }
+                windmill_common::jobs::JobKind::UnassignedScript => {
+                    windmill_common::jobs::JobKind::Script
+                }
+                _ if trigger.is_flow => windmill_common::jobs::JobKind::Flow,
+                _ => windmill_common::jobs::JobKind::Script,
             };
 
             sqlx::query!(
@@ -191,27 +205,28 @@ pub async fn resume_suspended_trigger_jobs(
         } else {
             // Job was created after trigger edit - delete and repush with new configuration
             // Pass the transaction to trigger_runnable_inner so everything is in the same transaction
-            let (_uuid, _delete_after_use, _early_return, tx_o) = trigger_runnable_inner(
-                &db,
-                Some(tx),
-                Some(user_db.clone()),
-                authed.clone(),
-                &w_id,
-                &trigger.script_path,
-                trigger.is_flow,
-                windmill_queue::PushArgsOwned {
-                    extra: None,
-                    args: job.args.map(|a| a.0).unwrap_or_default(),
-                },
-                trigger.retry.as_ref(),
-                trigger.error_handler_path.as_deref(),
-                trigger.error_handler_args.as_ref(),
-                trigger_path.clone(),
-                None,
-                trigger_metadata.clone(),
-                None,
-            )
-            .await?;
+            let (_uuid, _delete_after_use, _early_return, _has_failure_module, tx_o) =
+                trigger_runnable_inner(
+                    &db,
+                    Some(tx),
+                    Some(user_db.clone()),
+                    authed.clone(),
+                    &w_id,
+                    &trigger.script_path,
+                    trigger.is_flow,
+                    windmill_queue::PushArgsOwned {
+                        extra: None,
+                        args: job.args.map(|a| a.0).unwrap_or_default(),
+                    },
+                    trigger.retry.as_ref(),
+                    trigger.error_handler_path.as_deref(),
+                    trigger.error_handler_args.as_ref(),
+                    trigger_path.clone(),
+                    None,
+                    trigger_metadata.clone(),
+                    None,
+                )
+                .await?;
 
             tx = match tx_o {
                 Some(tx) => tx,

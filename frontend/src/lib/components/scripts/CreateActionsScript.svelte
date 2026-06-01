@@ -14,7 +14,7 @@
 		unifiedSize="lg"
 		variant="accent"
 		startIcon={{ icon: Plus }}
-		href="{base}/scripts/add"
+		href="{base}/scripts/add?nodraft=true"
 		endIcon={{ icon: Code2 }}
 	>
 		Script
