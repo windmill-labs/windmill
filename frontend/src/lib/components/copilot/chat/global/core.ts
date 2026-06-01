@@ -62,6 +62,7 @@ import {
 	type ToolDisplayAction
 } from '../shared'
 import type { ContextElement } from '../context'
+import { getDatatableTools } from '../datatableTools'
 import { UserDraft, type UserDraftMeta } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
 import { inferArgs } from '$lib/infer'
@@ -571,7 +572,14 @@ Raw apps:
 - Use write_app_file, patch_app_file, and delete_app_file for frontend files.
 - Use write_app_runnable and delete_app_runnable for backend runnables.
 - Use init_app only after confirming framework, path, and summary with the user.
-- Use deploy_workspace_item after explicit user deploy intent; raw app deploy bundles JS/CSS before saving.`
+- Use deploy_workspace_item after explicit user deploy intent; raw app deploy bundles JS/CSS before saving.
+
+Data Tables:
+- Datatables are workspace-scoped managed PostgreSQL databases, shared across the workspace (not owned by any single app).
+- Use list_datatables to discover the available datatables and their tables. Reuse an existing table rather than creating a duplicate.
+- Use get_datatable_table_schema only when you need a table's column names/types; list_datatables is enough for table-list or availability summaries.
+- Use exec_datatable_sql to explore data, run queries, mutate rows, or change schema (CREATE/ALTER/DROP). Creating a table is a normal CREATE TABLE statement — it appears in list_datatables afterward, with no registration step.
+- From a runnable, access a datatable via wmill.datatable() (the default "main") or wmill.datatable('<name>'), referencing tables as schema.table.`
 
 const DEFAULT_LIST_TYPES = ['script', 'flow'] as const satisfies readonly WorkspaceItemType[]
 
@@ -1794,7 +1802,9 @@ export const globalTools: Tool<{}>[] = [
 			'Check whether the side-panel preview is open in this AI session and which item (kind + path) it is showing. Call this before offering or calling open_preview so you do not re-open a preview that is already showing the item you just edited. Only meaningful inside a session.'
 		),
 		fn: async (ctx) => getSessionPreviewStatus(sessionIdFromCtx(ctx))
-	}
+	},
+	// Workspace-scoped datatable tools (unrestricted: no whitelist, no creation policy)
+	...getDatatableTools()
 ]
 
 // Tools that only make sense inside an AI session (they drive the session's
