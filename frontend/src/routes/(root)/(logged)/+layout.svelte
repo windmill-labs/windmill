@@ -90,6 +90,10 @@
 	let userSettings: UserSettings | undefined = $state()
 	let superadminSettings: SuperadminSettings | undefined = $state()
 	let menuHidden = $state(false)
+	// replaceState() throws if called before SvelteKit's router is initialized
+	// (which happens on the first navigation). Gate the store -> URL sync on this
+	// so the initial seeding waits until the router is ready.
+	let routerReady = $state(false)
 	let isDarkMode = useIsDarkMode()
 	let darkMode = $derived(isDarkMode.val)
 
@@ -132,7 +136,7 @@
 	// Guarded to be idempotent: it only writes when the param actually differs,
 	// which also prevents a ping-pong with the URL → store sync in onQueryChange.
 	function syncWorkspaceToUrl() {
-		if (!BROWSER) return
+		if (!BROWSER || !routerReady) return
 		const ws = $workspaceStore
 		if (!ws || !workspaceParamAllowed(page.url.pathname)) return
 		if (page.url.searchParams.get('workspace') === ws) return
@@ -340,6 +344,11 @@
 		)
 	}
 	afterNavigate((n) => {
+		// The router is initialized once the first navigation completes, so it is
+		// now safe to replaceState. Seeding the param here (post-commit) rather
+		// than reactively on page.url avoids clobbering the in-flight navigation.
+		routerReady = true
+		syncWorkspaceToUrl()
 		if (pathInAppMode(n.to?.url.pathname) && innerWidth >= 768) {
 			isCollapsed = true
 		}
@@ -436,10 +445,11 @@
 		page.url && untrack(() => onQueryChange())
 	})
 	$effect(() => {
-		// Re-run on both store changes (workspace switch) and navigation (route
-		// entered without the param). Both reads register as dependencies.
+		// Handles a workspace switch that does not navigate (e.g. picking another
+		// workspace in the sidebar on a list page). The navigation case is handled
+		// post-commit in afterNavigate to avoid clobbering an in-flight navigation.
 		$workspaceStore
-		page.url
+		routerReady
 		untrack(() => syncWorkspaceToUrl())
 	})
 	$effect(() => {
