@@ -1,4 +1,4 @@
-import { expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 // @ts-ignore - Node.js fs/promises
 import { mkdir, writeFile } from 'fs/promises'
 // @ts-ignore - Node.js path
@@ -44,6 +44,7 @@ vi.mock('$lib/gen', async () => {
 		createBenchmarkSchedule,
 		previewBenchmarkSchedule,
 		runBenchmarkFlowByPath,
+		runBenchmarkFlowPreview,
 		runBenchmarkScriptPreview
 	} = await import('./mockBackend')
 
@@ -168,6 +169,22 @@ vi.mock('$lib/gen', async () => {
 							args: data.requestBody
 						})
 					: actual.JobService.runFlowByPath(data),
+			runFlowPreview: async (data: {
+				workspace: string
+				memoryId?: string
+				requestBody?: {
+					path?: string
+					value?: Record<string, unknown>
+					args?: Record<string, unknown>
+				}
+			}) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? runBenchmarkFlowPreview({
+							workspace: data.workspace,
+							requestBody: data.requestBody ?? {},
+							memoryId: data.memoryId
+						})
+					: actual.JobService.runFlowPreview(data),
 			getJob: async (data: { workspace: string; id: string }) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
 					const job = getBenchmarkCompletedJob(data.workspace, data.id)
@@ -360,6 +377,173 @@ vi.mock('$lib/gen', async () => {
 			}
 		})
 	}
+})
+
+describe('global flow preview tools in ai_evals', () => {
+	beforeEach(async () => {
+		const { resetBenchmarkMockBackend } = await import('./mockBackend')
+		const { __resetUserDraftForTesting } = await import('../../../frontend/src/lib/userDraft.svelte')
+		resetBenchmarkMockBackend()
+		__resetUserDraftForTesting()
+		localStorage.removeItem('wm_dev_global_ai')
+	})
+
+	it('does not pass the AI session id as a flow preview memory id', async () => {
+		const {
+			getLastBenchmarkFlowPreviewRequest,
+			registerBenchmarkWorkspaceRunnables,
+			resetBenchmarkMockBackend,
+			unregisterBenchmarkWorkspace
+		} = await import('./mockBackend')
+		const { globalTools } = await import('../../../frontend/src/lib/components/copilot/chat/global/core')
+		const { processToolCall } = await import('../../../frontend/src/lib/components/copilot/chat/shared')
+		const workspace = 'ai-evals-global-flow-preview'
+
+		registerBenchmarkWorkspaceRunnables(workspace, {
+			flows: [
+				{
+					path: 'f/evals/global/current_invoice_flow',
+					summary: 'Current invoice flow',
+					value: {
+						modules: [{ id: 'calculate_total', value: { type: 'identity' } }]
+					}
+				}
+			]
+		})
+
+		try {
+			const response = await processToolCall({
+				tools: globalTools,
+				toolCall: {
+					id: 'tool-test-run-flow',
+					type: 'function',
+					function: {
+						name: 'test_run_flow',
+						arguments: JSON.stringify({
+							path: 'f/evals/global/current_invoice_flow',
+							args: { subtotal: 100 }
+						})
+					}
+				},
+				helpers: { sessionId: 'htc1xouxd96dcyo6ruqo39' },
+				workspace,
+				toolCallbacks: {
+					setToolStatus: vi.fn(),
+					shouldAutoAcceptToolConfirmations: () => true
+				}
+			})
+
+			expect(response.content).toContain('Result (SUCCESS)')
+			expect(getLastBenchmarkFlowPreviewRequest()).toMatchObject({
+				workspace,
+				memoryId: undefined,
+				requestBody: {
+					path: 'f/evals/global/current_invoice_flow',
+					args: { subtotal: 100 }
+				}
+			})
+		} finally {
+			unregisterBenchmarkWorkspace(workspace)
+			resetBenchmarkMockBackend()
+		}
+	})
+
+	it('uses the active flow test hook with args only', async () => {
+		const {
+			createBenchmarkCompletedJob,
+			registerBenchmarkWorkspace,
+			unregisterBenchmarkWorkspace
+		} = await import('./mockBackend')
+		const { globalTools } = await import('../../../frontend/src/lib/components/copilot/chat/global/core')
+		const { processToolCall } = await import('../../../frontend/src/lib/components/copilot/chat/shared')
+		const { UserDraft } = await import('../../../frontend/src/lib/userDraft.svelte')
+		const workspace = 'ai-evals-global-live-flow-preview'
+		const path = 'f/evals/global/current_invoice_flow'
+		const testActiveFlow = vi.fn(async (args?: Record<string, unknown>) =>
+			createBenchmarkCompletedJob({
+				workspace,
+				jobKind: 'flowpreview',
+				args,
+				result: { path, args: args ?? {}, liveEditor: true },
+				logs: 'Mock live editor flow preview completed successfully.'
+			})
+		)
+
+		registerBenchmarkWorkspace(workspace)
+		UserDraft.setLiveEditorDraft({
+			workspace,
+			itemKind: 'flow',
+			storagePath: '',
+			effectivePath: path
+		})
+
+		try {
+			const response = await processToolCall({
+				tools: globalTools,
+				toolCall: {
+					id: 'tool-live-flow-test',
+					type: 'function',
+					function: {
+						name: 'test_run_flow',
+						arguments: JSON.stringify({
+							path,
+							args: { subtotal: 200 }
+						})
+					}
+				},
+				helpers: {
+					sessionId: 'htc1xouxd96dcyo6ruqo39',
+					testActiveFlow
+				},
+				workspace,
+				toolCallbacks: {
+					setToolStatus: vi.fn(),
+					shouldAutoAcceptToolConfirmations: () => true
+				}
+			})
+
+			expect(response.content).toContain('Result (SUCCESS)')
+			expect(testActiveFlow.mock.calls).toEqual([[{ subtotal: 200 }]])
+		} finally {
+			UserDraft.clearLiveEditorDraft('flow', { workspace, storagePath: '' })
+			unregisterBenchmarkWorkspace(workspace)
+		}
+	})
+
+	it('wires session global flow tests without a conversation id', async () => {
+		const { AIChatManager, AIMode } = await import(
+			'../../../frontend/src/lib/components/copilot/chat/AIChatManager.svelte'
+		)
+		const testFlow = vi.fn(async () => 'job-flow-preview')
+		const manager = new AIChatManager()
+
+		localStorage.setItem('wm_dev_global_ai', '1')
+		manager.isSessionChat = true
+		manager.sessionId = 'htc1xouxd96dcyo6ruqo39'
+		manager.setFlowHelpers({
+			getFlowAndSelectedId: vi.fn(),
+			getRootModules: vi.fn(),
+			inlineScriptSession: { get: vi.fn(), set: vi.fn(), clear: vi.fn() },
+			setSnapshot: vi.fn(),
+			revertToSnapshot: vi.fn(),
+			setCode: vi.fn(),
+			setFlowJson: vi.fn(),
+			getFlowInputsSchema: vi.fn(),
+			updateExprsToSet: vi.fn(),
+			acceptAllModuleActions: vi.fn(),
+			rejectAllModuleActions: vi.fn(),
+			hasPendingChanges: vi.fn(() => false),
+			selectStep: vi.fn(),
+			testFlow,
+			getLintErrors: vi.fn()
+		} as any)
+
+		manager.changeMode(AIMode.GLOBAL)
+		const jobId = await manager.helpers.testActiveFlow({ subtotal: 300 })
+
+		expect(jobId).toBe('job-flow-preview')
+		expect(testFlow.mock.calls).toEqual([[{ subtotal: 300 }]])
+	})
 })
 
 const benchmarkOutputPath = process.env.WMILL_FRONTEND_AI_EVAL_OUTPUT_PATH
