@@ -758,6 +758,9 @@ async function createScript(
   workspace: Workspace
 ): Promise<number> {
   const start = performance.now();
+  // Preserve any user draft at this path: a CLI / git-sync deploy must not wipe
+  // an in-progress draft the way a UI "deploy from draft" intentionally does.
+  body = { ...body, skip_draft_deletion: true };
   // skip_if_noop asks the backend to treat deploys identical to the parent
   // (same content, lockfile, and metadata) as a no-op, so the CLI does not
   // produce phantom git-sync / promotion commits on re-pushes.
@@ -1796,6 +1799,8 @@ async function setPermissionedAs(
       parent_hash: remote.hash,
       on_behalf_of_email: email,
       preserve_on_behalf_of: true,
+      // Preserve any user draft at this path (see backend skip_draft_deletion).
+      skip_draft_deletion: true,
     },
   });
   log.info(colors.green(`Updated permissioned_as for script ${scriptPath} to ${email}`));

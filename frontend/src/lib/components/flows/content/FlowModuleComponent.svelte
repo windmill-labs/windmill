@@ -867,6 +867,7 @@
 														bind:this={editor}
 														class="h-full relative"
 														code={flowModule.value.content}
+														syncExternalCode
 														scriptLang={flowModule?.value?.language}
 														automaticLayout={true}
 														cmdEnterAction={async () => {
@@ -930,6 +931,7 @@
 												bind:this={editor}
 												class="h-full relative"
 												code={flowModule.value.content}
+												syncExternalCode
 												scriptLang={flowModule?.value?.language}
 												automaticLayout={true}
 												cmdEnterAction={async () => {

@@ -466,6 +466,8 @@ export async function pushRawApp(
             summary: localApp.summary,
             policy: appForPolicy.policy,
             deployment_message: message,
+            // Preserve any user draft at this path (see backend skip_draft_deletion).
+            skip_draft_deletion: true,
             ...(localApp.custom_path
               ? { custom_path: localApp.custom_path }
               : {}),
@@ -486,6 +488,8 @@ export async function pushRawApp(
           summary: localApp.summary,
           policy: appForPolicy.policy,
           deployment_message: message,
+          // Preserve any user draft at this path (see backend skip_draft_deletion).
+          skip_draft_deletion: true,
           ...(localApp.custom_path
             ? { custom_path: localApp.custom_path }
             : {}),
