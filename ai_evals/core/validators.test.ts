@@ -195,6 +195,69 @@ describe("validateGlobalState", () => {
     });
   });
 
+  it("accepts a required script draft without an exact path", () => {
+    const checks = validateGlobalState({
+      actual: {
+        drafts: [
+          {
+            type: "script",
+            path: "f/team_tools/friendly_greeting",
+            language: "bun",
+            summary: "Friendly greeting helper",
+            value:
+              "export async function main(name: string) {\n  return `Hello, ${name}!`\n}\n",
+            isDraft: true,
+          },
+        ],
+      },
+      validate: {
+        draftCountExactly: 1,
+        requiredDrafts: [
+          {
+            type: "script",
+            pathIncludes: ["greeting"],
+            language: "bun",
+            summaryIncludes: ["Friendly"],
+            valueIncludes: ["Hello"],
+          },
+        ],
+      },
+    });
+
+    expect(checks.every((check) => check.passed)).toBe(true);
+  });
+
+  it("reports flexible global draft path filters when no draft matches", () => {
+    const checks = validateGlobalState({
+      actual: {
+        drafts: [
+          {
+            type: "script",
+            path: "f/team_tools/friendly_greeting",
+            language: "bun",
+            value:
+              "export async function main(name: string) {\n  return `Hello, ${name}!`\n}\n",
+            isDraft: true,
+          },
+        ],
+      },
+      validate: {
+        requiredDrafts: [
+          {
+            type: "script",
+            pathIncludes: ["invoice"],
+          },
+        ],
+      },
+    });
+
+    expect(checks).toContainEqual({
+      name: "global includes script draft (path includes invoice)",
+      passed: false,
+      details: "drafts: script:f/team_tools/friendly_greeting",
+    });
+  });
+
   it("does not require a TypeScript entrypoint for non-TypeScript script drafts", () => {
     const checks = validateGlobalState({
       actual: {

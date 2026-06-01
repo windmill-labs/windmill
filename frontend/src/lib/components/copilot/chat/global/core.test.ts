@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('monaco-editor', () => ({
 	editor: {},
@@ -77,6 +77,8 @@ vi.mock('$lib/gen', async () => {
 		}),
 		AppService: wrapService(actual.AppService, {
 			existsApp: vi.fn(async () => false),
+			createAppRaw: vi.fn(async () => 'created'),
+			updateAppRaw: vi.fn(async () => 'updated'),
 			getAppByPathWithDraft: vi.fn(async () => {
 				throw new Error('getAppByPathWithDraft mock not configured')
 			}),
@@ -99,9 +101,25 @@ vi.mock('$lib/gen', async () => {
 	}
 })
 
-import { globalTools, prepareGlobalSystemMessage, prepareGlobalUserMessage } from './core'
+vi.mock('./rawAppBundlerBridge', () => ({
+	bundleRawAppDraft: vi.fn(async () => ({
+		js: 'bundled js',
+		css: 'bundled css'
+	}))
+}))
+
+import {
+	globalTools,
+	globalToolsFor,
+	prepareGlobalSystemMessage,
+	prepareGlobalUserMessage,
+	setDeployedInSessionHandler,
+	setGetPreviewStatusHandler,
+	setOpenPreviewHandler
+} from './core'
 import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
 import { clearGlobalDrafts } from './userDraftAdapter'
+import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
 	AppService,
 	FlowService,
@@ -131,12 +149,13 @@ function getGlobalTool(name: string): Tool<{}> {
 async function callGlobalTool(
 	name: string,
 	args: Record<string, unknown>,
-	callbacks: ToolCallbacks = toolCallbacks
+	callbacks: ToolCallbacks = toolCallbacks,
+	helpers: Record<string, unknown> = {}
 ): Promise<string> {
 	return getGlobalTool(name).fn({
 		args,
 		workspace: WORKSPACE,
-		helpers: {},
+		helpers,
 		toolCallbacks: callbacks,
 		toolId: `test-${name}`
 	})
@@ -1014,6 +1033,149 @@ describe('global AI tools', () => {
 		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
+	it('deploys a new raw app draft by bundling files and creating a raw app', async () => {
+		UserDraft.save(
+			'raw_app',
+			'f/apps/report',
+			{
+				summary: 'AI report',
+				files: {
+					'/index.tsx': 'console.log("app")',
+					'/package.json': '{"dependencies":{"react":"19.0.0"}}'
+				},
+				runnables: {},
+				data: { tables: [] }
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		const raw = await callGlobalTool('deploy_workspace_item', {
+			type: 'app',
+			path: 'f/apps/report',
+			deployment_message: 'ship report'
+		})
+
+		expect(bundleRawAppDraft).toHaveBeenCalledWith(
+			expect.objectContaining({
+				workspace: WORKSPACE,
+				files: expect.objectContaining({
+					'/index.tsx': 'console.log("app")'
+				})
+			})
+		)
+		expect(AppService.createAppRaw).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			formData: {
+				app: {
+					path: 'f/apps/report',
+					value: {
+						files: {
+							'/index.tsx': 'console.log("app")',
+							'/package.json': '{"dependencies":{"react":"19.0.0"}}'
+						},
+						runnables: {},
+						data: { tables: [] }
+					},
+					summary: 'AI report',
+					policy: expect.objectContaining({ execution_mode: 'publisher' }),
+					deployment_message: 'ship report',
+					custom_path: undefined
+				},
+				js: 'bundled js',
+				css: 'bundled css'
+			}
+		})
+		expect(AppService.updateAppRaw).not.toHaveBeenCalled()
+		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
+		expect(JSON.parse(raw)).toMatchObject({
+			success: true,
+			type: 'app',
+			path: 'f/apps/report'
+		})
+	})
+
+	it('deploys an existing raw app draft by bundling files and updating the raw app', async () => {
+		vi.mocked(AppService.existsApp).mockResolvedValueOnce(true)
+		UserDraft.save(
+			'raw_app',
+			'f/apps/report',
+			{
+				summary: 'Updated report',
+				files: { '/index.tsx': 'console.log("updated")' },
+				runnables: {},
+				data: { tables: ['orders'] },
+				policy: { execution_mode: 'anonymous' },
+				custom_path: 'kept-by-backend'
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'app',
+			path: 'f/apps/report'
+		})
+
+		expect(AppService.updateAppRaw).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'f/apps/report',
+			formData: {
+				app: {
+					path: 'f/apps/report',
+					value: {
+						files: { '/index.tsx': 'console.log("updated")' },
+						runnables: {},
+						data: { tables: ['orders'] }
+					},
+					summary: 'Updated report',
+					policy: expect.objectContaining({ execution_mode: 'anonymous' }),
+					deployment_message: undefined
+				},
+				js: 'bundled js',
+				css: 'bundled css'
+			}
+		})
+		expect(AppService.createAppRaw).not.toHaveBeenCalled()
+		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
+	})
+
+	it('notifies the session preview (as raw_app) after deploying a raw app', async () => {
+		const onDeployed = vi.fn()
+		setDeployedInSessionHandler(onDeployed)
+		try {
+			UserDraft.save(
+				'raw_app',
+				'f/apps/report',
+				{
+					summary: 'AI report',
+					files: { '/index.tsx': 'console.log("app")' },
+					runnables: {},
+					data: { tables: [] }
+				},
+				{ workspace: WORKSPACE }
+			)
+
+			await callGlobalTool(
+				'deploy_workspace_item',
+				{ type: 'app', path: 'f/apps/report' },
+				toolCallbacks,
+				{
+					sessionId: 'sess-123'
+				}
+			)
+
+			// A raw app deploys under type 'app' but the preview addresses it as
+			// 'raw_app'; the calling session id is threaded through so the deploy
+			// reloads the issuing session's preview, not the UI-active one.
+			expect(onDeployed).toHaveBeenCalledWith({
+				sessionId: 'sess-123',
+				kind: 'raw_app',
+				path: 'f/apps/report'
+			})
+		} finally {
+			setDeployedInSessionHandler(undefined)
+		}
+	})
+
 	it('fills an empty rawscript module through set_flow_module_code', async () => {
 		await callGlobalTool('write_flow', {
 			path: 'f/flows/empty-module',
@@ -1039,7 +1201,7 @@ describe('global AI tools', () => {
 				module_id: 'empty_step',
 				code
 			})
-		).resolves.toContain('Updated local draft flow')
+		).resolves.toContain('Updated flow')
 
 		await expect(
 			callGlobalTool('read_flow_module_code', {
@@ -1222,6 +1384,7 @@ describe('prepareGlobalSystemMessage', () => {
 		expect(content).toContain(
 			'Use discard_local_draft to remove an unsaved local draft, including the matching open editor draft'
 		)
+		expect(content).toContain('If the user message includes an ACTIVE EDITOR section')
 		expect(content).not.toContain('AI draft')
 		expect(content).not.toContain('UserDraft')
 		expect(content).not.toContain('localStorage')
@@ -1241,9 +1404,86 @@ describe('prepareGlobalSystemMessage', () => {
 		expect(discard.requiresConfirmation).toBe(true)
 		expect(deleteItem.requiresConfirmation).toBe(true)
 	})
+
+	describe('get_preview_status', () => {
+		afterEach(() => {
+			setGetPreviewStatusHandler(undefined)
+			setOpenPreviewHandler(undefined)
+		})
+
+		it('takes no arguments', () => {
+			const tool = getGlobalTool('get_preview_status')
+			expect(tool.def.function.parameters).toMatchObject({
+				type: 'object',
+				properties: {},
+				required: []
+			})
+		})
+
+		it('returns the session-only error when no handler is registered', async () => {
+			setGetPreviewStatusHandler(undefined)
+			const result = await callGlobalTool('get_preview_status', {})
+			expect(result).toBe('Error: get_preview_status is only available inside an AI session.')
+		})
+
+		it('dispatches to the registered session handler', async () => {
+			setGetPreviewStatusHandler(() => 'The preview is currently open showing script "u/me/foo".')
+			const result = await callGlobalTool('get_preview_status', {})
+			expect(result).toBe('The preview is currently open showing script "u/me/foo".')
+		})
+	})
+})
+
+describe('session-only preview tools gating', () => {
+	const toolNames = (sessionPreview: boolean) =>
+		globalToolsFor({ sessionPreview }).map((t) => t.def.function.name)
+
+	it('excludes open_preview / get_preview_status outside a session', () => {
+		const names = toolNames(false)
+		expect(names).not.toContain('open_preview')
+		expect(names).not.toContain('get_preview_status')
+		// other tools are still present
+		expect(names).toContain('write_script')
+	})
+
+	it('includes open_preview / get_preview_status inside a session', () => {
+		const names = toolNames(true)
+		expect(names).toContain('open_preview')
+		expect(names).toContain('get_preview_status')
+		// session set is the full globalTools
+		expect(names.length).toBe(globalTools.length)
+	})
+
+	it('mentions open_preview in the system prompt only when preview tools are enabled', () => {
+		const off = prepareGlobalSystemMessage(undefined, { previewTools: false }).content as string
+		const on = prepareGlobalSystemMessage(undefined, { previewTools: true }).content as string
+		expect(off).not.toContain('open_preview')
+		expect(on).toContain('open_preview')
+	})
 })
 
 describe('prepareGlobalUserMessage', () => {
+	it('injects the active editor reference without contents', () => {
+		__resetUserDraftForTesting()
+		localStorage.clear()
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'script',
+			storagePath: '',
+			effectivePath: 'f/scripts/live_greeting'
+		})
+
+		const message = prepareGlobalUserMessage('Update this script', [], { workspace: WORKSPACE })
+
+		expect(message.content).toContain('## ACTIVE EDITOR')
+		expect(message.content).toContain('type: script')
+		expect(message.content).toContain('path: f/scripts/live_greeting')
+		expect(message.content).toContain('isLiveDraft: true')
+		expect(message.content).toContain('## INSTRUCTIONS:\nUpdate this script')
+		expect(message.content).not.toContain('When the user says')
+		expect(message.content).not.toContain('content')
+	})
+
 	it('includes selected workspace item references without contents', () => {
 		const message = prepareGlobalUserMessage('Update these items', [
 			{
