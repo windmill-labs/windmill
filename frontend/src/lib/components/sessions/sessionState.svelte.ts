@@ -318,6 +318,13 @@ export async function commitSessionWorkspace(
 	if (!ws) return undefined
 	s.workspace_id = ws
 	s.pending_workspace_id = undefined
+	// `pending_workspace_id` defaults to the family root when created from
+	// inside a fork, so the committed workspace can differ from the active
+	// workspaceStore. Without this sync, the very first AI request's
+	// `logAiChat` and tool calls read the stale fork from workspaceStore
+	// while the session metadata says root. Mirrors the `switchWorkspace`
+	// in the pending_fork branch above.
+	if (get(workspaceStore) !== ws) syncWorkspaceTo(ws)
 	persistSessions()
 	return ws
 }

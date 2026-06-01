@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
+import { get } from 'svelte/store'
 import {
 	commitSessionWorkspace,
 	deriveForkStatus,
@@ -6,7 +7,7 @@ import {
 	sessionState,
 	type Session
 } from './sessionState.svelte'
-import type { UserWorkspace } from '$lib/stores'
+import { workspaceStore, type UserWorkspace } from '$lib/stores'
 import type { WorkspaceComparison } from '$lib/gen'
 
 // Force createWorkspaceFork to fail so we can pin commitSessionWorkspace's
@@ -137,6 +138,59 @@ describe('commitSessionWorkspace — fork-creation failure', () => {
 		} finally {
 			const i = sessionState.sessions.findIndex((x) => x.id === id)
 			if (i >= 0) sessionState.sessions.splice(i, 1)
+		}
+	})
+})
+
+describe('commitSessionWorkspace — workspaceStore sync (non-fork branch)', () => {
+	it('syncs workspaceStore to the committed workspace when they differ', async () => {
+		// Repro: user is sitting in a fork workspace (wm-fork-x) and creates a
+		// new session whose pending_workspace_id defaults to the family root.
+		// Without the syncWorkspaceTo call in commitSessionWorkspace's non-fork
+		// branch, the session metadata says root while the active workspace
+		// stays on the fork — so AIChatManager.chatRequest's logAiChat and tool
+		// calls would target the wrong workspace.
+		const id = 'test-commit-ws-sync'
+		const prev = get(workspaceStore)
+		workspaceStore.set('wm-fork-x')
+		sessionState.sessions.push({
+			id,
+			name: 'ws-sync',
+			createdAt: 0,
+			pending_workspace_id: 'root_ws'
+		} as Session)
+		try {
+			const committed = await commitSessionWorkspace(id, undefined)
+			expect(committed).toBe('root_ws')
+			const s = sessionState.sessions.find((x) => x.id === id)
+			expect(s?.workspace_id).toBe('root_ws')
+			expect(s?.pending_workspace_id).toBeUndefined()
+			expect(get(workspaceStore)).toBe('root_ws')
+		} finally {
+			const i = sessionState.sessions.findIndex((x) => x.id === id)
+			if (i >= 0) sessionState.sessions.splice(i, 1)
+			workspaceStore.set(prev)
+		}
+	})
+
+	it('is a no-op on workspaceStore when it already matches the committed workspace', async () => {
+		const id = 'test-commit-ws-match'
+		const prev = get(workspaceStore)
+		workspaceStore.set('root_ws')
+		sessionState.sessions.push({
+			id,
+			name: 'ws-match',
+			createdAt: 0,
+			pending_workspace_id: 'root_ws'
+		} as Session)
+		try {
+			const committed = await commitSessionWorkspace(id, undefined)
+			expect(committed).toBe('root_ws')
+			expect(get(workspaceStore)).toBe('root_ws')
+		} finally {
+			const i = sessionState.sessions.findIndex((x) => x.id === id)
+			if (i >= 0) sessionState.sessions.splice(i, 1)
+			workspaceStore.set(prev)
 		}
 	})
 })

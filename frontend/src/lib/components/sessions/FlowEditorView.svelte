@@ -15,12 +15,21 @@
 		runtime,
 		path,
 		workspaceId,
-		onNavigate
+		onNavigate,
+		isActiveSession = true
 	}: {
 		runtime: SessionRuntime
 		path: string
 		workspaceId: string
 		onNavigate?: (item: WorkspaceItem) => void
+		/**
+		 * Only the visible session should claim the workspace's live-editor
+		 * slot — without this, a hidden warm-mounted session can overwrite the
+		 * active session's UserDraft live-editor target (one slot per
+		 * (workspace, kind)), so chat actions like discard / "the open editor"
+		 * resolve to the wrong session.
+		 */
+		isActiveSession?: boolean
 	} = $props()
 
 	let selectedId = $state('settings-metadata')
@@ -44,8 +53,12 @@
 	// the chat's `isLiveDraft` hint and `discard_local_draft` tool resolve to
 	// this path. Same registration the regular /flows/edit page does on
 	// mount, scoped to the session's (forked) workspace.
+	// Gated on `isActiveSession`: warm-but-hidden session editors must not
+	// claim the workspace's single live-editor slot, else chat actions on the
+	// visible session resolve to the hidden one's path.
 	$effect(() => {
 		if (!workspaceId || !path) return
+		if (!isActiveSession) return
 		UserDraft.setLiveEditorDraft({
 			workspace: workspaceId,
 			itemKind: 'flow',
@@ -121,8 +134,7 @@
 		outboundTimer = setTimeout(() => {
 			untrack(() => {
 				const current = UserDraft.get<Flow>('flow', path, { workspace: workspaceId })
-				if (current && flowDraftSig(current) === sig)
-					return
+				if (current && flowDraftSig(current) === sig) return
 				UserDraft.save('flow', path, flow, { workspace: workspaceId })
 			})
 		}, 150)

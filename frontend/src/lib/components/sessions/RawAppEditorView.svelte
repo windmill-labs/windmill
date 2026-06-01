@@ -13,12 +13,21 @@
 		runtime,
 		path,
 		workspaceId,
-		onNavigate
+		onNavigate,
+		isActiveSession = true
 	}: {
 		runtime: SessionRuntime
 		path: string
 		workspaceId: string
 		onNavigate?: (item: WorkspaceItem) => void
+		/**
+		 * Only the visible session should claim the workspace's live-editor
+		 * slot — without this, a hidden warm-mounted session can overwrite the
+		 * active session's UserDraft live-editor target (one slot per
+		 * (workspace, kind)), so chat actions like discard / "the open editor"
+		 * resolve to the wrong session.
+		 */
+		isActiveSession?: boolean
 	} = $props()
 
 	let diffDrawer: DiffDrawer | undefined = $state()
@@ -37,8 +46,12 @@
 	// Mark this editor as the live editor draft for the session's workspace
 	// so the chat's `isLiveDraft` hint / `discard_local_draft` tool resolve
 	// to this path — same registration the regular /apps_raw/edit page does.
+	// Gated on `isActiveSession`: warm-but-hidden session editors must not
+	// claim the workspace's single live-editor slot, else chat actions on the
+	// visible session resolve to the hidden one's path.
 	$effect(() => {
 		if (!workspaceId || !path) return
+		if (!isActiveSession) return
 		UserDraft.setLiveEditorDraft({
 			workspace: workspaceId,
 			itemKind: 'raw_app',

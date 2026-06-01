@@ -414,6 +414,7 @@
 							path={session.target.path}
 							workspaceId={effectiveWorkspaceId}
 							onNavigate={pickEditorTarget}
+							isActiveSession={sessionState.currentSessionId === sessionId}
 						/>
 					{:else if session.target.kind === 'script'}
 						<ScriptEditorView
@@ -422,6 +423,7 @@
 							workspaceId={effectiveWorkspaceId}
 							onNavigate={pickEditorTarget}
 							initialTestPanelCollapsed
+							isActiveSession={sessionState.currentSessionId === sessionId}
 						/>
 					{:else if session.target.kind === 'raw_app'}
 						<RawAppEditorView
@@ -429,6 +431,7 @@
 							path={session.target.path}
 							workspaceId={effectiveWorkspaceId}
 							onNavigate={pickEditorTarget}
+							isActiveSession={sessionState.currentSessionId === sessionId}
 						/>
 					{/if}
 				</div>

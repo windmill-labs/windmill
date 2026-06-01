@@ -60,6 +60,12 @@
 	async function fetchComparison() {
 		loading = true
 		error = undefined
+		// Per-item raw diffs are cached for the lifetime of the drawer.
+		// `loadDiffFor` early-returns on cache hit, so without this reset an
+		// edit-then-reopen would show fresh summary/counts but stale expanded
+		// raw content for any item the user had already drilled into.
+		loadedDiffs = {}
+		summaries = {}
 		try {
 			comparison = await WorkspaceService.compareWorkspaces({
 				workspace: parentWorkspaceId,
@@ -576,12 +582,7 @@
 					/>
 				{/snippet}
 			</ToggleButtonGroup>
-			<Button
-				variant="accent"
-				unifiedSize="sm"
-				startIcon={{ icon: GitMerge }}
-				onclick={openReview}
-			>
+			<Button variant="accent" unifiedSize="sm" startIcon={{ icon: GitMerge }} onclick={openReview}>
 				Review
 			</Button>
 		{/snippet}
