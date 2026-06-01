@@ -619,21 +619,24 @@
 		)
 	}
 
-	// Preserve the chat across the /apps_raw/add → /apps_raw/edit/{path} promotion
-	// (and same-app reloads): RawAppEditor unmounts + remounts on those
-	// transitions, and without this the fresh onMount's saveAndClear would blow
-	// away the APP-mode conversation the user is still actively having about this
-	// same app.
-	let preserveChatOnDestroy = $state(false)
+	// Clear the chat only when the user actually LEAVES this app's editor (a real
+	// navigation to a different app or out of the raw-app editor). Default false
+	// so non-navigation unmount/remounts preserve the APP-mode conversation — in
+	// particular the edit page wipes `files` (unmount) and reloads (remount) after
+	// the /apps_raw/add → /apps_raw/edit/{path} promotion. Those remounts fire no
+	// beforeNavigate, so leaveOnDestroy stays false and the chat survives; the
+	// fresh onMount then sees mode is still APP and skips its clearing saveAndClear.
+	let leaveOnDestroy = $state(false)
 	beforeNavigate(({ to }) => {
 		const dest = to?.url.pathname ?? ''
-		if (!dest.startsWith('/apps_raw/edit/')) return
-		const destPath = dest.slice('/apps_raw/edit/'.length)
-		// !path: on /apps_raw/add, dest is /apps_raw/edit/{path} (initial deploy).
-		// destPath === path: same app.
-		if (!path || destPath === path) {
-			preserveChatOnDestroy = true
-		}
+		const destPath = dest.startsWith('/apps_raw/edit/')
+			? dest.slice('/apps_raw/edit/'.length)
+			: undefined
+		// Staying in the same app — or the /apps_raw/add → /apps_raw/edit/{path}
+		// promotion, where this instance's `path` is still '' — preserves the chat.
+		// Anything else (different app, or leaving the raw-app editor) clears it.
+		const stayingInThisApp = destPath !== undefined && (!path || destPath === path)
+		leaveOnDestroy = !stayingInThisApp
 	})
 
 	onMount(() => {
@@ -669,10 +672,9 @@
 	})
 
 	onDestroy(() => {
-		// Cross-app / leave-editor navigation resets to NAVIGATOR; same-app /
-		// add→edit navigation keeps the chat (the fresh onMount detects mode is
-		// still APP and skips its clearing saveAndClear).
-		if (!preserveChatOnDestroy) {
+		// Only a real navigation away from this app's editor clears the chat (see
+		// leaveOnDestroy above). Internal remounts leave it false and preserve it.
+		if (leaveOnDestroy) {
 			aiChatManager.saveAndClear()
 			aiChatManager.changeMode(AIMode.NAVIGATOR)
 		}
