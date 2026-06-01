@@ -56,7 +56,7 @@ bun run cli -- run flow flow-test4-order-processing-loop --model opus
 bun run cli -- run flow flow-test0-sum-two-numbers --models haiku,opus,4o
 bun run cli -- run flow flow-test0-sum-two-numbers --runs 3 --verbose
 bun run cli -- run flow --record
-GEMINI_API_KEY=... bun run cli -- run app app-test1-counter-create --model gemini-pro
+GEMINI_API_KEY=... bun run cli -- run app app-test1-counter-create --model gemini-3-flash-preview
 WMILL_AI_EVAL_BACKEND_URL=http://127.0.0.1:8000 bun run cli -- run flow --backend-validation preview
 bun run cli -- run global global-test1-script-create
 bun run cli -- run cli bun-hello-script
@@ -89,8 +89,6 @@ Today:
 - `opus`
 - `4o`
 - `gpt-5.5`
-- `gemini-flash`
-- `gemini-pro`
 - `gemini-3-flash-preview`
 - `gemini-3.1-pro-preview`
 - `deepseek-v4-flash`

@@ -538,9 +538,19 @@ pub struct NewScript {
     pub auto_parent: Option<bool>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
+    /// Caller-intent flag (set by the CLI / git sync): when true, deploying
+    /// this script must NOT delete an existing user draft at the same path.
+    /// Transient — never persisted. Deliberately excluded from `impl Hash`
+    /// below (it must not affect the version hash) and from the no-op
+    /// comparison in the deploy handler (it isn't part of what the script
+    /// *is*). See `is_noop_deploy_against_parent`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip_draft_deletion: Option<bool>,
 }
 
 // IMPORTANT: update this Hash impl when adding fields to NewScript
+// (exception: caller-intent flags like `skip_draft_deletion` are intentionally
+// omitted — they must not influence the computed version hash)
 impl Hash for NewScript {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.path.hash(state);

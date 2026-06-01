@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.712.0
+  version: 1.713.1
   title: Windmill API
 
   contact:
@@ -9831,6 +9831,9 @@ paths:
                       type: boolean
                     deployment_message:
                       type: string
+                    skip_draft_deletion:
+                      type: boolean
+                      description: "When true (set by the CLI / git sync), deploying this flow does not delete an existing user draft at the same path."
       responses:
         "201":
           description: flow created
@@ -9872,6 +9875,9 @@ paths:
                   properties:
                     deployment_message:
                       type: string
+                    skip_draft_deletion:
+                      type: boolean
+                      description: "When true (set by the CLI / git sync), deploying this flow does not delete an existing user draft at the same path."
 
       responses:
         "200":
@@ -10370,6 +10376,9 @@ paths:
                   type: array
                   items:
                     type: string
+                skip_draft_deletion:
+                  type: boolean
+                  description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
               required:
                 - path
                 - value
@@ -10422,6 +10431,9 @@ paths:
                       type: array
                       items:
                         type: string
+                    skip_draft_deletion:
+                      type: boolean
+                      description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
                   required:
                     - path
                     - value
@@ -10726,6 +10738,9 @@ paths:
                   type: array
                   items:
                     type: string
+                skip_draft_deletion:
+                  type: boolean
+                  description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
       responses:
         "200":
           description: app updated
@@ -10772,6 +10787,9 @@ paths:
                       type: array
                       items:
                         type: string
+                    skip_draft_deletion:
+                      type: boolean
+                      description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
                 js:
                   type: string
                 css:
@@ -22032,6 +22050,9 @@ components:
           type: array
           items:
             type: string
+        skip_draft_deletion:
+          type: boolean
+          description: "When true (set by the CLI / git sync), deploying this script does not delete an existing user draft at the same path."
 
       required:
         - path

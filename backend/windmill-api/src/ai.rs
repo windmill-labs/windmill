@@ -305,6 +305,22 @@ async fn get_token_using_oauth(
     resource.client_id = resolve_var(resource.client_id, db, w_id, user_db, authed).await?;
     resource.client_secret = resolve_var(resource.client_secret, db, w_id, user_db, authed).await?;
     resource.token_url = resolve_var(resource.token_url, db, w_id, user_db, authed).await?;
+    // Validate the resolved token_url against SSRF rules before issuing the request,
+    // mirroring the protection applied to base_url in `get_base_url` (same
+    // ALLOW_PRIVATE_AI_BASE_URLS opt-in). Without this a workspace member could
+    // point token_url at an internal/metadata address.
+    if !*windmill_ai::ai_providers::ALLOW_PRIVATE_AI_BASE_URLS {
+        use windmill_common::ssrf::SsrfValidationError;
+        windmill_common::ssrf::validate_url_for_ssrf(&resource.token_url)
+            .await
+            .map_err(|e| match e {
+                e @ SsrfValidationError::Private { .. } => Error::BadRequest(format!(
+                    "{e}. If you need to use private/internal AI endpoints, \
+                     set the ALLOW_PRIVATE_AI_BASE_URLS=true environment variable"
+                )),
+                e => Error::from(e),
+            })?;
+    }
     let mut params = HashMap::new();
     params.insert("grant_type", "client_credentials");
     params.insert("scope", "https://cognitiveservices.azure.com/.default");

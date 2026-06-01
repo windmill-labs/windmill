@@ -624,6 +624,12 @@ export const UserDraft = {
 	 * `fallback` in-memory (so reactive readers see it immediately) and
 	 * skips re-persisting it, leaving the LS slot empty until the next real
 	 * edit. Pass the deployed baseline as `fallback`.
+	 *
+	 * `fallback` is deep-cloned before being installed — otherwise a caller
+	 * who passes their own live `$state` baseline (e.g. resource/variable
+	 * editors' `initialStates[ws]`) would end up with `handle.draft` and the
+	 * baseline pointing at the *same* proxy; subsequent edits would mutate
+	 * both sides in lock-step and the dirty check would never fire.
 	 */
 	discard<V>(
 		itemKind: UserDraftItemKind,
@@ -634,6 +640,7 @@ export const UserDraft = {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
+		const safeFallback = snapshotDraftValue(fallback)
 		if (entry) {
 			// Drop any queued debounced write owned by this live entry before
 			// resetting the in-memory value. Otherwise a timer from the old
@@ -646,7 +653,7 @@ export const UserDraft = {
 			// stray `save_draft({value: fallback})` from the reactive sync
 			// effect, racing the explicit delete below.
 			entry.skipNextSync = true
-			entry.state.setWithoutPersist(wrap(fallback) as StoredDraft<unknown> | undefined)
+			entry.state.setWithoutPersist(wrap(safeFallback) as StoredDraft<unknown> | undefined)
 		}
 		try {
 			localStorage.removeItem(localStorageKey(ws, itemKind, path))

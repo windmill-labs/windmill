@@ -56,7 +56,7 @@
 					name: $userStore?.name,
 					username: $userStore?.username,
 					groups: $userStore?.groups,
-					query: urlParamsToObject(page.url.searchParams),
+					query: urlParamsToObject(page.url.searchParams, { stripReserved: true }),
 					hash: page.url.hash.substring(1)
 				}}
 				workspace={$workspaceStore ?? ''}

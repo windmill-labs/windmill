@@ -172,6 +172,93 @@ describe('UserDraft live editor draft registry', () => {
 		expect(UserDraft.getLiveEditorDraft('raw_app')).toBeUndefined()
 	})
 
+	// Pins the slot-collision contract behind the SessionWrapper
+	// `isActiveSession` gate. Without the gate, two warm-mounted session
+	// editors on the same (workspace, kind) — e.g. `/sessions` keeping 3
+	// warm sessions and two of them have script editors open in the same
+	// workspace — both call setLiveEditorDraft and the hidden one can
+	// clobber the visible one's claim. The fix in
+	// {Script,Flow,RawApp}EditorView returns early when `isActiveSession`
+	// is false, so only the visible session writes to the slot.
+	it('collides per (workspace, kind) when two callers both set — the hidden session can hijack', () => {
+		UserDraft.setLiveEditorDraft({
+			workspace: 'ws_collide',
+			itemKind: 'script',
+			storagePath: 'session_a_path',
+			effectivePath: 'u/me/a'
+		})
+		UserDraft.setLiveEditorDraft({
+			workspace: 'ws_collide',
+			itemKind: 'script',
+			storagePath: 'session_b_path',
+			effectivePath: 'u/me/b'
+		})
+		// Last write wins — exactly the bug Codex flagged: a hidden warm
+		// session B mounted after the active A overwrites A's claim.
+		expect(UserDraft.getLiveEditorDraft('script', { workspace: 'ws_collide' })).toMatchObject({
+			storagePath: 'session_b_path',
+			effectivePath: 'u/me/b'
+		})
+	})
+
+	it('with the active-session gate, only the visible session claims the slot', () => {
+		// Simulate the effect bodies in {Script,Flow,RawApp}EditorView: each
+		// returns early when isActiveSession is false. Session A is active,
+		// Session B is warm-mounted but hidden.
+		function registerIfActive(opts: {
+			isActive: boolean
+			workspace: string
+			storagePath: string
+			effectivePath: string
+		}) {
+			if (!opts.isActive) return
+			UserDraft.setLiveEditorDraft({
+				workspace: opts.workspace,
+				itemKind: 'flow',
+				storagePath: opts.storagePath,
+				effectivePath: opts.effectivePath
+			})
+		}
+		registerIfActive({
+			isActive: true,
+			workspace: 'ws_gate',
+			storagePath: 'session_a_path',
+			effectivePath: 'u/me/a'
+		})
+		registerIfActive({
+			isActive: false,
+			workspace: 'ws_gate',
+			storagePath: 'session_b_path',
+			effectivePath: 'u/me/b'
+		})
+		expect(UserDraft.getLiveEditorDraft('flow', { workspace: 'ws_gate' })).toMatchObject({
+			storagePath: 'session_a_path',
+			effectivePath: 'u/me/a'
+		})
+	})
+
+	it('cleanup on the deactivating session is a no-op once the new active session has claimed the slot', () => {
+		// Active-session swap: A becomes hidden (cleanup runs), B becomes
+		// active and registers. Even if Svelte flushes B's effect before
+		// A's cleanup, A's cleanup is keyed on its own storagePath and is
+		// guarded so it doesn't clobber B's claim. Verified here by running
+		// the cleanups in reverse order.
+		UserDraft.setLiveEditorDraft({
+			workspace: 'ws_swap',
+			itemKind: 'raw_app',
+			storagePath: 'session_b_path',
+			effectivePath: 'u/me/b'
+		})
+		// A's cleanup runs after — should be a no-op.
+		UserDraft.clearLiveEditorDraft('raw_app', {
+			workspace: 'ws_swap',
+			storagePath: 'session_a_path'
+		})
+		expect(UserDraft.getLiveEditorDraft('raw_app', { workspace: 'ws_swap' })).toMatchObject({
+			storagePath: 'session_b_path'
+		})
+	})
+
 	it('can remove persisted global draft storage without blanking the live editor', () => {
 		const draft = { path: 'u/me/live_script', content: 'export async function main() {}' }
 		localStorage.setItem('userdraft/w/test_ws/script/', wrapped(draft))

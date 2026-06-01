@@ -17,8 +17,8 @@
 	import { getUserExt } from '$lib/user'
 	import type { UserExt } from '$lib/stores'
 	import { UserDraft, checkStaleness, type UserDraftHandle } from '$lib/userDraft.svelte'
-	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 	import LocalDraftStaleModal from './common/confirmationModal/LocalDraftStaleModal.svelte'
+	import LocalDraftBanner from './LocalDraftBanner.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -128,6 +128,11 @@
 		Object.keys(states).filter((ws) => !deepEqual(states[ws].draft, initialStates[ws]))
 	)
 	const anyDirty = $derived(dirtyWorkspaces.length > 0)
+	// Banner is scoped to the selected workspace — the diff/discard only
+	// operate on it, so showing it for an unrelated dirty workspace would be
+	// misleading. The cross-workspace `otherDirty` alert below still covers
+	// that case.
+	const selectedDirty = $derived(!!selected && dirtyWorkspaces.includes(selected))
 	const otherDirty = $derived(
 		dirtyWorkspaces.length == 1
 			? dirtyWorkspaces.filter((ws) => ws !== $workspaceStore)
@@ -191,11 +196,6 @@
 						if (previousMeta.remoteRev === undefined && previousMeta.remoteDraftRev === undefined) {
 							UserDraft.saveMeta('variable', p, { remoteRev: v.edited_at }, { workspace: ws })
 						}
-						notifyRestoredFromLocal(false, true, {
-							onResetToDeployed: () => {
-								UserDraft.discard('variable', p, s, { workspace: ws })
-							}
-						})
 					}
 				}
 				ensureHandle(ws, s)
@@ -335,6 +335,20 @@
 		title={edit ? `Update variable at ${initialPath}` : 'Add a variable'}
 		on:close={drawer?.closeDrawer}
 	>
+		{#snippet banner()}
+			<LocalDraftBanner
+				show={edit && selectedDirty}
+				getDeployed={() => (selected ? initialStates[selected] : undefined)}
+				getCurrent={() => current}
+				onDiscard={() => {
+					if (!selected) return
+					UserDraft.discard('variable', editPath ?? '', initialStates[selected], {
+						workspace: selected
+					})
+				}}
+				disabled={!can_write}
+			/>
+		{/snippet}
 		<div class="flex flex-col gap-8">
 			{#if !can_write}
 				<Alert type="warning" title="Only read access">

@@ -13,6 +13,7 @@
 	import DropdownV2Inner from './DropdownV2Inner.svelte'
 	import { pointerDownOutside } from '$lib/utils'
 	import { createDropdownMenu, melt, createSync } from '@melt-ui/svelte'
+	import type { MenubarMenuElements } from '@melt-ui/svelte'
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -40,7 +41,10 @@
 		size?: ButtonType.UnifiedSize
 		btnText?: string
 		buttonReplacement?: import('svelte').Snippet
-		menu?: import('svelte').Snippet
+		// In customMenu mode the snippet receives the melt-ui `item` action
+		// store so consumers can wrap their own rows in <MenuItem> (or
+		// `use:melt={$item}`) and get arrow-key navigation + aria wiring.
+		menu?: import('svelte').Snippet<[{ item: MenubarMenuElements['item']; close: () => void }]>
 		maxHeight?: string | undefined
 	}
 
@@ -172,7 +176,7 @@
 		transition:fly={{ duration: enableFlyTransition ? 100 : 0, y: -16 }}
 	>
 		{#if customMenu}
-			{@render menu?.()}
+			{@render menu?.({ item, close })}
 		{:else}
 			<div
 				class="bg-surface-tertiary dark:border w-56 origin-top-right rounded-lg shadow-lg focus:outline-none overflow-y-auto py-1"

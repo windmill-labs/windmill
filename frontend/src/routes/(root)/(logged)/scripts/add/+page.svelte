@@ -4,7 +4,7 @@
 	import { page } from '$app/state'
 	import { defaultScripts, initialArgsStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
-	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
+	import { editPathFor } from '$lib/components/workspacePicker'
 	import type { Schema } from '$lib/common'
 	import {
 		cleanValueProperties,
@@ -273,7 +273,11 @@
 					? 'wac_typescript'
 					: 'script')}
 		onDeploy={(e) => {
-			if ($workspaceStore) invalidate($workspaceStore, 'script')
+			// "Deploy & Stay here" / lib: stay on the editor (just confirm).
+			if (e.stay) {
+				sendUserToast('Deployed')
+				return
+			}
 			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
 		}}
 		onNavigate={(item) => goto(editPathFor(item))}

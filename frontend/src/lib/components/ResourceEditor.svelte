@@ -14,7 +14,6 @@
 	import { getUserExt } from '$lib/user'
 	import type { UserExt } from '$lib/stores'
 	import { UserDraft, checkStaleness, type UserDraftHandle } from '$lib/userDraft.svelte'
-	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 	import LocalDraftStaleModal from './common/confirmationModal/LocalDraftStaleModal.svelte'
 
 	interface Props {
@@ -26,6 +25,14 @@
 		defaultValues?: Record<string, any> | undefined
 		workspace?: string | undefined
 		selected?: string | undefined
+		/** Notifies the parent drawer whether a local draft for the selected
+		 * workspace diverges from the deployed baseline, so it can show the
+		 * "unsaved changes" banner below its header. */
+		onDraftStateChange?: (hasDraft: boolean) => void
+		/** Notifies the parent drawer of write-access for the selected workspace,
+		 * so it can hide the banner's Discard button in read-only mode (matches
+		 * the trigger editors' `disabled={!can_write}` wiring). */
+		onCanWriteChange?: (canWrite: boolean) => void
 	}
 
 	let {
@@ -36,7 +43,9 @@
 		onChange,
 		defaultValues = undefined,
 		workspace = undefined,
-		selected: selectedProp = $bindable()
+		selected: selectedProp = $bindable(),
+		onDraftStateChange,
+		onCanWriteChange
 	}: Props = $props()
 
 	type ResourceState = {
@@ -189,6 +198,11 @@
 		Object.keys(states).filter((ws) => !deepEqual(states[ws].draft, initialStates[ws]))
 	)
 	const anyDirty = $derived(dirtyWorkspaces.length > 0)
+	// Banner is scoped to the selected workspace — the diff/discard only
+	// operate on it, so showing it for an unrelated dirty workspace would be
+	// misleading. The cross-workspace `otherDirty` alert below still covers
+	// that case.
+	const selectedDirty = $derived(!!selected && dirtyWorkspaces.includes(selected))
 	const otherDirty = $derived(
 		dirtyWorkspaces.length == 1
 			? dirtyWorkspaces.filter((ws) => ws !== $workspaceStore)
@@ -277,11 +291,6 @@
 								{ workspace: ws }
 							)
 						}
-						notifyRestoredFromLocal(false, true, {
-							onResetToDeployed: () => {
-								UserDraft.discard('resource', initialPath ?? '', s, { workspace: ws })
-							}
-						})
 					}
 				}
 				ensureHandle(ws, s)
@@ -329,6 +338,29 @@
 	$effect(() => {
 		canSave = anyDirty && dirtyValid && dirtyCanWrite
 	})
+
+	// Drive the parent drawer's "unsaved changes" banner. The drawer chrome
+	// (header + banner slot) lives in ResourceEditorDrawer, above this
+	// lazily-imported content, so the state is lifted up via these accessors.
+	$effect(() => {
+		onDraftStateChange?.(!!initialPath && selectedDirty)
+	})
+	$effect(() => {
+		onCanWriteChange?.(can_write)
+	})
+
+	export function localDraftDeployed(): ResourceState | undefined {
+		return selected ? initialStates[selected] : undefined
+	}
+	export function localDraftCurrent(): ResourceState | undefined {
+		return current
+	}
+	export function discardLocalDraft(): void {
+		if (!selected) return
+		UserDraft.discard('resource', initialPath ?? '', initialStates[selected], {
+			workspace: selected
+		})
+	}
 
 	$effect(() => {
 		if (current)

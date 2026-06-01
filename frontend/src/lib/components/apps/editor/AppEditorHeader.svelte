@@ -59,7 +59,7 @@
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
 
 	import EditorHeader from '$lib/components/EditorHeader.svelte'
-	import { editPathFor, invalidate as invalidatePicker } from '$lib/components/workspacePicker'
+	import { editPathFor } from '$lib/components/workspacePicker'
 	import { invalidateWorkspacePaths } from '$lib/components/PathNameAutocomplete.svelte'
 	import { beforeNavigate, goto } from '$app/navigation'
 	import HideButton from './settingsPanel/HideButton.svelte'
@@ -101,6 +101,7 @@
 		onHideRightPanel?: () => void
 		onHideLeftPanel?: () => void
 		onHideBottomPanel?: () => void
+		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
 	}
 
 	let {
@@ -120,7 +121,8 @@
 		onShowBottomPanel,
 		onHideLeftPanel,
 		onHideRightPanel,
-		onHideBottomPanel
+		onHideBottomPanel,
+		onNavigate = undefined
 	}: Props = $props()
 
 	/** Mirror of the path the user is editing in the pen popover. Initialized
@@ -159,6 +161,14 @@
 
 	const { history, jobsDrawerOpen, refreshComponents } =
 		getContext<AppEditorContext>('AppEditorContext')
+
+	// Sessions inject an AIChatManager via context; AppEditor skips its
+	// UserDraft handle in that case, so the cleanup calls here must skip too
+	// (otherwise we'd wipe a non-session tab's autosave at the same path). The
+	// session-side equivalent is the View's `onDeploy` →
+	// `runtime.syncPreviewWithDeployed`, which discards the fork draft + reloads
+	// the preview to the deployed version.
+	const inSessionPane = !!getContext('aiChatManager')
 
 	const loading = $state({
 		publish: false,
@@ -213,7 +223,7 @@
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
-			UserDraft.remove('app', path)
+			if (!inSessionPane) UserDraft.remove('app', path)
 			onSavedNewAppPath?.(path)
 		} catch (e) {
 			sendUserToast('Error creating app', e)
@@ -297,7 +307,6 @@
 				preserve_on_behalf_of: preserveOnBehalfOf || undefined
 			}
 		})
-		invalidatePicker($workspaceStore!, 'app')
 		invalidateWorkspacePaths($workspaceStore!)
 		savedApp = {
 			summary: $summary,
@@ -314,7 +323,7 @@
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
-		UserDraft.remove('app', $appPath)
+		if (!inSessionPane) UserDraft.remove('app', $appPath)
 		if ($appPath !== npath) {
 			onSavedNewAppPath?.(npath)
 		}
@@ -791,7 +800,7 @@
 			bind:path={newEditedPath}
 			savedPath={$appPath || newPath || undefined}
 			kind="app"
-			onNavigate={(item) => goto(editPathFor(item))}
+			onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
 		/>
 		<div class="flex gap-2 {compactTopbar ? 'hidden' : ''}">
 			{#if $app}

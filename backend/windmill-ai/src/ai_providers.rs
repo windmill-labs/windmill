@@ -20,7 +20,7 @@ where
 
 lazy_static::lazy_static! {
     static ref OPENAI_AZURE_BASE_PATH: Option<String> = std::env::var("OPENAI_AZURE_BASE_PATH").ok();
-    static ref ALLOW_PRIVATE_AI_BASE_URLS: bool = std::env::var("ALLOW_PRIVATE_AI_BASE_URLS")
+    pub static ref ALLOW_PRIVATE_AI_BASE_URLS: bool = std::env::var("ALLOW_PRIVATE_AI_BASE_URLS")
         .ok()
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false);

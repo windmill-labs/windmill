@@ -258,6 +258,15 @@ pub fn main() -> anyhow::Result<()> {
 }
 
 async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
+    // The `cache` CLI mode never connects to the DB, so HUB_BASE_URL keeps its
+    // compiled default. Allow overriding it via env so the prebuild cache step can
+    // be pointed at a private/staging hub (e.g. a local proxy for testing).
+    if let Ok(hub_base_url) = std::env::var("HUB_BASE_URL") {
+        if !hub_base_url.is_empty() {
+            tracing::info!("Overriding hub base url from env: {hub_base_url}");
+            windmill_common::HUB_BASE_URL.store(std::sync::Arc::new(hub_base_url));
+        }
+    }
     let file_path = file_path.unwrap_or("./hubPaths.json".to_string());
     let mut file = File::open(&file_path)
         .await
@@ -567,6 +576,7 @@ fn print_help() {
     println!("  RUN_UPDATE_CA_CERTIFICATE_AT_START = false  Run system CA update at startup");
     println!("  RUN_UPDATE_CA_CERTIFICATE_PATH = /usr/sbin/update-ca-certificates  Path to CA update tool");
     println!("  SYNC_CACHED_RT = false                 Sync cached resource types to admins workspace on server start");
+    println!("  HUB_BASE_URL = https://hub.windmill.dev  Hub to fetch scripts from in `cache` mode (server/worker use the DB setting instead)");
     println!();
     println!("Notes:");
     println!("- Advanced and less commonly used settings are managed via the database and are omitted here.");

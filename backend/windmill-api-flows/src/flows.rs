@@ -551,13 +551,17 @@ async fn create_flow(
         w_id
     ).execute(&mut *tx).await?;
 
-    sqlx::query!(
-        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
-        nf.path,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
+    // CLI / git-sync deploys ask us to preserve any existing user draft at this
+    // path instead of wiping it as part of the deploy.
+    if !nf.skip_draft_deletion.unwrap_or(false) {
+        sqlx::query!(
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
+            nf.path,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,
@@ -1138,13 +1142,17 @@ async fn update_flow(
         })?;
     }
 
-    sqlx::query!(
-        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
-        flow_path,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
+    // CLI / git-sync deploys ask us to preserve any existing user draft at this
+    // path instead of wiping it as part of the deploy.
+    if !nf.skip_draft_deletion.unwrap_or(false) {
+        sqlx::query!(
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
+            flow_path,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,
@@ -1956,6 +1964,7 @@ mod tests {
             })),
             preprocessor_module: None,
             same_worker: false,
+            preserve_step_tags: false,
             skip_expr: None,
             cache_ttl: None,
             cache_ignore_s3_path: None,

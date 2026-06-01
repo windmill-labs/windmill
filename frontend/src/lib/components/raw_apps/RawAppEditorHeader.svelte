@@ -2,7 +2,7 @@
 	import { Drawer, DrawerContent } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { isMac, userPathPrefix } from '$lib/utils'
-	import { editPathFor, invalidate as invalidatePicker } from '$lib/components/workspacePicker'
+	import { editPathFor } from '$lib/components/workspacePicker'
 	import { invalidateWorkspacePaths } from '$lib/components/PathNameAutocomplete.svelte'
 
 	import { AppService, type Policy } from '$lib/gen'
@@ -58,11 +58,20 @@
 	// session-pane PR lands. Untyped getContext to avoid coupling to the
 	// AIChatManager class export (which lives on the chat-visuals PR).
 	const inSessionPane = !!getContext('aiChatManager')
+	// In a session pane the editor does NOT own the localStorage draft — the
+	// session runtime does, keyed by the session's (fork) workspace. So the
+	// `if (!inSessionPane) UserDraft.remove(...)` guards below skip the editor's
+	// own removal (it would target the wrong, main-`$workspaceStore` key). The
+	// session-side equivalent is RawAppEditorView's `onDeploy` →
+	// `runtime.syncPreviewWithDeployed`, which discards the fork draft + reloads
+	// the preview to the deployed version.
 	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
 	import type { RawAppData } from './dataTableRefUtils'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
+	import UnsavedConfirmationModal from '../common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import type { SavedAndModifiedValue } from '../common/confirmationModal/unsavedTypes'
 
 	// async function hash(message) {
 	// 	try {
@@ -115,7 +124,10 @@
 		onOpenYamlEditor?: () => void
 		sidebarCollapsed?: boolean
 		onToggleSidebar?: () => void
+		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
 		liveEditorDraftStoragePath?: string
+		// Fired after a successful deploy; lets the session preview reload.
+		onDeploy?: (e: { path: string }) => void
 	}
 
 	let {
@@ -140,13 +152,15 @@
 		onOpenYamlEditor = undefined,
 		sidebarCollapsed = false,
 		onToggleSidebar = undefined,
-		liveEditorDraftStoragePath = undefined
+		onNavigate = undefined,
+		liveEditorDraftStoragePath = undefined,
+		onDeploy = undefined
 	}: Props = $props()
 
 	let newEditedPath = $state(
 		untrack(() =>
 			newApp
-				? userPathPrefix($userStore?.username) + random_adj() + '_app'
+				? newPath || userPathPrefix($userStore?.username) + random_adj() + '_app'
 				: newPath || appPath || ''
 		)
 	)
@@ -269,8 +283,9 @@
 			}
 			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
-			UserDraft.remove('raw_app', path)
+			if (!inSessionPane) UserDraft.remove('raw_app', path)
 			dispatch('savedNewAppPath', path)
+			onDeploy?.({ path })
 		} catch (e) {
 			sendUserToast(`Error creating app: ${e.body ?? e.message}`, true)
 		}
@@ -364,7 +379,6 @@
 				css
 			}
 		})
-		invalidatePicker($workspaceStore!, 'app')
 		invalidateWorkspacePaths($workspaceStore!)
 		savedApp = {
 			summary: summary,
@@ -381,10 +395,11 @@
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
-		UserDraft.remove('raw_app', appPath)
+		if (!inSessionPane) UserDraft.remove('raw_app', appPath)
 		if (appPath !== npath) {
 			dispatch('savedNewAppPath', npath)
 		}
+		onDeploy?.({ path: npath })
 	}
 
 	async function setPublishState() {
@@ -513,12 +528,32 @@
 
 	let jobsDrawerOpen = $state(false)
 
+	function getInitialAndModifiedValues(): SavedAndModifiedValue {
+		return {
+			savedValue: savedApp,
+			modifiedValue: {
+				summary: summary,
+				value: app,
+				path: newEditedPath || savedApp?.path,
+				policy,
+				custom_path: customPath
+			}
+		}
+	}
 	let app = $derived(files ? { runnables: runnables, files, data } : undefined)
 
 	$effect(() => {
 		saveDrawerOpen && compareVersions()
 	})
 </script>
+
+<!-- Inside a session pane the editor's content is continuously persisted to the
+     UserDraft (localStorage), so tearing the editor down on navigation loses
+     nothing — skip the unsaved-changes prompt. The standalone /apps_raw editor
+     keeps it. -->
+{#if !inSessionPane}
+	<UnsavedConfirmationModal {diffDrawer} {getInitialAndModifiedValues} />
+{/if}
 
 <DeployOverrideConfirmationModal
 	{deployedBy}
@@ -564,7 +599,7 @@
 							button: {
 								text: 'Looks good, deploy',
 								onClick: () => {
-									if (appPath == '') {
+									if (newApp || appPath == '') {
 										createApp(newEditedPath)
 									} else {
 										handleUpdateApp(newEditedPath)
@@ -585,7 +620,7 @@
 					startIcon={{ icon: Save }}
 					disabled={pathError != '' || customPathError != '' || app == undefined}
 					on:click={() => {
-						if (appPath == '') {
+						if (newApp || appPath == '') {
 							createApp(newEditedPath)
 						} else {
 							handleUpdateApp(newEditedPath)
@@ -604,6 +639,7 @@
 			{appPath}
 			{onLatest}
 			{savedApp}
+			rawApp
 			bind:summary
 			bind:customPath
 			bind:deploymentMsg
@@ -691,7 +727,7 @@
 			savedPath={appPath || newPath || undefined}
 			kind="app"
 			raw_app
-			onNavigate={(item) => goto(editPathFor(item))}
+			onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
 		/>
 		<div></div>
 	</div>

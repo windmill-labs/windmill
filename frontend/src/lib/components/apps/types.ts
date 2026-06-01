@@ -161,6 +161,8 @@ export interface AppEditorProps {
 	replaceStateFn?: (path: string) => void
 	gotoFn?: (path: string, opt?: Record<string, any> | undefined) => void
 	onSavedNewAppPath?: (path: string) => void
+	/** Override breadcrumb-picker navigation. Defaults to goto(editPathFor(item)). */
+	onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
 	/**
 	 * Backend revs at the load that produced `app`. Used as the seed
 	 * `UserDraft` meta on the first local autosave: until the handle has
