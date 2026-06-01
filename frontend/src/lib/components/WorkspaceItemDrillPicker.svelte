@@ -164,9 +164,15 @@ would be surprising.
 		}
 	}
 
-	// Search is global → load every kind.
+	// Search is global → load every kind. In external-search mode the host
+	// drives the filter, so we react to it. In internal-search mode (no
+	// externalFilter, DrillPicker renders its own search box) we can't see
+	// the filter from here, so eagerly preload on mount instead — the cached
+	// snapshot in `loaded` makes this near-instant on warm sessions.
 	$effect(() => {
-		if ((externalFilter ?? '').trim() !== '') {
+		if (externalFilter === undefined) {
+			for (const k of kinds) ensureLoaded(k)
+		} else if (externalFilter.trim() !== '') {
 			for (const k of kinds) ensureLoaded(k)
 		}
 	})

@@ -149,9 +149,17 @@ export default class ContextManager {
 
 			let newSelectedContext: ContextElement[] = [...currentlySelectedContext]
 
-			// Filter selected context to only include available items
+			// Filter selected context to only include available items. Workspace
+			// references (workspace_script / workspace_flow) are user-picked via
+			// the @-mention picker and intentionally aren't in availableContext —
+			// preserve them unconditionally so the badge survives editor refreshes.
 			newSelectedContext = newSelectedContext
-				.filter((c) => newAvailableContext.some((ac) => ac.type === c.type && ac.title === c.title))
+				.filter(
+					(c) =>
+						c.type === 'workspace_script' ||
+						c.type === 'workspace_flow' ||
+						newAvailableContext.some((ac) => ac.type === c.type && ac.title === c.title)
+				)
 				.map((c) =>
 					c.type === 'db' && dbSchemas[c.title]
 						? {
@@ -265,6 +273,10 @@ export default class ContextManager {
 					(c) =>
 						(c.type === 'code_piece' && scriptOptions.code.includes(c.content)) ||
 						c.type === 'code' ||
+						// Workspace references are user-picked via @-mention and not in
+						// availableContext; preserve so badges survive editor refreshes.
+						c.type === 'workspace_script' ||
+						c.type === 'workspace_flow' ||
 						newAvailableContext.some((ac) => ac.type === c.type && ac.title === c.title)
 				)
 				.map((c) =>
