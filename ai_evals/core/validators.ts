@@ -222,6 +222,22 @@ export function validateToolExpectations(input: {
         )
       );
     }
+
+    if (rule.stringIncludesAnyOf && rule.stringIncludesAnyOf.length > 0) {
+      const needles = rule.stringIncludesAnyOf.map((needle) => needle.toLowerCase());
+      const invalidValues = values.filter(
+        (value) =>
+          typeof value !== "string" ||
+          !needles.some((needle) => value.toLowerCase().includes(needle))
+      );
+      checks.push(
+        check(
+          `${rule.tool}.${rule.field} contains a required substring`,
+          invalidValues.length === 0,
+          `accepted substrings: ${rule.stringIncludesAnyOf.join(", ")}; values: ${summarizeToolValues(values)}`
+        )
+      );
+    }
   }
 
   return checks;

@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import type { CompletedJob, Flow, Script } from '../../../frontend/src/lib/gen'
-import type { ScriptLang } from '../../../frontend/src/lib/gen/types.gen'
+import type {
+	DataTableTables,
+	DataTableTableSchema,
+	ScriptLang
+} from '../../../frontend/src/lib/gen/types.gen'
 import { buildScriptLintResult } from './core/script/preview'
 
 const BENCHMARK_TIMESTAMP = '1970-01-01T00:00:00.000Z'
@@ -22,9 +26,30 @@ export interface BenchmarkWorkspaceFlow {
 	value: Flow['value']
 }
 
+/** One seeded datatable table: its columns (col -> compact_type) and optional canned rows. */
+export interface BenchmarkDatatableTableSeed {
+	columns: Record<string, string>
+	rows?: Record<string, unknown>[]
+}
+
+/**
+ * A seeded datatable: `datatable_name` plus a `schema -> table -> seed` map.
+ * Mirrors the production shape so `list_datatables` / `get_datatable_table_schema`
+ * project from the same structure.
+ */
+export interface BenchmarkDatatableSeed {
+	datatable_name: string
+	schemas: {
+		[schema: string]: {
+			[table: string]: BenchmarkDatatableTableSeed
+		}
+	}
+}
+
 export interface BenchmarkWorkspaceRunnables {
 	scripts?: BenchmarkWorkspaceScript[]
 	flows?: BenchmarkWorkspaceFlow[]
+	datatables?: BenchmarkDatatableSeed[]
 }
 
 type BenchmarkCompletedJob = CompletedJob & { type: 'CompletedJob' }
@@ -159,6 +184,127 @@ export function getBenchmarkCompletedJob(
 		return null
 	}
 	return structuredClone(entry.job)
+}
+
+// ============= Datatables (canned SQL, no engine) =============
+
+/**
+ * Project the seeded datatables down to the `list_datatable_tables` response:
+ * `datatable_name` + `schema -> table_names`, with no column detail.
+ * Returns `null` for a non-benchmark workspace so callers can fall through to
+ * the real backend; an empty seed yields `[]`.
+ */
+export function listBenchmarkDatatables(workspace: string): DataTableTables[] | null {
+	const runnables = benchmarkWorkspaceRunnables.get(workspace)
+	if (!runnables) {
+		return null
+	}
+	return (runnables.datatables ?? []).map((datatable) => ({
+		datatable_name: datatable.datatable_name,
+		schemas: Object.fromEntries(
+			Object.entries(datatable.schemas).map(([schema, tables]) => [schema, Object.keys(tables)])
+		)
+	}))
+}
+
+export function getBenchmarkDatatableSchema(input: {
+	workspace: string
+	datatableName: string
+	schemaName: string
+	tableName: string
+}): DataTableTableSchema {
+	const runnables = benchmarkWorkspaceRunnables.get(input.workspace)
+	const datatable = (runnables?.datatables ?? []).find(
+		(entry) => entry.datatable_name === input.datatableName
+	)
+	if (!datatable) {
+		// Message MUST match the production `isDatatableNotConfiguredError` regex
+		// (/datatable\s+\S+\s+not found/i in datatableTools.ts) so the
+		// get_datatable_table_schema not-configured mapping is actually exercised.
+		throw new Error(`datatable "${input.datatableName}" not found`)
+	}
+	const table = datatable.schemas?.[input.schemaName]?.[input.tableName]
+	if (!table) {
+		throw new Error(
+			`table "${input.schemaName}.${input.tableName}" not found in datatable "${input.datatableName}"`
+		)
+	}
+	return {
+		datatable_name: input.datatableName,
+		schema_name: input.schemaName,
+		table_name: input.tableName,
+		columns: table.columns
+	}
+}
+
+/**
+ * Execute SQL against a seeded datatable with NO real engine: a SELECT returns
+ * the canned rows of the referenced (or first) seeded table; any other
+ * statement (CREATE/INSERT/UPDATE/DELETE/...) returns `[]` success. Creates a
+ * benchmark completed job and returns its id, like `runBenchmarkScriptPreview`.
+ */
+export function runBenchmarkDatatableSql(input: {
+	workspace: string
+	datatableName: string
+	sql: string
+}): string {
+	const rows = /^\s*select/i.test(input.sql)
+		? resolveBenchmarkDatatableSelectRows(input.workspace, input.datatableName, input.sql)
+		: []
+	return createBenchmarkCompletedJob({
+		workspace: input.workspace,
+		jobKind: 'preview',
+		success: true,
+		args: { database: `datatable://${input.datatableName}` },
+		result: rows
+	})
+}
+
+/**
+ * Best-effort row resolution for a canned SELECT: match the table named in the
+ * first FROM clause, else fall back to the first seeded table. Row fidelity is
+ * intentionally loose — SELECT cases judge behavior (queried + reported back),
+ * not exact cell values (see datatable-evals-plan.md).
+ */
+function resolveBenchmarkDatatableSelectRows(
+	workspace: string,
+	datatableName: string,
+	sql: string
+): Record<string, unknown>[] {
+	const runnables = benchmarkWorkspaceRunnables.get(workspace)
+	const datatable = (runnables?.datatables ?? []).find(
+		(entry) => entry.datatable_name === datatableName
+	)
+	if (!datatable) {
+		return []
+	}
+	const tables = Object.values(datatable.schemas).flatMap((schemaTables) =>
+		Object.entries(schemaTables).map(([table, seed]) => ({ table, seed }))
+	)
+	if (tables.length === 0) {
+		return []
+	}
+	const referenced = sql.match(/\bfrom\s+([a-zA-Z_][\w.]*)/i)?.[1]?.split('.').pop()?.toLowerCase()
+	const matched = referenced
+		? tables.find((entry) => entry.table.toLowerCase() === referenced)
+		: undefined
+	return (matched ?? tables[0]).seed.rows ?? []
+}
+
+/**
+ * Mirror `JobService.getCompletedJobResultMaybe` for benchmark workspaces — the
+ * shape `pollJobResult` consumes. The job is created synchronously before
+ * polling, so it is always present and completed.
+ */
+export function getBenchmarkCompletedJobResultMaybe(input: {
+	workspace: string
+	id: string
+}): { success: boolean; completed: boolean; result: unknown } {
+	const job = getBenchmarkCompletedJob(input.workspace, input.id)
+	if (!job) {
+		throw new Error(`Job "${input.id}" not found in benchmark workspace`)
+	}
+	return { success: job.success, completed: true, result: job.result }
 }
 
 export function runBenchmarkScriptPreview(input: {

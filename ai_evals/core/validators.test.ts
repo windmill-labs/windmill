@@ -140,6 +140,76 @@ describe("validateToolExpectations", () => {
       details: "tools used: write_script, deploy_workspace_item",
     });
   });
+
+  it("accepts a stringIncludesAnyOf substring regardless of case or position", () => {
+    const checks = validateToolExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 1,
+        toolsUsed: ["exec_datatable_sql"],
+        toolCallDetails: [
+          {
+            name: "exec_datatable_sql",
+            arguments: {
+              sql: "WITH recent AS (SELECT * FROM orders) SELECT count(*) FROM recent",
+            },
+          },
+        ],
+        skillsInvoked: [],
+      },
+      toolExpect: {
+        requiredToolsUsed: ["exec_datatable_sql"],
+        toolCallArgs: [
+          {
+            tool: "exec_datatable_sql",
+            field: "sql",
+            stringIncludesAnyOf: ["select"],
+          },
+        ],
+      },
+    });
+
+    expect(checks.every((check) => check.passed)).toBe(true);
+  });
+
+  it("rejects a value missing every stringIncludesAnyOf substring", () => {
+    const checks = validateToolExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 1,
+        toolsUsed: ["exec_datatable_sql"],
+        toolCallDetails: [
+          {
+            name: "exec_datatable_sql",
+            arguments: {
+              sql: "DROP TABLE orders",
+            },
+          },
+        ],
+        skillsInvoked: [],
+      },
+      toolExpect: {
+        toolCallArgs: [
+          {
+            tool: "exec_datatable_sql",
+            field: "sql",
+            stringIncludesAnyOf: ["insert into", "update"],
+          },
+        ],
+      },
+    });
+
+    expect(checks).toContainEqual({
+      name: "exec_datatable_sql.sql contains a required substring",
+      passed: false,
+      details:
+        'accepted substrings: insert into, update; values: "DROP TABLE orders"',
+    });
+  });
 });
 
 describe("validateGlobalState", () => {

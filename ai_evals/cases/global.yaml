@@ -618,3 +618,48 @@
     - creates a Slack resource draft that references the secret variable instead of embedding the token
     - keeps both drafts under a sensible eval/global Slack-related path
     - does not create schedules, triggers, or deployed workspace changes
+
+- id: global-test19-datatable-not-configured-asks-to-set-up
+  prompt: |-
+    Here are two newsletter signups: alice@example.com and bob@example.com.
+    Save them into a workspace data table for me.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_datatables
+    forbiddenToolsUsed:
+      - exec_datatable_sql
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - checks which data tables exist in the workspace before acting
+    - recognizes that no data table is configured in this workspace
+    - explains that a data table must first be set up by the user in the workspace settings (Data Tables) and is not created via SQL
+    - does not run SQL, write a script, or invent a data table to work around the missing configuration
+    - tells the user to configure a data table and then try again
+
+- id: global-test20-datatable-no-hallucinated-main
+  prompt: |-
+    Pull the latest rows from the orders table in our data table so I can see recent orders.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_datatables
+    forbiddenToolsUsed:
+      - exec_datatable_sql
+      - write_script
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - checks which data tables exist in the workspace before querying
+    - recognizes that no data table is configured in this workspace
+    - does not assume a data table named "main" (or any other name) exists
+    - does not run SQL against a guessed data table or fabricate order rows
+    - tells the user they need to set up a data table in the workspace settings first
