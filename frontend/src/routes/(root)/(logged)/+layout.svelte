@@ -38,7 +38,7 @@
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate, replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
-	import { workspaceParamAllowed } from '$lib/workspaceParam'
+	import { workspaceParamAllowed, workspaceAgnosticRoute } from '$lib/workspaceParam'
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
@@ -137,10 +137,24 @@
 	// which also prevents a ping-pong with the URL → store sync in onQueryChange.
 	function syncWorkspaceToUrl() {
 		if (!BROWSER || !routerReady) return
-		const ws = $workspaceStore
-		if (!ws || !workspaceParamAllowed(page.url.pathname)) return
-		if (page.url.searchParams.get('workspace') === ws) return
+		const path = page.url.pathname
+		if (!workspaceParamAllowed(path)) return
+		const param = page.url.searchParams.get('workspace')
 		try {
+			if (workspaceAgnosticRoute(path)) {
+				// Workspace-agnostic page: adopt an explicit ?workspace= into the store
+				// (so it propagates to later scoped pages), then strip it for a clean
+				// URL. The store/storage keep the workspace; the URL need not.
+				if (!param) return
+				if (param !== $workspaceStore) $workspaceStore = param
+				const url = new URL(page.url)
+				url.searchParams.delete('workspace')
+				replaceState(url, page.state)
+				return
+			}
+			// Workspace-scoped page: reflect the active workspace into the URL.
+			const ws = $workspaceStore
+			if (!ws || param === ws) return
 			const url = new URL(page.url)
 			url.searchParams.set('workspace', ws)
 			replaceState(url, page.state)
