@@ -20,6 +20,7 @@
 	import DropdownMenu, { type Props as DropdownMenuProps } from '../DropdownMenu.svelte'
 	import { clickOutside, isJobCancelable, isJobReRunnable } from '$lib/utils'
 	import { goto } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import BarsStaggered from '../icons/BarsStaggered.svelte'
 
 	interface Props {
@@ -266,24 +267,35 @@
 			// one, so target the job's own workspace (not the active one).
 			const jobWorkspace =
 				(job?.type === 'job' ? job.job.workspace_id : undefined) ?? $workspaceStore
+			// When the job lives in a different workspace, open in a new tab so we
+			// don't switch the active workspace of the current tab.
+			const isForeignWorkspace = jobWorkspace != undefined && jobWorkspace !== $workspaceStore
+			const navigateTo = (path: string) => {
+				if (isForeignWorkspace) {
+					window.open(`${base}${path}`, '_blank')
+				} else {
+					goto(path)
+				}
+			}
 			actions.push({
 				label: 'Show run details',
 				icon: ExternalLinkIcon,
-				onClick: () => goto(`/run/${selectedIds[0]}?workspace=${jobWorkspace}`)
+				onClick: () => navigateTo(`/run/${selectedIds[0]}?workspace=${jobWorkspace}`)
 			})
 			if (job?.type === 'job') {
 				if (job.job.job_kind === 'script') {
 					actions.push({
 						label: 'Go to script page',
 						icon: Code2Icon,
-						onClick: () => goto(`/scripts/get/${job.job.script_hash}?workspace=${jobWorkspace}`)
+						onClick: () =>
+							navigateTo(`/scripts/get/${job.job.script_hash}?workspace=${jobWorkspace}`)
 					})
 				}
 				if (job.job.job_kind === 'flow') {
 					actions.push({
 						label: 'Go to flow page',
 						icon: BarsStaggered,
-						onClick: () => goto(`/flows/get/${job.job.script_path}?workspace=${jobWorkspace}`)
+						onClick: () => navigateTo(`/flows/get/${job.job.script_path}?workspace=${jobWorkspace}`)
 					})
 				}
 			}

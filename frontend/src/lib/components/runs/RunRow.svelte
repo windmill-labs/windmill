@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { base } from '$lib/base'
+	import { workspaceStore } from '$lib/stores'
 	import { goto } from '$lib/navigation'
 	import type { Job } from '$lib/gen'
 	import {
@@ -54,6 +55,12 @@
 	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
 
 	let isExternal = $derived(job && job.id === '-')
+
+	// Open links to another workspace in a new tab so we don't switch the active
+	// workspace of the current tab.
+	let isForeignWorkspace = $derived(
+		job?.workspace_id != undefined && job.workspace_id !== $workspaceStore
+	)
 
 	let labelWidth = $state(0)
 
@@ -156,19 +163,27 @@
 						{/if}
 						<JobKindIcon size={14} />
 					</div>
-						{#snippet text()}
-							<span>
-								{#if job && job.job_kind}
-									{getJobKindDisplayLabel(job.job_kind, job.script_path)}
-								{/if}
-								{#if job && job.is_flow_step && job.parent_job}
+					{#snippet text()}
+						<span>
+							{#if job && job.job_kind}
+								{getJobKindDisplayLabel(job.job_kind, job.script_path)}
+							{/if}
+							{#if job && job.is_flow_step && job.parent_job}
 								<br /> Step of flow
-								<a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
+								<a
+									href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}
+									target={isForeignWorkspace ? '_blank' : undefined}
+									rel={isForeignWorkspace ? 'noopener noreferrer' : undefined}
+								>
 									{truncateRev(job.parent_job, 10)}
 								</a>
 							{:else if job && job.parent_job}
 								<br /> Parent
-								<a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
+								<a
+									href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}
+									target={isForeignWorkspace ? '_blank' : undefined}
+									rel={isForeignWorkspace ? 'noopener noreferrer' : undefined}
+								>
 									{truncateRev(job.parent_job, 10)}
 								</a>
 							{/if}
