@@ -175,7 +175,7 @@
 		groups: $userStore?.groups,
 		username: $userStore?.username,
 		name: $userStore?.name,
-		query: urlParamsToObject(new URL(window.location.href).searchParams),
+		query: urlParamsToObject(new URL(window.location.href).searchParams, { stripReserved: true }),
 		hash: window.location.hash.substring(1),
 		workspace: $workspaceStore,
 		mode: 'editor',

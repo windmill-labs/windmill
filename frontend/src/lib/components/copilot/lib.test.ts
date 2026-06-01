@@ -9,7 +9,9 @@ import {
 	buildAssistantToolCallMessage,
 	getReasoningContentDelta
 } from './chat/openaiReasoning'
+import { parseFimCompletionChoice } from './fim'
 import { getDefaultChatTemperature, modelDisallowsSamplingParams } from './modelConfig'
+import { supportsAutocomplete } from './utils'
 
 type AssistantMessageWithReasoning = ChatCompletionMessageParam & {
 	role: 'assistant'
@@ -40,6 +42,48 @@ describe('modelConfig', () => {
 
 	it('keeps deterministic temperature for older Anthropic models', () => {
 		expect(getDefaultChatTemperature({ provider: 'anthropic', model: 'claude-sonnet-4-6' })).toBe(0)
+	})
+})
+
+describe('fim autocomplete', () => {
+	it('allows DeepSeek v4 pro and Codestral autocomplete models', () => {
+		expect(supportsAutocomplete('codestral-latest')).toBe(true)
+		expect(supportsAutocomplete('Codestral-2501')).toBe(true)
+		expect(supportsAutocomplete('codestral-embed')).toBe(false)
+		expect(supportsAutocomplete('deepseek-v4-pro')).toBe(true)
+		expect(supportsAutocomplete('deepseek-chat')).toBe(false)
+	})
+
+	it('parses chat-shaped native FIM responses', () => {
+		expect(
+			parseFimCompletionChoice(
+				{
+					choices: [
+						{
+							message: { content: 'cache[key] = factory()' },
+							finish_reason: 'stop'
+						}
+					]
+				},
+				'mistral'
+			)
+		).toEqual({ content: 'cache[key] = factory()', finish_reason: 'stop' })
+	})
+
+	it('parses DeepSeek native FIM completion responses', () => {
+		expect(
+			parseFimCompletionChoice(
+				{
+					choices: [
+						{
+							text: 'items?.length ?? 0',
+							finish_reason: 'stop'
+						}
+					]
+				},
+				'deepseek'
+			)
+		).toEqual({ content: 'items?.length ?? 0', finish_reason: 'stop' })
 	})
 })
 

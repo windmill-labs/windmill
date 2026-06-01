@@ -207,13 +207,19 @@ async function reconcileIncludingFile(options: {
 }
 
 function referencesIncludeLine(content: string, includeLine: string): boolean {
-  // Match only when the include sits on a line by itself (allowing leading
-  // and trailing whitespace). Earlier we split on `\s+`, but that
-  // false-positives on commented-out includes like `<!-- @AGENTS.cli.md -->`
-  // where the middle token equals the include. CRLF is handled by the
-  // `\r?\n` split.
+  // Match when the include appears as a whitespace-separated token on any
+  // line that isn't an HTML comment. We can't require the include to be on a
+  // line by itself: our own CLAUDE.md default is `Instructions are in
+  // @AGENTS.md` (one sentence), and a strict equality check made `wmill
+  // refresh prompts` re-prompt every run on files wmill itself wrote.
+  // Skipping comment-bearing lines keeps `<!-- @AGENTS.cli.md -->` from
+  // false-positiving.
   for (const line of content.split(/\r?\n/)) {
-    if (line.trim() === includeLine) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("<!--") || trimmed.endsWith("-->")) {
+      continue;
+    }
+    if (trimmed.split(/\s+/).includes(includeLine)) {
       return true;
     }
   }

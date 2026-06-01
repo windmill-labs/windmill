@@ -35,7 +35,8 @@
 		newEditedPath = $bindable(),
 		newPath,
 		hideSecretUrl = false,
-		preserveOnBehalfOf = $bindable(false)
+		preserveOnBehalfOf = $bindable(false),
+		rawApp = false
 	}: {
 		policy: any
 		setPublishState: () => void
@@ -51,6 +52,11 @@
 		newPath: string
 		hideSecretUrl?: boolean
 		preserveOnBehalfOf?: boolean
+		// Raw apps need cross-origin isolation (wm_coep) to be embeddable. Classic
+		// (low-code) apps must NOT get the flag — it would force COEP on the
+		// document and break no-CORP cross-origin subresources (external images,
+		// {@html} embeds, CDN imports).
+		rawApp?: boolean
 	} = $props()
 
 	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
@@ -91,6 +97,17 @@
 			isCloudHosted() || globalWorkspacedRoute ? $workspaceStore + '/' : ''
 		}${customPath}`
 	)
+
+	// When embedding a raw app in an iframe inside another Windmill app (or any
+	// cross-origin-isolated page), the embedded document must set COEP. The
+	// `wm_coep` flag opts the public app into the cross-origin isolation headers.
+	// Only raw apps get it — for classic (low-code) apps COEP would break
+	// no-CORP cross-origin subresources, so their snippet stays a plain iframe.
+	let embedMode = $state(false)
+	function toEmbedSnippet(url: string): string {
+		const finalUrl = rawApp ? `${url}${url.includes('?') ? '&' : '?'}wm_coep=on` : url
+		return `<iframe src="${finalUrl}" title="Windmill app" width="100%" height="600"></iframe>`
+	}
 	async function getSecretUrl() {
 		secretUrl = await AppService.getPublicSecretOfApp({
 			workspace: $workspaceStore!,
@@ -253,12 +270,34 @@
 		{#if !savedApp}
 			<ClipboardPanel content={`Save this app once to get the public secret URL`} size="md" />
 		{:else if secretUrlHref}
-			<ClipboardPanel content={secretUrlHref} size="md" />
+			<div class="flex justify-end mb-1">
+				<Toggle
+					size="xs"
+					checked={embedMode}
+					on:change={(e) => (embedMode = e.detail)}
+					options={{ left: 'URL', right: 'Embed' }}
+				/>
+			</div>
+			<ClipboardPanel
+				content={embedMode ? toEmbedSnippet(secretUrlHref) : secretUrlHref}
+				size="md"
+			/>
 		{:else}<Loader2 class="animate-spin" />
 		{/if}
 		<div class="text-xs text-secondary mt-1">
-			Share this url directly or embed it using an iframe (if requiring login, top-level domain of
-			embedding app must be the same as the one of Windmill)
+			{#if embedMode}
+				Paste this iframe snippet into another app.
+				{#if rawApp}
+					The <code>wm_coep</code> flag <Tooltip
+						>Sets the cross-origin isolation headers (COEP) so the app can be embedded inside
+						another Windmill app or any cross-origin-isolated page. Without it the browser blocks
+						the iframe.</Tooltip
+					> lets it load inside a cross-origin-isolated page.
+				{/if}
+				(if requiring login, top-level domain of embedding app must be the same as the one of Windmill)
+			{:else}
+				Share this url directly, or switch to <b>Embed</b> to get an iframe snippet.
+			{/if}
 		</div>
 
 		<div class="mt-4">
@@ -305,7 +344,10 @@
 				<div class="text-secondary text-sm flex items-center gap-1 mt-2 w-full justify-between">
 					<div>Custom public URL</div>
 				</div>
-				<ClipboardPanel content={fullCustomUrl} size="md" />
+				<ClipboardPanel
+					content={embedMode ? toEmbedSnippet(fullCustomUrl) : fullCustomUrl}
+					size="md"
+				/>
 
 				<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
 					>{dirtyCustomPath ? customPathError : ''}

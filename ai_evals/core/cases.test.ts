@@ -203,6 +203,34 @@ describe("loadCases", () => {
     });
   });
 
+  it("loads global active-editor eval cases", async () => {
+    const globalCases = await loadCases("global");
+    const scriptCase = globalCases.find(
+      (entry) => entry.id === "global-test12-current-live-script-edit"
+    );
+    const flowCase = globalCases.find(
+      (entry) => entry.id === "global-test13-current-live-flow-edit"
+    );
+
+    expect(scriptCase?.initialPath).toContain(
+      "ai_evals/fixtures/frontend/global/initial/current_greeting_live_script.json"
+    );
+    expect(scriptCase?.toolExpect).toMatchObject({
+      requiredToolsUsed: ["read_workspace_item"],
+    });
+    expect(flowCase?.initialPath).toContain(
+      "ai_evals/fixtures/frontend/global/initial/current_invoice_live_flow.json"
+    );
+    expect(flowCase?.validate).toMatchObject({
+      requiredDrafts: [
+        {
+          type: "flow",
+          path: "f/evals/global/current_invoice_flow",
+        },
+      ],
+    });
+  });
+
   it("loads tool expectations for workspace mutation cases", async () => {
     const scriptCases = await loadCases("script");
     const caseEntry = scriptCases.find(

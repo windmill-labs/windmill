@@ -72,6 +72,8 @@
 	let wrapperEl: HTMLDivElement | undefined = $state()
 	let searchInputEl: TextInput | undefined = $state()
 
+	let currentValue = $derived(value ?? [])
+
 	$effect(() => searchInputEl?.focus())
 
 	let processedItems: ProcessedItem<Value>[] = $derived.by(() => {
@@ -87,18 +89,20 @@
 	})
 
 	let valueEntry = $derived(
-		value.map((v) => processedItems.find((item) => item.value === v) ?? { value: v, label: v })
+		currentValue.map(
+			(v) => processedItems.find((item) => item.value === v) ?? { value: v, label: v }
+		)
 	)
 
 	function onAddValue(item: ProcessedItem<Value>) {
 		if (item.__is_create && onCreateItem) {
 			onCreateItem(item.value)
 		} else {
-			value = [...value, item.value]
+			value = [...currentValue, item.value]
 		}
 	}
 	function onRemoveValue(item: ProcessedItem<Value>) {
-		value = value.filter((v) => v !== item.value)
+		value = currentValue.filter((v) => v !== item.value)
 	}
 
 	function clearValue() {
@@ -132,7 +136,7 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 
-	{#if value.length === 0}
+	{#if currentValue.length === 0}
 		<span class={twMerge('text-xs h-full flex items-center flex-1 text-hint', placeholderClass)}>
 			{placeholder}
 		</span>
@@ -149,7 +153,7 @@
 				{allowClear}
 				onRemove={onRemoveValue}
 				onReorder={reorderable
-					? (oldIdx, newIdx) => (value = reorder(value, oldIdx, newIdx))
+					? (oldIdx, newIdx) => (value = reorder(currentValue, oldIdx, newIdx))
 					: undefined}
 			/>
 		</ul>
@@ -166,7 +170,7 @@
 		{disablePortal}
 		onSelectValue={onAddValue}
 		{open}
-		processedItems={processedItems.filter((item) => !value.includes(item.value))}
+		processedItems={processedItems.filter((item) => !currentValue.includes(item.value))}
 		value={undefined}
 		{disabled}
 		{filterText}
@@ -181,7 +185,7 @@
 		ulClass="options"
 	>
 		{#snippet header()}
-			{#if processedItems.length - value.length > 0 || onCreateItem}
+			{#if processedItems.length - currentValue.length > 0 || onCreateItem}
 				<div class="mx-2 mb-1 mt-2 flex items-center relative">
 					<TextInput
 						bind:this={searchInputEl}
