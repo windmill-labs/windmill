@@ -61,7 +61,12 @@ import { runChatLoop } from './chatLoop'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import { getCurrentModel, tryGetCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
-import { globalToolsFor, prepareGlobalSystemMessage, prepareGlobalUserMessage } from './global/core'
+import {
+	globalToolsFor,
+	prepareGlobalSystemMessage,
+	prepareGlobalUserMessage,
+	type GlobalToolHelpers
+} from './global/core'
 import { isGlobalAiEnabled } from './global/gate'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
@@ -512,7 +517,11 @@ export class AIChatManager {
 				previewTools: this.isSessionChat
 			})
 			this.tools = globalToolsFor({ sessionPreview: this.isSessionChat })
-			this.helpers = this.isSessionChat ? { sessionId: this.sessionId } : {}
+			this.helpers = {
+				...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
+				testActiveFlow: async (args?: Record<string, any>) =>
+					this.flowAiChatHelpers?.testFlow(args, this.sessionId)
+			} satisfies GlobalToolHelpers
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareAppSystemMessage(customPrompt)
