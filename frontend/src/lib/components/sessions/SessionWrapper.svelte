@@ -34,7 +34,7 @@
 		getEffectiveWorkspaceId,
 		moveSessionToNewFork,
 		moveSessionToWorkspace,
-		persistSessions,
+		renameSession,
 		selectSession,
 		sessionState,
 		setSessionArchived,
@@ -294,10 +294,7 @@
 					bind:this={summaryInput}
 					value={session.summary ?? ''}
 					placeholder="Untitled session"
-					onSave={(v) => {
-						session.summary = v
-						persistSessions()
-					}}
+					onSave={(v) => renameSession(session.id, v)}
 					class="text-sm font-semibold"
 					inputClass="!text-sm !font-semibold"
 				/>

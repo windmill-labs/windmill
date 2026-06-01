@@ -95,6 +95,8 @@ export type PendingFork = {
 	name: string
 }
 
+export type SessionSummarySource = 'placeholder' | 'generated' | 'manual'
+
 export type Session = {
 	id: string
 	name: string
@@ -113,6 +115,7 @@ export type Session = {
 	chatId?: string
 	target?: SessionTarget
 	summary?: string
+	summarySource?: SessionSummarySource
 	createdAt: number
 	// User-archived sessions are hidden from the sidebar by default
 	// (toggleable via the picker filter). Archive is reversible — distinct
@@ -153,6 +156,15 @@ function loadSessions(): Session[] {
 					}
 					if (s.target?.kind === 'rawapp') {
 						s.target.kind = 'raw_app'
+						mutated = true
+					}
+					if (
+						s.summarySource !== undefined &&
+						s.summarySource !== 'placeholder' &&
+						s.summarySource !== 'generated' &&
+						s.summarySource !== 'manual'
+					) {
+						s.summarySource = 'manual'
 						mutated = true
 					}
 				}
@@ -238,6 +250,7 @@ export function createSession(): Session {
 		id: createLongHash(),
 		name: `session-${next}`,
 		summary,
+		summarySource: 'placeholder',
 		pending_workspace_id: pending && pending.length > 0 ? pending : undefined,
 		createdAt: Date.now(),
 		transient: true
@@ -343,7 +356,10 @@ export function setSessionTarget(id: string, target: SessionTarget, summary?: st
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
 	s.target = target
-	if (!s.summary && summary) s.summary = summary
+	if (!s.summary && summary) {
+		s.summary = summary
+		s.summarySource = 'generated'
+	}
 	persistSessions()
 }
 
@@ -356,7 +372,25 @@ export function renameSession(id: string, newSummary: string) {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
 	s.summary = trimmed.length > 0 ? trimmed : undefined
+	s.summarySource = 'manual'
 	persistSessions()
+}
+
+export function setGeneratedSessionSummary(
+	id: string,
+	newSummary: string,
+	expectedChatId?: string
+): boolean {
+	const trimmed = newSummary.trim()
+	if (!trimmed) return false
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s) return false
+	if (expectedChatId && s.chatId !== expectedChatId) return false
+	if (s.summarySource !== 'placeholder') return false
+	s.summary = trimmed
+	s.summarySource = 'generated'
+	persistSessions()
+	return true
 }
 
 // Create a new fork workspace via the API, refresh the user-workspaces

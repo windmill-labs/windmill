@@ -815,6 +815,7 @@ export class AIChatManager {
 	// this to commit/materialise the workspace (creating a staged fork via
 	// the API) so the first message targets the correct workspace.
 	beforeSend?: () => Promise<void> | void
+	afterFirstTurnSaved?: () => Promise<void> | void
 
 	sendRequest = async (
 		options: {
@@ -858,6 +859,7 @@ export class AIChatManager {
 				return
 			}
 		}
+		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
 		try {
 			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []
 			if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
@@ -1044,6 +1046,11 @@ export class AIChatManager {
 				this.acceptPendingFlowEdits()
 			}
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
+			if (isFirstUserTurn && this.afterFirstTurnSaved) {
+				void Promise.resolve(this.afterFirstTurnSaved()).catch((e) => {
+					console.error('AIChatManager afterFirstTurnSaved hook failed', e)
+				})
+			}
 		} catch (err) {
 			console.error(err)
 			this.flagLastMessageAsError()
