@@ -462,7 +462,7 @@
 								{/key}
 								<div class="flex gap-2 items-center justify-end">
 									<Button
-										href={`${base}/runs/?schedule_path=${path}&show_schedules=true&show_future_jobs=true`}
+										href={`${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`}
 										unifiedSize="md"
 										startIcon={{ icon: List }}
 										variant="subtle"
@@ -532,11 +532,7 @@
 											{
 												displayName: 'View runs',
 												icon: List,
-												href:
-													base +
-													'/runs/?schedule_path=' +
-													path +
-													'&show_schedules=true&show_future_jobs=true'
+												href: `${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`
 											},
 											{
 												displayName: 'Audit logs',

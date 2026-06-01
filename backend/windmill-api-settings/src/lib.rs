@@ -6,7 +6,10 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::{BTreeSet, HashMap},
+    time::Duration,
+};
 
 #[cfg(feature = "parquet")]
 mod audit_logs_s3;
@@ -47,6 +50,7 @@ use windmill_common::secret_backend::{
     AwsSecretsManagerSettings, AzureKeyVaultSettings, SecretMigrationReport, VaultSettings,
 };
 use windmill_common::{
+    auth::is_super_admin_email,
     ee_oss::{get_license_plan, LicensePlan},
     email_oss::send_email_plain_text,
     error::{self, JsonResult, Result},
@@ -1135,6 +1139,8 @@ struct CustomInstanceDb {
     success: bool,
     error: Option<String>,
     tag: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    used_by_workspaces: Vec<String>,
 }
 
 #[derive(Deserialize, Debug, Serialize, Default)]
@@ -1154,7 +1160,7 @@ struct CustomInstanceDbLogs {
 }
 
 async fn list_custom_instance_pg_databases(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<HashMap<String, CustomInstanceDb>> {
     let result = sqlx::query_scalar!(
@@ -1163,12 +1169,57 @@ async fn list_custom_instance_pg_databases(
     .fetch_one(&db)
     .await?
     .ok_or_else(|| error::Error::ExecutionErr("Couldn't find custom_instance_pg_databases".to_string()))?;
-    let result = serde_json::from_value(result).map_err(|e| {
-        error::Error::ExecutionErr(format!(
-            "couldn't parse custom_instance_pg_databases.databases : {}",
-            e.to_string()
-        ))
-    })?;
+    let mut result: HashMap<String, CustomInstanceDb> =
+        serde_json::from_value(result).map_err(|e| {
+            error::Error::ExecutionErr(format!(
+                "couldn't parse custom_instance_pg_databases.databases : {}",
+                e.to_string()
+            ))
+        })?;
+
+    if is_super_admin_email(&db, &authed.email).await? {
+        // Enrich each database with the list of workspaces referencing it through
+        // either a ducklake catalog or a datatable database whose resource_type is
+        // 'instance'. Not stored in DB to avoid drift.
+        let usages = sqlx::query!(
+            r#"
+            SELECT ws.workspace_id AS "workspace_id!", entry->'catalog'->>'resource_path' AS dbname
+            FROM workspace_settings ws
+            CROSS JOIN LATERAL jsonb_each(
+                CASE WHEN jsonb_typeof(ws.ducklake->'ducklakes') = 'object'
+                    THEN ws.ducklake->'ducklakes'
+                    ELSE '{}'::jsonb END
+            ) AS dl(k, entry)
+            WHERE entry->'catalog'->>'resource_type' = 'instance'
+            AND entry->'catalog'->>'resource_path' IS NOT NULL
+            UNION ALL
+            SELECT ws.workspace_id AS "workspace_id!", entry->'database'->>'resource_path' AS dbname
+            FROM workspace_settings ws
+            CROSS JOIN LATERAL jsonb_each(
+                CASE WHEN jsonb_typeof(ws.datatable->'datatables') = 'object'
+                    THEN ws.datatable->'datatables'
+                    ELSE '{}'::jsonb END
+            ) AS dt(k, entry)
+            WHERE entry->'database'->>'resource_type' = 'instance'
+            AND entry->'database'->>'resource_path' IS NOT NULL
+            "#,
+        )
+        .fetch_all(&db)
+        .await?;
+
+        let mut by_db: HashMap<String, BTreeSet<String>> = HashMap::new();
+        for row in usages {
+            if let Some(dbname) = row.dbname {
+                by_db.entry(dbname).or_default().insert(row.workspace_id);
+            }
+        }
+        for (dbname, entry) in result.iter_mut() {
+            if let Some(workspaces) = by_db.remove(dbname) {
+                entry.used_by_workspaces = workspaces.into_iter().collect();
+            }
+        }
+    }
+
     return Ok(Json(result));
 }
 
@@ -1196,7 +1247,8 @@ async fn setup_custom_instance_pg_database(
     let result = setup_custom_instance_pg_database_inner(authed, &db, &dbname, &mut logs).await;
     let success = result.is_ok();
     let error = result.err().map(|e| e.to_string());
-    let status = CustomInstanceDb { logs, success, error, tag: body.tag };
+    let status =
+        CustomInstanceDb { logs, success, error, tag: body.tag, used_by_workspaces: vec![] };
     let status_json = serde_json::to_value(&status).map_err(to_anyhow)?;
     // Save that the database was setup successfully
     sqlx::query!(

@@ -133,7 +133,18 @@ async fn get_log_file(
             }
         }
     }
-    let file = tokio::fs::read(format!("{}{}", *TMP_WINDMILL_LOGS_SERVICE, path)).await;
+    let full_path = format!("{}{}", *TMP_WINDMILL_LOGS_SERVICE, path);
+    // SECURITY (defense in depth): refuse to read through a symlink so a planted
+    // symlink in the logs directory cannot be used to exfiltrate arbitrary files.
+    // `symlink_metadata` returns the link's own metadata without following it.
+    match tokio::fs::symlink_metadata(&full_path).await {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            return Err(Error::BadRequest("Invalid path".to_string()));
+        }
+        Ok(_) => {}
+        Err(_) => return Err(Error::NotFound(format!("File {path} not found"))),
+    }
+    let file = tokio::fs::read(&full_path).await;
     if let Ok(bytes) = file {
         Ok(content_plain(Body::from(bytes::Bytes::from(bytes))))
     } else {
