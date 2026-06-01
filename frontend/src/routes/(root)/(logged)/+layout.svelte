@@ -16,7 +16,6 @@
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
 	import ForkConflictModal from '$lib/components/ForkConflictModal.svelte'
-	import UserDraftConflictModal from '$lib/components/common/confirmationModal/UserDraftConflictModal.svelte'
 	import {
 		enterpriseLicense,
 		isPremiumStore,
@@ -856,8 +855,6 @@
 {/if}
 
 <ForkConflictModal />
-
-<UserDraftConflictModal />
 
 <Modal2
 	title="Forking {$workspaceStore}"
