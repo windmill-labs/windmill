@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte'
-	import { CircleHelp } from 'lucide-svelte'
+	import { CircleHelp, ArrowUp } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { aiChatManager } from './AIChatManager.svelte'
@@ -14,21 +14,31 @@
 	let { toolCallId, userQuestion }: Props = $props()
 
 	let choiceButtons = $state<(HTMLButtonElement | undefined)[]>([])
+	let customAnswerInput = $state<TextInput | undefined>()
 	let customAnswer = $state('')
 	let canSubmitCustomAnswer = $derived(customAnswer.trim().length > 0)
 
-	onMount(() => {
-		if (userQuestion.choices.length === 0) {
-			return
-		}
+	// The custom-answer input is the last stop in the roving cursor, after all
+	// choices, so arrow navigation can reach it from the keyboard.
+	const customAnswerIndex = $derived(userQuestion.choices.length)
+	const itemCount = $derived(userQuestion.choices.length + 1)
+	// The item currently under the keyboard cursor. Mirrored onto the matching
+	// choice's `selected` prop so the highlight comes from the Button itself.
+	let activeIndex = $state(0)
 
+	onMount(() => {
 		void tick().then(() => {
-			focusChoice(0)
+			focusIndex(0)
 		})
 	})
 
-	function focusChoice(index: number) {
-		choiceButtons[index]?.focus()
+	function focusIndex(index: number) {
+		activeIndex = index
+		if (index === customAnswerIndex) {
+			customAnswerInput?.focus()
+		} else {
+			choiceButtons[index]?.focus()
+		}
 	}
 
 	function selectChoice(choice: string) {
@@ -48,14 +58,14 @@
 		if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
 			event.preventDefault()
 			event.stopPropagation()
-			focusChoice((index + 1) % userQuestion.choices.length)
+			focusIndex((index + 1) % itemCount)
 			return
 		}
 
 		if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
 			event.preventDefault()
 			event.stopPropagation()
-			focusChoice((index - 1 + userQuestion.choices.length) % userQuestion.choices.length)
+			focusIndex((index - 1 + itemCount) % itemCount)
 			return
 		}
 
@@ -67,23 +77,37 @@
 	}
 
 	function handleCustomAnswerKeydown(event: KeyboardEvent) {
-		if (event.key !== 'Enter') {
+		// Only ArrowUp/ArrowDown roam out of the input — Left/Right stay free for
+		// moving the text caret within the answer.
+		if (event.key === 'ArrowUp') {
+			event.preventDefault()
+			event.stopPropagation()
+			focusIndex((customAnswerIndex - 1 + itemCount) % itemCount)
 			return
 		}
 
-		event.preventDefault()
-		event.stopPropagation()
-		submitCustomAnswer()
+		if (event.key === 'ArrowDown') {
+			event.preventDefault()
+			event.stopPropagation()
+			focusIndex((customAnswerIndex + 1) % itemCount)
+			return
+		}
+
+		if (event.key === 'Enter') {
+			event.preventDefault()
+			event.stopPropagation()
+			submitCustomAnswer()
+		}
 	}
 </script>
 
 <div
-	class="rounded-md border border-gray-200 bg-surface p-3 text-sm dark:border-gray-700"
+	class="rounded-md border border-border-light bg-surface p-3"
 	data-chat-keyboard-scope="ask-user-question"
 >
 	<div class="flex items-start gap-2">
-		<CircleHelp class="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
-		<p class="min-w-0 flex-1 whitespace-pre-wrap text-xs font-medium text-primary"
+		<CircleHelp class="mt-0.5 h-4 w-4 shrink-0 text-ai" />
+		<p class="min-w-0 flex-1 whitespace-pre-wrap text-xs font-semibold text-emphasis"
 			>{userQuestion.question}</p
 		>
 	</div>
@@ -93,37 +117,40 @@
 			<Button
 				variant="default"
 				unifiedSize="sm"
+				selected={activeIndex === index}
 				bind:element={choiceButtons[index]}
 				onClick={() => selectChoice(choice)}
 				onkeydown={(event) => handleChoiceKeydown(event, choice, index)}
-				btnClasses="!h-auto min-h-[40px] !items-start !justify-start !px-3 !py-2 !text-left !whitespace-normal"
+				onfocus={() => (activeIndex = index)}
+				btnClasses="h-auto min-h-7 justify-start whitespace-normal py-1.5 text-left focus-visible:!ring-0 focus-visible:!outline-none"
 			>
-				<span class="flex min-w-0 flex-col items-start gap-0.5">
-					<span class="max-w-full break-words text-2xs font-medium">{choice}</span>
-				</span>
+				<span class="break-words">{choice}</span>
 			</Button>
 		{/each}
 
 		<div class="flex min-w-0 gap-2 pt-1">
 			<TextInput
+				bind:this={customAnswerInput}
 				bind:value={customAnswer}
 				class="min-w-0 flex-1"
 				size="sm"
 				inputProps={{
 					'aria-label': 'Custom answer',
 					placeholder: 'Custom answer',
-					onkeydown: handleCustomAnswerKeydown
+					onkeydown: handleCustomAnswerKeydown,
+					onfocus: () => (activeIndex = customAnswerIndex)
 				}}
 			/>
 			<Button
-				variant="default"
+				variant="subtle"
 				unifiedSize="sm"
+				iconOnly
+				title="Send"
+				startIcon={{ icon: ArrowUp }}
 				disabled={!canSubmitCustomAnswer}
 				onClick={submitCustomAnswer}
 				btnClasses="shrink-0"
-			>
-				Send
-			</Button>
+			/>
 		</div>
 	</div>
 </div>
