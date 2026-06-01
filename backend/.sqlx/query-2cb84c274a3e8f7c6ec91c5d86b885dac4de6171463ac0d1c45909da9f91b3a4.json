@@ -1,19 +1,19 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO draft (workspace_id, email, path, typ, value, created_at)\n           VALUES ($1, $2, $3, $4, $5::text::json, now())\n           ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL\n           DO UPDATE SET value = EXCLUDED.value, created_at = now()\n           WHERE $7::bool = true\n              OR $6::timestamptz IS NULL\n              OR draft.created_at <= $6::timestamptz\n           RETURNING created_at",
+  "query": "DELETE FROM draft\n               WHERE workspace_id = $1\n                 AND email = $2\n                 AND path = $3\n                 AND typ = $4\n                 AND ($6::bool = true\n                      OR $5::timestamptz IS NULL\n                      OR created_at <= $5::timestamptz)\n               RETURNING now() as \"now!\"",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "created_at",
+        "name": "now!",
         "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Varchar",
-        "Varchar",
-        "Varchar",
+        "Text",
+        "Text",
+        "Text",
         {
           "Custom": {
             "name": "draft_kind",
@@ -47,14 +47,13 @@
             }
           }
         },
-        "Text",
         "Timestamptz",
         "Bool"
       ]
     },
     "nullable": [
-      false
+      null
     ]
   },
-  "hash": "b7cc4786681bc370f9e5bc7bbf8eea7af6cc345d3d2b6bcf35921c6620635de4"
+  "hash": "2cb84c274a3e8f7c6ec91c5d86b885dac4de6171463ac0d1c45909da9f91b3a4"
 }

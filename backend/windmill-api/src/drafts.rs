@@ -34,7 +34,10 @@ pub fn workspaced_service() -> Router {
 
 #[derive(Deserialize, Debug)]
 pub struct SaveDraftRequest {
-    pub value: sqlx::types::Json<Box<serde_json::value::RawValue>>,
+    /// Draft content to save. `null` (or omitted) signals a delete — the
+    /// row is removed under the same conflict rules as an upsert.
+    #[serde(default)]
+    pub value: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
     /// Server timestamp of the client's last known sync for this draft. When
     /// present and `force` is false, the save is rejected if the server's
     /// `created_at` is more recent (i.e. another writer moved the row
@@ -57,17 +60,19 @@ pub enum SaveDraftStatus {
 #[derive(Serialize, Debug)]
 pub struct SaveDraftResponse {
     pub status: SaveDraftStatus,
-    /// On `saved`: the new row's `created_at` (the client should remember
-    /// it as the next `last_sync`). On `conflict`: the existing row's
-    /// `created_at`, so the client knows what the server has.
+    /// On `saved`: the timestamp at which the change was applied (the
+    /// client should remember it as the next `last_sync`). On `conflict`:
+    /// the existing row's `created_at`, so the client knows what the
+    /// server has.
     pub current_timestamp: chrono::DateTime<chrono::Utc>,
 }
 
-/// Upsert the current user's draft at (workspace, kind, path). Conflict
-/// check is done inline via a `WHERE` clause on `DO UPDATE` — when the
-/// existing row is newer than `last_sync` (and `force` is false), the
-/// statement is a no-op and `RETURNING` yields nothing. The handler then
-/// reads the existing row's timestamp to report it back.
+/// Apply the current user's draft at (workspace, kind, path). With a
+/// non-null `value` this upserts; with `null` (or omitted) it deletes.
+/// Either way, the same conflict rule applies: when the existing row is
+/// newer than `last_sync` (and `force` is false), the operation is
+/// skipped and the response carries `status = conflict` + the server's
+/// current timestamp so the client can rebase.
 async fn save_draft(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -77,48 +82,88 @@ async fn save_draft(
     let email = &authed.email;
     let path = path.to_path();
 
-    let saved_at = sqlx::query_scalar!(
-        r#"INSERT INTO draft (workspace_id, email, path, typ, value, created_at)
-           VALUES ($1, $2, $3, $4, $5::text::json, now())
-           ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL
-           DO UPDATE SET value = EXCLUDED.value, created_at = now()
-           WHERE $7::bool = true
-              OR $6::timestamptz IS NULL
-              OR draft.created_at <= $6::timestamptz
-           RETURNING created_at"#,
+    let applied_at = if let Some(value) = &req.value {
+        // Upsert branch. Conflict check rides on a WHERE clause attached
+        // to DO UPDATE — when the existing row is newer than `last_sync`,
+        // the statement is a no-op and RETURNING yields nothing.
+        sqlx::query_scalar!(
+            r#"INSERT INTO draft (workspace_id, email, path, typ, value, created_at)
+               VALUES ($1, $2, $3, $4, $5::text::json, now())
+               ON CONFLICT (workspace_id, path, typ, email) WHERE email IS NOT NULL
+               DO UPDATE SET value = EXCLUDED.value, created_at = now()
+               WHERE $7::bool = true
+                  OR $6::timestamptz IS NULL
+                  OR draft.created_at <= $6::timestamptz
+               RETURNING created_at"#,
+            &w_id,
+            email,
+            path,
+            kind as UserDraftItemKind,
+            serde_json::to_string(value).unwrap(),
+            req.last_sync,
+            req.force,
+        )
+        .fetch_optional(&db)
+        .await?
+    } else {
+        // Delete branch. Same conflict rule lifted into the WHERE clause.
+        // Returns NULL when the row was either too new (conflict) OR
+        // already absent (idempotent delete) — disambiguated below.
+        sqlx::query_scalar!(
+            r#"DELETE FROM draft
+               WHERE workspace_id = $1
+                 AND email = $2
+                 AND path = $3
+                 AND typ = $4
+                 AND ($6::bool = true
+                      OR $5::timestamptz IS NULL
+                      OR created_at <= $5::timestamptz)
+               RETURNING now() as "now!""#,
+            &w_id,
+            email,
+            path,
+            kind as UserDraftItemKind,
+            req.last_sync,
+            req.force,
+        )
+        .fetch_optional(&db)
+        .await?
+    };
+
+    if let Some(ts) = applied_at {
+        return Ok(Json(SaveDraftResponse {
+            status: SaveDraftStatus::Saved,
+            current_timestamp: ts,
+        }));
+    }
+
+    // No row affected. Either:
+    //   - the existing row was newer than `last_sync` (conflict), or
+    //   - this was a delete request and no row existed (idempotent ok).
+    let existing = sqlx::query_scalar!(
+        r#"SELECT created_at FROM draft
+           WHERE workspace_id = $1 AND email = $2 AND path = $3 AND typ = $4"#,
         &w_id,
         email,
         path,
         kind as UserDraftItemKind,
-        serde_json::to_string(&req.value).unwrap(),
-        req.last_sync,
-        req.force,
     )
     .fetch_optional(&db)
     .await?;
 
-    match saved_at {
-        Some(created_at) => Ok(Json(SaveDraftResponse {
-            status: SaveDraftStatus::Saved,
-            current_timestamp: created_at,
+    match existing {
+        Some(ts) => Ok(Json(SaveDraftResponse {
+            status: SaveDraftStatus::Conflict,
+            current_timestamp: ts,
         })),
+        // Delete + nothing-was-there ⇒ report success with server's NOW().
         None => {
-            // No row returned ⇒ the existing row was newer than `last_sync`
-            // and `force` was false. Surface the server's timestamp so the
-            // client can rebase its draft (or retry with `force`).
-            let existing = sqlx::query_scalar!(
-                r#"SELECT created_at FROM draft
-                   WHERE workspace_id = $1 AND email = $2 AND path = $3 AND typ = $4"#,
-                &w_id,
-                email,
-                path,
-                kind as UserDraftItemKind,
-            )
-            .fetch_one(&db)
-            .await?;
+            let now = sqlx::query_scalar!(r#"SELECT now() as "now!""#)
+                .fetch_one(&db)
+                .await?;
             Ok(Json(SaveDraftResponse {
-                status: SaveDraftStatus::Conflict,
-                current_timestamp: existing,
+                status: SaveDraftStatus::Saved,
+                current_timestamp: now,
             }))
         }
     }

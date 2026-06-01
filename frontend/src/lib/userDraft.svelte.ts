@@ -3,6 +3,8 @@ import { onDestroy, untrack } from 'svelte'
 import { deepEqual } from 'fast-equals'
 import { workspaceStore } from './stores'
 import { useLocalStorageValue } from './svelte5Utils.svelte'
+import { readFieldsRecursively } from './utils'
+import { UserDraftDbSyncer } from './userDraftDbSyncer.svelte'
 import type { UserDraftItemKind } from './gen'
 
 export type { UserDraftItemKind }
@@ -121,6 +123,14 @@ type DraftEntry = {
 	itemKind: UserDraftItemKind
 	path: string
 	state: DraftState<unknown>
+	/**
+	 * Single-shot flag consumed by the reactive sync effect in
+	 * `acquireEntry`. Callers that already pushed the right thing to the
+	 * server (e.g. `discard` → explicit `value: null` POST) set this
+	 * before the reactive write so the effect doesn't fire a second,
+	 * incorrect POST.
+	 */
+	skipNextSync: boolean
 	/**
 	 * Tears down the `$effect.root` scope that owns the entry's
 	 * `useLocalStorageValue` reactivity — its `$state` cell and the persist
@@ -367,7 +377,9 @@ export const UserDraft = {
 		const entry = entries.get(mk)
 		if (entry) {
 			// Static writes are external mutations. Update live observers and
-			// force the storage slot to match.
+			// force the storage slot to match. The DB sync rides on the
+			// reactive effect in `acquireEntry`, which fires off
+			// `setWithoutPersist`'s `stateRef.val` update.
 			const current = untrack(() => entry.state.val as StoredDraft<unknown> | undefined)
 			const meta = extractMeta(current)
 			entry.state.setWithoutPersist(wrap(value, meta))
@@ -384,6 +396,7 @@ export const UserDraft = {
 			} catch (e) {
 				console.error('UserDraft.save: localStorage write failed', e)
 			}
+			void UserDraftDbSyncer.save({ workspace: ws, itemKind, path, value })
 		}
 	},
 
@@ -400,12 +413,18 @@ export const UserDraft = {
 		if (entry) {
 			// Static writes represent explicit external draft mutations. A
 			// freshly acquired live entry may still have the initial-write skip
-			// armed, so force the storage slot to match the live value.
+			// armed, so force the storage slot to match the live value. The DB
+			// sync rides on the reactive effect in `acquireEntry`.
 			entry.state.setWithoutPersist(wrap(value, meta))
 			persistDirect(localStorageKey(ws, itemKind, path), value, meta)
 			return
 		}
 		persistDirect(localStorageKey(ws, itemKind, path), value, meta)
+		// `save_draft` requires a value — skip the sync on `undefined`
+		// (a delete-via-static-write), which the server route can't represent.
+		if (value !== undefined) {
+			void UserDraftDbSyncer.save({ workspace: ws, itemKind, path, value })
+		}
 	},
 
 	/**
@@ -461,13 +480,22 @@ export const UserDraft = {
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) {
+			// Goes through `entry.state.val =` (not `setWithoutPersist`), so
+			// the reactive effect in `acquireEntry` picks this up and syncs.
 			const current = untrack(() => entry.state.val as StoredDraft<unknown> | undefined)
 			if (current === undefined) return
 			entry.state.val = wrap(current.value, meta)
+			return
 		}
 		const existing = readPersisted<unknown>(localStorageKey(ws, itemKind, path))
 		if (existing === undefined) return
 		persistDirect(localStorageKey(ws, itemKind, path), existing.value, meta)
+		void UserDraftDbSyncer.save({
+			workspace: ws,
+			itemKind,
+			path,
+			value: existing.value
+		})
 	},
 
 	/**
@@ -503,6 +531,9 @@ export const UserDraft = {
 		} catch (e) {
 			console.error('UserDraft.remove: localStorage remove failed', e)
 		}
+		// `remove` doesn't touch the reactive cell, so the `acquireEntry`
+		// effect won't fire. Push the delete explicitly.
+		void UserDraftDbSyncer.save({ workspace: ws, itemKind, path, value: null })
 	},
 
 	clear(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
@@ -608,6 +639,13 @@ export const UserDraft = {
 			// resetting the in-memory value. Otherwise a timer from the old
 			// entry can outlive unmount and later delete a freshly written
 			// draft for the same key.
+			//
+			// `fallback` is the deployed baseline — when defined, it lands
+			// in the reactive cell so the editor sees the unmodified value.
+			// Arm `skipNextSync` first so the cell write doesn't fire a
+			// stray `save_draft({value: fallback})` from the reactive sync
+			// effect, racing the explicit delete below.
+			entry.skipNextSync = true
 			entry.state.setWithoutPersist(wrap(fallback) as StoredDraft<unknown> | undefined)
 		}
 		try {
@@ -615,6 +653,7 @@ export const UserDraft = {
 		} catch (e) {
 			console.error('UserDraft.discard: localStorage remove failed', e)
 		}
+		void UserDraftDbSyncer.save({ workspace: ws, itemKind, path, value: null })
 	},
 
 	use<V = unknown>(
@@ -743,6 +782,36 @@ function acquireEntry(
 			undefined,
 			useLocalStorageOptions
 		)
+		// Mirror every observable change of `stateRef.val` to the DB syncer.
+		// Reading `stateRef.val` alone only subscribes to the proxy root, so
+		// deep mutations (`handle.draft.content = '...'`) would slip past;
+		// `readFieldsRecursively` walks the value so the effect re-fires on
+		// nested writes too. Skips the very first run because the initial
+		// `stateRef.val` came from localStorage or `defaultValue`, not from
+		// a user edit. `stored === undefined` is the delete signal — the
+		// server route accepts `value: null` for that. `skipNextSync` lets
+		// callers that already POSTed (e.g. `discard`) suppress a duplicate
+		// fire from their own reactive write.
+		let firstRun = true
+		$effect(() => {
+			const stored = stateRef!.val
+			if (stored !== undefined) readFieldsRecursively(stored.value)
+			if (firstRun) {
+				firstRun = false
+				return
+			}
+			const entry = entries.get(mk)
+			if (entry?.skipNextSync) {
+				entry.skipNextSync = false
+				return
+			}
+			void UserDraftDbSyncer.save({
+				workspace,
+				itemKind,
+				path,
+				value: stored === undefined ? null : stored.value
+			})
+		})
 	})
 	if (stateRef) {
 		entries.set(mk, {
@@ -751,6 +820,7 @@ function acquireEntry(
 			itemKind,
 			path,
 			state: stateRef,
+			skipNextSync: false,
 			destroyRoot
 		})
 		return
@@ -763,7 +833,7 @@ function acquireEntry(
 		undefined,
 		useLocalStorageOptions
 	)
-	entries.set(mk, { count: 1, workspace, itemKind, path, state })
+	entries.set(mk, { count: 1, workspace, itemKind, path, state, skipNextSync: false })
 }
 
 function releaseEntry(mk: string): void {

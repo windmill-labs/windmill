@@ -7897,7 +7897,9 @@ paths:
             schema:
               type: object
               properties:
-                value: {}
+                value:
+                  nullable: true
+                  description: Draft content to save. `null` (or omitted) signals a delete — the row is removed under the same conflict rules.
                 last_sync:
                   type: string
                   format: date-time
@@ -7905,7 +7907,6 @@ paths:
                 force:
                   type: boolean
                   description: Skip the conflict check and overwrite the server copy.
-              required: [value]
       responses:
         "200":
           description: save result
