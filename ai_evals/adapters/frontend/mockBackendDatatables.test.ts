@@ -138,10 +138,33 @@ describe('runBenchmarkDatatableSql + getBenchmarkCompletedJobResultMaybe', () =>
 		])
 	})
 
-	it('returns [] success for DDL and DML statements', () => {
+	it('returns [] success for DDL and DML statements without RETURNING', () => {
 		expect(exec('CREATE TABLE foo (id int)').result).toEqual([])
 		expect(exec('INSERT INTO orders VALUES (3, 30)').result).toEqual([])
 		expect(exec('update orders set total = 0').result).toEqual([])
+	})
+
+	it('reflects a write in a later SELECT, isolated from the shared seed', () => {
+		exec('UPDATE orders SET total = 999 WHERE id = 1')
+		expect((exec('SELECT * FROM orders').result as Record<string, unknown>[])).toContainEqual({
+			id: 1,
+			total: 999
+		})
+		// Registration deep-clones the seed, so the shared SEED const stays pristine.
+		expect(SEED.datatables![0].schemas.public.orders.rows).toContainEqual({ id: 1, total: 10 })
+	})
+
+	it('reflects a CREATE in list_datatables and get_datatable_table_schema', () => {
+		exec('CREATE TABLE public.refunds (order_id int4, amount numeric)')
+		expect(listBenchmarkDatatables(WORKSPACE)?.[0].schemas.public).toContain('refunds')
+		expect(
+			getBenchmarkDatatableSchema({
+				workspace: WORKSPACE,
+				datatableName: 'main',
+				schemaName: 'public',
+				tableName: 'refunds'
+			}).columns
+		).toEqual({ order_id: 'int4', amount: 'numeric' })
 	})
 
 	it('throws for an unknown job id', () => {

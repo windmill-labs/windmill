@@ -104,10 +104,11 @@ Datatable cases should set `skipJudge: true` and validate through tool-use
 
 `stringIncludesAnyOf` is existential over calls (at least one matching call), so a
 mutation case still passes when the model mixes its UPDATE/INSERT with
-verification SELECTs. Canned SQL has no engine: SELECT returns the seeded rows of
-the referenced/first table and mutations do not persist, so never assert specific
-returned row values, and give mutation cases extra `maxTurns` (a model that
-re-queries to verify sees stale rows and may retry). Seed data via
+verification SELECTs. The in-memory engine (`datatableSqlEngine.ts`) is stateful
+within a case — writes persist, so a model that re-queries to verify its
+CREATE/UPDATE sees the change and does not loop. But the engine is best-effort
+(SELECT returns all rows of the referenced/first table with no WHERE/projection),
+so still never assert specific returned row values. Seed data via
 `workspace.datatables` in the `initial` fixture (see README).
 
 ## Deterministic validation

@@ -766,8 +766,8 @@
     Mark order number 2 as shipped in our workspace data table.
   initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_seed.json
   runtime:
-    # Canned SQL does not persist mutations, so a model that re-queries to verify
-    # sees stale rows and may retry; give it headroom to issue the UPDATE and wrap up.
+    # Headroom for inspect-schema -> UPDATE -> verify; the in-memory engine now
+    # persists the write, so verification confirms on the first try (no loop).
     maxTurns: 12
   validate:
     draftCountExactly: 0

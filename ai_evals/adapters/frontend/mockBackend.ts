@@ -6,6 +6,9 @@ import type {
 	ScriptLang
 } from '../../../frontend/src/lib/gen/types.gen'
 import { buildScriptLintResult } from './core/script/preview'
+import { applyDatatableSql, type BenchmarkDatatableSeed } from './datatableSqlEngine'
+
+export type { BenchmarkDatatableSeed, BenchmarkDatatableTableSeed } from './datatableSqlEngine'
 
 const BENCHMARK_TIMESTAMP = '1970-01-01T00:00:00.000Z'
 
@@ -24,26 +27,6 @@ export interface BenchmarkWorkspaceFlow {
 	description?: string
 	schema?: Record<string, unknown>
 	value: Flow['value']
-}
-
-/** One seeded datatable table: its columns (col -> compact_type) and optional canned rows. */
-export interface BenchmarkDatatableTableSeed {
-	columns: Record<string, string>
-	rows?: Record<string, unknown>[]
-}
-
-/**
- * A seeded datatable: `datatable_name` plus a `schema -> table -> seed` map.
- * Mirrors the production shape so `list_datatables` / `get_datatable_table_schema`
- * project from the same structure.
- */
-export interface BenchmarkDatatableSeed {
-	datatable_name: string
-	schemas: {
-		[schema: string]: {
-			[table: string]: BenchmarkDatatableTableSeed
-		}
-	}
 }
 
 export interface BenchmarkWorkspaceRunnables {
@@ -73,7 +56,12 @@ export function registerBenchmarkWorkspaceRunnables(
 	runnables: BenchmarkWorkspaceRunnables
 ): void {
 	benchmarkWorkspaces.add(workspace)
-	benchmarkWorkspaceRunnables.set(workspace, runnables)
+	// Datatables are mutated in place by exec_datatable_sql (a write must be visible
+	// to later reads), so store an isolated deep copy — never mutate the caller's seed.
+	benchmarkWorkspaceRunnables.set(workspace, {
+		...runnables,
+		datatables: runnables.datatables ? structuredClone(runnables.datatables) : undefined
+	})
 }
 
 export function unregisterBenchmarkWorkspace(workspace: string): void {
@@ -186,7 +174,7 @@ export function getBenchmarkCompletedJob(
 	return structuredClone(entry.job)
 }
 
-// ============= Datatables (canned SQL, no engine) =============
+// ============= Datatables (best-effort in-memory SQL) =============
 
 /**
  * Project the seeded datatables down to the `list_datatable_tables` response:
@@ -238,19 +226,22 @@ export function getBenchmarkDatatableSchema(input: {
 }
 
 /**
- * Execute SQL against a seeded datatable with NO real engine: a SELECT returns
- * the canned rows of the referenced (or first) seeded table; any other
- * statement (CREATE/INSERT/UPDATE/DELETE/...) returns `[]` success. Creates a
- * benchmark completed job and returns its id, like `runBenchmarkScriptPreview`.
+ * Execute SQL against a seeded datatable through the best-effort in-memory engine
+ * (`applyDatatableSql`). Writes (CREATE/INSERT/UPDATE/DELETE/DROP) mutate the
+ * stored datatable in place so a later list/schema/SELECT reflects them; SELECT
+ * (and RETURNING) yield rows, other statements yield `[]`. Creates a benchmark
+ * completed job and returns its id, like `runBenchmarkScriptPreview`.
  */
 export function runBenchmarkDatatableSql(input: {
 	workspace: string
 	datatableName: string
 	sql: string
 }): string {
-	const rows = /^\s*select/i.test(input.sql)
-		? resolveBenchmarkDatatableSelectRows(input.workspace, input.datatableName, input.sql)
-		: []
+	const runnables = benchmarkWorkspaceRunnables.get(input.workspace)
+	const datatable = (runnables?.datatables ?? []).find(
+		(entry) => entry.datatable_name === input.datatableName
+	)
+	const rows = datatable ? applyDatatableSql(datatable, input.sql).rows : []
 	return createBenchmarkCompletedJob({
 		workspace: input.workspace,
 		jobKind: 'preview',
@@ -258,37 +249,6 @@ export function runBenchmarkDatatableSql(input: {
 		args: { database: `datatable://${input.datatableName}` },
 		result: rows
 	})
-}
-
-/**
- * Best-effort row resolution for a canned SELECT: match the table named in the
- * first FROM clause, else fall back to the first seeded table. Row fidelity is
- * intentionally loose — SELECT cases judge behavior (queried + reported back),
- * not exact cell values (see datatable-evals-plan.md).
- */
-function resolveBenchmarkDatatableSelectRows(
-	workspace: string,
-	datatableName: string,
-	sql: string
-): Record<string, unknown>[] {
-	const runnables = benchmarkWorkspaceRunnables.get(workspace)
-	const datatable = (runnables?.datatables ?? []).find(
-		(entry) => entry.datatable_name === datatableName
-	)
-	if (!datatable) {
-		return []
-	}
-	const tables = Object.values(datatable.schemas).flatMap((schemaTables) =>
-		Object.entries(schemaTables).map(([table, seed]) => ({ table, seed }))
-	)
-	if (tables.length === 0) {
-		return []
-	}
-	const referenced = sql.match(/\bfrom\s+([a-zA-Z_][\w.]*)/i)?.[1]?.split('.').pop()?.toLowerCase()
-	const matched = referenced
-		? tables.find((entry) => entry.table.toLowerCase() === referenced)
-		: undefined
-	return (matched ?? tables[0]).seed.rows ?? []
 }
 
 /**
