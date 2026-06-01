@@ -18,6 +18,12 @@ import {
 	transformSnowflakeForeignKeys,
 	type RawForeignKey
 } from './apps/components/display/dbtable/queries/relationalKeys'
+import {
+	transformIndexes,
+	type CreateIndexInput,
+	type DbIndex,
+	type RawIndex
+} from './apps/components/display/dbtable/queries/indexes'
 
 export type IDbTableOps = {
 	dbType: DbType
@@ -277,6 +283,88 @@ export function dbSchemaOpsWithPreviewScripts({
 				metadata: colDefs,
 				foreignKeys,
 				pk_constraint_name
+			})
+		}
+	}
+}
+
+export type IDbIndexOps = {
+	listIndexes: (params: { tableKey: string; schema?: string }) => Promise<DbIndex[]>
+	createIndex: (params: {
+		tableKey: string
+		schema?: string
+		values: CreateIndexInput
+	}) => Promise<void>
+	previewCreateIndexSql: (params: {
+		tableKey: string
+		schema?: string
+		values: CreateIndexInput
+	}) => Promise<string>
+	dropIndex: (params: { name: string; schema?: string; concurrent?: boolean }) => Promise<void>
+}
+
+export function dbIndexOpsWithPreviewScripts({
+	workspace,
+	input
+}: {
+	workspace: string
+	input: DbInput
+}): IDbIndexOps {
+	const dbType = getDbType(input)
+	const dbArg = getDatabaseArg(input)
+	const language = getLanguageByResourceType(dbType)
+
+	function makeMarker(op: string, payload: Record<string, unknown>): string {
+		return `-- WM_INTERNAL_DB_${op} ${JSON.stringify(payload)}`
+	}
+
+	function createIndexPayload({
+		tableKey,
+		schema,
+		values
+	}: {
+		tableKey: string
+		schema?: string
+		values: CreateIndexInput
+	}): Record<string, unknown> {
+		return {
+			name: values.name?.trim() || undefined,
+			table: tableKey,
+			schema,
+			columns: values.columns,
+			unique: values.unique ?? false,
+			method: values.method,
+			where: values.where?.trim() || undefined,
+			include: values.include ?? [],
+			concurrent: values.concurrent ?? false
+		}
+	}
+
+	return {
+		listIndexes: async ({ tableKey, schema }) => {
+			const content = makeMarker('LIST_INDEXES', { table: tableKey, schema })
+			const result = (await runScriptAndPollResult({
+				workspace,
+				requestBody: { args: { ...dbArg }, language, content }
+			})) as RawIndex[]
+			return transformIndexes(result)
+		},
+		createIndex: async ({ tableKey, schema, values }) => {
+			const content = makeMarker('CREATE_INDEX', createIndexPayload({ tableKey, schema, values }))
+			await runScriptAndPollResult({
+				workspace,
+				requestBody: { args: { ...dbArg }, language, content }
+			})
+		},
+		previewCreateIndexSql: async ({ tableKey, schema, values }) => {
+			const content = makeMarker('CREATE_INDEX', createIndexPayload({ tableKey, schema, values }))
+			return expandMarker(workspace, language, content)
+		},
+		dropIndex: async ({ name, schema, concurrent }) => {
+			const content = makeMarker('DROP_INDEX', { name, schema, concurrent: concurrent ?? false })
+			await runScriptAndPollResult({
+				workspace,
+				requestBody: { args: { ...dbArg }, language, content }
 			})
 		}
 	}
