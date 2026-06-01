@@ -14,6 +14,21 @@ describe("loadCases", () => {
         },
       },
     });
+    expect(caseEntry?.toolExpect).toEqual({
+      requiredToolsUsed: ["test_run_flow"],
+    });
+  });
+
+  it("loads script and flow test tool expectations", async () => {
+    const scriptCases = await loadCases("script");
+    const flowCases = await loadCases("flow");
+
+    expect(scriptCases.find((entry) => entry.id === "script-test1-greet-user")?.toolExpect).toEqual({
+      requiredToolsUsed: ["test_run_script"],
+    });
+    expect(flowCases.find((entry) => entry.id === "flow-test0-sum-two-numbers")?.toolExpect).toEqual({
+      requiredToolsUsed: ["test_run_flow"],
+    });
   });
 
   it("loads the workspace-flow preference benchmark case", async () => {
@@ -238,7 +253,7 @@ describe("loadCases", () => {
     );
 
     expect(caseEntry?.toolExpect).toEqual({
-      requiredToolsUsed: ["create_schedule"],
+      requiredToolsUsed: ["test_run_script", "create_schedule"],
       toolCallArgs: [
         {
           tool: "create_schedule",

@@ -4,6 +4,7 @@ import {
 	FlowService,
 	GcpTriggerService,
 	HttpTriggerService,
+	JobService,
 	KafkaTriggerService,
 	MqttTriggerService,
 	NatsTriggerService,
@@ -61,6 +62,9 @@ import type {
 import { z } from 'zod'
 import {
 	createToolDef,
+	createSearchHubScriptsTool,
+	executeFlowStepTestRun,
+	executeTestRun,
 	findAndReplace,
 	type CreatedResourceTriggerKind,
 	type Tool,
@@ -401,6 +405,49 @@ const patchFlowJsonSchema = z.object({
 		)
 })
 
+const testRunArgsSchema = z
+	.record(z.string(), z.any())
+	.nullable()
+	.optional()
+	.describe('Arguments to pass to the runnable. Omit or pass null when no arguments are needed.')
+
+const testRunScriptSchema = z.object({
+	path: z.string().describe('Workspace path of the script to test.'),
+	args: testRunArgsSchema
+})
+
+const testRunScriptToolDef = createToolDef(
+	testRunScriptSchema,
+	'test_run_script',
+	'Execute a preview-style test run of a script by path, preferring local draft content when it exists.',
+	{ strict: false }
+)
+
+const testRunFlowSchema = z.object({
+	path: z.string().describe('Workspace path of the flow to test.'),
+	args: testRunArgsSchema
+})
+
+const testRunFlowToolDef = createToolDef(
+	testRunFlowSchema,
+	'test_run_flow',
+	'Execute a preview-style test run of a flow by path, preferring local draft content when it exists.',
+	{ strict: false }
+)
+
+const testRunStepSchema = z.object({
+	path: z.string().describe('Workspace path of the flow containing the step to test.'),
+	stepId: z.string().describe('The id of the step/module to test.'),
+	args: testRunArgsSchema
+})
+
+const testRunStepToolDef = createToolDef(
+	testRunStepSchema,
+	'test_run_step',
+	'Execute a test run of one step in a flow by path, preferring local draft flow/script content when it exists.',
+	{ strict: false }
+)
+
 // ============= App tools (raw apps) =============
 
 const backendRunnableSchema = z
@@ -567,6 +614,7 @@ Rules:
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
 - Use search_resource_types before write_resource.
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
+- After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer local drafts, so testing does not require deployment.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
 - Keep context targeted.${
 	previewTools
@@ -1368,6 +1416,7 @@ export const globalTools: Tool<{}>[] = [
 			return getInstructions(parsed.subject, parsed.language)
 		}
 	},
+	createSearchHubScriptsTool(false),
 	{
 		def: createToolDef(
 			askUserQuestionSchema,
@@ -1591,6 +1640,39 @@ export const globalTools: Tool<{}>[] = [
 			const parsed = patchFlowJsonSchema.parse(ctx.args)
 			return patchFlowJson(parsed, ctx)
 		}
+	},
+	{
+		def: testRunScriptToolDef,
+		fn: async (ctx) => {
+			const parsed = testRunScriptSchema.parse(ctx.args)
+			return testRunScriptByPath(parsed, ctx)
+		},
+		requiresConfirmation: true,
+		confirmationMessage: 'Run script test',
+		showDetails: true,
+		autoCollapseDetails: false
+	},
+	{
+		def: testRunFlowToolDef,
+		fn: async (ctx) => {
+			const parsed = testRunFlowSchema.parse(ctx.args)
+			return testRunFlowByPath(parsed, ctx)
+		},
+		requiresConfirmation: true,
+		confirmationMessage: 'Run flow test',
+		showDetails: true,
+		autoCollapseDetails: false
+	},
+	{
+		def: testRunStepToolDef,
+		fn: async (ctx) => {
+			const parsed = testRunStepSchema.parse(ctx.args)
+			return testRunFlowStepByPath(parsed, ctx)
+		},
+		requiresConfirmation: true,
+		confirmationMessage: 'Run flow step test',
+		showDetails: true,
+		autoCollapseDetails: false
 	},
 	{
 		def: createToolDef(
@@ -1872,9 +1954,23 @@ type WriteDraftCtx = {
 // handlers below would route a backgrounded session's tool call to whatever
 // session the user happens to be viewing.
 export type SessionToolHelpers = { sessionId?: string }
+export type GlobalToolHelpers = SessionToolHelpers & {
+	testActiveFlow?: (args?: Record<string, any>) => Promise<string | undefined>
+}
 
 function sessionIdFromCtx(ctx: { helpers?: unknown }): string | undefined {
-	return (ctx.helpers as SessionToolHelpers | undefined)?.sessionId
+	return (ctx.helpers as GlobalToolHelpers | undefined)?.sessionId
+}
+
+function activeFlowTestFromCtx(
+	ctx: { workspace: string; helpers?: unknown },
+	path: string
+): GlobalToolHelpers['testActiveFlow'] | undefined {
+	const activeEditor = getActiveGlobalEditorContext(ctx.workspace)
+	if (activeEditor?.type !== 'flow' || activeEditor.path !== path) {
+		return undefined
+	}
+	return (ctx.helpers as GlobalToolHelpers | undefined)?.testActiveFlow
 }
 
 export type OpenPreviewHandler = (req: {
@@ -2504,6 +2600,145 @@ async function setFlowModuleCode(
 		},
 		ctx
 	)
+}
+
+function normalizeTestRunArgs(args: Record<string, any> | null | undefined): Record<string, any> {
+	return args ?? {}
+}
+
+function flowDraftValueForPreview(flowDraft: FlowDraftValue): FlowValue {
+	return flowDraftAsEditableInput(flowDraft).value
+}
+
+async function loadScriptForFlowStep(
+	moduleValue: { path: string; hash?: string },
+	workspace: string
+): Promise<{ content: string; language: ScriptLang }> {
+	const draft = getGlobalDraft(workspace, 'script', moduleValue.path)
+	if (draft) {
+		if (typeof draft.value !== 'string' || !draft.language) {
+			throw new Error(`Draft script "${moduleValue.path}" is missing content or language.`)
+		}
+		return { content: draft.value, language: draft.language }
+	}
+
+	const script = moduleValue.hash
+		? await ScriptService.getScriptByHash({ workspace, hash: moduleValue.hash })
+		: await ScriptService.getScriptByPath({ workspace, path: moduleValue.path })
+	return { content: script.content, language: script.language }
+}
+
+async function loadDraftFlowPreviewValue(
+	path: string,
+	workspace: string
+): Promise<FlowValue | undefined> {
+	if (!getGlobalDraft(workspace, 'flow', path)) {
+		return undefined
+	}
+	const nestedFlow = await loadFlowDraftValue(path, workspace)
+	return flowDraftValueForPreview(nestedFlow.flow)
+}
+
+async function testRunScriptByPath(
+	args: z.infer<typeof testRunScriptSchema>,
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const script = await loadScriptForEdit(args.path, workspace)
+	const testArgs = normalizeTestRunArgs(args.args)
+
+	return executeTestRun({
+		jobStarter: () =>
+			JobService.runScriptPreview({
+				workspace,
+				requestBody: {
+					path: args.path,
+					content: script.content,
+					args: testArgs,
+					language: script.language
+				}
+			}),
+		workspace,
+		toolCallbacks,
+		toolId,
+		startMessage: `Running test for script "${args.path}"...`,
+		contextName: 'script'
+	})
+}
+
+async function testRunFlowByPath(
+	args: z.infer<typeof testRunFlowSchema>,
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const testArgs = normalizeTestRunArgs(args.args)
+	const testActiveFlow = activeFlowTestFromCtx(ctx, args.path)
+
+	if (testActiveFlow) {
+		return executeTestRun({
+			jobStarter: async () => {
+				const jobId = await testActiveFlow(testArgs)
+				if (jobId) {
+					return jobId
+				}
+
+				const flow = await loadFlowDraftValue(args.path, workspace)
+				return JobService.runFlowPreview({
+					workspace,
+					requestBody: {
+						path: args.path,
+						value: flowDraftValueForPreview(flow.flow),
+						args: testArgs
+					}
+				})
+			},
+			workspace,
+			toolCallbacks,
+			toolId,
+			startMessage: `Starting flow test run for "${args.path}"...`,
+			contextName: 'flow'
+		})
+	}
+
+	const flow = await loadFlowDraftValue(args.path, workspace)
+
+	return executeTestRun({
+		jobStarter: () =>
+			JobService.runFlowPreview({
+				workspace,
+				requestBody: {
+					path: args.path,
+					value: flowDraftValueForPreview(flow.flow),
+					args: testArgs
+				}
+			}),
+		workspace,
+		toolCallbacks,
+		toolId,
+		startMessage: `Starting flow test run for "${args.path}"...`,
+		contextName: 'flow'
+	})
+}
+
+async function testRunFlowStepByPath(
+	args: z.infer<typeof testRunStepSchema>,
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const flow = await loadFlowDraftValue(args.path, workspace)
+	const flowValue = flowDraftValueForPreview(flow.flow)
+	const testArgs = normalizeTestRunArgs(args.args)
+
+	return executeFlowStepTestRun({
+		flowValue,
+		stepId: args.stepId,
+		args: testArgs,
+		workspace,
+		toolCallbacks,
+		toolId,
+		loadScript: loadScriptForFlowStep,
+		loadFlowPreviewValue: loadDraftFlowPreviewValue
+	})
 }
 
 async function initApp(
@@ -3241,7 +3476,8 @@ export function prepareGlobalUserMessage(
 		(context) => context.type === 'workspace_script' || context.type === 'workspace_flow'
 	)
 	const activeEditor =
-		options.activeEditor ?? (options.workspace ? getActiveGlobalEditorContext(options.workspace) : undefined)
+		options.activeEditor ??
+		(options.workspace ? getActiveGlobalEditorContext(options.workspace) : undefined)
 	let content = ''
 
 	if (activeEditor) {
