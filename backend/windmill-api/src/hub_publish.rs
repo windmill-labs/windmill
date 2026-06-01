@@ -37,7 +37,7 @@ struct PublishDraftBody {
 }
 
 #[derive(Serialize)]
-struct HubWorkspaceBody {
+struct HubProjectBody {
     source_id: String,
     slug: String,
     name: String,
@@ -53,8 +53,8 @@ async fn publish_draft(
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
     forward_to_hub(
-        "/workspaces",
-        &HubWorkspaceBody {
+        "/projects",
+        &HubProjectBody {
             source_id: workspace,
             slug: body.slug,
             name: body.name,
@@ -79,7 +79,7 @@ struct PublishScriptBody {
     schema: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     lockfile: Option<String>,
-    workspace_slug: String,
+    project_slug: String,
 }
 
 async fn publish_script(
@@ -105,7 +105,7 @@ struct PublishFlowInner {
 struct PublishFlowBody {
     flow: PublishFlowInner,
     apps: Vec<String>,
-    workspace_slug: String,
+    project_slug: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     recording: Option<serde_json::Value>,
 }
@@ -126,7 +126,7 @@ struct PublishAppBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
     summary: String,
-    workspace_slug: String,
+    project_slug: String,
 }
 
 async fn publish_app(
@@ -147,7 +147,7 @@ struct PublishRawAppBody {
     summary: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     external_embed_url: Option<String>,
-    workspace_slug: String,
+    project_slug: String,
 }
 
 async fn publish_raw_app(
@@ -163,7 +163,7 @@ async fn publish_raw_app(
 struct RecordingBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     recording: Option<serde_json::Value>,
-    workspace_slug: String,
+    project_slug: String,
 }
 
 async fn publish_script_recording(
@@ -193,7 +193,7 @@ struct PublishResourceTypeBody {
     description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     app: Option<String>,
-    workspace_slug: String,
+    project_slug: String,
 }
 
 async fn publish_resource_type(
@@ -203,7 +203,7 @@ async fn publish_resource_type(
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
     forward_to_hub(
-        &format!("/workspaces/{}/resource_types", body.workspace_slug),
+        &format!("/projects/{}/resource_types", body.project_slug),
         &body,
     )
     .await
@@ -220,7 +220,7 @@ struct PublishResourceBody {
 #[derive(Deserialize, Serialize)]
 struct PublishResourcesBody {
     resources: Vec<PublishResourceBody>,
-    workspace_slug: String,
+    project_slug: String,
 }
 
 async fn publish_resources(
@@ -229,11 +229,7 @@ async fn publish_resources(
     Json(body): Json<PublishResourcesBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
-    forward_to_hub(
-        &format!("/workspaces/{}/resources", body.workspace_slug),
-        &body,
-    )
-    .await
+    forward_to_hub(&format!("/projects/{}/resources", body.project_slug), &body).await
 }
 
 #[derive(Deserialize, Serialize)]
@@ -254,7 +250,7 @@ struct PublishTriggerBody {
 #[derive(Deserialize, Serialize)]
 struct PublishTriggersBody {
     triggers: Vec<PublishTriggerBody>,
-    workspace_slug: String,
+    project_slug: String,
 }
 
 async fn publish_triggers(
@@ -263,11 +259,7 @@ async fn publish_triggers(
     Json(body): Json<PublishTriggersBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
-    forward_to_hub(
-        &format!("/workspaces/{}/triggers", body.workspace_slug),
-        &body,
-    )
-    .await
+    forward_to_hub(&format!("/projects/{}/triggers", body.project_slug), &body).await
 }
 
 async fn forward_to_hub<T: Serialize>(path: &str, body: &T) -> Result<(StatusCode, String), Error> {
