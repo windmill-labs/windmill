@@ -174,7 +174,42 @@ describe("validateToolExpectations", () => {
     expect(checks.every((check) => check.passed)).toBe(true);
   });
 
-  it("rejects a value missing every stringIncludesAnyOf substring", () => {
+  it("accepts stringIncludesAnyOf when only one of several calls matches", () => {
+    // Existential: a mutation mixed with verification SELECTs still passes.
+    const checks = validateToolExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 2,
+        toolsUsed: ["exec_datatable_sql"],
+        toolCallDetails: [
+          {
+            name: "exec_datatable_sql",
+            arguments: { sql: "UPDATE orders SET status = 'shipped' WHERE id = 2" },
+          },
+          {
+            name: "exec_datatable_sql",
+            arguments: { sql: "SELECT * FROM orders WHERE id = 2" },
+          },
+        ],
+        skillsInvoked: [],
+      },
+      toolExpect: {
+        toolCallArgs: [
+          {
+            tool: "exec_datatable_sql",
+            field: "sql",
+            stringIncludesAnyOf: ["insert into", "update"],
+          },
+        ],
+      },
+    });
+
+    expect(checks.every((check) => check.passed)).toBe(true);
+  });
+
+  it("rejects stringIncludesAnyOf when no call matches any substring", () => {
     const checks = validateToolExpectations({
       run: {
         success: true,
@@ -204,7 +239,7 @@ describe("validateToolExpectations", () => {
     });
 
     expect(checks).toContainEqual({
-      name: "exec_datatable_sql.sql contains a required substring",
+      name: "exec_datatable_sql.sql includes a required substring",
       passed: false,
       details:
         'accepted substrings: insert into, update; values: "DROP TABLE orders"',

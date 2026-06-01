@@ -224,16 +224,19 @@ export function validateToolExpectations(input: {
     }
 
     if (rule.stringIncludesAnyOf && rule.stringIncludesAnyOf.length > 0) {
+      // Existential: at least one call must contain one of the substrings.
+      // Other calls to the same tool may do anything — this suits SQL, where a
+      // model mixes the requested statement (e.g. an UPDATE) with verification
+      // SELECTs that would otherwise fail an "all calls" check.
       const needles = rule.stringIncludesAnyOf.map((needle) => needle.toLowerCase());
-      const invalidValues = values.filter(
+      const hasMatch = values.some(
         (value) =>
-          typeof value !== "string" ||
-          !needles.some((needle) => value.toLowerCase().includes(needle))
+          typeof value === "string" && needles.some((needle) => value.toLowerCase().includes(needle))
       );
       checks.push(
         check(
-          `${rule.tool}.${rule.field} contains a required substring`,
-          invalidValues.length === 0,
+          `${rule.tool}.${rule.field} includes a required substring`,
+          hasMatch,
           `accepted substrings: ${rule.stringIncludesAnyOf.join(", ")}; values: ${summarizeToolValues(values)}`
         )
       );

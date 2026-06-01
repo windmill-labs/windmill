@@ -635,6 +635,7 @@
       - write_script
       - deploy_workspace_item
       - delete_workspace_item
+  skipJudge: true
   judgeChecklist:
     - checks which data tables exist in the workspace before acting
     - recognizes that no data table is configured in this workspace
@@ -657,6 +658,7 @@
       - write_script
       - deploy_workspace_item
       - delete_workspace_item
+  skipJudge: true
   judgeChecklist:
     - checks which data tables exist in the workspace before querying
     - recognizes that no data table is configured in this workspace
@@ -680,6 +682,7 @@
       - exec_datatable_sql
       - deploy_workspace_item
       - delete_workspace_item
+  skipJudge: true
   judgeChecklist:
     - lists the tables available in the workspace data table (orders and customers)
     - answers from the data table listing rather than fabricating table names
@@ -699,6 +702,7 @@
     forbiddenToolsUsed:
       - deploy_workspace_item
       - delete_workspace_item
+  skipJudge: true
   judgeChecklist:
     - inspects the orders table schema in the workspace data table
     - reports the orders columns (such as id, customer_id, total, status, created_at)
@@ -724,6 +728,7 @@
         field: sql
         stringIncludesAnyOf:
           - select
+  skipJudge: true
   judgeChecklist:
     - runs a SELECT query against the orders table in the workspace data table
     - reports the orders returned by the query back to the user instead of fabricating data
@@ -749,6 +754,7 @@
         field: sql
         stringIncludesAnyOf:
           - create table
+  skipJudge: true
   judgeChecklist:
     - creates the refunds table with a plain CREATE TABLE statement on the data table
     - includes an order id and a refund amount column
@@ -760,7 +766,9 @@
     Mark order number 2 as shipped in our workspace data table.
   initial: ai_evals/fixtures/frontend/global/initial/datatable_orders_seed.json
   runtime:
-    maxTurns: 6
+    # Canned SQL does not persist mutations, so a model that re-queries to verify
+    # sees stale rows and may retry; give it headroom to issue the UPDATE and wrap up.
+    maxTurns: 12
   validate:
     draftCountExactly: 0
   toolExpect:
@@ -776,6 +784,7 @@
         stringIncludesAnyOf:
           - update
           - insert into
+  skipJudge: true
   judgeChecklist:
     - runs an UPDATE on the orders table setting the status of order id 2 to shipped
     - targets only order number 2 rather than rewriting the whole table
@@ -802,6 +811,11 @@
       - exec_datatable_sql
       - deploy_workspace_item
       - delete_workspace_item
+  # The judge has no datatable SDK reference and wrongly penalizes correct
+  # wmill.datatable() tagged-template usage, so rely on the deterministic checks:
+  # required get_instructions + write_script, forbidden exec_datatable_sql, and a
+  # draft that contains wmill.datatable(.
+  skipJudge: true
   judgeChecklist:
     - writes a script (not a chat-time SQL execution) that reads the workspace data table at runtime
     - uses the wmill.datatable() SDK to query the orders table and sum the order totals

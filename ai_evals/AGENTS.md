@@ -86,15 +86,29 @@ Global prompts should exercise workspace-level drafting behavior:
 
 Keep deterministic validation focused on the draft contract: required draft type/path, required content snippets, forbidden draft paths, and forbidden mutating tools such as deploy/delete unless the case explicitly asks for them.
 
-Datatable cases are an exception to the draft contract: `list_datatables`,
-`get_datatable_table_schema`, and `exec_datatable_sql` produce no drafts, so
-validate them through tool-use (`requiredToolsUsed` / `forbiddenToolsUsed`) and
-SQL-argument assertions (`toolCallArgs` with `stringIncludesAnyOf`, e.g.
-`['select']`, `['create table']`, `['update', 'insert into']`) plus the judge —
-not through workspace state. Because canned SQL returns the seeded rows of the
-referenced/first table (no real engine), keep SELECT-case judges lenient: assert
-that the model queried and reported back, never specific returned row values.
-Seed data via `workspace.datatables` in the `initial` fixture (see README).
+Datatable cases should set `skipJudge: true` and validate through tool-use
+(`requiredToolsUsed` / `forbiddenToolsUsed`) and SQL-argument assertions
+(`toolCallArgs` with `stringIncludesAnyOf`, e.g. `['select']`, `['create table']`,
+`['update', 'insert into']`). Two reasons the judge is unreliable here:
+
+- `list_datatables`, `get_datatable_table_schema`, and `exec_datatable_sql`
+  produce no drafts, and the global judge only sees the drafts artifact — it
+  scores a no-draft conversational answer as empty (same as the
+  `askUserQuestion` cases).
+- Even a case that *does* produce a draft (a script reading the data table via
+  `wmill.datatable()` at runtime) is mis-judged: the judge has no datatable SDK
+  reference and penalizes correct `wmill.datatable()` usage as wrong. Verify the
+  SDK call deterministically instead — `requiredDrafts.valueIncludes: ['wmill.datatable(']`
+  plus forbidding `exec_datatable_sql` (keeping chat-time SQL distinct from
+  runtime SDK use).
+
+`stringIncludesAnyOf` is existential over calls (at least one matching call), so a
+mutation case still passes when the model mixes its UPDATE/INSERT with
+verification SELECTs. Canned SQL has no engine: SELECT returns the seeded rows of
+the referenced/first table and mutations do not persist, so never assert specific
+returned row values, and give mutation cases extra `maxTurns` (a model that
+re-queries to verify sees stale rows and may retry). Seed data via
+`workspace.datatables` in the `initial` fixture (see README).
 
 ## Deterministic validation
 

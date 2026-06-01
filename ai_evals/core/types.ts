@@ -156,10 +156,12 @@ export interface ToolCallArgumentRule {
   stringStartsWithAnyOf?: string[];
   stringMustNotStartWithAnyOf?: string[];
   /**
-   * Case-insensitive "contains": the value must include at least one of these
-   * substrings. Use instead of `stringStartsWithAnyOf` when the meaningful token
-   * can appear anywhere in the value (e.g. a SQL keyword whose position/case
-   * varies), to avoid brittle false negatives.
+   * Case-insensitive "contains", existential over calls: at least one recorded
+   * call to `tool` must have `field` containing one of these substrings. Other
+   * calls to the same tool may do anything. Use instead of `stringStartsWithAnyOf`
+   * (which is universal over calls) when the meaningful token can appear anywhere
+   * in the value and the model may make additional, unrelated calls to the same
+   * tool — e.g. SQL where a mutation is mixed with verification SELECTs.
    */
   stringIncludesAnyOf?: string[];
 }
