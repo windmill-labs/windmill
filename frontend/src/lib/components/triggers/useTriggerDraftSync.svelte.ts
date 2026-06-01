@@ -42,7 +42,7 @@ export interface TriggerDraftSync {
 	 * load, before clearing `drawerLoading`, so the drawer opens on the draft
 	 * without a deployed→draft flash. The banner (via `hasDraft`) surfaces it.
 	 */
-	maybeRestore(path: string): Promise<void>
+	maybeRestore(): Promise<void>
 	/**
 	 * Drop the local draft for `path` and reset the form to the deployed
 	 * baseline. Backs the banner's "Discard" action.
@@ -136,7 +136,7 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 		get current() {
 			return opts.getCfg()
 		},
-		async maybeRestore(_path: string) {
+		async maybeRestore() {
 			const d = handle?.draft
 			if (!localDraftDiffers(d, opts.getCfg() as Cfg)) return
 			// Overlay the local autosave on the just-loaded backend config.

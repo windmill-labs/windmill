@@ -140,7 +140,7 @@
 				initialConfig = structuredClone($state.snapshot(getAzureConfig()))
 			}
 			originalConfig = structuredClone($state.snapshot(getAzureConfig()))
-			await draftSync.maybeRestore(ePath)
+			await draftSync.maybeRestore()
 		} catch (err) {
 			sendUserToast(`Could not load Azure trigger: ${err.body}`, true)
 		} finally {

@@ -157,7 +157,7 @@
 			if (!defaultCfg) {
 				initialConfig = structuredClone($state.snapshot(getScheduleCfg()))
 			}
-			await draftSync.maybeRestore(ePath)
+			await draftSync.maybeRestore()
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false

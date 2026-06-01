@@ -36,11 +36,17 @@
 	function showDiff() {
 		const deployed = getDeployed()
 		if (deployed == null) return
+		// Snapshot both sides at click time. They are typically Svelte `$state`
+		// proxies (resource/variable's `initialStates[ws]` and the draft handle's
+		// cell); without snapshot the diff drawer would re-read them reactively
+		// and update as the user keeps typing behind it.
+		const original = $state.snapshot(deployed) as Value
+		const current = $state.snapshot(getCurrent()) as Value
 		diffDrawer?.openDrawer()
 		diffDrawer?.setDiff({
 			mode: 'simple',
-			original: deployed as Value,
-			current: getCurrent() as Value,
+			original,
+			current,
 			title,
 			button: {
 				text: 'Discard changes',

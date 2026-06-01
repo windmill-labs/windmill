@@ -137,7 +137,7 @@
 				initialConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
 			}
 			originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
-			await draftSync.maybeRestore(ePath)
+			await draftSync.maybeRestore()
 		} catch (err) {
 			sendUserToast(`Could not load email trigger: ${err}`, true)
 		} finally {

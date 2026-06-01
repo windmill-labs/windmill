@@ -142,7 +142,7 @@
 				initialConfig = structuredClone($state.snapshot(getGcpConfig()))
 			}
 			originalConfig = structuredClone($state.snapshot(getGcpConfig()))
-			await draftSync.maybeRestore(ePath)
+			await draftSync.maybeRestore()
 		} catch (err) {
 			sendUserToast(`Could not load GCP Pub/Sub trigger: ${err.body}`, true)
 		} finally {

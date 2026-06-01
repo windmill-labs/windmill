@@ -27,6 +27,7 @@
 		  }
 		| undefined = $state(undefined)
 	let hasLocalDraft = $state(false)
+	let canWriteSelected = $state(true)
 
 	let path: string | undefined = $state(undefined)
 	let selected: string | undefined = $state(undefined)
@@ -72,6 +73,7 @@
 				bind:canSave
 				bind:selected
 				onDraftStateChange={(v) => (hasLocalDraft = v)}
+				onCanWriteChange={(v) => (canWriteSelected = v)}
 			/>
 		{/await}
 		{#snippet banner()}
@@ -80,6 +82,7 @@
 				getDeployed={() => resourceEditor?.localDraftDeployed()}
 				getCurrent={() => resourceEditor?.localDraftCurrent()}
 				onDiscard={() => resourceEditor?.discardLocalDraft()}
+				disabled={!canWriteSelected}
 			/>
 		{/snippet}
 		{#snippet actions()}

@@ -128,6 +128,11 @@
 		Object.keys(states).filter((ws) => !deepEqual(states[ws].draft, initialStates[ws]))
 	)
 	const anyDirty = $derived(dirtyWorkspaces.length > 0)
+	// Banner is scoped to the selected workspace — the diff/discard only
+	// operate on it, so showing it for an unrelated dirty workspace would be
+	// misleading. The cross-workspace `otherDirty` alert below still covers
+	// that case.
+	const selectedDirty = $derived(!!selected && dirtyWorkspaces.includes(selected))
 	const otherDirty = $derived(
 		dirtyWorkspaces.length == 1
 			? dirtyWorkspaces.filter((ws) => ws !== $workspaceStore)
@@ -324,14 +329,16 @@
 	>
 		{#snippet banner()}
 			<LocalDraftBanner
-				show={edit && anyDirty}
+				show={edit && selectedDirty}
 				getDeployed={() => (selected ? initialStates[selected] : undefined)}
 				getCurrent={() => current}
 				onDiscard={() => {
-					for (const ws of dirtyWorkspaces) {
-						UserDraft.discard('variable', editPath ?? '', initialStates[ws], { workspace: ws })
-					}
+					if (!selected) return
+					UserDraft.discard('variable', editPath ?? '', initialStates[selected], {
+						workspace: selected
+					})
 				}}
+				disabled={!can_write}
 			/>
 		{/snippet}
 		<div class="flex flex-col gap-8">

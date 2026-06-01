@@ -192,7 +192,7 @@
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-			await draftSync.maybeRestore(ePath)
+			await draftSync.maybeRestore()
 		} catch (err) {
 			sendUserToast(`Could not load websocket trigger: ${err}`, true)
 		} finally {

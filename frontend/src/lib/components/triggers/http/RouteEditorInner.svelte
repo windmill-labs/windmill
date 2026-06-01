@@ -236,7 +236,7 @@
 				initialConfig = structuredClone($state.snapshot(getRouteConfig()))
 			}
 			originalConfig = structuredClone($state.snapshot(getRouteConfig()))
-			await draftSync.maybeRestore(ePath)
+			await draftSync.maybeRestore()
 		} catch (err) {
 			sendUserToast(`Could not load route: ${err}`, true)
 		} finally {
