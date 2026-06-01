@@ -106,7 +106,7 @@
 	data-chat-keyboard-scope="ask-user-question"
 >
 	<div class="flex items-start gap-2">
-		<CircleHelp class="mt-0.5 h-4 w-4 shrink-0 text-ai" />
+		<CircleHelp class="mt-0.5 h-4 w-4 shrink-0 text-accent" />
 		<p class="min-w-0 flex-1 whitespace-pre-wrap text-xs font-semibold text-emphasis"
 			>{userQuestion.question}</p
 		>
