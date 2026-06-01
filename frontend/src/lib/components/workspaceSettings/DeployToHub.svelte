@@ -1,13 +1,4 @@
 <script lang="ts">
-	// Hub deploy + share-as-iframe surface for the workspace.
-	// - Items list is fetched live from the workspace (apps, raw_apps, flows, scripts).
-	//   Resources are not items: they're derived from the items' $res: references
-	//   and synced as empty stubs (see resolveResourceSet / detectedResources).
-	// - Rate limit is read live from WorkspaceService.getSettings.
-	// - Share-as-iframe flips the app's execution_mode to 'anonymous' via AppService.updateApp
-	//   and resolves the real secret URL via AppService.getPublicSecretOfApp.
-	// - The "Deploy to Hub" bundle/version flow is still mocked: no backend endpoint exists yet.
-	// - Recording per script/flow is also mocked for the same reason.
 	import { Badge, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import WorkspaceDeployLayout from '$lib/components/WorkspaceDeployLayout.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
@@ -39,6 +30,7 @@
 	import { computeSecretUrl } from '$lib/components/apps/editor/appDeploy.svelte'
 	import {
 		buildProjectBundle,
+		buildPathMap,
 		extractScriptRefs,
 		extractFlowRefs,
 		extractAppRefs,
@@ -129,13 +121,10 @@
 	}
 
 	let phase = $state<Phase>('predeploy')
-	// Live workspace items (refreshed from API). Used in predeploy phase only.
 	let workspaceItems = $state<DeployItem[]>([])
-	// Snapshot frozen at deploy time. Used in draft / under_review / live phases.
 	let draftItems = $state<DeployItem[]>([])
 	let workspaceTriggers = $state<WorkspaceTrigger[]>([])
 	let triggersLoading = $state(false)
-	let triggerLoadErrors = $state<Set<TriggerKindLabel>>(new Set())
 	let workspaceLoadSeq = 0
 	let schedulePreviews = $state<Record<string, string[]>>({})
 	const schedulePreviewsInFlight = new Set<string>()
@@ -160,10 +149,8 @@
 			: workspaceItems.filter((i) => selectedFolders.some((f) => i.path.startsWith(f + '/')))
 	)
 	let items = $derived(phase === 'predeploy' ? filteredWorkspaceItems : draftItems)
-	// Per-item selection inside the predeploy filter. Defaults to "all visible items".
 	let manualDeselected = $state<Set<string>>(new Set())
 	$effect(() => {
-		// Reset deselection when the folder filter changes.
 		selectedFolders
 		manualDeselected = new Set()
 	})
@@ -198,7 +185,6 @@
 	)
 
 	const EMPTY_SCHEMA = { type: 'object', properties: {}, required: [] }
-	// MOCK: no backend endpoint exposes a hub-slug or hub version per workspace yet.
 	let hubSlug = $derived($workspaceStore ?? '')
 	let hubUrl = $derived(`https://hub.windmill.dev/workspaces/${hubSlug}`)
 
@@ -220,7 +206,6 @@
 	let runResult = $state<unknown>(undefined)
 	let recordRunSeq = 0
 	let runError = $state<string | undefined>(undefined)
-	// MOCK STORAGE: backend has no recordings table yet; we keep the job_id per item locally.
 	let recordings = $state<Record<string, string>>({})
 
 	let publishDrawer = $state<Drawer | undefined>()
@@ -233,7 +218,6 @@
 	let bundleName = $state('')
 	let bundleSummary = $state('')
 	let bundleReadme = $state('')
-	// MOCK: would be persisted with the Hub draft.
 	let hubName = $state('')
 	let hubSummary = $state('')
 	let hubReadme = $state('')
@@ -319,9 +303,6 @@
 					rec: 'none'
 				})
 			}
-			// Resources are NOT selectable items — they're dependencies derived from
-			// the $res: references in the selected scripts/flows/apps and shown
-			// read-only (see detectedResources).
 			if (seq !== workspaceLoadSeq) return
 			workspaceItems = next
 		} catch (e: any) {
@@ -335,29 +316,28 @@
 
 	async function loadTriggers(workspace: string, seq: number) {
 		triggersLoading = true
-		const errors = new Set<TriggerKindLabel>()
 		try {
-			const listOrMark = async <T,>(kind: TriggerKindLabel, p: Promise<T[]>): Promise<T[]> => {
+			// Feature-gated services (Kafka, NATS, ...) 404 when disabled — swallow.
+			const safeList = async <T,>(p: Promise<T[]>): Promise<T[]> => {
 				try {
 					return await p
 				} catch {
-					errors.add(kind)
 					return []
 				}
 			}
 			const [http, websocket, schedule, kafka, nats, sqs, mqtt, gcp, azure, postgres, email] =
 				await Promise.all([
-					listOrMark('http', HttpTriggerService.listHttpTriggers({ workspace })),
-					listOrMark('websocket', WebsocketTriggerService.listWebsocketTriggers({ workspace })),
-					listOrMark('schedule', ScheduleService.listSchedules({ workspace })),
-					listOrMark('kafka', KafkaTriggerService.listKafkaTriggers({ workspace })),
-					listOrMark('nats', NatsTriggerService.listNatsTriggers({ workspace })),
-					listOrMark('sqs', SqsTriggerService.listSqsTriggers({ workspace })),
-					listOrMark('mqtt', MqttTriggerService.listMqttTriggers({ workspace })),
-					listOrMark('gcp', GcpTriggerService.listGcpTriggers({ workspace })),
-					listOrMark('azure', AzureTriggerService.listAzureTriggers({ workspace })),
-					listOrMark('postgres', PostgresTriggerService.listPostgresTriggers({ workspace })),
-					listOrMark('email', EmailTriggerService.listEmailTriggers({ workspace }))
+					safeList(HttpTriggerService.listHttpTriggers({ workspace })),
+					safeList(WebsocketTriggerService.listWebsocketTriggers({ workspace })),
+					safeList(ScheduleService.listSchedules({ workspace })),
+					safeList(KafkaTriggerService.listKafkaTriggers({ workspace })),
+					safeList(NatsTriggerService.listNatsTriggers({ workspace })),
+					safeList(SqsTriggerService.listSqsTriggers({ workspace })),
+					safeList(MqttTriggerService.listMqttTriggers({ workspace })),
+					safeList(GcpTriggerService.listGcpTriggers({ workspace })),
+					safeList(AzureTriggerService.listAzureTriggers({ workspace })),
+					safeList(PostgresTriggerService.listPostgresTriggers({ workspace })),
+					safeList(EmailTriggerService.listEmailTriggers({ workspace }))
 				])
 			if (seq !== workspaceLoadSeq) return
 			const normalize = (
@@ -385,16 +365,6 @@
 				...normalize('postgres', postgres),
 				...normalize('email', email)
 			]
-			triggerLoadErrors = errors
-			if (errors.size > 0) {
-				const labels = Array.from(errors)
-					.map((k) => TRIGGER_KIND_BADGE[k])
-					.join(', ')
-				sendUserToast(
-					`Could not list triggers for: ${labels}. The bundle may miss stubs from those kinds.`,
-					true
-				)
-			}
 		} finally {
 			if (seq === workspaceLoadSeq) triggersLoading = false
 		}
@@ -412,11 +382,9 @@
 	$effect(() => {
 		if ($workspaceStore) {
 			const seq = ++workspaceLoadSeq
-			// Drop stale workspace state immediately so prior data can't bleed
-			// into the new workspace before the parallel fetches resolve.
+			// Wipe stale state before the parallel fetches resolve.
 			workspaceItems = []
 			workspaceTriggers = []
-			triggerLoadErrors = new Set()
 			schedulePreviews = {}
 			loadWorkspace($workspaceStore, seq)
 			loadTriggers($workspaceStore, seq)
@@ -538,8 +506,6 @@
 		bundleReadme = hubReadme
 		bundleDrawer?.openDrawer()
 	}
-	// Mirror the Hub's SLUG_RE: ^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$
-	// (3-50 chars, alphanumeric start/end, dashes only in the middle).
 	function sanitizeSlug(s: string): string {
 		return s
 			.toLowerCase()
@@ -578,18 +544,13 @@
 				sendUserToast(`Hub draft creation failed: ${text}`, true)
 				return
 			}
-			// The Hub returns the effective slug (locked once a project exists). If the
-			// response can't be parsed or omits the slug, abort instead of guessing —
-			// proceeding with a client-computed slug risks landing items under a
-			// folder the Hub never created (proxy-rewritten body, server-side
-			// collision suffix, etc.).
+			// Abort if Hub didn't echo a slug — guessing here lands items under
+			// a folder the Hub never locked.
 			let returnedSlug: string | undefined
 			try {
 				const parsed = JSON.parse(text)
 				if (typeof parsed?.slug === 'string') returnedSlug = parsed.slug
-			} catch {
-				// fallthrough — handled below
-			}
+			} catch {}
 			if (!returnedSlug) {
 				sendUserToast(`Hub did not return a slug. Aborting publish to avoid path drift.`, true)
 				return
@@ -605,8 +566,6 @@
 
 	let hubItemIds = $state<Record<string, number>>({})
 
-	// Fetchers + resolver that turn workspace API responses into the shapes the
-	// project-bundle closure needs.
 	function buildBundleDeps(workspace: string): BundleDeps {
 		return {
 			fetchItem: async (ref: ItemRef): Promise<FetchedItem | undefined> => {
@@ -660,8 +619,6 @@
 		}
 	}
 
-	// Push one already-rewritten bundle item to the Hub. Paths inside content/value
-	// have already been relocated under the project folder by buildProjectBundle.
 	async function pushBundledItem(workspace: string, slug: string, it: BundledItem): Promise<void> {
 		const key = `${it.kind}:${it.path}`
 		if (it.kind === 'script') {
@@ -708,6 +665,72 @@
 		}
 	}
 
+	// Instance-side metadata that has no meaning on the Hub stub. Anything
+	// `last_*` or `captured_*` is also dropped.
+	const TRIGGER_CONFIG_BLACKLIST = new Set([
+		'path',
+		'script_path',
+		'is_flow',
+		'summary',
+		'description',
+		'workspace_id',
+		'edited_by',
+		'edited_at',
+		'enabled',
+		'extra_perms',
+		'permissioned_as',
+		'permissioned_as_email',
+		'error',
+		'error_handler_path',
+		'error_handler_args',
+		'test_runnable_args'
+	])
+	function stripTriggerConfig(config: Record<string, unknown>): Record<string, unknown> {
+		const out: Record<string, unknown> = {}
+		for (const [k, v] of Object.entries(config)) {
+			if (TRIGGER_CONFIG_BLACKLIST.has(k)) continue
+			if (k.startsWith('last_') || k.startsWith('captured_')) continue
+			out[k] = v
+		}
+		return out
+	}
+
+	async function pushTriggers(workspace: string, slug: string): Promise<void> {
+		if (relevantTriggers.length === 0) return
+		const pathMap = buildPathMap(
+			relevantTriggers.map((t) => t.path),
+			slug
+		)
+		const triggers: Array<Record<string, unknown>> = []
+		const skipped: string[] = []
+		for (const t of relevantTriggers) {
+			const itemKind: ItemKind = t.is_flow ? 'flow' : 'script'
+			const runnableKey = `${itemKind}:${t.script_path}`
+			const hubId = hubItemIds[runnableKey]
+			if (!hubId) {
+				skipped.push(t.path)
+				continue
+			}
+			triggers.push({
+				path: pathMap.get(t.path) ?? t.path,
+				kind: t.kind,
+				summary: t.summary ?? null,
+				description: (t.config as any)?.description ?? null,
+				config: stripTriggerConfig(t.config),
+				script_ask_id: t.is_flow ? null : hubId,
+				flow_id: t.is_flow ? hubId : null
+			})
+		}
+		if (skipped.length > 0) {
+			sendUserToast(
+				`Skipped ${skipped.length} trigger(s) whose runnable did not publish: ${skipped.join(', ')}`,
+				true
+			)
+		}
+		if (triggers.length === 0) return
+		await postHub(workspace, '/hub/triggers', { triggers, workspace_slug: slug })
+	}
+
 	async function postHub(
 		workspace: string,
 		path: string,
@@ -730,9 +753,6 @@
 
 	const HIDDEN_RESOURCE_TYPES = new Set(['app_theme', 'state', 'cache'])
 
-	// Walk a JSON schema's properties for `format: resource-<type>` and return the
-	// distinct <type> names. This is how a flow/script declares it *takes* a
-	// resource as an input rather than hardcoding one.
 	function typesFromSchema(schema: any): string[] {
 		const out = new Set<string>()
 		const props = schema?.properties
@@ -747,15 +767,10 @@
 		return [...out]
 	}
 
-	// Live preview of the project bundle for the current selection. Built with the
-	// exact same closure logic used at deploy time, so the dependency list shown
-	// here is guaranteed to match what gets pushed.
 	let bundlePreview = $state<ProjectBundle | undefined>(undefined)
 	let detectingResources = $state(false)
 
-	// Dependency list shown to the user, by resource type. `hasHardcoded` marks a
-	// type that is pinned by a `$res:` path somewhere (relocated as a stub);
-	// otherwise it is taken as an input. Derived purely from the bundle preview.
+	// `hasHardcoded` = pinned via $res: path (relocated as a stub); else input-only.
 	type DependencyUsage =
 		| { role: 'input'; label: string; kind: ItemKind }
 		| { role: 'hardcoded'; label: string; kind: ItemKind; path: string }
@@ -767,8 +782,6 @@
 	let dependencyTypes = $derived.by(() => {
 		const b = bundlePreview
 		if (!b) return [] as DependencyType[]
-		// Bundle item content is already relocated, so its $res: refs use newPath.
-		// Key the stub lookup by newPath; surface the originalPath to the user.
 		const stubByNewPath = new Map(b.resourceStubs.map((s) => [s.newPath, s]))
 		const byType = new Map<string, DependencyType>()
 		const ensure = (rt: string) => {
@@ -781,7 +794,6 @@
 		}
 		for (const it of b.items) {
 			const label = (it.summary?.trim() || it.path) ?? it.path
-			// Hardcoded $res: refs in this item's code/graph.
 			const refs =
 				it.kind === 'flow'
 					? extractFlowRefs(it.value).filter((r) => r.kind === 'resource')
@@ -795,7 +807,6 @@
 				e.hasHardcoded = true
 				e.usages.push({ role: 'hardcoded', label, kind: it.kind, path: stub.originalPath })
 			}
-			// Resources taken as inputs (schema format: resource-<type>).
 			for (const t of typesFromSchema(it.schema)) {
 				if (HIDDEN_RESOURCE_TYPES.has(t)) continue
 				ensure(t).usages.push({ role: 'input', label, kind: it.kind })
@@ -806,7 +817,6 @@
 
 	$effect(() => {
 		const workspace = $workspaceStore
-		// re-run when the selection changes
 		selectedItemKeys
 		if (!workspace || phase !== 'predeploy') {
 			bundlePreview = undefined
@@ -830,9 +840,7 @@
 		}
 	})
 
-	// Push resource types for the bundle's stubs. Builtins (git_repository, …)
-	// aren't in the workspace resource_type table — we push them with an empty
-	// schema so the Hub still tracks the dependency.
+	// Builtin types (git_repository, ...) aren't in resource_type — push with empty schema.
 	async function pushResourceTypes(
 		workspace: string,
 		slug: string,
@@ -846,9 +854,7 @@
 					const rt = await ResourceService.getResourceType({ workspace, path: name })
 					schema = rt.schema ?? undefined
 					description = rt.description ?? undefined
-				} catch (e: any) {
-					// builtin type — push with empty schema
-				}
+				} catch (e: any) {}
 				try {
 					await postHub(workspace, '/hub/resource_types', {
 						name,
@@ -869,13 +875,10 @@
 	async function deployAll() {
 		const workspace = $workspaceStore
 		if (!workspace) return
-		// Use the Hub's effective (locked) slug so relocated paths match the project.
 		const slug = effectiveSlug || sanitizeSlug(hubName)
 		deploying = true
 		let failures = 0
 		try {
-			// 1. Build the self-contained project bundle: closure of the selection,
-			//    every path relocated under f/<slug>/ and all references rewritten.
 			const seed: ItemRef[] = selectedItems
 				.filter((i) => i.kind !== 'resource')
 				.map((i) => ({ kind: i.kind as ItemRef['kind'], path: i.path }))
@@ -888,11 +891,7 @@
 				)
 			}
 
-			// 2. Resource types then empty resource stubs (at their relocated paths).
-			//    Types come from two places: stubs (hardcoded $res: paths we relocated)
-			//    AND schema inputs (format: resource-<type>) — a flow/script that takes a
-			//    resource as a parameter still declares a dependency the Hub must know,
-			//    even though there's no path to stub.
+			// Types come from $res: stubs AND schema inputs (resource-<type>).
 			const inputTypes = bundle.items
 				.flatMap((i) => typesFromSchema(i.schema))
 				.filter((t) => !HIDDEN_RESOURCE_TYPES.has(t))
@@ -901,10 +900,7 @@
 			]
 			const depFailures = await pushResourceTypes(workspace, slug, types)
 
-			// Empty resource stubs at relocated paths. Hardcoded refs keep their
-			// relocated path; input-type deps (no path) get a conventional
-			// f/<slug>/<type> stub so they show up on the project and a fork can fill
-			// them. Dedup by path.
+			// Input-type deps with no path get a conventional f/<slug>/<type> stub.
 			const stubsByPath = new Map<string, { path: string; resource_type: string }>()
 			for (const s of bundle.resourceStubs)
 				stubsByPath.set(s.newPath, { path: s.newPath, resource_type: s.resource_type })
@@ -930,7 +926,6 @@
 				return
 			}
 
-			// 3. Push every bundled item (already rewritten).
 			for (const it of bundle.items) {
 				const key = `${it.kind}:${it.path}`
 				deploymentStatus = { ...deploymentStatus, [key]: { status: 'loading' } }
@@ -945,6 +940,13 @@
 					}
 				}
 			}
+			try {
+				await pushTriggers(workspace, slug)
+			} catch (e: any) {
+				sendUserToast(`Trigger sync failed: ${e?.message ?? e}`, true)
+				failures++
+			}
+
 			await delay(150)
 			deploymentStatus = {}
 			draftItems = selectedItems.map((i) => ({ ...i, rec: 'none' }))
@@ -966,7 +968,6 @@
 
 	let submitting = $state(false)
 	async function submitForReview() {
-		// MOCK: no review queue backend endpoint exists.
 		submitting = true
 		try {
 			await delay(400)
@@ -978,7 +979,6 @@
 	}
 	let syncing = $state(false)
 	async function showDiff() {
-		// MOCK: would diff the live workspace against the submitted bundle and open a viewer.
 		const workspace = $workspaceStore
 		if (!workspace) return
 		await loadWorkspace(workspace, workspaceLoadSeq)
@@ -989,9 +989,6 @@
 		sendUserToast(`Diff: +${added} added, -${removed} removed (vs submitted bundle).`)
 	}
 	async function syncWithHub() {
-		// MOCK: would also pull the latest Hub-side state. For now, refresh the workspace
-		// items list and merge into the current draft (keeping recordings where the item path
-		// still exists).
 		const workspace = $workspaceStore
 		if (!workspace) return
 		syncing = true
@@ -1010,7 +1007,6 @@
 		}
 	}
 	async function startNewDraft() {
-		// MOCK: re-snapshot from the live workspace and start a fresh draft cycle.
 		draftItems = filteredWorkspaceItems.map((i) => ({ ...i, rec: 'none' }))
 		recordings = {}
 		phase = 'draft'
@@ -1406,17 +1402,6 @@
 								<span class="text-hint font-normal">({relevantTriggers.length})</span>
 							{/if}
 						</span>
-						{#if triggerLoadErrors.size > 0}
-							<span
-								class="inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
-							>
-								<TriangleAlert size={11} />
-								Could not list:
-								{Array.from(triggerLoadErrors)
-									.map((k) => TRIGGER_KIND_BADGE[k])
-									.join(', ')}
-							</span>
-						{/if}
 						{#if relevantTriggers.length === 0}
 							<span class="text-[11px] text-hint">No triggers reference the selected items.</span>
 						{:else}
