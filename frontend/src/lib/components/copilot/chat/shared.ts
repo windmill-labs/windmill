@@ -1113,11 +1113,13 @@ function flowStepArgsForModule(moduleId: string, args: Record<string, any>): Rec
 }
 
 function getAvailableFlowStepIds(flowValue: FlowValue): string {
-	return [
-		...(flowValue.modules ?? []).map((module: FlowModule) => module.id),
-		...(flowValue.preprocessor_module ? [flowValue.preprocessor_module.id] : []),
-		...(flowValue.failure_module ? [flowValue.failure_module.id] : [])
-	].join(', ')
+	return Array.from(
+		new Set([
+			...extractAllModules(flowValue.modules ?? []).map((module: FlowModule) => module.id),
+			...(flowValue.preprocessor_module ? [flowValue.preprocessor_module.id] : []),
+			...(flowValue.failure_module ? [flowValue.failure_module.id] : [])
+		])
+	).join(', ')
 }
 
 async function loadDeployedScriptForFlowStep(

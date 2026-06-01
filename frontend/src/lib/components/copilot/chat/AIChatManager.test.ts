@@ -191,6 +191,37 @@ describe('AIChatManager autonomy mode', () => {
 		expect(jobId).toBe('job-flow-preview')
 		expect(testFlow).toHaveBeenCalledWith({ name: 'Ada' })
 	})
+
+	it('does not expose an active flow test helper in global mode before flow helpers mount', () => {
+		const manager = new AIChatManager()
+
+		manager.changeMode(AIMode.GLOBAL)
+
+		expect(manager.helpers.testActiveFlow).toBeUndefined()
+	})
+
+	it('refreshes the active flow test helper when flow helpers mount in global mode', async () => {
+		const manager = new AIChatManager()
+		const testFlow = vi.fn(async () => 'job-flow-preview')
+
+		manager.changeMode(AIMode.GLOBAL)
+		const cleanup = manager.setFlowHelpers(
+			createFlowHelpers({
+				hasPendingChanges: () => false,
+				acceptAllModuleActions: vi.fn(),
+				testFlow
+			})
+		)
+
+		await expect(manager.helpers.testActiveFlow({ name: 'Ada' })).resolves.toBe(
+			'job-flow-preview'
+		)
+		expect(testFlow).toHaveBeenCalledWith({ name: 'Ada' })
+
+		cleanup()
+
+		expect(manager.helpers.testActiveFlow).toBeUndefined()
+	})
 })
 
 describe('AIChatManager persisted autonomy default', () => {

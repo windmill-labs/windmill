@@ -431,6 +431,16 @@ export class AIChatManager {
 		}
 	}
 
+	private getGlobalHelpers = (): GlobalToolHelpers => {
+		const flowHelpers = this.flowAiChatHelpers
+		return {
+			...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
+			...(flowHelpers
+				? { testActiveFlow: (args?: Record<string, any>) => flowHelpers.testFlow(args) }
+				: {})
+		}
+	}
+
 	changeMode(
 		mode: AIMode,
 		pendingPrompt?: string,
@@ -517,11 +527,7 @@ export class AIChatManager {
 				previewTools: this.isSessionChat
 			})
 			this.tools = globalToolsFor({ sessionPreview: this.isSessionChat })
-			this.helpers = {
-				...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
-				testActiveFlow: async (args?: Record<string, any>) =>
-					this.flowAiChatHelpers?.testFlow(args)
-			} satisfies GlobalToolHelpers
+			this.helpers = this.getGlobalHelpers()
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareAppSystemMessage(customPrompt)
@@ -1330,6 +1336,9 @@ export class AIChatManager {
 
 	setFlowHelpers = (flowHelpers: FlowAIChatHelpers) => {
 		this.flowAiChatHelpers = flowHelpers
+		if (this.mode === AIMode.GLOBAL) {
+			this.helpers = this.getGlobalHelpers()
+		}
 		untrack(() => {
 			if (this.autoAcceptEditsActive) {
 				this.acceptPendingFlowEdits(flowHelpers)
@@ -1338,6 +1347,9 @@ export class AIChatManager {
 
 		return () => {
 			this.flowAiChatHelpers = undefined
+			if (this.mode === AIMode.GLOBAL) {
+				this.helpers = this.getGlobalHelpers()
+			}
 		}
 	}
 

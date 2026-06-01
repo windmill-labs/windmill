@@ -1490,6 +1490,54 @@ describe('global AI tools', () => {
 		expect(result).toContain('Result (SUCCESS)')
 	})
 
+	it('test_run_flow falls back to preview when the live flow editor test hook returns undefined', async () => {
+		UserDraft.save(
+			'flow',
+			'',
+			{
+				path: 'u/admin/live_flow_fallback',
+				summary: 'Live flow fallback',
+				value: { modules: [{ id: 'fallback_step', value: { type: 'identity' } }] },
+				schema: {},
+				edited_by: '',
+				edited_at: '',
+				archived: false,
+				extra_perms: {}
+			},
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'flow',
+			storagePath: '',
+			effectivePath: 'u/admin/live_flow_fallback'
+		})
+		const testActiveFlow = vi.fn(async () => undefined)
+
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'test_run_flow',
+				{
+					path: 'u/admin/live_flow_fallback',
+					args: { name: 'Ada' }
+				},
+				toolCallbacks,
+				{ testActiveFlow }
+			)
+		)
+
+		expect(testActiveFlow).toHaveBeenCalledWith({ name: 'Ada' })
+		expect(FlowService.getFlowByPath).not.toHaveBeenCalled()
+		expect(JobService.runFlowPreview).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'u/admin/live_flow_fallback',
+				value: { modules: [{ id: 'fallback_step', value: { type: 'identity' } }] },
+				args: { name: 'Ada' }
+			}
+		})
+	})
+
 	it('test_run_step previews rawscript steps from the local draft flow', async () => {
 		const content = 'export async function main(name: string) {\n\treturn name.toUpperCase()\n}'
 		await callGlobalTool('write_flow', {
@@ -1608,6 +1656,42 @@ describe('global AI tools', () => {
 				args: { name: 'Ada' }
 			}
 		})
+	})
+
+	it('test_run_step lists nested step ids when a step is not found', async () => {
+		await callGlobalTool('write_flow', {
+			path: 'f/flows/nested-step-error',
+			summary: 'Flow with nested step',
+			modules: JSON.stringify([
+				{
+					id: 'loop_step',
+					value: {
+						type: 'forloopflow',
+						iterator: { type: 'static', value: [1] },
+						skip_failures: false,
+						modules: [
+							{
+								id: 'nested_script_step',
+								value: {
+									type: 'rawscript',
+									language: 'bun',
+									content: 'export async function main() { return 1 }',
+									input_transforms: {}
+								}
+							}
+						]
+					}
+				}
+			])
+		})
+
+		await expect(
+			callGlobalTool('test_run_step', {
+				path: 'f/flows/nested-step-error',
+				stepId: 'missing_nested_step',
+				args: {}
+			})
+		).rejects.toThrow(/Available steps: loop_step, nested_script_step/)
 	})
 
 	it('asks the user a question and returns the selected answer', async () => {
