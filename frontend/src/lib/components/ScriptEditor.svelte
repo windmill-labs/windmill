@@ -1213,14 +1213,15 @@
 	// false and the chat survives; the fresh onMount then sees mode is still
 	// SCRIPT and skips its clearing saveAndClear.
 	let leaveOnDestroy = $state(false)
-	beforeNavigate(({ to }) => {
-		// Recompute on every navigation (both branches) so a stale decision from
-		// an earlier same-script navigation never lingers into a later
-		// cross-script one.
+	beforeNavigate(({ from, to }) => {
+		// Recompute on every navigation (both branches) so a stale decision never
+		// lingers. Decided from the route pathnames so a new/draft script (whose
+		// scriptEditorOptions.path is undefined) still clears when navigating away.
 		leaveOnDestroy = !navStaysInEditor(
+			from?.url.pathname ?? '',
 			to?.url.pathname ?? '',
-			'/scripts/edit/',
-			aiChatManager.scriptEditorOptions?.path
+			'/scripts/add',
+			'/scripts/edit/'
 		)
 	})
 

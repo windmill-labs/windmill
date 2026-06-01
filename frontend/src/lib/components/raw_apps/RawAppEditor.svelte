@@ -628,10 +628,16 @@
 	// beforeNavigate, so leaveOnDestroy stays false and the chat survives; the
 	// fresh onMount then sees mode is still APP and skips its clearing saveAndClear.
 	let leaveOnDestroy = $state(false)
-	beforeNavigate(({ to }) => {
-		// Recompute on every navigation (both branches) so a stale decision from
-		// an earlier same-app navigation never lingers into a later cross-app one.
-		leaveOnDestroy = !navStaysInEditor(to?.url.pathname ?? '', '/apps_raw/edit/', path)
+	beforeNavigate(({ from, to }) => {
+		// Recompute on every navigation (both branches) so a stale decision never
+		// lingers. Decided from the route pathnames (not this instance's `path`,
+		// which is '' on the add page) so cross-app navigation clears reliably.
+		leaveOnDestroy = !navStaysInEditor(
+			from?.url.pathname ?? '',
+			to?.url.pathname ?? '',
+			'/apps_raw/add',
+			'/apps_raw/edit/'
+		)
 	})
 
 	onMount(() => {

@@ -147,15 +147,15 @@
 	// so leaveOnDestroy stays false and the chat survives; the fresh onMount then
 	// sees mode is still FLOW and skips its clearing saveAndClear.
 	let leaveOnDestroy = $state(false)
-	beforeNavigate(({ to }) => {
-		// Recompute on every navigation (both branches) so a stale decision from
-		// an earlier same-flow navigation never lingers into a later cross-flow
-		// one. The add page has no flowOptions.path yet, which navStaysInEditor
-		// treats as the add→edit promotion (preserve).
+	beforeNavigate(({ from, to }) => {
+		// Recompute on every navigation (both branches) so a stale decision never
+		// lingers. Decided from the route pathnames so a new/draft flow (whose
+		// flowOptions.path is undefined) still clears when navigating cross-flow.
 		leaveOnDestroy = !navStaysInEditor(
+			from?.url.pathname ?? '',
 			to?.url.pathname ?? '',
-			'/flows/edit/',
-			aiChatManager.flowOptions?.path
+			'/flows/add',
+			'/flows/edit/'
 		)
 	})
 

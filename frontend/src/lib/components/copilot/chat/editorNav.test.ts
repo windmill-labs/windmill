@@ -2,37 +2,73 @@ import { describe, it, expect } from 'vitest'
 import { navStaysInEditor } from './editorNav'
 
 describe('navStaysInEditor', () => {
-	const FLOW = '/flows/edit/'
+	const ADD = '/flows/add'
+	const EDIT = '/flows/edit/'
 
-	it('preserves on the add → edit promotion (no current path yet)', () => {
-		// On /flows/add the entity has no path; the first save navigates to
-		// /flows/edit/{path}. Both undefined and '' must count as "promotion".
-		expect(navStaysInEditor('/flows/edit/u/admin/foo', FLOW, undefined)).toBe(true)
-		expect(navStaysInEditor('/flows/edit/u/admin/foo', FLOW, '')).toBe(true)
+	it('preserves on the add → edit promotion', () => {
+		expect(navStaysInEditor('/flows/add', '/flows/edit/u/admin/foo', ADD, EDIT)).toBe(true)
 	})
 
-	it('preserves when staying on the same entity', () => {
-		expect(navStaysInEditor('/flows/edit/u/admin/foo', FLOW, 'u/admin/foo')).toBe(true)
+	it('preserves when staying on the same entity (e.g. a query change)', () => {
+		expect(navStaysInEditor('/flows/edit/u/admin/foo', '/flows/edit/u/admin/foo', ADD, EDIT)).toBe(
+			true
+		)
 	})
 
 	it('clears when navigating to a different entity', () => {
-		expect(navStaysInEditor('/flows/edit/u/admin/bar', FLOW, 'u/admin/foo')).toBe(false)
+		expect(navStaysInEditor('/flows/edit/u/admin/foo', '/flows/edit/u/admin/bar', ADD, EDIT)).toBe(
+			false
+		)
+	})
+
+	it('clears cross-entity even when editor state would be undefined (the bug)', () => {
+		// The old signature used the open entity's path as the promotion signal,
+		// which is undefined for a new/draft flow — making this wrongly preserve.
+		// Deciding from `from` (the real current route) fixes it: a draft flow's
+		// edit route is still a concrete `/flows/edit/{path}`.
+		expect(
+			navStaysInEditor('/flows/edit/u/admin/draftflow', '/flows/edit/u/admin/other', ADD, EDIT)
+		).toBe(false)
 	})
 
 	it('clears when leaving the editor entirely', () => {
-		expect(navStaysInEditor('/', FLOW, 'u/admin/foo')).toBe(false)
-		expect(navStaysInEditor('/scripts/edit/u/admin/foo', FLOW, 'u/admin/foo')).toBe(false)
-		expect(navStaysInEditor('/flows/get/u/admin/foo', FLOW, 'u/admin/foo')).toBe(false)
+		expect(navStaysInEditor('/flows/edit/u/admin/foo', '/', ADD, EDIT)).toBe(false)
+		expect(
+			navStaysInEditor('/flows/edit/u/admin/foo', '/scripts/edit/u/admin/foo', ADD, EDIT)
+		).toBe(false)
+		expect(navStaysInEditor('/flows/edit/u/admin/foo', '/flows/get/u/admin/foo', ADD, EDIT)).toBe(
+			false
+		)
 	})
 
 	it('does not treat a prefixed-but-different route as the editor', () => {
-		// '/flows/edit-history/...' must not be mistaken for '/flows/edit/...'
-		expect(navStaysInEditor('/flows/edit-history/foo', FLOW, undefined)).toBe(false)
+		expect(navStaysInEditor('/flows/add', '/flows/edit-history/foo', ADD, EDIT)).toBe(false)
 	})
 
-	it('works for the raw-app and script prefixes too', () => {
-		expect(navStaysInEditor('/apps_raw/edit/u/admin/a', '/apps_raw/edit/', '')).toBe(true)
-		expect(navStaysInEditor('/apps_raw/edit/u/admin/b', '/apps_raw/edit/', 'u/admin/a')).toBe(false)
-		expect(navStaysInEditor('/scripts/edit/u/admin/s', '/scripts/edit/', 'u/admin/s')).toBe(true)
+	it('works for the raw-app and script add/edit routes too', () => {
+		expect(
+			navStaysInEditor(
+				'/apps_raw/add',
+				'/apps_raw/edit/u/admin/a',
+				'/apps_raw/add',
+				'/apps_raw/edit/'
+			)
+		).toBe(true)
+		expect(
+			navStaysInEditor(
+				'/apps_raw/edit/u/admin/a',
+				'/apps_raw/edit/u/admin/b',
+				'/apps_raw/add',
+				'/apps_raw/edit/'
+			)
+		).toBe(false)
+		expect(
+			navStaysInEditor(
+				'/scripts/edit/u/admin/s',
+				'/scripts/edit/u/admin/s',
+				'/scripts/add',
+				'/scripts/edit/'
+			)
+		).toBe(true)
 	})
 })
