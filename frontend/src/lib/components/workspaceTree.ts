@@ -153,13 +153,16 @@ export function buildWorkspaceTree(opts: {
 	loaded: Partial<Record<WorkspaceItemKind, WorkspaceItem[]>>
 	kinds: WorkspaceItemKind[]
 	currentItem?: WorkspaceItem & { savedPath?: string }
-	loadingKind: Partial<Record<WorkspaceItemKind, boolean>>
+	/** Per-kind spinner flag. Defaults to `{}` — callers that don't track
+	 * loading state (e.g. chat picker, which preloads eagerly) can omit it. */
+	loadingKind?: Partial<Record<WorkspaceItemKind, boolean>>
 	/** Per-kind extras to merge into the loaded list before tree-building
 	 * (e.g. AI-created localStorage drafts surfaced by the workspace adapter).
 	 * Extras whose path matches an already-loaded item are dropped. */
 	extraItemsByKind?: Partial<Record<WorkspaceItemKind, WorkspaceItem[]>>
 }): DrillNode<WorkspaceItem>[] {
-	const { loaded, kinds, currentItem, loadingKind, extraItemsByKind } = opts
+	const { loaded, kinds, currentItem, extraItemsByKind } = opts
+	const loadingKind = opts.loadingKind ?? {}
 
 	function kindBranch(k: WorkspaceItemKind): DrillBranch<WorkspaceItem> {
 		const raw = withExtras(loaded[k] ?? [], k, extraItemsByKind)

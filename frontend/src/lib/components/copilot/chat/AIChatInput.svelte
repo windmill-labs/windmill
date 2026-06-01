@@ -488,7 +488,6 @@
 				bind:value={instructions}
 				{availableContext}
 				{selectedContext}
-				{isFirstMessage}
 				placeholder={modePlaceholder}
 				onAddContext={(contextElement) => void addContextToSelection(contextElement)}
 				onSendRequest={() => {

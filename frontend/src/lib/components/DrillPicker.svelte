@@ -399,7 +399,9 @@ leaves and ignores the current scope.
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	bind:this={pickerRoot}
-	class={flush ? 'flex flex-col w-full h-full' : 'flex flex-col w-[420px] max-h-[60vh]'}
+	class={flush
+		? 'flex flex-col w-full h-full'
+		: 'flex flex-col w-[min(420px,calc(100vw-20px))] max-h-[60vh]'}
 	onkeydown={handleSearchKeydown}
 	onmousemove={() => (mouseActive = true)}
 >

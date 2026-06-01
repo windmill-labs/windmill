@@ -209,8 +209,14 @@ at message-prep time by `AIChatManager` — see PR #9216.
 	}
 
 	function handleScopeChange(scope: string[]) {
-		// Strip the optional `workspace` wrapper — present in the chat-with-
-		// extras layout, absent in the workspace-only layout (global chat).
+		// Two possible layouts:
+		//   (a) WRAPPED   — `['workspace', 'kind:all', ...]` — chat with Diffs /
+		//       Modules / Databases branches alongside Workspace.
+		//   (b) UNWRAPPED — `['kind:all', ...]` or `['dir:flow:...']` — chat
+		//       with only the workspace branch (global chat). The redundant
+		//       'workspace' wrapper is collapsed in the tree builder.
+		// Strip the wrapper so the rest of this function only deals with the
+		// inner workspace path.
 		const inWorkspace = scope.length === 0 || scope[0] === 'workspace'
 		const path = scope[0] === 'workspace' ? scope.slice(1) : scope
 		// 'diffs' / 'modules' / 'databases' are synthesised — no fetch.
@@ -228,7 +234,8 @@ at message-prep time by `AIChatManager` — see PR #9216.
 			const k = path[0].slice(5) as WorkspaceItemKind
 			if (WORKSPACE_KINDS.includes(k)) ensureLoaded(k)
 		} else if (path[0].startsWith('dir:')) {
-			// Single-kind workspace mode: top scope is `dir:<k>:<path>`.
+			// Unwrapped + single-kind: top scope is `dir:<kind>:<path>` directly.
+			// (In the wrapped layout the kind branch always precedes `dir:`.)
 			const rest = path[0].slice(4)
 			const colon = rest.indexOf(':')
 			if (colon > 0) {

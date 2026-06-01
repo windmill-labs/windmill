@@ -13,9 +13,6 @@
 		value: string
 		availableContext: ContextElement[]
 		selectedContext: ContextElement[]
-		/** @deprecated floating-ui flips placement automatically; kept for
-		 * backward-compat with callers passing it. */
-		isFirstMessage?: boolean
 		placeholder: string
 		disabled: boolean
 		onSendRequest: () => void
@@ -59,6 +56,11 @@
 		autoUpdate: true
 	})
 
+	// Calling the reference action as a function (instead of `use:floatingRef`
+	// on a DOM node): svelte-floating-ui's `referenceAction` detects
+	// `'subscribe' in node` and subscribes to the virtual-element store. This
+	// is the supported path for virtual references — see the library's
+	// `referenceAction` / `setupVirtualElementObserver` in dist/index.js.
 	floatingRef(anchorRef)
 
 	// Properties to copy for caret position calculation
@@ -209,10 +211,11 @@
 	function updateAnchorRect() {
 		if (!textarea) return
 		try {
-			// Index of the `@` that started the current mention. `contextTooltipWord`
-			// is `@xxx` and always sits at the end of `value` while the picker is
-			// open, so the `@` is `value.length - contextTooltipWord.length`.
-			const atIndex = Math.max(0, value.length - contextTooltipWord.length)
+			// Index of the `@` that started the current mention. handleInput
+			// only opens the picker when `contextTooltipWord` (= `@xxx`) is the
+			// LAST whitespace-separated word in `value`, so the `@` always sits
+			// at `value.length - contextTooltipWord.length`.
+			const atIndex = value.length - contextTooltipWord.length
 			const coords = getCaretCoordinates(textarea, atIndex)
 			const rect = textarea.getBoundingClientRect()
 			anchorRect = new DOMRect(rect.left + coords.left, rect.top + coords.top, 1, coords.height)
