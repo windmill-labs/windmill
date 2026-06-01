@@ -259,27 +259,31 @@
 		let cancellable = selectedIdsPossibleActions.cancellableJobIds.length
 		const actions: DropdownMenuProps['items'] = []
 		if (selectedIds.length === 1) {
-			actions.push({
-				label: 'Show run details',
-				icon: ExternalLinkIcon,
-				onClick: () => goto(`/run/${selectedIds[0]}`)
-			})
 			const job = flatJobs?.find(
 				(jobOrDate) => jobOrDate.type === 'job' && jobOrDate.job.id === selectedIds[0]
 			)
+			// Jobs in the runs table can belong to a workspace other than the active
+			// one, so target the job's own workspace (not the active one).
+			const jobWorkspace =
+				(job?.type === 'job' ? job.job.workspace_id : undefined) ?? $workspaceStore
+			actions.push({
+				label: 'Show run details',
+				icon: ExternalLinkIcon,
+				onClick: () => goto(`/run/${selectedIds[0]}?workspace=${jobWorkspace}`)
+			})
 			if (job?.type === 'job') {
 				if (job.job.job_kind === 'script') {
 					actions.push({
 						label: 'Go to script page',
 						icon: Code2Icon,
-						onClick: () => goto(`/scripts/get/${job.job.script_hash}`)
+						onClick: () => goto(`/scripts/get/${job.job.script_hash}?workspace=${jobWorkspace}`)
 					})
 				}
 				if (job.job.job_kind === 'flow') {
 					actions.push({
 						label: 'Go to flow page',
 						icon: BarsStaggered,
-						onClick: () => goto(`/flows/get/${job.job.script_path}`)
+						onClick: () => goto(`/flows/get/${job.job.script_path}?workspace=${jobWorkspace}`)
 					})
 				}
 			}

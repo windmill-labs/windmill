@@ -287,10 +287,17 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 		field: 'script_path',
 		label: 'Path',
 		getValue: (job) => job.script_path || null,
-		getHref: (job, _workspaceId) => {
+		getHref: (job, workspaceId) => {
 			if (!job.script_path) return null
 			const isScript = job.job_kind === 'script'
-			return isScript ? `/scripts/get/${job.script_hash}` : flowPathToHref(job.script_path)
+			// Hub scripts/flows live outside any workspace; everything else must
+			// target the job's workspace (passed in as workspaceId), not the active.
+			if (job.script_path.startsWith('hub/')) {
+				return isScript ? `/scripts/get/${job.script_hash}` : flowPathToHref(job.script_path)
+			}
+			return isScript
+				? `/scripts/get/${job.script_hash}?workspace=${workspaceId}`
+				: `/flows/get/${job.script_path}?workspace=${workspaceId}`
 		}
 	},
 
