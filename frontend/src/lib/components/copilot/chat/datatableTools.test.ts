@@ -83,10 +83,13 @@ describe('list_datatables', () => {
 		})
 	})
 
-	it('returns a friendly message when no datatables are configured', async () => {
+	it('explains that configuring a datatable is a blocking prerequisite when none exist', async () => {
 		listMock.mockResolvedValue([])
 		const result = await run('list_datatables')
-		expect(result).toContain('No datatables are configured in this workspace.')
+		expect(result).toContain('No datatables are configured in this workspace')
+		expect(result).toContain('Workspace settings → Data Tables')
+		expect(result).toContain('blocked')
+		expect(result).toContain('Do not call exec_datatable_sql')
 	})
 
 	it('surfaces backend errors as a readable message', async () => {
@@ -180,5 +183,18 @@ describe('exec_datatable_sql', () => {
 		runSqlMock.mockRejectedValue(new Error('syntax error'))
 		const parsed = JSON.parse(await run('exec_datatable_sql', { datatable_name: 'main', sql: 'SLECT' }))
 		expect(parsed).toEqual({ success: false, error: 'syntax error' })
+	})
+
+	it('turns the backend "datatable not found" error into an actionable, blocking message', async () => {
+		runSqlMock.mockRejectedValue(new Error('Internal: datatable main not found @workspaces.rs:565:20'))
+		const parsed = JSON.parse(
+			await run('exec_datatable_sql', { datatable_name: 'main', sql: 'CREATE TABLE t (id int)' })
+		)
+		expect(parsed.success).toBe(false)
+		expect(parsed.error).toContain('not configured in this workspace')
+		expect(parsed.error).toContain('Workspace settings → Data Tables')
+		expect(parsed.error).toContain('do not retry')
+		// The raw internal error is not surfaced to the model.
+		expect(parsed.error).not.toContain('workspaces.rs')
 	})
 })

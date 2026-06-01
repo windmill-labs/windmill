@@ -74,6 +74,33 @@ export async function execDatatableSql(
 	}
 }
 
+// ============= Error helpers =============
+
+/**
+ * The backend returns "datatable <name> not found" when no datatable with that
+ * name is configured in the workspace settings. That is a hard, blocking
+ * prerequisite (not a transient failure), so we surface an explicit, actionable
+ * message instead of the raw internal error.
+ */
+function isDatatableNotConfiguredError(error: string | null | undefined): boolean {
+	return typeof error === 'string' && /datatable\s+\S+\s+not found/i.test(error)
+}
+
+function datatableNotConfiguredMessage(datatableName: string): string {
+	return (
+		`Datatable "${datatableName}" is not configured in this workspace, so this operation cannot run. ` +
+		`Datatables are not created by SQL — they must be set up first by the user in the workspace settings ` +
+		`(Workspace settings → Data Tables) before any table can be queried or created. ` +
+		`This is a required, blocking prerequisite: do not retry on this or another name. ` +
+		`Tell the user they need to configure a datatable (e.g. named "${datatableName}") in their workspace settings, then try again.`
+	)
+}
+
+const NO_DATATABLES_CONFIGURED_MESSAGE =
+	'No datatables are configured in this workspace. Datatable operations (querying data, creating or altering tables) are blocked until a datatable exists. ' +
+	'Datatables are not created by SQL — the user must set one up in the workspace settings (Workspace settings → Data Tables) first. ' +
+	'Do not call exec_datatable_sql or assume a "main" datatable exists; instead tell the user this is a required prerequisite and ask them to configure a datatable in their workspace settings.'
+
 // ============= Tool definitions =============
 
 const getListDatatablesSchema = memo(() => z.object({}))
@@ -138,8 +165,10 @@ export function getDatatableTools(): Tool<{}>[] {
 				try {
 					const metadata = await listDatatables(workspace)
 					if (metadata.length === 0) {
-						toolCallbacks.setToolStatus(toolId, { content: 'No datatables configured' })
-						return 'No datatables are configured in this workspace.'
+						toolCallbacks.setToolStatus(toolId, {
+							content: 'No datatables configured — set one up in workspace settings'
+						})
+						return NO_DATATABLES_CONFIGURED_MESSAGE
 					}
 					const totalTables = metadata.reduce(
 						(acc, datatable) =>
@@ -186,7 +215,10 @@ export function getDatatableTools(): Tool<{}>[] {
 						2
 					)
 				} catch (e) {
-					const errorMsg = `Error getting table schema: ${e instanceof Error ? e.message : String(e)}`
+					const raw = e instanceof Error ? e.message : String(e)
+					const errorMsg = isDatatableNotConfiguredError(raw)
+						? datatableNotConfiguredMessage(parsedArgs.datatable_name)
+						: `Error getting table schema: ${raw}`
 					toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
 					return errorMsg
 				}
@@ -225,12 +257,18 @@ export function getDatatableTools(): Tool<{}>[] {
 						toolCallbacks.setToolStatus(toolId, { content: 'Query executed successfully' })
 						return JSON.stringify({ success: true, message: 'Query executed successfully' })
 					} else {
-						const errorMsg = result.error || 'Unknown error'
+						const raw = result.error || 'Unknown error'
+						const errorMsg = isDatatableNotConfiguredError(raw)
+							? datatableNotConfiguredMessage(parsedArgs.datatable_name)
+							: raw
 						toolCallbacks.setToolStatus(toolId, { content: `Error: ${errorMsg}`, error: errorMsg })
 						return JSON.stringify({ success: false, error: errorMsg })
 					}
 				} catch (e) {
-					const errorMsg = e instanceof Error ? e.message : String(e)
+					const raw = e instanceof Error ? e.message : String(e)
+					const errorMsg = isDatatableNotConfiguredError(raw)
+						? datatableNotConfiguredMessage(parsedArgs.datatable_name)
+						: raw
 					toolCallbacks.setToolStatus(toolId, { content: `Error: ${errorMsg}`, error: errorMsg })
 					return JSON.stringify({ success: false, error: errorMsg })
 				}

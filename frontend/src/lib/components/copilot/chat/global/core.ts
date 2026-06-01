@@ -623,8 +623,8 @@ Raw apps:
 - Use deploy_workspace_item after explicit user deploy intent; raw app deploy bundles JS/CSS before saving.
 
 Data Tables:
-- Datatables are workspace-scoped managed PostgreSQL databases, shared across the workspace (not owned by any single app).
-- Use list_datatables to discover the available datatables and their tables. Reuse an existing table rather than creating a duplicate.
+- Datatables are workspace-scoped managed PostgreSQL databases, shared across the workspace (not owned by any single app). They must be configured by the user in their workspace settings (Workspace settings → Data Tables); they cannot be created via SQL.
+- Use list_datatables to discover the available datatables and their tables. Reuse an existing table rather than creating a duplicate. If list_datatables reports none, this is a blocking prerequisite — tell the user to set up a datatable in their workspace settings and stop; do not assume a "main" datatable exists or call exec_datatable_sql.
 - Use get_datatable_table_schema only when you need a table's column names/types; list_datatables is enough for table-list or availability summaries.
 - Use exec_datatable_sql to explore data, run queries, mutate rows, or change schema (CREATE/ALTER/DROP). Creating a table is a normal CREATE TABLE statement — it appears in list_datatables afterward, with no registration step.
 - When writing runnable code (inline app runnables, scripts, flow modules) that reads or writes datatable data at runtime, it accesses a datatable via wmill.datatable(). Default to TypeScript (bun) unless the user asked for another language. Call get_instructions with subject "datatable" and language "bun" for the TypeScript SQL SDK reference (or language "python3" for Python) — it returns only that language so you get just what you need.`
