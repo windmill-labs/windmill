@@ -3,6 +3,7 @@
 	import {
 		ChevronDownIcon,
 		EditIcon,
+		ListTree,
 		Loader2,
 		Plus,
 		Table2,
@@ -14,7 +15,8 @@
 	import { sendUserToast } from '$lib/toast'
 	import { type ColumnDef } from './apps/components/display/dbtable/utils'
 	import DBTable from './DBTable.svelte'
-	import type { IDbSchemaOps, IDbTableOps } from './dbOps'
+	import type { IDbIndexOps, IDbSchemaOps, IDbTableOps } from './dbOps'
+	import DBIndexManager from './DBIndexManager.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import Button from './common/button/Button.svelte'
@@ -48,6 +50,7 @@
 		colDefs: Record<string, ColumnDef[]> | undefined
 		dbTableOpsFactory: (params: { colDefs: ColumnDef[]; tableKey: string }) => IDbTableOps
 		dbSchemaOps: IDbSchemaOps
+		dbIndexOps?: IDbIndexOps
 		refresh?: () => void
 		initialSchemaKey?: string
 		initialTableKey?: string
@@ -69,6 +72,7 @@
 		dbSchema,
 		dbTableOpsFactory,
 		dbSchemaOps,
+		dbIndexOps,
 		dbSupportsSchemas,
 		databaseIsEmpty,
 		colDefs,
@@ -231,6 +235,8 @@
 			})
 		}
 	)
+
+	let dbIndexManagerState: { open: boolean; tableKey?: string } = $state({ open: false })
 
 	let newSchemaDialogOpen = $state(false)
 	let newSchemaName = $state('')
@@ -513,7 +519,18 @@
 											alterTableKey: tableKey
 										}
 									}
-								}
+								},
+								...(features?.indexes && dbIndexOps
+									? [
+											{
+												displayName: 'Manage indexes',
+												icon: ListTree,
+												action: () => {
+													dbIndexManagerState = { open: true, tableKey }
+												}
+											}
+										]
+									: [])
 							]}
 							class="w-fit"
 							btnId={'db-manager-table-actions-' + onlyAlphaNumAndUnderscore(tableKey)}
@@ -652,6 +669,30 @@
 				<p>{dbTableEditorAlterTableData.error}</p>
 			{/if}
 		{/key}
+	</DrawerContent>
+</Drawer>
+
+<Drawer
+	size="700px"
+	open={dbIndexManagerState.open}
+	on:close={() => (dbIndexManagerState = { open: false })}
+>
+	<DrawerContent
+		id="db-index-manager-drawer"
+		on:close={() => (dbIndexManagerState = { open: false })}
+		title={dbIndexManagerState.tableKey ? `Indexes of ${dbIndexManagerState.tableKey}` : 'Indexes'}
+	>
+		{#if dbIndexManagerState.tableKey && dbIndexOps}
+			{@const indexTableKey = dbIndexManagerState.tableKey}
+			<DBIndexManager
+				{dbIndexOps}
+				tableKey={indexTableKey}
+				schema={selected.schemaKey}
+				availableColumns={Object.keys(
+					dbSchema?.schema?.[selected.schemaKey ?? '']?.[indexTableKey] ?? {}
+				)}
+			/>
+		{/if}
 	</DrawerContent>
 </Drawer>
 

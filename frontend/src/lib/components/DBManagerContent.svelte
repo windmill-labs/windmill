@@ -5,6 +5,7 @@
 	import { dbSupportsSchemas } from './apps/components/display/dbtable/utils'
 	import DbManager from './DBManager.svelte'
 	import {
+		dbIndexOpsWithPreviewScripts,
 		dbSchemaOpsWithPreviewScripts,
 		dbTableOpsWithPreviewScripts,
 		getDbType,
@@ -162,6 +163,10 @@
 						workspace: $workspaceStore
 					})}
 				dbSchemaOps={dbSchemaOpsWithPreviewScripts({
+					input: _input,
+					workspace: $workspaceStore
+				})}
+				dbIndexOps={dbIndexOpsWithPreviewScripts({
 					input: _input,
 					workspace: $workspaceStore
 				})}
