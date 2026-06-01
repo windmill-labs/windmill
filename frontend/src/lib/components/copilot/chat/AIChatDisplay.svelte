@@ -283,6 +283,22 @@
 		return false
 	})
 
+	// While the AI is waiting on an answer to an askUserQuestion, the only valid
+	// input is one of the choices (or the custom answer) in the question card —
+	// so disable the main chat input until the question is answered or canceled.
+	const hasActiveUserQuestion = $derived.by(() => {
+		const last = messages[messages.length - 1]
+		return Boolean(
+			last &&
+				last.role === 'tool' &&
+				last.userQuestion &&
+				last.isLoading &&
+				!last.error &&
+				!last.userQuestion.selectedChoice &&
+				!last.userQuestion.canceled
+		)
+	})
+
 	// Get app context for display when in APP mode
 	const appContext = $derived.by((): SelectedContext | undefined => {
 		if (aiChatManager.mode !== AIMode.APP || !aiChatManager.appAiChatHelpers) {
@@ -510,7 +526,7 @@
 				bind:this={aiChatInput}
 				bind:selectedContext
 				{availableContext}
-				{disabled}
+				disabled={disabled || hasActiveUserQuestion}
 				isFirstMessage={messages.length === 0}
 			/>
 			<div
