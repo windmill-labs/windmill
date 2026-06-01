@@ -240,16 +240,23 @@ export default class ContextManager {
 				]
 			}
 
-			let newSelectedContext: ContextElement[] = [...currentlySelectedContext]
-
-			newSelectedContext = [
+			// Seed with the (refreshed) code block + carry over user-picked
+			// workspace references and matching code-piece selections from the
+			// previous selection — the filter further down validates them, but
+			// they must SURVIVE the rebuild here first. Without this, an editor
+			// refresh would wipe `@workspace_script` / `@workspace_flow` badges.
+			let newSelectedContext: ContextElement[] = [
 				{
 					type: 'code',
 					title: this.getContextCodePath(scriptOptions) ?? '',
 					content: scriptOptions.code,
 					lang: scriptOptions.lang,
 					deletable: false
-				}
+				},
+				...currentlySelectedContext.filter(
+					(c) =>
+						c.type === 'workspace_script' || c.type === 'workspace_flow' || c.type === 'code_piece'
+				)
 			]
 
 			const db = this.getSelectedDBSchema(scriptOptions, dbSchemas)
