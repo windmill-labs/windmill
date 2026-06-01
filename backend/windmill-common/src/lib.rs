@@ -282,6 +282,12 @@ pub async fn shutdown_signal(
         Ok(())
     }
 
+    #[cfg(windows)]
+    async fn ctrl_break() -> std::io::Result<()> {
+        tokio::signal::windows::ctrl_break()?.recv().await;
+        Ok(())
+    }
+
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     tokio::select! {
         _ = terminate() => {
@@ -297,7 +303,13 @@ pub async fn shutdown_signal(
 
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     tokio::select! {
-        _ = tokio::signal::ctrl_c() => {},
+        _ = tokio::signal::ctrl_c() => {
+            tracing::info!("shutdown monitor received ctrl-c");
+        },
+        #[cfg(windows)]
+        _ = ctrl_break() => {
+            tracing::info!("shutdown monitor received ctrl-break");
+        },
         _ = rx.recv() => {
             tracing::info!("shutdown monitor received killpill");
         },
@@ -318,6 +330,10 @@ pub async fn shutdown_signal(
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 tracing::error!("2nd shutdown monitor received ctrl-c")
+            },
+            #[cfg(windows)]
+            _ = ctrl_break() => {
+                tracing::error!("2nd shutdown monitor received ctrl-break")
             },
         }
 
