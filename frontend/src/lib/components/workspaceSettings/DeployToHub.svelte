@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$lib/base'
 	import { Badge, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import WorkspaceDeployLayout from '$lib/components/WorkspaceDeployLayout.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
@@ -506,6 +507,40 @@
 		bundleReadme = hubReadme
 		bundleDrawer?.openDrawer()
 	}
+	const TRIGGER_KIND_ROUTE: Record<TriggerKindLabel, string> = {
+		http: 'routes',
+		websocket: 'websocket_triggers',
+		schedule: 'schedules',
+		kafka: 'kafka_triggers',
+		nats: 'nats_triggers',
+		sqs: 'sqs_triggers',
+		mqtt: 'mqtt_triggers',
+		gcp: 'gcp_triggers',
+		azure: 'azure_triggers',
+		postgres: 'postgres_triggers',
+		email: 'email_triggers'
+	}
+	function openTriggerUrl(kind: TriggerKindLabel): string | undefined {
+		const ws = $workspaceStore
+		if (!ws) return undefined
+		return `${base}/${TRIGGER_KIND_ROUTE[kind]}?workspace=${ws}`
+	}
+
+	function openItemUrl(kind: ItemKind, path: string): string | undefined {
+		const ws = $workspaceStore
+		if (!ws || !path) return undefined
+		const segment =
+			kind === 'script'
+				? 'scripts/get'
+				: kind === 'flow'
+					? 'flows/get'
+					: kind === 'app' || kind === 'raw_app'
+						? 'apps/get'
+						: undefined
+		if (!segment) return undefined
+		return `${base}/${segment}/${path}?workspace=${ws}`
+	}
+
 	function sanitizeSlug(s: string): string {
 		return s
 			.toLowerCase()
@@ -772,8 +807,8 @@
 
 	// `hasHardcoded` = pinned via $res: path (relocated as a stub); else input-only.
 	type DependencyUsage =
-		| { role: 'input'; label: string; kind: ItemKind }
-		| { role: 'hardcoded'; label: string; kind: ItemKind; path: string }
+		| { role: 'input'; label: string; kind: ItemKind; itemPath: string }
+		| { role: 'hardcoded'; label: string; kind: ItemKind; path: string; itemPath: string }
 	interface DependencyType {
 		resource_type: string
 		hasHardcoded: boolean
@@ -805,11 +840,17 @@
 				if (!stub || HIDDEN_RESOURCE_TYPES.has(stub.resource_type)) continue
 				const e = ensure(stub.resource_type)
 				e.hasHardcoded = true
-				e.usages.push({ role: 'hardcoded', label, kind: it.kind, path: stub.originalPath })
+				e.usages.push({
+					role: 'hardcoded',
+					label,
+					kind: it.kind,
+					path: stub.originalPath,
+					itemPath: it.path
+				})
 			}
 			for (const t of typesFromSchema(it.schema)) {
 				if (HIDDEN_RESOURCE_TYPES.has(t)) continue
-				ensure(t).usages.push({ role: 'input', label, kind: it.kind })
+				ensure(t).usages.push({ role: 'input', label, kind: it.kind, itemPath: it.path })
 			}
 		}
 		return [...byType.values()].sort((a, b) => a.resource_type.localeCompare(b.resource_type))
@@ -1815,6 +1856,7 @@
 						</div>
 						<div class="flex flex-col gap-3">
 							{#each r.usages as u (u.role + ':' + u.label + ':' + (u.role === 'hardcoded' ? u.path : ''))}
+								{@const itemUrl = openItemUrl(u.kind, u.itemPath)}
 								<div class="flex flex-col gap-1 text-xs">
 									<div class="flex items-center gap-2">
 										{#if u.kind === 'script'}
@@ -1853,6 +1895,17 @@
 												</Popover>
 											{/if}
 										</span>
+										{#if itemUrl}
+											<a
+												href={itemUrl}
+												target="_blank"
+												rel="noopener"
+												title="Open {u.kind} in new tab"
+												class="shrink-0 text-hint hover:text-primary"
+											>
+												<ExternalLink size={12} />
+											</a>
+										{/if}
 									</div>
 								</div>
 							{/each}
@@ -1909,6 +1962,7 @@
 								{@const cfg = t.config as any}
 								{@const previewKey = t.kind === 'schedule' ? `${cfg.schedule}|${cfg.timezone}` : ''}
 								{@const preview = t.kind === 'schedule' ? schedulePreviews[previewKey] : undefined}
+								{@const triggerUrl = openTriggerUrl(t.kind)}
 								<div class="flex flex-col gap-1 text-xs">
 									<div class="flex items-center gap-2">
 										{#if t.is_flow}
@@ -1924,6 +1978,17 @@
 										>
 											{t.is_flow ? 'flow' : 'script'}
 										</span>
+										{#if triggerUrl}
+											<a
+												href={triggerUrl}
+												target="_blank"
+												rel="noopener"
+												title="Open {TRIGGER_KIND_BADGE[t.kind]} trigger list in new tab"
+												class="shrink-0 text-hint hover:text-primary"
+											>
+												<ExternalLink size={12} />
+											</a>
+										{/if}
 									</div>
 									{#if details.length > 0}
 										<dl class="ml-5 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[11px]">
