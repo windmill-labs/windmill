@@ -23,7 +23,7 @@
 	import { fade } from 'svelte/transition'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { type DisplayMessage } from './shared'
+	import { isActiveUserQuestion, type DisplayMessage } from './shared'
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ProviderModelSelector from './ProviderModelSelector.svelte'
@@ -271,33 +271,14 @@
 		const last = messages[messages.length - 1]
 		if (!last || last.role !== 'tool') return false
 		if (last.needsConfirmation && last.isLoading) return true
-		if (
-			last.userQuestion &&
-			last.isLoading &&
-			!last.error &&
-			!last.userQuestion.selectedChoice &&
-			!last.userQuestion.canceled
-		) {
-			return true
-		}
+		if (isActiveUserQuestion(last)) return true
 		return false
 	})
 
 	// While the AI is waiting on an answer to an askUserQuestion, the only valid
 	// input is one of the choices (or the custom answer) in the question card —
 	// so disable the main chat input until the question is answered or canceled.
-	const hasActiveUserQuestion = $derived.by(() => {
-		const last = messages[messages.length - 1]
-		return Boolean(
-			last &&
-				last.role === 'tool' &&
-				last.userQuestion &&
-				last.isLoading &&
-				!last.error &&
-				!last.userQuestion.selectedChoice &&
-				!last.userQuestion.canceled
-		)
-	})
+	const hasActiveUserQuestion = $derived(isActiveUserQuestion(messages[messages.length - 1]))
 
 	// Get app context for display when in APP mode
 	const appContext = $derived.by((): SelectedContext | undefined => {
