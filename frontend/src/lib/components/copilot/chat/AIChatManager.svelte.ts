@@ -520,7 +520,7 @@ export class AIChatManager {
 			this.helpers = {
 				...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
 				testActiveFlow: async (args?: Record<string, any>) =>
-					this.flowAiChatHelpers?.testFlow(args, this.sessionId)
+					this.flowAiChatHelpers?.testFlow(args)
 			} satisfies GlobalToolHelpers
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
