@@ -86,6 +86,16 @@ Global prompts should exercise workspace-level drafting behavior:
 
 Keep deterministic validation focused on the draft contract: required draft type/path, required content snippets, forbidden draft paths, and forbidden mutating tools such as deploy/delete unless the case explicitly asks for them.
 
+Datatable cases are an exception to the draft contract: `list_datatables`,
+`get_datatable_table_schema`, and `exec_datatable_sql` produce no drafts, so
+validate them through tool-use (`requiredToolsUsed` / `forbiddenToolsUsed`) and
+SQL-argument assertions (`toolCallArgs` with `stringIncludesAnyOf`, e.g.
+`['select']`, `['create table']`, `['update', 'insert into']`) plus the judge —
+not through workspace state. Because canned SQL returns the seeded rows of the
+referenced/first table (no real engine), keep SELECT-case judges lenient: assert
+that the model queried and reported back, never specific returned row values.
+Seed data via `workspace.datatables` in the `initial` fixture (see README).
+
 ## Deterministic validation
 
 Use deterministic validation only for hard failures such as:

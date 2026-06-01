@@ -148,6 +148,18 @@ Global initial fixtures can also seed `liveEditorDrafts` with `type`,
 currently open script, flow, or raw app editor so cases can test prompts that
 refer to "this" or the "current" item.
 
+Global (and flow) initial fixtures can seed `workspace.datatables` so the
+`list_datatables`, `get_datatable_table_schema`, and `exec_datatable_sql` tools
+return seeded data during evals. Each entry is
+`{ datatable_name, schemas: { <schema>: { <table>: { columns, rows? } } } }`.
+SQL runs with no real engine: a `SELECT` returns the canned `rows` of the
+referenced (or first) seeded table, and any other statement returns an empty
+success. Validate datatable cases through tool-use and SQL-argument assertions
+(`requiredToolsUsed`, `stringIncludesAnyOf`) plus the judge — not through data
+state, and not through exact returned row values (canned-SQL fidelity is loose).
+An empty/absent `datatables` seed makes `list_datatables` return `[]`, which is
+what the "no datatable configured" blocking cases rely on.
+
 Set `WMILL_AI_EVAL_DISABLE_ACTIVE_EDITOR_CONTEXT=1` to run those cases with
 the old behavior where the live editor is only discoverable through
 `list_workspace_items`.
