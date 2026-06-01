@@ -161,6 +161,9 @@ at message-prep time by `AIChatManager` — see PR #9216.
 				kinds: WORKSPACE_KINDS,
 				loadingKind
 			}) as DrillNode<ChatLeafData>[]
+			// Workspace-only (e.g. global chat with no diffs/modules/dbs): skip
+			// the redundant 'Workspace' row and surface its children at the root.
+			if (branches.length === 0) return wsChildren
 			branches.push({
 				type: 'branch',
 				key: 'workspace',
@@ -206,20 +209,32 @@ at message-prep time by `AIChatManager` — see PR #9216.
 	}
 
 	function handleScopeChange(scope: string[]) {
+		// Strip the optional `workspace` wrapper — present in the chat-with-
+		// extras layout, absent in the workspace-only layout (global chat).
+		const inWorkspace = scope.length === 0 || scope[0] === 'workspace'
+		const path = scope[0] === 'workspace' ? scope.slice(1) : scope
 		// 'diffs' / 'modules' / 'databases' are synthesised — no fetch.
-		if (scope[0] !== 'workspace') return
+		if (!inWorkspace) return
 		// Entering the Workspace branch (or its 'All' sub-branch): preload
 		// every kind eagerly. Without this, the user lands on a screen of
 		// kind branches whose `loaded[k]` is undefined and `loadingKind[k]`
 		// is also undefined, so `buildWorkspaceTree` reports neither items
 		// nor a spinner — looks empty until they drill into a single kind.
-		if (scope.length === 1 || scope[1] === 'kind:all') {
+		if (path.length === 0 || path[0] === 'kind:all') {
 			for (const k of WORKSPACE_KINDS) ensureLoaded(k)
 			return
 		}
-		if (scope[1].startsWith('kind:')) {
-			const k = scope[1].slice(5) as WorkspaceItemKind
+		if (path[0].startsWith('kind:')) {
+			const k = path[0].slice(5) as WorkspaceItemKind
 			if (WORKSPACE_KINDS.includes(k)) ensureLoaded(k)
+		} else if (path[0].startsWith('dir:')) {
+			// Single-kind workspace mode: top scope is `dir:<k>:<path>`.
+			const rest = path[0].slice(4)
+			const colon = rest.indexOf(':')
+			if (colon > 0) {
+				const k = rest.slice(0, colon) as WorkspaceItemKind
+				if (WORKSPACE_KINDS.includes(k)) ensureLoaded(k)
+			}
 		}
 	}
 

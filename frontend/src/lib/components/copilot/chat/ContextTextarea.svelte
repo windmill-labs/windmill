@@ -1,18 +1,21 @@
 <script lang="ts">
 	import autosize from '$lib/autosize'
-	import { tick } from 'svelte'
 	import type { ContextElement } from './context'
 	import ChatContextPicker from './ChatContextPicker.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import { twMerge } from 'tailwind-merge'
 	import { CHAT_INPUT_PADDING } from './aiChatManagerContext'
+	import { createFloatingActions, createVirtualElement } from 'svelte-floating-ui'
+	import { flip, offset, shift } from 'svelte-floating-ui/dom'
 
 	interface Props {
 		value: string
 		availableContext: ContextElement[]
 		selectedContext: ContextElement[]
-		isFirstMessage: boolean
+		/** @deprecated floating-ui flips placement automatically; kept for
+		 * backward-compat with callers passing it. */
+		isFirstMessage?: boolean
 		placeholder: string
 		disabled: boolean
 		onSendRequest: () => void
@@ -25,7 +28,6 @@
 		value = $bindable(''),
 		availableContext,
 		selectedContext,
-		isFirstMessage,
 		placeholder,
 		disabled,
 		onSendRequest,
@@ -36,10 +38,28 @@
 
 	let showContextTooltip = $state(false)
 	let contextTooltipWord = $state('')
-	let tooltipPosition = $state({ x: 0, y: 0 })
 	let textarea = $state<HTMLTextAreaElement | undefined>(undefined)
 	let tooltipElement = $state<HTMLDivElement | undefined>(undefined)
 	let chatContextPicker: ChatContextPicker | undefined = $state()
+
+	// Virtual reference anchored at the `@` that opened the mention (not the
+	// caret), so the picker stays put while the user types the query.
+	// svelte-floating-ui's `createVirtualElement` takes a raw ClientRect and
+	// wraps it in a function internally — re-`update()` on each anchor move.
+	let anchorRect: DOMRect = new DOMRect(0, 0, 1, 16)
+	const anchorRef = createVirtualElement({ getBoundingClientRect: anchorRect })
+
+	const [floatingRef, floatingContent, updateFloating] = createFloatingActions({
+		strategy: 'fixed',
+		placement: 'bottom-start',
+		// flip handles above/below only; horizontal overflow is solved by shift
+		// (picker slides left to fit) instead of flipping to `bottom-end` which
+		// would re-anchor the picker's right edge to the `@`.
+		middleware: [offset(6), flip({ crossAxis: false }), shift({ padding: 10 })],
+		autoUpdate: true
+	})
+
+	floatingRef(anchorRef)
 
 	// Properties to copy for caret position calculation
 	const properties = [
@@ -186,48 +206,22 @@
 		showContextTooltip = false
 	}
 
-	async function updateTooltipPosition() {
+	function updateAnchorRect() {
 		if (!textarea) return
-
 		try {
-			const coords = getCaretCoordinates(textarea, textarea.selectionEnd)
+			// Index of the `@` that started the current mention. `contextTooltipWord`
+			// is `@xxx` and always sits at the end of `value` while the picker is
+			// open, so the `@` is `value.length - contextTooltipWord.length`.
+			const atIndex = Math.max(0, value.length - contextTooltipWord.length)
+			const coords = getCaretCoordinates(textarea, atIndex)
 			const rect = textarea.getBoundingClientRect()
-
-			// ChatContextPicker is fixed 420px wide. Height is capped at 60vh in
-			// search mode, ~200px in categories mode; assume the worst case for
-			// the above-caret flip so the picker never overlaps the caret line.
-			const maxHeight = Math.round(window.innerHeight * 0.6)
-			const margin = 6
-
-			let finalX = rect.left + coords.left - 70
-			let finalY: number
-
-			if (isFirstMessage) {
-				finalY = rect.top + coords.top + coords.height - 3
-			} else {
-				finalY = rect.top + coords.top - maxHeight - margin
-				// If flipping above would clip the top of the viewport, pin
-				// below the caret instead.
-				if (finalY < 10) {
-					finalY = rect.top + coords.top + coords.height - 3
-				}
-			}
-
-			tooltipPosition = { x: finalX, y: finalY }
-
-			await tick()
-
-			if (tooltipElement) {
-				const tooltipRect = tooltipElement.getBoundingClientRect()
-				const tooltipWidth = tooltipRect.width
-
-				if (finalX + tooltipWidth > window.innerWidth) {
-					finalX = Math.max(10, window.innerWidth - tooltipWidth - 10)
-					tooltipPosition = { x: finalX, y: finalY }
-				}
-			}
+			anchorRect = new DOMRect(rect.left + coords.left, rect.top + coords.top, 1, coords.height)
+			// Re-prime the virtual ref then kick floating-ui (autoUpdate only fires
+			// on scroll/resize, not on text changes inside the textarea).
+			anchorRef.update({ getBoundingClientRect: anchorRect })
+			updateFloating()
 		} catch (error) {
-			console.error('Error updating tooltip position', error)
+			console.error('Error computing anchor rect', error)
 			showContextTooltip = false
 		}
 	}
@@ -288,9 +282,11 @@
 	}
 
 	$effect(() => {
-		if (showContextTooltip) {
-			updateTooltipPosition()
-		}
+		// Re-track on every value change. The `@` position can shift when the
+		// user adds/deletes text BEFORE it (line wrap, etc.); the picker should
+		// follow. floating-ui's autoUpdate only fires on scroll/resize.
+		void value
+		if (showContextTooltip) updateAnchorRect()
 	})
 
 	export function focus() {
@@ -341,8 +337,9 @@
 	<Portal target="body">
 		<div
 			bind:this={tooltipElement}
-			class="absolute bg-surface border border-gray-200 dark:border-gray-700 rounded-md shadow-lg overflow-hidden"
-			style="left: {tooltipPosition.x}px; top: {tooltipPosition.y}px; z-index: {zIndexes.tooltip};"
+			use:floatingContent
+			class="bg-surface border border-gray-200 dark:border-gray-700 rounded-md shadow-lg overflow-hidden"
+			style="z-index: {zIndexes.tooltip};"
 		>
 			<ChatContextPicker
 				bind:this={chatContextPicker}

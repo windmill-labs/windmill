@@ -518,7 +518,7 @@
 				{#if showFooterLeftControls}
 					<div class="flex flex-row items-center gap-x-1.5 min-w-0 flex-wrap">
 						{#if showContextPicker && !disabled}
-							<Popover>
+							<Popover placement="bottom-start">
 								{#snippet trigger()}
 									<Button
 										nonCaptureEvent
