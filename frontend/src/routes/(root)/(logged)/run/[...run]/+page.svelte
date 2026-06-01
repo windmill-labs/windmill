@@ -507,7 +507,7 @@
 		{#snippet right()}
 			{@const isScript = job?.job_kind === 'script'}
 			{@const isHubFlowPreview = isFlowPreview(job?.job_kind) && isHubFlowPath(job?.script_path)}
-			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
+			{@const runsHref = `/runs/${job?.script_path}?workspace=${job?.workspace_id ?? $workspaceStore}${!isScript ? '&jobKind=flow' : ''}`}
 			{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
 				<Dropdown
 					items={[
@@ -536,7 +536,7 @@
 				{/if}
 			{/if}
 			{@const stem = job?.job_kind === 'script_hub' ? '/scripts' : `/${job?.job_kind}s`}
-			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
+			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}?workspace=${job?.workspace_id ?? $workspaceStore}`}
 			{#if (job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)) && job?.['running'] && job?.parent_job == undefined}
 				<div class="inline">
 					<Dropdown
@@ -676,7 +676,7 @@
 				{#if !$userStore?.operator}
 					{#if canWrite(job?.script_path ?? '', {}, $userStore)}
 						<Button
-							href={`${stem}/edit/${job?.script_path}${isScript ? `` : `?nodraft=true`}`}
+							href={`${stem}/edit/${job?.script_path}?workspace=${job?.workspace_id ?? $workspaceStore}${isScript ? `` : `&nodraft=true`}`}
 							on:click={() => {
 								$initialArgsStore = job?.args
 							}}

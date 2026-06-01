@@ -240,7 +240,7 @@
 				Triggered by
 			{/if}
 			<a
-				href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`}
+				href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id ?? $workspaceStore}`}
 				target="_blank"
 				rel="noopener noreferrer"
 				class="flex items-center gap-1"
@@ -362,7 +362,7 @@
 					{#each expandedFields as config}
 						{@const displayValue = getDisplayValue(config, job)}
 						{@const fullValue = getFullValue(config, job)}
-						{@const href = config.getHref?.(job, $workspaceStore || '')}
+						{@const href = config.getHref?.(job, job.workspace_id ?? $workspaceStore ?? '')}
 
 						<div class="flex items-baseline gap-1 text-xs">
 							<span class="text-secondary flex-shrink-0">{config.label}</span>
@@ -467,7 +467,7 @@
 						{#each fields as config}
 							{@const displayValue = getDisplayValue(config, job)}
 							{@const fullValue = getFullValue(config, job)}
-							{@const href = config.getHref?.(job, $workspaceStore || '')}
+							{@const href = config.getHref?.(job, job.workspace_id ?? $workspaceStore ?? '')}
 
 							<div class="flex items-baseline gap-3 text-xs">
 								<span class="text-secondary min-w-[110px] flex-shrink-0">
@@ -520,7 +520,7 @@
 							{#each fields as config (config.field)}
 								{@const displayValue = getDisplayValue(config, job)}
 								{@const fullValue = getFullValue(config, job)}
-								{@const href = config.getHref?.(job, $workspaceStore || '')}
+								{@const href = config.getHref?.(job, job.workspace_id ?? $workspaceStore ?? '')}
 
 								<!-- Field -->
 								<div class="flex items-baseline gap-1 text-xs min-w-0">
@@ -568,7 +568,7 @@
 							{#each expandedFields as config}
 								{@const displayValue = getDisplayValue(config, job)}
 								{@const fullValue = getFullValue(config, job)}
-								{@const href = config.getHref?.(job, $workspaceStore || '')}
+								{@const href = config.getHref?.(job, job.workspace_id ?? $workspaceStore ?? '')}
 
 								<div class="flex items-baseline gap-3 text-xs">
 									<span class="text-secondary min-w-[110px] flex-shrink-0">

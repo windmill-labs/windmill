@@ -33,7 +33,7 @@
 
 {#if job.script_hash && showScriptHash && job.job_kind !== 'aiagent'}
 	{#if job.job_kind == 'script'}
-		<a href="{base}/scripts/get/{job.script_hash}?workspace={$workspaceStore}"
+		<a href="{base}/scripts/get/{job.script_hash}?workspace={job.workspace_id ?? $workspaceStore}"
 			><Badge color="gray" title={`Script hash: ${job.script_hash}`} {large}
 				>{truncateHash(job.script_hash)}
 			</Badge></a
