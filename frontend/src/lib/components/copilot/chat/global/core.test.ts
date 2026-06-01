@@ -178,6 +178,14 @@ describe('global AI tools', () => {
 		vi.clearAllMocks()
 	})
 
+	it('returns the datatable SQL SDK reference for the "datatable" instruction subject', async () => {
+		const result = await callGlobalTool('get_instructions', { subject: 'datatable' })
+		expect(result).toContain('wmill.datatable(')
+		expect(result).toContain('TypeScript Datatable API')
+		expect(result).toContain('Python Datatable API')
+		expect(result).toContain('fetchOne')
+	})
+
 	it('redacts variable draft values when reading workspace items', async () => {
 		await callGlobalTool('write_variable', {
 			path: 'f/secrets/api_key',

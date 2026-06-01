@@ -47,7 +47,13 @@ import {
 	validateEditableFlowJson
 } from '../flow/editableFlowJson'
 import { createInlineScriptSession } from '../flow/inlineScriptsUtils'
-import { getFlowPrompt, getRawAppPrompt, getResourcePrompt, getScriptPrompt } from '$system_prompts'
+import {
+	getDatatableSdkReference,
+	getFlowPrompt,
+	getRawAppPrompt,
+	getResourcePrompt,
+	getScriptPrompt
+} from '$system_prompts'
 import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
@@ -115,6 +121,13 @@ const INSTRUCTION_SUBJECTS = [
 	'resource',
 	'app'
 ] as const satisfies readonly WorkspaceItemType[]
+// `datatable` is not a workspace item type, but the model can request the
+// datatable SDK reference (the wmill.datatable() runnable API) the same way.
+const INSTRUCTION_SUBJECTS_EXTRA = ['datatable'] as const
+const ALL_INSTRUCTION_SUBJECTS = [
+	...INSTRUCTION_SUBJECTS,
+	...INSTRUCTION_SUBJECTS_EXTRA
+] as const
 const MAX_LIST_LIMIT = 100
 type ActiveGlobalEditorType = Extract<WorkspaceItemType, 'script' | 'flow' | 'app'>
 type LiveEditorDraftKind = Parameters<typeof UserDraft.getLiveEditorDraft>[0]
@@ -140,13 +153,13 @@ export type GlobalUserMessageOptions = {
 }
 
 const itemTypeSchema = z.enum(ITEM_TYPES)
-const instructionSubjectSchema = z.enum(INSTRUCTION_SUBJECTS)
+const instructionSubjectSchema = z.enum(ALL_INSTRUCTION_SUBJECTS)
 const triggerKindSchema = z.enum(TRIGGER_KINDS)
 const scriptLangSchema = z.enum($ScriptLang.enum)
 
 const getInstructionsSchema = z.object({
 	subject: instructionSubjectSchema.describe(
-		"The workspace item type to get authoring instructions for (script, flow, resource, app). Schedules, triggers, and variables don't need instructions — their tool schemas describe everything."
+		"What to get authoring instructions for: a workspace item type (script, flow, resource, app) or \"datatable\" for the wmill.datatable() SQL SDK used inside runnables. Schedules, triggers, and variables don't need instructions — their tool schemas describe everything."
 	),
 	language: scriptLangSchema
 		.optional()
@@ -579,7 +592,7 @@ Data Tables:
 - Use list_datatables to discover the available datatables and their tables. Reuse an existing table rather than creating a duplicate.
 - Use get_datatable_table_schema only when you need a table's column names/types; list_datatables is enough for table-list or availability summaries.
 - Use exec_datatable_sql to explore data, run queries, mutate rows, or change schema (CREATE/ALTER/DROP). Creating a table is a normal CREATE TABLE statement — it appears in list_datatables afterward, with no registration step.
-- From a runnable, access a datatable via wmill.datatable() (the default "main") or wmill.datatable('<name>'), referencing tables as schema.table.`
+- When writing runnable code (inline app runnables, scripts, flow modules) that reads or writes datatable data at runtime, it accesses a datatable via wmill.datatable(); call get_instructions with subject "datatable" for the SQL SDK reference.`
 
 const DEFAULT_LIST_TYPES = ['script', 'flow'] as const satisfies readonly WorkspaceItemType[]
 
@@ -1271,7 +1284,7 @@ function getFlowInstructions(): string {
 ${getFlowPrompt()}`
 }
 
-type InstructionSubject = (typeof INSTRUCTION_SUBJECTS)[number]
+type InstructionSubject = (typeof ALL_INSTRUCTION_SUBJECTS)[number]
 
 function getAppInstructions(): string {
 	return `# Global draft app instructions
@@ -1310,6 +1323,17 @@ function getResourceInstructions(): string {
 ${getResourcePrompt()}`
 }
 
+function getDatatableInstructions(): string {
+	return `# Datatable SQL SDK reference
+
+Datatables are workspace-scoped managed PostgreSQL databases. In chat, explore and shape them with the \`list_datatables\`, \`get_datatable_table_schema\`, and \`exec_datatable_sql\` tools. The reference below is for code you author inside runnables (inline app runnables, scripts, or flow rawscript modules) that reads or writes datatable data at runtime.
+
+- A runnable accesses a datatable via \`wmill.datatable()\` (the default "main") or \`wmill.datatable('<name>')\`, referencing tables as \`schema.table\`.
+- Use parameterized queries (the tagged template in TypeScript, \`$1\`/\`$2\` placeholders in Python) — never interpolate untrusted values into SQL strings.
+
+${getDatatableSdkReference()}`
+}
+
 function getInstructions(subject: InstructionSubject, language?: ScriptLang): string {
 	switch (subject) {
 		case 'script':
@@ -1320,6 +1344,8 @@ function getInstructions(subject: InstructionSubject, language?: ScriptLang): st
 			return getResourceInstructions()
 		case 'app':
 			return getAppInstructions()
+		case 'datatable':
+			return getDatatableInstructions()
 	}
 }
 
@@ -1328,7 +1354,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			getInstructionsSchema,
 			'get_instructions',
-			'Get authoring guidance for scripts, flows, resources, or apps.'
+			'Get authoring guidance for scripts, flows, resources, apps, or the datatable SQL SDK (wmill.datatable()) used inside runnables.'
 		),
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			const parsed = getInstructionsSchema.parse(args)
