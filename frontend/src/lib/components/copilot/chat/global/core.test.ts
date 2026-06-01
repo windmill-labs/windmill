@@ -1490,6 +1490,54 @@ describe('global AI tools', () => {
 		expect(result).toContain('Result (SUCCESS)')
 	})
 
+	it('test_run_flow falls back to preview when the live flow editor test hook returns undefined', async () => {
+		UserDraft.save(
+			'flow',
+			'',
+			{
+				path: 'u/admin/live_flow_fallback',
+				summary: 'Live flow fallback',
+				value: { modules: [{ id: 'fallback_step', value: { type: 'identity' } }] },
+				schema: {},
+				edited_by: '',
+				edited_at: '',
+				archived: false,
+				extra_perms: {}
+			},
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'flow',
+			storagePath: '',
+			effectivePath: 'u/admin/live_flow_fallback'
+		})
+		const testActiveFlow = vi.fn(async () => undefined)
+
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'test_run_flow',
+				{
+					path: 'u/admin/live_flow_fallback',
+					args: { name: 'Ada' }
+				},
+				toolCallbacks,
+				{ testActiveFlow }
+			)
+		)
+
+		expect(testActiveFlow).toHaveBeenCalledWith({ name: 'Ada' })
+		expect(FlowService.getFlowByPath).not.toHaveBeenCalled()
+		expect(JobService.runFlowPreview).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'u/admin/live_flow_fallback',
+				value: { modules: [{ id: 'fallback_step', value: { type: 'identity' } }] },
+				args: { name: 'Ada' }
+			}
+		})
+	})
+
 	it('test_run_step previews rawscript steps from the local draft flow', async () => {
 		const content = 'export async function main(name: string) {\n\treturn name.toUpperCase()\n}'
 		await callGlobalTool('write_flow', {
