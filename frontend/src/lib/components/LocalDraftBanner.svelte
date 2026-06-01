@@ -43,18 +43,23 @@
 		const original = $state.snapshot(deployed) as Value
 		const current = $state.snapshot(getCurrent()) as Value
 		diffDrawer?.openDrawer()
+		// Mirror the inline Discard's `disabled` gate inside the diff drawer —
+		// otherwise a read-only user could still trigger onDiscard via the
+		// drawer button even though we hid the banner's inline action.
 		diffDrawer?.setDiff({
 			mode: 'simple',
 			original,
 			current,
 			title,
-			button: {
-				text: 'Discard changes',
-				onClick: async () => {
-					await onDiscard()
-					diffDrawer?.closeDrawer()
-				}
-			}
+			button: disabled
+				? undefined
+				: {
+						text: 'Discard changes',
+						onClick: async () => {
+							await onDiscard()
+							diffDrawer?.closeDrawer()
+						}
+					}
 		})
 	}
 </script>
