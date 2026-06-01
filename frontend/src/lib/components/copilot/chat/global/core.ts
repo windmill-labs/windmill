@@ -164,7 +164,7 @@ const getInstructionsSchema = z.object({
 	language: scriptLangSchema
 		.optional()
 		.describe(
-			'Required when subject is script. Use the existing script language when modifying, or the requested target language when creating.'
+			'The target language. Required when subject is script. For subject "datatable" it selects which SDK to return (e.g. "bun" for TypeScript, "python3" for Python) and defaults to TypeScript if omitted. Use the existing language when modifying, or the requested target language when creating. Other subjects ignore it.'
 		)
 })
 
@@ -592,7 +592,7 @@ Data Tables:
 - Use list_datatables to discover the available datatables and their tables. Reuse an existing table rather than creating a duplicate.
 - Use get_datatable_table_schema only when you need a table's column names/types; list_datatables is enough for table-list or availability summaries.
 - Use exec_datatable_sql to explore data, run queries, mutate rows, or change schema (CREATE/ALTER/DROP). Creating a table is a normal CREATE TABLE statement — it appears in list_datatables afterward, with no registration step.
-- When writing runnable code (inline app runnables, scripts, flow modules) that reads or writes datatable data at runtime, it accesses a datatable via wmill.datatable(); call get_instructions with subject "datatable" for the SQL SDK reference.`
+- When writing runnable code (inline app runnables, scripts, flow modules) that reads or writes datatable data at runtime, it accesses a datatable via wmill.datatable(). Default to TypeScript (bun) unless the user asked for another language. Call get_instructions with subject "datatable" and language "bun" for the TypeScript SQL SDK reference (or language "python3" for Python) — it returns only that language so you get just what you need.`
 
 const DEFAULT_LIST_TYPES = ['script', 'flow'] as const satisfies readonly WorkspaceItemType[]
 
@@ -1323,7 +1323,9 @@ function getResourceInstructions(): string {
 ${getResourcePrompt()}`
 }
 
-function getDatatableInstructions(): string {
+function getDatatableInstructions(language?: ScriptLang): string {
+	// Default to the TypeScript SDK so we return only what's needed, not both.
+	const lang = language ?? 'bun'
 	return `# Datatable SQL SDK reference
 
 Datatables are workspace-scoped managed PostgreSQL databases. In chat, explore and shape them with the \`list_datatables\`, \`get_datatable_table_schema\`, and \`exec_datatable_sql\` tools. The reference below is for code you author inside runnables (inline app runnables, scripts, or flow rawscript modules) that reads or writes datatable data at runtime.
@@ -1331,7 +1333,7 @@ Datatables are workspace-scoped managed PostgreSQL databases. In chat, explore a
 - A runnable accesses a datatable via \`wmill.datatable()\` (the default "main") or \`wmill.datatable('<name>')\`, referencing tables as \`schema.table\`.
 - Use parameterized queries (the tagged template in TypeScript, \`$1\`/\`$2\` placeholders in Python) — never interpolate untrusted values into SQL strings.
 
-${getDatatableSdkReference()}`
+${getDatatableSdkReference(lang)}`
 }
 
 function getInstructions(subject: InstructionSubject, language?: ScriptLang): string {
@@ -1345,7 +1347,7 @@ function getInstructions(subject: InstructionSubject, language?: ScriptLang): st
 		case 'app':
 			return getAppInstructions()
 		case 'datatable':
-			return getDatatableInstructions()
+			return getDatatableInstructions(language)
 	}
 }
 
