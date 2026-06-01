@@ -55,7 +55,9 @@ export async function execDatatableSql(
 	workspace: string,
 	datatableName: string,
 	sql: string
-): Promise<{ success: boolean; result?: Record<string, any>[]; error?: string }> {
+): Promise<
+	{ success: true; result: Record<string, any>[] } | { success: false; error: string }
+> {
 	try {
 		const result = await runScriptAndPollResult({
 			workspace,
@@ -237,25 +239,23 @@ export function getDatatableTools(): Tool<{}>[] {
 				try {
 					const result = await execDatatableSql(workspace, parsedArgs.datatable_name, parsedArgs.sql)
 					if (result.success) {
-						if (result.result) {
-							const rowCount = result.result.length
-							toolCallbacks.setToolStatus(toolId, { content: `Query returned ${rowCount} row(s)` })
-							if (rowCount > MAX_ROWS) {
-								return JSON.stringify(
-									{
-										success: true,
-										rowCount,
-										result: result.result.slice(0, MAX_ROWS),
-										note: `Showing first ${MAX_ROWS} of ${rowCount} rows`
-									},
-									null,
-									2
-								)
-							}
-							return JSON.stringify({ success: true, rowCount, result: result.result }, null, 2)
+						// Successful runs always carry a `result` array (empty for DDL/DML), so
+						// SELECT rows and zero-row statements share one reporting path.
+						const rowCount = result.result.length
+						toolCallbacks.setToolStatus(toolId, { content: `Query returned ${rowCount} row(s)` })
+						if (rowCount > MAX_ROWS) {
+							return JSON.stringify(
+								{
+									success: true,
+									rowCount,
+									result: result.result.slice(0, MAX_ROWS),
+									note: `Showing first ${MAX_ROWS} of ${rowCount} rows`
+								},
+								null,
+								2
+							)
 						}
-						toolCallbacks.setToolStatus(toolId, { content: 'Query executed successfully' })
-						return JSON.stringify({ success: true, message: 'Query executed successfully' })
+						return JSON.stringify({ success: true, rowCount, result: result.result }, null, 2)
 					} else {
 						const raw = result.error || 'Unknown error'
 						const errorMsg = isDatatableNotConfiguredError(raw)
