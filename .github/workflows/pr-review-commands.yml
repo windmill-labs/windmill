@@ -100,6 +100,7 @@ jobs:
       extra_prompt: ${{ needs.parse.outputs.extra_prompt }}
       triggered_by: ${{ github.event.comment.user.login }}
     secrets:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
       WINDMILL_EE_PRIVATE_ACCESS: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
 

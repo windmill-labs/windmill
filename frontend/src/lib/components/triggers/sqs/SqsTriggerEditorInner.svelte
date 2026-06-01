@@ -31,6 +31,8 @@
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
+	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -102,6 +104,16 @@
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
 
 	const sqsConfig = $derived.by(getSaveCfg)
+
+	const draftSync = useTriggerDraftSync({
+		itemKind: 'trigger_sqs',
+		path: () => initialPath,
+		workspace: () => $workspaceStore,
+		drawerLoading: () => drawerLoading,
+		getCfg: () => sqsConfig,
+		applyCfg: loadTriggerConfig,
+		deployed: () => originalConfig
+	})
 	const captureConfig = $derived.by(getCaptureConfig)
 	const hasChanged = $derived(!deepEqual(sqsConfig, originalConfig ?? {}))
 	const saveDisabled = $derived(
@@ -127,13 +139,17 @@
 			edit = true
 			dirtyPath = false
 			await loadTrigger(defaultConfig)
-			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-		} catch (err) {
-			sendUserToast(`Could not load sqs trigger: ${err.body}`, true)
-		} finally {
+			// Snapshot the *backend* config as the baseline before overlaying
+			// any local autosave, so hasChanged / onConfigChange correctly
+			// flag the local edits as unsaved changes.
 			if (!defaultConfig) {
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			await draftSync.maybeRestore()
+		} catch (err) {
+			sendUserToast(`Could not load sqs trigger: ${err.body}`, true)
+		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
@@ -267,6 +283,7 @@
 
 	async function updateTrigger(): Promise<void> {
 		deploymentLoading = true
+		const previousPath = initialPath
 		const cfg = getSaveCfg()
 		const isSaved = await saveSqsTriggerFromCfg(
 			initialPath,
@@ -276,6 +293,7 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
+			draftSync.discard(previousPath, getSaveCfg())
 			onUpdate?.(cfg.path)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			initialPath = cfg.path
@@ -307,6 +325,11 @@
 			handleConfigChange(sqsConfig, initialConfig, saveDisabled, edit, onConfigChange)
 		}
 	})
+
+	// Persist edits to UserDraft so an accidental drawer close doesn't lose
+	// in-progress work. Skipped while the drawer is loading (the freshly
+	// loaded backend value isn't a user edit) and for new triggers without
+	// a path (no localStorage write would happen anyway).
 </script>
 
 {#if mode === 'suspended'}
@@ -338,6 +361,15 @@
 		>
 			{#snippet actions()}
 				{@render actionsSnippet()}
+			{/snippet}
+			{#snippet banner()}
+				<LocalDraftBanner
+					show={draftSync.hasDraft}
+					getDeployed={() => draftSync.deployed}
+					getCurrent={() => draftSync.current}
+					onDiscard={() => draftSync.resetToDeployed(initialPath)}
+					disabled={!can_write}
+				/>
 			{/snippet}
 			{@render config()}
 		</DrawerContent>

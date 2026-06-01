@@ -6,7 +6,10 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use windmill_api_auth::{check_scopes, maybe_refresh_folders, require_owner_of_path, ApiAuthed};
+use windmill_api_auth::{
+    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
+    ApiAuthed,
+};
 use windmill_common::db::DB;
 use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
 
@@ -134,6 +137,8 @@ async fn list_variables(
             "variable.expires_at",
             "variable.labels",
             "ws_specific.path IS NOT NULL as ws_specific",
+            "variable.edited_at",
+            "variable.edited_by",
         ])
         .left()
         .join("account")
@@ -186,9 +191,13 @@ async fn list_variables(
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
+    let allowed = build_scope_path_predicate(&authed, "variables", "read");
     let rows = sqlx::query_as::<_, ListableVariable>(&sql)
         .fetch_all(&mut *tx)
-        .await?;
+        .await?
+        .into_iter()
+        .filter(|r| allowed(&r.path))
+        .collect::<Vec<_>>();
 
     tx.commit().await?;
     Ok(Json(rows))
@@ -216,6 +225,7 @@ async fn get_variable(
         "SELECT variable.workspace_id, variable.path, variable.value, variable.is_secret,
         variable.description, variable.extra_perms, variable.account, variable.is_oauth,
         variable.expires_at, variable.labels,
+        variable.edited_at, variable.edited_by,
         (now() > account.expires_at) as is_expired, account.refresh_error,
         resource.path IS NOT NULL as is_linked,
         account.refresh_token != '' as is_refreshed,
@@ -441,8 +451,8 @@ async fn create_variable(
 
     sqlx::query!(
         "INSERT INTO variable
-            (workspace_id, path, value, is_secret, description, account, is_oauth, expires_at, labels)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+            (workspace_id, path, value, is_secret, description, account, is_oauth, expires_at, labels, edited_by)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         &w_id,
         variable.path,
         value,
@@ -451,7 +461,8 @@ async fn create_variable(
         variable.account,
         variable.is_oauth.unwrap_or(false),
         variable.expires_at,
-        variable.labels.as_deref() as Option<&[String]>
+        variable.labels.as_deref() as Option<&[String]>,
+        &authed.username
     )
     .execute(&mut *tx)
     .await?;
@@ -1048,6 +1059,8 @@ async fn update_variable(
     }
 
     let npath = if has_sql_updates {
+        sqlb.set("edited_at", "now()");
+        sqlb.set_str("edited_by", &authed.username);
         sqlb.returning("path");
         let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
         let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
@@ -1078,10 +1091,11 @@ async fn update_variable(
 
     if let Some(nlabels) = &ns.labels {
         sqlx::query!(
-            "UPDATE variable SET labels = $1 WHERE path = $2 AND workspace_id = $3",
+            "UPDATE variable SET labels = $1, edited_at = now(), edited_by = $4 WHERE path = $2 AND workspace_id = $3",
             nlabels as &[String],
             &npath,
-            &w_id
+            &w_id,
+            &authed.username
         )
         .execute(&mut *tx)
         .await?;

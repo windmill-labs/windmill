@@ -4,7 +4,6 @@ use async_trait::async_trait;
 use itertools::Itertools;
 use serde_json::value::RawValue;
 use sqlx::{types::Json as SqlxJson, PgConnection};
-use tokio_tungstenite::connect_async;
 use windmill_api_auth::ApiAuthed;
 use windmill_common::DB;
 use windmill_common::{
@@ -16,8 +15,8 @@ use windmill_git_sync::DeployedObject;
 use windmill_trigger::{Trigger, TriggerCrud, TriggerData};
 
 use super::{
-    get_url_from_runnable_value, TestWebsocketConfig, WebsocketConfig, WebsocketConfigRequest,
-    WebsocketTrigger,
+    get_url_from_runnable_value, proxy::connect_async_with_proxy, TestWebsocketConfig,
+    WebsocketConfig, WebsocketConfigRequest, WebsocketTrigger,
 };
 
 #[async_trait]
@@ -277,12 +276,14 @@ impl TriggerCrud for WebsocketTrigger {
             Cow::Borrowed(&url)
         };
 
-        connect_async(&*connect_url).await.map_err(|err| {
-            Error::BadConfig(format!(
-                "Error connecting to WebSocket: {}",
-                err.to_string()
-            ))
-        })?;
+        connect_async_with_proxy(&*connect_url)
+            .await
+            .map_err(|err| {
+                Error::BadConfig(format!(
+                    "Error connecting to WebSocket: {}",
+                    err.to_string()
+                ))
+            })?;
 
         Ok(())
     }

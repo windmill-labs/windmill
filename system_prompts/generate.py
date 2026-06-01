@@ -283,11 +283,12 @@ def extract_py_classes(content: str) -> list[dict]:
 # =============================================================================
 
 
-# Reusable option pattern for CLI parsing
+# Reusable option pattern for CLI parsing. Matches both `.option(...)` and
+# `.globalOption(...)` so subcommand-level global options surface in the docs.
 OPTION_PATTERN = re.compile(
-    r'\.option\(\s*"([^"]+)"\s*,\s*"([^"]+)"'  # double-quoted
+    r'\.(?:option|globalOption)\(\s*"([^"]+)"\s*,\s*"([^"]+)"'  # double-quoted
     r'|'
-    r"\.option\(\s*'([^']+)'\s*,\s*'([^']+)'",  # single-quoted
+    r"\.(?:option|globalOption)\(\s*'([^']+)'\s*,\s*'([^']+)'",  # single-quoted
     re.MULTILINE | re.DOTALL
 )
 
@@ -352,13 +353,36 @@ def parse_command_block(content: str, file_path: Path | None = None) -> dict:
     subcommand_sections = re.split(r'(?=\.command\()', block)
 
     for section in subcommand_sections:
-        cmd_match = re.match(r'\.command\(\s*["\']([^"\']+)["\']\s*(?:,\s*("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|[^)]+))?\s*\)', section)
+        # Second arg is either a quoted description, a bare identifier (imported
+        # command, e.g. `.command("app", app)`), or a more complex expression
+        # like `someWrapper(new Command()...)` — the `[^)]+` fallback covers
+        # the last case by matching up to the next `)`.
+        #
+        # Two subtleties:
+        #   - The quoted-string alts are tried first so a description containing
+        #     `(` like "(psql, DBeaver)" isn't truncated by the `[^)]+` fallback.
+        #   - The trailing `,?` accommodates the prettier-style `\n  )` close
+        #     paren that follows a comma. Without it, the quoted alt would
+        #     succeed but the outer `\s*\)` would fail, forcing a backtrack to
+        #     `[^)]+` and producing a truncated description with a trailing `",`.
+        cmd_match = re.match(
+            r'\.command\(\s*["\']([^"\']+)["\']\s*'
+            r'(?:,\s*("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|[^)]+))?'
+            r'\s*,?\s*\)',
+            section,
+        )
         if not cmd_match:
             continue
 
         # Explicit source marker for backwards-compatible CLI commands that
         # should not be suggested in generated system prompts.
         if '@deprecated' in section:
+            continue
+
+        # Hidden commands (Cliffy .hidden()) are internal — invoked by other
+        # Windmill components, not users — and must not surface in the
+        # generated agent system prompts or help.
+        if '.hidden()' in section:
             continue
 
         cmd_name = cmd_match.group(1)
@@ -1737,10 +1761,9 @@ def resolve_plugin_skills_dir(plugin_dir: Path) -> Path:
     """Resolve the plugin skills directory from a repo root, plugin root, or skills dir."""
     plugin_dir = plugin_dir.expanduser().resolve()
 
-    repo_skills_dir = plugin_dir / "plugins" / "windmill-code-plugin" / "skills"
-    repo_plugin_json = plugin_dir / "plugins" / "windmill-code-plugin" / ".claude-plugin" / "plugin.json"
-    if repo_plugin_json.exists():
-        return repo_skills_dir
+    plugin_root = plugin_dir / "plugins" / "windmill"
+    if (plugin_root / ".claude-plugin" / "plugin.json").exists():
+        return plugin_root / "skills"
 
     plugin_skills_dir = plugin_dir / "skills"
     plugin_json = plugin_dir / ".claude-plugin" / "plugin.json"
@@ -1804,7 +1827,7 @@ CONTEXT7_REPO_NAME = "windmill-cli-docs"
 
 
 def extract_agents_md_template() -> str:
-    """Extract the AGENTS.md template string from cli/src/guidance/core.ts.
+    """Extract the AGENTS.cli.md template string from cli/src/guidance/core.ts.
 
     Keeping a single source of truth in TypeScript avoids drift between what
     `wmill init` writes locally and what we publish for context7 ingestion.
@@ -1812,14 +1835,16 @@ def extract_agents_md_template() -> str:
     core_ts_path = SCRIPT_DIR.parent / "cli" / "src" / "guidance" / "core.ts"
     content = core_ts_path.read_text()
     # Anchor on the function name so adding other template-literal-returning
-    # functions to core.ts can't silently re-target the regex.
+    # functions to core.ts can't silently re-target the regex. The function
+    # was renamed from `generateAgentsMdContent` → `generateAgentsCliMdContent`
+    # when the managed file split out of AGENTS.md into AGENTS.cli.md.
     match = re.search(
-        r"function\s+generateAgentsMdContent\b[\s\S]*?return\s+`([\s\S]*?)`;",
+        r"function\s+generateAgentsCliMdContent\b[\s\S]*?return\s+`([\s\S]*?)`;",
         content,
     )
     if not match:
         raise RuntimeError(
-            f"Could not extract AGENTS.md template from {core_ts_path}"
+            f"Could not extract AGENTS.cli.md template from {core_ts_path}"
         )
     return _unescape_ts_template_literal(match.group(1))
 
@@ -1841,10 +1866,16 @@ def _unescape_ts_template_literal(raw: str) -> str:
 def render_agents_md_for_docs(
     skills: list[str], skill_desc_map: dict[str, str]
 ) -> str:
-    """Render AGENTS.md exactly as `wmill init` would, for the docs repo."""
+    """Render AGENTS.cli.md exactly as `wmill init` would, for the docs repo.
+
+    The skill reference paths point at `.agents/skills/` (the canonical tree
+    that Codex/Pi read directly and that Claude Code mirrors under
+    `.claude/skills/`) — matching `buildSkillsReference` in
+    `cli/src/guidance/writer.ts`.
+    """
     template = extract_agents_md_template()
     skills_reference = "\n".join(
-        f"- `.claude/skills/{name}/SKILL.md` - {skill_desc_map[name]}"
+        f"- `.agents/skills/{name}/SKILL.md` - {skill_desc_map[name]}"
         for name in skills
         if name in skill_desc_map
     )
@@ -1978,7 +2009,10 @@ def generate_context7_repo(
 
     skill_desc_map = build_skill_desc_map(skills)
 
-    # AGENTS.md — the same content `wmill init` writes locally.
+    # AGENTS.md — the managed CLI guidance (what `wmill init` writes as
+    # AGENTS.cli.md locally). Kept under the `AGENTS.md` filename here to
+    # preserve the existing context7 ingest path; docs consumers read this
+    # as the canonical AGENTS file.
     (target_dir / "AGENTS.md").write_text(
         render_agents_md_for_docs(skills, skill_desc_map)
     )
@@ -2278,6 +2312,13 @@ def main():
     print("Extracting CLI commands...")
     cli_data = extract_cli_commands()
     cli_commands = generate_cli_commands_markdown(cli_data)
+    # Append hand-written CLI guidance covering bits that aren't obvious from
+    # the auto-generated per-command --help (file_key semantics, --storage,
+    # workspace scope). The cli-commands skill is the entry point agents read
+    # to learn about `wmill`, so non-obvious usage notes belong here.
+    object_storage_cli = read_markdown_file(base_dir / "object-storage-cli.md")
+    if object_storage_cli:
+        cli_commands = f"{cli_commands}\n\n{object_storage_cli}"
     OUTPUT_CLI_DIR.mkdir(parents=True, exist_ok=True)
     (OUTPUT_CLI_DIR / "cli-commands.md").write_text(cli_commands)
     print(f"  Found {len(cli_data['commands'])} commands, {len(cli_data['global_options'])} global options")

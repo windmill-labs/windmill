@@ -410,21 +410,15 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 			hasFlowModule = true
 			flowModuleContext += `${context.id}\n`
 		} else if (context.type === 'workspace_script') {
-			workspaceItemsContext += `\nWORKSPACE SCRIPT (${context.path}):\n`
-			workspaceItemsContext += `Summary: ${context.summary}\n`
-			workspaceItemsContext += `Language: ${context.language}\n`
-			if (context.schema) {
-				workspaceItemsContext += `Inputs: ${JSON.stringify(context.schema)}\n`
+			if (!workspaceItemsContext) {
+				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
 			}
-			workspaceItemsContext += `Code:\n${context.content}\n`
+			workspaceItemsContext += `- type: script, path: ${context.path}\n`
 		} else if (context.type === 'workspace_flow') {
-			workspaceItemsContext += `\nWORKSPACE FLOW (${context.path}):\n`
-			workspaceItemsContext += `Summary: ${context.summary}\n`
-			workspaceItemsContext += `Description: ${context.description}\n`
-			if (context.schema) {
-				workspaceItemsContext += `Inputs: ${JSON.stringify(context.schema)}\n`
+			if (!workspaceItemsContext) {
+				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
 			}
-			workspaceItemsContext += `Value:\n${context.value}\n`
+			workspaceItemsContext += `- type: flow, path: ${context.path}\n`
 		}
 	}
 
@@ -472,6 +466,7 @@ export type CreatedResourceTriggerKind =
 	| 'sqs'
 	| 'gcp'
 	| 'azure'
+	| 'email'
 
 export type CreatedResourceAction = {
 	id: string
@@ -485,6 +480,13 @@ export type CreatedResourceAction = {
 
 export type ToolDisplayAction = CreatedResourceAction
 
+export type UserQuestionDisplay = {
+	question: string
+	choices: string[]
+	selectedChoice?: string
+	canceled?: boolean
+}
+
 export type ToolDisplayMessage = {
 	role: 'tool'
 	tool_call_id: string
@@ -496,10 +498,12 @@ export type ToolDisplayMessage = {
 	error?: string
 	needsConfirmation?: boolean
 	showDetails?: boolean
+	autoCollapseDetails?: boolean
 	isStreamingArguments?: boolean
 	toolName?: string
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
+	userQuestion?: UserQuestionDisplay
 }
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {
@@ -564,9 +568,11 @@ export async function processToolCall<T>({
 				content: validationError,
 				parameters: args,
 				isLoading: false,
+				isStreamingArguments: false,
 				error: validationError,
 				needsConfirmation: false,
-				showDetails: tool?.showDetails
+				showDetails: tool?.showDetails,
+				autoCollapseDetails: tool?.autoCollapseDetails
 			})
 			return {
 				role: 'tool' as const,
@@ -576,16 +582,20 @@ export async function processToolCall<T>({
 		}
 
 		// Check if tool requires confirmation
-		const needsConfirmation = tool?.requiresConfirmation
+		const requiresConfirmation = tool?.requiresConfirmation === true
+		const autoAcceptConfirmation =
+			requiresConfirmation && toolCallbacks.shouldAutoAcceptToolConfirmations?.() === true
+		const needsConfirmation = requiresConfirmation && !autoAcceptConfirmation
 
 		toolCallbacks.setToolStatus(toolCall.id, {
-			...(tool?.requiresConfirmation
+			...(requiresConfirmation
 				? { content: tool.confirmationMessage ?? 'Waiting for confirmation...' }
 				: {}),
 			parameters: args,
 			isLoading: true,
 			needsConfirmation: needsConfirmation,
-			showDetails: tool?.showDetails
+			showDetails: tool?.showDetails,
+			autoCollapseDetails: tool?.autoCollapseDetails
 		})
 
 		// If confirmation is needed and we have the callback, wait for it
@@ -596,6 +606,7 @@ export async function processToolCall<T>({
 				toolCallbacks.setToolStatus(toolCall.id, {
 					content: 'Cancelled by user',
 					isLoading: false,
+					isStreamingArguments: false,
 					error: 'Tool execution was cancelled by user',
 					needsConfirmation: false
 				})
@@ -625,12 +636,14 @@ export async function processToolCall<T>({
 				toolId: toolCall.id
 			})
 			toolCallbacks.setToolStatus(toolCall.id, {
-				isLoading: false
+				isLoading: false,
+				isStreamingArguments: false
 			})
 		} catch (err) {
 			console.error(err)
 			toolCallbacks.setToolStatus(toolCall.id, {
 				isLoading: false,
+				isStreamingArguments: false,
 				error: 'An error occurred while calling the tool'
 			})
 			const errorMessage =
@@ -676,6 +689,7 @@ export interface Tool<T> {
 	requiresConfirmation?: boolean
 	confirmationMessage?: string
 	showDetails?: boolean
+	autoCollapseDetails?: boolean
 	streamArguments?: boolean
 	showFade?: boolean
 }
@@ -684,6 +698,11 @@ export interface ToolCallbacks {
 	setToolStatus: (id: string, metadata?: Partial<ToolDisplayMessage>) => void
 	removeToolStatus: (id: string) => void
 	requestConfirmation?: (toolId: string) => Promise<boolean>
+	shouldAutoAcceptToolConfirmations?: () => boolean
+	requestUserQuestion?: (
+		toolId: string,
+		question: UserQuestionDisplay
+	) => Promise<string | undefined>
 }
 
 export function createToolDef(
@@ -697,16 +716,65 @@ export function createToolDef(
 	delete parameters.$schema
 	if (!parameters.required) parameters.required = []
 	normalizeToolParameterSchema(parameters)
+	const effectiveStrict = strict && !hasOptionalProperties(parameters)
 
 	return {
 		type: 'function',
 		function: {
-			strict,
+			strict: effectiveStrict,
 			name,
 			description,
 			parameters
 		}
 	}
+}
+
+function hasOptionalProperties(schema: Record<string, any> | undefined): boolean {
+	if (!schema || typeof schema !== 'object') {
+		return false
+	}
+
+	if (schema.properties && typeof schema.properties === 'object') {
+		const required = new Set(Array.isArray(schema.required) ? schema.required : [])
+		const propertyKeys = Object.keys(schema.properties)
+		if (propertyKeys.some((key) => !required.has(key))) {
+			return true
+		}
+		for (const key of propertyKeys) {
+			if (hasOptionalProperties(schema.properties[key])) {
+				return true
+			}
+		}
+	}
+
+	if (schema.items) {
+		if (Array.isArray(schema.items)) {
+			if (schema.items.some((item) => hasOptionalProperties(item))) {
+				return true
+			}
+		} else if (hasOptionalProperties(schema.items)) {
+			return true
+		}
+	}
+
+	if (
+		schema.additionalProperties &&
+		typeof schema.additionalProperties === 'object' &&
+		hasOptionalProperties(schema.additionalProperties)
+	) {
+		return true
+	}
+
+	for (const key of ['allOf', 'anyOf', 'oneOf']) {
+		if (
+			Array.isArray(schema[key]) &&
+			schema[key].some((subSchema: Record<string, any>) => hasOptionalProperties(subSchema))
+		) {
+			return true
+		}
+	}
+
+	return false
 }
 
 const searchHubScriptsSchema = z.object({

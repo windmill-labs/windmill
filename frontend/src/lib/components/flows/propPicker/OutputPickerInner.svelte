@@ -367,7 +367,9 @@
 						)}
 					/>
 				{:else if isLoadingAndNotMock && !mock?.enabled}
-					<div class="flex flex-row w-fit items-center justify-between gap-2 rounded-md bg-surface-secondary p-1 px-2 min-w-16 min-h-[23px]">
+					<div
+						class="flex flex-row w-fit items-center justify-between gap-2 rounded-md bg-surface-secondary p-1 px-2 min-w-16 min-h-[23px]"
+					>
 						<Loader2 size={12} class="animate-spin text-secondary shrink-0" />
 						<span class="text-xs text-secondary w-[56px]">&nbsp;</span>
 					</div>
@@ -527,7 +529,10 @@
 							size="xs2"
 							color="light"
 							variant="contained"
-							btnClasses={twMerge('h-[27px]', showLogs ? 'bg-blue-500/10 text-blue-800 dark:text-blue-200' : 'bg-transparent')}
+							btnClasses={twMerge(
+								'h-[27px]',
+								showLogs ? 'bg-blue-500/10 text-blue-800 dark:text-blue-200' : 'bg-transparent'
+							)}
 							startIcon={{ icon: ScrollText }}
 							on:click={() => {
 								showLogs = !showLogs
@@ -628,6 +633,18 @@
 					content={selectedJob['logs']}
 					isLoading={false}
 					tag={selectedJob['tag']}
+					onLogsResolved={(logs) => {
+						if (
+							moduleId &&
+							flowStateStore?.val[moduleId] &&
+							flowStateStore.val[moduleId].previewJobId === selectedJob?.id
+						) {
+							flowStateStore.val[moduleId] = {
+								...flowStateStore.val[moduleId],
+								previewLogs: logs
+							}
+						}
+					}}
 				/>
 			{:else if isLoadingAndNotMock}
 				<div class="flex flex-col items-center justify-center">

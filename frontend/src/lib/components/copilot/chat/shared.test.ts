@@ -68,6 +68,39 @@ describe('createToolDef', () => {
 		expect(parameters?.properties?.config?.anyOf?.length).toBeGreaterThan(1)
 	})
 
+	it('disables strict mode for schemas with optional properties', async () => {
+		const { createToolDef } = await import('./shared')
+		const toolDef = createToolDef(
+			z.object({
+				subject: z.string(),
+				language: z.string().optional()
+			}),
+			'get_instructions',
+			'Get instructions'
+		)
+
+		const parameters = toolDef.function.parameters as any
+		expect(toolDef.function.strict).toBe(false)
+		expect(parameters.required).toEqual(['subject'])
+		expect(parameters.properties.language.type).toBe('string')
+	})
+
+	it('keeps strict mode for schemas without optional properties', async () => {
+		const { createToolDef } = await import('./shared')
+		const toolDef = createToolDef(
+			z.object({
+				question: z.string(),
+				choices: z.array(z.string())
+			}),
+			'askUserQuestion',
+			'Ask a question'
+		)
+
+		const parameters = toolDef.function.parameters as any
+		expect(toolDef.function.strict).toBe(true)
+		expect(parameters.required).toEqual(['question', 'choices'])
+	})
+
 	it('does not expose runnable target fields on workspace mutation tools', async () => {
 		const { createWorkspaceMutationTools } = await import('./workspaceTools')
 		const [scheduleTool, triggerTool] = createWorkspaceMutationTools()
@@ -83,6 +116,35 @@ describe('createToolDef', () => {
 			expect(variant?.properties?.script_path).toBeUndefined()
 			expect(variant?.properties?.is_flow).toBeUndefined()
 		}
+	})
+})
+
+describe('buildContextString', () => {
+	it('serializes selected workspace items as references only', async () => {
+		const { buildContextString } = await import('./shared')
+
+		const context = buildContextString([
+			{
+				type: 'workspace_script',
+				path: 'f/scripts/report',
+				title: 'f/scripts/report',
+				summary: 'Report script'
+			},
+			{
+				type: 'workspace_flow',
+				path: 'f/flows/reporting',
+				title: 'f/flows/reporting',
+				summary: 'Reporting flow'
+			}
+		])
+
+		expect(context).toContain('SELECTED WORKSPACE ITEMS:')
+		expect(context).toContain('- type: script, path: f/scripts/report')
+		expect(context).toContain('- type: flow, path: f/flows/reporting')
+		expect(context).not.toContain('Report script')
+		expect(context).not.toContain('Reporting flow')
+		expect(context).not.toContain('Code:')
+		expect(context).not.toContain('Value:')
 	})
 })
 
@@ -126,6 +188,7 @@ describe('processToolCall', () => {
 				content: error,
 				error,
 				isLoading: false,
+				isStreamingArguments: false,
 				needsConfirmation: false,
 				showDetails: true
 			})
@@ -145,6 +208,8 @@ describe('processToolCall', () => {
 					def: createToolDef(z.object({}), 'create_schedule', 'Create schedule'),
 					requiresConfirmation: true,
 					confirmationMessage: 'Create schedule',
+					showDetails: true,
+					autoCollapseDetails: false,
 					validateBeforeConfirmation: () => undefined,
 					fn
 				}
@@ -165,6 +230,63 @@ describe('processToolCall', () => {
 
 		expect(requestConfirmation).toHaveBeenCalledWith('call_2')
 		expect(fn).toHaveBeenCalled()
+		expect(setToolStatus).toHaveBeenCalledWith(
+			'call_2',
+			expect.objectContaining({
+				autoCollapseDetails: false,
+				showDetails: true
+			})
+		)
+		expect(setToolStatus).toHaveBeenLastCalledWith(
+			'call_2',
+			expect.objectContaining({
+				isLoading: false,
+				isStreamingArguments: false
+			})
+		)
+		expect(result.content).toBe('ok')
+	})
+
+	it('auto-accepts required confirmations when yolo mode is active', async () => {
+		const { createToolDef, processToolCall } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('ok')
+		const requestConfirmation = vi.fn()
+		const setToolStatus = vi.fn()
+
+		const result = await processToolCall({
+			tools: [
+				{
+					def: createToolDef(z.object({}), 'create_schedule', 'Create schedule'),
+					requiresConfirmation: true,
+					confirmationMessage: 'Create schedule',
+					fn
+				}
+			],
+			toolCall: {
+				id: 'call_yolo',
+				type: 'function',
+				function: { name: 'create_schedule', arguments: '{}' }
+			},
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus,
+				removeToolStatus: vi.fn(),
+				requestConfirmation,
+				shouldAutoAcceptToolConfirmations: () => true
+			}
+		})
+
+		expect(requestConfirmation).not.toHaveBeenCalled()
+		expect(fn).toHaveBeenCalled()
+		expect(setToolStatus).toHaveBeenCalledWith(
+			'call_yolo',
+			expect.objectContaining({
+				content: 'Create schedule',
+				isLoading: true,
+				needsConfirmation: false
+			})
+		)
 		expect(result.content).toBe('ok')
 	})
 

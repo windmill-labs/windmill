@@ -44,7 +44,7 @@
 		tagLabel = undefined
 	}: Props = $props()
 
-	const { stepsInputArgs } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { stepsInputArgs, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let outputPickerInner: OutputPickerInner | undefined = $state(undefined)
 	export function getOutputPickerInner() {
@@ -115,6 +115,18 @@
 				isLoading={(testIsLoading && logJob?.['running'] == false) || loadingJob}
 				tag={logJob?.['tag']}
 				{tagLabel}
+				onLogsResolved={(logs) => {
+					if (
+						mod.id &&
+						flowStateStore?.val[mod.id] &&
+						flowStateStore.val[mod.id].previewJobId === logJob?.id
+					) {
+						flowStateStore.val[mod.id] = {
+							...flowStateStore.val[mod.id],
+							previewLogs: logs
+						}
+					}
+				}}
 			/>
 		{/if}
 	</Pane>

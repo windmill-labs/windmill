@@ -6,7 +6,7 @@ edition.workspace = true
 
 [features]
 default = []
-bedrock = ["dep:aws-sdk-bedrockruntime", "dep:aws-credential-types", "dep:aws-smithy-types", "dep:aws-config"]
+bedrock = ["dep:aws-sdk-bedrock", "dep:aws-sdk-bedrockruntime", "dep:aws-credential-types", "dep:aws-smithy-types", "dep:aws-config"]
 mcp = ["dep:windmill-mcp"]
 
 [lib]
@@ -20,10 +20,12 @@ windmill-parser.workspace = true
 windmill-mcp = { workspace = true, optional = true }
 
 async-trait.workspace = true
+async-stream.workspace = true
 base64.workspace = true
 bytes.workspace = true
 eventsource-stream.workspace = true
 futures.workspace = true
+http.workspace = true
 mime_guess.workspace = true
 reqwest.workspace = true
 serde.workspace = true
@@ -40,4 +42,5 @@ ulid.workspace = true
 aws-config = { workspace = true, optional = true }
 aws-credential-types = { workspace = true, optional = true }
 aws-smithy-types = { workspace = true, optional = true }
+aws-sdk-bedrock = { workspace = true, optional = true }
 aws-sdk-bedrockruntime = { workspace = true, optional = true }

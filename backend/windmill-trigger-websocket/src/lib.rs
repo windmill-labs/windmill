@@ -18,6 +18,7 @@ use windmill_trigger::trigger_helpers::{
 
 pub mod handler;
 pub mod listener;
+pub mod proxy;
 
 #[derive(Copy, Clone)]
 pub struct WebsocketTrigger;

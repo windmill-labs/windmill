@@ -78,7 +78,8 @@ use windmill_common::{
     utils::{not_found_if_none, report_critical_error, StripPath, WarnAfterExt},
     worker::{
         to_raw_value, CLOUD_HOSTED, DISABLE_FLOW_SCRIPT, NO_LOGS, PREVIEW_TAGS_OVERRIDE,
-        WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
+        WORKER_PULL_QUERIES, WORKER_PULL_QUERIES_FAIRNESS, WORKER_SUSPENDED_PULL_QUERY,
+        WORKSPACE_FAIRNESS_OVERLOADED,
     },
     DB, METRICS_ENABLED,
 };
@@ -3632,28 +3633,74 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
                 return Ok((None, false));
             }
 
-            for query in queries.iter() {
-                // tracing::info!("Pulling job with query: {}", query);
-                // let instant = std::time::Instant::now();
+            // Workspace fairness (Enterprise): if the fairness refresh has flagged
+            // any overloaded workspaces, this pull is randomly routed between two
+            // pull queries:
+            //   * with probability `(cap + ε)/100`, the standard query (capped
+            //     workspaces are admissible — they win via FIFO when noisy)
+            //   * with probability `1 - (cap + ε)/100`, the fairness query (the
+            //     overloaded workspace_ids are filtered out)
+            // Over many pulls this converges to a steady share around the cap,
+            // without the on/off oscillation a binary cap/uncap dispatch produces.
+            // If the chosen query returns nothing, we always fall back to the
+            // standard query so workers don't idle when only capped jobs remain.
+            // Lazy refresh fires from the same place: runs at most once per
+            // process per refresh interval, never blocks this pull.
+            crate::workspace_fairness::maybe_refresh_overloaded(db);
+            let overloaded = WORKSPACE_FAIRNESS_OVERLOADED.load_full();
+            let fairness_active = !overloaded.is_empty();
 
-                #[cfg(feature = "benchmark")]
-                add_time!(bench, "pre pull");
+            if fairness_active && !crate::workspace_fairness::should_admit_capped() {
+                let fairness_queries = WORKER_PULL_QUERIES_FAIRNESS.load();
+                let overloaded_slice: &[String] = overloaded.as_slice();
+                for query in fairness_queries.iter() {
+                    #[cfg(feature = "benchmark")]
+                    add_time!(bench, "pre pull (fairness)");
 
-                let r = sqlx::query_as::<_, PulledJob>(query)
-                    .bind(worker_name)
-                    .fetch_optional(db)
-                    .await?;
+                    let r = sqlx::query_as::<_, PulledJob>(query)
+                        .bind(worker_name)
+                        .bind(overloaded_slice)
+                        .fetch_optional(db)
+                        .await?;
 
-                #[cfg(feature = "benchmark")]
-                add_time!(bench, "post pull");
+                    #[cfg(feature = "benchmark")]
+                    add_time!(bench, "post pull (fairness)");
 
-                if let Some(pulled_job) = r {
-                    // tracing::info!("pulled job: {:?}", instant.elapsed().as_micros());
-
-                    highest_priority_job = Some(pulled_job);
-                    break;
+                    if let Some(pulled_job) = r {
+                        highest_priority_job = Some(pulled_job);
+                        break;
+                    }
                 }
-                // else continue pulling for lower priority tags
+            }
+
+            if highest_priority_job.is_none() {
+                // Standard pull path. Also acts as the fallback when fairness
+                // filtered out every candidate: prefer running a capped
+                // workspace's job over leaving a worker idle. (The cap is
+                // re-asserted statistically on subsequent pulls.)
+                for query in queries.iter() {
+                    // tracing::info!("Pulling job with query: {}", query);
+                    // let instant = std::time::Instant::now();
+
+                    #[cfg(feature = "benchmark")]
+                    add_time!(bench, "pre pull");
+
+                    let r = sqlx::query_as::<_, PulledJob>(query)
+                        .bind(worker_name)
+                        .fetch_optional(db)
+                        .await?;
+
+                    #[cfg(feature = "benchmark")]
+                    add_time!(bench, "post pull");
+
+                    if let Some(pulled_job) = r {
+                        // tracing::info!("pulled job: {:?}", instant.elapsed().as_micros());
+
+                        highest_priority_job = Some(pulled_job);
+                        break;
+                    }
+                    // else continue pulling for lower priority tags
+                }
             }
 
             // #[cfg(feature = "benchmark")]
@@ -5340,6 +5387,7 @@ async fn push_inner<'c, 'd>(
                 cache_ttl: cache_ttl.map(|val| val as u32),
                 cache_ignore_s3_path: cache_ignore_s3_path,
                 same_worker: false,
+                preserve_step_tags: false,
                 early_return: None,
                 skip_expr: None,
                 preprocessor_module: None,

@@ -558,13 +558,17 @@ async fn create_flow(
         w_id
     ).execute(&mut *tx).await?;
 
-    sqlx::query!(
-        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
-        nf.path,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
+    // CLI / git-sync deploys ask us to preserve any existing user draft at this
+    // path instead of wiping it as part of the deploy.
+    if !nf.skip_draft_deletion.unwrap_or(false) {
+        sqlx::query!(
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
+            nf.path,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,
@@ -1157,13 +1161,17 @@ async fn update_flow(
         })?;
     }
 
-    sqlx::query!(
-        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
-        flow_path,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
+    // CLI / git-sync deploys ask us to preserve any existing user draft at this
+    // path instead of wiping it as part of the deploy.
+    if !nf.skip_draft_deletion.unwrap_or(false) {
+        sqlx::query!(
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
+            flow_path,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,
@@ -1480,6 +1488,9 @@ pub struct FlowWDraft {
     pub extra_perms: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
+    /// Timestamp at which the most recent DB draft was created.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_created_at: Option<chrono::DateTime<chrono::Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1516,6 +1527,7 @@ async fn get_flow_by_path_w_draft(
             flow.ws_error_handler_muted,
             flow.dedicated_worker,
             draft.value AS draft,
+            draft.created_at AS draft_created_at,
             flow.tag,
             flow.visible_to_runner_only,
             flow.on_behalf_of_email,
@@ -2027,6 +2039,7 @@ mod tests {
             })),
             preprocessor_module: None,
             same_worker: false,
+            preserve_step_tags: false,
             skip_expr: None,
             cache_ttl: None,
             cache_ignore_s3_path: None,

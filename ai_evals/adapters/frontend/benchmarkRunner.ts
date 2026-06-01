@@ -10,10 +10,6 @@ import { runSuite } from "../../core/runSuite";
 import type { BenchmarkRunResult, ModeRunner } from "../../core/types";
 import { resolveWindmillBackendSettings } from "../../core/windmillBackendSettings";
 import { emitFrontendBenchmarkProgress } from "./progress";
-import { createAppModeRunner } from "../../modes/app";
-import { createFlowModeRunner } from "../../modes/flow";
-import { createGlobalModeRunner } from "../../modes/global";
-import { createScriptModeRunner } from "../../modes/script";
 import { DEFAULT_JUDGE_MODEL } from "../../core/judge";
 
 export type FrontendBenchmarkMode = "flow" | "app" | "script" | "global";
@@ -40,7 +36,7 @@ export async function runFrontendBenchmarkFromEnv(): Promise<BenchmarkRunResult>
   const backendSettings = resolveWindmillBackendSettings();
 
   const selectedCases = await loadSelectedCases(mode, caseIds);
-  const modeRunner = getModeRunner(
+  const modeRunner = await getModeRunner(
     mode,
     getFrontendEvalModel(model),
     backendValidation,
@@ -69,25 +65,33 @@ export async function runFrontendBenchmarkFromEnv(): Promise<BenchmarkRunResult>
   });
 }
 
-function getModeRunner(
+async function getModeRunner(
   mode: FrontendBenchmarkMode,
   model: ReturnType<typeof getFrontendEvalModel>,
   backendValidation: ReturnType<typeof resolveBackendValidationSettings>,
   backendSettings: ReturnType<typeof resolveWindmillBackendSettings>,
-): ModeRunner<any, any, any> {
+): Promise<ModeRunner<any, any, any>> {
   switch (mode) {
-    case "flow":
+    case "flow": {
+      const { createFlowModeRunner } = await import("../../modes/flow");
       return createFlowModeRunner(model, backendValidation, backendSettings);
-    case "app":
+    }
+    case "app": {
+      const { createAppModeRunner } = await import("../../modes/app");
       return createAppModeRunner(model, backendSettings);
-    case "script":
+    }
+    case "script": {
+      const { createScriptModeRunner } = await import("../../modes/script");
       return createScriptModeRunner(
         model,
         backendValidation,
         backendSettings,
       );
-    case "global":
+    }
+    case "global": {
+      const { createGlobalModeRunner } = await import("../../modes/global");
       return createGlobalModeRunner(model, backendSettings);
+    }
   }
 }
 

@@ -14,8 +14,11 @@
 		typescript,
 		yaml
 	} from 'svelte-highlight/languages'
-	import { aiChatManager, AIMode } from '../AIChatManager.svelte'
+	import { AIMode } from '../AIChatManager.svelte'
+	import { getAiChatManager } from '../aiChatManagerContext'
 	import { Check, Play } from 'lucide-svelte'
+
+	const aiChatManager = getAiChatManager()
 
 	const astNode = getAstNode()
 
@@ -96,12 +99,12 @@
 
 	function handleApplyCode() {
 		if (code && aiChatManager.scriptEditorApplyCode) {
-			aiChatManager.scriptEditorApplyCode(code, { mode: 'apply' })
+			void aiChatManager.applyScriptEditorCode(code, { mode: 'apply' })
 		}
 	}
 </script>
 
-<div class="flex flex-col gap-0.5 rounded-lg relative not-prose">
+<div class="flex flex-col gap-0.5 rounded-lg relative not-prose !text-xs">
 	<div
 		class="relative w-full border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden"
 	>

@@ -13,14 +13,21 @@
 	import type { Flow, Job } from '$lib/gen'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
-	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
+	import {
+		AIChatManager,
+		aiChatManager as singletonAiChatManager,
+		AIMode
+	} from '../copilot/chat/AIChatManager.svelte'
 	import type { GraphModuleState } from '../graph'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
 	import type { StateStore } from '$lib/utils'
 	import type { FlowOptions } from '../copilot/chat/ContextManager.svelte'
 	import { extractAllModules } from '../copilot/chat/shared'
+	import type { Snippet } from 'svelte'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const sessionScopedManager = getContext<AIChatManager>('aiChatManager')
+	const aiChatManager = sessionScopedManager ?? singletonAiChatManager
 
 	interface Props {
 		loading: boolean
@@ -59,6 +66,7 @@
 		onDelete?: (id: string) => void
 		flowHasChanged?: boolean
 		previewOpen: boolean
+		graphOverlay?: Snippet
 	}
 
 	let {
@@ -93,10 +101,17 @@
 		suspendStatus,
 		onDelete,
 		flowHasChanged,
-		previewOpen
+		previewOpen,
+		graphOverlay
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
+
+	// When the graph pane is narrow, fall back to a top-centered overlay so the
+	// preview buttons don't overlap the rightmost node ports (matches the dev
+	// page layout).
+	let graphPaneWidth = $state(0)
+	const compactGraphOverlay = $derived(graphPaneWidth > 0 && graphPaneWidth < 800)
 
 	export function isNodeVisible(nodeId: string): boolean {
 		return flowModuleSchemaMap?.isNodeVisible(nodeId) ?? false
@@ -123,14 +138,18 @@
 	})
 
 	onMount(() => {
-		aiChatManager.saveAndClear()
-		aiChatManager.changeMode(AIMode.FLOW)
+		if (!sessionScopedManager) {
+			aiChatManager.saveAndClear()
+			aiChatManager.changeMode(AIMode.FLOW)
+		}
 	})
 
 	onDestroy(() => {
 		aiChatManager.flowOptions = undefined
-		aiChatManager.saveAndClear()
-		aiChatManager.changeMode(AIMode.NAVIGATOR)
+		if (!sessionScopedManager) {
+			aiChatManager.saveAndClear()
+			aiChatManager.changeMode(AIMode.NAVIGATOR)
+		}
 	})
 </script>
 
@@ -144,7 +163,19 @@
 >
 	<Splitpanes>
 		<Pane size={50} minSize={15} class="h-full relative z-0">
-			<div class="grow overflow-hidden bg-gray h-full bg-surface-secondary relative">
+			<div
+				bind:clientWidth={graphPaneWidth}
+				class="grow overflow-hidden bg-gray h-full bg-surface-secondary relative"
+			>
+				{#if graphOverlay}
+					<div
+						class="absolute z-30 flex gap-2 {compactGraphOverlay
+							? 'top-14 left-1/2 -translate-x-1/2'
+							: 'top-2 right-2'}"
+					>
+						{@render graphOverlay()}
+					</div>
+				{/if}
 				{#if loading}
 					<div class="p-2 pt-10">
 						{#each new Array(6) as _}
@@ -154,6 +185,7 @@
 				{:else if flowStore.val.value.modules}
 					<FlowModuleSchemaMap
 						bind:this={flowModuleSchemaMap}
+						controlsPosition={compactGraphOverlay ? 'bottom' : 'top'}
 						{disableStaticInputs}
 						{disableTutorials}
 						{disableAi}

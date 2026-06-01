@@ -30,8 +30,8 @@ use crate::{
     bash_executor::BIN_BASH,
     common::{
         build_command_with_isolation, check_executor_binary_exists, get_reserved_variables,
-        read_and_check_result, resolve_nsjail_timeout, start_child_process, transform_json,
-        OccupancyMetrics,
+        read_and_check_result, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block,
+        start_child_process, transform_json, OccupancyMetrics,
     },
     handle_child::handle_child,
     is_sandboxing_enabled,
@@ -1455,6 +1455,10 @@ mount {{
                 .replace(
                     "{ADDITIONAL_PYTHON_PATHS}",
                     additional_python_paths_folders.as_str(),
+                )
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
                 )
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;

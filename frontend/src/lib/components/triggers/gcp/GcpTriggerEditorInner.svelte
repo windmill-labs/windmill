@@ -27,6 +27,8 @@
 	import { saveGcpTriggerFromCfg } from './utils'
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import { deepEqual } from 'fast-equals'
+	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
+	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { base } from '$lib/base'
@@ -108,6 +110,16 @@
 
 	let hasChanged = $derived(!deepEqual(getGcpConfig(), originalConfig ?? {}))
 	const gcpConfig = $derived.by(getGcpConfig)
+
+	const draftSync = useTriggerDraftSync({
+		itemKind: 'trigger_gcp',
+		path: () => initialPath,
+		workspace: () => $workspaceStore,
+		drawerLoading: () => drawerLoading,
+		getCfg: () => gcpConfig,
+		applyCfg: loadTriggerConfig,
+		deployed: () => originalConfig
+	})
 	const saveDisabled = $derived(
 		pathError != '' || emptyString(script_path) || !isValid || !can_write || !hasChanged
 	)
@@ -126,14 +138,15 @@
 			edit = true
 			dirtyPath = false
 			await loadTrigger(defaultValues)
+			if (!defaultValues) {
+				initialConfig = structuredClone($state.snapshot(getGcpConfig()))
+			}
 			originalConfig = structuredClone($state.snapshot(getGcpConfig()))
+			await draftSync.maybeRestore()
 		} catch (err) {
 			sendUserToast(`Could not load GCP Pub/Sub trigger: ${err.body}`, true)
 		} finally {
 			drawerLoading = false
-			if (!defaultValues) {
-				initialConfig = structuredClone($state.snapshot(getGcpConfig()))
-			}
 		}
 	}
 
@@ -217,6 +230,7 @@
 
 	async function updateTrigger(): Promise<void> {
 		deploymentLoading = true
+		const previousPath = initialPath
 		const cfg = gcpConfig
 		if (!cfg) {
 			return
@@ -229,6 +243,7 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
+			draftSync.discard(previousPath, getGcpConfig())
 			onUpdate?.(cfg.path)
 			originalConfig = structuredClone($state.snapshot(getGcpConfig()))
 			initialPath = cfg.path
@@ -344,6 +359,15 @@
 		>
 			{#snippet actions()}
 				{@render actionsButtons()}
+			{/snippet}
+			{#snippet banner()}
+				<LocalDraftBanner
+					show={draftSync.hasDraft}
+					getDeployed={() => draftSync.deployed}
+					getCurrent={() => draftSync.current}
+					onDiscard={() => draftSync.resetToDeployed(initialPath)}
+					disabled={!can_write}
+				/>
 			{/snippet}
 			{@render config()}
 		</DrawerContent>

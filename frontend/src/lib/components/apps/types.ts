@@ -164,6 +164,18 @@ export interface AppEditorProps {
 	gotoFn?: (path: string, opt?: Record<string, any> | undefined) => void
 	unsavedConfirmationModal?: import('svelte').Snippet<[any]>
 	onSavedNewAppPath?: (path: string) => void
+	/** Override breadcrumb-picker navigation. Defaults to goto(editPathFor(item)). */
+	onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
+	/**
+	 * Backend revs at the load that produced `app`. Used as the seed
+	 * `UserDraft` meta on the first local autosave: until the handle has
+	 * its own meta (set on a previous reload, or by route backfill), the
+	 * mirror `$effect` injects these revs so the next reload's staleness
+	 * check has something to compare the current backend rev against.
+	 * Without this, the first deploy-after-edit can't be detected as
+	 * drift — `previousMeta` would be empty and the modal wouldn't fire.
+	 */
+	initialRevs?: import('$lib/userDraft.svelte').UserDraftMeta
 }
 
 export type App = {

@@ -33,3 +33,15 @@ pub async fn handle_fork_branch_creation<'c>(
 ) -> Result<Vec<uuid::Uuid>> {
     return Ok(vec![]);
 }
+
+#[cfg(not(feature = "private"))]
+pub async fn handle_deployment_metadata_batch<'c>(
+    _email: &str,
+    _created_by: &str,
+    _db: &DB,
+    _w_id: &str,
+    _objs: Vec<DeployedObject>,
+    _deployment_message: Option<String>,
+) -> Result<()> {
+    return Ok(());
+}

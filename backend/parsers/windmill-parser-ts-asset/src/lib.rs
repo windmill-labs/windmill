@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use swc_common::{sync::Lrc, FileName, SourceMap, Spanned};
-use swc_ecma_ast::{CallExpr, Expr, Lit, MemberExpr, MemberProp, Str};
+use swc_ecma_ast::{CallExpr, Expr, Lit, MemberExpr, MemberProp, ObjectLit, Prop, PropName, Str};
 use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsSyntax};
 use swc_ecma_visit::{Visit, VisitWith};
 use windmill_parser::asset_parser::{
@@ -309,6 +309,56 @@ impl Visit for AssetsFinder {
     }
 }
 
+/// Extract a string-literal property value from an object literal.
+/// Returns `Some(value)` for `{ name: "value" }`, ignoring computed,
+/// shorthand, spread, and non-string-literal properties.
+fn object_str_prop(obj: &ObjectLit, name: &str) -> Option<String> {
+    for prop in &obj.props {
+        let swc_ecma_ast::PropOrSpread::Prop(p) = prop else {
+            continue;
+        };
+        let Prop::KeyValue(kv) = p.as_ref() else {
+            continue;
+        };
+        let key = match &kv.key {
+            PropName::Ident(i) => i.sym.as_str(),
+            PropName::Str(s) => s.value.as_str(),
+            _ => continue,
+        };
+        if key != name {
+            continue;
+        }
+        if let Expr::Lit(Lit::Str(s)) = kv.value.as_ref() {
+            return Some(s.value.to_string());
+        }
+    }
+    None
+}
+
+/// Resolve the SDK `S3Object` argument of `loadS3File`/`loadS3FileStream`/
+/// `writeS3File` to a canonical asset path, mirroring the runtime
+/// `parseS3Object`: an object `{ s3: "<key>", storage?: "<bucket>" }` maps to
+/// the URI `s3://<bucket>/<key>` (empty bucket for default storage, i.e.
+/// `s3:///<key>`), and a bare `"s3://bucket/key"` string is passed through.
+/// The resulting URI is fed through `parse_asset_syntax` so the stored path
+/// matches the `// on s3:///…` trigger form exactly.
+fn s3_object_arg_path(arg: &Expr) -> Option<String> {
+    let uri = match arg {
+        Expr::Lit(Lit::Str(s)) => s.value.to_string(),
+        Expr::Object(obj) => {
+            let key = object_str_prop(obj, "s3")?;
+            let storage = object_str_prop(obj, "storage").unwrap_or_default();
+            format!("s3://{storage}/{key}")
+        }
+        _ => return None,
+    };
+    Some(
+        parse_asset_syntax(&uri, false)
+            .map(|(_, p)| p.to_string())
+            .unwrap_or(uri),
+    )
+}
+
 impl AssetsFinder {
     fn visit_call_expr_inner(&mut self, node: &swc_ecma_ast::CallExpr) -> Result<(), ()> {
         let ident = match node.callee.as_expr().map(AsRef::as_ref) {
@@ -331,20 +381,20 @@ impl AssetsFinder {
 
         let arg_value = node.args.get(arg_pos);
 
-        match arg_value.map(|e| e.expr.as_ref()) {
-            Some(Expr::Lit(Lit::Str(Str { value, .. }))) => {
-                let path = parse_asset_syntax(&value, false)
-                    .map(|(_, p)| p)
-                    .unwrap_or(&value);
-                self.assets.push(ParseAssetsResult {
-                    kind,
-                    path: path.to_string(),
-                    access_type,
-                    columns: None,
-                });
-            }
+        // S3 helpers take an `S3Object` (`{ s3, storage? }`) or an
+        // `s3://bucket/key` string — the form every real script uses. Other
+        // helpers take a bare resource-path string literal.
+        let is_s3_helper = matches!(kind, AssetKind::S3Object);
+
+        let path = match arg_value.map(|e| e.expr.as_ref()) {
+            Some(arg) if is_s3_helper => s3_object_arg_path(arg).ok_or(())?,
+            Some(Expr::Lit(Lit::Str(Str { value, .. }))) => parse_asset_syntax(&value, false)
+                .map(|(_, p)| p.to_string())
+                .unwrap_or_else(|| value.to_string()),
             _ => return Err(()),
-        }
+        };
+        self.assets
+            .push(ParseAssetsResult { kind, path, access_type, columns: None });
         Ok(())
     }
 }
@@ -373,6 +423,136 @@ mod tests {
                 columns: None,
             },])
         );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_write_s3_object_arg() {
+        // The SDK signature is `writeS3File(s3object: S3Object, ...)` and every
+        // real script passes the object form with a bare key. It must resolve
+        // to the same canonical path as a `// on s3:///<key>` trigger.
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main() {
+                await wmill.writeS3File(
+                    { s3: "pipelines/km_real/raw_events.json" },
+                    JSON.stringify([]),
+                    undefined,
+                    "application/json"
+                )
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map(|r| r.assets).map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::S3Object,
+                path: "/pipelines/km_real/raw_events.json".to_string(),
+                access_type: Some(W),
+                columns: None,
+            },])
+        );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_s3_object_with_storage() {
+        // `{ s3, storage }` maps to `s3://<storage>/<key>`, matching the
+        // `s3://bucket/key` string form and `parseS3Object`.
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main() {
+                await wmill.loadS3File({ s3: "dir/in.csv", storage: "mybucket" })
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map(|r| r.assets).map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::S3Object,
+                path: "mybucket/dir/in.csv".to_string(),
+                access_type: Some(R),
+                columns: None,
+            },])
+        );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_multiple_s3_object_writes() {
+        // Mirrors the f/km/r_seed shape: several direct object-form writes in
+        // main() — all four outputs must be detected.
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main() {
+                await wmill.writeS3File({ s3: "pipelines/km_real/raw_events.json" }, "[]")
+                await wmill.writeS3File({ s3: "pipelines/km_real/enriched.json" }, "[]")
+                await wmill.writeS3File({ s3: "pipelines/km_real/summary.json" }, "[]")
+                await wmill.writeS3File({ s3: "pipelines/km_real/report.json" }, "{}")
+            }
+        "#;
+        // merge_assets returns a deterministic (path-sorted) order.
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map(|r| r.assets).map_err(|e| e.to_string()),
+            Ok(vec![
+                ParseAssetsResult {
+                    kind: AssetKind::S3Object,
+                    path: "/pipelines/km_real/enriched.json".to_string(),
+                    access_type: Some(W),
+                    columns: None,
+                },
+                ParseAssetsResult {
+                    kind: AssetKind::S3Object,
+                    path: "/pipelines/km_real/raw_events.json".to_string(),
+                    access_type: Some(W),
+                    columns: None,
+                },
+                ParseAssetsResult {
+                    kind: AssetKind::S3Object,
+                    path: "/pipelines/km_real/report.json".to_string(),
+                    access_type: Some(W),
+                    columns: None,
+                },
+                ParseAssetsResult {
+                    kind: AssetKind::S3Object,
+                    path: "/pipelines/km_real/summary.json".to_string(),
+                    access_type: Some(W),
+                    columns: None,
+                },
+            ])
+        );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_s3_object_quoted_key() {
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main() {
+                await wmill.writeS3File({ "s3": "out.json" }, "{}")
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(
+            s.map(|r| r.assets).map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::S3Object,
+                path: "/out.json".to_string(),
+                access_type: Some(W),
+                columns: None,
+            },])
+        );
+    }
+
+    #[test]
+    fn test_ts_asset_parser_s3_object_dynamic_key_no_false_positive() {
+        // A computed key can't be resolved statically — must yield nothing
+        // rather than a bogus path.
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main(name: string) {
+                await wmill.writeS3File({ s3: `pipelines/${name}.json` }, "{}")
+            }
+        "#;
+        let s = parse_assets(input);
+        assert_eq!(s.map(|r| r.assets).map_err(|e| e.to_string()), Ok(vec![]));
     }
 
     #[test]

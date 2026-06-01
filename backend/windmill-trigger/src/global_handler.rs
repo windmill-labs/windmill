@@ -205,27 +205,28 @@ pub async fn resume_suspended_trigger_jobs(
         } else {
             // Job was created after trigger edit - delete and repush with new configuration
             // Pass the transaction to trigger_runnable_inner so everything is in the same transaction
-            let (_uuid, _delete_after_use, _early_return, tx_o) = trigger_runnable_inner(
-                &db,
-                Some(tx),
-                Some(user_db.clone()),
-                authed.clone(),
-                &w_id,
-                &trigger.script_path,
-                trigger.is_flow,
-                windmill_queue::PushArgsOwned {
-                    extra: None,
-                    args: job.args.map(|a| a.0).unwrap_or_default(),
-                },
-                trigger.retry.as_ref(),
-                trigger.error_handler_path.as_deref(),
-                trigger.error_handler_args.as_ref(),
-                trigger_path.clone(),
-                None,
-                trigger_metadata.clone(),
-                None,
-            )
-            .await?;
+            let (_uuid, _delete_after_use, _early_return, _has_failure_module, tx_o) =
+                trigger_runnable_inner(
+                    &db,
+                    Some(tx),
+                    Some(user_db.clone()),
+                    authed.clone(),
+                    &w_id,
+                    &trigger.script_path,
+                    trigger.is_flow,
+                    windmill_queue::PushArgsOwned {
+                        extra: None,
+                        args: job.args.map(|a| a.0).unwrap_or_default(),
+                    },
+                    trigger.retry.as_ref(),
+                    trigger.error_handler_path.as_deref(),
+                    trigger.error_handler_args.as_ref(),
+                    trigger_path.clone(),
+                    None,
+                    trigger_metadata.clone(),
+                    None,
+                )
+                .await?;
 
             tx = match tx_o {
                 Some(tx) => tx,

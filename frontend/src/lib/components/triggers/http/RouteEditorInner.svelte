@@ -55,6 +55,8 @@
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
+	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import UserSettings from '$lib/components/UserSettings.svelte'
@@ -137,6 +139,16 @@
 	let scopes = $derived(['http_triggers:read:' + path])
 
 	const routeConfig = $derived.by(getRouteConfig)
+
+	const draftSync = useTriggerDraftSync({
+		itemKind: 'trigger_http',
+		path: () => initialPath,
+		workspace: () => $workspaceStore,
+		drawerLoading: () => drawerLoading,
+		getCfg: () => routeConfig,
+		applyCfg: (c) => loadTriggerConfig(c as Partial<HttpTrigger>),
+		deployed: () => originalConfig
+	})
 	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 	const saveDisabled = $derived(
 		drawerLoading ||
@@ -219,14 +231,15 @@
 			dirtyPath = false
 			dirtyRoutePath = false
 			await loadTrigger(defaultConfig)
-			originalConfig = structuredClone($state.snapshot(getRouteConfig()))
-		} catch (err) {
-			sendUserToast(`Could not load route: ${err}`, true)
-		} finally {
 			if (!defaultConfig) {
 				// If the route is loaded from the backend, we to set the initial config
 				initialConfig = structuredClone($state.snapshot(getRouteConfig()))
 			}
+			originalConfig = structuredClone($state.snapshot(getRouteConfig()))
+			await draftSync.maybeRestore()
+		} catch (err) {
+			sendUserToast(`Could not load route: ${err}`, true)
+		} finally {
 			clearTimeout(loader)
 			drawerLoading = false
 			showLoader = false
@@ -346,6 +359,7 @@
 			drawer?.closeDrawer()
 		} else {
 			deploymentLoading = true
+			const previousPath = initialPath
 			const saveCfg = routeConfig
 			const isSaved = await saveHttpRouteFromCfg(
 				initialPath,
@@ -356,6 +370,7 @@
 				usedTriggerKinds
 			)
 			if (isSaved) {
+				draftSync.discard(previousPath, getRouteConfig())
 				onUpdate(saveCfg.path)
 				originalConfig = structuredClone($state.snapshot(getRouteConfig()))
 				initialPath = saveCfg.path
@@ -985,6 +1000,15 @@
 		>
 			{#snippet actions()}
 				{@render saveButton()}
+			{/snippet}
+			{#snippet banner()}
+				<LocalDraftBanner
+					show={draftSync.hasDraft}
+					getDeployed={() => draftSync.deployed}
+					getCurrent={() => draftSync.current}
+					onDiscard={() => draftSync.resetToDeployed(initialPath)}
+					disabled={!can_write}
+				/>
 			{/snippet}
 			{@render config()}
 		</DrawerContent>

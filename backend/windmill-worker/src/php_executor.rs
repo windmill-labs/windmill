@@ -20,8 +20,8 @@ use windmill_queue::{append_logs, CanceledBy};
 use crate::{
     common::{
         build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
-        get_reserved_variables, read_result, resolve_nsjail_timeout, start_child_process,
-        MaybeLock, OccupancyMetrics,
+        get_reserved_variables, read_result, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block,
+        start_child_process, MaybeLock, OccupancyMetrics,
     },
     handle_child::handle_child,
     is_sandboxing_enabled, COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NUSER, NSJAIL_PATH, PHP_PATH,
@@ -425,6 +425,10 @@ try {{
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                )
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
 

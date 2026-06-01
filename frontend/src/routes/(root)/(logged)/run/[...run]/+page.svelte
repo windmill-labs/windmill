@@ -77,7 +77,8 @@
 	import ExecutionDuration from '$lib/components/ExecutionDuration.svelte'
 	import { isWindmillTooBigObject } from '$lib/components/job_args'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
-	import { setContext, untrack } from 'svelte'
+	import { onDestroy, setContext, untrack } from 'svelte'
+	import { getJobStatusKind, resetFavicon, setStatusFavicon } from '$lib/favicon'
 
 	import FlowAssetsHandler, {
 		initFlowGraphAssetsCtx
@@ -391,6 +392,15 @@
 	$effect(() => {
 		job && untrack(() => onJobLoaded())
 	})
+	$effect(() => {
+		const status = getJobStatusKind(job)
+		if (status) {
+			setStatusFavicon(status)
+		} else {
+			resetFavicon()
+		}
+	})
+	onDestroy(resetFavicon)
 </script>
 
 <HighlightTheme />

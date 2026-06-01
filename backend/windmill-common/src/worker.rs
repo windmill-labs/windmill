@@ -17,7 +17,7 @@ use std::{
     panic::Location,
     path::{Component, Path, PathBuf},
     str::FromStr,
-    sync::atomic::AtomicBool,
+    sync::atomic::{AtomicBool, AtomicI64, AtomicU32},
     time::Duration,
 };
 #[cfg(windows)]
@@ -237,7 +237,31 @@ lazy_static::lazy_static! {
     });
 
     pub static ref WORKER_PULL_QUERIES: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
+    pub static ref WORKER_PULL_QUERIES_FAIRNESS: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
     pub static ref WORKER_SUSPENDED_PULL_QUERY: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee("".to_string());
+
+    // Workspace fairness (cloud-only). When enabled, a workspace whose footprint over the rolling
+    // `WORKSPACE_FAIRNESS_DURATION_SECS` window represents >= `WORKSPACE_FAIRNESS_MAX_PERCENT`% of
+    // all worker activity gets excluded from the pull query, freeing slots for other workspaces.
+    // The list of overloaded workspaces is computed cluster-wide via a single coordinated UPDATE
+    // on `background_task_state` so only one process per refresh interval runs the aggregation.
+    pub static ref WORKSPACE_FAIRNESS_ENABLED: AtomicBool = AtomicBool::new(false);
+    pub static ref WORKSPACE_FAIRNESS_MAX_PERCENT: AtomicU32 = AtomicU32::new(50);
+    pub static ref WORKSPACE_FAIRNESS_DURATION_SECS: AtomicU32 = AtomicU32::new(10);
+    pub static ref WORKSPACE_FAIRNESS_MIN_TOTAL: AtomicU32 = AtomicU32::new(4);
+    pub static ref WORKSPACE_FAIRNESS_OVERLOADED: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
+    pub static ref WORKSPACE_FAIRNESS_LAST_REFRESH_MICROS: AtomicI64 = AtomicI64::new(0);
+
+    /// Stochastic admission probability for capped workspaces, expressed in
+    /// parts per 10_000 (so `420` = 4.2%). The refresh computes this from the
+    /// observed worker-second distribution and the configured cap so that
+    /// admission converges to the target *worker-second* share — independent
+    /// of how the capped vs uncapped workspaces compare on per-job durations.
+    /// See `workspace_fairness_ee::refresh_overloaded` for the derivation.
+    /// `10_000` (= admit all) is the default until the first refresh
+    /// classifies an overloaded set — before that, no workspace is capped so
+    /// `should_admit_capped` is moot and "admit all" is the correct no-op.
+    pub static ref WORKSPACE_FAIRNESS_ADMISSION_PPM: AtomicU32 = AtomicU32::new(10_000);
 
 
     pub static ref SMTP_CONFIG: arc_swap::ArcSwap<Option<Smtp>> = arc_swap::ArcSwap::from_pointee(None);
@@ -245,6 +269,9 @@ lazy_static::lazy_static! {
 
 
     pub static ref CLOUD_HOSTED: bool = std::env::var("CLOUD_HOSTED").is_ok();
+    /// Host used to gate cloud-only features that must only ever run on the
+    /// production `app.windmill.dev` cluster, not on staging or self-hosted.
+    pub static ref CLOUD_PRODUCTION_HOST: &'static str = "app.windmill.dev";
 
     pub static ref CUSTOM_TAGS: Vec<String> = std::env::var("CUSTOM_TAGS")
         .ok()
@@ -287,6 +314,34 @@ lazy_static::lazy_static! {
 /// `WORKER_CONFIG.native_mode` which combines all sources.
 pub fn is_native_mode_from_env() -> bool {
     *NATIVE_MODE || *WORKER_GROUP == "native"
+}
+
+/// True iff this process is configured to act as the production cloud cluster:
+/// `CLOUD_HOSTED=true` AND `BASE_URL`'s host matches `CLOUD_PRODUCTION_HOST`.
+/// Centralized so the API setter, the runtime pull path, and any future cloud-
+/// only feature share one canonical check (rather than re-implementing the
+/// scheme/host parser at each call site).
+pub fn is_cloud_production_host() -> bool {
+    if !*CLOUD_HOSTED {
+        return false;
+    }
+    let base = crate::BASE_URL.load();
+    let s = base.as_str();
+    if s.is_empty() {
+        return false;
+    }
+    let after_scheme = s
+        .strip_prefix("https://")
+        .or_else(|| s.strip_prefix("http://"))
+        .unwrap_or(s);
+    let host = after_scheme
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("");
+    host == *CLOUD_PRODUCTION_HOST
 }
 
 /// Cached resolved native mode flag, updated when worker config is reloaded.
@@ -520,17 +575,43 @@ pub fn make_pull_query(tags: &[String]) -> String {
     query
 }
 
+// Variant of `make_pull_query` that additionally excludes jobs whose workspace_id is in the
+// overloaded-list bind parameter ($2::text[]). Built as a separate string (rather than reusing
+// `make_pull_query` with an always-bound array) so the planner can keep using the same indexes
+// when fairness is off — the default `make_pull_query` text stays bit-identical to today's.
+//
+// `pub(crate)` because only `store_pull_query` consumes it; the resulting query string is what
+// crosses crate boundaries via `WORKER_PULL_QUERIES_FAIRNESS`.
+pub(crate) fn make_pull_query_fairness(tags: &[String]) -> String {
+    let query = format_pull_query(format!(
+        "SELECT id
+        FROM v2_job_queue
+        WHERE running = false AND tag IN ({}) AND scheduled_for <= now()
+          AND workspace_id <> ALL($2::text[])
+        ORDER BY priority DESC NULLS LAST, scheduled_for
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1",
+        tags.iter().map(|x| format!("'{x}'")).join(", ")
+    ));
+    query
+}
+
 pub async fn store_pull_query(wc: &WorkerConfig) {
     let mut queries = vec![];
+    let mut fairness_queries = vec![];
+    let fairness_enabled = WORKSPACE_FAIRNESS_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
     for tags in wc.priority_tags_sorted.iter() {
         if tags.tags.len() == 0 {
             tracing::error!("Empty tags in priority tags, skipping");
             continue;
         }
-        let query = make_pull_query(&tags.tags);
-        queries.push(query);
+        queries.push(make_pull_query(&tags.tags));
+        if fairness_enabled {
+            fairness_queries.push(make_pull_query_fairness(&tags.tags));
+        }
     }
     WORKER_PULL_QUERIES.store(std::sync::Arc::new(queries));
+    WORKER_PULL_QUERIES_FAIRNESS.store(std::sync::Arc::new(fairness_queries));
 }
 
 lazy_static::lazy_static! {
@@ -765,6 +846,11 @@ pub struct SqlAnnotations {
     pub return_last_result: bool, // deprecated, use result_collection instead
     pub result_collection: SqlResultCollectionStrategy,
     pub prepare: bool, // Used to prepare datatable queries without executing
+    // Emit {columns: [{name, oid, type_name}], rows: [[text|null]]} from the
+    // last statement instead of the default `[{col: val}]` JSON shape. Used by
+    // `wmill datatable serve` to map Postgres results onto the wire protocol
+    // without re-stringifying every JSON value.
+    pub raw_output: bool,
 }
 
 #[annotations("#")]
@@ -970,6 +1056,106 @@ pub fn copy_dir_recursively(src: &Path, dst: &Path) -> error::Result<()> {
     Ok(())
 }
 
+/// Write `bytes` to `final_path` atomically: write to a sibling temp file then
+/// `rename` into place. A concurrent reader that gates on `metadata(final_path)`
+/// therefore only ever observes a fully-written file (`rename` is atomic on a
+/// POSIX same-filesystem path). Safe under a thundering herd: concurrent renames
+/// to the same path are last-writer-wins and every writer produces identical
+/// bytes. This prevents the cold-load race where a parallel for-loop spawns N
+/// `//native` sandboxes that each observe a partially-written bundle.
+pub fn atomic_write_file_bytes(
+    final_path: &str,
+    bytes: &[u8],
+    executable: bool,
+) -> error::Result<()> {
+    #[cfg(not(unix))]
+    let _ = executable;
+    let tmp_path = format!("{}.tmp.{}", final_path, Uuid::new_v4());
+    let write = || -> error::Result<()> {
+        let mut file = File::create(&tmp_path)?;
+        file.write_all(bytes)?;
+        #[cfg(unix)]
+        if executable {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(0o755))?;
+        }
+        file.flush()?;
+        Ok(())
+    };
+    if let Err(e) = write() {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(e);
+    }
+    if let Err(e) = fs::rename(&tmp_path, final_path) {
+        let _ = fs::remove_file(&tmp_path);
+        // Content-addressed cache: if the destination now exists, a concurrent
+        // publisher already wrote byte-identical content via its own
+        // tmp+rename, so the cache is correct. This also covers Windows, where
+        // `rename` can refuse to replace a destination that an in-flight reader
+        // has open even though that destination is already valid.
+        if Path::new(final_path).exists() {
+            return Ok(());
+        }
+        return Err(e.into());
+    }
+    Ok(())
+}
+
+/// Copy `origin` to `final_path` atomically via a sibling temp file + `rename`,
+/// preserving `std::fs::copy` permission semantics. Same atomicity guarantee as
+/// [`atomic_write_file_bytes`].
+pub fn atomic_copy_file(origin: &str, final_path: &str) -> error::Result<()> {
+    let tmp_path = format!("{}.tmp.{}", final_path, Uuid::new_v4());
+    if let Err(e) = fs::copy(origin, &tmp_path) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(e.into());
+    }
+    if let Err(e) = fs::rename(&tmp_path, final_path) {
+        let _ = fs::remove_file(&tmp_path);
+        // See `atomic_write_file_bytes`: a content-addressed destination that
+        // now exists is already correct (peer publish / Windows open-file).
+        if Path::new(final_path).exists() {
+            return Ok(());
+        }
+        return Err(e.into());
+    }
+    Ok(())
+}
+
+/// Publish a fully-populated `tmp_dir` to `final_dir` via a single atomic
+/// `rename`, so a concurrent reader gating on `metadata(final_dir)` never
+/// observes a half-populated directory: `final_dir` is only ever absent or
+/// complete (we never extract/copy in place).
+///
+/// These dir caches are content-addressed (PHP `vendor/{hash}`, Java deps —
+/// the path embeds a hash of the inputs), so every concurrent publisher builds
+/// byte-identical content. If `rename` fails and `final_dir` already exists, a
+/// peer published the identical content (or, on Windows, `rename` refused to
+/// replace an existing directory that is nonetheless already valid): treat the
+/// existing dir as the correct cache.
+///
+/// Deliberately simple — no destroy-then-recreate swap. The accepted residual
+/// is that a *stale partial* `final_dir` left by a populate hard-killed on a
+/// pre-atomic binary is trusted rather than rebuilt. That is a finite,
+/// self-draining migration hazard (post-fix code only ever renames a complete
+/// `tmp_dir` into place, so it cannot create that state), it is confined to the
+/// PHP/Java dependency caches (never the `//native` path this PR targets), and
+/// it clears on cache eviction. A swap that rebuilds it introduces
+/// concurrent-publisher edge cases that are a worse trade on a critical path.
+pub fn atomic_publish_dir(tmp_dir: &str, final_dir: &str) -> error::Result<()> {
+    match fs::rename(tmp_dir, final_dir) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = fs::remove_dir_all(tmp_dir);
+            if Path::new(final_dir).exists() {
+                Ok(())
+            } else {
+                Err(e.into())
+            }
+        }
+    }
+}
+
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub async fn extract_tar(tar: bytes::Bytes, folder: &str) -> error::Result<()> {
     use std::time::Instant;
@@ -997,19 +1183,7 @@ pub async fn extract_tar(tar: bytes::Bytes, folder: &str) -> error::Result<()> {
 }
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub fn write_binary_file(main_path: &str, byts: &mut bytes::Bytes) -> error::Result<()> {
-    use std::fs::File;
-    use std::io::Write;
-
-    let mut file = File::create(main_path)?;
-    file.write_all(byts)?;
-    #[cfg(unix)]
-    {
-        use std::fs::Permissions;
-        use std::os::unix::fs::PermissionsExt;
-        file.set_permissions(Permissions::from_mode(0o755))?;
-    }
-    file.flush()?;
-    Ok(())
+    atomic_write_file_bytes(main_path, byts, true)
 }
 
 #[cfg(not(windows))]
@@ -2241,6 +2415,20 @@ mod tests {
     }
 
     #[test]
+    fn test_sql_raw_output_annotation() {
+        let with_flag = SqlAnnotations::parse("-- raw_output\nSELECT 1");
+        assert!(with_flag.raw_output);
+        assert!(!with_flag.prepare);
+
+        let without_flag = SqlAnnotations::parse("SELECT 1");
+        assert!(!without_flag.raw_output);
+
+        let combined = SqlAnnotations::parse("-- prepare\n-- raw_output\nSELECT 1");
+        assert!(combined.raw_output);
+        assert!(combined.prepare);
+    }
+
+    #[test]
     fn test_python_sandbox_annotation_with_other_annotations() {
         let content = "# no_cache\n# sandbox\ndef main():\n    pass";
         let annotations = PythonAnnotations::parse(content);
@@ -2289,5 +2477,201 @@ mod tests {
         let content = "//sandbox\nexport function main() {}";
         let annotations = TypeScriptAnnotations::parse(content);
         assert!(annotations.sandbox);
+    }
+
+    // Regression: a parallel for-loop cold-loading a //native bundle spawns
+    // many sandboxes that each gate on `metadata(bundle).is_ok()` then read it.
+    // The pre-fix non-atomic `File::create + write_all` made the path visible
+    // while still empty/truncated, so concurrent readers saw a stub bundle
+    // (`module.main is not a function`) or a truncated one (`Unexpected end of
+    // input`). With atomic temp+rename publish, a visible path is always a
+    // complete file. This test fails against the old non-atomic implementation.
+    #[test]
+    fn test_atomic_write_file_bytes_concurrent_cold_load() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        use std::sync::{Arc, Barrier};
+
+        let dir =
+            std::env::temp_dir().join(format!("wm_atomic_write_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let final_path = dir.join("bundle.js");
+        let final_path_str = final_path.to_str().unwrap().to_string();
+
+        // Wide payload so a hypothetical non-atomic writer has a large
+        // partial-read window for the reader to catch.
+        let payload = vec![b'x'; 4 * 1024 * 1024];
+        let expected_len = payload.len();
+
+        for _ in 0..12 {
+            let _ = std::fs::remove_file(&final_path);
+
+            let stop = Arc::new(AtomicBool::new(false));
+            let partial_reads = Arc::new(AtomicUsize::new(0));
+            let barrier = Arc::new(Barrier::new(2));
+
+            let reader = {
+                let stop = stop.clone();
+                let partial_reads = partial_reads.clone();
+                let barrier = barrier.clone();
+                let path = final_path_str.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    while !stop.load(Ordering::Relaxed) {
+                        if std::fs::metadata(&path).is_ok() {
+                            if let Ok(content) = std::fs::read(&path) {
+                                if content.len() != expected_len {
+                                    partial_reads.fetch_add(1, Ordering::Relaxed);
+                                }
+                            }
+                        }
+                        std::thread::yield_now();
+                    }
+                })
+            };
+
+            barrier.wait();
+            atomic_write_file_bytes(&final_path_str, &payload, false).unwrap();
+            stop.store(true, Ordering::Relaxed);
+            reader.join().unwrap();
+
+            assert_eq!(
+                partial_reads.load(Ordering::Relaxed),
+                0,
+                "a concurrent reader observed a partially-written bundle"
+            );
+            assert_eq!(std::fs::read(&final_path).unwrap().len(), expected_len);
+
+            let leftovers: Vec<_> = std::fs::read_dir(&dir)
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
+                .map(|e| e.path())
+                .collect();
+            assert!(leftovers.is_empty(), "temp files leaked: {:?}", leftovers);
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Under a thundering herd of cold-loads, N populators each build their own
+    // temp dir and publish to the same final dir. Every publish must succeed
+    // (loser-of-the-race discards its byte-identical copy), the final dir must
+    // be complete, and no temp dirs may leak.
+    #[test]
+    fn test_atomic_publish_dir_thundering_herd() {
+        use std::sync::{Arc, Barrier};
+
+        let base =
+            std::env::temp_dir().join(format!("wm_atomic_dir_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&base).unwrap();
+        let final_dir = base.join("cache_dir");
+        let final_dir_str = final_dir.to_str().unwrap().to_string();
+
+        let n = 8;
+        let barrier = Arc::new(Barrier::new(n));
+        let mut handles = vec![];
+        for _ in 0..n {
+            let barrier = barrier.clone();
+            let final_dir_str = final_dir_str.clone();
+            let base = base.clone();
+            handles.push(std::thread::spawn(move || {
+                let tmp = base.join(format!("cache_dir.tmp.{}", uuid::Uuid::new_v4()));
+                std::fs::create_dir_all(&tmp).unwrap();
+                std::fs::write(tmp.join("main.js"), b"export function main() {}").unwrap();
+                std::fs::write(tmp.join("meta.txt"), b"v1").unwrap();
+                barrier.wait();
+                atomic_publish_dir(tmp.to_str().unwrap(), &final_dir_str).unwrap();
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        assert!(final_dir.join("main.js").is_file());
+        assert!(final_dir.join("meta.txt").is_file());
+        let leftovers: Vec<_> = std::fs::read_dir(&base)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let n = e.file_name();
+                let n = n.to_string_lossy();
+                n.contains(".tmp.") || n.contains(".bak.")
+            })
+            .map(|e| e.path())
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "temp/bak dirs leaked: {:?}",
+            leftovers
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // Contract guard: when `final_dir` ALREADY exists (a complete prior/peer
+    // publish — content-addressed, so identical bytes), concurrent publishers
+    // must all return Ok via the exists-fallback and must never corrupt or
+    // partially-overwrite the existing dir. Covers the preexisting+concurrent
+    // case; documents the accepted simple-form behavior (an existing dir is
+    // trusted, not rebuilt).
+    #[test]
+    fn test_atomic_publish_dir_existing_is_trusted_not_corrupted() {
+        use std::sync::{Arc, Barrier};
+
+        let base =
+            std::env::temp_dir().join(format!("wm_atomic_exist_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&base).unwrap();
+        let final_dir = base.join("cache_dir");
+        let final_dir_str = final_dir.to_str().unwrap().to_string();
+
+        // A complete dir already published at the final path.
+        std::fs::create_dir_all(&final_dir).unwrap();
+        std::fs::write(final_dir.join("main.js"), b"export function main() {}").unwrap();
+        std::fs::write(final_dir.join("meta.txt"), b"v1").unwrap();
+
+        let n = 8;
+        let barrier = Arc::new(Barrier::new(n));
+        let mut handles = vec![];
+        for _ in 0..n {
+            let barrier = barrier.clone();
+            let final_dir_str = final_dir_str.clone();
+            let base = base.clone();
+            handles.push(std::thread::spawn(move || {
+                let tmp = base.join(format!("cache_dir.tmp.{}", uuid::Uuid::new_v4()));
+                std::fs::create_dir_all(&tmp).unwrap();
+                std::fs::write(tmp.join("main.js"), b"export function main() {}").unwrap();
+                std::fs::write(tmp.join("meta.txt"), b"v1").unwrap();
+                barrier.wait();
+                // Every publisher must succeed (exists-fallback), none error.
+                atomic_publish_dir(tmp.to_str().unwrap(), &final_dir_str).unwrap();
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        // Existing dir intact and complete — never partially overwritten.
+        assert_eq!(
+            std::fs::read(final_dir.join("main.js")).unwrap(),
+            b"export function main() {}"
+        );
+        assert_eq!(std::fs::read(final_dir.join("meta.txt")).unwrap(), b"v1");
+        let leftovers: Vec<_> = std::fs::read_dir(&base)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let n = e.file_name();
+                let n = n.to_string_lossy();
+                n.contains(".tmp.") || n.contains(".bak.")
+            })
+            .map(|e| e.path())
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "temp/bak dirs leaked: {:?}",
+            leftovers
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

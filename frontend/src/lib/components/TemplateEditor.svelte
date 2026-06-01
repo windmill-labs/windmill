@@ -13,6 +13,7 @@
 		createDocumentationString,
 		displayPartsToString,
 		editorConfig,
+		registerWebviewPaste,
 		updateOptions
 	} from '$lib/editorUtils'
 	import { editorFontSize } from '$lib/editorFontSize.svelte'
@@ -365,6 +366,7 @@
 
 	let divEl: HTMLDivElement | null = $state(null)
 	let editor: meditor.IStandaloneCodeEditor | undefined = $state(undefined)
+	let pasteCleanup: (() => void) | undefined = undefined
 	let model: meditor.ITextModel
 
 	const { componentControl, selectedComponent } = getContext<AppViewerContext>(
@@ -494,25 +496,10 @@
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyX, function () {
 				document.execCommand('cut')
 			})
-			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyV, async function () {
-				try {
-					const text = await navigator.clipboard.readText()
-					if (text && editor) {
-						const selection = editor.getSelection()
-						if (selection) {
-							editor.executeEdits('paste', [
-								{
-									range: selection,
-									text: text,
-									forceMoveMarkers: true
-								}
-							])
-						}
-					}
-				} catch (e) {
-					document.execCommand('paste')
-				}
-			})
+			// Paste is scoped to this editor's container instead of a global
+			// Ctrl+V keybinding, which would leak across editor instances.
+			pasteCleanup?.()
+			pasteCleanup = registerWebviewPaste(divEl, () => editor)
 		}
 
 		editor.onDidFocusEditorText(() => {
@@ -691,6 +678,7 @@
 	onDestroy(() => {
 		try {
 			valueAfterDispose = getCode()
+			pasteCleanup?.()
 			jsLoader && clearTimeout(jsLoader)
 			timeoutModel && clearTimeout(timeoutModel)
 			loadTimeout && clearTimeout(loadTimeout)

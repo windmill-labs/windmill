@@ -39,7 +39,7 @@
 		relativeLineNumbers
 	} from '$lib/stores'
 
-	import { editorConfig, updateOptions } from '$lib/editorUtils'
+	import { editorConfig, registerWebviewPaste, updateOptions } from '$lib/editorUtils'
 	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { createHash as randomHash } from '$lib/editorLangUtils'
 	import { workspaceStore } from '$lib/stores'
@@ -113,6 +113,7 @@
 
 	let divEl: HTMLDivElement | null = $state(null)
 	let editor: meditor.IStandaloneCodeEditor | null = $state(null)
+	let pasteCleanup: (() => void) | undefined = undefined
 
 	interface Props {
 		code?: string
@@ -147,6 +148,11 @@
 		preparedAssetsSqlQueries?: InferAssetsSqlQueryDetails[] | undefined
 		// To execute preview scripts with the right worker group
 		customTag?: string
+		// Opt-in: reflect external `code` prop mutations back into Monaco (see
+		// the effect below). One-way `code={...}` callers that need live
+		// external updates — e.g. the inline flow rawscript — set this. Off by
+		// default so every other caller's behavior is unchanged.
+		syncExternalCode?: boolean
 	}
 
 	let {
@@ -178,7 +184,8 @@
 		enablePreprocessorSnippet = false,
 		rawAppRunnableKey = undefined,
 		preparedAssetsSqlQueries,
-		customTag
+		customTag,
+		syncExternalCode = false
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -205,6 +212,7 @@
 	let lastWsAttempt: Date = new Date()
 	let nbWsAttempt = 0
 	let disposeMethod: (() => void) | undefined
+	const absolutePathExtraLibs = new Map<string, { dispose: () => void }>()
 	const dispatch = createEventDispatcher()
 	// let graphqlService: MonacoGraphQLAPI | undefined = undefined
 
@@ -1400,27 +1408,10 @@
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyX, function () {
 				document.execCommand('cut')
 			})
-			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyV, async function () {
-				try {
-					// Use Clipboard API to read text, then insert via Monaco's API
-					const text = await navigator.clipboard.readText()
-					if (text && editor) {
-						const selection = editor.getSelection()
-						if (selection) {
-							editor.executeEdits('paste', [
-								{
-									range: selection,
-									text: text,
-									forceMoveMarkers: true
-								}
-							])
-						}
-					}
-				} catch (e) {
-					// Clipboard API failed, try execCommand as fallback
-					document.execCommand('paste')
-				}
-			})
+			// Paste is scoped to this editor's container instead of a global
+			// Ctrl+V keybinding, which would leak across editor instances.
+			pasteCleanup?.()
+			pasteCleanup = registerWebviewPaste(divEl, () => editor)
 		}
 
 		// updateEditorKeybindingsMode(editor, 'vim', undefined)
@@ -1645,6 +1636,8 @@
 			(scriptLang == 'bun' || scriptLang == 'tsx' || scriptLang == 'bunnative') &&
 			ata == undefined
 		) {
+			absolutePathExtraLibs.forEach((d) => d.dispose())
+			absolutePathExtraLibs.clear()
 			const hostname = getHostname()
 
 			const addLibraryToRuntime = async (code: string, _path: string) => {
@@ -1660,12 +1653,17 @@
 			}
 
 			const addLocalFile = async (code: string, _path: string) => {
+				if (destroyed) return
 				let p = new URL(_path, uri).href
-				// if (_path?.startsWith('/')) {
-				// 	p = 'file://' + p
-				// }
 				let nuri = mUri.parse(p)
 				console.log('adding local file', _path, nuri.toString())
+				// Monaco's TS service resolves relative imports against the importer's URI (finding the
+				// model), but absolute paths like "/u/admin/foo" are looked up as raw paths and miss the
+				// `file://` model. Register them as extra libs so TS can resolve them.
+				if (_path.startsWith('/')) {
+					absolutePathExtraLibs.get(_path)?.dispose()
+					absolutePathExtraLibs.set(_path, typescriptDefaults.addExtraLib(code, _path))
+				}
 				if (editor) {
 					let localModel = meditor.getModel(nuri)
 					if (localModel) {
@@ -1780,6 +1778,7 @@
 	onDestroy(() => {
 		console.log('destroying editor')
 		valueAfterDispose = getCode()
+		pasteCleanup?.()
 		destroyed = true
 		disposeMethod && disposeMethod()
 		websocketInterval && clearInterval(websocketInterval)
@@ -1791,6 +1790,8 @@
 		timeoutModel && clearTimeout(timeoutModel)
 		loadTimeout && clearTimeout(loadTimeout)
 		aiChatEditorHandler?.clear()
+		absolutePathExtraLibs.forEach((d) => d.dispose())
+		absolutePathExtraLibs.clear()
 	})
 
 	async function genRoot(hostname: string) {
@@ -1841,6 +1842,30 @@
 	}
 	$effect(() => {
 		lang = scriptLangToEditorLang(scriptLang)
+	})
+
+	// Opt-in (syncExternalCode): reflect external `code` prop mutations into
+	// Monaco's model. Parents that pass `code={...}` one-way (no bind) — e.g.
+	// the inline rawscript in the flow editor — otherwise mutate the prop
+	// without Monaco ever showing the change (the AI chat editing a flow
+	// module's content in a session is the motivating case). Gated off by
+	// default: Editor is sensitive and most callers either bind:code (and
+	// carry their own external-sync) or treat code as init-only, so a blanket
+	// setValue would risk clobbering them. The `getValue() !== code` guard
+	// keeps the caret intact when the change originated from typing inside
+	// Monaco (which round-trips code back via `$bindable`, re-firing this
+	// effect with `code === getValue()`).
+	let lastExternalCodeSync = code
+	$effect(() => {
+		if (!syncExternalCode) return
+		if (code === lastExternalCodeSync) return
+		lastExternalCodeSync = code
+		if (!editor) return
+		untrack(() => {
+			if (editor!.getValue() !== code) {
+				editor!.setValue(code ?? '')
+			}
+		})
 	})
 	$effect(() => {
 		filePath = computePath(path)
@@ -1926,6 +1951,25 @@
 	$effect(() => {
 		editor?.updateOptions({
 			lineNumbers: $relativeLineNumbers ? 'relative' : 'on'
+		})
+	})
+
+	// External `code` prop changes should flow into the Monaco editor. The
+	// `untrack` block reads/writes Monaco without subscribing — only the
+	// prop read above is tracked — so the editor's own change handler
+	// (`updateCode`) re-running with the same value short-circuits and we
+	// don't loop.
+	$effect(() => {
+		const next = code ?? ''
+		const ed = editor
+		if (!ed) return
+		untrack(() => {
+			if (ed.getValue() === next) return
+			const model = ed.getModel()
+			if (!model) return
+			ed.pushUndoStop()
+			ed.executeEdits('external', [{ range: model.getFullModelRange(), text: next }])
+			ed.pushUndoStop()
 		})
 	})
 

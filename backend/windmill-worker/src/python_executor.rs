@@ -31,6 +31,7 @@ use windmill_common::{
         self,
         Error::{self},
     },
+    jobs::JobKind,
     scripts::ScriptLang,
     utils::calculate_hash,
     worker::{
@@ -119,6 +120,18 @@ const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
 pub const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 
+/// Render loader.py with the TEMP_SCRIPT_REFS placeholder substituted by a
+/// Python dict literal. Preview jobs pass a path -> temp-hash map so relative
+/// imports resolve from not-yet-deployed local content; deployed runs pass
+/// `None` which renders an empty dict (deployed resolution unchanged).
+fn render_relative_python_loader(temp_script_refs: &Option<HashMap<String, String>>) -> String {
+    let temp_refs_py = temp_script_refs
+        .as_ref()
+        .and_then(|m| serde_json::to_string(m).ok())
+        .unwrap_or_else(|| "{}".to_string());
+    RELATIVE_PYTHON_LOADER.replace("TEMP_SCRIPT_REFS_PLACEHOLDER", &temp_refs_py)
+}
+
 #[cfg(any(feature = "private", test))]
 pub fn has_relative_imports(content: &str) -> bool {
     RELATIVE_IMPORT_REGEX.is_match(content)
@@ -133,8 +146,8 @@ use windmill_object_store::OBJECT_STORE_SETTINGS;
 use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables, read_file,
-        read_result, resolve_nsjail_timeout, start_child_process, OccupancyMetrics, StreamNotifier,
-        DEV_CONF_NSJAIL,
+        read_result, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
+        OccupancyMetrics, StreamNotifier, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
@@ -142,7 +155,7 @@ use crate::{
     worker_utils::ping_job_status,
     PyV, DISABLE_NUSER, HOME_ENV, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL,
     PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, UV_CACHE_DIR,
-    UV_EXCLUDE_NEWER, UV_INDEX_STRATEGY,
+    UV_EXCLUDE_NEWER, UV_INDEX_STRATEGY, UV_PYTHON_INSTALL_MIRROR,
 };
 use windmill_common::client::AuthedClient;
 
@@ -178,6 +191,44 @@ pub fn handle_ephemeral_token(x: String) -> String {
     x
 }
 
+/// Removes lockfile/requirements entries matching the worker's `pip_local_dependencies`
+/// regexes. Those packages are already provided locally (e.g. via `additional_python_paths`),
+/// so installing them again duplicates files and triggers expensive `postinstall` copies on
+/// every job. `#`-prefixed comment lines (e.g. the `# py:` lockfile header) are always kept.
+/// Returns `(kept_lines, ignored_lines)`.
+fn filter_pip_local_dependencies(lines: Vec<String>) -> (Vec<String>, Vec<String>) {
+    let Some(pip_local_dependencies) = WORKER_CONFIG.load().pip_local_dependencies.clone() else {
+        return (lines, vec![]);
+    };
+
+    let compiled_deps = pip_local_dependencies
+        .iter()
+        .filter_map(|dep| match Regex::new(dep) {
+            Ok(r) => Some(r),
+            Err(e) => {
+                tracing::warn!(
+                    "regex compilation failed for Python local dependency: '{}' - it will be ignored",
+                    e
+                );
+                None
+            }
+        })
+        .collect::<Vec<Regex>>();
+
+    filter_lines_by_deps(lines, &compiled_deps)
+}
+
+/// Pure core of [`filter_pip_local_dependencies`]: partitions `lines` into
+/// `(kept, ignored)`. A line is ignored when it is not a `#` comment and matches any of
+/// `compiled_deps`. Kept separate from config/regex loading so it can be unit-tested.
+fn filter_lines_by_deps(lines: Vec<String>, compiled_deps: &[Regex]) -> (Vec<String>, Vec<String>) {
+    let (ignored, kept): (Vec<String>, Vec<String>) = lines
+        .into_iter()
+        .partition(|s| !s.starts_with('#') && compiled_deps.iter().any(|dep| dep.is_match(s)));
+
+    (kept, ignored)
+}
+
 // This function only invoked during deployment of script or test run.
 // And never for already deployed scripts, these have their lockfiles in PostgreSQL
 // thus this function call is skipped.
@@ -200,33 +251,13 @@ pub async fn uv_pip_compile(
     logs.push_str(&format!("\nresolving dependencies..."));
     logs.push_str(&format!("\ncontent of requirements:\n{}\n", requirements));
 
-    let requirements = if let Some(pip_local_dependencies) =
-        WORKER_CONFIG.load().pip_local_dependencies.as_ref()
-    {
-        let deps = pip_local_dependencies.clone();
-        let compiled_deps = deps.iter().map(|dep| {
-            let compiled_dep = Regex::new(dep);
-            match compiled_dep {
-                Ok(compiled_dep) => Some(compiled_dep),
-                Err(e) => {
-                    tracing::warn!("regex compilation failed for Python local dependency: '{}' - it will be ignored", e);
-                    return None;
-                }
-            }
-        }).filter(|dep_maybe| dep_maybe.is_some()).map(|dep| dep.unwrap()).collect::<Vec<Regex>>();
-        requirements
-            .lines()
-            .filter(|s| {
-                if compiled_deps.iter().any(|dep| dep.is_match(s)) {
-                    logs.push_str(&format!("\nignoring local dependency: {}", s));
-                    return false;
-                } else {
-                    return true;
-                }
-            })
-            .join("\n")
-    } else {
-        requirements.to_string()
+    let requirements = {
+        let (kept, ignored) =
+            filter_pip_local_dependencies(requirements.lines().map(str::to_owned).collect());
+        for line in ignored {
+            logs.push_str(&format!("\nignoring local dependency: {}", line));
+        }
+        kept.join("\n")
     };
 
     let uv_index_strategy = UV_INDEX_STRATEGY.read().await.clone();
@@ -361,6 +392,10 @@ pub async fn uv_pip_compile(
             .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        if let Some(mirror) = UV_PYTHON_INSTALL_MIRROR.read().await.as_ref() {
+            child_cmd.env("UV_PYTHON_INSTALL_MIRROR", mirror);
+        }
 
         #[cfg(windows)]
         {
@@ -625,6 +660,21 @@ pub async fn handle_python_job(
         ));
     }
 
+    // Preview jobs may carry _TEMP_SCRIPT_REFS so relative imports resolve from
+    // not-yet-deployed local content uploaded to raw_script_temp. Gated on
+    // JobKind::Preview because job.args includes caller-controlled request
+    // args; honoring this key on deployed runs would let a caller swap import
+    // resolution targets in deployed code.
+    let temp_script_refs: Option<HashMap<String, String>> = if matches!(job.kind, JobKind::Preview)
+    {
+        job.args
+            .as_ref()
+            .and_then(|x| x.get("_TEMP_SCRIPT_REFS"))
+            .and_then(|v| serde_json::from_str(v.get()).ok())
+    } else {
+        None
+    };
+
     let (py_version, mut additional_python_paths) = handle_python_deps(
         job_dir,
         requirements_o,
@@ -640,6 +690,7 @@ pub async fn handle_python_job(
         &mut Some(occupancy_metrics),
         precomputed_agent_info,
         annotations.clone(),
+        &temp_script_refs,
     )
     .await?;
 
@@ -691,6 +742,7 @@ pub async fn handle_python_job(
         job.script_entrypoint_override.as_deref(),
         inner_content,
         &script_path,
+        &temp_script_refs,
     )
     .await?;
 
@@ -975,6 +1027,10 @@ mount {{
                 )
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                )
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
     } else {
@@ -1514,6 +1570,7 @@ async fn prepare_wrapper(
     job_script_entrypoint_override: Option<&str>,
     inner_content: &str,
     script_path: &str,
+    temp_script_refs: &Option<HashMap<String, String>>,
 ) -> error::Result<(
     &'static str,
     &'static str,
@@ -1553,7 +1610,11 @@ async fn prepare_wrapper(
 
     let _ = write_file(&module_dir, &format!("{last}.py"), inner_content)?;
     if relative_imports {
-        let _ = write_file(job_dir, "loader.py", RELATIVE_PYTHON_LOADER)?;
+        let _ = write_file(
+            job_dir,
+            "loader.py",
+            &render_relative_python_loader(temp_script_refs),
+        )?;
     }
 
     let sig = windmill_parser_py::parse_python_signature(
@@ -1750,6 +1811,7 @@ pub(crate) async fn handle_python_deps(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     annotations: PythonAnnotations,
+    temp_script_refs: &Option<HashMap<String, String>>,
 ) -> error::Result<(PyV, Vec<String>)> {
     create_dependencies_dir(job_dir).await;
 
@@ -1778,7 +1840,7 @@ pub(crate) async fn handle_python_deps(
                         &mut version_specifiers,
                         &mut locked_v,
                         &None,
-                        &None, // temp_script_refs: only used during CLI lock generation
+                        temp_script_refs,
                     ))
                     .await?;
 
@@ -1874,6 +1936,24 @@ Returned from server: py_version - {:?}, py_version_v2 - {:?}
         }
     };
 
+    // Filter out packages matched by pip_local_dependencies. For preview runs this is also
+    // handled inside uv_pip_compile, but deployed scripts skip uv_pip_compile entirely and
+    // would otherwise pass every lockfile entry to handle_python_reqs — causing duplicate
+    // installs alongside additional_python_paths and triggering expensive postinstall copies.
+    let resolved_lines = {
+        let (kept, ignored) = filter_pip_local_dependencies(resolved_lines);
+        if !ignored.is_empty() {
+            append_logs(
+                job_id,
+                w_id,
+                format!("\nignoring local dependencies:\n{}\n", ignored.join("\n")),
+                conn,
+            )
+            .await;
+        }
+        kept
+    };
+
     if !resolved_lines.is_empty() {
         let mut venv_path = handle_python_reqs(
             resolved_lines,
@@ -1919,6 +1999,7 @@ async fn spawn_uv_install(
         .unwrap_or("unsafe-best-match");
     let uv_exclude_newer = (*UV_EXCLUDE_NEWER.read().await).map(|secs| format!("{}s", secs));
     let uv_exclude_newer = uv_exclude_newer.as_deref();
+    let uv_python_install_mirror = UV_PYTHON_INSTALL_MIRROR.read().await.clone();
 
     if is_sandboxing_enabled() {
         tracing::info!(
@@ -1957,6 +2038,9 @@ async fn spawn_uv_install(
         if let Some(v) = uv_exclude_newer {
             vars.push(("UV_EXCLUDE_NEWER", v));
         }
+        if let Some(mirror) = uv_python_install_mirror.as_ref() {
+            vars.push(("UV_PYTHON_INSTALL_MIRROR", mirror));
+        }
 
         std::fs::create_dir_all(venv_p)?;
         let nsjail_proto = format!("{req}.config.proto");
@@ -1971,6 +2055,10 @@ async fn spawn_uv_install(
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                )
                 .as_str(),
         )?;
 
@@ -2035,6 +2123,9 @@ async fn spawn_uv_install(
         let mut envs = vec![("PATH", PATH_ENV.as_str())];
         envs.push(("HOME", HOME_ENV.as_str()));
         envs.push(("UV_INDEX_STRATEGY", uv_index_strategy));
+        if let Some(mirror) = uv_python_install_mirror.as_ref() {
+            envs.push(("UV_PYTHON_INSTALL_MIRROR", mirror));
+        }
 
         if let Some(url) = pip_index_url.as_ref() {
             command_args.extend(["--index-url", url]);
@@ -3006,7 +3097,8 @@ pub async fn start_worker(
 
     let any_relative_imports = RELATIVE_IMPORT_REGEX.is_match(inner_content);
     if any_relative_imports {
-        let _ = write_file(job_dir, "loader.py", RELATIVE_PYTHON_LOADER)?;
+        // Dedicated worker runs deployed scripts only — no temp refs.
+        let _ = write_file(job_dir, "loader.py", &render_relative_python_loader(&None))?;
     }
 
     let mut mem_peak: i32 = 0;
@@ -3051,6 +3143,7 @@ pub async fn start_worker(
         &mut None,
         None,
         annotations,
+        &None, // dedicated worker runs deployed scripts only
     )
     .await?;
 
@@ -3227,5 +3320,40 @@ mod tests {
         assert!(cg.pre_spread.is_some());
         let pre = cg.pre_spread.as_ref().unwrap();
         assert!(pre.contains("pre_args[\"input\"]"));
+    }
+
+    fn lines(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn test_filter_lines_by_deps_no_deps_keeps_everything() {
+        let (kept, ignored) = filter_lines_by_deps(lines(&["requests==2.0", "numpy==1.0"]), &[]);
+        assert_eq!(kept, lines(&["requests==2.0", "numpy==1.0"]));
+        assert!(ignored.is_empty());
+    }
+
+    #[test]
+    fn test_filter_lines_by_deps_matches_and_partitions() {
+        let deps = vec![Regex::new("^my-local-pkg").unwrap()];
+        let (kept, ignored) = filter_lines_by_deps(
+            lines(&["requests==2.0", "my-local-pkg==1.2.3", "numpy==1.0"]),
+            &deps,
+        );
+        assert_eq!(kept, lines(&["requests==2.0", "numpy==1.0"]));
+        assert_eq!(ignored, lines(&["my-local-pkg==1.2.3"]));
+    }
+
+    #[test]
+    fn test_filter_lines_by_deps_preserves_comment_lines() {
+        // `#` lines (e.g. the `# py: 3.11` lockfile header) must survive even when a
+        // dependency regex would otherwise match them.
+        let deps = vec![Regex::new("py").unwrap()];
+        let (kept, ignored) = filter_lines_by_deps(
+            lines(&["# py: 3.11", "pyyaml==6.0", "requests==2.0"]),
+            &deps,
+        );
+        assert_eq!(kept, lines(&["# py: 3.11", "requests==2.0"]));
+        assert_eq!(ignored, lines(&["pyyaml==6.0"]));
     }
 }

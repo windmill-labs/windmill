@@ -10,6 +10,12 @@ pub const OAUTH_SETTING: &str = "oauths";
 pub const AI_CONFIG_SETTING: &str = "ai_config";
 pub const RETENTION_PERIOD_SECS_SETTING: &str = "retention_period_secs";
 pub const AUDIT_LOG_RETENTION_DAYS_SETTING: &str = "audit_log_retention_days";
+pub const STORE_AUDIT_LOGS_S3_SETTING: &str = "store_audit_logs_s3";
+/// `background_task_state.name` for the audit-log → object-store export cursor.
+/// NOT a global setting — runtime task state lives in `background_task_state`
+/// (see the migration `audit_logs_s3_anchor_on_enable`), so it is never part
+/// of instance config / config sync. Keep in sync with the trigger SQL literal.
+pub const AUDIT_LOGS_S3_EXPORT_TASK: &str = "audit_logs_s3_export";
 pub const MONITOR_LOGS_ON_OBJECT_STORE_SETTING: &str = "monitor_logs_on_s3";
 pub const JOB_DEFAULT_TIMEOUT_SECS_SETTING: &str = "job_default_timeout";
 pub const REQUEST_SIZE_LIMIT_SETTING: &str = "request_size_limit_mb";
@@ -30,6 +36,7 @@ pub const EXTRA_PIP_INDEX_URL_SETTING: &str = "pip_extra_index_url";
 pub const PIP_INDEX_URL_SETTING: &str = "pip_index_url";
 pub const UV_INDEX_STRATEGY_SETTING: &str = "uv_index_strategy";
 pub const UV_EXCLUDE_NEWER_SETTING: &str = "uv_exclude_newer";
+pub const UV_PYTHON_INSTALL_MIRROR_SETTING: &str = "uv_python_install_mirror";
 pub const BUN_INSTALL_MIN_RELEASE_AGE_SETTING: &str = "bun_install_min_release_age";
 pub const INSTANCE_PYTHON_VERSION_SETTING: &str = "instance_python_version";
 pub const RUFF_CONFIG_SETTING: &str = "ruff_config";
@@ -47,6 +54,10 @@ pub const EXPOSE_DEBUG_METRICS_SETTING: &str = "expose_debug_metrics";
 pub const KEEP_JOB_DIR_SETTING: &str = "keep_job_dir";
 pub const REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING: &str = "require_preexisting_user_for_oauth";
 pub const JOB_ISOLATION_SETTING: &str = "job_isolation";
+pub const NSJAIL_TMPFS_SIZE_MB_SETTING: &str = "nsjail_tmpfs_size_mb";
+pub const NSJAIL_TMP_BACKING_SETTING: &str = "nsjail_tmp_backing";
+pub const NSJAIL_TMP_BACKING_DISK: &str = "disk";
+pub const NSJAIL_TMP_BACKING_TMPFS: &str = "tmpfs";
 pub const OBJECT_STORE_CONFIG_SETTING: &str = "object_store_cache_config";
 pub const HUB_API_SECRET_SETTING: &str = "hub_api_secret";
 
@@ -74,6 +85,15 @@ pub const INSTANCE_EVENTS_WEBHOOK_SETTING: &str = "instance_events_webhook";
 pub const WORKSPACE_REGISTRIES_SETTING: &str = "workspace_registries";
 pub const RESTART_COORDINATION_SETTING: &str = "_restart_coordination";
 pub const ALERT_CONFIG_SETTING: &str = "alert_job_queue_waiting";
+
+// Workspace fairness: cloud-only mechanism that caps any single workspace at
+// `workspace_fairness_max_percent`% of the shared worker pool once it has been
+// occupying it for more than `workspace_fairness_duration_secs` seconds. See
+// `windmill-queue/src/workspace_fairness.rs`.
+pub const WORKSPACE_FAIRNESS_ENABLED_SETTING: &str = "workspace_fairness_enabled";
+pub const WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING: &str = "workspace_fairness_max_percent";
+pub const WORKSPACE_FAIRNESS_DURATION_SECS_SETTING: &str = "workspace_fairness_duration_secs";
+pub const WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING: &str = "workspace_fairness_min_total_jobs";
 
 use std::sync::atomic::AtomicBool;
 
@@ -118,6 +138,7 @@ pub const ENV_SETTINGS: &[&str] = &[
     "PIP_INDEX_URL",
     "PIP_EXTRA_INDEX_URL",
     "PIP_TRUSTED_HOST",
+    "UV_PYTHON_INSTALL_MIRROR",
     "PATH",
     "HOME",
     "DATABASE_CONNECTIONS",

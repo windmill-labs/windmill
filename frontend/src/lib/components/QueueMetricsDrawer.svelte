@@ -2,6 +2,8 @@
 	import { Drawer, DrawerContent } from './common'
 	import QueueMetricsDrawerInner from './QueueMetricsDrawerInner.svelte'
 	import QueueAlerts from './QueueAlerts.svelte'
+	import WorkspaceFairnessEvents from './WorkspaceFairnessEvents.svelte'
+	import { enterpriseLicense } from '$lib/stores'
 
 	let drawer: Drawer | undefined = $state()
 	export function openDrawer() {
@@ -20,6 +22,11 @@
 		<div class="py-8"></div>
 
 		<QueueMetricsDrawerInner />
+
+		{#if $enterpriseLicense}
+			<div class="py-8"></div>
+			<WorkspaceFairnessEvents />
+		{/if}
 
 		<div class="py-8"></div>
 	</DrawerContent>

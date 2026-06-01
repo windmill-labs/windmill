@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { Plus, Database, Trash2, Table2, Star } from 'lucide-svelte'
-	import PanelSection from '../apps/editor/settingsPanel/common/PanelSection.svelte'
+	import PanelSection, {
+		SUBTLE_PANEL_TITLE
+	} from '../apps/editor/settingsPanel/common/PanelSection.svelte'
 	import type { DataTableRef } from './dataTableRefUtils'
 	import DefaultDatabaseSelector from './DefaultDatabaseSelector.svelte'
 	import { Button } from '../common'
@@ -193,6 +195,7 @@
 		fullHeight={false}
 		size="sm"
 		title="data"
+		titleClass={SUBTLE_PANEL_TITLE}
 		id="app-editor-data-panel"
 		tooltip="Data tables to use in the app. Adding some here does not change the behavior of the app, since they can be used in code directly regardless. But it allows AI to always keep their schema in context as well as allowing quick access and clear view of the app's data layer."
 	>

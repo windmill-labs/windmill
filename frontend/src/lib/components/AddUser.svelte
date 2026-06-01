@@ -9,6 +9,8 @@
 	import { goto } from '$lib/navigation'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import Toggle from './Toggle.svelte'
+	import Tooltip from './Tooltip.svelte'
 	import { UserPlus } from 'lucide-svelte'
 
 	const dispatch = createEventDispatcher()
@@ -36,7 +38,12 @@
 			if (!username) return
 			await WorkspaceService.createServiceAccount({
 				workspace: $workspaceStore!,
-				requestBody: { username: username! }
+				requestBody: {
+					username: username!,
+					is_admin: serviceAccountRole === 'admin',
+					operator: serviceAccountRole === 'operator',
+					add_to_deployers: serviceAccountRole === 'developer' && addToDeployers
+				}
 			})
 			sendUserToast(`Service account '${username}' created`)
 		} else {
@@ -80,7 +87,10 @@
 	}
 
 	type UserRole = 'operator' | 'developer' | 'admin' | 'service_account'
+	type ServiceAccountRole = 'operator' | 'developer' | 'admin'
 	let selected: UserRole = $state('developer' as UserRole)
+	let serviceAccountRole: ServiceAccountRole = $state('operator' as ServiceAccountRole)
+	let addToDeployers: boolean = $state(true)
 	let isServiceAccount = $derived(selected === 'service_account')
 </script>
 
@@ -144,6 +154,52 @@
 					/>
 				{/snippet}
 			</ToggleButtonGroup>
+
+			{#if isServiceAccount}
+				<span class="text-xs mb-1 leading-6">Service account role</span>
+				<ToggleButtonGroup bind:selected={serviceAccountRole} class="mb-4">
+					{#snippet children({ item })}
+						<ToggleButton
+							value="operator"
+							label="Operator"
+							tooltip="Read/run only. Counts as 0.5 seat. Cannot be used for CLI sync or to author scripts/flows/apps."
+							{item}
+						/>
+						<ToggleButton
+							value="developer"
+							label="Developer"
+							tooltip="Can author and edit scripts/flows/apps within its path. Counts as 1 seat. Use this for CLI sync tokens."
+							{item}
+						/>
+						<ToggleButton
+							value="admin"
+							label="Admin"
+							tooltip="Full workspace admin. Counts as 1 seat. Grant only when the service account needs to manage workspace settings."
+							{item}
+						/>
+					{/snippet}
+				</ToggleButtonGroup>
+
+				{#if serviceAccountRole === 'developer'}
+					<div class="flex items-center gap-2 mb-4">
+						<Toggle bind:checked={addToDeployers} size="xs" />
+						<span class="text-xs leading-6">
+							Add to <code>wm_deployers</code>
+							<Tooltip>
+								Recommended when this service account will be used as a <code>wmill sync push</code>
+								/ CI deploy identity. Members of <code>wm_deployers</code> can deploy on behalf of
+								other users in the target workspace.
+								<a
+									href="https://www.windmill.dev/docs/core_concepts/staging_prod#run-on-behalf-of"
+									target="_blank"
+									rel="noopener noreferrer"
+									class="underline">Learn more</a
+								>.
+							</Tooltip>
+						</span>
+					</div>
+				{/if}
+			{/if}
 			<Button
 				variant="accent"
 				size="sm"

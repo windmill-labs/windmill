@@ -43,6 +43,7 @@ import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
 import { get } from 'svelte/store'
+import { BROWSER } from 'esm-env'
 import { workspaceStore, type DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
@@ -60,12 +61,14 @@ import { runChatLoop } from './chatLoop'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import { getCurrentModel, tryGetCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
-import { globalTools, prepareGlobalSystemMessage, prepareGlobalUserMessage } from './global/core'
+import { globalToolsFor, prepareGlobalSystemMessage, prepareGlobalUserMessage } from './global/core'
 import { isGlobalAiEnabled } from './global/gate'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
 const MAX_TOKENS_HARD_LIMIT = 5000
+const AI_AUTONOMY_MODE_STORAGE_KEY = 'ai-chat-autonomy-mode'
+const LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY = 'ai-chat-yolo-mode'
 
 export enum AIMode {
 	SCRIPT = 'script',
@@ -77,10 +80,36 @@ export enum AIMode {
 	ASK = 'ask'
 }
 
+export enum AIAutonomyMode {
+	DEFAULT = 'default',
+	ACCEPT_EDIT = 'acceptedit',
+	YOLO = 'yolo'
+}
+
 const ALL_AI_MODES = Object.values(AIMode)
+const ALL_AI_AUTONOMY_MODES = Object.values(AIAutonomyMode)
+const AUTO_ACCEPT_EDIT_MODES = new Set<AIMode>([AIMode.SCRIPT, AIMode.FLOW])
+const AUTO_ACCEPT_TOOL_CONFIRMATION_MODES = new Set<AIMode>([
+	AIMode.SCRIPT,
+	AIMode.FLOW,
+	AIMode.APP,
+	AIMode.GLOBAL
+])
 
 export function isAIMode(mode: unknown): mode is AIMode {
 	return ALL_AI_MODES.includes(mode as AIMode)
+}
+
+export function isAIAutonomyMode(mode: unknown): mode is AIAutonomyMode {
+	return ALL_AI_AUTONOMY_MODES.includes(mode as AIAutonomyMode)
+}
+
+export function supportsAutoAcceptEdits(mode: AIMode): boolean {
+	return AUTO_ACCEPT_EDIT_MODES.has(mode)
+}
+
+export function supportsAutoAcceptToolConfirmations(mode: AIMode): boolean {
+	return AUTO_ACCEPT_TOOL_CONFIRMATION_MODES.has(mode)
 }
 
 export function isAIModeVisible(mode: AIMode): boolean {
@@ -95,7 +124,30 @@ function isWorkspacePath(path: string | undefined): path is string {
 	return path?.startsWith('f/') === true || path?.startsWith('u/') === true
 }
 
-class AIChatManager {
+function getPersistedAutonomyMode(): AIAutonomyMode {
+	if (!BROWSER || typeof localStorage === 'undefined') {
+		return AIAutonomyMode.ACCEPT_EDIT
+	}
+	const persistedMode = localStorage.getItem(AI_AUTONOMY_MODE_STORAGE_KEY)
+	if (isAIAutonomyMode(persistedMode)) {
+		return persistedMode
+	}
+	// No stored preference: default to auto-accepting edits (tool calls still
+	// require confirmation; only YOLO bypasses those). Note this means users who
+	// never opened the autonomy picker now start with edit auto-accept on.
+	return localStorage.getItem(LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY) === 'true'
+		? AIAutonomyMode.YOLO
+		: AIAutonomyMode.ACCEPT_EDIT
+}
+
+function persistAutonomyMode(mode: AIAutonomyMode) {
+	if (!BROWSER || typeof localStorage === 'undefined') {
+		return
+	}
+	localStorage.setItem(AI_AUTONOMY_MODE_STORAGE_KEY, mode)
+}
+
+export class AIChatManager {
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
 	abortController: AbortController | undefined = undefined
@@ -112,6 +164,17 @@ class AIChatManager {
 	currentReply = $state<string>('')
 	displayMessages = $state<DisplayMessage[]>([])
 	messages = $state<ChatCompletionMessageParam[]>([])
+	autonomyMode = $state<AIAutonomyMode>(getPersistedAutonomyMode())
+	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
+	autoAcceptEditsActive = $derived(
+		this.autoAcceptEditsAvailable &&
+			(this.autonomyMode === AIAutonomyMode.ACCEPT_EDIT ||
+				this.autonomyMode === AIAutonomyMode.YOLO)
+	)
+	autoAcceptToolConfirmationsAvailable = $derived(supportsAutoAcceptToolConfirmations(this.mode))
+	autoAcceptToolConfirmationsActive = $derived(
+		this.autonomyMode === AIAutonomyMode.YOLO && this.autoAcceptToolConfirmationsAvailable
+	)
 	#automaticScroll = $state<boolean>(true)
 	systemMessage = $state<ChatCompletionSystemMessageParam>({
 		role: 'system',
@@ -122,9 +185,9 @@ class AIChatManager {
 
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
 	flowOptions = $state<FlowOptions | undefined>(undefined)
-	scriptEditorApplyCode = $state<((code: string, opts?: ReviewChangesOpts) => void) | undefined>(
-		undefined
-	)
+	scriptEditorApplyCode = $state<
+		((code: string, opts?: ReviewChangesOpts) => void | Promise<void>) | undefined
+	>(undefined)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
 	scriptEditorGetLintErrors = $state<(() => ScriptLintResult) | undefined>(undefined)
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
@@ -141,16 +204,30 @@ class AIChatManager {
 	/** Cached datatables for app context (fetched asynchronously) */
 	cachedDatatables = $state<AppDatatableElement[]>([])
 
-	private confirmationCallback = $state<((value: boolean) => void) | undefined>(undefined)
+	private confirmationCallbacks = new Map<string, (value: boolean) => void>()
+	private userQuestionCallbacks = new Map<string, (choice: string | undefined) => void>()
 	private appDatatablesRefreshTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
+	disabledModes: Partial<Record<AIMode, boolean>> = $state({})
+	// Set by AI sessions. Enables the session-only preview tools (open_preview /
+	// get_preview_status) and their system-prompt guidance in GLOBAL mode; the
+	// global side-panel chat leaves it false so those tools aren't offered.
+	isSessionChat = false
+	// The session this manager belongs to (session chats only). Carried into the
+	// tool `helpers` in GLOBAL mode so the preview/deploy tools dispatch to THIS
+	// session rather than the UI-active one — keeps backgrounded sessions isolated.
+	sessionId: string | undefined = undefined
+
 	allowedModes: Record<AIMode, boolean> = $derived({
-		script: this.flowAiChatHelpers === undefined && this.scriptEditorOptions !== undefined,
-		flow: this.flowAiChatHelpers !== undefined,
-		app: this.appAiChatHelpers !== undefined,
-		navigator: true,
-		ask: true,
-		API: true,
+		script:
+			this.flowAiChatHelpers === undefined &&
+			this.scriptEditorOptions !== undefined &&
+			!this.disabledModes.script,
+		flow: this.flowAiChatHelpers !== undefined && !this.disabledModes.flow,
+		app: this.appAiChatHelpers !== undefined && !this.disabledModes.app,
+		navigator: !this.disabledModes.navigator,
+		ask: !this.disabledModes.ask,
+		API: !this.disabledModes.API,
 		// Dev-only gate. See `./global/gate.ts` for how to enable.
 		global: isAIModeVisible(AIMode.GLOBAL)
 	})
@@ -214,18 +291,97 @@ class AIChatManager {
 
 	// Request confirmation from user for a tool call
 	requestConfirmation = (toolId: string): Promise<boolean> => {
+		if (this.autoAcceptToolConfirmationsActive) {
+			return Promise.resolve(true)
+		}
+
 		return new Promise((resolve) => {
-			// Store the callback for this specific tool
-			this.confirmationCallback = resolve
+			this.confirmationCallbacks.set(toolId, resolve)
 		})
 	}
 
 	// Handle confirmation response for a specific tool
 	handleToolConfirmation = (toolId: string, confirmed: boolean) => {
-		if (this.confirmationCallback) {
-			this.confirmationCallback(confirmed)
-			this.confirmationCallback = undefined
+		const confirmationCallback = this.confirmationCallbacks.get(toolId)
+		if (confirmationCallback) {
+			confirmationCallback(confirmed)
+			this.confirmationCallbacks.delete(toolId)
 		}
+	}
+
+	private acceptPendingToolConfirmations = () => {
+		for (const confirmationCallback of this.confirmationCallbacks.values()) {
+			confirmationCallback(true)
+		}
+		this.confirmationCallbacks.clear()
+	}
+
+	private acceptPendingFlowEdits = (flowHelpers = this.flowAiChatHelpers) => {
+		if (flowHelpers?.hasPendingChanges()) {
+			flowHelpers.acceptAllModuleActions()
+		}
+	}
+
+	setAutonomyMode = (mode: AIAutonomyMode) => {
+		this.autonomyMode = mode
+		persistAutonomyMode(mode)
+
+		if (this.autoAcceptToolConfirmationsActive) {
+			this.acceptPendingToolConfirmations()
+		}
+		if (this.autoAcceptEditsActive) {
+			this.acceptPendingFlowEdits()
+		}
+	}
+
+	setAutoAcceptToolConfirmations = (enabled: boolean) => {
+		this.setAutonomyMode(enabled ? AIAutonomyMode.YOLO : AIAutonomyMode.DEFAULT)
+	}
+
+	applyScriptEditorCode = async (code: string, opts?: ReviewChangesOpts) => {
+		if (this.autoAcceptEditsActive && opts?.mode === 'revert') {
+			return
+		}
+
+		const effectiveOpts =
+			this.autoAcceptEditsActive && (opts?.mode ?? 'apply') === 'apply'
+				? ({ ...opts, mode: 'apply', applyAll: true } satisfies ReviewChangesOpts)
+				: opts
+		await this.scriptEditorApplyCode?.(code, effectiveOpts)
+	}
+
+	requestUserQuestion = (
+		toolId: string,
+		_question: { question: string; choices: string[] }
+	): Promise<string | undefined> => {
+		return new Promise((resolve) => {
+			this.userQuestionCallbacks.set(toolId, resolve)
+		})
+	}
+
+	handleUserQuestionAnswer = (toolId: string, choice: string) => {
+		const callback = this.userQuestionCallbacks.get(toolId)
+		if (!callback) {
+			return
+		}
+
+		this.displayMessages = this.displayMessages.map((message) => {
+			if (message.role === 'tool' && message.tool_call_id === toolId && message.userQuestion) {
+				return {
+					...message,
+					content: `User answered question: ${choice}`,
+					isLoading: false,
+					userQuestion: {
+						...message.userQuestion,
+						selectedChoice: choice
+					}
+				}
+			}
+			return message
+		})
+
+		callback(choice)
+		this.userQuestionCallbacks.delete(toolId)
 	}
 
 	setAiChatInput(aiChatInput: AIChatInput | null) {
@@ -311,7 +467,7 @@ class AIChatManager {
 				},
 				getWorkspaceMutationTarget: this.getScriptWorkspaceMutationTarget,
 				applyCode: (code: string, opts?: ReviewChangesOpts) => {
-					this.scriptEditorApplyCode?.(code, opts)
+					return this.applyScriptEditorCode(code, opts)
 				},
 				getLintErrors: () => {
 					if (this.scriptEditorGetLintErrors) {
@@ -352,9 +508,11 @@ class AIChatManager {
 			this.helpers = {}
 		} else if (mode === AIMode.GLOBAL) {
 			const customPrompt = getCombinedCustomPrompt(mode)
-			this.systemMessage = prepareGlobalSystemMessage(customPrompt)
-			this.tools = [...globalTools]
-			this.helpers = {}
+			this.systemMessage = prepareGlobalSystemMessage(customPrompt, {
+				previewTools: this.isSessionChat
+			})
+			this.tools = globalToolsFor({ sessionPreview: this.isSessionChat })
+			this.helpers = this.isSessionChat ? { sessionId: this.sessionId } : {}
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareAppSystemMessage(customPrompt)
@@ -538,7 +696,11 @@ class AIChatManager {
 					} else if (this.mode === AIMode.NAVIGATOR) {
 						return prepareNavigatorUserMessage(pendingPrompt)
 					} else if (this.mode === AIMode.GLOBAL) {
-						return prepareGlobalUserMessage(pendingPrompt)
+						return prepareGlobalUserMessage(
+							pendingPrompt,
+							this.contextManager.getSelectedContext(),
+							{ workspace: get(workspaceStore) }
+						)
 					}
 					return undefined
 				},
@@ -648,6 +810,12 @@ class AIChatManager {
 		}
 	}
 
+	// Optional pre-flight hook called once per send, after validation but
+	// before any UI state mutates or backend calls go out. Sessions use
+	// this to commit/materialise the workspace (creating a staged fork via
+	// the API) so the first message targets the correct workspace.
+	beforeSend?: () => Promise<void> | void
+
 	sendRequest = async (
 		options: {
 			removeDiff?: boolean
@@ -671,6 +839,24 @@ class AIChatManager {
 		}
 		if (!this.instructions.trim()) {
 			return
+		}
+		if (this.beforeSend) {
+			try {
+				await this.beforeSend()
+			} catch (e) {
+				// beforeSend commits the session's workspace before the first
+				// message hits the backend. If it throws, sending anyway would
+				// silently target the wrong workspace (typically the parent), so
+				// abort and tell the user — their message text stays in the input.
+				console.error('AIChatManager beforeSend hook failed', e)
+				sendUserToast(
+					`Could not prepare the session before sending: ${
+						e instanceof Error ? e.message : String(e)
+					}. Your message was not sent — please try again.`,
+					true
+				)
+				return
+			}
 		}
 		try {
 			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []
@@ -715,7 +901,7 @@ class AIChatManager {
 					role: 'user',
 					content: this.instructions,
 					contextElements:
-						this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW
+						this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW || this.mode === AIMode.GLOBAL
 							? oldSelectedContext
 							: undefined,
 					snapshot,
@@ -755,7 +941,9 @@ class AIChatManager {
 					userMessage = prepareApiUserMessage(oldInstructions)
 					break
 				case AIMode.GLOBAL:
-					userMessage = prepareGlobalUserMessage(oldInstructions)
+					userMessage = prepareGlobalUserMessage(oldInstructions, oldSelectedContext, {
+						workspace: get(workspaceStore)
+					})
 					break
 				case AIMode.APP:
 					userMessage = prepareAppUserMessage(
@@ -838,7 +1026,9 @@ class AIChatManager {
 							this.displayMessages = [...this.displayMessages]
 						}
 					},
-					requestConfirmation: this.requestConfirmation
+					requestConfirmation: this.requestConfirmation,
+					shouldAutoAcceptToolConfirmations: () => this.autoAcceptToolConfirmationsActive,
+					requestUserQuestion: this.requestUserQuestion
 				}
 			}
 
@@ -850,6 +1040,9 @@ class AIChatManager {
 				...params
 			})
 			this.messages = [...this.messages, ...(addedMessages ?? [])]
+			if (this.autoAcceptEditsActive) {
+				this.acceptPendingFlowEdits()
+			}
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
 		} catch (err) {
 			console.error(err)
@@ -865,10 +1058,14 @@ class AIChatManager {
 	}
 
 	cancel = (reason?: string) => {
-		if (this.confirmationCallback) {
-			this.confirmationCallback(false)
-			this.confirmationCallback = undefined
+		for (const confirmationCallback of this.confirmationCallbacks.values()) {
+			confirmationCallback(false)
 		}
+		this.confirmationCallbacks.clear()
+		for (const resolveQuestion of this.userQuestionCallbacks.values()) {
+			resolveQuestion(undefined)
+		}
+		this.userQuestionCallbacks.clear()
 		const cancelReason = reason ?? 'user_cancelled'
 		console.log('cancelling request:', {
 			reason: cancelReason,
@@ -961,6 +1158,10 @@ class AIChatManager {
 		this.#automaticScroll = false
 	}
 
+	enableAutomaticScroll = () => {
+		this.#automaticScroll = true
+	}
+
 	generateStep = async (moduleId: string, lang: ScriptLang, instructions: string) => {
 		if (!this.flowAiChatHelpers) {
 			throw new Error('No flow helpers found')
@@ -995,6 +1196,11 @@ class AIChatManager {
 				!copilotSessionModel?.model.endsWith('/thinking'),
 				untrack(() => this.contextManager.getSelectedContext())
 			)
+		} else if (this.mode === AIMode.GLOBAL) {
+			this.contextManager.updateAvailableContextForGlobal(
+				workspaceStore ?? '',
+				untrack(() => this.contextManager.getSelectedContext())
+			)
 		}
 
 		if (this.scriptEditorOptions) {
@@ -1011,10 +1217,10 @@ class AIChatManager {
 
 	listenForCurrentEditorChanges = (currentEditor: CurrentEditor) => {
 		if (currentEditor && currentEditor.type === 'script') {
-			this.scriptEditorApplyCode = (code) => {
+			this.scriptEditorApplyCode = async (code, opts) => {
 				if (currentEditor && currentEditor.type === 'script') {
 					currentEditor.hideDiffMode()
-					currentEditor.editor.reviewAndApplyCode(code)
+					await currentEditor.editor.reviewAndApplyCode(code, opts)
 				}
 			}
 			this.scriptEditorShowDiffMode = () => {
@@ -1115,6 +1321,11 @@ class AIChatManager {
 
 	setFlowHelpers = (flowHelpers: FlowAIChatHelpers) => {
 		this.flowAiChatHelpers = flowHelpers
+		untrack(() => {
+			if (this.autoAcceptEditsActive) {
+				this.acceptPendingFlowEdits(flowHelpers)
+			}
+		})
 
 		return () => {
 			this.flowAiChatHelpers = undefined
@@ -1207,7 +1418,10 @@ class AIChatManager {
 					...message,
 					isLoading: false,
 					content: messageText,
-					error: messageText
+					error: messageText,
+					userQuestion: message.userQuestion
+						? { ...message.userQuestion, canceled: true }
+						: undefined
 				}
 			}
 			return message

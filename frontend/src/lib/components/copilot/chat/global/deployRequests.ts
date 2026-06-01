@@ -1,5 +1,5 @@
 import type { Flow, NewScript, OpenFlowWPath, Script } from '$lib/gen/types.gen'
-import type { FlowDraftValue, WorkspaceItem } from './draftStore.svelte'
+import type { FlowDraftValue, WorkspaceItem } from './workspaceItems'
 
 type ScriptWithDeployMetadata = Script & Partial<Pick<NewScript, 'assets' | 'cache_ignore_s3_path'>>
 

@@ -1,18 +1,20 @@
 <script lang="ts">
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import AvailableContextList from './AvailableContextList.svelte'
 	import AppAvailableContextList from './AppAvailableContextList.svelte'
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import ContextTextarea from './ContextTextarea.svelte'
 	import autosize from '$lib/autosize'
 	import type { ContextElement } from './context'
-	import { aiChatManager, AIMode } from './AIChatManager.svelte'
+	import { AIMode } from './AIChatManager.svelte'
+	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
 	import { twMerge } from 'tailwind-merge'
-	import type { Snippet } from 'svelte'
+	import { tick, untrack, type Snippet } from 'svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
-	import { tick, untrack } from 'svelte'
+	import { ArrowUp, Square } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
+
+	const aiChatManager = getAiChatManager()
 
 	interface Props {
 		availableContext: ContextElement[]
@@ -29,6 +31,13 @@
 		showContext?: boolean
 		bottomRightSnippet?: Snippet
 		onKeyDown?: (e: KeyboardEvent) => void
+		// When provided, overrides `aiChatManager.loading` for the send/stop
+		// button — useful for callers driving their own request lifecycle
+		// (e.g. the inline ⌘K widget runs requests outside the global
+		// `aiChatManager.loading` flag).
+		loading?: boolean
+		// Called when the user clicks Stop. Defaults to `aiChatManager.cancel()`.
+		onCancel?: () => void
 	}
 
 	let {
@@ -45,8 +54,31 @@
 		onSendRequest = undefined,
 		showContext = true,
 		bottomRightSnippet,
-		onKeyDown = undefined
+		onKeyDown = undefined,
+		loading,
+		onCancel
 	}: Props = $props()
+
+	// GLOBAL-mode suggestion pool. We pick one at mount-time so each new
+	// session lands on a different prompt; the choice stays stable for
+	// the lifetime of this input so the placeholder doesn't shuffle as
+	// the user is reading it.
+	const GLOBAL_PLACEHOLDER_SUGGESTIONS = [
+		'Write a hello-world flow',
+		'Create a script that lists files in an S3 bucket',
+		'Build a CRUD app for a customer table',
+		'Schedule a daily cleanup of old runs',
+		'Wrap an existing script into a flow with retries',
+		'Add an HTTP trigger to an existing script',
+		'Generate a report from a SQL query and email it',
+		'Create a Postgres resource and a script that queries it',
+		'Refactor a script to add error handling',
+		'List my workspace flows and scripts'
+	]
+	const globalSuggestion =
+		GLOBAL_PLACEHOLDER_SUGGESTIONS[
+			Math.floor(Math.random() * GLOBAL_PLACEHOLDER_SUGGESTIONS.length)
+		]
 
 	// Generate mode-specific placeholder
 	const modePlaceholder = $derived.by(() => {
@@ -70,7 +102,7 @@
 			case AIMode.API:
 				return 'Make API calls...'
 			case AIMode.GLOBAL:
-				return 'Work across workspace items...'
+				return globalSuggestion
 			case AIMode.ASK:
 				return 'Ask questions about Windmill...'
 			default:
@@ -89,8 +121,16 @@
 	let appTooltipElement = $state<HTMLDivElement | undefined>(undefined)
 	let appTooltipCurrentViewNumber = $state(0)
 
+	// Modes that show the rich textarea with @-context support (workspace
+	// scripts, workspace flows, code blocks, DBs, etc.).
+	const isContextEnabledMode = $derived(
+		aiChatManager.mode === AIMode.SCRIPT ||
+			aiChatManager.mode === AIMode.FLOW ||
+			aiChatManager.mode === AIMode.GLOBAL
+	)
+
 	export function focusInput() {
-		if (aiChatManager.mode === AIMode.SCRIPT || aiChatManager.mode === AIMode.FLOW) {
+		if (isContextEnabledMode) {
 			contextTextareaComponent?.focus()
 		} else {
 			instructionsTextareaComponent?.focus()
@@ -112,7 +152,7 @@
 		}
 	}
 
-	async function addContextToSelection(contextElement: ContextElement) {
+	export async function addContextToSelection(contextElement: ContextElement) {
 		if (!selectedContext || !availableContext) return
 
 		const alreadySelected = selectedContext.find(
@@ -389,95 +429,86 @@
 	})
 </script>
 
-<div use:clickOutside class="relative">
-	{#if aiChatManager.mode === AIMode.SCRIPT || aiChatManager.mode === AIMode.FLOW}
-		{#if showContext}
-			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
-				<Popover>
-					{#snippet trigger()}
-						<div
-							class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
-							>@</div
-						>
-					{/snippet}
-					{#snippet content({ close })}
-						<AvailableContextList
-							{availableContext}
-							{selectedContext}
-							onSelect={(element) => {
-								void addContextToSelection(element)
-								close()
-							}}
-							onSelectWorkspaceItem={(element) => {
-								void addContextToSelection(element)
-								close()
-							}}
-						/>
-					{/snippet}
-				</Popover>
-				{#each selectedContext as element (element.type + '-' + element.title)}
-					<ContextElementBadge
-						contextElement={element}
-						deletable
-						onDelete={() => {
-							selectedContext = selectedContext?.filter(
-								(c) => c.type !== element.type || c.title !== element.title
-							)
-						}}
-					/>
-				{/each}
-			</div>
-		{/if}
-		<ContextTextarea
-			bind:this={contextTextareaComponent}
-			bind:value={instructions}
-			{availableContext}
-			{selectedContext}
-			{isFirstMessage}
-			placeholder={modePlaceholder}
-			onAddContext={(contextElement) => void addContextToSelection(contextElement)}
-			onSendRequest={() => {
-				if (disabled) {
-					return
-				}
+{#snippet sendStopButton()}
+	{@const isLoading = loading ?? aiChatManager.loading}
+	{@const sendDisabled = disabled || instructions.trim().length === 0}
+	<Button
+		variant="subtle"
+		unifiedSize="md"
+		iconOnly
+		title={isLoading ? 'Stop' : 'Send'}
+		startIcon={{ icon: isLoading ? Square : ArrowUp }}
+		disabled={!isLoading && sendDisabled}
+		on:click={() => {
+			if (isLoading) {
+				onCancel ? onCancel() : aiChatManager.cancel()
+			} else if (!sendDisabled) {
 				onSendRequest ? onSendRequest(instructions) : sendRequest()
-			}}
-			{disabled}
-			{onKeyDown}
-		/>
+			}
+		}}
+	/>
+{/snippet}
+
+{#snippet contextPickerRow()}
+	{#if selectedContext.length > 0}
+		<div class="flex flex-row flex-wrap items-center gap-1 mb-1">
+			{#each selectedContext as element (element.type + '-' + element.title)}
+				<ContextElementBadge
+					contextElement={element}
+					deletable
+					onDelete={() => {
+						selectedContext = selectedContext?.filter(
+							(c) => c.type !== element.type || c.title !== element.title
+						)
+					}}
+				/>
+			{/each}
+		</div>
+	{/if}
+{/snippet}
+
+<div
+	use:clickOutside
+	class="relative mt-1"
+	role="presentation"
+	onkeydown={(e) => {
+		if (e.key === 'Escape' && aiChatManager.loading) {
+			e.preventDefault()
+			aiChatManager.cancel()
+		}
+	}}
+>
+	{#if isContextEnabledMode}
+		{#if showContext}
+			{@render contextPickerRow()}
+		{/if}
+		<div class="relative">
+			<ContextTextarea
+				bind:this={contextTextareaComponent}
+				bind:value={instructions}
+				{availableContext}
+				{selectedContext}
+				{isFirstMessage}
+				placeholder={modePlaceholder}
+				onAddContext={(contextElement) => void addContextToSelection(contextElement)}
+				onSendRequest={() => {
+					if (disabled) {
+						return
+					}
+					onSendRequest ? onSendRequest(instructions) : sendRequest()
+				}}
+				{disabled}
+				{onKeyDown}
+			/>
+			{#if !bottomRightSnippet}
+				<div class="absolute bottom-1 right-1">
+					{@render sendStopButton()}
+				</div>
+			{/if}
+		</div>
 	{:else if aiChatManager.mode === AIMode.APP}
 		{#if showContext}
-			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
-				<Popover>
-					{#snippet trigger()}
-						<div
-							class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
-							>@</div
-						>
-					{/snippet}
-					{#snippet content({ close })}
-						<AppAvailableContextList
-							{availableContext}
-							{selectedContext}
-							onSelect={(element) => {
-								void addContextToSelection(element)
-								close()
-							}}
-						/>
-					{/snippet}
-				</Popover>
-				{#each selectedContext as element (element.type + '-' + element.title)}
-					<ContextElementBadge
-						contextElement={element}
-						deletable
-						onDelete={() => {
-							selectedContext = selectedContext?.filter(
-								(c) => c.type !== element.type || c.title !== element.title
-							)
-						}}
-					/>
-				{/each}
-			</div>
+			{@render contextPickerRow()}
 		{/if}
 		<div class={twMerge('relative w-full scroll-pb-2', className)}>
 			<textarea
@@ -506,11 +537,16 @@
 						sendRequest()
 					}
 				}}
-				rows={3}
+				rows={1}
 				placeholder={modePlaceholder}
-				class="resize-none"
+				class={twMerge('resize-none', CHAT_INPUT_PADDING)}
 				{disabled}
 			></textarea>
+			{#if !bottomRightSnippet}
+				<div class="absolute bottom-1 right-1">
+					{@render sendStopButton()}
+				</div>
+			{/if}
 		</div>
 		{#if showAppContextTooltip}
 			<Portal target="body">
@@ -552,15 +588,20 @@
 						sendRequest()
 					}
 				}}
-				rows={3}
+				rows={1}
 				placeholder={modePlaceholder}
-				class="resize-none"
+				class={twMerge('resize-none', CHAT_INPUT_PADDING)}
 				{disabled}
 			></textarea>
+			{#if !bottomRightSnippet}
+				<div class="absolute bottom-1 right-1">
+					{@render sendStopButton()}
+				</div>
+			{/if}
 		</div>
 	{/if}
 	{#if bottomRightSnippet}
-		<div class="absolute bottom-2 right-2">
+		<div class="absolute bottom-1 right-1">
 			{@render bottomRightSnippet()}
 		</div>
 	{/if}

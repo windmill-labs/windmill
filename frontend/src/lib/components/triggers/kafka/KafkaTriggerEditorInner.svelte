@@ -24,6 +24,8 @@
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
+	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import TriggerFilters from '../TriggerFilters.svelte'
@@ -126,6 +128,16 @@
 			!hasChanged
 	)
 	const kafkaConfig = $derived.by(getSaveCfg)
+
+	const draftSync = useTriggerDraftSync({
+		itemKind: 'trigger_kafka',
+		path: () => initialPath,
+		workspace: () => $workspaceStore,
+		drawerLoading: () => drawerLoading,
+		getCfg: () => kafkaConfig,
+		applyCfg: loadTriggerConfig,
+		deployed: () => originalConfig
+	})
 	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 
 	$effect(() => {
@@ -148,13 +160,14 @@
 			edit = true
 			dirtyPath = false
 			await loadTrigger(defaultConfig)
-			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-		} catch (err) {
-			sendUserToast(`Could not load Kafka trigger: ${err}`, true)
-		} finally {
 			if (!defaultConfig) {
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			await draftSync.maybeRestore()
+		} catch (err) {
+			sendUserToast(`Could not load Kafka trigger: ${err}`, true)
+		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
@@ -269,6 +282,7 @@
 
 	async function updateTrigger(): Promise<void> {
 		deploymentLoading = true
+		const previousPath = initialPath
 		const cfg = getSaveCfg()
 		const isSaved = await saveKafkaTriggerFromCfg(
 			initialPath,
@@ -278,6 +292,7 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
+			draftSync.discard(previousPath, getSaveCfg())
 			onUpdate?.(cfg.path)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			initialPath = cfg.path
@@ -394,6 +409,15 @@
 		>
 			{#snippet actions()}
 				{@render actionsButtons('sm')}
+			{/snippet}
+			{#snippet banner()}
+				<LocalDraftBanner
+					show={draftSync.hasDraft}
+					getDeployed={() => draftSync.deployed}
+					getCurrent={() => draftSync.current}
+					onDiscard={() => draftSync.resetToDeployed(initialPath)}
+					disabled={!can_write}
+				/>
 			{/snippet}
 			{@render config()}
 		</DrawerContent>

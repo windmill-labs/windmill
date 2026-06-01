@@ -38,6 +38,8 @@
 	import { runScheduleNow } from '../scheduled/utils'
 	import { handleConfigChange } from '../utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
+	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
+	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
@@ -130,6 +132,16 @@
 	)
 	const scheduleCfg = $derived.by(getScheduleCfg)
 
+	const draftSync = useTriggerDraftSync({
+		itemKind: 'trigger_schedule',
+		path: () => initialPath,
+		workspace: () => $workspaceStore,
+		drawerLoading: () => drawerLoading,
+		getCfg: () => scheduleCfg,
+		applyCfg: loadScheduleCfg,
+		deployed: () => initialConfig
+	})
+
 	export async function openEdit(ePath: string, isFlow: boolean, defaultCfg?: Record<string, any>) {
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
@@ -142,10 +154,11 @@
 			path = defaultCfg?.path ?? ePath
 			await loadSchedule(defaultCfg)
 			edit = true
-		} finally {
 			if (!defaultCfg) {
 				initialConfig = structuredClone($state.snapshot(getScheduleCfg()))
 			}
+			await draftSync.maybeRestore()
+		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
@@ -284,6 +297,11 @@
 			drawer?.openDrawer()
 			runnable = undefined
 			edit = false
+			// No deployed baseline for a brand-new schedule. The editor instance
+			// is reused across open() calls, so clear any baseline left by a prior
+			// openEdit — otherwise the "unsaved changes" banner / dirty check would
+			// compare against a stale config.
+			initialConfig = undefined
 			itemKind = (s?.is_flow ?? nis_flow) ? 'flow' : 'script'
 			initialScriptPath = initial_script_path ?? ''
 			path = initNewPath
@@ -527,10 +545,12 @@
 	}
 
 	async function scheduleScript(): Promise<void> {
+		const previousPath = initialPath
 		const scheduleCfg = getScheduleCfg()
 		deploymentLoading = true
 		const isSaved = await saveScheduleFromCfg(scheduleCfg, edit, $workspaceStore!)
 		if (isSaved) {
+			draftSync.discard(previousPath, scheduleCfg)
 			onUpdate?.(scheduleCfg.path)
 			drawer?.closeDrawer()
 		}
@@ -682,7 +702,7 @@
 							variant="default"
 							startIcon={{ icon: List }}
 							disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
-							href={`${base}/runs/${script_path}?show_schedules=true&show_future_jobs=true`}
+							href={`${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`}
 						>
 							View runs
 						</Button>
@@ -1326,6 +1346,15 @@
 				<div class="flex flex-row gap-4 items-center">
 					{@render saveButton()}
 				</div>
+			{/snippet}
+			{#snippet banner()}
+				<LocalDraftBanner
+					show={draftSync.hasDraft}
+					getDeployed={() => draftSync.deployed}
+					getCurrent={() => draftSync.current}
+					onDiscard={() => draftSync.resetToDeployed(initialPath)}
+					disabled={!can_write}
+				/>
 			{/snippet}
 			{@render content()}
 		</DrawerContent>

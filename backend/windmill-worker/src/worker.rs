@@ -13,6 +13,8 @@ use anyhow::anyhow;
 use futures::TryFutureExt;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
+// Re-export proxy env-var snapshots so callers (including EE modules)
+// can keep importing them via `crate::{NO_PROXY, HTTP_PROXY, HTTPS_PROXY}`.
 use windmill_common::client::AuthedClient;
 use windmill_common::db::UserDbWithAuthed;
 use windmill_common::get_latest_deployed_hash_for_path;
@@ -48,6 +50,7 @@ use windmill_common::{
     worker_group_job_stats::JobStatsMap,
     KillpillSender,
 };
+pub use windmill_common::{HTTPS_PROXY, HTTP_PROXY, NO_PROXY};
 
 #[cfg(feature = "enterprise")]
 use windmill_common::ee_oss::LICENSE_KEY_VALID;
@@ -132,7 +135,8 @@ use crate::{
     bun_executor::handle_bun_job,
     common::{
         build_args_map, cached_result_path, get_cached_resource_value_if_valid,
-        get_reserved_variables, update_worker_ping_for_failed_init_script, OccupancyMetrics,
+        get_reserved_variables, get_root_job_id, update_worker_ping_for_failed_init_script,
+        OccupancyMetrics,
     },
     csharp_executor::handle_csharp_job,
     deno_executor::handle_deno_job,
@@ -277,6 +281,8 @@ pub struct OtelTracingProxySettings {
     pub enabled: bool,
     #[serde(default)]
     pub enabled_languages: HashSet<ScriptLang>,
+    #[serde(default)]
+    pub no_proxy_hosts: Option<String>,
 }
 
 #[cfg(feature = "prometheus")]
@@ -551,11 +557,9 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false));
 
-    pub static ref NO_PROXY: Option<String> = std::env::var("no_proxy").ok().or(std::env::var("NO_PROXY").ok());
-    pub static ref HTTP_PROXY: Option<String> = std::env::var("http_proxy").ok().or(std::env::var("HTTP_PROXY").ok());
-    pub static ref HTTPS_PROXY: Option<String> = std::env::var("https_proxy").ok().or(std::env::var("HTTPS_PROXY").ok());
-
-    /// Static proxy environment variables from env vars (for languages not using dynamic OTEL tracing proxy config)
+    /// Static proxy environment variables from env vars (for languages not using dynamic OTEL tracing proxy config).
+    /// The underlying `NO_PROXY` / `HTTP_PROXY` / `HTTPS_PROXY` snapshots live in `windmill_common`
+    /// so other crates (e.g. native triggers) can reuse the same source of truth.
     pub static ref PROXY_ENVS: Vec<(&'static str, String)> = {
         let mut proxy_env = Vec::new();
         if let Some(no_proxy) = NO_PROXY.as_ref() {
@@ -676,6 +680,24 @@ lazy_static::lazy_static! {
         .unwrap_or(1000);
 
     pub static ref FLOW_RUNNER_RUNNING: Mutex<bool> = Mutex::new(false);
+}
+
+lazy_static::lazy_static! {
+    /// Optional override for the size of the `/tmp` tmpfs mount in nsjail sandboxes (in megabytes).
+    /// When `None` (or non-positive), executors fall back to the unified
+    /// `DEFAULT_NSJAIL_TMPFS_SIZE_BYTES` (800MB).
+    pub static ref NSJAIL_TMPFS_SIZE_MB: Arc<RwLock<Option<i64>>> = Arc::new(RwLock::new(None));
+
+    /// Selects how `/tmp` is backed inside nsjail sandboxes. `Some("disk")`
+    /// switches to a bind mount on `{JOB_DIR}/jail_tmp` (disk-backed); any
+    /// other value (including `None` or `Some("tmpfs")`) keeps the historical
+    /// RAM-backed tmpfs sized by `nsjail_tmpfs_size_mb`.
+    pub static ref NSJAIL_TMP_BACKING: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+
+    /// Optional mirror URL for `uv python install`. Wires to the `UV_PYTHON_INSTALL_MIRROR`
+    /// env var when forwarded to uv. Can be set via the `UV_PYTHON_INSTALL_MIRROR` env var
+    /// or the `uv_python_install_mirror` instance setting.
+    pub static ref UV_PYTHON_INSTALL_MIRROR: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 }
 
 pub fn sleep_queue() -> u64 {
@@ -969,14 +991,15 @@ async fn get_otel_tracing_proxy_envs(
         }
     };
     let proxy_url = format!("http://127.0.0.1:{}", port);
+    let no_proxy = build_tracing_proxy_no_proxy().await;
     Ok(vec![
         ("HTTP_PROXY", proxy_url.clone()),
         ("HTTPS_PROXY", proxy_url.clone()),
         // Lowercase variants for Ruby and other runtimes that check lowercase first
         ("http_proxy", proxy_url.clone()),
         ("https_proxy", proxy_url),
-        ("NO_PROXY", "".to_string()),
-        ("no_proxy", "".to_string()),
+        ("NO_PROXY", no_proxy.clone()),
+        ("no_proxy", no_proxy),
         // CA cert for various runtimes to trust the tracing proxy
         ("SSL_CERT_FILE", TRACING_PROXY_CA_CERT_PATH.to_string()),
         ("REQUESTS_CA_BUNDLE", TRACING_PROXY_CA_CERT_PATH.to_string()),
@@ -988,6 +1011,70 @@ async fn get_otel_tracing_proxy_envs(
         ("GIT_SSL_CAINFO", TRACING_PROXY_CA_CERT_PATH.to_string()),
         ("DENO_CERT", TRACING_PROXY_CA_CERT_PATH.to_string()),
     ])
+}
+
+/// NO_PROXY value injected into jobs so their HTTP clients bypass the local MITM proxy for
+/// the configured hosts. This is distinct from the worker's own NO_PROXY env, which governs
+/// what the MITM proxy bypasses when relaying upstream (e.g. through a corporate proxy) and
+/// is honored automatically by the in-process MITM. The configured hosts are tunneled
+/// through the proxy without TLS interception, so clients that pin their own CA (kubectl,
+/// helm, terraform, etc.) keep working. Empty when unset, matching the prior behavior of
+/// intercepting all destinations including loopback.
+#[cfg(all(feature = "private", feature = "enterprise"))]
+async fn build_tracing_proxy_no_proxy() -> String {
+    let configured = OTEL_TRACING_PROXY_SETTINGS
+        .read()
+        .await
+        .no_proxy_hosts
+        .clone();
+    normalize_no_proxy_hosts(configured.as_deref())
+}
+
+/// Split a comma-separated NO_PROXY value, trim whitespace, drop empty entries, and
+/// deduplicate while preserving order. `None` returns an empty string.
+#[cfg(all(feature = "private", feature = "enterprise"))]
+fn normalize_no_proxy_hosts(configured: Option<&str>) -> String {
+    let Some(configured) = configured else {
+        return String::new();
+    };
+    let mut seen = std::collections::HashSet::new();
+    let mut out: Vec<&str> = Vec::new();
+    for entry in configured.split(',') {
+        let trimmed = entry.trim();
+        if !trimmed.is_empty() && seen.insert(trimmed) {
+            out.push(trimmed);
+        }
+    }
+    out.join(",")
+}
+
+#[cfg(all(test, feature = "private", feature = "enterprise"))]
+mod no_proxy_tests {
+    use super::normalize_no_proxy_hosts;
+
+    #[test]
+    fn unset_returns_empty() {
+        assert_eq!(normalize_no_proxy_hosts(None), "");
+    }
+
+    #[test]
+    fn empty_and_whitespace_only_returns_empty() {
+        assert_eq!(normalize_no_proxy_hosts(Some("")), "");
+        assert_eq!(normalize_no_proxy_hosts(Some("  ,  ,\t")), "");
+    }
+
+    #[test]
+    fn trims_and_skips_empties() {
+        assert_eq!(
+            normalize_no_proxy_hosts(Some("  *.eks.amazonaws.com  ,, *.internal ")),
+            "*.eks.amazonaws.com,*.internal"
+        );
+    }
+
+    #[test]
+    fn dedupes_preserving_first_occurrence_order() {
+        assert_eq!(normalize_no_proxy_hosts(Some("a,b,a,c,b,d")), "a,b,c,d");
+    }
 }
 
 #[cfg(windows)]
@@ -1253,8 +1340,6 @@ async fn insert_wait_time(
             .await?;
 
     if let Some(root_id) = root_job_id {
-        // TODO: queued_job.root_job is not guaranteed to be the true root job (e.g. parallel flow
-        // subflows). So this is currently incorrect for those cases
         sqlx::query!(
             "INSERT INTO outstanding_wait_time(job_id, aggregate_wait_time_ms) VALUES ($1, $2)
                 ON CONFLICT (job_id) DO UPDATE SET aggregate_wait_time_ms =
@@ -1286,7 +1371,10 @@ fn add_outstanding_wait_time(
     }
 
     let job_id = queued_job.id;
-    let root_job_id = queued_job.flow_innermost_root_job;
+    // Aggregate onto the true top-level root (root_job → flow_innermost_root_job → parent_job).
+    // `get_root_job_id` falls back to the job's own id when none are set; filter that out so
+    // standalone scripts (no parent flow) skip the aggregate insertion.
+    let root_job_id = Some(get_root_job_id(queued_job)).filter(|&id| id != job_id);
     let conn = conn.clone();
 
     if let Some(db) = conn.as_sql() {
@@ -4367,6 +4455,21 @@ pub async fn run_language_executor(
     modules: &Option<std::collections::HashMap<String, ScriptModule>>,
     run_inline: bool,
 ) -> error::Result<Box<RawValue>> {
+    // Defense-in-depth (GHSA-wxjq-w5pj-jqhx): the entrypoint override is
+    // interpolated verbatim into a code position of the generated language
+    // wrappers below. It originates from the `_ENTRYPOINT_OVERRIDE` job arg,
+    // which any caller with `jobs:run` can set on a deployed script, so reject
+    // anything that is not a strict identifier before it reaches any wrapper.
+    if let Some(entrypoint) = job.script_entrypoint_override.as_deref() {
+        if !windmill_common::jobs::is_valid_entrypoint_name(entrypoint) {
+            return Err(Error::BadRequest(format!(
+                "Invalid entrypoint override {entrypoint:?}: must match \
+                 ^[A-Za-z_][A-Za-z0-9_]*$ (letters, digits and underscores, \
+                 not starting with a digit)"
+            )));
+        }
+    }
+
     // Expand WM_INTERNAL_DB markers into real SQL before dispatching
     let expanded_code: String;
     let mut language = language;
@@ -4609,6 +4712,7 @@ pub async fn run_language_executor(
                 column_order,
                 occupancy_metrics,
                 parent_runnable_path,
+                job_dir,
                 run_inline,
             ))
             .await;

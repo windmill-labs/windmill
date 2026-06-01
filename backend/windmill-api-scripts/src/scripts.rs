@@ -93,6 +93,9 @@ pub struct ScriptWDraft<SR> {
     pub tag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft: Option<sqlx::types::Json<Box<RawValue>>>,
+    /// Timestamp at which the most recent DB draft was created.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_created_at: Option<chrono::DateTime<chrono::Utc>>,
     pub schema: Option<Schema>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
@@ -170,6 +173,7 @@ impl ScriptWDraft<ScriptRunnableSettingsHandle> {
             kind: self.kind,
             tag: self.tag,
             draft: self.draft,
+            draft_created_at: self.draft_created_at,
             schema: self.schema,
             draft_only: self.draft_only,
             envs: self.envs,
@@ -733,6 +737,9 @@ async fn is_noop_deploy_against_parent(
         // caller-intent flag (auto-resolve parent), not script state
         auto_parent: _,
         labels,
+        // caller-intent flag (preserve user drafts on CLI/git-sync deploys);
+        // transient, never persisted, does not change what the script *is*
+        skip_draft_deletion: _,
     } = ns;
 
     if path != &parent.path {
@@ -921,6 +928,9 @@ async fn create_script_internal<'c>(
         }
     }
     let script_path = ns.path.clone();
+    // Caller-intent: CLI / git-sync deploys ask us to preserve any existing
+    // user draft at this path instead of wiping it as part of the deploy.
+    let skip_draft_deletion = ns.skip_draft_deletion.unwrap_or(false);
     let hash = ScriptHash(hash_script(&ns));
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
 
@@ -997,6 +1007,8 @@ async fn create_script_internal<'c>(
     if ns.auto_parent.unwrap_or(false) {
         if let Some(ref cs) = clashing_script {
             ns.parent_hash = Some(cs.hash.clone());
+        } else {
+            ns.parent_hash = None;
         }
     }
 
@@ -1214,6 +1226,22 @@ async fn create_script_internal<'c>(
         }
     };
 
+    // Failure, Trigger, and Approval scripts are runnable entrypoints by
+    // definition. They must never be marked `auto_kind = 'lib'`, or they
+    // disappear from the flow error-handler / trigger / approval pickers
+    // (which filter out lib scripts). Strip a stray `lib` here so a parser
+    // misclassification — e.g. failing to detect `main` after a deno_ast
+    // bump — cannot orphan these scripts in the UI.
+    let auto_kind = if matches!(
+        ns.kind,
+        Some(ScriptKind::Failure) | Some(ScriptKind::Trigger) | Some(ScriptKind::Approval)
+    ) && auto_kind.as_deref() == Some("lib")
+    {
+        None
+    } else {
+        auto_kind
+    };
+
     let ci_test_refs =
         windmill_common::schema::parse_ci_test_annotation(&ns.content, &lang.as_comment_lit());
     let auto_kind = if ci_test_refs.is_some() {
@@ -1335,13 +1363,15 @@ async fn create_script_internal<'c>(
 
     let p_path_opt = parent_hashes_and_perms.as_ref().map(|x| x.p_path.clone());
     if let Some(ref p_path) = p_path_opt {
-        sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
-            p_path,
-            &w_id
-        )
-        .execute(&mut *tx)
-        .await?;
+        if !skip_draft_deletion {
+            sqlx::query!(
+                "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
+                p_path,
+                &w_id
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
 
         sqlx::query!(
             "UPDATE capture_config SET path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS FALSE",
@@ -1420,7 +1450,7 @@ async fn create_script_internal<'c>(
                 tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;
             }
         }
-    } else {
+    } else if !skip_draft_deletion {
         sqlx::query!(
             "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
             ns.path,
@@ -1803,7 +1833,7 @@ async fn get_script_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = sqlx::query_as::<_, ScriptWDraft<ScriptRunnableSettingsHandle>>(
-        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, runnable_settings_handle, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, has_preprocessor, on_behalf_of_email, assets, modules, debounce_key, debounce_delay_s, labels FROM script LEFT JOIN draft ON
+        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, runnable_settings_handle, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, ws_error_handler_muted, draft.value as draft, draft.created_at as draft_created_at, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, has_preprocessor, on_behalf_of_email, assets, modules, debounce_key, debounce_delay_s, labels FROM script LEFT JOIN draft ON
          script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
          WHERE script.path = $1 AND script.workspace_id = $2
          ORDER BY script.created_at DESC LIMIT 1",

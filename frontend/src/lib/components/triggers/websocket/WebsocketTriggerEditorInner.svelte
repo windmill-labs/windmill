@@ -42,6 +42,8 @@
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
+	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { capitalize } from '$lib/utils'
@@ -130,6 +132,16 @@
 
 	let hasChanged = $derived(!deepEqual(getSaveCfg(), originalConfig ?? {}))
 	const websocketCfg = $derived.by(getSaveCfg)
+
+	const draftSync = useTriggerDraftSync({
+		itemKind: 'trigger_websocket',
+		path: () => initialPath,
+		workspace: () => $workspaceStore,
+		drawerLoading: () => drawerLoading,
+		getCfg: () => websocketCfg,
+		applyCfg: loadTriggerConfig,
+		deployed: () => originalConfig
+	})
 	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 	const saveDisabled = $derived.by(() => {
 		const invalidInitialMessages = initial_messages.some((v) => {
@@ -176,13 +188,14 @@
 			dirtyPath = false
 			dirtyUrl = false
 			await loadTrigger(defaultConfig)
-			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-		} catch (err) {
-			sendUserToast(`Could not load websocket trigger: ${err}`, true)
-		} finally {
 			if (!defaultConfig) {
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			await draftSync.maybeRestore()
+		} catch (err) {
+			sendUserToast(`Could not load websocket trigger: ${err}`, true)
+		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
 			showLoading = false
@@ -342,6 +355,7 @@
 
 	async function updateTrigger(): Promise<void> {
 		deploymentLoading = true
+		const previousPath = initialPath
 		const saveCfg = getSaveCfg()
 		const isSaved = await saveWebsocketTriggerFromCfg(
 			initialPath,
@@ -351,6 +365,7 @@
 			usedTriggerKinds
 		)
 		if (isSaved) {
+			draftSync.discard(previousPath, getSaveCfg())
 			onUpdate?.(saveCfg.path)
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			initialPath = saveCfg.path
@@ -436,6 +451,15 @@
 		>
 			{#snippet actions()}
 				{@render actionsButtons()}
+			{/snippet}
+			{#snippet banner()}
+				<LocalDraftBanner
+					show={draftSync.hasDraft}
+					getDeployed={() => draftSync.deployed}
+					getCurrent={() => draftSync.current}
+					onDiscard={() => draftSync.resetToDeployed(initialPath)}
+					disabled={!can_write}
+				/>
 			{/snippet}
 			{@render config()}
 		</DrawerContent>

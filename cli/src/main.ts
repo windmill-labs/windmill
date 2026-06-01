@@ -21,6 +21,7 @@ import schedule from "./commands/schedule/schedule.ts";
 import trigger from "./commands/trigger/trigger.ts";
 import sync from "./commands/sync/sync.ts";
 import gitsyncSettings from "./commands/gitsync-settings/gitsync-settings.ts";
+import protectionRules from "./commands/protection-rules/protection-rules.ts";
 import instance from "./commands/instance/instance.ts";
 import workerGroups from "./commands/worker-groups/worker-groups.ts";
 import lint from "./commands/lint/lint.ts";
@@ -39,6 +40,8 @@ import workers from "./commands/workers/workers.ts";
 import queues from "./commands/queues/queues.ts";
 import dependencies from "./commands/dependencies/dependencies.ts";
 import init from "./commands/init/init.ts";
+import refresh from "./commands/refresh/refresh.ts";
+import { shouldRunFreshnessCheck } from "./guidance/freshness_gate.ts";
 import jobs from "./commands/jobs/jobs.ts";
 import job from "./commands/job/job.ts";
 import group from "./commands/group/group.ts";
@@ -47,6 +50,9 @@ import token from "./commands/token/token.ts";
 import generateMetadata from "./commands/generate-metadata/generate-metadata.ts";
 import docs from "./commands/docs/docs.ts";
 import config from "./commands/config/config.ts";
+import datatable from "./commands/datatable/datatable.ts";
+import ducklake from "./commands/ducklake/ducklake.ts";
+import objectStorage from "./commands/object-storage/object-storage.ts";
 import { fetchVersion } from "./core/context.ts";
 
 export {
@@ -65,10 +71,14 @@ export {
   sync,
   lint,
   gitsyncSettings,
+  protectionRules,
   instance,
   dev,
   docs,
   config,
+  datatable,
+  ducklake,
+  objectStorage,
   hubPull,
   pull,
   push,
@@ -79,7 +89,7 @@ export {
   token,
 };
 
-export const VERSION = "1.700.2";
+export const VERSION = "1.713.1";
 
 // Re-exported from constants.ts to maintain backwards compatibility
 export { WM_FORK_PREFIX } from "./core/constants.ts";
@@ -169,6 +179,7 @@ const command = new Command()
     },
   })
   .command("init", init)
+  .command("refresh", refresh)
   .command("app", app)
   .command("flow", flow)
   .command("script", script)
@@ -185,6 +196,7 @@ const command = new Command()
   .command("sync", sync)
   .command("lint", lint)
   .command("gitsync-settings", gitsyncSettings)
+  .command("protection-rules", protectionRules)
   .command("instance", instance)
   .command("worker-groups", workerGroups)
   .command("workers", workers)
@@ -198,6 +210,9 @@ const command = new Command()
   .command("generate-metadata", generateMetadata)
   .command("docs", docs)
   .command("config", config)
+  .command("datatable", datatable)
+  .command("ducklake", ducklake)
+  .command("object-storage", objectStorage)
   .command("version --version", "Show version information")
   .action(async (opts: any) => {
     console.log("CLI version: " + VERSION);
@@ -282,6 +297,15 @@ async function main() {
       await detectAuthGatewayChallenge(response);
       return response;
     });
+
+    // Warn (one line) if AGENTS.cli.md predates this CLI's prompts bundle.
+    // The check is gated on argv parsing (cheap) so the ~360 KB skills.gen.ts
+    // bundle stays out of the import graph for help/version/init/refresh/etc.
+    if (shouldRunFreshnessCheck(process.argv)) {
+      const { warnIfPromptsStale } = await import("./guidance/freshness.ts");
+      await warnIfPromptsStale({ argv: process.argv }).catch(() => {});
+    }
+
     await command.parse(args);
   } catch (e) {
     if (e && typeof e === "object" && "name" in e && e.name === "ApiError") {

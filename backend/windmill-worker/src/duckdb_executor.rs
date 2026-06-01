@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::sanitize_string_from_password;
-use windmill_common::worker::{Connection, SqlResultCollectionStrategy};
+use windmill_common::worker::{get_memory, Connection, SqlResultCollectionStrategy};
 use windmill_common::workspaces::{
     get_datatable_resource_from_db_unchecked, get_ducklake_from_db_unchecked,
     DucklakeCatalogResourceType,
@@ -44,6 +44,7 @@ pub async fn do_duckdb(
     #[allow(unused_variables)] column_order_ref: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
     parent_runnable_path: Option<String>,
+    job_dir: &str,
     run_inline: bool,
 ) -> Result<Box<RawValue>> {
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
@@ -160,6 +161,7 @@ pub async fn do_duckdb(
 
         let base_internal_url = client.base_internal_url.clone();
         let w_id = job.workspace_id.clone();
+        let job_dir = job_dir.to_string();
 
         if annotations.prepare {
             let result = tokio::task::spawn_blocking(move || {
@@ -168,6 +170,7 @@ pub async fn do_duckdb(
                     &token,
                     &base_internal_url,
                     &w_id,
+                    &job_dir,
                 )
             })
             .await
@@ -185,6 +188,7 @@ pub async fn do_duckdb(
                 &token,
                 &base_internal_url,
                 &w_id,
+                &job_dir,
                 collection_strategy,
             )
         })
@@ -259,6 +263,8 @@ struct DuckDbFfiLib {
             token: *const c_char,
             base_internal_url: *const c_char,
             w_id: *const c_char,
+            memory_limit: *const c_char,
+            temp_directory: *const c_char,
             column_order_ptr: *mut *mut c_char,
             collect_last_only: bool,
             collect_first_row_only: bool,
@@ -273,6 +279,8 @@ struct DuckDbFfiLib {
                 token: *const c_char,
                 base_internal_url: *const c_char,
                 w_id: *const c_char,
+                memory_limit: *const c_char,
+                temp_directory: *const c_char,
             ) -> *mut c_char,
         >,
     >,
@@ -319,7 +327,7 @@ impl DuckDbFfiLib {
         // Version mismatch should only be possible on Windows agent workers
         // We check for it because FFI interface mismatch will cause undefined behavior / crashes
         unsafe {
-            let expected_version: c_uint = 1;
+            let expected_version: c_uint = 2;
             let get_version: Symbol<'static, unsafe extern "C" fn() -> c_uint> = 
             lib.get(b"get_version")
                 .map_err(|e| return Error::ExecutionErr(format!("Could not find get_version in the duckdb ffi library. If you are not using docker, consider manually upgrading windmill_duckdb_ffi_lib. {}", e.to_string())))?;
@@ -345,6 +353,35 @@ impl DuckDbFfiLib {
     }
 }
 
+// 20% headroom for Rust runtime + DuckDB's untracked allocations. Mirrors
+// DuckDB's own default ratio, but applied to the worker's cgroup budget
+// instead of host RAM.
+const DUCKDB_MEMORY_FRACTION: f64 = 0.8;
+// Treat cgroup values above 1 PiB as "unlimited" (kernels report page-aligned
+// huge numbers when uncapped). get_memory() falls back to host RAM in that
+// case, which is exactly what we want to leave to DuckDB's own default.
+const CGROUP_UNLIMITED_THRESHOLD: i64 = 1024 * 1024 * 1024 * 1024 * 1024;
+
+// `DUCKDB_MEMORY_LIMIT` env override, else fraction of the worker's cgroup
+// memory (as reported by windmill-common), else None (keep DuckDB's default).
+fn resolve_duckdb_memory_limit() -> Option<String> {
+    if let Ok(v) = env::var("DUCKDB_MEMORY_LIMIT") {
+        let v = v.trim();
+        if !v.is_empty() {
+            return Some(v.to_string());
+        }
+    }
+    cgroup_bytes_to_duckdb_memory_limit(get_memory()?)
+}
+
+fn cgroup_bytes_to_duckdb_memory_limit(bytes: i64) -> Option<String> {
+    if bytes <= 0 || bytes >= CGROUP_UNLIMITED_THRESHOLD {
+        return None;
+    }
+    let mib = ((bytes as f64 * DUCKDB_MEMORY_FRACTION) as i64) / (1024 * 1024);
+    Some(format!("{}MiB", mib.max(64)))
+}
+
 // Read backend/windmill-duckdb-ffi-internal/README_DEV.md for details about why we use FFI
 fn run_duckdb_ffi_safe<'a>(
     query_block_list: impl Iterator<Item = &'a str>,
@@ -353,6 +390,7 @@ fn run_duckdb_ffi_safe<'a>(
     token: &str,
     base_internal_url: &str,
     w_id: &str,
+    job_dir: &str,
     collection_strategy: SqlResultCollectionStrategy,
 ) -> Result<(Box<RawValue>, Option<Vec<String>>)> {
     let query_block_list = query_block_list
@@ -372,6 +410,9 @@ fn run_duckdb_ffi_safe<'a>(
     let token = CString::new(token).map_err(to_anyhow)?;
     let base_internal_url = CString::new(base_internal_url).map_err(to_anyhow)?;
     let w_id = CString::new(w_id).map_err(to_anyhow)?;
+    let memory_limit =
+        CString::new(resolve_duckdb_memory_limit().unwrap_or_default()).map_err(to_anyhow)?;
+    let temp_directory = CString::new(job_dir).map_err(to_anyhow)?;
 
     let run_duckdb_ffi = &DuckDbFfiLib::get_singleton()?.run_duckdb_ffi;
     let free_cstr = &DuckDbFfiLib::get_singleton()?.free_cstr;
@@ -384,6 +425,8 @@ fn run_duckdb_ffi_safe<'a>(
             token.as_ptr(),
             base_internal_url.as_ptr(),
             w_id.as_ptr(),
+            memory_limit.as_ptr(),
+            temp_directory.as_ptr(),
             &mut column_order,
             collection_strategy.collect_last_statement_only(query_block_list_count),
             collection_strategy.collect_first_row_only(),
@@ -424,6 +467,7 @@ fn prepare_duckdb_ffi_safe<'a>(
     token: &str,
     base_internal_url: &str,
     w_id: &str,
+    job_dir: &str,
 ) -> Result<Box<RawValue>> {
     let query_block_list = query_block_list
         .map(|s| {
@@ -440,6 +484,9 @@ fn prepare_duckdb_ffi_safe<'a>(
     let token = CString::new(token).map_err(to_anyhow)?;
     let base_internal_url = CString::new(base_internal_url).map_err(to_anyhow)?;
     let w_id = CString::new(w_id).map_err(to_anyhow)?;
+    let memory_limit =
+        CString::new(resolve_duckdb_memory_limit().unwrap_or_default()).map_err(to_anyhow)?;
+    let temp_directory = CString::new(job_dir).map_err(to_anyhow)?;
 
     let lib = DuckDbFfiLib::get_singleton()?;
     let prepare_fn = lib.prepare_duckdb_ffi.as_ref().ok_or_else(|| {
@@ -456,6 +503,8 @@ fn prepare_duckdb_ffi_safe<'a>(
             token.as_ptr(),
             base_internal_url.as_ptr(),
             w_id.as_ptr(),
+            memory_limit.as_ptr(),
+            temp_directory.as_ptr(),
         );
         let str = CStr::from_ptr(ptr).to_string_lossy().to_string();
         free_cstr(ptr);
@@ -782,6 +831,44 @@ pub struct Arg {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cgroup_bytes_unlimited_or_invalid_returns_none() {
+        assert_eq!(cgroup_bytes_to_duckdb_memory_limit(0), None);
+        assert_eq!(cgroup_bytes_to_duckdb_memory_limit(-1), None);
+        // 1 PiB sentinel: cgroup v1 reports ~i64::MAX when uncapped.
+        assert_eq!(
+            cgroup_bytes_to_duckdb_memory_limit(CGROUP_UNLIMITED_THRESHOLD),
+            None
+        );
+    }
+
+    #[test]
+    fn cgroup_bytes_real_values_take_80_percent() {
+        // 1 GiB -> 80% -> 819 MiB (floored to MiB)
+        assert_eq!(
+            cgroup_bytes_to_duckdb_memory_limit(1024 * 1024 * 1024),
+            Some("819MiB".to_string())
+        );
+        // 4 GiB -> 3276 MiB
+        assert_eq!(
+            cgroup_bytes_to_duckdb_memory_limit(4 * 1024 * 1024 * 1024),
+            Some("3276MiB".to_string())
+        );
+    }
+
+    #[test]
+    fn cgroup_bytes_tiny_values_floored_to_64mib() {
+        // Tiny cgroup must not produce a 0/unusable limit.
+        assert_eq!(
+            cgroup_bytes_to_duckdb_memory_limit(1024 * 1024),
+            Some("64MiB".to_string())
+        );
+        assert_eq!(
+            cgroup_bytes_to_duckdb_memory_limit(1),
+            Some("64MiB".to_string())
+        );
+    }
 
     // Tests for parse_attach_db_resource function
     #[test]

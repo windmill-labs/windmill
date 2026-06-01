@@ -3,7 +3,7 @@
 
 	const bubble = createBubbler()
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
-	import { onMount, setContext, untrack } from 'svelte'
+	import { getContext, onMount, setContext, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -29,11 +29,12 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import {
 		classNames,
-		encodeState,
 		getModifierKey,
+		readFieldsRecursively,
 		sendUserToast,
 		urlParamsToObject
 	} from '$lib/utils'
+	import { UserDraft, type UserDraftMeta } from '$lib/userDraft.svelte'
 	import AppPreview from './AppPreview.svelte'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
@@ -77,13 +78,65 @@
 		replaceStateFn = (path: string) => window.history.replaceState(null, '', path),
 		gotoFn = (path: string, opt?: Record<string, any>) => window.history.pushState(null, '', path),
 		unsavedConfirmationModal,
-		onSavedNewAppPath
+		onSavedNewAppPath,
+		onNavigate,
+		initialRevs
 	}: AppEditorProps = $props()
 
 	migrateApp(untrack(() => app))
 
-	const stateApp = $state(untrack(() => app))
+	// Inside a session pane the AIChatManager is injected via context. Sessions
+	// have their own state machinery (sessionRuntime + per-fork backend), and
+	// the user-facing $workspaceStore stays on the main workspace even when
+	// the session is editing in a fork — so a UserDraft handle here would
+	// share its LS key with the regular /apps/edit route and clobber both
+	// sides' autosaves. Skip UserDraft entirely in that case.
+	const inSessionPane = !!getContext('aiChatManager')
+
+	const appDraftPath = newApp ? '' : (path ?? '')
+	const appDraftHandle = inSessionPane ? undefined : UserDraft.use<App>('app', appDraftPath)
+	// Prefer the persisted autosave over the prop when both exist (e.g.
+	// /apps/add reload: the route always initializes `app` to an empty
+	// template, but the user's last session is sitting in LS under the
+	// empty-path entry). The route is responsible for wiping the entry
+	// (`UserDraft.remove`) when it wants to force a fresh start —
+	// `?nodraft=true`, template/hub loads, etc.
+	const stateApp = $state(untrack(() => appDraftHandle?.draft ?? app))
 	const appStore = writable<App>(stateApp)
+	// Captured once on mount: the load-time revs are only used as the
+	// seed meta on the very first persist of this entry. After that the
+	// handle's own meta wins.
+	const capturedInitialRevs = untrack(() => initialRevs)
+	// `useLocalStorageValue`'s `saveInitialValue: false` skips the first
+	// `set val` that DIFFERS from the loaded LS state — meant to absorb a
+	// route's "load baseline" write. In AppEditor's $effect-mirror pattern
+	// the loaded baseline always matches LS (stateApp is initialised from
+	// the handle's draft), so the skip slot survives until the user's
+	// FIRST edit and silently swallows it. Consume the slot up-front with
+	// a wipe-then-restore pair: the wipe sets state.val = undefined
+	// in-memory (the consumption side-effect of skipNextWrite, which
+	// suppresses the localStorage delete the wipe would otherwise schedule),
+	// and the restore immediately puts the value+meta back. Net effect: LS
+	// gets re-written once on mount and user edits persist normally.
+	let firstMirror = true
+	$effect(() => {
+		readFieldsRecursively(stateApp)
+		if (!appDraftHandle) return
+		untrack(() => {
+			// Resolve the meta to attach BEFORE the wipe — the wipe clears
+			// in-memory meta and would otherwise force-seed `initialRevs`
+			// even when the handle had real meta.
+			const currentMeta = appDraftHandle.meta
+			const hasMeta =
+				currentMeta.remoteRev !== undefined || currentMeta.remoteDraftRev !== undefined
+			const meta: UserDraftMeta = hasMeta ? currentMeta : (capturedInitialRevs ?? {})
+			if (firstMirror) {
+				firstMirror = false
+				appDraftHandle.setDraftAndMeta(undefined, {})
+			}
+			appDraftHandle.setDraftAndMeta(stateApp, meta)
+		})
+	})
 	const selectedComponent = writable<string[] | undefined>(undefined)
 
 	// $: selectedComponent.subscribe((s) => {
@@ -122,7 +175,7 @@
 		groups: $userStore?.groups,
 		username: $userStore?.username,
 		name: $userStore?.name,
-		query: urlParamsToObject(new URL(window.location.href).searchParams),
+		query: urlParamsToObject(new URL(window.location.href).searchParams, { stripReserved: true }),
 		hash: window.location.hash.substring(1),
 		workspace: $workspaceStore,
 		mode: 'editor',
@@ -166,7 +219,7 @@
 		runnableComponents: writable({}),
 		appPath: writablePath,
 		workspace: $workspaceStore ?? '',
-		onchange: () => saveFrontendDraft(),
+		onchange: undefined,
 		isEditor: true,
 		jobs: writable([]),
 		staticExporter: writable({}),
@@ -218,19 +271,6 @@
 		scale,
 		stylePanel: () => StylePanel
 	})
-
-	let timeout: number | undefined = undefined
-
-	function saveFrontendDraft() {
-		timeout && clearTimeout(timeout)
-		timeout = setTimeout(() => {
-			try {
-				localStorage.setItem(path != '' ? `app-${path}` : 'app', encodeState($appStore))
-			} catch (err) {
-				console.error('Error storing frontend draft in localStorage', err)
-			}
-		}, 500)
-	}
 
 	function hashchange(e: HashChangeEvent) {
 		context.hash = e.newURL.split('#')[1]
@@ -755,9 +795,6 @@
 		path && untrack(() => onPathChange())
 	})
 	$effect(() => {
-		$appStore && untrack(() => saveFrontendDraft())
-	})
-	$effect(() => {
 		context.mode = $mode == 'dnd' ? 'editor' : 'viewer'
 	})
 	let width = $derived(
@@ -857,6 +894,7 @@
 			rightPanelHidden={rightPanelSize === 0}
 			bottomPanelHidden={runnablePanelSize === 0}
 			{onSavedNewAppPath}
+			{onNavigate}
 			onShowLeftPanel={() => showLeftPanel()}
 			onShowRightPanel={() => showRightPanel()}
 			onShowBottomPanel={() => showBottomPanel()}

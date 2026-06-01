@@ -22,6 +22,7 @@ import {
   showConflict,
   showDiff,
   extractNativeTriggerInfo,
+  redactEncryptionKey,
 } from "../../types.ts";
 import { downloadZip } from "./pull.ts";
 import { runLint, printReport, checkMissingLocks } from "../lint/lint.ts";
@@ -68,7 +69,16 @@ import {
   isSpecificItem,
   SpecificItemsConfig,
 } from "../../core/specific_items.ts";
-import { getCurrentGitBranch, isGitRepository } from "../../utils/git.ts";
+import {
+  getCurrentGitBranch,
+  isGitRepository,
+  computeGitSyncDeployBranch,
+  checkoutGitSyncDeployBranch,
+  gitSyncDeployPush,
+  deriveGitSyncDeployIncludes,
+  isForkWorkspace,
+  type GitSyncDeployItem,
+} from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
 import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
@@ -2381,7 +2391,18 @@ async function pushParentScriptForModule(
 
 export async function pull(
   opts: GlobalOptions &
-    SyncOptions & { repository?: string; promotion?: string; branch?: string },
+    SyncOptions & {
+      repository?: string;
+      promotion?: string;
+      branch?: string;
+      useIndividualBranch?: boolean;
+      groupByFolder?: boolean;
+      gitDeployItems?: string;
+      onlyCreateBranch?: boolean;
+      parentWorkspaceId?: string;
+      gitCommitterEmail?: string;
+      gitCommitterName?: string;
+    },
 ) {
   if ((opts as any).jsonOutput) log.setSilent(true);
   const originalCliOpts = { ...opts };
@@ -2431,6 +2452,75 @@ export async function pull(
 
   const workspace = await resolveWorkspace(opts, wsNameForConfig);
   await requireLogin(opts);
+
+  // Git-sync deployment-callback mode: when invoked from the git-sync hub
+  // script with --git-deploy-items, the CWD is an existing clone of the repo.
+  // Switch to the dedicated wm_deploy/fork branch (when applicable) BEFORE any
+  // files are written so the deploy lands on the right branch instead of the
+  // protected base branch.
+  if (opts.gitDeployItems !== undefined) {
+    let deployItems: GitSyncDeployItem[];
+    try {
+      deployItems = JSON.parse(opts.gitDeployItems);
+    } catch (e) {
+      log.error(`Invalid --git-deploy-items JSON: ${e}`);
+      process.exit(1);
+    }
+    const clonedBranchName = getCurrentGitBranch() ?? "main";
+
+    // Fork workspaces force-disable use_individual_branch / group_by_folder
+    // (1:1 with the hub script's inner()).
+    const targetIsFork = isForkWorkspace(workspace.workspaceId);
+    const useIndividualBranch = targetIsFork
+      ? false
+      : !!opts.useIndividualBranch;
+    const groupByFolder = targetIsFork ? false : !!opts.groupByFolder;
+
+    // Fork-of-a-fork: only when the parent workspace is itself a fork, root
+    // the new branch on the parent's fork branch (mirrors the hub script's
+    // `parent_workspace_id?.startsWith(FORKED_…)` gate).
+    if (opts.parentWorkspaceId && isForkWorkspace(opts.parentWorkspaceId)) {
+      const parentBranch = computeGitSyncDeployBranch({
+        workspaceId: opts.parentWorkspaceId,
+        items: deployItems,
+        useIndividualBranch,
+        groupByFolder,
+        clonedBranchName,
+      });
+      if (parentBranch && parentBranch !== clonedBranchName) {
+        checkoutGitSyncDeployBranch(parentBranch);
+      }
+    }
+
+    const deployBranch = computeGitSyncDeployBranch({
+      workspaceId: workspace.workspaceId,
+      items: deployItems,
+      useIndividualBranch,
+      groupByFolder,
+      clonedBranchName,
+    });
+    if (deployBranch && deployBranch !== clonedBranchName) {
+      checkoutGitSyncDeployBranch(deployBranch);
+    }
+
+    if (opts.onlyCreateBranch) {
+      // Branch-only publish: there is no commit here, so the GPG-cache-warmth
+      // invariant that motivated moving commit+push to the hub script (WIN-1974,
+      // #9284) does not apply — a bare `git push` of the (empty) branch ref needs
+      // no signing. The hub script only runs its in-process commit+push for the
+      // non-onlyCreateBranch path (`if (!only_create_branch) git_push(...)`), so
+      // the CLI MUST publish the fork branch here or it is never pushed at all.
+      gitSyncDeployPush({
+        items: deployItems,
+        authorName: process.env["WM_USERNAME"] || "windmill",
+        authorEmail: process.env["WM_EMAIL"] || "windmill@windmill.dev",
+        committerName: opts.gitCommitterName,
+        committerEmail: opts.gitCommitterEmail,
+        onlyCreateBranch: true,
+      });
+      return;
+    }
+  }
 
   // If wsNameForConfig wasn't set from flags, infer from the resolved profile
   if (!wsNameForConfig) {
@@ -2781,7 +2871,7 @@ export async function pull(
       await generateAppLocksInternal(
         change,
         true,
-        true,
+        false,
         workspace,
         opts,
         true,
@@ -2898,6 +2988,79 @@ export async function pull(
   } catch (e) {
     log.warn(`Failed to pull shared UI folder: ${e}`);
   }
+
+  // Git-sync deployment-callback mode stops here: branch checkout + pull have
+  // happened, but commit + push are the caller's job. The hub script does
+  // them in-process with `set_gpg_signing_secret` so the agent's pre-warmed
+  // passphrase cache is still warm at sign time (WIN-1974). `gitSyncDeployPush`
+  // stays exported for callers that want the same commit/push behavior.
+}
+
+// Internal git-sync deployment-callback entrypoint. Invoked only by the
+// git-sync hub script (not user-facing — see the hidden `git-deploy`
+// subcommand). Runs inside an existing clone of the repo: switches to the
+// wm_deploy/fork branch when applicable, pulls the workspace content, then
+// commits and pushes. Delegates to `pull` with deploy options set;
+// non-interactive and branch-validation-free since there is no TTY.
+export async function gitDeploy(
+  opts: GlobalOptions &
+    SyncOptions & {
+      repository?: string;
+      gitDeployItems?: string;
+      useIndividualBranch?: boolean;
+      groupByFolder?: boolean;
+      onlyCreateBranch?: boolean;
+      parentWorkspaceId?: string;
+      skipSecrets?: boolean;
+      gitCommitterEmail?: string;
+      gitCommitterName?: string;
+    },
+) {
+  let items: GitSyncDeployItem[] = [];
+  if (opts.gitDeployItems !== undefined) {
+    try {
+      items = JSON.parse(opts.gitDeployItems);
+    } catch (e) {
+      log.error(`Invalid --git-deploy-items JSON: ${e}`);
+      process.exit(1);
+    }
+  }
+
+  // Fork workspaces force-disable use_individual_branch / group_by_folder
+  // (1:1 with the hub script's inner()): a fork always syncs to its own
+  // wm-fork/<branch>/<id> branch, and — critically — that disabling also
+  // flips the include/promotion derivation below.
+  const isFork = isForkWorkspace(opts.workspace ?? "");
+  const useIndividualBranch = isFork ? false : !!opts.useIndividualBranch;
+
+  // Derive the include filters from the deployed items (replaces the hub
+  // script's regexFromPath + per-kind --include-* construction).
+  const includes = deriveGitSyncDeployIncludes(items, useIndividualBranch);
+
+  // Promotion: in individual-branch mode, apply promotionOverrides from the
+  // base branch the repo was cloned on (read now, before `pull` checks out
+  // the wm_deploy branch). Mirrors the hub script's `--promotion <branch>`.
+  const promotion =
+    useIndividualBranch && !opts.promotion
+      ? getCurrentGitBranch() ?? undefined
+      : opts.promotion;
+
+  await pull({
+    ...opts,
+    yes: true,
+    skipBranchValidation: true,
+    extraIncludes: [
+      ...(opts.extraIncludes ?? []),
+      ...includes.extraIncludes,
+    ],
+    includeSchedules: opts.includeSchedules || includes.includeSchedules,
+    includeGroups: opts.includeGroups || includes.includeGroups,
+    includeUsers: opts.includeUsers || includes.includeUsers,
+    includeTriggers: opts.includeTriggers || includes.includeTriggers,
+    includeSettings: opts.includeSettings || includes.includeSettings,
+    includeKey: opts.includeKey || includes.includeKey,
+    promotion,
+  } as any);
 }
 
 function prettyChanges(
@@ -2945,16 +3108,22 @@ function prettyChanges(
         ),
       );
     } else if (change.name === "edited") {
+      const changeType = getTypeStrFromPath(change.path);
       log.info(
         colors.yellow(
-          `~ ${getTypeStrFromPath(change.path)} ` +
+          `~ ${changeType} ` +
             displayPath +
             colors.gray(wsNote) +
             (change.codebase ? ` (codebase changed)` : ""),
         ),
       );
       if (change.before != change.after) {
-        if (change.path.endsWith(".yaml")) {
+        if (changeType === "encryption_key") {
+          showDiff(
+            redactEncryptionKey(change.before),
+            redactEncryptionKey(change.after),
+          );
+        } else if (change.path.endsWith(".yaml")) {
           try {
             showDiff(
               yamlStringify(
@@ -4550,6 +4719,47 @@ const command = new Command()
     "--accept-overriding-permissioned-as-with-self",
     "Accept that items with a different permissioned_as will be updated with your own user",
   )
-  .action(push as any);
+  .action(push as any)
+  // Internal: invoked only by the git-sync hub script. Hidden from help and
+  // the generated agent system prompts (see system_prompts/generate.py).
+  .command("git-deploy")
+  .hidden()
+  .description(
+    "Internal git-sync deployment-callback step (used by the git-sync hub script). Runs inside an existing clone: switches to the wm_deploy/fork branch when applicable, pulls workspace content, then commits and pushes.",
+  )
+  .option(
+    "--repository <repo:string>",
+    "Repository resource path (e.g. u/user/repo)",
+  )
+  .option(
+    "--git-deploy-items <json:string>",
+    "JSON array of {path_type,path,parent_path,commit_msg} being deployed",
+  )
+  .option(
+    "--use-individual-branch",
+    "Push each deployed object to its own wm_deploy/<workspace>/<...> branch",
+  )
+  .option(
+    "--group-by-folder",
+    "With --use-individual-branch, group deployed objects per folder branch",
+  )
+  .option(
+    "--only-create-branch",
+    "Only create/push the deploy branch, skip pulling and committing files",
+  )
+  .option(
+    "--parent-workspace-id <id:string>",
+    "Parent workspace id, used to root a fork-of-a-fork branch",
+  )
+  .option("--skip-secrets", "Skip syncing only secrets variables")
+  .option(
+    "--git-committer-email <email:string>",
+    "Committer email for the deploy commit (GPG-signed repos pass the GPG key email; defaults to WM_EMAIL)",
+  )
+  .option(
+    "--git-committer-name <name:string>",
+    "Committer name for the deploy commit (defaults to WM_USERNAME)",
+  )
+  .action(gitDeploy as any);
 
 export default command;

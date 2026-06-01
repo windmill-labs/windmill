@@ -22,8 +22,8 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 use crate::{
     common::{
         build_command_with_isolation, capitalize, create_args_and_out_file, get_reserved_variables,
-        read_result, resolve_nsjail_timeout, start_child_process, OccupancyMetrics,
-        DEV_CONF_NSJAIL,
+        read_result, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
+        OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry, DISABLE_NUSER, GOPRIVATE, GOPROXY, GO_BIN_CACHE_DIR,
@@ -351,6 +351,10 @@ func Run(req Req) (interface{{}}, error){{
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                )
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());

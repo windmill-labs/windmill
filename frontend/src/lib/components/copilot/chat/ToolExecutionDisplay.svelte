@@ -1,11 +1,14 @@
 <script lang="ts">
 	import { Loader2, ChevronDown, ChevronRight, XCircle, Play } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
-	import { aiChatManager } from './AIChatManager.svelte'
+	import { getAiChatManager } from './aiChatManagerContext'
+
+	const aiChatManager = getAiChatManager()
 	import type { ToolDisplayMessage } from './shared'
 	import { twMerge } from 'tailwind-merge'
 	import ToolContentDisplay from './ToolContentDisplay.svelte'
 	import ToolMessageActions from './ToolMessageActions.svelte'
+	import AskUserQuestionDisplay from './AskUserQuestionDisplay.svelte'
 
 	interface Props {
 		message: ToolDisplayMessage
@@ -17,8 +20,16 @@
 		message.parameters !== undefined && Object.keys(message.parameters).length > 0
 	)
 
+	const isSuccessful = $derived(
+		!message.isLoading &&
+			!message.error &&
+			!message.needsConfirmation &&
+			!message.isStreamingArguments
+	)
+	const autoCollapseDetails = $derived(message.autoCollapseDetails !== false)
+
 	let isExpanded = $derived(
-		message.showDetails ||
+		(message.showDetails && (!isSuccessful || !autoCollapseDetails)) ||
 			(message.isStreamingArguments && hasParameters) ||
 			(message.isLoading && message.needsConfirmation)
 	)
@@ -28,111 +39,126 @@
 			? message.actions
 			: []
 	)
+
+	const activeUserQuestion = $derived(
+		message.userQuestion &&
+			message.isLoading &&
+			!message.error &&
+			!message.userQuestion.selectedChoice &&
+			!message.userQuestion.canceled
+			? message.userQuestion
+			: undefined
+	)
 </script>
 
-<div
-	class="bg-surface border border-gray-200 dark:border-gray-700 rounded-md overflow-hidden font-mono text-xs"
->
-	<!-- Collapsible Header -->
-	<button
-		class={twMerge(
-			'w-full p-2 bg-surface-secondary hover:bg-surface-hover transition-colors flex items-center justify-between text-left border-b border-gray-200 dark:border-gray-700',
-			message.needsConfirmation ? 'opacity-80' : ''
-		)}
-		onclick={() => (isExpanded = !isExpanded)}
-		disabled={!message.showDetails && !message.isStreamingArguments}
-	>
-		<div class="flex items-center gap-2 flex-1">
-			{#if message.showDetails || message.isStreamingArguments}
-				{#if isExpanded}
-					<ChevronDown class="w-3 h-3 text-secondary" />
-				{:else}
-					<ChevronRight class="w-3 h-3 text-secondary" />
+{#if activeUserQuestion}
+	<AskUserQuestionDisplay toolCallId={message.tool_call_id} userQuestion={activeUserQuestion} />
+{:else}
+	<div class="bg-surface border border-border-light rounded-md overflow-hidden font-mono text-xs">
+		<!-- Collapsible Header -->
+		<button
+			class={twMerge(
+				'w-full p-2 bg-surface-secondary/30 hover:bg-surface-hover transition-colors flex items-center justify-between text-left',
+				isExpanded ? 'border-b border-border-light' : '',
+				message.needsConfirmation ? 'opacity-80' : ''
+			)}
+			onclick={() => (isExpanded = !isExpanded)}
+			disabled={!message.showDetails && !message.isStreamingArguments}
+		>
+			<div class="flex items-center gap-2 flex-1">
+				{#if message.showDetails || message.isStreamingArguments}
+					{#if isExpanded}
+						<ChevronDown class="w-3 h-3 text-secondary" />
+					{:else}
+						<ChevronRight class="w-3 h-3 text-secondary" />
+					{/if}
 				{/if}
-			{/if}
 
-			{#if message.isLoading && !message.needsConfirmation}
-				<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500" />
-			{:else if message.error}
-				<span class="text-red-500">✗</span>
-			{:else if !message.isLoading && !message.error}
-				<span class="text-green-500">✓</span>
-			{/if}
-			<span class="text-primary font-medium text-2xs">
-				{message.content}
-			</span>
-		</div>
-	</button>
+				{#if message.isLoading && !message.needsConfirmation}
+					<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500" />
+				{:else if message.error}
+					<span class="text-red-500">✗</span>
+				{:else if !message.isLoading && !message.error}
+					<span class="text-green-500">✓</span>
+				{/if}
+				<span class="text-primary font-medium text-2xs">
+					{message.content}
+				</span>
+			</div>
+		</button>
 
-	<!-- Expanded Content -->
-	{#if isExpanded}
-		<div class="p-2 bg-surface space-y-3">
-			<!-- Parameters Section - show if we have parameters, or if confirmation is needed (even with empty params) -->
-			{#if hasParameters || message.needsConfirmation}
-				<div class={message.needsConfirmation ? 'opacity-80' : ''}>
+		<!-- Expanded Content -->
+		{#if isExpanded}
+			<div class="p-2 bg-surface space-y-3">
+				<!-- Parameters Section - show if we have parameters, or if confirmation is needed (even with empty params) -->
+				{#if hasParameters || message.needsConfirmation}
+					<div class={message.needsConfirmation ? 'opacity-80' : ''}>
+						<ToolContentDisplay
+							title="Parameters"
+							content={message.parameters}
+							streaming={message.isStreamingArguments}
+							toolName={message.toolName}
+							showFade={message.showFade}
+						/>
+					</div>
+				{/if}
+
+				<!-- Confirmation Footer -->
+				{#if message.needsConfirmation}
+					<div
+						class={twMerge(
+							'mt-3 pt-3 flex flex-row items-center justify-end gap-2',
+							hasParameters ? 'border-t border-border-light' : ''
+						)}
+					>
+						<Button
+							variant="default"
+							size="xs"
+							on:click={() => {
+								if (message.tool_call_id) {
+									aiChatManager.handleToolConfirmation(message.tool_call_id, false)
+								}
+							}}
+							startIcon={{ icon: XCircle }}
+							destructive
+						></Button>
+						<Button
+							variant="accent"
+							size="xs"
+							on:click={() => {
+								if (message.tool_call_id) {
+									aiChatManager.handleToolConfirmation(message.tool_call_id, true)
+								}
+							}}
+							startIcon={{ icon: Play }}
+						>
+							Run
+						</Button>
+					</div>
+
+					<!-- Logs and Result - hide while streaming -->
+				{:else if !message.isStreamingArguments}
 					<ToolContentDisplay
-						title="Parameters"
-						content={message.parameters}
-						streaming={message.isStreamingArguments}
-						toolName={message.toolName}
+						title="Logs"
+						content={message.logs}
+						loading={message.isLoading}
+						showWhileLoading={false}
 						showFade={message.showFade}
 					/>
-				</div>
-			{/if}
 
-			<!-- Confirmation Footer -->
-			{#if message.needsConfirmation}
-				<div
-					class={twMerge(
-						'mt-3 pt-3 flex flex-row items-center justify-end gap-2',
-						hasParameters ? 'border-t border-gray-200 dark:border-gray-700' : ''
-					)}
-				>
-					<Button
-						variant="default"
-						size="xs"
-						on:click={() => {
-							if (message.tool_call_id) {
-								aiChatManager.handleToolConfirmation(message.tool_call_id, false)
-							}
-						}}
-						startIcon={{ icon: XCircle }}
-						destructive
-					></Button>
-					<Button
-						variant="accent"
-						size="xs"
-						on:click={() => {
-							if (message.tool_call_id) {
-								aiChatManager.handleToolConfirmation(message.tool_call_id, true)
-							}
-						}}
-						startIcon={{ icon: Play }}
-					>
-						Run
-					</Button>
-				</div>
-
-				<!-- Logs and Result - hide while streaming -->
-			{:else if !message.isStreamingArguments}
-				<ToolContentDisplay
-					title="Logs"
-					content={message.logs}
-					loading={message.isLoading}
-					showWhileLoading={false}
-				/>
-
-				{#if visibleActions.length > 0}
-					<ToolMessageActions actions={visibleActions} />
-				{:else}
-					<ToolContentDisplay
-						title="Result"
-						content={message.result}
-						error={message.error}
-						loading={message.isLoading}
-					/>
+					{#if visibleActions.length > 0}
+						<ToolMessageActions actions={visibleActions} />
+					{:else}
+						<ToolContentDisplay
+							title="Result"
+							content={message.result}
+							error={message.error}
+							loading={message.isLoading}
+							showFade={message.showFade}
+						/>
+					{/if}
 				{/if}
-			{/if}
-		</div>
-	{/if}
-</div>
+			</div>
+		{/if}
+	</div>
+{/if}

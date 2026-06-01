@@ -26,8 +26,8 @@ lazy_static::lazy_static! {
 use crate::{
     common::{
         build_args_map, build_command_with_isolation, get_reserved_variables, read_file,
-        read_file_content, resolve_nsjail_timeout, start_child_process, MaybeLock,
-        OccupancyMetrics,
+        read_file_content, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
+        MaybeLock, OccupancyMetrics,
     },
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry_with_workspace_override, DISABLE_NUSER, HOME_ENV,
@@ -682,6 +682,10 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{CACHE_DIR}", &*POWERSHELL_CACHE_DIR)
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                )
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
         let cmd_args = vec![

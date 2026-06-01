@@ -6,8 +6,13 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::{BTreeSet, HashMap},
+    time::Duration,
+};
 
+#[cfg(feature = "parquet")]
+mod audit_logs_s3;
 #[cfg(feature = "parquet")]
 mod background_task;
 #[cfg(feature = "private")]
@@ -45,6 +50,8 @@ use windmill_common::secret_backend::{
     AwsSecretsManagerSettings, AzureKeyVaultSettings, SecretMigrationReport, VaultSettings,
 };
 use windmill_common::{
+    auth::is_super_admin_email,
+    ee_oss::{get_license_plan, LicensePlan},
     email_oss::send_email_plain_text,
     error::{self, JsonResult, Result},
     get_database_url,
@@ -52,12 +59,15 @@ use windmill_common::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_HUB_SETTING,
         EMAIL_DOMAIN_SETTING, ENV_SETTINGS, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
-        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING, RUFF_CONFIG_SETTING, WS_BASE_URL_SETTING,
+        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING, RUFF_CONFIG_SETTING,
+        WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
+        WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
+        WS_BASE_URL_SETTING,
     },
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
 };
-use windmill_common::{error::to_anyhow, PgDatabase};
+use windmill_common::{error::to_anyhow, worker::CLOUD_HOSTED, PgDatabase};
 
 /// Unauthenticated settings routes.
 ///
@@ -193,7 +203,8 @@ pub fn global_service() -> Router {
                 get(get_object_storage_usage).post(compute_object_storage_usage),
             )
             .route("/run_log_cleanup", post(run_log_cleanup))
-            .route("/log_cleanup_status", get(log_cleanup_status));
+            .route("/log_cleanup_status", get(log_cleanup_status))
+            .route("/audit_logs_s3_status", get(audit_logs_s3_status));
     }
 
     #[cfg(not(feature = "parquet"))]
@@ -331,6 +342,15 @@ async fn log_cleanup_status(
     Ok(Json(log_cleanup::get_status(&db).await?))
 }
 
+#[cfg(feature = "parquet")]
+async fn audit_logs_s3_status(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> error::JsonResult<Option<audit_logs_s3::AuditLogsS3ExportStatus>> {
+    require_super_admin(&db, &authed.email).await?;
+    Ok(Json(audit_logs_s3::get_status(&db).await?))
+}
+
 #[derive(Deserialize)]
 pub struct TestKey {
     pub license_key: String,
@@ -434,6 +454,27 @@ pub async fn delete_global_setting(db: &DB, key: &str) -> error::Result<()> {
     tracing::info!("Unset global setting {}", key);
     Ok(())
 }
+/// Returns true when `key` is one of the workspace-fairness settings whose
+/// writes must be gated to cloud only.
+fn is_workspace_fairness_setting(key: &str) -> bool {
+    matches!(
+        key,
+        WORKSPACE_FAIRNESS_ENABLED_SETTING
+            | WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING
+            | WORKSPACE_FAIRNESS_DURATION_SECS_SETTING
+            | WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING
+    )
+}
+
+/// Enterprise gate for the workspace-fairness settings. Workspace fairness is
+/// only useful on multi-tenant clusters where one workspace can starve other
+/// workspaces sharing the same worker pool, and the feature is licensed as
+/// part of Enterprise. Non-EE installs are rejected at write time; the runtime
+/// dispatch additionally honours the `WORKSPACE_FAIRNESS_ENABLED` toggle.
+async fn workspace_fairness_settings_allowed() -> bool {
+    matches!(get_license_plan().await, LicensePlan::Enterprise)
+}
+
 pub async fn set_global_setting(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
@@ -455,6 +496,31 @@ pub async fn set_global_setting_internal(
     } else {
         value
     };
+
+    // EE gate for workspace-fairness settings. Workspace fairness only matters
+    // on multi-tenant clusters; it is licensed as an Enterprise feature so the
+    // setter rejects writes from non-EE builds. Disabling/clearing writes are
+    // *always* allowed regardless of license, so an admin who downgrades from
+    // EE (or imports a row from a cloned EE DB) can always turn the cap off:
+    //   - `Null` / empty-string  → row delete
+    //   - `Bool(false)` on `workspace_fairness_enabled` → explicit disable
+    // Without the `Bool(false)` carve-out, a stale `enabled=true` row from a
+    // downgrade would be impossible to flip off through the normal API/UI
+    // and the runtime path (which only checks the toggle) would keep
+    // throttling.
+    let is_clearing_value = matches!(&value, serde_json::Value::Null)
+        || matches!(&value, serde_json::Value::String(s) if s.trim().is_empty())
+        || (key == WORKSPACE_FAIRNESS_ENABLED_SETTING
+            && matches!(&value, serde_json::Value::Bool(false)));
+    if is_workspace_fairness_setting(&key)
+        && !is_clearing_value
+        && !workspace_fairness_settings_allowed().await
+    {
+        return Err(error::Error::BadRequest(format!(
+            "{} requires an Enterprise license",
+            key
+        )));
+    }
 
     run_setting_pre_write_hook(db, &key, &value).await?;
 
@@ -533,7 +599,10 @@ async fn run_setting_pre_write_hook(
                 )));
             };
 
-            if !*workspaced_route {
+            // Cloud always scopes app custom paths by workspace_id (see
+            // `custom_path_exists` in apps.rs), so duplicates across workspaces
+            // are expected and this setting has no runtime effect on cloud.
+            if !*workspaced_route && !*CLOUD_HOSTED {
                 #[derive(Debug, Deserialize, Serialize)]
                 #[allow(unused)]
                 struct DuplicateApp {
@@ -596,7 +665,11 @@ async fn run_setting_pre_write_hook(
                 )));
             };
 
-            if !*workspaced_route {
+            // Cloud always scopes routes by workspace_id (see
+            // `route_path_key_exists` in windmill-trigger-http), so duplicates
+            // across workspaces are expected and this setting has no runtime
+            // effect on cloud.
+            if !*workspaced_route && !*CLOUD_HOSTED {
                 #[derive(Debug, Deserialize, Serialize)]
                 #[allow(unused)]
                 struct DuplicateRoute {
@@ -713,6 +786,27 @@ async fn set_instance_config(
             .upserts
             .iter()
             .any(|(key, _)| key == AI_CONFIG_SETTING);
+
+        // Mirror the per-key EE gate in `set_global_setting_internal`. Without
+        // this, the bulk endpoint would let a non-EE superadmin persist
+        // `workspace_fairness_*` rows even though the per-key API rejects them.
+        // Only block *non-disabling* upserts; deletes are allowed everywhere
+        // (already filtered into `settings_diff.removals`) and a
+        // `workspace_fairness_enabled=false` upsert is treated as a disable,
+        // so a downgraded instance can always turn the cap off via the bulk
+        // YAML endpoint too.
+        let upserts_touch_fairness_non_disable = settings_diff.upserts.iter().any(|(k, v)| {
+            if !is_workspace_fairness_setting(k) {
+                return false;
+            }
+            !(k == WORKSPACE_FAIRNESS_ENABLED_SETTING
+                && matches!(v, serde_json::Value::Bool(false)))
+        });
+        if upserts_touch_fairness_non_disable && !workspace_fairness_settings_allowed().await {
+            return Err(error::Error::BadRequest(
+                "Workspace fairness settings require an Enterprise license".to_string(),
+            ));
+        }
 
         for (key, value) in &settings_diff.upserts {
             run_setting_pre_write_hook(&db, key, value).await?;
@@ -1045,6 +1139,8 @@ struct CustomInstanceDb {
     success: bool,
     error: Option<String>,
     tag: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    used_by_workspaces: Vec<String>,
 }
 
 #[derive(Deserialize, Debug, Serialize, Default)]
@@ -1064,7 +1160,7 @@ struct CustomInstanceDbLogs {
 }
 
 async fn list_custom_instance_pg_databases(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<HashMap<String, CustomInstanceDb>> {
     let result = sqlx::query_scalar!(
@@ -1073,12 +1169,57 @@ async fn list_custom_instance_pg_databases(
     .fetch_one(&db)
     .await?
     .ok_or_else(|| error::Error::ExecutionErr("Couldn't find custom_instance_pg_databases".to_string()))?;
-    let result = serde_json::from_value(result).map_err(|e| {
-        error::Error::ExecutionErr(format!(
-            "couldn't parse custom_instance_pg_databases.databases : {}",
-            e.to_string()
-        ))
-    })?;
+    let mut result: HashMap<String, CustomInstanceDb> =
+        serde_json::from_value(result).map_err(|e| {
+            error::Error::ExecutionErr(format!(
+                "couldn't parse custom_instance_pg_databases.databases : {}",
+                e.to_string()
+            ))
+        })?;
+
+    if is_super_admin_email(&db, &authed.email).await? {
+        // Enrich each database with the list of workspaces referencing it through
+        // either a ducklake catalog or a datatable database whose resource_type is
+        // 'instance'. Not stored in DB to avoid drift.
+        let usages = sqlx::query!(
+            r#"
+            SELECT ws.workspace_id AS "workspace_id!", entry->'catalog'->>'resource_path' AS dbname
+            FROM workspace_settings ws
+            CROSS JOIN LATERAL jsonb_each(
+                CASE WHEN jsonb_typeof(ws.ducklake->'ducklakes') = 'object'
+                    THEN ws.ducklake->'ducklakes'
+                    ELSE '{}'::jsonb END
+            ) AS dl(k, entry)
+            WHERE entry->'catalog'->>'resource_type' = 'instance'
+            AND entry->'catalog'->>'resource_path' IS NOT NULL
+            UNION ALL
+            SELECT ws.workspace_id AS "workspace_id!", entry->'database'->>'resource_path' AS dbname
+            FROM workspace_settings ws
+            CROSS JOIN LATERAL jsonb_each(
+                CASE WHEN jsonb_typeof(ws.datatable->'datatables') = 'object'
+                    THEN ws.datatable->'datatables'
+                    ELSE '{}'::jsonb END
+            ) AS dt(k, entry)
+            WHERE entry->'database'->>'resource_type' = 'instance'
+            AND entry->'database'->>'resource_path' IS NOT NULL
+            "#,
+        )
+        .fetch_all(&db)
+        .await?;
+
+        let mut by_db: HashMap<String, BTreeSet<String>> = HashMap::new();
+        for row in usages {
+            if let Some(dbname) = row.dbname {
+                by_db.entry(dbname).or_default().insert(row.workspace_id);
+            }
+        }
+        for (dbname, entry) in result.iter_mut() {
+            if let Some(workspaces) = by_db.remove(dbname) {
+                entry.used_by_workspaces = workspaces.into_iter().collect();
+            }
+        }
+    }
+
     return Ok(Json(result));
 }
 
@@ -1106,7 +1247,8 @@ async fn setup_custom_instance_pg_database(
     let result = setup_custom_instance_pg_database_inner(authed, &db, &dbname, &mut logs).await;
     let success = result.is_ok();
     let error = result.err().map(|e| e.to_string());
-    let status = CustomInstanceDb { logs, success, error, tag: body.tag };
+    let status =
+        CustomInstanceDb { logs, success, error, tag: body.tag, used_by_workspaces: vec![] };
     let status_json = serde_json::to_value(&status).map_err(to_anyhow)?;
     // Save that the database was setup successfully
     sqlx::query!(

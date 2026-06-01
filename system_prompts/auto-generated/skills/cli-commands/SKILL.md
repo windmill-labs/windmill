@@ -71,6 +71,27 @@ Show all available wmill.yaml configuration options
 
 - `config migrate` - Migrate wmill.yaml from gitBranches/environments to workspaces format
 
+### datatable
+
+datatable related commands
+
+**Subcommands:**
+
+- `datatable list` - list all datatables in the workspace
+  - `--json` - Output as JSON (for piping to jq)
+- `datatable run <sql:string>` - run a SQL query on a datatable
+  - `-n --name <name:string>` - Datatable name (default: main)
+  - `-s --silent` - Output only the final result as JSON. Useful for scripting.
+- `datatable serve` - Serve all datatables as a Postgres-wire endpoint (psql, DBeaver, pgAdmin); the client picks the datatable via the database name in its connection string
+  - `--port <port:number>` - Port to listen on (default: first free port in 5433-5500)
+  - `--host <host:string>` - Bind address (default: 127.0.0.1)
+  - `--password <password:string>` - Password for Postgres clients (default: generate a random password at startup)
+- `datatable psql` - Start a serve listener and launch psql connected to it
+  - `-n --name <name:string>` - Datatable to connect psql to (default: main)
+  - `--port <port:number>` - Port the proxy listens on (default: first free port in 5433-5500)
+  - `--host <host:string>` - Bind address for the proxy (default: 127.0.0.1)
+  - `--password <password:string>` - Password for the temporary Postgres proxy (default: generate a random password at startup)
+
 ### dependencies
 
 workspace dependencies related commands
@@ -100,6 +121,18 @@ Search Windmill documentation.
 **Options:**
 - `--json` - Output results as JSON.
 
+### ducklake
+
+ducklake related commands
+
+**Subcommands:**
+
+- `ducklake list` - list all ducklakes in the workspace
+  - `--json` - Output as JSON (for piping to jq)
+- `ducklake run <sql:string>` - run a SQL query on a ducklake
+  - `-n --name <name:string>` - Ducklake name (default: main)
+  - `-s --silent` - Output only the final result as JSON. Useful for scripting.
+
 ### flow
 
 flow related commands
@@ -120,10 +153,11 @@ flow related commands
 - `flow run <path:string>` - run a flow by path.
   - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - `-s --silent` - Do not ouput anything other then the final output. Useful for scripting.
-- `flow preview <flow_path:string>` - preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default.
+- `flow preview <flow_path:string>` - preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default. Pass --step <id> to run only one module in isolation (resolves nested steps inside branchone/branchall/forloopflow/whileloopflow plus the special preprocessor/failure modules; supported step types: rawscript, script, flow).
   - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - `-s --silent` - Do not output anything other then the final output. Useful for scripting.
   - `--remote` - Use deployed workspace scripts for PathScript steps instead of local files.
+  - `--step <step_id:string>` - Run only the named step instead of the whole flow. Honors --data as the step's args and --remote / local-PathScript resolution the same way the full-flow preview does.
 - `flow new <flow_path:string>` - create a new empty flow
   - `--summary <summary:string>` - flow summary
   - `--description <description:string>` - flow description
@@ -306,6 +340,10 @@ Manage jobs (list, inspect, cancel)
 - `job logs <id:string>` - Get job logs. For flows: aggregates all step logs
 - `job cancel <id:string>` - Cancel a running or queued job
   - `--reason <reason:string>` - Reason for cancellation
+- `job rerun <id:string>` - Re-run a completed job with the same args. Prints the new job UUID on stdout.
+- `job restart <id:string>` - Restart a completed flow at a given top-level step. Prints the new flow job UUID on stdout.
+  - `--step <stepId:string>` - Top-level step id to restart the flow from
+  - `--iteration <n:number>` - For a top-level branchall or for-loop step, the iteration to restart at
 
 ### jobs
 
@@ -335,6 +373,56 @@ Validate Windmill flow, schedule, and trigger YAML files in a directory
 - `--locks-required` - Fail if scripts or flow inline scripts that need locks have no locks
 - `-w, --watch` - Watch for file changes and re-lint automatically
 
+### object-storage
+
+**Alias:** `s3`
+
+**Subcommands:**
+
+- `object-storage list` - List configured object storages for the workspace (default + secondary).
+  - `--json` - Output as JSON (for piping to jq)
+- `object-storage files [prefix:string]` - List files in an object storage. Optionally filter by prefix.
+  - `--json` - Output as JSON (for piping to jq)
+  - `--max-keys <maxKeys:number>` - Page size (default 100)
+  - `--marker <marker:string>` - Pagination marker from a previous response
+  - `--storage <storage:string>` - Secondary storage name (omit for the workspace default)
+- `object-storage upload <local_path:string> <file_key:string>` - Upload a local file to object storage at the given file key.
+  - `--storage <storage:string>` - Secondary storage name
+  - `--content-type <contentType:string>` - Content-Type header to set on the object
+  - `--content-disposition <contentDisposition:string>` - Content-Disposition header to set on the object
+- `object-storage download <file_key:string> [output_path:string]` - Download an object to a local file (or stdout). Default output path is the basename of the file key in the current directory.
+  - `--storage <storage:string>` - Secondary storage name
+  - `--stdout` - Write file contents to stdout instead of a file
+- `object-storage delete <file_key:string>` - Delete an object from object storage. Prompts for confirmation unless --yes is set.
+  - `--storage <storage:string>` - Secondary storage name
+  - `--yes` - Skip the confirmation prompt
+- `object-storage move <src_file_key:string> <dest_file_key:string>` - Move an object within the same storage (rename or relocate by key).
+  - `--storage <storage:string>` - Secondary storage name
+- `object-storage info <file_key:string>` - Show metadata (size, mime, last-modified) for an object.
+  - `--json` - Output as JSON (for piping to jq)
+  - `--storage <storage:string>` - Secondary storage name
+- `object-storage preview <file_key:string>` - Preview the contents of an object (text/CSV). Use --bytes-from / --bytes-length to peek at a slice of binary files.
+  - `--storage <storage:string>` - Secondary storage name
+  - `--mime <mime:string>` - Override the detected mime type (e.g. text/csv)
+  - `--bytes-from <bytesFrom:number>` - Start offset in bytes
+  - `--bytes-length <bytesLength:number>` - Number of bytes to read
+  - `--csv-separator <csvSeparator:string>` - CSV column separator (default ,)
+  - `--csv-header` - Treat the first CSV row as a header
+
+### protection-rules
+
+**Subcommands:**
+
+- `protection-rules pull [workspace:string]` - Pull protection rules from Windmill into protection-rules.yaml for a workspace
+  - `--all` - Pull every workspace defined in wmill.yaml
+  - `--dry-run` - Show what would change without writing the file
+  - `--json-output` - Output in JSON format
+- `protection-rules push [workspace:string]` - Push protection rules from protection-rules.yaml to Windmill for a workspace (full reconcile: creates, updates, and deletes)
+  - `--all` - Push every workspace defined in protection-rules.yaml
+  - `--dry-run` - Show what would change without applying
+  - `--json-output` - Output in JSON format
+  - `--yes` - Skip the confirmation prompt (including deletions)
+
 ### queues
 
 List all queues with their metrics
@@ -344,6 +432,15 @@ List all queues with their metrics
 **Options:**
 - `--instance [instance]` - Name of the instance to push to, override the active instance
 - `--base-url [baseUrl]` - If used with --token, will be used as the base url for the instance
+
+### refresh
+
+Refresh wmill-managed project files (AGENTS.cli.md and skills)
+
+**Subcommands:**
+
+- `refresh prompts` - Refresh AGENTS.cli.md and managed skills. User-owned AGENTS.md and CLAUDE.md are never overwritten unless you opt in.
+  - `--yes` - Non-interactive: skip the migration prompt for existing AGENTS.md / CLAUDE.md without the expected include; defaults to appending the include.
 
 ### resource
 
@@ -648,3 +745,23 @@ workspace related commands
   - `--team-name <team_name:string>` - Slack team name
 - `workspace disconnect-slack`
 
+
+
+# Object Storage CLI
+
+`wmill object-storage` (alias `wmill s3`) exposes the workspace's object storage (S3-compatible: AWS S3, MinIO, GCS, R2, Azure Blob) over the per-workspace `/job_helpers/*` endpoints.
+
+## Key concepts (not obvious from per-command --help)
+
+- **`file_key` is the path inside the bucket** (e.g. `reports/2026-05/orders.csv`), not a Windmill path. Do NOT pass `u/...` or `f/...` here — those are Windmill paths to scripts/flows/resources, unrelated to objects in the bucket.
+- **Scope is the active workspace.** Object storage is configured per-workspace (default storage + optional secondary storages). Switching workspaces switches which bucket the commands target.
+- **`--storage <name>` targets a secondary storage** configured on the workspace. Omit it to use the workspace's default object storage. Use `wmill object-storage list` to discover configured storages.
+- **`preview` vs `download`**: `preview` returns a peek (CSV first rows, text content, or a byte slice via `--bytes-from`/`--bytes-length`) without writing to disk. Use `download` when you want the full file on disk.
+
+## Choosing a subcommand
+
+- Look at what's there: `wmill object-storage files [prefix]` (alias `ls`) — paginated, use `--marker` to continue.
+- Inspect one file: `wmill object-storage info <file_key>` for size/mime/last-modified, `wmill object-storage preview <file_key>` for content peek.
+- Move data in: `wmill object-storage upload <local_path> <file_key>` — set `--content-type` if the receiver cares (e.g. `text/csv`).
+- Move data out: `wmill object-storage download <file_key> [output_path]` — `--stdout` to pipe.
+- Reorganize: `wmill object-storage move <src> <dest>` (same storage), `wmill object-storage delete <file_key>` (interactive confirm unless `--yes`).

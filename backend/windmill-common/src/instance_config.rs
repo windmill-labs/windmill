@@ -221,6 +221,10 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub job_default_timeout: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub nsjail_tmpfs_size_mb: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nsjail_tmp_backing: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub bun_install_min_release_age: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uv_exclude_newer: Option<i64>,
@@ -582,6 +586,21 @@ pub struct OAuthConfig {
     pub req_body_auth: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub grant_types: Vec<String>,
+    /// Optional URL overrides for the provider's sandbox environment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<OAuthSandboxOverride>,
+}
+
+/// URL overrides for an OAuth provider's sandbox environment.
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+#[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
+pub struct OAuthSandboxOverride {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub userinfo_url: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -616,6 +635,12 @@ pub struct OtelTracingProxySettings {
     pub enabled: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub enabled_languages: Vec<ScriptLang>,
+    /// Comma-separated list of host patterns injected as NO_PROXY into jobs so their HTTP
+    /// clients bypass the local MITM tracing proxy. Independent of the worker's own
+    /// NO_PROXY env (which governs the proxy's upstream relay). Use this for clients that
+    /// pin their own CA (kubectl, helm, terraform providers, aws cli for EKS, etc.).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub no_proxy_hosts: Option<String>,
 }
 
 /// Script language identifier (for instance config use).

@@ -1,5 +1,11 @@
 <script module lang="ts">
 	export const EDITOR_BAR_WIDTH_THRESHOLD = 1420
+	// Below this width even the icon-only helpers cluster is too crowded —
+	// collapse them into a single "Helpers" dropdown menu.
+	export const EDITOR_BAR_HELPERS_COMPACT_THRESHOLD = 800
+	// Tighter threshold for editors embedded inline in narrow panes
+	// (flow-step editor, raw-app inline script editor).
+	export const EDITOR_BAR_HELPERS_INLINE_THRESHOLD = 600
 
 	function getImportWmillTsStatement(lang: string | undefined) {
 		if (lang === 'deno') {
@@ -51,7 +57,8 @@
 		Settings,
 		Users
 	} from 'lucide-svelte'
-	import { capitalize, formatS3Object, toCamel } from '$lib/utils'
+	import { capitalize, formatS3Object, toCamel, type Item } from '$lib/utils'
+	import DropdownV2 from './DropdownV2.svelte'
 	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
 	import { getResetCode } from '$lib/script_helpers'
@@ -77,6 +84,7 @@
 			shellcheck: boolean
 		}
 		iconOnly?: boolean
+		compactHelpers?: boolean
 		validCode?: boolean
 		kind?: 'script' | 'trigger' | 'approval'
 		template?:
@@ -112,6 +120,7 @@
 		editor,
 		websocketAlive,
 		iconOnly = false,
+		compactHelpers = false,
 		validCode = true,
 		kind = 'script',
 		template = 'script',
@@ -236,6 +245,82 @@
 
 	let codeViewer: Drawer | undefined = $state()
 	let codeObj: { language: SupportedLanguage; content: string } | undefined = $state(undefined)
+
+	function getHelperItems(): Item[] {
+		const items: Item[] = []
+		if (showContextVarPicker && customUi?.contextVar != false) {
+			items.push({
+				displayName: 'Context variable',
+				icon: DollarSign,
+				action: () => contextualVariablePicker?.openDrawer()
+			})
+		}
+		if (showVarPicker && customUi?.variable != false) {
+			items.push({
+				displayName: 'Variable',
+				icon: DollarSign,
+				action: () => variablePicker?.openDrawer()
+			})
+		}
+		if (showS3Picker && customUi?.s3object != false) {
+			items.push({
+				displayName: 'S3 object',
+				icon: File,
+				action: () => s3FilePicker?.open()
+			})
+		}
+		if (showResourcePicker && customUi?.resource != false) {
+			items.push({
+				displayName: 'Resource',
+				icon: Package,
+				action: () => resourcePicker?.openDrawer()
+			})
+		}
+		if (showGitRepoPicker && customUi?.resource != false) {
+			items.push({
+				displayName: 'Git repository',
+				icon: GitBranch,
+				action: () => (gitRepoPickerOpen = true)
+			})
+		}
+		if (showResourceTypePicker && customUi?.type != false) {
+			items.push({
+				displayName: 'Resource type',
+				icon: Package,
+				action: () => resourceTypePicker?.openDrawer()
+			})
+		}
+		if (showDatabasePicker && customUi?.database != false) {
+			items.push({
+				displayName: 'Database',
+				icon: DatabaseIcon,
+				action: () => databasePicker?.openDrawer()
+			})
+		}
+		if (showDucklakePicker && customUi?.ducklake != false) {
+			items.push({
+				displayName: 'Ducklake',
+				icon: DucklakeIcon,
+				action: () => ducklakePicker?.openDrawer()
+			})
+		}
+		if (showDataTablePicker && customUi?.dataTable != false) {
+			items.push({
+				displayName: 'Data table',
+				icon: DatabaseIcon,
+				action: () => dataTablePicker?.openDrawer()
+			})
+		}
+		if (customUi?.reset != false) {
+			items.push({
+				displayName: 'Reset content',
+				icon: RotateCw,
+				action: () => clearContent(),
+				separatorTop: items.length > 0
+			})
+		}
+		return items
+	}
 
 	function insertDelegateToGitRepo(resourcePath: string) {
 		if (!editor) return
@@ -864,153 +949,183 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			class="rounded-full w-2 h-2 mx-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
 		></div>
 		<div class="flex items-center gap-2">
-			{#if showContextVarPicker && customUi?.contextVar != false}
-				<Button
-					aiId="editor-bar-add-context-variable"
-					aiDescription="Add context variable"
-					title="Add context variable"
-					variant="subtle"
-					on:click={contextualVariablePicker.openDrawer}
-					unifiedSize="sm"
-					startIcon={{ icon: DollarSign }}
-					{iconOnly}
-					>+Context var
-				</Button>
-			{/if}
-			{#if showVarPicker && customUi?.variable != false}
-				<Button
-					aiId="editor-bar-add-variable"
-					aiDescription="Add variable"
-					title="Add variable"
-					variant="subtle"
-					on:click={variablePicker.openDrawer}
-					unifiedSize="sm"
-					startIcon={{ icon: DollarSign }}
-					{iconOnly}
-				>
-					+Variable
-				</Button>
-			{/if}
-
-			{#if showS3Picker && customUi?.s3object != false}
-				<Button
-					aiId="editor-bar-add-s3-object"
-					aiDescription="Add S3 Object"
-					title="Add S3 object"
-					variant="subtle"
-					on:click={() => s3FilePicker?.open()}
-					unifiedSize="sm"
-					startIcon={{ icon: File }}
-					{iconOnly}
-					>+S3 Object
-				</Button>
-			{/if}
-
-			{#if showResourcePicker && customUi?.resource != false}
-				<Button
-					aiId="editor-bar-add-resource"
-					aiDescription="Add resource"
-					title="Add resource"
-					unifiedSize="sm"
-					variant="subtle"
-					on:click={resourcePicker.openDrawer}
-					{iconOnly}
-					startIcon={{ icon: Package }}
-				>
-					+Resource
-				</Button>
-			{/if}
-
-			{#if showGitRepoPicker && customUi?.resource != false}
-				<GitRepoPopoverPicker
-					bind:isOpen={gitRepoPickerOpen}
-					on:selected={(e) => insertDelegateToGitRepo(e.detail.resourcePath)}
-				>
+			{#if compactHelpers}
+				{#snippet helpersDropdown()}
+					<DropdownV2 items={getHelperItems} placement="bottom-start">
+						{#snippet buttonReplacement()}
+							<Button
+								nonCaptureEvent
+								variant="subtle"
+								unifiedSize="sm"
+								startIcon={{ icon: Plus }}
+								title="Helpers"
+							>
+								Helpers
+							</Button>
+						{/snippet}
+					</DropdownV2>
+				{/snippet}
+				{#if showGitRepoPicker && customUi?.resource != false}
+					<!-- Wrap the Helpers dropdown so the Git-repo popover anchors to
+					     the visible Helpers button rather than an sr-only placeholder. -->
+					<GitRepoPopoverPicker
+						bind:isOpen={gitRepoPickerOpen}
+						on:selected={(e) => insertDelegateToGitRepo(e.detail.resourcePath)}
+					>
+						{@render helpersDropdown()}
+					</GitRepoPopoverPicker>
+				{:else}
+					{@render helpersDropdown()}
+				{/if}
+			{:else}
+				{#if showContextVarPicker && customUi?.contextVar != false}
 					<Button
-						aiId="editor-bar-add-git-repo"
-						aiDescription="Delegate to Git repository"
-						title="Delegate to Git repository"
+						aiId="editor-bar-add-context-variable"
+						aiDescription="Add context variable"
+						title="Add context variable"
+						variant="subtle"
+						on:click={contextualVariablePicker.openDrawer}
+						unifiedSize="sm"
+						startIcon={{ icon: DollarSign }}
+						{iconOnly}
+						>+Context var
+					</Button>
+				{/if}
+				{#if showVarPicker && customUi?.variable != false}
+					<Button
+						aiId="editor-bar-add-variable"
+						aiDescription="Add variable"
+						title="Add variable"
+						variant="subtle"
+						on:click={variablePicker.openDrawer}
+						unifiedSize="sm"
+						startIcon={{ icon: DollarSign }}
+						{iconOnly}
+					>
+						+Variable
+					</Button>
+				{/if}
+
+				{#if showS3Picker && customUi?.s3object != false}
+					<Button
+						aiId="editor-bar-add-s3-object"
+						aiDescription="Add S3 Object"
+						title="Add S3 object"
+						variant="subtle"
+						on:click={() => s3FilePicker?.open()}
+						unifiedSize="sm"
+						startIcon={{ icon: File }}
+						{iconOnly}
+						>+S3 Object
+					</Button>
+				{/if}
+
+				{#if showResourcePicker && customUi?.resource != false}
+					<Button
+						aiId="editor-bar-add-resource"
+						aiDescription="Add resource"
+						title="Add resource"
 						unifiedSize="sm"
 						variant="subtle"
-						on:click={() => (gitRepoPickerOpen = true)}
+						on:click={resourcePicker.openDrawer}
 						{iconOnly}
-						startIcon={{ icon: GitBranch }}
+						startIcon={{ icon: Package }}
 					>
-						+Git Repo
+						+Resource
 					</Button>
-				</GitRepoPopoverPicker>
-			{/if}
+				{/if}
 
-			{#if showResourceTypePicker && customUi?.type != false}
-				<Button
-					aiId="editor-bar-add-resource-type"
-					aiDescription="Add resource type"
-					title="Add resource type"
-					variant="subtle"
-					unifiedSize="sm"
-					on:click={() => resourceTypePicker?.openDrawer()}
-					{iconOnly}
-					startIcon={{ icon: Package }}
-				>
-					+Type
-				</Button>
-			{/if}
+				{#if showGitRepoPicker && customUi?.resource != false}
+					<GitRepoPopoverPicker
+						bind:isOpen={gitRepoPickerOpen}
+						on:selected={(e) => insertDelegateToGitRepo(e.detail.resourcePath)}
+					>
+						<Button
+							aiId="editor-bar-add-git-repo"
+							aiDescription="Delegate to Git repository"
+							title="Delegate to Git repository"
+							unifiedSize="sm"
+							variant="subtle"
+							on:click={() => (gitRepoPickerOpen = true)}
+							{iconOnly}
+							startIcon={{ icon: GitBranch }}
+						>
+							+Git Repo
+						</Button>
+					</GitRepoPopoverPicker>
+				{/if}
 
-			{#if showDatabasePicker && customUi?.database != false}
-				<Button
-					aiId="editor-bar-add-database"
-					aiDescription="Add database"
-					title="Add database"
-					variant="subtle"
-					on:click={() => databasePicker?.openDrawer()}
-					unifiedSize="sm"
-					startIcon={{ icon: DatabaseIcon }}
-					{iconOnly}
-					>+Database
-				</Button>
-			{/if}
+				{#if showResourceTypePicker && customUi?.type != false}
+					<Button
+						aiId="editor-bar-add-resource-type"
+						aiDescription="Add resource type"
+						title="Add resource type"
+						variant="subtle"
+						unifiedSize="sm"
+						on:click={() => resourceTypePicker?.openDrawer()}
+						{iconOnly}
+						startIcon={{ icon: Package }}
+					>
+						+Type
+					</Button>
+				{/if}
 
-			{#if showDucklakePicker && customUi?.ducklake != false}
-				<Button
-					aiId="editor-bar-use-ducklake"
-					aiDescription="Use Ducklake"
-					title="Use Ducklake"
-					variant="subtle"
-					on:click={() => ducklakePicker?.openDrawer()}
-					unifiedSize="sm"
-					startIcon={{ icon: DucklakeIcon }}
-					{iconOnly}
-					>+Ducklake
-				</Button>
-			{/if}
+				{#if showDatabasePicker && customUi?.database != false}
+					<Button
+						aiId="editor-bar-add-database"
+						aiDescription="Add database"
+						title="Add database"
+						variant="subtle"
+						on:click={() => databasePicker?.openDrawer()}
+						unifiedSize="sm"
+						startIcon={{ icon: DatabaseIcon }}
+						{iconOnly}
+						>+Database
+					</Button>
+				{/if}
 
-			{#if showDataTablePicker && customUi?.dataTable != false}
-				<Button
-					aiId="editor-bar-use-datatable"
-					aiDescription="Use DataTable"
-					title="Use DataTable"
-					variant="subtle"
-					on:click={() => dataTablePicker?.openDrawer()}
-					unifiedSize="sm"
-					startIcon={{ icon: DatabaseIcon }}
-					{iconOnly}
-					>+Data table
-				</Button>
-			{/if}
+				{#if showDucklakePicker && customUi?.ducklake != false}
+					<Button
+						aiId="editor-bar-use-ducklake"
+						aiDescription="Use Ducklake"
+						title="Use Ducklake"
+						variant="subtle"
+						on:click={() => ducklakePicker?.openDrawer()}
+						unifiedSize="sm"
+						startIcon={{ icon: DucklakeIcon }}
+						{iconOnly}
+						>+Ducklake
+					</Button>
+				{/if}
 
-			{#if customUi?.reset != false}
-				<Button
-					aiId="editor-bar-reset-content"
-					aiDescription="Reset content"
-					title="Reset Content"
-					unifiedSize="sm"
-					variant="subtle"
-					on:click={clearContent}
-					{iconOnly}
-					startIcon={{ icon: RotateCw }}
-				>
-					Reset
-				</Button>
+				{#if showDataTablePicker && customUi?.dataTable != false}
+					<Button
+						aiId="editor-bar-use-datatable"
+						aiDescription="Use DataTable"
+						title="Use DataTable"
+						variant="subtle"
+						on:click={() => dataTablePicker?.openDrawer()}
+						unifiedSize="sm"
+						startIcon={{ icon: DatabaseIcon }}
+						{iconOnly}
+						>+Data table
+					</Button>
+				{/if}
+
+				{#if customUi?.reset != false}
+					<Button
+						aiId="editor-bar-reset-content"
+						aiDescription="Reset content"
+						title="Reset Content"
+						unifiedSize="sm"
+						variant="subtle"
+						on:click={clearContent}
+						{iconOnly}
+						startIcon={{ icon: RotateCw }}
+					>
+						Reset
+					</Button>
+				{/if}
 			{/if}
 
 			{#if customUi?.assistants != false}

@@ -58,11 +58,14 @@
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
+	import { migrateLegacyUserDrafts } from '$lib/userDraftLegacyMigration'
+	import { gcUserDrafts } from '$lib/userDraft.svelte'
 	import { setContext, untrack } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
+	import SessionPicker from '$lib/components/sessions/SessionPicker.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
 	import DBManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
@@ -328,6 +331,9 @@
 	}
 
 	let devOnly = $derived(page.url.pathname.startsWith(base + '/scripts/dev'))
+	// Sessions own their own chat pane; suppress the global Ask-AI chat on the /sessions route
+	// so it doesn't render a second chat overlay on top of the session.
+	let inSessionRoute = $derived(page.url.pathname.startsWith(base + '/sessions'))
 
 	async function loadDefaultScripts(workspace: string, user: UserExt | undefined) {
 		if (!user?.operator) {
@@ -364,8 +370,8 @@
 	async function loadCriticalAlertsMuted() {
 		let g_muted = true
 		const ws_muted =
-			(await WorkspaceService.getPublicSettings({ workspace: $workspaceStore! })).mute_critical_alerts ||
-			false
+			(await WorkspaceService.getPublicSettings({ workspace: $workspaceStore! }))
+				.mute_critical_alerts || false
 
 		if ($superadmin) {
 			g_muted = (await SettingService.getGlobal({
@@ -417,6 +423,19 @@
 	})
 	$effect(() => {
 		$workspaceStore && untrack(() => onLoad())
+	})
+	$effect(() => {
+		if ($workspaceStore) untrack(() => migrateLegacyUserDrafts($workspaceStore!))
+	})
+	// Sweep UserDraft entries that haven't been touched in 30 days. Runs
+	// once on mount and on a 30-min timer so a single very long session
+	// also clears out stale autosaves over time. Live entries stamp
+	// `lastWrittenAt` on every persist, so the sweep only touches truly
+	// dormant records.
+	$effect(() => {
+		gcUserDrafts()
+		const interval = setInterval(() => gcUserDrafts(), 30 * 60 * 1000)
+		return () => clearInterval(interval)
 	})
 	$effect(() => {
 		innerWidth && untrack(() => changeCollapsed())
@@ -598,7 +617,7 @@
 						id="sidebar"
 						class={classNames(
 							'flex flex-col fixed inset-y-0 transition-all ease-in-out duration-200 z-40 ',
-							isCollapsed ? 'md:w-12' : 'md:w-40',
+							isCollapsed ? 'w-12' : 'w-40',
 							devOnly ? '!hidden' : ''
 						)}
 					>
@@ -661,6 +680,8 @@
 									shortcut={`${getModifierKey()}L`}
 								/>
 							</div>
+
+							<SessionPicker {isCollapsed} />
 
 							<SidebarContent
 								{isCollapsed}
@@ -823,7 +844,9 @@
 			<AiChatLayout
 				{children}
 				noPadding={devOnly}
+				disableAi={inSessionRoute}
 				{isCollapsed}
+				isMobile={innerWidth < 768}
 				onMenuOpen={() => {
 					menuOpen = true
 				}}

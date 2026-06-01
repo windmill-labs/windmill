@@ -1,6 +1,7 @@
 use crate::{
     ai_providers::AIProvider,
     image_handler::prepare_messages_for_api,
+    proxy::{build_openai_compatible_proxy_request, ProxyBuildArgs, ProxyRequest},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
     sse::{OpenAISSEParser, SSEParser},
     types::*,
@@ -186,6 +187,10 @@ impl QueryBuilder for OtherQueryBuilder {
 
     fn supports_retry_without_usage(&self) -> bool {
         true
+    }
+
+    fn build_proxy_request(&self, args: &ProxyBuildArgs<'_>) -> Result<ProxyRequest, Error> {
+        build_openai_compatible_proxy_request(args)
     }
 
     async fn parse_image_response(

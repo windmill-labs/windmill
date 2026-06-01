@@ -2985,6 +2985,87 @@ struct PushNextFlowJobRec {
 
 // #[async_recursion]
 // #[instrument(level = "trace", skip_all)]
+/// Resolve the worker tag for a flow's child job (step, nested sub-flow, preprocessor).
+///
+/// A child normally inherits the parent flow job's tag so the whole flow runs on one worker
+/// group. The exceptions, in order:
+/// - the preprocessor step, or a flow running on the generic `flow` / `flow-{workspace}` tag,
+///   always uses the child's own tag (`step_tag`);
+/// - when the flow opts into `preserve_step_tags` and the child declares its own non-empty tag,
+///   that tag is honored instead of being overridden by the flow tag;
+/// - otherwise the child inherits the parent flow job's tag.
+fn resolve_flow_step_tag(
+    is_preprocessor_step: bool,
+    flow_tag: &str,
+    workspace_id: &str,
+    preserve_step_tags: bool,
+    step_tag: Option<&str>,
+) -> Option<String> {
+    if is_preprocessor_step || flow_tag == "flow" || flow_tag == format!("flow-{}", workspace_id) {
+        step_tag.map(str::to_string)
+    } else if preserve_step_tags && step_tag.is_some_and(|t| !t.is_empty()) {
+        step_tag.map(str::to_string)
+    } else {
+        Some(flow_tag.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tag_resolution_tests {
+    use super::resolve_flow_step_tag;
+
+    #[test]
+    fn step_inherits_custom_flow_tag_by_default() {
+        // Parent flow on a custom tag, step declares its own tag, preserve disabled:
+        // the step inherits the flow tag (historical behavior).
+        assert_eq!(
+            resolve_flow_step_tag(false, "worker-group-A", "w1", false, Some("worker-group-B")),
+            Some("worker-group-A".to_string())
+        );
+    }
+
+    #[test]
+    fn step_keeps_own_tag_when_preserve_enabled() {
+        // The exact customer scenario: a sub-flow tagged worker-group-B run as a step of a
+        // flow tagged worker-group-A now runs on worker-group-B when preserve_step_tags is on.
+        assert_eq!(
+            resolve_flow_step_tag(false, "worker-group-A", "w1", true, Some("worker-group-B")),
+            Some("worker-group-B".to_string())
+        );
+    }
+
+    #[test]
+    fn untagged_step_inherits_flow_tag_even_when_preserve_enabled() {
+        assert_eq!(
+            resolve_flow_step_tag(false, "worker-group-A", "w1", true, None),
+            Some("worker-group-A".to_string())
+        );
+        // An empty tag counts as "no tag" and still inherits.
+        assert_eq!(
+            resolve_flow_step_tag(false, "worker-group-A", "w1", true, Some("")),
+            Some("worker-group-A".to_string())
+        );
+    }
+
+    #[test]
+    fn generic_flow_tag_always_uses_step_tag() {
+        for flow_tag in ["flow", "flow-w1"] {
+            assert_eq!(
+                resolve_flow_step_tag(false, flow_tag, "w1", false, Some("worker-group-B")),
+                Some("worker-group-B".to_string())
+            );
+        }
+    }
+
+    #[test]
+    fn preprocessor_step_uses_step_tag() {
+        assert_eq!(
+            resolve_flow_step_tag(true, "worker-group-A", "w1", false, Some("worker-group-B")),
+            Some("worker-group-B".to_string())
+        );
+    }
+}
+
 async fn push_next_flow_job(
     flow_job: Arc<MiniPulledJob>,
     mut status: FlowStatus,
@@ -4061,7 +4142,7 @@ async fn push_next_flow_job(
             _ => nargs,
         };
 
-        let push_args;
+        let mut push_args;
         let err;
         let ov;
 
@@ -4076,6 +4157,22 @@ async fn push_next_flow_job(
                 err = Some(e);
             }
         };
+
+        // Propagate temp script refs from the flow preview job to each step so
+        // relative imports in inline scripts resolve from not-yet-deployed local
+        // content (uploaded to raw_script_temp) instead of the deployed script.
+        // Gated on JobKind::FlowPreview because flow_job.args includes
+        // caller-controlled request args; honoring this key on deployed flow
+        // runs would let a caller swap import resolution targets in deployed
+        // step code.
+        if matches!(flow_job.kind, JobKind::FlowPreview) {
+            if let Some(temp_script_refs) = arc_flow_job_args.as_ref().get("_TEMP_SCRIPT_REFS") {
+                push_args
+                    .extra
+                    .get_or_insert_with(HashMap::new)
+                    .insert("_TEMP_SCRIPT_REFS".to_string(), temp_script_refs.clone());
+            }
+        }
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed args for job {i} of {len}");
 
@@ -4102,13 +4199,13 @@ async fn push_next_flow_job(
                 .map(|x| x.into());
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed perms for job {i} of {len}");
-        let tag = if step.is_preprocessor_step()
-            || (flow_job.tag == "flow" || flow_job.tag == format!("flow-{}", flow_job.workspace_id))
-        {
-            payload_tag.tag.clone()
-        } else {
-            Some(flow_job.tag.clone())
-        };
+        let tag = resolve_flow_step_tag(
+            step.is_preprocessor_step(),
+            &flow_job.tag,
+            &flow_job.workspace_id,
+            flow.preserve_step_tags,
+            payload_tag.tag.as_deref(),
+        );
 
         let (email, permissioned_as) = if let Some(on_behalf_of) = payload_tag.on_behalf_of.as_ref()
         {
@@ -4806,6 +4903,7 @@ fn payload_from_modules<'a>(
     modules_node: Option<FlowNodeId>,
     failure_module: Option<&Box<FlowModule>>,
     same_worker: bool,
+    preserve_step_tags: bool,
     id: impl FnOnce() -> String,
     path: impl FnOnce() -> String,
     opt_empty_inner_flows: bool,
@@ -4826,7 +4924,13 @@ fn payload_from_modules<'a>(
     }
 
     Some(JobPayload::RawFlow {
-        value: FlowValue { modules, failure_module, same_worker, ..Default::default() },
+        value: FlowValue {
+            modules,
+            failure_module,
+            same_worker,
+            preserve_step_tags,
+            ..Default::default()
+        },
         path: Some(path()),
         restarted_from: None,
     })
@@ -5128,6 +5232,7 @@ async fn compute_next_flow_transform(
                                 modules_node,
                                 flow.failure_module.as_ref(),
                                 flow.same_worker,
+                                flow.preserve_step_tags,
                                 || format!("{}-{i}", status.step),
                                 || format!("{}/forloop-{i}", flow_job.runnable_path()),
                                 true,
@@ -5264,6 +5369,7 @@ async fn compute_next_flow_transform(
                 modules_node,
                 flow.failure_module.as_ref(),
                 flow.same_worker,
+                flow.preserve_step_tags,
                 || status.step.to_string(),
                 || format!("{}/branchone-{}", flow_job.runnable_path(), branch_idx),
                 true,
@@ -5305,6 +5411,7 @@ async fn compute_next_flow_transform(
                                         modules_node,
                                         flow.failure_module.as_ref(),
                                         flow.same_worker,
+                                        flow.preserve_step_tags,
                                         || format!("{}-{i}", status.step),
                                         || format!("{}/branchall-{}", flow_job.runnable_path(), i),
                                         false,
@@ -5375,6 +5482,7 @@ async fn compute_next_flow_transform(
                 modules_node,
                 flow.failure_module.as_ref(),
                 flow.same_worker,
+                flow.preserve_step_tags,
                 || format!("{}-{}", status.step, branch_status.branch),
                 || {
                     format!(
@@ -5457,6 +5565,7 @@ async fn next_loop_iteration(
         modules_node,
         flow.failure_module.as_ref(),
         flow.same_worker,
+        flow.preserve_step_tags,
         || format!("{}-{}", status.step, ns.index),
         inner_path,
         true,
@@ -5917,7 +6026,12 @@ pub fn get_transform_context(
         .filter_map(|x| x.job_result().map(|y| (x.id(), y)))
         .collect();
 
-    IdContext { flow_job: flow_job.id, steps_results, previous_id: previous_id.to_string() }
+    IdContext {
+        flow_job: flow_job.id,
+        root_flow_job: get_root_job_id(flow_job),
+        steps_results,
+        previous_id: previous_id.to_string(),
+    }
 }
 
 // trait IntoArray: Sized {
