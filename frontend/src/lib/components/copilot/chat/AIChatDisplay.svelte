@@ -545,10 +545,12 @@
 											{selectedContext}
 											onSelect={(element) => {
 												void aiChatInput?.addContextToSelection(element)
+												aiChatInput?.insertMention(element.title)
 												close()
 											}}
 											onSelectWorkspaceItem={(element) => {
 												void aiChatInput?.addContextToSelection(element)
+												aiChatInput?.insertMention(element.title)
 												close()
 											}}
 											setShowing={(showing) => {

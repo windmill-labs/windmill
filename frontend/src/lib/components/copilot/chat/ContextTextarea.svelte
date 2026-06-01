@@ -17,6 +17,10 @@
 		disabled: boolean
 		onSendRequest: () => void
 		onAddContext: (contextElement: ContextElement) => void
+		/** Called when the user deletes a previously-inserted `@title` mention
+		 * from the textarea. The host should drop the matching entry from
+		 * selectedContext (only items with `deletable !== false` are reported). */
+		onRemoveContext?: (contextElement: ContextElement) => void
 		className?: string
 		onKeyDown?: (e: KeyboardEvent) => void
 	}
@@ -29,9 +33,24 @@
 		disabled,
 		onSendRequest,
 		onAddContext,
+		onRemoveContext,
 		className = '',
 		onKeyDown = undefined
 	}: Props = $props()
+
+	const MENTION_RE = /@[\w/.\-\[\]]+/g
+	function extractMentions(text: string): Set<string> {
+		const out = new Set<string>()
+		for (const m of text.matchAll(MENTION_RE)) out.add(m[0].slice(1))
+		return out
+	}
+
+	// Titles currently appearing as `@title` mentions in the textarea. Compared
+	// against the previous snapshot in a $effect (NOT inside handleInput —
+	// the picker mutates `value` programmatically via `updateInstructionsWithContext`,
+	// which doesn't fire `oninput`, so a handleInput-only diff goes stale).
+	const mentionedTitles = $derived(extractMentions(value))
+	let prevMentionedTitles = $state<Set<string>>(new Set())
 
 	let showContextTooltip = $state(false)
 	let contextTooltipWord = $state('')
@@ -231,6 +250,7 @@
 
 	function handleInput(e: Event) {
 		textarea = e.target as HTMLTextAreaElement
+
 		const words = value.split(/\s+/)
 		const lastWord = words[words.length - 1]
 
@@ -290,6 +310,21 @@
 		// follow. floating-ui's autoUpdate only fires on scroll/resize.
 		void value
 		if (showContextTooltip) updateAnchorRect()
+	})
+
+	$effect(() => {
+		// Mention-removal sync: any title that was a `@mention` last frame and
+		// is gone now → drop the matching selectedContext entry. Reactive (not
+		// inside handleInput) so it catches both keystroke deletions AND any
+		// programmatic value changes from the picker insertion path.
+		const prev = prevMentionedTitles
+		const cur = mentionedTitles
+		for (const title of prev) {
+			if (cur.has(title)) continue
+			const entry = selectedContext.find((c) => c.title === title && c.deletable !== false)
+			if (entry) onRemoveContext?.(entry)
+		}
+		prevMentionedTitles = cur
 	})
 
 	export function focus() {

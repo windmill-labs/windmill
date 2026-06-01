@@ -129,6 +129,15 @@
 			aiChatManager.mode === AIMode.GLOBAL
 	)
 
+	/** Append `@title` to the textarea so the button-picker path stays in
+	 * sync with the inline `@<word>` mention path — both leave a visible
+	 * token tied to the selectedContext entry, which the textarea diffs on
+	 * to auto-remove items when the user deletes them. */
+	export function insertMention(title: string) {
+		const sep = instructions.length === 0 || /\s$/.test(instructions) ? '' : ' '
+		instructions = `${instructions}${sep}@${title} `
+	}
+
 	export function focusInput() {
 		if (isContextEnabledMode) {
 			contextTextareaComponent?.focus()
@@ -490,6 +499,11 @@
 				{selectedContext}
 				placeholder={modePlaceholder}
 				onAddContext={(contextElement) => void addContextToSelection(contextElement)}
+				onRemoveContext={(element) => {
+					selectedContext = selectedContext?.filter(
+						(c) => c.type !== element.type || c.title !== element.title
+					)
+				}}
 				onSendRequest={() => {
 					if (disabled) {
 						return
