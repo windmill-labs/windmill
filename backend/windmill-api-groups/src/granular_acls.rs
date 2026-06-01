@@ -383,6 +383,13 @@ async fn remove_granular_acl(
     // workspace export.
     let table = if kind == "raw_app" { "app" } else { kind };
     // SAFETY: `kind` has been validated against the `KINDS` allowlist before reaching this function.
+    // LIMIT 1 on the scalar subquery: for the `script` table the PK is
+    // (workspace_id, hash), so multiple versions share the same (workspace_id, path)
+    // and the `old` CTE returns one row per version. Without LIMIT 1 the scalar
+    // subquery in RETURNING fails with "more than one row returned by a subquery
+    // used as an expression". All versions carry the same extra_perms value (the
+    // UPDATE applies to every matching row), so any single row's old_write is
+    // representative.
     let obj_o = sqlx::query_scalar::<_, bool>(&format!(
         "WITH old AS (
             SELECT extra_perms->$1 as old_write FROM {table}
@@ -390,7 +397,7 @@ async fn remove_granular_acl(
         )
         UPDATE {table} SET extra_perms = extra_perms - $1
         WHERE {identifier} = $2 AND workspace_id = $3 AND extra_perms ? $1
-        RETURNING (SELECT old_write FROM old)::bool"
+        RETURNING (SELECT old_write FROM old LIMIT 1)::bool"
     ))
     .bind(&owner)
     .bind(path)
