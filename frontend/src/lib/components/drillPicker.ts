@@ -1,3 +1,10 @@
+import type { Component, ComponentType } from 'svelte'
+
+/** Icon constructor accepted by the picker — covers Svelte-5 `Component` and
+ * legacy `ComponentType` (lucide icons resolve to the former, but other
+ * callers in the repo still hand in the latter, see `TriggersBadge.svelte`). */
+export type DrillIcon = ComponentType | Component<any, {}, ''>
+
 /** Leaf node — terminal entry the user picks. The picker emits the leaf
  * back via `onPick` so callers can react with the original `data` payload. */
 export type DrillLeaf<L> = {
@@ -9,7 +16,7 @@ export type DrillLeaf<L> = {
 	secondary?: string
 	/** Lucide-style component rendered with `size={12}`. The picker also
 	 * accepts a `leafIcon` snippet override that gets the whole leaf. */
-	icon?: any
+	icon?: DrillIcon
 	data: L
 	/** Optional override for the fuzzy-search haystack. Defaults to
 	 * `label` (or `secondary` when label is empty). */
@@ -26,7 +33,7 @@ export type DrillBranch<L> = {
 	type: 'branch'
 	key: string
 	label: string
-	icon?: any
+	icon?: DrillIcon
 	children: DrillNode<L>[]
 	/** Show a spinner alongside the branch (async loading in progress). */
 	loading?: boolean

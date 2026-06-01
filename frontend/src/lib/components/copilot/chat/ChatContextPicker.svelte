@@ -24,7 +24,7 @@ at message-prep time by `AIChatManager` — see PR #9216.
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import type { FlowModule } from '$lib/gen/types.gen'
 	import DrillPicker from '$lib/components/DrillPicker.svelte'
-	import type { DrillBranch, DrillLeaf, DrillNode } from '$lib/components/drillPicker'
+	import type { DrillBranch, DrillIcon, DrillLeaf, DrillNode } from '$lib/components/drillPicker'
 	import {
 		getCachedItems,
 		loadKind,
@@ -125,7 +125,7 @@ at message-prep time by `AIChatManager` — see PR #9216.
 	function buildContextBranch(
 		id: 'diffs' | 'modules' | 'databases',
 		label: string,
-		icon: any,
+		icon: DrillIcon,
 		type: 'diff' | 'flow_module' | 'db'
 	): DrillBranch<ChatLeafData> | null {
 		const filtered = availableContext.filter(
@@ -141,6 +141,18 @@ at message-prep time by `AIChatManager` — see PR #9216.
 			children: filtered.map(contextLeaf)
 		}
 	}
+
+	// True when the chat root collapses to the workspace subtree (no Diffs /
+	// Modules / Databases branches present). Drives handleScopeChange's
+	// at-root preload — only fires when scope `[]` literally IS the workspace
+	// root; otherwise we wait until the user enters the Workspace branch.
+	const isWorkspaceOnly = $derived(
+		!availableContext.some(
+			(c) =>
+				(c.type === 'diff' || c.type === 'flow_module' || c.type === 'db') &&
+				(!hideSelected || !isSelected(c))
+		)
+	)
 
 	const tree = $derived<DrillNode<ChatLeafData>[]>(
 		(() => {
@@ -210,17 +222,20 @@ at message-prep time by `AIChatManager` — see PR #9216.
 		//   (b) UNWRAPPED — `['kind:all', ...]` or `['dir:flow:...']` — chat
 		//       with only the workspace branch (global chat). The redundant
 		//       'workspace' wrapper is collapsed in the tree builder.
-		// Strip the wrapper so the rest of this function only deals with the
-		// inner workspace path.
-		const inWorkspace = scope.length === 0 || scope[0] === 'workspace'
+		// Empty scope `[]` is the picker root: in (a) it's the chat root
+		// (don't preload — user hasn't entered Workspace yet), in (b) it's
+		// the workspace root itself (preload so kind branches don't render
+		// empty-without-spinner).
+		if (scope.length === 0) {
+			if (isWorkspaceOnly) for (const k of WORKSPACE_KINDS) ensureLoaded(k)
+			return
+		}
+		const inWorkspace = scope[0] === 'workspace' || isWorkspaceOnly
+		if (!inWorkspace) return // diffs / modules / databases — synthesised, no fetch
 		const path = scope[0] === 'workspace' ? scope.slice(1) : scope
-		// 'diffs' / 'modules' / 'databases' are synthesised — no fetch.
-		if (!inWorkspace) return
-		// Entering the Workspace branch (or its 'All' sub-branch): preload
-		// every kind eagerly. Without this, the user lands on a screen of
-		// kind branches whose `loaded[k]` is undefined and `loadingKind[k]`
-		// is also undefined, so `buildWorkspaceTree` reports neither items
-		// nor a spinner — looks empty until they drill into a single kind.
+		// Entering Workspace (wrapped: scope=['workspace']) or its 'All' sub-
+		// branch: preload every kind so the kind branches each show their
+		// spinner/items without a per-drill delay.
 		if (path.length === 0 || path[0] === 'kind:all') {
 			for (const k of WORKSPACE_KINDS) ensureLoaded(k)
 			return

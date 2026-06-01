@@ -547,11 +547,13 @@
 												void aiChatInput?.addContextToSelection(element)
 												aiChatInput?.insertMention(element.title)
 												close()
+												aiChatInput?.focusInput()
 											}}
 											onSelectWorkspaceItem={(element) => {
 												void aiChatInput?.addContextToSelection(element)
 												aiChatInput?.insertMention(element.title)
 												close()
+												aiChatInput?.focusInput()
 											}}
 											setShowing={(showing) => {
 												if (!showing) close()

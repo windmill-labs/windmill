@@ -132,10 +132,14 @@
 	/** Append `@title` to the textarea so the button-picker path stays in
 	 * sync with the inline `@<word>` mention path — both leave a visible
 	 * token tied to the selectedContext entry, which the textarea diffs on
-	 * to auto-remove items when the user deletes them. */
+	 * to auto-remove items when the user deletes them. No-op when the
+	 * mention is already present so re-picking the same item doesn't
+	 * leave duplicate tokens. */
 	export function insertMention(title: string) {
+		const target = `@${title}`
+		if (instructions.split(/\s+/).includes(target)) return
 		const sep = instructions.length === 0 || /\s$/.test(instructions) ? '' : ' '
-		instructions = `${instructions}${sep}@${title} `
+		instructions = `${instructions}${sep}${target} `
 	}
 
 	export function focusInput() {
