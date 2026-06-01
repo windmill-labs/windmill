@@ -139,7 +139,7 @@
 	})
 
 	$effect(() => {
-		appPath && appPath != '' && secretUrl == undefined && untrack(() => getSecretUrl())
+		appPath && appPath != '' && savedApp && secretUrl == undefined && untrack(() => getSecretUrl())
 	})
 </script>
 
@@ -264,10 +264,10 @@
 					policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
 					setPublishState()
 				}}
-				disabled={appPath == ''}
+				disabled={!savedApp}
 			/>
 		</div>
-		{#if appPath == ''}
+		{#if !savedApp}
 			<ClipboardPanel content={`Save this app once to get the public secret URL`} size="md" />
 		{:else if secretUrlHref}
 			<div class="flex justify-end mb-1">

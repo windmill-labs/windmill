@@ -84,6 +84,8 @@ import {
 	type WorkspaceItemType
 } from './workspaceItems'
 import { buildFlowDeployRequestBody, buildScriptDeployRequestBody } from './deployRequests'
+import { userStore } from '$lib/stores'
+import { get } from 'svelte/store'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
 	clearEphemeralSecretVariableDraftValue,
@@ -480,6 +482,17 @@ const deleteAppRunnableSchema = z.object({
 	key: z.string().describe('Key of the backend runnable to remove.')
 })
 
+const openPreviewSchema = z.object({
+	kind: z
+		.enum(['script', 'flow', 'raw_app'])
+		.describe(
+			'Item kind to preview. Use "raw_app" for code-based apps (created via init_app). The legacy drag-and-drop app builder ("app") is not previewable in the session panel — don\'t pass it.'
+		),
+	path: z.string().describe('Workspace path of the item to preview.')
+})
+
+const getPreviewStatusSchema = z.object({})
+
 const FRAMEWORK_KEYS = [
 	'react19',
 	'react18',
@@ -514,9 +527,22 @@ const initAppSchema = z.object({
 		.describe('Optional datatable configuration. Omit unless the user asked to wire one up.')
 })
 
-const GLOBAL_SYSTEM_PROMPT = `You are Windmill's global workspace assistant.
+const buildGlobalSystemPrompt = (
+	username: string,
+	previewTools: boolean
+) => `You are Windmill's global workspace assistant.
+
+The current user's workspace username is "${username}".
 
 Use tools to inspect workspace items and create local drafts for scripts, flows, schedules, triggers, resources, variables, and raw apps.
+
+Path conventions:
+- Every workspace path has exactly three segments and starts with one of two namespaces:
+  - \`u/${username}/<name>\` — the current user's personal scope. Default for ad-hoc, exploratory, or scratch work.
+  - \`f/<folder>/<name>\` — a shared folder scope. The folder must already exist; bare \`f/<name>\` is INVALID and will fail.
+- When the user gives a bare name without a namespace prefix (e.g. "create a flow called myflow"), default to \`u/${username}/<name>\`. Do NOT invent \`f/<name>\` — that is a structurally invalid path.
+- If the request implies shared / team work but doesn't name a specific folder (e.g. "the marketing flow"), ask which folder to use rather than guessing. Call \`list_workspace_items\` with \`type: ['folder']\` (or rely on the user's hint) before assuming a folder exists.
+- Only use an \`f/<folder>/<name>\` path when the user explicitly named the folder or you confirmed it exists.
 
 Rules:
 - Draft tools create or update local drafts only; they do not deploy or mutate deployed workspace items.
@@ -528,7 +554,12 @@ Rules:
 - Use search_resource_types before write_resource.
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
-- Keep context targeted.
+- Keep context targeted.${
+	previewTools
+		? `
+- After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.`
+		: ''
+}
 
 Flows:
 - read_workspace_item returns compact flow JSON. Inline script bodies appear as "inline_script.<moduleId>".
@@ -600,7 +631,12 @@ function serializeWorkspaceItemForRead(item: WorkspaceItem): unknown {
 		}
 	}
 
-	if (item.type === 'app' && item.value && typeof item.value === 'object' && 'files' in item.value) {
+	if (
+		item.type === 'app' &&
+		item.value &&
+		typeof item.value === 'object' &&
+		'files' in item.value
+	) {
 		return {
 			type: 'app',
 			path: item.path,
@@ -1193,7 +1229,7 @@ function getScriptInstructions(language: ScriptLang | undefined): string {
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, or generate metadata.
 - A script draft is a workspace item: \`{ type: 'script', path, summary?, language, value, isDraft }\` where \`value\` is the source code string.
-- Use workspace paths such as \`f/folder/name\` or \`u/username/name\`. Preserve the current path/language when modifying unless the user asked to change them.
+- Paths follow the conventions in the system prompt: default to \`u/<current-user>/<name>\` when the user gave a bare name; only use \`f/<folder>/<name>\` when the folder is known to exist. Preserve the current path/language when modifying unless the user asked to change them.
 - Use \`edit_script\` for small localized changes (provide \`old_string\`/\`new_string\`); use \`write_script\` for full rewrites.${note}
 
 # Windmill script authoring reference (${selected})
@@ -1205,6 +1241,7 @@ function getFlowInstructions(): string {
 	return `# Global draft flow instructions
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
+- Paths follow the conventions in the system prompt: default to \`u/<current-user>/<name>\` when the user gave a bare name; only use \`f/<folder>/<name>\` when the folder is known to exist. Never invent a folder.
 - \`write_flow\` mirrors flow mode's \`set_flow_json\`: pass \`path\`, optional \`summary\`, required \`modules\`, and optional \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\`. The flow-structure arguments are JSON strings, matching the tool schema descriptions.
 - \`read_workspace_item\` returns a compact flow \`value\` object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\`.
 - \`modules\` contains normal sequential modules. Use top-level \`preprocessor_module\` and \`failure_module\` for special modules; do not put \`preprocessor\` or \`failure\` in \`modules\`.
@@ -1232,7 +1269,7 @@ function getAppInstructions(): string {
 	return `# Global draft app instructions
 
 - Global mode edits raw app drafts only; it does not save or deploy unless the user explicitly asks to deploy.
-- App drafts are addressed by workspace path (e.g. \`f/folder/my_app\`). The first write tool snapshots the workspace app onto the draft, and subsequent writes accumulate.
+- App drafts are addressed by workspace path. Follow the path conventions in the system prompt: default to \`u/<current-user>/<name>\` for bare names; only use \`f/<folder>/<name>\` when the folder is known to exist. The first write tool snapshots the workspace app onto the draft, and subsequent writes accumulate.
 - To create a new app, use \`init_app\` with a path, optional summary, and a framework (\`react19\` / \`react18\` / \`svelte5\` / \`vue\`). Confirm framework + path + summary with the user before calling — do not silently default to \`react19\` even though it is the recommended choice. \`init_app\` errors if an app already exists at the path or a draft is already in flight; in that case, edit the existing one rather than re-initializing.
 - \`init_app\` seeds a starter inline runnable named \`a\` (bun, \`main(x: string) => string\`) so the React/Svelte demo button works on first render. Replace or remove it once you start building real backend runnables.
 - Frontend file paths start with \`/\` (e.g. \`/index.tsx\`, \`/App.tsx\`, \`/styles.css\`). Use \`write_app_file\` / \`patch_app_file\` / \`delete_app_file\`.
@@ -1532,7 +1569,7 @@ export const globalTools: Tool<{}>[] = [
 		confirmationMessage: 'Deploy local draft to workspace',
 		fn: async (ctx) => {
 			const parsed = deployWorkspaceItemSchema.parse(ctx.args)
-			return deployDraft(parsed, ctx)
+			return deployDraft(parsed, { ...ctx, sessionId: sessionIdFromCtx(ctx) })
 		}
 	},
 	{
@@ -1738,13 +1775,123 @@ export const globalTools: Tool<{}>[] = [
 			const parsed = deleteAppRunnableSchema.parse(ctx.args)
 			return deleteAppRunnable(parsed, ctx)
 		}
+	},
+	{
+		def: createToolDef(
+			openPreviewSchema,
+			'open_preview',
+			'Open the live preview / editor for a workspace item in the side panel next to the chat. ONLY works inside an AI session — call this after writing or editing a script, flow, or raw app to let the user see and interact with it. The path you pass is the path of the item; for code-based apps use kind="raw_app" (legacy drag-and-drop apps are not previewable). Returns an error if there is no active session.'
+		),
+		fn: async (ctx) => {
+			const parsed = openPreviewSchema.parse(ctx.args)
+			return openSessionPreview(parsed, sessionIdFromCtx(ctx))
+		}
+	},
+	{
+		def: createToolDef(
+			getPreviewStatusSchema,
+			'get_preview_status',
+			'Check whether the side-panel preview is open in this AI session and which item (kind + path) it is showing. Call this before offering or calling open_preview so you do not re-open a preview that is already showing the item you just edited. Only meaningful inside a session.'
+		),
+		fn: async (ctx) => getSessionPreviewStatus(sessionIdFromCtx(ctx))
 	}
 ]
+
+// Tools that only make sense inside an AI session (they drive the session's
+// side-panel preview). The regular global side-panel chat shouldn't even be
+// offered them — see `globalToolsFor`.
+export const SESSION_PREVIEW_TOOL_NAMES = new Set(['open_preview', 'get_preview_status'])
+
+/**
+ * The global tool set for a given chat: the full `globalTools` for a session
+ * chat, or `globalTools` minus the session-only preview tools for the regular
+ * global side-panel chat.
+ */
+export function globalToolsFor({ sessionPreview }: { sessionPreview: boolean }): Tool<{}>[] {
+	return sessionPreview
+		? globalTools
+		: globalTools.filter((t) => !SESSION_PREVIEW_TOOL_NAMES.has(t.def.function.name))
+}
 
 type WriteDraftCtx = {
 	workspace: string
 	toolId: string
 	toolCallbacks: ToolCallbacks
+	// Calling session id (session chats only), threaded through so a deploy
+	// reloads the preview of the session that issued the deploy — not the
+	// UI-active one. Undefined for the global side-panel chat.
+	sessionId?: string
+}
+
+// Sessions are the only context where `open_preview` makes sense — the global
+// singleton chat in the right side panel has nowhere to mount an editor pane.
+// The session runtime registers a handler at construction time so the tool
+// has somewhere to dispatch. When no session is active the handler is
+// undefined and the tool returns a polite error.
+// Per-manager tool helpers for a session chat. Each session's AIChatManager
+// sets `helpers = { sessionId }`, so a tool call carries the *calling* session's
+// id even when a different session is the UI-active one. Without this the
+// handlers below would route a backgrounded session's tool call to whatever
+// session the user happens to be viewing.
+export type SessionToolHelpers = { sessionId?: string }
+
+function sessionIdFromCtx(ctx: { helpers?: unknown }): string | undefined {
+	return (ctx.helpers as SessionToolHelpers | undefined)?.sessionId
+}
+
+export type OpenPreviewHandler = (req: {
+	sessionId: string | undefined
+	kind: 'script' | 'flow' | 'raw_app'
+	path: string
+}) => string
+
+let openPreviewHandler: OpenPreviewHandler | undefined
+
+export function setOpenPreviewHandler(handler: OpenPreviewHandler | undefined): void {
+	openPreviewHandler = handler
+}
+
+function openSessionPreview(
+	args: { kind: 'script' | 'flow' | 'raw_app'; path: string },
+	sessionId: string | undefined
+) {
+	if (!openPreviewHandler) {
+		return 'Error: open_preview is only available inside an AI session. Tell the user to switch to a session to view the preview, or describe the item textually.'
+	}
+	return openPreviewHandler({ ...args, sessionId })
+}
+
+// Companion to `open_preview`: lets the assistant query the current preview
+// state (open? which item?) so it can avoid re-opening a preview already
+// showing the item it just edited. Registered by the session runtime
+// alongside the open-preview handler.
+export type GetPreviewStatusHandler = (sessionId: string | undefined) => string
+
+let getPreviewStatusHandler: GetPreviewStatusHandler | undefined
+
+export function setGetPreviewStatusHandler(handler: GetPreviewStatusHandler | undefined): void {
+	getPreviewStatusHandler = handler
+}
+
+function getSessionPreviewStatus(sessionId: string | undefined): string {
+	if (!getPreviewStatusHandler) {
+		return 'Error: get_preview_status is only available inside an AI session.'
+	}
+	return getPreviewStatusHandler(sessionId)
+}
+
+// Registered by the session runtime to reload the open preview after a chat
+// deploy. Undefined outside a session.
+export type DeployedInSessionHandler = (req: {
+	sessionId: string | undefined
+	kind: 'script' | 'flow' | 'raw_app'
+	path: string
+}) => void
+
+let deployedInSessionHandler: DeployedInSessionHandler | undefined
+
+export function setDeployedInSessionHandler(handler: DeployedInSessionHandler | undefined): void {
+	deployedInSessionHandler = handler
 }
 
 type DraftConfig = Record<string, any>
@@ -1865,7 +2012,7 @@ function buildVariableDeployRequestBody(
 
 function startDraftWrite(ctx: WriteDraftCtx, type: WorkspaceItemType, path: string): void {
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, {
-		content: `Writing draft ${type} "${path}"...`
+		content: `Saving ${type} "${path}" to local storage…`
 	})
 }
 
@@ -1890,13 +2037,13 @@ function finishDraftWrite(stored: WorkspaceItem, existed: boolean, ctx: WriteDra
 			: stored
 
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, {
-		content: `${verb} local draft ${stored.type} "${stored.path}"`,
-		result: `Draft ${verb.toLowerCase()}`
+		content: `${verb} ${stored.type} "${stored.path}" in local storage`,
+		result: `Saved to local storage`
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `${verb} local draft ${stored.type} "${stored.path}". The workspace was not saved or deployed.`,
+			message: `${verb} ${stored.type} "${stored.path}" in local storage (a browser-only local draft, not a workspace draft). It was not deployed.`,
 			item: serializedItem
 		},
 		null,
@@ -2345,7 +2492,7 @@ async function initApp(
 	}
 
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Initializing app draft "${path}" with ${framework} template...`
+		content: `Saving app "${path}" to local storage (${framework} template)…`
 	})
 
 	const template = FRAMEWORK_TEMPLATES[framework]
@@ -2365,13 +2512,13 @@ async function initApp(
 	const stored = saveAppDraft(workspace, path, value)
 
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Initialized app draft "${path}" (${framework})`,
-		result: 'Draft initialized'
+		content: `Saved app "${path}" to local storage (${framework})`,
+		result: 'Saved to local storage'
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Initialized local draft app "${path}" from the ${framework} template with a starter runnable "${STARTER_RUNNABLE_KEY}". Use write_app_file / write_app_runnable to evolve the draft.`,
+			message: `Initialized app "${path}" in local storage from the ${framework} template with a starter runnable "${STARTER_RUNNABLE_KEY}" (a browser-only local draft, not a workspace draft). Use write_app_file / write_app_runnable to evolve it.`,
 			item: stored
 		},
 		null,
@@ -2428,12 +2575,12 @@ async function writeAppFile(
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Updated ${target.filePath} in app "${args.path}"`,
-		result: 'Draft updated'
+		result: 'Saved to local storage'
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Updated local draft app "${args.path}" with frontend file "${target.filePath}".`,
+			message: `Updated app "${args.path}" in local storage with frontend file "${target.filePath}".`,
 			item: stored
 		},
 		null,
@@ -2468,12 +2615,12 @@ async function deleteAppFile(
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Removed ${target.filePath} from app "${args.path}"`,
-		result: 'Draft updated'
+		result: 'Saved to local storage'
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Removed "${target.filePath}" from local draft app "${args.path}".`,
+			message: `Removed "${target.filePath}" from app "${args.path}" in local storage.`,
 			item: stored
 		},
 		null,
@@ -2551,12 +2698,12 @@ async function patchAppFile(
 	const stored = saveAppDraft(workspace, path, value, meta)
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Patched ${target.filePath} in app "${path}"`,
-		result: 'Draft updated'
+		result: 'Saved to local storage'
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Patched "${target.filePath}" in local draft app "${path}".`,
+			message: `Patched "${target.filePath}" in app "${path}" in local storage.`,
 			item: stored
 		},
 		null,
@@ -2565,9 +2712,10 @@ async function patchAppFile(
 }
 
 async function recomputeAppPolicy(value: AppDraftValue): Promise<void> {
-	const policy = (await updateRawAppPolicy(value.runnables as any, value.policy as any)) as NonNullable<
-		AppDraftValue['policy']
-	>
+	const policy = (await updateRawAppPolicy(
+		value.runnables as any,
+		value.policy as any
+	)) as NonNullable<AppDraftValue['policy']>
 	if (!policy.execution_mode) {
 		policy.execution_mode = 'publisher'
 	}
@@ -2593,12 +2741,12 @@ async function writeAppRunnable(
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Updated runnable "${key}" in app "${path}"`,
-		result: 'Draft updated'
+		result: 'Saved to local storage'
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Updated local draft app "${path}" with runnable "${key}".`,
+			message: `Updated app "${path}" in local storage with runnable "${key}".`,
 			item: stored
 		},
 		null,
@@ -2627,12 +2775,12 @@ async function deleteAppRunnable(
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Removed runnable "${key}" from app "${path}"`,
-		result: 'Draft updated'
+		result: 'Saved to local storage'
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Removed runnable "${key}" from local draft app "${path}".`,
+			message: `Removed runnable "${key}" from app "${path}" in local storage.`,
 			item: stored
 		},
 		null,
@@ -2718,13 +2866,13 @@ async function discardLocalDraft(
 	deleteGlobalDraft(workspace, type, path, triggerKind)
 
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Discarded local draft ${type} "${path}"`,
-		result: 'Draft discarded'
+		content: `Discarded ${type} "${path}" from local storage`,
+		result: 'Discarded from local storage'
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Discarded local draft ${type} "${path}". The deployed workspace item was not changed.`,
+			message: `Discarded the local-storage draft for ${type} "${path}". The deployed workspace item was not changed.`,
 			type,
 			path,
 			triggerKind
@@ -2743,7 +2891,7 @@ async function deployDraft(
 	},
 	ctx: WriteDraftCtx
 ): Promise<string> {
-	const { workspace, toolId, toolCallbacks } = ctx
+	const { workspace, toolId, toolCallbacks, sessionId } = ctx
 	const { type, path, trigger_kind: triggerKind, deployment_message: deploymentMessage } = args
 
 	if (type === 'trigger' && !triggerKind) {
@@ -2932,6 +3080,17 @@ async function deployDraft(
 
 	deleteGlobalDraft(workspace, type, path, triggerKind, { preserveLiveDraft: true })
 
+	// Reload the session preview if it's open on the deployed item. Map the
+	// deploy type to the preview kind — a raw app deploys under 'app' but the
+	// preview addresses it as 'raw_app'; non-previewable types map to undefined.
+	const previewKindByType: Partial<Record<WorkspaceItemType, 'script' | 'flow' | 'raw_app'>> = {
+		script: 'script',
+		flow: 'flow',
+		app: 'raw_app'
+	}
+	const kind = previewKindByType[type]
+	if (kind) deployedInSessionHandler?.({ sessionId, kind, path })
+
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deployed ${type} "${path}"`,
 		result: 'Deployed',
@@ -3009,9 +3168,11 @@ async function deleteWorkspaceItem(
 }
 
 export function prepareGlobalSystemMessage(
-	customPrompt?: string
+	customPrompt?: string,
+	opts?: { previewTools?: boolean }
 ): ChatCompletionSystemMessageParam {
-	let content = GLOBAL_SYSTEM_PROMPT
+	const username = get(userStore)?.username ?? ''
+	let content = buildGlobalSystemPrompt(username, opts?.previewTools ?? false)
 	if (customPrompt?.trim()) {
 		content = `${content}\n\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
 	}
