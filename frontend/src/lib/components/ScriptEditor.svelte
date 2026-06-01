@@ -87,6 +87,7 @@
 	import { getStringError } from './copilot/chat/utils'
 	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
 	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
+	import { navStaysInEditor } from './copilot/chat/editorNav'
 
 	// Forward-looking hook for the upcoming session-pane feature: that PR will
 	// `setContext('aiChatManager', ...)` from the session wrapper so this editor
@@ -1204,22 +1205,23 @@
 		}
 	})
 
-	// Preserve the chat across the /scripts/add → /scripts/edit/{path} promotion
-	// (and same-script reloads): ScriptEditor unmounts + remounts on those
-	// transitions, and without this its onDestroy would saveAndClear the
-	// SCRIPT-mode conversation the user is still actively having about this same
-	// script.
-	let preserveChatOnDestroy = $state(false)
+	// Clear the chat only when the user actually LEAVES this script's editor (a
+	// real navigation to a different script or out of the editor). Default false
+	// so non-navigation unmount/remounts — e.g. the edit page reloading after the
+	// /scripts/add → /scripts/edit/{path} promotion — preserve the SCRIPT-mode
+	// conversation. Those remounts fire no beforeNavigate, so leaveOnDestroy stays
+	// false and the chat survives; the fresh onMount then sees mode is still
+	// SCRIPT and skips its clearing saveAndClear.
+	let leaveOnDestroy = $state(false)
 	beforeNavigate(({ to }) => {
-		const dest = to?.url.pathname ?? ''
-		if (!dest.startsWith('/scripts/edit/')) return
-		const destPath = dest.slice('/scripts/edit/'.length)
-		const currentPath = aiChatManager.scriptEditorOptions?.path
-		// !currentPath: on /scripts/add, dest is /scripts/edit/{path} (initial save).
-		// destPath === currentPath: same script (e.g. query change / reload).
-		if (!currentPath || destPath === currentPath) {
-			preserveChatOnDestroy = true
-		}
+		// Recompute on every navigation (both branches) so a stale decision from
+		// an earlier same-script navigation never lingers into a later
+		// cross-script one.
+		leaveOnDestroy = !navStaysInEditor(
+			to?.url.pathname ?? '',
+			'/scripts/edit/',
+			aiChatManager.scriptEditorOptions?.path
+		)
 	})
 
 	onMount(async () => {
@@ -1322,7 +1324,7 @@
 		aiChatManager.scriptEditorShowDiffMode = undefined
 		aiChatManager.scriptEditorGetLintErrors = undefined
 		aiChatManager.scriptEditorOptions = undefined
-		if (!preserveChatOnDestroy) {
+		if (leaveOnDestroy) {
 			aiChatManager.saveAndClear()
 			aiChatManager.changeMode(AIMode.NAVIGATOR)
 		}

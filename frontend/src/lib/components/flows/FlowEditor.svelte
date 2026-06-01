@@ -19,6 +19,7 @@
 		aiChatManager as singletonAiChatManager,
 		AIMode
 	} from '../copilot/chat/AIChatManager.svelte'
+	import { navStaysInEditor } from '../copilot/chat/editorNav'
 	import type { GraphModuleState } from '../graph'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
@@ -138,32 +139,30 @@
 		aiChatManager.flowOptions = options
 	})
 
-	// Preserve the chat across two intra-flow-editor transitions:
-	// - /flows/add → /flows/edit/{path} (initial save promoting a draft)
-	// - /flows/edit/{path} → /flows/edit/{same path}?... (save-draft refresh,
-	//   selected-step query change)
-	// Without this, FlowEditor's onDestroy + remount would saveAndClear the
-	// chat the user is still actively having about this same flow.
-	let preserveChatOnDestroy = $state(false)
+	// Clear the chat only when the user actually LEAVES this flow's editor (a real
+	// navigation to a different flow or out of the editor). Default false so
+	// non-navigation unmount/remounts — e.g. the edit page reloading after the
+	// /flows/add → /flows/edit/{path} promotion, or a selected-step query change —
+	// preserve the FLOW-mode conversation. Those remounts fire no beforeNavigate,
+	// so leaveOnDestroy stays false and the chat survives; the fresh onMount then
+	// sees mode is still FLOW and skips its clearing saveAndClear.
+	let leaveOnDestroy = $state(false)
 	beforeNavigate(({ to }) => {
-		const dest = to?.url.pathname ?? ''
-		if (!dest.startsWith('/flows/edit/')) return
-		const destPath = dest.slice('/flows/edit/'.length)
-		const currentFlowPath = aiChatManager.flowOptions?.path
-		// !currentFlowPath: we're on /flows/add and the destination is /flows/edit/{path}
-		// — initial save. destPath === currentFlowPath: same flow, e.g. selected=...
-		// query change after a save-draft.
-		if (!currentFlowPath || destPath === currentFlowPath) {
-			preserveChatOnDestroy = true
-		}
+		// Recompute on every navigation (both branches) so a stale decision from
+		// an earlier same-flow navigation never lingers into a later cross-flow
+		// one. The add page has no flowOptions.path yet, which navStaysInEditor
+		// treats as the add→edit promotion (preserve).
+		leaveOnDestroy = !navStaysInEditor(
+			to?.url.pathname ?? '',
+			'/flows/edit/',
+			aiChatManager.flowOptions?.path
+		)
 	})
 
 	onMount(() => {
 		if (!sessionScopedManager) {
-			// The previous instance's onDestroy may have preserved the chat for
-			// intra-flow-editor nav; in that case mode is still FLOW and
-			// displayMessages still hold the conversation. Skip saveAndClear so
-			// we don't blow it away.
+			// A preserved intra-editor remount leaves mode === FLOW with the
+			// conversation intact; skip saveAndClear so we don't blow it away.
 			if (aiChatManager.mode !== AIMode.FLOW) {
 				aiChatManager.saveAndClear()
 			}
@@ -173,7 +172,7 @@
 
 	onDestroy(() => {
 		aiChatManager.flowOptions = undefined
-		if (!sessionScopedManager && !preserveChatOnDestroy) {
+		if (!sessionScopedManager && leaveOnDestroy) {
 			aiChatManager.saveAndClear()
 			aiChatManager.changeMode(AIMode.NAVIGATOR)
 		}

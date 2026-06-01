@@ -21,6 +21,7 @@
 	import type { Modules } from './RawAppModules.svelte'
 	import { isRunnableByName, isRunnableByPath } from '../apps/inputType'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
+	import { navStaysInEditor } from '../copilot/chat/editorNav'
 	import { onDestroy, onMount, untrack } from 'svelte'
 	import { beforeNavigate } from '$app/navigation'
 	import type {
@@ -628,15 +629,9 @@
 	// fresh onMount then sees mode is still APP and skips its clearing saveAndClear.
 	let leaveOnDestroy = $state(false)
 	beforeNavigate(({ to }) => {
-		const dest = to?.url.pathname ?? ''
-		const destPath = dest.startsWith('/apps_raw/edit/')
-			? dest.slice('/apps_raw/edit/'.length)
-			: undefined
-		// Staying in the same app — or the /apps_raw/add → /apps_raw/edit/{path}
-		// promotion, where this instance's `path` is still '' — preserves the chat.
-		// Anything else (different app, or leaving the raw-app editor) clears it.
-		const stayingInThisApp = destPath !== undefined && (!path || destPath === path)
-		leaveOnDestroy = !stayingInThisApp
+		// Recompute on every navigation (both branches) so a stale decision from
+		// an earlier same-app navigation never lingers into a later cross-app one.
+		leaveOnDestroy = !navStaysInEditor(to?.url.pathname ?? '', '/apps_raw/edit/', path)
 	})
 
 	onMount(() => {
