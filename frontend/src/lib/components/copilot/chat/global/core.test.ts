@@ -1658,6 +1658,42 @@ describe('global AI tools', () => {
 		})
 	})
 
+	it('test_run_step lists nested step ids when a step is not found', async () => {
+		await callGlobalTool('write_flow', {
+			path: 'f/flows/nested-step-error',
+			summary: 'Flow with nested step',
+			modules: JSON.stringify([
+				{
+					id: 'loop_step',
+					value: {
+						type: 'forloopflow',
+						iterator: { type: 'static', value: [1] },
+						skip_failures: false,
+						modules: [
+							{
+								id: 'nested_script_step',
+								value: {
+									type: 'rawscript',
+									language: 'bun',
+									content: 'export async function main() { return 1 }',
+									input_transforms: {}
+								}
+							}
+						]
+					}
+				}
+			])
+		})
+
+		await expect(
+			callGlobalTool('test_run_step', {
+				path: 'f/flows/nested-step-error',
+				stepId: 'missing_nested_step',
+				args: {}
+			})
+		).rejects.toThrow(/Available steps: loop_step, nested_script_step/)
+	})
+
 	it('asks the user a question and returns the selected answer', async () => {
 		const callbacks: ToolCallbacks = {
 			setToolStatus: vi.fn(),
