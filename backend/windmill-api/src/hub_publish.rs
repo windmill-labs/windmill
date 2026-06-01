@@ -24,6 +24,7 @@ pub fn workspaced_service() -> Router {
         .route("/flows/{flow_id}/recording", post(publish_flow_recording))
         .route("/resource_types", post(publish_resource_type))
         .route("/resources", post(publish_resources))
+        .route("/triggers", post(publish_triggers))
 }
 
 #[derive(Deserialize)]
@@ -230,6 +231,40 @@ async fn publish_resources(
     require_admin(authed.is_admin, &authed.username)?;
     forward_to_hub(
         &format!("/workspaces/{}/resources", body.workspace_slug),
+        &body,
+    )
+    .await
+}
+
+#[derive(Deserialize, Serialize)]
+struct PublishTriggerBody {
+    path: String,
+    kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    config: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    script_ask_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    flow_id: Option<i64>,
+}
+
+#[derive(Deserialize, Serialize)]
+struct PublishTriggersBody {
+    triggers: Vec<PublishTriggerBody>,
+    workspace_slug: String,
+}
+
+async fn publish_triggers(
+    authed: ApiAuthed,
+    Path(_workspace): Path<String>,
+    Json(body): Json<PublishTriggersBody>,
+) -> Result<impl IntoResponse, Error> {
+    require_admin(authed.is_admin, &authed.username)?;
+    forward_to_hub(
+        &format!("/workspaces/{}/triggers", body.workspace_slug),
         &body,
     )
     .await
