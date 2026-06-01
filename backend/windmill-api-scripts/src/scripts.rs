@@ -12,6 +12,7 @@ use windmill_api_auth::{
     check_scopes, maybe_refresh_folders, require_owner_of_path, ApiAuthed,
 };
 use windmill_common::{
+    user_drafts::{maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery},
     utils::{BulkDeleteRequest, WithStarredInfoQuery, HTTP_CLIENT},
     webhook::{WebhookMessage, WebhookShared},
     workspaces::{check_deploy_rules, RuleCheckResult},
@@ -1629,33 +1630,41 @@ pub async fn pick_hub_script_by_path(
     Ok::<_, Error>((status_code, headers, response))
 }
 
+#[derive(Deserialize)]
+struct GetScriptByPathQuery {
+    #[serde(flatten)]
+    starred: WithStarredInfoQuery,
+    #[serde(flatten)]
+    draft: WithDraftQuery,
+}
+
 #[axum::debug_handler]
 async fn get_script_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Query(query): Query<WithStarredInfoQuery>,
-) -> JsonResult<ScriptWithStarred<ScriptRunnableSettingsInline>> {
+    Query(query): Query<GetScriptByPathQuery>,
+) -> JsonResult<WithDraftOverlay> {
     let path = path.to_path();
     check_scopes(&authed, || format!("scripts:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
-    let script_o = if query.with_starred_info.unwrap_or(false) {
+    let script_o = if query.starred.with_starred_info.unwrap_or(false) {
         sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(
             "SELECT s.*, favorite.path IS NOT NULL as starred
             FROM script s
             LEFT JOIN favorite
-            ON favorite.favorite_kind = 'script' 
-                AND favorite.workspace_id = s.workspace_id 
-                AND favorite.path = s.path 
+            ON favorite.favorite_kind = 'script'
+                AND favorite.workspace_id = s.workspace_id
+                AND favorite.path = s.path
                 AND favorite.usr = $3
             WHERE s.path = $1
                 AND s.workspace_id = $2
             ORDER BY s.created_at DESC LIMIT 1",
         )
         .bind(path)
-        .bind(w_id)
+        .bind(&w_id)
         .bind(&authed.username)
         .fetch_optional(&mut *tx)
         .await?
@@ -1667,7 +1676,7 @@ async fn get_script_by_path(
             ),
         )
         .bind(path)
-        .bind(w_id)
+        .bind(&w_id)
         .fetch_optional(&mut *tx)
         .await?
     };
@@ -1679,7 +1688,18 @@ async fn get_script_by_path(
     )
     .await?;
 
-    Ok(Json(script))
+    let overlay = maybe_overlay_draft(
+        &db,
+        &w_id,
+        &authed.email,
+        UserDraftItemKind::Script,
+        path,
+        query.draft.get_draft,
+        script,
+    )
+    .await?;
+
+    Ok(Json(overlay))
 }
 
 async fn list_tokens(

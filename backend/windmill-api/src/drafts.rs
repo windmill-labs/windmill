@@ -17,45 +17,8 @@ use serde::{Deserialize, Serialize};
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
+    user_drafts::UserDraftItemKind,
 };
-
-/// Closed set of item kinds a user can have an autosaved draft on. Mirrors
-/// the frontend's `USER_DRAFT_ITEM_KINDS`; the Postgres `DRAFT_KIND` enum
-/// must stay in lockstep — adding a kind requires both a new variant here
-/// and an `ALTER TYPE ... ADD VALUE` migration.
-///
-/// `snake_case` matches the wire/DB encoding so the same string round-trips
-/// through HTTP path params, JSON bodies, and the `draft.typ` column without
-/// per-edge mapping.
-#[derive(sqlx::Type, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[sqlx(type_name = "DRAFT_KIND", rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
-pub enum UserDraftItemKind {
-    Script,
-    Flow,
-    App,
-    RawApp,
-    Resource,
-    Variable,
-    TriggerSchedule,
-    TriggerWebhook,
-    TriggerDefaultEmail,
-    TriggerEmail,
-    TriggerHttp,
-    TriggerWebsocket,
-    TriggerPostgres,
-    TriggerKafka,
-    TriggerNats,
-    TriggerMqtt,
-    TriggerSqs,
-    TriggerGcp,
-    TriggerAzure,
-    TriggerPoll,
-    TriggerCli,
-    TriggerNextcloud,
-    TriggerGoogle,
-    TriggerGithub,
-}
 
 pub fn workspaced_service() -> Router {
     Router::new()

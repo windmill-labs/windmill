@@ -8350,13 +8350,16 @@ paths:
           in: query
           schema:
             type: boolean
+        - $ref: "#/components/parameters/GetDraft"
       responses:
         "200":
           description: script details
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Script"
+                allOf:
+                  - $ref: "#/components/schemas/Script"
+                  - $ref: "#/components/schemas/UserDraftOverlay"
 
   /w/{workspace}/scripts/get_triggers_count/{path}:
     get:
@@ -20495,6 +20498,13 @@ components:
       name: token
 
   parameters:
+    GetDraft:
+      name: get_draft
+      in: query
+      required: false
+      description: When true, overlay the authed user's draft (if any) onto the deployed payload.
+      schema:
+        type: boolean
     Id:
       name: id
       in: path
@@ -20926,6 +20936,21 @@ components:
     # This is why it is better to inline each of schemas for better compat
     # Do not change next line. It is used by python-client for pre-processing
     # -- INLINE START --
+    UserDraftOverlay:
+      type: object
+      description: |
+        Flattened overlay fields added to every "get by path" response that
+        accepts the `get_draft` query parameter. When `is_draft` is true the
+        response's editable fields come from the authed user's draft;
+        immutable metadata (hashes, timestamps, ownership) still come from
+        the deployed row.
+      properties:
+        is_draft:
+          type: boolean
+        draft_saved_at:
+          type: string
+          format: date-time
+      required: [is_draft]
     UserDraftItemKind:
       type: string
       description: |

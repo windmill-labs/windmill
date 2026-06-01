@@ -174,9 +174,13 @@
 		} else {
 			const backendScript = await ScriptService.getScriptByPath({
 				workspace: $workspaceStore!,
-				path: page.params.path ?? ''
+				path: page.params.path ?? '',
+				getDraft: true
 			})
 			if (tok !== loadScriptToken) return
+			if (backendScript.is_draft) {
+				sendUserToast('Loaded your saved draft')
+			}
 			savedScript = structuredClone($state.snapshot(backendScript))
 
 			const localDraft = scriptHandle.draft
