@@ -171,10 +171,9 @@ export function yamlStringifyExceptKeys(obj: any, keys: string[]) {
 
 /**
  * Checks if a model supports FIM (Fill-in-the-Middle) autocomplete.
- * Currently only Codestral models (non-embedding) support this.
+ * Currently Codestral models (non-embedding) and DeepSeek FIM support this.
  */
 export function supportsAutocomplete(model: string): boolean {
 	const lower = model.toLowerCase()
-	return lower.includes('codestral') && !lower.includes('embed')
+	return (lower.includes('codestral') && !lower.includes('embed')) || lower === 'deepseek-v4-pro'
 }
-

@@ -306,6 +306,11 @@ pub struct CreateApp {
     pub preserve_on_behalf_of: Option<bool>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
+    /// Caller-intent flag (set by the CLI / git sync): when true, deploying
+    /// this app must NOT delete an existing user draft at the same path.
+    /// Transient — never persisted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip_draft_deletion: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -319,6 +324,11 @@ pub struct EditApp {
     pub preserve_on_behalf_of: Option<bool>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
+    /// Caller-intent flag (set by the CLI / git sync): when true, deploying
+    /// this app must NOT delete an existing user draft at the same path.
+    /// Transient — never persisted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip_draft_deletion: Option<bool>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -1338,13 +1348,17 @@ async fn create_app_internal<'a>(
             ));
         }
     }
-    sqlx::query!(
-        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
-        &app.path,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
+    // CLI / git-sync deploys ask us to preserve any existing user draft at this
+    // path instead of wiping it as part of the deploy.
+    if !app.skip_draft_deletion.unwrap_or(false) {
+        sqlx::query!(
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
+            &app.path,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
     let id = sqlx::query_scalar!(
         "INSERT INTO app
             (workspace_id, path, summary, policy, versions, draft_only, custom_path, labels)
@@ -1943,13 +1957,17 @@ async fn update_app_internal<'a>(
             )));
         }
     };
-    sqlx::query!(
-        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
-        path,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
+    // CLI / git-sync deploys ask us to preserve any existing user draft at this
+    // path instead of wiping it as part of the deploy.
+    if !ns.skip_draft_deletion.unwrap_or(false) {
+        sqlx::query!(
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
+            path,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
     audit_log(
         &mut *tx,
         &authed,

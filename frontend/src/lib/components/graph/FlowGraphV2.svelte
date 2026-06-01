@@ -200,6 +200,9 @@
 		markRemovedAsShadowed?: boolean
 		controlsPosition?: 'top' | 'bottom'
 		outerDivClass?: string
+		/** Fires when the computed graph height changes. Diff views can use
+		 * this to equalize heights of side-by-side graphs. */
+		onHeight?: (height: number) => void
 	}
 
 	let {
@@ -273,7 +276,8 @@
 		onMoveMultiple = undefined,
 		movingIds = undefined,
 		controlsPosition = 'top',
-		outerDivClass = ''
+		outerDivClass = '',
+		onHeight = undefined
 	}: Props = $props()
 
 	// Initialize note manager with fine-grained reactivity
@@ -759,6 +763,7 @@
 			const computed = maxBottom - minY
 			height = Math.max(Math.min(computed, maxHeight ?? computed), minHeight)
 		}
+		onHeight?.(height)
 	}
 
 	$effect(() => {

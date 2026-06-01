@@ -353,7 +353,7 @@
 	{#if showWorkspaceOverrideEditor}
 		<SettingCard label="AI Providers">
 			<div class="flex flex-col gap-4 p-4 rounded-md border bg-surface-tertiary">
-				{#each Object.entries(AI_PROVIDERS) as [provider, details]}
+				{#each Object.entries(AI_PROVIDERS) as [provider, details] (provider)}
 					<div class="flex flex-col">
 						<div class="flex flex-row gap-2">
 							<Toggle
@@ -493,7 +493,8 @@
 					disabled={autocompleteModels.length == 0}
 					options={{
 						right: 'Enable code completion',
-						rightTooltip: 'We currently only support Mistral Codestral models for code completion.'
+						rightTooltip:
+							'We currently support Mistral Codestral and DeepSeek FIM models for code completion.'
 					}}
 				/>
 			</SettingCard>

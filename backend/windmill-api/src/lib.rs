@@ -1261,3 +1261,26 @@ pub async fn check_any_server_started(db: &DB, not_before: chrono::DateTime<chro
     .await
     .unwrap_or(false)
 }
+
+/// Delete `server_heartbeat:*` rows that have not been refreshed in a long
+/// time. Each server startup generates a fresh random `INSTANCE_NAME` and
+/// inserts a new row keyed by `server_heartbeat:{instance}`; because that
+/// row is only written once (on startup) and never updated thereafter, the
+/// table grows by one row per server restart and is otherwise never pruned.
+///
+/// The row is only consulted by `check_any_server_started`, which itself
+/// filters on `updated_at > not_before` (the moment a restart was initiated),
+/// so rows older than the cutoff cannot influence any restart decision and
+/// are safe to delete.
+pub async fn cleanup_stale_server_heartbeats(db: &DB) -> anyhow::Result<u64> {
+    let prefix = format!("{SERVER_HEARTBEAT_TASK}:");
+    let res = sqlx::query!(
+        "DELETE FROM background_task_state
+         WHERE name LIKE $1
+           AND updated_at < NOW() - INTERVAL '7 days'",
+        format!("{prefix}%"),
+    )
+    .execute(db)
+    .await?;
+    Ok(res.rows_affected())
+}

@@ -393,6 +393,7 @@ pub async fn clone_script<'c>(
         modules: s.modules,
         auto_parent: None,
         labels: s.labels,
+        skip_draft_deletion: None,
     };
 
     let new_hash = hash_script(&ns);
