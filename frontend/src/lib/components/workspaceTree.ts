@@ -123,16 +123,6 @@ function dirToBranch(
 	}
 }
 
-/** Build the workspace drill tree.
- *
- *  - One branch per kind in `kinds` (`Flows` / `Scripts` / `Apps`),
- *    each containing the kind's path hierarchy.
- *  - When `kinds.length > 1`, prepend an `All` branch that merges items
- *    across kinds. The `All` branch is flagged `omitFromSearch` so its
- *    leaves don't appear twice in global-search results.
- *  - When `kinds.length === 1`, return the single kind branch's children
- *    directly so the user lands on folders without a redundant level.
- */
 /** Merge AI-created in-memory drafts (or any caller-provided extras) into a
  * kind's loaded list. The chat tools / session previews scaffold items via
  * `UserDraft` before the user deploys; those should be navigable from the
@@ -149,6 +139,16 @@ function withExtras(
 	return items.concat(extras.filter((d) => !known.has(d.path)))
 }
 
+/** Build the workspace drill tree.
+ *
+ *  - One branch per kind in `kinds` (`Flows` / `Scripts` / `Apps`),
+ *    each containing the kind's path hierarchy.
+ *  - When `kinds.length > 1`, prepend an `All` branch that merges items
+ *    across kinds. The `All` branch is flagged `omitFromSearch` so its
+ *    leaves don't appear twice in global-search results.
+ *  - When `kinds.length === 1`, return the single kind branch's children
+ *    directly so the user lands on folders without a redundant level.
+ */
 export function buildWorkspaceTree(opts: {
 	loaded: Partial<Record<WorkspaceItemKind, WorkspaceItem[]>>
 	kinds: WorkspaceItemKind[]

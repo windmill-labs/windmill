@@ -162,7 +162,7 @@
 				availableContext.find((c) => c.title === title) ||
 				selectedContext.find((c) => c.title === title)
 			if (inContext) {
-				return `<span class="bg-black dark:bg-white text-white dark:text-black z-10">${match}</span>`
+				return `<span class="bg-surface-accent-selected text-primary rounded box-decoration-clone z-10">${match}</span>`
 			}
 			return match
 		})

@@ -240,7 +240,13 @@ leaves and ignores the current scope.
 			e.preventDefault()
 			e.stopPropagation()
 			moveHighlight(-1)
-		} else if (e.key === 'Enter') {
+		} else if (e.key === 'Enter' || e.key === 'Tab') {
+			// Tab mirrors Enter so the inline `@<word>` mention completes
+			// without losing focus to the next form control (matches the
+			// previous `AvailableContextList` behavior). Guard on a
+			// highlighted row so an unrelated Tab in an empty picker still
+			// falls through to natural focus movement.
+			if (e.key === 'Tab' && !highlightedKey) return
 			e.preventDefault()
 			e.stopPropagation()
 			mouseActive = false
@@ -377,12 +383,12 @@ leaves and ignores the current scope.
 		{@render defaultLeafIcon(leaf)}
 		<div class="min-w-0 flex-1">
 			{#if leaf.secondary}
-				<div class="text-xs text-primary truncate">{leaf.label}</div>
-				<div class="text-2xs text-secondary font-normal font-mono truncate">
+				<div class="text-xs text-primary font-normal truncate">{leaf.label}</div>
+				<div class="text-2xs text-hint font-normal font-mono truncate">
 					{secondary ?? leaf.secondary}
 				</div>
 			{:else}
-				<div class="text-xs text-primary font-mono truncate">
+				<div class="text-xs text-primary font-normal font-mono truncate">
 					{secondary ?? leaf.label}
 				</div>
 			{/if}

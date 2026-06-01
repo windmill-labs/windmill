@@ -1,7 +1,7 @@
 <script lang="ts">
 	import AIChatMessage from './AIChatMessage.svelte'
 	import AppAvailableContextList from './AppAvailableContextList.svelte'
-	import AvailableContextList from './AvailableContextList.svelte'
+	import ChatContextPicker from './ChatContextPicker.svelte'
 	import { type Snippet } from 'svelte'
 	import {
 		AlertTriangle,
@@ -540,7 +540,7 @@
 											}}
 										/>
 									{:else}
-										<AvailableContextList
+										<ChatContextPicker
 											{availableContext}
 											{selectedContext}
 											onSelect={(element) => {
@@ -550,6 +550,9 @@
 											onSelectWorkspaceItem={(element) => {
 												void aiChatInput?.addContextToSelection(element)
 												close()
+											}}
+											setShowing={(showing) => {
+												if (!showing) close()
 											}}
 										/>
 									{/if}
