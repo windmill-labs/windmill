@@ -174,6 +174,26 @@ pub async fn generate_approval_token(
     Ok(hex::encode(mac.finalize().into_bytes()))
 }
 
+/// Stateless read-share signature for a job: `HMAC(workspace_key, job_id || "view_token")`.
+/// Mirrors [`generate_approval_token`] but in a distinct domain so an approval token can
+/// never be used as a view token (or vice-versa). Used to build a "share read link" that
+/// grants an authenticated workspace member read access to a job (and its flow subtree)
+/// they otherwise lack ACL on. No expiry/revocation (stateless), like the approval token.
+pub async fn generate_view_token(
+    w_id: &str,
+    job_id: uuid::Uuid,
+    db: &DB,
+) -> crate::error::Result<String> {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    let key = get_workspace_key(w_id, db).await?;
+    let mut mac = Hmac::<Sha256>::new_from_slice(key.as_bytes())
+        .map_err(|e| crate::Error::internal_err(format!("HMAC key error: {e}")))?;
+    mac.update(job_id.as_bytes());
+    mac.update(b"view_token");
+    Ok(hex::encode(mac.finalize().into_bytes()))
+}
+
 pub async fn get_secret_value_as_admin(
     db: &DB,
     w_id: &str,
