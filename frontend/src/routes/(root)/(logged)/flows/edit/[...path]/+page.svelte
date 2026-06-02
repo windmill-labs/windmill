@@ -190,13 +190,24 @@
 			return
 		}
 		// Currently there is no way to get version of flow with flow.
-		// So we have to request it here
-		const v = (
-			await FlowService.getFlowLatestVersion({
-				workspace: $workspaceStore!,
-				path: page.params.path ?? ''
-			})
-		).id
+		// So we have to request it here.
+		//
+		// Tolerate a missing version: when the path is draft-only (no
+		// deployed flow at this path), `getFlowLatestVersion` returns no
+		// row and `.id` would throw on `null`. The `getFlowByPath` call
+		// below still returns the draft via the `get_draft` overlay, so
+		// the editor can mount with `version = undefined`.
+		let v: number | undefined
+		try {
+			v = (
+				await FlowService.getFlowLatestVersion({
+					workspace: $workspaceStore!,
+					path: page.params.path ?? ''
+				})
+			)?.id
+		} catch {
+			v = undefined
+		}
 		if (tok !== loadFlowToken) return
 		version = v
 
