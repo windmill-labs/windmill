@@ -361,6 +361,87 @@ describe('global AI tools', () => {
 		)
 	})
 
+	it('reads saved DB script drafts when no local draft exists', async () => {
+		vi.mocked(ScriptService.getScriptByPathWithDraft).mockResolvedValueOnce({
+			path: 'f/scripts/existing',
+			hash: 'deployed-hash',
+			summary: 'deployed summary',
+			description: 'deployed description',
+			content: 'deployed content',
+			language: 'bun',
+			kind: 'script',
+			draft: {
+				path: 'f/scripts/existing',
+				summary: 'db draft summary',
+				description: 'db draft description',
+				content: 'db draft content',
+				language: 'bun',
+				kind: 'script'
+			}
+		} as any)
+
+		const raw = await callGlobalTool('read_workspace_item', {
+			type: 'script',
+			path: 'f/scripts/existing'
+		})
+		const item = JSON.parse(raw)
+
+		expect(item).toEqual({
+			type: 'script',
+			path: 'f/scripts/existing',
+			summary: 'db draft summary',
+			language: 'bun',
+			value: 'db draft content',
+			isDraft: false
+		})
+		expect(raw).not.toContain('deployed content')
+	})
+
+	it('reads saved DB flow drafts when no local draft exists', async () => {
+		vi.mocked(FlowService.getFlowByPathWithDraft).mockResolvedValueOnce({
+			path: 'f/flows/existing',
+			summary: 'deployed summary',
+			value: {
+				modules: [{ id: 'deployed_step', value: { type: 'identity' } }]
+			},
+			schema: { type: 'object', properties: { deployed: { type: 'boolean' } } },
+			edited_by: 'admin',
+			edited_at: '2026-05-22T09:00:00Z',
+			archived: false,
+			extra_perms: {},
+			draft: {
+				path: 'f/flows/existing',
+				summary: 'db draft summary',
+				value: {
+					modules: [{ id: 'draft_step', value: { type: 'identity' } }]
+				},
+				schema: { type: 'object', properties: { draft: { type: 'string' } } },
+				edited_by: 'admin',
+				edited_at: '2026-05-22T10:00:00Z',
+				archived: false,
+				extra_perms: {}
+			}
+		} as any)
+
+		const raw = await callGlobalTool('read_workspace_item', {
+			type: 'flow',
+			path: 'f/flows/existing'
+		})
+		const item = JSON.parse(raw)
+
+		expect(item).toMatchObject({
+			type: 'flow',
+			path: 'f/flows/existing',
+			summary: 'db draft summary',
+			isDraft: false,
+			value: {
+				modules: [{ id: 'draft_step', value: { type: 'identity' } }],
+				schema: { type: 'object', properties: { draft: { type: 'string' } } }
+			}
+		})
+		expect(raw).not.toContain('deployed_step')
+	})
+
 	it('applies path_prefix to local drafts before enforcing the result limit', async () => {
 		await callGlobalTool('write_script', {
 			path: 'f/other/outside',

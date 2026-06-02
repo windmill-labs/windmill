@@ -591,7 +591,9 @@ function itemMatches(
 	)
 }
 
-function scriptToItem(script: Script, includeValue: boolean): WorkspaceItem {
+type ReadableScript = Pick<Script, 'path' | 'summary' | 'language' | 'content'>
+
+function scriptToItem(script: ReadableScript, includeValue: boolean): WorkspaceItem {
 	return {
 		type: 'script',
 		path: script.path,
@@ -602,7 +604,10 @@ function scriptToItem(script: Script, includeValue: boolean): WorkspaceItem {
 	}
 }
 
-function flowToItem(flow: Flow, includeValue: boolean): WorkspaceItem {
+function flowToItem(
+	flow: Pick<Flow, 'path' | 'summary' | 'value' | 'schema'>,
+	includeValue: boolean
+): WorkspaceItem {
 	return {
 		type: 'flow',
 		path: flow.path,
@@ -612,6 +617,19 @@ function flowToItem(flow: Flow, includeValue: boolean): WorkspaceItem {
 			: undefined,
 		isDraft: false
 	}
+}
+
+async function loadScriptWithDbDraft(path: string, workspace: string): Promise<ReadableScript> {
+	const script = await ScriptService.getScriptByPathWithDraft({ workspace, path })
+	return script.draft ? { ...script, ...script.draft, path: script.path } : script
+}
+
+async function loadFlowWithDbDraft(
+	path: string,
+	workspace: string
+): Promise<Pick<Flow, 'path' | 'summary' | 'value' | 'schema'>> {
+	const flow = await FlowService.getFlowByPathWithDraft({ workspace, path })
+	return flow.draft ? { ...flow, ...flow.draft, path: flow.path } : flow
 }
 
 /**
@@ -1098,9 +1116,9 @@ async function readWorkspaceItem(
 ): Promise<WorkspaceItem> {
 	switch (type) {
 		case 'script':
-			return scriptToItem(await ScriptService.getScriptByPath({ workspace, path }), true)
+			return scriptToItem(await loadScriptWithDbDraft(path, workspace), true)
 		case 'flow':
-			return flowToItem(await FlowService.getFlowByPath({ workspace, path }), true)
+			return flowToItem(await loadFlowWithDbDraft(path, workspace), true)
 		case 'schedule':
 			return scheduleToItem(await ScheduleService.getSchedule({ workspace, path }), true)
 		case 'trigger':
@@ -2327,7 +2345,7 @@ async function loadScriptForEdit(
 		}
 		return { content: draft.value, language: draft.language, summary: draft.summary }
 	}
-	const script = await ScriptService.getScriptByPath({ workspace, path })
+	const script = await loadScriptWithDbDraft(path, workspace)
 	return { content: script.content, language: script.language, summary: script.summary }
 }
 
@@ -2362,7 +2380,7 @@ async function loadFlowDraftValue(
 		}
 		return { flow: draft.value as FlowDraftValue, summary: draft.summary }
 	}
-	const flow = await FlowService.getFlowByPath({ workspace, path })
+	const flow = await loadFlowWithDbDraft(path, workspace)
 	return {
 		flow: { value: flow.value, schema: flow.schema, groups: flow.value.groups ?? null },
 		summary: flow.summary
