@@ -1,19 +1,21 @@
-import type { FlowModule, FlowValue, OpenFlow, RawScript } from '$lib/gen'
+import type { FlowModule, FlowNote, FlowValue, OpenFlow, RawScript } from '$lib/gen'
 import { forEachFlowModule } from '$lib/components/flows/dfs'
 import { findModuleInFlow } from '$lib/components/flows/flowTree'
-import { NoteColor } from '$lib/components/graph/noteColors'
+import { DEFAULT_NOTE_COLOR, NoteColor } from '$lib/components/graph/noteColors'
 import type { InlineScriptSession } from './inlineScriptsUtils'
 
-/** Allowed group color names — matches the NoteColor palette the group
- * editor uses. Other strings would render with default-blue styling at best
- * and break the color picker UI at worst. */
-const ALLOWED_GROUP_COLORS = new Set<string>(Object.values(NoteColor))
+/** Allowed note/group color names — matches the NoteColor palette the note and
+ * group editors use. The note renderer keys `NOTE_COLORS` by these exact names,
+ * so other strings (hex codes, CSS colors) render with no styling at best and
+ * break the color picker UI at worst. */
+const ALLOWED_NOTE_COLORS = new Set<string>(Object.values(NoteColor))
 
 type FlowLike = Pick<OpenFlow, 'value'> & {
 	schema?: Record<string, any>
 }
 
 export type FlowGroup = NonNullable<FlowValue['groups']>[number]
+export type { FlowNote }
 
 export interface FlowJsonUpdate {
 	modules?: FlowModule[]
@@ -21,6 +23,7 @@ export interface FlowJsonUpdate {
 	preprocessorModule?: FlowModule | null
 	failureModule?: FlowModule | null
 	groups?: FlowGroup[] | null
+	notes?: FlowNote[] | null
 }
 
 export interface FlowJsonUpdateResult {
@@ -78,9 +81,9 @@ export function validateFlowGroups(
 			}
 		}
 		if (g.color !== undefined && g.color !== null) {
-			if (typeof g.color !== 'string' || !ALLOWED_GROUP_COLORS.has(g.color)) {
+			if (typeof g.color !== 'string' || !ALLOWED_NOTE_COLORS.has(g.color)) {
 				throw new Error(
-					`Invalid group at index ${index}: color must be one of ${[...ALLOWED_GROUP_COLORS].join(', ')}`
+					`Invalid group at index ${index}: color must be one of ${[...ALLOWED_NOTE_COLORS].join(', ')}`
 				)
 			}
 		}
@@ -88,10 +91,80 @@ export function validateFlowGroups(
 	})
 }
 
+/**
+ * Validate the optional array of sticky notes the agent attached to the flow.
+ * Notes are editor-only annotations (`free` standalone notes or `group` notes
+ * that frame a set of nodes) and do not affect execution. When `moduleIds` is
+ * provided, every `contained_node_ids` entry of a `group` note must reference an
+ * existing module.
+ */
+export function validateFlowNotes(rawNotes: unknown, moduleIds?: Set<string>): FlowNote[] | null {
+	if (rawNotes == null) {
+		return null
+	}
+
+	if (!Array.isArray(rawNotes)) {
+		throw new Error('Flow notes must be an array')
+	}
+
+	const seenIds = new Set<string>()
+	return rawNotes.map((note, index) => {
+		if (!note || typeof note !== 'object' || Array.isArray(note)) {
+			throw new Error(`Invalid note at index ${index}: must be an object`)
+		}
+		const n = note as Record<string, unknown>
+		if (typeof n.id !== 'string' || !n.id) {
+			throw new Error(`Invalid note at index ${index}: id must be a non-empty string`)
+		}
+		if (seenIds.has(n.id)) {
+			throw new Error(`Invalid note at index ${index}: duplicate note id "${n.id}"`)
+		}
+		seenIds.add(n.id)
+		if (typeof n.text !== 'string') {
+			throw new Error(`Invalid note at index ${index}: text must be a string`)
+		}
+		const type = n.type ?? 'free'
+		if (type !== 'free' && type !== 'group') {
+			throw new Error(`Invalid note at index ${index}: type must be "free" or "group"`)
+		}
+		if (n.color !== undefined && n.color !== null) {
+			if (typeof n.color !== 'string' || !ALLOWED_NOTE_COLORS.has(n.color)) {
+				throw new Error(
+					`Invalid note at index ${index}: color must be one of ${[...ALLOWED_NOTE_COLORS].join(', ')}`
+				)
+			}
+		}
+		if (type === 'group' && n.contained_node_ids !== undefined) {
+			if (
+				!Array.isArray(n.contained_node_ids) ||
+				n.contained_node_ids.some((id) => typeof id !== 'string')
+			) {
+				throw new Error(
+					`Invalid note at index ${index}: contained_node_ids must be an array of strings`
+				)
+			}
+			if (moduleIds) {
+				for (const id of n.contained_node_ids as string[]) {
+					if (!moduleIds.has(id)) {
+						throw new Error(
+							`Invalid note at index ${index}: contained_node_ids "${id}" does not match any flow module`
+						)
+					}
+				}
+			}
+		}
+		return {
+			...(n as FlowNote),
+			type,
+			color: typeof n.color === 'string' ? n.color : DEFAULT_NOTE_COLOR
+		} as FlowNote
+	})
+}
+
 export function applyFlowJsonUpdate(
 	flow: FlowLike,
 	inlineScriptSession: InlineScriptSession,
-	{ modules, schema, preprocessorModule, failureModule, groups }: FlowJsonUpdate
+	{ modules, schema, preprocessorModule, failureModule, groups, notes }: FlowJsonUpdate
 ): FlowJsonUpdateResult {
 	const emptyInlineScriptModuleIds = new Set<string>()
 
@@ -123,6 +196,10 @@ export function applyFlowJsonUpdate(
 
 	if (groups !== undefined) {
 		flow.value.groups = groups == null || groups.length === 0 ? undefined : groups
+	}
+
+	if (notes !== undefined) {
+		flow.value.notes = notes == null || notes.length === 0 ? undefined : notes
 	}
 
 	return {

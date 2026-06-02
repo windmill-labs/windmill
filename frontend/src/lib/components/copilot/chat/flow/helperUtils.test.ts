@@ -3,7 +3,8 @@ import type { FlowModule } from '$lib/gen'
 import {
 	applyFlowJsonUpdate,
 	updateRawScriptModuleContent,
-	validateFlowGroups
+	validateFlowGroups,
+	validateFlowNotes
 } from './helperUtils'
 import { createInlineScriptSession } from './inlineScriptsUtils'
 
@@ -222,6 +223,70 @@ describe('applyFlowJsonUpdate', () => {
 		expect((flow.value as any).groups).toEqual(existingGroups)
 	})
 
+	it('persists notes passed in the flow json update', () => {
+		const flow = {
+			value: {
+				modules: [makeRawScriptModule('fetch_data', 'existing code')]
+			}
+		}
+		const inlineScriptSession = createInlineScriptSession()
+		inlineScriptSession.set('fetch_data', 'existing code')
+
+		applyFlowJsonUpdate(flow as any, inlineScriptSession, {
+			notes: [
+				{
+					id: 'note_1',
+					text: 'Remember to set the API key',
+					color: 'yellow',
+					type: 'free'
+				} as any
+			]
+		})
+
+		expect((flow.value as any).notes).toEqual([
+			{
+				id: 'note_1',
+				text: 'Remember to set the API key',
+				color: 'yellow',
+				type: 'free'
+			}
+		])
+	})
+
+	it('clears notes when an empty array or null is passed', () => {
+		const flow = {
+			value: {
+				modules: [],
+				notes: [{ id: 'n', text: 't', color: 'yellow', type: 'free' }]
+			}
+		}
+		const inlineScriptSession = createInlineScriptSession()
+
+		applyFlowJsonUpdate(flow as any, inlineScriptSession, { notes: [] })
+		expect((flow.value as any).notes).toBeUndefined()
+		;(flow.value as any).notes = [{ id: 'n', text: 't', color: 'yellow', type: 'free' }]
+		applyFlowJsonUpdate(flow as any, inlineScriptSession, { notes: null })
+		expect((flow.value as any).notes).toBeUndefined()
+	})
+
+	it('leaves notes untouched when not provided in the update', () => {
+		const existingNotes = [{ id: 'n', text: 't', color: 'yellow', type: 'free' }]
+		const flow = {
+			value: {
+				modules: [makeRawScriptModule('a', 'existing code')],
+				notes: existingNotes
+			}
+		}
+		const inlineScriptSession = createInlineScriptSession()
+		inlineScriptSession.set('a', 'existing code')
+
+		applyFlowJsonUpdate(flow as any, inlineScriptSession, {
+			modules: [makeRawScriptModule('a', 'inline_script.a')]
+		})
+
+		expect((flow.value as any).notes).toEqual(existingNotes)
+	})
+
 	it('updates ai agent rawscript tools in place when changing module code', () => {
 		const flow = {
 			value: {
@@ -317,5 +382,90 @@ describe('validateFlowGroups', () => {
 	it('accepts a group with no color', () => {
 		const result = validateFlowGroups([{ start_id: 'a', end_id: 'b' }])
 		expect(result).toEqual([{ start_id: 'a', end_id: 'b' }])
+	})
+})
+
+describe('validateFlowNotes', () => {
+	it('returns null for null/undefined input', () => {
+		expect(validateFlowNotes(null)).toBeNull()
+		expect(validateFlowNotes(undefined)).toBeNull()
+	})
+
+	it('rejects non-array input', () => {
+		expect(() => validateFlowNotes({})).toThrow('Flow notes must be an array')
+	})
+
+	it('rejects a note that is not an object', () => {
+		expect(() => validateFlowNotes(['nope'])).toThrow('Invalid note at index 0: must be an object')
+	})
+
+	it('rejects a note with a missing or non-string id', () => {
+		expect(() => validateFlowNotes([{ text: 't' }])).toThrow(
+			'Invalid note at index 0: id must be a non-empty string'
+		)
+		expect(() => validateFlowNotes([{ id: '', text: 't' }])).toThrow(
+			'Invalid note at index 0: id must be a non-empty string'
+		)
+	})
+
+	it('rejects duplicate note ids', () => {
+		expect(() =>
+			validateFlowNotes([
+				{ id: 'n', text: 'a' },
+				{ id: 'n', text: 'b' }
+			])
+		).toThrow('Invalid note at index 1: duplicate note id "n"')
+	})
+
+	it('rejects a non-string text', () => {
+		expect(() => validateFlowNotes([{ id: 'n', text: 42 }])).toThrow(
+			'Invalid note at index 0: text must be a string'
+		)
+	})
+
+	it('rejects an invalid type', () => {
+		expect(() => validateFlowNotes([{ id: 'n', text: 't', type: 'sticky' }])).toThrow(
+			'Invalid note at index 0: type must be "free" or "group"'
+		)
+	})
+
+	it('rejects an unknown color name', () => {
+		expect(() => validateFlowNotes([{ id: 'n', text: 't', color: '#ffff00' }])).toThrow(
+			/color must be one of/
+		)
+	})
+
+	it('defaults type to free and color to the default note color', () => {
+		const result = validateFlowNotes([{ id: 'n', text: 't' }])
+		expect(result).toEqual([{ id: 'n', text: 't', type: 'free', color: 'green' }])
+	})
+
+	it('rejects group note contained_node_ids that are not strings', () => {
+		expect(() =>
+			validateFlowNotes([{ id: 'n', text: 't', type: 'group', contained_node_ids: [1] }])
+		).toThrow('Invalid note at index 0: contained_node_ids must be an array of strings')
+	})
+
+	it('rejects group note contained_node_ids that do not match a module', () => {
+		const moduleIds = new Set(['a', 'b'])
+		expect(() =>
+			validateFlowNotes(
+				[{ id: 'n', text: 't', type: 'group', contained_node_ids: ['missing'] }],
+				moduleIds
+			)
+		).toThrow(
+			'Invalid note at index 0: contained_node_ids "missing" does not match any flow module'
+		)
+	})
+
+	it('accepts a valid group note whose contained ids are all modules', () => {
+		const moduleIds = new Set(['a', 'b'])
+		const result = validateFlowNotes(
+			[{ id: 'n', text: 't', color: 'blue', type: 'group', contained_node_ids: ['a', 'b'] }],
+			moduleIds
+		)
+		expect(result).toEqual([
+			{ id: 'n', text: 't', color: 'blue', type: 'group', contained_node_ids: ['a', 'b'] }
+		])
 	})
 })
