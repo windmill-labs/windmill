@@ -5,6 +5,7 @@
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 
 	import { ScriptService, type Script } from '$lib/gen'
@@ -51,7 +52,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
-		script: Script & { canWrite: boolean; use_codebase: boolean }
+		script: Script & { canWrite: boolean; use_codebase: boolean; is_draft?: boolean }
 		marked: string | undefined
 		shareModal: ShareModal
 		moveDrawer: MoveDrawer
@@ -180,6 +181,7 @@
 			>
 		{/if}
 		<SharedBadge canWrite={script.canWrite} extraPerms={script.extra_perms} />
+		<DraftBadge is_draft={script.is_draft} draft_only={script.draft_only} />
 		{#if script.labels?.length}
 			<div class="flex items-center gap-0.5">
 				{#each script.labels.slice(0, 3) as label}
