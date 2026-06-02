@@ -445,11 +445,23 @@ export async function pushWorkspaceSettings(
   }
 }
 
+export interface PushWorkspaceKeyOptions {
+  // True when no prompt may be shown (e.g. `--yes` was passed or stdin is not a
+  // TTY). In that case the re-encryption decision is taken from `skipReencrypt`
+  // / the WMILL_NO_REENCRYPT_ON_KEY_CHANGE env var instead of an interactive
+  // confirmation.
+  noninteractive?: boolean;
+  // Explicit re-encryption decision from `--skip-reencrypt-on-key-change`.
+  // When set it takes precedence over the prompt and the env var.
+  skipReencrypt?: boolean;
+}
+
 export async function pushWorkspaceKey(
   workspace: string,
   _path: string,
   key: string | undefined,
-  localKey: string
+  localKey: string,
+  opts?: PushWorkspaceKeyOptions
 ) {
   try {
     key = await wmill
@@ -461,17 +473,46 @@ export async function pushWorkspaceKey(
     throw new Error(`Failed to get workspace encryption key: ${err}`);
   }
   if (localKey && key !== localKey) {
-    const confirm = await Confirm.prompt({
-      message:
-        "The local workspace encryption key does not match the remote. Do you want to reencrypt all your secrets on the remote with the new key?\nSay 'no' if your local secrets are already encrypted with the new key (e.g. workspace/instance migration)\nOtherwise, say 'yes' and pull the secrets after the reencryption.\n",
-      default: true,
-    });
+    // Changing the key on the remote means the existing ciphertexts (encrypted
+    // with the old key) become unreadable unless they are re-encrypted. By
+    // default we ask the backend to re-encrypt every secret variable with the
+    // new key, which preserves their plaintext values. The only reason to skip
+    // re-encryption is when the stored ciphertexts are *already* encrypted with
+    // the new key (e.g. a workspace/instance migration).
+    let reencrypt: boolean;
+    // Explicit choice via `--skip-reencrypt-on-key-change` or the env var wins
+    // over everything, regardless of interactivity.
+    const explicitSkip =
+      opts?.skipReencrypt ||
+      (process.env.WMILL_NO_REENCRYPT_ON_KEY_CHANGE ?? "").toLowerCase() ===
+        "true";
+    if (explicitSkip) {
+      reencrypt = false;
+      log.info(
+        "Workspace encryption key changed; leaving remote ciphertexts untouched (skip re-encryption requested)."
+      );
+    } else if (opts?.noninteractive) {
+      // No TTY (or --yes) and no explicit skip: we can't prompt, so default to
+      // re-encrypting (matches the interactive default) to preserve secret
+      // values. Pass --skip-reencrypt-on-key-change (or set
+      // WMILL_NO_REENCRYPT_ON_KEY_CHANGE=true) to opt out.
+      reencrypt = true;
+      log.info(
+        "Workspace encryption key changed; re-encrypting all remote secrets with the new key (non-interactive)."
+      );
+    } else {
+      reencrypt = await Confirm.prompt({
+        message:
+          "The local workspace encryption key does not match the remote. Do you want to reencrypt all your secrets on the remote with the new key?\nSay 'no' if your local secrets are already encrypted with the new key (e.g. workspace/instance migration)\nOtherwise, say 'yes' and pull the secrets after the reencryption.\n",
+        default: true,
+      });
+    }
     log.debug(`Updating workspace encryption key...`);
     await wmill.setWorkspaceEncryptionKey({
       workspace,
       requestBody: {
         new_key: localKey,
-        skip_reencrypt: !confirm,
+        skip_reencrypt: !reencrypt,
       },
     });
   } else {
