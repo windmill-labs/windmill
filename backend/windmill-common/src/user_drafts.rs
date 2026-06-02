@@ -160,3 +160,51 @@ fn deep_merge(target: &mut serde_json::Value, source: serde_json::Value) {
         (t, s) => *t = s,
     }
 }
+
+/// Fetch the authed user's draft as a standalone payload, used by
+/// "get by path" routes when no deployed row exists at the path but a
+/// draft might. Returns the draft JSON wrapped as `WithDraftOverlay`
+/// with `is_draft = true`, so the response shape matches the overlay
+/// path the handler uses when a deployed row IS present.
+///
+/// Callers must already have established that no deployed row exists.
+/// Returns `Ok(None)` when there's also no draft — caller should 404.
+///
+/// The draft JSON is expected to be a JSON object (every editor writes
+/// drafts as object-shaped editable state, so `serde(flatten)` works on
+/// the inner value). A non-object draft would render with no fields
+/// flattened — defensive but degraded.
+pub async fn fetch_draft_only(
+    db: &DB,
+    w_id: &str,
+    email: &str,
+    kind: UserDraftItemKind,
+    path: &str,
+) -> Result<Option<WithDraftOverlay>> {
+    let row = sqlx::query!(
+        r#"SELECT value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+                  created_at
+           FROM draft
+           WHERE workspace_id = $1
+             AND email = $2
+             AND path = $3
+             AND typ = $4"#,
+        w_id,
+        email,
+        path,
+        kind as UserDraftItemKind,
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let Some(row) = row else {
+        return Ok(None);
+    };
+
+    let inner: serde_json::Value = serde_json::from_str(row.value.0.get())?;
+    Ok(Some(WithDraftOverlay {
+        inner,
+        is_draft: true,
+        draft_saved_at: Some(row.created_at),
+    }))
+}

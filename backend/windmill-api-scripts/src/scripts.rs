@@ -12,7 +12,9 @@ use windmill_api_auth::{
     check_scopes, maybe_refresh_folders, require_owner_of_path, ApiAuthed,
 };
 use windmill_common::{
-    user_drafts::{maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery},
+    user_drafts::{
+        fetch_draft_only, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
+    },
     utils::{BulkDeleteRequest, WithStarredInfoQuery, HTTP_CLIENT},
     webhook::{WebhookMessage, WebhookShared},
     workspaces::{check_deploy_rules, RuleCheckResult},
@@ -1690,22 +1692,41 @@ async fn get_script_by_path(
     };
     tx.commit().await?;
 
-    let script = windmill_common::scripts::prefetch_cached_script_with_starred(
-        not_found_if_none(script_o, "Script", path)?,
-        &db,
-    )
-    .await?;
-
-    let overlay = maybe_overlay_draft(
-        &db,
-        &w_id,
-        &authed.email,
-        UserDraftItemKind::Script,
-        path,
-        query.draft.get_draft,
-        script,
-    )
-    .await?;
+    // Editors that have only ever drafted (never deployed) a script at this
+    // path will land here with no deployed row. When `get_draft` is set, fall
+    // back to the draft table so /scripts/edit/draft_<uuid> works the same
+    // way as a deployed-script reload.
+    let overlay = match script_o {
+        Some(script_o) => {
+            let script =
+                windmill_common::scripts::prefetch_cached_script_with_starred(script_o, &db)
+                    .await?;
+            maybe_overlay_draft(
+                &db,
+                &w_id,
+                &authed.email,
+                UserDraftItemKind::Script,
+                path,
+                query.draft.get_draft,
+                script,
+            )
+            .await?
+        }
+        None if query.draft.get_draft => {
+            fetch_draft_only(&db, &w_id, &authed.email, UserDraftItemKind::Script, path)
+                .await?
+                .ok_or_else(|| {
+                    windmill_common::error::Error::NotFound(format!(
+                        "Script not found at path {path}"
+                    ))
+                })?
+        }
+        None => {
+            return Err(windmill_common::error::Error::NotFound(format!(
+                "Script not found at path {path}"
+            )))
+        }
+    };
 
     Ok(Json(overlay))
 }

@@ -58,7 +58,9 @@ use windmill_common::{
         get_payload_tag_from_prefixed_path, resolve_delete_after_secs, schedule_job_deletion,
         JobPayload, RawCode,
     },
-    user_drafts::{maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery},
+    user_drafts::{
+        fetch_draft_only, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
+    },
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
@@ -552,6 +554,13 @@ struct GetAppQuery {
     starred: WithStarredInfoQuery,
     #[serde(flatten)]
     draft: WithDraftQuery,
+    /// When no deployed app exists at this path and `get_draft` is set,
+    /// `raw_app` picks which draft kind to look up (`raw_app` or `app`).
+    /// Ignored when a deployed row exists — the row's own `raw_app`
+    /// column wins. Frontend sets this from the route the editor is on
+    /// (`/apps_raw/...` → true, `/apps/...` → false).
+    #[serde(default)]
+    raw_app: Option<bool>,
 }
 
 async fn get_app(
@@ -600,24 +609,48 @@ async fn get_app(
     };
     tx.commit().await?;
 
-    let app = not_found_if_none(app_o, "App", path)?;
-    // The same `app` table backs both regular apps and raw apps; the
-    // `raw_app` flag on the row picks which draft kind to look up.
-    let kind = if app.app.raw_app {
-        UserDraftItemKind::RawApp
-    } else {
-        UserDraftItemKind::App
+    // Editors that have only ever drafted (never deployed) an app at this
+    // path will land here with no deployed row. When `get_draft` is set,
+    // fall back to the draft table so /apps/edit/draft_<uuid> and
+    // /apps_raw/edit/draft_<uuid> work the same way as a deployed reload.
+    // For draft-only there's no `raw_app` row column to consult — the
+    // caller's `raw_app` query param picks the draft kind.
+    let overlay = match app_o {
+        Some(app) => {
+            let kind = if app.app.raw_app {
+                UserDraftItemKind::RawApp
+            } else {
+                UserDraftItemKind::App
+            };
+            maybe_overlay_draft(
+                &db,
+                &w_id,
+                &authed.email,
+                kind,
+                path,
+                query.draft.get_draft,
+                app,
+            )
+            .await?
+        }
+        None if query.draft.get_draft => {
+            let kind = if query.raw_app.unwrap_or(false) {
+                UserDraftItemKind::RawApp
+            } else {
+                UserDraftItemKind::App
+            };
+            fetch_draft_only(&db, &w_id, &authed.email, kind, path)
+                .await?
+                .ok_or_else(|| {
+                    windmill_common::error::Error::NotFound(format!("App not found at path {path}"))
+                })?
+        }
+        None => {
+            return Err(windmill_common::error::Error::NotFound(format!(
+                "App not found at path {path}"
+            )));
+        }
     };
-    let overlay = maybe_overlay_draft(
-        &db,
-        &w_id,
-        &authed.email,
-        kind,
-        path,
-        query.draft.get_draft,
-        app,
-    )
-    .await?;
     Ok(Json(overlay))
 }
 

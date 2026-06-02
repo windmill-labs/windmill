@@ -197,6 +197,28 @@
 	async function loadScript(): Promise<void> {
 		const tok = ++loadScriptToken
 		fullyLoaded = false
+		// `?new_draft=true` (set by `/scripts/add`'s redirect) means we
+		// landed on a fresh `draft_{uuid}` path that's never been saved
+		// anywhere. Skip the backend fetch (it would 404), seed an empty
+		// `NewScript`, and strip the single-use flag from the URL.
+		if (page.url.searchParams.get('new_draft') === 'true') {
+			const url = new URL(window.location.href)
+			url.searchParams.delete('new_draft')
+			window.history.replaceState(window.history.state, '', url.toString())
+			const empty: EditableScript = {
+				path: page.params.path ?? '',
+				summary: '',
+				description: '',
+				content: '',
+				language: 'bun',
+				schema: {}
+			} as unknown as EditableScript
+			savedScript = structuredClone(empty)
+			scriptHandle.setDraftAndMeta(empty, {})
+			fullyLoaded = true
+			renderEditor = true
+			return
+		}
 		if (hash) {
 			const scriptByHash = await ScriptService.getScriptByHash({
 				workspace: $workspaceStore!,

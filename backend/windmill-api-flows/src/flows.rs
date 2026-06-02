@@ -20,7 +20,9 @@ use windmill_api_auth::{
 };
 use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
 use windmill_common::{
-    user_drafts::{maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery},
+    user_drafts::{
+        fetch_draft_only, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
+    },
     utils::{WithStarredInfoQuery, HTTP_CLIENT},
     webhook::{WebhookMessage, WebhookShared},
     DB,
@@ -1464,17 +1466,38 @@ async fn get_flow_by_path(
 
     tx.commit().await?;
 
-    let flow = not_found_if_none(flow_o, "Flow", path)?;
-    let overlay = maybe_overlay_draft(
-        &db,
-        &w_id,
-        &authed.email,
-        UserDraftItemKind::Flow,
-        path,
-        query.draft.get_draft,
-        flow,
-    )
-    .await?;
+    // Editors that have only ever drafted (never deployed) a flow at this
+    // path will land here with no deployed row. When `get_draft` is set,
+    // fall back to the draft table so /flows/edit/draft_<uuid> works the
+    // same way as a deployed-flow reload.
+    let overlay = match flow_o {
+        Some(flow) => {
+            maybe_overlay_draft(
+                &db,
+                &w_id,
+                &authed.email,
+                UserDraftItemKind::Flow,
+                path,
+                query.draft.get_draft,
+                flow,
+            )
+            .await?
+        }
+        None if query.draft.get_draft => {
+            fetch_draft_only(&db, &w_id, &authed.email, UserDraftItemKind::Flow, path)
+                .await?
+                .ok_or_else(|| {
+                    windmill_common::error::Error::NotFound(format!(
+                        "Flow not found at path {path}"
+                    ))
+                })?
+        }
+        None => {
+            return Err(windmill_common::error::Error::NotFound(format!(
+                "Flow not found at path {path}"
+            )));
+        }
+    };
     Ok(Json(overlay))
 }
 

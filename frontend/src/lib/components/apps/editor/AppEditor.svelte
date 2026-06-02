@@ -98,8 +98,8 @@
 	// /apps/add reload: the route always initializes `app` to an empty
 	// template, but the user's last session is sitting in LS under the
 	// empty-path entry). The route is responsible for wiping the entry
-	// (`UserDraft.remove`) when it wants to force a fresh start —
-	// `?nodraft=true`, template/hub loads, etc.
+	// (`UserDraft.remove`) when it wants to force a fresh start
+	// (template/hub loads, etc.).
 	const stateApp = $state(untrack(() => appDraftHandle?.draft ?? app))
 	const appStore = writable<App>(stateApp)
 	// Captured once on mount: the load-time revs are only used as the

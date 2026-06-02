@@ -56,17 +56,6 @@
 	let redraw = $state(0)
 	let path = page.params.path ?? ''
 
-	// `?nodraft=true` is the callers' way of saying "skip the local autosave
-	// on this load." Wipe the UserDraft entry and strip the flag from the
-	// URL synchronously, before the handle is created. A plain reload (no
-	// nodraft) restores normally.
-	if (page.url.searchParams.get('nodraft') && typeof window !== 'undefined') {
-		UserDraft.remove('raw_app', path)
-		const url = new URL(window.location.href)
-		url.searchParams.delete('nodraft')
-		window.history.replaceState(window.history.state, '', url.toString())
-	}
-
 	const draftHandle = UserDraft.use<RawAppDraft>('raw_app', path)
 
 	// Local-draft staleness modal: opened when the remote has moved on since
@@ -175,10 +164,29 @@
 	let loadAppToken = 0
 	async function loadApp(): Promise<void> {
 		const tok = ++loadAppToken
+		// `?new_draft=true` (set by `/apps_raw/add`'s redirect) means we
+		// landed on a fresh `draft_{uuid}` path that's never been saved.
+		// Skip the backend fetch (it would 404), seed an empty raw app,
+		// strip the flag. `rawApp: true` on subsequent reloads tells the
+		// backend to look up the `raw_app` kind in the draft table.
+		if (page.url.searchParams.get('new_draft') === 'true') {
+			const url = new URL(window.location.href)
+			url.searchParams.delete('new_draft')
+			window.history.replaceState(window.history.state, '', url.toString())
+			savedApp = {
+				summary: '',
+				value: { files: {}, runnables: {} },
+				path: page.params.path ?? '',
+				policy: {},
+				custom_path: undefined
+			}
+			return
+		}
 		const backendApp = await AppService.getAppByPath({
 			path: page.params.path ?? '',
 			workspace: $workspaceStore!,
-			getDraft: true
+			getDraft: true,
+			rawApp: true
 		})
 		if (tok !== loadAppToken) return
 		if (backendApp.is_draft) {

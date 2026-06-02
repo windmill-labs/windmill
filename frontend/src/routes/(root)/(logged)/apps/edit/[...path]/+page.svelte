@@ -11,6 +11,7 @@
 	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
 	import OtherUsersDraftsModal from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
+	import { emptyApp } from '$lib/components/apps/editor/appUtils'
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
 	import { UserDraft, checkStaleness, type UserDraftMeta } from '$lib/userDraft.svelte'
@@ -71,23 +72,42 @@
 		staleModalOpen = false
 	}
 
-	// `?nodraft=true` is the callers' way of saying "skip the local autosave
-	// on this load." Wipe the UserDraft entry and strip the flag from the
-	// URL synchronously, before any descendant reads it. A plain reload
-	// (no nodraft) restores normally.
-	if (page.url.searchParams.get('nodraft') && typeof window !== 'undefined') {
-		UserDraft.remove('app', path)
-		const url = new URL(window.location.href)
-		url.searchParams.delete('nodraft')
-		window.history.replaceState(window.history.state, '', url.toString())
-	}
-
 	/** Increments per `loadApp` call. Stale loads (e.g. when picker
 	 * navigation races a draft-discard reload) bail at the next checkpoint
 	 * after their captured token no longer matches. */
 	let loadAppToken = 0
 	async function loadApp(): Promise<void> {
 		const tok = ++loadAppToken
+		// `?new_draft=true` (set by `/apps/add`'s redirect) means we landed
+		// on a fresh `draft_{uuid}` path that's never been saved. Skip the
+		// backend fetch (it would 404), seed an empty app, strip the flag.
+		if (page.url.searchParams.get('new_draft') === 'true') {
+			const url = new URL(window.location.href)
+			url.searchParams.delete('new_draft')
+			window.history.replaceState(window.history.state, '', url.toString())
+			const emptyValue = emptyApp()
+			app = {
+				summary: '',
+				value: emptyValue as any,
+				path: page.params.path ?? '',
+				policy: {} as any,
+				custom_path: undefined,
+				versions: [] as any,
+				id: 0 as any,
+				extra_perms: {},
+				created_at: new Date().toISOString(),
+				created_by: '',
+				raw_app: false
+			} as unknown as AppWithLastVersion & { value: any }
+			savedApp = {
+				summary: '',
+				value: emptyValue as any,
+				path: page.params.path ?? '',
+				policy: {} as any
+			}
+			currentRevs = {}
+			return
+		}
 		const backendApp = await AppService.getAppByPath({
 			path: page.params.path ?? '',
 			workspace: $workspaceStore!,

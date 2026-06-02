@@ -10482,6 +10482,14 @@ paths:
           schema:
             type: boolean
         - $ref: "#/components/parameters/GetDraft"
+        - name: raw_app
+          in: query
+          description: |
+            When no deployed app exists at this path and `get_draft` is set,
+            disambiguates which draft kind (`raw_app` or `app`) to look up.
+            Ignored when a deployed row exists.
+          schema:
+            type: boolean
       responses:
         "200":
           description: app details

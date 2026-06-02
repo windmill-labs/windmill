@@ -52,17 +52,6 @@
 	// Derived so client-side nav (breadcrumb) re-keys the handle to the new path.
 	let flowDraftPath = $derived(page.params.path ?? '')
 
-	// `?nodraft=true` is the callers' way of saying "skip the local autosave
-	// on this load." Wipe the UserDraft entry and strip the flag from the
-	// URL synchronously, before the handle is created — same pattern as
-	// /flows/add. A plain reload (no nodraft) restores normally.
-	if (page.url.searchParams.get('nodraft') && typeof window !== 'undefined') {
-		UserDraft.remove('flow', flowDraftPath)
-		const url = new URL(window.location.href)
-		url.searchParams.delete('nodraft')
-		window.history.replaceState(window.history.state, '', url.toString())
-	}
-
 	// `useMany` keyed off the reactive `flowDraftPath` re-keys the handle on nav;
 	// `flowHandle` proxies the current handle so `flowStore` keeps a fixed ref.
 	const flowHandles = UserDraft.useMany<Flow>(() => [{ itemKind: 'flow', path: flowDraftPath }])
@@ -167,6 +156,34 @@
 		// so flowBuilder is unmounted and direct calls would no-op.
 		let draftTriggersToApply: Trigger[] | undefined = undefined
 		let applyPrimarySchedule = false
+		// `?new_draft=true` (set by `/flows/add`'s redirect) means we
+		// landed on a fresh `draft_{uuid}` path that's never been saved.
+		// Skip both the latest-version and the get-by-path fetches (they
+		// would 404), seed an empty Flow, strip the single-use flag.
+		if (page.url.searchParams.get('new_draft') === 'true') {
+			const url = new URL(window.location.href)
+			url.searchParams.delete('new_draft')
+			window.history.replaceState(window.history.state, '', url.toString())
+			const empty: Flow = {
+				path: page.params.path ?? '',
+				summary: '',
+				description: '',
+				value: { modules: [] },
+				schema: {},
+				extra_perms: {},
+				edited_at: new Date().toISOString(),
+				edited_by: ''
+			} as unknown as Flow
+			savedFlow = structuredClone(empty)
+			flowHandle.setDraftAndMeta(empty, {})
+			flow = empty
+			await initFlow(flow, flowStore, flowStateStore)
+			if (tok !== loadFlowToken) return
+			loading = false
+			selectedId = page.url.searchParams.get('selected') ?? 'settings-metadata'
+			renderEditor = true
+			return
+		}
 		// Currently there is no way to get version of flow with flow.
 		// So we have to request it here
 		const v = (
