@@ -6,6 +6,7 @@ import process from "node:process";
 
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
+import { Confirm } from "@cliffy/prompt/confirm";
 import * as log from "../../core/log.ts";
 import { readConfigFile } from "../../core/conf.ts";
 
@@ -88,18 +89,76 @@ function currentTsconfigHash(): string {
     .slice(0, 12);
 }
 
+// Exact `tsconfig.json` shapes the *previous* CLI generated (single-file, before
+// the managed/user split — see the now-deleted resource-type/tsconfig.ts). When
+// an existing tsconfig.json matches one of these verbatim, we know it's ours (not
+// a user customization), so we can safely replace it wholesale with the thin stub
+// that extends tsconfig.wmill.json. Anything else is treated as user-authored.
+const LEGACY_GENERATED_TSCONFIGS: Record<string, unknown>[] = [
+  {
+    compilerOptions: {
+      target: "ESNext",
+      module: "ESNext",
+      moduleResolution: "bundler",
+      noEmit: true,
+      strict: false,
+    },
+    include: ["**/*.ts", "rt.d.ts"],
+  },
+  {
+    compilerOptions: {
+      target: "ESNext",
+      module: "ESNext",
+      moduleResolution: "bundler",
+      noEmit: true,
+      strict: false,
+      types: ["bun-types"],
+    },
+    include: ["**/*.ts", "rt.d.ts"],
+  },
+];
+
+// Order-sensitive deep equality (arrays compared positionally, objects by key
+// set). Used only on small parsed JSON config objects.
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) {
+      return false;
+    }
+    return a.every((x, i) => deepEqual(x, b[i]));
+  }
+  if (a && b && typeof a === "object" && typeof b === "object") {
+    const ka = Object.keys(a as object);
+    const kb = Object.keys(b as object);
+    if (ka.length !== kb.length) return false;
+    return ka.every((k) =>
+      deepEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k])
+    );
+  }
+  return false;
+}
+
+// How to handle an existing, user-authored config that doesn't yet reference the
+// managed file. `assumeYes` (from `--yes` / `wmill init --default`) wires it
+// without asking; otherwise we only wire it after an interactive confirmation —
+// a non-interactive run with neither leaves the file untouched.
+type WireMode = { interactive: boolean; assumeYes: boolean };
+
 /**
  * (Re)generate the wmill-managed TypeScript/Deno IDE config so the editor
  * resolves `$f/`/`$u/` workspace imports against the local script folders.
  *
  * Split into a managed base file (always refreshed) and a user-owned file that
- * references it (created once, never overwritten). This lets the recommended
- * config evolve without ever clobbering user customizations.
+ * references it. We only ever touch files that are ours: the managed file is
+ * regenerated, a tsconfig.json still in the previously-generated shape is
+ * migrated to the new split, and a genuinely custom config is wired only with
+ * the user's consent (interactive prompt, or `--yes`).
  *
  * Programmatic entry point reused by `wmill init`; also exposed as
  * `wmill refresh tsconfig`.
  */
-export async function refreshTsconfig(): Promise<void> {
+export async function refreshTsconfig(opts?: { yes?: boolean }): Promise<void> {
   let defaultTs: "bun" | "deno" = "bun";
   try {
     const conf = await readConfigFile({ warnIfMissing: false });
@@ -110,16 +169,22 @@ export async function refreshTsconfig(): Promise<void> {
     // fall back to bun if wmill.yaml is missing or unreadable
   }
 
+  const assumeYes = opts?.yes === true;
+  const mode: WireMode = {
+    assumeYes,
+    interactive: !!process.stdin.isTTY && !assumeYes,
+  };
+
   // tsconfig.json is useful for Bun and general TS tooling regardless of the
   // default; the Deno import map is only relevant for Deno-default projects
   // (the Deno LSP ignores tsconfig.json).
-  refreshManagedTsconfig(defaultTs);
+  await refreshManagedTsconfig(defaultTs, mode);
   if (defaultTs === "deno") {
-    refreshManagedDenoImportMap();
+    await refreshManagedDenoImportMap(mode);
   }
 }
 
-function refreshManagedTsconfig(defaultTs: "bun" | "deno") {
+async function refreshManagedTsconfig(defaultTs: "bun" | "deno", mode: WireMode) {
   const managed = buildManagedTsconfig();
 
   // Only reference bun-types if it's actually available; otherwise the IDE
@@ -138,9 +203,11 @@ function refreshManagedTsconfig(defaultTs: "bun" | "deno") {
   );
   log.info(colors.green(`Refreshed ${MANAGED_TSCONFIG}`));
 
-  ensureUserReferencesManaged({
+  await ensureUserReferencesManaged({
     file: "tsconfig.json",
     create: { extends: `./${MANAGED_TSCONFIG}` },
+    legacyFormats: LEGACY_GENERATED_TSCONFIGS,
+    mode,
     wire: (parsed) => {
       const ext = parsed.extends;
       const managed = `./${MANAGED_TSCONFIG}`;
@@ -165,7 +232,7 @@ function refreshManagedTsconfig(defaultTs: "bun" | "deno") {
   });
 }
 
-function refreshManagedDenoImportMap() {
+async function refreshManagedDenoImportMap(mode: WireMode) {
   // Import-map prefix keys must end with "/": "$f/" -> "./f/", "$u/" -> "./u/".
   const imports: Record<string, string> = {};
   for (const [alias, dir] of Object.entries(WORKSPACE_IMPORT_ALIASES)) {
@@ -179,12 +246,13 @@ function refreshManagedDenoImportMap() {
   );
   log.info(colors.green(`Refreshed ${MANAGED_IMPORT_MAP}`));
 
-  ensureUserReferencesManaged({
+  await ensureUserReferencesManaged({
     file: "deno.json",
     // Don't write deno.json if the project already uses deno.jsonc — a new
     // deno.json would take precedence and shadow the existing config.
     altFiles: ["deno.jsonc"],
     create: { importMap: `./${MANAGED_IMPORT_MAP}` },
+    mode,
     wire: (parsed) => {
       // Deno rejects `imports` + `importMap` together, so we can't auto-wire a
       // deno.json that already defines its own imports.
@@ -215,7 +283,7 @@ function refreshManagedDenoImportMap() {
  * (JSONC comments fail JSON.parse, or the structure already conflicts) — we
  * never corrupt a file we can't round-trip.
  */
-function ensureUserReferencesManaged(opts: {
+async function ensureUserReferencesManaged(opts: {
   file: string;
   // Sibling configs that, if already present, must not be shadowed by writing
   // `opts.file` next to them (e.g. an existing deno.jsonc vs a new deno.json).
@@ -224,6 +292,11 @@ function ensureUserReferencesManaged(opts: {
   // Mutate the parsed user config to reference the managed file. Returns true
   // when wired, or a short reason string when it can't be wired cleanly (→ warn).
   wire: (parsed: Record<string, unknown>) => true | string;
+  // Verbatim shapes a previous CLI generated for this file. A match means the
+  // file is ours, so it's replaced wholesale (no prompt); anything else is
+  // treated as user-authored and only wired with consent.
+  legacyFormats?: Record<string, unknown>[];
+  mode: WireMode;
   token: string;
   hint: string;
 }) {
@@ -254,7 +327,7 @@ function ensureUserReferencesManaged(opts: {
     return;
   }
 
-  // Auto-wire — but only when we can round-trip the JSON. Files with comments
+  // We only ever rewrite a config we can round-trip as JSON. Files with comments
   // (JSONC) fail JSON.parse, so we warn instead of corrupting them.
   let parsed: Record<string, unknown>;
   try {
@@ -266,7 +339,24 @@ function ensureUserReferencesManaged(opts: {
     );
     return;
   }
-  const wired = opts.wire(parsed);
+
+  // The file is still exactly what a previous CLI generated → it's ours, so
+  // migrate it to the new split (replace with the thin stub that extends the
+  // managed file). No prompt: we're not touching user-authored content.
+  if (opts.legacyFormats?.some((fmt) => deepEqual(parsed, fmt))) {
+    writeFileSync(existing, JSON.stringify(opts.create, null, 2) + "\n");
+    log.info(
+      colors.green(
+        `Migrated previously-generated ${existingName} to reference ${opts.token}`
+      )
+    );
+    return;
+  }
+
+  // Custom config. Try wiring a clone so we can report un-wireable cases without
+  // mutating, then only persist with the user's consent.
+  const next = JSON.parse(JSON.stringify(parsed)) as Record<string, unknown>;
+  const wired = opts.wire(next);
   if (wired !== true) {
     log.warn(
       `${existingName}: ${wired}. Add ${opts.hint} manually to pick up wmill's ` +
@@ -274,7 +364,29 @@ function ensureUserReferencesManaged(opts: {
     );
     return;
   }
-  writeFileSync(existing, JSON.stringify(parsed, null, 2) + "\n");
+
+  const consent = opts.mode.assumeYes
+    ? true
+    : opts.mode.interactive
+    ? await Confirm.prompt({
+        message:
+          `${existingName} isn't linked to wmill's ${opts.token}. Add ${opts.hint}? ` +
+          `Your settings are preserved (it's inserted first, so your config wins).`,
+        default: true,
+      })
+    : false;
+
+  if (!consent) {
+    log.info(
+      colors.gray(
+        `Left ${existingName} unchanged — add ${opts.hint} when ready to enable ` +
+          `$f//$u/ import aliases (or re-run \`wmill refresh tsconfig\`).`
+      )
+    );
+    return;
+  }
+
+  writeFileSync(existing, JSON.stringify(next, null, 2) + "\n");
   log.info(colors.green(`Linked ${existingName} → ${opts.token}`));
 }
 
@@ -357,8 +469,12 @@ const command = new Command()
   .description(
     "Refresh the wmill-managed tsconfig.wmill.json (and Deno import map for Deno projects)"
   )
-  .action(async () => {
-    await refreshTsconfig();
-  });
+  .option(
+    "--yes",
+    "Non-interactive: wire an existing custom tsconfig.json/deno.json to the managed file without prompting (a previously-generated config is always migrated automatically)."
+  )
+  .action((async (opts: { yes?: boolean }) => {
+    await refreshTsconfig({ yes: opts.yes === true });
+  }) as any);
 
 export default command;

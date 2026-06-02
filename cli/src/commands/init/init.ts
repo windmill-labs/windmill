@@ -242,7 +242,7 @@ async function initAction(opts: InitOptions) {
   // Generate the IDE tsconfig (managed tsconfig.wmill.json + user tsconfig.json
   // that extends it). Independent of any workspace binding — it's purely local.
   try {
-    await refreshTsconfig();
+    await refreshTsconfig({ yes: opts.useDefault === true });
   } catch (error) {
     log.warn(
       `Could not generate tsconfig: ${
