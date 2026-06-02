@@ -52,6 +52,7 @@ import docs from "./commands/docs/docs.ts";
 import config from "./commands/config/config.ts";
 import datatable from "./commands/datatable/datatable.ts";
 import ducklake from "./commands/ducklake/ducklake.ts";
+import objectStorage from "./commands/object-storage/object-storage.ts";
 import { fetchVersion } from "./core/context.ts";
 
 export {
@@ -77,6 +78,7 @@ export {
   config,
   datatable,
   ducklake,
+  objectStorage,
   hubPull,
   pull,
   push,
@@ -87,7 +89,7 @@ export {
   token,
 };
 
-export const VERSION = "1.710.0";
+export const VERSION = "1.714.0";
 
 // Re-exported from constants.ts to maintain backwards compatibility
 export { WM_FORK_PREFIX } from "./core/constants.ts";
@@ -210,6 +212,7 @@ const command = new Command()
   .command("config", config)
   .command("datatable", datatable)
   .command("ducklake", ducklake)
+  .command("object-storage", objectStorage)
   .command("version --version", "Show version information")
   .action(async (opts: any) => {
     console.log("CLI version: " + VERSION);

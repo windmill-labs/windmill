@@ -254,7 +254,7 @@ describe("deriveGitSyncDeployIncludes", () => {
     ]);
   });
 
-  test("workspace-wide mode opts excluded kinds back in", () => {
+  test("workspace-wide mode force-includes deployed default-excluded kinds", () => {
     const r = deriveGitSyncDeployIncludes(
       [
         { path_type: "schedule", path: "f/s" },
@@ -266,15 +266,36 @@ describe("deriveGitSyncDeployIncludes", () => {
       ],
       false
     );
-    expect(r.includeSchedules).toBe(true);
-    expect(r.includeGroups).toBe(true);
-    expect(r.includeTriggers).toBe(true);
-    expect(r.includeSettings).toBe(true);
-    expect(r.includeKey).toBe(true);
-    expect(r.includeUsers).toBe(true);
+    // Full-mirror repo: a deployed object of a default-excluded kind must be
+    // re-included even if wmill.yaml would skip it, so the flag is forced on.
+    expect(r.forcedIncludes).toEqual({
+      includeSchedules: true,
+      includeGroups: true,
+      includeTriggers: true,
+      includeSettings: true,
+      includeKey: true,
+      includeUsers: true,
+    });
   });
 
-  test("individual-branch mode NEVER sets include flags (matches hub script)", () => {
+  test("workspace-wide mode only forces the kinds actually deployed", () => {
+    const r = deriveGitSyncDeployIncludes(
+      [{ path_type: "script", path: "f/s" }],
+      false
+    );
+    // Scripts are included by default — nothing to force.
+    expect(r.forcedIncludes).toEqual({});
+  });
+
+  test("individual-branch (promotion) mode forces NOTHING — defers to wmill.yaml", () => {
+    // Regression: these flags used to be force-disabled (set to false) in
+    // promotion mode, which CLOBBERED the promotion target's effective
+    // wmill.yaml config (an explicit false wins in pull's Object.assign merge).
+    // The server then stripped the object from the tarball, the pull wrote
+    // nothing, and `git add '<path>**'` failed with "pathspec did not match
+    // any files". Forcing nothing leaves the keys absent so the target's
+    // effective filters govern; extraIncludes still scopes the pull to the
+    // changed object.
     const r = deriveGitSyncDeployIncludes(
       [
         { path_type: "schedule", path: "f/s" },
@@ -282,11 +303,26 @@ describe("deriveGitSyncDeployIncludes", () => {
       ],
       true
     );
-    expect(r.includeSchedules).toBe(false);
-    expect(r.includeTriggers).toBe(false);
-    // extra-includes are still derived regardless of branch mode
+    expect(r.forcedIncludes).toEqual({});
     expect(r.extraIncludes).toContain("f/s.schedule.*");
     expect(r.extraIncludes).toContain("f/t.kafka_trigger.*");
+  });
+
+  test("regression: http_trigger promotion deploy does not clobber the target's includeTriggers", () => {
+    // Brad's scenario: an HTTP trigger is deployed and the promotion repo uses
+    // individual branches. path_type is "httptrigger" (the no-underscore value
+    // the backend puts on item.path_type — see git_sync_ee.rs
+    // insert_path_type_and_return_message). includeTriggers must NOT be forced
+    // false here, so the target's effective includeTriggers (true in Brad's
+    // config) is honored and the trigger file is pulled and committed.
+    const r = deriveGitSyncDeployIncludes(
+      [{ path_type: "httptrigger", path: "f/platform/on_call_chat_http_route" }],
+      true
+    );
+    expect(r.forcedIncludes.includeTriggers).toBeUndefined();
+    expect(r.extraIncludes).toContain(
+      "f/platform/on_call_chat_http_route.http_trigger.*"
+    );
   });
 });
 

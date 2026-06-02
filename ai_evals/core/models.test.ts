@@ -2,15 +2,22 @@ import { describe, expect, it } from "bun:test";
 import { resolveEvalModel } from "./models";
 
 describe("resolveEvalModel", () => {
+  it("supports GPT-5.5 aliases for frontend evals", () => {
+    expect(resolveEvalModel("flow", "gpt-5.5").frontend).toEqual({
+      provider: "openai",
+      model: "gpt-5.5",
+    });
+    expect(resolveEvalModel("app", "gpt-55").frontend).toEqual({
+      provider: "openai",
+      model: "gpt-5.5",
+    });
+    expect(resolveEvalModel("script", "5.5").frontend).toEqual({
+      provider: "openai",
+      model: "gpt-5.5",
+    });
+  });
+
   it("supports Gemini aliases for frontend evals", () => {
-    expect(resolveEvalModel("flow", "gemini").frontend).toEqual({
-      provider: "googleai",
-      model: "gemini-2.5-flash",
-    });
-    expect(resolveEvalModel("app", "gemini-pro").frontend).toEqual({
-      provider: "googleai",
-      model: "gemini-2.5-pro",
-    });
     expect(
       resolveEvalModel("script", "gemini-3-flash-preview").frontend,
     ).toEqual({
@@ -37,8 +44,8 @@ describe("resolveEvalModel", () => {
   });
 
   it("rejects Gemini aliases for cli evals", () => {
-    expect(() => resolveEvalModel("cli", "gemini")).toThrow(
-      "Model gemini-flash is not supported for cli mode",
+    expect(() => resolveEvalModel("cli", "gemini-3-flash-preview")).toThrow(
+      "Model gemini-3-flash-preview is not supported for cli mode",
     );
   });
 });

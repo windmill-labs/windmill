@@ -19,7 +19,7 @@ import { get } from 'svelte/store'
 import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
 import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
-import { findModuleInModules } from '$lib/components/flows/flowTree'
+import { findModuleInFlow, findModuleInModules } from '$lib/components/flows/flowTree'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
 import { z } from 'zod'
 import {
@@ -27,7 +27,9 @@ import {
 	FlowService,
 	JobService,
 	type CompletedJob,
+	type FlowValue,
 	type FlowModule,
+	type ScriptLang,
 	type Script,
 	type Flow
 } from '$lib/gen'
@@ -511,6 +513,22 @@ export type AssistantDisplayMessage = BaseDisplayMessage & {
 }
 
 export type DisplayMessage = UserDisplayMessage | ToolDisplayMessage | AssistantDisplayMessage
+
+// A tool message whose askUserQuestion is still awaiting an answer: the AI loop
+// is paused on the user. Drives the question card's interactivity, the
+// "waiting for user" indicator, and disabling the main chat input — keep those
+// in sync by going through this single predicate.
+export function isActiveUserQuestion(message: DisplayMessage | undefined): boolean {
+	return Boolean(
+		message &&
+			message.role === 'tool' &&
+			message.userQuestion &&
+			message.isLoading &&
+			!message.error &&
+			!message.userQuestion.selectedChoice &&
+			!message.userQuestion.canceled
+	)
+}
 
 async function callTool<T>({
 	tools,
@@ -1080,6 +1098,164 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 		})
 		throw new Error(`Failed to execute test run: ${errorMessage}`)
 	}
+}
+
+type FlowStepScriptLoader = (
+	moduleValue: { path: string; hash?: string },
+	workspace: string
+) => Promise<{ content: string; language: ScriptLang }>
+
+type FlowStepPreviewLoader = (path: string, workspace: string) => Promise<FlowValue | undefined>
+
+export type FlowStepTestRunConfig = {
+	flowValue: FlowValue
+	stepId: string
+	args?: Record<string, any> | null
+	workspace: string
+	toolCallbacks: ToolCallbacks
+	toolId: string
+	loadScript?: FlowStepScriptLoader
+	loadFlowPreviewValue?: FlowStepPreviewLoader
+}
+
+function normalizeFlowStepArgs(args: Record<string, any> | null | undefined): Record<string, any> {
+	return args ?? {}
+}
+
+function flowStepArgsForModule(moduleId: string, args: Record<string, any>): Record<string, any> {
+	return moduleId === SPECIAL_MODULE_IDS.PREPROCESSOR
+		? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...args }
+		: args
+}
+
+function getAvailableFlowStepIds(flowValue: FlowValue): string {
+	return Array.from(
+		new Set([
+			...extractAllModules(flowValue.modules ?? []).map((module: FlowModule) => module.id),
+			...(flowValue.preprocessor_module ? [flowValue.preprocessor_module.id] : []),
+			...(flowValue.failure_module ? [flowValue.failure_module.id] : [])
+		])
+	).join(', ')
+}
+
+async function loadDeployedScriptForFlowStep(
+	moduleValue: { path: string; hash?: string },
+	workspace: string
+): Promise<{ content: string; language: ScriptLang }> {
+	const script = moduleValue.hash
+		? await ScriptService.getScriptByHash({ workspace, hash: moduleValue.hash })
+		: await ScriptService.getScriptByPath({ workspace, path: moduleValue.path })
+	return { content: script.content, language: script.language }
+}
+
+export async function executeFlowStepTestRun({
+	flowValue,
+	stepId,
+	args,
+	workspace,
+	toolCallbacks,
+	toolId,
+	loadScript = loadDeployedScriptForFlowStep,
+	loadFlowPreviewValue
+}: FlowStepTestRunConfig): Promise<string> {
+	const targetModule = findModuleInFlow(flowValue, stepId) ?? undefined
+
+	if (!targetModule) {
+		toolCallbacks.setToolStatus(toolId, {
+			content: `Step "${stepId}" not found in flow`,
+			error: `Step with id "${stepId}" does not exist in the current flow`
+		})
+		throw new Error(
+			`Step with id "${stepId}" not found in flow. Available steps: ${getAvailableFlowStepIds(flowValue)}`
+		)
+	}
+
+	const moduleValue = targetModule.value
+	const stepArgs = normalizeFlowStepArgs(args)
+
+	if (moduleValue.type === 'rawscript') {
+		return executeTestRun({
+			jobStarter: () =>
+				JobService.runScriptPreview({
+					workspace,
+					requestBody: {
+						content: moduleValue.content ?? '',
+						language: moduleValue.language,
+						args: flowStepArgsForModule(targetModule.id, stepArgs)
+					}
+				}),
+			workspace,
+			toolCallbacks,
+			toolId,
+			startMessage: `Starting test run of step "${stepId}"...`,
+			contextName: 'script'
+		})
+	}
+
+	if (moduleValue.type === 'script') {
+		const script = await loadScript(moduleValue, workspace)
+		return executeTestRun({
+			jobStarter: () =>
+				JobService.runScriptPreview({
+					workspace,
+					requestBody: {
+						path: moduleValue.path,
+						content: script.content,
+						language: script.language,
+						args: flowStepArgsForModule(targetModule.id, stepArgs)
+					}
+				}),
+			workspace,
+			toolCallbacks,
+			toolId,
+			startMessage: `Starting test run of script step "${stepId}"...`,
+			contextName: 'script'
+		})
+	}
+
+	if (moduleValue.type === 'flow') {
+		const previewValue = await loadFlowPreviewValue?.(moduleValue.path, workspace)
+		if (previewValue) {
+			return executeTestRun({
+				jobStarter: () =>
+					JobService.runFlowPreview({
+						workspace,
+						requestBody: {
+							path: moduleValue.path,
+							value: previewValue,
+							args: stepArgs
+						}
+					}),
+				workspace,
+				toolCallbacks,
+				toolId,
+				startMessage: `Starting test run of draft flow step "${stepId}"...`,
+				contextName: 'flow'
+			})
+		}
+
+		return executeTestRun({
+			jobStarter: () =>
+				JobService.runFlowByPath({
+					workspace,
+					path: moduleValue.path,
+					requestBody: stepArgs
+				}),
+			workspace,
+			toolCallbacks,
+			toolId,
+			startMessage: `Starting test run of flow step "${stepId}"...`,
+			contextName: 'flow'
+		})
+	}
+
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Step type "${moduleValue.type}" not supported for testing`,
+		error: `Cannot test step of type "${moduleValue.type}"`
+	})
+	throw new Error(
+		`Cannot test step of type "${moduleValue.type}". Supported types: rawscript, script, flow`
+	)
 }
 
 function formatLogs(logs: string | undefined): undefined | string {

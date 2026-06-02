@@ -79,6 +79,16 @@ vi.mock('$lib/gen', async () => {
 				}
 				return actual.ScriptService.getScriptByPath(data)
 			},
+			getScriptByPathWithDraft: async (data: { workspace: string; path: string }) => {
+				if (hasBenchmarkWorkspace(data.workspace)) {
+					const script = getBenchmarkScriptByPath(data.workspace, data.path)
+					if (!script) {
+						throw new Error(`Script "${data.path}" not found in benchmark workspace`)
+					}
+					return script
+				}
+				return actual.ScriptService.getScriptByPathWithDraft(data)
+			},
 			getScriptByHash: async (data: { workspace: string; hash: string }) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
 					const script = getBenchmarkScriptByHash(data.workspace, data.hash)
@@ -108,6 +118,26 @@ vi.mock('$lib/gen', async () => {
 					return flow
 				}
 				return actual.FlowService.getFlowByPath(data)
+			},
+			getFlowByPathWithDraft: async (data: { workspace: string; path: string }) => {
+				if (hasBenchmarkWorkspace(data.workspace)) {
+					const flow = getBenchmarkFlowByPath(data.workspace, data.path)
+					if (!flow) {
+						throw new Error(`Flow "${data.path}" not found in benchmark workspace`)
+					}
+					return flow
+				}
+				return actual.FlowService.getFlowByPathWithDraft(data)
+			},
+			getFlowLatestVersion: async (data: { workspace: string; path: string }) => {
+				if (hasBenchmarkWorkspace(data.workspace)) {
+					const flow = getBenchmarkFlowByPath(data.workspace, data.path)
+					if (!flow) {
+						throw new Error(`Flow "${data.path}" not found in benchmark workspace`)
+					}
+					return { id: 1 }
+				}
+				return actual.FlowService.getFlowLatestVersion(data)
 			}
 		}),
 		JobService: wrapService(actual.JobService, {

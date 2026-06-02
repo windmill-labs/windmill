@@ -2312,6 +2312,13 @@ def main():
     print("Extracting CLI commands...")
     cli_data = extract_cli_commands()
     cli_commands = generate_cli_commands_markdown(cli_data)
+    # Append hand-written CLI guidance covering bits that aren't obvious from
+    # the auto-generated per-command --help (file_key semantics, --storage,
+    # workspace scope). The cli-commands skill is the entry point agents read
+    # to learn about `wmill`, so non-obvious usage notes belong here.
+    object_storage_cli = read_markdown_file(base_dir / "object-storage-cli.md")
+    if object_storage_cli:
+        cli_commands = f"{cli_commands}\n\n{object_storage_cli}"
     OUTPUT_CLI_DIR.mkdir(parents=True, exist_ok=True)
     (OUTPUT_CLI_DIR / "cli-commands.md").write_text(cli_commands)
     print(f"  Found {len(cli_data['commands'])} commands, {len(cli_data['global_options'])} global options")
@@ -2456,8 +2463,22 @@ export function getRawAppPrompt(): string {
   return prompts.RAW_APP_BASE;
 }
 
-// Helper to get datatable SDK reference for app mode
-export function getDatatableSdkReference(): string {
+// Helper to get the datatable SQL SDK reference (wmill.datatable()).
+// Pass a language to get only that SDK; omit it to get both.
+export function getDatatableSdkReference(language?: string): string {
+  if (language == null) {
+    return [
+      prompts.DATATABLE_SDK_TYPESCRIPT,
+      prompts.DATATABLE_SDK_PYTHON
+    ].filter(Boolean).join('\\n\\n');
+  }
+  if (TS_SDK_LANGUAGES.includes(language)) {
+    return prompts.DATATABLE_SDK_TYPESCRIPT;
+  }
+  if (PY_SDK_LANGUAGES.includes(language)) {
+    return prompts.DATATABLE_SDK_PYTHON;
+  }
+  // Unknown language: return both rather than nothing.
   return [
     prompts.DATATABLE_SDK_TYPESCRIPT,
     prompts.DATATABLE_SDK_PYTHON
@@ -2494,7 +2515,7 @@ export declare function getScriptPrompt(language: string): string;
 export declare function getFlowPrompt(): string;
 export declare function getResourcePrompt(): string;
 export declare function getRawAppPrompt(): string;
-export declare function getDatatableSdkReference(): string;
+export declare function getDatatableSdkReference(language?: string): string;
 export declare function getWorkflowAsCodePrompt(language?: string): string;
 """
     (OUTPUT_GENERATED_DIR / "index.d.ts").write_text(index_dts_content)

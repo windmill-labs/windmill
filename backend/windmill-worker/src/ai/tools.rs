@@ -1,4 +1,4 @@
-use crate::ai::query_builder::StreamEventProcessor;
+use crate::ai::stream_event_processor::StreamEventProcessor;
 use crate::ai::utils::{
     add_message_to_conversation, execute_mcp_tool, get_step_name_from_flow,
     is_completed_input_transform, update_flow_status_module_with_actions,
