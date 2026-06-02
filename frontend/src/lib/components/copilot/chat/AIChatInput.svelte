@@ -144,16 +144,21 @@
 
 	/** Strip every `@title` token from the textarea — used when the user
 	 * deletes the corresponding badge so the badge X-button mirrors the
-	 * inverse (text-delete-to-badge-remove) sync. Only matches when `@title`
-	 * appears as a standalone token (preceded by start/whitespace, followed
-	 * by end/whitespace) so substring matches don't bleed into other words. */
+	 * inverse (text-delete-to-badge-remove) sync. Only matches `@title` as a
+	 * standalone token (boundary on both sides) so substring matches don't
+	 * bleed into other words; only the whitespace adjacent to the removed
+	 * mention is collapsed so unrelated double-spaces stay intact. */
 	export function removeMention(title: string) {
 		const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-		const re = new RegExp(`(^|\\s)@${escaped}(?=\\s|$)`, 'g')
-		// Collapse the leading whitespace (or empty if matched at start) with
-		// the now-orphaned trailing space the mention had — the textarea ends
-		// up with a single separator between the surviving words.
-		instructions = instructions.replace(re, (_m, lead) => (lead ? lead : '')).replace(/  +/g, ' ')
+		const re = new RegExp(`(^|\\s)@${escaped}(\\s|$)`, 'g')
+		instructions = instructions.replace(re, (_m, lead, trail) => {
+			// Boundary on at least one side → drop the mention entirely.
+			if (!lead || !trail) return ''
+			// Middle of text: keep ONE of the bracketing whitespace chars so
+			// the surviving tokens are still separated; preserve the leading
+			// one verbatim so newlines/tabs aren't downgraded to spaces.
+			return lead
+		})
 	}
 
 	export function focusInput() {
