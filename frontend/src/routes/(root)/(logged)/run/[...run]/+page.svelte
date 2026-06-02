@@ -36,7 +36,8 @@
 		ClipboardCopy,
 		GitBranch,
 		GitFork,
-		EllipsisVertical
+		EllipsisVertical,
+		Share2
 	} from 'lucide-svelte'
 
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -85,6 +86,7 @@
 	} from '$lib/components/flows/FlowAssetsHandler.svelte'
 	import JobAssetsViewer from '$lib/components/assets/JobAssetsViewer.svelte'
 	import { page } from '$app/state'
+	import { setViewToken } from '$lib/viewToken'
 	import { twMerge } from 'tailwind-merge'
 	import FlowRestartButton from '$lib/components/FlowRestartButton.svelte'
 	import { useNestedRestartState } from '$lib/components/useNestedRestartState.svelte'
@@ -120,6 +122,7 @@
 
 	let testIsLoading = $state(false)
 	let jobLoader: JobLoader | undefined = $state(undefined)
+	let loadError: { status?: number; message?: string } | undefined = $state(undefined)
 
 	// Flow execution status state
 	let suspendStatus: import('$lib/utils').StateStore<Record<string, { job: Job; nb: number }>> =
@@ -144,6 +147,33 @@
 		if (!job) return
 		lastJobId = job.id
 		concurrencyKey = await ConcurrencyGroupsService.getConcurrencyKey({ id: job.id })
+	}
+
+	// Share read link: if the URL carries a `view_token`, install it so every job
+	// read on this page (incl. flow steps, args, logs, SSE) is authorized by it.
+	// Set eagerly at init (before JobLoader mounts and fires its first fetch), and
+	// reactively keep it in sync across client-side navigation.
+	setViewToken(page.url.searchParams.get('view_token') ?? undefined)
+	$effect(() => {
+		setViewToken(page.url.searchParams.get('view_token') ?? undefined)
+	})
+	onDestroy(() => setViewToken(undefined))
+
+	async function shareReadLink(id: string): Promise<void> {
+		try {
+			const res = await fetch(`/api/w/${$workspaceStore}/jobs/job_view_token/${id}`, {
+				credentials: 'include'
+			})
+			if (!res.ok) {
+				throw new Error(await res.text())
+			}
+			const token = (await res.text()).trim()
+			const url = `${window.location.origin}${base}/run/${id}?view_token=${encodeURIComponent(token)}`
+			copyToClipboard(url)
+			sendUserToast('Read-only share link copied to clipboard')
+		} catch (e) {
+			sendUserToast(`Failed to create share link: ${e}`, true)
+		}
 	}
 
 	async function deleteCompletedJob(id: string): Promise<void> {
@@ -447,6 +477,7 @@
 		bind:jobUpdateLastFetch
 		workspaceOverride={$workspaceStore}
 		bind:notfound
+		bind:loadError
 	/>
 {/if}
 
@@ -454,7 +485,28 @@
 	<PersistentScriptDrawer bind:this={persistentScriptDrawer} />
 </Portal>
 
-{#if notfound || (job?.workspace_id != undefined && $workspaceStore != undefined && job?.workspace_id != $workspaceStore)}
+{#if loadError?.status === 403}
+	<div class="max-w-3xl px-4 mx-auto w-full">
+		<div class="mt-6">
+			<Alert type="warning" title="You don't have access to this run">
+				<div class="flex flex-col gap-2">
+					<p>
+						This run exists in <span class="font-semibold">{$workspaceStore}</span>, but you don't
+						have permission to view it.
+					</p>
+					<p>
+						Ask a colleague who can see it to open the run and use the
+						<span class="font-semibold">Share</span> button to send you a read-only link. Opening that
+						link will grant you access to this run (and its steps).
+					</p>
+				</div>
+			</Alert>
+			<div class="mt-4">
+				<Button href="{base}/runs" unifiedSize="md" variant="accent">Go to runs page</Button>
+			</div>
+		</div>
+	</div>
+{:else if notfound || (job?.workspace_id != undefined && $workspaceStore != undefined && job?.workspace_id != $workspaceStore)}
 	<div class="max-w-7xl px-4 mx-auto w-full">
 		<div class="flex flex-col gap-6">
 			<h1 class="text-red-400 mt-6 text-2xl font-semibold"
@@ -534,6 +586,17 @@
 						View runs
 					</Button>
 				{/if}
+			{/if}
+			{#if job}
+				<Button
+					variant="default"
+					unifiedSize="md"
+					startIcon={{ icon: Share2 }}
+					title="Copy a read-only share link to this run for another workspace member"
+					onclick={() => job && shareReadLink(job.id)}
+				>
+					Share
+				</Button>
 			{/if}
 			{@const stem = job?.job_kind === 'script_hub' ? '/scripts' : `/${job?.job_kind}s`}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}

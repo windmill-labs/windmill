@@ -100,8 +100,8 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         let (status, body) = get(&base, path, Some("SECRET_TOKEN_3")).await;
         assert_eq!(
             status,
-            reqwest::StatusCode::NOT_FOUND,
-            "viewer must get 404 on {name} (got {status}): {body}"
+            reqwest::StatusCode::FORBIDDEN,
+            "viewer must get 403 on {name} (got {status}): {body}"
         );
         for secret in [RESULT_SECRET, ARGS_SECRET, LOGS_SECRET] {
             assert!(
@@ -110,6 +110,35 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
             );
         }
     }
+
+    // The 403 for an existing-but-forbidden job carries actionable guidance
+    // (request a share link), distinguishing it from a plain not-found.
+    let (status, body) = get(
+        &base,
+        &format!("completed/get_result/{VICTIM}"),
+        Some("SECRET_TOKEN_3"),
+    )
+    .await;
+    assert_eq!(status, reqwest::StatusCode::FORBIDDEN);
+    assert!(
+        body.to_lowercase().contains("share"),
+        "403 body should guide the user to request a share link: {body}"
+    );
+
+    // A genuinely non-existent job is a 404, not a 403 — existence is only disclosed
+    // for jobs that actually exist in the workspace.
+    let missing = "00000000-0000-4000-8000-000000000000";
+    let (status, _) = get(
+        &base,
+        &format!("completed/get_result/{missing}"),
+        Some("SECRET_TOKEN_3"),
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::NOT_FOUND,
+        "a non-existent job must be 404, not 403 (got {status})"
+    );
 
     // ---- NO OVER-BLOCKING: the job's owner (test-user-2) can read its result.
     let (status, body) = get(
@@ -171,8 +200,8 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
     .await;
     assert_eq!(
         status,
-        reqwest::StatusCode::NOT_FOUND,
-        "viewer must get 404 on result_by_id (got {status}): {body}"
+        reqwest::StatusCode::FORBIDDEN,
+        "viewer must get 403 on result_by_id (got {status}): {body}"
     );
     assert!(!body.contains(RESULT_SECRET), "result_by_id leaked: {body}");
 
@@ -184,8 +213,8 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
     .await;
     assert_eq!(
         status,
-        reqwest::StatusCode::NOT_FOUND,
-        "viewer must get 404 on get_otel_traces (got {status}): {body}"
+        reqwest::StatusCode::FORBIDDEN,
+        "viewer must get 403 on get_otel_traces (got {status}): {body}"
     );
 
     // ---- FLOW VISIBILITY INHERITANCE: test-user-3 has folder ACL on the flow
@@ -246,7 +275,7 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
     .await;
     assert_eq!(
         status,
-        reqwest::StatusCode::NOT_FOUND,
+        reqwest::StatusCode::FORBIDDEN,
         "top flow in an unreadable folder must stay denied (got {status}): {body}"
     );
 
@@ -269,6 +298,114 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
     assert!(
         !body.contains(RESULT_SECRET),
         "unauth body must not leak: {body}"
+    );
+
+    // ---- SHARE READ LINK (view_token) ----
+    // The owner (test-user-2) mints a share token for the victim job.
+    let (status, mint_body) = get(
+        &authed_base,
+        &format!("job_view_token/{VICTIM}"),
+        Some("SECRET_TOKEN_2"),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "owner must be able to mint a share token (got {status}): {mint_body}"
+    );
+    let token = mint_body.trim().trim_matches('"').to_string();
+    assert!(
+        token.starts_with(VICTIM),
+        "token must encode the job id: {token}"
+    );
+
+    // The viewer (no ACL) can now read the victim job via the share link.
+    let (status, body) = get(
+        &base,
+        &format!("completed/get_result/{VICTIM}?view_token={token}"),
+        Some("SECRET_TOKEN_3"),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "view_token must grant the viewer read of the shared job (got {status}): {body}"
+    );
+    assert!(
+        body.contains(RESULT_SECRET),
+        "shared job result must be returned with a valid view_token: {body}"
+    );
+    // ...and its args/logs too (whole detail page).
+    let (status, _) = get(
+        &base,
+        &format!("get_args/{VICTIM}?view_token={token}"),
+        Some("SECRET_TOKEN_3"),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "view_token must also grant args (got {status})"
+    );
+
+    // The token is scoped: it does NOT authorize an unrelated job.
+    let (status, _) = get(
+        &base,
+        &format!("completed/get_result/{ANON_JOB}?view_token={token}"),
+        Some("SECRET_TOKEN_3"),
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::FORBIDDEN,
+        "a victim-scoped token must not authorize a different job (got {status})"
+    );
+
+    // A garbage token is rejected (falls through to the normal 404).
+    let (status, _) = get(
+        &base,
+        &format!("completed/get_result/{VICTIM}?view_token={VICTIM}.deadbeef"),
+        Some("SECRET_TOKEN_3"),
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::FORBIDDEN,
+        "an invalid view_token must not grant access (got {status})"
+    );
+
+    // A share token authorizes the shared job's whole flow subtree: the owner mints
+    // for the top secret flow, and the viewer can then read its deep leaf.
+    let (status, mint_body) = get(
+        &authed_base,
+        &format!("job_view_token/{TOP_SECRET_FLOW}"),
+        Some("SECRET_TOKEN_2"),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "owner mints token for top flow (got {status}): {mint_body}"
+    );
+    let top_token = mint_body.trim().trim_matches('"').to_string();
+    let (status, body) = get(
+        &base,
+        &format!("completed/get_result/{DEEP_LEAF_JOB}?view_token={top_token}"),
+        Some("SECRET_TOKEN_3"),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "a flow's share token must authorize its deep descendants (got {status}): {body}"
+    );
+
+    // A viewer who cannot read a job cannot mint a share token for it.
+    let (status, _) = get(
+        &authed_base,
+        &format!("job_view_token/{TOP_SECRET_FLOW}"),
+        Some("SECRET_TOKEN_3"),
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::FORBIDDEN,
+        "a non-reader must not be able to mint a share token (got {status})"
     );
 
     Ok(())
