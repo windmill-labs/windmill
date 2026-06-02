@@ -63,7 +63,7 @@ at message-prep time by `AIChatManager` — see PR #9216.
 	// at pick time) or a runtime ContextElement (added directly).
 	type ChatLeafData = WorkspaceItem | ContextElement
 
-	let inner = $state<DrillPicker | undefined>(undefined)
+	let inner = $state<DrillPicker<ChatLeafData> | undefined>(undefined)
 
 	export function handleKeydown(e: KeyboardEvent) {
 		inner?.handleKeydown(e)
