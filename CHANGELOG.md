@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.714.1](https://github.com/windmill-labs/windmill/compare/v1.714.0...v1.714.1) (2026-06-02)
+
+
+### Bug Fixes
+
+* **backend:** route //native TypeScript previews to native workers (WIN-2007) ([#9407](https://github.com/windmill-labs/windmill/issues/9407)) ([73edebc](https://github.com/windmill-labs/windmill/commit/73edebc833a981488a8ea116f4f13c020a011a6f))
+* **nsjail:** raise python download fd limit for --compile-bytecode (WIN-2009) ([#9414](https://github.com/windmill-labs/windmill/issues/9414)) ([9e6559a](https://github.com/windmill-labs/windmill/commit/9e6559a6f688cc8d982277b19920219ea6d0fd8e))
+* **triggers:** prevent Zoom challenge handler from being used as a signing oracle ([#9413](https://github.com/windmill-labs/windmill/issues/9413)) ([ab2a15b](https://github.com/windmill-labs/windmill/commit/ab2a15b2a859096eabde718bf6e60289ae187118))
+
 ## [1.714.0](https://github.com/windmill-labs/windmill/compare/v1.713.1...v1.714.0) (2026-06-02)
 
 
