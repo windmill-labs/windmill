@@ -595,22 +595,22 @@ fn raw_app_wrapper_html(secret: &str) -> String {
   try {
     window.localStorage.getItem('__wm_probe__');
   } catch (e) {
-    function makeShim(onChange) {
+    function makeShim(onOp) {
       var mem = {};
       return {
         getItem: function (k) { k = String(k); return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null; },
-        setItem: function (k, v) { mem[String(k)] = String(v); if (onChange) onChange(mem); },
-        removeItem: function (k) { delete mem[String(k)]; if (onChange) onChange(mem); },
-        clear: function () { for (var k in mem) { delete mem[k]; } if (onChange) onChange(mem); },
+        setItem: function (k, v) { mem[String(k)] = String(v); if (onOp) onOp({ op: 'set', key: String(k), value: String(v) }); },
+        removeItem: function (k) { delete mem[String(k)]; if (onOp) onOp({ op: 'remove', key: String(k) }); },
+        clear: function () { for (var k in mem) { delete mem[k]; } if (onOp) onOp({ op: 'clear' }); },
         key: function (i) { var ks = Object.keys(mem); return i < ks.length ? ks[i] : null; },
         get length() { return Object.keys(mem).length; },
         __hydrate: function (obj) { if (obj) { for (var k in obj) { mem[k] = String(obj[k]); } } }
       };
     }
-    // localStorage mirrors up to the parent (RawAppPreview) for cross-reload
-    // persistence; sessionStorage stays session-only.
-    function syncUp(mem) { try { window.parent.postMessage({ type: 'wm_ls_sync', data: mem }, '*'); } catch (_) {} }
-    var ls = makeShim(syncUp);
+    // localStorage relays each mutation up to the parent (RawAppPreview), which
+    // backs a single store shared across all apps; sessionStorage stays session-only.
+    function relayOp(o) { try { window.parent.postMessage({ type: 'wm_ls_op', op: o.op, key: o.key, value: o.value }, '*'); } catch (_) {} }
+    var ls = makeShim(relayOp);
     var ss = makeShim(null);
     try { Object.defineProperty(window, 'localStorage', { value: ls, configurable: true }); } catch (_) {}
     try { Object.defineProperty(window, 'sessionStorage', { value: ss, configurable: true }); } catch (_) {}

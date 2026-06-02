@@ -30,9 +30,10 @@
 			// Windmill SPA code running inside the frame) keeps working within the
 			// session. No-op in normal real-origin contexts, so zero blast radius.
 			;(function () {
-				// `onChange` (localStorage only) mirrors the snapshot up to the embedder
-				// for cross-reload persistence; sessionStorage stays session-only.
-				function shim(onChange) {
+				// `onOp` (localStorage only) relays each mutation up to the embedder,
+				// which backs a single store shared across all apps. sessionStorage
+				// stays in-memory/session-only.
+				function shim(onOp) {
 					var m = {}
 					return {
 						__hydrate: function (obj) {
@@ -44,15 +45,15 @@
 						},
 						setItem: function (k, v) {
 							m['' + k] = '' + v
-							if (onChange) onChange(m)
+							if (onOp) onOp({ op: 'set', key: '' + k, value: '' + v })
 						},
 						removeItem: function (k) {
 							delete m['' + k]
-							if (onChange) onChange(m)
+							if (onOp) onOp({ op: 'remove', key: '' + k })
 						},
 						clear: function () {
 							for (var k in m) delete m[k]
-							if (onChange) onChange(m)
+							if (onOp) onOp({ op: 'clear' })
 						},
 						key: function (i) {
 							var ks = Object.keys(m)
@@ -67,13 +68,16 @@
 					window.localStorage.getItem('__wm_probe__')
 				} catch (e) {
 					var framed = window.parent !== window
-					function syncUp(m) {
+					function relayOp(o) {
 						if (framed)
 							try {
-								window.parent.postMessage({ type: 'wm_ls_sync', data: m }, '*')
+								window.parent.postMessage(
+									{ type: 'wm_ls_op', op: o.op, key: o.key, value: o.value },
+									'*'
+								)
 							} catch (_) {}
 					}
-					var ls = shim(framed ? syncUp : null)
+					var ls = shim(framed ? relayOp : null)
 					try {
 						Object.defineProperty(window, 'localStorage', { value: ls, configurable: true })
 					} catch (_) {}
@@ -83,11 +87,11 @@
 							configurable: true
 						})
 					} catch (_) {}
-					// Persistence: ask the embedder for this app's stored snapshot and
-					// hydrate the in-memory localStorage when it arrives.
+					// Persistence: ask the embedder for the shared store and hydrate the
+					// in-memory localStorage when it arrives.
 					if (framed) {
 						window.addEventListener('message', function (ev) {
-							if (ev.source === window.parent && ev.data && ev.data.type === 'wm_ls_set') {
+							if (ev.source === window.parent && ev.data && ev.data.type === 'wm_ls_hydrate') {
 								ls.__hydrate(ev.data.data)
 							}
 						})
@@ -152,7 +156,7 @@
 							/>
 							<polygon
 								class="st3"
-								points="136.93,132.47 116.46,167.93 73.82,241.78 130.71,241.78 144.9,217.2 180.13,156.18 193.82,132.46 	
+								points="136.93,132.47 116.46,167.93 73.82,241.78 130.71,241.78 144.9,217.2 180.13,156.18 193.82,132.46
 		"
 							/>
 							<polygon

@@ -31,24 +31,34 @@
 		secret ? `/api/w/${workspace}/apps_u/get_data/v/${secret}.html` : undefined
 	)
 
-	// Persistence for the bundle's (opaque-origin) localStorage. In the logged-in
-	// workspace viewer this component runs on the real origin, so we persist
-	// directly to real localStorage. Inside the public embed viewer (opaque) there
-	// is no real storage, so we relay to the embedder, which is the persistence
-	// authority. `framed` distinguishes the two; reads are served before the bundle
-	// evaluates so the bundle sees its storage hydrated synchronously.
+	// Persistence for the bundle's (opaque-origin) localStorage, backed by a single
+	// store shared across all apps. In the logged-in workspace viewer this runs on
+	// the real origin, so it reads/writes real localStorage directly. Inside the
+	// public embed viewer (opaque) there is no real storage, so it relays per-key
+	// ops up to the embedder, the persistence authority. `framed` distinguishes the
+	// two; the shared snapshot is handed to the bundle before it evaluates so its
+	// localStorage is hydrated synchronously.
 	const framed = typeof window !== 'undefined' && window.parent !== window
-	const ns = `${workspace}:${path}`
-	const rawKey = `wm_rawstore:${ns}`
+	const SHARED_LS_KEY = 'wm_apps_localstorage'
 	let bundleStorage: Record<string, string> | undefined = undefined
 	let pendingReady = false
 
 	function readDirect(): Record<string, string> {
 		try {
-			return JSON.parse(localStorage.getItem(rawKey) || '{}')
+			return JSON.parse(localStorage.getItem(SHARED_LS_KEY) || '{}')
 		} catch (_) {
 			return {}
 		}
+	}
+
+	function applyDirectOp(d: any) {
+		try {
+			const s = readDirect()
+			if (d.op === 'set') s[d.key] = String(d.value)
+			else if (d.op === 'remove') delete s[d.key]
+			else if (d.op === 'clear') for (const k in s) delete s[k]
+			localStorage.setItem(SHARED_LS_KEY, JSON.stringify(s))
+		} catch (_) {}
 	}
 
 	function respondCtx() {
@@ -66,9 +76,9 @@
 	onMount(() => {
 		initialHash = window.location.hash || ''
 		if (framed) {
-			// Pre-fetch the persisted snapshot from the embedder.
+			// Pre-fetch the shared store from the embedder.
 			try {
-				window.parent.postMessage({ type: 'wm_raw_ls_req', ns }, '*')
+				window.parent.postMessage({ type: 'wm_ls_req' }, '*')
 			} catch (_) {}
 		}
 	})
@@ -76,13 +86,8 @@
 	$effect(() => {
 		function handleMessage(event: MessageEvent) {
 			const data = event.data
-			// Persisted-storage hydration from the embedder (public mode only).
-			if (
-				framed &&
-				event.source === window.parent &&
-				data?.type === 'wm_raw_ls_set' &&
-				data.ns === ns
-			) {
+			// Shared-store hydration from the embedder (public mode only).
+			if (framed && event.source === window.parent && data?.type === 'wm_ls_hydrate') {
 				bundleStorage = data.data || {}
 				if (pendingReady) {
 					pendingReady = false
@@ -93,7 +98,7 @@
 			// Everything else must come from the bundle iframe.
 			if (event.source !== iframe?.contentWindow) return
 			if (data?.type === 'windmill:ready') {
-				// Hand the bundle its context + persisted storage before it evaluates.
+				// Hand the bundle its context + shared storage before it evaluates.
 				if (!framed) {
 					bundleStorage = readDirect()
 					respondCtx()
@@ -102,15 +107,16 @@
 				} else {
 					pendingReady = true
 				}
-			} else if (data?.type === 'wm_ls_sync') {
-				// The bundle wrote to localStorage — persist the snapshot.
+			} else if (data?.type === 'wm_ls_op') {
+				// The bundle mutated localStorage — apply it to the shared store.
 				if (!framed) {
-					try {
-						localStorage.setItem(rawKey, JSON.stringify(data.data || {}))
-					} catch (_) {}
+					applyDirectOp(data)
 				} else {
 					try {
-						window.parent.postMessage({ type: 'wm_raw_ls_sync', ns, data: data.data }, '*')
+						window.parent.postMessage(
+							{ type: 'wm_ls_op', op: data.op, key: data.key, value: data.value },
+							'*'
+						)
 					} catch (_) {}
 				}
 			} else if (data?.type === 'windmill:hashchange') {

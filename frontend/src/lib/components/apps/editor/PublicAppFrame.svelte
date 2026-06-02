@@ -127,52 +127,44 @@
 		iframeEl?.contentWindow?.postMessage({ type: 'wm_embed_token', token: embedToken }, '*')
 	}
 
-	// Persistence authority (WIN-2006): the opaque viewer (and, nested under it,
-	// any raw-app bundle) has no real Web Storage, so the embedder — which sits on
-	// the real origin — persists their `localStorage` here, namespaced per app, and
-	// serves reads synchronously. `wm_ls_*` = the viewer SPA's own storage;
-	// `wm_raw_ls_*` = a raw bundle's storage relayed up by RawAppPreview.
-	function viewerStoreKey(): string {
-		return 'wm_appstore:' + page.url.pathname
-	}
-	function rawStoreKey(ns: string): string {
-		return 'wm_rawstore:' + ns
-	}
-	function readStore(key: string): Record<string, string> {
+	// Persistence authority (WIN-2006): opaque app frames (the viewer SPA and any
+	// raw-app bundle nested under it) have no real Web Storage, so the embedder —
+	// on the real origin — backs their `localStorage` here. It is a single store
+	// **shared across all apps** (like one PUBLIC_APP_DOMAIN origin), kept under
+	// one key and updated with per-key ops so concurrent frames merge instead of
+	// clobbering.
+	const SHARED_LS_KEY = 'wm_apps_localstorage'
+	function readSharedLs(): Record<string, string> {
 		try {
-			return JSON.parse(localStorage.getItem(key) || '{}')
+			return JSON.parse(localStorage.getItem(SHARED_LS_KEY) || '{}')
 		} catch (_) {
 			return {}
 		}
 	}
-	function writeStore(key: string, data: Record<string, string>) {
+	function applyLsOp(d: any) {
+		const s = readSharedLs()
+		if (d.op === 'set') s[d.key] = String(d.value)
+		else if (d.op === 'remove') delete s[d.key]
+		else if (d.op === 'clear') for (const k in s) delete s[k]
 		try {
-			localStorage.setItem(key, JSON.stringify(data || {}))
+			localStorage.setItem(SHARED_LS_KEY, JSON.stringify(s))
 		} catch (_) {}
 	}
 
 	function handleEmbedderMessage(e: MessageEvent) {
 		// The viewer is opaque-origin (e.origin === 'null'), so we authenticate
-		// the message by source identity only.
+		// the message by source identity only. Storage messages arrive either from
+		// the viewer SPA's shim or relayed up by RawAppPreview (raw bundle) — both
+		// target the same shared store.
 		if (e.source !== iframeEl?.contentWindow) return
 		if (e.data?.type === 'wm_embed_ready') {
 			postTokenToIframe()
 		} else if (e.data?.type === 'wm_embed_unauthorized') {
 			initEmbedder()
 		} else if (e.data?.type === 'wm_ls_req') {
-			iframeEl?.contentWindow?.postMessage(
-				{ type: 'wm_ls_set', data: readStore(viewerStoreKey()) },
-				'*'
-			)
-		} else if (e.data?.type === 'wm_ls_sync') {
-			writeStore(viewerStoreKey(), e.data.data)
-		} else if (e.data?.type === 'wm_raw_ls_req') {
-			iframeEl?.contentWindow?.postMessage(
-				{ type: 'wm_raw_ls_set', ns: e.data.ns, data: readStore(rawStoreKey(e.data.ns)) },
-				'*'
-			)
-		} else if (e.data?.type === 'wm_raw_ls_sync') {
-			writeStore(rawStoreKey(e.data.ns), e.data.data)
+			iframeEl?.contentWindow?.postMessage({ type: 'wm_ls_hydrate', data: readSharedLs() }, '*')
+		} else if (e.data?.type === 'wm_ls_op') {
+			applyLsOp(e.data)
 		}
 	}
 
