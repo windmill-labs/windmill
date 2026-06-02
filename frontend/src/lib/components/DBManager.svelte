@@ -236,7 +236,9 @@
 		}
 	)
 
-	let dbIndexManagerState: { open: boolean; tableKey?: string } = $state({ open: false })
+	let dbIndexManagerState: { open: boolean; tableKey?: string; schemaKey?: string } = $state({
+		open: false
+	})
 
 	let newSchemaDialogOpen = $state(false)
 	let newSchemaName = $state('')
@@ -526,7 +528,11 @@
 												displayName: 'Manage indexes',
 												icon: ListTree,
 												action: () => {
-													dbIndexManagerState = { open: true, tableKey }
+													dbIndexManagerState = {
+														open: true,
+														tableKey,
+														schemaKey: selected.schemaKey
+													}
 												}
 											}
 										]
@@ -684,12 +690,13 @@
 	>
 		{#if dbIndexManagerState.tableKey && dbIndexOps}
 			{@const indexTableKey = dbIndexManagerState.tableKey}
+			{@const indexSchemaKey = dbIndexManagerState.schemaKey}
 			<DBIndexManager
 				{dbIndexOps}
 				tableKey={indexTableKey}
-				schema={selected.schemaKey}
+				schema={indexSchemaKey}
 				availableColumns={Object.keys(
-					dbSchema?.schema?.[selected.schemaKey ?? '']?.[indexTableKey] ?? {}
+					dbSchema?.schema?.[indexSchemaKey ?? '']?.[indexTableKey] ?? {}
 				)}
 			/>
 		{/if}

@@ -30,6 +30,7 @@
 	}
 	let { dbIndexOps, tableKey, schema, availableColumns }: Props = $props()
 
+	// Keep in sync with PG_INDEX_METHODS in backend/windmill-common/src/query_builders.rs
 	const INDEX_METHODS = ['btree', 'hash', 'gin', 'gist', 'brin', 'spgist']
 
 	let indexes = resource(
@@ -140,11 +141,12 @@
 		confirm.loading = true
 		try {
 			await confirm.onConfirm()
-			confirm = undefined
 		} catch (e) {
 			toastErr(e)
-			if (confirm) confirm.loading = false
+			confirm.loading = false
+			return
 		}
+		confirm = undefined
 	}
 </script>
 
@@ -264,7 +266,11 @@
 						<Toggle
 							size="xs"
 							bind:checked={column.isExpression}
-							options={{ right: 'expr', rightTooltip: 'Use a raw SQL expression' }}
+							options={{
+								right: 'expr',
+								rightTooltip:
+									'Treat the value as a raw SQL expression (e.g. lower(email)) — inserted verbatim, not escaped'
+							}}
 						/>
 						<Button
 							color="light"
@@ -318,7 +324,10 @@
 		/>
 		{#if showAdvanced}
 			<div class="flex flex-col gap-3 border-l-2 border-surface-selected pl-3">
-				<Label label="Partial index predicate (WHERE)">
+				<Label
+					label="Partial index predicate (WHERE)"
+					tooltip="Raw SQL inserted verbatim after WHERE — not escaped"
+				>
 					<TextInput
 						bind:value={form.where}
 						inputProps={{ type: 'text', placeholder: 'active = true' }}
