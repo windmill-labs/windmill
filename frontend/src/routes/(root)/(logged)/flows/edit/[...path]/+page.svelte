@@ -277,7 +277,6 @@
 		page.params.path
 		if ($workspaceStore) {
 			untrack(() => {
-				nobackenddraft = false // fresh nav reconsiders the backend draft
 				renderEditor = false // remount the builder for the navigated-to flow
 				loadFlow().catch((e: any) => {
 					// A failed load must NOT leave renderEditor stuck false — otherwise
