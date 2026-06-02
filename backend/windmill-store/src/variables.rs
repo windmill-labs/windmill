@@ -35,7 +35,7 @@ use windmill_common::{
     db::{DbWithOptAuthed, UserDB},
     error::{Error, JsonResult, Result},
     scripts::ScriptHash,
-    user_drafts::{maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay},
+    user_drafts::{delete_user_draft, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay},
     utils::{not_found_if_none, paginate, Pagination, StripPath, WarnAfterExt},
     variables::{
         build_crypt, get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable,
@@ -655,6 +655,15 @@ async fn delete_variable(
     .await?;
 
     tx.commit().await?;
+
+    // Clean up the authed user's per-user drafts for this path so they
+    // aren't left dangling after the underlying item is gone. Idempotent
+    // on the no-draft case. Resource is included because variables
+    // cascade-delete linked resource rows at the same path.
+    delete_user_draft(&db, &w_id, &authed.email, UserDraftItemKind::Variable, path).await?;
+    if deleted_linked_resource.is_some() {
+        delete_user_draft(&db, &w_id, &authed.email, UserDraftItemKind::Resource, path).await?;
+    }
 
     // If variable was a secret, also delete from Vault backend (if configured)
     if is_secret {

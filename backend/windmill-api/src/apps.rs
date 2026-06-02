@@ -1634,8 +1634,10 @@ async fn delete_app(
     .fetch_all(&mut *tx)
     .await?;
 
+    // Cover both `app` and `raw_app` draft kinds — the `app` table backs
+    // both, and the old `typ = 'app'`-only clause leaked raw-app drafts.
     sqlx::query!(
-        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
+        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ IN ('app', 'raw_app')",
         path,
         &w_id
     )

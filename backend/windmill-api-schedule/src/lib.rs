@@ -25,7 +25,9 @@ use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
     schedule::Schedule,
-    user_drafts::{maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery},
+    user_drafts::{
+        delete_user_draft, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
+    },
     utils::{
         escape_ilike_pattern, not_found_if_none, paginate, Pagination, ScheduleType, StripPath,
     },
@@ -1118,6 +1120,17 @@ async fn delete_schedule(
     .await?;
 
     tx.commit().await?;
+
+    // Clean up the authed user's per-user draft for this schedule path.
+    // Idempotent on no-draft.
+    delete_user_draft(
+        &db,
+        &w_id,
+        &authed.email,
+        UserDraftItemKind::TriggerSchedule,
+        path,
+    )
+    .await?;
 
     handle_deployment_metadata(
         &authed.email,

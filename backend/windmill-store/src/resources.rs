@@ -43,7 +43,9 @@ use windmill_common::{
     db::{DbWithOptAuthed, UserDB},
     error::{self, Error, JsonResult, Result},
     get_database_url,
-    user_drafts::{maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery},
+    user_drafts::{
+        delete_user_draft, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
+    },
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
     worker::{CLOUD_HOSTED, WINDMILL_DIR},
@@ -1103,6 +1105,20 @@ async fn delete_resource(
     )
     .await?;
     tx.commit().await?;
+
+    // Clean up the authed user's per-user drafts for this resource path
+    // and any linked variables we cascaded into. Idempotent on no-draft.
+    delete_user_draft(&db, &w_id, &authed.email, UserDraftItemKind::Resource, path).await?;
+    for var_path in &deleted_linked_variables {
+        delete_user_draft(
+            &db,
+            &w_id,
+            &authed.email,
+            UserDraftItemKind::Variable,
+            var_path,
+        )
+        .await?;
+    }
 
     handle_deployment_metadata(
         &authed.email,

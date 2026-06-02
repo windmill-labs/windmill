@@ -16,7 +16,9 @@ use windmill_api_auth::{check_scopes, ApiAuthed};
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
-    user_drafts::{maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery},
+    user_drafts::{
+        delete_user_draft, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
+    },
     utils::{paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
     DB,
@@ -727,6 +729,7 @@ async fn delete_trigger<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((workspace_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
@@ -783,6 +786,19 @@ async fn delete_trigger<T: TriggerCrud>(
     .await?;
 
     tx.commit().await?;
+
+    // Clean up the authed user's per-user draft for this trigger path.
+    // The draft kind is derived from the impl via TriggerCrud, mirroring
+    // the lookup `maybe_overlay_draft` uses on get-by-path. Idempotent on
+    // no-draft.
+    delete_user_draft(
+        &db,
+        &workspace_id,
+        &authed.email,
+        T::user_draft_item_kind(),
+        path,
+    )
+    .await?;
 
     Ok(format!("Trigger '{}' deleted", path))
 }

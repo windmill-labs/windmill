@@ -161,6 +161,36 @@ fn deep_merge(target: &mut serde_json::Value, source: serde_json::Value) {
     }
 }
 
+/// Delete the authed user's draft for `(workspace, kind, path)`.
+/// Idempotent — returns Ok even when no row exists. Scoped to a single
+/// email so other users' drafts at the same path are untouched.
+///
+/// Called from item delete handlers (`delete_script_by_path`,
+/// `delete_flow_by_path`, etc.) so the user can't be left with a stale
+/// per-user draft after the underlying item is gone.
+pub async fn delete_user_draft(
+    db: &DB,
+    w_id: &str,
+    email: &str,
+    kind: UserDraftItemKind,
+    path: &str,
+) -> Result<()> {
+    sqlx::query!(
+        r#"DELETE FROM draft
+           WHERE workspace_id = $1
+             AND email = $2
+             AND path = $3
+             AND typ = $4"#,
+        w_id,
+        email,
+        path,
+        kind as UserDraftItemKind,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 /// Fetch the authed user's draft as a standalone payload, used by
 /// "get by path" routes when no deployed row exists at the path but a
 /// draft might. Returns the draft JSON wrapped as `WithDraftOverlay`
