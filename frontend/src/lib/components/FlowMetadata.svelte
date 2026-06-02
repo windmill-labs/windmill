@@ -97,11 +97,15 @@
 		{/if}
 
 		{#if (job && job.job_kind == 'flow') || job?.job_kind == 'script'}
-			{@const stem = `${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
-			{@const viewHref = isScript
-				? `${base}/${stem}/get/${job?.script_hash}`
-				: flowPathToHref(job?.script_path ?? '')}
+			{@const jobWorkspace = job?.workspace_id ?? $workspaceStore}
+			{@const viewHref = (job?.script_path ?? '').startsWith('hub/')
+				? isScript
+					? `${base}/scripts/get/${job?.script_hash}`
+					: flowPathToHref(job?.script_path ?? '')
+				: isScript
+					? `${base}/scripts/get/${job?.script_hash}?workspace=${jobWorkspace}`
+					: `${base}/flows/get/${job?.script_path}?workspace=${jobWorkspace}`}
 			<div class="flex flex-row gap-2 items-center">
 				{#if isScript}
 					<Code2 size={SMALL_ICON_SIZE} class="min-w-3.5" />
