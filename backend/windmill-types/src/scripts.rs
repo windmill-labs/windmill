@@ -459,6 +459,12 @@ pub struct ListableScript {
     pub kind: ScriptKind,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// `true` when this entry represents the authed user's draft —
+    /// either because no deployed row exists at this path (draft-only),
+    /// or because a deployed row exists *and* the user has saved a draft
+    /// on top of it. Distinguishes user-mode-only state from team state.
+    #[serde(skip_serializing_if = "is_false")]
+    pub is_draft: bool,
 }
 
 fn is_false(x: &bool) -> bool {

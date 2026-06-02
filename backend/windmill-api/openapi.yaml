@@ -7788,7 +7788,17 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/Script"
+                  allOf:
+                    - $ref: "#/components/schemas/Script"
+                    - type: object
+                      properties:
+                        is_draft:
+                          type: boolean
+                          description: |
+                            True when the authed user has a draft for this
+                            script — either no deployed row exists at this
+                            path (draft-only) or the user saved a per-user
+                            draft on top of the deployed row.
 
   /w/{workspace}/scripts/list_paths:
     get:
@@ -9554,6 +9564,13 @@ paths:
                       properties:
                         draft_only:
                           type: boolean
+                        is_draft:
+                          type: boolean
+                          description: |
+                            True when the authed user has a draft for this
+                            flow — either no deployed row exists at this
+                            path (draft-only) or the user saved a per-user
+                            draft on top of the deployed row.
 
   /w/{workspace}/flows/history/p/{path}:
     get:
@@ -27009,6 +27026,12 @@ components:
           items:
             type: string
           default: []
+        is_draft:
+          type: boolean
+          description: |
+            True when the authed user has a draft for this app — either no
+            deployed row exists at this path (draft-only) or the user has
+            saved a per-user draft on top of the deployed row.
       required:
         - id
         - workspace_id

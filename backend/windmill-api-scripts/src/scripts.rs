@@ -175,6 +175,7 @@ async fn list_search_scripts(
 async fn list_scripts(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListScriptQuery>,
@@ -202,13 +203,20 @@ async fn list_scripts(
             "auto_kind",
             "codebase IS NOT NULL as use_codebase",
             "kind",
-            "o.labels"
+            "o.labels",
+            "draft.email IS NOT NULL as is_draft",
         ])
         .left()
         .join("favorite")
         .on(
             "favorite.favorite_kind = 'script' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?"
                 .bind(&authed.username),
+        )
+        .left()
+        .join("draft")
+        .on(
+            "draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'script' AND draft.email = ?"
+                .bind(&authed.email),
         )
         .order_desc("favorite.path IS NOT NULL")
         .order_by("created_at", lq.order_desc.unwrap_or(true))
@@ -303,7 +311,7 @@ async fn list_scripts(
             .fields(&["dm.deployment_msg"]);
     }
 
-    if let Some(languages) = lq.languages {
+    if let Some(languages) = &lq.languages {
         sqlb.and_where_in(
             "language",
             &languages
@@ -315,10 +323,92 @@ async fn list_scripts(
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
-    let rows = sqlx::query_as::<_, ListableScript>(&sql)
+    let mut rows = sqlx::query_as::<_, ListableScript>(&sql)
         .fetch_all(&mut *tx)
         .await?;
     tx.commit().await?;
+
+    // Draft-only rows: drafts the authed user has at paths with no
+    // deployed script. Concatenated after the deployed page so the home
+    // page surfaces them too. Fields not in the draft JSON fall back to
+    // sensible defaults (the editor can still open the draft from
+    // /scripts/edit/{path}). Only included when no other filters narrow
+    // the list — pagination beyond page 0 also skips them.
+    if offset == 0
+        && lq.path_start.is_none()
+        && lq.path_exact.is_none()
+        && lq.created_by.is_none()
+        && lq.first_parent_hash.is_none()
+        && lq.last_parent_hash.is_none()
+        && lq.parent_hash.is_none()
+        && lq.is_template.is_none()
+        && lq.dedicated_worker.is_none()
+        && lq.label.is_none()
+        && lq.languages.is_none()
+        && !lq.starred_only.unwrap_or(false)
+        && !lq.show_archived.unwrap_or(false)
+    {
+        let draft_only_rows = sqlx::query!(
+            r#"SELECT path,
+                      value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+                      created_at
+               FROM draft
+               WHERE workspace_id = $1
+                 AND typ = 'script'
+                 AND email = $2
+                 AND NOT EXISTS (
+                     SELECT 1 FROM script s
+                     WHERE s.workspace_id = draft.workspace_id
+                       AND s.path = draft.path
+                 )"#,
+            &w_id,
+            &authed.email,
+        )
+        .fetch_all(&db)
+        .await?;
+
+        for row in draft_only_rows {
+            let v: serde_json::Value =
+                serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
+            let language: ScriptLang = v
+                .get("language")
+                .and_then(|x| serde_json::from_value(x.clone()).ok())
+                .unwrap_or_default();
+            let kind: ScriptKind = v
+                .get("kind")
+                .and_then(|x| serde_json::from_value(x.clone()).ok())
+                .unwrap_or(ScriptKind::Script);
+            rows.push(ListableScript {
+                hash: ScriptHash(0),
+                path: row.path,
+                summary: v
+                    .get("summary")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                created_at: row.created_at,
+                archived: false,
+                extra_perms: serde_json::Value::Object(serde_json::Map::new()),
+                language,
+                starred: false,
+                tag: v.get("tag").and_then(|s| s.as_str()).map(|s| s.to_string()),
+                description: v
+                    .get("description")
+                    .and_then(|s| s.as_str())
+                    .map(|s| s.to_string()),
+                draft_only: Some(true),
+                has_deploy_errors: false,
+                ws_error_handler_muted: None,
+                auto_kind: None,
+                use_codebase: false,
+                deployment_msg: None,
+                kind,
+                labels: None,
+                is_draft: true,
+            });
+        }
+    }
+
     Ok(Json(rows))
 }
 

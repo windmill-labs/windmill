@@ -88,6 +88,11 @@ pub struct ListableFlow {
     pub deployment_msg: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// True when the authed user has a draft for this flow — either the
+    /// row is draft-only (no deployed flow at this path) or the user has
+    /// saved a per-user draft on top of the deployed row.
+    #[serde(default)]
+    pub is_draft: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]

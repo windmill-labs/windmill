@@ -162,6 +162,11 @@ pub struct ListableApp {
     pub raw_app: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// True when the authed user has a draft for this app — either the
+    /// row is draft-only (no deployed app at this path) or the user has
+    /// saved a per-user draft on top of the deployed row.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_draft: bool,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -349,6 +354,7 @@ async fn list_search_apps(
 async fn list_apps(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListAppQuery>,
@@ -369,12 +375,22 @@ async fn list_apps(
             "draft_only",
             "app_version.raw_app",
             "app.labels",
+            "draft.email IS NOT NULL as is_draft",
         ])
         .left()
         .join("favorite")
         .on(
             "favorite.favorite_kind = 'app' AND favorite.workspace_id = app.workspace_id AND favorite.path = app.path AND favorite.usr = ?"
                 .bind(&authed.username),
+        )
+        .left()
+        .join("draft")
+        .on(
+            // `app` and `raw_app` are stored as separate draft kinds but
+            // share the `app` table — match either kind for the per-user
+            // flag.
+            "draft.path = app.path AND draft.workspace_id = app.workspace_id AND draft.typ IN ('app', 'raw_app') AND draft.email = ?"
+                .bind(&authed.email),
         )
         .left()
         .join("app_version")
@@ -419,11 +435,68 @@ async fn list_apps(
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
-    let rows = sqlx::query_as::<_, ListableApp>(&sql)
+    let mut rows = sqlx::query_as::<_, ListableApp>(&sql)
         .fetch_all(&mut *tx)
         .await?;
 
     tx.commit().await?;
+
+    // Draft-only rows: drafts (of either `app` or `raw_app` kind) the
+    // authed user has at paths with no deployed app. Concatenated after
+    // the deployed page so the home page surfaces them too. Fields not
+    // in the draft JSON fall back to defaults. Only included when no
+    // filters narrow the list and we're on page 0.
+    if offset == 0
+        && lq.path_start.is_none()
+        && lq.path_exact.is_none()
+        && lq.label.is_none()
+        && !lq.starred_only.unwrap_or(false)
+    {
+        let draft_only_rows = sqlx::query!(
+            r#"SELECT path,
+                      value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+                      created_at,
+                      typ::text as "typ!"
+               FROM draft
+               WHERE workspace_id = $1
+                 AND typ IN ('app', 'raw_app')
+                 AND email = $2
+                 AND NOT EXISTS (
+                     SELECT 1 FROM app a
+                     WHERE a.workspace_id = draft.workspace_id
+                       AND a.path = draft.path
+                 )"#,
+            &w_id,
+            &authed.email,
+        )
+        .fetch_all(&db)
+        .await?;
+
+        for row in draft_only_rows {
+            let v: serde_json::Value =
+                serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
+            rows.push(ListableApp {
+                id: 0,
+                workspace_id: w_id.clone(),
+                path: row.path,
+                summary: v
+                    .get("summary")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                version: 0,
+                extra_perms: serde_json::Value::Object(serde_json::Map::new()),
+                execution_mode: String::new(),
+                starred: false,
+                edited_at: Some(row.created_at),
+                draft_only: Some(true),
+                deployment_msg: None,
+                raw_app: row.typ == "raw_app",
+                labels: None,
+                is_draft: true,
+            });
+        }
+    }
 
     Ok(Json(rows))
 }

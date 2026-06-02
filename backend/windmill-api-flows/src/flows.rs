@@ -126,6 +126,7 @@ async fn list_search_flows(
 async fn list_flows(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListFlowQuery>,
@@ -149,13 +150,20 @@ async fn list_flows(
             "favorite.path IS NOT NULL as starred",
             "draft_only",
             "ws_error_handler_muted",
-            "o.labels"
+            "o.labels",
+            "draft.email IS NOT NULL as is_draft",
         ])
         .left()
         .join("favorite")
         .on(
             "favorite.favorite_kind = 'flow' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?"
                 .bind(&authed.username),
+        )
+        .left()
+        .join("draft")
+        .on(
+            "draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'flow' AND draft.email = ?"
+                .bind(&authed.email),
         )
         .left()
         .join("flow_version fv")
@@ -205,10 +213,73 @@ async fn list_flows(
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
-    let rows = sqlx::query_as::<_, ListableFlow>(&sql)
+    let mut rows = sqlx::query_as::<_, ListableFlow>(&sql)
         .fetch_all(&mut *tx)
         .await?;
     tx.commit().await?;
+
+    // Draft-only rows: drafts the authed user has at paths with no
+    // deployed flow. Concatenated after the deployed page so the home
+    // page surfaces them too. Fields not in the draft JSON fall back to
+    // sensible defaults. Only included when no filters narrow the list
+    // and we're on page 0 — keeps pagination semantics clean.
+    if offset == 0
+        && lq.path_start.is_none()
+        && lq.path_exact.is_none()
+        && lq.edited_by.is_none()
+        && lq.dedicated_worker.is_none()
+        && lq.label.is_none()
+        && !lq.starred_only.unwrap_or(false)
+        && !lq.show_archived.unwrap_or(false)
+    {
+        let draft_only_rows = sqlx::query!(
+            r#"SELECT path,
+                      value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+                      created_at
+               FROM draft
+               WHERE workspace_id = $1
+                 AND typ = 'flow'
+                 AND email = $2
+                 AND NOT EXISTS (
+                     SELECT 1 FROM flow f
+                     WHERE f.workspace_id = draft.workspace_id
+                       AND f.path = draft.path
+                 )"#,
+            &w_id,
+            &authed.email,
+        )
+        .fetch_all(&db)
+        .await?;
+
+        for row in draft_only_rows {
+            let v: serde_json::Value =
+                serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
+            rows.push(ListableFlow {
+                workspace_id: w_id.clone(),
+                path: row.path,
+                summary: v
+                    .get("summary")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                description: v
+                    .get("description")
+                    .and_then(|s| s.as_str())
+                    .map(|s| s.to_string()),
+                edited_by: Some(authed.email.clone()),
+                edited_at: Some(row.created_at),
+                archived: false,
+                extra_perms: serde_json::Value::Object(serde_json::Map::new()),
+                starred: false,
+                draft_only: Some(true),
+                ws_error_handler_muted: None,
+                deployment_msg: None,
+                labels: None,
+                is_draft: true,
+            });
+        }
+    }
+
     Ok(Json(rows))
 }
 
