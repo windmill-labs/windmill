@@ -1,7 +1,12 @@
 import type { FlowModule, FlowNote, FlowValue, OpenFlow, RawScript } from '$lib/gen'
 import { forEachFlowModule } from '$lib/components/flows/dfs'
 import { findModuleInFlow } from '$lib/components/flows/flowTree'
-import { DEFAULT_NOTE_COLOR, NoteColor } from '$lib/components/graph/noteColors'
+import {
+	DEFAULT_NOTE_COLOR,
+	MIN_NOTE_HEIGHT,
+	MIN_NOTE_WIDTH,
+	NoteColor
+} from '$lib/components/graph/noteColors'
 import type { InlineScriptSession } from './inlineScriptsUtils'
 
 /** Allowed note/group color names — matches the NoteColor palette the note and
@@ -105,6 +110,11 @@ export function validateFlowGroups(
  *
  * A provided palette `color` is always preserved as-is; the default is only
  * filled in when a note omits `color` entirely (FlowNote.color is required).
+ *
+ * Free notes are also given a concrete `position` and `size` when missing. A
+ * free note without geometry is not draggable/resizable in the editor (you'd
+ * have to resize it first to give it a size) — UI-created notes always set both,
+ * so agent-created notes must too. Provided geometry is preserved untouched.
  */
 export function validateFlowNotes(rawNotes: unknown, moduleIds?: Set<string>): FlowNote[] | null {
 	if (rawNotes == null) {
@@ -187,12 +197,30 @@ export function validateFlowNotes(rawNotes: unknown, moduleIds?: Set<string>): F
 				}
 			}
 		}
-		return {
+		const normalized = {
 			...(n as FlowNote),
 			type,
 			// Preserve a provided color; only seed the default when omitted.
 			color: typeof n.color === 'string' ? n.color : DEFAULT_NOTE_COLOR
 		} as FlowNote
+
+		// Free notes need explicit geometry to be draggable/resizable. Place
+		// missing ones to the left of the flow column, staggered by index so
+		// several new notes don't land exactly on top of each other. Group notes
+		// derive their layout from contained nodes, so they are left alone.
+		if (type === 'free') {
+			if (normalized.position == null) {
+				normalized.position = {
+					x: -(MIN_NOTE_WIDTH + 100),
+					y: index * (MIN_NOTE_HEIGHT + 24)
+				}
+			}
+			if (normalized.size == null) {
+				normalized.size = { width: MIN_NOTE_WIDTH, height: MIN_NOTE_HEIGHT }
+			}
+		}
+
+		return normalized
 	})
 }
 

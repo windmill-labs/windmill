@@ -436,13 +436,45 @@ describe('validateFlowNotes', () => {
 	})
 
 	it('defaults type to free and color to the default note color', () => {
-		const result = validateFlowNotes([{ id: 'n', text: 't' }])
-		expect(result).toEqual([{ id: 'n', text: 't', type: 'free', color: 'green' }])
+		const [note] = validateFlowNotes([{ id: 'n', text: 't' }])!
+		expect(note).toMatchObject({ id: 'n', text: 't', type: 'free', color: 'green' })
 	})
 
 	it('preserves a provided palette color rather than overriding it', () => {
-		const result = validateFlowNotes([{ id: 'n', text: 't', color: 'purple' }])
-		expect(result).toEqual([{ id: 'n', text: 't', type: 'free', color: 'purple' }])
+		const [note] = validateFlowNotes([{ id: 'n', text: 't', color: 'purple' }])!
+		expect(note).toMatchObject({ id: 'n', text: 't', type: 'free', color: 'purple' })
+	})
+
+	it('gives a free note missing geometry a concrete position and size', () => {
+		const [note] = validateFlowNotes([{ id: 'n', text: 't' }])!
+		expect(note.position).toEqual({ x: expect.any(Number), y: expect.any(Number) })
+		expect(note.size).toEqual({ width: expect.any(Number), height: expect.any(Number) })
+		expect(note.size!.width).toBeGreaterThan(0)
+		expect(note.size!.height).toBeGreaterThan(0)
+	})
+
+	it('staggers the default y position of multiple geometry-less free notes', () => {
+		const notes = validateFlowNotes([
+			{ id: 'a', text: 't' },
+			{ id: 'b', text: 't' }
+		])!
+		expect(notes[0].position!.y).not.toEqual(notes[1].position!.y)
+	})
+
+	it('does not override a free note that already has geometry', () => {
+		const [note] = validateFlowNotes([
+			{ id: 'n', text: 't', position: { x: 5, y: 6 }, size: { width: 400, height: 90 } }
+		])!
+		expect(note.position).toEqual({ x: 5, y: 6 })
+		expect(note.size).toEqual({ width: 400, height: 90 })
+	})
+
+	it('does not add geometry to group notes', () => {
+		const [note] = validateFlowNotes([
+			{ id: 'n', text: 't', type: 'group', contained_node_ids: [] }
+		])!
+		expect(note.position).toBeUndefined()
+		expect(note.size).toBeUndefined()
 	})
 
 	it('rejects a malformed position', () => {
