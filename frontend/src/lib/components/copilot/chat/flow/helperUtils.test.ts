@@ -440,6 +440,48 @@ describe('validateFlowNotes', () => {
 		expect(result).toEqual([{ id: 'n', text: 't', type: 'free', color: 'green' }])
 	})
 
+	it('preserves a provided palette color rather than overriding it', () => {
+		const result = validateFlowNotes([{ id: 'n', text: 't', color: 'purple' }])
+		expect(result).toEqual([{ id: 'n', text: 't', type: 'free', color: 'purple' }])
+	})
+
+	it('rejects a malformed position', () => {
+		expect(() => validateFlowNotes([{ id: 'n', text: 't', position: { x: 1 } }])).toThrow(
+			'Invalid note at index 0: position must be an object with numeric x and y'
+		)
+		expect(() => validateFlowNotes([{ id: 'n', text: 't', position: [1, 2] }])).toThrow(
+			'Invalid note at index 0: position must be an object with numeric x and y'
+		)
+	})
+
+	it('rejects a malformed size', () => {
+		expect(() => validateFlowNotes([{ id: 'n', text: 't', size: { width: '10' } }])).toThrow(
+			'Invalid note at index 0: size must be an object with numeric width and height'
+		)
+	})
+
+	it('accepts a free note with valid position and size', () => {
+		const result = validateFlowNotes([
+			{
+				id: 'n',
+				text: 't',
+				color: 'blue',
+				position: { x: 10, y: 20 },
+				size: { width: 300, height: 80 }
+			}
+		])
+		expect(result).toEqual([
+			{
+				id: 'n',
+				text: 't',
+				type: 'free',
+				color: 'blue',
+				position: { x: 10, y: 20 },
+				size: { width: 300, height: 80 }
+			}
+		])
+	})
+
 	it('rejects group note contained_node_ids that are not strings', () => {
 		expect(() =>
 			validateFlowNotes([{ id: 'n', text: 't', type: 'group', contained_node_ids: [1] }])

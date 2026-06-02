@@ -93,10 +93,18 @@ export function validateFlowGroups(
 
 /**
  * Validate the optional array of sticky notes the agent attached to the flow.
- * Notes are editor-only annotations (`free` standalone notes or `group` notes
- * that frame a set of nodes) and do not affect execution. When `moduleIds` is
- * provided, every `contained_node_ids` entry of a `group` note must reference an
- * existing module.
+ * Notes are editor-only annotations and do not affect execution.
+ *
+ * `free` notes are the supported kind (standalone canvas annotations). The
+ * `group` note type is deprecated for creation — the chat prompt steers the
+ * agent toward `groups` instead — but it is still ACCEPTED here so flows that
+ * already contain group notes round-trip cleanly through `patch_flow_json` /
+ * `set_flow_json` rather than being rejected. When `moduleIds` is provided,
+ * every `contained_node_ids` entry of a `group` note must reference an existing
+ * module.
+ *
+ * A provided palette `color` is always preserved as-is; the default is only
+ * filled in when a note omits `color` entirely (FlowNote.color is required).
  */
 export function validateFlowNotes(rawNotes: unknown, moduleIds?: Set<string>): FlowNote[] | null {
 	if (rawNotes == null) {
@@ -134,6 +142,32 @@ export function validateFlowNotes(rawNotes: unknown, moduleIds?: Set<string>): F
 				)
 			}
 		}
+		if (n.position !== undefined && n.position !== null) {
+			const p = n.position as Record<string, unknown>
+			if (
+				typeof p !== 'object' ||
+				Array.isArray(n.position) ||
+				typeof p.x !== 'number' ||
+				typeof p.y !== 'number'
+			) {
+				throw new Error(
+					`Invalid note at index ${index}: position must be an object with numeric x and y`
+				)
+			}
+		}
+		if (n.size !== undefined && n.size !== null) {
+			const s = n.size as Record<string, unknown>
+			if (
+				typeof s !== 'object' ||
+				Array.isArray(n.size) ||
+				typeof s.width !== 'number' ||
+				typeof s.height !== 'number'
+			) {
+				throw new Error(
+					`Invalid note at index ${index}: size must be an object with numeric width and height`
+				)
+			}
+		}
 		if (type === 'group' && n.contained_node_ids !== undefined) {
 			if (
 				!Array.isArray(n.contained_node_ids) ||
@@ -156,6 +190,7 @@ export function validateFlowNotes(rawNotes: unknown, moduleIds?: Set<string>): F
 		return {
 			...(n as FlowNote),
 			type,
+			// Preserve a provided color; only seed the default when omitted.
 			color: typeof n.color === 'string' ? n.color : DEFAULT_NOTE_COLOR
 		} as FlowNote
 	})
