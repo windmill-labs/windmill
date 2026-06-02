@@ -409,11 +409,15 @@
 						<!-- Title row -->
 						<div class="min-w-0 grow">
 							{#if job.script_path && (job.job_kind === 'script' || job.job_kind === 'flow' || job.job_kind === 'singlestepflow' || job.job_kind === 'flowpreview')}
-								{@const stem = job.job_kind === 'script' ? 'scripts' : 'flows'}
 								{@const isScript = job.job_kind === 'script'}
-								{@const viewHref = isScript
-									? `${base}/${stem}/get/${job?.script_hash}`
-									: flowPathToHref(job?.script_path ?? '')}
+								{@const jobWorkspace = job.workspace_id ?? $workspaceStore}
+								{@const viewHref = (job.script_path ?? '').startsWith('hub/')
+									? isScript
+										? `${base}/scripts/get/${job?.script_hash}`
+										: flowPathToHref(job?.script_path ?? '')
+									: isScript
+										? `${base}/scripts/get/${job?.script_hash}?workspace=${jobWorkspace}`
+										: `${base}/flows/get/${job?.script_path}?workspace=${jobWorkspace}`}
 								<a
 									href={viewHref}
 									target="_blank"
