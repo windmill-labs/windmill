@@ -36,6 +36,8 @@ const STEP_JOB: &str = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
 // Deep nesting: top (not visible) -> mid (visible via folder) -> deep leaf.
 const TOP_SECRET_FLOW: &str = "ffffffff-ffff-ffff-ffff-ffffffffffff";
 const DEEP_LEAF_JOB: &str = "88888888-8888-8888-8888-888888888888";
+// A queued/running job (no completed row) owned by test-user-2.
+const RUNNING_JOB: &str = "77777777-7777-7777-7777-777777777777";
 
 // Secrets that must never leak to an unauthorized viewer.
 const RESULT_SECRET: &str = "RESULT_SECRET";
@@ -474,6 +476,36 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
     assert!(
         status.is_success(),
         "tag-scoped token may use a view_token for an in-scope (deno) job (got {status}): {body}"
+    );
+
+    // ---- get_result_maybe?get_started=true must authorize before disclosing the
+    //      running-state of a queued (not-yet-completed) private job. ----
+    // Viewer (no ACL) must be denied rather than told the job is started.
+    let (status, body) = get(
+        &base,
+        &format!("completed/get_result_maybe/{RUNNING_JOB}?get_started=true"),
+        Some("SECRET_TOKEN_3"),
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::FORBIDDEN,
+        "viewer must be denied the running-state of a private queued job (got {status}): {body}"
+    );
+    assert!(
+        !body.contains("\"started\""),
+        "denied response must not disclose started-state: {body}"
+    );
+    // The owner still gets the in-progress response.
+    let (status, body) = get(
+        &base,
+        &format!("completed/get_result_maybe/{RUNNING_JOB}?get_started=true"),
+        Some("SECRET_TOKEN_2"),
+    )
+    .await;
+    assert!(
+        status.is_success() && body.contains("\"started\":true"),
+        "owner must see the running job as started (got {status}): {body}"
     );
 
     Ok(())

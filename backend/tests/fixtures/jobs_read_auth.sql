@@ -19,6 +19,20 @@ INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, sc
     ARRAY['jobs:read', 'if_jobs:filter_tags:deno']
 );
 
+-- RUNNING job: queued (no completed row) and owned by test-user-2. Used to check
+-- that `completed/get_result_maybe?get_started=true` authorizes before disclosing
+-- running-state to a non-reader.
+INSERT INTO public.v2_job (
+    id, workspace_id, created_by, created_at, permissioned_as, permissioned_as_email,
+    kind, script_lang, runnable_path, tag, visible_to_owner
+) VALUES (
+    '77777777-7777-7777-7777-777777777777', 'test-workspace', 'test-user-2',
+    '2023-01-01 00:00:00', 'u/test-user-2', 'test2@windmill.dev',
+    'script', 'deno', 'u/test-user-2/running_secret', 'deno', true
+);
+INSERT INTO public.v2_job_queue (id, workspace_id, scheduled_for, running, tag) VALUES
+    ('77777777-7777-7777-7777-777777777777', 'test-workspace', '2023-01-01 00:00:00', true, 'deno');
+
 -- 1. VICTIM job: a completed run of test-user-2's private script, e.g. produced
 --    by a public HTTP trigger. `created_by` is the route identity (test-user-2),
 --    NOT the viewer; `permissioned_as`/`runnable_path` sit in test-user-2's

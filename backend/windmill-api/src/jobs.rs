@@ -8823,6 +8823,36 @@ async fn get_completed_job_result_maybe(
         })
         .into_response())
     } else if get_started.is_some_and(|x| x) {
+        // No completed row yet — the job may be queued/running. Returning its
+        // running-state still discloses information about a (possibly private) job, so
+        // authorize first when the job exists. If it doesn't exist, fall through to a
+        // `started: false` response (which leaks nothing).
+        let created_by = sqlx::query_scalar!(
+            "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+            id,
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?;
+        if let Some(created_by) = created_by {
+            if let Some(authed) = opt_authed.as_ref() {
+                require_job_read_access(
+                    &db,
+                    &user_db,
+                    authed,
+                    &w_id,
+                    &id,
+                    &created_by,
+                    view_token.as_deref(),
+                )
+                .await?;
+            } else if created_by != "anonymous" {
+                return Err(Error::BadRequest(
+                    "As a non logged in user, you can only see jobs ran by anonymous users"
+                        .to_string(),
+                ));
+            }
+        }
         let started = sqlx::query_scalar!(
             "SELECT running AS \"running!\" FROM v2_job_queue WHERE id = $1 AND workspace_id = $2",
             id,
