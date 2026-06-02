@@ -2006,6 +2006,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_statement_requires_no_transaction() {
+        // CONCURRENTLY index DDL must bypass the implicit transaction.
+        assert!(statement_requires_no_transaction(
+            "CREATE INDEX CONCURRENTLY idx ON t (a)"
+        ));
+        assert!(statement_requires_no_transaction(
+            "create unique index concurrently idx on t (a)"
+        ));
+        assert!(statement_requires_no_transaction(
+            "DROP INDEX CONCURRENTLY IF EXISTS idx"
+        ));
+        assert!(statement_requires_no_transaction(
+            "  REINDEX INDEX CONCURRENTLY idx"
+        ));
+        // Plain DDL and unrelated statements stay on the normal path.
+        assert!(!statement_requires_no_transaction(
+            "CREATE INDEX idx ON t (a)"
+        ));
+        assert!(!statement_requires_no_transaction("DROP INDEX idx"));
+        assert!(!statement_requires_no_transaction("SELECT 1"));
+    }
+
+    #[test]
     fn test_parse_naive_date() {
         // chrono's NaiveDate::to_string() format
         let d = parse_naive_date("2024-01-15").unwrap();

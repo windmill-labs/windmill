@@ -109,17 +109,29 @@
 		}
 	}
 
-	function openDropConfirm(idx: DbIndex) {
-		confirm = {
-			open: true,
-			title: `Drop index "${idx.name}"?`,
-			confirmationText: 'Drop index',
-			code: idx.definition,
-			onConfirm: async () => {
-				await dbIndexOps.dropIndex({ name: idx.name, schema, concurrent: true })
-				sendUserToast('Index dropped')
-				indexes.refetch()
+	async function openDropConfirm(idx: DbIndex) {
+		busy = true
+		try {
+			const sql = await dbIndexOps.previewDropIndexSql({
+				name: idx.name,
+				schema,
+				concurrent: true
+			})
+			confirm = {
+				open: true,
+				title: `Drop index "${idx.name}"?`,
+				confirmationText: 'Drop index',
+				code: sql,
+				onConfirm: async () => {
+					await dbIndexOps.dropIndex({ name: idx.name, schema, concurrent: true })
+					sendUserToast('Index dropped')
+					indexes.refetch()
+				}
 			}
+		} catch (e) {
+			toastErr(e)
+		} finally {
+			busy = false
 		}
 	}
 

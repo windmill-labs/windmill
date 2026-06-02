@@ -301,6 +301,11 @@ export type IDbIndexOps = {
 		values: CreateIndexInput
 	}) => Promise<string>
 	dropIndex: (params: { name: string; schema?: string; concurrent?: boolean }) => Promise<void>
+	previewDropIndexSql: (params: {
+		name: string
+		schema?: string
+		concurrent?: boolean
+	}) => Promise<string>
 }
 
 export function dbIndexOpsWithPreviewScripts({
@@ -366,6 +371,10 @@ export function dbIndexOpsWithPreviewScripts({
 				workspace,
 				requestBody: { args: { ...dbArg }, language, content }
 			})
+		},
+		previewDropIndexSql: async ({ name, schema, concurrent }) => {
+			const content = makeMarker('DROP_INDEX', { name, schema, concurrent: concurrent ?? false })
+			return expandMarker(workspace, language, content)
 		}
 	}
 }
