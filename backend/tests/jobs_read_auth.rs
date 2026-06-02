@@ -408,5 +408,31 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         "a non-reader must not be able to mint a share token (got {status})"
     );
 
+    // ---- TAG-SCOPED token must not mint a token outside its allowed tags ----
+    // SCOPED_DENO_TOKEN (test-user-2, scope `if_jobs:filter_tags:deno`) can read both
+    // VICTIM (tag deno) and FLOW_JOB (tag flow) by RLS, but minting must honor the
+    // tag scope: allowed for the deno job, denied for the flow job.
+    let (status, body) = get(
+        &authed_base,
+        &format!("job_view_token/{VICTIM}"),
+        Some("SCOPED_DENO_TOKEN"),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "tag-scoped token may mint for an in-scope (deno) job (got {status}): {body}"
+    );
+    let (status, _) = get(
+        &authed_base,
+        &format!("job_view_token/{FLOW_JOB}"),
+        Some("SCOPED_DENO_TOKEN"),
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::NOT_FOUND,
+        "tag-scoped token must NOT mint for an out-of-scope (flow) job (got {status})"
+    );
+
     Ok(())
 }

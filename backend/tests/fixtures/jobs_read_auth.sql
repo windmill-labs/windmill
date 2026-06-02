@@ -10,6 +10,15 @@
 -- `u/test-user-2/...`, so under the same RLS as `jobs/list` they cannot see any
 -- of these jobs unless they created them.
 
+-- A tag-scoped token for test-user-2 (who can read both VICTIM (tag 'deno') and
+-- the flow (tag 'flow')). The `if_jobs:filter_tags:deno` modifier restricts it to
+-- the 'deno' tag, so it must NOT be able to mint a share token for the 'flow' job.
+INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, scopes) VALUES (
+    encode(sha256('SCOPED_DENO_TOKEN'::bytea), 'hex'), 'SCOPED_DEN', 'SCOPED_DENO_TOKEN',
+    'test2@windmill.dev', 'scoped deno token', false,
+    ARRAY['jobs:read', 'if_jobs:filter_tags:deno']
+);
+
 -- 1. VICTIM job: a completed run of test-user-2's private script, e.g. produced
 --    by a public HTTP trigger. `created_by` is the route identity (test-user-2),
 --    NOT the viewer; `permissioned_as`/`runnable_path` sit in test-user-2's

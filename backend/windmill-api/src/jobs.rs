@@ -471,6 +471,24 @@ async fn get_job_view_token(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<String> {
+    // A scoped token (`if_jobs:filter_tags:`) must not mint a transferable token for
+    // a job outside its allowed tags. The read handlers apply this tag predicate to
+    // their data query; minting bypasses those handlers, so enforce it here too —
+    // otherwise a tag-scoped caller could mint a link an unscoped member then uses.
+    if let Some(tags) = get_scope_tags(&authed) {
+        let in_scope = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM v2_job WHERE id = $1 AND workspace_id = $2 AND tag = ANY($3))",
+            id,
+            &w_id,
+            &tags.iter().map(|t| t.to_string()).collect::<Vec<_>>(),
+        )
+        .fetch_one(&db)
+        .await?
+            == Some(true);
+        if !in_scope {
+            return Err(Error::NotFound(format!("Job {id} not found")));
+        }
+    }
     // No `view_token` here: minting requires the caller's own read access, so a share
     // link cannot be used to mint further links.
     require_job_update_read_access(&db, &user_db, &authed, &w_id, &id, None).await?;
@@ -1098,8 +1116,17 @@ async fn validate_view_token(
     let Ok(shared_id) = Uuid::parse_str(shared_id_str) else {
         return Ok(false);
     };
-    let expected = generate_view_token(w_id, shared_id, db).await?;
-    if provided_hmac != expected {
+    let Ok(provided_bytes) = hex::decode(provided_hmac) else {
+        return Ok(false);
+    };
+    // Constant-time verification (same domain as `generate_view_token`, mirroring
+    // `verify_suspended_secret`); avoids the timing side-channel of comparing the
+    // hex strings with `!=`.
+    let key = get_workspace_key(w_id, db).await?;
+    let mut mac = HmacSha256::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
+    mac.update(shared_id.as_bytes());
+    mac.update(b"view_token");
+    if mac.verify_slice(&provided_bytes).is_err() {
         return Ok(false);
     }
     if accessed_job_id == &shared_id {
@@ -1124,30 +1151,34 @@ lazy_static::lazy_static! {
 /// affects job-read visibility (admin flag, username, username override, the sorted
 /// group set, and the sorted folder set the caller has any grant on — RLS reads from
 /// all of them) plus the workspace and job id. Sorting makes the key order-independent;
-/// section separators avoid `["a","bc"]` vs `["ab","c"]` collisions.
+/// each variable-length field is length-prefixed so no choice of input values can make
+/// two distinct identities hash equal (e.g. `["a","bc"]` vs `["ab","c"]`).
 fn job_read_access_cache_key(authed: &ApiAuthed, w_id: &str, job_id: &Uuid) -> [u8; 32] {
     let mut hasher = Sha256::new();
+    // Length-prefix every variable-length field (u32 BE) to make the encoding injective.
+    let field = |hasher: &mut Sha256, bytes: &[u8]| {
+        hasher.update((bytes.len() as u32).to_be_bytes());
+        hasher.update(bytes);
+    };
     hasher.update([authed.is_admin as u8]);
-    hasher.update(authed.username.as_bytes());
-    hasher.update([0u8]);
-    hasher.update(authed.username_override.as_deref().unwrap_or("").as_bytes());
-    hasher.update([0u8]);
+    field(&mut hasher, authed.username.as_bytes());
+    field(
+        &mut hasher,
+        authed.username_override.as_deref().unwrap_or("").as_bytes(),
+    );
     let mut groups: Vec<&str> = authed.groups.iter().map(String::as_str).collect();
     groups.sort_unstable();
+    hasher.update((groups.len() as u32).to_be_bytes());
     for g in groups {
-        hasher.update(g.as_bytes());
-        hasher.update([0u8]);
+        field(&mut hasher, g.as_bytes());
     }
-    hasher.update([1u8]);
     let mut folders: Vec<&str> = authed.folders.iter().map(|f| f.0.as_str()).collect();
     folders.sort_unstable();
+    hasher.update((folders.len() as u32).to_be_bytes());
     for f in folders {
-        hasher.update(f.as_bytes());
-        hasher.update([0u8]);
+        field(&mut hasher, f.as_bytes());
     }
-    hasher.update([1u8]);
-    hasher.update(w_id.as_bytes());
-    hasher.update([0u8]);
+    field(&mut hasher, w_id.as_bytes());
     hasher.update(job_id.as_bytes());
     hasher.finalize().into()
 }
@@ -8590,12 +8621,17 @@ async fn get_completed_job_result(
 
     // A valid approval secret for the suspended parent flow grants access to this
     // node's result for ANY caller — logged in or not — since the approval page
-    // renders its form from this result. It is checked first so an authenticated
-    // approver who lacks ACL on the inner job is not blocked by the visibility gate
-    // below. Absent a secret, fall back to normal authorization.
-    match (suspended_job, resume_id, secret) {
+    // renders its form from this result. Try it first. If the secret triple is absent,
+    // or present but invalid, fall through to normal authorization: an authenticated
+    // reader with ACL must NOT be blocked just because a stale/garbage secret was
+    // attached (pre-fix the secret branch was skipped entirely for authed callers),
+    // while an unauthenticated caller, for whom the secret is the only credential,
+    // still ends up rejected below.
+    let approval_secret_ok = match (suspended_job, resume_id, secret) {
         (Some(suspended_job), Some(resume_id), Some(secret)) => {
+            // Walk from `id` up to the claimed suspended parent.
             let mut parent_job = id;
+            let mut reached = true;
             while parent_job != suspended_job {
                 let p_job = sqlx::query_scalar!(
                     "SELECT parent_job FROM v2_job WHERE id = $1 AND workspace_id = $2",
@@ -8605,40 +8641,45 @@ async fn get_completed_job_result(
                 .fetch_optional(&db)
                 .await?
                 .flatten();
-                if let Some(p_job) = p_job {
-                    parent_job = p_job;
-                } else {
-                    return Err(Error::BadRequest("Approval secret of suspended job is not a parent of the job whose id's is being searched not found".to_string()));
+                match p_job {
+                    Some(p_job) => parent_job = p_job,
+                    None => {
+                        reached = false;
+                        break;
+                    }
                 }
             }
-            verify_suspended_secret(
-                &w_id,
-                &db,
-                suspended_job,
-                resume_id,
-                &QueryApprover { approver, flow_level: None },
-                secret,
-            )
-            .await?
-        }
-        _ => {
-            if let Some(authed) = opt_authed.as_ref() {
-                require_job_read_access(
-                    &db,
-                    &user_db,
-                    authed,
+            reached
+                && verify_suspended_secret(
                     &w_id,
-                    &id,
-                    &created_by,
-                    view_token.as_deref(),
+                    &db,
+                    suspended_job,
+                    resume_id,
+                    &QueryApprover { approver, flow_level: None },
+                    secret,
                 )
-                .await?;
-            } else if created_by != "anonymous" {
-                return Err(Error::BadRequest(
-                    "As a non logged in user, you can only see jobs ran by anonymous users"
-                        .to_string(),
-                ));
-            }
+                .await
+                .is_ok()
+        }
+        _ => false,
+    };
+
+    if !approval_secret_ok {
+        if let Some(authed) = opt_authed.as_ref() {
+            require_job_read_access(
+                &db,
+                &user_db,
+                authed,
+                &w_id,
+                &id,
+                &created_by,
+                view_token.as_deref(),
+            )
+            .await?;
+        } else if created_by != "anonymous" {
+            return Err(Error::BadRequest(
+                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+            ));
         }
     }
 
