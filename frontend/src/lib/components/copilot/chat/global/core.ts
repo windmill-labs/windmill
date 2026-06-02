@@ -2330,10 +2330,7 @@ async function saveScriptDraftToDb(
 	draft: NewScript,
 	existing: Awaited<ReturnType<typeof ScriptService.getScriptByPathWithDraft>> | undefined
 ): Promise<void> {
-	if (existing?.draft_only) {
-		await ScriptService.deleteScriptByPath({ workspace, path, keepCaptures: true })
-	}
-	if (!existing || existing.draft_only) {
+	if (!existing) {
 		await ScriptService.createScript({
 			workspace,
 			requestBody: {
@@ -2353,10 +2350,7 @@ async function saveFlowDraftToDb(
 	draft: Flow,
 	existing: Awaited<ReturnType<typeof FlowService.getFlowByPathWithDraft>> | undefined
 ): Promise<void> {
-	if (existing?.draft_only) {
-		await FlowService.deleteFlowByPath({ workspace, path, keepCaptures: true })
-	}
-	if (!existing || existing.draft_only) {
+	if (!existing) {
 		await FlowService.createFlow({
 			workspace,
 			requestBody: {
@@ -2438,10 +2432,7 @@ async function saveAppDraftToDb(
 		((await AppService.existsApp({ workspace, path }))
 			? await AppService.getAppByPathWithDraft({ workspace, path })
 			: undefined)
-	if (current?.draft_only) {
-		await AppService.deleteApp({ workspace, path })
-	}
-	if (!current || current.draft_only) {
+	if (!current) {
 		await createRawAppDraftOnlyAnchor(workspace, path, value)
 	}
 	await createDbDraft(workspace, 'app', path, appDraftToDbValue(path, value))

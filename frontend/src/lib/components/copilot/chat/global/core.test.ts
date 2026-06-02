@@ -480,7 +480,7 @@ describe('global AI tools', () => {
 		})
 	})
 
-	it('recreates draft-only scripts before saving an AI DB draft', async () => {
+	it('updates draft-only script DB drafts without deleting the existing anchor', async () => {
 		const content = 'export async function main() {\n\treturn "updated"\n}'
 		vi.mocked(ScriptService.existsScriptByPath).mockResolvedValueOnce(true)
 		vi.mocked(ScriptService.getScriptByPathWithDraft).mockResolvedValueOnce({
@@ -503,25 +503,8 @@ describe('global AI tools', () => {
 			content
 		})
 
-		expect(ScriptService.deleteScriptByPath).toHaveBeenCalledWith({
-			workspace: WORKSPACE,
-			path: 'f/scripts/new-draft',
-			keepCaptures: true
-		})
-		expect(ScriptService.createScript).toHaveBeenCalledWith({
-			workspace: WORKSPACE,
-			requestBody: expect.objectContaining({
-				path: 'f/scripts/new-draft',
-				summary: 'Updated draft',
-				content,
-				language: 'bun',
-				draft_only: true,
-				parent_hash: undefined
-			})
-		})
-		expect(vi.mocked(ScriptService.deleteScriptByPath).mock.invocationCallOrder[0]).toBeLessThan(
-			vi.mocked(ScriptService.createScript).mock.invocationCallOrder[0]
-		)
+		expect(ScriptService.deleteScriptByPath).not.toHaveBeenCalled()
+		expect(ScriptService.createScript).not.toHaveBeenCalled()
 		expect(DraftService.createDraft).toHaveBeenCalledWith({
 			workspace: WORKSPACE,
 			requestBody: {
@@ -532,6 +515,85 @@ describe('global AI tools', () => {
 					summary: 'Updated draft',
 					content,
 					language: 'bun'
+				})
+			}
+		})
+	})
+
+	it('updates draft-only flow DB drafts without deleting the existing anchor', async () => {
+		vi.mocked(FlowService.existsFlowByPath).mockResolvedValueOnce(true)
+		vi.mocked(FlowService.getFlowByPathWithDraft).mockResolvedValueOnce({
+			path: 'f/flows/new-draft',
+			summary: 'Existing draft',
+			value: { modules: [{ id: 'old', value: { type: 'identity' } }] },
+			schema: {},
+			edited_by: 'admin',
+			edited_at: '2026-05-22T09:00:00Z',
+			archived: false,
+			extra_perms: {},
+			draft_only: true
+		} as any)
+
+		await callGlobalTool('write_flow', {
+			path: 'f/flows/new-draft',
+			summary: 'Updated draft',
+			modules: JSON.stringify([{ id: 'updated', value: { type: 'identity' } }])
+		})
+
+		expect(FlowService.deleteFlowByPath).not.toHaveBeenCalled()
+		expect(FlowService.createFlow).not.toHaveBeenCalled()
+		expect(DraftService.createDraft).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/flows/new-draft',
+				typ: 'flow',
+				value: expect.objectContaining({
+					path: 'f/flows/new-draft',
+					summary: 'Updated draft',
+					value: {
+						modules: [{ id: 'updated', value: { type: 'identity' } }]
+					}
+				})
+			}
+		})
+	})
+
+	it('updates draft-only raw app DB drafts without deleting or rebundling the existing anchor', async () => {
+		vi.mocked(AppService.getAppByPathWithDraft).mockResolvedValueOnce({
+			path: 'f/apps/draft-only',
+			summary: 'Existing app draft',
+			draft_only: true,
+			value: {
+				files: { '/src/App.tsx': 'export default function App() { return null }' },
+				runnables: {},
+				data: { tables: [] }
+			},
+			policy: { execution_mode: 'anonymous' }
+		} as any)
+
+		await callGlobalTool('write_app_file', {
+			path: 'f/apps/draft-only',
+			file_path: '/src/App.tsx',
+			content: 'export default function App() { return "updated" }'
+		})
+
+		expect(AppService.deleteApp).not.toHaveBeenCalled()
+		expect(AppService.createAppRaw).not.toHaveBeenCalled()
+		expect(bundleRawAppDraft).not.toHaveBeenCalled()
+		expect(DraftService.createDraft).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/apps/draft-only',
+				typ: 'app',
+				value: expect.objectContaining({
+					path: 'f/apps/draft-only',
+					summary: 'Existing app draft',
+					value: expect.objectContaining({
+						files: { '/src/App.tsx': 'export default function App() { return "updated" }' },
+						runnables: {},
+						data: { tables: [] }
+					}),
+					policy: { execution_mode: 'anonymous' }
 				})
 			}
 		})
