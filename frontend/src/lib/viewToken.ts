@@ -20,6 +20,18 @@ export function getViewToken(): string | undefined {
 	return currentViewToken
 }
 
+/**
+ * Append the current view token as a `view_token` query param to a URL/path.
+ * Used for download links (plain `<a href>` and `downloadViaClient`), which don't
+ * go through the request interceptor that adds the `X-View-Token` header.
+ * Returns the url unchanged when no share link is active.
+ */
+export function appendViewToken(url: string): string {
+	if (!currentViewToken) return url
+	const sep = url.includes('?') ? '&' : '?'
+	return `${url}${sep}view_token=${encodeURIComponent(currentViewToken)}`
+}
+
 // Register the request interceptor exactly once. It is a no-op unless a view token
 // is currently set, so it is safe to keep installed for the whole session.
 OpenAPI.interceptors.request.use((options) => {
