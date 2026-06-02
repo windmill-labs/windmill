@@ -4,18 +4,19 @@
 	import { AppService, OpenAPI, type AppWithLastVersion } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 
-	import { setContext } from 'svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
 
 	import { getUserExt } from '$lib/user'
-	import { sendUserToast } from '$lib/toast'
 	import { page } from '$app/state'
 	import PublicApp from '$lib/components/apps/editor/PublicApp.svelte'
+	import PublicAppFrame from '$lib/components/apps/editor/PublicAppFrame.svelte'
 
-	let app: (AppWithLastVersion & { value: any }) | undefined = $state(undefined)
+	let app: (AppWithLastVersion & { value: any; workspace_id?: string }) | undefined =
+		$state(undefined)
 	let notExists = $state(false)
 	let noPermission = $state(false)
 	let jwtError = $state(false)
+	let workspace: string | undefined = $state(undefined)
 
 	function isJwt(t: string) {
 		// simply check that the first part is a valid base64 encoded json
@@ -44,37 +45,43 @@
 		}
 	}
 
-	let workspace: string | undefined = $state(undefined)
-	async function loadApp() {
-		const parsedCustomPath = parseCustomPath(page.params.path ?? '')
+	const parsedCustomPath = parseCustomPath(page.params.path ?? '')
 
+	let refresh: (() => void) | undefined
+
+	// Embedder side: validate access + mint a scoped token for the iframe.
+	async function fetchEmbedToken() {
 		if (parsedCustomPath.jwt) {
-			const token = 'jwt_ext_' + parsedCustomPath.jwt
-			OpenAPI.TOKEN = token
-			setContext<{ token?: string }>('AuthToken', { token })
-			jwtError = false
+			OpenAPI.TOKEN = 'jwt_ext_' + parsedCustomPath.jwt
 		}
+		return await AppService.getAppEmbedTokenByCustomPath({
+			customPath: parsedCustomPath.path
+		})
+	}
+
+	// Viewer side: load the app + user using the embed token handed to the iframe.
+	async function loadApp() {
 		try {
 			app = await AppService.getPublicAppByCustomPath({
 				customPath: parsedCustomPath.path
 			})
 			workspace = app.workspace_id
-			workspaceStore.set(app.workspace_id)
+			if (app.workspace_id) {
+				workspaceStore.set(app.workspace_id)
+			}
 			noPermission = false
 			notExists = false
 
 			try {
-				userStore.set(await getUserExt(app.workspace_id))
-				if (!$userStore && parsedCustomPath.jwt) {
-					jwtError = true
-					sendUserToast('Could not authentify user with jwt token', true)
+				if (app.workspace_id) {
+					userStore.set(await getUserExt(app.workspace_id))
 				}
 			} catch (e) {
 				console.warn('Anonymous user')
 			}
 		} catch (e) {
 			if (e.status == 401) {
-				noPermission = true
+				refresh?.()
 			} else {
 				notExists = true
 			}
@@ -83,17 +90,24 @@
 
 	if (BROWSER) {
 		setLicense()
-		loadApp()
 	}
 </script>
 
-<PublicApp
-	{workspace}
-	{notExists}
-	{noPermission}
-	{jwtError}
-	{app}
-	onLoginSuccess={() => {
+<PublicAppFrame
+	{fetchEmbedToken}
+	onViewerReady={(_token, requestTokenRefresh) => {
+		refresh = requestTokenRefresh
 		loadApp()
 	}}
-></PublicApp>
+>
+	{#snippet viewer()}
+		<PublicApp
+			{workspace}
+			{notExists}
+			{noPermission}
+			{jwtError}
+			{app}
+			onLoginSuccess={() => loadApp()}
+		></PublicApp>
+	{/snippet}
+</PublicAppFrame>

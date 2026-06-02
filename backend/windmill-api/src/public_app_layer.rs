@@ -14,6 +14,18 @@ lazy_static::lazy_static! {
     pub static ref PUBLIC_APP_DOMAIN: Option<String> = std::env::var("PUBLIC_APP_DOMAIN").ok();
 }
 
+/// The domain on which embedded apps must be served (in an iframe), if configured.
+///
+/// When set, the app-embedder page renders the app iframe with its `src` pointing
+/// at this domain so that the app document lives on a separate origin and cannot
+/// read the main domain's httponly session cookie. The embedder hands the iframe a
+/// narrowly-scoped token via `postMessage` at startup. When unset, the iframe is
+/// served same-origin (token-scoping still applies, but raw cookie-based XSS is not
+/// fully prevented — see WIN-2006).
+pub fn public_app_domain() -> Option<String> {
+    PUBLIC_APP_DOMAIN.clone()
+}
+
 /// Middleware to restrict public app domain to whitelisted routes
 pub async fn public_app_domain_filter(
     req: axum::extract::Request,

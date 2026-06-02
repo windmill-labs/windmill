@@ -7425,6 +7425,22 @@ paths:
                       workspace_id:
                         type: string
 
+  /apps_u/embed_token_by_custom_path/{custom_path}:
+    get:
+      summary: get a scoped embed token for a public app (by custom path)
+      operationId: getAppEmbedTokenByCustomPath
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/CustomPath"
+      responses:
+        "200":
+          description: embed token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbedTokenResponse"
+
   /scripts/hub/get/{path}:
     get:
       summary: get hub script content by path
@@ -10542,6 +10558,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AppWithLastVersion"
+
+  /w/{workspace}/apps_u/embed_token/{path}:
+    get:
+      summary: get a scoped embed token for a public app (by secret)
+      operationId: getAppEmbedToken
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: embed token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbedTokenResponse"
 
   /w/{workspace}/apps_u/public_resource/{path}:
     get:
@@ -26945,6 +26978,24 @@ components:
         - version
         - edited_at
 
+
+    EmbedTokenResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          nullable: true
+          description: >-
+            Narrowly-scoped token the embedder hands the app iframe. Null for
+            fully anonymous access.
+        public_app_domain:
+          type: string
+          nullable: true
+          description: Domain on which the app iframe must be served, if configured.
+        expiration:
+          type: string
+          format: date-time
+          nullable: true
 
     AppWithLastVersion:
       type: object
