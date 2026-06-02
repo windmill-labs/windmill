@@ -434,5 +434,47 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
         "tag-scoped token must NOT mint for an out-of-scope (flow) job (got {status})"
     );
 
+    // ---- USE side: a tag-scoped token must not use someone else's valid view_token
+    //      to read an out-of-scope job, even via handlers that don't tag-filter their
+    //      data query (result_by_id, get_otel_traces, get_flow_debug_info). ----
+    // An unscoped owner mints a valid token for the flow (tag 'flow').
+    let (status, mint_body) = get(
+        &authed_base,
+        &format!("job_view_token/{FLOW_JOB}"),
+        Some("SECRET_TOKEN_2"),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "owner mints flow token (got {status}): {mint_body}"
+    );
+    let flow_token = mint_body.trim().trim_matches('"').to_string();
+
+    // The deno-scoped token presents that valid flow token to the non-tag-filtered
+    // endpoints — must still be denied (flow tag is out of its scope).
+    for path in [
+        format!("get_otel_traces/{FLOW_JOB}?view_token={flow_token}"),
+        format!("result_by_id/{FLOW_JOB}/somenode?view_token={flow_token}"),
+    ] {
+        let (status, _) = get(&authed_base, &path, Some("SCOPED_DENO_TOKEN")).await;
+        assert_eq!(
+            status,
+            reqwest::StatusCode::NOT_FOUND,
+            "tag-scoped token must not use a view_token to read an out-of-scope job ({path}, got {status})"
+        );
+    }
+
+    // ...but the deno-scoped token CAN use an in-scope (deno) view_token.
+    let (status, body) = get(
+        &base,
+        &format!("completed/get_result/{VICTIM}?view_token={token}"),
+        Some("SCOPED_DENO_TOKEN"),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "tag-scoped token may use a view_token for an in-scope (deno) job (got {status}): {body}"
+    );
+
     Ok(())
 }

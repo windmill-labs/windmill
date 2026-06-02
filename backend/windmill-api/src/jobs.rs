@@ -471,26 +471,10 @@ async fn get_job_view_token(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<String> {
-    // A scoped token (`if_jobs:filter_tags:`) must not mint a transferable token for
-    // a job outside its allowed tags. The read handlers apply this tag predicate to
-    // their data query; minting bypasses those handlers, so enforce it here too —
-    // otherwise a tag-scoped caller could mint a link an unscoped member then uses.
-    if let Some(tags) = get_scope_tags(&authed) {
-        let in_scope = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM v2_job WHERE id = $1 AND workspace_id = $2 AND tag = ANY($3))",
-            id,
-            &w_id,
-            &tags.iter().map(|t| t.to_string()).collect::<Vec<_>>(),
-        )
-        .fetch_one(&db)
-        .await?
-            == Some(true);
-        if !in_scope {
-            return Err(Error::NotFound(format!("Job {id} not found")));
-        }
-    }
     // No `view_token` here: minting requires the caller's own read access, so a share
-    // link cannot be used to mint further links.
+    // link cannot be used to mint further links. `require_job_read_access` also
+    // enforces the caller's `if_jobs:filter_tags` scope, so a tag-scoped token can't
+    // mint a transferable link for a job outside its allowed tags.
     require_job_update_read_access(&db, &user_db, &authed, &w_id, &id, None).await?;
     let hmac = generate_view_token(&w_id, id, &db).await?;
     Ok(format!("{id}.{hmac}"))
@@ -991,6 +975,29 @@ async fn require_job_read_access(
     created_by: &str,
     view_token: Option<&str>,
 ) -> error::Result<()> {
+    // Tag scope (`if_jobs:filter_tags:`) is an orthogonal hard restriction on a
+    // scoped token: it must never read a job outside its allowed tags, regardless of
+    // how authorization is otherwise satisfied (created_by / view token / RLS). Most
+    // read handlers also tag-filter their data query, but some (result_by_id,
+    // get_flow_job_debug_info, get_otel_traces) do not, so enforce it here — before
+    // the grants below — so a share token can't be used to escape the tag scope.
+    // `get_scope_tags` is `None` for unscoped callers (the common case), so this adds
+    // no query for normal sessions/tokens.
+    if let Some(tags) = get_scope_tags(authed) {
+        let in_scope = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM v2_job WHERE id = $1 AND workspace_id = $2 AND tag = ANY($3))",
+            job_id,
+            w_id,
+            &tags.iter().map(|t| t.to_string()).collect::<Vec<_>>(),
+        )
+        .fetch_one(db)
+        .await?
+            == Some(true);
+        if !in_scope {
+            return Err(Error::NotFound(format!("Job {job_id} not found")));
+        }
+    }
+
     // Fast path: you can always read a job you launched. This is also load-bearing
     // for apps — a component job runs as the app policy's `permissioned_as`, but its
     // `created_by` is the launching viewer, so the RLS probe below would hide it.
