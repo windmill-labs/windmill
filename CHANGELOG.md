@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.714.0](https://github.com/windmill-labs/windmill/compare/v1.713.1...v1.714.0) (2026-06-02)
+
+
+### Features
+
+* add global ai chat test tools ([#9391](https://github.com/windmill-labs/windmill/issues/9391)) ([5c20d6b](https://github.com/windmill-labs/windmill/commit/5c20d6b4f79f2ccc1987ce7fdaf74e6b8f697846))
+* add workspace datatable tools to global AI chat mode ([#9395](https://github.com/windmill-labs/windmill/issues/9395)) ([943ef6e](https://github.com/windmill-labs/windmill/commit/943ef6eb2089f4b744cfa7945ce47f7f3b361ec7))
+* **flow-ai:** constrain flow-group colors to the NoteColor palette ([#9343](https://github.com/windmill-labs/windmill/issues/9343)) ([e4213c1](https://github.com/windmill-labs/windmill/commit/e4213c1ab8c448f492f372580f5c9df37e33fffc))
+* **frontend:** surface local drafts in drawer editors with an unsaved-changes banner ([#9335](https://github.com/windmill-labs/windmill/issues/9335)) ([075faab](https://github.com/windmill-labs/windmill/commit/075faabf3bba16a10a02ae3973008e5a13473085))
+* handle CTRL_BREAK_EVENT for graceful shutdown on Windows ([#9400](https://github.com/windmill-labs/windmill/issues/9400)) ([2e14456](https://github.com/windmill-labs/windmill/commit/2e1445616a412c5112ad2247b4087c7ddc218845))
+* refine ask-user-question chat display and keyboard nav ([#9392](https://github.com/windmill-labs/windmill/issues/9392)) ([1275487](https://github.com/windmill-labs/windmill/commit/1275487f028d4c74a9eeb18981ed05c225505be0))
+* sessions page with isolated AI chat + flow editor ([#9034](https://github.com/windmill-labs/windmill/issues/9034)) ([eadeac2](https://github.com/windmill-labs/windmill/commit/eadeac248bd022c2796cfe638eb617c6143b8fc4))
+
+
+### Bug Fixes
+
+* **cli:** make encryption key push non-interactive-safe + add --skip-reencrypt-on-key-change ([#9402](https://github.com/windmill-labs/windmill/issues/9402)) ([e356bb1](https://github.com/windmill-labs/windmill/commit/e356bb1f5df92eca3fbb0ca2114b9f4c32d4c496))
+* **cli:** stop git-sync promotion deploys from dropping triggers/schedules ([#9403](https://github.com/windmill-labs/windmill/issues/9403)) ([24e3ef2](https://github.com/windmill-labs/windmill/commit/24e3ef27be8498fb820c228a52febf6a0a91b487))
+* **frontend:** align Monaco editor font size with text-xs ([#9161](https://github.com/windmill-labs/windmill/issues/9161)) ([de76668](https://github.com/windmill-labs/windmill/commit/de76668c10c04abe8771a8ca7bba7b2259819a1c))
+* resolve username rename failing on apps with runnable deps ([#9401](https://github.com/windmill-labs/windmill/issues/9401)) ([e8ad53d](https://github.com/windmill-labs/windmill/commit/e8ad53dae92597f5a1a8b76f38a7d8c24f578a47))
+
+
+### Performance Improvements
+
+* **python:** add --compile-bytecode to uv pip install ([#9393](https://github.com/windmill-labs/windmill/issues/9393)) ([c19441b](https://github.com/windmill-labs/windmill/commit/c19441bc8cb2da064e4ad44d77dc04ab8bbb22ec))
+
 ## [1.713.1](https://github.com/windmill-labs/windmill/compare/v1.713.0...v1.713.1) (2026-06-01)
 
 
