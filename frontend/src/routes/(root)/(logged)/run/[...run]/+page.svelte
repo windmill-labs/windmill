@@ -161,13 +161,7 @@
 
 	async function shareReadLink(id: string): Promise<void> {
 		try {
-			const res = await fetch(`/api/w/${$workspaceStore}/jobs/job_view_token/${id}`, {
-				credentials: 'include'
-			})
-			if (!res.ok) {
-				throw new Error(await res.text())
-			}
-			const token = (await res.text()).trim()
+			const token = (await JobService.getJobViewToken({ workspace: $workspaceStore!, id })).trim()
 			const url = `${window.location.origin}${base}/run/${id}?view_token=${encodeURIComponent(token)}`
 			copyToClipboard(url)
 			sendUserToast('Read-only share link copied to clipboard')
