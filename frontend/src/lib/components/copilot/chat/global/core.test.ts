@@ -45,6 +45,10 @@ vi.mock('$lib/gen', async () => {
 		ScriptService: wrapService(actual.ScriptService, {
 			existsScriptByPath: vi.fn(async () => false),
 			createScript: vi.fn(async () => 'created'),
+			deleteScriptByPath: vi.fn(async () => 'deleted'),
+			getScriptByPath: vi.fn(async () => {
+				throw new Error('getScriptByPath mock not configured')
+			}),
 			getScriptByPathWithDraft: vi.fn(async () => {
 				throw new Error('getScriptByPathWithDraft mock not configured')
 			}),
@@ -53,6 +57,7 @@ vi.mock('$lib/gen', async () => {
 		FlowService: wrapService(actual.FlowService, {
 			existsFlowByPath: vi.fn(async () => false),
 			createFlow: vi.fn(async () => 'created'),
+			deleteFlowByPath: vi.fn(async () => 'deleted'),
 			updateFlow: vi.fn(async () => 'updated'),
 			getFlowByPath: vi.fn(async () => {
 				throw new Error('getFlowByPath mock not configured')
@@ -78,6 +83,7 @@ vi.mock('$lib/gen', async () => {
 		AppService: wrapService(actual.AppService, {
 			existsApp: vi.fn(async () => false),
 			createAppRaw: vi.fn(async () => 'created'),
+			deleteApp: vi.fn(async () => 'deleted'),
 			updateAppRaw: vi.fn(async () => 'updated'),
 			getAppByPathWithDraft: vi.fn(async () => {
 				throw new Error('getAppByPathWithDraft mock not configured')
@@ -97,6 +103,10 @@ vi.mock('$lib/gen', async () => {
 			}),
 			createVariable: vi.fn(async () => 'created'),
 			updateVariable: vi.fn(async () => 'updated')
+		}),
+		DraftService: wrapService(actual.DraftService, {
+			createDraft: vi.fn(async () => 'draft created'),
+			deleteDraft: vi.fn(async () => 'draft deleted')
 		})
 	}
 })
@@ -122,6 +132,7 @@ import { clearGlobalDrafts } from './userDraftAdapter'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
 	AppService,
+	DraftService,
 	FlowService,
 	HttpTriggerService,
 	ResourceService,
@@ -358,6 +369,139 @@ describe('global AI tools', () => {
 				language: 'bun',
 				content
 			}
+		)
+		expect(ScriptService.createScript).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: expect.objectContaining({
+				path: 'f/scripts/hello',
+				summary: 'Hello script',
+				content,
+				language: 'bun',
+				draft_only: true
+			})
+		})
+		expect(DraftService.createDraft).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/scripts/hello',
+				typ: 'script',
+				value: expect.objectContaining({
+					path: 'f/scripts/hello',
+					summary: 'Hello script',
+					content,
+					language: 'bun'
+				})
+			}
+		})
+	})
+
+	it('recreates draft-only scripts before saving an AI DB draft', async () => {
+		const content = 'export async function main() {\n\treturn "updated"\n}'
+		vi.mocked(ScriptService.existsScriptByPath).mockResolvedValueOnce(true)
+		vi.mocked(ScriptService.getScriptByPathWithDraft).mockResolvedValueOnce({
+			path: 'f/scripts/new-draft',
+			hash: 'draft-hash',
+			summary: 'Existing draft',
+			description: '',
+			content: 'export async function main() {\n\treturn "old"\n}',
+			schema: {},
+			is_template: false,
+			language: 'bun',
+			kind: 'script',
+			draft_only: true
+		} as any)
+
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/new-draft',
+			summary: 'Updated draft',
+			language: 'bun',
+			content
+		})
+
+		expect(ScriptService.deleteScriptByPath).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'f/scripts/new-draft',
+			keepCaptures: true
+		})
+		expect(ScriptService.createScript).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: expect.objectContaining({
+				path: 'f/scripts/new-draft',
+				summary: 'Updated draft',
+				content,
+				language: 'bun',
+				draft_only: true,
+				parent_hash: undefined
+			})
+		})
+		expect(vi.mocked(ScriptService.deleteScriptByPath).mock.invocationCallOrder[0]).toBeLessThan(
+			vi.mocked(ScriptService.createScript).mock.invocationCallOrder[0]
+		)
+		expect(DraftService.createDraft).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/scripts/new-draft',
+				typ: 'script',
+				value: expect.objectContaining({
+					path: 'f/scripts/new-draft',
+					summary: 'Updated draft',
+					content,
+					language: 'bun'
+				})
+			}
+		})
+	})
+
+	it('marks backend script, flow, and app drafts as drafts in list output', async () => {
+		vi.mocked(ScriptService.listScripts).mockResolvedValueOnce([
+			{
+				path: 'f/scripts/with-db-draft',
+				summary: 'Script with DB draft',
+				language: 'bun',
+				has_draft: true
+			}
+		] as any)
+		vi.mocked(FlowService.listFlows).mockResolvedValueOnce([
+			{
+				path: 'f/flows/draft-only',
+				summary: 'Draft-only flow',
+				value: { modules: [] },
+				schema: {},
+				draft_only: true
+			}
+		] as any)
+		vi.mocked(AppService.listApps).mockResolvedValueOnce([
+			{
+				path: 'f/apps/with-db-draft',
+				summary: 'App with DB draft',
+				has_draft: true
+			}
+		] as any)
+
+		const raw = await callGlobalTool('list_workspace_items', {
+			types: ['script', 'flow', 'app']
+		})
+		const items = JSON.parse(raw)
+
+		expect(items).toEqual([
+			expect.objectContaining({
+				type: 'script',
+				path: 'f/scripts/with-db-draft',
+				isDraft: true
+			}),
+			expect.objectContaining({
+				type: 'flow',
+				path: 'f/flows/draft-only',
+				isDraft: true
+			}),
+			expect.objectContaining({
+				type: 'app',
+				path: 'f/apps/with-db-draft',
+				isDraft: true
+			})
+		])
+		expect(AppService.listApps).toHaveBeenCalledWith(
+			expect.objectContaining({ includeDraftOnly: true })
 		)
 	})
 
@@ -1461,9 +1605,9 @@ describe('prepareGlobalSystemMessage', () => {
 		const message = prepareGlobalSystemMessage()
 		const content = message.content
 
-		expect(content).toContain('Draft tools create or update local drafts only')
+		expect(content).toContain('Draft tools create or update drafts only')
 		expect(content).toContain(
-			'Use discard_local_draft to remove an unsaved local draft, including the matching open editor draft'
+			'Use discard_local_draft to remove an unsaved draft, including the matching open editor draft'
 		)
 		expect(content).toContain('If the user message includes an ACTIVE EDITOR section')
 		expect(content).not.toContain('AI draft')
@@ -1477,7 +1621,7 @@ describe('prepareGlobalSystemMessage', () => {
 		const deleteItem = getGlobalTool('delete_workspace_item')
 
 		expect(discard.def.function.description).toBe(
-			'Discard a local draft only. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted.'
+			'Discard a draft only. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted.'
 		)
 		expect(deleteItem.def.function.description).toBe(
 			'Delete a deployed workspace item. Mutates the workspace.'
