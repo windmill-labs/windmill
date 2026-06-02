@@ -793,18 +793,32 @@ function acquireEntry(
 		// Reading `stateRef.val` alone only subscribes to the proxy root, so
 		// deep mutations (`handle.draft.content = '...'`) would slip past;
 		// `readFieldsRecursively` walks the value so the effect re-fires on
-		// nested writes too. Skips the very first run because the initial
-		// `stateRef.val` came from localStorage or `defaultValue`, not from
-		// a user edit. `stored === undefined` is the delete signal — the
-		// server route accepts `value: null` for that. `skipNextSync` lets
-		// callers that already POSTed (e.g. `discard`) suppress a duplicate
-		// fire from their own reactive write.
-		let firstRun = true
+		// nested writes too.
+		//
+		// `lastSerialized` + `skipNextWrite` mirror the dedup useLocalStorage
+		// already does for localStorage persistence (`saveInitialValue=false`):
+		// the effect ignores no-op state.val updates, and treats the FIRST
+		// observable change after mount as the seed/restore (no sync). That
+		// matches the editor's UX where landing on `?new_draft` shouldn't
+		// fire a POST until the user actually edits something.
+		//
+		// `stored === undefined` is the delete signal — the server route
+		// accepts `value: null` for that. `skipNextSync` lets callers that
+		// already POSTed (e.g. `discard`) suppress a duplicate fire from
+		// their own reactive write.
+		let lastSerialized: string | undefined = untrack(() => {
+			const v = stateRef!.val
+			return v === undefined ? undefined : JSON.stringify(v)
+		})
+		let skipNextWrite = true
 		$effect(() => {
 			const stored = stateRef!.val
 			if (stored !== undefined) readFieldsRecursively(stored.value)
-			if (firstRun) {
-				firstRun = false
+			const next = stored === undefined ? undefined : JSON.stringify(stored)
+			if (next === lastSerialized) return
+			lastSerialized = next
+			if (skipNextWrite) {
+				skipNextWrite = false
 				return
 			}
 			const entry = entries.get(mk)
