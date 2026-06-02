@@ -7,8 +7,8 @@ import {
 	sessionState,
 	type Session
 } from './sessionState.svelte'
-import { workspaceStore, type UserWorkspace } from '$lib/stores'
-import type { WorkspaceComparison } from '$lib/gen'
+import { enterpriseLicense, workspaceStore, type UserWorkspace } from '$lib/stores'
+import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
 
 // Force createWorkspaceFork to fail so we can pin commitSessionWorkspace's
 // failure contract (the invariant the beforeSend abort fix relies on).
@@ -121,6 +121,10 @@ describe('deriveForkStatus', () => {
 describe('commitSessionWorkspace — fork-creation failure', () => {
 	it('returns undefined and drops pending_fork (so beforeSend aborts the send)', async () => {
 		const id = 'test-commit-fork-fail'
+		// Forking is licensed here so the commit reaches materializeFork (which is
+		// mocked to fail); the unlicensed path is covered separately below.
+		const prevLicense = get(enterpriseLicense)
+		enterpriseLicense.set('test-license')
 		sessionState.sessions.push({
 			id,
 			name: 'fork-fail',
@@ -138,6 +142,35 @@ describe('commitSessionWorkspace — fork-creation failure', () => {
 		} finally {
 			const i = sessionState.sessions.findIndex((x) => x.id === id)
 			if (i >= 0) sessionState.sessions.splice(i, 1)
+			enterpriseLicense.set(prevLicense)
+		}
+	})
+})
+
+describe('commitSessionWorkspace — unlicensed fork guard', () => {
+	it('throws and never calls createWorkspaceFork without an enterprise license', async () => {
+		const id = 'test-commit-fork-unlicensed'
+		const prevLicense = get(enterpriseLicense)
+		enterpriseLicense.set(undefined)
+		vi.mocked(WorkspaceService.createWorkspaceFork).mockClear()
+		sessionState.sessions.push({
+			id,
+			name: 'fork-unlicensed',
+			createdAt: 0,
+			pending_fork: { parent_workspace_id: 'parent_ws', id: 'wm-fork-ee', name: 'ee' }
+		} as Session)
+		try {
+			await expect(commitSessionWorkspace(id, 'parent_ws')).rejects.toThrow(/enterprise license/)
+			expect(WorkspaceService.createWorkspaceFork).not.toHaveBeenCalled()
+			// pending_fork is preserved so the block persists until the user picks a
+			// non-fork workspace (which clears it via setSessionPendingWorkspace).
+			const s = sessionState.sessions.find((x) => x.id === id)
+			expect(s?.pending_fork).toBeDefined()
+			expect(s?.workspace_id).toBeUndefined()
+		} finally {
+			const i = sessionState.sessions.findIndex((x) => x.id === id)
+			if (i >= 0) sessionState.sessions.splice(i, 1)
+			enterpriseLicense.set(prevLicense)
 		}
 	})
 })

@@ -3,6 +3,7 @@ import { get } from 'svelte/store'
 import { createLongHash } from '$lib/editorLangUtils'
 import { random_adj } from '$lib/components/random_positive_adjetive'
 import {
+	enterpriseLicense,
 	userWorkspaces,
 	usersWorkspaceStore,
 	workspaceStore,
@@ -296,6 +297,15 @@ export async function commitSessionWorkspace(
 
 	if (s.pending_fork) {
 		const fork = s.pending_fork
+		// Defense-in-depth against a stale pending_fork (e.g. staged before the
+		// instance dropped its enterprise license, or any future entry point):
+		// forking requires a license, so block the commit with an explicit error
+		// rather than letting materializeFork hit a backend rejection. Keep the
+		// pending fork set so the block persists until the user picks a non-fork
+		// workspace (setSessionPendingWorkspace clears it).
+		if (!get(enterpriseLicense)) {
+			throw new Error('Forking requires an enterprise license — pick a workspace to run in')
+		}
 		const newId = await materializeFork(fork)
 		if (!newId) {
 			// Real failure (not a recovered duplicate). Drop the pending

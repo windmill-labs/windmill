@@ -1,11 +1,17 @@
 <script lang="ts">
 	import { tick, type Snippet } from 'svelte'
-	import { userWorkspaces, workspaceStore, type UserWorkspace } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		userWorkspaces,
+		workspaceStore,
+		type UserWorkspace
+	} from '$lib/stores'
 	import { findWorkspaceDescendants } from '$lib/utils/workspaceHierarchy'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import EEOnly from '$lib/components/EEOnly.svelte'
 	import InputError from '$lib/components/InputError.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { Building, Check, GitFork, Plus } from 'lucide-svelte'
@@ -56,11 +62,19 @@
 	const root = $derived(findRoot(effectiveId, $userWorkspaces))
 	const forks = $derived(root ? findWorkspaceDescendants(root.id, $userWorkspaces) : [])
 
-	// Same gate as the sidebar WorkspaceMenu / SessionWorkspaceBar.
+	// Structural gate, same as the sidebar WorkspaceMenu / SessionWorkspaceBar:
+	// when closed (cloud / DisableWorkspaceForking rule / admins workspace) the
+	// fork affordance is hidden entirely.
 	const forksGateOpen = $derived(
 		!isCloudHosted() && !isRuleActive('DisableWorkspaceForking') && $workspaceStore !== 'admins'
 	)
-	const showCreateFork = $derived(allowCreateFork && forksGateOpen && !!onCreateFork && !!root)
+	// Forking workspaces requires an enterprise license. The interactive
+	// create-fork row is only shown when licensed; otherwise (structural gate
+	// open but unlicensed) we surface a disabled EE upsell row instead — never
+	// stage a fork the backend would reject.
+	const forkAffordanceOpen = $derived(allowCreateFork && forksGateOpen && !!onCreateFork && !!root)
+	const showCreateFork = $derived(forkAffordanceOpen && !!$enterpriseLicense)
+	const showForkUpsell = $derived(forkAffordanceOpen && !$enterpriseLicense)
 
 	let dropdownOpen = $state(false)
 	let creatingFork = $state(false)
@@ -270,6 +284,15 @@
 						<span>Create new fork…</span>
 					</button>
 				{/if}
+				<div class="my-1 border-t border-border-light shrink-0"></div>
+			{:else if showForkUpsell}
+				<div class={`${rowBase} opacity-60 cursor-not-allowed`} aria-disabled="true">
+					<Plus size={14} class="shrink-0 text-tertiary" />
+					<span>Create new fork…</span>
+					<span class="ml-auto shrink-0">
+						<EEOnly>Workspace forking requires an enterprise license</EEOnly>
+					</span>
+				</div>
 				<div class="my-1 border-t border-border-light shrink-0"></div>
 			{/if}
 
