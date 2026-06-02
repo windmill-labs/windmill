@@ -191,15 +191,30 @@
 			newPath = ''
 			return
 		}
-		const backendApp = await AppService.getAppByPath({
+		const backendApp = (await AppService.getAppByPath({
 			path: page.params.path ?? '',
 			workspace: $workspaceStore!,
 			getDraft: true,
 			rawApp: true
-		})
+		})) as any
 		if (tok !== loadAppToken) return
 		if (backendApp.is_draft) {
 			sendUserToast('Loaded your saved draft')
+		}
+		// When the backend falls back to `fetch_draft_only` (no deployed
+		// row at this path, only a per-user draft), the response's inner
+		// is the raw draft JSON — flat `{files, runnables, data, summary,
+		// policy, custom_path}`, no `.value` wrapper. The rest of this
+		// loader (and `extractRawApp` below) expects the deployed shape
+		// where those live under `.value`. Synthesize the wrapper here
+		// so both paths are uniform downstream.
+		if (backendApp.is_draft && backendApp.value === undefined) {
+			backendApp.value = {
+				files: backendApp.files ?? {},
+				runnables: backendApp.runnables ?? {},
+				data: backendApp.data
+			}
+			if (backendApp.policy === undefined) backendApp.policy = {}
 		}
 		const backendApp_ = structuredClone(stateSnapshot(backendApp))
 		savedApp = {
