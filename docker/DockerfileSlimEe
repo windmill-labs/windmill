@@ -26,7 +26,7 @@ RUN make
 FROM ${DEBIAN_IMAGE}
 
 ARG APP=/usr/src/app
-ARG LATEST_STABLE_PY=3.11.10
+ARG LATEST_STABLE_PY=3.12.12
 
 # UV configuration
 ENV UV_CACHE_DIR=/tmp/windmill/cache/uv
@@ -57,8 +57,7 @@ ENV TZ=Etc/UTC
 RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.9.24/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
 
 # Preinstall python runtime to temp location (will copy with world-writable perms later)
-RUN UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $LATEST_STABLE_PY \
-    && UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv pip install --system --break-system-packages --python $LATEST_STABLE_PY --upgrade pip setuptools
+RUN UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $LATEST_STABLE_PY
 
 # Copy to final location with world-writable permissions for arbitrary UID support
 RUN mkdir -p /tmp/windmill/cache && \
