@@ -16,7 +16,13 @@ vi.mock('$lib/gen', () => ({
 }))
 
 vi.mock('$lib/stores', () => ({
-	workspaceStore: { subscribe: () => () => undefined }
+	workspaceStore: { subscribe: () => () => undefined },
+	userStore: {
+		subscribe: (run: (value: { username: string }) => void) => {
+			run({ username: 'admin' })
+			return () => undefined
+		}
+	}
 }))
 
 vi.mock('$lib/toast', () => ({
@@ -55,10 +61,12 @@ vi.mock('esm-env', async (importOriginal) => ({
 
 function createFlowHelpers({
 	hasPendingChanges,
-	acceptAllModuleActions
+	acceptAllModuleActions,
+	testFlow = vi.fn()
 }: {
 	hasPendingChanges: () => boolean
 	acceptAllModuleActions: () => void
+	testFlow?: FlowAIChatHelpers['testFlow']
 }): FlowAIChatHelpers {
 	return {
 		getFlowAndSelectedId: vi.fn(),
@@ -74,7 +82,7 @@ function createFlowHelpers({
 		rejectAllModuleActions: vi.fn(),
 		hasPendingChanges,
 		selectStep: vi.fn(),
-		testFlow: vi.fn(),
+		testFlow,
 		getLintErrors: vi.fn()
 	} as unknown as FlowAIChatHelpers
 }
@@ -161,6 +169,27 @@ describe('AIChatManager autonomy mode', () => {
 		await applyPromise
 
 		expect(applied).toBe(true)
+	})
+
+	it('does not pass the AI session id as a flow test conversation id in global mode', async () => {
+		const manager = new AIChatManager()
+		const testFlow = vi.fn(async () => 'job-flow-preview')
+
+		manager.isSessionChat = true
+		manager.sessionId = 'htc1xouxd96dcyo6ruqo39'
+		manager.setFlowHelpers(
+			createFlowHelpers({
+				hasPendingChanges: () => false,
+				acceptAllModuleActions: vi.fn(),
+				testFlow
+			})
+		)
+
+		manager.changeMode(AIMode.GLOBAL)
+		const jobId = await manager.helpers.testActiveFlow({ name: 'Ada' })
+
+		expect(jobId).toBe('job-flow-preview')
+		expect(testFlow).toHaveBeenCalledWith({ name: 'Ada' })
 	})
 })
 

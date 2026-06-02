@@ -1,10 +1,4 @@
-import {
-	ScriptService,
-	type FlowModule,
-	type InputTransform,
-	type RawScript,
-	JobService
-} from '$lib/gen'
+import { type FlowModule, type InputTransform, type RawScript } from '$lib/gen'
 import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
@@ -30,7 +24,8 @@ import {
 	formatScriptLintResult,
 	type ScriptLintResult,
 	createSearchWorkspaceTool,
-	createGetRunnableDetailsTool
+	createGetRunnableDetailsTool,
+	executeFlowStepTestRun
 } from '../shared'
 import { createWorkspaceMutationTools } from '../workspaceTools'
 import type { ContextElement } from '../context'
@@ -183,7 +178,7 @@ const setFlowJsonToolSchema = z.object({
 		.optional()
 		.nullable()
 		.describe(
-			'JSON string containing the optional array of semantic flow groups (summary, note, autocollapse, start_id, end_id, color). Pass null to clear groups.'
+			'JSON string containing the optional array of semantic flow groups. Each group has summary, note, autocollapse, start_id, end_id, color. color MUST be one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray — never hex codes or other strings. Pass null to clear groups.'
 		)
 })
 
@@ -442,99 +437,14 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const stepId = args.stepId
 			const stepArgs = args.args || {}
 
-			// Find the step in the flow (includes preprocessor/failure modules)
-			let targetModule: FlowModule | undefined = findModuleInFlow(flow.value, stepId) ?? undefined
-
-			if (!targetModule) {
-				toolCallbacks.setToolStatus(toolId, {
-					content: `Step '${stepId}' not found in flow`,
-					error: `Step with id '${stepId}' does not exist in the current flow`
-				})
-				throw new Error(
-					`Step with id '${stepId}' not found in flow. Available steps: ${(flow.value.modules ?? []).map((m: FlowModule) => m.id).join(', ')}`
-				)
-			}
-
-			const module = targetModule
-			const moduleValue = module.value
-
-			if (moduleValue.type === 'rawscript') {
-				// Test raw script step
-
-				return executeTestRun({
-					jobStarter: () =>
-						JobService.runScriptPreview({
-							workspace: workspace,
-							requestBody: {
-								content: moduleValue.content ?? '',
-								language: moduleValue.language,
-								args:
-									module.id === SPECIAL_MODULE_IDS.PREPROCESSOR
-										? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...stepArgs }
-										: stepArgs
-							}
-						}),
-					workspace,
-					toolCallbacks,
-					toolId,
-					startMessage: `Starting test run of step '${stepId}'...`,
-					contextName: 'script'
-				})
-			} else if (moduleValue.type === 'script') {
-				// Test script step - need to get the script content
-				const script = moduleValue.hash
-					? await ScriptService.getScriptByHash({
-							workspace: workspace,
-							hash: moduleValue.hash
-						})
-					: await ScriptService.getScriptByPath({
-							workspace: workspace,
-							path: moduleValue.path
-						})
-
-				return executeTestRun({
-					jobStarter: () =>
-						JobService.runScriptPreview({
-							workspace: workspace,
-							requestBody: {
-								content: script.content,
-								language: script.language,
-								args:
-									module.id === SPECIAL_MODULE_IDS.PREPROCESSOR
-										? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...stepArgs }
-										: stepArgs
-							}
-						}),
-					workspace,
-					toolCallbacks,
-					toolId,
-					startMessage: `Starting test run of script step '${stepId}'...`,
-					contextName: 'script'
-				})
-			} else if (moduleValue.type === 'flow') {
-				// Test flow step
-				return executeTestRun({
-					jobStarter: () =>
-						JobService.runFlowByPath({
-							workspace: workspace,
-							path: moduleValue.path,
-							requestBody: stepArgs
-						}),
-					workspace,
-					toolCallbacks,
-					toolId,
-					startMessage: `Starting test run of flow step '${stepId}'...`,
-					contextName: 'flow'
-				})
-			} else {
-				toolCallbacks.setToolStatus(toolId, {
-					content: `Step type '${moduleValue.type}' not supported for testing`,
-					error: `Cannot test step of type '${moduleValue.type}'`
-				})
-				throw new Error(
-					`Cannot test step of type '${moduleValue.type}'. Supported types: rawscript, script, flow`
-				)
-			}
+			return executeFlowStepTestRun({
+				flowValue: flow.value,
+				stepId,
+				args: stepArgs,
+				workspace,
+				toolCallbacks,
+				toolId
+			})
 		},
 		requiresConfirmation: true,
 		confirmationMessage: 'Run flow step test',
@@ -949,7 +859,7 @@ Use the \`set_flow_json\` tool to set the entire flow structure at once. Provide
 - \`schema\`: Flow input schema in JSON Schema format (optional)
 - \`preprocessor_module\`: Special module that runs before \`modules\` (optional, separate from \`modules\`)
 - \`failure_module\`: Special module that runs on failure (optional, separate from \`modules\`)
-- \`groups\`: Array of semantic groups for organizing modules in the editor (optional). Each group has \`summary\` (display name), \`note\` (markdown description shown below the group header — attached directly to the group, not a separate sticky note), \`autocollapse\`, \`start_id\`, \`end_id\`, and \`color\`. \`start_id\` and \`end_id\` must reference existing module IDs in the flow (not \`preprocessor\` or \`failure\`). Groups do not affect execution — they provide naming and collapsibility in the editor. Pass \`null\` to clear existing groups.
+- \`groups\`: Array of semantic groups for organizing modules in the editor (optional). Each group has \`summary\` (display name), \`note\` (markdown description shown below the group header — attached directly to the group, not a separate sticky note), \`autocollapse\`, \`start_id\`, \`end_id\`, and \`color\`. \`start_id\` and \`end_id\` must reference existing module IDs in the flow (not \`preprocessor\` or \`failure\`). \`color\` MUST be one of these exact names: \`yellow\`, \`blue\`, \`green\`, \`purple\`, \`pink\`, \`orange\`, \`red\`, \`cyan\`, \`lime\`, \`gray\` — do NOT use hex codes, CSS colors, or any other strings. Omit \`color\` entirely if no preference and the editor will assign one automatically. Groups do not affect execution — they provide naming and collapsibility in the editor. Pass \`null\` to clear existing groups.
 
 **Example - Simple flow:**
 \`\`\`javascript

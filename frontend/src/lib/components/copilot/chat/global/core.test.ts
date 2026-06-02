@@ -49,10 +49,26 @@ vi.mock('$lib/gen', async () => {
 			getScriptByPath: vi.fn(async () => {
 				throw new Error('getScriptByPath mock not configured')
 			}),
+			getScriptByHash: vi.fn(async () => {
+				throw new Error('getScriptByHash mock not configured')
+			}),
 			getScriptByPathWithDraft: vi.fn(async () => {
 				throw new Error('getScriptByPathWithDraft mock not configured')
 			}),
+			queryHubScripts: vi.fn(async () => []),
+			getHubScriptContentByPath: vi.fn(async () => ''),
 			listScripts: vi.fn(async () => [])
+		}),
+		JobService: wrapService(actual.JobService, {
+			runScriptPreview: vi.fn(async () => 'job-script-preview'),
+			runFlowPreview: vi.fn(async () => 'job-flow-preview'),
+			runFlowByPath: vi.fn(async () => 'job-flow-by-path'),
+			getJob: vi.fn(async () => ({
+				type: 'CompletedJob',
+				success: true,
+				result: { ok: true },
+				logs: 'test logs'
+			}))
 		}),
 		FlowService: wrapService(actual.FlowService, {
 			existsFlowByPath: vi.fn(async () => false),
@@ -135,6 +151,7 @@ import {
 	DraftService,
 	FlowService,
 	HttpTriggerService,
+	JobService,
 	ResourceService,
 	ScheduleService,
 	ScriptService,
@@ -181,12 +198,80 @@ function localStorageSnapshot(): string {
 	return values.join('\n')
 }
 
+async function withCompletedTestJob<T>(run: () => Promise<T>): Promise<T> {
+	vi.useFakeTimers()
+	try {
+		const promise = run()
+		await vi.advanceTimersByTimeAsync(1000)
+		return await promise
+	} finally {
+		vi.useRealTimers()
+	}
+}
+
 describe('global AI tools', () => {
 	beforeEach(() => {
 		__resetUserDraftForTesting()
 		localStorage.clear()
 		clearGlobalDrafts(WORKSPACE)
 		vi.clearAllMocks()
+	})
+
+	it('defaults the datatable instruction subject to the TypeScript SQL SDK', async () => {
+		const result = await callGlobalTool('get_instructions', { subject: 'datatable' })
+		expect(result).toContain('wmill.datatable(')
+		expect(result).toContain('TypeScript Datatable API')
+		expect(result).toContain('fetchOne')
+		// Defaults to TypeScript only — no Python noise.
+		expect(result).not.toContain('Python Datatable API')
+	})
+
+	it('returns only the requested language SDK for the datatable subject', async () => {
+		const ts = await callGlobalTool('get_instructions', { subject: 'datatable', language: 'bun' })
+		expect(ts).toContain('TypeScript Datatable API')
+		expect(ts).not.toContain('Python Datatable API')
+
+		const py = await callGlobalTool('get_instructions', {
+			subject: 'datatable',
+			language: 'python3'
+		})
+		expect(py).toContain('Python Datatable API')
+		expect(py).not.toContain('TypeScript Datatable API')
+	})
+
+	it('exposes hub search and path-aware test tools', () => {
+		const names = globalTools.map((tool) => tool.def.function.name)
+
+		expect(names).toContain('search_hub_scripts')
+		expect(names).toContain('test_run_script')
+		expect(names).toContain('test_run_flow')
+		expect(names).toContain('test_run_step')
+	})
+
+	it('searches hub scripts without fetching script contents', async () => {
+		vi.mocked(ScriptService.queryHubScripts).mockResolvedValueOnce([
+			{
+				version_id: 7,
+				app: 'slack',
+				summary: 'Send Message'
+			}
+		] as any)
+
+		const raw = await callGlobalTool('search_hub_scripts', {
+			query: 'slack message'
+		})
+
+		expect(ScriptService.queryHubScripts).toHaveBeenCalledWith({
+			text: 'slack message',
+			kind: 'script'
+		})
+		expect(ScriptService.getHubScriptContentByPath).not.toHaveBeenCalled()
+		expect(JSON.parse(raw)).toEqual([
+			{
+				path: 'hub/7/slack/send_message',
+				summary: 'Send Message'
+			}
+		])
 	})
 
 	it('redacts variable draft values when reading workspace items', async () => {
@@ -1491,6 +1576,370 @@ describe('global AI tools', () => {
 		expect(item.value.value).toBeUndefined()
 	})
 
+	it('test_run_script previews local draft script content by path', async () => {
+		const content = 'export async function main(name: string) {\n\treturn `hello ${name}`\n}'
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/draft-test',
+			summary: 'Draft test script',
+			language: 'bun',
+			content
+		})
+
+		const result = await withCompletedTestJob(() =>
+			callGlobalTool('test_run_script', {
+				path: 'f/scripts/draft-test',
+				args: { name: 'Ada' }
+			})
+		)
+
+		expect(JobService.runScriptPreview).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/scripts/draft-test',
+				content,
+				args: { name: 'Ada' },
+				language: 'bun'
+			}
+		})
+		expect(ScriptService.getScriptByPath).not.toHaveBeenCalled()
+		expect(result).toContain('Result (SUCCESS)')
+		expect(result).toContain('test logs')
+	})
+
+	it('test_run_script previews deployed script content when no local draft exists', async () => {
+		vi.mocked(ScriptService.getScriptByPathWithDraft).mockResolvedValueOnce({
+			path: 'f/scripts/deployed-test',
+			summary: 'Deployed test script',
+			content: 'def main(name):\n    return name',
+			language: 'python3'
+		} as any)
+
+		await withCompletedTestJob(() =>
+			callGlobalTool('test_run_script', {
+				path: 'f/scripts/deployed-test',
+				args: { name: 'Grace' }
+			})
+		)
+
+		expect(ScriptService.getScriptByPathWithDraft).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'f/scripts/deployed-test'
+		})
+		expect(ScriptService.getScriptByPath).not.toHaveBeenCalled()
+		expect(JobService.runScriptPreview).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/scripts/deployed-test',
+				content: 'def main(name):\n    return name',
+				args: { name: 'Grace' },
+				language: 'python3'
+			}
+		})
+	})
+
+	it('test_run_flow previews local draft flow content by path', async () => {
+		const modules = [{ id: 'start', value: { type: 'identity' } }]
+		await callGlobalTool('write_flow', {
+			path: 'f/flows/draft-test',
+			summary: 'Draft test flow',
+			modules: JSON.stringify(modules)
+		})
+
+		await withCompletedTestJob(() =>
+			callGlobalTool('test_run_flow', {
+				path: 'f/flows/draft-test',
+				args: { name: 'Ada' }
+			})
+		)
+
+		expect(FlowService.getFlowByPath).not.toHaveBeenCalled()
+		expect(JobService.runFlowPreview).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/flows/draft-test',
+				value: { modules },
+				args: { name: 'Ada' }
+			}
+		})
+	})
+
+	it('test_run_flow previews deployed flow content when no local draft exists', async () => {
+		const modules = [{ id: 'deployed_start', value: { type: 'identity' } }]
+		vi.mocked(FlowService.getFlowByPathWithDraft).mockResolvedValueOnce({
+			path: 'f/flows/deployed-test',
+			summary: 'Deployed test flow',
+			value: { modules },
+			schema: {}
+		} as any)
+
+		await withCompletedTestJob(() =>
+			callGlobalTool('test_run_flow', {
+				path: 'f/flows/deployed-test',
+				args: { name: 'Grace' }
+			})
+		)
+
+		expect(FlowService.getFlowByPathWithDraft).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'f/flows/deployed-test'
+		})
+		expect(FlowService.getFlowByPath).not.toHaveBeenCalled()
+		expect(JobService.runFlowPreview).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/flows/deployed-test',
+				value: { modules },
+				args: { name: 'Grace' }
+			}
+		})
+	})
+
+	it('test_run_flow uses the live flow editor test hook when the active editor matches the path', async () => {
+		UserDraft.save(
+			'flow',
+			'',
+			{
+				path: 'u/admin/live_flow',
+				summary: 'Live flow',
+				value: { modules: [{ id: 'live_step', value: { type: 'identity' } }] },
+				schema: {},
+				edited_by: '',
+				edited_at: '',
+				archived: false,
+				extra_perms: {}
+			},
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'flow',
+			storagePath: '',
+			effectivePath: 'u/admin/live_flow'
+		})
+		const testActiveFlow = vi.fn(async () => 'job-live-flow')
+
+		const result = await withCompletedTestJob(() =>
+			callGlobalTool(
+				'test_run_flow',
+				{
+					path: 'u/admin/live_flow',
+					args: { name: 'Ada' }
+				},
+				toolCallbacks,
+				{ testActiveFlow }
+			)
+		)
+
+		expect(testActiveFlow).toHaveBeenCalledWith({ name: 'Ada' })
+		expect(FlowService.getFlowByPath).not.toHaveBeenCalled()
+		expect(JobService.runFlowPreview).not.toHaveBeenCalled()
+		expect(result).toContain('Result (SUCCESS)')
+	})
+
+	it('test_run_flow falls back to preview when the live flow editor test hook returns undefined', async () => {
+		UserDraft.save(
+			'flow',
+			'',
+			{
+				path: 'u/admin/live_flow_fallback',
+				summary: 'Live flow fallback',
+				value: { modules: [{ id: 'fallback_step', value: { type: 'identity' } }] },
+				schema: {},
+				edited_by: '',
+				edited_at: '',
+				archived: false,
+				extra_perms: {}
+			},
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'flow',
+			storagePath: '',
+			effectivePath: 'u/admin/live_flow_fallback'
+		})
+		const testActiveFlow = vi.fn(async () => undefined)
+
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'test_run_flow',
+				{
+					path: 'u/admin/live_flow_fallback',
+					args: { name: 'Ada' }
+				},
+				toolCallbacks,
+				{ testActiveFlow }
+			)
+		)
+
+		expect(testActiveFlow).toHaveBeenCalledWith({ name: 'Ada' })
+		expect(FlowService.getFlowByPath).not.toHaveBeenCalled()
+		expect(JobService.runFlowPreview).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'u/admin/live_flow_fallback',
+				value: { modules: [{ id: 'fallback_step', value: { type: 'identity' } }] },
+				args: { name: 'Ada' }
+			}
+		})
+	})
+
+	it('test_run_step previews rawscript steps from the local draft flow', async () => {
+		const content = 'export async function main(name: string) {\n\treturn name.toUpperCase()\n}'
+		await callGlobalTool('write_flow', {
+			path: 'f/flows/rawscript-step',
+			summary: 'Flow with rawscript',
+			modules: JSON.stringify([
+				{
+					id: 'format_name',
+					value: {
+						type: 'rawscript',
+						language: 'bun',
+						content,
+						input_transforms: {}
+					}
+				}
+			])
+		})
+
+		await withCompletedTestJob(() =>
+			callGlobalTool('test_run_step', {
+				path: 'f/flows/rawscript-step',
+				stepId: 'format_name',
+				args: { name: 'Ada' }
+			})
+		)
+
+		expect(JobService.runScriptPreview).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: {
+				content,
+				language: 'bun',
+				args: { name: 'Ada' }
+			}
+		})
+	})
+
+	it('test_run_step prefers local script drafts for script steps', async () => {
+		const content = 'export async function main(name: string) {\n\treturn `draft ${name}`\n}'
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/step-script',
+			summary: 'Step script',
+			language: 'bun',
+			content
+		})
+		await callGlobalTool('write_flow', {
+			path: 'f/flows/script-step',
+			summary: 'Flow with script step',
+			modules: JSON.stringify([
+				{
+					id: 'call_script',
+					value: {
+						type: 'script',
+						path: 'f/scripts/step-script',
+						input_transforms: {}
+					}
+				}
+			])
+		})
+
+		await withCompletedTestJob(() =>
+			callGlobalTool('test_run_step', {
+				path: 'f/flows/script-step',
+				stepId: 'call_script',
+				args: { name: 'Ada' }
+			})
+		)
+
+		expect(ScriptService.getScriptByPath).not.toHaveBeenCalled()
+		expect(JobService.runScriptPreview).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/scripts/step-script',
+				content,
+				language: 'bun',
+				args: { name: 'Ada' }
+			}
+		})
+	})
+
+	it('test_run_step previews local draft subflows for flow steps', async () => {
+		const nestedModules = [{ id: 'nested_start', value: { type: 'identity' } }]
+		await callGlobalTool('write_flow', {
+			path: 'f/flows/nested-draft',
+			summary: 'Nested draft flow',
+			modules: JSON.stringify(nestedModules)
+		})
+		await callGlobalTool('write_flow', {
+			path: 'f/flows/parent-flow',
+			summary: 'Parent flow',
+			modules: JSON.stringify([
+				{
+					id: 'call_flow',
+					value: {
+						type: 'flow',
+						path: 'f/flows/nested-draft',
+						input_transforms: {}
+					}
+				}
+			])
+		})
+
+		await withCompletedTestJob(() =>
+			callGlobalTool('test_run_step', {
+				path: 'f/flows/parent-flow',
+				stepId: 'call_flow',
+				args: { name: 'Ada' }
+			})
+		)
+
+		expect(JobService.runFlowByPath).not.toHaveBeenCalled()
+		expect(JobService.runFlowPreview).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/flows/nested-draft',
+				value: { modules: nestedModules },
+				args: { name: 'Ada' }
+			}
+		})
+	})
+
+	it('test_run_step lists nested step ids when a step is not found', async () => {
+		await callGlobalTool('write_flow', {
+			path: 'f/flows/nested-step-error',
+			summary: 'Flow with nested step',
+			modules: JSON.stringify([
+				{
+					id: 'loop_step',
+					value: {
+						type: 'forloopflow',
+						iterator: { type: 'static', value: [1] },
+						skip_failures: false,
+						modules: [
+							{
+								id: 'nested_script_step',
+								value: {
+									type: 'rawscript',
+									language: 'bun',
+									content: 'export async function main() { return 1 }',
+									input_transforms: {}
+								}
+							}
+						]
+					}
+				}
+			])
+		})
+
+		await expect(
+			callGlobalTool('test_run_step', {
+				path: 'f/flows/nested-step-error',
+				stepId: 'missing_nested_step',
+				args: {}
+			})
+		).rejects.toThrow(/Available steps: loop_step, nested_script_step/)
+	})
+
 	it('asks the user a question and returns the selected answer', async () => {
 		const callbacks: ToolCallbacks = {
 			setToolStatus: vi.fn(),
@@ -1608,6 +2057,9 @@ describe('prepareGlobalSystemMessage', () => {
 		expect(content).toContain('Draft tools create or update drafts only')
 		expect(content).toContain(
 			'Use discard_local_draft to remove an unsaved draft, including the matching open editor draft'
+		)
+		expect(content).toContain(
+			'After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step'
 		)
 		expect(content).toContain('If the user message includes an ACTIVE EDITOR section')
 		expect(content).not.toContain('AI draft')

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
+import type { DisplayMessage, ToolDisplayMessage } from './shared'
 
 vi.mock('monaco-editor', () => ({
 	editor: {}
@@ -616,5 +617,67 @@ describe('processToolCall', () => {
 				error: 'An error occurred while calling the tool'
 			})
 		)
+	})
+})
+
+describe('isActiveUserQuestion', () => {
+	function toolMessage(overrides: Partial<ToolDisplayMessage> = {}): ToolDisplayMessage {
+		return {
+			role: 'tool',
+			tool_call_id: 'call_q',
+			content: 'asking a question',
+			isLoading: true,
+			userQuestion: { question: 'Pick one', choices: ['a', 'b'] },
+			...overrides
+		}
+	}
+
+	it('is true for a loading tool message with an unanswered question', async () => {
+		const { isActiveUserQuestion } = await import('./shared')
+		expect(isActiveUserQuestion(toolMessage())).toBe(true)
+	})
+
+	it('is false once a choice has been selected', async () => {
+		const { isActiveUserQuestion } = await import('./shared')
+		expect(
+			isActiveUserQuestion(
+				toolMessage({
+					userQuestion: { question: 'Pick one', choices: ['a', 'b'], selectedChoice: 'a' }
+				})
+			)
+		).toBe(false)
+	})
+
+	it('is false when the question was canceled', async () => {
+		const { isActiveUserQuestion } = await import('./shared')
+		expect(
+			isActiveUserQuestion(
+				toolMessage({ userQuestion: { question: 'Pick one', choices: ['a', 'b'], canceled: true } })
+			)
+		).toBe(false)
+	})
+
+	it('is false when the tool errored', async () => {
+		const { isActiveUserQuestion } = await import('./shared')
+		expect(isActiveUserQuestion(toolMessage({ error: 'boom' }))).toBe(false)
+	})
+
+	it('is false when the tool is no longer loading', async () => {
+		const { isActiveUserQuestion } = await import('./shared')
+		expect(isActiveUserQuestion(toolMessage({ isLoading: false }))).toBe(false)
+	})
+
+	it('is false for a tool message without a question', async () => {
+		const { isActiveUserQuestion } = await import('./shared')
+		expect(isActiveUserQuestion(toolMessage({ userQuestion: undefined }))).toBe(false)
+	})
+
+	it('is false for non-tool messages and undefined', async () => {
+		const { isActiveUserQuestion } = await import('./shared')
+		const userMessage: DisplayMessage = { role: 'user', index: 0, content: 'hi' }
+		const assistantMessage: DisplayMessage = { role: 'assistant', content: 'hi' }
+		expect(isActiveUserQuestion(undefined)).toBe(false)
+		expect(isActiveUserQuestion(userMessage)).toBe(false)
+		expect(isActiveUserQuestion(assistantMessage)).toBe(false)
 	})
 })
