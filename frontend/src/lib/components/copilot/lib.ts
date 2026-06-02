@@ -14,7 +14,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
-import { getDefaultChatTemperature } from './modelConfig'
+import { getDefaultChatTemperature, modelDisallowsSamplingParams } from './modelConfig'
 import { formatResourceTypes } from './utils'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
 import {
@@ -317,7 +317,7 @@ function getModelSpecificConfig(
 	const defaultTemperature = getDefaultChatTemperature(modelProvider)
 	if (
 		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
-		(modelProvider.model.startsWith('o') || modelProvider.model.startsWith('gpt-5'))
+		modelDisallowsSamplingParams(modelProvider.model)
 	) {
 		return {
 			model: modelProvider.model,
