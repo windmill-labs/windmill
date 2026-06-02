@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { workspaceMenuHref } from './workspaceMenuHref'
 	import {
 		isPremiumStore,
 		superadmin,
@@ -58,20 +59,32 @@
 			'/apps/get/'
 		]
 		const isOnEditPage = editPages.some((editPage) => page.route.id?.includes(editPage) ?? false)
+		// An AI session is scoped to its (forked) workspace, so it makes no sense
+		// to keep showing it after the user switches workspace — go home instead.
+		const isOnSessionPage = page.route.id?.includes('/sessions') ?? false
 
 		switchWorkspace(id)
 		// On view/edit pages the path is scoped to a resource that may not exist
-		// in the target workspace, so return home. On other pages the logged
-		// layout's sync updates the ?workspace= param in place.
-		if (isOnEditPage) {
+		// in the target workspace, so return home; AI session pages are likewise
+		// workspace-scoped. On other pages the logged layout's sync updates the
+		// ?workspace= param in place.
+		if (isOnEditPage || isOnSessionPage) {
 			await goto('/')
 		}
 	}
 
+	// An AI session is scoped to its (forked) workspace, so switching workspace
+	// should leave for home (the link's navigation wins over onClick's
+	// preventDefault; onClick still performs the switch). Pure logic +
+	// new-tab/workspace-param handling lives in workspaceMenuHref (unit-tested).
 	function workspaceHref(id: string): string {
-		const params = new URLSearchParams(page.url.searchParams)
-		params.set('workspace', id)
-		return `${page.url.pathname}?${params.toString()}`
+		return workspaceMenuHref({
+			routeId: page.route.id,
+			base,
+			pathname: page.url.pathname,
+			searchParams: page.url.searchParams,
+			id
+		})
 	}
 
 	function onWorkspaceItemClick(e: MouseEvent, workspace: { id: string; disabled?: boolean }) {

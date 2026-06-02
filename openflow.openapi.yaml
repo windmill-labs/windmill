@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.712.0
+  version: 1.714.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -60,6 +60,9 @@ components:
         same_worker:
           type: boolean
           description: If true, all steps run on the same worker for better performance
+        preserve_step_tags:
+          type: boolean
+          description: If true and the flow runs on a custom worker tag, steps that declare their own non-empty tag run on it instead of inheriting the flow tag. Steps without their own tag still inherit the flow tag.
         concurrent_limit:
           type: number
           description: Maximum number of concurrent executions of this flow

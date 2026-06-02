@@ -2463,8 +2463,22 @@ export function getRawAppPrompt(): string {
   return prompts.RAW_APP_BASE;
 }
 
-// Helper to get datatable SDK reference for app mode
-export function getDatatableSdkReference(): string {
+// Helper to get the datatable SQL SDK reference (wmill.datatable()).
+// Pass a language to get only that SDK; omit it to get both.
+export function getDatatableSdkReference(language?: string): string {
+  if (language == null) {
+    return [
+      prompts.DATATABLE_SDK_TYPESCRIPT,
+      prompts.DATATABLE_SDK_PYTHON
+    ].filter(Boolean).join('\\n\\n');
+  }
+  if (TS_SDK_LANGUAGES.includes(language)) {
+    return prompts.DATATABLE_SDK_TYPESCRIPT;
+  }
+  if (PY_SDK_LANGUAGES.includes(language)) {
+    return prompts.DATATABLE_SDK_PYTHON;
+  }
+  // Unknown language: return both rather than nothing.
   return [
     prompts.DATATABLE_SDK_TYPESCRIPT,
     prompts.DATATABLE_SDK_PYTHON
@@ -2501,7 +2515,7 @@ export declare function getScriptPrompt(language: string): string;
 export declare function getFlowPrompt(): string;
 export declare function getResourcePrompt(): string;
 export declare function getRawAppPrompt(): string;
-export declare function getDatatableSdkReference(): string;
+export declare function getDatatableSdkReference(language?: string): string;
 export declare function getWorkflowAsCodePrompt(language?: string): string;
 """
     (OUTPUT_GENERATED_DIR / "index.d.ts").write_text(index_dts_content)
