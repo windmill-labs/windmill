@@ -300,7 +300,7 @@ ENV CARGO_HOME="/tmp/windmill/cache/cargo"
 ENV LD_LIBRARY_PATH="."
 
 # nsjail runtime deps and binary
-RUN apt-get update && apt-get install -y libprotobuf-dev libnl-route-3-dev \
+RUN apt-get update && apt-get install -y --no-install-recommends libprotobuf32 libnl-route-3-200 libnl-3-200 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
