@@ -2662,17 +2662,30 @@ fn expand_primary_key_constraint(json_str: &str, db_type: DbType) -> Result<Stri
 
 /// Allowed PostgreSQL index access methods (allowlist guards against injection
 /// since the method is emitted as a bare keyword, not a quoted literal).
+/// Keep in sync with `INDEX_METHODS` in `frontend/src/lib/components/DBIndexManager.svelte`.
 const PG_INDEX_METHODS: &[&str] = &["btree", "hash", "gin", "gist", "brin", "spgist"];
 
-fn split_table_schema<'a>(table: &'a str, default_schema: &'a str) -> (&'a str, &'a str) {
+/// Resolve a (schema, table) pair for an index operation.
+///
+/// `table` may be bare (`users`) or schema-qualified (`reporting.users`). When
+/// qualified, the embedded schema takes precedence over `default_schema` — the
+/// frontend always sends a bare table plus a separate schema, so this only
+/// matters if a caller dot-qualifies the table. Only one- or two-part names are
+/// accepted; PostgreSQL has no 3-part (db.schema.table) names, so anything with
+/// more dots is rejected rather than silently dropping the middle parts.
+fn split_table_schema<'a>(
+    table: &'a str,
+    default_schema: &'a str,
+) -> Result<(&'a str, &'a str), String> {
     let parts: Vec<&str> = table.split('.').collect();
-    let table_name = parts[parts.len() - 1];
-    let schema_name = if parts.len() > 1 {
-        parts[0]
-    } else {
-        default_schema
-    };
-    (schema_name, table_name)
+    match parts.as_slice() {
+        [t] => Ok((default_schema, *t)),
+        [s, t] => Ok((*s, *t)),
+        _ => Err(format!(
+            "Invalid table name '{}': expected 'table' or 'schema.table'",
+            table
+        )),
+    }
 }
 
 fn expand_list_indexes(json_str: &str, db_type: DbType) -> Result<String, String> {
@@ -2681,7 +2694,7 @@ fn expand_list_indexes(json_str: &str, db_type: DbType) -> Result<String, String
     match db_type {
         DbType::Postgresql => {
             let (schema_name, table_name) =
-                split_table_schema(&p.table, p.schema.as_deref().unwrap_or("public"));
+                split_table_schema(&p.table, p.schema.as_deref().unwrap_or("public"))?;
             Ok(format!(
                 "SELECT
     ic.relname AS index_name,
@@ -2720,6 +2733,11 @@ fn make_pg_create_index_query(p: &CreateIndexPayload) -> Result<String, String> 
     if p.columns.is_empty() {
         return Err("CREATE INDEX requires at least one column".to_string());
     }
+    // The backend is authoritative: reject blank/whitespace-only columns rather
+    // than emitting an empty key (the frontend filters these, but don't rely on it).
+    if p.columns.iter().any(|c| c.value.trim().is_empty()) {
+        return Err("Index columns must not be empty".to_string());
+    }
 
     let method = match p.method.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
         Some(m) => {
@@ -2737,7 +2755,7 @@ fn make_pg_create_index_query(p: &CreateIndexPayload) -> Result<String, String> 
     };
 
     let (schema_name, table_name) =
-        split_table_schema(&p.table, p.schema.as_deref().unwrap_or("public"));
+        split_table_schema(&p.table, p.schema.as_deref().unwrap_or("public"))?;
     let tref = format!(
         "{}.{}",
         qi(schema_name, DbType::Postgresql),
@@ -4873,6 +4891,31 @@ mod tests {
         let result = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
             .expect("should be recognized as a marker");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_create_index_rejects_blank_column() {
+        let marker =
+            r#"-- WM_INTERNAL_DB_CREATE_INDEX {"table":"users","columns":[{"value":"   "}]}"#;
+        let result = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
+            .expect("should be recognized as a marker");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_create_index_rejects_three_part_table() {
+        let marker = r#"-- WM_INTERNAL_DB_CREATE_INDEX {"table":"db.public.users","columns":[{"value":"email"}]}"#;
+        let result = try_expand_internal_db_query(marker, &ScriptLang::Postgresql)
+            .expect("should be recognized as a marker");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_create_index_qualified_table_overrides_schema() {
+        // schema-qualified table wins over the separate schema arg
+        let marker = r#"-- WM_INTERNAL_DB_CREATE_INDEX {"table":"reporting.users","schema":"public","columns":[{"value":"email"}]}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        assert_eq!(sql, "CREATE INDEX ON \"reporting\".\"users\" (\"email\");");
     }
 
     #[test]
