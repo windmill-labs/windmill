@@ -8,6 +8,7 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { FlowService, type Flow } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
 	import Button from '../button/Button.svelte'
@@ -83,7 +84,19 @@
 
 	async function deleteFlow(path: string): Promise<void> {
 		try {
-			await FlowService.deleteFlowByPath({ workspace: $workspaceStore!, path })
+			// Draft-only items have no deployed row to delete — the regular
+			// route would 404. Route the delete through the syncer so the
+			// per-user draft row is removed instead.
+			if (flow.draft_only) {
+				await UserDraftDbSyncer.save({
+					workspace: $workspaceStore!,
+					itemKind: 'flow',
+					path,
+					value: null
+				})
+			} else {
+				await FlowService.deleteFlowByPath({ workspace: $workspaceStore!, path })
+			}
 			dispatch('change')
 			sendUserToast(`Deleted flow ${path}`)
 		} catch (err) {

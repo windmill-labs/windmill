@@ -6,6 +6,7 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { AppService, type ListableApp } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
@@ -68,6 +69,22 @@
 
 	async function loadAppJson() {
 		appExport?.open(app.path)
+	}
+
+	async function deleteApp(path: string): Promise<void> {
+		// Draft-only items have no deployed row — the regular route would
+		// 404. Route the delete through the syncer instead; the `app` vs
+		// `raw_app` choice mirrors the row's own `raw_app` flag.
+		if (app.draft_only) {
+			await UserDraftDbSyncer.save({
+				workspace: $workspaceStore ?? '',
+				itemKind: app.raw_app ? 'raw_app' : 'app',
+				path,
+				value: null
+			})
+		} else {
+			await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
+		}
 	}
 </script>
 
@@ -165,11 +182,11 @@
 								// TODO
 								// @ts-ignore
 								if (event?.shiftKey) {
-									await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
+									await deleteApp(path)
 									dispatch('change')
 								} else {
 									deleteConfirmedCallback = async () => {
-										await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
+										await deleteApp(path)
 										dispatch('change')
 									}
 								}
@@ -276,11 +293,11 @@
 							// TODO
 							// @ts-ignore
 							if (event?.shiftKey) {
-								await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
+								await deleteApp(path)
 								dispatch('change')
 							} else {
 								deleteConfirmedCallback = async () => {
-									await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
+									await deleteApp(path)
 									dispatch('change')
 								}
 							}

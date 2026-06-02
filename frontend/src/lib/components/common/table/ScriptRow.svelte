@@ -9,6 +9,7 @@
 
 	import { ScriptService, type Script } from '$lib/gen'
 	import { hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
@@ -102,7 +103,19 @@
 	}
 
 	async function deleteScript(path: string): Promise<void> {
-		await ScriptService.deleteScriptByPath({ workspace: $workspaceStore!, path })
+		// Draft-only items have no deployed row to delete — the regular
+		// route would 404. Route the delete through the syncer so the
+		// per-user draft row is removed instead.
+		if (script.draft_only) {
+			await UserDraftDbSyncer.save({
+				workspace: $workspaceStore!,
+				itemKind: 'script',
+				path,
+				value: null
+			})
+		} else {
+			await ScriptService.deleteScriptByPath({ workspace: $workspaceStore!, path })
+		}
 		dispatch('change')
 		sendUserToast(`Deleted script ${path}`)
 	}
