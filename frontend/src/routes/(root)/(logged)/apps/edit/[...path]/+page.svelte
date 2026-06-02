@@ -12,6 +12,7 @@
 	import OtherUsersDraftsModal from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { emptyApp } from '$lib/components/apps/editor/appUtils'
+	import { get } from 'svelte/store'
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
 	import { UserDraft, checkStaleness, type UserDraftMeta } from '$lib/userDraft.svelte'
@@ -79,17 +80,21 @@
 	async function loadApp(): Promise<void> {
 		const tok = ++loadAppToken
 		// `?new_draft=true` (set by `/apps/add`'s redirect) means we landed
-		// on a fresh `draft_{uuid}` path that's never been saved. Skip the
-		// backend fetch (it would 404), seed an empty app, strip the flag.
+		// on a fresh `u/{user}/draft_{uuid}` path that's never been saved.
+		// Skip the backend fetch (it would 404), seed an empty app whose
+		// path is the user's namespace (NOT the draft UUID — that's only
+		// the storage key), strip the flag.
 		if (page.url.searchParams.get('new_draft') === 'true') {
 			const url = new URL(window.location.href)
 			url.searchParams.delete('new_draft')
 			window.history.replaceState(window.history.state, '', url.toString())
+			const username = get(userStore)?.username ?? ''
+			const seededPath = username ? `u/${username}/` : ''
 			const emptyValue = emptyApp()
 			app = {
 				summary: '',
 				value: emptyValue as any,
-				path: page.params.path ?? '',
+				path: seededPath,
 				policy: {} as any,
 				custom_path: undefined,
 				versions: [] as any,
@@ -102,7 +107,7 @@
 			savedApp = {
 				summary: '',
 				value: emptyValue as any,
-				path: page.params.path ?? '',
+				path: seededPath,
 				policy: {} as any
 			}
 			currentRevs = {}

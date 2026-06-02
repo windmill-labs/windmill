@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
 	import { untrack } from 'svelte'
+	import { get } from 'svelte/store'
 
 	import { AppService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -165,21 +166,32 @@
 	async function loadApp(): Promise<void> {
 		const tok = ++loadAppToken
 		// `?new_draft=true` (set by `/apps_raw/add`'s redirect) means we
-		// landed on a fresh `draft_{uuid}` path that's never been saved.
-		// Skip the backend fetch (it would 404), seed an empty raw app,
-		// strip the flag. `rawApp: true` on subsequent reloads tells the
-		// backend to look up the `raw_app` kind in the draft table.
+		// landed on a fresh `u/{user}/draft_{uuid}` path that's never been
+		// saved. Skip the backend fetch (it would 404), seed every piece
+		// of state RawAppEditor needs (the template gates rendering on
+		// `files`, so an unset files would leave the page blank — which
+		// is the bug this branch fixes), and strip the flag. `rawApp:
+		// true` on subsequent reloads tells the backend to look up the
+		// `raw_app` kind in the draft table.
 		if (page.url.searchParams.get('new_draft') === 'true') {
 			const url = new URL(window.location.href)
 			url.searchParams.delete('new_draft')
 			window.history.replaceState(window.history.state, '', url.toString())
+			const username = get(userStore)?.username ?? ''
+			const seededPath = username ? `u/${username}/` : ''
 			savedApp = {
 				summary: '',
 				value: { files: {}, runnables: {} },
-				path: page.params.path ?? '',
+				path: seededPath,
 				policy: {},
 				custom_path: undefined
 			}
+			files = {}
+			runnables = {}
+			data = { ...DEFAULT_DATA }
+			summary = ''
+			policy = {}
+			newPath = seededPath
 			return
 		}
 		const backendApp = await AppService.getAppByPath({

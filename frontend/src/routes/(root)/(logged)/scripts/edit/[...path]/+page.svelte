@@ -198,21 +198,27 @@
 		const tok = ++loadScriptToken
 		fullyLoaded = false
 		// `?new_draft=true` (set by `/scripts/add`'s redirect) means we
-		// landed on a fresh `draft_{uuid}` path that's never been saved
-		// anywhere. Skip the backend fetch (it would 404), seed an empty
-		// `NewScript`, and strip the single-use flag from the URL.
+		// landed on a fresh `u/{user}/draft_{uuid}` path that's never been
+		// saved. Skip the backend fetch (it would 404), seed an empty
+		// `NewScript` whose path is the user's namespace (NOT the draft
+		// UUID — that's only the storage key), force `initialPath = ''`
+		// so ScriptBuilder opens the metadata drawer on mount, and strip
+		// the single-use flag from the URL.
 		if (page.url.searchParams.get('new_draft') === 'true') {
 			const url = new URL(window.location.href)
 			url.searchParams.delete('new_draft')
 			window.history.replaceState(window.history.state, '', url.toString())
+			const username = get(userStore)?.username ?? ''
+			const seededPath = username ? `u/${username}/` : ''
 			const empty: EditableScript = {
-				path: page.params.path ?? '',
+				path: seededPath,
 				summary: '',
 				description: '',
 				content: '',
 				language: 'bun',
 				schema: {}
 			} as unknown as EditableScript
+			initialPath = ''
 			savedScript = structuredClone(empty)
 			scriptHandle.setDraftAndMeta(empty, {})
 			fullyLoaded = true

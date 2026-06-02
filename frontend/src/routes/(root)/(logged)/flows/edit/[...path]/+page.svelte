@@ -21,6 +21,7 @@
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import { tick, untrack } from 'svelte'
+	import { get } from 'svelte/store'
 	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
 	import { page } from '$app/state'
 	import {
@@ -157,15 +158,19 @@
 		let draftTriggersToApply: Trigger[] | undefined = undefined
 		let applyPrimarySchedule = false
 		// `?new_draft=true` (set by `/flows/add`'s redirect) means we
-		// landed on a fresh `draft_{uuid}` path that's never been saved.
-		// Skip both the latest-version and the get-by-path fetches (they
-		// would 404), seed an empty Flow, strip the single-use flag.
+		// landed on a fresh `u/{user}/draft_{uuid}` path that's never been
+		// saved. Skip both the latest-version and the get-by-path fetches
+		// (they would 404), seed an empty Flow whose path is the user's
+		// namespace (NOT the draft UUID — that's only the storage key),
+		// open the metadata panel, strip the single-use flag.
 		if (page.url.searchParams.get('new_draft') === 'true') {
 			const url = new URL(window.location.href)
 			url.searchParams.delete('new_draft')
 			window.history.replaceState(window.history.state, '', url.toString())
+			const username = get(userStore)?.username ?? ''
+			const seededPath = username ? `u/${username}/` : ''
 			const empty: Flow = {
-				path: page.params.path ?? '',
+				path: seededPath,
 				summary: '',
 				description: '',
 				value: { modules: [] },
