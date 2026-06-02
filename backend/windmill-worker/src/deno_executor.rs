@@ -170,10 +170,15 @@ pub async fn generate_deno_lock(
     let _ = write_file(job_dir, "main.ts", code)?;
 
     let import_map_path = format!("{job_dir}/import_map.json");
+    // `$f/`/`$u/` are local-friendly aliases for the absolute workspace paths `/f/`,`/u/`.
+    // The runtime import map (`build_import_map`) maps them too; without these keys here,
+    // `deno cache --lock` can't resolve `$f/...` imports and lock generation fails.
     let import_map = format!(
         r#"{{
         "imports": {{
-            "/": "{base_internal_url}/api/scripts_u/empty_ts/"
+            "/": "{base_internal_url}/api/scripts_u/empty_ts/",
+            "$f/": "{base_internal_url}/api/scripts_u/empty_ts/f/",
+            "$u/": "{base_internal_url}/api/scripts_u/empty_ts/u/"
         }}
       }}"#,
     );

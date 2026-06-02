@@ -914,6 +914,23 @@ pub async fn run_deployed_relative_imports(
             .await
             .unwrap();
 
+            // Lock generation must succeed for every supported import form,
+            // including the `$f/`/`$u/` aliases. Regression guard: the Deno
+            // lock-gen import map (generate_deno_lock) must resolve `$f/`/`$u/`,
+            // otherwise `deno cache --lock` fails and lock_error_logs is set.
+            // (Runtime query to avoid touching the sqlx offline cache.)
+            let lock_error: Option<String> =
+                sqlx::query_scalar("SELECT lock_error_logs FROM script WHERE path = $1")
+                    .bind("f/system/test_import")
+                    .fetch_one(&db2)
+                    .await
+                    .unwrap();
+            assert!(
+                lock_error.is_none(),
+                "lock generation failed for deployed relative-imports script: {:?}",
+                lock_error
+            );
+
             let job = RunJob::from(JobPayload::ScriptHash {
                 path: "f/system/test_import".to_string(),
                 hash: ScriptHash(script.hash),
