@@ -143,11 +143,11 @@
 		const param = page.url.searchParams.get('workspace')
 		try {
 			if (workspaceAgnosticRoute(path)) {
-				// Workspace-agnostic page: adopt an explicit ?workspace= into the store
-				// (so it propagates to later scoped pages), then strip it for a clean
-				// URL. The store/storage keep the workspace; the URL need not.
+				// Workspace-agnostic page: strip ?workspace= for a clean URL. Adoption
+				// of an explicit param into the store is handled by onQueryChange
+				// (URL → store); doing it here too could clobber a workspace switch
+				// that happened between navigation and this post-navigation sync.
 				if (!param) return
-				if (param !== $workspaceStore) $workspaceStore = param
 				const url = new URL(page.url)
 				url.searchParams.delete('workspace')
 				replaceState(url, page.state)
