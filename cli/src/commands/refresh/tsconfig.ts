@@ -141,6 +141,19 @@ function refreshManagedTsconfig(defaultTs: "bun" | "deno") {
   ensureUserReferencesManaged({
     file: "tsconfig.json",
     create: { extends: `./${MANAGED_TSCONFIG}` },
+    wire: (parsed) => {
+      const ext = parsed.extends;
+      if (ext === undefined) {
+        parsed.extends = `./${MANAGED_TSCONFIG}`;
+      } else if (typeof ext === "string") {
+        parsed.extends = [ext, `./${MANAGED_TSCONFIG}`];
+      } else if (Array.isArray(ext)) {
+        ext.push(`./${MANAGED_TSCONFIG}`);
+      } else {
+        return "unexpected `extends` value";
+      }
+      return true;
+    },
     token: MANAGED_TSCONFIG,
     hint: `"extends": "./${MANAGED_TSCONFIG}"`,
   });
@@ -166,15 +179,35 @@ function refreshManagedDenoImportMap() {
     // deno.json would take precedence and shadow the existing config.
     altFiles: ["deno.jsonc"],
     create: { importMap: `./${MANAGED_IMPORT_MAP}` },
+    wire: (parsed) => {
+      // Deno rejects `imports` + `importMap` together, so we can't auto-wire a
+      // deno.json that already defines its own imports.
+      if (parsed.imports !== undefined) {
+        return "deno.json already defines `imports` (can't also use importMap)";
+      }
+      if (
+        parsed.importMap !== undefined &&
+        parsed.importMap !== `./${MANAGED_IMPORT_MAP}`
+      ) {
+        return "deno.json already sets a different `importMap`";
+      }
+      parsed.importMap = `./${MANAGED_IMPORT_MAP}`;
+      return true;
+    },
     token: MANAGED_IMPORT_MAP,
     hint: `"importMap": "./${MANAGED_IMPORT_MAP}"`,
   });
 }
 
 /**
- * Ensure a user-owned config file references the wmill-managed file. Creates it
- * with the given minimal content if missing; if it exists but doesn't reference
- * the managed file, warn (never auto-edit — the user owns this file).
+ * Ensure a user-owned config file references the wmill-managed file. Mirrors how
+ * `wmill refresh prompts` wires `@AGENTS.cli.md` into AGENTS.md:
+ *   - missing → create the minimal file (already linked);
+ *   - exists & linked → leave it alone;
+ *   - exists & unlinked → auto-wire it (parse JSON, apply `wire`, write back).
+ * Falls back to a one-line warning when the file can't be auto-edited safely
+ * (JSONC comments fail JSON.parse, or the structure already conflicts) — we
+ * never corrupt a file we can't round-trip.
  */
 function ensureUserReferencesManaged(opts: {
   file: string;
@@ -182,6 +215,9 @@ function ensureUserReferencesManaged(opts: {
   // `opts.file` next to them (e.g. an existing deno.jsonc vs a new deno.json).
   altFiles?: string[];
   create: Record<string, unknown>;
+  // Mutate the parsed user config to reference the managed file. Returns true
+  // when wired, or a short reason string when it can't be wired cleanly (→ warn).
+  wire: (parsed: Record<string, unknown>) => true | string;
   token: string;
   hint: string;
 }) {
@@ -211,10 +247,29 @@ function ensureUserReferencesManaged(opts: {
     );
     return;
   }
-  log.warn(
-    `${existingName} exists but doesn't reference ${opts.token}. Add ${opts.hint} ` +
-      `to pick up wmill's recommended settings (incl. $f//$u/ import aliases).`
-  );
+
+  // Auto-wire — but only when we can round-trip the JSON. Files with comments
+  // (JSONC) fail JSON.parse, so we warn instead of corrupting them.
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    log.warn(
+      `${existingName} couldn't be auto-edited (it may contain comments). Add ${opts.hint} ` +
+        `to pick up wmill's recommended settings (incl. $f//$u/ import aliases).`
+    );
+    return;
+  }
+  const wired = opts.wire(parsed);
+  if (wired !== true) {
+    log.warn(
+      `${existingName}: ${wired}. Add ${opts.hint} manually to pick up wmill's ` +
+        `recommended settings (incl. $f//$u/ import aliases).`
+    );
+    return;
+  }
+  writeFileSync(existing, JSON.stringify(parsed, null, 2) + "\n");
+  log.info(colors.green(`Linked ${existingName} → ${opts.token}`));
 }
 
 function ensureBunTypesAvailable(): boolean {
@@ -253,38 +308,18 @@ function ensureBunTypesAvailable(): boolean {
 }
 
 /**
- * One-line, non-blocking warning (to stderr) when a project that already has a
- * tsconfig.json isn't wired to the managed config — so `$f/`/`$u/` resolution is
- * silently missing — or when the managed config is out of date. Mirrors the
- * prompts freshness check (`warnIfPromptsStale`); gated identically in main.ts
- * so it never fires during `wmill init` / `wmill refresh`. Only fires when a
- * tsconfig.json exists, to stay quiet in non-TS (e.g. Python-only) projects.
+ * One-line, non-blocking warning (to stderr) when the managed config is out of
+ * date. Mirrors the prompts freshness check (`warnIfPromptsStale`) exactly:
+ * gated on the *managed* file existing (= the project opted in by running
+ * init/refresh), and only ever warns that it's **stale** — never about a
+ * missing or unlinked user tsconfig.json. So a deliberately-unlinked / custom
+ * setup is never nagged, and a not-yet-initialized project stays silent.
+ * Gated identically in main.ts so it never fires during `wmill init`/`refresh`.
  */
 export async function warnIfTsconfigStale(opts?: { cwd?: string }): Promise<void> {
   const cwd = opts?.cwd ?? process.cwd();
-  const userPath = path.join(cwd, "tsconfig.json");
-  if (!existsSync(userPath)) return;
-
   const managedPath = path.join(cwd, MANAGED_TSCONFIG);
-  if (!existsSync(managedPath)) {
-    emitTsconfigWarning(
-      `Found tsconfig.json but no ${MANAGED_TSCONFIG}. Run \`wmill refresh tsconfig\` to enable $f//$u/ import resolution in your editor.`
-    );
-    return;
-  }
-
-  let userText: string;
-  try {
-    userText = readFileSync(userPath, "utf-8");
-  } catch {
-    return;
-  }
-  if (!userText.includes(MANAGED_TSCONFIG)) {
-    emitTsconfigWarning(
-      `tsconfig.json doesn't extend ${MANAGED_TSCONFIG}. Run \`wmill refresh tsconfig\` (or add "extends": "./${MANAGED_TSCONFIG}") for $f//$u/ import resolution.`
-    );
-    return;
-  }
+  if (!existsSync(managedPath)) return;
 
   let managedText: string;
   try {
