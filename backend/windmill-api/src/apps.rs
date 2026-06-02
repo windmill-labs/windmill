@@ -12,7 +12,7 @@ use crate::{
     db::{ApiAuthed, DB},
     jobs::RunJobQuery,
     users::{require_owner_of_path, require_path_read_access_for_preview, OptAuthed},
-    utils::{check_scopes, WithStarredInfoQuery},
+    utils::check_scopes,
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -58,9 +58,7 @@ use windmill_common::{
         get_payload_tag_from_prefixed_path, resolve_delete_after_secs, schedule_job_deletion,
         JobPayload, RawCode,
     },
-    user_drafts::{
-        fetch_draft_only, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
-    },
+    user_drafts::{fetch_draft_only, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay},
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
@@ -548,12 +546,15 @@ async fn get_raw_app_data(
 //     Ok(Json(version))
 // }
 
+// Fields inlined rather than flattened from WithStarredInfoQuery /
+// WithDraftQuery — see the same comment on `GetScriptByPathQuery` in
+// scripts.rs: axum's `serde_urlencoded` query extractor doesn't preserve
+// the "true"/"false" → bool conversion through `#[serde(flatten)]`.
 #[derive(Deserialize)]
 struct GetAppQuery {
-    #[serde(flatten)]
-    starred: WithStarredInfoQuery,
-    #[serde(flatten)]
-    draft: WithDraftQuery,
+    with_starred_info: Option<bool>,
+    #[serde(default)]
+    get_draft: bool,
     /// When no deployed app exists at this path and `get_draft` is set,
     /// `raw_app` picks which draft kind to look up (`raw_app` or `app`).
     /// Ignored when a deployed row exists — the row's own `raw_app`
@@ -574,7 +575,7 @@ async fn get_app(
     check_scopes(&authed, || format!("apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
-    let app_o = if query.starred.with_starred_info.unwrap_or(false) {
+    let app_o = if query.with_starred_info.unwrap_or(false) {
         sqlx::query_as::<_, AppWithLastVersionAndStarred>(
             "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
             app.extra_perms, app_version.value,
@@ -622,18 +623,9 @@ async fn get_app(
             } else {
                 UserDraftItemKind::App
             };
-            maybe_overlay_draft(
-                &db,
-                &w_id,
-                &authed.email,
-                kind,
-                path,
-                query.draft.get_draft,
-                app,
-            )
-            .await?
+            maybe_overlay_draft(&db, &w_id, &authed.email, kind, path, query.get_draft, app).await?
         }
-        None if query.draft.get_draft => {
+        None if query.get_draft => {
             let kind = if query.raw_app.unwrap_or(false) {
                 UserDraftItemKind::RawApp
             } else {

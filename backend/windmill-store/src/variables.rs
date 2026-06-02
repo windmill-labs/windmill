@@ -35,7 +35,7 @@ use windmill_common::{
     db::{DbWithOptAuthed, UserDB},
     error::{Error, JsonResult, Result},
     scripts::ScriptHash,
-    user_drafts::{maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery},
+    user_drafts::{maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay},
     utils::{not_found_if_none, paginate, Pagination, StripPath, WarnAfterExt},
     variables::{
         build_crypt, get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable,
@@ -204,12 +204,16 @@ async fn list_variables(
     Ok(Json(rows))
 }
 
+// `get_draft` inlined rather than flattened from WithDraftQuery — see
+// the same comment on `GetScriptByPathQuery` in scripts.rs: axum's
+// `serde_urlencoded` query extractor doesn't preserve the "true"/"false"
+// → bool conversion through `#[serde(flatten)]`.
 #[derive(Deserialize)]
 struct GetVariableQuery {
     decrypt_secret: Option<bool>,
     include_encrypted: Option<bool>,
-    #[serde(flatten)]
-    draft: WithDraftQuery,
+    #[serde(default)]
+    get_draft: bool,
 }
 
 async fn get_variable(
@@ -311,7 +315,7 @@ async fn get_variable(
         &authed.email,
         UserDraftItemKind::Variable,
         path,
-        q.draft.get_draft,
+        q.get_draft,
         r,
     )
     .await?;

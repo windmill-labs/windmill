@@ -20,10 +20,8 @@ use windmill_api_auth::{
 };
 use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
 use windmill_common::{
-    user_drafts::{
-        fetch_draft_only, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
-    },
-    utils::{WithStarredInfoQuery, HTTP_CLIENT},
+    user_drafts::{fetch_draft_only, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay},
+    utils::HTTP_CLIENT,
     webhook::{WebhookMessage, WebhookShared},
     DB,
 };
@@ -1368,12 +1366,15 @@ async fn get_deployment_status(
     Ok(Json(deployment_status))
 }
 
+// Fields inlined rather than flattened from WithStarredInfoQuery /
+// WithDraftQuery — see the same comment on `GetScriptByPathQuery` in
+// scripts.rs: axum's `serde_urlencoded` query extractor doesn't preserve
+// the "true"/"false" → bool conversion through `#[serde(flatten)]`.
 #[derive(Deserialize)]
 struct GetFlowByPathQuery {
-    #[serde(flatten)]
-    starred: WithStarredInfoQuery,
-    #[serde(flatten)]
-    draft: WithDraftQuery,
+    with_starred_info: Option<bool>,
+    #[serde(default)]
+    get_draft: bool,
 }
 
 async fn get_flow_by_path(
@@ -1386,7 +1387,7 @@ async fn get_flow_by_path(
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
-    let flow_o = if query.starred.with_starred_info.unwrap_or(false) {
+    let flow_o = if query.with_starred_info.unwrap_or(false) {
         sqlx::query_as::<_, FlowWithStarred>(
             r#"
         SELECT 
@@ -1478,12 +1479,12 @@ async fn get_flow_by_path(
                 &authed.email,
                 UserDraftItemKind::Flow,
                 path,
-                query.draft.get_draft,
+                query.get_draft,
                 flow,
             )
             .await?
         }
-        None if query.draft.get_draft => {
+        None if query.get_draft => {
             fetch_draft_only(&db, &w_id, &authed.email, UserDraftItemKind::Flow, path)
                 .await?
                 .ok_or_else(|| {

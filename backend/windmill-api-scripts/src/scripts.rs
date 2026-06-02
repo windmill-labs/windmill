@@ -12,9 +12,7 @@ use windmill_api_auth::{
     check_scopes, maybe_refresh_folders, require_owner_of_path, ApiAuthed,
 };
 use windmill_common::{
-    user_drafts::{
-        fetch_draft_only, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
-    },
+    user_drafts::{fetch_draft_only, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay},
     utils::{BulkDeleteRequest, WithStarredInfoQuery, HTTP_CLIENT},
     webhook::{WebhookMessage, WebhookShared},
     workspaces::{check_deploy_rules, RuleCheckResult},
@@ -1640,12 +1638,18 @@ pub async fn pick_hub_script_by_path(
     Ok::<_, Error>((status_code, headers, response))
 }
 
+// NOTE: inlined fields rather than `#[serde(flatten)]` on
+// `WithStarredInfoQuery` / `WithDraftQuery`. axum's default query
+// extractor uses `serde_urlencoded`, and flatten there routes through an
+// internal map that drops type info — so `?get_draft=true` arrives as a
+// `String` and fails the inner `bool` deserializer. Inlining keeps the
+// fields on the top-level struct so `serde_urlencoded`'s own bool
+// adapter sees the value directly.
 #[derive(Deserialize)]
 struct GetScriptByPathQuery {
-    #[serde(flatten)]
-    starred: WithStarredInfoQuery,
-    #[serde(flatten)]
-    draft: WithDraftQuery,
+    with_starred_info: Option<bool>,
+    #[serde(default)]
+    get_draft: bool,
 }
 
 #[axum::debug_handler]
@@ -1660,7 +1664,7 @@ async fn get_script_by_path(
     check_scopes(&authed, || format!("scripts:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
-    let script_o = if query.starred.with_starred_info.unwrap_or(false) {
+    let script_o = if query.with_starred_info.unwrap_or(false) {
         sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(
             "SELECT s.*, favorite.path IS NOT NULL as starred
             FROM script s
@@ -1707,12 +1711,12 @@ async fn get_script_by_path(
                 &authed.email,
                 UserDraftItemKind::Script,
                 path,
-                query.draft.get_draft,
+                query.get_draft,
                 script,
             )
             .await?
         }
-        None if query.draft.get_draft => {
+        None if query.get_draft => {
             fetch_draft_only(&db, &w_id, &authed.email, UserDraftItemKind::Script, path)
                 .await?
                 .ok_or_else(|| {
