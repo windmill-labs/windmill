@@ -2,7 +2,7 @@
 	import { type Job } from '$lib/gen'
 	import { base } from '$lib/base'
 	import JobStatus from '$lib/components/JobStatus.svelte'
-	import { flowPathToHref } from '$lib/scripts'
+	import { jobViewHref } from '$lib/scripts'
 	import { displayDate, truncateRev } from '$lib/utils'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import TimeAgo from './TimeAgo.svelte'
@@ -98,14 +98,7 @@
 
 		{#if (job && job.job_kind == 'flow') || job?.job_kind == 'script'}
 			{@const isScript = job?.job_kind === 'script'}
-			{@const jobWorkspace = job?.workspace_id ?? $workspaceStore}
-			{@const viewHref = (job?.script_path ?? '').startsWith('hub/')
-				? isScript
-					? `${base}/scripts/get/${job?.script_hash}`
-					: flowPathToHref(job?.script_path ?? '')
-				: isScript
-					? `${base}/scripts/get/${job?.script_hash}?workspace=${jobWorkspace}`
-					: `${base}/flows/get/${job?.script_path}?workspace=${jobWorkspace}`}
+			{@const viewHref = jobViewHref(job, job?.workspace_id ?? $workspaceStore)}
 			<div class="flex flex-row gap-2 items-center">
 				{#if isScript}
 					<Code2 size={SMALL_ICON_SIZE} class="min-w-3.5" />

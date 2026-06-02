@@ -1,7 +1,7 @@
 import type { Job } from '$lib/gen'
 import { triggerIconMap } from '$lib/components/triggers/utils'
 import { formatMemory } from '$lib/utils'
-import { flowPathToHref } from '$lib/scripts'
+import { jobViewHref } from '$lib/scripts'
 import { Calendar, Bot } from 'lucide-svelte'
 import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
@@ -289,15 +289,7 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 		getValue: (job) => job.script_path || null,
 		getHref: (job, workspaceId) => {
 			if (!job.script_path) return null
-			const isScript = job.job_kind === 'script'
-			// Hub scripts/flows live outside any workspace; everything else must
-			// target the job's workspace (passed in as workspaceId), not the active.
-			if (job.script_path.startsWith('hub/')) {
-				return isScript ? `/scripts/get/${job.script_hash}` : flowPathToHref(job.script_path)
-			}
-			return isScript
-				? `/scripts/get/${job.script_hash}?workspace=${workspaceId}`
-				: `/flows/get/${job.script_path}?workspace=${workspaceId}`
+			return jobViewHref(job, workspaceId)
 		}
 	},
 
