@@ -226,7 +226,7 @@
 		src={buildViewerUrl()}
 		title="App"
 		class="w-full h-screen border-0 block"
-		sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-top-navigation-by-user-activation"
+		sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-top-navigation"
 		allow="clipboard-read; clipboard-write; fullscreen"
 	></iframe>
 {/if}

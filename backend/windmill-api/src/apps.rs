@@ -491,7 +491,7 @@ async fn get_raw_app_data(
                 http::header::CONTENT_SECURITY_POLICY,
                 "sandbox allow-scripts allow-forms allow-popups \
                  allow-popups-to-escape-sandbox allow-downloads allow-modals \
-                 allow-top-navigation-by-user-activation",
+                 allow-top-navigation",
             )
             .body(Body::from(html))
             .unwrap());

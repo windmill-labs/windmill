@@ -134,7 +134,7 @@
 		bind:this={iframe}
 		title="raw-app"
 		src={iframeSrc}
-		sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-top-navigation-by-user-activation"
+		sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-top-navigation"
 		class="w-full h-full min-h-screen bg-white border-none"
 	></iframe>
 {/if}
