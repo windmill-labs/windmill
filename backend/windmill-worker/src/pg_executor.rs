@@ -332,15 +332,70 @@ fn otyp_to_pg_type(otyp: &str) -> error::Result<Type> {
 /// dispatched through the simple query protocol (`batch_execute`), which runs
 /// them in autocommit mode. Detection is conservative: the statement must both
 /// mention `concurrently` and begin with a relevant DDL keyword.
+/// Strip single-quoted string literals and SQL comments (`-- …` line comments and
+/// `/* … */` block comments) so keyword detection doesn't match inside them.
+/// Dollar-quoting is not handled (index DDL never uses it); leaving such bodies
+/// as-is would at worst yield a harmless false positive (a plain DDL statement
+/// routed through the simple-query protocol, which executes it just fine).
+fn strip_sql_strings_and_comments(sql: &str) -> String {
+    let chars: Vec<char> = sql.chars().collect();
+    let n = chars.len();
+    let mut out = String::with_capacity(sql.len());
+    let mut i = 0;
+    while i < n {
+        let c = chars[i];
+        if c == '\'' {
+            // Single-quoted string literal; '' is an escaped quote.
+            i += 1;
+            while i < n {
+                if chars[i] == '\'' {
+                    if i + 1 < n && chars[i + 1] == '\'' {
+                        i += 2;
+                        continue;
+                    }
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            out.push(' ');
+        } else if c == '-' && i + 1 < n && chars[i + 1] == '-' {
+            // Line comment until end of line.
+            i += 2;
+            while i < n && chars[i] != '\n' {
+                i += 1;
+            }
+        } else if c == '/' && i + 1 < n && chars[i + 1] == '*' {
+            // Block comment.
+            i += 2;
+            while i + 1 < n && !(chars[i] == '*' && chars[i + 1] == '/') {
+                i += 1;
+            }
+            i = (i + 2).min(n);
+            out.push(' ');
+        } else {
+            out.push(c);
+            i += 1;
+        }
+    }
+    out
+}
+
 fn statement_requires_no_transaction(stmt: &str) -> bool {
-    let s = stmt.trim_start().to_lowercase();
-    if !s.contains("concurrently") {
+    let cleaned = strip_sql_strings_and_comments(stmt).to_lowercase();
+    let trimmed = cleaned.trim_start();
+    let is_index_ddl = trimmed.starts_with("create index")
+        || trimmed.starts_with("create unique index")
+        || trimmed.starts_with("drop index")
+        || trimmed.starts_with("reindex");
+    if !is_index_ddl {
         return false;
     }
-    s.starts_with("create index")
-        || s.starts_with("create unique index")
-        || s.starts_with("drop index")
-        || s.starts_with("reindex")
+    // Word-boundary match: `concurrently` as a standalone token, not a substring,
+    // and only outside string literals / comments (stripped above).
+    cleaned
+        .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+        .any(|tok| tok == "concurrently")
 }
 
 fn do_postgresql_inner<'a>(
@@ -2026,6 +2081,20 @@ mod tests {
         ));
         assert!(!statement_requires_no_transaction("DROP INDEX idx"));
         assert!(!statement_requires_no_transaction("SELECT 1"));
+        // `concurrently` inside a string literal or comment is NOT a keyword.
+        assert!(!statement_requires_no_transaction(
+            "CREATE INDEX idx ON t (LOWER('concurrently'))"
+        ));
+        assert!(!statement_requires_no_transaction(
+            "CREATE INDEX idx ON t (a) -- run this concurrently"
+        ));
+        assert!(!statement_requires_no_transaction(
+            "CREATE INDEX idx ON t (msg) WHERE msg = 'concurrently'"
+        ));
+        // Substring (not a standalone word) must not match.
+        assert!(!statement_requires_no_transaction(
+            "CREATE INDEX concurrentlyish ON t (a)"
+        ));
     }
 
     #[test]
