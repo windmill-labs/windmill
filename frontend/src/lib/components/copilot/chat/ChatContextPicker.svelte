@@ -255,13 +255,15 @@ at message-prep time by `AIChatManager` — see PR #9216.
 		}
 	}
 
-	// Global search loads every workspace kind so results appear across
-	// the tree.
-	$effect(() => {
-		if ((externalFilter ?? '').trim() !== '') {
-			for (const k of WORKSPACE_KINDS) ensureLoaded(k)
-		}
-	})
+	// Global search loads every workspace kind so results appear across the
+	// tree. Driven by DrillPicker's onFilterChange so both layouts work:
+	// the inline `@<word>` path (externalFilter), AND the badge popover
+	// (internalFilter, where the host can't otherwise observe the picker's
+	// own search box).
+	function handleFilterChange(filter: string) {
+		if (filter.trim() === '') return
+		for (const k of WORKSPACE_KINDS) ensureLoaded(k)
+	}
 
 	// Close the picker on Escape. The badge popover's melt-ui handles Esc
 	// itself; for the inline-mention case (Portal-rendered, no melt) we
@@ -312,4 +314,5 @@ at message-prep time by `AIChatManager` — see PR #9216.
 	leafSecondary={(leaf, scope) =>
 		'kind' in leaf.data ? relativizeWorkspacePath(leaf.data.path, scope) : undefined}
 	onScopeChange={handleScopeChange}
+	onFilterChange={handleFilterChange}
 />

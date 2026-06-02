@@ -56,6 +56,11 @@ leaves and ignores the current scope.
 		/** Fires whenever the scope changes. Lets the host trigger lazy
 		 * data loading for the branch the user drilled into. */
 		onScopeChange?: (scope: string[]) => void
+		/** Fires whenever the EFFECTIVE filter changes (internal OR external).
+		 * Lets the host trigger global preloads when the user starts searching
+		 * — needed in internal-filter mode where the host can't observe the
+		 * picker's own search box otherwise. */
+		onFilterChange?: (filter: string) => void
 	}
 
 	let {
@@ -69,7 +74,8 @@ leaves and ignores the current scope.
 		leafIcon,
 		branchIcon,
 		leafSecondary,
-		onScopeChange
+		onScopeChange,
+		onFilterChange
 	}: Props = $props()
 
 	let searchInput: TextInput | undefined = $state()
@@ -100,6 +106,11 @@ leaves and ignores the current scope.
 	$effect(() => {
 		void scope
 		onScopeChange?.(scope)
+	})
+
+	$effect(() => {
+		void filter
+		onFilterChange?.(filter)
 	})
 
 	/** Tracks whether the last user action was mouse movement (true) or
