@@ -161,8 +161,15 @@
 
 	async function shareReadLink(id: string): Promise<void> {
 		try {
-			const token = (await JobService.getJobViewToken({ workspace: $workspaceStore!, id })).trim()
-			const url = `${window.location.origin}${base}/run/${id}?view_token=${encodeURIComponent(token)}`
+			const workspace = $workspaceStore!
+			const token = (await JobService.getJobViewToken({ workspace, id })).trim()
+			// Pin the workspace in the link: the token is signed with this workspace's
+			// key, and the logged layout only switches `$workspaceStore` when the URL
+			// carries `workspace=`. Without it a recipient whose active workspace
+			// differs would open the run (and validate the token) against the wrong one.
+			const url = `${window.location.origin}${base}/run/${id}?workspace=${encodeURIComponent(
+				workspace
+			)}&view_token=${encodeURIComponent(token)}`
 			copyToClipboard(url)
 			sendUserToast('Read-only share link copied to clipboard')
 		} catch (e) {
