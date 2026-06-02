@@ -733,6 +733,67 @@ describe('global AI tools', () => {
 		expect(raw).not.toContain('deployed_step')
 	})
 
+	it('reads draft-only DB script anchors as drafts when no local draft exists', async () => {
+		vi.mocked(ScriptService.getScriptByPathWithDraft).mockResolvedValueOnce({
+			path: 'f/scripts/draft-only',
+			hash: 'draft-anchor-hash',
+			summary: 'draft-only summary',
+			description: 'draft-only description',
+			content: 'draft-only content',
+			language: 'bun',
+			kind: 'script',
+			draft_only: true
+		} as any)
+
+		const raw = await callGlobalTool('read_workspace_item', {
+			type: 'script',
+			path: 'f/scripts/draft-only'
+		})
+		const item = JSON.parse(raw)
+
+		expect(item).toEqual({
+			type: 'script',
+			path: 'f/scripts/draft-only',
+			summary: 'draft-only summary',
+			language: 'bun',
+			value: 'draft-only content',
+			isDraft: true
+		})
+	})
+
+	it('reads draft-only DB flow anchors as drafts when no local draft exists', async () => {
+		vi.mocked(FlowService.getFlowByPathWithDraft).mockResolvedValueOnce({
+			path: 'f/flows/draft-only',
+			summary: 'draft-only flow summary',
+			value: {
+				modules: [{ id: 'draft_only_step', value: { type: 'identity' } }]
+			},
+			schema: { type: 'object', properties: { draftOnly: { type: 'boolean' } } },
+			edited_by: 'admin',
+			edited_at: '2026-05-22T10:00:00Z',
+			archived: false,
+			extra_perms: {},
+			draft_only: true
+		} as any)
+
+		const raw = await callGlobalTool('read_workspace_item', {
+			type: 'flow',
+			path: 'f/flows/draft-only'
+		})
+		const item = JSON.parse(raw)
+
+		expect(item).toMatchObject({
+			type: 'flow',
+			path: 'f/flows/draft-only',
+			summary: 'draft-only flow summary',
+			isDraft: true,
+			value: {
+				modules: [{ id: 'draft_only_step', value: { type: 'identity' } }],
+				schema: { type: 'object', properties: { draftOnly: { type: 'boolean' } } }
+			}
+		})
+	})
+
 	it('applies path_prefix to local drafts before enforcing the result limit', async () => {
 		await callGlobalTool('write_script', {
 			path: 'f/other/outside',

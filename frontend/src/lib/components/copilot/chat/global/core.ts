@@ -1186,9 +1186,9 @@ async function readWorkspaceItem(
 ): Promise<WorkspaceItem> {
 	switch (type) {
 		case 'script':
-			return scriptToItem(await loadScriptWithDbDraft(path, workspace), true, false)
+			return scriptToItem(await loadScriptWithDbDraft(path, workspace), true)
 		case 'flow':
-			return flowToItem(await loadFlowWithDbDraft(path, workspace), true, false)
+			return flowToItem(await loadFlowWithDbDraft(path, workspace), true)
 		case 'schedule':
 			return scheduleToItem(await ScheduleService.getSchedule({ workspace, path }), true)
 		case 'trigger':
