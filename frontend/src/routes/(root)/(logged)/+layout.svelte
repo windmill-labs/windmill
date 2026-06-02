@@ -58,6 +58,8 @@
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
+	import { migrateLegacyUserDrafts } from '$lib/userDraftLegacyMigration'
+	import { migrateUserDraftsToDb } from '$lib/userDraftDbMigration'
 	import { setContext, untrack } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
@@ -421,6 +423,20 @@
 	})
 	$effect(() => {
 		$workspaceStore && untrack(() => onLoad())
+	})
+	// One-shot UserDraft migration chain. `migrateLegacyUserDrafts` folds
+	// the legacy `flow` / `app-…` / `rawapp-…` LS keys into the
+	// `userdraft/w/{ws}/{kind}/{path}` format; `migrateUserDraftsToDb`
+	// then pushes those onto the server-side draft table and clears LS
+	// on success. The order matters — the second step only sees what
+	// the first one normalized.
+	$effect(() => {
+		if ($workspaceStore) {
+			untrack(() => {
+				migrateLegacyUserDrafts($workspaceStore!)
+				void migrateUserDraftsToDb()
+			})
+		}
 	})
 	$effect(() => {
 		innerWidth && untrack(() => changeCollapsed())
