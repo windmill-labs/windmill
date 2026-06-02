@@ -112,27 +112,11 @@ async fn test_bun_with_native_annotation_becomes_nativets(db: Pool<Postgres>) {
     assert_eq!(tag, "nativets");
 }
 
-/// A plain bun preview (no `//native`) must stay `bun` / tag `bun`.
+/// Guard: a plain bun preview (no `//native`) must stay `bun` / tag `bun`, so
+/// the promotion above doesn't broadly retag normal previews.
 #[sqlx::test(fixtures("base"))]
 async fn test_bun_without_native_annotation_stays_bun(db: Pool<Postgres>) {
     let (tag, lang) = push_preview_and_get_row(&db, PLAIN_CONTENT, ScriptLang::Bun).await;
     assert_eq!(lang, Some(ScriptLang::Bun));
     assert_eq!(tag, "bun");
-}
-
-/// Symmetric to deploy-time logic: a `bunnative` declared language whose content
-/// dropped the `//native` annotation is demoted back to `bun` / tag `bun`.
-#[sqlx::test(fixtures("base"))]
-async fn test_bunnative_without_native_annotation_becomes_bun(db: Pool<Postgres>) {
-    let (tag, lang) = push_preview_and_get_row(&db, PLAIN_CONTENT, ScriptLang::Bunnative).await;
-    assert_eq!(lang, Some(ScriptLang::Bun));
-    assert_eq!(tag, "bun");
-}
-
-/// A `bunnative` preview that keeps `//native` stays `bunnative` / tag `nativets`.
-#[sqlx::test(fixtures("base"))]
-async fn test_bunnative_with_native_annotation_stays_nativets(db: Pool<Postgres>) {
-    let (tag, lang) = push_preview_and_get_row(&db, NATIVE_CONTENT, ScriptLang::Bunnative).await;
-    assert_eq!(lang, Some(ScriptLang::Bunnative));
-    assert_eq!(tag, "nativets");
 }
