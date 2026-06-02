@@ -75,7 +75,7 @@
 		disabled={edit && $userStore?.operator}
 	/>
 	{#if variable.is_secret}
-		<Alert type="warning" title="Audit log for each access">
+		<Alert type="info" title="Audit log for each access">
 			Every secret is encrypted at rest and in transit with a key specific to this workspace. In
 			addition, any read of a secret variable generates an audit log whose operation name is:
 			variables.decrypt_secret

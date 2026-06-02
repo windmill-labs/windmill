@@ -177,6 +177,11 @@
 		 * to clicking a run button on the graph.
 		 */
 		onTestStateChange?: (running: boolean) => void
+		// When true the right-hand test/run pane mounts collapsed. The user
+		// can still expand it via `toggleTestPanel`. Defaults to false so the
+		// regular /scripts/edit route keeps its current open-by-default UX;
+		// the session preview opts in to save vertical real estate.
+		initialTestPanelCollapsed?: boolean
 	}
 
 	let {
@@ -212,7 +217,8 @@
 		editorBarRight,
 		enablePreprocessorSnippet = false,
 		previewLayout = 'right',
-		onTestStateChange
+		onTestStateChange,
+		initialTestPanelCollapsed = false
 	}: Props = $props()
 
 	$effect(() => {
@@ -1440,8 +1446,11 @@
 	// dynamic minimum below — so when the editor shrinks, the displayed test
 	// pane grows to honor the new minimum without needing an effect. The code
 	// pane's size is purely derived from it (100 - test).
-	let rawTestPanelSize = $state(30)
-	let storedTestPanelSize = untrack(() => rawTestPanelSize)
+	// `initialTestPanelCollapsed` seeds the raw value at 0 (collapsed) while
+	// keeping the "remembered" size at 30, so the user's first toggle expands
+	// the pane to a sensible width rather than 0.
+	let rawTestPanelSize = $state(untrack(() => (initialTestPanelCollapsed ? 0 : 30)))
+	let storedTestPanelSize = 30
 	const testPanelSize = $derived(
 		rawTestPanelSize === 0 ? 0 : Math.max(rawTestPanelSize, testPaneMinPercent)
 	)

@@ -7107,7 +7107,11 @@ pub async fn run_job_by_hash_inner(
     Ok((uuid, delete_after_use, delete_after_secs))
 }
 
-async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::Result<Response> {
+async fn get_log_file(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, file_p)): Path<(String, String)>,
+) -> error::Result<Response> {
     if file_p.contains("..") {
         return Err(error::Error::BadRequest("Invalid path".to_string()));
     }
@@ -7119,27 +7123,58 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
             "Invalid path: must have exactly 2 components".to_string(),
         ));
     }
-    if Uuid::parse_str(parts[0]).is_err() {
-        return Err(error::Error::BadRequest(
-            "Invalid path: first component must be a valid UUID".to_string(),
-        ));
-    }
+    let job_id = Uuid::parse_str(parts[0]).map_err(|_| {
+        error::Error::BadRequest("Invalid path: first component must be a valid UUID".to_string())
+    })?;
     if !parts[1].ends_with(".txt") {
         return Err(error::Error::BadRequest(
             "Invalid path: file must end with .txt".to_string(),
         ));
     }
 
+    // Authorization: the log file directory is the job id, so gate access the same
+    // way as get_job_logs — the caller must be able to read the job. Non-logged-in
+    // callers may only read logs of jobs created by the anonymous user.
+    let tags = opt_authed
+        .as_ref()
+        .map(|authed| get_scope_tags(authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec()))
+        .flatten();
+    let created_by = sqlx::query_scalar!(
+        "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
+        job_id,
+        w_id,
+        tags.as_ref().map(|v| v.as_slice())
+    )
+    .fetch_optional(&db)
+    .await?
+    .ok_or_else(|| error::Error::NotFound(format!("Job {job_id} not found")))?;
+    if opt_authed.is_none() && created_by != "anonymous" {
+        return Err(error::Error::BadRequest(
+            "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+        ));
+    }
+
     let local_file = format!("{}/logs/{file_p}", *WINDMILL_DIR);
-    if tokio::fs::metadata(&local_file).await.is_ok() {
-        let mut file = tokio::fs::File::open(local_file).await.map_err(to_anyhow)?;
-        let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer).await.map_err(to_anyhow)?;
-        let res = Response::builder()
-            .header(http::header::CONTENT_TYPE, "text/plain")
-            .body(Body::from(bytes::Bytes::from(buffer)))
-            .unwrap();
-        return Ok(res);
+    // SECURITY (defense in depth): refuse to read through a symlink so a planted
+    // symlink in the logs directory cannot be used to exfiltrate arbitrary files.
+    // `symlink_metadata` returns the link's own metadata without following it.
+    match tokio::fs::symlink_metadata(&local_file).await {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            return Err(error::Error::BadRequest("Invalid path".to_string()));
+        }
+        Ok(_) => {
+            let mut file = tokio::fs::File::open(&local_file)
+                .await
+                .map_err(to_anyhow)?;
+            let mut buffer = Vec::new();
+            file.read_to_end(&mut buffer).await.map_err(to_anyhow)?;
+            let res = Response::builder()
+                .header(http::header::CONTENT_TYPE, "text/plain")
+                .body(Body::from(bytes::Bytes::from(buffer)))
+                .unwrap();
+            return Ok(res);
+        }
+        Err(_) => {}
     }
 
     #[cfg(all(feature = "enterprise", feature = "parquet"))]

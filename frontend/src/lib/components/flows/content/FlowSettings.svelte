@@ -63,7 +63,14 @@
 	let displayWorkerTagPicker = $state(false)
 
 	run(() => {
-		flowStore.val.tag ? (displayWorkerTagPicker = true) : null
+		if (flowStore.val.tag) {
+			displayWorkerTagPicker = true
+		} else if (flowStore.val.value.preserve_step_tags) {
+			// preserve_step_tags has no effect without a flow worker tag; clear it so it
+			// doesn't linger as invisible state when the tag is removed via any path
+			// (the picker, the toggle, or the YAML editor).
+			flowStore.val.value.preserve_step_tags = undefined
+		}
 	})
 
 	let activeAdvancedOptions = $derived([
@@ -78,6 +85,7 @@
 		{ name: 'Error Handler Muted', active: Boolean(flowStore.val.ws_error_handler_muted) },
 		{ name: 'Invisible to Others', active: Boolean(flowStore.val.visible_to_runner_only) },
 		{ name: 'Shared Directory', active: Boolean(flowStore.val.value.same_worker) },
+		{ name: 'Preserve Step Tags', active: Boolean(flowStore.val.value.preserve_step_tags) },
 		{ name: 'Cache Results', active: Boolean(flowStore.val.value.cache_ttl) },
 		{ name: 'Early Stop', active: Boolean(flowStore.val.value.skip_expr) },
 		{ name: 'Early Return', active: Boolean(flowStore.val.value.early_return) },
@@ -182,6 +190,8 @@
 							on:change={() => {
 								displayWorkerTagPicker = !displayWorkerTagPicker
 								if (!displayWorkerTagPicker) {
+									// Clearing the tag triggers the reactive block above, which also
+									// resets preserve_step_tags so it doesn't linger as invisible state.
 									flowStore.val.tag = undefined
 								}
 							}}
@@ -197,6 +207,25 @@
 							<div transition:slide={{ duration: 120 }} class="mt-2">
 								<WorkerTagPicker bind:tag={flowStore.val.tag} popupPlacement="top-end" />
 							</div>
+							{#if flowStore.val.tag}
+								<div
+									transition:slide={{ duration: 120 }}
+									class="mt-2 pl-4 border-l border-surface-selected"
+								>
+									<Toggle
+										textClass="font-medium"
+										size="xs"
+										bind:checked={flowStore.val.value.preserve_step_tags}
+										options={{
+											right: 'Preserve step worker tags',
+											rightTooltip:
+												'By default the flow worker tag above is propagated to and overrides every step, script and nested sub-flow. Enable this to instead let steps that declare their own worker tag run on it. Steps without their own tag still inherit the flow tag.',
+											rightDocumentationLink:
+												'https://www.windmill.dev/docs/core_concepts/worker_groups'
+										}}
+									/>
+								</div>
+							{/if}
 						{/if}
 					</div>
 

@@ -5387,6 +5387,7 @@ async fn push_inner<'c, 'd>(
                 cache_ttl: cache_ttl.map(|val| val as u32),
                 cache_ignore_s3_path: cache_ignore_s3_path,
                 same_worker: false,
+                preserve_step_tags: false,
                 early_return: None,
                 skip_expr: None,
                 preprocessor_module: None,

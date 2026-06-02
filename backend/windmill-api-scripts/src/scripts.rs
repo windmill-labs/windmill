@@ -739,6 +739,9 @@ async fn is_noop_deploy_against_parent(
         // caller-intent flag (auto-resolve parent), not script state
         auto_parent: _,
         labels,
+        // caller-intent flag (preserve user drafts on CLI/git-sync deploys);
+        // transient, never persisted, does not change what the script *is*
+        skip_draft_deletion: _,
     } = ns;
 
     if path != &parent.path {
@@ -927,6 +930,9 @@ async fn create_script_internal<'c>(
         }
     }
     let script_path = ns.path.clone();
+    // Caller-intent: CLI / git-sync deploys ask us to preserve any existing
+    // user draft at this path instead of wiping it as part of the deploy.
+    let skip_draft_deletion = ns.skip_draft_deletion.unwrap_or(false);
     let hash = ScriptHash(hash_script(&ns));
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
 
@@ -1395,13 +1401,15 @@ async fn create_script_internal<'c>(
 
     let p_path_opt = parent_hashes_and_perms.as_ref().map(|x| x.p_path.clone());
     if let Some(ref p_path) = p_path_opt {
-        sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
-            p_path,
-            &w_id
-        )
-        .execute(&mut *tx)
-        .await?;
+        if !skip_draft_deletion {
+            sqlx::query!(
+                "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
+                p_path,
+                &w_id
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
 
         sqlx::query!(
             "UPDATE capture_config SET path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS FALSE",
@@ -1480,7 +1488,7 @@ async fn create_script_internal<'c>(
                 tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;
             }
         }
-    } else {
+    } else if !skip_draft_deletion {
         sqlx::query!(
             "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
             ns.path,

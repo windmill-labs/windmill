@@ -22,6 +22,7 @@ import {
   showConflict,
   showDiff,
   extractNativeTriggerInfo,
+  redactEncryptionKey,
 } from "../../types.ts";
 import { downloadZip } from "./pull.ts";
 import { runLint, printReport, checkMissingLocks } from "../lint/lint.ts";
@@ -2503,8 +2504,20 @@ export async function pull(
     }
 
     if (opts.onlyCreateBranch) {
-      // Branch is checked out locally; the caller pushes it. Symmetric with
-      // the non-onlyCreateBranch path: CLI does branch + pull, never push.
+      // Branch-only publish: there is no commit here, so the GPG-cache-warmth
+      // invariant that motivated moving commit+push to the hub script (WIN-1974,
+      // #9284) does not apply — a bare `git push` of the (empty) branch ref needs
+      // no signing. The hub script only runs its in-process commit+push for the
+      // non-onlyCreateBranch path (`if (!only_create_branch) git_push(...)`), so
+      // the CLI MUST publish the fork branch here or it is never pushed at all.
+      gitSyncDeployPush({
+        items: deployItems,
+        authorName: process.env["WM_USERNAME"] || "windmill",
+        authorEmail: process.env["WM_EMAIL"] || "windmill@windmill.dev",
+        committerName: opts.gitCommitterName,
+        committerEmail: opts.gitCommitterEmail,
+        onlyCreateBranch: true,
+      });
       return;
     }
   }
@@ -3040,12 +3053,13 @@ export async function gitDeploy(
       ...(opts.extraIncludes ?? []),
       ...includes.extraIncludes,
     ],
-    includeSchedules: opts.includeSchedules || includes.includeSchedules,
-    includeGroups: opts.includeGroups || includes.includeGroups,
-    includeUsers: opts.includeUsers || includes.includeUsers,
-    includeTriggers: opts.includeTriggers || includes.includeTriggers,
-    includeSettings: opts.includeSettings || includes.includeSettings,
-    includeKey: opts.includeKey || includes.includeKey,
+    // Workspace-wide mode force-includes the deployed default-excluded kinds
+    // (full mirror). Individual-branch/promotion mode forces nothing — these
+    // keys stay ABSENT so pull resolves them from the promotion target's
+    // effective wmill.yaml filters. Spreading (not setting `false`) is what
+    // makes the deferral work: an explicit `false` would clobber the effective
+    // config in pull's Object.assign-based option merge.
+    ...includes.forcedIncludes,
     promotion,
   } as any);
 }
@@ -3095,16 +3109,22 @@ function prettyChanges(
         ),
       );
     } else if (change.name === "edited") {
+      const changeType = getTypeStrFromPath(change.path);
       log.info(
         colors.yellow(
-          `~ ${getTypeStrFromPath(change.path)} ` +
+          `~ ${changeType} ` +
             displayPath +
             colors.gray(wsNote) +
             (change.codebase ? ` (codebase changed)` : ""),
         ),
       );
       if (change.before != change.after) {
-        if (change.path.endsWith(".yaml")) {
+        if (changeType === "encryption_key") {
+          showDiff(
+            redactEncryptionKey(change.before),
+            redactEncryptionKey(change.after),
+          );
+        } else if (change.path.endsWith(".yaml")) {
           try {
             showDiff(
               yamlStringify(
@@ -4022,6 +4042,10 @@ export async function push(
                 originalWorkspaceSpecificPath,
                 permissionedAsContext,
                 isWsSpecific ? true : undefined,
+                {
+                  noninteractive: (opts.yes ?? false) || !process.stdin.isTTY,
+                  skipReencrypt: opts.skipReencryptOnKeyChange,
+                },
               );
 
               if (stateTarget) {
@@ -4107,6 +4131,10 @@ export async function push(
                 localFilePath, // Pass the actual local file path
                 permissionedAsContext,
                 isAddedWsSpecific ? true : undefined,
+                {
+                  noninteractive: (opts.yes ?? false) || !process.stdin.isTTY,
+                  skipReencrypt: opts.skipReencryptOnKeyChange,
+                },
               );
 
               if (stateTarget) {
@@ -4663,6 +4691,10 @@ const command = new Command()
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
   .option("--include-key", "Include workspace encryption key")
+  .option(
+    "--skip-reencrypt-on-key-change",
+    "When the pushed encryption key differs from the remote, do NOT re-encrypt existing remote secrets. Only safe if they are already encrypted with the new key (e.g. workspace/instance migration). Default is to re-encrypt.",
+  )
   .option("--skip-branch-validation", "Skip git branch validation and prompts")
   .option("--json-output", "Output results in JSON format")
   .option(

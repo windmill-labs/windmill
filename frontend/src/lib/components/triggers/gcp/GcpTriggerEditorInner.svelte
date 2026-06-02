@@ -29,6 +29,7 @@
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import { deepEqual } from 'fast-equals'
 	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
+	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { base } from '$lib/base'
@@ -144,7 +145,7 @@
 				initialConfig = structuredClone($state.snapshot(getGcpConfig()))
 			}
 			originalConfig = structuredClone($state.snapshot(getGcpConfig()))
-			await draftSync.maybeRestore(ePath)
+			await draftSync.maybeRestore()
 		} catch (err) {
 			sendUserToast(`Could not load GCP Pub/Sub trigger: ${err.body}`, true)
 		} finally {
@@ -361,6 +362,15 @@
 		>
 			{#snippet actions()}
 				{@render actionsButtons()}
+			{/snippet}
+			{#snippet banner()}
+				<LocalDraftBanner
+					show={draftSync.hasDraft}
+					getDeployed={() => draftSync.deployed}
+					getCurrent={() => draftSync.current}
+					onDiscard={() => draftSync.resetToDeployed(initialPath)}
+					disabled={!can_write}
+				/>
 			{/snippet}
 			{@render config()}
 		</DrawerContent>

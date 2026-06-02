@@ -7,8 +7,12 @@ import {
   prepareGlobalSystemMessage,
   prepareGlobalUserMessage,
 } from "../../../../../frontend/src/lib/components/copilot/chat/global/core";
-import { globalDraftStore } from "../../../../../frontend/src/lib/components/copilot/chat/global/draftStore.svelte";
+import {
+  clearGlobalDrafts,
+  listGlobalDrafts,
+} from "../../../../../frontend/src/lib/components/copilot/chat/global/userDraftAdapter";
 import type { Tool as ProductionTool } from "../../../../../frontend/src/lib/components/copilot/chat/shared";
+import { UserDraft } from "../../../../../frontend/src/lib/userDraft.svelte";
 import type { ModeRunContext } from "../../../../core/types";
 import type { GlobalDraftState } from "../../../../core/validators";
 import type { WindmillBackendSettings } from "../../../../core/windmillBackendSettings";
@@ -24,6 +28,21 @@ const MUTATING_GLOBAL_TOOLS = new Set([
   "deploy_workspace_item",
   "delete_workspace_item",
 ]);
+const DISABLE_ACTIVE_EDITOR_CONTEXT_ENV =
+  "WMILL_AI_EVAL_DISABLE_ACTIVE_EDITOR_CONTEXT";
+
+const LIVE_EDITOR_ITEM_KINDS = {
+  script: "script",
+  flow: "flow",
+  app: "raw_app",
+} as const;
+
+export interface GlobalLiveEditorDraftFixture {
+  type: keyof typeof LIVE_EDITOR_ITEM_KINDS;
+  storagePath?: string;
+  effectivePath?: string;
+  value?: unknown;
+}
 
 export interface GlobalEvalResult {
   success: boolean;
@@ -38,6 +57,7 @@ export interface GlobalEvalResult {
 
 export interface GlobalEvalOptions {
   workspaceFixtures?: BenchmarkWorkspaceRunnables;
+  liveEditorDrafts?: GlobalLiveEditorDraftFixture[];
   model?: string;
   maxIterations?: number;
   provider?: AIProvider;
@@ -55,19 +75,26 @@ export async function runGlobalEval(
     options.workspaceRoot ??
     (await mkdtemp(join(tmpdir(), "wmill-frontend-global-benchmark-")));
 
-  globalDraftStore.clearDrafts(workspaceRoot);
+  clearGlobalDrafts(workspaceRoot);
   registerBenchmarkWorkspaceRunnables(workspaceRoot, options.workspaceFixtures ?? {});
+  seedLiveEditorDrafts(workspaceRoot, options.liveEditorDrafts ?? []);
 
   try {
     const model = options.model ?? "claude-haiku-4-5-20251001";
+    const injectActiveEditorContext =
+      process.env[DISABLE_ACTIVE_EDITOR_CONTEXT_ENV] !== "1";
     const rawResult = await runEval({
       userPrompt,
       systemMessage: prepareGlobalSystemMessage(),
-      userMessage: prepareGlobalUserMessage(userPrompt),
+      userMessage: prepareGlobalUserMessage(
+        userPrompt,
+        [],
+        injectActiveEditorContext ? { workspace: workspaceRoot } : {},
+      ),
       tools: getGlobalEvalTools(),
       helpers: {},
       apiKey,
-      getOutput: () => ({ drafts: globalDraftStore.listDrafts(workspaceRoot) }),
+      getOutput: () => ({ drafts: listGlobalDrafts(workspaceRoot) }),
       onAssistantMessageStart: options.runContext?.onAssistantMessageStart,
       onAssistantToken: options.runContext?.onAssistantChunk,
       onAssistantMessageEnd: options.runContext?.onAssistantMessageEnd,
@@ -94,11 +121,42 @@ export async function runGlobalEval(
       tokenUsage: rawResult.tokenUsage,
     };
   } finally {
-    globalDraftStore.clearDrafts(workspaceRoot);
+    clearGlobalDrafts(workspaceRoot);
+    clearLiveEditorDrafts(workspaceRoot, options.liveEditorDrafts ?? []);
     unregisterBenchmarkWorkspaceRunnables(workspaceRoot);
     if (!options.workspaceRoot) {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
+  }
+}
+
+function seedLiveEditorDrafts(
+  workspace: string,
+  fixtures: GlobalLiveEditorDraftFixture[],
+): void {
+  for (const fixture of fixtures) {
+    const itemKind = LIVE_EDITOR_ITEM_KINDS[fixture.type];
+    const storagePath = fixture.storagePath ?? fixture.effectivePath ?? "";
+    if (fixture.value !== undefined) {
+      UserDraft.save(itemKind, storagePath, fixture.value, { workspace });
+    }
+    UserDraft.setLiveEditorDraft({
+      workspace,
+      itemKind,
+      storagePath,
+      effectivePath: fixture.effectivePath ?? fixture.storagePath,
+    });
+  }
+}
+
+function clearLiveEditorDrafts(
+  workspace: string,
+  fixtures: GlobalLiveEditorDraftFixture[],
+): void {
+  for (const fixture of fixtures) {
+    const itemKind = LIVE_EDITOR_ITEM_KINDS[fixture.type];
+    const storagePath = fixture.storagePath ?? fixture.effectivePath ?? "";
+    UserDraft.clearLiveEditorDraft(itemKind, { workspace, storagePath });
   }
 }
 

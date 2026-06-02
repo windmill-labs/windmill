@@ -61,7 +61,12 @@ import { runChatLoop } from './chatLoop'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import { getCurrentModel, tryGetCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
-import { globalTools, prepareGlobalSystemMessage, prepareGlobalUserMessage } from './global/core'
+import {
+	globalToolsFor,
+	prepareGlobalSystemMessage,
+	prepareGlobalUserMessage,
+	type GlobalToolHelpers
+} from './global/core'
 import { isGlobalAiEnabled } from './global/gate'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
@@ -208,13 +213,26 @@ export class AIChatManager {
 	private userQuestionCallbacks = new Map<string, (choice: string | undefined) => void>()
 	private appDatatablesRefreshTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
+	disabledModes: Partial<Record<AIMode, boolean>> = $state({})
+	// Set by AI sessions. Enables the session-only preview tools (open_preview /
+	// get_preview_status) and their system-prompt guidance in GLOBAL mode; the
+	// global side-panel chat leaves it false so those tools aren't offered.
+	isSessionChat = false
+	// The session this manager belongs to (session chats only). Carried into the
+	// tool `helpers` in GLOBAL mode so the preview/deploy tools dispatch to THIS
+	// session rather than the UI-active one — keeps backgrounded sessions isolated.
+	sessionId: string | undefined = undefined
+
 	allowedModes: Record<AIMode, boolean> = $derived({
-		script: this.flowAiChatHelpers === undefined && this.scriptEditorOptions !== undefined,
-		flow: this.flowAiChatHelpers !== undefined,
-		app: this.appAiChatHelpers !== undefined,
-		navigator: true,
-		ask: true,
-		API: true,
+		script:
+			this.flowAiChatHelpers === undefined &&
+			this.scriptEditorOptions !== undefined &&
+			!this.disabledModes.script,
+		flow: this.flowAiChatHelpers !== undefined && !this.disabledModes.flow,
+		app: this.appAiChatHelpers !== undefined && !this.disabledModes.app,
+		navigator: !this.disabledModes.navigator,
+		ask: !this.disabledModes.ask,
+		API: !this.disabledModes.API,
 		// Dev-only gate. See `./global/gate.ts` for how to enable.
 		global: isAIModeVisible(AIMode.GLOBAL)
 	})
@@ -495,9 +513,15 @@ export class AIChatManager {
 			this.helpers = {}
 		} else if (mode === AIMode.GLOBAL) {
 			const customPrompt = getCombinedCustomPrompt(mode)
-			this.systemMessage = prepareGlobalSystemMessage(customPrompt)
-			this.tools = [...globalTools]
-			this.helpers = {}
+			this.systemMessage = prepareGlobalSystemMessage(customPrompt, {
+				previewTools: this.isSessionChat
+			})
+			this.tools = globalToolsFor({ sessionPreview: this.isSessionChat })
+			this.helpers = {
+				...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
+				testActiveFlow: async (args?: Record<string, any>) =>
+					this.flowAiChatHelpers?.testFlow(args)
+			} satisfies GlobalToolHelpers
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareAppSystemMessage(customPrompt)
@@ -681,7 +705,11 @@ export class AIChatManager {
 					} else if (this.mode === AIMode.NAVIGATOR) {
 						return prepareNavigatorUserMessage(pendingPrompt)
 					} else if (this.mode === AIMode.GLOBAL) {
-						return prepareGlobalUserMessage(pendingPrompt, this.contextManager.getSelectedContext())
+						return prepareGlobalUserMessage(
+							pendingPrompt,
+							this.contextManager.getSelectedContext(),
+							{ workspace: get(workspaceStore) }
+						)
 					}
 					return undefined
 				},
@@ -791,6 +819,12 @@ export class AIChatManager {
 		}
 	}
 
+	// Optional pre-flight hook called once per send, after validation but
+	// before any UI state mutates or backend calls go out. Sessions use
+	// this to commit/materialise the workspace (creating a staged fork via
+	// the API) so the first message targets the correct workspace.
+	beforeSend?: () => Promise<void> | void
+
 	sendRequest = async (
 		options: {
 			removeDiff?: boolean
@@ -814,6 +848,24 @@ export class AIChatManager {
 		}
 		if (!this.instructions.trim()) {
 			return
+		}
+		if (this.beforeSend) {
+			try {
+				await this.beforeSend()
+			} catch (e) {
+				// beforeSend commits the session's workspace before the first
+				// message hits the backend. If it throws, sending anyway would
+				// silently target the wrong workspace (typically the parent), so
+				// abort and tell the user — their message text stays in the input.
+				console.error('AIChatManager beforeSend hook failed', e)
+				sendUserToast(
+					`Could not prepare the session before sending: ${
+						e instanceof Error ? e.message : String(e)
+					}. Your message was not sent — please try again.`,
+					true
+				)
+				return
+			}
 		}
 		try {
 			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []
@@ -898,7 +950,9 @@ export class AIChatManager {
 					userMessage = prepareApiUserMessage(oldInstructions)
 					break
 				case AIMode.GLOBAL:
-					userMessage = prepareGlobalUserMessage(oldInstructions, oldSelectedContext)
+					userMessage = prepareGlobalUserMessage(oldInstructions, oldSelectedContext, {
+						workspace: get(workspaceStore)
+					})
 					break
 				case AIMode.APP:
 					userMessage = prepareAppUserMessage(

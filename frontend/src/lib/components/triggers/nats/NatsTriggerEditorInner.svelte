@@ -25,6 +25,7 @@
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
+	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 
@@ -150,7 +151,7 @@
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
 			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
-			await draftSync.maybeRestore(ePath)
+			await draftSync.maybeRestore()
 		} catch (err) {
 			sendUserToast(`Could not load nats trigger: ${err}`, true)
 		} finally {
@@ -369,6 +370,15 @@
 		>
 			{#snippet actions()}
 				{@render actionsSnippet()}
+			{/snippet}
+			{#snippet banner()}
+				<LocalDraftBanner
+					show={draftSync.hasDraft}
+					getDeployed={() => draftSync.deployed}
+					getCurrent={() => draftSync.current}
+					onDiscard={() => draftSync.resetToDeployed(initialPath)}
+					disabled={!can_write}
+				/>
 			{/snippet}
 			{@render config()}
 		</DrawerContent>

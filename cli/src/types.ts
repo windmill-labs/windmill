@@ -18,7 +18,11 @@ import { pushSchedule } from "./commands/schedule/schedule.ts";
 import { pushWorkspaceUser } from "./commands/user/user.ts";
 import { pushGroup } from "./commands/user/user.ts";
 import { pushWorkspaceDependencies } from "./commands/dependencies/dependencies.ts";
-import { pushWorkspaceSettings, pushWorkspaceKey } from "./core/settings.ts";
+import {
+  pushWorkspaceSettings,
+  pushWorkspaceKey,
+  PushWorkspaceKeyOptions,
+} from "./core/settings.ts";
 import { pushTrigger, pushNativeTrigger } from "./commands/trigger/trigger.ts";
 import { pushRawApp } from "./commands/app/raw_apps.ts";
 import type { PermissionedAsContext } from "./core/permissioned_as.ts";
@@ -129,9 +133,44 @@ export function showDiff(local: string, remote: string) {
 
 export function showConflict(path: string, local: string, remote: string) {
   log.info(colors.yellow(`- ${path}`));
-  showDiff(local, remote);
+  let isEncryptionKey = false;
+  try {
+    isEncryptionKey = getTypeStrFromPath(path) === "encryption_key";
+  } catch {
+    // ignore
+  }
+  if (isEncryptionKey) {
+    showDiff(redactEncryptionKey(local), redactEncryptionKey(remote));
+  } else {
+    showDiff(local, remote);
+  }
   log.info("\x1b[31mlocal\x1b[31m - \x1b[32mremote\x1b[32m");
   log.info("\n");
+}
+
+// Reveal only the first 5 chars of the key so a rotation is still visible in
+// the diff (different prefixes), without leaking the whole secret to stdout.
+// The remaining chars are replaced with `*`, preserving length so the diff
+// keeps showing whether the key length changed.
+export function redactEncryptionKey(content: string): string {
+  if (!content) return content;
+  // The encryption_key payload is JSON-encoded (a quoted string). Parse it so
+  // we redact the key value itself, then re-serialize to JSON to preserve the
+  // file's shape; fall back to raw redaction if parsing fails.
+  try {
+    const parsed = JSON.parse(content);
+    if (typeof parsed === "string") {
+      return JSON.stringify(redactString(parsed));
+    }
+  } catch {
+    // not JSON — treat content as the raw key
+  }
+  return redactString(content);
+}
+
+function redactString(s: string): string {
+  if (s.length <= 5) return s;
+  return s.slice(0, 5) + "*".repeat(s.length - 5);
 }
 
 /**
@@ -144,6 +183,7 @@ export function showConflict(path: string, local: string, remote: string) {
  * @param alreadySynced - Array to track already synced items
  * @param message - Optional commit/update message
  * @param originalLocalPath - The original local file path (used for branch-specific resource file resolution)
+ * @param keyPushOpts - Options for the encryption_key push: non-interactive flag and explicit re-encryption choice
  */
 export async function pushObj(
   workspace: string,
@@ -156,6 +196,7 @@ export async function pushObj(
   originalLocalPath?: string,
   permissionedAsContext?: PermissionedAsContext,
   wsSpecific?: boolean,
+  keyPushOpts?: PushWorkspaceKeyOptions,
 ) {
   const typeEnding = getTypeStrFromPath(p);
 
@@ -221,7 +262,7 @@ export async function pushObj(
   } else if (typeEnding === "settings") {
     await pushWorkspaceSettings(workspace, p, befObj, newObj);
   } else if (typeEnding === "encryption_key") {
-    await pushWorkspaceKey(workspace, p, befObj, newObj);
+    await pushWorkspaceKey(workspace, p, befObj, newObj, keyPushOpts);
   } else {
     throw new Error(
       `The item ${p} has an unrecognized type ending ${typeEnding}`
