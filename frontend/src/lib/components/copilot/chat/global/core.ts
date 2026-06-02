@@ -95,7 +95,12 @@ import {
 	type WorkspaceItem,
 	type WorkspaceItemType
 } from './workspaceItems'
-import { buildFlowDeployRequestBody, buildScriptDeployRequestBody } from './deployRequests'
+import {
+	buildFlowDeployRequestBody,
+	buildScriptDeployRequestBody,
+	type FlowDeployMetadata,
+	type ScriptDeployMetadata
+} from './deployRequests'
 import { userStore } from '$lib/stores'
 import { get } from 'svelte/store'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
@@ -2165,6 +2170,11 @@ function buildVariableDeployRequestBody(
 }
 
 type DbDraftWorkspaceItemType = Extract<WorkspaceItemType, 'script' | 'flow' | 'app'>
+type DeployableDraft = {
+	item: WorkspaceItem
+	scriptMetadata?: ScriptDeployMetadata
+	flowMetadata?: FlowDeployMetadata
+}
 
 function isDbDraftWorkspaceItemType(type: WorkspaceItemType): type is DbDraftWorkspaceItemType {
 	return type === 'script' || type === 'flow' || type === 'app'
@@ -2233,27 +2243,31 @@ async function deleteDbDraftAndDraftOnlyAnchor(
 	}
 }
 
-async function loadDbDraftItem(
+async function loadDbDraftForDeploy(
 	workspace: string,
 	type: DbDraftWorkspaceItemType,
 	path: string
-): Promise<WorkspaceItem | undefined> {
+): Promise<DeployableDraft | undefined> {
 	switch (type) {
 		case 'script': {
 			if (!(await ScriptService.existsScriptByPath({ workspace, path }))) return undefined
 			const script = await ScriptService.getScriptByPathWithDraft({ workspace, path })
 			if (!script.draft && !script.draft_only) return undefined
-			return scriptToItem(
-				script.draft ? { ...script, ...script.draft, path: script.path } : script,
-				true,
-				true
-			)
+			const draftScript = script.draft ? { ...script, ...script.draft, path: script.path } : script
+			return {
+				item: scriptToItem(draftScript, true, true),
+				scriptMetadata: draftScript
+			}
 		}
 		case 'flow': {
 			if (!(await FlowService.existsFlowByPath({ workspace, path }))) return undefined
 			const flow = await FlowService.getFlowByPathWithDraft({ workspace, path })
 			if (!flow.draft && !flow.draft_only) return undefined
-			return flowToItem(flow.draft ? { ...flow, ...flow.draft, path: flow.path } : flow, true, true)
+			const draftFlow = flow.draft ? { ...flow, ...flow.draft, path: flow.path } : flow
+			return {
+				item: flowToItem(draftFlow, true, true),
+				flowMetadata: draftFlow
+			}
 		}
 		case 'app': {
 			if (!(await AppService.existsApp({ workspace, path }))) return undefined
@@ -2261,14 +2275,24 @@ async function loadDbDraftItem(
 			if (!app.draft && !app.draft_only) return undefined
 			const value = appSourceToDraftValue(app.draft ?? app, app)
 			return {
-				type: 'app',
-				path: app.path,
-				summary: value.summary,
-				value,
-				isDraft: true
+				item: {
+					type: 'app',
+					path: app.path,
+					summary: value.summary,
+					value,
+					isDraft: true
+				}
 			}
 		}
 	}
+}
+
+async function loadDbDraftItem(
+	workspace: string,
+	type: DbDraftWorkspaceItemType,
+	path: string
+): Promise<WorkspaceItem | undefined> {
+	return (await loadDbDraftForDeploy(workspace, type, path))?.item
 }
 
 async function getGlobalOrDbDraft(
@@ -2281,6 +2305,34 @@ async function getGlobalOrDbDraft(
 	if (draft) return draft
 	if (!isDbDraftWorkspaceItemType(type)) return undefined
 	return loadDbDraftItem(workspace, type, path)
+}
+
+async function getGlobalOrDbDraftForDeploy(
+	workspace: string,
+	type: WorkspaceItemType,
+	path: string,
+	triggerKind?: TriggerKind
+): Promise<DeployableDraft | undefined> {
+	const item = getGlobalDraft(workspace, type, path, triggerKind)
+	if (item) {
+		const storagePath = getGlobalDraftStoragePath(workspace, type, path, triggerKind)
+		switch (type) {
+			case 'script':
+				return {
+					item,
+					scriptMetadata: UserDraft.get<NewScript>('script', storagePath, { workspace })
+				}
+			case 'flow':
+				return {
+					item,
+					flowMetadata: UserDraft.get<Flow>('flow', storagePath, { workspace })
+				}
+			default:
+				return { item }
+		}
+	}
+	if (!isDbDraftWorkspaceItemType(type)) return undefined
+	return loadDbDraftForDeploy(workspace, type, path)
 }
 
 function startDraftWrite(ctx: WriteDraftCtx, type: WorkspaceItemType, path: string): void {
@@ -3403,10 +3455,11 @@ async function deployDraft(
 		throw new Error('trigger_kind is required when deploying a trigger.')
 	}
 
-	const draft = await getGlobalOrDbDraft(workspace, type, path, triggerKind)
-	if (!draft) {
+	const deployableDraft = await getGlobalOrDbDraftForDeploy(workspace, type, path, triggerKind)
+	if (!deployableDraft) {
 		throw new Error(`No draft found for ${type} "${path}".`)
 	}
+	const { item: draft } = deployableDraft
 	if (draft.value === undefined) {
 		throw new Error(`Draft ${type} "${path}" has no value to deploy.`)
 	}
@@ -3422,7 +3475,13 @@ async function deployDraft(
 			const existing = (await ScriptService.existsScriptByPath({ workspace, path }))
 				? await ScriptService.getScriptByPath({ workspace, path })
 				: undefined
-			const requestBody = buildScriptDeployRequestBody(path, draft, existing, deploymentMessage)
+			const requestBody = buildScriptDeployRequestBody(
+				path,
+				draft,
+				existing,
+				deploymentMessage,
+				deployableDraft.scriptMetadata
+			)
 			// Infer the arg schema from the content so it matches the code, like the editor does.
 			try {
 				const schema = emptySchema()
@@ -3444,7 +3503,8 @@ async function deployDraft(
 				draft.summary,
 				flowDraft,
 				existing,
-				deploymentMessage
+				deploymentMessage,
+				deployableDraft.flowMetadata
 			)
 			if (existing) {
 				await FlowService.updateFlow({ workspace, path, requestBody })

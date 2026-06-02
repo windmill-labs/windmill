@@ -794,6 +794,161 @@ describe('global AI tools', () => {
 		})
 	})
 
+	it('deploys DB script drafts with draft metadata when no local draft exists', async () => {
+		vi.mocked(ScriptService.existsScriptByPath)
+			.mockResolvedValueOnce(true)
+			.mockResolvedValueOnce(true)
+		vi.mocked(ScriptService.getScriptByPathWithDraft).mockResolvedValueOnce({
+			path: 'f/scripts/existing',
+			hash: 'deployed-hash',
+			summary: 'deployed summary',
+			description: 'deployed description',
+			content: 'deployed content',
+			schema: {},
+			is_template: false,
+			language: 'bun',
+			kind: 'script',
+			tag: 'deployed-tag',
+			envs: ['DEPLOYED_ENV'],
+			timeout: 60,
+			visible_to_runner_only: true,
+			labels: ['deployed'],
+			draft: {
+				path: 'f/scripts/existing',
+				summary: 'db draft summary',
+				description: 'db draft description',
+				content: 'db draft content',
+				language: 'bun',
+				kind: 'script',
+				tag: 'draft-tag',
+				envs: [],
+				timeout: 0,
+				visible_to_runner_only: false,
+				labels: []
+			}
+		} as any)
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/existing',
+			hash: 'deployed-hash',
+			summary: 'deployed summary',
+			description: 'deployed description',
+			content: 'deployed content',
+			schema: {},
+			is_template: false,
+			language: 'bun',
+			kind: 'script',
+			tag: 'deployed-tag',
+			envs: ['DEPLOYED_ENV'],
+			timeout: 60,
+			visible_to_runner_only: true,
+			labels: ['deployed']
+		} as any)
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'script',
+			path: 'f/scripts/existing',
+			deployment_message: 'ship db draft'
+		})
+
+		expect(ScriptService.createScript).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: expect.objectContaining({
+				path: 'f/scripts/existing',
+				parent_hash: 'deployed-hash',
+				summary: 'db draft summary',
+				description: 'db draft description',
+				content: 'db draft content',
+				language: 'bun',
+				tag: 'draft-tag',
+				envs: [],
+				timeout: 0,
+				visible_to_runner_only: false,
+				labels: [],
+				deployment_message: 'ship db draft'
+			})
+		})
+	})
+
+	it('deploys DB flow drafts with draft metadata when no local draft exists', async () => {
+		vi.mocked(FlowService.existsFlowByPath).mockResolvedValueOnce(true).mockResolvedValueOnce(true)
+		vi.mocked(FlowService.getFlowByPathWithDraft).mockResolvedValueOnce({
+			path: 'f/flows/existing',
+			summary: 'deployed summary',
+			description: 'deployed description',
+			value: {
+				modules: [{ id: 'deployed_step', value: { type: 'identity' } }]
+			},
+			schema: { type: 'object', properties: { deployed: { type: 'boolean' } } },
+			edited_by: 'admin',
+			edited_at: '2026-05-22T09:00:00Z',
+			archived: false,
+			extra_perms: {},
+			tag: 'deployed-tag',
+			timeout: 60,
+			visible_to_runner_only: true,
+			labels: ['deployed'],
+			draft: {
+				path: 'f/flows/existing',
+				summary: 'db draft summary',
+				description: 'db draft description',
+				value: {
+					modules: [{ id: 'draft_step', value: { type: 'identity' } }]
+				},
+				schema: { type: 'object', properties: { draft: { type: 'string' } } },
+				edited_by: 'admin',
+				edited_at: '2026-05-22T10:00:00Z',
+				archived: false,
+				extra_perms: {},
+				tag: 'draft-tag',
+				timeout: 0,
+				visible_to_runner_only: false,
+				labels: []
+			}
+		} as any)
+		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
+			path: 'f/flows/existing',
+			summary: 'deployed summary',
+			description: 'deployed description',
+			value: {
+				modules: [{ id: 'deployed_step', value: { type: 'identity' } }]
+			},
+			schema: { type: 'object', properties: { deployed: { type: 'boolean' } } },
+			edited_by: 'admin',
+			edited_at: '2026-05-22T09:00:00Z',
+			archived: false,
+			extra_perms: {},
+			tag: 'deployed-tag',
+			timeout: 60,
+			visible_to_runner_only: true,
+			labels: ['deployed']
+		} as any)
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'flow',
+			path: 'f/flows/existing',
+			deployment_message: 'ship db draft'
+		})
+
+		expect(FlowService.updateFlow).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'f/flows/existing',
+			requestBody: expect.objectContaining({
+				path: 'f/flows/existing',
+				summary: 'db draft summary',
+				description: 'db draft description',
+				schema: { type: 'object', properties: { draft: { type: 'string' } } },
+				tag: 'draft-tag',
+				timeout: 0,
+				visible_to_runner_only: false,
+				labels: [],
+				deployment_message: 'ship db draft'
+			})
+		})
+		expect(vi.mocked(FlowService.updateFlow).mock.calls[0]?.[0].requestBody.value.modules).toEqual([
+			{ id: 'draft_step', value: { type: 'identity' } }
+		])
+	})
+
 	it('applies path_prefix to local drafts before enforcing the result limit', async () => {
 		await callGlobalTool('write_script', {
 			path: 'f/other/outside',
