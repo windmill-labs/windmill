@@ -50,18 +50,6 @@ export type UserDraftOptions = {
 	workspace?: string
 }
 
-export type UserDraftUseOptions<V> = UserDraftOptions & {
-	/**
-	 * Initial in-memory value used when no draft has been seeded yet.
-	 * No longer eagerly persisted: persistence is the editor's job (it
-	 * fetches the draft from the backend via `get_draft=true` and seeds
-	 * the handle via `setDraftAndMeta`). This option is kept for the
-	 * rare callers that want a synchronous fallback while the editor
-	 * load is in flight.
-	 */
-	defaultValue?: V
-}
-
 export type UserDraftListOptions = UserDraftOptions & {
 	itemKinds?: readonly UserDraftItemKind[]
 }
@@ -71,11 +59,10 @@ export type UserDraftListOptions = UserDraftOptions & {
  * handle for. The shape mirrors `use()`'s arguments, just bundled into
  * one object so a getter can return a list of them.
  */
-export type UserDraftSpec<V> = {
+export type UserDraftSpec = {
 	itemKind: UserDraftItemKind
 	path: string
 	workspace?: string
-	defaultValue?: V
 }
 
 /**
@@ -136,7 +123,6 @@ export type UserDraftEntry<V = unknown> = {
 	path: string
 	value: V | undefined
 	meta: UserDraftMeta
-	live: boolean
 }
 
 export type LiveEditorDraft = {
@@ -331,27 +317,6 @@ export const UserDraft = {
 	},
 
 	/**
-	 * Autosave gate: persist `value` only when it differs (after
-	 * `normalizeForCompare`) from the `deployed` baseline; otherwise
-	 * remove any draft. Without this, opening and closing an editor with
-	 * no edits would leave a no-op draft that restore guards treat as
-	 * unsaved work.
-	 */
-	saveIfChanged<V>(
-		itemKind: UserDraftItemKind,
-		path: string,
-		value: V,
-		deployed: V | undefined,
-		opts?: UserDraftOptions
-	): void {
-		if (deepEqual(normalizeForCompare(value), normalizeForCompare(deployed))) {
-			UserDraft.remove(itemKind, path, opts)
-		} else {
-			UserDraft.save(itemKind, path, value, opts)
-		}
-	},
-
-	/**
 	 * Read the current draft value from the in-memory cell. Returns
 	 * `undefined` when no editor has mounted a handle for this
 	 * `(workspace, kind, path)` in this tab — UserDraft no longer
@@ -455,8 +420,7 @@ export const UserDraft = {
 				itemKind: entry.itemKind,
 				path: entry.path,
 				value: snapshotDraftValue(unwrap(stored)),
-				meta: extractMeta(stored),
-				live: true
+				meta: extractMeta(stored)
 			})
 		}
 		return out
@@ -524,7 +488,7 @@ export const UserDraft = {
 	use<V = unknown>(
 		itemKind: UserDraftItemKind,
 		path: string,
-		opts?: UserDraftUseOptions<V>
+		opts?: UserDraftOptions
 	): UserDraftHandle<V> {
 		// `use()` is a single-spec wrapper around `useMany`. We untrack
 		// the getter so reactive opts (e.g. `$workspaceStore`) are
@@ -533,19 +497,12 @@ export const UserDraft = {
 		// unmounts." Use `useMany` directly if you want spec changes to
 		// release/acquire entries as you go.
 		const handles = UserDraft.useMany<V>(() =>
-			untrack(() => [
-				{
-					itemKind,
-					path,
-					workspace: opts?.workspace,
-					defaultValue: opts?.defaultValue
-				}
-			])
+			untrack(() => [{ itemKind, path, workspace: opts?.workspace }])
 		)
 		return handles[0]
 	},
 
-	useMany<V = unknown>(getSpecs: () => UserDraftSpec<V>[]): UserDraftHandle<V>[] {
+	useMany<V = unknown>(getSpecs: () => UserDraftSpec[]): UserDraftHandle<V>[] {
 		// Reactive handles array, reconciled against the latest
 		// `getSpecs()` output. Indices line up with the spec array.
 		// Handles for the same `(workspace, kind, path)` tuple are
@@ -567,7 +524,7 @@ export const UserDraft = {
 				seen.add(mk)
 
 				if (!acquired.has(mk)) {
-					acquireEntry(ws, spec.itemKind, spec.path, spec.defaultValue)
+					acquireEntry(ws, spec.itemKind, spec.path)
 					acquired.add(mk)
 				}
 				let handle = handleCache.get(mk)
@@ -613,12 +570,7 @@ export const UserDraft = {
 	}
 }
 
-function acquireEntry(
-	workspace: string,
-	itemKind: UserDraftItemKind,
-	path: string,
-	defaultValue: unknown
-): void {
+function acquireEntry(workspace: string, itemKind: UserDraftItemKind, path: string): void {
 	const mk = mapKey(workspace, itemKind, path)
 	const existing = entries.get(mk)
 	if (existing) {
@@ -631,9 +583,7 @@ function acquireEntry(
 	// reconcile.
 	let stateRef: DraftState<unknown> | undefined
 	const destroyRoot = $effect.root(() => {
-		const cell = $state<{ val: StoredDraft<unknown> | undefined }>({
-			val: wrap(defaultValue)
-		})
+		const cell = $state<{ val: StoredDraft<unknown> | undefined }>({ val: undefined })
 		stateRef = cell
 		// Mirror every observable change of `cell.val` to the DB
 		// syncer. Reading `cell.val` alone only subscribes to the proxy
@@ -697,7 +647,7 @@ function acquireEntry(
 	// isn't invoked. Unreachable in production (Svelte runs it
 	// synchronously). The fallback cell has no sync effect, so writes
 	// in tests stay in-memory.
-	const fallback = $state<{ val: StoredDraft<unknown> | undefined }>({ val: wrap(defaultValue) })
+	const fallback = $state<{ val: StoredDraft<unknown> | undefined }>({ val: undefined })
 	entries.set(mk, {
 		count: 1,
 		workspace,
@@ -768,22 +718,6 @@ function makeHandle<V>(
 		}
 	}
 }
-
-/**
- * Pre-removal-of-localStorage shim. UserDraft no longer persists to
- * localStorage, so there is nothing to GC. Kept as a callable export so
- * existing wiring in `+layout.svelte` (and similar) stays a one-line
- * no-op rather than a build failure.
- */
-export function gcUserDrafts(_maxAgeMs?: number): void {
-	// no-op
-}
-
-/**
- * Vestigial — no localStorage layer means no GC retention window. Kept
- * for source compatibility with code that still references the constant.
- */
-export const USER_DRAFT_GC_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 
 /** Test-only: clear all in-memory entries. */
 export function __resetUserDraftForTesting(): void {
