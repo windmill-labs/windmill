@@ -143,12 +143,18 @@ function refreshManagedTsconfig(defaultTs: "bun" | "deno") {
     create: { extends: `./${MANAGED_TSCONFIG}` },
     wire: (parsed) => {
       const ext = parsed.extends;
+      const managed = `./${MANAGED_TSCONFIG}`;
+      // Insert the managed config FIRST in `extends`. TypeScript processes the
+      // array left-to-right with later entries winning, so going first means the
+      // user's own base config keeps precedence on any overlapping compilerOptions
+      // — we only contribute the `$f/`/`$u/` `paths` their base won't define,
+      // rather than silently overriding their `strict`/`target`/`module` choices.
       if (ext === undefined) {
-        parsed.extends = `./${MANAGED_TSCONFIG}`;
+        parsed.extends = managed;
       } else if (typeof ext === "string") {
-        parsed.extends = [ext, `./${MANAGED_TSCONFIG}`];
+        parsed.extends = [managed, ext];
       } else if (Array.isArray(ext)) {
-        ext.push(`./${MANAGED_TSCONFIG}`);
+        ext.unshift(managed);
       } else {
         return "unexpected `extends` value";
       }
