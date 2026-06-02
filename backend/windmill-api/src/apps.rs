@@ -72,6 +72,7 @@ use windmill_common::{
 use windmill_object_store::object_store_reexports::{Attribute, Attributes};
 use windmill_store::resources::get_resource_value_interpolated_internal;
 
+use windmill_api_auth::{create_token_internal, NewToken};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
 
@@ -132,6 +133,7 @@ pub fn unauthed_service() -> Router {
         .route("/delete_s3_file", delete(delete_s3_file_from_app))
         .route("/download_s3_file/{*path}", get(download_s3_file_from_app))
         .route("/public_app/{secret}", get(get_public_app_by_secret))
+        .route("/embed_token/{secret}", get(get_app_embed_token))
         .route("/public_resource/{*path}", get(get_public_resource))
         .route("/get_data/v/{*id}", get(get_raw_app_data))
 }
@@ -473,13 +475,35 @@ async fn get_raw_app_data(
     .await?;
 
     let file_type = splitted.next().unwrap_or("");
+
+    // Sandboxed wrapper document that hosts the bundle. Served from a real URL
+    // (not blob:/srcdoc) so we can attach `CSP: sandbox` as a response header,
+    // which forces an opaque origin even on direct navigation — a raw-app
+    // bundle can then never reach the authenticated Windmill origin (WIN-2006).
+    // The `.js`/`.css` are loaded as same-path subresources by this document.
+    if file_type == "html" {
+        let html = raw_app_wrapper_html(secret_id);
+        return Ok(Response::builder()
+            .header(http::header::CONTENT_TYPE, "text/html; charset=utf-8")
+            .header("X-Content-Type-Options", "nosniff")
+            .header("Cross-Origin-Resource-Policy", "cross-origin")
+            .header(
+                http::header::CONTENT_SECURITY_POLICY,
+                "sandbox allow-scripts allow-forms allow-popups \
+                 allow-popups-to-escape-sandbox allow-downloads allow-modals \
+                 allow-top-navigation-by-user-activation",
+            )
+            .body(Body::from(html))
+            .unwrap());
+    }
+
     let file_type = if file_type == "css" {
         "css"
     } else if file_type == "js" {
         "js"
     } else {
         return Err(Error::BadRequest(
-            "Invalid file type, only .css and .js are supported".to_string(),
+            "Invalid file type, only .css, .js and .html are supported".to_string(),
         ));
     };
     // tracing::info!("file_type: {}", file_type);
@@ -530,18 +554,126 @@ async fn get_raw_app_data(
 
     if let Some(body) = body {
         // let stream = tokio_util::io::ReaderStream::new(file);
-        let res = Response::builder().header(
-            http::header::CONTENT_TYPE,
-            if file_type == "css" {
-                "text/css"
-            } else {
-                "text/javascript"
-            },
-        );
+        let res = Response::builder()
+            .header(
+                http::header::CONTENT_TYPE,
+                if file_type == "css" {
+                    "text/css"
+                } else {
+                    "text/javascript"
+                },
+            )
+            // nosniff + CORP so the bundle loads correctly as a subresource of
+            // the opaque, sandboxed wrapper (incl. under a cross-origin-isolated
+            // / COEP `require-corp` embedder).
+            .header("X-Content-Type-Options", "nosniff")
+            .header("Cross-Origin-Resource-Policy", "cross-origin");
         Ok(res.body(body).unwrap())
     } else {
         return Err(Error::NotFound("File not found".to_string()));
     }
+}
+
+/// HTML wrapper that hosts a raw-app bundle inside a sandboxed, opaque-origin
+/// iframe. Served by [`get_raw_app_data`] for the `.html` "file type". It loads
+/// the bundle `.js`/`.css` as same-path subresources, shims web storage (which
+/// an opaque origin disallows), and waits for the embedder to hand it the user
+/// context via `postMessage` before evaluating the bundle — so the bundle never
+/// receives a credential and `window.ctx` is set synchronously when it runs.
+fn raw_app_wrapper_html(secret: &str) -> String {
+    const TEMPLATE: &str = r##"<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<title>App</title>
+<link rel="stylesheet" href="./__SECRET__.css" />
+<script>
+(function () {
+  // Storage shim: an opaque-origin (sandboxed) document has no localStorage and
+  // accessing it throws. Provide an in-memory implementation so apps that use
+  // web storage keep working within the session.
+  try {
+    window.localStorage.getItem('__wm_probe__');
+  } catch (e) {
+    function makeShim(onChange) {
+      var mem = {};
+      return {
+        getItem: function (k) { k = String(k); return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null; },
+        setItem: function (k, v) { mem[String(k)] = String(v); if (onChange) onChange(mem); },
+        removeItem: function (k) { delete mem[String(k)]; if (onChange) onChange(mem); },
+        clear: function () { for (var k in mem) { delete mem[k]; } if (onChange) onChange(mem); },
+        key: function (i) { var ks = Object.keys(mem); return i < ks.length ? ks[i] : null; },
+        get length() { return Object.keys(mem).length; },
+        __hydrate: function (obj) { if (obj) { for (var k in obj) { mem[k] = String(obj[k]); } } }
+      };
+    }
+    // localStorage mirrors up to the parent (RawAppPreview) for cross-reload
+    // persistence; sessionStorage stays session-only.
+    function syncUp(mem) { try { window.parent.postMessage({ type: 'wm_ls_sync', data: mem }, '*'); } catch (_) {} }
+    var ls = makeShim(syncUp);
+    var ss = makeShim(null);
+    try { Object.defineProperty(window, 'localStorage', { value: ls, configurable: true }); } catch (_) {}
+    try { Object.defineProperty(window, 'sessionStorage', { value: ss, configurable: true }); } catch (_) {}
+    window.__wmStorageShim = { local: ls, session: ss };
+    // document.cookie also throws in an opaque origin; back it with an in-memory
+    // jar so reads don't crash apps. This is NOT the real session cookie (which
+    // is unreachable here) — just an isolated client-side store.
+    try {
+      var jar = {};
+      Object.defineProperty(Document.prototype, 'cookie', {
+        configurable: true,
+        get: function () { return Object.keys(jar).map(function (k) { return k + '=' + jar[k]; }).join('; '); },
+        set: function (v) { var p = String(v).split(';')[0]; var i = p.indexOf('='); if (i > -1) { jar[p.slice(0, i).trim()] = p.slice(i + 1).trim(); } }
+      });
+    } catch (_) {}
+  }
+
+  // Keep the iframe hash in sync with the parent so app URLs stay shareable.
+  function notifyParent() {
+    try { if (window.parent !== window) { window.parent.postMessage({ type: 'windmill:hashchange', hash: window.location.hash }, '*'); } } catch (_) {}
+  }
+  window.addEventListener('hashchange', notifyParent);
+  var _ps = history.pushState, _rs = history.replaceState;
+  history.pushState = function () { _ps.apply(this, arguments); notifyParent(); };
+  history.replaceState = function () { _rs.apply(this, arguments); notifyParent(); };
+
+  // ctx handshake: the embedding parent hands us the user context (and any
+  // persisted storage) before we evaluate the bundle, so `window.ctx` is set
+  // synchronously when the bundle runs. The bundle <script> is injected only
+  // after this, never inline, so it always observes a ready context.
+  var loaded = false;
+  function loadBundle() {
+    if (loaded) return; loaded = true;
+    var s = document.createElement('script');
+    s.src = './__SECRET__.js';
+    document.body.appendChild(s);
+  }
+  window.addEventListener('message', function (e) {
+    var d = e.data || {};
+    if (d.type === 'windmill:ctx') {
+      window.ctx = d.ctx;
+      if (window.__wmStorageShim && d.storage) {
+        window.__wmStorageShim.local.__hydrate(d.storage.local);
+        window.__wmStorageShim.session.__hydrate(d.storage.session);
+      }
+      if (d.initialHash && d.initialHash !== '#' && !window.location.hash) {
+        try { history.replaceState(null, '', d.initialHash); } catch (_) {}
+      }
+      loadBundle();
+    }
+  });
+  try { window.parent.postMessage({ type: 'windmill:ready' }, '*'); } catch (_) {}
+  // Fallback for contexts that never send ctx (e.g. ctx-less rendering).
+  setTimeout(loadBundle, 1500);
+})();
+</script>
+</head>
+<body>
+<div id="root"></div>
+</body>
+</html>
+"##;
+    TEMPLATE.replace("__SECRET__", secret)
 }
 
 // async fn get_app_version(
@@ -884,6 +1016,134 @@ async fn get_public_app_by_secret(
     }
 
     Ok(Json(app))
+}
+
+/// Scopes granted to a short-lived "app embed token". This is the token the
+/// app-embedder page hands the (opaque-origin) app iframe at startup so the app
+/// never receives the viewer's session cookie. Instead of restricting which
+/// routes a *domain* may hit, we restrict which routes the *token* may hit, so
+/// that even a malicious or compromised app document can only reach the
+/// endpoints an app legitimately needs:
+/// - `apps:run`      → `apps_u/public_app`, `get_data`, `public_resource` (read)
+///                      and `execute_component` (run). Run/Read only — it does
+///                      NOT grant `apps:write`, so the token cannot reach
+///                      app-management routes (`apps/update`, `apps/delete`, ...).
+/// - `jobs:read`     → `jobs_u/getupdate_sse`, completed-job results.
+/// - `resources:read`→ `resources/list`, `resources/type/*`, `resources/exists`.
+/// - `users:read`    → `users/whoami`.
+/// - `folders:read`  → `folders/listnames`.
+pub const APP_EMBED_SCOPES: [&str; 5] = [
+    "apps:run",
+    "jobs:read",
+    "resources:read",
+    "users:read",
+    "folders:read",
+];
+
+/// How long an app embed token stays valid. The embedder re-mints on demand
+/// (e.g. after a `401` from the iframe) so this can stay short.
+const APP_EMBED_TOKEN_VALIDITY_HOURS: i64 = 12;
+
+#[derive(Serialize)]
+pub struct EmbedTokenResponse {
+    /// Narrowly-scoped token for the iframe. `None` for fully anonymous access
+    /// (the iframe then calls the public endpoints anonymously).
+    pub token: Option<String>,
+    pub expiration: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Mint a short-lived, narrowly-scoped embed token for `app_path` when a caller
+/// is authenticated. When `opt_authed` is `None` (anonymous access to an
+/// anonymous app) no token is minted and the iframe relies on the public
+/// endpoints.
+pub async fn mint_app_embed_token(
+    db: &DB,
+    w_id: &str,
+    app_path: &str,
+    opt_authed: Option<&ApiAuthed>,
+) -> Result<EmbedTokenResponse> {
+    let token_and_exp = if let Some(authed) = opt_authed {
+        let expiration =
+            chrono::Utc::now() + chrono::Duration::hours(APP_EMBED_TOKEN_VALIDITY_HOURS);
+        let scopes = APP_EMBED_SCOPES.iter().map(|s| s.to_string()).collect();
+        let token_config = NewToken::new(
+            Some(format!("embed_app:{app_path}")),
+            Some(expiration),
+            None,
+            Some(scopes),
+            Some(w_id.to_string()),
+            // Never let an embed token gain write capability the caller's own
+            // session lacks.
+            Some(authed.read_only),
+        );
+        let mut tx = db.begin().await?;
+        let token = create_token_internal(&mut *tx, db, authed, token_config).await?;
+        tx.commit().await?;
+        Some((token, expiration))
+    } else {
+        None
+    };
+
+    Ok(EmbedTokenResponse {
+        token: token_and_exp.as_ref().map(|(t, _)| t.clone()),
+        expiration: token_and_exp.map(|(_, e)| e),
+    })
+}
+
+/// Issue an embed token for a public app addressed by its (secret) share id.
+/// Mirrors the access check in [`get_public_app_by_secret`]: anonymous apps are
+/// reachable without auth, otherwise the caller must be logged in and have read
+/// access to the app.
+async fn get_app_embed_token(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path((w_id, secret)): Path<(String, String)>,
+) -> JsonResult<EmbedTokenResponse> {
+    let id = get_id_from_secret(&db, &w_id, secret, None).await?;
+
+    let app = sqlx::query!(
+        "SELECT path, policy::text as policy FROM app WHERE id = $1 AND workspace_id = $2",
+        id,
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?;
+    let app = not_found_if_none(app, "App", id.to_string())?;
+    let policy_str = app
+        .policy
+        .ok_or_else(|| Error::internal_err("App policy missing".to_string()))?;
+    let policy = serde_json::from_str::<Policy>(&policy_str).map_err(to_anyhow)?;
+
+    let authed_for_token = if matches!(policy.execution_mode, ExecutionMode::Anonymous) {
+        // Anonymous app: still mint a scoped token if the viewer happens to be
+        // logged in (so the app sees their identity), otherwise stay anonymous.
+        opt_authed
+    } else {
+        let authed = opt_authed.ok_or_else(|| {
+            Error::NotAuthorized(
+                "App visibility does not allow public access and you are not logged in".to_string(),
+            )
+        })?;
+        let mut tx = user_db.begin(&authed).await?;
+        let is_visible = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM app WHERE id = $1 AND workspace_id = $2)",
+            id,
+            &w_id
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        if !is_visible.unwrap_or(false) {
+            return Err(Error::NotAuthorized(
+                "App visibility does not allow public access and you are logged in but you have no read-access to that app".to_string(),
+            ));
+        }
+        Some(authed)
+    };
+
+    let resp = mint_app_embed_token(&db, &w_id, &app.path, authed_for_token.as_ref()).await?;
+    Ok(Json(resp))
 }
 
 async fn get_id_from_secret(
@@ -3421,4 +3681,53 @@ async fn build_args(
         PushArgsOwned { extra: Some(extra), args: safe_args },
         job_id,
     ))
+}
+
+#[cfg(test)]
+mod embed_token_tests {
+    use super::APP_EMBED_SCOPES;
+    use windmill_api_auth::scopes::check_scopes_for_route;
+
+    /// The embed token must reach exactly the endpoints an app needs and nothing
+    /// else. This locks the allow/deny matrix that confines a malicious or
+    /// compromised app to app-only routes (WIN-2006).
+    #[test]
+    fn embed_scopes_allow_app_routes_and_deny_the_rest() {
+        let scopes: Vec<String> = APP_EMBED_SCOPES.iter().map(|s| s.to_string()).collect();
+        let scopes = Some(scopes.as_slice());
+
+        // Allowed: the routes a running app legitimately calls.
+        let allowed = [
+            ("/api/w/test/apps_u/public_app/secret", "GET"),
+            ("/api/w/test/apps_u/get_data/v/secret.js", "GET"),
+            ("/api/w/test/apps_u/public_resource/f/app_themes/t", "GET"),
+            ("/api/w/test/apps_u/execute_component/u/admin/app", "POST"),
+            ("/api/w/test/jobs_u/getupdate_sse/some-uuid", "GET"),
+            ("/api/w/test/users/whoami", "GET"),
+            ("/api/w/test/resources/list", "GET"),
+            ("/api/w/test/folders/listnames", "GET"),
+        ];
+        for (path, method) in allowed {
+            assert!(
+                check_scopes_for_route(scopes, path, method).is_ok(),
+                "embed token should allow {method} {path}"
+            );
+        }
+
+        // Denied: anything outside what an app needs, including app management
+        // (apps:write is intentionally withheld) and other workspace domains.
+        let denied = [
+            ("/api/w/test/apps/update/u/admin/app", "POST"),
+            ("/api/w/test/apps/delete/u/admin/app", "DELETE"),
+            ("/api/w/test/scripts/list", "GET"),
+            ("/api/w/test/variables/list", "GET"),
+            ("/api/w/test/resources/update/u/admin/r", "POST"),
+        ];
+        for (path, method) in denied {
+            assert!(
+                check_scopes_for_route(scopes, path, method).is_err(),
+                "embed token should deny {method} {path}"
+            );
+        }
+    }
 }

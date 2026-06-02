@@ -565,7 +565,13 @@ pub async fn run_server(
                             "/flow_conversations",
                             windmill_api_flow_conversations::workspaced_service(),
                         )
-                        .nest("/folders", folders::workspaced_service())
+                        // CORS so an opaque-origin app iframe (WIN-2006 embed,
+                        // no separate domain) can read folders/listnames with a
+                        // scoped embed token. Consistent with apps_u/jobs_u cors.
+                        .nest(
+                            "/folders",
+                            folders::workspaced_service().layer(cors.clone()),
+                        )
                         .nest("/folders_history", folder_history::workspaced_service())
                         .nest("/groups", groups::workspaced_service())
                         .nest("/groups_history", group_history::workspaced_service())
@@ -614,14 +620,23 @@ pub async fn run_server(
                             path_autocomplete::workspaced_service(),
                         )
                         .nest("/raw_apps", raw_apps::workspaced_service())
-                        .nest("/resources", resources::workspaced_service())
+                        // CORS so the opaque-origin app iframe can read
+                        // resources/list, resources/type/* with a scoped token.
+                        .nest(
+                            "/resources",
+                            resources::workspaced_service().layer(cors.clone()),
+                        )
                         .nest("/shared_ui", workspace_shared_ui::workspaced_service())
                         .nest("/schedules", windmill_api_schedule::workspaced_service())
                         .nest("/scripts", scripts::workspaced_service())
                         .nest("/trash", trash::workspaced_service())
                         .nest(
                             "/users",
-                            users::workspaced_service().layer(Extension(argon2.clone())),
+                            // CORS so the opaque-origin app iframe can read
+                            // users/whoami with a scoped embed token.
+                            users::workspaced_service()
+                                .layer(Extension(argon2.clone()))
+                                .layer(cors.clone()),
                         )
                         .nest("/variables", variables::workspaced_service())
                         .nest("/volumes", volumes_oss::workspaced_service())

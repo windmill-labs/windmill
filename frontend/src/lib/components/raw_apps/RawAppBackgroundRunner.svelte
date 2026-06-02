@@ -27,7 +27,14 @@
 		workspace
 	}: Props = $props()
 
+	// Job ids launched by this app instance. waitJob/getJob/streamJob are scoped
+	// to these so a bundle can't read arbitrary workspace jobs by id (WIN-2006).
+	const launchedJobs = new Set<string>()
+
 	let listener = async (event) => {
+		// Only accept messages from the bundle iframe (opaque origin) so other
+		// frames/extensions can't drive the runnable bridge (WIN-2006).
+		if (iframe && event.source !== iframe.contentWindow) return
 		const data = event.data
 
 		function respond(o: object) {
@@ -113,6 +120,7 @@
 					},
 					undefined
 				)
+				launchedJobs.add(uuid)
 				let job: JobById = { component: runnable_id, created_at: Date.now(), job: uuid }
 				if (event.data.type == 'backendAsync') {
 					let result = uuid
@@ -132,14 +140,29 @@
 				console.error('No runnable found for', runnable_id)
 			}
 		} else if (event.data.type == 'waitJob') {
+			if (!launchedJobs.has(data.jobId)) {
+				respond({ result: { message: 'Unknown job' }, error: true })
+				return
+			}
 			await respondWithResult(data.jobId)
 		} else if (event.data.type == 'getJob') {
+			if (!launchedJobs.has(data.jobId)) {
+				respond({ result: { message: 'Unknown job' }, error: true })
+				return
+			}
 			const job = await JobService.getJob({ workspace, id: data.jobId })
 			respond({ result: job })
 		} else if (event.data.type == 'streamJob') {
 			// Stream job results using SSE
 			const jobId = data.jobId
 			const reqId = data.reqId
+			if (!launchedJobs.has(jobId)) {
+				iframe?.contentWindow?.postMessage(
+					{ type: 'streamJobRes', reqId, error: true, result: { message: 'Unknown job' } },
+					'*'
+				)
+				return
+			}
 			const params = new URLSearchParams()
 			params.set('fast', 'true')
 			params.set('only_result', 'true')

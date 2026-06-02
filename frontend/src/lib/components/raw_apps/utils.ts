@@ -15,75 +15,11 @@ export type RawApp = {
 	files: string[]
 }
 
-export function htmlContent(
-	workspace: string,
-	secret: string | undefined,
-	ctx: any,
-	baseUrl: string = '',
-	initialHash: string = ''
-) {
-	return `<!DOCTYPE html>
-<html>
-<head>
-	<meta charset="UTF-8" />
-	<title>App Preview</title>
-	<link rel="stylesheet" href="${baseUrl}/api/w/${workspace}/apps_u/get_data/v/${secret}.css" />
-	<script>
-		window.ctx = ${ctx ? JSON.stringify(ctx) : 'undefined'};
-
-		// Sync hash with parent window for shareable URLs
-		(function() {
-			// Set initial hash from parent URL
-			var initialHash = ${JSON.stringify(initialHash)};
-			if (initialHash && initialHash !== '#' && !window.location.hash) {
-				history.replaceState(null, '', initialHash);
-			}
-
-			// Notify parent when hash changes
-			function notifyParent() {
-				var hash = window.location.hash;
-				console.log('[HashSync] notifyParent called, hash:', hash);
-				if (window.parent !== window) {
-					window.parent.postMessage({
-						type: 'windmill:hashchange',
-						hash: hash
-					}, '*');
-				}
-			}
-
-			// Listen for hash changes
-			window.addEventListener('hashchange', function() {
-				console.log('[HashSync] hashchange event');
-				notifyParent();
-			});
-
-			// Also notify on pushState/replaceState
-			var originalPushState = history.pushState;
-			var originalReplaceState = history.replaceState;
-
-			history.pushState = function() {
-				console.log('[HashSync] pushState called with:', arguments[2]);
-				originalPushState.apply(this, arguments);
-				notifyParent();
-			};
-
-			history.replaceState = function() {
-				console.log('[HashSync] replaceState called with:', arguments[2]);
-				originalReplaceState.apply(this, arguments);
-				notifyParent();
-			};
-
-			// Notify parent of initial hash after load
-			setTimeout(notifyParent, 0);
-		})();
-	</script>
-</head>
-<body>
-	<div id="root"></div>
-	<script src="${baseUrl}/api/w/${workspace}/apps_u/get_data/v/${secret}.js"></script>
-</body>
-</html>`
-}
+// NOTE: the raw-app HTML wrapper is now generated server-side and served as a
+// sandboxed, opaque-origin document (see `get_raw_app_data` in the backend
+// `apps.rs`, WIN-2006). The former client-side `htmlContent()` blob wrapper was
+// removed because a blob: URL is same-origin with the SPA and cannot carry the
+// `CSP: sandbox` response header that enforces isolation.
 
 function removeStaticFields(schema: Schema, fields: Record<string, { type: string }>): Schema {
 	const staticFields = Object.keys(fields).filter((k) => fields[k].type == 'static')
