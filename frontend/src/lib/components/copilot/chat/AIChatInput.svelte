@@ -142,6 +142,20 @@
 		instructions = `${instructions}${sep}${target} `
 	}
 
+	/** Strip every `@title` token from the textarea — used when the user
+	 * deletes the corresponding badge so the badge X-button mirrors the
+	 * inverse (text-delete-to-badge-remove) sync. Only matches when `@title`
+	 * appears as a standalone token (preceded by start/whitespace, followed
+	 * by end/whitespace) so substring matches don't bleed into other words. */
+	export function removeMention(title: string) {
+		const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+		const re = new RegExp(`(^|\\s)@${escaped}(?=\\s|$)`, 'g')
+		// Collapse the leading whitespace (or empty if matched at start) with
+		// the now-orphaned trailing space the mention had — the textarea ends
+		// up with a single separator between the surviving words.
+		instructions = instructions.replace(re, (_m, lead) => (lead ? lead : '')).replace(/  +/g, ' ')
+	}
+
 	export function focusInput() {
 		if (isContextEnabledMode) {
 			contextTextareaComponent?.focus()
@@ -473,6 +487,7 @@
 						selectedContext = selectedContext?.filter(
 							(c) => c.type !== element.type || c.title !== element.title
 						)
+						removeMention(element.title)
 					}}
 				/>
 			{/each}

@@ -285,20 +285,27 @@ export default class ContextManager {
 						c.type === 'workspace_flow' ||
 						newAvailableContext.some((ac) => ac.type === c.type && ac.title === c.title)
 				)
-				.map((c) =>
-					c.type === 'code'
-						? {
-								...c,
-								content: scriptOptions.code,
-								title: this.getContextCodePath(scriptOptions)
-							}
-						: c.type === 'db' && dbSchemas[c.title]
-							? {
-									...c,
-									schema: dbSchemas[c.title]
-								}
-							: c
-				)
+				.map((c) => {
+					if (c.type === 'code') {
+						return {
+							...c,
+							content: scriptOptions.code,
+							title: this.getContextCodePath(scriptOptions)
+						}
+					}
+					if (c.type === 'db' && dbSchemas[c.title]) {
+						return { ...c, schema: dbSchemas[c.title] }
+					}
+					// For other auto-derived types (diff, error), rehydrate from the
+					// freshly-built newAvailableContext so the carryover doesn't keep
+					// stale `content` / `diff` payloads — preserve the user-set
+					// `deletable` flag on top of the fresh entry.
+					const fresh = newAvailableContext.find((ac) => ac.type === c.type && ac.title === c.title)
+					if (fresh && 'deletable' in c) {
+						return { ...fresh, deletable: c.deletable } as ContextElement
+					}
+					return fresh ?? c
+				})
 
 			this.availableContext = newAvailableContext
 			this.selectedContext = newSelectedContext
