@@ -4041,6 +4041,10 @@ export async function push(
                 originalWorkspaceSpecificPath,
                 permissionedAsContext,
                 isWsSpecific ? true : undefined,
+                {
+                  noninteractive: (opts.yes ?? false) || !process.stdin.isTTY,
+                  skipReencrypt: opts.skipReencryptOnKeyChange,
+                },
               );
 
               if (stateTarget) {
@@ -4126,6 +4130,10 @@ export async function push(
                 localFilePath, // Pass the actual local file path
                 permissionedAsContext,
                 isAddedWsSpecific ? true : undefined,
+                {
+                  noninteractive: (opts.yes ?? false) || !process.stdin.isTTY,
+                  skipReencrypt: opts.skipReencryptOnKeyChange,
+                },
               );
 
               if (stateTarget) {
@@ -4682,6 +4690,10 @@ const command = new Command()
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
   .option("--include-key", "Include workspace encryption key")
+  .option(
+    "--skip-reencrypt-on-key-change",
+    "When the pushed encryption key differs from the remote, do NOT re-encrypt existing remote secrets. Only safe if they are already encrypted with the new key (e.g. workspace/instance migration). Default is to re-encrypt.",
+  )
   .option("--skip-branch-validation", "Skip git branch validation and prompts")
   .option("--json-output", "Output results in JSON format")
   .option(
