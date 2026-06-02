@@ -3053,12 +3053,13 @@ export async function gitDeploy(
       ...(opts.extraIncludes ?? []),
       ...includes.extraIncludes,
     ],
-    includeSchedules: opts.includeSchedules || includes.includeSchedules,
-    includeGroups: opts.includeGroups || includes.includeGroups,
-    includeUsers: opts.includeUsers || includes.includeUsers,
-    includeTriggers: opts.includeTriggers || includes.includeTriggers,
-    includeSettings: opts.includeSettings || includes.includeSettings,
-    includeKey: opts.includeKey || includes.includeKey,
+    // Workspace-wide mode force-includes the deployed default-excluded kinds
+    // (full mirror). Individual-branch/promotion mode forces nothing — these
+    // keys stay ABSENT so pull resolves them from the promotion target's
+    // effective wmill.yaml filters. Spreading (not setting `false`) is what
+    // makes the deferral work: an explicit `false` would clobber the effective
+    // config in pull's Object.assign-based option merge.
+    ...includes.forcedIncludes,
     promotion,
   } as any);
 }
