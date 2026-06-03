@@ -233,11 +233,14 @@ ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
 # Install UV
-RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.9.24/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.9.25/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
 
 # Preinstall python runtimes to temp build location (will copy with world-writable perms later)
-RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install 3.11
-RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $LATEST_STABLE_PY
+# --compile-bytecode precompiles the stdlib to .pyc so jobs don't recompile it on every run
+# under the read-only nsjail runtime mount (uv >= 0.9.25). The copy below MUST preserve
+# timestamps or Python's mtime-based .pyc invalidation discards these compiled files.
+RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install 3.11 --compile-bytecode
+RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $LATEST_STABLE_PY --compile-bytecode
 
 
 RUN curl -sL https://deb.nodesource.com/setup_20.x | bash -
@@ -259,7 +262,7 @@ RUN export GOCACHE=/tmp/build_cache/go && \
 # chmod a+rw adds read+write WITHOUT removing execute bits (755->777, 644->666)
 # Note: uv python install only creates py_runtime, not uv cache - we create uv/go dirs for runtime
 RUN mkdir -p /tmp/windmill/cache && \
-    cp -r /tmp/build_cache/* /tmp/windmill/cache/ && \
+    cp -r --preserve=timestamps /tmp/build_cache/* /tmp/windmill/cache/ && \
     chmod -R a+rw /tmp/windmill/cache && \
     rm -rf /tmp/build_cache && \
     mkdir -p -m 777 /tmp/windmill/cache/uv /tmp/windmill/cache/go /tmp/windmill/cache/rustup /tmp/windmill/cache/cargo
