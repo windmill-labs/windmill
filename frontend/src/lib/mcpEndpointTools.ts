@@ -555,10 +555,6 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "type": "boolean",
                         "description": "(default false)\ninclude scripts without an exported main function\n"
                 },
-                "include_draft_only": {
-                        "type": "boolean",
-                        "description": "(default false)\ninclude scripts that have no deployed version\n"
-                },
                 "is_template": {
                         "type": "boolean",
                         "description": "(default regardless)\nif true show only the templates\nif false show only the non templates\nif not defined, show all regardless of if the script is a template\n"
@@ -802,10 +798,6 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "starred_only": {
                         "type": "boolean",
                         "description": "(default false)\nshow only the starred items\n"
-                },
-                "include_draft_only": {
-                        "type": "boolean",
-                        "description": "(default false)\ninclude items that have no deployed version\n"
                 },
                 "with_deployment_msg": {
                         "type": "boolean",
