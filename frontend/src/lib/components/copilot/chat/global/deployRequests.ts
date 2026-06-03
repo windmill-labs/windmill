@@ -72,7 +72,7 @@ function pickDeployMetadata<T extends object, K extends keyof T>(
 export function buildScriptDeployRequestBody(
 	path: string,
 	draft: WorkspaceItem,
-	existing: Script | undefined,
+	existing: ScriptDeployMetadata | undefined,
 	deploymentMessage: string | undefined,
 	draftMetadata?: ScriptDeployMetadata
 ): NewScript {
@@ -80,8 +80,7 @@ export function buildScriptDeployRequestBody(
 		throw new Error(`Draft script "${path}" is missing content or language.`)
 	}
 
-	const existingWithMetadata = existing as ScriptDeployMetadata | undefined
-	const metadata = mergeDeployMetadata(existingWithMetadata, draftMetadata)
+	const metadata = mergeDeployMetadata(existing, draftMetadata)
 	const onBehalfOfEmail = metadata.on_behalf_of_email
 
 	return {
@@ -111,7 +110,7 @@ export function buildFlowDeployRequestBody(
 	path: string,
 	draftSummary: string | undefined,
 	flowDraft: FlowDraftValue,
-	existing: Flow | undefined,
+	existing: FlowDeployMetadata | undefined,
 	deploymentMessage: string | undefined,
 	draftMetadata?: FlowDeployMetadata
 ): FlowDeployRequestBody {

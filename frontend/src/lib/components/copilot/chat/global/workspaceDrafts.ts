@@ -33,8 +33,11 @@ export type DbDraftWorkspaceItemType = Extract<WorkspaceItemType, 'script' | 'fl
 
 export type DeployableDraft = {
 	item: WorkspaceItem
+	existingScript?: ScriptDeployMetadata
 	scriptMetadata?: ScriptDeployMetadata
+	existingFlow?: FlowDeployMetadata
 	flowMetadata?: FlowDeployMetadata
+	appExists?: boolean
 }
 
 type DeployStatusHandler = (content: string) => void
@@ -187,6 +190,7 @@ export async function loadDbDraftForDeploy(
 			const draftScript = script.draft ? { ...script, ...script.draft, path: script.path } : script
 			return {
 				item: scriptToItem(draftScript, true, true),
+				existingScript: script,
 				scriptMetadata: draftScript
 			}
 		}
@@ -197,6 +201,7 @@ export async function loadDbDraftForDeploy(
 			const draftFlow = flow.draft ? { ...flow, ...flow.draft, path: flow.path } : flow
 			return {
 				item: flowToItem(draftFlow, true, true),
+				existingFlow: flow,
 				flowMetadata: draftFlow
 			}
 		}
@@ -212,7 +217,8 @@ export async function loadDbDraftForDeploy(
 					summary: value.summary,
 					value,
 					isDraft: true
-				}
+				},
+				appExists: true
 			}
 		}
 	}
@@ -251,13 +257,21 @@ export async function loadWorkspaceDraftForDeploy(
 			case 'script':
 				return {
 					item,
+					existingScript: (await ScriptService.existsScriptByPath({ workspace, path }))
+						? await ScriptService.getScriptByPath({ workspace, path })
+						: undefined,
 					scriptMetadata: UserDraft.get<NewScript>('script', storagePath, { workspace })
 				}
 			case 'flow':
 				return {
 					item,
+					existingFlow: (await FlowService.existsFlowByPath({ workspace, path }))
+						? await FlowService.getFlowByPath({ workspace, path })
+						: undefined,
 					flowMetadata: UserDraft.get<Flow>('flow', storagePath, { workspace })
 				}
+			case 'app':
+				return { item, appExists: await AppService.existsApp({ workspace, path }) }
 			default:
 				return { item }
 		}
@@ -270,13 +284,11 @@ export async function deployScriptDraft(args: {
 	workspace: string
 	path: string
 	draft: WorkspaceItem
+	existing?: ScriptDeployMetadata
 	deploymentMessage?: string
 	draftMetadata?: ScriptDeployMetadata
 }): Promise<void> {
-	const { workspace, path, draft, deploymentMessage, draftMetadata } = args
-	const existing = (await ScriptService.existsScriptByPath({ workspace, path }))
-		? await ScriptService.getScriptByPath({ workspace, path })
-		: undefined
+	const { workspace, path, draft, existing, deploymentMessage, draftMetadata } = args
 	const requestBody = buildScriptDeployRequestBody(
 		path,
 		draft,
@@ -298,14 +310,12 @@ export async function deployFlowDraft(args: {
 	workspace: string
 	path: string
 	draft: WorkspaceItem
+	existing?: FlowDeployMetadata
 	deploymentMessage?: string
 	draftMetadata?: FlowDeployMetadata
 }): Promise<void> {
-	const { workspace, path, draft, deploymentMessage, draftMetadata } = args
+	const { workspace, path, draft, existing, deploymentMessage, draftMetadata } = args
 	const flowDraft = draft.value as FlowDraftValue
-	const existing = (await FlowService.existsFlowByPath({ workspace, path }))
-		? await FlowService.getFlowByPath({ workspace, path })
-		: undefined
 	const requestBody = buildFlowDeployRequestBody(
 		path,
 		draft.summary,
@@ -325,10 +335,11 @@ export async function deployAppDraft(args: {
 	workspace: string
 	path: string
 	draft: WorkspaceItem
+	appExists?: boolean
 	deploymentMessage?: string
 	onStatus?: DeployStatusHandler
 }): Promise<void> {
-	const { workspace, path, draft, deploymentMessage, onStatus } = args
+	const { workspace, path, draft, appExists, deploymentMessage, onStatus } = args
 	const appDraft = draft.value as AppDraftValue
 	const appValue: AppDraftValue = {
 		...appDraft,
@@ -365,7 +376,7 @@ export async function deployAppDraft(args: {
 		data: appValue.data ?? { ...DEFAULT_RAW_APP_DATA }
 	}
 	const summary = appValue.summary ?? draft.summary ?? ''
-	if (await AppService.existsApp({ workspace, path })) {
+	if (appExists ?? (await AppService.existsApp({ workspace, path }))) {
 		// Omit custom_path on update for now. The backend preserves it when absent, while
 		// sending it requires admin privileges; this chat deploy path does not yet mirror
 		// the raw app editor's user/admin-specific custom_path handling.

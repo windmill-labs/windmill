@@ -930,9 +930,7 @@ describe('global AI tools', () => {
 	})
 
 	it('deploys DB script drafts with draft metadata when no local draft exists', async () => {
-		vi.mocked(ScriptService.existsScriptByPath)
-			.mockResolvedValueOnce(true)
-			.mockResolvedValueOnce(true)
+		vi.mocked(ScriptService.existsScriptByPath).mockResolvedValueOnce(true)
 		vi.mocked(ScriptService.getScriptByPathWithDraft).mockResolvedValueOnce({
 			path: 'f/scripts/existing',
 			hash: 'deployed-hash',
@@ -962,22 +960,6 @@ describe('global AI tools', () => {
 				labels: []
 			}
 		} as any)
-		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
-			path: 'f/scripts/existing',
-			hash: 'deployed-hash',
-			summary: 'deployed summary',
-			description: 'deployed description',
-			content: 'deployed content',
-			schema: {},
-			is_template: false,
-			language: 'bun',
-			kind: 'script',
-			tag: 'deployed-tag',
-			envs: ['DEPLOYED_ENV'],
-			timeout: 60,
-			visible_to_runner_only: true,
-			labels: ['deployed']
-		} as any)
 
 		await callGlobalTool('deploy_workspace_item', {
 			type: 'script',
@@ -1002,10 +984,11 @@ describe('global AI tools', () => {
 				deployment_message: 'ship db draft'
 			})
 		})
+		expect(ScriptService.getScriptByPath).not.toHaveBeenCalled()
 	})
 
 	it('deploys DB flow drafts with draft metadata when no local draft exists', async () => {
-		vi.mocked(FlowService.existsFlowByPath).mockResolvedValueOnce(true).mockResolvedValueOnce(true)
+		vi.mocked(FlowService.existsFlowByPath).mockResolvedValueOnce(true)
 		vi.mocked(FlowService.getFlowByPathWithDraft).mockResolvedValueOnce({
 			path: 'f/flows/existing',
 			summary: 'deployed summary',
@@ -1040,23 +1023,6 @@ describe('global AI tools', () => {
 				labels: []
 			}
 		} as any)
-		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
-			path: 'f/flows/existing',
-			summary: 'deployed summary',
-			description: 'deployed description',
-			value: {
-				modules: [{ id: 'deployed_step', value: { type: 'identity' } }]
-			},
-			schema: { type: 'object', properties: { deployed: { type: 'boolean' } } },
-			edited_by: 'admin',
-			edited_at: '2026-05-22T09:00:00Z',
-			archived: false,
-			extra_perms: {},
-			tag: 'deployed-tag',
-			timeout: 60,
-			visible_to_runner_only: true,
-			labels: ['deployed']
-		} as any)
 
 		await callGlobalTool('deploy_workspace_item', {
 			type: 'flow',
@@ -1082,6 +1048,7 @@ describe('global AI tools', () => {
 		expect(vi.mocked(FlowService.updateFlow).mock.calls[0]?.[0].requestBody.value.modules).toEqual([
 			{ id: 'draft_step', value: { type: 'identity' } }
 		])
+		expect(FlowService.getFlowByPath).not.toHaveBeenCalled()
 	})
 
 	it('applies path_prefix to local drafts before enforcing the result limit', async () => {
