@@ -4,6 +4,7 @@ import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManage
 import { initFlow } from '$lib/components/flows/flowStore.svelte'
 import {
 	AppService,
+	DraftService,
 	FlowService,
 	ScriptService,
 	WorkspaceService,
@@ -117,6 +118,17 @@ export interface SessionRuntime {
 	// schedules a couple of delayed refreshes so the fork-bar count
 	// updates without waiting for an AI turn or a tab refocus.
 	scheduleForkComparisonRefresh(): void
+	// Draft count cache: shared by SessionDraftBar (count + drawer). Number of
+	// server-side drafts (the `draft` table, same source as the compare page)
+	// in the session's committed workspace. Keyed by workspace; refreshed on the
+	// same triggers as the fork comparison (turn-end / refocus / activate).
+	readonly draftCount: { val: number | undefined }
+	ensureDraftCount(workspace: string): Promise<void>
+	invalidateDraftCount(): void
+	refreshDraftCount(): Promise<void>
+	// Push a known count (e.g. from the embedded CompareDrafts drawer after a
+	// deploy/discard) so the bar updates without a round-trip.
+	setDraftCount(n: number): void
 	// Cancel pending fork-comparison refresh timers. Called by disposeRuntime so
 	// a torn-down (e.g. LRU-evicted, deleted) runtime can't fire a stray
 	// refreshForkComparisonNow / compareWorkspaces after it's gone.
@@ -221,6 +233,23 @@ function createRuntime(session: Session): SessionRuntime {
 			console.error('SessionRuntime: forkComparison refresh failed', e)
 		} finally {
 			loadingForkComparison = false
+		}
+	}
+
+	const draftCount: { val: number | undefined } = $state({ val: undefined })
+	let loadingDraftCount = $state(false)
+	let draftCountKey: string | undefined = undefined
+
+	async function refreshDraftCountNow() {
+		const ws = draftCountKey
+		if (!ws || loadingDraftCount) return
+		loadingDraftCount = true
+		try {
+			draftCount.val = (await DraftService.countDrafts({ workspace: ws })).count
+		} catch (e) {
+			console.error('SessionRuntime: draftCount refresh failed', e)
+		} finally {
+			loadingDraftCount = false
 		}
 	}
 
@@ -555,6 +584,33 @@ function createRuntime(session: Session): SessionRuntime {
 				setTimeout(() => void refreshForkComparisonNow(), 700),
 				setTimeout(() => void refreshForkComparisonNow(), 2200)
 			]
+		},
+
+		draftCount,
+		async ensureDraftCount(workspace: string) {
+			if (draftCountKey === workspace && draftCount.val !== undefined) return
+			if (loadingDraftCount && draftCountKey === workspace) return
+			draftCountKey = workspace
+			loadingDraftCount = true
+			try {
+				draftCount.val = (await DraftService.countDrafts({ workspace })).count
+			} catch (e) {
+				console.error('SessionRuntime: draftCount fetch failed', e)
+				draftCount.val = undefined
+				if (draftCountKey === workspace) draftCountKey = undefined
+			} finally {
+				loadingDraftCount = false
+			}
+		},
+		invalidateDraftCount() {
+			draftCountKey = undefined
+			draftCount.val = undefined
+		},
+		refreshDraftCount() {
+			return refreshDraftCountNow()
+		},
+		setDraftCount(n: number) {
+			draftCount.val = n
 		},
 		dispose() {
 			for (const t of forkRefreshTimers) clearTimeout(t)

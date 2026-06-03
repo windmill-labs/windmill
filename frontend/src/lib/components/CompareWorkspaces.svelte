@@ -1,10 +1,8 @@
 <script lang="ts">
 	import {
 		AlertTriangle,
-		ArrowDown,
 		ArrowDownRight,
 		ArrowRight,
-		ArrowUp,
 		ArrowUpRight,
 		Building,
 		CircleCheck,
@@ -54,22 +52,37 @@
 	import DeploymentRequestPanel from './deploymentRequest/DeploymentRequestPanel.svelte'
 	import { userStore } from '$lib/stores'
 	import { base } from '$lib/base'
-	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
 	import DatatableSchemaDiff from './DatatableSchemaDiff.svelte'
 
 	interface Props {
 		currentWorkspaceId: string
 		parentWorkspaceId: string
 		comparison: WorkspaceComparison | undefined
+		/** Initial merge direction; lets the page restore the chosen direction when
+		 * switching back from draft mode (deploy_to → true, update → false). */
+		initialMergeIntoParent?: boolean
+		/** Draft count for the merged toggle's badge (the page owns it). */
+		draftCount?: number
+		/** Selecting `draft` asks the page to swap us out for CompareDrafts;
+		 * deploy_to/update are handled internally but reported so the page can
+		 * remember the direction. */
+		onModeSelected?: (v: CompareMode) => void
 	}
 
-	let { currentWorkspaceId, parentWorkspaceId, comparison }: Props = $props()
+	let {
+		currentWorkspaceId,
+		parentWorkspaceId,
+		comparison,
+		initialMergeIntoParent = true,
+		draftCount = 0,
+		onModeSelected
+	}: Props = $props()
 
 	let currentWorkspaceInfo = $derived($userWorkspaces.find((w) => w.id == currentWorkspaceId))
 	let parentWorkspaceInfo = $derived($userWorkspaces.find((w) => w.id == parentWorkspaceId))
 
-	let mergeIntoParent = $state(true)
+	let mergeIntoParent = $state(initialMergeIntoParent)
 	let deploying = $state(false)
 	let hasAutoSelected = $state(false)
 	let canDeployToParent = $state(true)
@@ -449,6 +462,15 @@
 		selectDefault()
 	}
 
+	// Merged toggle: deploy_to/update flip the direction in place; draft asks the
+	// page to swap us out for CompareDrafts. Either way report it up so the page
+	// remembers the chosen direction across mode switches.
+	function onToggleMode(v: CompareMode) {
+		onModeSelected?.(v)
+		if (v === 'draft') return
+		toggleDeploymentDirection(v)
+	}
+
 	// Fetch user permissions for both workspaces
 	$effect(() => {
 		;[currentWorkspaceId, parentWorkspaceId]
@@ -615,22 +637,14 @@
 					<div class="flex items-center justify-between bg-surface-tertiary">
 						<div class="flex flex-col gap-2 w-full pb-4 border-b">
 							<div class="flex flex-wrap gap-1 items-center">
-								<ToggleButtonGroup
+								<CompareModeToggle
+									selected={mergeIntoParent ? 'deploy_to' : 'update'}
+									isFork={true}
+									{parentWorkspaceId}
+									{draftCount}
 									disabled={deploying}
-									selected="deploy_to"
-									onSelected={toggleDeploymentDirection}
-									noWFull
-								>
-									{#snippet children({ item })}
-										<ToggleButton
-											value="deploy_to"
-											label="Deploy to {parentWorkspaceId}"
-											icon={ArrowUp}
-											{item}
-										/>
-										<ToggleButton value="update" label="Update current" icon={ArrowDown} {item} />
-									{/snippet}
-								</ToggleButtonGroup>
+									onSelected={onToggleMode}
+								/>
 								{#if currentWorkspaceInfo && parentWorkspaceInfo}
 									<div class="flex-1 flex gap-1 items-center">
 										<Badge

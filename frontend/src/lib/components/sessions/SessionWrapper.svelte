@@ -29,6 +29,7 @@
 	import RawAppEditorView from './RawAppEditorView.svelte'
 	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
 	import SessionForkBar from './SessionForkBar.svelte'
+	import SessionDraftBar from './SessionDraftBar.svelte'
 	import {
 		createSession,
 		getEffectiveWorkspaceId,
@@ -281,6 +282,7 @@
 			onArchive={() => archiveAndReset()}
 			onDelete={() => (deleteConfirmOpen = true)}
 		/>
+		<SessionDraftBar {session} />
 	{/snippet}
 
 	<!-- Override the chat's default keyboard-shortcut hint with nothing —

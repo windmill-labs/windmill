@@ -13,7 +13,7 @@ use crate::{
 
 use axum::{
     extract::{Extension, Path},
-    routing::{delete, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use hyper::StatusCode;
@@ -24,6 +24,30 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/create", post(create_draft))
         .route("/delete/{kind}/{*path}", delete(delete_draft))
+        .route("/count", get(count_drafts))
+}
+
+#[derive(Serialize)]
+pub struct DraftCount {
+    pub count: i64,
+}
+
+// Number of pending drafts in the workspace, used by the drafts banner and the
+// compare page's draft-mode indicator. Drafts are workspace-global (keyed by
+// workspace_id/path/typ, no per-user column). Covers scripts, flows and apps
+// (including raw apps, which draft mode deploys via the raw-app endpoints).
+async fn count_drafts(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+) -> Result<Json<DraftCount>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let count = sqlx::query_scalar!("SELECT count(*) FROM draft WHERE workspace_id = $1", &w_id)
+        .fetch_one(&mut *tx)
+        .await?
+        .unwrap_or(0);
+    tx.commit().await?;
+    Ok(Json(DraftCount { count }))
 }
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone)]

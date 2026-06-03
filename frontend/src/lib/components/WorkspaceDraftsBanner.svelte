@@ -1,0 +1,59 @@
+<script lang="ts">
+	import { workspaceStore } from '$lib/stores'
+	import { DraftService } from '$lib/gen'
+	import { Button } from './common'
+	import { Pencil } from 'lucide-svelte'
+	import { goto } from '$app/navigation'
+	import { onMount, untrack } from 'svelte'
+
+	// Surfaces pending drafts (scripts/flows/apps) for the current workspace and
+	// links to the compare page in draft mode. Mutually exclusive with
+	// ForkWorkspaceBanner: that one self-gates on `isFork`, this one on `!isFork`,
+	// so a fork workspace never shows both. In a fork, drafts are discovered via
+	// the on-page "Deployed ↔ draft (N)" toggle badge instead.
+	let draftCount = $state(0)
+	let isFork = $derived($workspaceStore?.startsWith('wm-fork-') ?? false)
+
+	async function fetchCount() {
+		if (!$workspaceStore || isFork) {
+			draftCount = 0
+			return
+		}
+		try {
+			draftCount = (await DraftService.countDrafts({ workspace: $workspaceStore })).count
+		} catch (e) {
+			console.error('Failed to count drafts:', e)
+		}
+	}
+
+	$effect(() => {
+		;[$workspaceStore, isFork]
+		untrack(() => fetchCount())
+	})
+
+	onMount(fetchCount)
+
+	function openDraftCompare() {
+		if ($workspaceStore) {
+			goto('/forks/compare?workspace_id=' + encodeURIComponent($workspaceStore) + '&mode=draft', {
+				replaceState: true
+			})
+		}
+	}
+</script>
+
+{#if !isFork && draftCount > 0}
+	<div class="w-full bg-blue-50 dark:bg-blue-900 text-xs rounded-b-md max-w-7xl mx-auto">
+		<div class="px-4 py-2">
+			<div class="flex items-center justify-between">
+				<div class="flex items-center gap-3">
+					<Pencil class="w-4 h-4 text-accent" />
+					<span class="text-sm font-medium text-blue-900 dark:text-blue-100">
+						This workspace has {draftCount} pending draft{draftCount !== 1 ? 's' : ''}
+					</span>
+				</div>
+				<Button size="xs" color="blue" on:click={openDraftCompare}>Review & Deploy drafts</Button>
+			</div>
+		</div>
+	</div>
+{/if}

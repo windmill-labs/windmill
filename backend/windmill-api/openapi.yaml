@@ -7861,6 +7861,27 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/drafts/count:
+    get:
+      summary: count drafts in workspace
+      operationId: countDrafts
+      tags:
+        - draft
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: number of drafts in the workspace
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                required:
+                  - count
+
   /w/{workspace}/scripts/create:
     post:
       summary: create script

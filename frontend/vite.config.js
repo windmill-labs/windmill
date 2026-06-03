@@ -81,10 +81,20 @@ const config = {
 			'^/ui_builder/.*': {
 				target: 'http://localhost:4000',
 				changeOrigin: true,
-				headers: {
-					'Cross-Origin-Opener-Policy': 'same-origin',
-					'Cross-Origin-Embedder-Policy': 'require-corp',
-					'Cross-Origin-Resource-Policy': 'cross-origin'
+				// Apply the cross-origin isolation headers to the *response*. The
+				// `headers` proxy option only sets request headers (sent to :4000),
+				// which the browser never sees — so the /ui_builder bundler iframe
+				// previously loaded only via the `credentialless` attribute, which
+				// Chromium supports but Firefox/Safari do not. There it would never
+				// connect, so raw-app bundling (editor preview, AI-chat deploy, and
+				// draft-compare deploy) timed out and failed. Setting CORP/COEP on the
+				// response lets the iframe load without relying on `credentialless`.
+				configure: (proxy) => {
+					proxy.on('proxyRes', (proxyRes) => {
+						proxyRes.headers['cross-origin-opener-policy'] = 'same-origin'
+						proxyRes.headers['cross-origin-embedder-policy'] = 'require-corp'
+						proxyRes.headers['cross-origin-resource-policy'] = 'cross-origin'
+					})
 				}
 			}
 		}
