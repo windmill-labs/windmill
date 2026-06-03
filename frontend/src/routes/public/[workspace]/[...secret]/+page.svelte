@@ -4,21 +4,19 @@
 	import { AppService, OpenAPI, type AppWithLastVersion } from '$lib/gen'
 	import { userStore } from '$lib/stores'
 
-	import { setContext } from 'svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
 
 	import { getUserExt } from '$lib/user'
-	import { sendUserToast } from '$lib/toast'
 	import { page } from '$app/state'
 	import PublicApp from '$lib/components/apps/editor/PublicApp.svelte'
+	import PublicAppFrame from '$lib/components/apps/editor/PublicAppFrame.svelte'
 
 	let app: (AppWithLastVersion & { value: any }) | undefined = $state(undefined)
 	let notExists = $state(false)
 	let noPermission = $state(false)
-
 	let jwtError = $state(false)
 
-	function parseSecret(secret: string): { secret: string; jwt: string } {
+	function parseSecret(secret: string): { secret: string; jwt: string | undefined } {
 		const parts = secret.split('/')
 		return {
 			secret: parts[0],
@@ -27,18 +25,40 @@
 	}
 
 	const parsedSecret = parseSecret(page.params.secret ?? '')
+	const workspace = page.params.workspace ?? ''
 
+	let refresh: (() => void) | undefined
+
+	// Embedder side: validate access (using the main-domain session cookie or the
+	// shared JWT) and mint a scoped token for the iframe.
+	async function fetchEmbedToken() {
+		if (parsedSecret.jwt) {
+			OpenAPI.TOKEN = 'jwt_ext_' + parsedSecret.jwt
+		}
+		return await AppService.getAppEmbedToken({
+			workspace,
+			path: parsedSecret.secret
+		})
+	}
+
+	// Viewer side: load the app + user using the embed token handed to the iframe.
 	async function loadApp() {
 		try {
+			userStore.set(await getUserExt(workspace))
+		} catch (e) {
+			console.warn('Anonymous user')
+		}
+		try {
 			app = await AppService.getPublicAppBySecret({
-				workspace: page.params.workspace ?? '',
+				workspace,
 				path: parsedSecret.secret
 			})
 			noPermission = false
 			notExists = false
 		} catch (e) {
 			if (e.status == 401) {
-				noPermission = true
+				// Embed token missing/expired — ask the embedder for a fresh one.
+				refresh?.()
 			} else {
 				notExists = true
 			}
@@ -47,42 +67,24 @@
 
 	if (BROWSER) {
 		setLicense()
-		loadAll()
-	}
-
-	function loadAll() {
-		console.log('loadAll')
-		loadUser().then(() => {
-			loadApp()
-		})
-	}
-
-	async function loadUser() {
-		if (parsedSecret.jwt) {
-			const token = 'jwt_ext_' + parsedSecret.jwt
-			OpenAPI.TOKEN = token
-			setContext<{ token?: string }>('AuthToken', { token })
-			jwtError = false
-		}
-		try {
-			userStore.set(await getUserExt(page.params.workspace ?? ''))
-			if (!$userStore && parsedSecret.jwt) {
-				jwtError = true
-				sendUserToast('Could not authentify user with jwt token', true)
-			}
-		} catch (e) {
-			console.warn('Anonymous user')
-		}
 	}
 </script>
 
-<PublicApp
-	{app}
-	workspace={page.params.workspace}
-	{notExists}
-	{noPermission}
-	{jwtError}
-	onLoginSuccess={() => {
-		loadAll()
+<PublicAppFrame
+	{fetchEmbedToken}
+	onViewerReady={(_token, requestTokenRefresh) => {
+		refresh = requestTokenRefresh
+		loadApp()
 	}}
-></PublicApp>
+>
+	{#snippet viewer()}
+		<PublicApp
+			{app}
+			{workspace}
+			{notExists}
+			{noPermission}
+			{jwtError}
+			onLoginSuccess={() => loadApp()}
+		></PublicApp>
+	{/snippet}
+</PublicAppFrame>
