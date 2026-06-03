@@ -4,20 +4,13 @@
 	import { Badge } from './common'
 	import Button from './common/button/Button.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
-	import { AlertTriangle, DiffIcon, ExternalLink, Undo2 } from 'lucide-svelte'
+	import { DiffIcon, ExternalLink, Undo2 } from 'lucide-svelte'
 	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
 	import { editUrlFor } from './sessions/forkEditUrl'
 	import { type WorkspaceItemDiff } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import {
-		getDraftDiffValues,
-		deployDraft,
-		discardDraft,
-		getDraftStaleness,
-		type DraftStaleness
-	} from '$lib/utils_draft_deploy'
+	import { getDraftDiffValues, deployDraft, discardDraft } from '$lib/utils_draft_deploy'
 	import { useWorkspaceDrafts, type DraftItem } from '$lib/workspaceDrafts.svelte'
-	import { untrack } from 'svelte'
 
 	interface Props {
 		currentWorkspaceId: string
@@ -78,32 +71,6 @@
 		{ status: 'loading' | 'deployed' | 'failed'; error?: string }
 	> = $state({})
 
-	// Per-item staleness: whether a newer version was deployed since the draft was
-	// saved (so deploying would override it). Keyed by item key, recomputed
-	// whenever the draft list changes. Mirrors the editor's "not on latest" guard,
-	// but read from the DB draft so it works for drafts authored elsewhere.
-	let staleMap = $state<Record<string, DraftStaleness>>({})
-
-	$effect(() => {
-		const list = items
-		untrack(() => computeStaleness(list))
-	})
-
-	async function computeStaleness(list: Row[]) {
-		const results = await Promise.all(
-			list.map(
-				async (i) =>
-					[
-						i.key,
-						await getDraftStaleness(i.kind, i.path, currentWorkspaceId, i.draft_only)
-					] as const
-			)
-		)
-		const next: Record<string, DraftStaleness> = {}
-		for (const [k, s] of results) next[k] = s
-		staleMap = next
-	}
-
 	$effect(() => {
 		if (!hasAutoSelected && items.length > 0) {
 			selectedItems = items
@@ -152,7 +119,7 @@
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 	let isFlow = $state(false)
 
-	async function showDiff(item: Row, withOverride = false) {
+	async function showDiff(item: Row) {
 		if (!diffDrawer) return
 		isFlow = item.kind === 'flow'
 		diffDrawer.openDrawer()
@@ -166,43 +133,12 @@
 			mode: 'simple',
 			original: deployed as any,
 			current: draft as any,
-			title: 'Deployed → Draft',
-			// When opened from the stale-deploy warning, surface the override action
-			// inside the drawer (mirrors the editor's DeployOverrideConfirmationModal).
-			...(withOverride
-				? { button: { text: 'Override and deploy', onClick: () => deployNow() } }
-				: {})
+			title: 'Deployed → Draft'
 		})
 	}
 
 	// --- Deploy ---
-	let staleConfirmOpen = $state(false)
-	let staleSelected = $state<Row[]>([])
-
 	async function deploySelected() {
-		// Re-check staleness for the selected items right before deploying (TOCTOU):
-		// a newer version may have been deployed since the list loaded. If any
-		// selected draft is now stale, gate behind a confirmation — deploying it
-		// would override the newer version (consistent with the editor's guard).
-		const selected = items.filter((i) => selectedItems.includes(i.key))
-		const stale: Row[] = []
-		await Promise.all(
-			selected.map(async (it) => {
-				const s = await getDraftStaleness(it.kind, it.path, currentWorkspaceId, it.draft_only)
-				staleMap[it.key] = s
-				if (s.stale) stale.push(it)
-			})
-		)
-		if (stale.length > 0) {
-			staleSelected = stale
-			staleConfirmOpen = true
-			return
-		}
-		await deployNow()
-	}
-
-	async function deployNow() {
-		staleConfirmOpen = false
 		deploying = true
 		// Snapshot the items to deploy: deployDraft invalidates the Workspace Drafts
 		// resource, so `items` can change mid-loop — iterate a stable copy.
@@ -318,16 +254,6 @@
 				{#if draftItem.draft_only}
 					<Badge color="indigo" size="xs">New</Badge>
 				{/if}
-				{#if staleMap[draftItem.key]?.stale}
-					<span
-						title="A newer version was deployed since this draft was saved — deploying will override it"
-						class="inline-flex"
-					>
-						<Badge color="orange" size="xs">
-							<AlertTriangle class="w-3 h-3 inline mr-0.5" />Outdated
-						</Badge>
-					</span>
-				{/if}
 				{#if deploymentStatus[draftItem.key]?.status !== 'deployed'}
 					<Button
 						unifiedSize="xs"
@@ -386,40 +312,4 @@
 			version is unaffected.
 		</p>
 	{/if}
-</ConfirmationModal>
-
-<ConfirmationModal
-	open={staleConfirmOpen}
-	title="Newer version deployed"
-	confirmationText="Override and deploy"
-	onConfirmed={deployNow}
-	onCanceled={() => (staleConfirmOpen = false)}
->
-	<div class="flex flex-col gap-3">
-		<p>
-			A newer version was deployed since {staleSelected.length === 1
-				? 'this draft was'
-				: 'these drafts were'} saved. Deploying will override {staleSelected.length === 1
-				? 'it'
-				: 'them'}.
-		</p>
-		<ul class="flex flex-col gap-1">
-			{#each staleSelected as it (it.key)}
-				<li class="flex items-center justify-between gap-2">
-					<span class="font-mono text-xs truncate text-primary">{it.path}</span>
-					<Button
-						unifiedSize="xs"
-						variant="subtle"
-						startIcon={{ icon: DiffIcon }}
-						onClick={() => {
-							staleConfirmOpen = false
-							showDiff(it, true)
-						}}
-					>
-						Show diff
-					</Button>
-				</li>
-			{/each}
-		</ul>
-	</div>
 </ConfirmationModal>

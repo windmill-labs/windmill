@@ -20,9 +20,6 @@
 	const dispatch = createEventDispatcher()
 
 	let app: any | undefined = undefined
-	// Deployed version this draft is based on — lets the compare/deploy-drafts
-	// page warn if a newer one is deployed before the draft is deployed.
-	let baseVersion: number | undefined = undefined
 
 	export async function open(path_l: string) {
 		loading = true
@@ -32,7 +29,6 @@
 			workspace: $workspaceStore!,
 			path
 		})
-		baseVersion = (fapp as any)?.versions?.at(-1)
 		useDraft = fapp?.draft != undefined
 		app = { ...fapp }
 		if (fapp.draft) {
@@ -60,7 +56,7 @@
 			requestBody: {
 				path: path,
 				typ: 'app',
-				value: { ...JSON.parse(code), draft_base_version: baseVersion }
+				value: JSON.parse(code)
 			}
 		})
 		dispatch('change')
