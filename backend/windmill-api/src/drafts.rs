@@ -77,15 +77,16 @@ async fn create_draft(
 
     sqlx::query!(
         "INSERT INTO draft
-            (workspace_id, path, value, typ)
-            VALUES ($1, $2, $3::text::json, $4)
-            ON CONFLICT (workspace_id, path, typ)
+            (workspace_id, path, value, typ, email)
+            VALUES ($1, $2, $3::text::json, $4, $5)
+            ON CONFLICT (workspace_id, path, typ, COALESCE(email, ''))
             DO UPDATE SET value = EXCLUDED.value, created_at = now()",
         &w_id,
         draft.path,
         //to preserve key orders
         serde_json::to_string(&draft.value).unwrap(),
         draft.typ as DraftType,
+        &authed.email,
     )
     .execute(&mut *tx)
     .await?;
@@ -103,10 +104,11 @@ async fn delete_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
-        "DELETE FROM draft WHERE path = $1 AND typ = $2 AND workspace_id = $3",
+        "DELETE FROM draft WHERE path = $1 AND typ = $2 AND workspace_id = $3 AND email = $4",
         path.to_path(),
         kind as DraftType,
-        w_id
+        w_id,
+        &authed.email,
     )
     .execute(&mut *tx)
     .await?;

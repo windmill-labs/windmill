@@ -162,7 +162,8 @@ async fn list_flows(
         .left()
         .join("draft")
         .on(
-            "draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'flow'"
+            "draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'flow' AND draft.email = ?"
+                .bind(&authed.email)
         )
         .left()
         .join("flow_version fv")
@@ -562,9 +563,10 @@ async fn create_flow(
     // path instead of wiping it as part of the deploy.
     if !nf.skip_draft_deletion.unwrap_or(false) {
         sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow' AND email = $3",
             nf.path,
-            &w_id
+            &w_id,
+            &authed.email,
         )
         .execute(&mut *tx)
         .await?;
@@ -1165,9 +1167,10 @@ async fn update_flow(
     // path instead of wiping it as part of the deploy.
     if !nf.skip_draft_deletion.unwrap_or(false) {
         sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow' AND email = $3",
             flow_path,
-            &w_id
+            &w_id,
+            &authed.email,
         )
         .execute(&mut *tx)
         .await?;
@@ -1537,6 +1540,7 @@ async fn get_flow_by_path_w_draft(
             ON flow.path = draft.path
             AND draft.workspace_id = $2
             AND draft.typ = 'flow'
+            AND draft.email = $3
         LEFT JOIN flow_version
             ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
         WHERE flow.path = $1
@@ -1544,6 +1548,7 @@ async fn get_flow_by_path_w_draft(
     )
     .bind(path)
     .bind(w_id)
+    .bind(&authed.email)
     .fetch_optional(&mut *tx)
     .await?;
 

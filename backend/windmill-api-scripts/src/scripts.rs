@@ -331,7 +331,8 @@ async fn list_scripts(
         .left()
         .join("draft")
         .on(
-            "draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'script'"
+            "draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'script' AND draft.email = ?"
+                .bind(&authed.email)
         )
         .order_desc("favorite.path IS NOT NULL")
         .order_by("created_at", lq.order_desc.unwrap_or(true))
@@ -1365,9 +1366,10 @@ async fn create_script_internal<'c>(
     if let Some(ref p_path) = p_path_opt {
         if !skip_draft_deletion {
             sqlx::query!(
-                "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
+                "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script' AND email = $3",
                 p_path,
-                &w_id
+                &w_id,
+                &authed.email,
             )
             .execute(&mut *tx)
             .await?;
@@ -1452,9 +1454,10 @@ async fn create_script_internal<'c>(
         }
     } else if !skip_draft_deletion {
         sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script' AND email = $3",
             ns.path,
-            &w_id
+            &w_id,
+            &authed.email,
         )
         .execute(&mut *tx)
         .await?;
@@ -1834,12 +1837,13 @@ async fn get_script_by_path_w_draft(
 
     let script_o = sqlx::query_as::<_, ScriptWDraft<ScriptRunnableSettingsHandle>>(
         "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, runnable_settings_handle, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, ws_error_handler_muted, draft.value as draft, draft.created_at as draft_created_at, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, has_preprocessor, on_behalf_of_email, assets, modules, debounce_key, debounce_delay_s, labels FROM script LEFT JOIN draft ON
-         script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
+         script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script' AND draft.email = $3
          WHERE script.path = $1 AND script.workspace_id = $2
          ORDER BY script.created_at DESC LIMIT 1",
     )
     .bind(path)
-    .bind(w_id)
+    .bind(&w_id)
+    .bind(&authed.email)
     .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;

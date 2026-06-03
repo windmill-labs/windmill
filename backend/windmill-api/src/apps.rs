@@ -400,7 +400,8 @@ async fn list_apps(
         .left()
         .join("draft")
         .on(
-            "draft.path = app.path AND draft.workspace_id = app.workspace_id AND draft.typ = 'app'"
+            "draft.path = app.path AND draft.workspace_id = app.workspace_id AND draft.typ = 'app' AND draft.email = ?"
+                .bind(&authed.email)
         )
         .order_desc("favorite.path IS NOT NULL")
         .order_by("app_version.created_at", true)
@@ -678,12 +679,14 @@ async fn get_app_w_draft(
             ON app.path = draft.path
         AND draft.workspace_id = $2
         AND draft.typ = 'app'
+        AND draft.email = $3
         WHERE app.path = $1
         AND app.workspace_id = $2
     "#,
     )
     .bind(path.to_owned())
     .bind(&w_id)
+    .bind(&authed.email)
     .fetch_optional(&mut *tx)
     .await?;
 
@@ -1352,9 +1355,10 @@ async fn create_app_internal<'a>(
     // path instead of wiping it as part of the deploy.
     if !app.skip_draft_deletion.unwrap_or(false) {
         sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app' AND email = $3",
             &app.path,
-            &w_id
+            &w_id,
+            &authed.email,
         )
         .execute(&mut *tx)
         .await?;
@@ -1961,9 +1965,10 @@ async fn update_app_internal<'a>(
     // path instead of wiping it as part of the deploy.
     if !ns.skip_draft_deletion.unwrap_or(false) {
         sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app' AND email = $3",
             path,
-            &w_id
+            &w_id,
+            &authed.email,
         )
         .execute(&mut *tx)
         .await?;
