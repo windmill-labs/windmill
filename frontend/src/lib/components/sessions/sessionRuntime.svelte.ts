@@ -9,9 +9,21 @@ import {
 	WorkspaceService,
 	type Flow,
 	type NewScript,
-	type NewScriptWithDraft,
+	type Script,
+	type UserDraftOverlay,
 	type WorkspaceComparison
 } from '$lib/gen'
+
+// Carry the legacy `.draft` field through to consumers so this file
+// doesn't need a deeper rewrite. The new `get_draft=true` overlay never
+// populates it (the overlay already merges draft into the top-level
+// fields), so `draft` is always `undefined` here — the
+// `(saved.draft ?? saved)` fall-throughs downstream simply use the
+// overlayed response, which is the right behavior. The overlay's
+// `is_draft` / `draft_saved_at` ride alongside so downstream "is there
+// a draft to delete?" checks have a typed handle on them.
+type SavedScript = Script & UserDraftOverlay & { draft?: NewScript }
+type SavedFlow = Flow & UserDraftOverlay & { draft?: Flow }
 import type { HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { workspaceStore } from '$lib/stores'
@@ -41,14 +53,14 @@ export interface SessionRuntime {
 	// Flow target state
 	readonly flowStore: StateStore<Flow>
 	readonly flowStateStore: { val: Record<string, any> }
-	readonly savedFlow: { val: (Flow & { draft?: Flow | undefined }) | undefined }
+	readonly savedFlow: { val: SavedFlow | undefined }
 	readonly loadingFlow: boolean
 	readonly notFound: boolean
 	readonly loadedPath: string | undefined
 	loadFlow(workspace: string, path: string, force?: boolean): Promise<void>
 	// Script target state (parallel to flow, populated only for script-targeted sessions)
 	readonly scriptStore: { val: NewScript | undefined }
-	readonly savedScript: { val: NewScriptWithDraft | undefined }
+	readonly savedScript: { val: SavedScript | undefined }
 	readonly loadingScript: boolean
 	readonly notFoundScript: boolean
 	readonly loadedScriptPath: string | undefined
@@ -176,7 +188,7 @@ function createRuntime(session: Session): SessionRuntime {
 
 	const flowStore: StateStore<Flow> = $state({ val: emptyFlow() })
 	const flowStateStore: { val: Record<string, any> } = $state({ val: {} })
-	const savedFlow: { val: (Flow & { draft?: Flow | undefined }) | undefined } = $state({
+	const savedFlow: { val: SavedFlow | undefined } = $state({
 		val: undefined
 	})
 
@@ -185,7 +197,7 @@ function createRuntime(session: Session): SessionRuntime {
 	let loadedPath = $state<string | undefined>(undefined)
 
 	const scriptStore: { val: NewScript | undefined } = $state({ val: undefined })
-	const savedScript: { val: NewScriptWithDraft | undefined } = $state({ val: undefined })
+	const savedScript: { val: SavedScript | undefined } = $state({ val: undefined })
 	let loadingScript = $state(false)
 	let notFoundScript = $state(false)
 	let loadedScriptPath = $state<string | undefined>(undefined)
@@ -269,7 +281,7 @@ function createRuntime(session: Session): SessionRuntime {
 					// drawer. Don't fail the load if the path doesn't exist
 					// yet on the backend — draft-only flows are a valid state.
 					try {
-						const result = await FlowService.getFlowByPathWithDraft({ workspace, path })
+						const result = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
 						savedFlow.val = result
 					} catch {
 						savedFlow.val = undefined
@@ -282,10 +294,12 @@ function createRuntime(session: Session): SessionRuntime {
 				}
 
 				// No draft yet. Seed one from the last deploy (or the
-				// backend-side draft, if one exists).
-				const result = await FlowService.getFlowByPathWithDraft({ workspace, path })
+				// backend-side draft, if one exists — the `get_draft=true`
+				// overlay folds it into the top-level response, so `result`
+				// itself is the draft-or-deployed merge).
+				const result = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
 				savedFlow.val = result
-				const flow: Flow = (result.draft as Flow | undefined) ?? (result as Flow)
+				const flow: Flow = result as Flow
 				UserDraft.save('flow', path, flow, { workspace })
 				await initFlow(flow, flowStore, flowStateStore)
 				if (deployedVersionId != null && flowStore.val) flowStore.val.version_id = deployedVersionId
@@ -331,7 +345,7 @@ function createRuntime(session: Session): SessionRuntime {
 					// drawer + parent_hash. 404 means draft-only — leave
 					// savedScript undefined and skip parent_hash.
 					try {
-						const result = await ScriptService.getScriptByPathWithDraft({ workspace, path })
+						const result = await ScriptService.getScriptByPath({ workspace, path, getDraft: true })
 						savedScript.val = result
 					} catch {
 						savedScript.val = undefined
@@ -366,15 +380,15 @@ function createRuntime(session: Session): SessionRuntime {
 					return
 				}
 
-				// No draft yet. Seed from backend.
-				const result = await ScriptService.getScriptByPathWithDraft({ workspace, path })
+				// No draft yet. Seed from backend. `get_draft=true` already
+				// merges the user's draft into the response (if any), so the
+				// `result` itself is the seed.
+				const result = await ScriptService.getScriptByPath({ workspace, path, getDraft: true })
 				savedScript.val = result
-				// Clone before mutating: when result.draft is falsy, `baseline` would
-				// otherwise alias `result` (= savedScript.val), so baseline.parent_hash
-				// would corrupt the pristine deployed baseline the diff drawer reads.
-				const baseline = structuredClone(
-					(result.draft as NewScript | undefined) ?? (result as NewScript)
-				)
+				// Clone before mutating: otherwise `baseline` would alias
+				// `result` (= savedScript.val), so `baseline.parent_hash` would
+				// corrupt the pristine baseline the diff drawer reads.
+				const baseline = structuredClone(result as NewScript)
 				baseline.parent_hash = result.hash
 				UserDraft.save<NewScript>('script', path, baseline, { workspace })
 				scriptStore.val = baseline
@@ -418,14 +432,23 @@ function createRuntime(session: Session): SessionRuntime {
 					// drawer. Don't fail the load if the path doesn't exist
 					// yet on the backend — draft-only apps are a valid state.
 					try {
-						const result = await AppService.getAppByPathWithDraft({ workspace, path })
+						const result = await AppService.getAppByPath({
+							workspace,
+							path,
+							getDraft: true,
+							rawApp: true
+						})
+						// `get_draft=true` overlays the user's draft into the
+						// top-level fields, so there's no separate `.draft`
+						// pocket on the response anymore. Leave `draft` /
+						// `draft_only` `undefined` here — the consumer fall-
+						// throughs (`saved.draft ?? saved`) just use the
+						// already-overlayed response.
 						savedRawApp.val = {
 							summary: result.summary,
 							value: result.value as any,
 							path: result.path,
 							policy: result.policy,
-							draft_only: result.draft_only,
-							draft: result.draft,
 							custom_path: result.custom_path
 						}
 					} catch {
@@ -450,17 +473,22 @@ function createRuntime(session: Session): SessionRuntime {
 				// backend-side draft, if one exists — that's the user's
 				// "Save draft" content from the standalone editor and is
 				// fresher than `value`).
-				const result = await AppService.getAppByPathWithDraft({ workspace, path })
+				const result = await AppService.getAppByPath({
+					workspace,
+					path,
+					getDraft: true,
+					rawApp: true
+				})
+				// See above: no separate `.draft` field on the new overlay
+				// response. The merged value lives directly under `.value`.
 				savedRawApp.val = {
 					summary: result.summary,
 					value: result.value as any,
 					path: result.path,
 					policy: result.policy,
-					draft_only: result.draft_only,
-					draft: result.draft,
 					custom_path: result.custom_path
 				}
-				const sourceValue: any = result.draft ?? result.value
+				const sourceValue: any = result.value
 				let data: RawAppData = { ...DEFAULT_DATA }
 				if (sourceValue?.data) {
 					const d = sourceValue.data

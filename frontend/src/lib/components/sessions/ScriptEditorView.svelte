@@ -4,8 +4,9 @@
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import { untrack } from 'svelte'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
-	import { DraftService, ScriptService, type NewScript } from '$lib/gen'
+	import { ScriptService, type NewScript } from '$lib/gen'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import SessionItemNotFound from './SessionItemNotFound.svelte'
 	import { sendUserToast } from '$lib/toast'
 
@@ -52,11 +53,20 @@
 			return
 		}
 		diffDrawer?.closeDrawer()
-		// Drop the backend (DB) draft too, so "deployed" sticks across a reload.
-		if (saved.draft) {
+		// Drop the user's per-user draft too, so "deployed" sticks across
+		// a reload. The new overlay folds the draft into the response (no
+		// separate `.draft` field), so `saved.is_draft` is the signal that
+		// there's actually a draft worth deleting; the syncer's
+		// `value: null` POST is the canonical per-user delete.
+		if (saved.is_draft) {
 			try {
-				await DraftService.deleteDraft({ workspace: workspaceId, kind: 'script', path: saved.path })
-				saved.draft = undefined
+				await UserDraftDbSyncer.save({
+					workspace: workspaceId,
+					itemKind: 'script',
+					path: saved.path,
+					value: null
+				})
+				saved.is_draft = false
 			} catch (e: any) {
 				sendUserToast(`Could not delete draft: ${e?.body ?? e}`, true)
 				return
