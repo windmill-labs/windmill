@@ -4,6 +4,8 @@ import {
 	commitSessionWorkspace,
 	deriveForkStatus,
 	isForkSession,
+	renameSession,
+	setGeneratedSessionSummary,
 	sessionState,
 	type Session
 } from './sessionState.svelte'
@@ -272,6 +274,52 @@ describe('commitSessionWorkspace — workspaceStore sync (non-fork branch)', () 
 			const i = sessionState.sessions.findIndex((x) => x.id === id)
 			if (i >= 0) sessionState.sessions.splice(i, 1)
 			workspaceStore.set(prev)
+		}
+	})
+})
+
+describe('session summary generation guards', () => {
+	it('applies a generated summary only while the placeholder is still untouched', () => {
+		const id = 'test-generated-summary'
+		sessionState.sessions.push({
+			id,
+			name: 'generated-summary',
+			createdAt: 0,
+			chatId: 'chat-1',
+			summary: 'Bright session',
+			summarySource: 'placeholder'
+		} as Session)
+		try {
+			expect(setGeneratedSessionSummary(id, 'Build invoice workflow', 'chat-1')).toBe(true)
+			const s = sessionState.sessions.find((x) => x.id === id)
+			expect(s?.summary).toBe('Build invoice workflow')
+			expect(s?.summarySource).toBe('generated')
+		} finally {
+			const i = sessionState.sessions.findIndex((x) => x.id === id)
+			if (i >= 0) sessionState.sessions.splice(i, 1)
+		}
+	})
+
+	it('does not overwrite a manual rename or a different chat id', () => {
+		const id = 'test-generated-summary-manual'
+		sessionState.sessions.push({
+			id,
+			name: 'generated-summary-manual',
+			createdAt: 0,
+			chatId: 'chat-1',
+			summary: 'Bright session',
+			summarySource: 'placeholder'
+		} as Session)
+		try {
+			expect(setGeneratedSessionSummary(id, 'Wrong chat title', 'chat-2')).toBe(false)
+			renameSession(id, 'My chosen title')
+			expect(setGeneratedSessionSummary(id, 'Generated title', 'chat-1')).toBe(false)
+			const s = sessionState.sessions.find((x) => x.id === id)
+			expect(s?.summary).toBe('My chosen title')
+			expect(s?.summarySource).toBe('manual')
+		} finally {
+			const i = sessionState.sessions.findIndex((x) => x.id === id)
+			if (i >= 0) sessionState.sessions.splice(i, 1)
 		}
 	})
 })
