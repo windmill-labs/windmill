@@ -15,6 +15,8 @@
 		selected: CompareMode
 		isFork: boolean
 		parentWorkspaceId?: string
+		deployCount?: number
+		updateCount?: number
 		draftCount?: number
 		disabled?: boolean
 		onSelected: (v: CompareMode) => void
@@ -24,21 +26,39 @@
 		selected,
 		isFork,
 		parentWorkspaceId,
+		deployCount = 0,
+		updateCount = 0,
 		draftCount = 0,
 		disabled = false,
 		onSelected
 	}: Props = $props()
+
+	// Append a count suffix only when there is something to act on, mirroring the
+	// draft toggle (no "(0)" noise).
+	function withCount(label: string, count: number): string {
+		return count > 0 ? `${label} (${count})` : label
+	}
 </script>
 
 <ToggleButtonGroup {disabled} {selected} onSelected={(v) => onSelected(v as CompareMode)} noWFull>
 	{#snippet children({ item })}
 		{#if isFork}
-			<ToggleButton value="deploy_to" label="Deploy to {parentWorkspaceId}" icon={ArrowUp} {item} />
-			<ToggleButton value="update" label="Update current" icon={ArrowDown} {item} />
+			<ToggleButton
+				value="deploy_to"
+				label={withCount(`Deploy to ${parentWorkspaceId}`, deployCount)}
+				icon={ArrowUp}
+				{item}
+			/>
+			<ToggleButton
+				value="update"
+				label={withCount('Update current', updateCount)}
+				icon={ArrowDown}
+				{item}
+			/>
 		{/if}
 		<ToggleButton
 			value="draft"
-			label={draftCount > 0 ? `Deployed ↔ draft (${draftCount})` : 'Deployed ↔ draft'}
+			label={withCount('Deploy draft', draftCount)}
 			icon={Pencil}
 			{item}
 		/>

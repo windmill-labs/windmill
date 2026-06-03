@@ -2,7 +2,7 @@
 	import { ScriptService, FlowService, AppService } from '$lib/gen'
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
-	import { Alert, Badge } from './common'
+	import { Badge } from './common'
 	import Button from './common/button/Button.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { DiffIcon, Undo2 } from 'lucide-svelte'
@@ -25,6 +25,8 @@
 		 * deploy_to/update directions, so the toggle is hidden otherwise. */
 		isFork?: boolean
 		parentWorkspaceId?: string
+		deployCount?: number
+		updateCount?: number
 		draftCount?: number
 		/** Selecting deploy_to/update asks the page to swap to CompareWorkspaces. */
 		onModeSelected?: (v: CompareMode) => void
@@ -35,6 +37,8 @@
 		onCountChange,
 		isFork = false,
 		parentWorkspaceId,
+		deployCount = 0,
+		updateCount = 0,
 		draftCount = 0,
 		onModeSelected
 	}: Props = $props()
@@ -219,21 +223,13 @@
 							selected="draft"
 							{isFork}
 							{parentWorkspaceId}
+							{deployCount}
+							{updateCount}
 							{draftCount}
 							disabled={deploying}
 							onSelected={(v) => onModeSelected?.(v)}
 						/>
 					</div>
-				{/if}
-			{/snippet}
-
-			{#snippet alerts()}
-				{#if items.length > 0}
-					<Alert title="Pending drafts" type="info" size="xs" class="my-2">
-						These are unsaved drafts for the current workspace. Deploying promotes a draft to the
-						deployed version (and removes the draft); discarding removes the draft — for items that
-						exist only as a draft, discarding deletes the item.
-					</Alert>
 				{/if}
 			{/snippet}
 
@@ -250,12 +246,18 @@
 					<Badge color="indigo" size="xs">New</Badge>
 				{/if}
 				{#if deploymentStatus[draftItem.key]?.status !== 'deployed'}
-					<Button unifiedSize="xs" variant="subtle" onClick={() => showDiff(draftItem)}>
-						<DiffIcon class="w-3 h-3 mr-1" /> Show diff
+					<Button
+						unifiedSize="xs"
+						variant="subtle"
+						startIcon={{ icon: DiffIcon }}
+						onClick={() => showDiff(draftItem)}
+					>
+						Show diff
 					</Button>
 					<Button
 						unifiedSize="xs"
 						variant="subtle"
+						destructive
 						startIcon={{ icon: Undo2 }}
 						onClick={() => (discardTarget = draftItem)}
 					>

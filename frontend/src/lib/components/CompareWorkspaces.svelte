@@ -62,6 +62,9 @@
 		/** Initial merge direction; lets the page restore the chosen direction when
 		 * switching back from draft mode (deploy_to → true, update → false). */
 		initialMergeIntoParent?: boolean
+		/** Per-direction counts for the merged toggle badges (the page owns them). */
+		deployCount?: number
+		updateCount?: number
 		/** Draft count for the merged toggle's badge (the page owns it). */
 		draftCount?: number
 		/** Selecting `draft` asks the page to swap us out for CompareDrafts;
@@ -75,6 +78,8 @@
 		parentWorkspaceId,
 		comparison,
 		initialMergeIntoParent = true,
+		deployCount = 0,
+		updateCount = 0,
 		draftCount = 0,
 		onModeSelected
 	}: Props = $props()
@@ -101,6 +106,18 @@
 	)
 
 	let selectedItems = $state<string[]>([])
+
+	// Nothing actionable in the current direction (no items ahead to deploy, or
+	// none behind to update). When so we show a message instead of a table of
+	// greyed, non-actionable rows.
+	let nothingToAct = $derived(selectableDiffs.length === 0)
+	let emptyDeployMessage = $derived(
+		(comparison?.diffs.length ?? 0) === 0
+			? 'No changes between this fork and its parent.'
+			: mergeIntoParent
+				? `Nothing to deploy — ${parentWorkspaceId} already has every change from this fork.`
+				: `Nothing to update — this fork is up to date with ${parentWorkspaceId}.`
+	)
 
 	let conflictingDiffs = $derived(
 		comparison?.diffs.filter((diff) => diff.ahead > 0 && diff.behind > 0) ?? []
@@ -623,7 +640,7 @@
 	<div class="flex flex-col gap-4">
 		<div class="bg-surface-tertiary p-4 rounded-md border">
 			<WorkspaceDeployLayout
-				items={deployableItems}
+				items={nothingToAct ? [] : deployableItems}
 				{selectedItems}
 				{deploymentStatus}
 				selectablePredicate={(item) => selectableDiffs.some((d) => getItemKey(d) === item.key)}
@@ -631,7 +648,7 @@
 				onToggleItem={(item) => toggleKey(item.key)}
 				onSelectAll={selectAll}
 				onDeselectAll={deselectAll}
-				emptyMessage="No comparison data available"
+				emptyMessage={emptyDeployMessage}
 			>
 				{#snippet header()}
 					<div class="flex items-center justify-between bg-surface-tertiary">
@@ -641,6 +658,8 @@
 									selected={mergeIntoParent ? 'deploy_to' : 'update'}
 									isFork={true}
 									{parentWorkspaceId}
+									{deployCount}
+									{updateCount}
 									{draftCount}
 									disabled={deploying}
 									onSelected={onToggleMode}
@@ -733,6 +752,27 @@
 				{/if}
 
 				{#snippet alerts()}
+					{#if draftCount > 0}
+						<Alert title="Undeployed drafts" type="warning" size="xs" class="my-2">
+							<div class="flex items-center gap-2 flex-wrap">
+								<span>
+									{#if mergeIntoParent}
+										This workspace has {draftCount} undeployed draft{draftCount !== 1 ? 's' : ''}.
+										Only deployed versions in this fork can be sent to {parentWorkspaceId} — deploy
+										{draftCount !== 1 ? 'them' : 'it'} first, otherwise those changes won't be included.
+									{:else}
+										This workspace has {draftCount} undeployed draft{draftCount !== 1 ? 's' : ''}.
+									{/if}
+								</span>
+								<button
+									class="underline font-medium whitespace-nowrap"
+									onclick={() => onModeSelected?.('draft')}
+								>
+									Deploy drafts
+								</button>
+							</div>
+						</Alert>
+					{/if}
 					{#if mergeIntoParent}
 						<ParentWorkspaceProtectionAlert
 							{parentWorkspaceId}
@@ -912,11 +952,11 @@
 						</div>
 						<div class:invisible={!existsInBothWorkspaces}>
 							<Button
-								size="xs"
+								unifiedSize="xs"
 								variant="subtle"
-								onclick={() => showDiff(diff.kind as Kind, diff.path)}
+								startIcon={{ icon: DiffIcon }}
+								onClick={() => showDiff(diff.kind as Kind, diff.path)}
 							>
-								<DiffIcon class="w-3 h-3" />
 								Show diff
 							</Button>
 						</div>
@@ -924,63 +964,65 @@
 				{/snippet}
 
 				{#snippet footer()}
-					<div class="flex items-center justify-between">
-						<div></div>
+					{#if !nothingToAct}
+						<div class="flex items-center justify-between">
+							<div></div>
 
-						<div class="flex flex-col items-end gap-2">
-							{#if comparison.all_behind_items_visible && comparison.all_ahead_items_visible}
-								<div class="flex items-center gap-2">
-									{#if mergeIntoParent && !hasOpenDeploymentRequest && !deploymentRequestPanel?.isDialogOpen()}
-										<Button
-											variant="default"
-											startIcon={{ icon: UserPlus }}
-											on:click={() => deploymentRequestPanel?.openRequestDialog()}
-										>
-											Request deployment
-										</Button>
-									{/if}
-									<Button
-										variant="accent"
-										disabled={selectedItems.length === 0 ||
-											deploying ||
-											(hasBehindChanges && !allowBehindChangesOverride) ||
-											(mergeIntoParent && !canDeployToParent) ||
-											hasUnselectedOnBehalfOf}
-										loading={deploying}
-										on:click={deployChanges}
-									>
-										{mergeIntoParent ? 'Deploy' : 'Update'}
-										{selectedItems.length} Item{selectedItems.length !== 1 ? 's' : ''}
-										{#if selectedConflicts != 0}
-											({selectedConflicts} conflicts)
+							<div class="flex flex-col items-end gap-2">
+								{#if comparison.all_behind_items_visible && comparison.all_ahead_items_visible}
+									<div class="flex items-center gap-2">
+										{#if mergeIntoParent && !hasOpenDeploymentRequest && !deploymentRequestPanel?.isDialogOpen()}
+											<Button
+												variant="default"
+												startIcon={{ icon: UserPlus }}
+												on:click={() => deploymentRequestPanel?.openRequestDialog()}
+											>
+												Request deployment
+											</Button>
 										{/if}
-									</Button>
-								</div>
-								{#if !(mergeIntoParent && !canDeployToParent) && hasUnselectedOnBehalfOf}
-									<span class="text-xs text-yellow-600">
-										You must set the "on behalf of" user for all items before deploying
-										<Tooltip class="text-yellow-600">
-											The "run on behalf of" field defines which user's permissions will be applied
-											during execution. Make sure this is set to an appropriate user before
-											deploying.
-										</Tooltip>
-									</span>
+										<Button
+											variant="accent"
+											disabled={selectedItems.length === 0 ||
+												deploying ||
+												(hasBehindChanges && !allowBehindChangesOverride) ||
+												(mergeIntoParent && !canDeployToParent) ||
+												hasUnselectedOnBehalfOf}
+											loading={deploying}
+											on:click={deployChanges}
+										>
+											{mergeIntoParent ? 'Deploy' : 'Update'}
+											{selectedItems.length} Item{selectedItems.length !== 1 ? 's' : ''}
+											{#if selectedConflicts != 0}
+												({selectedConflicts} conflicts)
+											{/if}
+										</Button>
+									</div>
+									{#if !(mergeIntoParent && !canDeployToParent) && hasUnselectedOnBehalfOf}
+										<span class="text-xs text-yellow-600">
+											You must set the "on behalf of" user for all items before deploying
+											<Tooltip class="text-yellow-600">
+												The "run on behalf of" field defines which user's permissions will be
+												applied during execution. Make sure this is set to an appropriate user
+												before deploying.
+											</Tooltip>
+										</span>
+									{/if}
 								{/if}
-							{/if}
 
-							{#if deploymentErrorMessage != ''}
-								<Alert
-									title="Cannot {mergeIntoParent ? 'deploy these changes' : 'update these items'}"
-									type="error"
-									class="my-2 max-w-80"
-								>
-									<span>
-										{deploymentErrorMessage}
-									</span>
-								</Alert>
-							{/if}
+								{#if deploymentErrorMessage != ''}
+									<Alert
+										title="Cannot {mergeIntoParent ? 'deploy these changes' : 'update these items'}"
+										type="error"
+										class="my-2 max-w-80"
+									>
+										<span>
+											{deploymentErrorMessage}
+										</span>
+									</Alert>
+								{/if}
+							</div>
 						</div>
-					</div>
+					{/if}
 				{/snippet}
 			</WorkspaceDeployLayout>
 

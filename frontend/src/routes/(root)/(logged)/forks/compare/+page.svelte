@@ -51,6 +51,17 @@
 	// count endpoint on load; kept live by CompareDrafts via onCountChange.
 	let draftCount = $state(0)
 
+	// Per-direction counts for the merged toggle badges. Deployable = items ahead
+	// (fork has changes the parent lacks); updateable = items behind. Computed
+	// here so they show on the toggle in draft mode too (where CompareDrafts has
+	// no comparison data of its own). Typed helpers avoid a $state `never`
+	// inference quirk on `comparison` inside $derived.
+	function countDir(c: WorkspaceComparison | undefined, dir: 'ahead' | 'behind'): number {
+		return c?.diffs.filter((d) => d[dir] > 0).length ?? 0
+	}
+	const deployCount = $derived(countDir(comparison, 'ahead'))
+	const updateCount = $derived(countDir(comparison, 'behind'))
+
 	async function fetchDraftCount() {
 		if (!currentWorkspaceId) return
 		try {
@@ -190,6 +201,8 @@
 			onCountChange={(n) => (draftCount = n)}
 			{isFork}
 			parentWorkspaceId={parentWorkspaceId ?? undefined}
+			{deployCount}
+			{updateCount}
 			{draftCount}
 			onModeSelected={selectMode}
 		/>
@@ -199,6 +212,8 @@
 			{parentWorkspaceId}
 			{comparison}
 			initialMergeIntoParent={forkDirection === 'deploy_to'}
+			{deployCount}
+			{updateCount}
 			{draftCount}
 			onModeSelected={selectMode}
 		/>
