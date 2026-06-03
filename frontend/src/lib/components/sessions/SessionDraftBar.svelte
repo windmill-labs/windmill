@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { Pencil, GitCompareArrows, DiffIcon } from 'lucide-svelte'
+	import { Pencil } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { userWorkspaces } from '$lib/stores'
 	import { goto } from '$lib/navigation'
 	import { getRuntime } from './sessionRuntime.svelte'
 	import type { Session } from './sessionState.svelte'
 	import DraftDiffDrawer from './DraftDiffDrawer.svelte'
+	import SessionDiffButton from './SessionDiffButton.svelte'
 
 	let { session }: { session: Session } = $props()
 
@@ -65,22 +66,8 @@
 			<span class="truncate text-secondary">{count} draft{count === 1 ? '' : 's'}</span>
 		</div>
 		<div class="flex items-center gap-1 shrink-0">
-			<Button
-				variant="subtle"
-				unifiedSize="xs"
-				iconOnly
-				startIcon={{ icon: GitCompareArrows }}
-				title="Review drafts"
-				onclick={() => drawer?.open()}
-			/>
-			<Button
-				variant="default"
-				unifiedSize="xs"
-				startIcon={{ icon: DiffIcon }}
-				onclick={openReview}
-			>
-				Review
-			</Button>
+			<SessionDiffButton {count} onclick={() => drawer?.open()} />
+			<Button variant="default" unifiedSize="xs" onclick={openReview}>Review</Button>
 		</div>
 	</div>
 
