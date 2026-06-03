@@ -9,7 +9,8 @@
 use axum::extract::Multipart;
 use windmill_api_auth::{
     auth::{list_tokens_internal, AuthCache, TruncatedTokenWithEmail},
-    check_scopes, maybe_refresh_folders, require_owner_of_path, ApiAuthed,
+    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
+    ApiAuthed,
 };
 use windmill_common::{
     utils::{BulkDeleteRequest, WithStarredInfoQuery, HTTP_CLIENT},
@@ -275,6 +276,7 @@ async fn list_search_scripts(
     #[cfg(not(feature = "enterprise"))]
     let n = 10;
 
+    let allowed = build_scope_path_predicate(&authed, "scripts", "read");
     let rows = sqlx::query_as!(
         SearchScript,
         "SELECT path, content from script WHERE workspace_id = $1 AND archived = false LIMIT $2",
@@ -284,6 +286,7 @@ async fn list_search_scripts(
     .fetch_all(&mut *tx)
     .await?
     .into_iter()
+    .filter(|r| allowed(&r.path))
     .collect::<Vec<_>>();
     tx.commit().await?;
     Ok(Json(rows))
@@ -438,9 +441,13 @@ async fn list_scripts(
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
+    let allowed = build_scope_path_predicate(&authed, "scripts", "read");
     let rows = sqlx::query_as::<_, ListableScript>(&sql)
         .fetch_all(&mut *tx)
-        .await?;
+        .await?
+        .into_iter()
+        .filter(|r| allowed(&r.path))
+        .collect::<Vec<_>>();
     tx.commit().await?;
     Ok(Json(rows))
 }
