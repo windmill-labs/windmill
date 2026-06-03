@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path, value as \"value: _\", typ as \"typ: DraftType\", created_at\n           FROM draft\n           WHERE workspace_id = $1 AND email = $2\n           ORDER BY created_at DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "value: _",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 2,
+        "name": "typ: DraftType",
+        "type_info": {
+          "Custom": {
+            "name": "draft_type",
+            "kind": {
+              "Enum": [
+                "script",
+                "flow",
+                "app"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "67f91733c44e9db3124a713dd950e2bad22709254f20a2c385377b9a00e7d79f"
+}

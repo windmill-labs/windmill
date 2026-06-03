@@ -7854,6 +7854,74 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/drafts/get/{kind}/{path}:
+    get:
+      summary: get draft
+      operationId: getDraft
+      tags:
+        - draft
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - script
+              - flow
+              - app
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: draft
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path:
+                    type: string
+                  typ:
+                    type: string
+                    enum: ["flow", "script", "app"]
+                  value: {}
+                required:
+                  - path
+                  - typ
+
+  /w/{workspace}/drafts/list:
+    get:
+      summary: list drafts of the current user
+      operationId: listDrafts
+      tags:
+        - draft
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of drafts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                    typ:
+                      type: string
+                      enum: ["flow", "script", "app"]
+                    value: {}
+                    created_at:
+                      type: string
+                      format: date-time
+                  required:
+                    - path
+                    - typ
+                    - created_at
+
   /w/{workspace}/scripts/create:
     post:
       summary: create script
