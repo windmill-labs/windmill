@@ -49,10 +49,16 @@ services:
 
     logging: *default-logging
 
-  # Docker-in-Docker sidecar: a privileged, root Docker daemon for running
+  # LEGACY Docker-in-Docker sidecar: a privileged, root Docker daemon for running
   # containers from scripts. Any user who can run a script can reach it (workers
   # share the script network namespace), so it is root-equivalent.
   # => Trusted, single-tenant use only. Not for untrusted/multi-tenant workloads.
+  #
+  # RECOMMENDED INSTEAD: a dedicated worker group with the rootless podman runtime
+  # (no privileged daemon, no network-reachable socket) — see the commented
+  # windmill_worker_docker service below. It keeps your `# docker` scripts
+  # unchanged while removing the privileged dind.
+  #
   # Opt-in: uncomment DOCKER_HOST + depends_on in windmill_worker, then run
   # `docker compose --profile dind up -d`. TLS hardening: see comments below.
   dind:
@@ -133,6 +139,37 @@ services:
       # - /var/run/docker.sock:/var/run/docker.sock
 
     logging: *default-logging
+
+  ## RECOMMENDED way to run `# docker` scripts: a dedicated worker group with the
+  ## rootless podman container runtime. No privileged dind sidecar, no host
+  ## Docker socket, no network-reachable root daemon — a container escape lands as
+  ## an unprivileged user. Your docker scripts (docker pull / docker run --name
+  ## $WM_JOB_ID ...) are unchanged. Route docker jobs to the "docker" worker tag.
+  ##
+  ## Requires a *-full image (ships podman) and runs unprivileged (user 1000).
+  ## NOTE: this runs podman *inside* the worker container (podman-in-container);
+  ## /dev/fuse is required, and full memory monitoring needs cgroup v2 delegation
+  ## from the host. On hosts without it, docker jobs still run but mem_peak may be
+  ## 0. For the strongest isolation, run this group on a dedicated host/node.
+  # windmill_worker_docker:
+  #   image: ghcr.io/windmill-labs/windmill-full:main # or windmill-ee-full:main
+  #   pull_policy: always
+  #   user: "1000:1000"
+  #   restart: unless-stopped
+  #   environment:
+  #     - DATABASE_URL=${DATABASE_URL}
+  #     - MODE=worker
+  #     - WORKER_GROUP=docker
+  #     - CONTAINER_RUNTIME=podman # start rootless podman, set DOCKER_HOST
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #   devices:
+  #     - /dev/fuse # for fuse-overlayfs storage
+  #   volumes:
+  #     - worker_dependency_cache:/tmp/windmill/cache
+  #     - worker_logs:/tmp/windmill/logs
+  #   logging: *default-logging
 
   ## This worker is specialized for "native" jobs. Native jobs run in-process and thus are much more lightweight than other jobs
   windmill_worker_native:

@@ -208,12 +208,19 @@ docker compose up -d
 Go to http://localhost - default credentials: `admin@windmill.dev` / `changeme`
 
 > [!WARNING]
-> The optional Docker-in-Docker (`dind`) sidecar runs a root Docker daemon that
+> The legacy Docker-in-Docker (`dind`) sidecar runs a root Docker daemon that
 > any script author can reach, so it is for **trusted, single-tenant use only**.
 > It is **off by default**; enable it (`docker compose --profile dind up -d`,
 > after uncommenting `DOCKER_HOST` in `windmill_worker`) only when every user who
-> can run scripts is trusted. See the comments in
-> [docker-compose.yml](./docker-compose.yml) for details and TLS hardening.
+> can run scripts is trusted.
+>
+> **Recommended instead:** run `# docker` scripts on a dedicated worker group with
+> the rootless **podman** container runtime — no privileged daemon and no
+> network-reachable socket, with your scripts unchanged. See the commented
+> `windmill_worker_docker` service in
+> [docker-compose.yml](./docker-compose.yml), or set the **Container runtime**
+> option on a worker group in the UI (Workers → worker group config). The podman
+> runtime ships in the `*-full` images.
 
 **Using an external database**: Set `DATABASE_URL` in `.env` to point to your managed Postgres (AWS RDS, GCP Cloud SQL, Azure, Neon, etc.) and set db replicas to 0.
 
