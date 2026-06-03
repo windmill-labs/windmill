@@ -131,18 +131,12 @@ export const setupTypeAcquisition = (config: ATABootstrapConfig) => {
 		if (depth == 0) {
 			const relativeDeps = depsToGet.filter((f) => isTypescriptRelativePath(f.raw))
 			relativeDeps.forEach(async (f) => {
-				// `$f/`/`$u/` are local-friendly aliases for the absolute workspace paths
-				// `/f/`,`/u/`. Normalize to the absolute form so the fetch URL and the
-				// registered extra-lib path match what the worker resolves (the editor's
-				// `paths` config maps `$f/` -> `/f/` back to this lib).
-				const raw =
-					f.raw.startsWith('$f/') || f.raw.startsWith('$u/') ? '/' + f.raw.slice(1) : f.raw
-				let path = raw.startsWith('/')
-					? raw
-					: '/' + config.scriptPath + (raw.startsWith('../') ? '/../' : '/.') + raw
+				let path = f.raw.startsWith('/')
+					? f.raw
+					: '/' + config.scriptPath + (f.raw.startsWith('../') ? '/../' : '/.') + f.raw
 				let url = config.root + path
-				let localPath = raw
-				if ((raw.startsWith('.') || raw.startsWith('/')) && !raw.endsWith('.ts')) {
+				let localPath = f.raw
+				if ((f.raw.startsWith('.') || f.raw.startsWith('/')) && !f.raw.endsWith('.ts')) {
 					url += '.ts'
 					localPath += '.ts'
 				}
