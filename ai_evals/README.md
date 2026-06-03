@@ -148,6 +148,23 @@ Global initial fixtures can also seed `liveEditorDrafts` with `type`,
 currently open script, flow, or raw app editor so cases can test prompts that
 refer to "this" or the "current" item.
 
+Global (and flow) initial fixtures can seed `workspace.datatables` so the
+`list_datatables`, `get_datatable_table_schema`, and `exec_datatable_sql` tools
+return seeded data during evals. Each entry is
+`{ datatable_name, schemas: { <schema>: { <table>: { columns, rows? } } } }`.
+SQL runs through a small in-memory engine (`datatableSqlEngine.ts`), not a real
+database. Writes are **stateful within a case**: `CREATE`/`DROP`/`INSERT`/`UPDATE`/
+`DELETE` mutate the seeded datatable in place, so a later `list_datatables`,
+`get_datatable_table_schema`, `SELECT`, or `information_schema` query reflects them
+— this is what stops a model from looping when it re-queries to verify a write.
+The engine is best-effort: `SELECT` returns all rows of the referenced (or first)
+table with no WHERE filtering/projection/joins, `WHERE` on UPDATE/DELETE supports
+`col = value` predicates joined by `AND`, and anything unparseable is a no-op
+success. So validate datatable cases through tool-use and SQL-argument assertions
+(`requiredToolsUsed`, `stringIncludesAnyOf`) — not through exact returned row
+values. An empty/absent `datatables` seed makes `list_datatables` return `[]`,
+which is what the "no datatable configured" blocking cases rely on.
+
 Set `WMILL_AI_EVAL_DISABLE_ACTIVE_EDITOR_CONTEXT=1` to run those cases with
 the old behavior where the live editor is only discoverable through
 `list_workspace_items`.

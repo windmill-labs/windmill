@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Wand2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
-	import { getNonStreamingCompletion } from './lib'
+	import { getNonStreamingMetadataCompletion } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
@@ -66,7 +66,7 @@ Here's a summary of the available data:
 ${YAML.stringify(availableData)}</available>
 If the branching is made inside a for-loop, the iterator value is accessible as flow_input.iter.value
 Only return the expression without any wrapper. Do not explain or discuss.`
-			const result = await getNonStreamingCompletion(
+			const result = await getNonStreamingMetadataCompletion(
 				[
 					{
 						role: 'user',

@@ -61,7 +61,12 @@ import { runChatLoop } from './chatLoop'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import { getCurrentModel, tryGetCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
-import { globalToolsFor, prepareGlobalSystemMessage, prepareGlobalUserMessage } from './global/core'
+import {
+	globalToolsFor,
+	prepareGlobalSystemMessage,
+	prepareGlobalUserMessage,
+	type GlobalToolHelpers
+} from './global/core'
 import { isGlobalAiEnabled } from './global/gate'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
@@ -512,7 +517,11 @@ export class AIChatManager {
 				previewTools: this.isSessionChat
 			})
 			this.tools = globalToolsFor({ sessionPreview: this.isSessionChat })
-			this.helpers = this.isSessionChat ? { sessionId: this.sessionId } : {}
+			this.helpers = {
+				...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
+				testActiveFlow: async (args?: Record<string, any>) =>
+					this.flowAiChatHelpers?.testFlow(args)
+			} satisfies GlobalToolHelpers
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareAppSystemMessage(customPrompt)
@@ -815,6 +824,7 @@ export class AIChatManager {
 	// this to commit/materialise the workspace (creating a staged fork via
 	// the API) so the first message targets the correct workspace.
 	beforeSend?: () => Promise<void> | void
+	afterFirstTurnSaved?: () => Promise<void> | void
 
 	sendRequest = async (
 		options: {
@@ -858,6 +868,7 @@ export class AIChatManager {
 				return
 			}
 		}
+		const isFirstUserTurn = !this.displayMessages.some((message) => message.role === 'user')
 		try {
 			const oldSelectedContext = this.contextManager?.getSelectedContext() ?? []
 			if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
@@ -1044,6 +1055,11 @@ export class AIChatManager {
 				this.acceptPendingFlowEdits()
 			}
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
+			if (isFirstUserTurn && this.afterFirstTurnSaved) {
+				void Promise.resolve(this.afterFirstTurnSaved()).catch((e) => {
+					console.error('AIChatManager afterFirstTurnSaved hook failed', e)
+				})
+			}
 		} catch (err) {
 			console.error(err)
 			this.flagLastMessageAsError()

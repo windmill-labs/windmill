@@ -22,6 +22,8 @@
 		id?: string | undefined
 		actions?: import('svelte').Snippet
 		titleExtra?: import('svelte').Snippet
+		/** Rendered fixed below the header, above the scrollable content. */
+		banner?: import('svelte').Snippet
 		children?: import('svelte').Snippet
 	}
 
@@ -40,6 +42,7 @@
 		id,
 		actions,
 		titleExtra,
+		banner,
 		children
 	}: Props = $props()
 
@@ -82,6 +85,10 @@
 			</div>
 		{/if}
 	</div>
+
+	{#if banner}
+		{@render banner()}
+	{/if}
 
 	<div
 		class={classNames(

@@ -1,10 +1,4 @@
-import {
-	ScriptService,
-	type FlowModule,
-	type InputTransform,
-	type RawScript,
-	JobService
-} from '$lib/gen'
+import { type FlowModule, type InputTransform, type RawScript } from '$lib/gen'
 import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
@@ -30,7 +24,8 @@ import {
 	formatScriptLintResult,
 	type ScriptLintResult,
 	createSearchWorkspaceTool,
-	createGetRunnableDetailsTool
+	createGetRunnableDetailsTool,
+	executeFlowStepTestRun
 } from '../shared'
 import { createWorkspaceMutationTools } from '../workspaceTools'
 import type { ContextElement } from '../context'
@@ -442,99 +437,14 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const stepId = args.stepId
 			const stepArgs = args.args || {}
 
-			// Find the step in the flow (includes preprocessor/failure modules)
-			let targetModule: FlowModule | undefined = findModuleInFlow(flow.value, stepId) ?? undefined
-
-			if (!targetModule) {
-				toolCallbacks.setToolStatus(toolId, {
-					content: `Step '${stepId}' not found in flow`,
-					error: `Step with id '${stepId}' does not exist in the current flow`
-				})
-				throw new Error(
-					`Step with id '${stepId}' not found in flow. Available steps: ${(flow.value.modules ?? []).map((m: FlowModule) => m.id).join(', ')}`
-				)
-			}
-
-			const module = targetModule
-			const moduleValue = module.value
-
-			if (moduleValue.type === 'rawscript') {
-				// Test raw script step
-
-				return executeTestRun({
-					jobStarter: () =>
-						JobService.runScriptPreview({
-							workspace: workspace,
-							requestBody: {
-								content: moduleValue.content ?? '',
-								language: moduleValue.language,
-								args:
-									module.id === SPECIAL_MODULE_IDS.PREPROCESSOR
-										? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...stepArgs }
-										: stepArgs
-							}
-						}),
-					workspace,
-					toolCallbacks,
-					toolId,
-					startMessage: `Starting test run of step '${stepId}'...`,
-					contextName: 'script'
-				})
-			} else if (moduleValue.type === 'script') {
-				// Test script step - need to get the script content
-				const script = moduleValue.hash
-					? await ScriptService.getScriptByHash({
-							workspace: workspace,
-							hash: moduleValue.hash
-						})
-					: await ScriptService.getScriptByPath({
-							workspace: workspace,
-							path: moduleValue.path
-						})
-
-				return executeTestRun({
-					jobStarter: () =>
-						JobService.runScriptPreview({
-							workspace: workspace,
-							requestBody: {
-								content: script.content,
-								language: script.language,
-								args:
-									module.id === SPECIAL_MODULE_IDS.PREPROCESSOR
-										? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...stepArgs }
-										: stepArgs
-							}
-						}),
-					workspace,
-					toolCallbacks,
-					toolId,
-					startMessage: `Starting test run of script step '${stepId}'...`,
-					contextName: 'script'
-				})
-			} else if (moduleValue.type === 'flow') {
-				// Test flow step
-				return executeTestRun({
-					jobStarter: () =>
-						JobService.runFlowByPath({
-							workspace: workspace,
-							path: moduleValue.path,
-							requestBody: stepArgs
-						}),
-					workspace,
-					toolCallbacks,
-					toolId,
-					startMessage: `Starting test run of flow step '${stepId}'...`,
-					contextName: 'flow'
-				})
-			} else {
-				toolCallbacks.setToolStatus(toolId, {
-					content: `Step type '${moduleValue.type}' not supported for testing`,
-					error: `Cannot test step of type '${moduleValue.type}'`
-				})
-				throw new Error(
-					`Cannot test step of type '${moduleValue.type}'. Supported types: rawscript, script, flow`
-				)
-			}
+			return executeFlowStepTestRun({
+				flowValue: flow.value,
+				stepId,
+				args: stepArgs,
+				workspace,
+				toolCallbacks,
+				toolId
+			})
 		},
 		requiresConfirmation: true,
 		confirmationMessage: 'Run flow step test',
