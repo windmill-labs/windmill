@@ -46,14 +46,20 @@ export async function getDraftDiffValues(
 	workspace: string,
 	draftOnly = false
 ): Promise<DraftDiffValues> {
+	// A `draft_only` item can keep its content in the row itself with no separate
+	// draft-table row (e.g. a flow created via createFlow(draft_only: true), like
+	// `u/admin/new`). There `draft` is null, so the draft side must fall back to
+	// the row's own value — otherwise the diff "after" is empty and nothing shows.
 	if (kind === 'script') {
 		const r = (await ScriptService.getScriptByPathWithDraft({ workspace, path })) as any
 		const { draft, draft_created_at: _c, hash: _h, ...deployed } = r
-		return { deployed: draftOnly ? EMPTY_DEPLOYED.script(draft) : deployed, draft }
+		const draftValue = draft ?? deployed
+		return { deployed: draftOnly ? EMPTY_DEPLOYED.script(draftValue) : deployed, draft: draftValue }
 	} else if (kind === 'flow') {
 		const r = (await FlowService.getFlowByPathWithDraft({ workspace, path })) as any
 		const { draft, draft_created_at: _c, ...deployed } = r
-		return { deployed: draftOnly ? EMPTY_DEPLOYED.flow(draft) : deployed, draft }
+		const draftValue = draft ?? deployed
+		return { deployed: draftOnly ? EMPTY_DEPLOYED.flow(draftValue) : deployed, draft: draftValue }
 	} else {
 		const r = (await AppService.getAppByPathWithDraft({ workspace, path })) as any
 		const deployed = {
@@ -63,7 +69,8 @@ export async function getDraftDiffValues(
 			path: r.path,
 			custom_path: r.custom_path
 		}
-		return { deployed: draftOnly ? EMPTY_DEPLOYED.app(r.draft) : deployed, draft: r.draft }
+		const draftValue = r.draft ?? deployed
+		return { deployed: draftOnly ? EMPTY_DEPLOYED.app(draftValue) : deployed, draft: draftValue }
 	}
 }
 
