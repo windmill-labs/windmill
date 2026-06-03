@@ -342,7 +342,10 @@
 					value: {
 						...flow,
 						path: $pathStore,
-						draft_triggers: triggersState.getDraftTriggersSnapshot()
+						draft_triggers: triggersState.getDraftTriggersSnapshot(),
+						// Record the deployed version this draft is based on, so the
+						// compare/deploy-drafts page can warn if a newer one is deployed.
+						draft_base_version: version
 					}
 				}
 			})

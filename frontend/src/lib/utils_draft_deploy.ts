@@ -59,7 +59,8 @@ export async function getDraftDiffValues(
 	} else if (kind === 'flow') {
 		const r = (await FlowService.getFlowByPathWithDraft({ workspace, path })) as any
 		const { draft, draft_created_at: _c, ...deployed } = r
-		const draftValue = draft ?? deployed
+		// Strip the staleness-tracking sidecar so it doesn't show as a spurious diff field.
+		const { draft_base_version: _bv, ...draftValue } = (draft ?? deployed) as any
 		return { deployed: draftOnly ? EMPTY_DEPLOYED.flow(draftValue) : deployed, draft: draftValue }
 	} else {
 		const r = (await AppService.getAppByPathWithDraft({ workspace, path })) as any
@@ -70,8 +71,61 @@ export async function getDraftDiffValues(
 			path: r.path,
 			custom_path: r.custom_path
 		}
-		const draftValue = r.draft ?? deployed
+		const { draft_base_version: _bv, ...draftValue } = (r.draft ?? deployed) as any
 		return { deployed: draftOnly ? EMPTY_DEPLOYED.app(draftValue) : deployed, draft: draftValue }
+	}
+}
+
+/**
+ * Whether a draft's base deployed version has been superseded by a newer deploy
+ * since the draft was saved — i.e. deploying the draft would override a newer
+ * version. Mirrors the editor's deploy-time "not on latest" guard, but computed
+ * from the DB draft (server-readable) so it works for drafts authored elsewhere.
+ *
+ * The base version is read from the draft `value`: scripts carry `parent_hash`
+ * (always); flows/apps carry a `draft_base_version` sidecar (only on drafts
+ * saved after this was introduced — older drafts have no base and are treated
+ * as not-stale to avoid false positives, consistent with `checkStaleness`).
+ * `draft_only` items have never been deployed and are never stale.
+ */
+export type DraftStaleness =
+	| { stale: false }
+	| { stale: true; baseRev: string | number; deployedRev: string | number }
+
+const NOT_STALE: DraftStaleness = { stale: false }
+
+export async function getDraftStaleness(
+	kind: DraftKind,
+	path: string,
+	workspace: string,
+	draftOnly = false
+): Promise<DraftStaleness> {
+	if (draftOnly) return NOT_STALE
+	try {
+		if (kind === 'script') {
+			const r = (await ScriptService.getScriptByPathWithDraft({ workspace, path })) as any
+			const base = r.draft?.parent_hash
+			if (base == null) return NOT_STALE
+			return base !== r.hash ? { stale: true, baseRev: base, deployedRev: r.hash } : NOT_STALE
+		} else if (kind === 'flow') {
+			const r = (await FlowService.getFlowByPathWithDraft({ workspace, path })) as any
+			const base = r.draft?.draft_base_version
+			if (base == null) return NOT_STALE
+			const current = (await FlowService.getFlowLatestVersion({ workspace, path }))?.id
+			if (current == null) return NOT_STALE
+			return base !== current ? { stale: true, baseRev: base, deployedRev: current } : NOT_STALE
+		} else {
+			const r = (await AppService.getAppByPathWithDraft({ workspace, path })) as any
+			const base = r.draft?.draft_base_version
+			if (base == null) return NOT_STALE
+			const current = r.versions?.[r.versions.length - 1]
+			if (current == null) return NOT_STALE
+			return base !== current ? { stale: true, baseRev: base, deployedRev: current } : NOT_STALE
+		}
+	} catch (e) {
+		// Detection is best-effort; never block deploy on a probe failure.
+		console.error('Failed to check draft staleness', e)
+		return NOT_STALE
 	}
 }
 

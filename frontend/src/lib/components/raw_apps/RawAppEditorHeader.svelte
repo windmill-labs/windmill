@@ -567,7 +567,10 @@
 						value: app!,
 						summary: summary,
 						policy,
-						path: newEditedPath || path
+						path: newEditedPath || path,
+						// Record the deployed version this draft is based on, so the
+						// compare/deploy-drafts page can warn if a newer one is deployed.
+						draft_base_version: version
 					}
 				}
 			})
