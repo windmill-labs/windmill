@@ -49,18 +49,36 @@ services:
 
     logging: *default-logging
 
-  # Docker-in-Docker sidecar: provides an isolated Docker daemon so user scripts
-  # can run containers without accessing the host Docker socket.
+  # Docker-in-Docker sidecar: a privileged, root Docker daemon for running
+  # containers from scripts. Any user who can run a script can reach it (workers
+  # share the script network namespace), so it is root-equivalent.
+  # => Trusted, single-tenant use only. Not for untrusted/multi-tenant workloads.
+  # Opt-in: uncomment DOCKER_HOST + depends_on in windmill_worker, then run
+  # `docker compose --profile dind up -d`. TLS hardening: see comments below.
   dind:
     image: docker:dind
+    # Rootless alternative: a docker-job escape lands as an unprivileged host
+    # user instead of root (recommended when docker-job users aren't fully
+    # host-trusted). The outer container stays privileged, but the daemon runs
+    # unprivileged. Needs cgroup v2 + a recent kernel, or /dev/fuse for
+    # fuse-overlayfs (else it falls back to the slow vfs driver). To use it, swap
+    # the image and the data volume path (and add the /dev/fuse device):
+    #   image: docker:dind-rootless
+    #   volumes: - dind-data:/home/rootless/.local/share/docker
+    #   devices: ["/dev/fuse"]
+    profiles: ["dind"] # off by default
     privileged: true
     restart: unless-stopped
     environment:
-      DOCKER_TLS_CERTDIR: ""
+      DOCKER_TLS_CERTDIR: "" # plaintext on 2375; set to "/certs" for TLS on 2376
     volumes:
       - dind-data:/var/lib/docker
+      # TLS: share the generated client certs with the worker
+      # - dind-certs-ca:/certs/ca
+      # - dind-certs-client:/certs/client
     expose:
       - 2375
+      # - 2376 # TLS port (when DOCKER_TLS_CERTDIR is set)
     healthcheck:
       test: ["CMD", "docker", "info"]
       interval: 10s
@@ -89,17 +107,24 @@ services:
       # If running with non-root/non-windmill UID (e.g., user: "1001:1001"),
       # add: - HOME=/tmp
       - FAVOR_UNSHARE_PID=true
-      # Connect to the dind sidecar instead of the host Docker socket
-      - DOCKER_HOST=tcp://dind:2375
+      # Run containers from scripts via the dind sidecar (opt-in, trusted only;
+      # see the dind service). TLS variant: use the 2376 lines instead.
+      # - DOCKER_HOST=tcp://dind:2375
+      # - DOCKER_HOST=tcp://dind:2376
+      # - DOCKER_TLS_VERIFY=1
+      # - DOCKER_CERT_PATH=/certs/client
     depends_on:
       db:
         condition: service_healthy
-      dind:
-        condition: service_healthy
+      # Uncomment when enabling dind (see DOCKER_HOST above):
+      # dind:
+      #   condition: service_healthy
     # to mount the worker folder to debug, KEEP_JOB_DIR=true and mount /tmp/windmill
     volumes:
       - worker_dependency_cache:/tmp/windmill/cache
       - worker_logs:/tmp/windmill/logs
+      # TLS dind: mount the client certs (read-only)
+      # - dind-certs-client:/certs/client:ro
       ## WARNING: mounting the host Docker socket grants user scripts full access to
       ## the host Docker daemon, enabling host filesystem access and privilege escalation.
       ## Only use this if you fully trust all users who can run scripts.
@@ -238,3 +263,6 @@ volumes:
   lsp_cache: null
   caddy_data: null
   dind-data: null
+  # Uncomment for dind TLS (see the dind service):
+  # dind-certs-ca: null
+  # dind-certs-client: null

@@ -207,6 +207,14 @@ docker compose up -d
 
 Go to http://localhost - default credentials: `admin@windmill.dev` / `changeme`
 
+> [!WARNING]
+> The optional Docker-in-Docker (`dind`) sidecar runs a root Docker daemon that
+> any script author can reach, so it is for **trusted, single-tenant use only**.
+> It is **off by default**; enable it (`docker compose --profile dind up -d`,
+> after uncommenting `DOCKER_HOST` in `windmill_worker`) only when every user who
+> can run scripts is trusted. See the comments in
+> [docker-compose.yml](./docker-compose.yml) for details and TLS hardening.
+
 **Using an external database**: Set `DATABASE_URL` in `.env` to point to your managed Postgres (AWS RDS, GCP Cloud SQL, Azure, Neon, etc.) and set db replicas to 0.
 
 ### Kubernetes (Helm charts)
