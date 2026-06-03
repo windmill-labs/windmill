@@ -1,7 +1,6 @@
 import {
 	AppService,
 	AzureTriggerService,
-	DraftService,
 	FlowService,
 	GcpTriggerService,
 	HttpTriggerService,
@@ -19,29 +18,24 @@ import {
 } from '$lib/gen'
 import { $ScriptLang } from '$lib/gen/schemas.gen'
 import type {
-	AppWithLastVersion,
 	CreateResource,
 	CreateVariable,
 	Flow,
 	FlowValue,
-	ListableApp,
 	ListableResource,
 	ListableVariable,
 	NewSchedule,
 	NewScript,
 	Resource,
 	Schedule,
-	Script,
 	ScriptLang
 } from '$lib/gen/types.gen'
-import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
 import {
 	FRAMEWORK_TEMPLATES,
 	STARTER_RUNNABLE,
 	STARTER_RUNNABLE_KEY,
 	type FrameworkKey
 } from '$lib/components/raw_apps/templates'
-import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import {
 	applyEditableFlowJsonToFlow,
 	buildEditableFlowJson,
@@ -74,9 +68,8 @@ import {
 } from '../shared'
 import type { ContextElement } from '../context'
 import { getDatatableTools } from '../datatableTools'
-import { UserDraft, type UserDraftMeta } from '$lib/userDraft.svelte'
+import { UserDraft } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
-import { inferArgs } from '$lib/infer'
 import {
 	resourceRequestSchema,
 	scheduleRequestSchema,
@@ -96,14 +89,27 @@ import {
 	type WorkspaceItemType
 } from './workspaceItems'
 import {
-	buildFlowDeployRequestBody,
-	buildScriptDeployRequestBody,
-	type FlowDeployMetadata,
-	type ScriptDeployMetadata
-} from './deployRequests'
+	appToItem,
+	deleteDbDraftAndDraftOnlyAnchor,
+	deployAppDraft,
+	deployFlowDraft,
+	deployScriptDraft,
+	flowToItem,
+	isDbDraftWorkspaceItemType,
+	loadAppDraftValue,
+	loadAppValueForRead,
+	loadFlowWithDbDraft,
+	loadScriptWithDbDraft,
+	loadWorkspaceDraft,
+	loadWorkspaceDraftForDeploy,
+	recomputeAppPolicy,
+	saveAppDraft,
+	saveFlowDraftToDb,
+	saveScriptDraftToDb,
+	scriptToItem
+} from './workspaceDrafts'
 import { userStore } from '$lib/stores'
 import { get } from 'svelte/store'
-import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
 	clearEphemeralSecretVariableDraftValue,
 	deleteGlobalDraft,
@@ -111,8 +117,8 @@ import {
 	getGlobalDraft,
 	getGlobalDraftStoragePath,
 	listGlobalDrafts,
-	saveGlobalAppDraft,
 	setEphemeralSecretVariableDraftValue,
+	syncLiveGlobalDraft,
 	triggerKindToUserDraftKind
 } from './userDraftAdapter'
 
@@ -650,57 +656,6 @@ function itemMatches(
 	)
 }
 
-type DraftFlagged = {
-	has_draft?: boolean
-	draft_only?: boolean
-}
-
-type ReadableScript = Pick<Script, 'path' | 'summary' | 'language' | 'content'> & DraftFlagged
-
-function scriptToItem(
-	script: ReadableScript,
-	includeValue: boolean,
-	isDraft = !!script.has_draft || !!script.draft_only
-): WorkspaceItem {
-	return {
-		type: 'script',
-		path: script.path,
-		summary: script.summary,
-		language: script.language,
-		value: includeValue ? script.content : undefined,
-		isDraft
-	}
-}
-
-function flowToItem(
-	flow: Pick<Flow, 'path' | 'summary' | 'value' | 'schema'> & DraftFlagged,
-	includeValue: boolean,
-	isDraft = !!flow.has_draft || !!flow.draft_only
-): WorkspaceItem {
-	return {
-		type: 'flow',
-		path: flow.path,
-		summary: flow.summary,
-		value: includeValue
-			? { value: flow.value, schema: flow.schema, groups: flow.value.groups ?? null }
-			: undefined,
-		isDraft
-	}
-}
-
-async function loadScriptWithDbDraft(path: string, workspace: string): Promise<ReadableScript> {
-	const script = await ScriptService.getScriptByPathWithDraft({ workspace, path })
-	return script.draft ? { ...script, ...script.draft, path: script.path } : script
-}
-
-async function loadFlowWithDbDraft(
-	path: string,
-	workspace: string
-): Promise<Pick<Flow, 'path' | 'summary' | 'value' | 'schema'>> {
-	const flow = await FlowService.getFlowByPathWithDraft({ workspace, path })
-	return flow.draft ? { ...flow, ...flow.draft, path: flow.path } : flow
-}
-
 /**
  * Turn a flow workspace item into the compact response we send to the model:
  * rawscript content is replaced with `inline_script.<moduleId>` placeholders.
@@ -896,12 +851,6 @@ type AppMetadata = {
 	data?: any
 }
 
-type LoadedAppDraftValue = {
-	value: AppDraftValue
-	meta?: UserDraftMeta
-	existing?: Awaited<ReturnType<typeof AppService.getAppByPathWithDraft>>
-}
-
 function summarizeAppValue(value: AppDraftValue): AppMetadata {
 	const frontend: AppFrontendFileMetadata[] = Object.entries(value.files).map(
 		([path, content]) => ({
@@ -932,19 +881,6 @@ function summarizeAppValue(value: AppDraftValue): AppMetadata {
 		frontend,
 		backend,
 		...(value.data && { data: value.data })
-	}
-}
-
-function appToItem(
-	app: (ListableApp | AppWithLastVersion) & DraftFlagged,
-	includeValue: boolean
-): WorkspaceItem {
-	return {
-		type: 'app',
-		path: app.path,
-		summary: app.summary,
-		value: includeValue ? ((app as AppWithLastVersion).value as AppDraftValue) : undefined,
-		isDraft: !!app.has_draft || !!app.draft_only
 	}
 }
 
@@ -1009,77 +945,6 @@ function getInlineRunnableContent(
 		)
 	}
 	return { content: runnable.inlineScript?.content ?? '', runnable }
-}
-
-function normalizeRawAppData(value: Record<string, any>): AppDraftValue['data'] {
-	if (value.data?.creation) {
-		return {
-			tables: value.data.tables ?? [],
-			datatable: value.data.creation.datatable,
-			schema: value.data.creation.schema
-		}
-	}
-	if (value.data) {
-		return value.data
-	}
-	if (value.datatables) {
-		return { ...DEFAULT_RAW_APP_DATA, tables: value.datatables }
-	}
-	if (value.dataTableRefs) {
-		return { ...DEFAULT_RAW_APP_DATA, tables: value.dataTableRefs }
-	}
-	return { ...DEFAULT_RAW_APP_DATA }
-}
-
-function appSourceToDraftValue(app: any, fallback?: any): AppDraftValue {
-	const value = (app.value ?? {}) as Record<string, any>
-	return {
-		summary: app.summary ?? '',
-		files: { ...(value.files ?? {}) },
-		runnables: { ...(value.runnables ?? {}) },
-		data: normalizeRawAppData(value),
-		policy: app.policy ?? fallback?.policy,
-		custom_path: app.custom_path ?? fallback?.custom_path
-	}
-}
-
-function appDraftMeta(app: { versions?: number[]; draft_created_at?: string }): UserDraftMeta {
-	return {
-		remoteRev: app.versions ? app.versions[app.versions.length - 1] : undefined,
-		remoteDraftRev: app.draft_created_at
-	}
-}
-
-async function loadAppValueForRead(path: string, workspace: string): Promise<AppDraftValue> {
-	const draft = getGlobalDraft(workspace, 'app', path)
-	if (draft && draft.value && typeof draft.value === 'object' && 'files' in draft.value) {
-		return draft.value as AppDraftValue
-	}
-
-	const app = await AppService.getAppByPathWithDraft({ workspace, path })
-	return appSourceToDraftValue(app.draft ?? app, app)
-}
-
-async function loadAppDraftValue(path: string, workspace: string): Promise<LoadedAppDraftValue> {
-	const draft = getGlobalDraft(workspace, 'app', path)
-	if (draft && draft.value && typeof draft.value === 'object' && 'files' in draft.value) {
-		return { value: draft.value as AppDraftValue }
-	}
-
-	const app = await AppService.getAppByPathWithDraft({ workspace, path })
-	const value = appSourceToDraftValue(app.draft ?? app, app)
-	return { value, meta: appDraftMeta(app), existing: app }
-}
-
-async function saveAppDraft(
-	workspace: string,
-	path: string,
-	value: AppDraftValue,
-	meta?: UserDraftMeta,
-	existing?: Awaited<ReturnType<typeof AppService.getAppByPathWithDraft>>
-): Promise<WorkspaceItem> {
-	await saveAppDraftToDb(workspace, path, value, existing)
-	return saveGlobalAppDraft(workspace, path, value, meta)
 }
 
 type TriggerLike = { path: string; summary?: string | null }
@@ -1218,12 +1083,11 @@ async function readWorkspaceItem(
 			)
 		case 'app': {
 			// Returns lightweight metadata only — file/runnable contents come via read_app_file.
-			const app = await AppService.getAppByPathWithDraft({ workspace, path })
-			const value = appSourceToDraftValue(app.draft ?? app)
+			const value = await loadAppValueForRead(path, workspace)
 			const metadata = summarizeAppValue(value)
 			return {
 				type: 'app',
-				path: app.path,
+				path,
 				summary: value.summary,
 				value: metadata as unknown as AppDraftValue,
 				isDraft: false
@@ -2169,172 +2033,6 @@ function buildVariableDeployRequestBody(
 	return { ...requestBody, value: secretValue }
 }
 
-type DbDraftWorkspaceItemType = Extract<WorkspaceItemType, 'script' | 'flow' | 'app'>
-type DeployableDraft = {
-	item: WorkspaceItem
-	scriptMetadata?: ScriptDeployMetadata
-	flowMetadata?: FlowDeployMetadata
-}
-
-function isDbDraftWorkspaceItemType(type: WorkspaceItemType): type is DbDraftWorkspaceItemType {
-	return type === 'script' || type === 'flow' || type === 'app'
-}
-
-async function createDbDraft(
-	workspace: string,
-	typ: DbDraftWorkspaceItemType,
-	path: string,
-	value: unknown
-): Promise<void> {
-	await DraftService.createDraft({
-		workspace,
-		requestBody: {
-			path,
-			typ,
-			value
-		}
-	})
-}
-
-async function deleteDbDraft(
-	workspace: string,
-	typ: DbDraftWorkspaceItemType,
-	path: string
-): Promise<void> {
-	await DraftService.deleteDraft({ workspace, kind: typ, path })
-}
-
-async function deleteDbDraftAndDraftOnlyAnchor(
-	workspace: string,
-	typ: DbDraftWorkspaceItemType,
-	path: string
-): Promise<void> {
-	switch (typ) {
-		case 'script': {
-			const existing = (await ScriptService.existsScriptByPath({ workspace, path }))
-				? await ScriptService.getScriptByPathWithDraft({ workspace, path })
-				: undefined
-			await deleteDbDraft(workspace, typ, path)
-			if (existing?.draft_only) {
-				await ScriptService.deleteScriptByPath({ workspace, path, keepCaptures: true })
-			}
-			break
-		}
-		case 'flow': {
-			const existing = (await FlowService.existsFlowByPath({ workspace, path }))
-				? await FlowService.getFlowByPathWithDraft({ workspace, path })
-				: undefined
-			await deleteDbDraft(workspace, typ, path)
-			if (existing?.draft_only) {
-				await FlowService.deleteFlowByPath({ workspace, path, keepCaptures: true })
-			}
-			break
-		}
-		case 'app': {
-			const existing = (await AppService.existsApp({ workspace, path }))
-				? await AppService.getAppByPathWithDraft({ workspace, path })
-				: undefined
-			await deleteDbDraft(workspace, typ, path)
-			if (existing?.draft_only) {
-				await AppService.deleteApp({ workspace, path })
-			}
-			break
-		}
-	}
-}
-
-async function loadDbDraftForDeploy(
-	workspace: string,
-	type: DbDraftWorkspaceItemType,
-	path: string
-): Promise<DeployableDraft | undefined> {
-	switch (type) {
-		case 'script': {
-			if (!(await ScriptService.existsScriptByPath({ workspace, path }))) return undefined
-			const script = await ScriptService.getScriptByPathWithDraft({ workspace, path })
-			if (!script.draft && !script.draft_only) return undefined
-			const draftScript = script.draft ? { ...script, ...script.draft, path: script.path } : script
-			return {
-				item: scriptToItem(draftScript, true, true),
-				scriptMetadata: draftScript
-			}
-		}
-		case 'flow': {
-			if (!(await FlowService.existsFlowByPath({ workspace, path }))) return undefined
-			const flow = await FlowService.getFlowByPathWithDraft({ workspace, path })
-			if (!flow.draft && !flow.draft_only) return undefined
-			const draftFlow = flow.draft ? { ...flow, ...flow.draft, path: flow.path } : flow
-			return {
-				item: flowToItem(draftFlow, true, true),
-				flowMetadata: draftFlow
-			}
-		}
-		case 'app': {
-			if (!(await AppService.existsApp({ workspace, path }))) return undefined
-			const app = await AppService.getAppByPathWithDraft({ workspace, path })
-			if (!app.draft && !app.draft_only) return undefined
-			const value = appSourceToDraftValue(app.draft ?? app, app)
-			return {
-				item: {
-					type: 'app',
-					path: app.path,
-					summary: value.summary,
-					value,
-					isDraft: true
-				}
-			}
-		}
-	}
-}
-
-async function loadDbDraftItem(
-	workspace: string,
-	type: DbDraftWorkspaceItemType,
-	path: string
-): Promise<WorkspaceItem | undefined> {
-	return (await loadDbDraftForDeploy(workspace, type, path))?.item
-}
-
-async function getGlobalOrDbDraft(
-	workspace: string,
-	type: WorkspaceItemType,
-	path: string,
-	triggerKind?: TriggerKind
-): Promise<WorkspaceItem | undefined> {
-	const draft = getGlobalDraft(workspace, type, path, triggerKind)
-	if (draft) return draft
-	if (!isDbDraftWorkspaceItemType(type)) return undefined
-	return loadDbDraftItem(workspace, type, path)
-}
-
-async function getGlobalOrDbDraftForDeploy(
-	workspace: string,
-	type: WorkspaceItemType,
-	path: string,
-	triggerKind?: TriggerKind
-): Promise<DeployableDraft | undefined> {
-	const item = getGlobalDraft(workspace, type, path, triggerKind)
-	if (item) {
-		const storagePath = getGlobalDraftStoragePath(workspace, type, path, triggerKind)
-		switch (type) {
-			case 'script':
-				return {
-					item,
-					scriptMetadata: UserDraft.get<NewScript>('script', storagePath, { workspace })
-				}
-			case 'flow':
-				return {
-					item,
-					flowMetadata: UserDraft.get<Flow>('flow', storagePath, { workspace })
-				}
-			default:
-				return { item }
-		}
-	}
-	if (!isDbDraftWorkspaceItemType(type)) return undefined
-	return loadDbDraftForDeploy(workspace, type, path)
-}
-
 function startDraftWrite(ctx: WriteDraftCtx, type: WorkspaceItemType, path: string): void {
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, {
 		content: `Saving ${type} "${path}" as a draft...`
@@ -2376,120 +2074,6 @@ function finishDraftWrite(stored: WorkspaceItem, existed: boolean, ctx: WriteDra
 	)
 }
 
-async function saveScriptDraftToDb(
-	workspace: string,
-	path: string,
-	draft: NewScript,
-	existing: Awaited<ReturnType<typeof ScriptService.getScriptByPathWithDraft>> | undefined
-): Promise<void> {
-	if (!existing) {
-		await ScriptService.createScript({
-			workspace,
-			requestBody: {
-				...draft,
-				path,
-				parent_hash: undefined,
-				draft_only: true
-			}
-		})
-	}
-	await createDbDraft(workspace, 'script', path, draft)
-}
-
-async function saveFlowDraftToDb(
-	workspace: string,
-	path: string,
-	draft: Flow,
-	existing: Awaited<ReturnType<typeof FlowService.getFlowByPathWithDraft>> | undefined
-): Promise<void> {
-	if (!existing) {
-		await FlowService.createFlow({
-			workspace,
-			requestBody: {
-				path,
-				summary: draft.summary ?? '',
-				description: (draft as any).description ?? '',
-				value: draft.value,
-				schema: draft.schema,
-				tag: draft.tag,
-				draft_only: true,
-				ws_error_handler_muted: draft.ws_error_handler_muted,
-				visible_to_runner_only: draft.visible_to_runner_only,
-				on_behalf_of_email: draft.on_behalf_of_email,
-				labels: draft.labels
-			}
-		})
-	}
-	await createDbDraft(workspace, 'flow', path, draft)
-}
-
-function appDraftToDbValue(path: string, value: AppDraftValue): Record<string, unknown> {
-	return {
-		value: {
-			files: value.files,
-			runnables: value.runnables,
-			data: value.data ?? { ...DEFAULT_RAW_APP_DATA }
-		},
-		summary: value.summary ?? '',
-		policy: value.policy,
-		path,
-		custom_path: value.custom_path
-	}
-}
-
-async function createRawAppDraftOnlyAnchor(
-	workspace: string,
-	path: string,
-	value: AppDraftValue
-): Promise<void> {
-	await recomputeAppPolicy(value)
-	const policy = value.policy
-	if (!policy) {
-		throw new Error(`Draft app "${path}" has no policy to save.`)
-	}
-	const bundle = await bundleRawAppDraft({
-		workspace,
-		files: value.files,
-		onLog: () => {}
-	})
-	await AppService.createAppRaw({
-		workspace,
-		formData: {
-			app: {
-				path,
-				value: {
-					files: value.files,
-					runnables: value.runnables,
-					data: value.data ?? { ...DEFAULT_RAW_APP_DATA }
-				},
-				summary: value.summary ?? '',
-				policy,
-				draft_only: true,
-				custom_path: value.custom_path
-			},
-			js: bundle.js,
-			css: bundle.css
-		}
-	})
-}
-
-async function saveAppDraftToDb(
-	workspace: string,
-	path: string,
-	value: AppDraftValue,
-	existing: Awaited<ReturnType<typeof AppService.getAppByPathWithDraft>> | undefined
-): Promise<void> {
-	const current =
-		existing ??
-		((await AppService.existsApp({ workspace, path }))
-			? await AppService.getAppByPathWithDraft({ workspace, path })
-			: undefined)
-	if (!current) {
-		await createRawAppDraftOnlyAnchor(workspace, path, value)
-	}
-	await createDbDraft(workspace, 'app', path, appDraftToDbValue(path, value))
-}
-
 async function writeScriptDraft(
 	args: { path: string; summary?: string; language: ScriptLang; content: string },
 	ctx: WriteDraftCtx
@@ -2528,23 +2112,18 @@ async function writeScriptDraft(
 
 	await saveScriptDraftToDb(workspace, args.path, draft, existing)
 
-	if (existing && !existing.draft_only) {
-		UserDraft.setDraftAndMeta(
-			'script',
-			storagePath,
-			draft,
-			{ remoteRev: existing.hash, remoteDraftRev: existing.draft_created_at },
-			{ workspace }
-		)
-	} else {
-		UserDraft.save('script', storagePath, draft, { workspace })
-	}
-
-	return finishDraftWrite(
-		getRequiredGlobalDraft(workspace, 'script', args.path),
-		existingDraft !== undefined || existing !== undefined,
-		ctx
+	const mirrored = syncLiveGlobalDraft(
+		workspace,
+		'script',
+		args.path,
+		draft,
+		existing && !existing.draft_only
+			? { remoteRev: existing.hash, remoteDraftRev: existing.draft_created_at }
+			: undefined
 	)
+	const stored = mirrored ?? scriptToItem(draft, true, true)
+
+	return finishDraftWrite(stored, existingDraft !== undefined || existing !== undefined, ctx)
 }
 
 async function writeFlowDraft(
@@ -2587,24 +2166,22 @@ async function writeFlowDraft(
 
 	await saveFlowDraftToDb(workspace, args.path, draft, existing)
 
-	if (existing && !existing.draft_only) {
-		const latestVersion = await FlowService.getFlowLatestVersion({ workspace, path: args.path })
-		UserDraft.setDraftAndMeta(
-			'flow',
-			storagePath,
-			draft,
-			{ remoteRev: latestVersion.id, remoteDraftRev: existing.draft_created_at },
-			{ workspace }
-		)
-	} else {
-		UserDraft.save('flow', storagePath, draft, { workspace })
-	}
-
-	return finishDraftWrite(
-		getRequiredGlobalDraft(workspace, 'flow', args.path),
-		existingDraft !== undefined || existing !== undefined,
-		ctx
+	const latestVersion =
+		existing && !existing.draft_only
+			? await FlowService.getFlowLatestVersion({ workspace, path: args.path })
+			: undefined
+	const mirrored = syncLiveGlobalDraft(
+		workspace,
+		'flow',
+		args.path,
+		draft,
+		latestVersion
+			? { remoteRev: latestVersion.id, remoteDraftRev: existing?.draft_created_at }
+			: undefined
 	)
+	const stored = mirrored ?? flowToItem(draft, true, true)
+
+	return finishDraftWrite(stored, existingDraft !== undefined || existing !== undefined, ctx)
 }
 
 async function writeScheduleDraft(args: NewSchedule, ctx: WriteDraftCtx): Promise<string> {
@@ -2903,7 +2480,8 @@ async function loadScriptForFlowStep(
 	moduleValue: { path: string; hash?: string },
 	workspace: string
 ): Promise<{ content: string; language: ScriptLang }> {
-	const draft = getGlobalDraft(workspace, 'script', moduleValue.path)
+	const deployableDraft = await loadWorkspaceDraftForDeploy(workspace, 'script', moduleValue.path)
+	const draft = deployableDraft?.item
 	if (draft) {
 		if (typeof draft.value !== 'string' || !draft.language) {
 			throw new Error(`Draft script "${moduleValue.path}" is missing content or language.`)
@@ -2921,11 +2499,15 @@ async function loadDraftFlowPreviewValue(
 	path: string,
 	workspace: string
 ): Promise<FlowValue | undefined> {
-	if (!getGlobalDraft(workspace, 'flow', path)) {
+	const draft = await loadWorkspaceDraftForDeploy(workspace, 'flow', path)
+	if (!draft) {
 		return undefined
 	}
-	const nestedFlow = await loadFlowDraftValue(path, workspace)
-	return flowDraftValueForPreview(nestedFlow.flow)
+	const flowDraft = draft.item.value
+	if (flowDraft === undefined || typeof flowDraft === 'string') {
+		throw new Error(`Draft flow "${path}" has no value.`)
+	}
+	return flowDraftValueForPreview(flowDraft as FlowDraftValue)
 }
 
 async function testRunScriptByPath(
@@ -3265,17 +2847,6 @@ async function patchAppFile(
 	)
 }
 
-async function recomputeAppPolicy(value: AppDraftValue): Promise<void> {
-	const policy = (await updateRawAppPolicy(
-		value.runnables as any,
-		value.policy as any
-	)) as NonNullable<AppDraftValue['policy']>
-	if (!policy.execution_mode) {
-		policy.execution_mode = 'publisher'
-	}
-	value.policy = policy
-}
-
 async function writeAppRunnable(
 	args: { path: string; key: string; runnable: BackendRunnableInput },
 	ctx: WriteDraftCtx
@@ -3412,7 +2983,7 @@ async function discardLocalDraft(
 		throw new Error('trigger_kind is required when discarding a trigger draft.')
 	}
 
-	const draft = await getGlobalOrDbDraft(workspace, type, path, triggerKind)
+	const draft = await loadWorkspaceDraft(workspace, type, path, triggerKind)
 	if (!draft) {
 		throw new Error(`No draft found for ${type} "${path}".`)
 	}
@@ -3455,7 +3026,7 @@ async function deployDraft(
 		throw new Error('trigger_kind is required when deploying a trigger.')
 	}
 
-	const deployableDraft = await getGlobalOrDbDraftForDeploy(workspace, type, path, triggerKind)
+	const deployableDraft = await loadWorkspaceDraftForDeploy(workspace, type, path, triggerKind)
 	if (!deployableDraft) {
 		throw new Error(`No draft found for ${type} "${path}".`)
 	}
@@ -3472,45 +3043,23 @@ async function deployDraft(
 
 	switch (type) {
 		case 'script': {
-			const existing = (await ScriptService.existsScriptByPath({ workspace, path }))
-				? await ScriptService.getScriptByPath({ workspace, path })
-				: undefined
-			const requestBody = buildScriptDeployRequestBody(
+			await deployScriptDraft({
+				workspace,
 				path,
 				draft,
-				existing,
 				deploymentMessage,
-				deployableDraft.scriptMetadata
-			)
-			// Infer the arg schema from the content so it matches the code, like the editor does.
-			try {
-				const schema = emptySchema()
-				await inferArgs(requestBody.language, requestBody.content, schema)
-				requestBody.schema = schema
-			} catch (e) {
-				console.error('Failed to infer script schema before deploy', e)
-			}
-			await ScriptService.createScript({ workspace, requestBody })
+				draftMetadata: deployableDraft.scriptMetadata
+			})
 			break
 		}
 		case 'flow': {
-			const flowDraft = draft.value as FlowDraftValue
-			const existing = (await FlowService.existsFlowByPath({ workspace, path }))
-				? await FlowService.getFlowByPath({ workspace, path })
-				: undefined
-			const requestBody = buildFlowDeployRequestBody(
+			await deployFlowDraft({
+				workspace,
 				path,
-				draft.summary,
-				flowDraft,
-				existing,
+				draft,
 				deploymentMessage,
-				deployableDraft.flowMetadata
-			)
-			if (existing) {
-				await FlowService.updateFlow({ workspace, path, requestBody })
-			} else {
-				await FlowService.createFlow({ workspace, requestBody })
-			}
+				draftMetadata: deployableDraft.flowMetadata
+			})
 			break
 		}
 		case 'schedule': {
@@ -3561,84 +3110,15 @@ async function deployDraft(
 			break
 		}
 		case 'app': {
-			const appDraft = draft.value as AppDraftValue
-			const appValue: AppDraftValue = {
-				...appDraft,
-				files: { ...(appDraft.files ?? {}) },
-				runnables: { ...(appDraft.runnables ?? {}) },
-				data: appDraft.data ?? { ...DEFAULT_RAW_APP_DATA }
-			}
-			await recomputeAppPolicy(appValue)
-			const policy = appValue.policy
-			if (!policy) {
-				throw new Error(`Draft app "${path}" has no policy to deploy.`)
-			}
-
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Bundling app "${path}"...`
-			})
-			const bundle = await bundleRawAppDraft({
+			await deployAppDraft({
 				workspace,
-				files: appValue.files,
-				onLog: (delta) => {
-					const lines = delta
-						.split('\n')
-						.map((line) => line.trim())
-						.filter(Boolean)
-					const latest = lines[lines.length - 1]
-					if (latest) {
-						toolCallbacks.setToolStatus(toolId, {
-							content: `Bundling app "${path}"... ${latest}`
-						})
-					}
+				path,
+				draft,
+				deploymentMessage,
+				onStatus: (content) => {
+					toolCallbacks.setToolStatus(toolId, { content })
 				}
 			})
-
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Deploying app "${path}"...`
-			})
-			const rawAppValue = {
-				files: appValue.files,
-				runnables: appValue.runnables,
-				data: appValue.data ?? { ...DEFAULT_RAW_APP_DATA }
-			}
-			const summary = appValue.summary ?? draft.summary ?? ''
-			if (await AppService.existsApp({ workspace, path })) {
-				// Omit custom_path on update for now. The backend preserves it when absent, while
-				// sending it requires admin privileges; this chat deploy path does not yet mirror
-				// the raw app editor's user/admin-specific custom_path handling.
-				await AppService.updateAppRaw({
-					workspace,
-					path,
-					formData: {
-						app: {
-							path,
-							value: rawAppValue,
-							summary,
-							policy,
-							deployment_message: deploymentMessage
-						},
-						js: bundle.js,
-						css: bundle.css
-					}
-				})
-			} else {
-				await AppService.createAppRaw({
-					workspace,
-					formData: {
-						app: {
-							path,
-							value: rawAppValue,
-							summary,
-							policy,
-							deployment_message: deploymentMessage,
-							custom_path: appValue.custom_path
-						},
-						js: bundle.js,
-						css: bundle.css
-					}
-				})
-			}
 			break
 		}
 	}

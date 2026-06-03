@@ -166,6 +166,141 @@ const toolCallbacks: ToolCallbacks = {
 	removeToolStatus: vi.fn()
 }
 
+const scriptDrafts = new Map<string, any>()
+const flowDrafts = new Map<string, any>()
+const appDrafts = new Map<string, any>()
+
+function serviceMock(fn: unknown): any {
+	return vi.mocked(fn as any) as any
+}
+
+function resetDbDraftMocks(): void {
+	scriptDrafts.clear()
+	flowDrafts.clear()
+	appDrafts.clear()
+
+	serviceMock(DraftService.createDraft).mockImplementation(async ({ requestBody }: any) => {
+		const { path, typ, value } = requestBody
+		if (typ === 'script') scriptDrafts.set(path, structuredClone(value))
+		if (typ === 'flow') flowDrafts.set(path, structuredClone(value))
+		if (typ === 'app') appDrafts.set(path, structuredClone(value))
+		return 'draft created'
+	})
+	serviceMock(DraftService.deleteDraft).mockImplementation(async ({ kind, path }: any) => {
+		if (kind === 'script') scriptDrafts.delete(path)
+		if (kind === 'flow') flowDrafts.delete(path)
+		if (kind === 'app') appDrafts.delete(path)
+		return 'draft deleted'
+	})
+
+	serviceMock(ScriptService.existsScriptByPath).mockImplementation(async ({ path }: any) =>
+		scriptDrafts.has(path)
+	)
+	serviceMock(ScriptService.getScriptByPathWithDraft).mockImplementation(async ({ path }: any) => {
+		const draft = scriptDrafts.get(path)
+		if (!draft) throw new Error('getScriptByPathWithDraft mock not configured')
+		return {
+			...draft,
+			hash: 'draft-anchor-hash',
+			draft_only: true,
+			draft: structuredClone(draft)
+		} as any
+	})
+	serviceMock(ScriptService.getScriptByPath).mockImplementation(async ({ path }: any) => {
+		const draft = scriptDrafts.get(path)
+		if (!draft) throw new Error('getScriptByPath mock not configured')
+		return { ...structuredClone(draft), hash: 'draft-anchor-hash', draft_only: true } as any
+	})
+	serviceMock(ScriptService.listScripts).mockImplementation(async ({ pathStart, perPage }: any) =>
+		Array.from(scriptDrafts.values())
+			.filter((draft) => !pathStart || draft.path.startsWith(pathStart))
+			.slice(0, perPage)
+			.map((draft) => ({
+				path: draft.path,
+				summary: draft.summary,
+				language: draft.language,
+				has_draft: true,
+				draft_only: true
+			}))
+	)
+	serviceMock(ScriptService.createScript).mockImplementation(async ({ requestBody }: any) => {
+		if (!requestBody.draft_only) scriptDrafts.delete(requestBody.path)
+		return 'created'
+	})
+
+	serviceMock(FlowService.existsFlowByPath).mockImplementation(async ({ path }: any) =>
+		flowDrafts.has(path)
+	)
+	serviceMock(FlowService.getFlowByPathWithDraft).mockImplementation(async ({ path }: any) => {
+		const draft = flowDrafts.get(path)
+		if (!draft) throw new Error('getFlowByPathWithDraft mock not configured')
+		return {
+			...draft,
+			draft_only: true,
+			draft: structuredClone(draft)
+		} as any
+	})
+	serviceMock(FlowService.getFlowByPath).mockImplementation(async ({ path }: any) => {
+		const draft = flowDrafts.get(path)
+		if (!draft) throw new Error('getFlowByPath mock not configured')
+		return { ...structuredClone(draft), draft_only: true } as any
+	})
+	serviceMock(FlowService.listFlows).mockImplementation(async ({ pathStart, perPage }: any) =>
+		Array.from(flowDrafts.values())
+			.filter((draft) => !pathStart || draft.path.startsWith(pathStart))
+			.slice(0, perPage)
+			.map((draft) => ({
+				path: draft.path,
+				summary: draft.summary,
+				has_draft: true,
+				draft_only: true
+			}))
+	)
+	serviceMock(FlowService.createFlow).mockImplementation(async ({ requestBody }: any) => {
+		if (!requestBody.draft_only) flowDrafts.delete(requestBody.path)
+		return 'created'
+	})
+	serviceMock(FlowService.updateFlow).mockImplementation(async ({ path }: any) => {
+		flowDrafts.delete(path)
+		return 'updated'
+	})
+
+	serviceMock(AppService.existsApp).mockImplementation(async ({ path }: any) => appDrafts.has(path))
+	serviceMock(AppService.getAppByPathWithDraft).mockImplementation(async ({ path }: any) => {
+		const draft = appDrafts.get(path)
+		if (!draft) throw new Error('getAppByPathWithDraft mock not configured')
+		const value = draft.value ?? {}
+		return {
+			path,
+			summary: draft.summary ?? '',
+			value,
+			policy: draft.policy,
+			custom_path: draft.custom_path,
+			draft_only: true,
+			draft: structuredClone(draft)
+		} as any
+	})
+	serviceMock(AppService.listApps).mockImplementation(async ({ pathStart, perPage }: any) =>
+		Array.from(appDrafts.values())
+			.filter((draft) => !pathStart || draft.path.startsWith(pathStart))
+			.slice(0, perPage)
+			.map((draft) => ({
+				path: draft.path,
+				summary: draft.summary,
+				has_draft: true,
+				draft_only: true
+			}))
+	)
+	serviceMock(AppService.createAppRaw).mockImplementation(async ({ formData }: any) => {
+		if (!formData.app.draft_only) appDrafts.delete(formData.app.path)
+		return 'created'
+	})
+	serviceMock(AppService.updateAppRaw).mockImplementation(async ({ path }: any) => {
+		appDrafts.delete(path)
+		return 'updated'
+	})
+}
+
 function getGlobalTool(name: string): Tool<{}> {
 	const tool = globalTools.find((candidate) => candidate.def.function.name === name)
 	if (!tool) {
@@ -215,6 +350,7 @@ describe('global AI tools', () => {
 		localStorage.clear()
 		clearGlobalDrafts(WORKSPACE)
 		vi.clearAllMocks()
+		resetDbDraftMocks()
 	})
 
 	it('defaults the datatable instruction subject to the TypeScript SQL SDK', async () => {
@@ -437,24 +573,23 @@ describe('global AI tools', () => {
 		expect(VariableService.updateVariable).not.toHaveBeenCalled()
 	})
 
-	it('writes script drafts into UserDraft', async () => {
+	it('writes script drafts into DB drafts without a non-live UserDraft mirror', async () => {
 		const content = 'export async function main() {\n\treturn "hello"\n}'
 
-		await callGlobalTool('write_script', {
+		const raw = await callGlobalTool('write_script', {
 			path: 'f/scripts/hello',
 			summary: 'Hello script',
 			language: 'bun',
 			content
 		})
 
-		expect(UserDraft.get<any>('script', 'f/scripts/hello', { workspace: WORKSPACE })).toMatchObject(
-			{
-				path: 'f/scripts/hello',
-				summary: 'Hello script',
-				language: 'bun',
-				content
-			}
-		)
+		expect(UserDraft.get('script', 'f/scripts/hello', { workspace: WORKSPACE })).toBeUndefined()
+		expect(JSON.parse(raw).item).toMatchObject({
+			path: 'f/scripts/hello',
+			summary: 'Hello script',
+			language: 'bun',
+			value: content
+		})
 		expect(ScriptService.createScript).toHaveBeenCalledWith({
 			workspace: WORKSPACE,
 			requestBody: expect.objectContaining({
@@ -1107,7 +1242,7 @@ describe('global AI tools', () => {
 		expect(UserDraft.get('raw_app', 'u/admin/live_app', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
-	it('discards a local draft without deleting the workspace item', async () => {
+	it('discards a DB draft and its draft-only anchor without a local mirror', async () => {
 		await callGlobalTool('write_script', {
 			path: 'f/scripts/discard-me',
 			summary: 'Temporary draft',
@@ -1115,7 +1250,9 @@ describe('global AI tools', () => {
 			content: 'export async function main() { return 1 }'
 		})
 
-		expect(UserDraft.get('script', 'f/scripts/discard-me', { workspace: WORKSPACE })).toBeDefined()
+		expect(
+			UserDraft.get('script', 'f/scripts/discard-me', { workspace: WORKSPACE })
+		).toBeUndefined()
 
 		const raw = await callGlobalTool('discard_local_draft', {
 			type: 'script',
@@ -1128,6 +1265,16 @@ describe('global AI tools', () => {
 			path: 'f/scripts/discard-me'
 		})
 		expect(raw).toContain('The deployed workspace item was not changed')
+		expect(DraftService.deleteDraft).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			kind: 'script',
+			path: 'f/scripts/discard-me'
+		})
+		expect(ScriptService.deleteScriptByPath).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'f/scripts/discard-me',
+			keepCaptures: true
+		})
 		expect(
 			UserDraft.get('script', 'f/scripts/discard-me', { workspace: WORKSPACE })
 		).toBeUndefined()
@@ -1170,19 +1317,21 @@ describe('global AI tools', () => {
 			content: 'new content'
 		})
 
-		expect(
-			UserDraft.get<any>('script', 'f/scripts/existing', { workspace: WORKSPACE })
-		).toMatchObject({
-			path: 'f/scripts/existing',
-			parent_hash: 'deployed-hash',
-			summary: 'new summary',
-			description: 'db draft description',
-			content: 'new content',
-			language: 'bun'
-		})
-		expect(UserDraft.getMeta('script', 'f/scripts/existing', { workspace: WORKSPACE })).toEqual({
-			remoteRev: 'deployed-hash',
-			remoteDraftRev: '2026-05-22T10:00:00Z'
+		expect(UserDraft.get('script', 'f/scripts/existing', { workspace: WORKSPACE })).toBeUndefined()
+		expect(DraftService.createDraft).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/scripts/existing',
+				typ: 'script',
+				value: expect.objectContaining({
+					path: 'f/scripts/existing',
+					parent_hash: 'deployed-hash',
+					summary: 'new summary',
+					description: 'db draft description',
+					content: 'new content',
+					language: 'bun'
+				})
+			}
 		})
 	})
 
@@ -1219,15 +1368,19 @@ describe('global AI tools', () => {
 			modules: JSON.stringify([{ id: 'step', value: { type: 'identity' } }])
 		})
 
-		expect(UserDraft.get<any>('flow', 'f/flows/existing', { workspace: WORKSPACE })).toMatchObject({
-			path: 'f/flows/existing',
-			summary: 'new summary',
-			description: 'db draft description',
-			value: { modules: [{ id: 'step', value: { type: 'identity' } }] }
-		})
-		expect(UserDraft.getMeta('flow', 'f/flows/existing', { workspace: WORKSPACE })).toEqual({
-			remoteRev: 42,
-			remoteDraftRev: '2026-05-22T10:00:00Z'
+		expect(UserDraft.get('flow', 'f/flows/existing', { workspace: WORKSPACE })).toBeUndefined()
+		expect(DraftService.createDraft).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/flows/existing',
+				typ: 'flow',
+				value: expect.objectContaining({
+					path: 'f/flows/existing',
+					summary: 'new summary',
+					description: 'db draft description',
+					value: { modules: [{ id: 'step', value: { type: 'identity' } }] }
+				})
+			}
 		})
 	})
 
@@ -1374,26 +1527,34 @@ describe('global AI tools', () => {
 			content: 'export default function New() { return null }'
 		})
 
-		const draft = UserDraft.get<any>('raw_app', 'f/apps/report', { workspace: WORKSPACE })
-		expect(draft).toMatchObject({
-			summary: 'saved app draft',
-			files: {
-				'/src/App.tsx': 'draft content',
-				'/src/New.tsx': 'export default function New() { return null }'
-			},
-			runnables: {
-				main: {
-					type: 'inline',
-					inlineScript: { language: 'bun', content: 'export async function main() {}' }
-				}
-			},
-			data: { tables: ['orders'], datatable: 'db', schema: 'public' },
-			policy: { execution_mode: 'anonymous' },
-			custom_path: 'report'
-		})
-		expect(UserDraft.getMeta('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toEqual({
-			remoteRev: 4,
-			remoteDraftRev: '2026-05-22T10:30:00Z'
+		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
+		expect(DraftService.createDraft).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/apps/report',
+				typ: 'app',
+				value: expect.objectContaining({
+					summary: 'saved app draft',
+					value: expect.objectContaining({
+						files: {
+							'/src/App.tsx': 'draft content',
+							'/src/New.tsx': 'export default function New() { return null }'
+						},
+						runnables: {
+							main: {
+								type: 'inline',
+								inlineScript: {
+									language: 'bun',
+									content: 'export async function main() {}'
+								}
+							}
+						},
+						data: { tables: ['orders'], datatable: 'db', schema: 'public' }
+					}),
+					policy: { execution_mode: 'anonymous' },
+					custom_path: 'report'
+				})
+			}
 		})
 	})
 
@@ -2098,7 +2259,7 @@ describe('global AI tools', () => {
 		})
 	})
 
-	it('test_run_step prefers local script drafts for script steps', async () => {
+	it('test_run_step previews DB-backed script drafts for script steps', async () => {
 		const content = 'export async function main(name: string) {\n\treturn `draft ${name}`\n}'
 		await callGlobalTool('write_script', {
 			path: 'f/scripts/step-script',
@@ -2141,7 +2302,7 @@ describe('global AI tools', () => {
 		})
 	})
 
-	it('test_run_step previews local draft subflows for flow steps', async () => {
+	it('test_run_step previews DB-backed draft subflows for flow steps', async () => {
 		const nestedModules = [{ id: 'nested_start', value: { type: 'identity' } }]
 		await callGlobalTool('write_flow', {
 			path: 'f/flows/nested-draft',

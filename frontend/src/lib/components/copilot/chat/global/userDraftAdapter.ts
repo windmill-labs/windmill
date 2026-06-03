@@ -364,6 +364,32 @@ export function saveGlobalAppDraft(
 	return stored
 }
 
+export function syncLiveGlobalDraft(
+	workspace: string,
+	type: WorkspaceItemType,
+	path: string,
+	value: unknown,
+	meta?: UserDraftMeta,
+	triggerKind?: TriggerKind
+): WorkspaceItem | undefined {
+	const itemKind = itemKindFor(type, triggerKind)
+	if (!itemKind) return undefined
+	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
+	const liveDraft = UserDraft.getLiveEditorDraft(itemKind, { workspace })
+	if (liveDraft?.storagePath !== storagePath) {
+		UserDraft.remove(itemKind, storagePath, { workspace })
+		return undefined
+	}
+
+	const normalized = type === 'app' ? normalizeAppDraftValue(value as AppDraftValue) : value
+	if (meta) {
+		UserDraft.setDraftAndMeta(itemKind, storagePath, normalized, meta, { workspace })
+	} else {
+		UserDraft.save(itemKind, storagePath, normalized, { workspace })
+	}
+	return getGlobalDraft(workspace, type, path, triggerKind)
+}
+
 type DeleteGlobalDraftOptions = {
 	preserveLiveDraft?: boolean
 }

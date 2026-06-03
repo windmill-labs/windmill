@@ -12,15 +12,61 @@ function preserveOnBehalfOf(email: string | undefined): true | undefined {
 	return email ? true : undefined
 }
 
-function deployMetadataField<T extends object, K extends keyof T>(
-	draftMetadata: T | undefined,
+const SCRIPT_DEPLOY_METADATA_FIELDS = [
+	'schema',
+	'is_template',
+	'kind',
+	'tag',
+	'envs',
+	'concurrent_limit',
+	'concurrency_time_window_s',
+	'debounce_key',
+	'debounce_delay_s',
+	'debounce_args_to_accumulate',
+	'max_total_debouncing_time',
+	'max_total_debounces_amount',
+	'cache_ttl',
+	'cache_ignore_s3_path',
+	'dedicated_worker',
+	'ws_error_handler_muted',
+	'priority',
+	'restart_unless_cancelled',
+	'timeout',
+	'delete_after_secs',
+	'concurrency_key',
+	'visible_to_runner_only',
+	'auto_kind',
+	'codebase',
+	'has_preprocessor',
+	'on_behalf_of_email',
+	'assets',
+	'modules',
+	'labels'
+] as const satisfies readonly (keyof ScriptDeployMetadata)[]
+
+const FLOW_DEPLOY_METADATA_FIELDS = [
+	'tag',
+	'ws_error_handler_muted',
+	'priority',
+	'dedicated_worker',
+	'timeout',
+	'visible_to_runner_only',
+	'on_behalf_of_email',
+	'labels'
+] as const satisfies readonly (keyof FlowDeployMetadata)[]
+
+function mergeDeployMetadata<T extends object>(
 	existing: T | undefined,
-	key: K
-): T[K] | undefined {
-	if (draftMetadata && Object.prototype.hasOwnProperty.call(draftMetadata, key)) {
-		return draftMetadata[key]
-	}
-	return existing?.[key]
+	draftMetadata: T | undefined
+): T {
+	return { ...existing, ...draftMetadata } as T
+}
+
+function pickDeployMetadata<T extends object, K extends keyof T>(
+	source: T,
+	fields: readonly K[]
+): Pick<T, K> {
+	return Object.fromEntries(fields.map((field) => [field, source[field]])) as Pick<T, K>
 }
 
 export function buildScriptDeployRequestBody(
@@ -35,87 +81,19 @@ export function buildScriptDeployRequestBody(
 	}
 
 	const existingWithMetadata = existing as ScriptDeployMetadata | undefined
-	const onBehalfOfEmail = deployMetadataField(
-		draftMetadata,
-		existingWithMetadata,
-		'on_behalf_of_email'
-	)
+	const metadata = mergeDeployMetadata(existingWithMetadata, draftMetadata)
+	const onBehalfOfEmail = metadata.on_behalf_of_email
 
 	return {
 		path,
-		summary:
-			draft.summary ?? deployMetadataField(draftMetadata, existingWithMetadata, 'summary') ?? '',
-		description: deployMetadataField(draftMetadata, existingWithMetadata, 'description') ?? '',
+		summary: draft.summary ?? metadata.summary ?? '',
+		description: metadata.description ?? '',
 		content: draft.value,
 		parent_hash: existing?.hash,
-		schema: deployMetadataField(draftMetadata, existingWithMetadata, 'schema'),
-		is_template: deployMetadataField(draftMetadata, existingWithMetadata, 'is_template'),
+		...pickDeployMetadata(metadata, SCRIPT_DEPLOY_METADATA_FIELDS),
 		language: draft.language,
-		kind: deployMetadataField(draftMetadata, existingWithMetadata, 'kind'),
-		tag: deployMetadataField(draftMetadata, existingWithMetadata, 'tag'),
-		envs: deployMetadataField(draftMetadata, existingWithMetadata, 'envs'),
-		concurrent_limit: deployMetadataField(draftMetadata, existingWithMetadata, 'concurrent_limit'),
-		concurrency_time_window_s: deployMetadataField(
-			draftMetadata,
-			existingWithMetadata,
-			'concurrency_time_window_s'
-		),
-		debounce_key: deployMetadataField(draftMetadata, existingWithMetadata, 'debounce_key'),
-		debounce_delay_s: deployMetadataField(draftMetadata, existingWithMetadata, 'debounce_delay_s'),
-		debounce_args_to_accumulate: deployMetadataField(
-			draftMetadata,
-			existingWithMetadata,
-			'debounce_args_to_accumulate'
-		),
-		max_total_debouncing_time: deployMetadataField(
-			draftMetadata,
-			existingWithMetadata,
-			'max_total_debouncing_time'
-		),
-		max_total_debounces_amount: deployMetadataField(
-			draftMetadata,
-			existingWithMetadata,
-			'max_total_debounces_amount'
-		),
-		cache_ttl: deployMetadataField(draftMetadata, existingWithMetadata, 'cache_ttl'),
-		cache_ignore_s3_path: deployMetadataField(
-			draftMetadata,
-			existingWithMetadata,
-			'cache_ignore_s3_path'
-		),
-		dedicated_worker: deployMetadataField(draftMetadata, existingWithMetadata, 'dedicated_worker'),
-		ws_error_handler_muted: deployMetadataField(
-			draftMetadata,
-			existingWithMetadata,
-			'ws_error_handler_muted'
-		),
-		priority: deployMetadataField(draftMetadata, existingWithMetadata, 'priority'),
-		restart_unless_cancelled: deployMetadataField(
-			draftMetadata,
-			existingWithMetadata,
-			'restart_unless_cancelled'
-		),
-		timeout: deployMetadataField(draftMetadata, existingWithMetadata, 'timeout'),
-		delete_after_secs: deployMetadataField(
-			draftMetadata,
-			existingWithMetadata,
-			'delete_after_secs'
-		),
 		deployment_message: deploymentMessage,
-		concurrency_key: deployMetadataField(draftMetadata, existingWithMetadata, 'concurrency_key'),
-		visible_to_runner_only: deployMetadataField(
-			draftMetadata,
-			existingWithMetadata,
-			'visible_to_runner_only'
-		),
-		auto_kind: deployMetadataField(draftMetadata, existingWithMetadata, 'auto_kind'),
-		codebase: deployMetadataField(draftMetadata, existingWithMetadata, 'codebase'),
-		has_preprocessor: deployMetadataField(draftMetadata, existingWithMetadata, 'has_preprocessor'),
-		on_behalf_of_email: onBehalfOfEmail,
-		preserve_on_behalf_of: preserveOnBehalfOf(onBehalfOfEmail),
-		assets: deployMetadataField(draftMetadata, existingWithMetadata, 'assets'),
-		modules: deployMetadataField(draftMetadata, existingWithMetadata, 'modules'),
-		labels: deployMetadataField(draftMetadata, existingWithMetadata, 'labels')
+		preserve_on_behalf_of: preserveOnBehalfOf(onBehalfOfEmail)
 	}
 }
 
@@ -137,23 +115,17 @@ export function buildFlowDeployRequestBody(
 	deploymentMessage: string | undefined,
 	draftMetadata?: FlowDeployMetadata
 ): FlowDeployRequestBody {
-	const onBehalfOfEmail = deployMetadataField(draftMetadata, existing, 'on_behalf_of_email')
+	const metadata = mergeDeployMetadata(existing, draftMetadata)
+	const onBehalfOfEmail = metadata.on_behalf_of_email
 
 	return {
 		path,
-		summary: draftSummary ?? deployMetadataField(draftMetadata, existing, 'summary') ?? '',
-		description: deployMetadataField(draftMetadata, existing, 'description') ?? '',
+		summary: draftSummary ?? metadata.summary ?? '',
+		description: metadata.description ?? '',
 		value: flowValueWithDraftGroups(flowDraft),
-		schema: flowDraft.schema ?? deployMetadataField(draftMetadata, existing, 'schema') ?? {},
-		tag: deployMetadataField(draftMetadata, existing, 'tag'),
-		ws_error_handler_muted: deployMetadataField(draftMetadata, existing, 'ws_error_handler_muted'),
-		priority: deployMetadataField(draftMetadata, existing, 'priority'),
-		dedicated_worker: deployMetadataField(draftMetadata, existing, 'dedicated_worker'),
-		timeout: deployMetadataField(draftMetadata, existing, 'timeout'),
-		visible_to_runner_only: deployMetadataField(draftMetadata, existing, 'visible_to_runner_only'),
-		on_behalf_of_email: onBehalfOfEmail,
+		schema: flowDraft.schema ?? metadata.schema ?? {},
+		...pickDeployMetadata(metadata, FLOW_DEPLOY_METADATA_FIELDS),
 		preserve_on_behalf_of: preserveOnBehalfOf(onBehalfOfEmail),
-		labels: deployMetadataField(draftMetadata, existing, 'labels'),
 		deployment_message: deploymentMessage
 	}
 }
