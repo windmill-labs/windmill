@@ -8,6 +8,7 @@
 	import type { RawAppDraft } from './appDraftCodec'
 	import { applyDraftToRuntimeRawApp, runtimeRawAppToDraft } from './appDraftCodec'
 	import SessionItemNotFound from './SessionItemNotFound.svelte'
+	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 
 	let {
 		runtime,
@@ -150,6 +151,8 @@
 		onDeploy={(e) => {
 			// Sync the preview to deployed (raw apps deploy only from this editor).
 			runtime.syncPreviewWithDeployed(workspaceId, 'raw_app', e.path)
+			// Deploying clears the item's pending draft — refresh the Draft Count.
+			invalidateWorkspaceDrafts(workspaceId)
 		}}
 		defaultSidebarCollapsed
 		sidebarStorageKey="raw-app-sidebar-collapsed-preview"

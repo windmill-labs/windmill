@@ -113,6 +113,16 @@
 		}
 	})
 
+	// Selected items still in the live list and deployable. Derived (not a pruning
+	// effect) so the "Deploy N drafts" button stays reactive to the Workspace
+	// Drafts resource: deploy/discard drop items, and stale keys left in
+	// selectedItems are simply ignored here (and by deploySelected).
+	let selectedCount = $derived(
+		items.filter(
+			(i) => selectedItems.includes(i.key) && deploymentStatus[i.key]?.status !== 'deployed'
+		).length
+	)
+
 	let allSelected = $derived(
 		items.length > 0 &&
 			items
@@ -265,7 +275,7 @@
 		>
 			{#snippet header()}
 				{#if isFork}
-					<div class="flex items-center bg-surface-tertiary pb-4 border-b">
+					<div class="flex items-center bg-surface-tertiary pb-4">
 						<CompareModeToggle
 							selected="draft"
 							{isFork}
@@ -342,11 +352,11 @@
 				<div class="flex items-center justify-end">
 					<Button
 						variant="accent"
-						disabled={selectedItems.length === 0 || deploying}
+						disabled={selectedCount === 0 || deploying}
 						loading={deploying}
 						onClick={deploySelected}
 					>
-						Deploy {selectedItems.length} draft{selectedItems.length !== 1 ? 's' : ''}
+						Deploy {selectedCount} draft{selectedCount !== 1 ? 's' : ''}
 					</Button>
 				</div>
 			{/snippet}

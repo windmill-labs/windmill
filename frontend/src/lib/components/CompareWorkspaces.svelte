@@ -662,7 +662,7 @@
 			>
 				{#snippet header()}
 					<div class="flex items-center justify-between bg-surface-tertiary">
-						<div class="flex flex-col gap-2 w-full pb-4 border-b">
+						<div class="flex flex-col gap-2 w-full pb-4">
 							<div class="flex flex-wrap gap-1 items-center">
 								<CompareModeToggle
 									selected={mergeIntoParent ? 'deploy_to' : 'update'}

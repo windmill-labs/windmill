@@ -56,11 +56,6 @@
 				{item}
 			/>
 		{/if}
-		<ToggleButton
-			value="draft"
-			label={withCount('Deploy draft', draftCount)}
-			icon={Pencil}
-			{item}
-		/>
+		<ToggleButton value="draft" label={`Deploy draft (${draftCount})`} icon={Pencil} {item} />
 	{/snippet}
 </ToggleButtonGroup>

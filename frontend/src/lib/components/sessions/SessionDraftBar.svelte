@@ -2,7 +2,8 @@
 	import { Pencil } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { goto } from '$lib/navigation'
-	import type { Session } from './sessionState.svelte'
+	import { sessionState, type Session } from './sessionState.svelte'
+	import { getRuntime } from './sessionRuntime.svelte'
 	import DraftDiffDrawer from './DraftDiffDrawer.svelte'
 	import SessionDiffButton from './SessionDiffButton.svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
@@ -16,6 +17,32 @@
 	const committedId = $derived(session.workspace_id)
 	const drafts = useWorkspaceDrafts(() => committedId)
 	const count = $derived(drafts.count)
+
+	// Deploys/saves from the Preview editor invalidate the workspace directly
+	// (ScriptEditorView / FlowEditorView / RawAppEditorView call
+	// invalidateWorkspaceDrafts). The chat itself can also deploy items, but
+	// those happen server-side and the frontend never sees the individual calls —
+	// so refresh on the same coarse signals the fork bar uses: the AI turn ending
+	// and the tab regaining visibility.
+	const runtime = $derived(getRuntime(session.id))
+
+	let wasLoading = $state(false)
+	$effect(() => {
+		const isLoading = runtime?.manager.loading ?? false
+		if (wasLoading && !isLoading) drafts.refresh()
+		wasLoading = isLoading
+	})
+
+	$effect(() => {
+		if (!committedId) return
+		function onVisibilityChange() {
+			if (document.visibilityState !== 'visible') return
+			if (sessionState.currentSessionId !== session.id) return
+			drafts.refresh()
+		}
+		document.addEventListener('visibilitychange', onVisibilityChange)
+		return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+	})
 
 	let drawer: DraftDiffDrawer | undefined = $state(undefined)
 

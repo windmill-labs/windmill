@@ -10,6 +10,7 @@
 	import { initFlowState } from '$lib/components/flows/flowState'
 	import SessionItemNotFound from './SessionItemNotFound.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 
 	let {
 		runtime,
@@ -170,12 +171,18 @@
 		{diffDrawer}
 		{onNavigate}
 		customUi={{ topBar: { aiBuilder: false } }}
-		onSaveDraft={() => runtime.scheduleForkComparisonRefresh()}
+		onSaveDraft={() => {
+			runtime.scheduleForkComparisonRefresh()
+			// Saving a draft adds/keeps a pending draft — refresh the Draft Count.
+			invalidateWorkspaceDrafts(workspaceId)
+		}}
 		onDeploy={() => {
 			// FlowBuilder has no deploy toast and the session stays put, so toast
 			// here, then sync the preview to deployed (pulls the new locks + version_id).
 			sendUserToast('Deployed')
 			runtime.syncPreviewWithDeployed(workspaceId, 'flow', path)
+			// Deploying clears the item's pending draft — refresh the Draft Count.
+			invalidateWorkspaceDrafts(workspaceId)
 		}}
 	/>
 {/if}
