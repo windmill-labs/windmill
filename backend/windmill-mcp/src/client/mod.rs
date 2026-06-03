@@ -22,8 +22,6 @@ use rmcp::{
 };
 use serde_json::{json, Value};
 use std::str::FromStr;
-use windmill_common::variables::get_secret_value_as_admin;
-use windmill_common::DB;
 
 /// MCP client for communicating with external MCP servers
 pub struct McpClient {
@@ -34,18 +32,29 @@ pub struct McpClient {
 }
 
 impl McpClient {
-    /// Create a new MCP client from a resource configuration
-    pub async fn from_resource(resource: McpResource, db: &DB, w_id: &str) -> Result<Self> {
+    /// Create a new MCP client from a resource configuration.
+    ///
+    /// `token`, when present, is the already-resolved bearer token sent as an
+    /// `Authorization` header. It MUST be resolved by the caller through the
+    /// permissioned (RLS + audit) variable path — `from_resource` never reads
+    /// secrets itself, so a caller cannot trick it into decrypting a variable
+    /// they are not allowed to read (GHSA-8m2p-2crh-9h3w).
+    pub async fn from_resource(resource: McpResource, token: Option<String>) -> Result<Self> {
+        // The resource URL is author-controlled and we send a (potentially
+        // secret) bearer token to it, so it must be validated against SSRF
+        // before we connect (e.g. cloud metadata endpoints, internal services).
+        windmill_common::ssrf::validate_url_for_ssrf(&resource.url)
+            .await
+            .map_err(|e| anyhow::anyhow!("MCP server URL is not allowed: {}", e))?;
+
         // Build custom reqwest client with headers if provided
         let mut headers = HeaderMap::new();
-        if let Some(token_path) = &resource.token {
-            if !token_path.trim().is_empty() {
-                let value =
-                    get_secret_value_as_admin(db, w_id, token_path.trim_start_matches("$var:"))
-                        .await?;
+        if let Some(token) = token {
+            let token = token.trim();
+            if !token.is_empty() {
                 headers.insert(
                     HeaderName::from_static("authorization"),
-                    HeaderValue::from_str(format!("Bearer {}", value).as_str())?,
+                    HeaderValue::from_str(format!("Bearer {}", token).as_str())?,
                 );
             }
         }
@@ -208,5 +217,34 @@ impl McpClient {
                     .collect(),
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression test for GHSA-8m2p-2crh-9h3w: `from_resource` must refuse to
+    /// connect to a URL that targets a private/internal address (here the AWS
+    /// instance-metadata endpoint), so a resource author cannot use the MCP
+    /// client as an SSRF primitive against internal services. The guard runs
+    /// before any connection attempt, so this fails fast without network access.
+    #[tokio::test]
+    async fn from_resource_rejects_ssrf_url() {
+        let resource = McpResource {
+            name: "evil".to_string(),
+            url: "http://169.254.169.254".to_string(),
+            token: None,
+            headers: None,
+        };
+
+        let msg = match McpClient::from_resource(resource, None).await {
+            Ok(_) => panic!("a link-local metadata URL must be rejected before connecting"),
+            Err(e) => e.to_string(),
+        };
+        assert!(
+            msg.contains("not allowed") && msg.contains("private"),
+            "error should explain the URL was rejected as private/internal, got: {msg}"
+        );
     }
 }

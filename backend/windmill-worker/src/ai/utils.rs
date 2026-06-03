@@ -7,6 +7,8 @@ use std::{
 };
 use uuid::Uuid;
 use windmill_ai::types::*;
+#[cfg(feature = "mcp")]
+use windmill_common::client::AuthedClient;
 use windmill_common::flows::FlowModuleValue;
 use windmill_common::{
     db::DB,
@@ -546,7 +548,7 @@ pub async fn load_mcp_tools(
     db: &DB,
     workspace_id: &str,
     mcp_configs: Vec<McpResourceConfig>,
-    auth_token: &str,
+    client: &AuthedClient,
 ) -> Result<(HashMap<String, Arc<McpClient>>, Vec<Tool>), Error> {
     let mut all_mcp_tools = Vec::new();
     let mut mcp_clients = HashMap::new();
@@ -573,27 +575,47 @@ pub async fn load_mcp_tools(
 
         let resource_name = mcp_resource.name.clone();
 
-        // Check if token needs refresh before creating MCP client
-        if let Some(ref token_path) = mcp_resource.token {
+        // Resolve the token through the job's permissioned (RLS + audit) path so
+        // the AI agent cannot exfiltrate a secret its identity is not allowed to
+        // read by pointing an MCP resource's token at it (GHSA-8m2p-2crh-9h3w).
+        let token = if let Some(ref token_path) = mcp_resource.token {
             let token_var_path = token_path.trim_start_matches("$var:");
-            if let Err(e) =
-                refresh_token_if_expired(db, workspace_id, token_var_path, auth_token).await
-            {
-                tracing::warn!(
-                    "Failed to refresh token for MCP resource {}: {}. Proceeding with possibly expired token.",
-                    resource_name, e
-                );
+            if token_var_path.trim().is_empty() {
+                None
+            } else {
+                // Refresh first (best-effort) so the value we read is current.
+                if let Err(e) =
+                    refresh_token_if_expired(db, workspace_id, token_var_path, &client.token).await
+                {
+                    tracing::warn!(
+                        "Failed to refresh token for MCP resource {}: {}. Proceeding with possibly expired token.",
+                        resource_name, e
+                    );
+                }
+                Some(
+                    client
+                        .get_variable_value(token_var_path)
+                        .await
+                        .map_err(|e| {
+                            Error::internal_err(format!(
+                                "Failed to resolve token variable {} for MCP resource {}: {}",
+                                token_var_path, resource_name, e
+                            ))
+                        })?,
+                )
             }
-        }
+        } else {
+            None
+        };
 
         // Create new MCP client for this execution
         tracing::debug!("Creating fresh MCP client for {}", resource_name);
-        let client = McpClient::from_resource(mcp_resource, db, workspace_id)
+        let mcp_conn = McpClient::from_resource(mcp_resource, token)
             .await
             .context("Failed to create MCP client")?;
 
         // Get raw MCP tools from client
-        let raw_mcp_tools = client.available_tools();
+        let raw_mcp_tools = mcp_conn.available_tools();
 
         // Convert to Windmill Tool format
         let converted_tools =
@@ -616,7 +638,7 @@ pub async fn load_mcp_tools(
         all_mcp_tools.extend(filtered_tools);
 
         // Store client for later use and cleanup
-        let mcp_client = Arc::new(client);
+        let mcp_client = Arc::new(mcp_conn);
         mcp_clients.insert(resource_name, mcp_client);
     }
 
@@ -663,7 +685,7 @@ pub async fn load_mcp_tools<T>(
     _db: &DB,
     _workspace_id: &str,
     _mcp_configs: Vec<McpResourceConfig>,
-    _auth_token: &str,
+    _client: &windmill_common::client::AuthedClient,
 ) -> Result<(HashMap<String, Arc<T>>, Vec<Tool>), Error> {
     Ok((HashMap::new(), Vec::new()))
 }
