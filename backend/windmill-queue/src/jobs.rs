@@ -1068,7 +1068,16 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     , status
                     , worker
                     )
-                SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), $3, $10, $5, $6,
+                SELECT q.workspace_id, q.id, started_at,
+                        -- Workflow-as-code roots (identified by the `_checkpoint` written by the WAC
+                        -- executor) suspend while their task jobs run, so the worker-measured `$9`
+                        -- duration only covers the orchestration script's own compute, not the tasks.
+                        -- `started_at` is preserved across resumes (pull uses `coalesce(started_at, now())`),
+                        -- so fall back to the wall-clock elapsed time here, exactly like flows do.
+                        CASE WHEN workflow_as_code_status -> '_checkpoint' IS NOT NULL
+                            THEN (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000
+                            ELSE COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000)
+                        END, $3, $10, $5, $6,
                         flow_status, workflow_as_code_status,
                         $8, CASE WHEN $4::BOOL THEN 'canceled'::job_status
                         WHEN $7::BOOL THEN 'skipped'::job_status

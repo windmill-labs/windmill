@@ -1283,11 +1283,19 @@ async def main(n: int):
 
     let db_ref = &db;
 
+    // Returns (final result, completed_steps checkpoint, wall-clock elapsed,
+    // stored parent `duration_ms`, DB wall-clock `completed_at - started_at` in ms).
     async fn run_once(
         db: &Pool<Postgres>,
         port: u16,
         content: String,
-    ) -> (serde_json::Value, serde_json::Value, std::time::Duration) {
+    ) -> (
+        serde_json::Value,
+        serde_json::Value,
+        std::time::Duration,
+        i64,
+        f64,
+    ) {
         let mut job_id_out: Option<sqlx::types::Uuid> = None;
         let mut result_out: Option<serde_json::Value> = None;
         let t0 = std::time::Instant::now();
@@ -1340,16 +1348,55 @@ async def main(n: int):
                 )
             });
 
-        (result_out.unwrap(), ckpt, elapsed)
+        // A WAC v2 root suspends while its steps run, so its stored `duration_ms`
+        // must be the end-to-end wall-clock (`now() - started_at`, like flows),
+        // NOT just the final replay's compute time. Fetch both the stored value
+        // and the DB-computed wall-clock to assert they agree. (Non-macro query
+        // so it needs no offline sqlx cache entry.)
+        let (duration_ms, wallclock_ms): (i64, f64) = sqlx::query_as(
+            "SELECT duration_ms,
+                    (EXTRACT('epoch' FROM (completed_at - started_at)) * 1000)::float8
+             FROM v2_job_completed WHERE id = $1",
+        )
+        .bind(job_id)
+        .fetch_one(db)
+        .await
+        .expect("v2_job_completed timing fetch");
+
+        (
+            result_out.unwrap(),
+            ckpt,
+            elapsed,
+            duration_ms,
+            wallclock_ms,
+        )
     }
 
     // --- Legacy path: worker-side suspend & replay ---
-    let (legacy_result, legacy_ckpt, legacy_elapsed) =
+    let (legacy_result, legacy_ckpt, legacy_elapsed, legacy_duration_ms, legacy_wallclock_ms) =
         run_once(db_ref, port, workflow_content(false)).await;
 
     // --- Fast path: SDK persists the delta via the new API endpoint ---
-    let (fast_result, fast_ckpt, fast_elapsed) =
+    let (fast_result, fast_ckpt, fast_elapsed, fast_duration_ms, fast_wallclock_ms) =
         run_once(db_ref, port, workflow_content(true)).await;
+
+    // Regression check (workflow-as-code execution time): the WAC root's stored
+    // `duration_ms` must reflect the full end-to-end wall-clock — the same
+    // semantics flows use — and not just the orchestration script's final-replay
+    // compute time. Previously it excluded the suspend/replay round-trips spent
+    // running the steps, so it read far below the actual wall-clock. We allow a
+    // small tolerance for the sub-second gap between the worker's completion and
+    // the `now()` evaluated when the row is committed.
+    for (label, duration_ms, wallclock_ms) in [
+        ("legacy", legacy_duration_ms, legacy_wallclock_ms),
+        ("fast", fast_duration_ms, fast_wallclock_ms),
+    ] {
+        assert!(
+            (duration_ms as f64 - wallclock_ms).abs() <= 250.0,
+            "{label} WAC v2 root duration_ms ({duration_ms}ms) should match the \
+             end-to-end wall-clock ({wallclock_ms:.0}ms) like flows do"
+        );
+    }
 
     // Behavioral equivalence: same final result and same completed_steps.
     assert_eq!(

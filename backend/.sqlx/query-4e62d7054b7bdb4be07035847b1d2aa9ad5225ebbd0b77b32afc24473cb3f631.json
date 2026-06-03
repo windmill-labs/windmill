@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO v2_job_completed AS cj\n                    ( workspace_id\n                    , id\n                    , started_at\n                    , duration_ms\n                    , result\n                    , result_columns\n                    , canceled_by\n                    , canceled_reason\n                    , flow_status\n                    , workflow_as_code_status\n                    , memory_peak\n                    , status\n                    , worker\n                    )\n                SELECT q.workspace_id, q.id, started_at,\n                        -- Workflow-as-code roots (identified by the `_checkpoint` written by the WAC\n                        -- executor) suspend while their task jobs run, so the worker-measured `$9`\n                        -- duration only covers the orchestration script's own compute, not the tasks.\n                        -- `started_at` is preserved across resumes (pull uses `coalesce(started_at, now())`),\n                        -- so fall back to the wall-clock elapsed time here, exactly like flows do.\n                        CASE WHEN workflow_as_code_status -> '_checkpoint' IS NOT NULL\n                            THEN (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000\n                            ELSE COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000)\n                        END, $3, $10, $5, $6,\n                        flow_status, workflow_as_code_status,\n                        $8, CASE WHEN $4::BOOL THEN 'canceled'::job_status\n                        WHEN $7::BOOL THEN 'skipped'::job_status\n                        WHEN $2::BOOL THEN 'success'::job_status\n                        ELSE 'failure'::job_status END AS status,\n                        q.worker\n                FROM v2_job_queue q LEFT JOIN v2_job_status USING (id) WHERE q.id = $1\n            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3 RETURNING duration_ms AS \"duration_ms!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "duration_ms!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bool",
+        "Jsonb",
+        "Bool",
+        "Varchar",
+        "Text",
+        "Bool",
+        "Int4",
+        "Int8",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4e62d7054b7bdb4be07035847b1d2aa9ad5225ebbd0b77b32afc24473cb3f631"
+}
