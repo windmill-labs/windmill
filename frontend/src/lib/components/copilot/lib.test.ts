@@ -28,6 +28,13 @@ describe('modelConfig', () => {
 		expect(modelDisallowsSamplingParams('anthropic/claude-opus-4-7')).toBe(true)
 	})
 
+	it('flags Opus 4.8 model IDs via includes matching', () => {
+		expect(modelDisallowsSamplingParams('claude-opus-4-8')).toBe(true)
+		expect(modelDisallowsSamplingParams('claude-opus-4-8@20260416')).toBe(true)
+		expect(modelDisallowsSamplingParams('claude-opus-4-8/thinking')).toBe(true)
+		expect(modelDisallowsSamplingParams('anthropic/claude-opus-4-8')).toBe(true)
+	})
+
 	it('omits deterministic temperature for Anthropic Opus 4.7 chat requests', () => {
 		expect(
 			getDefaultChatTemperature({ provider: 'anthropic', model: 'claude-opus-4-7' })
@@ -42,6 +49,50 @@ describe('modelConfig', () => {
 
 	it('keeps deterministic temperature for older Anthropic models', () => {
 		expect(getDefaultChatTemperature({ provider: 'anthropic', model: 'claude-sonnet-4-6' })).toBe(0)
+	})
+
+	it('flags gpt-5+ and o-series reasoning models via prefix matching', () => {
+		expect(modelDisallowsSamplingParams('gpt-5')).toBe(true)
+		expect(modelDisallowsSamplingParams('gpt-5.5')).toBe(true)
+		expect(modelDisallowsSamplingParams('gpt-5-mini')).toBe(true)
+		expect(modelDisallowsSamplingParams('o1')).toBe(true)
+		expect(modelDisallowsSamplingParams('o3')).toBe(true)
+		expect(modelDisallowsSamplingParams('o4-mini')).toBe(true)
+		// provider-prefixed identifiers (e.g. OpenRouter) match on the bare model id
+		expect(modelDisallowsSamplingParams('openai/gpt-5')).toBe(true)
+		expect(modelDisallowsSamplingParams('openai/o3')).toBe(true)
+	})
+
+	it('keeps sampling params for non-reasoning models that merely share a prefix', () => {
+		// gpt-4o starts with "gpt-" but not "gpt-5"; the "o" is mid-string, not a prefix
+		expect(modelDisallowsSamplingParams('gpt-4o')).toBe(false)
+		expect(modelDisallowsSamplingParams('gpt-4o-mini')).toBe(false)
+		// the provider prefix "openai/" must not be mistaken for an o-series model
+		expect(modelDisallowsSamplingParams('openai/gpt-4o')).toBe(false)
+		// the o-series match requires a digit after "o", so non-OpenAI ids that
+		// start with "o" (Mistral open-* family, OpenRouter optimus-*/openchat-*)
+		// keep their deterministic temperature
+		expect(modelDisallowsSamplingParams('open-mistral-7b')).toBe(false)
+		expect(modelDisallowsSamplingParams('open-mixtral-8x7b')).toBe(false)
+		expect(modelDisallowsSamplingParams('open-mistral-nemo-2407')).toBe(false)
+		expect(modelDisallowsSamplingParams('optimus-alpha')).toBe(false)
+		expect(modelDisallowsSamplingParams('openchat/openchat-7b')).toBe(false)
+	})
+
+	it('keeps deterministic temperature for Mistral open-* models', () => {
+		expect(getDefaultChatTemperature({ provider: 'mistral', model: 'open-mixtral-8x7b' })).toBe(0)
+	})
+
+	it('omits deterministic temperature for gpt-5.5 routed through the customai gateway', () => {
+		expect(getDefaultChatTemperature({ provider: 'customai', model: 'gpt-5.5' })).toBeUndefined()
+	})
+
+	it('omits deterministic temperature for o-series models on the customai gateway', () => {
+		expect(getDefaultChatTemperature({ provider: 'customai', model: 'o3' })).toBeUndefined()
+	})
+
+	it('keeps deterministic temperature for gpt-4o on the customai gateway', () => {
+		expect(getDefaultChatTemperature({ provider: 'customai', model: 'gpt-4o' })).toBe(0)
 	})
 })
 

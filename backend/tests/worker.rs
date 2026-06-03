@@ -4763,6 +4763,28 @@ export async function main() {
     Ok(())
 }
 
+#[sqlx::test(fixtures("base", "relative_bun"))]
+async fn test_relative_imports_bun_dollar_alias(db: Pool<Postgres>) -> anyhow::Result<()> {
+    // `$f/` is a local-friendly alias for the absolute workspace path `/f/` and must
+    // resolve identically on the worker. Mix it with relative imports to confirm both
+    // paths coexist.
+    let content = r#"
+import { main as test1 } from "$f/system/same_folder_script.ts";
+import { main as test2 } from "./same_folder_script.ts";
+import { main as test3 } from "$f/system_relative/different_folder_script.ts";
+import { main as test4 } from "../system_relative/different_folder_script.ts";
+
+export async function main() {
+  return [test1(), test2(), test3(), test4()];
+}
+"#
+    .to_string();
+
+    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Bun).await?;
+    run_preview_relative_imports(&db, content, ScriptLang::Bun).await?;
+    Ok(())
+}
+
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base", "relative_bun"))]
 async fn test_nested_imports_bun(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -4786,6 +4808,27 @@ async fn test_relative_imports_deno(db: Pool<Postgres>) -> anyhow::Result<()> {
 import { main as test1 } from "/f/system/same_folder_script.ts";
 import { main as test2 } from "./same_folder_script.ts";
 import { main as test3 } from "/f/system_relative/different_folder_script.ts";
+import { main as test4 } from "../system_relative/different_folder_script.ts";
+
+export async function main() {
+  return [test1(), test2(), test3(), test4()];
+}
+"#
+    .to_string();
+
+    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Deno).await?;
+    run_preview_relative_imports(&db, content, ScriptLang::Deno).await?;
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base", "relative_deno"))]
+async fn test_relative_imports_deno_dollar_alias(db: Pool<Postgres>) -> anyhow::Result<()> {
+    // `$f/` is a local-friendly alias for the absolute workspace path `/f/` and must
+    // resolve identically via the Deno import map. Mix it with relative imports.
+    let content = r#"
+import { main as test1 } from "$f/system/same_folder_script.ts";
+import { main as test2 } from "./same_folder_script.ts";
+import { main as test3 } from "$f/system_relative/different_folder_script.ts";
 import { main as test4 } from "../system_relative/different_folder_script.ts";
 
 export async function main() {

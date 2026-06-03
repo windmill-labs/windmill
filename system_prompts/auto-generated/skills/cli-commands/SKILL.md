@@ -435,12 +435,14 @@ List all queues with their metrics
 
 ### refresh
 
-Refresh wmill-managed project files (AGENTS.cli.md and skills)
+Refresh wmill-managed project files (AGENTS.cli.md, skills, tsconfig.wmill.json)
 
 **Subcommands:**
 
 - `refresh prompts` - Refresh AGENTS.cli.md and managed skills. User-owned AGENTS.md and CLAUDE.md are never overwritten unless you opt in.
-  - `--yes` - Non-interactive: skip the migration prompt for existing AGENTS.md / CLAUDE.md without the expected include; defaults to appending the include.
+  - `--yes` - Non-interactive: append the @AGENTS.cli.md include to an existing AGENTS.md / CLAUDE.md without prompting. Without it, a non-interactive run leaves an unlinked file untouched.
+- `refresh tsconfig` - Refresh the wmill-managed tsconfig.wmill.json (and Deno import map for Deno projects)
+  - `--yes` - Non-interactive: wire an existing custom tsconfig.json/deno.json to the managed file without prompting (a previously-generated config is always migrated automatically).
 
 ### resource
 

@@ -16,7 +16,8 @@ use axum::{
 };
 use windmill_api_auth::{
     auth::{list_tokens_internal, TruncatedTokenWithEmail},
-    check_scopes, maybe_refresh_folders, require_owner_of_path, ApiAuthed,
+    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
+    ApiAuthed,
 };
 use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
 use windmill_common::{
@@ -108,9 +109,10 @@ async fn list_search_flows(
     let n = 3;
     let mut tx = user_db.begin(&authed).await?;
 
+    let allowed = build_scope_path_predicate(&authed, "flows", "read");
     let rows = sqlx::query_as::<_, SearchFlow>(
         "SELECT flow.path, flow_version.value
-        FROM flow 
+        FROM flow
         LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
         WHERE flow.workspace_id = $1 LIMIT $2",
     )
@@ -119,6 +121,7 @@ async fn list_search_flows(
     .fetch_all(&mut *tx)
     .await?
     .into_iter()
+    .filter(|r| allowed(&r.path))
     .collect::<Vec<_>>();
     tx.commit().await?;
     Ok(Json(rows))
@@ -212,9 +215,13 @@ async fn list_flows(
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
+    let allowed = build_scope_path_predicate(&authed, "flows", "read");
     let rows = sqlx::query_as::<_, ListableFlow>(&sql)
         .fetch_all(&mut *tx)
-        .await?;
+        .await?
+        .into_iter()
+        .filter(|r| allowed(&r.path))
+        .collect::<Vec<_>>();
     tx.commit().await?;
     Ok(Json(rows))
 }

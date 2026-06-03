@@ -6,6 +6,7 @@
 	import { copyToClipboard, parseS3Object, roughSizeOfObject } from '$lib/utils'
 	import { base } from '$lib/base'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
+	import { appendViewToken } from '$lib/viewToken'
 	import { Button, Drawer, DrawerContent } from './common'
 	import {
 		ClipboardCopy,
@@ -176,9 +177,11 @@
 
 	let resultApiPath = $derived(
 		workspaceId && jobId
-			? nodeId
-				? `/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
-				: `/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+			? appendViewToken(
+					nodeId
+						? `/w/${workspaceId}/jobs/result_by_id/${jobId}/${nodeId}`
+						: `/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
+				)
 			: undefined
 	)
 	let resultDownloadHref = $derived(
@@ -1016,9 +1019,7 @@
 						{#if largeObject}
 							<div class="text-xs text-emphasis"
 								>{#if resultApiPath && shouldDownloadViaClient()}
-									<button
-										onclick={() => downloadViaClient(resultApiPath!, resultDownloadName)}
-									>
+									<button onclick={() => downloadViaClient(resultApiPath!, resultDownloadName)}>
 										Download {filename ? '' : 'as JSON'}
 									</button>
 								{:else}

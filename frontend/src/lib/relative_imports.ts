@@ -16,7 +16,9 @@ export function isTypescriptRelativePath(d: string) {
 		d.startsWith('../') ||
 		d.startsWith('/') ||
 		d.startsWith('.../') ||
-		d.startsWith('/')
+		// `$f/`/`$u/` are local-friendly aliases for the absolute workspace paths `/f/`,`/u/`.
+		d.startsWith('$f/') ||
+		d.startsWith('$u/')
 	)
 }
 

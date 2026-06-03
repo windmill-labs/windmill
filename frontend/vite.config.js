@@ -13,12 +13,16 @@ const remoteUrl =
 		? `http://localhost:${process.env.BACKEND_PORT}`
 		: 'https://app.windmill.dev/')
 
+// `enforce: 'pre'` so these headers are set before SvelteKit's sirv static
+// handler serves `static/` files and ends the response without calling next().
 let plugin = {
 	name: 'configure-response-headers',
+	enforce: 'pre',
 	configureServer: (server) => {
 		server.middlewares.use((_req, res, next) => {
 			res.setHeader('Cross-Origin-Opener-Policy', 'same-origin')
 			res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp')
+			res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin')
 			next()
 		})
 	}

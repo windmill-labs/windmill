@@ -5058,7 +5058,7 @@ async fn push_inner<'c, 'd>(
             content,
             path,
             hash,
-            language,
+            mut language,
             lock,
             cache_ttl,
             cache_ignore_s3_path,
@@ -5068,6 +5068,21 @@ async fn push_inner<'c, 'd>(
             debouncing_settings,
             modules,
         }) => {
+            // Reconcile the preview language with the `//native` annotation, mirroring the
+            // deploy-time logic in `worker_lockfiles`. The editor sends `bun` for a TypeScript
+            // script even when it carries `//native`, which would otherwise tag the preview as
+            // `bun` and route it to a regular bun worker. A native-mode worker neither matches
+            // the `bun` tag nor accepts a non-native `script_lang`, so previewing a `//native`
+            // script on a native-only worker setup fails. Normalizing to `bunnative` (tag
+            // `nativets`) makes the preview run exactly like the deployed script would.
+            if language == ScriptLang::Bun || language == ScriptLang::Bunnative {
+                let anns = windmill_common::worker::TypeScriptAnnotations::parse(&content);
+                if anns.native && language == ScriptLang::Bun {
+                    language = ScriptLang::Bunnative;
+                } else if !anns.native && language == ScriptLang::Bunnative {
+                    language = ScriptLang::Bun;
+                }
+            }
             // Inject modules into job args as _MODULES so the worker can extract them
             if let Some(ref modules) = modules {
                 match serde_json::to_string(modules).and_then(|s| RawValue::from_string(s)) {

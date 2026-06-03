@@ -22,6 +22,7 @@ import {
 	ensureChatIdsSeeded,
 	materializeTransient,
 	sessionState,
+	setGeneratedSessionSummary,
 	setSessionChatId,
 	setSessionTarget,
 	type Session,
@@ -34,6 +35,9 @@ import {
 	setGetPreviewStatusHandler,
 	setOpenPreviewHandler
 } from '$lib/components/copilot/chat/global/core'
+import { getNonStreamingMetadataCompletion } from '$lib/components/copilot/lib'
+import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
+import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 
 export interface SessionRuntime {
 	readonly sessionId: string
@@ -138,6 +142,72 @@ function emptyFlow(): Flow {
 	}
 }
 
+const GENERATED_SUMMARY_TIMEOUT_MS = 15000
+const GENERATED_SUMMARY_MAX_TRANSCRIPT_CHARS = 4000
+const GENERATED_SUMMARY_MAX_LENGTH = 60
+
+function buildSummaryTranscript(displayMessages: DisplayMessage[]): string {
+	return displayMessages
+		.filter((message) => message.role === 'user' || message.role === 'assistant')
+		.slice(0, 6)
+		.map((message) => `${message.role}: ${message.content}`)
+		.join('\n\n')
+		.slice(0, GENERATED_SUMMARY_MAX_TRANSCRIPT_CHARS)
+}
+
+function normalizeGeneratedSummary(summary: string | undefined): string | undefined {
+	const firstLine = summary
+		?.split('\n')
+		.map((line) => line.trim())
+		.find((line) => line.length > 0)
+	if (!firstLine) return undefined
+	const title = firstLine
+		.replace(/^title:\s*/i, '')
+		.replace(/^[-*]\s*/, '')
+		.replace(/^["'`]+|["'`]+$/g, '')
+		.replace(/[.!?]+$/g, '')
+		.replace(/\s+/g, ' ')
+		.trim()
+	if (!/[A-Za-z0-9]/.test(title)) return undefined
+	if (title.length <= GENERATED_SUMMARY_MAX_LENGTH) return title
+	return title.slice(0, GENERATED_SUMMARY_MAX_LENGTH).trim()
+}
+
+async function generateSessionSummary(displayMessages: DisplayMessage[]): Promise<string | undefined> {
+	const transcript = buildSummaryTranscript(displayMessages)
+	if (!transcript) return undefined
+	const abortController = new AbortController()
+	const timeout = setTimeout(() => abortController.abort(), GENERATED_SUMMARY_TIMEOUT_MS)
+	const messages: ChatCompletionMessageParam[] = [
+		{
+			role: 'system',
+			content:
+				'Name this AI chat session. Return only a concise title, 2 to 6 words, no quotes, no period.'
+		},
+		{
+			role: 'user',
+			content: `Conversation:\n${transcript}`
+		}
+	]
+	try {
+		return normalizeGeneratedSummary(
+			await getNonStreamingMetadataCompletion(messages, abortController)
+		)
+	} finally {
+		clearTimeout(timeout)
+	}
+}
+
+async function generateAndApplySessionSummary(sessionId: string, manager: AIChatManager) {
+	const session = sessionState.sessions.find((s) => s.id === sessionId)
+	if (!session || session.summarySource !== 'placeholder') return
+	const chatId = session.chatId
+	if (!chatId) return
+	const title = await generateSessionSummary([...manager.displayMessages])
+	if (!title) return
+	setGeneratedSessionSummary(sessionId, title, chatId)
+}
+
 function createRuntime(session: Session): SessionRuntime {
 	const manager = new AIChatManager()
 	manager.disabledModes = { navigator: true }
@@ -173,6 +243,7 @@ function createRuntime(session: Session): SessionRuntime {
 			)
 		}
 	}
+	manager.afterFirstTurnSaved = () => generateAndApplySessionSummary(session.id, manager)
 
 	const flowStore: StateStore<Flow> = $state({ val: emptyFlow() })
 	const flowStateStore: { val: Record<string, any> } = $state({ val: {} })
