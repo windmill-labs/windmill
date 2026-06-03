@@ -1,12 +1,13 @@
 <script lang="ts">
-	import { ScriptService, FlowService, AppService } from '$lib/gen'
+	import { ScriptService, FlowService, AppService, type WorkspaceItemDiff } from '$lib/gen'
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import { Badge } from './common'
 	import Button from './common/button/Button.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
-	import { DiffIcon, Undo2 } from 'lucide-svelte'
+	import { DiffIcon, ExternalLink, Undo2 } from 'lucide-svelte'
 	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
+	import { editUrlFor } from './sessions/forkEditUrl'
 	import { untrack } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import {
@@ -200,7 +201,14 @@
 		}
 	}
 
-	const KIND_LABEL: Record<DraftKind, string> = { script: 'Script', flow: 'Flow', app: 'App' }
+	// Editor URL for a draft item, scoped to the current workspace. Raw apps live
+	// under a different editor route, so map their kind accordingly.
+	function draftEditUrl(d: DraftItem): string | undefined {
+		return editUrlFor(
+			{ kind: d.raw_app ? 'raw_app' : d.kind, path: d.path } as unknown as WorkspaceItemDiff,
+			currentWorkspaceId
+		)
+	}
 </script>
 
 <div class="flex flex-col gap-4">
@@ -235,9 +243,24 @@
 
 			{#snippet itemSummary(item)}
 				{@const draftItem = item as unknown as DraftItem}
-				<span class="text-secondary">{KIND_LABEL[draftItem.kind]}</span>
-				<span class="text-tertiary mx-1">→</span>
-				<span class="text-emphasis">{draftItem.summary || draftItem.path}</span>
+				{@const editUrl = draftEditUrl(draftItem)}
+				{#if editUrl}
+					<a
+						href={editUrl}
+						target="_blank"
+						rel="noopener noreferrer"
+						title="Open {draftItem.path} in a new tab"
+						onclick={(e) => e.stopPropagation()}
+						class="group inline-flex items-center gap-1 max-w-full text-emphasis truncate hover:underline"
+					>
+						<span class="truncate">{draftItem.summary || draftItem.path}</span>
+						<ExternalLink
+							class="w-3 h-3 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity"
+						/>
+					</a>
+				{:else}
+					<span class="text-emphasis">{draftItem.summary || draftItem.path}</span>
+				{/if}
 			{/snippet}
 
 			{#snippet itemActions(item)}

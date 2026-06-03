@@ -8,6 +8,7 @@
 		CircleCheck,
 		CircleX,
 		DiffIcon,
+		ExternalLink,
 		FileJson,
 		FlaskConical,
 		GitFork,
@@ -53,6 +54,7 @@
 	import { userStore } from '$lib/stores'
 	import { base } from '$lib/base'
 	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
+	import { editUrlFor } from './sessions/forkEditUrl'
 	import DatatableSchemaDiff from './DatatableSchemaDiff.svelte'
 
 	interface Props {
@@ -834,6 +836,7 @@
 				{#snippet itemSummary(item)}
 					{@const diff = item.diff as WorkspaceItemDiff}
 					{@const key = item.key}
+					{@const editUrl = editUrlFor(diff, currentWorkspaceId)}
 					{#if isTriggerOrScheduleKind(diff.kind)}
 						<span class="text-emphasis">
 							{KIND_DISPLAY_NAMES[diff.kind as string] ?? diff.kind}
@@ -852,13 +855,32 @@
 							(diff.exists_in_fork && !diff.exists_in_source) ||
 							(!diff.exists_in_fork && diff.exists_in_source)
 						)}
-						{#if oldSummary != newSummary && isSelectable && existsInBothWorkspaces}
-							<span class="line-through text-secondary">{oldSummary || diff.path}</span>
-							{newSummary || diff.path}
-						{:else if !existsInBothWorkspaces}
-							{newSummary || oldSummary || diff.path}
+						{#snippet label()}
+							{#if oldSummary != newSummary && isSelectable && existsInBothWorkspaces}
+								<span class="line-through text-secondary">{oldSummary || diff.path}</span>
+								{newSummary || diff.path}
+							{:else if !existsInBothWorkspaces}
+								{newSummary || oldSummary || diff.path}
+							{:else}
+								{newSummary || diff.path}
+							{/if}
+						{/snippet}
+						{#if editUrl}
+							<a
+								href={editUrl}
+								target="_blank"
+								rel="noopener noreferrer"
+								title="Open {diff.path} in a new tab"
+								onclick={(e) => e.stopPropagation()}
+								class="group inline-flex items-center gap-1 max-w-full text-emphasis hover:underline"
+							>
+								{@render label()}
+								<ExternalLink
+									class="w-3 h-3 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity"
+								/>
+							</a>
 						{:else}
-							{newSummary || diff.path}
+							{@render label()}
 						{/if}
 					{/if}
 				{/snippet}
