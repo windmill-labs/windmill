@@ -55,6 +55,7 @@
 		Bug,
 		CheckCircle,
 		Code,
+		DiffIcon,
 		EllipsisVertical,
 		Plus,
 		Rocket,
@@ -101,7 +102,6 @@
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
 	import type { ScriptBuilderProps } from './script_builder'
-	import type { DiffDrawerI } from './diff_drawer'
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
 	import type { ButtonType } from './common/button/model'
 	import DebounceLimit from './flows/DebounceLimit.svelte'
@@ -804,13 +804,34 @@
 	// Inside an AI session pane (which injects an aiChatManager via context) the
 	// extra deploy-dropdown options — Deploy & Stay here, Fork, Edit in workspace
 	// fork, Exit & See details, Export — don't make sense: the session always
-	// stays put and is already scoped to a fork. Only "Show diff" is kept.
+	// stays put and is already scoped to a fork. Diff is exposed as a standalone
+	// top-bar button (rendered independently of the session pane), not here.
 	const inSessionPane = !!getContext('aiChatManager')
+
+	async function openDiffDrawer() {
+		if (!savedScript) {
+			return
+		}
+		await syncWithDeployed()
+
+		const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
+
+		const deployed = deployedValue ?? savedScript
+		const current = { ...script, draft_triggers: currentDraftTriggers }
+		if (current.assets && !current.assets.length) delete current.assets
+
+		diffDrawer?.openDrawer()
+		diffDrawer?.setDiff({
+			mode: 'normal',
+			deployed,
+			draft: savedScript['draft'],
+			current
+		})
+	}
 
 	function computeDropdownItems(
 		initialPath: string,
-		savedScript: NewScriptWithDraftAndDraftTriggers | undefined,
-		diffDrawer: DiffDrawerI | undefined
+		savedScript: NewScriptWithDraftAndDraftTriggers | undefined
 	) {
 		let dropdownItems: { label: string; onClick: () => void }[] =
 			initialPath != '' && customUi?.topBar?.extraDeployOptions != false
@@ -839,35 +860,6 @@
 												}
 											]
 										: [])
-								]
-							: []),
-						...(customUi?.topBar?.diff !== false && savedScript && diffDrawer
-							? [
-									{
-										label: 'Show diff',
-										onClick: async () => {
-											if (!savedScript) {
-												return
-											}
-											await syncWithDeployed()
-
-											const currentDraftTriggers = structuredClone(
-												triggersState.getDraftTriggersSnapshot()
-											)
-
-											const deployed = deployedValue ?? savedScript
-											const current = { ...script, draft_triggers: currentDraftTriggers }
-											if (current.assets && !current.assets.length) delete current.assets
-
-											diffDrawer?.openDrawer()
-											diffDrawer?.setDiff({
-												mode: 'normal',
-												deployed,
-												draft: savedScript['draft'],
-												current
-											})
-										}
-									}
 								]
 							: []),
 						...(!inSessionPane &&
@@ -2035,6 +2027,21 @@
 						</Button>
 					{/if}
 				{/snippet}
+				{#snippet diffButton()}
+					{#if customUi?.topBar?.diff != false}
+						<Button
+							variant="default"
+							unifiedSize="md"
+							on:click={() => openDiffDrawer()}
+							disabled={!savedScript || !diffDrawer}
+							iconOnly={compactTopbar}
+							title="Diff"
+							startIcon={{ icon: DiffIcon }}
+						>
+							Diff
+						</Button>
+					{/if}
+				{/snippet}
 				{#if compactTopbar}
 					<DropdownV2 items={getCompactMenuItems} placement="bottom-end">
 						{#snippet buttonReplacement()}
@@ -2048,8 +2055,10 @@
 							/>
 						{/snippet}
 					</DropdownV2>
+					{@render diffButton()}
 					{@render settingsButton()}
 				{:else}
+					{@render diffButton()}
 					{#if customUi?.topBar?.tagEdit != false}
 						{#if $workerTags}
 							{#if $workerTags?.length ?? 0 > 0}
@@ -2080,7 +2089,7 @@
 				<DeployButton
 					loading={!fullyLoaded}
 					{loadingSave}
-					dropdownItems={computeDropdownItems(initialPath, savedScript, diffDrawer)}
+					dropdownItems={computeDropdownItems(initialPath, savedScript)}
 					on:save={({ detail }) => handleEditScript(false, detail)}
 				/>
 			</div>

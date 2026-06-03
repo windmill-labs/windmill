@@ -892,17 +892,39 @@ mod tests {
     }
 
     #[test]
+    fn test_relative_imports_dollar_alias() {
+        // `$f/`/`$u/` are local-friendly aliases for the absolute workspace paths
+        // `/f/`/`/u/` and must resolve to the same workspace-rooted path.
+        let code = r#"
+        import { shared } from "$f/shared/utils.ts";
+        import { mine } from "$u/me/lib";
+        export async function main() { return shared() + mine(); }
+        "#;
+        let result = parse_relative_imports(code, "f/folder/script").unwrap();
+        assert_eq!(result, vec!["f/shared/utils", "u/me/lib"]);
+    }
+
+    #[test]
     fn test_relative_imports_mixed() {
         let code = r#"
         import { helper } from "./helper";
         import { utils } from "../utils";
         import { shared } from "/f/shared/lib";
+        import { aliased } from "$f/shared/aliased.ts";
         import lodash from "lodash";
-        export async function main() { return helper() + utils() + shared(); }
+        export async function main() { return helper() + utils() + shared() + aliased(); }
         "#;
         let result = parse_relative_imports(code, "f/folder/script").unwrap();
         // Should only include relative imports, not external packages like lodash
-        assert_eq!(result, vec!["f/folder/helper", "f/shared/lib", "f/utils"]);
+        assert_eq!(
+            result,
+            vec![
+                "f/folder/helper",
+                "f/shared/aliased",
+                "f/shared/lib",
+                "f/utils"
+            ]
+        );
     }
 
     #[test]
