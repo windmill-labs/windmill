@@ -14,6 +14,7 @@
 	import { BROWSER } from 'esm-env'
 
 	import { editorConfig, updateOptions } from '$lib/editorUtils'
+	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { createHash } from '$lib/editorLangUtils'
 
 	// import {
@@ -298,7 +299,14 @@
 		}
 	})
 
-	let fontSize = $derived(small ? 12 : 13.5)
+	let fontSize = $derived(small ? editorFontSize.small : editorFontSize.regular)
+
+	$effect(() => {
+		const next = fontSize
+		if (editor) {
+			editor.updateOptions({ fontSize: next })
+		}
+	})
 
 	async function loadMonaco() {
 		setMonacoJsonOptions()

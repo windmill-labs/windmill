@@ -252,21 +252,44 @@ export function gitSyncIncludePattern(
   }
 }
 
-export interface GitSyncDeployIncludes {
-  extraIncludes: string[];
+// `forcedIncludes` carries ONLY the include-* flags that must be force-set to
+// true (overriding the repo's wmill.yaml). Kinds not present are intentionally
+// omitted (never set to false) so the caller can spread this object and let
+// the repo's effective config govern the rest — see deriveGitSyncDeployIncludes.
+export type GitSyncForcedIncludes = Partial<{
   includeSchedules: boolean;
   includeGroups: boolean;
   includeUsers: boolean;
   includeTriggers: boolean;
   includeSettings: boolean;
   includeKey: boolean;
+}>;
+
+export interface GitSyncDeployIncludes {
+  extraIncludes: string[];
+  forcedIncludes: GitSyncForcedIncludes;
 }
 
 // Mirrors the hub script's wmill_sync_pull include-derivation: build the
-// --extra-includes set from the deployed items, and (only in workspace-wide
-// mode — never with --use-individual-branch) opt object kinds that are
-// excluded by default back in. Replaces the script's regexFromPath +
+// --extra-includes set from the deployed items, and decide which default-
+// excluded object kinds (triggers, schedules, groups, users, settings, key)
+// must be force-included in the pull. Replaces the script's regexFromPath +
 // per-kind --include-* construction so the hub script can drop both.
+//
+// Branch-mode distinction (this is load-bearing — see the trigger-promotion
+// bug it fixes):
+//   - Workspace-wide mode: the repo is a full mirror of the workspace, so a
+//     deployed object of a default-excluded kind MUST be re-included, even if
+//     wmill.yaml would otherwise skip it. We force the flag on.
+//   - Individual-branch (promotion) mode: the repo is a filtered prod surface
+//     whose own wmill.yaml filters decide what gets promoted. We force NOTHING
+//     here and the keys stay absent, so the caller's pull resolves them from
+//     the target's effective config (a deployed trigger lands iff the target
+//     includes triggers). Forcing `false` (the original behavior) did NOT
+//     defer — it CLOBBERED the effective config via Object.assign in pull's
+//     option merge, silently dropping kinds the target actually wanted (e.g. a
+//     deployed trigger when the target has includeTriggers: true), and the
+//     server then omitted the object from the tarball entirely.
 export function deriveGitSyncDeployIncludes(
   items: GitSyncDeployItem[],
   useIndividualBranch: boolean,
@@ -283,18 +306,19 @@ export function deriveGitSyncDeployIncludes(
     }
   }
 
-  const has = (pred: (t: string) => boolean) =>
-    !useIndividualBranch && items.some((i) => pred(i.path_type));
+  const forcedIncludes: GitSyncForcedIncludes = {};
+  if (!useIndividualBranch) {
+    const has = (pred: (t: string) => boolean) =>
+      items.some((i) => pred(i.path_type));
+    if (has((t) => t === "schedule")) forcedIncludes.includeSchedules = true;
+    if (has((t) => t === "group")) forcedIncludes.includeGroups = true;
+    if (has((t) => t === "user")) forcedIncludes.includeUsers = true;
+    if (has((t) => t.includes("trigger"))) forcedIncludes.includeTriggers = true;
+    if (has((t) => t === "settings")) forcedIncludes.includeSettings = true;
+    if (has((t) => t === "key")) forcedIncludes.includeKey = true;
+  }
 
-  return {
-    extraIncludes,
-    includeSchedules: has((t) => t === "schedule"),
-    includeGroups: has((t) => t === "group"),
-    includeUsers: has((t) => t === "user"),
-    includeTriggers: has((t) => t.includes("trigger")),
-    includeSettings: has((t) => t === "settings"),
-    includeKey: has((t) => t === "key"),
-  };
+  return { extraIncludes, forcedIncludes };
 }
 
 function git(

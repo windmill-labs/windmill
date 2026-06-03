@@ -66,6 +66,9 @@
 			  }
 			| undefined
 		diffDrawer?: DiffDrawer | undefined
+		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
+		/** Fired after a successful deploy; the session preview reloads on it. */
+		onDeploy?: (e: { path: string }) => void
 		/** Initial collapsed state for the file/runnable sidebar. The user's
 		 * toggled preference is persisted under `sidebarStorageKey`; this prop
 		 * only seeds the very first open. */
@@ -75,6 +78,14 @@
 		 * preference. */
 		sidebarStorageKey?: string
 		liveEditorDraftStoragePath?: string
+		/** Initial value for the "Split with Preview" tab-bar toggle. Defaults
+		 * to `true` (split mode, preview always pinned to the right). Set
+		 * `false` when the editor mounts inside a context that wants single-
+		 * view by default with the Preview tab selected — e.g. session
+		 * previews, where the editor pane is already narrow. The user can
+		 * still toggle the mode after mount; this prop only seeds the
+		 * initial state. */
+		defaultSplitWithPreview?: boolean
 	}
 
 	let {
@@ -88,9 +99,12 @@
 		newPath = undefined,
 		savedApp = $bindable(undefined),
 		diffDrawer = undefined,
+		onNavigate,
+		onDeploy = undefined,
 		defaultSidebarCollapsed = false,
 		sidebarStorageKey = 'raw-app-sidebar-collapsed',
-		liveEditorDraftStoragePath = undefined
+		liveEditorDraftStoragePath = undefined,
+		defaultSplitWithPreview = true
 	}: Props = $props()
 	export const version: number | undefined = undefined
 
@@ -225,7 +239,9 @@
 	}
 	let tabs: TabItem[] = $state([previewTab])
 	let activeTabId: string = $state(PREVIEW_TAB_ID)
-	let splitWithPreview: boolean = $state(true)
+	// Seed from the prop, then own the state locally so the user's toggle
+	// after mount sticks even if the prop reference changes.
+	let splitWithPreview: boolean = $state(untrack(() => defaultSplitWithPreview))
 	const activeTabKind = $derived<'file' | 'runnable' | 'preview'>(
 		activeTabId === PREVIEW_TAB_ID
 			? 'preview'
@@ -255,11 +271,23 @@
 	const showRunnable = $derived(activeTabKind === 'runnable')
 	// Mount the UI Builder iframe the first time a file is shown (paneA has
 	// width then; mounting it at 0-width breaks the VS Code workbench), and
-	// keep it mounted so tab switches don't reload it.
+	// keep it mounted so tab switches don't reload it. Mount it as soon as
+	// either pane needs it: `showSource` for the source-editor view, OR the
+	// preview tab is active — the Preview iframe is fed by `preview`
+	// postMessages bundled by the UI Builder iframe, so it needs to be
+	// mounted even when the user opens the editor straight on Preview (e.g.
+	// session previews seeded with `defaultSplitWithPreview=false`).
 	let iframeShouldMount = $state(false)
 	$effect(() => {
-		if (showSource) iframeShouldMount = true
+		if (showSource || activeTabKind === 'preview') iframeShouldMount = true
 	})
+	// Width of the editor area (both inner panes). The UI Builder iframe is
+	// pre-mounted while it's the inactive tab so the editor is ready instantly;
+	// but the VS Code workbench inside crashes if it boots at 0 size. So while
+	// inactive we keep the iframe at this real width and hide it with
+	// `visibility` instead of collapsing it — Monaco boots correctly and
+	// revealing a file is just an unhide (no reload, no relayout, no latency).
+	let editorAreaWidth = $state(0)
 
 	// Inner pane sizes are a pure function of mode + active tab → derived.
 	// `paneARatio` is the user's last manual split drag (set by rememberPaneDrag).
@@ -994,7 +1022,11 @@
 					ensureFileTab(selectedDocument)
 					// Don't auto-activate — the user's tab choice wins.
 					// But if no file tab is currently active, fall in line.
-					if (activeTabKind === 'preview' && tabs.length === 2) {
+					// Skip this auto-activation in single-view-with-preview
+					// mode (the caller seeded `defaultSplitWithPreview=false`
+					// because Preview is the intended starting tab); the
+					// iframe's first setActiveDocument shouldn't fight that.
+					if (splitWithPreview && activeTabKind === 'preview' && tabs.length === 2) {
 						activateTab(id)
 					}
 				}
@@ -1158,9 +1190,14 @@
 		})
 	})
 
-	// Open a default file on mount (boots the iframe; avoids a blank preview).
-	// Layout isn't persisted — each open starts fresh in split mode.
+	// Open a default file on mount (boots the iframe in split mode and gives
+	// the user something to edit on the left). When the caller seeded
+	// `defaultSplitWithPreview=false` we instead want the Preview tab as the
+	// only-visible / active surface, so skip the file-tab activation — the
+	// iframe still boots via `populateFiles`/`setFilesInIframe` even without
+	// a selected document.
 	onMount(() => {
+		if (!splitWithPreview) return
 		if (tabs.length === 1) {
 			const def = pickDefaultFile(files)
 			if (def) activateTab(ensureFileTab(def))
@@ -1332,6 +1369,8 @@
 		{data}
 		{runnables}
 		{getBundle}
+		{onNavigate}
+		{onDeploy}
 		canUndo={historyManager.canUndo}
 		canRedo={historyManager.canRedo}
 		onUndo={handleUndo}
@@ -1415,6 +1454,7 @@
 				Preview previously hid every tab.
 			-->
 				<div
+					bind:clientWidth={editorAreaWidth}
 					class="h-full w-full min-h-0 {splitWithPreview && activeTabKind !== 'preview'
 						? 'tabs-content-split'
 						: 'tabs-content-single'}"
@@ -1448,7 +1488,21 @@
 									{/snippet}
 								</DraggableTabs>
 								<div class="flex-1 min-h-0 relative">
-									<div class="absolute inset-0" style="display: {showSource ? 'block' : 'none'}">
+									<!--
+									Keep the UI Builder iframe mounted at a real (non-zero) size even
+									when it isn't the active tab: a hidden 0×0 mount crashes the VS
+									Code workbench's layout ("Unable to figure out browser width and
+									height") and wedges it on "Loading editor" with no recovery. While
+									inactive we size it to the editor area's width and hide it with
+									`visibility` (not `display`), so Monaco boots correctly and
+									revealing a file is an instant unhide.
+									-->
+									<div
+										class="absolute inset-0"
+										style={showSource
+											? ''
+											: `right: auto; width: ${editorAreaWidth || 800}px; visibility: hidden; pointer-events: none;`}
+									>
 										{#if iframeShouldMount}
 											<iframe
 												bind:this={iframe}

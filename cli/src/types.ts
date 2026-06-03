@@ -18,7 +18,11 @@ import { pushSchedule } from "./commands/schedule/schedule.ts";
 import { pushWorkspaceUser } from "./commands/user/user.ts";
 import { pushGroup } from "./commands/user/user.ts";
 import { pushWorkspaceDependencies } from "./commands/dependencies/dependencies.ts";
-import { pushWorkspaceSettings, pushWorkspaceKey } from "./core/settings.ts";
+import {
+  pushWorkspaceSettings,
+  pushWorkspaceKey,
+  PushWorkspaceKeyOptions,
+} from "./core/settings.ts";
 import { pushTrigger, pushNativeTrigger } from "./commands/trigger/trigger.ts";
 import { pushRawApp } from "./commands/app/raw_apps.ts";
 import type { PermissionedAsContext } from "./core/permissioned_as.ts";
@@ -179,6 +183,7 @@ function redactString(s: string): string {
  * @param alreadySynced - Array to track already synced items
  * @param message - Optional commit/update message
  * @param originalLocalPath - The original local file path (used for branch-specific resource file resolution)
+ * @param keyPushOpts - Options for the encryption_key push: non-interactive flag and explicit re-encryption choice
  */
 export async function pushObj(
   workspace: string,
@@ -191,6 +196,7 @@ export async function pushObj(
   originalLocalPath?: string,
   permissionedAsContext?: PermissionedAsContext,
   wsSpecific?: boolean,
+  keyPushOpts?: PushWorkspaceKeyOptions,
 ) {
   const typeEnding = getTypeStrFromPath(p);
 
@@ -256,7 +262,7 @@ export async function pushObj(
   } else if (typeEnding === "settings") {
     await pushWorkspaceSettings(workspace, p, befObj, newObj);
   } else if (typeEnding === "encryption_key") {
-    await pushWorkspaceKey(workspace, p, befObj, newObj);
+    await pushWorkspaceKey(workspace, p, befObj, newObj, keyPushOpts);
   } else {
     throw new Error(
       `The item ${p} has an unrecognized type ending ${typeEnding}`

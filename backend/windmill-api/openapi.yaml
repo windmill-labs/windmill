@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.712.0
+  version: 1.714.1
   title: Windmill API
 
   contact:
@@ -9318,6 +9318,33 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/jobs/job_view_token/{id}:
+    get:
+      summary: mint a read-only share token for a job
+      description: >
+        Returns a stateless `{job_id}.{hmac}` token that grants an authenticated
+        workspace member read access to this job (and its flow subtree) via a
+        `view_token` query param or `X-View-Token` header. Only callable by a user
+        who can already read the job.
+      operationId: getJobViewToken
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: the share read token
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/flows/list_paths:
     get:
       summary: list all flow paths
@@ -9751,6 +9778,9 @@ paths:
                       type: boolean
                     deployment_message:
                       type: string
+                    skip_draft_deletion:
+                      type: boolean
+                      description: "When true (set by the CLI / git sync), deploying this flow does not delete an existing user draft at the same path."
       responses:
         "201":
           description: flow created
@@ -9792,6 +9822,9 @@ paths:
                   properties:
                     deployment_message:
                       type: string
+                    skip_draft_deletion:
+                      type: boolean
+                      description: "When true (set by the CLI / git sync), deploying this flow does not delete an existing user draft at the same path."
 
       responses:
         "200":
@@ -10290,6 +10323,9 @@ paths:
                   type: array
                   items:
                     type: string
+                skip_draft_deletion:
+                  type: boolean
+                  description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
               required:
                 - path
                 - value
@@ -10342,6 +10378,9 @@ paths:
                       type: array
                       items:
                         type: string
+                    skip_draft_deletion:
+                      type: boolean
+                      description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
                   required:
                     - path
                     - value
@@ -10660,6 +10699,9 @@ paths:
                   type: array
                   items:
                     type: string
+                skip_draft_deletion:
+                  type: boolean
+                  description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
       responses:
         "200":
           description: app updated
@@ -10706,6 +10748,9 @@ paths:
                       type: array
                       items:
                         type: string
+                    skip_draft_deletion:
+                      type: boolean
+                      description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
                 js:
                   type: string
                 css:
@@ -21883,6 +21928,9 @@ components:
           type: array
           items:
             type: string
+        skip_draft_deletion:
+          type: boolean
+          description: "When true (set by the CLI / git sync), deploying this script does not delete an existing user draft at the same path."
 
       required:
         - path

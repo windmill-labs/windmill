@@ -65,6 +65,7 @@
 	import { Menubar } from '$lib/components/meltComponents'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
+	import SessionPicker from '$lib/components/sessions/SessionPicker.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
 	import DBManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
@@ -330,6 +331,9 @@
 	}
 
 	let devOnly = $derived(page.url.pathname.startsWith(base + '/scripts/dev'))
+	// Sessions own their own chat pane; suppress the global Ask-AI chat on the /sessions route
+	// so it doesn't render a second chat overlay on top of the session.
+	let inSessionRoute = $derived(page.url.pathname.startsWith(base + '/sessions'))
 
 	async function loadDefaultScripts(workspace: string, user: UserExt | undefined) {
 		if (!user?.operator) {
@@ -677,6 +681,8 @@
 								/>
 							</div>
 
+							<SessionPicker {isCollapsed} />
+
 							<SidebarContent
 								{isCollapsed}
 								numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
@@ -838,6 +844,7 @@
 			<AiChatLayout
 				{children}
 				noPadding={devOnly}
+				disableAi={inSessionRoute}
 				{isCollapsed}
 				isMobile={innerWidth < 768}
 				onMenuOpen={() => {
