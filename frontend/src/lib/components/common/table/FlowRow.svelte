@@ -39,7 +39,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
-		flow: Flow & { has_draft?: boolean; canWrite: boolean }
+		flow: Flow & { has_draft?: boolean; canWrite: boolean; draft_only?: boolean }
 		marked: string | undefined
 		shareModal: ShareModal
 		moveDrawer: MoveDrawer
@@ -103,7 +103,9 @@
 <Row
 	aiId={`flow-row-${flow.path}`}
 	aiDescription={`Button to access the form to run the flow ${flow.summary ?? flow.path}`}
-	href={`${base}/flows/get/${flow.path}?workspace=${$workspaceStore}`}
+	href={flow.draft_only
+		? `${base}/flows/edit/${flow.path}`
+		: `${base}/flows/get/${flow.path}?workspace=${$workspaceStore}`}
 	kind="flow"
 	workspaceId={flow.workspace_id ?? $workspaceStore ?? ''}
 	{marked}

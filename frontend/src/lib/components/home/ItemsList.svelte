@@ -9,7 +9,8 @@
 		type Script,
 		ScriptService,
 		type Flow,
-		type ListableRawApp
+		type ListableRawApp,
+		DraftService
 	} from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type uFuzzy from '@leeoniya/ufuzzy'
@@ -63,6 +64,9 @@
 		starred?: boolean
 		has_draft?: boolean
 		hash?: string
+		/** Set on synthetic items that exist only in the draft table (never
+		 * deployed). Their rows link to the editor instead of a get/ page. */
+		draft_only?: boolean
 	}
 
 	type TableScript = TableItem<Script, 'script'>
@@ -74,6 +78,9 @@
 	let flows: TableFlow[] | undefined = $state()
 	let apps: TableApp[] | undefined = $state()
 	let raw_apps: TableRawApp[] | undefined = $state()
+	/** Never-deployed items that live only in the draft table, keyed for merge
+	 * into `combinedItems`. */
+	let draftOnlyItems: (TableScript | TableFlow | TableApp)[] = $state([])
 
 	let filteredItems: (TableScript | TableFlow | TableApp | TableRawApp)[] = $state([])
 
@@ -137,6 +144,76 @@
 	async function loadRawApps(): Promise<void> {
 		raw_apps = []
 		loading = false
+	}
+
+	/** Surface never-deployed items (rows that exist only in the draft table, no
+	 * deployed script/flow/app) so they're discoverable in the home list.
+	 * Deduped against the deployed items already loaded for the same kind. */
+	async function loadDraftOnlyItems(): Promise<void> {
+		let listed: Awaited<ReturnType<typeof DraftService.listDrafts>>
+		try {
+			listed = await DraftService.listDrafts({ workspace: $workspaceStore! })
+		} catch (e) {
+			console.error('Failed to load drafts', e)
+			return
+		}
+		// Paths of deployed items per kind, to skip drafts that already have a
+		// deployed counterpart (those are surfaced via the deployed item's
+		// has_draft badge instead).
+		const deployedScriptPaths = new Set((scripts ?? []).map((x) => x.path))
+		const deployedFlowPaths = new Set((flows ?? []).map((x) => x.path))
+		const deployedAppPaths = new Set([...(apps ?? []), ...(raw_apps ?? [])].map((x) => x.path))
+
+		const result: (TableScript | TableFlow | TableApp)[] = []
+		for (const draft of listed) {
+			const value = (draft.value ?? {}) as any
+			const path = draft.path ?? value.path
+			if (!path) continue
+			const summary = value.summary ?? ''
+			const time = draft.created_at ? new Date(draft.created_at).getTime() : 0
+			const canWriteItem =
+				canWrite(path, value.extra_perms ?? {}, $userStore) && !$userStore?.operator
+			if (draft.typ === 'script') {
+				if (deployedScriptPaths.has(path)) continue
+				result.push({
+					path,
+					summary,
+					extra_perms: {},
+					canWrite: canWriteItem,
+					type: 'script',
+					time,
+					has_draft: true,
+					draft_only: true
+				} as unknown as TableScript)
+			} else if (draft.typ === 'flow') {
+				if (deployedFlowPaths.has(path)) continue
+				result.push({
+					path,
+					summary,
+					extra_perms: {},
+					edited_at: draft.created_at,
+					canWrite: canWriteItem,
+					type: 'flow',
+					time,
+					has_draft: true,
+					draft_only: true
+				} as unknown as TableFlow)
+			} else if (draft.typ === 'app') {
+				if (deployedAppPaths.has(path)) continue
+				result.push({
+					path,
+					summary,
+					extra_perms: {},
+					edited_at: draft.created_at,
+					canWrite: canWriteItem,
+					type: 'app',
+					time,
+					has_draft: true,
+					draft_only: true
+				} as unknown as TableApp)
+			}
+		}
+		draftOnlyItems = result
 	}
 
 	function filterItemsPathsBaseOnUserFilters(
@@ -253,14 +330,18 @@
 		if ($userStore && $workspaceStore) {
 			;[archived, includeWithoutMain]
 			untrack(() => {
-				loadScripts(includeWithoutMain)
-				loadFlows()
+				draftOnlyItems = []
+				const loads = [loadScripts(includeWithoutMain), loadFlows()]
 				if (!archived) {
-					loadApps()
-					loadRawApps()
+					loads.push(loadApps(), loadRawApps())
 				} else {
 					apps = []
 					raw_apps = []
+				}
+				// Load draft-only (never-deployed) items after the deployed lists
+				// resolve so we can dedupe against them. Archived view skips them.
+				if (!archived) {
+					Promise.all(loads).then(() => loadDraftOnlyItems())
 				}
 			})
 		}
@@ -289,7 +370,10 @@
 						...x,
 						type: 'raw_app' as 'raw_app',
 						time: new Date(x.edited_at).getTime()
-					}))
+					})),
+					// Never-deployed items (draft table only); already carry `type` and
+					// `time` and link to the editor via `draft_only`.
+					...draftOnlyItems.map((x) => ({ ...x, time: x.time ?? 0 }))
 				].sort((a, b) =>
 					a.starred != b.starred ? (a.starred ? -1 : 1) : a.time - b.time > 0 ? -1 : 1
 				)

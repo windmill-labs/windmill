@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ScriptService, type NewScript, type NewScriptWithDraft } from '$lib/gen'
+	import { ScriptService, type NewScript, type NewScriptWithDraft, DraftService } from '$lib/gen'
 
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
@@ -118,10 +118,33 @@
 			savedScript = structuredClone($state.snapshot(scriptByHash)) as NewScriptWithDraft
 			scriptHandle.setInitial({ ...scriptByHash, parent_hash: hash, lock: undefined })
 		} else {
-			const scriptWithDraft = await ScriptService.getScriptByPathWithDraft({
-				workspace: $workspaceStore!,
-				path: page.params.path ?? ''
-			})
+			let scriptWithDraft: NewScriptWithDraft
+			try {
+				scriptWithDraft = await ScriptService.getScriptByPathWithDraft({
+					workspace: $workspaceStore!,
+					path: page.params.path ?? ''
+				})
+			} catch (e) {
+				// No deployed script at this path: it may be a never-deployed item
+				// that lives only in the draft table. Load it from there.
+				const draft = await DraftService.getDraft({
+					workspace: $workspaceStore!,
+					kind: 'script',
+					path: page.params.path ?? ''
+				}).catch(() => undefined)
+				if (tok !== loadScriptToken) return
+				if (!draft?.value) throw e
+				const draftVal = { ...(draft.value as EditableScript) }
+				// No deployed version → savedScript mirrors the draft (no hash), so
+				// the builder treats a deploy as "create".
+				savedScript = { ...draftVal, draft: draftVal } as NewScriptWithDraft
+				scriptHandle.setInitial(draftVal)
+				if (scriptHandle.draft) applyBaseline(scriptHandle.draft)
+				urlScriptSeed = undefined
+				fullyLoaded = true
+				renderEditor = true
+				return
+			}
 			if (tok !== loadScriptToken) return
 			savedScript = structuredClone($state.snapshot(scriptWithDraft))
 

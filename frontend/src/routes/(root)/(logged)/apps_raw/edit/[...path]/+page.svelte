@@ -126,10 +126,59 @@
 	let loadAppToken = 0
 	async function loadApp(): Promise<void> {
 		const tok = ++loadAppToken
-		const app_w_draft = await AppService.getAppByPathWithDraft({
-			path: page.params.path ?? '',
-			workspace: $workspaceStore!
-		})
+		let app_w_draft: Awaited<ReturnType<typeof AppService.getAppByPathWithDraft>>
+		try {
+			app_w_draft = await AppService.getAppByPathWithDraft({
+				path: page.params.path ?? '',
+				workspace: $workspaceStore!
+			})
+		} catch (e) {
+			// No deployed app at this path: it may be a never-deployed item that
+			// lives only in the draft table. Raw apps use draft typ 'app'.
+			const draft = await DraftService.getDraft({
+				workspace: $workspaceStore!,
+				kind: 'app',
+				path: page.params.path ?? ''
+			}).catch(() => undefined)
+			if (tok !== loadAppToken) return
+			if (!draft?.value) throw e
+			// The raw-app draft value shape is { value: { files, runnables, data },
+			// summary, policy, custom_path, path } OR the older { files, runnables, ... }.
+			// Mirror how the deployed path derives backendSource/backendBundle, but
+			// source it from the fetched draft value instead.
+			const backendSource: any = draft.value
+			const value = backendSource.value ?? backendSource
+			const backendBundle: RawAppDraft = {
+				files: value?.files ?? {},
+				runnables: value?.runnables ?? {},
+				data:
+					value?.data ??
+					(value?.datatables ? { ...DEFAULT_DATA, tables: value.datatables } : { ...DEFAULT_DATA }),
+				summary: backendSource.summary ?? '',
+				policy: backendSource.policy,
+				custom_path: backendSource.custom_path
+			}
+			// No deployed version → savedApp mirrors the draft, so the builder
+			// treats a deploy as "create".
+			savedApp = {
+				summary: backendSource.summary,
+				value: value as any,
+				path: backendSource.path ?? page.params.path ?? '',
+				policy: backendSource.policy,
+				draft: backendSource,
+				custom_path: backendSource.custom_path
+			}
+			// Seed the handle (no DB write-back) before populating the form so the
+			// persist effect's first write matches and is skipped.
+			draftHandle.setInitial(backendBundle)
+			extractRawApp({
+				value,
+				summary: backendSource.summary,
+				policy: backendSource.policy,
+				path: backendSource.path ?? page.params.path ?? ''
+			})
+			return
+		}
 		if (tok !== loadAppToken) return
 		const app_w_draft_ = structuredClone(stateSnapshot(app_w_draft))
 		savedApp = {

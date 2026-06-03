@@ -117,45 +117,73 @@
 		seeding = true
 		let draftTriggersToApply: Trigger[] | undefined = undefined
 		let applyPrimarySchedule = false
-		// Currently there is no way to get version of flow with flow.
-		const v = (
-			await FlowService.getFlowLatestVersion({
+
+		let flow: Flow
+		try {
+			// Currently there is no way to get version of flow with flow.
+			const v = (
+				await FlowService.getFlowLatestVersion({
+					workspace: $workspaceStore!,
+					path: page.params.path ?? ''
+				})
+			).id
+			if (tok !== loadFlowToken) return
+			version = v
+
+			const flowWithDraft = await FlowService.getFlowByPathWithDraft({
 				workspace: $workspaceStore!,
 				path: page.params.path ?? ''
 			})
-		).id
-		if (tok !== loadFlowToken) return
-		version = v
-
-		const flowWithDraft = await FlowService.getFlowByPathWithDraft({
-			workspace: $workspaceStore!,
-			path: page.params.path ?? ''
-		})
-		if (tok !== loadFlowToken) return
-		savedFlow = {
-			...structuredClone($state.snapshot(flowWithDraft)),
-			draft: flowWithDraft.draft
-				? {
-						...structuredClone($state.snapshot(flowWithDraft.draft)),
-						path: flowWithDraft.draft.path ?? flowWithDraft.path // backward compatibility for old drafts missing path
-					}
-				: undefined
-		} as Flow & {
-			draft?: Flow & {
-				draft_triggers?: Trigger[]
+			if (tok !== loadFlowToken) return
+			savedFlow = {
+				...structuredClone($state.snapshot(flowWithDraft)),
+				draft: flowWithDraft.draft
+					? {
+							...structuredClone($state.snapshot(flowWithDraft.draft)),
+							path: flowWithDraft.draft.path ?? flowWithDraft.path // backward compatibility for old drafts missing path
+						}
+					: undefined
+			} as Flow & {
+				draft?: Flow & {
+					draft_triggers?: Trigger[]
+				}
 			}
-		}
 
-		// The editor works off the backend DB draft when present, otherwise the
-		// deployed version. Seeding (not assigning) avoids writing the
-		// freshly-loaded value straight back to the DB.
-		const flow = flowWithDraft.draft != undefined ? flowWithDraft.draft : flowWithDraft
-		flowHandle.setInitial(flow)
+			// The editor works off the backend DB draft when present, otherwise the
+			// deployed version. Seeding (not assigning) avoids writing the
+			// freshly-loaded value straight back to the DB.
+			flow = flowWithDraft.draft != undefined ? flowWithDraft.draft : flowWithDraft
+			flowHandle.setInitial(flow)
 
-		if (flowWithDraft.draft != undefined) {
-			savedPrimarySchedule = flowWithDraft?.draft?.['primary_schedule']
+			if (flowWithDraft.draft != undefined) {
+				savedPrimarySchedule = flowWithDraft?.draft?.['primary_schedule']
+				applyPrimarySchedule = true
+				draftTriggersToApply = flowWithDraft?.draft?.['draft_triggers']
+			}
+		} catch (e) {
+			// No deployed flow at this path (both getFlowLatestVersion and
+			// getFlowByPathWithDraft 404): it may be a never-deployed item that
+			// lives only in the draft table. Load it from there.
+			const draft = await DraftService.getDraft({
+				workspace: $workspaceStore!,
+				kind: 'flow',
+				path: page.params.path ?? ''
+			}).catch(() => undefined)
+			if (tok !== loadFlowToken) return
+			if (!draft?.value) throw e
+			// No deployed version → savedFlow mirrors the draft (no version), so
+			// the builder treats a deploy as "create".
+			savedFlow = { ...(draft.value as Flow), draft: draft.value as Flow } as Flow & {
+				draft?: Flow & {
+					draft_triggers?: Trigger[]
+				}
+			}
+			version = undefined
+			flow = draft.value as Flow
+			flowHandle.setInitial(flow)
+			savedPrimarySchedule = (draft.value as any)?.['primary_schedule']
 			applyPrimarySchedule = true
-			draftTriggersToApply = flowWithDraft?.draft?.['draft_triggers']
+			draftTriggersToApply = (draft.value as any)?.['draft_triggers']
 		}
 
 		await initFlow(flow, flowStore, flowStateStore)

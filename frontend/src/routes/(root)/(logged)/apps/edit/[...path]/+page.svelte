@@ -38,10 +38,43 @@
 	let loadAppToken = 0
 	async function loadApp(): Promise<void> {
 		const tok = ++loadAppToken
-		const app_w_draft = await AppService.getAppByPathWithDraft({
-			path: page.params.path ?? '',
-			workspace: $workspaceStore!
-		})
+		let app_w_draft: AppWithLastVersionWDraft
+		try {
+			app_w_draft = await AppService.getAppByPathWithDraft({
+				path: page.params.path ?? '',
+				workspace: $workspaceStore!
+			})
+		} catch (e) {
+			// No deployed app at this path: it may be a never-deployed item that
+			// lives only in the draft table. Load it from there.
+			const draft = await DraftService.getDraft({
+				workspace: $workspaceStore!,
+				kind: 'app',
+				path: page.params.path ?? ''
+			}).catch(() => undefined)
+			if (tok !== loadAppToken) return
+			if (!draft?.value) throw e
+			// The app draft value has shape { value, path, summary, policy, custom_path }.
+			const dv = draft.value as {
+				value: any
+				path: string
+				summary: string
+				policy: any
+				custom_path?: string
+			}
+			// No deployed version → savedApp mirrors the draft, so the builder
+			// treats a deploy as "create".
+			savedApp = {
+				summary: dv.summary,
+				value: dv.value as App,
+				path: dv.path,
+				policy: dv.policy,
+				draft: dv,
+				custom_path: dv.custom_path
+			}
+			app = { ...dv } as AppWithLastVersion & { value: any }
+			return
+		}
 		if (tok !== loadAppToken) return
 		const app_w_draft_: AppWithLastVersionWDraft = structuredClone(stateSnapshot(app_w_draft))
 		savedApp = {

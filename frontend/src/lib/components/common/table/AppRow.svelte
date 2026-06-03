@@ -36,7 +36,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
-		app: ListableApp & { has_draft?: boolean; canWrite: boolean }
+		app: ListableApp & { has_draft?: boolean; canWrite: boolean; draft_only?: boolean }
 		marked: string | undefined
 		shareModal: ShareModal
 		moveDrawer: MoveDrawer
@@ -79,7 +79,9 @@
 {/if}
 
 <Row
-	href="{base}/apps{app.raw_app ? '_raw' : ''}/get/{app.path}"
+	href={app.draft_only
+		? `${base}/apps${app.raw_app ? '_raw' : ''}/edit/${app.path}`
+		: `${base}/apps${app.raw_app ? '_raw' : ''}/get/${app.path}`}
 	kind="app"
 	{marked}
 	path={app.path}

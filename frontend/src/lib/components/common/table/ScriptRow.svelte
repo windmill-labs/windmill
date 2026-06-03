@@ -51,7 +51,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
-		script: Script & { canWrite: boolean; use_codebase: boolean }
+		script: Script & { canWrite: boolean; use_codebase: boolean; draft_only?: boolean }
 		marked: string | undefined
 		shareModal: ShareModal
 		moveDrawer: MoveDrawer
@@ -121,7 +121,7 @@
 <Row
 	aiId={`script-run-button-${script.path}`}
 	aiDescription={`Button to access the form to run the script ${script.summary ?? script.path}`}
-	href={script.auto_kind === 'lib' && script.kind !== 'preprocessor'
+	href={script.draft_only || (script.auto_kind === 'lib' && script.kind !== 'preprocessor')
 		? `${base}/scripts/edit/${script.path}`
 		: `${base}/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
 	kind="script"
