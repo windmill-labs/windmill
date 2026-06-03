@@ -63,10 +63,12 @@ async fn list_worker_groups(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> error::JsonResult<Vec<Config>> {
-    let mut configs_raw =
-        sqlx::query_as!(Config, "SELECT name, config FROM config WHERE name LIKE 'worker__%'")
-            .fetch_all(&db)
-            .await?;
+    let mut configs_raw = sqlx::query_as!(
+        Config,
+        "SELECT name, config FROM config WHERE name LIKE 'worker__%'"
+    )
+    .fetch_all(&db)
+    .await?;
     // Remove the 'worker__' prefix from all config names
     for config in configs_raw.iter_mut() {
         if let Some(name) = &config.name {
@@ -119,10 +121,14 @@ async fn get_config(
 ) -> error::JsonResult<Option<serde_json::Value>> {
     require_devops_role(&db, &authed.email).await?;
 
-    let config = sqlx::query_as!(Config, "SELECT name, config FROM config WHERE name = $1", name)
-        .fetch_optional(&db)
-        .await?
-        .map(|c| c.config);
+    let config = sqlx::query_as!(
+        Config,
+        "SELECT name, config FROM config WHERE name = $1",
+        name
+    )
+    .fetch_optional(&db)
+    .await?
+    .map(|c| c.config);
 
     Ok(Json(config))
 }
@@ -137,12 +143,14 @@ async fn update_config(
 
     #[cfg(not(feature = "enterprise"))]
     let config = if name.starts_with("worker__") {
-        // In CE, only allow setting worker_tags, cache_clear, init_bash, and native_mode
+        // In CE, only allow setting worker_tags, cache_clear, init_bash, native_mode,
+        // and container_runtime
         serde_json::json!({
             "worker_tags": config.get("worker_tags"),
             "cache_clear": config.get("cache_clear"),
             "init_bash": config.get("init_bash"),
-            "native_mode": config.get("native_mode")
+            "native_mode": config.get("native_mode"),
+            "container_runtime": config.get("container_runtime")
         })
     } else {
         config

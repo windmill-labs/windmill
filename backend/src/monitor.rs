@@ -315,6 +315,9 @@ pub async fn initial_load(
                     additional_python_paths: None,
                     pip_local_dependencies: None,
                     native_mode,
+                    container_runtime: std::env::var("CONTAINER_RUNTIME")
+                        .ok()
+                        .filter(|x| !x.is_empty()),
                 }));
             }
         }
@@ -2999,6 +3002,11 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
 
                 if wc.init_bash != config.init_bash {
                     tracing::info!("Init bash config changed, sending killpill. Expecting to be restarted by supervisor.");
+                    let _ = tx.send();
+                }
+
+                if wc.container_runtime != config.container_runtime {
+                    tracing::info!("Container runtime config changed, sending killpill. Expecting to be restarted by supervisor.");
                     let _ = tx.send();
                 }
 
