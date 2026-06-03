@@ -3,6 +3,7 @@ import { get } from 'svelte/store'
 import { createLongHash } from '$lib/editorLangUtils'
 import { random_adj } from '$lib/components/random_positive_adjetive'
 import {
+	enterpriseLicense,
 	userWorkspaces,
 	usersWorkspaceStore,
 	workspaceStore,
@@ -296,6 +297,21 @@ export async function commitSessionWorkspace(
 
 	if (s.pending_fork) {
 		const fork = s.pending_fork
+		// Defense-in-depth against a stale pending_fork (e.g. staged before
+		// another workspace was created, or any future entry point): a fork is a
+		// new workspace, and community edition caps the number of non-'admins'
+		// workspaces (backend _check_nb_of_workspaces). An enterprise license
+		// lifts the cap. Block the commit with an explicit error rather than
+		// letting materializeFork hit a backend rejection. Keep the pending fork
+		// set so the block persists until the user picks a non-fork workspace
+		// (setSessionPendingWorkspace clears it).
+		const CE_MAX_NON_ADMIN_WORKSPACES = 2
+		const nonAdminWorkspaceCount = get(userWorkspaces).filter((w) => w.id !== 'admins').length
+		if (!get(enterpriseLicense) && nonAdminWorkspaceCount >= CE_MAX_NON_ADMIN_WORKSPACES) {
+			throw new Error(
+				`Community edition is limited to ${CE_MAX_NON_ADMIN_WORKSPACES + 1} workspaces — archive a workspace or pick one to run in`
+			)
+		}
 		const newId = await materializeFork(fork)
 		if (!newId) {
 			// Real failure (not a recovered duplicate). Drop the pending

@@ -2,6 +2,7 @@
 	import {
 		Archive,
 		ArrowRight,
+		Diff,
 		GitCompareArrows,
 		GitFork,
 		GitMerge,
@@ -189,9 +190,9 @@
 		</div>
 		<div class="flex items-center gap-1 shrink-0">
 			<Button
-				variant="subtle"
+				variant="default"
 				unifiedSize="xs"
-				startIcon={{ icon: GitCompareArrows }}
+				startIcon={{ icon: Diff }}
 				disabled={totalDiffs === 0}
 				title="{totalDiffs} modified item{totalDiffs === 1 ? '' : 's'}"
 				onclick={() => diffDrawer?.open()}
