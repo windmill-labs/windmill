@@ -1,5 +1,4 @@
-//! Regression test for the MCP token-exfiltration vulnerability
-//! (GHSA-8m2p-2crh-9h3w).
+//! Regression test for the MCP token-exfiltration vulnerability.
 //!
 //! `GET /api/w/{w}/resources/mcp_tools/{path}` builds an MCP client from a
 //! resource whose `token` field is a `$var:` reference. Before the fix the token

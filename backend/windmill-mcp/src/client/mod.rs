@@ -38,7 +38,7 @@ impl McpClient {
     /// `Authorization` header. It MUST be resolved by the caller through the
     /// permissioned (RLS + audit) variable path — `from_resource` never reads
     /// secrets itself, so a caller cannot trick it into decrypting a variable
-    /// they are not allowed to read (GHSA-8m2p-2crh-9h3w).
+    /// they are not allowed to read.
     pub async fn from_resource(resource: McpResource, token: Option<String>) -> Result<Self> {
         // The resource URL is author-controlled and we send a (potentially
         // secret) bearer token to it, so it must be validated against SSRF
@@ -224,8 +224,8 @@ impl McpClient {
 mod tests {
     use super::*;
 
-    /// Regression test for GHSA-8m2p-2crh-9h3w: `from_resource` must refuse to
-    /// connect to a URL that targets a private/internal address (here the AWS
+    /// Regression test: `from_resource` must refuse to connect to a URL that
+    /// targets a private/internal address (here the AWS
     /// instance-metadata endpoint), so a resource author cannot use the MCP
     /// client as an SSRF primitive against internal services. The guard runs
     /// before any connection attempt, so this fails fast without network access.

@@ -65,7 +65,7 @@ pub(crate) async fn get_mcp_tools(
 
             if let Some(info) = token_info {
                 if let (Some(account_id), Some(true)) = (info.account_id, info.is_expired) {
-                    let refresh_tx = user_db.begin(&authed).await?;
+                    let refresh_tx = user_db.clone().begin(&authed).await?;
                     if let Err(e) = crate::oauth2_oss::_refresh_token(
                         refresh_tx,
                         token_var_path,
@@ -87,7 +87,7 @@ pub(crate) async fn get_mcp_tools(
 
     // Resolve the token through the caller's permissioned (RLS + audit) path so
     // a developer cannot exfiltrate a secret they are not allowed to read by
-    // pointing an MCP resource's token at it (GHSA-8m2p-2crh-9h3w).
+    // pointing an MCP resource's token at it.
     let token = if let Some(token_path) = &mcp_resource.token {
         let token_var_path = token_path.trim_start_matches("$var:");
         if token_var_path.trim().is_empty() {

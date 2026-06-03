@@ -1,4 +1,4 @@
--- Fixture for the MCP token-exfiltration regression test (GHSA-8m2p-2crh-9h3w).
+-- Fixture for the MCP token-exfiltration regression test.
 --
 -- Models a malicious developer (test-user-3, a plain workspace member) who:
 --   - owns an MCP resource they are allowed to read, and

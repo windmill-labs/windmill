@@ -577,7 +577,7 @@ pub async fn load_mcp_tools(
 
         // Resolve the token through the job's permissioned (RLS + audit) path so
         // the AI agent cannot exfiltrate a secret its identity is not allowed to
-        // read by pointing an MCP resource's token at it (GHSA-8m2p-2crh-9h3w).
+        // read by pointing an MCP resource's token at it.
         let token = if let Some(ref token_path) = mcp_resource.token {
             let token_var_path = token_path.trim_start_matches("$var:");
             if token_var_path.trim().is_empty() {
