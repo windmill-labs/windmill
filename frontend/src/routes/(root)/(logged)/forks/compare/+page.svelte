@@ -1,7 +1,8 @@
 <script lang="ts">
 	import CompareWorkspaces from '$lib/components/CompareWorkspaces.svelte'
 	import CompareDrafts from '$lib/components/CompareDrafts.svelte'
-	import { DraftService, WorkspaceService, type WorkspaceComparison } from '$lib/gen'
+	import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
+	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import { page } from '$app/state'
 	import { userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import { untrack } from 'svelte'
@@ -47,9 +48,11 @@
 		}
 	}
 
-	// Draft count drives the "Deployed ↔ draft" toggle badge. Seeded from the
-	// count endpoint on load; kept live by CompareDrafts via onCountChange.
-	let draftCount = $state(0)
+	// Draft count drives the "Deployed ↔ draft" toggle badge. Reads the shared
+	// Workspace Drafts resource — count ≡ the draft list, and it refreshes itself
+	// when a deploy/discard invalidates the workspace.
+	const drafts = useWorkspaceDrafts(() => currentWorkspaceId)
+	const draftCount = $derived(drafts.count)
 
 	// Per-direction counts for the merged toggle badges. Deployable = items ahead
 	// (fork has changes the parent lacks); updateable = items behind. Computed
@@ -61,20 +64,6 @@
 	}
 	const deployCount = $derived(countDir(comparison, 'ahead'))
 	const updateCount = $derived(countDir(comparison, 'behind'))
-
-	async function fetchDraftCount() {
-		if (!currentWorkspaceId) return
-		try {
-			draftCount = (await DraftService.countDrafts({ workspace: currentWorkspaceId })).count
-		} catch (e) {
-			console.error('Failed to count drafts:', e)
-		}
-	}
-
-	$effect(() => {
-		;[currentWorkspaceId]
-		untrack(() => fetchDraftCount())
-	})
 
 	$effect(() => {
 		if (modeResolved || !currentWorkspaceData) return
@@ -107,13 +96,19 @@
 		untrack(() => checkForChanges())
 	})
 
-	// Re-pull both counts after a child component mutates state (deploy / update
-	// / discard). The comparison drives deployCount/updateCount and the draft
-	// count drives the draft badge; neither refreshes on its own once the page
-	// has loaded, so the toggle badges would otherwise go stale after an action.
+	// Refresh the *fork comparison* after a child mutates state (deploy / update /
+	// discard). The Draft Count refreshes itself (the mutation invalidates the
+	// Workspace Drafts resource). The fork comparison (workspace_diff) is
+	// recomputed *asynchronously* (~hundreds of ms after the action), so an
+	// immediate re-fetch returns the pre-change diff — re-poll a few times to let
+	// the tally catch up.
+	let comparisonPollTimers: ReturnType<typeof setTimeout>[] = []
 	function refreshCounts() {
 		checkForChanges()
-		fetchDraftCount()
+		comparisonPollTimers.forEach(clearTimeout)
+		comparisonPollTimers = [800, 1800, 3500].map((delay) =>
+			setTimeout(() => checkForChanges(), delay)
+		)
 	}
 
 	// Fork lifecycle actions — placed in the page header so they're available
@@ -207,7 +202,6 @@
 	{:else if mode === 'draft'}
 		<CompareDrafts
 			{currentWorkspaceId}
-			onCountChange={(n) => (draftCount = n)}
 			onChanged={refreshCounts}
 			{isFork}
 			parentWorkspaceId={parentWorkspaceId ?? undefined}

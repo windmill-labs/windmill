@@ -1,10 +1,11 @@
 <script lang="ts">
 	import WorkspaceDiffDrawer, { type DiffRow } from './WorkspaceDiffDrawer.svelte'
 	import { Pencil } from 'lucide-svelte'
-	import { ScriptService, FlowService, AppService, type WorkspaceItemDiff } from '$lib/gen'
+	import { type WorkspaceItemDiff } from '$lib/gen'
 	import { userWorkspaces } from '$lib/stores'
 	import { editUrlFor as buildEditUrl } from './forkEditUrl'
 	import { getDraftDiffValues, type DraftKind } from '$lib/utils_draft_deploy'
+	import { getDraftItems } from '$lib/workspaceDrafts.svelte'
 
 	// Thin wrapper: supplies the deployed ↔ draft data source (server `draft`
 	// table, same as the compare page) to the generic WorkspaceDiffDrawer.
@@ -29,27 +30,14 @@
 		loading = true
 		error = undefined
 		try {
-			const [scripts, flows, apps] = await Promise.all([
-				ScriptService.listScripts({ workspace: workspaceId, includeDraftOnly: true }),
-				FlowService.listFlows({ workspace: workspaceId, includeDraftOnly: true }),
-				AppService.listApps({ workspace: workspaceId, includeDraftOnly: true })
-			])
-			const collected: DiffRow[] = []
+			// One source of truth (Workspace Drafts) — same list the compare page and
+			// the count use.
+			const items = await getDraftItems(workspaceId)
 			const donly: Record<string, boolean> = {}
-			const push = (kind: DraftKind, list: Array<any>) => {
-				for (const it of list) {
-					if (it.has_draft || it.draft_only) {
-						const status: DiffRow['status'] = it.draft_only ? 'added' : 'modified'
-						collected.push({ kind, path: it.path, status })
-						donly[`${kind}/${it.path}`] = !!it.draft_only
-					}
-				}
-			}
-			push('script', scripts)
-			push('flow', flows)
-			push('app', apps)
-			collected.sort((a, b) => a.path.localeCompare(b.path))
-			rows = collected
+			rows = items.map((it) => {
+				donly[`${it.kind}/${it.path}`] = it.draft_only
+				return { kind: it.kind, path: it.path, status: it.draft_only ? 'added' : 'modified' }
+			})
 			draftOnlyByKey = donly
 		} catch (e) {
 			console.error('Draft diff: list failed', e)

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { ScriptService, FlowService, AppService, type WorkspaceItemDiff } from '$lib/gen'
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import { Badge } from './common'
@@ -8,20 +7,13 @@
 	import { DiffIcon, ExternalLink, Undo2 } from 'lucide-svelte'
 	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
 	import { editUrlFor } from './sessions/forkEditUrl'
-	import { untrack } from 'svelte'
+	import { type WorkspaceItemDiff } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import {
-		getDraftDiffValues,
-		deployDraft,
-		discardDraft,
-		type DraftKind
-	} from '$lib/utils_draft_deploy'
+	import { getDraftDiffValues, deployDraft, discardDraft } from '$lib/utils_draft_deploy'
+	import { useWorkspaceDrafts, type DraftItem } from '$lib/workspaceDrafts.svelte'
 
 	interface Props {
 		currentWorkspaceId: string
-		/** Reports the current number of drafts after each (re)load, so the page
-		 * can keep the "Draft (N)" toggle badge in sync without a separate call. */
-		onCountChange?: (count: number) => void
 		/** Fork context drives the merged toggle: only a fork offers the
 		 * deploy_to/update directions, so the toggle is hidden otherwise. */
 		isFork?: boolean
@@ -31,15 +23,14 @@
 		draftCount?: number
 		/** Selecting deploy_to/update asks the page to swap to CompareWorkspaces. */
 		onModeSelected?: (v: CompareMode) => void
-		/** Fired after a deploy/discard mutates the workspace, so the page can
-		 * refresh the fork comparison (the deploy/update counts and that tab's
-		 * content derive from it). */
+		/** Fired after a deploy/discard so the page can refresh the *fork*
+		 * comparison (ahead/behind). The Draft Count refreshes itself — deploy/
+		 * discard invalidate the Workspace Drafts resource. */
 		onChanged?: () => void
 	}
 
 	let {
 		currentWorkspaceId,
-		onCountChange,
 		isFork = false,
 		parentWorkspaceId,
 		deployCount = 0,
@@ -49,22 +40,30 @@
 		onChanged
 	}: Props = $props()
 
-	type DraftItem = {
-		key: string
+	type Row = {
+		kind: DraftItem['kind']
 		path: string
-		kind: DraftKind
 		summary?: string
 		draft_only: boolean
 		raw_app: boolean
+		key: string
+	}
+	function getItemKey(kind: string, path: string): string {
+		return `${kind}:${path}`
 	}
 
-	let items = $state<DraftItem[]>([])
-	let loading = $state(true)
+	// The list (and the Draft Count) come from the shared Workspace Drafts module;
+	// deploy/discard invalidate it, so the list refetches and deployed items drop
+	// off without a manual reload here.
+	const drafts = useWorkspaceDrafts(() => currentWorkspaceId)
+	const items: Row[] = $derived(
+		drafts.items.map((d) => ({ ...d, key: getItemKey(d.kind, d.path) }))
+	)
+
 	let selectedItems = $state<string[]>([])
 	let deploying = $state(false)
-	// All drafts start selected (deploy-all is the common intent); the user
-	// deselects what they want to keep. Only applied on the first load so a
-	// reload after a deploy doesn't re-select the items left behind.
+	// Select all on the first non-empty load (deploy-all is the common intent);
+	// only once, so a refetch after a deploy doesn't re-select the leftovers.
 	let hasAutoSelected = $state(false)
 
 	const deploymentStatus: Record<
@@ -72,56 +71,13 @@
 		{ status: 'loading' | 'deployed' | 'failed'; error?: string }
 	> = $state({})
 
-	function getItemKey(kind: string, path: string): string {
-		return `${kind}:${path}`
-	}
-
-	async function loadDrafts() {
-		loading = true
-		try {
-			const [scripts, flows, apps] = await Promise.all([
-				ScriptService.listScripts({ workspace: currentWorkspaceId, includeDraftOnly: true }),
-				FlowService.listFlows({ workspace: currentWorkspaceId, includeDraftOnly: true }),
-				AppService.listApps({ workspace: currentWorkspaceId, includeDraftOnly: true })
-			])
-			const collected: DraftItem[] = []
-			const push = (kind: DraftKind, list: Array<any>) => {
-				for (const it of list) {
-					if (it.has_draft || it.draft_only) {
-						collected.push({
-							key: getItemKey(kind, it.path),
-							path: it.path,
-							kind,
-							summary: it.summary,
-							draft_only: !!it.draft_only,
-							raw_app: !!it.raw_app
-						})
-					}
-				}
-			}
-			push('script', scripts)
-			push('flow', flows)
-			push('app', apps)
-			collected.sort((a, b) => a.path.localeCompare(b.path))
-			items = collected
-			onCountChange?.(items.length)
-			if (!hasAutoSelected && items.length > 0) {
-				selectedItems = items
-					.filter((i) => deploymentStatus[i.key]?.status !== 'deployed')
-					.map((i) => i.key)
-				hasAutoSelected = true
-			}
-		} catch (e) {
-			console.error('Failed to load drafts', e)
-			sendUserToast(`Failed to load drafts: ${e}`, true)
-		} finally {
-			loading = false
-		}
-	}
-
 	$effect(() => {
-		currentWorkspaceId
-		untrack(() => loadDrafts())
+		if (!hasAutoSelected && items.length > 0) {
+			selectedItems = items
+				.filter((i) => deploymentStatus[i.key]?.status !== 'deployed')
+				.map((i) => i.key)
+			hasAutoSelected = true
+		}
 	})
 
 	let allSelected = $derived(
@@ -153,7 +109,7 @@
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 	let isFlow = $state(false)
 
-	async function showDiff(item: DraftItem) {
+	async function showDiff(item: Row) {
 		if (!diffDrawer) return
 		isFlow = item.kind === 'flow'
 		diffDrawer.openDrawer()
@@ -174,11 +130,12 @@
 	// --- Deploy ---
 	async function deploySelected() {
 		deploying = true
+		// Snapshot the items to deploy: deployDraft invalidates the Workspace Drafts
+		// resource, so `items` can change mid-loop — iterate a stable copy.
+		const toDeploy = items.filter((i) => selectedItems.includes(i.key))
 		let deployedAny = false
-		for (const key of [...selectedItems]) {
-			const item = items.find((i) => i.key === key)
-			if (!item) continue
-			deploymentStatus[key] = { status: 'loading' }
+		for (const item of toDeploy) {
+			deploymentStatus[item.key] = { status: 'loading' }
 			const res = await deployDraft(
 				item.kind,
 				item.path,
@@ -187,27 +144,23 @@
 				item.raw_app
 			)
 			if (res.success) {
-				deploymentStatus[key] = { status: 'deployed' }
+				deploymentStatus[item.key] = { status: 'deployed' }
 				deployedAny = true
 			} else {
-				deploymentStatus[key] = { status: 'failed', error: res.error }
+				deploymentStatus[item.key] = { status: 'failed', error: res.error }
 				sendUserToast(`Failed to deploy ${item.path}: ${res.error}`, true)
 			}
 		}
 		deploying = false
 		selectedItems = []
-		// Reload: deployed items had their draft deleted server-side and drop off
-		// the list; failed items keep their draft (and red status, preserved since
-		// we don't clear deploymentStatus).
-		await loadDrafts()
-		// A deploy promotes the draft to the workspace's deployed version, which
-		// changes the fork comparison (ahead/behind vs parent) — let the page
-		// refresh it so the deploy/update counts and tab stay accurate.
+		// The Draft list refetches itself (deployDraft invalidated it). Deploying
+		// also changes the fork comparison (ahead/behind) — ask the page to refresh
+		// that.
 		if (deployedAny) onChanged?.()
 	}
 
 	// --- Discard ---
-	let discardTarget = $state<DraftItem | undefined>(undefined)
+	let discardTarget = $state<Row | undefined>(undefined)
 
 	async function confirmDiscard() {
 		const item = discardTarget
@@ -216,10 +169,7 @@
 		const res = await discardDraft(item.kind, item.path, currentWorkspaceId, item.draft_only)
 		if (res.success) {
 			sendUserToast(item.draft_only ? `Deleted ${item.path}` : `Discarded draft of ${item.path}`)
-			await loadDrafts()
-			// Deleting a draft_only item removes it from the workspace, changing the
-			// fork comparison; refresh it (a plain draft discard leaves the deployed
-			// version untouched, but refreshing is harmless and keeps it simple).
+			// discardDraft invalidated the Draft list; refresh the fork comparison.
 			onChanged?.()
 		} else {
 			sendUserToast(`Failed to discard ${item.path}: ${res.error}`, true)
@@ -228,7 +178,7 @@
 
 	// Editor URL for a draft item, scoped to the current workspace. Raw apps live
 	// under a different editor route, so map their kind accordingly.
-	function draftEditUrl(d: DraftItem): string | undefined {
+	function draftEditUrl(d: Row): string | undefined {
 		return editUrlFor(
 			{ kind: d.raw_app ? 'raw_app' : d.kind, path: d.path } as unknown as WorkspaceItemDiff,
 			currentWorkspaceId
@@ -247,7 +197,7 @@
 			onToggleItem={toggleItem}
 			onSelectAll={selectAll}
 			onDeselectAll={deselectAll}
-			emptyMessage={loading ? 'Loading drafts…' : 'No drafts in this workspace'}
+			emptyMessage={drafts.loading ? 'Loading drafts…' : 'No drafts in this workspace'}
 		>
 			{#snippet header()}
 				{#if isFork}
@@ -267,7 +217,7 @@
 			{/snippet}
 
 			{#snippet itemSummary(item)}
-				{@const draftItem = item as unknown as DraftItem}
+				{@const draftItem = item as unknown as Row}
 				{@const editUrl = draftEditUrl(draftItem)}
 				{#if editUrl}
 					<a
@@ -289,7 +239,7 @@
 			{/snippet}
 
 			{#snippet itemActions(item)}
-				{@const draftItem = item as unknown as DraftItem}
+				{@const draftItem = item as unknown as Row}
 				{#if draftItem.draft_only}
 					<Badge color="indigo" size="xs">New</Badge>
 				{/if}

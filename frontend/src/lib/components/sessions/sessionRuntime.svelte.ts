@@ -4,7 +4,6 @@ import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManage
 import { initFlow } from '$lib/components/flows/flowStore.svelte'
 import {
 	AppService,
-	DraftService,
 	FlowService,
 	ScriptService,
 	WorkspaceService,
@@ -118,17 +117,6 @@ export interface SessionRuntime {
 	// schedules a couple of delayed refreshes so the fork-bar count
 	// updates without waiting for an AI turn or a tab refocus.
 	scheduleForkComparisonRefresh(): void
-	// Draft count cache: shared by SessionDraftBar (count + drawer). Number of
-	// server-side drafts (the `draft` table, same source as the compare page)
-	// in the session's committed workspace. Keyed by workspace; refreshed on the
-	// same triggers as the fork comparison (turn-end / refocus / activate).
-	readonly draftCount: { val: number | undefined }
-	ensureDraftCount(workspace: string): Promise<void>
-	invalidateDraftCount(): void
-	refreshDraftCount(workspace?: string): Promise<void>
-	// Push a known count (e.g. from the embedded CompareDrafts drawer after a
-	// deploy/discard) so the bar updates without a round-trip.
-	setDraftCount(n: number): void
 	// Cancel pending fork-comparison refresh timers. Called by disposeRuntime so
 	// a torn-down (e.g. LRU-evicted, deleted) runtime can't fire a stray
 	// refreshForkComparisonNow / compareWorkspaces after it's gone.
@@ -233,27 +221,6 @@ function createRuntime(session: Session): SessionRuntime {
 			console.error('SessionRuntime: forkComparison refresh failed', e)
 		} finally {
 			loadingForkComparison = false
-		}
-	}
-
-	const draftCount: { val: number | undefined } = $state({ val: undefined })
-	let loadingDraftCount = $state(false)
-	let draftCountKey: string | undefined = undefined
-
-	async function refreshDraftCountNow(workspace?: string) {
-		const ws = workspace ?? draftCountKey
-		if (!ws || loadingDraftCount) return
-		// Claim the key so ensureDraftCount() dedupes against this fetch, and force
-		// a fresh count (bypassing ensure's once-per-workspace dedupe). On failure
-		// keep the previous value rather than clearing it.
-		draftCountKey = ws
-		loadingDraftCount = true
-		try {
-			draftCount.val = (await DraftService.countDrafts({ workspace: ws })).count
-		} catch (e) {
-			console.error('SessionRuntime: draftCount refresh failed', e)
-		} finally {
-			loadingDraftCount = false
 		}
 	}
 
@@ -590,48 +557,6 @@ function createRuntime(session: Session): SessionRuntime {
 			]
 		},
 
-		draftCount,
-		async ensureDraftCount(workspace: string) {
-			// Fetch at most once per workspace — refreshDraftCount() forces a
-			// re-fetch on the explicit signals (AI turn end, tab visibility).
-			// We claim the key BEFORE awaiting and keep it set even on failure:
-			// our caller is a reactive $effect (SessionDraftBar), so clearing the
-			// key on error would let the effect re-invoke ensure() on every
-			// failed attempt. A persistently-failing countDrafts (missing client
-			// method, network/HTTP error) would then spin the effect into an
-			// infinite retry loop that floods the console and freezes the page.
-			if (draftCountKey === workspace) return
-			draftCountKey = workspace
-			loadingDraftCount = true
-			try {
-				draftCount.val = (await DraftService.countDrafts({ workspace })).count
-			} catch (e) {
-				console.error('SessionRuntime: draftCount fetch failed', e)
-				draftCount.val = undefined
-				// Keep the key set so the reactive $effect caller can't tight-loop on
-				// a persistent failure, but release it after a backoff so a *transient*
-				// failure (e.g. a DB pool timeout) retries on the next ensure() instead
-				// of leaving the draft bar stuck hidden. Bounded to one retry / 5s.
-				const failedWorkspace = workspace
-				setTimeout(() => {
-					if (draftCountKey === failedWorkspace && draftCount.val === undefined) {
-						draftCountKey = undefined
-					}
-				}, 5000)
-			} finally {
-				loadingDraftCount = false
-			}
-		},
-		invalidateDraftCount() {
-			draftCountKey = undefined
-			draftCount.val = undefined
-		},
-		refreshDraftCount(workspace?: string) {
-			return refreshDraftCountNow(workspace)
-		},
-		setDraftCount(n: number) {
-			draftCount.val = n
-		},
 		dispose() {
 			for (const t of forkRefreshTimers) clearTimeout(t)
 			forkRefreshTimers = []

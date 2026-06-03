@@ -15,6 +15,7 @@
 import { ScriptService, FlowService, AppService, DraftService } from '$lib/gen'
 import type { DeployResult } from '$lib/utils_workspace_deploy'
 import { deployRawAppDraft } from '$lib/rawAppDeploy'
+import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 
 export type DraftKind = 'script' | 'flow' | 'app'
 
@@ -142,6 +143,8 @@ export async function deployDraft(
 			// draft_only app (clearing the flag); createApp would 400 "already exists".
 			await AppService.updateApp({ workspace, path, requestBody })
 		}
+		// Mutated the workspace's Server Drafts — refresh every mounted reader.
+		invalidateWorkspaceDrafts(workspace)
 		return { success: true }
 	} catch (e: any) {
 		return { success: false, error: e?.body ?? e?.message ?? String(e) }
@@ -170,6 +173,7 @@ export async function discardDraft(
 		} else {
 			await DraftService.deleteDraft({ workspace, path, kind })
 		}
+		invalidateWorkspaceDrafts(workspace)
 		return { success: true }
 	} catch (e: any) {
 		return { success: false, error: e?.body ?? e?.message ?? String(e) }

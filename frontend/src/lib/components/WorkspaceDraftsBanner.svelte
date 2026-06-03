@@ -1,37 +1,22 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
-	import { DraftService } from '$lib/gen'
 	import { Button } from './common'
 	import { Pencil } from 'lucide-svelte'
 	import { goto } from '$app/navigation'
-	import { onMount, untrack } from 'svelte'
+	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 
 	// Surfaces pending drafts (scripts/flows/apps) for the current workspace and
 	// links to the compare page in draft mode. Mutually exclusive with
 	// ForkWorkspaceBanner: that one self-gates on `isFork`, this one on `!isFork`,
 	// so a fork workspace never shows both. In a fork, drafts are discovered via
 	// the on-page "Deployed ↔ draft (N)" toggle badge instead.
-	let draftCount = $state(0)
 	let isFork = $derived($workspaceStore?.startsWith('wm-fork-') ?? false)
 
-	async function fetchCount() {
-		if (!$workspaceStore || isFork) {
-			draftCount = 0
-			return
-		}
-		try {
-			draftCount = (await DraftService.countDrafts({ workspace: $workspaceStore })).count
-		} catch (e) {
-			console.error('Failed to count drafts:', e)
-		}
-	}
-
-	$effect(() => {
-		;[$workspaceStore, isFork]
-		untrack(() => fetchCount())
-	})
-
-	onMount(fetchCount)
+	// Count comes from the shared Workspace Drafts resource (count ≡ the draft
+	// list; refreshes itself on deploy/discard). Pass undefined in a fork or with
+	// no workspace so it doesn't fetch and the banner stays hidden.
+	const drafts = useWorkspaceDrafts(() => (!isFork ? ($workspaceStore ?? undefined) : undefined))
+	const draftCount = $derived(drafts.count)
 
 	function openDraftCompare() {
 		if ($workspaceStore) {
