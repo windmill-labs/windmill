@@ -4,7 +4,7 @@
 	import { Badge } from './common'
 	import Button from './common/button/Button.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
-	import { DiffIcon, ExternalLink, Undo2 } from 'lucide-svelte'
+	import { ArrowRight, DiffIcon, ExternalLink, GitFork, Pencil, Undo2 } from 'lucide-svelte'
 	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
 	import { editUrlFor } from './sessions/forkEditUrl'
 	import { type WorkspaceItemDiff } from '$lib/gen'
@@ -212,7 +212,7 @@
 		>
 			{#snippet header()}
 				{#if isFork}
-					<div class="flex items-center bg-surface-tertiary pb-4">
+					<div class="flex flex-wrap gap-1 items-center bg-surface-tertiary pb-4">
 						<CompareModeToggle
 							selected="draft"
 							{isFork}
@@ -223,6 +223,22 @@
 							disabled={deploying}
 							onSelected={(v) => onModeSelected?.(v)}
 						/>
+						<!-- Direction badge, mirroring the fork compare header: make it explicit
+						     that deploying a draft promotes it *within this fork* (deployed↔draft),
+						     not up to the parent. -->
+						<div class="flex-1 flex gap-1 items-center">
+							<Badge color="transparent" class="ml-5 font-semibold">
+								<span class="text-secondary">deploy:</span>
+								<Pencil size={14} />
+								<span class="text-emphasis">draft</span>
+							</Badge>
+							<ArrowRight size={16} />
+							<Badge color="transparent" class="font-semibold" title={currentWorkspaceId}>
+								<span class="text-secondary">into:</span>
+								<GitFork size={14} />
+								<span class="text-emphasis">{currentWorkspaceId}</span>
+							</Badge>
+						</div>
 					</div>
 				{/if}
 			{/snippet}
