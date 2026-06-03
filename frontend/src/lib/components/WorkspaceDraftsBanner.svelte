@@ -34,10 +34,12 @@
 				<div class="flex items-center gap-3">
 					<Pencil class="w-4 h-4 text-accent" />
 					<span class="text-sm font-medium text-blue-900 dark:text-blue-100">
-						This workspace has {draftCount} pending draft{draftCount !== 1 ? 's' : ''}
+						This workspace has {draftCount} draft{draftCount !== 1 ? 's' : ''}
 					</span>
 				</div>
-				<Button size="xs" color="blue" on:click={openDraftCompare}>Review & Deploy drafts</Button>
+				<Button variant="accent" unifiedSize="xs" onclick={openDraftCompare}>
+					Review & deploy drafts
+				</Button>
 			</div>
 		</div>
 	</div>

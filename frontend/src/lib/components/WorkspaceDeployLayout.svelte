@@ -32,6 +32,8 @@
 
 		// Callbacks
 		onToggleItem?: (item: DeployableItem) => void
+		/** Replace the whole selection with just this item (plain row click). */
+		onSelectOnly?: (item: DeployableItem) => void
 		onSelectAll?: () => void
 		onDeselectAll?: () => void
 	}
@@ -49,6 +51,7 @@
 		itemActions,
 		footer,
 		onToggleItem,
+		onSelectOnly,
 		onSelectAll,
 		onDeselectAll
 	}: Props = $props()
@@ -65,7 +68,15 @@
 	let anchorIndex: number | null = $state(null)
 
 	function handleSelect(item: DeployableItem, index: number, e?: Event) {
-		const shift = (e as MouseEvent | undefined)?.shiftKey ?? false
+		const me = e as MouseEvent | KeyboardEvent | undefined
+		const shift = me?.shiftKey ?? false
+		// metaKey (⌘) / ctrlKey toggle a single row in/out without disturbing the
+		// rest, classic-file-picker style.
+		const toggleMod = (me?.metaKey || me?.ctrlKey) ?? false
+		// The checkbox itself fires a `change` event (no modifier keys); there it
+		// must behave like a checkbox — toggle, never collapse to a single row.
+		const fromCheckbox = e?.type === 'change'
+
 		if (shift && anchorIndex !== null) {
 			// Shift+click: extend selection across the range from the anchor to the
 			// clicked row (selects pickable, not-yet-selected items; leaves the
@@ -80,8 +91,13 @@
 			}
 			return
 		}
-		// Plain click and Cmd/Ctrl+click: toggle this row and move the anchor here.
-		onToggleItem?.(item)
+		if (toggleMod || fromCheckbox || !onSelectOnly) {
+			// Cmd/Ctrl+click (or the checkbox): add/remove this row only.
+			onToggleItem?.(item)
+		} else {
+			// Plain row click: select just this row, replacing the prior selection.
+			onSelectOnly(item)
+		}
 		anchorIndex = index
 	}
 </script>

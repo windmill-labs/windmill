@@ -505,6 +505,12 @@
 					class="flex-none w-56 border-r border-light flex flex-col min-h-0"
 				>
 					<div class="px-3 pt-3 pb-2 shrink-0">
+						<!-- Raw input (not the design-system TextInput) on purpose: this is a
+						     bespoke filter wired to the file tree's keyboard navigation — it
+						     needs a direct element ref to focus (the `/` shortcut) and a
+						     keydown handler that hands ArrowDown/Enter off to the tree.
+						     TextInput/ClearableInput swallow/rebubble those and don't expose
+						     the element ref. -->
 						<input
 							bind:this={searchInputEl}
 							type="search"
