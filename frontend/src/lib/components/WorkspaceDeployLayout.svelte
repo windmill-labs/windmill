@@ -55,6 +55,35 @@
 
 	let selectableItems = $derived(items.filter(selectablePredicate))
 	let hasSelectableItems = $derived(selectableItems.length > 0)
+
+	function isPickable(item: DeployableItem): boolean {
+		return selectablePredicate(item) && deploymentStatus[item.key]?.status !== 'deployed'
+	}
+
+	// Multi-select anchor (index of the last row whose selection was changed),
+	// for shift-click range selection like classic list/file pickers.
+	let anchorIndex: number | null = $state(null)
+
+	function handleSelect(item: DeployableItem, index: number, e?: Event) {
+		const shift = (e as MouseEvent | undefined)?.shiftKey ?? false
+		if (shift && anchorIndex !== null) {
+			// Shift+click: extend selection across the range from the anchor to the
+			// clicked row (selects pickable, not-yet-selected items; leaves the
+			// anchor where it was so further shift-clicks keep extending).
+			const lo = Math.min(anchorIndex, index)
+			const hi = Math.max(anchorIndex, index)
+			for (let i = lo; i <= hi; i++) {
+				const it = items[i]
+				if (it && isPickable(it) && !selectedItems.includes(it.key)) {
+					onToggleItem?.(it)
+				}
+			}
+			return
+		}
+		// Plain click and Cmd/Ctrl+click: toggle this row and move the anchor here.
+		onToggleItem?.(item)
+		anchorIndex = index
+	}
 </script>
 
 <div class="flex flex-col h-full">
@@ -73,9 +102,10 @@
 	{#if items.length > 0}
 		<!-- Select all row -->
 		<div class="px-4 py-2 flex items-center justify-between">
-			<div
+			<label
 				class="flex items-center gap-2 text-secondary text-xs"
 				class:opacity-50={!hasSelectableItems}
+				class:cursor-pointer={hasSelectableItems}
 			>
 				<input
 					type="checkbox"
@@ -84,13 +114,13 @@
 					onchange={allSelected ? onDeselectAll : onSelectAll}
 					class="rounded max-w-4 w-full"
 				/> Select all
-			</div>
+			</label>
 		</div>
 
 		<!-- Items list -->
 		<div class="overflow-y-auto">
 			<div class="border rounded-md bg-surface-tertiary">
-				{#each items as item (item.key)}
+				{#each items as item, index (item.key)}
 					{@const isSelectable = selectablePredicate(item)}
 					{@const isSelected = selectedItems.includes(item.key)}
 					{@const status = deploymentStatus[item.key]}
@@ -98,10 +128,11 @@
 
 					<Row
 						isSelectable={isSelectable && !isDeployed}
+						selectOnRowClick={true}
 						alignWithSelectable={true}
 						disabled={!isSelectable}
 						selected={isSelected && !isDeployed}
-						onSelect={() => onToggleItem?.(item)}
+						onSelect={(e) => handleSelect(item, index, e)}
 						path={item.kind !== 'resource' &&
 						item.kind !== 'variable' &&
 						item.kind !== 'resource_type'
