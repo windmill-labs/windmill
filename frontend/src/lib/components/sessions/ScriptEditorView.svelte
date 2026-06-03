@@ -184,7 +184,7 @@
 		ScriptBuilder behaves exactly like /scripts/add — Save draft is enabled and
 		creates it on first save. On that save ScriptBuilder writes savedScript back
 		through the bind and sets its own initialPath to the path, flipping us into
-		edit mode (Save draft + Show diff) without navigating away.
+		edit mode (Save draft + Diff) without navigating away.
 	-->
 	<ScriptBuilder
 		bind:script={runtime.scriptStore.val}

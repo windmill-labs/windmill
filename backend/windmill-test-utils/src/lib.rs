@@ -914,6 +914,26 @@ pub async fn run_deployed_relative_imports(
             .await
             .unwrap();
 
+            // Regression guard for the Deno lock-gen import map (generate_deno_lock):
+            // it must resolve the `$f/`/`$u/` aliases, otherwise `deno cache --lock`
+            // fails with "not a dependency and not in import map". We match that
+            // specific failure rather than asserting lock_error_logs is empty —
+            // the field also captures benign, non-fatal lock-job output (e.g. Bun's
+            // "empty dependencies, skipping install"). (Runtime query to avoid
+            // touching the sqlx offline cache.)
+            let lock_error: Option<String> =
+                sqlx::query_scalar("SELECT lock_error_logs FROM script WHERE path = $1")
+                    .bind("f/system/test_import")
+                    .fetch_one(&db2)
+                    .await
+                    .unwrap();
+            if let Some(err) = &lock_error {
+                assert!(
+                    !err.contains("not in import map"),
+                    "lock generation failed to resolve a workspace import (likely $f//$u/): {err}"
+                );
+            }
+
             let job = RunJob::from(JobPayload::ScriptHash {
                 path: "f/system/test_import".to_string(),
                 hash: ScriptHash(script.hash),

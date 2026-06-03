@@ -3,6 +3,7 @@ import { get } from 'svelte/store'
 import { createLongHash } from '$lib/editorLangUtils'
 import { random_adj } from '$lib/components/random_positive_adjetive'
 import {
+	enterpriseLicense,
 	userWorkspaces,
 	usersWorkspaceStore,
 	workspaceStore,
@@ -95,6 +96,8 @@ export type PendingFork = {
 	name: string
 }
 
+export type SessionSummarySource = 'placeholder' | 'generated' | 'manual'
+
 export type Session = {
 	id: string
 	name: string
@@ -113,6 +116,7 @@ export type Session = {
 	chatId?: string
 	target?: SessionTarget
 	summary?: string
+	summarySource?: SessionSummarySource
 	createdAt: number
 	// User-archived sessions are hidden from the sidebar by default
 	// (toggleable via the picker filter). Archive is reversible — distinct
@@ -153,6 +157,15 @@ function loadSessions(): Session[] {
 					}
 					if (s.target?.kind === 'rawapp') {
 						s.target.kind = 'raw_app'
+						mutated = true
+					}
+					if (
+						s.summarySource !== undefined &&
+						s.summarySource !== 'placeholder' &&
+						s.summarySource !== 'generated' &&
+						s.summarySource !== 'manual'
+					) {
+						s.summarySource = 'manual'
 						mutated = true
 					}
 				}
@@ -238,6 +251,7 @@ export function createSession(): Session {
 		id: createLongHash(),
 		name: `session-${next}`,
 		summary,
+		summarySource: 'placeholder',
 		pending_workspace_id: pending && pending.length > 0 ? pending : undefined,
 		createdAt: Date.now(),
 		transient: true
@@ -296,6 +310,21 @@ export async function commitSessionWorkspace(
 
 	if (s.pending_fork) {
 		const fork = s.pending_fork
+		// Defense-in-depth against a stale pending_fork (e.g. staged before
+		// another workspace was created, or any future entry point): a fork is a
+		// new workspace, and community edition caps the number of non-'admins'
+		// workspaces (backend _check_nb_of_workspaces). An enterprise license
+		// lifts the cap. Block the commit with an explicit error rather than
+		// letting materializeFork hit a backend rejection. Keep the pending fork
+		// set so the block persists until the user picks a non-fork workspace
+		// (setSessionPendingWorkspace clears it).
+		const CE_MAX_NON_ADMIN_WORKSPACES = 2
+		const nonAdminWorkspaceCount = get(userWorkspaces).filter((w) => w.id !== 'admins').length
+		if (!get(enterpriseLicense) && nonAdminWorkspaceCount >= CE_MAX_NON_ADMIN_WORKSPACES) {
+			throw new Error(
+				`Community edition is limited to ${CE_MAX_NON_ADMIN_WORKSPACES + 1} workspaces — archive a workspace or pick one to run in`
+			)
+		}
 		const newId = await materializeFork(fork)
 		if (!newId) {
 			// Real failure (not a recovered duplicate). Drop the pending
@@ -343,7 +372,10 @@ export function setSessionTarget(id: string, target: SessionTarget, summary?: st
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
 	s.target = target
-	if (!s.summary && summary) s.summary = summary
+	if (!s.summary && summary) {
+		s.summary = summary
+		s.summarySource = 'generated'
+	}
 	persistSessions()
 }
 
@@ -356,7 +388,25 @@ export function renameSession(id: string, newSummary: string) {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
 	s.summary = trimmed.length > 0 ? trimmed : undefined
+	s.summarySource = 'manual'
 	persistSessions()
+}
+
+export function setGeneratedSessionSummary(
+	id: string,
+	newSummary: string,
+	expectedChatId?: string
+): boolean {
+	const trimmed = newSummary.trim()
+	if (!trimmed) return false
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s) return false
+	if (expectedChatId && s.chatId !== expectedChatId) return false
+	if (s.summarySource !== 'placeholder') return false
+	s.summary = trimmed
+	s.summarySource = 'generated'
+	persistSessions()
+	return true
 }
 
 // Create a new fork workspace via the API, refresh the user-workspaces

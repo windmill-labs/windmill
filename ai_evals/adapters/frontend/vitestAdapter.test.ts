@@ -34,15 +34,19 @@ vi.mock('$lib/gen', async () => {
 	const actual = await vi.importActual<any>('$lib/gen')
 	const {
 		getBenchmarkCompletedJob,
+		getBenchmarkCompletedJobResultMaybe,
+		getBenchmarkDatatableSchema,
 		getBenchmarkFlowByPath,
 		getBenchmarkScriptByHash,
 		getBenchmarkScriptByPath,
 		hasBenchmarkWorkspace,
+		listBenchmarkDatatables,
 		listBenchmarkFlows,
 		listBenchmarkScripts,
 		createBenchmarkHttpTrigger,
 		createBenchmarkSchedule,
 		previewBenchmarkSchedule,
+		runBenchmarkDatatableSql,
 		runBenchmarkFlowByPath,
 		runBenchmarkScriptPreview
 	} = await import('./mockBackend')
@@ -149,13 +153,27 @@ vi.mock('$lib/gen', async () => {
 					args?: Record<string, unknown>
 					path?: string
 				}
-			}) =>
-				hasBenchmarkWorkspace(data.workspace)
-					? runBenchmarkScriptPreview({
-							workspace: data.workspace,
-							requestBody: data.requestBody ?? {}
-						})
-					: actual.JobService.runScriptPreview(data),
+			}) => {
+				if (!hasBenchmarkWorkspace(data.workspace)) {
+					return actual.JobService.runScriptPreview(data)
+				}
+				const requestBody = data.requestBody ?? {}
+				const database = requestBody.args?.database
+				// Datatable SQL runs as a `postgresql` preview against `datatable://<name>`.
+				// Execute it through the canned-SQL mock instead of linting it as a script.
+				if (
+					requestBody.language === 'postgresql' &&
+					typeof database === 'string' &&
+					database.startsWith('datatable://')
+				) {
+					return runBenchmarkDatatableSql({
+						workspace: data.workspace,
+						datatableName: database.slice('datatable://'.length),
+						sql: requestBody.content ?? ''
+					})
+				}
+				return runBenchmarkScriptPreview({ workspace: data.workspace, requestBody })
+			},
 			runFlowByPath: async (data: {
 				workspace: string
 				path: string
@@ -177,7 +195,31 @@ vi.mock('$lib/gen', async () => {
 					return job
 				}
 				return actual.JobService.getJob(data)
-			}
+			},
+			getCompletedJobResultMaybe: async (data: { workspace: string; id: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkCompletedJobResultMaybe({ workspace: data.workspace, id: data.id })
+					: actual.JobService.getCompletedJobResultMaybe(data)
+		}),
+		WorkspaceService: wrapService(actual.WorkspaceService, {
+			listDataTableTables: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? (listBenchmarkDatatables(data.workspace) ?? [])
+					: actual.WorkspaceService.listDataTableTables(data),
+			getDataTableTableSchema: async (data: {
+				workspace: string
+				datatableName: string
+				schemaName: string
+				tableName: string
+			}) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkDatatableSchema({
+							workspace: data.workspace,
+							datatableName: data.datatableName,
+							schemaName: data.schemaName,
+							tableName: data.tableName
+						})
+					: actual.WorkspaceService.getDataTableTableSchema(data)
 		}),
 		ScheduleService: wrapService(actual.ScheduleService, {
 			existsSchedule: async (data: { workspace: string; path: string }) =>

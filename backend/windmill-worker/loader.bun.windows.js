@@ -44,7 +44,9 @@ const p = {
           if (
             (imp.path.startsWith(".") ||
               imp.path.startsWith("/u/") ||
-              imp.path.startsWith("/f/")) &&
+              imp.path.startsWith("/f/") ||
+              imp.path.startsWith("$u/") ||
+              imp.path.startsWith("$f/")) &&
             !imp.path.endsWith(".ts")
           ) {
             code = code.replaceAll(imp.path, imp.path + ".ts");
@@ -67,7 +69,13 @@ const p = {
     // Resolve a windmill script import path relative to an importer path.
     // Bun on Windows may prefix args with "windmill-url:" or strip leading "/".
     function resolveWindmillImport(importerPath, importPath) {
-      const path = importPath.replace(/^windmill-url:/, "").replace(/^\//, "");
+      // Strip the "windmill-url:" namespace prefix, an optional leading "/"
+      // (absolute `/f/`,`/u/`), and the local-friendly "$" alias prefix
+      // (`$f/`,`$u/`) so absolute workspace imports normalize to `f/`,`u/`.
+      const path = importPath
+        .replace(/^windmill-url:/, "")
+        .replace(/^\//, "")
+        .replace(/^\$(?=[fu]\/)/, "");
       const isAbsolute = path.startsWith("f/") || path.startsWith("u/");
       const endExt = path.endsWith(".ts") ? "" : ".ts";
       const rawScriptPath = isAbsolute

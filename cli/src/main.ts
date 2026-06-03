@@ -89,7 +89,7 @@ export {
   token,
 };
 
-export const VERSION = "1.713.1";
+export const VERSION = "1.715.0";
 
 // Re-exported from constants.ts to maintain backwards compatibility
 export { WM_FORK_PREFIX } from "./core/constants.ts";
@@ -304,6 +304,10 @@ async function main() {
     if (shouldRunFreshnessCheck(process.argv)) {
       const { warnIfPromptsStale } = await import("./guidance/freshness.ts");
       await warnIfPromptsStale({ argv: process.argv }).catch(() => {});
+      const { warnIfTsconfigStale } = await import(
+        "./commands/refresh/tsconfig.ts"
+      );
+      await warnIfTsconfigStale().catch(() => {});
     }
 
     await command.parse(args);
