@@ -178,6 +178,13 @@ export type DbDraftRead<V> = {
 	hasDbDraft: boolean
 	value: V | undefined
 	meta: UserDraftMeta
+	/**
+	 * The path stored ON the resolved draft/deployed source, when it differs from
+	 * the lookup path (a draft rename). `AppDraftValue` has no `path` field, so the
+	 * app read surfaces it here for the deploy path; scripts/flows carry `path` on
+	 * `value` directly and leave this undefined.
+	 */
+	draftPath?: string
 }
 
 const NOT_FOUND: DbDraftRead<never> = {
@@ -316,13 +323,17 @@ export async function readAppDbDraft(
 	// `app.draft` nests the raw app under `.value`; deployed apps expose it the
 	// same way. `appSourceToDraftValue` reads `.value`/`.summary`/`.policy`/
 	// `.custom_path`, falling back to the deployed app for policy/custom_path.
-	const value = appSourceToDraftValue(hasDbDraft ? app.draft : app, app)
+	const source = hasDbDraft ? app.draft : app
+	const value = appSourceToDraftValue(source, app)
 	return {
 		itemExists: true,
 		deployedExists: !draftOnly,
 		draftOnly,
 		hasDbDraft,
 		value,
-		meta: appDraftMeta(app)
+		meta: appDraftMeta(app),
+		// `AppDraftValue` drops `path`; surface the source's stored path so the
+		// deploy path can honour an app draft rename.
+		draftPath: (source as { path?: string }).path
 	}
 }

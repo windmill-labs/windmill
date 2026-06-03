@@ -76,6 +76,12 @@ export type LoadedDraft<T extends DraftType = DraftType> = {
 	deployedExists: boolean
 	draftOnly: boolean
 	hasDbDraft: boolean
+	/**
+	 * The path stored on the resolved source when it differs from the lookup path
+	 * (a draft rename). Only the app read surfaces it (its value has no `path`);
+	 * scripts/flows carry `path` on `value`. Undefined on the live branch.
+	 */
+	draftPath?: string
 }
 
 function readDbDraft<T extends DraftType>(
@@ -174,7 +180,8 @@ export async function loadDraft<T extends DraftType>(
 		itemExists: db.itemExists,
 		deployedExists: db.deployedExists,
 		draftOnly: db.draftOnly,
-		hasDbDraft: db.hasDbDraft
+		hasDbDraft: db.hasDbDraft,
+		draftPath: db.draftPath
 	}
 }
 

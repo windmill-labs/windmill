@@ -95,7 +95,6 @@ import {
 	type WorkspaceItem,
 	type WorkspaceItemType
 } from './workspaceItems'
-import { buildFlowDeployRequestBody, buildScriptDeployRequestBody } from './deployRequests'
 import { userStore } from '$lib/stores'
 import { get } from 'svelte/store'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
@@ -1182,7 +1181,9 @@ async function readWorkspaceItem(
 				path,
 				summary: loaded.value.summary,
 				value: metadata as unknown as AppDraftValue,
-				isDraft: loaded.source === 'live' || loaded.source === 'db'
+				// A bare `draft_only` anchor (no draft row) reads as 'deployed' but is
+				// a draft — flag it via `draftOnly` too.
+				isDraft: loaded.source === 'live' || loaded.source === 'db' || loaded.draftOnly
 			}
 		}
 	}
@@ -1202,16 +1203,43 @@ async function readScriptOrFlowItem(
 	// Call `loadDraft` with the literal type in each branch so its return value is
 	// narrowed to NewScript / Flow (a `'script' | 'flow'` arg would leave it a
 	// `NewScript | Flow` union that neither converter accepts).
+	// A bare `draft_only` anchor with no draft row reads `source: 'deployed'`
+	// (the anchor's own value is the only version), yet it IS a draft — flag it.
 	if (type === 'script') {
 		const loaded = await loadDraft('script', path, workspace)
 		if (!loaded.value) throw new Error(`Script "${path}" not found.`)
-		const isDraft = loaded.source === 'live' || loaded.source === 'db'
+		const isDraft = loaded.source === 'live' || loaded.source === 'db' || loaded.draftOnly
 		return { ...scriptToWorkspaceItem(path, loaded.value), isDraft }
 	}
 	const loaded = await loadDraft('flow', path, workspace)
 	if (!loaded.value) throw new Error(`Flow "${path}" not found.`)
-	const isDraft = loaded.source === 'live' || loaded.source === 'db'
+	const isDraft = loaded.source === 'live' || loaded.source === 'db' || loaded.draftOnly
 	return { ...flowToWorkspaceItem(path, loaded.value), isDraft }
+}
+
+/**
+ * The list endpoints return the row from the item table — whose summary is the
+ * deployed (or, for a `draft_only` anchor, the original) one. The anchor is
+ * intentionally NOT updated on a re-save, so a row with a live DB draft can show
+ * a stale summary. For rows flagged as carrying a draft (`has_draft`/`draft_only`)
+ * we re-resolve summary/metadata through `loadDraft` (precedence-aware, so a live
+ * editor's unsaved summary wins), keeping the listed item metadata-only
+ * (`value: undefined`) and `isDraft: true`.
+ */
+async function hydrateListedDbDraft(
+	type: 'script' | 'flow',
+	item: WorkspaceItem,
+	workspace: string
+): Promise<WorkspaceItem> {
+	try {
+		const loaded = await loadDraft(type, item.path, workspace)
+		if (!loaded.value) return item
+		const isDraft = loaded.source === 'live' || loaded.source === 'db' || loaded.draftOnly
+		return { ...item, summary: loaded.value.summary, value: undefined, isDraft }
+	} catch {
+		// A transient read failure for one row must not sink the whole list.
+		return item
+	}
 }
 
 async function listWorkspaceItems(
@@ -1230,7 +1258,14 @@ async function listWorkspaceItems(
 			includeDraftOnly: true,
 			withoutDescription: true
 		})
-		for (const script of scripts) items.push(scriptToItem(script, false))
+		for (const script of scripts) {
+			const item = scriptToItem(script, false)
+			items.push(
+				script.has_draft || script.draft_only
+					? await hydrateListedDbDraft('script', item, workspace)
+					: item
+			)
+		}
 	}
 
 	if (types.includes('flow')) {
@@ -1241,7 +1276,14 @@ async function listWorkspaceItems(
 			includeDraftOnly: true,
 			withoutDescription: true
 		})
-		for (const flow of flows) items.push(flowToItem(flow, false))
+		for (const flow of flows) {
+			const item = flowToItem(flow, false)
+			items.push(
+				flow.has_draft || flow.draft_only
+					? await hydrateListedDbDraft('flow', item, workspace)
+					: item
+			)
+		}
 	}
 
 	if (types.includes('schedule')) {
@@ -1288,6 +1330,10 @@ async function listWorkspaceItems(
 			pathStart: pathPrefix,
 			perPage
 		})
+		// The generated `ListableApp` exposes no `has_draft`/`draft_only` flags, so
+		// we can't bound an app-draft hydration the way scripts/flows do. Accept a
+		// possibly-stale app summary here for now; client-side regeneration of those
+		// flags (or a per-app draft read) is the follow-up.
 		for (const app of apps) items.push(appToItem(app, false))
 	}
 
@@ -3184,20 +3230,24 @@ async function discardDraft(
 			throw new Error(`No draft found for ${type} "${path}".`)
 		}
 
-		if (db.hasDbDraft) {
-			await DraftService.deleteDraft({ workspace, kind: type, path })
-		}
-
-		// Only delete the item when it exists purely as a draft. A deployed version
-		// must survive the discard untouched.
+		// Order matters: delete the `draft_only` anchor FIRST, then the draft row.
+		// Deployment rules can reject the anchor delete (it throws); doing it first
+		// means a failure leaves the draft row intact and recoverable. Only delete
+		// the item when it exists purely as a draft — a deployed version must
+		// survive the discard untouched. `keepCaptures` mirrors the editors so a
+		// later re-create keeps its capture history.
 		if (db.draftOnly) {
 			if (type === 'script') {
-				await ScriptService.deleteScriptByPath({ workspace, path })
+				await ScriptService.deleteScriptByPath({ workspace, path, keepCaptures: true })
 			} else if (type === 'flow') {
-				await FlowService.deleteFlowByPath({ workspace, path })
+				await FlowService.deleteFlowByPath({ workspace, path, keepCaptures: true })
 			} else {
 				await AppService.deleteApp({ workspace, path })
 			}
+		}
+
+		if (db.hasDbDraft) {
+			await DraftService.deleteDraft({ workspace, kind: type, path })
 		}
 
 		// Full clear of the live-editor mirror — the user is discarding.
@@ -3283,6 +3333,15 @@ async function deployDraft(
 	})
 
 	let actions: ToolDisplayAction[] | undefined
+	// The path the draft is deployed AT. Group-A branches set it to the draft's
+	// own path (honouring a rename); it differs from the lookup `path` only when
+	// the draft was renamed. The create/update body, success message, post-deploy
+	// cleanup and the session-preview reload all key off this.
+	let deployPath = path
+	// Whether the Group-A item existed only as a `draft_only` anchor (no deployed
+	// version). On a rename deploy this decides whether the stale old-path anchor
+	// needs explicit cleanup.
+	let oldDraftOnly = false
 
 	switch (type) {
 		case 'script': {
@@ -3293,15 +3352,54 @@ async function deployDraft(
 			if (loaded.source === 'deployed') {
 				throw new Error(`No draft changes to deploy for script "${path}".`)
 			}
-			const existing = (await ScriptService.existsScriptByPath({ workspace, path }))
-				? await ScriptService.getScriptByPath({ workspace, path })
-				: undefined
-			const requestBody = buildScriptDeployRequestBody(
-				path,
-				scriptToWorkspaceItem(path, loaded.value),
-				existing,
-				deploymentMessage
-			)
+			deployPath = loaded.value.path ?? path
+			oldDraftOnly = loaded.draftOnly
+			// Mirror ScriptBuilder's createScript body field-for-field, sourced from
+			// the in-memory draft (`loaded.value` is the full NewScript). A raw spread
+			// would leak the DB draft's stray `draft_triggers`/`draft_only`/`hash`,
+			// so we list the fields explicitly. The deploy parents on the deployed
+			// hash (`meta.remoteRev`) without an extra fetch.
+			const draft = loaded.value
+			const requestBody: NewScript = {
+				path: deployPath,
+				summary: draft.summary ?? '',
+				description: draft.description ?? '',
+				content: draft.content,
+				// `meta.remoteRev` is the deployed script hash (a string); fall back to
+				// any parent already carried on the draft.
+				parent_hash: (loaded.meta.remoteRev as string | undefined) ?? draft.parent_hash,
+				schema: draft.schema,
+				is_template: draft.is_template,
+				language: draft.language,
+				kind: draft.kind,
+				tag: draft.tag,
+				envs: draft.envs,
+				dedicated_worker: draft.dedicated_worker,
+				concurrent_limit: draft.concurrent_limit,
+				concurrency_time_window_s: draft.concurrency_time_window_s,
+				debounce_key: draft.debounce_key,
+				debounce_delay_s: draft.debounce_delay_s,
+				debounce_args_to_accumulate: draft.debounce_args_to_accumulate,
+				max_total_debouncing_time: draft.max_total_debouncing_time,
+				max_total_debounces_amount: draft.max_total_debounces_amount,
+				cache_ttl: draft.cache_ttl,
+				cache_ignore_s3_path: draft.cache_ignore_s3_path,
+				ws_error_handler_muted: draft.ws_error_handler_muted,
+				priority: draft.priority,
+				restart_unless_cancelled: draft.restart_unless_cancelled,
+				timeout: draft.timeout,
+				delete_after_secs: draft.delete_after_secs,
+				concurrency_key: draft.concurrency_key,
+				visible_to_runner_only: draft.visible_to_runner_only,
+				auto_kind: draft.auto_kind,
+				has_preprocessor: draft.has_preprocessor,
+				deployment_message: deploymentMessage,
+				on_behalf_of_email: draft.on_behalf_of_email,
+				preserve_on_behalf_of: draft.on_behalf_of_email ? true : undefined,
+				assets: draft.assets,
+				modules: draft.modules,
+				labels: draft.labels
+			}
 			// Infer the arg schema from the content so it matches the code, like the editor does.
 			try {
 				const schema = emptySchema()
@@ -3321,17 +3419,34 @@ async function deployDraft(
 			if (loaded.source === 'deployed') {
 				throw new Error(`No draft changes to deploy for flow "${path}".`)
 			}
-			const existing = (await FlowService.existsFlowByPath({ workspace, path }))
-				? await FlowService.getFlowByPath({ workspace, path })
-				: undefined
-			const requestBody = buildFlowDeployRequestBody(
-				path,
-				loaded.value.summary,
-				flowToFlowDraftValue(loaded.value),
-				existing,
-				deploymentMessage
-			)
-			if (existing) {
+			deployPath = loaded.value.path ?? path
+			oldDraftOnly = loaded.draftOnly
+			// Create-vs-update keys off the deployed item at the *original* lookup
+			// path, not the renamed target.
+			const deployedExists = await FlowService.existsFlowByPath({ workspace, path })
+			// Mirror FlowBuilder's update/create body, sourced from the draft Flow.
+			// Backend-only fields (edited_by/edited_at/archived/extra_perms) and the
+			// DB draft's stray fields are excluded by the explicit list.
+			const draft = loaded.value
+			const requestBody = {
+				path: deployPath,
+				summary: draft.summary ?? '',
+				description: draft.description ?? '',
+				value: draft.value,
+				schema: draft.schema,
+				tag: draft.tag,
+				ws_error_handler_muted: draft.ws_error_handler_muted,
+				priority: draft.priority,
+				dedicated_worker: draft.dedicated_worker,
+				timeout: draft.timeout,
+				visible_to_runner_only: draft.visible_to_runner_only,
+				on_behalf_of_email: draft.on_behalf_of_email,
+				preserve_on_behalf_of: draft.on_behalf_of_email ? true : undefined,
+				labels: (draft as { labels?: string[] }).labels,
+				deployment_message: deploymentMessage
+			}
+			if (deployedExists) {
+				// Original path in the URL, renamed path in the body — the rename move.
 				await FlowService.updateFlow({ workspace, path, requestBody })
 			} else {
 				await FlowService.createFlow({ workspace, requestBody })
@@ -3393,6 +3508,10 @@ async function deployDraft(
 			if (loaded.source === 'deployed') {
 				throw new Error(`No draft changes to deploy for app "${path}".`)
 			}
+			// `AppDraftValue` has no `path`; `loadDraft` surfaces the draft's stored
+			// path separately so we can honour an app rename.
+			deployPath = loaded.draftPath ?? path
+			oldDraftOnly = loaded.draftOnly
 			const appDraft = loaded.value
 			const appValue: AppDraftValue = {
 				...appDraft,
@@ -3435,16 +3554,18 @@ async function deployDraft(
 				data: appValue.data ?? { ...DEFAULT_RAW_APP_DATA }
 			}
 			const summary = appValue.summary ?? ''
+			// Create-vs-update keys off the deployed app at the *original* lookup path.
 			if (await AppService.existsApp({ workspace, path })) {
 				// Omit custom_path on update for now. The backend preserves it when absent, while
 				// sending it requires admin privileges; this chat deploy path does not yet mirror
 				// the raw app editor's user/admin-specific custom_path handling.
+				// Original path in the URL, renamed `deployPath` in the body — the rename move.
 				await AppService.updateAppRaw({
 					workspace,
 					path,
 					formData: {
 						app: {
-							path,
+							path: deployPath,
 							value: rawAppValue,
 							summary,
 							policy,
@@ -3459,7 +3580,7 @@ async function deployDraft(
 					workspace,
 					formData: {
 						app: {
-							path,
+							path: deployPath,
 							value: rawAppValue,
 							summary,
 							policy,
@@ -3475,7 +3596,27 @@ async function deployDraft(
 		}
 	}
 
-	deleteGlobalDraft(workspace, type, path, triggerKind, { preserveLiveDraft: true })
+	// On a rename deploy the backend deletes the draft row at the *new* target
+	// path only; the stale old-lookup-path draft (and its draft_only anchor, if
+	// the item never had a deployed version) would otherwise linger as a phantom.
+	// Delete them explicitly. For a non-rename deploy the backend already removes
+	// the draft on a non-draft create/update — adding a deleteDraft there would be
+	// redundant. (capture/config moves on rename are a follow-up.)
+	const renamed = (type === 'script' || type === 'flow' || type === 'app') && deployPath !== path
+	if (renamed) {
+		await DraftService.deleteDraft({ workspace, kind: type, path })
+		if (oldDraftOnly) {
+			if (type === 'script') {
+				await ScriptService.deleteScriptByPath({ workspace, path, keepCaptures: true })
+			} else if (type === 'flow') {
+				await FlowService.deleteFlowByPath({ workspace, path, keepCaptures: true })
+			} else {
+				await AppService.deleteApp({ workspace, path })
+			}
+		}
+	}
+
+	deleteGlobalDraft(workspace, type, deployPath, triggerKind, { preserveLiveDraft: true })
 
 	// Reload the session preview if it's open on the deployed item. Map the
 	// deploy type to the preview kind — a raw app deploys under 'app' but the
@@ -3486,19 +3627,19 @@ async function deployDraft(
 		app: 'raw_app'
 	}
 	const kind = previewKindByType[type]
-	if (kind) deployedInSessionHandler?.({ sessionId, kind, path })
+	if (kind) deployedInSessionHandler?.({ sessionId, kind, path: deployPath })
 
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Deployed ${type} "${path}"`,
+		content: `Deployed ${type} "${deployPath}"`,
 		result: 'Deployed',
 		actions
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Deployed draft ${type} "${path}" to the workspace. Draft removed.`,
+			message: `Deployed draft ${type} "${deployPath}" to the workspace. Draft removed.`,
 			type,
-			path,
+			path: deployPath,
 			triggerKind
 		},
 		null,
