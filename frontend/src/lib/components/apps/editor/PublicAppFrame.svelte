@@ -28,11 +28,12 @@
 	import { OpenAPI } from '$lib/gen'
 	import { page } from '$app/state'
 	import { onDestroy, onMount, setContext, type Snippet } from 'svelte'
-	import { Alert, Skeleton } from '$lib/components/common'
+	import { Alert, Button, Skeleton } from '$lib/components/common'
 	import { base } from '$app/paths'
 	import Login from '$lib/components/Login.svelte'
+	import { TriangleAlert } from 'lucide-svelte'
 
-	type EmbedToken = { token?: string | null }
+	type EmbedToken = { token?: string | null; disable_sandbox?: boolean; version?: number | null }
 
 	let {
 		fetchEmbedToken,
@@ -98,6 +99,39 @@
 	let embedToken: string | null = $state(null)
 	let iframeEl: HTMLIFrameElement | undefined = $state(undefined)
 
+	// WIN-2006: publisher disabled sandbox isolation. The app then runs same-origin
+	// with the viewer's full session (full browser features), gated by a consent
+	// prompt that must be accepted once per app version.
+	let disableSandbox = $state(false)
+	let appVersion: number | undefined = $state(undefined)
+	let consented = $state(false)
+
+	// Read by RawAppPreview (and any app component) to render same-origin (full
+	// access) instead of the sandboxed bundle iframe.
+	setContext('IS_APP_UNSANDBOXED', {
+		get value() {
+			return disableSandbox && consented
+		}
+	})
+
+	function consentKey(): string {
+		return `wm_unsandboxed_ok:${page.url.pathname}:${appVersion ?? ''}`
+	}
+	function hasConsent(): boolean {
+		try {
+			return localStorage.getItem(consentKey()) === '1'
+		} catch (_) {
+			return false
+		}
+	}
+	function acceptConsent() {
+		try {
+			localStorage.setItem(consentKey(), '1')
+		} catch (_) {}
+		consented = true
+		onViewerReady?.(undefined, requestTokenRefresh)
+	}
+
 	function buildViewerUrl(): string {
 		const url = new URL(window.location.href)
 		url.searchParams.set(EMBED_PARAM, '1')
@@ -111,9 +145,17 @@
 		try {
 			const resp = await fetchEmbedToken()
 			embedToken = resp.token ?? null
+			disableSandbox = resp.disable_sandbox ?? false
+			appVersion = resp.version ?? undefined
 			status = 'ready'
-			// If the iframe already loaded (re-mint case), push the fresh token.
-			postTokenToIframe()
+			if (disableSandbox) {
+				// Same-origin (full-session) mode behind a per-version consent prompt.
+				consented = hasConsent()
+				if (consented) onViewerReady?.(undefined, requestTokenRefresh)
+			} else {
+				// If the iframe already loaded (re-mint case), push the fresh token.
+				postTokenToIframe()
+			}
 		} catch (e: any) {
 			status = e?.status === 401 ? 'noPermission' : 'notExists'
 		}
@@ -212,6 +254,31 @@
 			rd={page.url.pathname + page.url.search + page.url.hash}
 		/>
 	</div>
+{:else if disableSandbox}
+	<!-- Publisher disabled sandbox isolation: run same-origin (full session) only
+	     after explicit, per-version viewer consent. -->
+	{#if consented}
+		{@render viewer()}
+	{:else}
+		<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+			<div class="bg-surface max-w-lg w-full rounded-lg shadow-lg p-6 space-y-4">
+				<div class="flex items-center gap-2 text-orange-600">
+					<TriangleAlert size={22} />
+					<h2 class="text-lg font-semibold">Run this app without isolation?</h2>
+				</div>
+				<p class="text-sm text-secondary">
+					The publisher of <span class="font-mono">{page.url.pathname}</span> has disabled sandbox isolation.
+					This app will run with access to your Windmill session and can act on your behalf. Only continue
+					if you trust the publisher.
+				</p>
+				<p class="text-xs text-tertiary">You'll be asked again when the app is updated.</p>
+				<div class="flex justify-end gap-2">
+					<Button variant="default" color="light" href={base}>Cancel</Button>
+					<Button variant="contained" color="red" onclick={acceptConsent}>Run app</Button>
+				</div>
+			</div>
+		</div>
+	{/if}
 {:else}
 	<iframe
 		bind:this={iframeEl}

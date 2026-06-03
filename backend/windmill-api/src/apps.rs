@@ -294,6 +294,11 @@ pub struct Policy {
     pub execution_mode: ExecutionMode,
     pub s3_inputs: Option<Vec<S3Input>>,
     pub allowed_s3_keys: Option<Vec<S3Key>>,
+    // WIN-2006: publisher opt-out of iframe sandbox isolation. When true the app
+    // runs same-origin with the viewer's full session (full browser features),
+    // gated by a per-version consent prompt on the viewer. Default false.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disable_sandbox: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -482,19 +487,35 @@ async fn get_raw_app_data(
     // bundle can then never reach the authenticated Windmill origin (WIN-2006).
     // The `.js`/`.css` are loaded as same-path subresources by this document.
     if file_type == "html" {
+        // The publisher can disable sandbox isolation (WIN-2006). When disabled we
+        // omit the `CSP: sandbox` header so the wrapper, embedded with
+        // allow-same-origin, runs same-origin (full access) — gated by the
+        // per-version consent prompt on the viewer. Decided server-side from the
+        // app policy, never a client parameter.
+        let disable_sandbox = sqlx::query_scalar!(
+            "SELECT a.policy->>'disable_sandbox' = 'true' FROM app a JOIN app_version av ON av.app_id = a.id WHERE av.id = $1 AND a.workspace_id = $2",
+            id,
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten()
+        .unwrap_or(false);
+
         let html = raw_app_wrapper_html(secret_id);
-        return Ok(Response::builder()
+        let mut builder = Response::builder()
             .header(http::header::CONTENT_TYPE, "text/html; charset=utf-8")
             .header("X-Content-Type-Options", "nosniff")
-            .header("Cross-Origin-Resource-Policy", "cross-origin")
-            .header(
+            .header("Cross-Origin-Resource-Policy", "cross-origin");
+        if !disable_sandbox {
+            builder = builder.header(
                 http::header::CONTENT_SECURITY_POLICY,
                 "sandbox allow-scripts allow-forms allow-popups \
                  allow-popups-to-escape-sandbox allow-downloads allow-modals \
                  allow-top-navigation",
-            )
-            .body(Body::from(html))
-            .unwrap());
+            );
+        }
+        return Ok(builder.body(Body::from(html)).unwrap());
     }
 
     let file_type = if file_type == "css" {
@@ -1050,6 +1071,13 @@ pub struct EmbedTokenResponse {
     /// (the iframe then calls the public endpoints anonymously).
     pub token: Option<String>,
     pub expiration: Option<chrono::DateTime<chrono::Utc>>,
+    /// WIN-2006: publisher disabled sandbox isolation — the viewer must run the
+    /// app same-origin (full session) behind a per-version consent prompt.
+    #[serde(default)]
+    pub disable_sandbox: bool,
+    /// Latest app version id — the consent prompt is keyed on it so a new version
+    /// re-prompts.
+    pub version: Option<i64>,
 }
 
 /// Mint a short-lived, narrowly-scoped embed token for `app_path` when a caller
@@ -1087,6 +1115,8 @@ pub async fn mint_app_embed_token(
     Ok(EmbedTokenResponse {
         token: token_and_exp.as_ref().map(|(t, _)| t.clone()),
         expiration: token_and_exp.map(|(_, e)| e),
+        disable_sandbox: false,
+        version: None,
     })
 }
 
@@ -1103,7 +1133,7 @@ async fn get_app_embed_token(
     let id = get_id_from_secret(&db, &w_id, secret, None).await?;
 
     let app = sqlx::query!(
-        "SELECT path, policy::text as policy FROM app WHERE id = $1 AND workspace_id = $2",
+        "SELECT path, policy::text as policy, versions[array_upper(versions, 1)] as version FROM app WHERE id = $1 AND workspace_id = $2",
         id,
         &w_id
     )
@@ -1142,7 +1172,9 @@ async fn get_app_embed_token(
         Some(authed)
     };
 
-    let resp = mint_app_embed_token(&db, &w_id, &app.path, authed_for_token.as_ref()).await?;
+    let mut resp = mint_app_embed_token(&db, &w_id, &app.path, authed_for_token.as_ref()).await?;
+    resp.disable_sandbox = policy.disable_sandbox.unwrap_or(false);
+    resp.version = app.version;
     Ok(Json(resp))
 }
 

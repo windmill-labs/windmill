@@ -2,7 +2,7 @@
 	import { type UserExt } from '$lib/stores'
 	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
 	import type { Runnable } from './rawAppPolicy'
-	import { onMount } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 
 	interface Props {
 		workspace: string
@@ -29,6 +29,19 @@
 	// document and never a credential.
 	let iframeSrc = $derived(
 		secret ? `/api/w/${workspace}/apps_u/get_data/v/${secret}.html` : undefined
+	)
+
+	// WIN-2006: when the publisher disabled sandbox isolation (and the viewer
+	// consented upstream in PublicAppFrame), run the bundle same-origin with full
+	// access — the backend serves the same wrapper URL without the `CSP: sandbox`
+	// header, and we add `allow-same-origin` so relative `fetch('/api/...')` and
+	// the session cookie work. Otherwise the default opaque-origin sandbox.
+	const unsandboxedCtx = getContext<{ value: boolean }>('IS_APP_UNSANDBOXED')
+	let unsandboxed = $derived(unsandboxedCtx?.value ?? false)
+	let sandboxAttr = $derived(
+		unsandboxed
+			? 'allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals allow-top-navigation'
+			: 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-top-navigation'
 	)
 
 	// Persistence for the bundle's (opaque-origin) localStorage, backed by a single
@@ -136,11 +149,14 @@
 <RawAppBackgroundRunner {workspace} editor={false} {iframe} {runnables} {path} />
 
 {#if iframeSrc}
+	<!-- `unsandboxed` (publisher disabled isolation + viewer consented) adds
+	     allow-same-origin; the backend then omits the CSP: sandbox header so the
+	     bundle runs same-origin with full access. -->
 	<iframe
 		bind:this={iframe}
 		title="raw-app"
 		src={iframeSrc}
-		sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-top-navigation"
+		sandbox={sandboxAttr}
 		class="w-full h-full min-h-screen bg-white border-none"
 	></iframe>
 {/if}

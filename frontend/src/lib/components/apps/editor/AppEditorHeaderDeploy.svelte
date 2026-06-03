@@ -267,6 +267,23 @@
 				disabled={!savedApp}
 			/>
 		</div>
+		<div class="flex gap-2 items-center mb-2">
+			<Toggle
+				size="sm"
+				options={{ right: `Disable sandbox isolation` }}
+				checked={policy.disable_sandbox == true}
+				on:change={(e) => {
+					policy.disable_sandbox = e.detail
+					setPublishState()
+				}}
+			/>
+			<Tooltip>
+				Apps run in a sandboxed iframe isolated from the viewer's Windmill session. Disable this
+				only if the app needs full browser features (IndexedDB, third-party auth/SDKs, OAuth
+				redirects). The app will then run with the viewer's full session, and viewers are warned and
+				must consent once per app version.
+			</Tooltip>
+		</div>
 		{#if !savedApp}
 			<ClipboardPanel content={`Save this app once to get the public secret URL`} size="md" />
 		{:else if secretUrlHref}
