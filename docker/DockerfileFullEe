@@ -61,6 +61,26 @@ RUN apt-get install -y iptables
 # Kerberos runtime
 RUN apt-get install -y libsasl2-modules-gssapi-mit krb5-user
 
+# Rootless container runtime (podman) for docker-mode jobs. Set the
+# `container_runtime: podman` worker-group option to run `# docker` scripts
+# without a privileged dind sidecar or the host Docker socket. Run the docker
+# worker group as `user: "1000:1000"` for a rootless (unprivileged) daemon;
+# running as root still works but is rootful (less isolated).
+RUN apt-get -y update \
+    && apt-get install -y --no-install-recommends \
+        podman \
+        uidmap \
+        fuse-overlayfs \
+        slirp4netns \
+        crun \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+RUN useradd -u 1000 -m -s /bin/bash windmill 2>/dev/null || true
+# Ensure a subuid/subgid range exists for rootless podman (useradd usually adds
+# one already; only append if it didn't, to avoid a duplicate range).
+RUN grep -q '^windmill:' /etc/subuid || echo "windmill:100000:65536" >> /etc/subuid; \
+    grep -q '^windmill:' /etc/subgid || echo "windmill:100000:65536" >> /etc/subgid
+
 # Fix UV cache permissions for non-root user support (uid 1000, etc.)
 # The uv tool install ansible command populates the UV cache with root-owned files
 RUN chmod -R a+rw /tmp/windmill/cache/uv && \
