@@ -73,6 +73,9 @@
 		 * deploy_to/update are handled internally but reported so the page can
 		 * remember the direction. */
 		onModeSelected?: (v: CompareMode) => void
+		/** Fired after a deploy/update so the page re-fetches the comparison and
+		 * draft count, keeping the toggle badges in sync with the new state. */
+		onChanged?: () => void
 	}
 
 	let {
@@ -83,7 +86,8 @@
 		deployCount = 0,
 		updateCount = 0,
 		draftCount = 0,
-		onModeSelected
+		onModeSelected,
+		onChanged
 	}: Props = $props()
 
 	let currentWorkspaceInfo = $derived($userWorkspaces.find((w) => w.id == currentWorkspaceId))
@@ -451,6 +455,10 @@
 				console.error('Failed to close open deployment request after merge', e)
 			}
 		}
+
+		// Deployed items are now in sync and should drop off the comparison; ask
+		// the page to re-fetch so the list and toggle badges reflect the new state.
+		onChanged?.()
 	}
 
 	function toggleKey(key: string) {

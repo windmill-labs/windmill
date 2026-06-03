@@ -107,6 +107,15 @@
 		untrack(() => checkForChanges())
 	})
 
+	// Re-pull both counts after a child component mutates state (deploy / update
+	// / discard). The comparison drives deployCount/updateCount and the draft
+	// count drives the draft badge; neither refreshes on its own once the page
+	// has loaded, so the toggle badges would otherwise go stale after an action.
+	function refreshCounts() {
+		checkForChanges()
+		fetchDraftCount()
+	}
+
 	// Fork lifecycle actions — placed in the page header so they're available
 	// regardless of merge state. Both go through a confirmation modal because
 	// archive is reversible-ish but delete is irreversible, and either way the
@@ -199,16 +208,13 @@
 		<CompareDrafts
 			{currentWorkspaceId}
 			onCountChange={(n) => (draftCount = n)}
+			onChanged={refreshCounts}
 			{isFork}
 			parentWorkspaceId={parentWorkspaceId ?? undefined}
 			{deployCount}
 			{updateCount}
 			{draftCount}
 			onModeSelected={selectMode}
-			onChanged={() => {
-				checkForChanges()
-				fetchDraftCount()
-			}}
 		/>
 	{:else if parentWorkspaceId}
 		<CompareWorkspaces
@@ -219,6 +225,7 @@
 			{deployCount}
 			{updateCount}
 			{draftCount}
+			onChanged={refreshCounts}
 			onModeSelected={selectMode}
 		/>
 	{:else}

@@ -42,10 +42,31 @@ async fn count_drafts(
     Path(w_id): Path<String>,
 ) -> Result<Json<DraftCount>> {
     let mut tx = user_db.begin(&authed).await?;
-    let count = sqlx::query_scalar!("SELECT count(*) FROM draft WHERE workspace_id = $1", &w_id)
-        .fetch_one(&mut *tx)
-        .await?
-        .unwrap_or(0);
+    // Count *deployable drafts*, matching the CompareDrafts list (an item with a
+    // pending draft `has_draft`, OR a never-deployed `draft_only` item). Counting
+    // `draft` table rows alone misses draft_only items — their content lives in
+    // the script/flow/app row, not the draft table — and would include orphan
+    // draft rows that have no item row (so wouldn't show in the list). Counting
+    // distinct item paths per kind keeps badge and list in sync.
+    let count = sqlx::query_scalar!(
+        r#"SELECT
+            (SELECT count(DISTINCT path) FROM script
+               WHERE workspace_id = $1 AND NOT archived
+                 AND (draft_only OR EXISTS (SELECT 1 FROM draft d
+                      WHERE d.workspace_id = $1 AND d.path = script.path AND d.typ = 'script')))
+          + (SELECT count(DISTINCT path) FROM flow
+               WHERE workspace_id = $1 AND NOT archived
+                 AND (draft_only OR EXISTS (SELECT 1 FROM draft d
+                      WHERE d.workspace_id = $1 AND d.path = flow.path AND d.typ = 'flow')))
+          + (SELECT count(DISTINCT path) FROM app
+               WHERE workspace_id = $1
+                 AND (draft_only OR EXISTS (SELECT 1 FROM draft d
+                      WHERE d.workspace_id = $1 AND d.path = app.path AND d.typ = 'app')))
+          AS "count!""#,
+        &w_id
+    )
+    .fetch_one(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(Json(DraftCount { count }))
 }
