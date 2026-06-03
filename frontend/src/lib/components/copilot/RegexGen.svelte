@@ -4,7 +4,7 @@
 	import { base } from '$lib/base'
 	import { Button } from '../common'
 
-	import { getNonStreamingCompletion } from './lib'
+	import { getNonStreamingMetadataCompletion } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 
@@ -28,7 +28,7 @@
 		genLoading = true
 		abortController = new AbortController()
 		try {
-			const res = await getNonStreamingCompletion(
+			const res = await getNonStreamingMetadataCompletion(
 				[
 					{
 						role: 'system',
@@ -134,7 +134,7 @@
 									onGenerate()
 								}
 							}}
-								placeholder={'Describe what the regex should doww'}
+								placeholder="Describe what the regex should do"
 							/>
 							<Button
 								size="xs"
@@ -153,7 +153,7 @@
 						</div>
 						{#if promptHistory.length > 0}
 							<div class="w-96 flex flex-col gap-1">
-								{#each promptHistory as p}
+								{#each promptHistory as p (p)}
 									<Button
 										size="xs2"
 										color="light"

@@ -24,7 +24,7 @@ import {
 import { convertOpenAIToAnthropicMessages } from './chat/anthropic'
 import type { Stream } from 'openai/core/streaming.mjs'
 import { generateRandomString } from '$lib/utils'
-import { copilotInfo, getCurrentModel } from '$lib/aiStore'
+import { copilotInfo, getCurrentModel, getMetadataModel } from '$lib/aiStore'
 import {
 	emptyChatTokenUsage,
 	openAICompletionsUsageToChatTokenUsage,
@@ -753,18 +753,18 @@ export function getProviderAndCompletionConfig<K extends boolean>({
 export async function getNonStreamingCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	testOptions?: {
+	options?: {
 		apiKey?: string // testing API KEY using the global ai proxy
 		resourcePath?: string // testing resource path passed as a header to the backend proxy
 		workspace?: string // use a specific workspace proxy when testing a workspace resource
-		forceModelProvider: AIProviderModel
+		forceModelProvider?: AIProviderModel
 	}
 ) {
 	let response: string | undefined = ''
 	const { provider, config } = getProviderAndCompletionConfig({
 		messages,
 		stream: false,
-		forceModelProvider: testOptions?.forceModelProvider
+		forceModelProvider: options?.forceModelProvider
 	})
 
 	// Use Responses API for OpenAI and Azure OpenAI
@@ -773,7 +773,7 @@ export async function getNonStreamingCompletion(
 			const response = await getNonStreamingOpenAIResponsesCompletion(
 				messages,
 				abortController,
-				testOptions
+				options
 			)
 			return response
 		} catch (error) {
@@ -790,30 +790,39 @@ export async function getNonStreamingCompletion(
 			'X-Provider': provider
 		}
 	}
-	if (testOptions?.resourcePath) {
+	if (options?.resourcePath) {
 		fetchOptions.headers = {
 			...fetchOptions.headers,
-			'X-Resource-Path': testOptions.resourcePath
+			'X-Resource-Path': options.resourcePath
 		}
-	} else if (testOptions?.apiKey) {
+	} else if (options?.apiKey) {
 		if (provider === 'customai') {
 			throw new Error('Cannot test API key for Custom AI, only resource path is supported')
 		}
 
 		fetchOptions.headers = {
 			...fetchOptions.headers,
-			'X-API-Key': testOptions.apiKey
+			'X-API-Key': options.apiKey
 		}
 	}
-	const openaiClient = testOptions?.apiKey
+	const openaiClient = options?.apiKey
 		? createOpenAIProxyClient(getAiProxyBaseURL())
-		: testOptions?.workspace
-			? workspaceAIClients.createOpenaiClient(testOptions.workspace)
+		: options?.workspace
+			? workspaceAIClients.createOpenaiClient(options.workspace)
 			: workspaceAIClients.getOpenaiClient()
 
 	const completion = await openaiClient.chat.completions.create(config, fetchOptions)
 	response = completion.choices?.[0]?.message.content || ''
 	return response
+}
+
+export async function getNonStreamingMetadataCompletion(
+	messages: ChatCompletionMessageParam[],
+	abortController: AbortController
+) {
+	return getNonStreamingCompletion(messages, abortController, {
+		forceModelProvider: getMetadataModel()
+	})
 }
 
 export const FIM_MAX_TOKENS = 256
