@@ -1,5 +1,6 @@
 import { AppService, DraftService, FlowService, ScriptService } from '$lib/gen'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
+import { appSourceToRawAppDraft } from '$lib/components/raw_apps/rawAppDraftCodec'
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
 import { inferArgs } from '$lib/infer'
 import { emptySchema } from '$lib/utils'
@@ -148,30 +149,30 @@ export async function deleteDbDraftAndDraftOnlyAnchor(
 			const existing = (await ScriptService.existsScriptByPath({ workspace, path }))
 				? await ScriptService.getScriptByPathWithDraft({ workspace, path })
 				: undefined
-			await deleteDbDraft(workspace, typ, path)
 			if (existing?.draft_only) {
 				await ScriptService.deleteScriptByPath({ workspace, path, keepCaptures: true })
 			}
+			await deleteDbDraft(workspace, typ, path)
 			break
 		}
 		case 'flow': {
 			const existing = (await FlowService.existsFlowByPath({ workspace, path }))
 				? await FlowService.getFlowByPathWithDraft({ workspace, path })
 				: undefined
-			await deleteDbDraft(workspace, typ, path)
 			if (existing?.draft_only) {
 				await FlowService.deleteFlowByPath({ workspace, path, keepCaptures: true })
 			}
+			await deleteDbDraft(workspace, typ, path)
 			break
 		}
 		case 'app': {
 			const existing = (await AppService.existsApp({ workspace, path }))
 				? await AppService.getAppByPathWithDraft({ workspace, path })
 				: undefined
-			await deleteDbDraft(workspace, typ, path)
 			if (existing?.draft_only) {
 				await AppService.deleteApp({ workspace, path })
 			}
+			await deleteDbDraft(workspace, typ, path)
 			break
 		}
 	}
@@ -528,36 +529,8 @@ async function saveAppDraftToDb(
 	await createDbDraft(workspace, 'app', path, appDraftToDbValue(path, value))
 }
 
-function normalizeRawAppData(value: Record<string, any>): AppDraftValue['data'] {
-	if (value.data?.creation) {
-		return {
-			tables: value.data.tables ?? [],
-			datatable: value.data.creation.datatable,
-			schema: value.data.creation.schema
-		}
-	}
-	if (value.data) {
-		return value.data
-	}
-	if (value.datatables) {
-		return { ...DEFAULT_RAW_APP_DATA, tables: value.datatables }
-	}
-	if (value.dataTableRefs) {
-		return { ...DEFAULT_RAW_APP_DATA, tables: value.dataTableRefs }
-	}
-	return { ...DEFAULT_RAW_APP_DATA }
-}
-
 function appSourceToDraftValue(app: any, fallback?: any): AppDraftValue {
-	const value = (app.value ?? {}) as Record<string, any>
-	return {
-		summary: app.summary ?? '',
-		files: { ...(value.files ?? {}) },
-		runnables: { ...(value.runnables ?? {}) },
-		data: normalizeRawAppData(value),
-		policy: app.policy ?? fallback?.policy,
-		custom_path: app.custom_path ?? fallback?.custom_path
-	}
+	return appSourceToRawAppDraft(app, fallback)
 }
 
 function appDraftMeta(app: { versions?: number[]; draft_created_at?: string }): UserDraftMeta {

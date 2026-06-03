@@ -14,6 +14,7 @@ import {
 } from '$lib/gen'
 import type { HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
+import { appSourceToRawAppDraft } from '$lib/components/raw_apps/rawAppDraftCodec'
 import { workspaceStore } from '$lib/stores'
 import { emptySchema, type StateStore } from '$lib/utils'
 import {
@@ -460,30 +461,15 @@ function createRuntime(session: Session): SessionRuntime {
 					draft: result.draft,
 					custom_path: result.custom_path
 				}
-				const sourceValue: any = result.draft ?? result.value
-				let data: RawAppData = { ...DEFAULT_DATA }
-				if (sourceValue?.data) {
-					const d = sourceValue.data
-					if (d.creation) {
-						data = {
-							tables: d.tables ?? [],
-							datatable: d.creation.datatable,
-							schema: d.creation.schema
-						}
-					} else {
-						data = d
-					}
-				} else if (sourceValue?.datatables) {
-					data = { ...DEFAULT_DATA, tables: sourceValue.datatables }
-				}
+				const sourceDraft = appSourceToRawAppDraft(result.draft ?? result, result)
 				const runtimeValue = {
-					files: (sourceValue?.files ?? {}) as Record<string, string>,
-					runnables: (sourceValue?.runnables ?? {}) as Record<string, any>,
-					data,
-					policy: result.policy,
-					summary: result.summary ?? '',
+					files: sourceDraft.files,
+					runnables: sourceDraft.runnables,
+					data: sourceDraft.data,
+					policy: sourceDraft.policy,
+					summary: sourceDraft.summary,
 					path: result.path,
-					custom_path: result.custom_path
+					custom_path: sourceDraft.custom_path
 				}
 				UserDraft.save('raw_app', path, runtimeRawAppToDraft(runtimeValue), { workspace })
 				rawApp.val = runtimeValue

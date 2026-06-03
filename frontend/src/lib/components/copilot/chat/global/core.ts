@@ -94,10 +94,12 @@ import {
 	deployAppDraft,
 	deployFlowDraft,
 	deployScriptDraft,
+	type DraftFlagged,
 	flowToItem,
 	isDbDraftWorkspaceItemType,
 	loadAppDraftValue,
 	loadAppValueForRead,
+	loadDbDraftItem,
 	loadFlowWithDbDraft,
 	loadScriptWithDbDraft,
 	loadWorkspaceDraft,
@@ -656,6 +658,28 @@ function itemMatches(
 	)
 }
 
+type ListedDbDraftType = Extract<WorkspaceItemType, 'script' | 'flow' | 'app'>
+
+async function hydrateListedDbDraft(
+	workspace: string,
+	type: ListedDbDraftType,
+	item: DraftFlagged & { path: string },
+	fallback: WorkspaceItem
+): Promise<WorkspaceItem> {
+	if (!item.has_draft && !item.draft_only) return fallback
+	const draft = await loadDbDraftItem(workspace, type, item.path)
+	return draft ? { ...draft, value: undefined } : fallback
+}
+
+async function hydrateListedDbDrafts<T extends DraftFlagged & { path: string }>(
+	workspace: string,
+	type: ListedDbDraftType,
+	rows: T[],
+	toItem: (row: T) => WorkspaceItem
+): Promise<WorkspaceItem[]> {
+	return Promise.all(rows.map((row) => hydrateListedDbDraft(workspace, type, row, toItem(row))))
+}
+
 /**
  * Turn a flow workspace item into the compact response we send to the model:
  * rawscript content is replaced with `inline_script.<moduleId>` placeholders.
@@ -1112,7 +1136,11 @@ async function listWorkspaceItems(
 			includeDraftOnly: true,
 			withoutDescription: true
 		})
-		for (const script of scripts) items.push(scriptToItem(script, false))
+		items.push(
+			...(await hydrateListedDbDrafts(workspace, 'script', scripts, (script) =>
+				scriptToItem(script, false)
+			))
+		)
 	}
 
 	if (types.includes('flow')) {
@@ -1123,7 +1151,9 @@ async function listWorkspaceItems(
 			includeDraftOnly: true,
 			withoutDescription: true
 		})
-		for (const flow of flows) items.push(flowToItem(flow, false))
+		items.push(
+			...(await hydrateListedDbDrafts(workspace, 'flow', flows, (flow) => flowToItem(flow, false)))
+		)
 	}
 
 	if (types.includes('schedule')) {
@@ -1171,7 +1201,9 @@ async function listWorkspaceItems(
 			perPage,
 			includeDraftOnly: true
 		})
-		for (const app of apps) items.push(appToItem(app, false))
+		items.push(
+			...(await hydrateListedDbDrafts(workspace, 'app', apps, (app) => appToItem(app, false)))
+		)
 	}
 
 	return items

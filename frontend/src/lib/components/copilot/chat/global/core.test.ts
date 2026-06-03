@@ -1080,6 +1080,39 @@ describe('global AI tools', () => {
 		])
 	})
 
+	it('filters list results against DB script draft summaries after write_script', async () => {
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/stale-list-summary',
+			summary: 'Fresh DB draft summary',
+			language: 'bun',
+			content: 'export async function main() { return "fresh" }'
+		})
+
+		vi.mocked(ScriptService.listScripts).mockResolvedValueOnce([
+			{
+				path: 'f/scripts/stale-list-summary',
+				summary: 'Old deployed summary',
+				language: 'bun',
+				has_draft: true
+			}
+		] as any)
+
+		const raw = await callGlobalTool('list_workspace_items', {
+			types: ['script'],
+			query: 'Fresh DB draft'
+		})
+
+		expect(JSON.parse(raw)).toEqual([
+			expect.objectContaining({
+				type: 'script',
+				path: 'f/scripts/stale-list-summary',
+				summary: 'Fresh DB draft summary',
+				isDraft: true
+			})
+		])
+		expect(raw).not.toContain('Old deployed summary')
+	})
+
 	it('lists and edits the live script editor draft through its effective path', async () => {
 		UserDraft.save(
 			'script',
@@ -1242,9 +1275,35 @@ describe('global AI tools', () => {
 			path: 'f/scripts/discard-me',
 			keepCaptures: true
 		})
+		expect(vi.mocked(ScriptService.deleteScriptByPath).mock.invocationCallOrder[0]).toBeLessThan(
+			vi.mocked(DraftService.deleteDraft).mock.invocationCallOrder[0]
+		)
 		expect(
 			UserDraft.get('script', 'f/scripts/discard-me', { workspace: WORKSPACE })
 		).toBeUndefined()
+	})
+
+	it('keeps a DB draft when draft-only anchor deletion fails', async () => {
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/blocked-discard',
+			summary: 'Temporary draft',
+			language: 'bun',
+			content: 'export async function main() { return 1 }'
+		})
+
+		vi.mocked(ScriptService.deleteScriptByPath).mockRejectedValueOnce(
+			new Error('deployment rules blocked deletion')
+		)
+
+		await expect(
+			callGlobalTool('discard_local_draft', {
+				type: 'script',
+				path: 'f/scripts/blocked-discard'
+			})
+		).rejects.toThrow('deployment rules blocked deletion')
+
+		expect(DraftService.deleteDraft).not.toHaveBeenCalled()
+		expect(scriptDrafts.has('f/scripts/blocked-discard')).toBe(true)
 	})
 
 	it('requires trigger_kind when discarding a trigger draft', async () => {
