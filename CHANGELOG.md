@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.715.0](https://github.com/windmill-labs/windmill/compare/v1.714.1...v1.715.0) (2026-06-03)
+
+
+### Features
+
+* **frontend:** add rebuild dependency map button to workspace settings ([#9424](https://github.com/windmill-labs/windmill/issues/9424)) ([3b2e748](https://github.com/windmill-labs/windmill/commit/3b2e748daf0a8ec4447c30423068df803f3f9ca2))
+
+
+### Bug Fixes
+
+* **auth:** filter script/flow listings by token scope (GHSA-2ppx-66jv-wpw5) ([#9426](https://github.com/windmill-labs/windmill/issues/9426)) ([7edf3f0](https://github.com/windmill-labs/windmill/commit/7edf3f02122e20fde1e95e0252e7bda641075326))
+* **backend:** authorize single-job read endpoints by job/flow visibility ([#9416](https://github.com/windmill-labs/windmill/issues/9416)) ([89a7a37](https://github.com/windmill-labs/windmill/commit/89a7a377764086911db18252f2478f42f0e1e3ea))
+* **mcp:** resolve MCP resource token via caller RLS + SSRF-guard url ([#9428](https://github.com/windmill-labs/windmill/issues/9428)) ([8053266](https://github.com/windmill-labs/windmill/commit/8053266f88bd4c94fc86278412df5a0beeed5e77))
+* **nsjail:** precompile python stdlib + raise download rlimit_as ([#9429](https://github.com/windmill-labs/windmill/issues/9429)) ([7031744](https://github.com/windmill-labs/windmill/commit/7031744a199f0bf8b8e35043afa959977e5ecdbd))
+* omit temperature for gpt-5+ and o-series models on all providers ([#9422](https://github.com/windmill-labs/windmill/issues/9422)) ([11d1ad9](https://github.com/windmill-labs/windmill/commit/11d1ad9a872d2ec2f14cde35708c84a0c7bdc172))
+
 ## [1.714.1](https://github.com/windmill-labs/windmill/compare/v1.714.0...v1.714.1) (2026-06-02)
 
 
