@@ -11,7 +11,6 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import EEOnly from '$lib/components/EEOnly.svelte'
 	import InputError from '$lib/components/InputError.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { Building, Check, GitFork, Plus } from 'lucide-svelte'
@@ -68,13 +67,23 @@
 	const forksGateOpen = $derived(
 		!isCloudHosted() && !isRuleActive('DisableWorkspaceForking') && $workspaceStore !== 'admins'
 	)
-	// Forking workspaces requires an enterprise license. The interactive
-	// create-fork row is only shown when licensed; otherwise (structural gate
-	// open but unlicensed) we surface a disabled EE upsell row instead — never
-	// stage a fork the backend would reject.
+	// A fork is a new workspace, so it's subject to the community-edition cap on
+	// the number of non-'admins' workspaces (backend _check_nb_of_workspaces,
+	// run only on community builds). An enterprise license lifts the cap. We
+	// mirror the backend count with the client-side workspace list to hide the
+	// affordance once the cap is reached; the server still enforces the real
+	// (instance-wide) check on commit, so this is purely UX.
+	const CE_MAX_NON_ADMIN_WORKSPACES = 2
+	const nonAdminWorkspaceCount = $derived($userWorkspaces.filter((w) => w.id !== 'admins').length)
+	const ceWorkspaceCapReached = $derived(
+		!$enterpriseLicense && nonAdminWorkspaceCount >= CE_MAX_NON_ADMIN_WORKSPACES
+	)
+	// The interactive create-fork row is shown unless the cap is reached;
+	// otherwise (structural gate open but cap hit) we surface a disabled row
+	// explaining the limit — never stage a fork the backend would reject.
 	const forkAffordanceOpen = $derived(allowCreateFork && forksGateOpen && !!onCreateFork && !!root)
-	const showCreateFork = $derived(forkAffordanceOpen && !!$enterpriseLicense)
-	const showForkUpsell = $derived(forkAffordanceOpen && !$enterpriseLicense)
+	const showCreateFork = $derived(forkAffordanceOpen && !ceWorkspaceCapReached)
+	const showForkUpsell = $derived(forkAffordanceOpen && ceWorkspaceCapReached)
 
 	let dropdownOpen = $state(false)
 	let creatingFork = $state(false)
@@ -286,12 +295,15 @@
 				{/if}
 				<div class="my-1 border-t border-border-light shrink-0"></div>
 			{:else if showForkUpsell}
-				<div class={`${rowBase} opacity-60 cursor-not-allowed`} aria-disabled="true">
+				<div
+					class={`${rowBase} opacity-60 cursor-not-allowed`}
+					aria-disabled="true"
+					title="Community edition is limited to {CE_MAX_NON_ADMIN_WORKSPACES +
+						1} workspaces. Archive a workspace or upgrade to an enterprise license to create more forks."
+				>
 					<Plus size={14} class="shrink-0 text-tertiary" />
 					<span>Create new fork…</span>
-					<span class="ml-auto shrink-0">
-						<EEOnly>Workspace forking requires an enterprise license</EEOnly>
-					</span>
+					<span class="ml-auto shrink-0 text-2xs text-tertiary"> Workspace limit reached </span>
 				</div>
 				<div class="my-1 border-t border-border-light shrink-0"></div>
 			{/if}

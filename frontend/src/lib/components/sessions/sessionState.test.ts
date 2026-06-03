@@ -7,7 +7,12 @@ import {
 	sessionState,
 	type Session
 } from './sessionState.svelte'
-import { enterpriseLicense, workspaceStore, type UserWorkspace } from '$lib/stores'
+import {
+	enterpriseLicense,
+	usersWorkspaceStore,
+	workspaceStore,
+	type UserWorkspace
+} from '$lib/stores'
 import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
 
 // Force createWorkspaceFork to fail so we can pin commitSessionWorkspace's
@@ -147,20 +152,33 @@ describe('commitSessionWorkspace — fork-creation failure', () => {
 	})
 })
 
-describe('commitSessionWorkspace — unlicensed fork guard', () => {
-	it('throws and never calls createWorkspaceFork without an enterprise license', async () => {
-		const id = 'test-commit-fork-unlicensed'
+// Set the workspace list to a given number of non-'admins' workspaces so the
+// commit-path's CE workspace-cap check (mirror of backend _check_nb_of_workspaces)
+// can be exercised. Returns a restore fn.
+function withNonAdminWorkspaces(count: number): () => void {
+	const prev = get(usersWorkspaceStore)
+	const workspaces = Array.from({ length: count }, (_, i) => ws(`ws_${i}`))
+	usersWorkspaceStore.set({ email: 't@t', workspaces } as never)
+	return () => usersWorkspaceStore.set(prev)
+}
+
+describe('commitSessionWorkspace — CE workspace-cap fork guard', () => {
+	it('throws and never calls createWorkspaceFork when the CE workspace cap is reached', async () => {
+		const id = 'test-commit-fork-capped'
 		const prevLicense = get(enterpriseLicense)
 		enterpriseLicense.set(undefined)
+		// At/above the cap (2 non-'admins' workspaces) the backend would reject, so
+		// the client guard blocks the commit before materializeFork.
+		const restoreWs = withNonAdminWorkspaces(2)
 		vi.mocked(WorkspaceService.createWorkspaceFork).mockClear()
 		sessionState.sessions.push({
 			id,
-			name: 'fork-unlicensed',
+			name: 'fork-capped',
 			createdAt: 0,
-			pending_fork: { parent_workspace_id: 'parent_ws', id: 'wm-fork-ee', name: 'ee' }
+			pending_fork: { parent_workspace_id: 'parent_ws', id: 'wm-fork-capped', name: 'capped' }
 		} as Session)
 		try {
-			await expect(commitSessionWorkspace(id, 'parent_ws')).rejects.toThrow(/enterprise license/)
+			await expect(commitSessionWorkspace(id, 'parent_ws')).rejects.toThrow(/limited to/)
 			expect(WorkspaceService.createWorkspaceFork).not.toHaveBeenCalled()
 			// pending_fork is preserved so the block persists until the user picks a
 			// non-fork workspace (which clears it via setSessionPendingWorkspace).
@@ -170,6 +188,36 @@ describe('commitSessionWorkspace — unlicensed fork guard', () => {
 		} finally {
 			const i = sessionState.sessions.findIndex((x) => x.id === id)
 			if (i >= 0) sessionState.sessions.splice(i, 1)
+			restoreWs()
+			enterpriseLicense.set(prevLicense)
+		}
+	})
+
+	it('lets an unlicensed user under the cap proceed to createWorkspaceFork', async () => {
+		const id = 'test-commit-fork-under-cap'
+		const prevLicense = get(enterpriseLicense)
+		enterpriseLicense.set(undefined)
+		// Below the cap (1 non-'admins' workspace) CE still allows a fork — the
+		// guard must NOT fire. createWorkspaceFork is mocked to reject, so the
+		// commit falls through to the failure contract (undefined, pending dropped).
+		const restoreWs = withNonAdminWorkspaces(1)
+		vi.mocked(WorkspaceService.createWorkspaceFork).mockClear()
+		sessionState.sessions.push({
+			id,
+			name: 'fork-under-cap',
+			createdAt: 0,
+			pending_fork: { parent_workspace_id: 'parent_ws', id: 'wm-fork-ok', name: 'ok' }
+		} as Session)
+		try {
+			const committed = await commitSessionWorkspace(id, 'parent_ws')
+			expect(committed).toBeUndefined()
+			expect(WorkspaceService.createWorkspaceFork).toHaveBeenCalled()
+			const s = sessionState.sessions.find((x) => x.id === id)
+			expect(s?.pending_fork).toBeUndefined()
+		} finally {
+			const i = sessionState.sessions.findIndex((x) => x.id === id)
+			if (i >= 0) sessionState.sessions.splice(i, 1)
+			restoreWs()
 			enterpriseLicense.set(prevLicense)
 		}
 	})

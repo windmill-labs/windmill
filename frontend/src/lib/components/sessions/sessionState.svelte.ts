@@ -297,14 +297,20 @@ export async function commitSessionWorkspace(
 
 	if (s.pending_fork) {
 		const fork = s.pending_fork
-		// Defense-in-depth against a stale pending_fork (e.g. staged before the
-		// instance dropped its enterprise license, or any future entry point):
-		// forking requires a license, so block the commit with an explicit error
-		// rather than letting materializeFork hit a backend rejection. Keep the
-		// pending fork set so the block persists until the user picks a non-fork
-		// workspace (setSessionPendingWorkspace clears it).
-		if (!get(enterpriseLicense)) {
-			throw new Error('Forking requires an enterprise license — pick a workspace to run in')
+		// Defense-in-depth against a stale pending_fork (e.g. staged before
+		// another workspace was created, or any future entry point): a fork is a
+		// new workspace, and community edition caps the number of non-'admins'
+		// workspaces (backend _check_nb_of_workspaces). An enterprise license
+		// lifts the cap. Block the commit with an explicit error rather than
+		// letting materializeFork hit a backend rejection. Keep the pending fork
+		// set so the block persists until the user picks a non-fork workspace
+		// (setSessionPendingWorkspace clears it).
+		const CE_MAX_NON_ADMIN_WORKSPACES = 2
+		const nonAdminWorkspaceCount = get(userWorkspaces).filter((w) => w.id !== 'admins').length
+		if (!get(enterpriseLicense) && nonAdminWorkspaceCount >= CE_MAX_NON_ADMIN_WORKSPACES) {
+			throw new Error(
+				`Community edition is limited to ${CE_MAX_NON_ADMIN_WORKSPACES + 1} workspaces — archive a workspace or pick one to run in`
+			)
 		}
 		const newId = await materializeFork(fork)
 		if (!newId) {
