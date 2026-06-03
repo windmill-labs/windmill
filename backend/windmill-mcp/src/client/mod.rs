@@ -73,6 +73,12 @@ impl McpClient {
 
         let reqwest_client = reqwest::Client::builder()
             .default_headers(headers)
+            // Don't follow redirects: the SSRF check above only validates the
+            // initial (author-controlled) URL, so following a redirect could
+            // still reach a private/internal address with the bearer token
+            // attached. The MCP streamable-HTTP endpoint is a direct endpoint
+            // and does not legitimately rely on redirects.
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .context("Failed to build HTTP client")?;
 
