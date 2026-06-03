@@ -57,6 +57,10 @@
 	let loading = $state(true)
 	let selectedItems = $state<string[]>([])
 	let deploying = $state(false)
+	// All drafts start selected (deploy-all is the common intent); the user
+	// deselects what they want to keep. Only applied on the first load so a
+	// reload after a deploy doesn't re-select the items left behind.
+	let hasAutoSelected = $state(false)
 
 	const deploymentStatus: Record<
 		string,
@@ -96,6 +100,12 @@
 			collected.sort((a, b) => a.path.localeCompare(b.path))
 			items = collected
 			onCountChange?.(items.length)
+			if (!hasAutoSelected && items.length > 0) {
+				selectedItems = items
+					.filter((i) => deploymentStatus[i.key]?.status !== 'deployed')
+					.map((i) => i.key)
+				hasAutoSelected = true
+			}
 		} catch (e) {
 			console.error('Failed to load drafts', e)
 			sendUserToast(`Failed to load drafts: ${e}`, true)
