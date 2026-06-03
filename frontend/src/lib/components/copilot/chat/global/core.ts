@@ -3072,9 +3072,11 @@ async function deployDraft(
 	if (draft.value === undefined) {
 		throw new Error(`Draft ${type} "${path}" has no value to deploy.`)
 	}
+	const deployPath =
+		type === 'script' || type === 'flow' || type === 'app' ? (draft.path ?? path) : path
 
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Deploying ${type} "${path}"...`
+		content: `Deploying ${type} "${deployPath}"...`
 	})
 
 	let actions: ToolDisplayAction[] | undefined
@@ -3083,7 +3085,7 @@ async function deployDraft(
 		case 'script': {
 			await deployScriptDraft({
 				workspace,
-				path,
+				path: deployPath,
 				draft,
 				existing: deployableDraft.existingScript,
 				deploymentMessage,
@@ -3095,6 +3097,7 @@ async function deployDraft(
 			await deployFlowDraft({
 				workspace,
 				path,
+				targetPath: deployPath,
 				draft,
 				existing: deployableDraft.existingFlow,
 				deploymentMessage,
@@ -3153,6 +3156,7 @@ async function deployDraft(
 			await deployAppDraft({
 				workspace,
 				path,
+				targetPath: deployPath,
 				draft,
 				appExists: deployableDraft.appExists,
 				deploymentMessage,
@@ -3175,19 +3179,19 @@ async function deployDraft(
 		app: 'raw_app'
 	}
 	const kind = previewKindByType[type]
-	if (kind) deployedInSessionHandler?.({ sessionId, kind, path })
+	if (kind) deployedInSessionHandler?.({ sessionId, kind, path: deployPath })
 
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Deployed ${type} "${path}"`,
+		content: `Deployed ${type} "${deployPath}"`,
 		result: 'Deployed',
 		actions
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Deployed draft ${type} "${path}" to the workspace. Draft removed from the draft system.`,
+			message: `Deployed draft ${type} "${deployPath}" to the workspace. Draft removed from the draft system.`,
 			type,
-			path,
+			path: deployPath,
 			triggerKind
 		},
 		null,

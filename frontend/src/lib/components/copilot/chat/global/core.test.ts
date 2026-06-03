@@ -987,6 +987,50 @@ describe('global AI tools', () => {
 		expect(ScriptService.getScriptByPath).not.toHaveBeenCalled()
 	})
 
+	it('deploys saved DB script rename drafts to the draft target path', async () => {
+		vi.mocked(ScriptService.existsScriptByPath).mockResolvedValueOnce(true)
+		vi.mocked(ScriptService.getScriptByPathWithDraft).mockResolvedValueOnce({
+			path: 'f/scripts/old-name',
+			hash: 'old-script-hash',
+			summary: 'deployed summary',
+			description: 'deployed description',
+			content: 'deployed content',
+			schema: {},
+			is_template: false,
+			language: 'bun',
+			kind: 'script',
+			draft: {
+				path: 'f/scripts/new-name',
+				summary: 'renamed draft summary',
+				description: 'renamed draft description',
+				content: 'renamed draft content',
+				language: 'bun',
+				kind: 'script'
+			}
+		} as any)
+
+		const raw = await callGlobalTool('deploy_workspace_item', {
+			type: 'script',
+			path: 'f/scripts/old-name'
+		})
+
+		expect(ScriptService.createScript).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			requestBody: expect.objectContaining({
+				path: 'f/scripts/new-name',
+				parent_hash: 'old-script-hash',
+				summary: 'renamed draft summary',
+				description: 'renamed draft description',
+				content: 'renamed draft content'
+			})
+		})
+		expect(JSON.parse(raw)).toMatchObject({
+			success: true,
+			type: 'script',
+			path: 'f/scripts/new-name'
+		})
+	})
+
 	it('deploys DB flow drafts with draft metadata when no local draft exists', async () => {
 		vi.mocked(FlowService.existsFlowByPath).mockResolvedValueOnce(true)
 		vi.mocked(FlowService.getFlowByPathWithDraft).mockResolvedValueOnce({
@@ -1049,6 +1093,52 @@ describe('global AI tools', () => {
 			{ id: 'draft_step', value: { type: 'identity' } }
 		])
 		expect(FlowService.getFlowByPath).not.toHaveBeenCalled()
+	})
+
+	it('deploys saved DB flow rename drafts through the original route path', async () => {
+		vi.mocked(FlowService.existsFlowByPath).mockResolvedValueOnce(true)
+		vi.mocked(FlowService.getFlowByPathWithDraft).mockResolvedValueOnce({
+			path: 'f/flows/old-name',
+			summary: 'deployed summary',
+			description: 'deployed description',
+			value: {
+				modules: [{ id: 'deployed_step', value: { type: 'identity' } }]
+			},
+			schema: { type: 'object', properties: { deployed: { type: 'boolean' } } },
+			draft: {
+				path: 'f/flows/new-name',
+				summary: 'renamed draft summary',
+				description: 'renamed draft description',
+				value: {
+					modules: [{ id: 'draft_step', value: { type: 'identity' } }]
+				},
+				schema: { type: 'object', properties: { draft: { type: 'string' } } }
+			}
+		} as any)
+
+		const raw = await callGlobalTool('deploy_workspace_item', {
+			type: 'flow',
+			path: 'f/flows/old-name'
+		})
+
+		expect(FlowService.updateFlow).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'f/flows/old-name',
+			requestBody: expect.objectContaining({
+				path: 'f/flows/new-name',
+				summary: 'renamed draft summary',
+				description: 'renamed draft description',
+				schema: { type: 'object', properties: { draft: { type: 'string' } } }
+			})
+		})
+		expect(vi.mocked(FlowService.updateFlow).mock.calls[0]?.[0].requestBody.value.modules).toEqual([
+			{ id: 'draft_step', value: { type: 'identity' } }
+		])
+		expect(JSON.parse(raw)).toMatchObject({
+			success: true,
+			type: 'flow',
+			path: 'f/flows/new-name'
+		})
 	})
 
 	it('applies path_prefix to local drafts before enforcing the result limit', async () => {
@@ -1911,6 +2001,50 @@ describe('global AI tools', () => {
 		})
 		expect(AppService.createAppRaw).not.toHaveBeenCalled()
 		expect(UserDraft.get('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
+	})
+
+	it('deploys saved DB app rename drafts through the original route path', async () => {
+		appDrafts.set('f/apps/old-report', {
+			path: 'f/apps/new-report',
+			summary: 'Renamed report',
+			value: {
+				files: { '/index.tsx': 'console.log("renamed")' },
+				runnables: {},
+				data: { tables: ['renamed'] }
+			},
+			policy: { execution_mode: 'anonymous' }
+		})
+
+		const raw = await callGlobalTool('deploy_workspace_item', {
+			type: 'app',
+			path: 'f/apps/old-report'
+		})
+
+		expect(AppService.updateAppRaw).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'f/apps/old-report',
+			formData: {
+				app: {
+					path: 'f/apps/new-report',
+					value: {
+						files: { '/index.tsx': 'console.log("renamed")' },
+						runnables: {},
+						data: { tables: ['renamed'] }
+					},
+					summary: 'Renamed report',
+					policy: expect.objectContaining({ execution_mode: 'anonymous' }),
+					deployment_message: undefined
+				},
+				js: 'bundled js',
+				css: 'bundled css'
+			}
+		})
+		expect(AppService.createAppRaw).not.toHaveBeenCalled()
+		expect(JSON.parse(raw)).toMatchObject({
+			success: true,
+			type: 'app',
+			path: 'f/apps/new-report'
+		})
 	})
 
 	it('notifies the session preview (as raw_app) after deploying a raw app', async () => {

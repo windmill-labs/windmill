@@ -188,7 +188,9 @@ export async function loadDbDraftForDeploy(
 			if (!(await ScriptService.existsScriptByPath({ workspace, path }))) return undefined
 			const script = await ScriptService.getScriptByPathWithDraft({ workspace, path })
 			if (!script.draft && !script.draft_only) return undefined
-			const draftScript = script.draft ? { ...script, ...script.draft, path: script.path } : script
+			const draftScript = script.draft
+				? { ...script, ...script.draft, path: script.draft.path ?? script.path }
+				: script
 			return {
 				item: scriptToItem(draftScript, true, true),
 				existingScript: script,
@@ -199,7 +201,9 @@ export async function loadDbDraftForDeploy(
 			if (!(await FlowService.existsFlowByPath({ workspace, path }))) return undefined
 			const flow = await FlowService.getFlowByPathWithDraft({ workspace, path })
 			if (!flow.draft && !flow.draft_only) return undefined
-			const draftFlow = flow.draft ? { ...flow, ...flow.draft, path: flow.path } : flow
+			const draftFlow = flow.draft
+				? { ...flow, ...flow.draft, path: flow.draft.path ?? flow.path }
+				: flow
 			return {
 				item: flowToItem(draftFlow, true, true),
 				existingFlow: flow,
@@ -210,11 +214,12 @@ export async function loadDbDraftForDeploy(
 			if (!(await AppService.existsApp({ workspace, path }))) return undefined
 			const app = await AppService.getAppByPathWithDraft({ workspace, path })
 			if (!app.draft && !app.draft_only) return undefined
+			const draftPath = (app.draft as { path?: string } | undefined)?.path ?? app.path
 			const value = appSourceToDraftValue(app.draft ?? app, app)
 			return {
 				item: {
 					type: 'app',
-					path: app.path,
+					path: draftPath,
 					summary: value.summary,
 					value,
 					isDraft: true
@@ -310,15 +315,24 @@ export async function deployScriptDraft(args: {
 export async function deployFlowDraft(args: {
 	workspace: string
 	path: string
+	targetPath?: string
 	draft: WorkspaceItem
 	existing?: FlowDeployMetadata
 	deploymentMessage?: string
 	draftMetadata?: FlowDeployMetadata
 }): Promise<void> {
-	const { workspace, path, draft, existing, deploymentMessage, draftMetadata } = args
+	const {
+		workspace,
+		path,
+		targetPath = path,
+		draft,
+		existing,
+		deploymentMessage,
+		draftMetadata
+	} = args
 	const flowDraft = draft.value as FlowDraftValue
 	const requestBody = buildFlowDeployRequestBody(
-		path,
+		targetPath,
 		draft.summary,
 		flowDraft,
 		existing,
@@ -335,12 +349,13 @@ export async function deployFlowDraft(args: {
 export async function deployAppDraft(args: {
 	workspace: string
 	path: string
+	targetPath?: string
 	draft: WorkspaceItem
 	appExists?: boolean
 	deploymentMessage?: string
 	onStatus?: DeployStatusHandler
 }): Promise<void> {
-	const { workspace, path, draft, appExists, deploymentMessage, onStatus } = args
+	const { workspace, path, targetPath = path, draft, appExists, deploymentMessage, onStatus } = args
 	const appDraft = draft.value as AppDraftValue
 	const appValue: AppDraftValue = {
 		...appDraft,
@@ -351,10 +366,10 @@ export async function deployAppDraft(args: {
 	await recomputeAppPolicy(appValue)
 	const policy = appValue.policy
 	if (!policy) {
-		throw new Error(`Draft app "${path}" has no policy to deploy.`)
+		throw new Error(`Draft app "${targetPath}" has no policy to deploy.`)
 	}
 
-	onStatus?.(`Bundling app "${path}"...`)
+	onStatus?.(`Bundling app "${targetPath}"...`)
 	const bundle = await bundleRawAppDraft({
 		workspace,
 		files: appValue.files,
@@ -365,12 +380,12 @@ export async function deployAppDraft(args: {
 				.filter(Boolean)
 			const latest = lines[lines.length - 1]
 			if (latest) {
-				onStatus?.(`Bundling app "${path}"... ${latest}`)
+				onStatus?.(`Bundling app "${targetPath}"... ${latest}`)
 			}
 		}
 	})
 
-	onStatus?.(`Deploying app "${path}"...`)
+	onStatus?.(`Deploying app "${targetPath}"...`)
 	const rawAppValue = {
 		files: appValue.files,
 		runnables: appValue.runnables,
@@ -386,7 +401,7 @@ export async function deployAppDraft(args: {
 			path,
 			formData: {
 				app: {
-					path,
+					path: targetPath,
 					value: rawAppValue,
 					summary,
 					policy,
@@ -401,7 +416,7 @@ export async function deployAppDraft(args: {
 			workspace,
 			formData: {
 				app: {
-					path,
+					path: targetPath,
 					value: rawAppValue,
 					summary,
 					policy,
