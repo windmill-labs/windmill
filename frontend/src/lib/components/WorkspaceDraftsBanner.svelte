@@ -37,7 +37,9 @@
 						This workspace has {draftCount} draft{draftCount !== 1 ? 's' : ''}
 					</span>
 				</div>
-				<Button variant="accent" unifiedSize="xs" onclick={openDraftCompare}>
+				<!-- Same button as the sibling ForkWorkspaceBanner CTA (they sit on the
+				     same home page), kept visually identical on purpose. -->
+				<Button variant="default" unifiedSize="sm" onclick={openDraftCompare}>
 					Review & deploy drafts
 				</Button>
 			</div>

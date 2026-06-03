@@ -278,7 +278,7 @@
 				</div>
 
 				<div class="flex items-center gap-2">
-					<Button size="xs" color="blue" on:click={openComparisonDrawer}>
+					<Button variant="default" unifiedSize="sm" onclick={openComparisonDrawer}>
 						{#if (comparison?.summary.total_ahead ?? 0) > 0}
 							Review & Deploy Changes
 						{:else}
