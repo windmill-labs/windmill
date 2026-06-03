@@ -99,7 +99,9 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		const pendingUserMessage = getPendingUserMessage?.()
 
 		const isOpenAI =
-			modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai'
+			modelProvider.provider === 'openai' ||
+			modelProvider.provider === 'azure_openai' ||
+			modelProvider.provider === 'openai_chatgpt_account'
 		const isAnthropic = modelProvider.provider === 'anthropic'
 
 		const messageParams = [
@@ -108,7 +110,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			...(pendingUserMessage ? [pendingUserMessage] : [])
 		]
 		const toolDefs = tools.map((t) => t.def)
-		const parseOptions = { workspace }
+		const parseOptions = { workspace, provider: modelProvider.provider }
 
 		if (isOpenAI) {
 			let useCompletionsApi = skipResponsesApi
@@ -137,6 +139,9 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 						break
 					}
 				} catch (err) {
+					if (modelProvider.provider === 'openai_chatgpt_account') {
+						throw err
+					}
 					console.warn(
 						'OpenAI Responses API failed, falling back to Completions API:',
 						err

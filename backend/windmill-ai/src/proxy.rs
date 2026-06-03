@@ -4,8 +4,11 @@ use http::{HeaderMap, Method};
 use serde_json::value::RawValue;
 use windmill_common::error::{Error, Result};
 
-use crate::ai_providers::AIProvider;
+use crate::ai_providers::{AIPlatform, AIProvider, OPENAI_CHATGPT_ACCOUNT_BASE_URL};
 use crate::credentials::ProviderCredentials;
+use crate::providers::codex::{
+    add_codex_responses_defaults, CodexRequestContext, CODEX_MODELS_PATH, CODEX_RESPONSES_PATH,
+};
 use crate::utils::AI_HTTP_HEADERS;
 
 pub mod fim;
@@ -50,6 +53,7 @@ pub fn supports_openai_compatible_proxy(provider: &AIProvider) -> bool {
     matches!(
         provider,
         AIProvider::OpenAI
+            | AIProvider::OpenAIChatGPTAccount
             | AIProvider::AzureOpenAI
             | AIProvider::Mistral
             | AIProvider::DeepSeek
@@ -63,6 +67,7 @@ pub fn supports_openai_compatible_proxy(provider: &AIProvider) -> bool {
 pub fn proxy_execution_mode(provider: &AIProvider) -> ProxyExecutionMode {
     match provider {
         AIProvider::OpenAI
+        | AIProvider::OpenAIChatGPTAccount
         | AIProvider::AzureOpenAI
         | AIProvider::Anthropic
         | AIProvider::Mistral
@@ -81,6 +86,10 @@ pub fn supports_query_builder_proxy(provider: &AIProvider) -> bool {
 }
 
 pub fn build_openai_compatible_proxy_request(args: &ProxyBuildArgs<'_>) -> Result<ProxyRequest> {
+    if args.credentials.provider == AIProvider::OpenAIChatGPTAccount {
+        return build_openai_chatgpt_account_proxy_request(args);
+    }
+
     let credentials = args.credentials;
     let body = if let Some(user) = credentials.user.as_ref() {
         add_user_to_body(args.body, user)?
@@ -126,6 +135,90 @@ pub fn build_openai_compatible_proxy_request(args: &ProxyBuildArgs<'_>) -> Resul
     }
 
     Ok(ProxyRequest { method: args.method.clone(), url, headers, body })
+}
+
+fn build_openai_chatgpt_account_proxy_request(args: &ProxyBuildArgs<'_>) -> Result<ProxyRequest> {
+    let credentials = args.credentials;
+    let base_url = credentials
+        .base_url
+        .trim_end_matches('/')
+        .trim_end_matches("/v1");
+    let base_url = if base_url.is_empty() {
+        OPENAI_CHATGPT_ACCOUNT_BASE_URL
+    } else {
+        base_url
+    };
+
+    let path = match args.path.trim_start_matches('/') {
+        "models" => CODEX_MODELS_PATH.to_string(),
+        "responses" => CODEX_RESPONSES_PATH.to_string(),
+        unsupported => {
+            return Err(Error::BadRequest(format!(
+                "Unsupported OpenAI ChatGPT Account proxy path: {unsupported}"
+            )))
+        }
+    };
+
+    let context = CodexRequestContext::new();
+    let (body, is_streaming_response) = if args.path.trim_start_matches('/') == "responses" {
+        let body = build_codex_responses_body(args.body, &context)?;
+        let is_streaming_response = serde_json::from_slice::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|value| value.get("stream").and_then(serde_json::Value::as_bool))
+            .unwrap_or(false);
+        (body, is_streaming_response)
+    } else {
+        (args.body.to_vec(), false)
+    };
+
+    let mut headers = vec![
+        ("content-type".to_string(), "application/json".to_string()),
+    ];
+    headers.extend(
+        context
+            .headers()
+            .into_iter()
+            .map(|(name, value)| (name.to_string(), value)),
+    );
+
+    if is_streaming_response {
+        headers.push(("accept".to_string(), "text/event-stream".to_string()));
+    }
+
+    if let Some(access_token) = credentials
+        .access_token
+        .as_ref()
+        .or(credentials.api_key.as_ref())
+    {
+        headers.push((
+            "authorization".to_string(),
+            format!("Bearer {}", access_token),
+        ));
+    }
+
+    for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
+        headers.push((header_name.clone(), header_value.clone()));
+    }
+
+    for (header_name, header_value) in &credentials.custom_headers {
+        headers.push((header_name.clone(), header_value.clone()));
+    }
+
+    Ok(ProxyRequest {
+        method: args.method.clone(),
+        url: format!("{}/{}", base_url, path),
+        headers,
+        body,
+    })
+}
+
+fn build_codex_responses_body(body: &[u8], context: &CodexRequestContext) -> Result<Vec<u8>> {
+    let value = serde_json::from_slice(body)
+        .map_err(|e| Error::internal_err(format!("Failed to parse request body: {}", e)))?;
+    let value = add_codex_responses_defaults(value, context, None)?;
+
+    serde_json::to_vec(&value)
+        .map_err(|e| Error::internal_err(format!("Failed to reserialize request body: {}", e)))
 }
 
 pub(crate) fn add_user_to_body(body: &[u8], user: &str) -> Result<Vec<u8>> {
@@ -198,9 +291,89 @@ mod tests {
     }
 
     #[test]
+    fn builds_openai_chatgpt_account_proxy_request() {
+        let mut credentials = credentials(
+            AIProvider::OpenAIChatGPTAccount,
+            "https://chatgpt.com/backend-api",
+        );
+        credentials.api_key = None;
+        credentials.access_token = Some("access-token".to_string());
+        credentials
+            .custom_headers
+            .insert("chatgpt-account-id".to_string(), "account-id".to_string());
+
+        let method = Method::POST;
+        let headers = HeaderMap::new();
+
+        let request = build_openai_compatible_proxy_request(&ProxyBuildArgs {
+            method: &method,
+            path: "responses",
+            headers: &headers,
+            body: br#"{"model":"gpt-5.4","input":[],"stream":true,"max_output_tokens":100,"tools":[{"type":"function","name":"set_flow_json","parameters":{"type":"object","properties":{}}}]}"#,
+            credentials: &credentials,
+        })
+        .unwrap();
+
+        assert_eq!(
+            request.url,
+            "https://chatgpt.com/backend-api/codex/responses"
+        );
+        assert!(request.headers.contains(&(
+            "authorization".to_string(),
+            "Bearer access-token".to_string()
+        )));
+        assert!(request
+            .headers
+            .contains(&("chatgpt-account-id".to_string(), "account-id".to_string())));
+        assert!(request.headers.contains(&(
+            "accept".to_string(),
+            "text/event-stream".to_string()
+        )));
+        let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+        assert_eq!(body["store"], false);
+        assert_eq!(body["stream"], true);
+        assert_eq!(body["tool_choice"], "auto");
+        assert_eq!(body["parallel_tool_calls"], true);
+        assert!(body.get("max_output_tokens").is_none());
+    }
+
+    #[test]
+    fn preserves_non_streaming_openai_chatgpt_account_proxy_request() {
+        let mut credentials = credentials(
+            AIProvider::OpenAIChatGPTAccount,
+            "https://chatgpt.com/backend-api",
+        );
+        credentials.api_key = None;
+        credentials.access_token = Some("access-token".to_string());
+
+        let method = Method::POST;
+        let headers = HeaderMap::new();
+
+        let request = build_openai_compatible_proxy_request(&ProxyBuildArgs {
+            method: &method,
+            path: "responses",
+            headers: &headers,
+            body: br#"{"model":"gpt-5.4","input":[]}"#,
+            credentials: &credentials,
+        })
+        .unwrap();
+
+        assert!(!request.headers.contains(&(
+            "accept".to_string(),
+            "text/event-stream".to_string()
+        )));
+        let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+        assert!(body.get("stream").is_none());
+    }
+
+    #[test]
     fn query_builder_proxy_support_includes_anthropic() {
         let cases = [
             (AIProvider::OpenAI, ProxyExecutionMode::HttpForward),
+            (
+                AIProvider::OpenAIChatGPTAccount,
+                ProxyExecutionMode::HttpForward,
+            ),
             (AIProvider::AzureOpenAI, ProxyExecutionMode::HttpForward),
             (AIProvider::Anthropic, ProxyExecutionMode::HttpForward),
             (AIProvider::Mistral, ProxyExecutionMode::HttpForward),

@@ -1,11 +1,15 @@
 <script lang="ts">
 	import {
+		AiService,
 		ResourceService,
 		WorkspaceService,
 		type AIConfig,
 		type AIProvider,
+		type AIProviderModel,
 		type GetCopilotSettingsStateResponse,
-		type InstanceAISummary
+		type InstanceAISummary,
+		type OpenAIChatGPTAccountDeviceCompleteResponse,
+		type OpenAIChatGPTAccountDeviceStartResponse
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -26,7 +30,7 @@
 	import { setCopilotInfo } from '$lib/aiStore'
 	import AIPromptsModal from '../settings/AIPromptsModal.svelte'
 	import { Settings } from 'lucide-svelte'
-	import { untrack } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import { slide } from 'svelte/transition'
 	import SettingsFooter from './SettingsFooter.svelte'
 	import InstanceFallbackSettings from './InstanceFallbackSettings.svelte'
@@ -66,17 +70,21 @@
 
 	// --- Internal state ---
 	let aiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
-	let codeCompletionModel: string | undefined = $state(undefined)
-	let defaultModel: string | undefined = $state(undefined)
+	let codeCompletionModelKey: string | undefined = $state(undefined)
+	let defaultModelKey: string | undefined = $state(undefined)
 	let customPrompts: Record<string, string> = $state({})
 	let maxTokensPerModel: Record<string, number> = $state({})
 	let usingOpenaiClientCredentialsOauth = $state(false)
 	let workspaceOverrideEditorOpened = $state(false)
+	let chatgptDeviceAuth = $state<OpenAIChatGPTAccountDeviceStartResponse | undefined>(undefined)
+	let chatgptDeviceStatus = $state<string | undefined>(undefined)
+	let chatgptDeviceConnecting = $state(false)
+	let chatgptDevicePollTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
 	// --- Initial state for dirty tracking ---
 	let initialAiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
-	let initialCodeCompletionModel: string | undefined = $state(undefined)
-	let initialDefaultModel: string | undefined = $state(undefined)
+	let initialCodeCompletionModelKey: string | undefined = $state(undefined)
+	let initialDefaultModelKey: string | undefined = $state(undefined)
 	let initialCustomPrompts: Record<string, string> = $state({})
 	let initialMaxTokensPerModel: Record<string, number> = $state({})
 	let initialPrompts: Record<string, string> = $state({})
@@ -86,10 +94,37 @@
 		return JSON.parse(JSON.stringify(v))
 	}
 
+	function providerLabel(provider: AIProvider): string {
+		return AI_PROVIDERS[provider]?.label ?? provider
+	}
+
+	function providerModelKeyFromParts(provider: AIProvider, model: string): string {
+		return `${provider}:${model}`
+	}
+
+	function providerModelKey(providerModel: AIProviderModel | undefined): string | undefined {
+		return providerModel
+			? providerModelKeyFromParts(providerModel.provider, providerModel.model)
+			: undefined
+	}
+
+	function providerModelLabel(providerModel: AIProviderModel): string {
+		return `${providerModel.model} · ${providerLabel(providerModel.provider)}`
+	}
+
+	function hasProviderModelKey(key: string | undefined): boolean {
+		if (!key) return false
+		return Object.entries(aiProviders).some(([provider, config]) =>
+			config.models.some(
+				(model) => providerModelKeyFromParts(provider as AIProvider, model) === key
+			)
+		)
+	}
+
 	function applyConfig(config: AIConfig | undefined) {
 		aiProviders = clone(config?.providers ?? {})
-		defaultModel = config?.default_model?.model
-		codeCompletionModel = config?.code_completion_model?.model
+		defaultModelKey = providerModelKey(config?.default_model)
+		codeCompletionModelKey = providerModelKey(config?.code_completion_model)
 		customPrompts = clone(config?.custom_prompts ?? {})
 		maxTokensPerModel = clone(config?.max_tokens_per_model ?? {})
 		for (const mode of ['edit', 'fix', 'gen']) {
@@ -101,8 +136,8 @@
 
 	function storeInitialState() {
 		initialAiProviders = clone(aiProviders)
-		initialDefaultModel = defaultModel
-		initialCodeCompletionModel = codeCompletionModel
+		initialDefaultModelKey = defaultModelKey
+		initialCodeCompletionModelKey = codeCompletionModelKey
 		initialCustomPrompts = clone(customPrompts)
 		initialMaxTokensPerModel = clone(maxTokensPerModel)
 		initialPrompts = clone(customPrompts)
@@ -115,8 +150,8 @@
 
 	export function discard() {
 		aiProviders = clone(initialAiProviders)
-		defaultModel = initialDefaultModel
-		codeCompletionModel = initialCodeCompletionModel
+		defaultModelKey = initialDefaultModelKey
+		codeCompletionModelKey = initialCodeCompletionModelKey
 		customPrompts = clone(initialCustomPrompts)
 		maxTokensPerModel = clone(initialMaxTokensPerModel)
 	}
@@ -148,8 +183,8 @@
 	// --- Dirty tracking ---
 	let dirty = $derived(
 		JSON.stringify(aiProviders) !== JSON.stringify(initialAiProviders) ||
-			defaultModel !== initialDefaultModel ||
-			codeCompletionModel !== initialCodeCompletionModel ||
+			defaultModelKey !== initialDefaultModelKey ||
+			codeCompletionModelKey !== initialCodeCompletionModelKey ||
 			JSON.stringify(customPrompts) !== JSON.stringify(initialCustomPrompts) ||
 			JSON.stringify(maxTokensPerModel) !== JSON.stringify(initialMaxTokensPerModel)
 	)
@@ -188,18 +223,26 @@
 		!usesInstanceAiConfig || Object.keys(aiProviders).length > 0 || workspaceOverrideEditorOpened
 	)
 
-	let selectedAiModels = $derived(Object.values(aiProviders).flatMap((p) => p.models))
+	let selectedAiModels = $derived(
+		Object.entries(aiProviders).flatMap(([provider, config]) =>
+			config.models.map((model) => ({ provider: provider as AIProvider, model }))
+		)
+	)
+	let selectedAiModelOptions = $derived(
+		selectedAiModels.map((model) => ({
+			value: providerModelKey(model)!,
+			label: providerModelLabel(model)
+		}))
+	)
 	let modelProviderMap = $derived(
 		Object.fromEntries(
-			Object.entries(aiProviders).flatMap(([provider, config]) =>
-				config.models.map((m) => [m, provider as AIProvider])
-			)
-		)
+			selectedAiModels.map((model) => [providerModelKey(model)!, model])
+		) as Record<string, AIProviderModel>
 	)
 	$effect(() => {
 		if (Object.keys(aiProviders).length < 1) {
-			codeCompletionModel = undefined
-			defaultModel = undefined
+			codeCompletionModelKey = undefined
+			defaultModelKey = undefined
 		}
 	})
 
@@ -218,7 +261,8 @@
 					availableAiModels[provider] = models
 				} catch (e) {
 					console.error('failed to fetch models for provider', provider, e)
-					availableAiModels[provider] = AI_PROVIDERS[provider].defaultModels
+					availableAiModels[provider] =
+						provider === 'openai_chatgpt_account' ? [] : AI_PROVIDERS[provider].defaultModels
 				}
 			}
 			fetchedAiModels = true
@@ -231,14 +275,10 @@
 	}
 
 	function buildConfig(): AIConfig {
-		const code_completion_model =
-			codeCompletionModel && modelProviderMap[codeCompletionModel]
-				? { model: codeCompletionModel, provider: modelProviderMap[codeCompletionModel] }
-				: undefined
-		const default_model =
-			defaultModel && modelProviderMap[defaultModel]
-				? { model: defaultModel, provider: modelProviderMap[defaultModel] }
-				: undefined
+		const code_completion_model = codeCompletionModelKey
+			? modelProviderMap[codeCompletionModelKey]
+			: undefined
+		const default_model = defaultModelKey ? modelProviderMap[defaultModelKey] : undefined
 		const custom_prompts: Record<string, string> = Object.entries(customPrompts)
 			.filter(([_, prompt]) => prompt.trim().length > 0)
 			.reduce((acc, [mode, prompt]) => ({ ...acc, [mode]: prompt }), {})
@@ -256,10 +296,17 @@
 	}
 
 	function isSaveDisabled(): boolean {
+		const hasInvalidDefaultModel =
+			defaultModelKey != undefined &&
+			(defaultModelKey.length === 0 || !modelProviderMap[defaultModelKey])
+		const hasInvalidCodeCompletionModel =
+			codeCompletionModelKey != undefined &&
+			(codeCompletionModelKey.length === 0 || !modelProviderMap[codeCompletionModelKey])
+
 		return (
 			!Object.values(aiProviders).every((p) => p.resource_path) ||
-			(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
-			(Object.keys(aiProviders).length > 0 && !defaultModel)
+			hasInvalidCodeCompletionModel ||
+			(Object.keys(aiProviders).length > 0 && (!defaultModelKey || hasInvalidDefaultModel))
 		)
 	}
 
@@ -311,7 +358,11 @@
 				availableAiModels[provider] = models
 			} catch (e) {
 				console.error('failed to fetch models for provider', provider, e)
-				availableAiModels[provider] = AI_PROVIDERS[provider].defaultModels
+				availableAiModels[provider] =
+					provider === 'openai_chatgpt_account' ? [] : AI_PROVIDERS[provider].defaultModels
+				if (provider === 'openai_chatgpt_account') {
+					chatgptDeviceStatus = 'ChatGPT connected, but Codex models could not be loaded.'
+				}
 			}
 		}
 
@@ -324,7 +375,93 @@
 		}
 	}
 
-	const autocompleteModels = $derived(selectedAiModels.filter(supportsAutocomplete))
+	function clearChatGPTDevicePoll() {
+		if (chatgptDevicePollTimeout) {
+			clearTimeout(chatgptDevicePollTimeout)
+			chatgptDevicePollTimeout = undefined
+		}
+	}
+
+	async function startChatGPTAccountDeviceAuth(provider: AIProvider) {
+		clearChatGPTDevicePoll()
+		chatgptDeviceConnecting = true
+		chatgptDeviceAuth = undefined
+		chatgptDeviceStatus = undefined
+
+		try {
+			chatgptDeviceAuth = await AiService.startOpenAiChatGptAccountDeviceAuth({
+				workspace: effectiveWorkspace
+			})
+			chatgptDeviceStatus = 'Waiting for authorization in OpenAI...'
+			void pollChatGPTAccountDeviceAuth(provider)
+		} catch (error) {
+			console.error('failed to start ChatGPT device auth', error)
+			sendUserToast('Failed to start ChatGPT login', true)
+			chatgptDeviceConnecting = false
+		}
+	}
+
+	async function pollChatGPTAccountDeviceAuth(provider: AIProvider) {
+		if (!chatgptDeviceAuth) {
+			return
+		}
+
+		if (new Date(chatgptDeviceAuth.expires_at).getTime() <= Date.now()) {
+			chatgptDeviceConnecting = false
+			chatgptDeviceStatus = 'The login code expired. Start a new connection.'
+			return
+		}
+
+		try {
+			const response: OpenAIChatGPTAccountDeviceCompleteResponse =
+				await AiService.completeOpenAiChatGptAccountDeviceAuth({
+					workspace: effectiveWorkspace,
+					requestBody: {
+						device_auth_id: chatgptDeviceAuth.device_auth_id,
+						user_code: chatgptDeviceAuth.user_code,
+						resource_path: aiProviders[provider]?.resource_path || undefined
+					}
+				})
+
+			if (response.status === 'connected' && response.resource_path) {
+				if (!aiProviders[provider]) {
+					chatgptDeviceConnecting = false
+					chatgptDeviceAuth = undefined
+					chatgptDeviceStatus = 'ChatGPT connected, but the provider was disabled.'
+					return
+				}
+				aiProviders[provider].resource_path = response.resource_path
+				chatgptDeviceConnecting = false
+				chatgptDeviceStatus = 'ChatGPT account connected.'
+				chatgptDeviceAuth = undefined
+				await onAiProviderChange(provider)
+				sendUserToast('ChatGPT account connected')
+				return
+			}
+
+			chatgptDeviceStatus = 'Waiting for authorization in OpenAI...'
+			chatgptDevicePollTimeout = setTimeout(
+				() => pollChatGPTAccountDeviceAuth(provider),
+				chatgptDeviceAuth.interval_ms
+			)
+		} catch (error) {
+			console.error('failed to complete ChatGPT device auth', error)
+			sendUserToast('Failed to complete ChatGPT login', true)
+			chatgptDeviceConnecting = false
+		}
+	}
+
+	onDestroy(clearChatGPTDevicePoll)
+
+	const autocompleteModels = $derived(
+		selectedAiModels.filter((providerModel) => supportsAutocomplete(providerModel.model))
+	)
+	const autocompleteModelOptions = $derived(
+		autocompleteModels.map((model) => ({
+			value: providerModelKey(model)!,
+			label: providerModelLabel(model)
+		}))
+	)
 </script>
 
 <SettingsPageHeader {title} {description} {link} />
@@ -374,28 +511,21 @@
 											}
 										}
 
-										if (availableAiModels[provider].length > 0 && !defaultModel) {
-											defaultModel = availableAiModels[provider][0]
+										if (availableAiModels[provider].length > 0 && !defaultModelKey) {
+											defaultModelKey = providerModelKeyFromParts(
+												provider as AIProvider,
+												availableAiModels[provider][0]
+											)
 										}
 									} else {
 										aiProviders = Object.fromEntries(
 											Object.entries(aiProviders).filter(([key]) => key !== provider)
 										)
-										if (defaultModel) {
-											const currentDefaultModel = Object.values(aiProviders).find(
-												(p) => defaultModel && p.models.includes(defaultModel)
-											)
-											if (!currentDefaultModel) {
-												defaultModel = undefined
-											}
+										if (defaultModelKey && !hasProviderModelKey(defaultModelKey)) {
+											defaultModelKey = undefined
 										}
-										if (codeCompletionModel) {
-											const currentCodeCompletionModel = Object.values(aiProviders).find(
-												(p) => codeCompletionModel && p.models.includes(codeCompletionModel)
-											)
-											if (!currentCodeCompletionModel) {
-												codeCompletionModel = undefined
-											}
+										if (codeCompletionModelKey && !hasProviderModelKey(codeCompletionModelKey)) {
+											codeCompletionModelKey = undefined
 										}
 									}
 								}}
@@ -417,6 +547,45 @@
 								transition:slide|local={{ duration: 150 }}
 							>
 								<Label label="Resource">
+									{#if provider === 'openai_chatgpt_account'}
+										<div class="mb-3 flex flex-col gap-3 rounded-md border bg-surface-secondary p-3 text-xs">
+											<div class="flex flex-col gap-1">
+												<span class="font-medium text-primary">Connect with ChatGPT</span>
+												<span class="text-secondary">
+													Use OpenAI Device Flow to create a Windmill resource backed by your
+													ChatGPT account session.
+												</span>
+											</div>
+											<Button
+												onclick={() => startChatGPTAccountDeviceAuth(provider as AIProvider)}
+												variant="default"
+												unifiedSize="sm"
+												disabled={chatgptDeviceConnecting}
+											>
+												{chatgptDeviceConnecting ? 'Waiting for OpenAI' : 'Connect with ChatGPT'}
+											</Button>
+											{#if chatgptDeviceAuth}
+												<div class="flex flex-col gap-2 rounded bg-surface p-3">
+													<a
+														class="text-blue-600 underline"
+														href={chatgptDeviceAuth.verification_uri}
+														target="_blank"
+														rel="noreferrer"
+													>
+														Open OpenAI device login
+													</a>
+													<div>
+														Enter code <code class="rounded bg-surface-tertiary px-1 py-0.5">{chatgptDeviceAuth.user_code}</code>
+													</div>
+													{#if chatgptDeviceStatus}
+														<div class="text-secondary">{chatgptDeviceStatus}</div>
+													{/if}
+												</div>
+											{:else if chatgptDeviceStatus}
+												<div class="text-secondary">{chatgptDeviceStatus}</div>
+											{/if}
+										</div>
+									{/if}
 									<div class="flex flex-row gap-1">
 										<ResourcePicker
 											selectFirst
@@ -468,8 +637,8 @@
 		<SettingCard label="Default chat model">
 			{#key Object.keys(aiProviders).length}
 				<Select
-					items={safeSelectItems(selectedAiModels)}
-					bind:value={defaultModel}
+					items={safeSelectItems(selectedAiModelOptions)}
+					bind:value={defaultModelKey}
 					disabled={false}
 					placeholder="Select a default model"
 					size="sm"
@@ -484,13 +653,13 @@
 				<Toggle
 					on:change={(e) => {
 						if (e.detail) {
-							codeCompletionModel = autocompleteModels[0] ?? ''
+							codeCompletionModelKey = autocompleteModelOptions[0]?.value ?? ''
 						} else {
-							codeCompletionModel = undefined
+							codeCompletionModelKey = undefined
 						}
 					}}
-					checked={codeCompletionModel != undefined}
-					disabled={autocompleteModels.length == 0}
+					checked={codeCompletionModelKey != undefined}
+					disabled={autocompleteModelOptions.length == 0}
 					options={{
 						right: 'Enable code completion',
 						rightTooltip:
@@ -499,12 +668,12 @@
 				/>
 			</SettingCard>
 
-			{#if codeCompletionModel != undefined}
+			{#if codeCompletionModelKey != undefined}
 				<div transition:slide|local={{ duration: 150 }} class="mt-6">
 					<SettingCard label="Code completion model">
 						<Select
-							items={safeSelectItems(autocompleteModels)}
-							bind:value={codeCompletionModel}
+							items={safeSelectItems(autocompleteModelOptions)}
+							bind:value={codeCompletionModelKey}
 							disabled={false}
 							placeholder="Select a code completion model"
 							size="sm"

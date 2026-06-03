@@ -29,7 +29,11 @@
 	let availableModels = $state<string[]>([])
 	let filterText = $state('')
 
-	let modelsCache = new Map<AIProvider, string[]>()
+	let modelsCache = new Map<string, string[]>()
+
+	function modelsCacheKey(provider: AIProvider, resourcePath: string) {
+		return `${provider}:${resourcePath}`
+	}
 
 	if (!_uncheckedValue) {
 		_uncheckedValue = {
@@ -72,8 +76,9 @@
 		}
 
 		loading = true
-		if (modelsCache.has(provider)) {
-			availableModels = modelsCache.get(provider) || []
+		const cacheKey = modelsCacheKey(provider, resourcePath)
+		if (modelsCache.has(cacheKey)) {
+			availableModels = modelsCache.get(cacheKey) || []
 			loading = false
 			return
 		}
@@ -85,13 +90,13 @@
 				return
 			}
 			availableModels = models
-			modelsCache.set(provider, models)
+			modelsCache.set(cacheKey, models)
 		} catch (e) {
 			if (signal?.aborted) {
 				return
 			}
 			// Fall back to default models for this provider
-			const defaultModels = AI_PROVIDERS[provider]?.defaultModels || []
+			const defaultModels = provider === 'openai_chatgpt_account' ? [] : AI_PROVIDERS[provider]?.defaultModels || []
 			availableModels = defaultModels
 		} finally {
 			if (!signal?.aborted) {

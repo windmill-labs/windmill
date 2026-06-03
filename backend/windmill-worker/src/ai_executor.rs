@@ -588,7 +588,11 @@ pub async fn run_agent(
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
     let credentials = args.provider.to_provider_credentials(db).await?;
     let base_url = &credentials.base_url;
-    let api_key = credentials.api_key.as_deref().unwrap_or("");
+    let api_key = credentials
+        .access_token
+        .as_deref()
+        .or(credentials.api_key.as_deref())
+        .unwrap_or("");
 
     // Create the query builder for the provider
     let query_builder = create_query_builder(&credentials);

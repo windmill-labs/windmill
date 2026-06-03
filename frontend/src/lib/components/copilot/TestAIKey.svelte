@@ -52,16 +52,16 @@
 				aiProvider,
 				model
 			})
-			sendUserToast('Valid key')
+			sendUserToast('Connection successful')
 		} catch (err) {
 			if (err.message === 'Request was aborted.') {
-				sendUserToast('Could not validate key within 10s', true)
+				sendUserToast('Could not validate connection within 10s', true)
 			} else {
-				sendUserToast(`Invalid key: ${err}`, true)
+				sendUserToast(`Connection failed: ${err}`, true)
 			}
 		} finally {
 			loading = false
 		}
 	}}
-	>Test key
+	>Test connection
 </Button>

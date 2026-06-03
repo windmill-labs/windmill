@@ -1,13 +1,22 @@
 import { writable, get } from 'svelte/store'
 import { workspaceAIClients } from './components/copilot/lib'
+import {
+	isReasoningEffort,
+	type AIReasoningEffort
+} from './components/copilot/reasoning'
 import { type AIProviderModel, type AIProvider, WorkspaceService, type AIConfig } from './gen'
-import { COPILOT_SESSION_MODEL_SETTING_NAME, COPILOT_SESSION_PROVIDER_SETTING_NAME } from './stores'
+import {
+	COPILOT_SESSION_MODEL_SETTING_NAME,
+	COPILOT_SESSION_PROVIDER_SETTING_NAME,
+	COPILOT_SESSION_REASONING_EFFORT_SETTING_NAME
+} from './stores'
 import { getLocalSetting } from './utils'
 
 const USER_CUSTOM_PROMPTS_KEY = 'userCustomAIPrompts'
 
 const sessionModel = getLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME)
 const sessionProvider = getLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME)
+const sessionReasoningEffort = getLocalSetting(COPILOT_SESSION_REASONING_EFFORT_SETTING_NAME)
 export const copilotSessionModel = writable<AIProviderModel | undefined>(
 	sessionModel && sessionProvider
 		? {
@@ -15,6 +24,9 @@ export const copilotSessionModel = writable<AIProviderModel | undefined>(
 				provider: sessionProvider as AIProvider
 			}
 		: undefined
+)
+export const copilotReasoningEffort = writable<AIReasoningEffort | undefined>(
+	isReasoningEffort(sessionReasoningEffort) ? sessionReasoningEffort : undefined
 )
 
 export const copilotInfo = writable<{

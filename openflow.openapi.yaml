@@ -448,6 +448,7 @@ components:
       description: Supported AI provider types
       enum:
         - openai
+        - openai_chatgpt_account
         - azure_openai
         - anthropic
         - mistral

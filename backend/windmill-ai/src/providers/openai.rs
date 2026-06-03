@@ -8,9 +8,11 @@ use crate::{
     types::*,
     utils::extract_text_content,
 };
+use super::codex::{add_codex_responses_defaults, CodexRequestContext};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
+use std::sync::Mutex;
 use windmill_common::{client::AuthedClient, error::Error};
 
 // Responses API structures
@@ -220,6 +222,7 @@ pub enum ToolChoice {
 pub struct OpenAIQueryBuilder {
     #[allow(dead_code)]
     provider_kind: AIProvider,
+    codex_request_context: Mutex<Option<CodexRequestContext>>,
 }
 
 /// Convert OpenAIContent to ImageGenerationContent array
@@ -347,7 +350,26 @@ fn convert_messages_to_responses_input(messages: &[OpenAIMessage]) -> Vec<Respon
 
 impl OpenAIQueryBuilder {
     pub fn new(provider_kind: AIProvider) -> Self {
-        Self { provider_kind }
+        Self {
+            provider_kind,
+            codex_request_context: Mutex::new(None),
+        }
+    }
+
+    fn next_codex_request_context(&self) -> CodexRequestContext {
+        let context = CodexRequestContext::new();
+        if let Ok(mut stored_context) = self.codex_request_context.lock() {
+            *stored_context = Some(context.clone());
+        }
+        context
+    }
+
+    fn take_codex_request_context(&self) -> CodexRequestContext {
+        self.codex_request_context
+            .lock()
+            .ok()
+            .and_then(|mut context| context.take())
+            .unwrap_or_else(CodexRequestContext::new)
     }
 
     async fn build_text_request(
@@ -517,10 +539,17 @@ impl QueryBuilder for OpenAIQueryBuilder {
         client: &AuthedClient,
         workspace_id: &str,
     ) -> Result<String, Error> {
-        match args.output_type {
+        let request = match args.output_type {
             OutputType::Text => self.build_text_request(args, client, workspace_id).await,
             OutputType::Image => self.build_image_request(args, client, workspace_id).await,
+        }?;
+
+        if self.provider_kind == AIProvider::OpenAIChatGPTAccount {
+            let context = self.next_codex_request_context();
+            return add_codex_request_defaults(&request, &context);
         }
+
+        Ok(request)
     }
 
     async fn parse_image_response(
@@ -555,6 +584,10 @@ impl QueryBuilder for OpenAIQueryBuilder {
     }
 
     fn get_endpoint(&self, base_url: &str, _model: &str, _output_type: &OutputType) -> String {
+        if self.provider_kind == AIProvider::OpenAIChatGPTAccount {
+            return format!("{}/codex/responses", base_url.trim_end_matches('/'));
+        }
+
         format!("{}/responses", base_url)
     }
 
@@ -564,6 +597,25 @@ impl QueryBuilder for OpenAIQueryBuilder {
         _base_url: &str,
         _output_type: &OutputType,
     ) -> Vec<(&'static str, String)> {
-        vec![("Authorization", format!("Bearer {}", api_key))]
+        let mut headers = vec![("Authorization", format!("Bearer {}", api_key))];
+
+        if self.provider_kind == AIProvider::OpenAIChatGPTAccount {
+            headers.extend(self.take_codex_request_context().headers());
+            headers.push(("accept", "text/event-stream".to_string()));
+        }
+
+        headers
     }
+}
+
+fn add_codex_request_defaults(
+    request: &str,
+    context: &CodexRequestContext,
+) -> Result<String, Error> {
+    let value: serde_json::Value = serde_json::from_str(request)
+        .map_err(|e| Error::internal_err(format!("Failed to parse OpenAI request: {}", e)))?;
+    let value = add_codex_responses_defaults(value, context, None)?;
+
+    serde_json::to_string(&value)
+        .map_err(|e| Error::internal_err(format!("Failed to serialize Codex request: {}", e)))
 }
