@@ -125,7 +125,7 @@ export interface SessionRuntime {
 	readonly draftCount: { val: number | undefined }
 	ensureDraftCount(workspace: string): Promise<void>
 	invalidateDraftCount(): void
-	refreshDraftCount(): Promise<void>
+	refreshDraftCount(workspace?: string): Promise<void>
 	// Push a known count (e.g. from the embedded CompareDrafts drawer after a
 	// deploy/discard) so the bar updates without a round-trip.
 	setDraftCount(n: number): void
@@ -240,9 +240,13 @@ function createRuntime(session: Session): SessionRuntime {
 	let loadingDraftCount = $state(false)
 	let draftCountKey: string | undefined = undefined
 
-	async function refreshDraftCountNow() {
-		const ws = draftCountKey
+	async function refreshDraftCountNow(workspace?: string) {
+		const ws = workspace ?? draftCountKey
 		if (!ws || loadingDraftCount) return
+		// Claim the key so ensureDraftCount() dedupes against this fetch, and force
+		// a fresh count (bypassing ensure's once-per-workspace dedupe). On failure
+		// keep the previous value rather than clearing it.
+		draftCountKey = ws
 		loadingDraftCount = true
 		try {
 			draftCount.val = (await DraftService.countDrafts({ workspace: ws })).count
@@ -604,6 +608,16 @@ function createRuntime(session: Session): SessionRuntime {
 			} catch (e) {
 				console.error('SessionRuntime: draftCount fetch failed', e)
 				draftCount.val = undefined
+				// Keep the key set so the reactive $effect caller can't tight-loop on
+				// a persistent failure, but release it after a backoff so a *transient*
+				// failure (e.g. a DB pool timeout) retries on the next ensure() instead
+				// of leaving the draft bar stuck hidden. Bounded to one retry / 5s.
+				const failedWorkspace = workspace
+				setTimeout(() => {
+					if (draftCountKey === failedWorkspace && draftCount.val === undefined) {
+						draftCountKey = undefined
+					}
+				}, 5000)
 			} finally {
 				loadingDraftCount = false
 			}
@@ -612,8 +626,8 @@ function createRuntime(session: Session): SessionRuntime {
 			draftCountKey = undefined
 			draftCount.val = undefined
 		},
-		refreshDraftCount() {
-			return refreshDraftCountNow()
+		refreshDraftCount(workspace?: string) {
+			return refreshDraftCountNow(workspace)
 		},
 		setDraftCount(n: number) {
 			draftCount.val = n

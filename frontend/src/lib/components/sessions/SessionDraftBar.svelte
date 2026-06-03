@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte'
 	import { Pencil } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { userWorkspaces } from '$lib/stores'
@@ -23,9 +24,22 @@
 	const runtime = $derived(getRuntime(session.id))
 	const count = $derived(runtime?.draftCount.val ?? 0)
 
+	// Initial fetch (deduped) once committedId/workspace are known. Must NOT call
+	// refreshDraftCount here: it reads loadingDraftCount ($state), which this
+	// reactive effect would then track and refreshDraftCount mutates → infinite
+	// loop. ensureDraftCount's early-return reads only the plain (non-reactive)
+	// key, so it's safe in an effect.
 	$effect(() => {
 		if (!runtime || !committedId || !available) return
 		void runtime.ensureDraftCount(committedId)
+	})
+
+	// The runtime persists across client-side navigation, so ensureDraftCount()
+	// dedupes and would keep a stale count (e.g. a 0 cached before a draft was
+	// created) when the session is re-opened. Force one fresh fetch on each mount
+	// — onMount is non-reactive, so it can't loop the way the effect above would.
+	onMount(() => {
+		if (runtime && committedId) void runtime.refreshDraftCount(committedId)
 	})
 
 	// Refresh when the AI finishes a turn — a deploy promotes a draft (the
