@@ -50,7 +50,7 @@
 	}
 
 	// Mark this editor as the "live editor" for the session's workspace so
-	// the chat's `isLiveDraft` hint and `discard_local_draft` tool resolve to
+	// the chat's `isLiveDraft` hint and `discard_draft` tool resolve to
 	// this path. Same registration the regular /flows/edit page does on
 	// mount, scoped to the session's (forked) workspace.
 	// Gated on `isActiveSession`: warm-but-hidden session editors must not

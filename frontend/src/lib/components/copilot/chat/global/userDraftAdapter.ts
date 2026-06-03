@@ -129,6 +129,19 @@ export function triggerKindToUserDraftKind(kind: TriggerKind): UserDraftItemKind
 	return TRIGGER_DRAFT_KIND_BY_TRIGGER_KIND[kind]
 }
 
+/**
+ * Maps a workspace item type to the localStorage `UserDraftItemKind` slot it is
+ * stored under. Exposed so the draft orchestrator (`draftStore.ts`) can drive
+ * `UserDraft.get`/`UserDraft.save` with the same kind mapping the adapter uses
+ * internally (script -> 'script', flow -> 'flow', app -> 'raw_app').
+ */
+export function userDraftKindFor(
+	type: WorkspaceItemType,
+	triggerKind?: TriggerKind
+): UserDraftItemKind | undefined {
+	return itemKindFor(type, triggerKind)
+}
+
 function scriptDraftToWorkspaceItem(path: string, draft: NewScript): WorkspaceItem {
 	return {
 		type: 'script',
@@ -346,6 +359,45 @@ export function listGlobalDrafts(workspace: string): WorkspaceItem[] {
 	return Array.from(drafts.values())
 }
 
+/**
+ * Mirror a `script` draft into localStorage so an open live editor updates
+ * immediately. Resolves the live editor's storage path and writes the raw
+ * `NewScript` under the `script` kind, optionally stamping rev metadata so the
+ * editor's staleness banner stays correct.
+ */
+export function saveGlobalScriptDraft(
+	workspace: string,
+	path: string,
+	draft: NewScript,
+	meta?: UserDraftMeta
+): void {
+	const storagePath = resolveDraftStoragePath(workspace, 'script', path)
+	if (meta) {
+		UserDraft.setDraftAndMeta('script', storagePath, draft, meta, { workspace })
+	} else {
+		UserDraft.save('script', storagePath, draft, { workspace })
+	}
+}
+
+/**
+ * Mirror a `flow` draft into localStorage so an open live editor updates
+ * immediately. Resolves the live editor's storage path and writes the raw
+ * `Flow` under the `flow` kind, optionally stamping rev metadata.
+ */
+export function saveGlobalFlowDraft(
+	workspace: string,
+	path: string,
+	draft: Flow,
+	meta?: UserDraftMeta
+): void {
+	const storagePath = resolveDraftStoragePath(workspace, 'flow', path)
+	if (meta) {
+		UserDraft.setDraftAndMeta('flow', storagePath, draft, meta, { workspace })
+	} else {
+		UserDraft.save('flow', storagePath, draft, { workspace })
+	}
+}
+
 export function saveGlobalAppDraft(
 	workspace: string,
 	path: string,
@@ -362,32 +414,6 @@ export function saveGlobalAppDraft(
 	const stored = getGlobalDraft(workspace, 'app', path)
 	if (!stored) throw new Error(`Could not read written app draft "${path}".`)
 	return stored
-}
-
-export function syncLiveGlobalDraft(
-	workspace: string,
-	type: WorkspaceItemType,
-	path: string,
-	value: unknown,
-	meta?: UserDraftMeta,
-	triggerKind?: TriggerKind
-): WorkspaceItem | undefined {
-	const itemKind = itemKindFor(type, triggerKind)
-	if (!itemKind) return undefined
-	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
-	const liveDraft = UserDraft.getLiveEditorDraft(itemKind, { workspace })
-	if (liveDraft?.storagePath !== storagePath) {
-		UserDraft.remove(itemKind, storagePath, { workspace })
-		return undefined
-	}
-
-	const normalized = type === 'app' ? normalizeAppDraftValue(value as AppDraftValue) : value
-	if (meta) {
-		UserDraft.setDraftAndMeta(itemKind, storagePath, normalized, meta, { workspace })
-	} else {
-		UserDraft.save(itemKind, storagePath, normalized, { workspace })
-	}
-	return getGlobalDraft(workspace, type, path, triggerKind)
 }
 
 type DeleteGlobalDraftOptions = {

@@ -1,7 +1,17 @@
 import type { RawAppData } from '$lib/components/raw_apps/dataTableRefUtils'
-import type { RawAppDraft } from '$lib/components/raw_apps/rawAppDraftCodec'
 
-export type { RawAppDraft } from '$lib/components/raw_apps/rawAppDraftCodec'
+// The raw-app draft shape stored under `UserDraft<RawAppDraft>` — matches the
+// regular `/apps_raw/edit` route's UserDraft handle exactly. The chat's
+// `userDraftAdapter.saveGlobalAppDraft` writes through the same shape, so
+// session previews and the chat round-trip identically.
+export type RawAppDraft = {
+	files: Record<string, string>
+	runnables: Record<string, any>
+	data: RawAppData
+	summary: string
+	policy?: any
+	custom_path?: string
+}
 
 // The shape `runtime.rawApp.val` actually holds (see SessionRuntime in
 // sessionRuntime.svelte.ts). Adds `path` (a key, not a draft field) and

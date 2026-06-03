@@ -80,7 +80,7 @@
 	}
 
 	// Mark this editor as the live editor draft for the session's workspace
-	// so the chat's `isLiveDraft` hint / `discard_local_draft` tool resolve
+	// so the chat's `isLiveDraft` hint / `discard_draft` tool resolve
 	// to this path — same registration the regular /scripts/edit page does.
 	// Gated on `isActiveSession`: warm-but-hidden session editors must not
 	// claim the workspace's single live-editor slot, else chat actions on the

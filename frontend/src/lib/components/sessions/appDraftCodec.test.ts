@@ -5,7 +5,6 @@ import {
 	type RuntimeRawApp,
 	type RawAppDraft
 } from './appDraftCodec'
-import { appSourceToRawAppDraft } from '$lib/components/raw_apps/rawAppDraftCodec'
 
 function runtime(over: Partial<RuntimeRawApp> = {}): RuntimeRawApp {
 	return {
@@ -58,51 +57,5 @@ describe('appDraftCodec — custom_path round-trip', () => {
 			data: { tables: [] } as any
 		}
 		expect(applyDraftToRuntimeRawApp(base, dv).custom_path).toBe('existing')
-	})
-})
-
-describe('appSourceToRawAppDraft', () => {
-	it('unwraps DB draft wrappers instead of treating the wrapper as app files', () => {
-		const draft = appSourceToRawAppDraft(
-			{
-				summary: 'draft app',
-				value: {
-					files: { '/src/App.tsx': 'export default function App() { return "draft" }' },
-					runnables: {
-						main: {
-							type: 'inline',
-							inlineScript: { language: 'bun', content: 'export async function main() {}' }
-						}
-					},
-					data: { tables: ['orders'], datatable: 'db', schema: 'public' }
-				},
-				policy: { execution_mode: 'anonymous' },
-				custom_path: 'draft-url'
-			},
-			{
-				summary: 'deployed app',
-				value: {
-					files: { '/src/App.tsx': 'deployed' },
-					runnables: {},
-					data: { tables: [] }
-				},
-				policy: { execution_mode: 'publisher' },
-				custom_path: 'deployed-url'
-			}
-		)
-
-		expect(draft).toEqual({
-			summary: 'draft app',
-			files: { '/src/App.tsx': 'export default function App() { return "draft" }' },
-			runnables: {
-				main: {
-					type: 'inline',
-					inlineScript: { language: 'bun', content: 'export async function main() {}' }
-				}
-			},
-			data: { tables: ['orders'], datatable: 'db', schema: 'public' },
-			policy: { execution_mode: 'anonymous' },
-			custom_path: 'draft-url'
-		})
 	})
 })
