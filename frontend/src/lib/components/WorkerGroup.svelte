@@ -100,6 +100,7 @@
 		min_alive_workers_alert_threshold?: number
 		autoscaling?: AutoscalingConfig
 		native_mode?: boolean
+		container_runtime?: string
 	} = $state({})
 
 	function loadNConfig() {
@@ -205,6 +206,7 @@
 					periodic_script_bash?: string
 					periodic_script_interval_seconds?: number
 					native_mode?: boolean
+					container_runtime?: string
 			  }
 		activeWorkers: number
 		customTags: string[] | undefined
@@ -636,6 +638,40 @@
 									Add flow tag
 								</Button>
 							</div>
+						</Alert>
+					{/if}
+				</Label>
+			{/if}
+
+			{#if nconfig !== undefined}
+				<div class="mt-8"></div>
+				<Label label="Container runtime">
+					{#snippet header()}
+						<Tooltip>
+							{#snippet text()}
+								When set, docker-mode jobs (bash scripts with the "# docker" annotation)
+								run against a rootless podman daemon started by the worker, instead of a
+								privileged docker-in-docker sidecar or the host Docker socket. Requires a
+								worker image that ships podman (the *-full images). Run the worker group as
+								a non-root user for an unprivileged (rootless) runtime.
+							{/snippet}
+						</Tooltip>
+					{/snippet}
+					<Toggle
+						size="sm"
+						options={{ right: 'Enable container runtime (rootless podman)' }}
+						checked={nconfig?.container_runtime === 'podman'}
+						on:change={(ev) => {
+							if (nconfig !== undefined) {
+								nconfig.container_runtime = ev.detail ? 'podman' : undefined
+							}
+						}}
+						disabled={!canEditConfig}
+					/>
+					{#if nconfig?.container_runtime === 'podman' && (nconfig?.worker_tags == undefined || nconfig.worker_tags.length === 0)}
+						<Alert size="xs" type="warning" title="No tags on this worker group">
+							The container runtime is enabled but this worker group has no tags, so no
+							docker job can be routed to it. Add the tag(s) your docker scripts use.
 						</Alert>
 					{/if}
 				</Label>
