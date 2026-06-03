@@ -92,8 +92,8 @@ async fn test_compare_workspaces_comprehensive(db: Pool<Postgres>) -> anyhow::Re
 
     // Create app
     sqlx::query!(
-        "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms, draft_only)
-         VALUES ('test-workspace', 'f/shared/dashboard', 'Dashboard app', '{}', ARRAY[1::bigint], '{}', false)"
+        "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms)
+         VALUES ('test-workspace', 'f/shared/dashboard', 'Dashboard app', '{}', ARRAY[1::bigint], '{}')"
     )
     .execute(&db)
     .await?;

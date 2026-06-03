@@ -24,7 +24,6 @@ mod relock_skip {
             cache_ttl: None,
             dedicated_worker: None,
             description: "".to_string(),
-            draft_only: None,
             envs: vec![],
             is_template: None,
             kind: None,

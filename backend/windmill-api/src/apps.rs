@@ -154,8 +154,6 @@ pub struct ListableApp {
     pub starred: bool,
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     pub has_draft: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_only: Option<bool>,
     #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deployment_msg: Option<String>,
@@ -215,8 +213,6 @@ pub struct AppWithLastVersionAndDraft {
     pub app: AppWithLastVersion,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft: Option<sqlx::types::Json<Box<RawValue>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_only: Option<bool>,
     /// Timestamp at which the most recent DB draft was created.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_created_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -300,7 +296,6 @@ pub struct CreateApp {
     pub summary: String,
     pub value: sqlx::types::Json<Box<RawValue>>,
     pub policy: Policy,
-    pub draft_only: Option<bool>,
     pub deployment_message: Option<String>,
     pub custom_path: Option<String>,
     pub preserve_on_behalf_of: Option<bool>,
@@ -382,7 +377,6 @@ async fn list_apps(
             "app.extra_perms",
             "favorite.path IS NOT NULL as starred",
             "draft.path IS NOT NULL as has_draft",
-            "draft_only",
             "app_version.raw_app",
             "app.labels",
         ])
@@ -420,10 +414,6 @@ async fn list_apps(
 
     if let Some(path_exact) = &lq.path_exact {
         sqlb.and_where_eq("app.path", "?".bind(path_exact));
-    }
-
-    if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
-        sqlb.and_where("app.draft_only IS NOT TRUE");
     }
 
     if let Some(label) = &lq.label {
@@ -667,7 +657,6 @@ async fn get_app_w_draft(
             app_version.value,
             app_version.created_at,
             app_version.created_by,
-            app.draft_only,
             draft.value AS "draft",
             draft.created_at AS "draft_created_at",
             app_version.raw_app,
@@ -1365,13 +1354,12 @@ async fn create_app_internal<'a>(
     }
     let id = sqlx::query_scalar!(
         "INSERT INTO app
-            (workspace_id, path, summary, policy, versions, draft_only, custom_path, labels)
-            VALUES ($1, $2, $3, $4, '{}', $5, $6, $7) RETURNING id",
+            (workspace_id, path, summary, policy, versions, custom_path, labels)
+            VALUES ($1, $2, $3, $4, '{}', $5, $6) RETURNING id",
         w_id,
         app.path,
         app.summary,
         json!(app.policy),
-        app.draft_only,
         app.custom_path
             .as_ref()
             .map(|s| if s.is_empty() { None } else { Some(s) })
@@ -1806,7 +1794,6 @@ async fn update_app_internal<'a>(
         sqlb.and_where_eq("path", "?".bind(&path));
         sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
 
-        sqlb.set("draft_only", "NULL");
         if let Some(npath) = &ns.path {
             if npath != path {
                 require_owner_of_path(&authed, path)?;

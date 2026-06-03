@@ -149,7 +149,6 @@ async fn list_flows(
             "extra_perms",
             "favorite.path IS NOT NULL as starred",
             "draft.path IS NOT NULL as has_draft",
-            "draft_only",
             "ws_error_handler_muted",
             "o.labels"
         ])
@@ -192,9 +191,6 @@ async fn list_flows(
         sqlb.and_where_is_not_null("favorite.path");
     }
 
-    if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
-        sqlb.and_where("o.draft_only IS NOT TRUE");
-    }
     if let Some(dw) = &lq.dedicated_worker {
         sqlb.and_where_eq("dedicated_worker", dw);
     }
@@ -506,22 +502,21 @@ async fn create_flow(
     sqlx::query!(
         r#"INSERT INTO flow (
         workspace_id, path, summary, description,
-        dependency_job, lock_error_logs, draft_only, tag,
+        dependency_job, lock_error_logs, tag,
         dedicated_worker, visible_to_runner_only, on_behalf_of_email,
         ws_error_handler_muted,
         value, schema, edited_by, edited_at, labels
     ) VALUES (
         $1, $2, $3, $4,
-        NULL, '', $5, $6,
-        $7, $8, $9,
-        $10,
-        $11, $12::text::json, $13, now(), $14
+        NULL, '', $5,
+        $6, $7, $8,
+        $9,
+        $10, $11::text::json, $12, now(), $13
     )"#,
         w_id,
         nf.path,
         nf.summary,
         nf.description.as_deref().unwrap_or(""),
-        nf.draft_only,
         nf.tag,
         nf.dedicated_worker,
         nf.visible_to_runner_only.unwrap_or(false),
@@ -789,7 +784,7 @@ async fn get_flow_version(
     let mut tx = user_db.begin(&authed).await?;
 
     let flow = sqlx::query_as::<_, Flow>(
-        "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+        "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
         FROM flow
         LEFT JOIN flow_version ON flow_version.path = flow.path AND flow_version.workspace_id = flow.workspace_id
         WHERE flow.path = $1 AND flow.workspace_id = $2 AND flow_version.id = $3",
@@ -840,7 +835,6 @@ async fn get_flow_version_by_id(
             flow.description,
             flow.archived,
             flow.extra_perms,
-            flow.draft_only,
             flow.dedicated_worker,
             flow.tag,
             flow.ws_error_handler_muted,
@@ -977,7 +971,6 @@ async fn update_flow(
             description = $3,
             dependency_job = NULL,
             lock_error_logs = '',
-            draft_only = NULL,
             tag = $4,
             dedicated_worker = $5,
             visible_to_runner_only = $6,
@@ -1019,8 +1012,8 @@ async fn update_flow(
         // if new path, must clone flow to new path and delete old flow for flow_version foreign key constraint
         sqlx::query!(
             "INSERT INTO flow
-                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels)
-            SELECT workspace_id, $1, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels
+                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels)
+            SELECT workspace_id, $1, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels
                 FROM flow
                 WHERE path = $2 AND workspace_id = $3",
             nf.path,
@@ -1407,9 +1400,8 @@ async fn get_flow_by_path(
             flow.summary, 
             flow.description, 
             flow.archived, 
-            flow.extra_perms, 
-            flow.draft_only, 
-            flow.dedicated_worker, 
+            flow.extra_perms,
+            flow.dedicated_worker,
             flow.tag, 
             flow.ws_error_handler_muted, 
             flow.timeout, 
@@ -1448,9 +1440,8 @@ async fn get_flow_by_path(
             flow.summary, 
             flow.description, 
             flow.archived, 
-            flow.extra_perms, 
-            flow.draft_only, 
-            flow.dedicated_worker, 
+            flow.extra_perms,
+            flow.dedicated_worker,
             flow.tag, 
             flow.ws_error_handler_muted, 
             flow.timeout, 
@@ -1495,8 +1486,6 @@ pub struct FlowWDraft {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_created_at: Option<chrono::DateTime<chrono::Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_error_handler_muted: Option<bool>,
@@ -1526,7 +1515,6 @@ async fn get_flow_by_path_w_draft(
             flow_version.schema,
             flow_version.value,
             flow.extra_perms,
-            flow.draft_only,
             flow.ws_error_handler_muted,
             flow.dedicated_worker,
             draft.value AS draft,

@@ -4340,7 +4340,7 @@ async fn clone_scripts(
         r#"INSERT INTO script (
             workspace_id, hash, path, parent_hashes, summary, description, content,
             created_by, created_at, archived, schema, deleted, is_template,
-            extra_perms, lock, lock_error_logs, language, kind, tag, draft_only,
+            extra_perms, lock, lock_error_logs, language, kind, tag,
             envs, concurrent_limit, concurrency_time_window_s, cache_ttl,
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,
@@ -4350,7 +4350,7 @@ async fn clone_scripts(
         SELECT
             $1, hash, path, parent_hashes, summary, description, content,
             created_by, created_at, archived, schema, deleted, is_template,
-            extra_perms, lock, lock_error_logs, language, kind, tag, draft_only,
+            extra_perms, lock, lock_error_logs, language, kind, tag,
             envs, concurrent_limit, concurrency_time_window_s, cache_ttl,
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,
@@ -4393,12 +4393,12 @@ async fn clone_flows(
     sqlx::query!(
         "INSERT INTO flow (
             workspace_id, path, summary, description, value, edited_by, edited_at,
-            archived, schema, extra_perms, dependency_job, draft_only, tag,
+            archived, schema, extra_perms, dependency_job, tag,
             ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
             concurrency_key, versions, on_behalf_of_email, lock_error_logs
         )
         SELECT $2, path, summary, description, value, edited_by, edited_at,
-               archived, schema, extra_perms, NULL, draft_only, tag,
+               archived, schema, extra_perms, NULL, tag,
                ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
                concurrency_key, ARRAY[]::bigint[], on_behalf_of_email, lock_error_logs
         FROM flow
@@ -4479,7 +4479,7 @@ async fn clone_apps(
 ) -> Result<HashMap<i64, i64>> {
     // Get all apps from source workspace
     let apps = sqlx::query!(
-        "SELECT id, workspace_id, path, summary, policy, versions, extra_perms, draft_only, custom_path
+        "SELECT id, workspace_id, path, summary, policy, versions, extra_perms, custom_path
          FROM app
          WHERE workspace_id = $1",
         source_workspace_id
@@ -4492,8 +4492,8 @@ async fn clone_apps(
     // Clone apps with new IDs
     for app in apps {
         let new_app_id = sqlx::query_scalar!(
-            "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms, draft_only, custom_path)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms, custom_path)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
              RETURNING id",
             target_workspace_id,
             app.path,
@@ -4501,7 +4501,6 @@ async fn clone_apps(
             app.policy,
             &Vec::<i64>::new(), // Start with empty versions array
             app.extra_perms,
-            app.draft_only,
             app.custom_path,
         )
         .fetch_one(&mut **tx)
@@ -6842,7 +6841,7 @@ async fn compare_two_apps(
          FROM app
          JOIN app_version
          ON app_version.id = app.versions[array_upper(app.versions, 1)]
-         WHERE app.workspace_id = $1 AND app.path = $2 AND COALESCE(app.draft_only, false) = false",
+         WHERE app.workspace_id = $1 AND app.path = $2",
         source_workspace_id,
         path
     )
@@ -6854,7 +6853,7 @@ async fn compare_two_apps(
          FROM app
          JOIN app_version
          ON app_version.id = app.versions[array_upper(app.versions, 1)]
-         WHERE app.workspace_id = $1 AND app.path = $2 AND COALESCE(app.draft_only, false) = false",
+         WHERE app.workspace_id = $1 AND app.path = $2",
         fork_workspace_id,
         path
     )
@@ -7300,7 +7299,7 @@ async fn get_cloud_quotas(
     let scripts_prunable = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM script s WHERE s.workspace_id = $1 AND s.hash NOT IN (
             SELECT DISTINCT ON (path) hash FROM script
-            WHERE workspace_id = $1 AND deleted = false AND draft_only IS NOT TRUE
+            WHERE workspace_id = $1 AND deleted = false
             ORDER BY path, created_at DESC
         )",
         &w_id
@@ -7395,7 +7394,7 @@ async fn prune_versions(
                 "DELETE FROM script
                 WHERE workspace_id = $1 AND hash NOT IN (
                     SELECT DISTINCT ON (path) hash FROM script
-                    WHERE workspace_id = $1 AND deleted = false AND draft_only IS NOT TRUE
+                    WHERE workspace_id = $1 AND deleted = false
                     ORDER BY path, created_at DESC
                 )",
             )

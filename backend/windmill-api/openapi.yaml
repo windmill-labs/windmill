@@ -7708,13 +7708,6 @@ paths:
           in: query
           schema:
             type: boolean
-        - name: include_draft_only
-          description: |
-            (default false)
-            include scripts that have no deployed version
-          in: query
-          schema:
-            type: boolean
         - name: is_template
           description: |
             (default regardless)
@@ -9427,13 +9420,6 @@ paths:
           in: query
           schema:
             type: boolean
-        - name: include_draft_only
-          description: |
-            (default false)
-            include items that have no deployed version
-          in: query
-          schema:
-            type: boolean
         - name: with_deployment_msg
           description: |
             (default false)
@@ -9475,8 +9461,6 @@ paths:
                     - type: object
                       properties:
                         has_draft:
-                          type: boolean
-                        draft_only:
                           type: boolean
 
   /w/{workspace}/flows/history/p/{path}:
@@ -9774,8 +9758,6 @@ paths:
                 - $ref: "#/components/schemas/OpenFlowWPath"
                 - type: object
                   properties:
-                    draft_only:
-                      type: boolean
                     deployment_message:
                       type: string
                     skip_draft_deletion:
@@ -10247,13 +10229,6 @@ paths:
           in: query
           schema:
             type: boolean
-        - name: include_draft_only
-          description: |
-            (default false)
-            include items that have no deployed version
-          in: query
-          schema:
-            type: boolean
         - name: with_deployment_msg
           description: |
             (default false)
@@ -10310,8 +10285,6 @@ paths:
                   type: string
                 policy:
                   $ref: "#/components/schemas/Policy"
-                draft_only:
-                  type: boolean
                 deployment_message:
                   type: string
                 custom_path:
@@ -10365,8 +10338,6 @@ paths:
                       type: string
                     policy:
                       $ref: "#/components/schemas/Policy"
-                    draft_only:
-                      type: boolean
                     deployment_message:
                       type: string
                     custom_path:
@@ -21739,8 +21710,6 @@ components:
           type: string
         has_draft:
           type: boolean
-        draft_only:
-          type: boolean
         envs:
           type: array
           items:
@@ -21844,8 +21813,6 @@ components:
           enum: [script, failure, trigger, command, approval, preprocessor]
         tag:
           type: string
-        draft_only:
-          type: boolean
         envs:
           type: array
           items:
@@ -26720,8 +26687,6 @@ components:
           $ref: "#/components/schemas/ExtraPerms"
         starred:
           type: boolean
-        draft_only:
-          type: boolean
         tag:
           type: string
         ws_error_handler_muted:
@@ -27034,8 +26999,6 @@ components:
         - $ref: "#/components/schemas/AppWithLastVersion"
         - type: object
           properties:
-            draft_only:
-              type: boolean
             draft: {}
             draft_created_at:
               type: string

@@ -323,7 +323,7 @@ pub fn id_to_codebase_info(id: &str) -> CodebaseInfo {
 pub const SCRIPT_COLUMNS: &str = concat!(
     "workspace_id, hash, path, parent_hashes, summary, description, content, ",
     "created_by, created_at, archived, schema, deleted, is_template, extra_perms, ",
-    "lock, lock_error_logs, language, kind, tag, draft_only, envs, ",
+    "lock, lock_error_logs, language, kind, tag, envs, ",
     "dedicated_worker, ws_error_handler_muted, priority, cache_ttl, cache_ignore_s3_path, ",
     "timeout, delete_after_use, delete_after_secs, restart_unless_cancelled, ",
     "visible_to_runner_only, auto_kind, codebase, has_preprocessor, on_behalf_of_email, ",
@@ -354,8 +354,6 @@ pub struct Script<SR> {
     pub language: ScriptLang,
     pub kind: ScriptKind,
     pub tag: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub envs: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -447,8 +445,6 @@ pub struct ListableScript {
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_draft: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_only: Option<bool>,
     pub has_deploy_errors: bool,
     pub ws_error_handler_muted: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -508,7 +504,6 @@ pub struct NewScript {
     pub language: ScriptLang,
     pub kind: Option<ScriptKind>,
     pub tag: Option<String>,
-    pub draft_only: Option<bool>,
     pub envs: Option<Vec<String>>,
     #[serde(flatten)]
     pub concurrency_settings: ConcurrencySettings,
@@ -566,7 +561,6 @@ impl Hash for NewScript {
         self.language.hash(state);
         self.kind.hash(state);
         self.tag.hash(state);
-        self.draft_only.hash(state);
         self.envs.hash(state);
         self.concurrency_settings.hash(state);
         self.debouncing_settings.hash(state);
@@ -667,7 +661,6 @@ pub struct ListScriptQuery {
     pub kinds: Option<String>,
     pub starred_only: Option<bool>,
     pub include_without_main: Option<bool>,
-    pub include_draft_only: Option<bool>,
     pub with_deployment_msg: Option<bool>,
     #[serde(default, deserialize_with = "from_seq")]
     pub languages: Option<Vec<ScriptLang>>,

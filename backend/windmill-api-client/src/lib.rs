@@ -368,8 +368,6 @@ pub mod types {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub deployment_message: Option<String>,
         pub description: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub draft_only: Option<bool>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub envs: Vec<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -743,8 +741,6 @@ pub mod types {
         pub open_flow_w_path: OpenFlowWPath,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub deployment_message: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub draft_only: Option<bool>,
     }
 
     /// Flow response type

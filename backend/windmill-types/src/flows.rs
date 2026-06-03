@@ -30,8 +30,6 @@ pub struct Flow {
     pub schema: Option<Schema>,
     pub extra_perms: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub dedicated_worker: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
@@ -81,8 +79,6 @@ pub struct ListableFlow {
     pub starred: bool,
     pub has_draft: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_error_handler_muted: Option<bool>,
     #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -99,7 +95,6 @@ pub struct NewFlow {
     #[serde(deserialize_with = "validate_flow_value")]
     pub value: Box<RawValue>,
     pub schema: Option<Schema>,
-    pub draft_only: Option<bool>,
     pub tag: Option<String>,
     pub dedicated_worker: Option<bool>,
     pub timeout: Option<i32>,
@@ -1124,7 +1119,6 @@ pub struct ListFlowQuery {
     pub order_by: Option<String>,
     pub order_desc: Option<bool>,
     pub starred_only: Option<bool>,
-    pub include_draft_only: Option<bool>,
     pub with_deployment_msg: Option<bool>,
     pub dedicated_worker: Option<bool>,
     pub label: Option<String>,
