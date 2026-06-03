@@ -19,7 +19,7 @@
 		localDraftDiffers,
 		type UserDraftMeta
 	} from '$lib/userDraft.svelte'
-	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
+	import { notifyDraftLoaded, notifyRestoredFromLocal } from '$lib/userDraftToast'
 	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
 	import OtherUsersDraftsModal from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 
@@ -199,7 +199,15 @@
 		})) as any
 		if (tok !== loadAppToken) return
 		if (backendApp.is_draft) {
-			sendUserToast('Loaded your saved draft')
+			notifyDraftLoaded({
+				workspace: $workspaceStore!,
+				itemKind: 'raw_app',
+				path: page.params.path ?? '',
+				onResetToDeployed: async () => {
+					draftHandle.setDraftAndMeta(undefined, {})
+					await loadApp()
+				}
+			})
 		}
 		// When the backend falls back to `fetch_draft_only` (no deployed
 		// row at this path, only a per-user draft), the response's inner

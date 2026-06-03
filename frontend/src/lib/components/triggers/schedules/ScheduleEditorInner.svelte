@@ -25,6 +25,7 @@
 	} from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
+	import { notifyDraftLoaded } from '$lib/userDraftToast'
 	import { base } from '$lib/base'
 	import Section from '$lib/components/Section.svelte'
 	import { List, Loader2, Save, AlertTriangle } from 'lucide-svelte'
@@ -292,7 +293,14 @@
 					getDraft: true
 				})
 				if (resp.is_draft) {
-					sendUserToast('Loaded your saved draft')
+					notifyDraftLoaded({
+						workspace: $workspaceStore!,
+						itemKind: 'trigger_schedule',
+						path: schedule_path,
+						onResetToDeployed: async () => {
+							await openNew(nis_flow, initial_script_path, defaultValues, schedule_path)
+						}
+					})
 				}
 				s = resp
 				initNewPath = true
@@ -466,7 +474,14 @@
 					getDraft: true
 				})
 				if (s.is_draft) {
-					sendUserToast('Loaded your saved draft')
+					notifyDraftLoaded({
+						workspace: $workspaceStore!,
+						itemKind: 'trigger_schedule',
+						path: initialPath,
+						onResetToDeployed: async () => {
+							await loadSchedule()
+						}
+					})
 				}
 				await loadScheduleCfg(s)
 			} catch (err) {

@@ -5,6 +5,7 @@
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
+	import { notifyDraftLoaded } from '$lib/userDraftToast'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
 	import ResourceForm from './ResourceForm.svelte'
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
@@ -254,7 +255,29 @@
 				getUserExt(ws)
 			]).then(([r, user]) => {
 				if (r.is_draft) {
-					sendUserToast('Loaded your saved draft')
+					notifyDraftLoaded({
+						workspace: ws,
+						itemKind: 'resource',
+						path: initialPath ?? '',
+						onResetToDeployed: async () => {
+							const fresh = await ResourceService.getResource({
+								workspace: ws,
+								path: initialPath ?? ''
+							})
+							const deployed: ResourceState = {
+								path: fresh.path,
+								description: fresh.description ?? '',
+								args: (fresh.value ?? {}) as any,
+								labels: fresh.labels ?? undefined,
+								wsSpecific: fresh.ws_specific ?? false
+							}
+							fetchedResources[ws] = fresh
+							fetchedRev[ws] = fresh.edited_at
+							initialStates[ws] = structuredClone(deployed)
+							const handle = states[ws]
+							if (handle) handle.setDraftAndMeta(undefined, { remoteRev: fresh.edited_at })
+						}
+					})
 				}
 				fetchedResources[ws] = r
 				fetchedRev[ws] = r.edited_at

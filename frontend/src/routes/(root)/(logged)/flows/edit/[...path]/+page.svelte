@@ -29,7 +29,7 @@
 		type UserDraftMeta,
 		type UserDraftHandle
 	} from '$lib/userDraft.svelte'
-	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
+	import { notifyDraftLoaded, notifyRestoredFromLocal } from '$lib/userDraftToast'
 
 	let version: undefined | number = $state(undefined)
 
@@ -218,7 +218,15 @@
 		})
 		if (tok !== loadFlowToken) return
 		if (backendFlow.is_draft) {
-			sendUserToast('Loaded your saved draft')
+			notifyDraftLoaded({
+				workspace: $workspaceStore!,
+				itemKind: 'flow',
+				path: page.params.path ?? '',
+				onResetToDeployed: async () => {
+					flowHandle.setDraftAndMeta(undefined, {})
+					await loadFlow()
+				}
+			})
 		}
 		savedFlow = structuredClone($state.snapshot(backendFlow)) as Flow
 

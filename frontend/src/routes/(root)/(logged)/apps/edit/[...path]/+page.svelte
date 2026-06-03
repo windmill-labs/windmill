@@ -15,7 +15,7 @@
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
 	import { UserDraft, checkStaleness, type UserDraftMeta } from '$lib/userDraft.svelte'
-	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
+	import { notifyDraftLoaded, notifyRestoredFromLocal } from '$lib/userDraftToast'
 
 	let app = $state(undefined as (AppWithLastVersion & { value: any }) | undefined)
 	let savedApp:
@@ -119,7 +119,16 @@
 		})
 		if (tok !== loadAppToken) return
 		if (backendApp.is_draft) {
-			sendUserToast('Loaded your saved draft')
+			notifyDraftLoaded({
+				workspace: $workspaceStore!,
+				itemKind: 'app',
+				path: page.params.path ?? '',
+				onResetToDeployed: async () => {
+					UserDraft.remove('app', path)
+					await loadApp()
+					redraw++
+				}
+			})
 		}
 		const backendApp_ = structuredClone(stateSnapshot(backendApp))
 		savedApp = {

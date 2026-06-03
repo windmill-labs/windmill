@@ -21,7 +21,7 @@
 		type UserDraftMeta,
 		type UserDraftHandle
 	} from '$lib/userDraft.svelte'
-	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
+	import { notifyDraftLoaded, notifyRestoredFromLocal } from '$lib/userDraftToast'
 
 	type EditableScript = NewScript & { draft_triggers?: Trigger[] }
 
@@ -183,7 +183,19 @@
 			})
 			if (tok !== loadScriptToken) return
 			if (backendScript.is_draft) {
-				sendUserToast('Loaded your saved draft')
+				notifyDraftLoaded({
+					workspace: $workspaceStore!,
+					itemKind: 'script',
+					path: page.params.path ?? '',
+					onResetToDeployed: async () => {
+						// Drop the in-memory draft so loadScript's no-localDraft
+						// branch fires; the next fetch with `getDraft: true` will
+						// return pure deployed because we just deleted the draft
+						// row server-side.
+						scriptHandle.setDraftAndMeta(undefined, {})
+						await loadScript()
+					}
+				})
 			}
 			savedScript = structuredClone($state.snapshot(backendScript))
 

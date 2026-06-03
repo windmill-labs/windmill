@@ -15,6 +15,7 @@
 	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { notifyDraftLoaded } from '$lib/userDraftToast'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -217,7 +218,14 @@
 				getDraft: true
 			})
 			if (s?.is_draft) {
-				sendUserToast('Loaded your saved draft')
+				notifyDraftLoaded({
+					workspace: $workspaceStore!,
+					itemKind: 'trigger_email',
+					path: initialPath,
+					onResetToDeployed: async () => {
+						await loadTrigger()
+					}
+				})
 			}
 
 			loadTriggerConfig(s)

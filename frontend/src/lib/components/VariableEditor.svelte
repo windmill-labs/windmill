@@ -7,6 +7,7 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { notifyDraftLoaded } from '$lib/userDraftToast'
 	import { canWrite } from '$lib/utils'
 	import { Save } from 'lucide-svelte'
 	import VariableForm from './VariableForm.svelte'
@@ -168,7 +169,32 @@
 				getUserExt(ws)
 			]).then(([v, user]) => {
 				if (v.is_draft) {
-					sendUserToast('Loaded your saved draft')
+					notifyDraftLoaded({
+						workspace: ws,
+						itemKind: 'variable',
+						path: p,
+						onResetToDeployed: async () => {
+							const fresh = await VariableService.getVariable({
+								workspace: ws,
+								path: p,
+								decryptSecret: false
+							})
+							const deployed: VariableState = {
+								path: fresh.path,
+								variable: {
+									value: fresh.value ?? '',
+									is_secret: fresh.is_secret,
+									description: fresh.description ?? ''
+								},
+								labels: fresh.labels ?? undefined,
+								wsSpecific: fresh.ws_specific ?? false
+							}
+							fetchedRev[ws] = fresh.edited_at
+							initialStates[ws] = structuredClone(deployed)
+							const handle = states[ws]
+							if (handle) handle.setDraftAndMeta(undefined, { remoteRev: fresh.edited_at })
+						}
+					})
 				}
 				fetchedRev[ws] = v.edited_at
 				const s: VariableState = {

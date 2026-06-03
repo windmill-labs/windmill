@@ -21,6 +21,7 @@
 	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptySchema, emptyString, sendUserToast } from '$lib/utils'
+	import { notifyDraftLoaded } from '$lib/userDraftToast'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, X, Plus } from 'lucide-svelte'
@@ -313,7 +314,14 @@
 				getDraft: true
 			})
 			if (s?.is_draft) {
-				sendUserToast('Loaded your saved draft')
+				notifyDraftLoaded({
+					workspace: $workspaceStore!,
+					itemKind: 'trigger_websocket',
+					path: initialPath,
+					onResetToDeployed: async () => {
+						await loadTrigger()
+					}
+				})
 			}
 			loadTriggerConfig(s)
 		}
