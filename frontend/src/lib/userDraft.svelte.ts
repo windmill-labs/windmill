@@ -193,6 +193,23 @@ export function localDraftDiffers<V>(
 	return !deepEqual(normalizeForCompare(localDraft), normalizeForCompare(currentConfig))
 }
 
+/**
+ * Get the entry for (workspace, itemKind, path), creating a detached
+ * (refcount 0) one if none exists. The `entries` map is the in-memory draft
+ * store, so static `save`/`get`/`remove` must work even when no `use*` handle
+ * is currently mounted. Detached entries that end up empty are swept by
+ * `releaseEntry` / `setCell`.
+ */
+function ensureEntry(workspace: string, itemKind: UserDraftItemKind, path: string): DraftEntry {
+	const mk = mapKey(workspace, itemKind, path)
+	let entry = entries.get(mk)
+	if (!entry) {
+		entry = { count: 0, workspace, itemKind, path, cell: new DraftCell() }
+		entries.set(mk, entry)
+	}
+	return entry
+}
+
 function setCell(
 	workspace: string,
 	itemKind: UserDraftItemKind,
@@ -201,9 +218,11 @@ function setCell(
 	sync: boolean
 ): void {
 	const mk = mapKey(workspace, itemKind, path)
-	const entry = entries.get(mk)
-	if (entry) {
-		entry.cell.value = value
+	const entry = ensureEntry(workspace, itemKind, path)
+	entry.cell.value = value
+	// Drop a detached, now-empty entry so the map doesn't grow unbounded.
+	if (value === undefined && entry.count <= 0) {
+		entries.delete(mk)
 	}
 	if (sync) {
 		UserDraftDbService.save({ path, itemKind, content: snapshotDraftValue(value), workspace })
@@ -428,22 +447,22 @@ function acquireEntry(
 	path: string,
 	defaultValue: unknown
 ): void {
-	const mk = mapKey(workspace, itemKind, path)
-	const existing = entries.get(mk)
-	if (existing) {
-		existing.count++
-		return
+	const entry = ensureEntry(workspace, itemKind, path)
+	entry.count++
+	// A pre-existing detached entry keeps its draft; only seed the default into
+	// an empty cell.
+	if (entry.cell.value === undefined && defaultValue !== undefined) {
+		entry.cell.value = defaultValue
 	}
-	const cell = new DraftCell()
-	cell.value = defaultValue
-	entries.set(mk, { count: 1, workspace, itemKind, path, cell })
 }
 
 function releaseEntry(mk: string): void {
 	const entry = entries.get(mk)
 	if (!entry) return
 	entry.count--
-	if (entry.count <= 0) {
+	// Keep entries that still hold a draft (so handle-less `get`/`list` and a
+	// later remount can read them); only sweep empty ones.
+	if (entry.count <= 0 && entry.cell.value === undefined) {
 		entries.delete(mk)
 	}
 }

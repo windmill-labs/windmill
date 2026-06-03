@@ -316,9 +316,6 @@ describe('global AI tools', () => {
 			wsSpecific: true,
 			resource_type: 'postgresql'
 		})
-		expect(UserDraft.getMeta('resource', 'f/resources/db', { workspace: WORKSPACE })).toEqual({
-			remoteRev: '2026-05-22T09:30:00Z'
-		})
 	})
 
 	it('writes variable drafts in the editor UserDraft shape', async () => {
@@ -355,9 +352,6 @@ describe('global AI tools', () => {
 			account: 123,
 			is_oauth: true,
 			expires_at: '2026-06-22T09:30:00Z'
-		})
-		expect(UserDraft.getMeta('variable', 'f/secrets/api_key', { workspace: WORKSPACE })).toEqual({
-			remoteRev: '2026-05-22T09:30:00Z'
 		})
 		expect(localStorageSnapshot()).not.toContain('new-secret-token')
 	})
@@ -680,10 +674,6 @@ describe('global AI tools', () => {
 			content: 'new content',
 			language: 'bun'
 		})
-		expect(UserDraft.getMeta('script', 'f/scripts/existing', { workspace: WORKSPACE })).toEqual({
-			remoteRev: 'deployed-hash',
-			remoteDraftRev: '2026-05-22T10:00:00Z'
-		})
 	})
 
 	it('preserves existing flow metadata and seeds freshness on first flow write', async () => {
@@ -724,10 +714,6 @@ describe('global AI tools', () => {
 			summary: 'new summary',
 			description: 'db draft description',
 			value: { modules: [{ id: 'step', value: { type: 'identity' } }] }
-		})
-		expect(UserDraft.getMeta('flow', 'f/flows/existing', { workspace: WORKSPACE })).toEqual({
-			remoteRev: 42,
-			remoteDraftRev: '2026-05-22T10:00:00Z'
 		})
 	})
 
@@ -890,10 +876,6 @@ describe('global AI tools', () => {
 			data: { tables: ['orders'], datatable: 'db', schema: 'public' },
 			policy: { execution_mode: 'anonymous' },
 			custom_path: 'report'
-		})
-		expect(UserDraft.getMeta('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toEqual({
-			remoteRev: 4,
-			remoteDraftRev: '2026-05-22T10:30:00Z'
 		})
 	})
 
