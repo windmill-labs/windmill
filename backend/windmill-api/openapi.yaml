@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.714.0
+  version: 1.714.1
   title: Windmill API
 
   contact:
@@ -9317,6 +9317,33 @@ paths:
           content:
             application/json:
               schema: {}
+
+  /w/{workspace}/jobs/job_view_token/{id}:
+    get:
+      summary: mint a read-only share token for a job
+      description: >
+        Returns a stateless `{job_id}.{hmac}` token that grants an authenticated
+        workspace member read access to this job (and its flow subtree) via a
+        `view_token` query param or `X-View-Token` header. Only callable by a user
+        who can already read the job.
+      operationId: getJobViewToken
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: the share read token
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/flows/list_paths:
     get:

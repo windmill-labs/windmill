@@ -8,7 +8,11 @@ time_limit: 900
 rlimit_as: 2048
 rlimit_cpu: 1000
 rlimit_fsize: 1024
-rlimit_nofile: 64
+# uv's --compile-bytecode spawns a Python interpreter that compiles .py files
+# with parallelism scaling to the host's CPU count, opening many fds at once.
+# A low cap (was 64) is exhausted on high-core machines -> "Too many open files".
+# Matches the runtime configs (run.python3/run.ansible) which already use 10000.
+rlimit_nofile: 10000
 
 envar: "HOME=/user"
 envar: "LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH"
