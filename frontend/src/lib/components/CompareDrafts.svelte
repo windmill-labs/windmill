@@ -31,6 +31,10 @@
 		draftCount?: number
 		/** Selecting deploy_to/update asks the page to swap to CompareWorkspaces. */
 		onModeSelected?: (v: CompareMode) => void
+		/** Fired after a deploy/discard mutates the workspace, so the page can
+		 * refresh the fork comparison (the deploy/update counts and that tab's
+		 * content derive from it). */
+		onChanged?: () => void
 	}
 
 	let {
@@ -41,7 +45,8 @@
 		deployCount = 0,
 		updateCount = 0,
 		draftCount = 0,
-		onModeSelected
+		onModeSelected,
+		onChanged
 	}: Props = $props()
 
 	type DraftItem = {
@@ -169,6 +174,7 @@
 	// --- Deploy ---
 	async function deploySelected() {
 		deploying = true
+		let deployedAny = false
 		for (const key of [...selectedItems]) {
 			const item = items.find((i) => i.key === key)
 			if (!item) continue
@@ -182,6 +188,7 @@
 			)
 			if (res.success) {
 				deploymentStatus[key] = { status: 'deployed' }
+				deployedAny = true
 			} else {
 				deploymentStatus[key] = { status: 'failed', error: res.error }
 				sendUserToast(`Failed to deploy ${item.path}: ${res.error}`, true)
@@ -193,6 +200,10 @@
 		// the list; failed items keep their draft (and red status, preserved since
 		// we don't clear deploymentStatus).
 		await loadDrafts()
+		// A deploy promotes the draft to the workspace's deployed version, which
+		// changes the fork comparison (ahead/behind vs parent) — let the page
+		// refresh it so the deploy/update counts and tab stay accurate.
+		if (deployedAny) onChanged?.()
 	}
 
 	// --- Discard ---
@@ -206,6 +217,10 @@
 		if (res.success) {
 			sendUserToast(item.draft_only ? `Deleted ${item.path}` : `Discarded draft of ${item.path}`)
 			await loadDrafts()
+			// Deleting a draft_only item removes it from the workspace, changing the
+			// fork comparison; refresh it (a plain draft discard leaves the deployed
+			// version untouched, but refreshing is harmless and keeps it simple).
+			onChanged?.()
 		} else {
 			sendUserToast(`Failed to discard ${item.path}: ${res.error}`, true)
 		}

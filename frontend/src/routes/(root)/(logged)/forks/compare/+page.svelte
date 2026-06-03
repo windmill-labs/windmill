@@ -205,6 +205,10 @@
 			{updateCount}
 			{draftCount}
 			onModeSelected={selectMode}
+			onChanged={() => {
+				checkForChanges()
+				fetchDraftCount()
+			}}
 		/>
 	{:else if parentWorkspaceId}
 		<CompareWorkspaces
