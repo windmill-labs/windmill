@@ -66,6 +66,19 @@
 	}
 	let confirm = $state<Confirm | undefined>(undefined)
 
+	// Drop confirmation has its own state because it carries a "Drop concurrently"
+	// toggle, mirroring the create form. Both SQL variants are previewed up front so
+	// toggling doesn't require a round-trip.
+	type DropConfirm = {
+		open: boolean
+		name: string
+		sqlConcurrent: string
+		sqlPlain: string
+		loading?: boolean
+	}
+	let dropConfirm = $state<DropConfirm | undefined>(undefined)
+	let dropConcurrent = $state(true)
+
 	let canCreate = $derived(form.columns.some((c) => c.value.trim().length > 0))
 
 	function sanitizedForm(): CreateIndexInput {
@@ -113,22 +126,12 @@
 	async function openDropConfirm(idx: DbIndex) {
 		busy = true
 		try {
-			const sql = await dbIndexOps.previewDropIndexSql({
-				name: idx.name,
-				schema,
-				concurrent: true
-			})
-			confirm = {
-				open: true,
-				title: `Drop index "${idx.name}"?`,
-				confirmationText: 'Drop index',
-				code: sql,
-				onConfirm: async () => {
-					await dbIndexOps.dropIndex({ name: idx.name, schema, concurrent: true })
-					sendUserToast('Index dropped')
-					indexes.refetch()
-				}
-			}
+			const [sqlConcurrent, sqlPlain] = await Promise.all([
+				dbIndexOps.previewDropIndexSql({ name: idx.name, schema, concurrent: true }),
+				dbIndexOps.previewDropIndexSql({ name: idx.name, schema, concurrent: false })
+			])
+			dropConcurrent = true
+			dropConfirm = { open: true, name: idx.name, sqlConcurrent, sqlPlain }
 		} catch (e) {
 			toastErr(e)
 		} finally {
@@ -147,6 +150,21 @@
 			return
 		}
 		confirm = undefined
+	}
+
+	async function runDrop() {
+		if (!dropConfirm) return
+		dropConfirm.loading = true
+		try {
+			await dbIndexOps.dropIndex({ name: dropConfirm.name, schema, concurrent: dropConcurrent })
+			sendUserToast('Index dropped')
+			indexes.refetch()
+		} catch (e) {
+			toastErr(e)
+			dropConfirm.loading = false
+			return
+		}
+		dropConfirm = undefined
 	}
 </script>
 
@@ -351,6 +369,19 @@
 	</div>
 </div>
 
+{#snippet sqlBlock(code: string)}
+	<div class="bg-surface-secondary border border-surface-selected rounded-md p-2 relative group">
+		<button
+			class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-surface-hover"
+			onclick={() => copyToClipboard(code)}
+			title="Copy to clipboard"
+		>
+			<ClipboardCopy size={14} />
+		</button>
+		<pre class="whitespace-pre-wrap text-sm"><code>{code}</code></pre>
+	</div>
+{/snippet}
+
 <Portal>
 	<ConfirmationModal
 		id="db-index-manager-confirmation-modal"
@@ -362,17 +393,31 @@
 		onCanceled={() => (confirm = undefined)}
 	>
 		{#if confirm?.code}
-			<div
-				class="bg-surface-secondary border border-surface-selected rounded-md p-2 relative group"
-			>
-				<button
-					class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-surface-hover"
-					onclick={() => copyToClipboard(confirm?.code)}
-					title="Copy to clipboard"
-				>
-					<ClipboardCopy size={14} />
-				</button>
-				<pre class="whitespace-pre-wrap text-sm"><code>{confirm.code}</code></pre>
+			{@render sqlBlock(confirm.code)}
+		{/if}
+	</ConfirmationModal>
+
+	<ConfirmationModal
+		id="db-index-manager-drop-confirmation-modal"
+		title={dropConfirm ? `Drop index "${dropConfirm.name}"?` : ''}
+		confirmationText="Drop index"
+		open={dropConfirm?.open ?? false}
+		loading={dropConfirm?.loading ?? false}
+		onConfirmed={runDrop}
+		onCanceled={() => (dropConfirm = undefined)}
+	>
+		{#if dropConfirm}
+			<div class="flex flex-col gap-3">
+				<Toggle
+					size="xs"
+					bind:checked={dropConcurrent}
+					options={{
+						right: 'Drop concurrently',
+						rightTooltip:
+							'Drop without locking the table against writes (recommended for production)'
+					}}
+				/>
+				{@render sqlBlock(dropConcurrent ? dropConfirm.sqlConcurrent : dropConfirm.sqlPlain)}
 			</div>
 		{/if}
 	</ConfirmationModal>
