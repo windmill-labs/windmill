@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.716.0](https://github.com/windmill-labs/windmill/compare/v1.715.0...v1.716.0) (2026-06-03)
+
+
+### Features
+
+* add metadata generation model setting ([#9418](https://github.com/windmill-labs/windmill/issues/9418)) ([cf5fefb](https://github.com/windmill-labs/windmill/commit/cf5fefb521479170b9dc64b884630c4dac789931))
+* auto-generate AI session names ([#9399](https://github.com/windmill-labs/windmill/issues/9399)) ([26b7270](https://github.com/windmill-labs/windmill/commit/26b727041830c9b741668a9ab73e2eb90c7cec74))
+* support $f/ and $u/ import path aliases for scripts ([#9378](https://github.com/windmill-labs/windmill/issues/9378)) ([220cd35](https://github.com/windmill-labs/windmill/commit/220cd35cf799c42ebf588bc97a6d8e6f4e97c2e3))
+* use metadata model for small AI tasks ([#9431](https://github.com/windmill-labs/windmill/issues/9431)) ([79178f6](https://github.com/windmill-labs/windmill/commit/79178f6f5a7c606a2e05677c6efcbdd84c608325))
+
+
+### Bug Fixes
+
+* **apps:** relock no longer reverts raw app to a stale version ([#9432](https://github.com/windmill-labs/windmill/issues/9432)) ([073857a](https://github.com/windmill-labs/windmill/commit/073857ac0a9ed54bdeac8f373f7c855fe34eb0ac))
+* **security:** scope variable and resource value caches by caller identity ([#9427](https://github.com/windmill-labs/windmill/issues/9427)) ([0ba128a](https://github.com/windmill-labs/windmill/commit/0ba128afe797bd016da60563949ac3abbbfe1978))
+
 ## [1.715.0](https://github.com/windmill-labs/windmill/compare/v1.714.1...v1.715.0) (2026-06-03)
 
 
