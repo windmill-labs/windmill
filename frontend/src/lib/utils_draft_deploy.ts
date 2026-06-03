@@ -117,11 +117,11 @@ export async function deployDraft(
 				on_behalf_of_email: d.on_behalf_of_email,
 				labels: d.labels
 			}
-			if (draftOnly) {
-				await FlowService.createFlow({ workspace, requestBody })
-			} else {
-				await FlowService.updateFlow({ workspace, path, requestBody })
-			}
+			// A draft (draft_only or on a deployed flow) always has a flow row, so
+			// updateFlow is correct in both cases — it promotes a draft_only flow to
+			// a real deployed version (clearing the flag). createFlow would 400
+			// "Flow already exists".
+			await FlowService.updateFlow({ workspace, path, requestBody })
 		} else {
 			const r = (await AppService.getAppByPathWithDraft({ workspace, path })) as any
 			const d = r.draft ?? {
@@ -138,11 +138,9 @@ export async function deployDraft(
 				path: d.path ?? path,
 				custom_path: d.custom_path
 			}
-			if (draftOnly) {
-				await AppService.createApp({ workspace, requestBody })
-			} else {
-				await AppService.updateApp({ workspace, path, requestBody })
-			}
+			// Same as flows: a draft always has an app row, so updateApp promotes a
+			// draft_only app (clearing the flag); createApp would 400 "already exists".
+			await AppService.updateApp({ workspace, path, requestBody })
 		}
 		return { success: true }
 	} catch (e: any) {
