@@ -209,13 +209,32 @@ async function refreshManagedTsconfig(defaultTs: "bun" | "deno", mode: WireMode)
     legacyFormats: LEGACY_GENERATED_TSCONFIGS,
     mode,
     wire: (parsed) => {
+      // TypeScript does NOT merge `compilerOptions.paths` across `extends` — the
+      // nearest config that defines `paths` wins wholesale. So a config with its
+      // own `paths` would shadow the managed `$f/`/`$u/` mappings and the aliases
+      // would silently fail to resolve. We don't touch the user's paths — warn
+      // and leave it for them to wire manually.
+      const co = parsed.compilerOptions;
+      const paths =
+        co && typeof co === "object" && !Array.isArray(co)
+          ? (co as Record<string, unknown>).paths
+          : undefined;
+      if (
+        paths &&
+        typeof paths === "object" &&
+        !Array.isArray(paths) &&
+        Object.keys(paths).length > 0
+      ) {
+        return (
+          "defines its own `compilerOptions.paths` (TS won't merge ours in via " +
+          '`extends`); add "$f/*": ["./f/*"] and "$u/*": ["./u/*"] to it'
+        );
+      }
       const ext = parsed.extends;
       const managed = `./${MANAGED_TSCONFIG}`;
-      // Insert the managed config FIRST in `extends`. TypeScript processes the
-      // array left-to-right with later entries winning, so going first means the
-      // user's own base config keeps precedence on any overlapping compilerOptions
-      // — we only contribute the `$f/`/`$u/` `paths` their base won't define,
-      // rather than silently overriding their `strict`/`target`/`module` choices.
+      // Insert the managed config FIRST in `extends` so the user's own base config
+      // keeps precedence on overlapping compilerOptions (strict/target/module)
+      // rather than being overridden by our defaults.
       if (ext === undefined) {
         parsed.extends = managed;
       } else if (typeof ext === "string") {
