@@ -297,6 +297,7 @@
 						workspace: $workspaceStore!,
 						itemKind: 'trigger_schedule',
 						path: schedule_path,
+						draftOnly: resp.no_deployed,
 						onResetToDeployed: async () => {
 							await openNew(nis_flow, initial_script_path, defaultValues, schedule_path)
 						}
@@ -478,6 +479,7 @@
 						workspace: $workspaceStore!,
 						itemKind: 'trigger_schedule',
 						path: initialPath,
+						draftOnly: s.no_deployed,
 						onResetToDeployed: async () => {
 							await loadSchedule()
 						}

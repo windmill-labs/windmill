@@ -243,6 +243,7 @@
 					workspace: $workspaceStore!,
 					itemKind: 'trigger_nats',
 					path: initialPath,
+					draftOnly: s.no_deployed,
 					onResetToDeployed: async () => {
 						await loadTrigger()
 					}

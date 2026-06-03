@@ -86,6 +86,12 @@ pub struct WithDraftOverlay {
     pub is_draft: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_saved_at: Option<DateTime<Utc>>,
+    /// True when the response is the user's draft only — no deployed row
+    /// exists at this path. Frontend uses this to hide "Reset to deployed"
+    /// actions that have nothing to fall back to. Omitted from the wire
+    /// when false to keep the no-overlay shape unchanged.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub no_deployed: bool,
 }
 
 /// If `get_draft` is true AND the authed user has a draft saved for
@@ -116,7 +122,12 @@ where
     let inner = serde_json::to_value(&deployed)?;
 
     if !get_draft {
-        return Ok(WithDraftOverlay { inner, is_draft: false, draft_saved_at: None });
+        return Ok(WithDraftOverlay {
+            inner,
+            is_draft: false,
+            draft_saved_at: None,
+            no_deployed: false,
+        });
     }
 
     let row = sqlx::query!(
@@ -136,14 +147,24 @@ where
     .await?;
 
     let Some(row) = row else {
-        return Ok(WithDraftOverlay { inner, is_draft: false, draft_saved_at: None });
+        return Ok(WithDraftOverlay {
+            inner,
+            is_draft: false,
+            draft_saved_at: None,
+            no_deployed: false,
+        });
     };
 
     let mut merged = inner;
     let patch: serde_json::Value = serde_json::from_str(row.value.0.get())?;
     deep_merge(&mut merged, patch);
 
-    Ok(WithDraftOverlay { inner: merged, is_draft: true, draft_saved_at: Some(row.created_at) })
+    Ok(WithDraftOverlay {
+        inner: merged,
+        is_draft: true,
+        draft_saved_at: Some(row.created_at),
+        no_deployed: false,
+    })
 }
 
 /// Recursive object merge: `source` wins at every overlapping key,
@@ -236,5 +257,6 @@ pub async fn fetch_draft_only(
         inner,
         is_draft: true,
         draft_saved_at: Some(row.created_at),
+        no_deployed: true,
     }))
 }

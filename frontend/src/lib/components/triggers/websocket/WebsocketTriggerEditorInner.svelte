@@ -318,6 +318,7 @@
 					workspace: $workspaceStore!,
 					itemKind: 'trigger_websocket',
 					path: initialPath,
+					draftOnly: s.no_deployed,
 					onResetToDeployed: async () => {
 						await loadTrigger()
 					}

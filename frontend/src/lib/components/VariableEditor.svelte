@@ -173,6 +173,7 @@
 						workspace: ws,
 						itemKind: 'variable',
 						path: p,
+						draftOnly: v.no_deployed,
 						onResetToDeployed: async () => {
 							const fresh = await VariableService.getVariable({
 								workspace: ws,

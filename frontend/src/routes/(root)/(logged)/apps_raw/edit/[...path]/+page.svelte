@@ -203,6 +203,7 @@
 				workspace: $workspaceStore!,
 				itemKind: 'raw_app',
 				path: page.params.path ?? '',
+				draftOnly: backendApp.no_deployed,
 				onResetToDeployed: async () => {
 					draftHandle.setDraftAndMeta(undefined, {})
 					await loadApp()

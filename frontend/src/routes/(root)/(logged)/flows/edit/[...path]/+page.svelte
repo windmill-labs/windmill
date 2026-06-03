@@ -222,6 +222,7 @@
 				workspace: $workspaceStore!,
 				itemKind: 'flow',
 				path: page.params.path ?? '',
+				draftOnly: backendFlow.no_deployed,
 				onResetToDeployed: async () => {
 					flowHandle.setDraftAndMeta(undefined, {})
 					await loadFlow()

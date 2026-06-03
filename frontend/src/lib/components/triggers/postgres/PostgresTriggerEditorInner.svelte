@@ -387,6 +387,7 @@
 					workspace: $workspaceStore!,
 					itemKind: 'trigger_postgres',
 					path: initialPath,
+					draftOnly: s.no_deployed,
 					onResetToDeployed: async () => {
 						await loadTrigger()
 					}

@@ -261,6 +261,7 @@
 						workspace: $workspaceStore!,
 						itemKind: 'trigger_mqtt',
 						path: initialPath,
+						draftOnly: s.no_deployed,
 						onResetToDeployed: async () => {
 							await loadTrigger()
 						}

@@ -259,6 +259,7 @@
 						workspace: ws,
 						itemKind: 'resource',
 						path: initialPath ?? '',
+						draftOnly: r.no_deployed,
 						onResetToDeployed: async () => {
 							const fresh = await ResourceService.getResource({
 								workspace: ws,

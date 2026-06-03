@@ -123,6 +123,7 @@
 				workspace: $workspaceStore!,
 				itemKind: 'app',
 				path: page.params.path ?? '',
+				draftOnly: backendApp.no_deployed,
 				onResetToDeployed: async () => {
 					UserDraft.remove('app', path)
 					await loadApp()

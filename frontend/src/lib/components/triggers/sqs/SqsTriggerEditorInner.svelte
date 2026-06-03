@@ -238,6 +238,7 @@
 						workspace: $workspaceStore!,
 						itemKind: 'trigger_sqs',
 						path: initialPath,
+						draftOnly: s.no_deployed,
 						onResetToDeployed: async () => {
 							await loadTrigger()
 						}

@@ -34,12 +34,18 @@ export function notifyRestoredFromLocal(
 
 /**
  * Shown when an editor mounts on a per-user draft fetched from the server
- * (the `get_draft=true` overlay returned `is_draft: true`). Offers a
- * "Reset to deployed" action that:
- *   1. POSTs `value: null` to delete the user's draft for this entity, and
- *   2. invokes `onResetToDeployed` so the editor can re-fetch without the
- *      overlay and apply the pure deployed version.
+ * (the `get_draft=true` overlay returned `is_draft: true`).
  *
+ * Offers a "Reset to deployed" action UNLESS `draftOnly` is set — when
+ * the response came back via `fetch_draft_only` there is no deployed row
+ * at this path, so falling back has nothing to fall back to. In that
+ * case we still show the toast (the user should know they're editing a
+ * draft) but omit the action.
+ *
+ * The action:
+ *   1. POSTs `value: null` to delete the user's draft for this entity
+ *   2. invokes `onResetToDeployed` so the editor can re-fetch without
+ *      the overlay and apply the pure deployed version
  * Failures in either step surface a follow-up toast and leave the editor
  * state untouched.
  */
@@ -47,8 +53,13 @@ export function notifyDraftLoaded(opts: {
 	workspace: string
 	itemKind: UserDraftItemKind
 	path: string
+	draftOnly?: boolean
 	onResetToDeployed: () => void | Promise<void>
 }): void {
+	if (opts.draftOnly) {
+		sendUserToast('Loaded your saved draft')
+		return
+	}
 	sendUserToast('Loaded your saved draft', false, [
 		{
 			label: 'Reset to deployed',

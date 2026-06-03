@@ -187,6 +187,7 @@
 					workspace: $workspaceStore!,
 					itemKind: 'script',
 					path: page.params.path ?? '',
+					draftOnly: backendScript.no_deployed,
 					onResetToDeployed: async () => {
 						// Drop the in-memory draft so loadScript's no-localDraft
 						// branch fires; the next fetch with `getDraft: true` will
