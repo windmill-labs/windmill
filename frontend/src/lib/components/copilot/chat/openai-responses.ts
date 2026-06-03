@@ -386,17 +386,17 @@ export async function parseOpenAIResponsesCompletion(
 export async function getNonStreamingOpenAIResponsesCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	testOptions?: {
+	options?: {
 		apiKey?: string
 		workspace?: string
 		resourcePath?: string
-		forceModelProvider: AIProviderModel
+		forceModelProvider?: AIProviderModel
 	}
 ): Promise<string> {
 	const { provider, config } = getProviderAndCompletionConfig({
 		messages,
 		stream: false,
-		forceModelProvider: testOptions?.forceModelProvider
+		forceModelProvider: options?.forceModelProvider
 	})
 
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
@@ -412,22 +412,22 @@ export async function getNonStreamingOpenAIResponsesCompletion(
 		}
 	}
 
-	if (testOptions?.resourcePath) {
+	if (options?.resourcePath) {
 		fetchOptions.headers = {
 			...fetchOptions.headers,
-			'X-Resource-Path': testOptions.resourcePath
+			'X-Resource-Path': options.resourcePath
 		}
-	} else if (testOptions?.apiKey) {
+	} else if (options?.apiKey) {
 		fetchOptions.headers = {
 			...fetchOptions.headers,
-			'X-API-Key': testOptions.apiKey
+			'X-API-Key': options.apiKey
 		}
 	}
 
-	const openaiClient = testOptions?.apiKey
+	const openaiClient = options?.apiKey
 		? createOpenAIProxyClient(getAiProxyBaseURL())
-		: testOptions?.workspace
-			? workspaceAIClients.createOpenaiClient(testOptions.workspace)
+		: options?.workspace
+			? workspaceAIClients.createOpenaiClient(options.workspace)
 			: workspaceAIClients.getOpenaiClient()
 
 	const response = await openaiClient.responses.create(

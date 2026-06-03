@@ -35,7 +35,7 @@ import {
 	setGetPreviewStatusHandler,
 	setOpenPreviewHandler
 } from '$lib/components/copilot/chat/global/core'
-import { getNonStreamingCompletion } from '$lib/components/copilot/lib'
+import { getNonStreamingMetadataCompletion } from '$lib/components/copilot/lib'
 import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 
@@ -190,7 +190,9 @@ async function generateSessionSummary(displayMessages: DisplayMessage[]): Promis
 		}
 	]
 	try {
-		return normalizeGeneratedSummary(await getNonStreamingCompletion(messages, abortController))
+		return normalizeGeneratedSummary(
+			await getNonStreamingMetadataCompletion(messages, abortController)
+		)
 	} finally {
 		clearTimeout(timeout)
 	}
