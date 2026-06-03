@@ -100,14 +100,6 @@ export function setMonacoTypescriptOptions() {
 		allowImportingTsExtensions: true,
 		allowSyntheticDefaultImports: true,
 		moduleResolution: ModuleResolutionKind.NodeJs,
-		// `$f/`/`$u/` are local-friendly aliases for the absolute workspace paths
-		// `/f/`,`/u/`. ATA registers imported scripts as extra libs under their
-		// absolute `/f/...` path, so map the aliases back so type acquisition resolves.
-		baseUrl: '/',
-		paths: {
-			'$f/*': ['/f/*'],
-			'$u/*': ['/u/*']
-		},
 		jsx: JsxEmit.React
 	})
 }

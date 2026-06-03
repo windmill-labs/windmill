@@ -11,15 +11,7 @@ export function parseTypescriptDeps(code: string): string[] {
 }
 
 export function isTypescriptRelativePath(d: string) {
-	return (
-		d.startsWith('./') ||
-		d.startsWith('../') ||
-		d.startsWith('/') ||
-		d.startsWith('.../') ||
-		// `$f/`/`$u/` are local-friendly aliases for the absolute workspace paths `/f/`,`/u/`.
-		d.startsWith('$f/') ||
-		d.startsWith('$u/')
-	)
+	return d.startsWith('./') || d.startsWith('../') || d.startsWith('/') || d.startsWith('.../')
 }
 
 export function approximateFindPythonRelativePath(code: string) {
