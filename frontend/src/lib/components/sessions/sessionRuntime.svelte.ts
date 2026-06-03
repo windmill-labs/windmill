@@ -588,8 +588,15 @@ function createRuntime(session: Session): SessionRuntime {
 
 		draftCount,
 		async ensureDraftCount(workspace: string) {
-			if (draftCountKey === workspace && draftCount.val !== undefined) return
-			if (loadingDraftCount && draftCountKey === workspace) return
+			// Fetch at most once per workspace — refreshDraftCount() forces a
+			// re-fetch on the explicit signals (AI turn end, tab visibility).
+			// We claim the key BEFORE awaiting and keep it set even on failure:
+			// our caller is a reactive $effect (SessionDraftBar), so clearing the
+			// key on error would let the effect re-invoke ensure() on every
+			// failed attempt. A persistently-failing countDrafts (missing client
+			// method, network/HTTP error) would then spin the effect into an
+			// infinite retry loop that floods the console and freezes the page.
+			if (draftCountKey === workspace) return
 			draftCountKey = workspace
 			loadingDraftCount = true
 			try {
@@ -597,7 +604,6 @@ function createRuntime(session: Session): SessionRuntime {
 			} catch (e) {
 				console.error('SessionRuntime: draftCount fetch failed', e)
 				draftCount.val = undefined
-				if (draftCountKey === workspace) draftCountKey = undefined
 			} finally {
 				loadingDraftCount = false
 			}
