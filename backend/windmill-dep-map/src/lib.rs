@@ -50,6 +50,11 @@ fn parse_ts_relative_imports(
         let import = import.trim_end_matches(".ts");
         if import.starts_with("/") {
             relative_imports.push(import.trim_start_matches("/").to_string());
+        } else if import.starts_with("$f/") || import.starts_with("$u/") {
+            // `$f/...`/`$u/...` are local-friendly aliases for the absolute workspace
+            // paths `/f/...`/`/u/...`. Stripping the leading `$` yields the same
+            // workspace-rooted path the rest of the dependency machinery expects.
+            relative_imports.push(import.trim_start_matches("$").to_string());
         } else if import.starts_with(".") {
             let normalized = try_normalize(std::path::Path::new(&format!(
                 "{}/../{}",

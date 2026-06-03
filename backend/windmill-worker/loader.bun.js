@@ -38,7 +38,9 @@ const p = {
           if (
             (imp.path.startsWith(".") ||
               imp.path.startsWith("/u/") ||
-              imp.path.startsWith("/f/")) &&
+              imp.path.startsWith("/f/") ||
+              imp.path.startsWith("$u/") ||
+              imp.path.startsWith("$f/")) &&
             !imp.path.endsWith(".ts")
           ) {
             code = code.replaceAll(imp.path, imp.path + ".ts");
@@ -97,21 +99,29 @@ const p = {
           ? current_path
           : args.importer.replace(cdir + "/", "");
 
-      const isRelative = !args.path.startsWith("/");
-      const endExt = args.path.endsWith(".ts") ? "" : ".ts";
-      const pathNoExt = args.path.replace(/\.ts$/, "");
+      // `$f/...`/`$u/...` are local-friendly aliases for the absolute workspace
+      // paths `/f/...`/`/u/...`; rewrite to the `/`-prefixed form so the absolute
+      // resolution branch below handles them identically.
+      const importPath =
+        args.path.startsWith("$f/") || args.path.startsWith("$u/")
+          ? "/" + args.path.slice(1)
+          : args.path;
+
+      const isRelative = !importPath.startsWith("/");
+      const endExt = importPath.endsWith(".ts") ? "" : ".ts";
+      const pathNoExt = importPath.replace(/\.ts$/, "");
 
       // Lookup temp script hash
       const normalized = (isRelative ? join(dirname(file_path), pathNoExt) : pathNoExt.slice(1)).replace(/\\/g, "/");
       const hash = TEMP_SCRIPT_REFS?.[normalized];
 
       const url = (isRelative
-        ? `${base_internal_url}/api/w/${w_id}/scripts/raw_unpinned/p/${file_path}/../${args.path}${endExt}`
-        : `${base_internal_url}/api/w/${w_id}/scripts/raw_unpinned/p/${args.path}${endExt}`
+        ? `${base_internal_url}/api/w/${w_id}/scripts/raw_unpinned/p/${file_path}/../${importPath}${endExt}`
+        : `${base_internal_url}/api/w/${w_id}/scripts/raw_unpinned/p/${importPath}${endExt}`
       ) + (hash ? `?temp_script_hash=${hash}` : "");
       const file = isRelative
-        ? resolve("./" + file_path + "/../" + args.path + ".url")
-        : resolve("./" + args.path + ".url");
+        ? resolve("./" + file_path + "/../" + importPath + ".url")
+        : resolve("./" + importPath + ".url");
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, url);
       return {
