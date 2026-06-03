@@ -211,7 +211,8 @@ vi.mock('$lib/gen', async () => {
 			existsResource: vi.fn(async () => false),
 			getResource: vi.fn(async () => {
 				throw new Error('getResource mock not configured')
-			})
+			}),
+			listResource: vi.fn(async () => [])
 		}),
 		VariableService: wrapService(actual.VariableService, {
 			existsVariable: vi.fn(async () => false),
@@ -788,49 +789,32 @@ describe('global AI tools', () => {
 		})
 	})
 
-	it('applies path_prefix to local (live-editor) drafts before enforcing the result limit', async () => {
-		// list_workspace_items still surfaces live-editor localStorage drafts, so
-		// drive it through live editors rather than DB-only writes.
+	it('applies path_prefix to local drafts before enforcing the result limit', async () => {
+		// Group-B (resource/variable/…) drafts are localStorage-only and always
+		// listed; use them to exercise path_prefix filtering happening BEFORE the
+		// result limit (so a matching draft isn't dropped for a non-matching one).
 		UserDraft.save(
-			'script',
+			'resource',
 			'f/other/outside',
-			{
-				path: 'f/other/outside',
-				summary: 'Outside draft',
-				description: '',
-				content: 'export async function main() { return "outside" }',
-				schema: {},
-				is_template: false,
-				language: 'bun',
-				kind: 'script'
-			},
+			{ path: 'f/other/outside', description: '', args: {}, labels: [], wsSpecific: false },
 			{ workspace: WORKSPACE }
 		)
 		UserDraft.save(
-			'script',
+			'resource',
 			'f/matching/inside',
-			{
-				path: 'f/matching/inside',
-				summary: 'Inside draft',
-				description: '',
-				content: 'export async function main() { return "inside" }',
-				schema: {},
-				is_template: false,
-				language: 'bun',
-				kind: 'script'
-			},
+			{ path: 'f/matching/inside', description: '', args: {}, labels: [], wsSpecific: false },
 			{ workspace: WORKSPACE }
 		)
 
 		const raw = await callGlobalTool('list_workspace_items', {
-			types: ['script'],
+			types: ['resource'],
 			path_prefix: 'f/matching/',
 			limit: 1
 		})
 
 		expect(JSON.parse(raw)).toEqual([
 			expect.objectContaining({
-				type: 'script',
+				type: 'resource',
 				path: 'f/matching/inside',
 				isDraft: true
 			})
@@ -941,6 +925,76 @@ describe('global AI tools', () => {
 			})
 		])
 		expect(raw).not.toContain('Old deployed summary')
+	})
+
+	it('lists a draft-only app (includeDraftOnly) and flags it as a draft', async () => {
+		// `init_app` persists a `draft_only` app row; the backend excludes those
+		// unless `includeDraftOnly` is passed, so the app list must request it or a
+		// just-created app draft is invisible (scripts/flows already pass it).
+		vi.mocked(AppService.listApps).mockResolvedValueOnce([
+			{ path: 'f/apps/draft-only', summary: 'App draft', draft_only: true },
+			{ path: 'f/apps/deployed', summary: 'Deployed app', draft_only: false }
+		] as any)
+
+		const raw = await callGlobalTool('list_workspace_items', { types: ['app'] })
+		const items = JSON.parse(raw) as Array<{ path: string; isDraft: boolean }>
+
+		expect(items.find((i) => i.path === 'f/apps/draft-only')).toMatchObject({ isDraft: true })
+		expect(items.find((i) => i.path === 'f/apps/deployed')).toMatchObject({ isDraft: false })
+		expect(vi.mocked(AppService.listApps).mock.calls[0]?.[0]).toMatchObject({
+			includeDraftOnly: true
+		})
+	})
+
+	it('does not list a stale (non-live) Group-A localStorage draft', async () => {
+		// No live editor is registered, so `loadDraft` (read/deploy) ignores this
+		// localStorage entry — the list must not advertise a draft they won't use.
+		UserDraft.save(
+			'script',
+			'f/list/stale-local',
+			{
+				path: 'f/list/stale-local',
+				summary: 'Stale local',
+				description: '',
+				content: '',
+				schema: {},
+				is_template: false,
+				language: 'bun',
+				kind: 'script'
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		const raw = await callGlobalTool('list_workspace_items', { types: ['script'] })
+		const items = JSON.parse(raw) as Array<{ path: string }>
+		expect(items.find((i) => i.path === 'f/list/stale-local')).toBeUndefined()
+	})
+
+	it('lists a live-editor Group-A localStorage draft', async () => {
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'script',
+			storagePath: 'f/list/live-only'
+		})
+		UserDraft.save(
+			'script',
+			'f/list/live-only',
+			{
+				path: 'f/list/live-only',
+				summary: 'Live only',
+				description: '',
+				content: '',
+				schema: {},
+				is_template: false,
+				language: 'bun',
+				kind: 'script'
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		const raw = await callGlobalTool('list_workspace_items', { types: ['script'] })
+		const items = JSON.parse(raw) as Array<{ path: string; isDraft: boolean }>
+		expect(items.find((i) => i.path === 'f/list/live-only')).toMatchObject({ isDraft: true })
 	})
 
 	it('lists and edits the live script editor draft through its effective path', async () => {

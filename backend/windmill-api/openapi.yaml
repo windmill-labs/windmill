@@ -26868,6 +26868,10 @@ components:
           items:
             type: string
           default: []
+        has_draft:
+          type: boolean
+        draft_only:
+          type: boolean
       required:
         - id
         - workspace_id

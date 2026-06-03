@@ -920,7 +920,10 @@ function appToItem(app: ListableApp | AppWithLastVersion, includeValue: boolean)
 		path: app.path,
 		summary: app.summary,
 		value: includeValue ? ((app as AppWithLastVersion).value as AppDraftValue) : undefined,
-		isDraft: false
+		// A backend `draft_only` app exists solely as a workspace draft (never
+		// deployed), so it is a draft. A deployed app (`draft_only` false) is not.
+		// Only `ListableApp` carries the flag; `AppWithLastVersion` never does.
+		isDraft: ('draft_only' in app ? app.draft_only : undefined) ?? false
 	}
 }
 
@@ -1227,7 +1230,7 @@ async function readScriptOrFlowItem(
  * (`value: undefined`) and `isDraft: true`.
  */
 async function hydrateListedDbDraft(
-	type: 'script' | 'flow',
+	type: 'script' | 'flow' | 'app',
 	item: WorkspaceItem,
 	workspace: string
 ): Promise<WorkspaceItem> {
@@ -1325,16 +1328,23 @@ async function listWorkspaceItems(
 	}
 
 	if (types.includes('app')) {
+		// `includeDraftOnly` so a never-deployed app that exists only as a workspace
+		// draft (created via `init_app`) is listed — without it the backend filters
+		// out `draft_only` rows and the AI can't see an app draft it just created.
 		const apps = await AppService.listApps({
 			workspace,
 			pathStart: pathPrefix,
-			perPage
+			perPage,
+			includeDraftOnly: true
 		})
-		// The generated `ListableApp` exposes no `has_draft`/`draft_only` flags, so
-		// we can't bound an app-draft hydration the way scripts/flows do. Accept a
-		// possibly-stale app summary here for now; client-side regeneration of those
-		// flags (or a per-app draft read) is the follow-up.
-		for (const app of apps) items.push(appToItem(app, false))
+		for (const app of apps) {
+			const item = appToItem(app, false)
+			items.push(
+				app.has_draft || app.draft_only
+					? await hydrateListedDbDraft('app', item, workspace)
+					: item
+			)
+		}
 	}
 
 	return items
@@ -1557,6 +1567,15 @@ export const globalTools: Tool<{}>[] = [
 			for (const draft of listGlobalDrafts(workspace)) {
 				if (!types.includes(draft.type)) continue
 				if (parsed.path_prefix && !draft.path.startsWith(parsed.path_prefix)) continue
+				// Group-A (script/flow/app) DB drafts already come from the backend list
+				// (`includeDraftOnly`). For those, localStorage is authoritative ONLY
+				// while a live editor is open — `read`/`deploy` ignore a stale closed-
+				// editor (or pre-upgrade) local draft via `loadDraft`, so the list must
+				// not advertise one either. Group B has no DB draft, so its localStorage
+				// entry is the source of truth and always counts.
+				const isGroupA =
+					draft.type === 'script' || draft.type === 'flow' || draft.type === 'app'
+				if (isGroupA && !draft.isLiveDraft) continue
 				byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
 					...draft,
 					value: undefined
