@@ -121,7 +121,7 @@
 <Row
 	aiId={`script-run-button-${script.path}`}
 	aiDescription={`Button to access the form to run the script ${script.summary ?? script.path}`}
-	href={script.draft_only || (script.auto_kind === 'lib' && script.kind !== 'preprocessor')
+	href={script.auto_kind === 'lib' && script.kind !== 'preprocessor'
 		? `${base}/scripts/edit/${script.path}`
 		: `${base}/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
 	kind="script"
@@ -130,7 +130,7 @@
 	summary={script.summary}
 	{errorHandlerMuted}
 	workspaceId={$workspaceStore ?? ''}
-	canFavorite={!script.draft_only}
+	canFavorite={true}
 	{depth}
 	{keyboardSelected}
 >
@@ -168,7 +168,7 @@
 			>
 		{/if}
 		<SharedBadge canWrite={script.canWrite} extraPerms={script.extra_perms} />
-		<DraftBadge has_draft={script.has_draft} draft_only={script.draft_only} />
+		<DraftBadge has_draft={script.has_draft} />
 		{#if script.labels?.length}
 			<div class="flex items-center gap-0.5">
 				{#each script.labels.slice(0, 3) as label}
@@ -239,34 +239,6 @@
 			items={async () => {
 				let owner = isOwner(script.path, $userStore, $workspaceStore)
 				const canEdit = script.canWrite && showEditButton
-				if (script.draft_only) {
-					return [
-						{
-							displayName: 'View code',
-							icon: Code,
-							action: () => {
-								showCode(script.path, script.summary)
-							}
-						},
-						{
-							displayName: 'Delete',
-							icon: Trash,
-							action: (event) => {
-								// TODO
-								// @ts-ignore
-								if (event?.shiftKey) {
-									deleteScript(script.path)
-								} else {
-									deleteConfirmedCallback = () => {
-										deleteScript(script.path)
-									}
-								}
-							},
-							type: dlt,
-							disabled: !canEdit
-						}
-					]
-				}
 				return [
 					{
 						displayName: 'View code',

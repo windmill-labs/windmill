@@ -58,8 +58,6 @@
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
-	import { migrateLegacyUserDrafts } from '$lib/userDraftLegacyMigration'
-	import { gcUserDrafts } from '$lib/userDraft.svelte'
 	import { setContext, untrack } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
@@ -423,19 +421,6 @@
 	})
 	$effect(() => {
 		$workspaceStore && untrack(() => onLoad())
-	})
-	$effect(() => {
-		if ($workspaceStore) untrack(() => migrateLegacyUserDrafts($workspaceStore!))
-	})
-	// Sweep UserDraft entries that haven't been touched in 30 days. Runs
-	// once on mount and on a 30-min timer so a single very long session
-	// also clears out stale autosaves over time. Live entries stamp
-	// `lastWrittenAt` on every persist, so the sweep only touches truly
-	// dormant records.
-	$effect(() => {
-		gcUserDrafts()
-		const interval = setInterval(() => gcUserDrafts(), 30 * 60 * 1000)
-		return () => clearInterval(interval)
 	})
 	$effect(() => {
 		innerWidth && untrack(() => changeCollapsed())

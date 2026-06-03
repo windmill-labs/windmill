@@ -4,12 +4,7 @@
 
 	import { AppService, DraftService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import {
-		cleanValueProperties,
-		orderedJsonStringify,
-		readFieldsRecursively,
-		type Value
-	} from '$lib/utils'
+	import { readFieldsRecursively } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
@@ -18,14 +13,7 @@
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { page } from '$app/state'
 	import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
-	import {
-		UserDraft,
-		checkStaleness,
-		localDraftDiffers,
-		type UserDraftMeta
-	} from '$lib/userDraft.svelte'
-	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
-	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
+	import { UserDraft, localDraftDiffers } from '$lib/userDraft.svelte'
 
 	type RawAppDraft = {
 		files: Record<string, string>
@@ -41,7 +29,6 @@
 	/** Data configuration including tables and creation policy */
 	let data: RawAppData = $state({ ...DEFAULT_DATA })
 	let newPath = $state('')
-	// let lastVersion = 0
 	let policy: any = $state({})
 	let summary = $state('')
 
@@ -55,57 +42,17 @@
 				path: string
 				summary: string
 				policy: any
-				draft_only?: boolean
 				custom_path?: string
 		  }
 		| undefined = $state(undefined)
 	let redraw = $state(0)
 	let path = page.params.path ?? ''
 
-	// `?nodraft=true` is the callers' way of saying "skip the local autosave
-	// on this load." Wipe the UserDraft entry and strip the flag from the
-	// URL synchronously, before the handle is created. A plain reload (no
-	// nodraft) restores normally.
-	if (page.url.searchParams.get('nodraft') && typeof window !== 'undefined') {
-		UserDraft.remove('raw_app', path)
-		const url = new URL(window.location.href)
-		url.searchParams.delete('nodraft')
-		window.history.replaceState(window.history.state, '', url.toString())
-	}
-
 	const draftHandle = UserDraft.use<RawAppDraft>('raw_app', path)
 
-	// Local-draft staleness modal: opened when the remote has moved on since
-	// the local autosave was written.
-	let staleModalOpen = $state(false)
-	let staleModalCause = $state<'draft' | 'version'>('version')
-	let pendingBaseline:
-		| { baseline: RawAppDraft; backendSource: any; revs: UserDraftMeta }
-		| undefined = undefined
-
-	function onStaleLoadLatest(): void {
-		if (!pendingBaseline) {
-			staleModalOpen = false
-			return
-		}
-		const { baseline, backendSource, revs } = pendingBaseline
-		UserDraft.remove('raw_app', path)
-		draftHandle.setDraftAndMeta(baseline, revs)
-		extractRawApp(backendSource)
-		pendingBaseline = undefined
-		staleModalOpen = false
-		redraw++
-	}
-
-	function onStaleKeepDraft(): void {
-		if (pendingBaseline) {
-			draftHandle.setMeta(pendingBaseline.revs, { force: true })
-		}
-		pendingBaseline = undefined
-		staleModalOpen = false
-	}
-
-	// Persist the bundle whenever any of the four pieces of state changes.
+	// Persist the bundle whenever any of the pieces of state changes. The
+	// handle's setter syncs the change to the DB (debounced); writes equal to
+	// the seeded baseline are skipped, so loading doesn't write back.
 	$effect(() => {
 		const currentFiles = files
 		if (!currentFiles) return
@@ -124,8 +71,8 @@
 		}
 	})
 
-	// Reflect an external UserDraft.save into the form. Idempotent; the
-	// `!files` guard skips the reload window so it doesn't fight loadApp.
+	// Reflect an external UserDraft.save (e.g. from the AI copilot) into the
+	// form. Idempotent; the `!files` guard skips the reload window.
 	$effect(() => {
 		const d = draftHandle.draft
 		const currentFiles = files
@@ -170,13 +117,11 @@
 		}
 		files = app.value.files
 		summary = app.summary
-		// lastVersion = app.version
 		policy = app.policy
 		newPath = app.path
 	}
 
-	/** Increments per `loadApp` call. Stale loads (e.g. when picker
-	 * navigation races a draft-discard reload) bail at the next checkpoint
+	/** Increments per `loadApp` call. Stale loads bail at the next checkpoint
 	 * after their captured token no longer matches. */
 	let loadAppToken = 0
 	async function loadApp(): Promise<void> {
@@ -192,20 +137,13 @@
 			value: app_w_draft_.value as any,
 			path: app_w_draft_.path,
 			policy: app_w_draft_.policy,
-			draft_only: app_w_draft_.draft_only,
 			draft: app_w_draft_.draft,
 			custom_path: app_w_draft_.custom_path
 		}
 
+		// The editor works off the backend DB draft when present, otherwise the
+		// deployed version.
 		const backendSource: any = app_w_draft.draft ? app_w_draft.draft : app_w_draft
-		const localDraft = draftHandle.draft
-		const previousMeta = draftHandle.meta
-		const newRevs: UserDraftMeta = {
-			remoteRev: app_w_draft.versions
-				? app_w_draft.versions[app_w_draft.versions.length - 1]
-				: undefined,
-			remoteDraftRev: app_w_draft.draft_created_at
-		}
 		const backendBundle: RawAppDraft = {
 			files: backendSource.value?.files ?? {},
 			runnables: backendSource.value?.runnables ?? {},
@@ -219,88 +157,10 @@
 			custom_path: backendSource.custom_path ?? app_w_draft.custom_path
 		}
 
-		if (
-			localDraft != undefined &&
-			orderedJsonStringify(cleanValueProperties(localDraft)) !==
-				orderedJsonStringify(cleanValueProperties(backendBundle))
-		) {
-			const cause = checkStaleness(previousMeta, newRevs.remoteRev, newRevs.remoteDraftRev)
-			if (cause) {
-				pendingBaseline = { baseline: backendBundle, backendSource, revs: newRevs }
-				staleModalCause = cause
-				staleModalOpen = true
-			} else {
-				if (previousMeta.remoteRev === undefined && previousMeta.remoteDraftRev === undefined) {
-					// Legacy entry — backfill meta so the next load can detect staleness.
-					draftHandle.setMeta(newRevs, { force: true })
-				}
-				const appPath = app_w_draft.path
-				const hasBackendDraft = app_w_draft.draft != undefined
-				notifyRestoredFromLocal(hasBackendDraft, !app_w_draft.draft_only, {
-					onResetToSavedDraft: () => {
-						UserDraft.remove('raw_app', path)
-						draftHandle.setDraftAndMeta(backendBundle, newRevs)
-						extractRawApp(backendSource)
-						redraw++
-					},
-					onResetToDeployed: async () => {
-						if (hasBackendDraft) {
-							await DraftService.deleteDraft({
-								workspace: $workspaceStore!,
-								kind: 'app',
-								path: appPath
-							})
-						}
-						UserDraft.remove('raw_app', path)
-						// UserDraft.remove only clears localStorage. Drop the
-						// entry's in-memory state too so loadApp doesn't re-read
-						// the stale autosave and re-fire the same toast.
-						draftHandle.setDraftAndMeta(undefined, {})
-						await loadApp()
-						redraw++
-					}
-				})
-			}
-			runnables = localDraft.runnables
-			data = localDraft.data
-			summary = localDraft.summary
-			policy = localDraft.policy ?? app_w_draft.policy
-			newPath = app_w_draft.path
-			files = localDraft.files
-		} else {
-			if (localDraft != undefined) UserDraft.remove('raw_app', path)
-			extractRawApp(backendSource)
-			draftHandle.setDraftAndMeta(backendBundle, newRevs)
-
-			if (app_w_draft.draft && !app_w_draft.draft_only) {
-				const reloadAction = () => {
-					extractRawApp(app_w_draft)
-					redraw++
-				}
-
-				const deployed = cleanValueProperties(app_w_draft as Value)
-				const draft = cleanValueProperties({ files, runnables })
-				sendUserToast('app loaded from latest saved draft', false, [
-					{
-						label: 'Reset to deployed',
-						callback: reloadAction
-					},
-					{
-						label: 'Show diff',
-						callback: async () => {
-							diffDrawer?.openDrawer()
-							diffDrawer?.setDiff({
-								mode: 'simple',
-								original: deployed,
-								current: draft,
-								title: 'Deployed <> Draft',
-								button: { text: 'Discard draft', onClick: reloadAction }
-							})
-						}
-					}
-				])
-			}
-		}
+		// Seed the handle (no DB write-back) before populating the form so the
+		// persist effect's first write matches and is skipped.
+		draftHandle.setInitial(backendBundle)
+		extractRawApp(backendSource)
 	}
 
 	run(() => {
@@ -322,12 +182,6 @@
 			return
 		}
 		diffDrawer?.closeDrawer()
-		UserDraft.remove('raw_app', path)
-		// Drop the in-memory handle state so loadApp sees no local draft
-		// on the next pass — otherwise the staleness check would compare
-		// the stale in-memory meta against the freshly fetched backend and
-		// fire a spurious modal.
-		draftHandle.setDraftAndMeta(undefined, {})
 		goto(`/apps/edit/${savedApp.draft.path}`)
 		await loadApp()
 		redraw++
@@ -339,6 +193,7 @@
 			return
 		}
 		diffDrawer?.closeDrawer()
+		// Explicit user action: delete the DB draft synchronously before reloading.
 		if (savedApp.draft) {
 			await DraftService.deleteDraft({
 				workspace: $workspaceStore!,
@@ -347,7 +202,6 @@
 			})
 		}
 		UserDraft.remove('raw_app', path)
-		draftHandle.setDraftAndMeta(undefined, {})
 		goto(`/apps/edit/${savedApp.path}`)
 		await loadApp()
 		redraw++
@@ -371,12 +225,6 @@
 </script>
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
-<LocalDraftStaleModal
-	open={staleModalOpen}
-	cause={staleModalCause}
-	onLoadLatest={onStaleLoadLatest}
-	onKeepDraft={onStaleKeepDraft}
-/>
 
 {#if files}
 	{#key redraw}

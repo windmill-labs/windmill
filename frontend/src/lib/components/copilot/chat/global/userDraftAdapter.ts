@@ -354,11 +354,9 @@ export function saveGlobalAppDraft(
 ): WorkspaceItem {
 	const storagePath = resolveDraftStoragePath(workspace, 'raw_app', path)
 	const normalized = normalizeAppDraftValue(value)
-	if (meta) {
-		UserDraft.setDraftAndMeta('raw_app', storagePath, normalized, meta, { workspace })
-	} else {
-		UserDraft.save('raw_app', storagePath, normalized, { workspace })
-	}
+	// Persist (and update any live editor) regardless of meta — meta tracking
+	// (staleness) was removed.
+	UserDraft.save('raw_app', storagePath, normalized, { workspace })
 	const stored = getGlobalDraft(workspace, 'app', path)
 	if (!stored) throw new Error(`Could not read written app draft "${path}".`)
 	return stored

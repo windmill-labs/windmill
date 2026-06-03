@@ -424,10 +424,7 @@ export class AIChatManager {
 		return {
 			kind: 'flow',
 			path: this.flowOptions?.path,
-			deployed:
-				!!this.flowOptions?.path &&
-				!!this.flowOptions.lastDeployedFlow &&
-				!this.flowOptions.lastDeployedFlow.draft_only
+			deployed: !!this.flowOptions?.path && !!this.flowOptions.lastDeployedFlow
 		}
 	}
 
@@ -519,8 +516,7 @@ export class AIChatManager {
 			this.tools = globalToolsFor({ sessionPreview: this.isSessionChat })
 			this.helpers = {
 				...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
-				testActiveFlow: async (args?: Record<string, any>) =>
-					this.flowAiChatHelpers?.testFlow(args)
+				testActiveFlow: async (args?: Record<string, any>) => this.flowAiChatHelpers?.testFlow(args)
 			} satisfies GlobalToolHelpers
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)

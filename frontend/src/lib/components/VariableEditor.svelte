@@ -16,8 +16,7 @@
 	import { deepEqual } from 'fast-equals'
 	import { getUserExt } from '$lib/user'
 	import type { UserExt } from '$lib/stores'
-	import { UserDraft, checkStaleness, type UserDraftHandle } from '$lib/userDraft.svelte'
-	import LocalDraftStaleModal from './common/confirmationModal/LocalDraftStaleModal.svelte'
+	import { UserDraft, type UserDraftHandle } from '$lib/userDraft.svelte'
 	import LocalDraftBanner from './LocalDraftBanner.svelte'
 
 	const dispatch = createEventDispatcher()
@@ -47,37 +46,6 @@
 	// compares the local autosave's recorded rev against. Variables have
 	// no DB-draft concept, so only `remoteRev` is ever populated.
 	let fetchedRev: Record<string, string | undefined> = $state({})
-
-	// Local-draft staleness modal: opened when the backend variable moved
-	// on (someone else edited it) since the local autosave was written.
-	let staleModalOpen = $state(false)
-	let pendingStale: { ws: string; backend: VariableState } | undefined = undefined
-
-	function onStaleLoadLatest(): void {
-		if (!pendingStale) {
-			staleModalOpen = false
-			return
-		}
-		const { ws, backend } = pendingStale
-		UserDraft.discard('variable', editPath ?? '', backend, { workspace: ws })
-		initialStates[ws] = $state.snapshot(backend) as VariableState
-		pendingStale = undefined
-		staleModalOpen = false
-	}
-
-	function onStaleKeepDraft(): void {
-		if (pendingStale) {
-			const { ws } = pendingStale
-			UserDraft.saveMeta(
-				'variable',
-				editPath ?? '',
-				{ remoteRev: fetchedRev[ws] },
-				{ workspace: ws }
-			)
-		}
-		pendingStale = undefined
-		staleModalOpen = false
-	}
 
 	const handlesArray = UserDraft.useMany<VariableState>(() =>
 		workspaceSpecs.map((s) => ({
@@ -172,23 +140,6 @@
 					},
 					labels: v.labels ?? undefined,
 					wsSpecific: v.ws_specific ?? false
-				}
-				// See ResourceEditor for the same pattern: a backend that
-				// moved on since the autosave was written → staleness modal;
-				// otherwise just a "showing your local autosave" toast with
-				// a "Reset to deployed" escape.
-				const persisted = UserDraft.get<VariableState>('variable', p, { workspace: ws })
-				const previousMeta = UserDraft.getMeta('variable', p, { workspace: ws })
-				if (persisted !== undefined && !deepEqual(persisted, s)) {
-					const cause = checkStaleness(previousMeta, v.edited_at)
-					if (cause) {
-						pendingStale = { ws, backend: s }
-						staleModalOpen = true
-					} else {
-						if (previousMeta.remoteRev === undefined && previousMeta.remoteDraftRev === undefined) {
-							UserDraft.saveMeta('variable', p, { remoteRev: v.edited_at }, { workspace: ws })
-						}
-					}
 				}
 				ensureHandle(ws, s)
 				initialStates[ws] = structuredClone(s)
@@ -314,13 +265,6 @@
 		}
 	}
 </script>
-
-<LocalDraftStaleModal
-	open={staleModalOpen}
-	cause="version"
-	onLoadLatest={onStaleLoadLatest}
-	onKeepDraft={onStaleKeepDraft}
-/>
 
 <Drawer bind:this={drawer} size="50rem">
 	<DrawerContent

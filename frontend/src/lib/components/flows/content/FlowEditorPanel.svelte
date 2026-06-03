@@ -171,7 +171,7 @@
 		hasPreprocessor={!!flowStore.val.value.preprocessor_module}
 		canHavePreprocessor={true}
 		args={previewArgs.val}
-		isDeployed={savedFlow && !savedFlow?.draft_only}
+		isDeployed={!!savedFlow}
 		schema={flowStore.val.schema}
 		{onDeployTrigger}
 	/>

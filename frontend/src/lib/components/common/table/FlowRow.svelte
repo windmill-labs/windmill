@@ -39,7 +39,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
-		flow: Flow & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
+		flow: Flow & { has_draft?: boolean; canWrite: boolean }
 		marked: string | undefined
 		shareModal: ShareModal
 		moveDrawer: MoveDrawer
@@ -103,16 +103,14 @@
 <Row
 	aiId={`flow-row-${flow.path}`}
 	aiDescription={`Button to access the form to run the flow ${flow.summary ?? flow.path}`}
-	href={flow.draft_only
-		? `${base}/flows/edit/${flow.path}?nodraft=true`
-		: `${base}/flows/get/${flow.path}?workspace=${$workspaceStore}`}
+	href={`${base}/flows/get/${flow.path}?workspace=${$workspaceStore}`}
 	kind="flow"
 	workspaceId={flow.workspace_id ?? $workspaceStore ?? ''}
 	{marked}
 	path={flow.path}
 	summary={flow.summary}
 	{errorHandlerMuted}
-	canFavorite={!flow.draft_only}
+	canFavorite={true}
 	{depth}
 	{keyboardSelected}
 >
@@ -121,7 +119,7 @@
 			<Badge color="red" baseClass="border">archived</Badge>
 		{/if}
 		<SharedBadge canWrite={flow.canWrite} extraPerms={flow.extra_perms} />
-		<DraftBadge has_draft={flow.has_draft} draft_only={flow.draft_only} />
+		<DraftBadge has_draft={flow.has_draft} />
 		{#if flow.labels?.length}
 			<div class="flex items-center gap-0.5">
 				{#each flow.labels.slice(0, 3) as label}
@@ -180,30 +178,9 @@
 			aiId={`flow-row-dropdown-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
 			aiDescription={`Open dropdown for flow ${flow.summary?.length > 0 ? flow.summary : flow.path} options`}
 			items={async () => {
-				let { draft_only, path, archived, has_draft } = flow
+				let { path, archived, has_draft } = flow
 				let owner = isOwner(path, $userStore, $workspaceStore)
 				const canEdit = flow.canWrite && showEditButton
-				if (draft_only) {
-					return [
-						{
-							displayName: 'Delete',
-							icon: Trash,
-							action: (event) => {
-								// @ts-ignore
-								if (event?.shiftKey) {
-									deleteFlow(path)
-								} else {
-									deleteConfirmedCallback = () => {
-										deleteFlow(path)
-									}
-								}
-							},
-							type: 'delete',
-							disabled: !owner,
-							hide: $userStore?.operator
-						}
-					]
-				}
 				return [
 					{
 						displayName: 'View runs',

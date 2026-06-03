@@ -90,7 +90,6 @@
 			workspace: $workspaceStore!,
 			showArchived: archived ? true : undefined,
 			includeWithoutMain: includeWithoutMain ? true : undefined,
-			includeDraftOnly: true,
 			withoutDescription: true
 		})
 
@@ -108,7 +107,6 @@
 			await FlowService.listFlows({
 				workspace: $workspaceStore!,
 				showArchived: archived ? true : undefined,
-				includeDraftOnly: true,
 				withoutDescription: true
 			})
 		).map((x: Flow) => {
@@ -124,17 +122,15 @@
 	}
 
 	async function loadApps(): Promise<void> {
-		apps = (await AppService.listApps({ workspace: $workspaceStore!, includeDraftOnly: true })).map(
-			(app: ListableApp) => {
-				return {
-					canWrite:
-						canWrite(app.path!, app.extra_perms!, $userStore) &&
-						app.workspace_id == $workspaceStore &&
-						!$userStore?.operator,
-					...app
-				}
+		apps = (await AppService.listApps({ workspace: $workspaceStore! })).map((app: ListableApp) => {
+			return {
+				canWrite:
+					canWrite(app.path!, app.extra_perms!, $userStore) &&
+					app.workspace_id == $workspaceStore &&
+					!$userStore?.operator,
+				...app
 			}
-		)
+		})
 		loading = false
 	}
 

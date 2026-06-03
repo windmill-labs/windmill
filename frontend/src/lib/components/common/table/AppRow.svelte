@@ -14,7 +14,6 @@
 	import {
 		ExternalLink,
 		Eye,
-		File,
 		FileJson,
 		FolderOpen,
 		GitFork,
@@ -37,7 +36,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
-		app: ListableApp & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
+		app: ListableApp & { has_draft?: boolean; canWrite: boolean }
 		marked: string | undefined
 		shareModal: ShareModal
 		moveDrawer: MoveDrawer
@@ -86,7 +85,7 @@
 	path={app.path}
 	summary={app.summary}
 	workspaceId={app.workspace_id ?? $workspaceStore ?? ''}
-	canFavorite={!app.draft_only}
+	canFavorite={true}
 	{depth}
 	{keyboardSelected}
 >
@@ -98,7 +97,7 @@
 			<Badge small icon={{ icon: FileJson }}>Raw</Badge>
 		{/if}
 		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
-		<DraftBadge has_draft={app.has_draft} draft_only={app.draft_only} />
+		<DraftBadge has_draft={app.has_draft} />
 		{#if app.labels?.length}
 			<div class="flex items-center gap-0.5">
 				{#each app.labels.slice(0, 3) as label}
@@ -155,40 +154,9 @@
 			aiId={`app-row-dropdown-${app.summary?.length > 0 ? app.summary : app.path}`}
 			aiDescription={`Open dropdown for app ${app.summary?.length > 0 ? app.summary : app.path} options`}
 			items={async () => {
-				let { draft_only, canWrite, summary, execution_mode, path, has_draft } = app
+				let { canWrite, summary, execution_mode, path, has_draft } = app
 
 				const canEdit = canWrite && showEditButton
-				if (draft_only) {
-					return [
-						{
-							displayName: 'Delete',
-							icon: Trash,
-							action: async (event) => {
-								// TODO
-								// @ts-ignore
-								if (event?.shiftKey) {
-									await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
-									dispatch('change')
-								} else {
-									deleteConfirmedCallback = async () => {
-										await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
-										dispatch('change')
-									}
-								}
-							},
-							type: 'delete',
-							disabled: !canEdit,
-							hide: $userStore?.operator
-						},
-						{
-							displayName: $userStore?.operator ? 'View JSON' : 'View/Edit JSON',
-							icon: File,
-							action: () => {
-								loadAppJson()
-							}
-						}
-					]
-				}
 				return [
 					{
 						displayName: 'Duplicate/Fork',

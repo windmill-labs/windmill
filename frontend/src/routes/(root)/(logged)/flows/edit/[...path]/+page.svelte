@@ -4,39 +4,24 @@
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
-	import {
-		cleanValueProperties,
-		decodeState,
-		emptySchema,
-		orderedJsonStringify,
-		type StateStore
-	} from '$lib/utils'
+	import { decodeState, emptySchema, type StateStore } from '$lib/utils'
 	import { initFlow } from '$lib/components/flows/flowStore.svelte'
 	import { goto } from '$lib/navigation'
 
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
-	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import { tick, untrack } from 'svelte'
 	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
 	import { page } from '$app/state'
-	import {
-		UserDraft,
-		checkStaleness,
-		type UserDraftMeta,
-		type UserDraftHandle
-	} from '$lib/userDraft.svelte'
-	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
+	import { UserDraft, type UserDraftHandle } from '$lib/userDraft.svelte'
 
 	let version: undefined | number = $state(undefined)
 
 	// `initialArgs` is captured once at mount — it's the session's initial
-	// argument set. The flow draft itself lives in UserDraft and is re-read
-	// per loadFlow() so picker navigation doesn't reuse the original path's
-	// state.
+	// argument set.
 	const urlArgs = page.url.searchParams.get('initial_args')
 
 	let initialArgs = $state({})
@@ -56,21 +41,10 @@
 	// Derived so client-side nav (breadcrumb) re-keys the handle to the new path.
 	let flowDraftPath = $derived(page.params.path ?? '')
 
-	// `?nodraft=true` is the callers' way of saying "skip the local autosave
-	// on this load." Wipe the UserDraft entry and strip the flag from the
-	// URL synchronously, before the handle is created — same pattern as
-	// /flows/add. A plain reload (no nodraft) restores normally.
-	if (page.url.searchParams.get('nodraft') && typeof window !== 'undefined') {
-		UserDraft.remove('flow', flowDraftPath)
-		const url = new URL(window.location.href)
-		url.searchParams.delete('nodraft')
-		window.history.replaceState(window.history.state, '', url.toString())
-	}
-
 	// `useMany` keyed off the reactive `flowDraftPath` re-keys the handle on nav;
 	// `flowHandle` proxies the current handle so `flowStore` keeps a fixed ref.
 	const flowHandles = UserDraft.useMany<Flow>(() => [{ itemKind: 'flow', path: flowDraftPath }])
-	const flowHandle: UserDraftHandle<Flow> = {
+	const flowHandle: Pick<UserDraftHandle<Flow>, 'draft' | 'setInitial'> = {
 		get draft() {
 			return flowHandles[0]?.draft
 		},
@@ -78,14 +52,8 @@
 			const handle = flowHandles[0]
 			if (handle) handle.draft = value
 		},
-		get meta() {
-			return flowHandles[0]?.meta ?? {}
-		},
-		setDraftAndMeta(value, meta) {
-			flowHandles[0]?.setDraftAndMeta(value, meta)
-		},
-		setMeta(meta, opts) {
-			flowHandles[0]?.setMeta(meta, opts)
+		setInitial(value) {
+			flowHandles[0]?.setInitial(value)
 		}
 	}
 
@@ -102,12 +70,21 @@
 		}
 	}
 
+	// While `seeding` is true, writes through `flowStore` seed the in-memory
+	// draft WITHOUT syncing to the DB — the value was just loaded from the
+	// backend, so re-binding it must not write it straight back. Real user edits
+	// (after load) flip `seeding` off and go through the syncing setter.
+	let seeding = false
 	export const flowStore: StateStore<Flow> = {
 		get val() {
 			return flowHandle.draft ?? emptyFlow()
 		},
 		set val(v: Flow) {
-			flowHandle.draft = v
+			if (seeding) {
+				flowHandle.setInitial(v)
+			} else {
+				flowHandle.draft = v
+			}
 		}
 	}
 	const flowStateStore = $state({ val: {} })
@@ -120,36 +97,7 @@
 
 	let selectedId: string = $state('settings-metadata')
 
-	let nobackenddraft = false
-
 	let savedPrimarySchedule: ScheduleTrigger | undefined = $state(undefined)
-
-	// Local-draft staleness modal: opened when the remote has moved on since
-	// the local autosave was written.
-	let staleModalOpen = $state(false)
-	let staleModalCause = $state<'draft' | 'version'>('version')
-	let pendingBaseline: { baseline: Flow; revs: UserDraftMeta } | undefined = undefined
-
-	function onStaleLoadLatest(): void {
-		if (!pendingBaseline) {
-			staleModalOpen = false
-			return
-		}
-		const { baseline, revs } = pendingBaseline
-		UserDraft.remove('flow', flowDraftPath)
-		flowHandle.setDraftAndMeta(baseline, revs)
-		pendingBaseline = undefined
-		staleModalOpen = false
-		loadFlow()
-	}
-
-	function onStaleKeepDraft(): void {
-		if (pendingBaseline) {
-			flowHandle.setMeta(pendingBaseline.revs, { force: true })
-		}
-		pendingBaseline = undefined
-		staleModalOpen = false
-	}
 
 	let draftTriggersFromUrl: Trigger[] | undefined = $state(undefined)
 	let selectedTriggerIndexFromUrl: number | undefined = $state(undefined)
@@ -160,21 +108,16 @@
 	let flowBuilder: FlowBuilder | undefined = $state(undefined)
 	let notFound = $state(false)
 	/** Increments per `loadFlow` call. Each in-flight load checks its captured
-	 * token against this before writing shared state — if a newer load started
-	 * (e.g. picker navigation while a draft-discard reload is in flight),
+	 * token against this before writing shared state — if a newer load started,
 	 * the older promise no-ops at the next checkpoint. */
 	let loadFlowToken = 0
 	async function loadFlow(): Promise<void> {
 		const tok = ++loadFlowToken
 		loading = true
-		let flow: Flow
-		// Builder-dependent setup is captured here and applied AFTER the builder
-		// remounts (see end of loadFlow): during a reload renderEditor is false,
-		// so flowBuilder is unmounted and direct calls would no-op.
+		seeding = true
 		let draftTriggersToApply: Trigger[] | undefined = undefined
 		let applyPrimarySchedule = false
 		// Currently there is no way to get version of flow with flow.
-		// So we have to request it here
 		const v = (
 			await FlowService.getFlowLatestVersion({
 				workspace: $workspaceStore!,
@@ -203,115 +146,16 @@
 			}
 		}
 
-		const backendFlow =
-			flowWithDraft.draft != undefined && !nobackenddraft ? flowWithDraft.draft : flowWithDraft
-		const localDraft = flowHandle.draft
-		const previousMeta = flowHandle.meta
-		const newRevs: UserDraftMeta = {
-			remoteRev: v,
-			remoteDraftRev: flowWithDraft.draft_created_at
-		}
+		// The editor works off the backend DB draft when present, otherwise the
+		// deployed version. Seeding (not assigning) avoids writing the
+		// freshly-loaded value straight back to the DB.
+		const flow = flowWithDraft.draft != undefined ? flowWithDraft.draft : flowWithDraft
+		flowHandle.setInitial(flow)
 
-		if (localDraft != undefined) {
-			const localClean = cleanValueProperties(localDraft)
-			const backendClean = cleanValueProperties(backendFlow)
-			if (orderedJsonStringify(localClean) === orderedJsonStringify(backendClean)) {
-				// Local matches backend exactly — silently drop the autosave.
-				flow = backendFlow
-				UserDraft.remove('flow', flowDraftPath)
-				flowHandle.setDraftAndMeta(backendFlow, newRevs)
-			} else {
-				flow = localDraft
-				const cause = checkStaleness(previousMeta, newRevs.remoteRev, newRevs.remoteDraftRev)
-				if (cause) {
-					pendingBaseline = { baseline: backendFlow, revs: newRevs }
-					staleModalCause = cause
-					staleModalOpen = true
-				} else {
-					if (previousMeta.remoteRev === undefined && previousMeta.remoteDraftRev === undefined) {
-						// Legacy entry — backfill meta so the next load can detect staleness.
-						flowHandle.setMeta(newRevs, { force: true })
-					}
-					const flowPath = backendFlow.path
-					const hasBackendDraft = flowWithDraft.draft != undefined
-					notifyRestoredFromLocal(hasBackendDraft, !flowWithDraft.draft_only, {
-						onResetToSavedDraft: () => {
-							UserDraft.remove('flow', flowDraftPath)
-							flowHandle.setDraftAndMeta(backendFlow, newRevs)
-							loadFlow()
-						},
-						onResetToDeployed: async () => {
-							if (hasBackendDraft) {
-								await DraftService.deleteDraft({
-									workspace: $workspaceStore!,
-									kind: 'flow',
-									path: flowPath
-								})
-							}
-							UserDraft.remove('flow', flowDraftPath)
-							// UserDraft.remove only clears localStorage. Drop the
-							// entry's in-memory state too so loadFlow doesn't re-read
-							// the stale autosave and re-fire the same toast.
-							flowHandle.setDraftAndMeta(undefined, {})
-							nobackenddraft = true
-							loadFlow()
-						}
-					})
-				}
-			}
-		} else {
-			flow = backendFlow
-			flowHandle.setDraftAndMeta(backendFlow, newRevs)
-		}
-
-		if (flowWithDraft.draft != undefined && !nobackenddraft) {
+		if (flowWithDraft.draft != undefined) {
 			savedPrimarySchedule = flowWithDraft?.draft?.['primary_schedule']
 			applyPrimarySchedule = true
 			draftTriggersToApply = flowWithDraft?.draft?.['draft_triggers']
-
-			if (!flowWithDraft.draft_only && localDraft == undefined) {
-				const deployed = cleanValueProperties(flowWithDraft)
-				const draft = cleanValueProperties(flow)
-				const reloadAction = async () => {
-					await DraftService.deleteDraft({
-						workspace: $workspaceStore!,
-						kind: 'flow',
-						path: flow.path
-					})
-					UserDraft.remove('flow', flowDraftPath)
-					// UserDraft.remove only clears localStorage. The
-					// flowHandle's in-memory state still holds the now-
-					// deleted DB draft + its meta — loadFlow would treat it
-					// as a local autosave and the staleness check would fire
-					// a spurious "newer version was deployed" modal because
-					// remoteDraftRev moved from "defined" to "undefined".
-					// Drop the in-memory state first.
-					flowHandle.setDraftAndMeta(undefined, {})
-					nobackenddraft = true
-					loadFlow()
-				}
-				sendUserToast('flow loaded from latest saved draft', false, [
-					{
-						label: 'Reset to deployed',
-						callback: reloadAction
-					},
-					{
-						label: 'Show diff',
-						callback: async () => {
-							diffDrawer?.openDrawer()
-							diffDrawer?.setDiff({
-								mode: 'simple',
-								original: deployed,
-								current: draft,
-								title: 'Deployed <> Draft',
-								button: { text: 'Discard draft', onClick: reloadAction }
-							})
-						}
-					}
-				])
-			}
-		} else {
-			draftTriggersToApply = undefined
 		}
 
 		await initFlow(flow, flowStore, flowStateStore)
@@ -327,6 +171,8 @@
 		if (applyPrimarySchedule) flowBuilder?.setPrimarySchedule(savedPrimarySchedule)
 		flowBuilder?.setDraftTriggers(draftTriggersToApply)
 		flowBuilder?.loadFlowState()
+		// Loading is done — subsequent edits should sync to the DB.
+		seeding = false
 	}
 
 	$effect(() => {
@@ -335,14 +181,12 @@
 		page.params.path
 		if ($workspaceStore) {
 			untrack(() => {
-				nobackenddraft = false // fresh nav reconsiders the backend draft
 				renderEditor = false // remount the builder for the navigated-to flow
 				loadFlow().catch((e: any) => {
-					// A failed load must NOT leave renderEditor stuck false — otherwise
-					// the editor pane disappears and never remounts. Surface the error
-					// and remount so the user isn't stranded on a blank pane.
+					// A failed load must NOT leave renderEditor stuck false.
 					console.error('Failed to load flow', e)
 					sendUserToast(`Failed to load flow: ${e?.body ?? e?.message ?? e}`, true)
+					seeding = false
 					renderEditor = true
 				})
 			})
@@ -357,12 +201,7 @@
 			return
 		}
 		diffDrawer?.closeDrawer()
-		UserDraft.remove('flow', flowDraftPath)
-		// Drop the in-memory handle state so loadFlow sees no local draft
-		// on the next pass — otherwise the staleness check would compare
-		// the stale in-memory meta against the freshly fetched backend and
-		// fire a spurious modal.
-		flowHandle.setDraftAndMeta(undefined, {})
+		// Re-seed from the backend draft (drops the in-memory edits).
 		goto(`/flows/edit/${savedFlow.draft.path}`)
 		loadFlow()
 	}
@@ -373,6 +212,8 @@
 			return
 		}
 		diffDrawer?.closeDrawer()
+		// Explicit user action: delete the DB draft synchronously (don't rely on
+		// the debounced autosync) before reloading the deployed version.
 		if (savedFlow.draft) {
 			await DraftService.deleteDraft({
 				workspace: $workspaceStore!,
@@ -381,21 +222,12 @@
 			})
 		}
 		UserDraft.remove('flow', flowDraftPath)
-		flowHandle.setDraftAndMeta(undefined, {})
 		goto(`/flows/edit/${savedFlow.path}`)
 		loadFlow()
 	}
 </script>
 
-<!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
-
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} isFlow />
-<LocalDraftStaleModal
-	open={staleModalOpen}
-	cause={staleModalCause}
-	onLoadLatest={onStaleLoadLatest}
-	onKeepDraft={onStaleKeepDraft}
-/>
 {#if notFound}
 	<div class="flex flex-col items-center justify-center h-full">
 		<h1 class="text-2xl font-bold">Flow not found at path {page.params.path}</h1>

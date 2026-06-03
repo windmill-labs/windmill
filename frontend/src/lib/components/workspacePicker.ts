@@ -102,7 +102,6 @@ export async function loadKind(
 		if (kind === 'flow') {
 			const flows = await FlowService.listFlows({
 				workspace,
-				includeDraftOnly: true,
 				withoutDescription: true
 			})
 			items = flows.map((f: Flow) => ({
@@ -113,7 +112,6 @@ export async function loadKind(
 		} else if (kind === 'script') {
 			const scripts = await ScriptService.listScripts({
 				workspace,
-				includeDraftOnly: true,
 				withoutDescription: true
 			})
 			items = scripts.map((s: Script) => ({
@@ -123,8 +121,7 @@ export async function loadKind(
 			}))
 		} else {
 			const apps = await AppService.listApps({
-				workspace,
-				includeDraftOnly: true
+				workspace
 			})
 			items = apps.map((a: ListableApp) => ({
 				path: a.path,

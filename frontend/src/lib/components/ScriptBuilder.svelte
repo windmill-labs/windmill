@@ -696,15 +696,7 @@
 				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
 			let newHash = ''
-			if (initialPath == '' || savedScript?.draft_only) {
-				if (savedScript?.draft_only) {
-					await ScriptService.deleteScriptByPath({
-						workspace: $workspaceStore!,
-						path: initialPath,
-						keepCaptures: true
-					})
-					script.parent_hash = undefined
-				}
+			if (initialPath == '') {
 				if (!initialPath || script.path != initialPath) {
 					await CaptureService.moveCapturesAndConfigs({
 						workspace: $workspaceStore!,
@@ -727,7 +719,6 @@
 						language: script.language,
 						kind: script.kind,
 						tag: script.tag,
-						draft_only: true,
 						envs: script.envs,
 						concurrent_limit: script.concurrent_limit,
 						concurrency_time_window_s: script.concurrency_time_window_s,
@@ -762,7 +753,7 @@
 			await DraftService.createDraft({
 				workspace: $workspaceStore!,
 				requestBody: {
-					path: initialPath == '' || savedScript?.draft_only ? script.path : initialPath,
+					path: initialPath == '' ? script.path : initialPath,
 					typ: 'script',
 					value: {
 						...script,
@@ -773,9 +764,7 @@
 
 			const clonedScript = structuredClone($state.snapshot(script))
 			savedScript = {
-				...(initialPath == '' || savedScript?.draft_only
-					? { ...clonedScript, draft_only: true }
-					: savedScript),
+				...(initialPath == '' ? clonedScript : savedScript),
 				draft: {
 					...clonedScript,
 					draft_triggers: draftTriggers
@@ -783,7 +772,7 @@
 			} as NewScriptWithDraftAndDraftTriggers
 
 			let savedAtNewPath = false
-			if (initialPath == '' || (savedScript?.draft_only && script.path !== initialPath)) {
+			if (initialPath == '') {
 				savedAtNewPath = true
 				initialPath = script.path
 				onSaveInitial?.({ path: script.path, hash: newHash })
@@ -862,10 +851,7 @@
 										: [])
 								]
 							: []),
-						...(!inSessionPane &&
-						!script.draft_only &&
-						script.kind === 'script' &&
-						!script.auto_kind
+						...(!inSessionPane && script.kind === 'script' && !script.auto_kind
 							? [
 									{
 										label: 'Exit & See details',
@@ -1960,7 +1946,7 @@
 									{hasPreprocessor}
 									canHavePreprocessor={canHavePreprocessor(script.language)}
 									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
-									isDeployed={savedScript && !savedScript?.draft_only}
+									isDeployed={!!savedScript}
 									schema={script.schema}
 									runnableVersion={script.parent_hash}
 									onDeployTrigger={handleDeployTrigger}
@@ -2122,7 +2108,7 @@
 			{template}
 			tag={script.tag}
 			lastSavedCode={savedScript?.draft?.content}
-			lastDeployedCode={savedScript?.draft_only ? undefined : savedScript?.content}
+			lastDeployedCode={savedScript?.content}
 			bind:args
 			bind:hasPreprocessor
 			bind:captureTable

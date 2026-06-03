@@ -424,7 +424,7 @@ function createRuntime(session: Session): SessionRuntime {
 							value: result.value as any,
 							path: result.path,
 							policy: result.policy,
-							draft_only: result.draft_only,
+							draft_only: false,
 							draft: result.draft,
 							custom_path: result.custom_path
 						}
@@ -456,7 +456,7 @@ function createRuntime(session: Session): SessionRuntime {
 					value: result.value as any,
 					path: result.path,
 					policy: result.policy,
-					draft_only: result.draft_only,
+					draft_only: false,
 					draft: result.draft,
 					custom_path: result.custom_path
 				}

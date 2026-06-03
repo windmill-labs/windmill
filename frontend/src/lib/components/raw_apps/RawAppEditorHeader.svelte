@@ -107,7 +107,6 @@
 					path: string
 					summary: string
 					policy: any
-					draft_only?: boolean
 					custom_path?: string
 			  }
 			| undefined
@@ -474,7 +473,6 @@
 						path: newEditedPath,
 						summary: summary,
 						policy,
-						draft_only: true,
 						custom_path: customPath
 					},
 					js,
@@ -500,7 +498,6 @@
 				value: structuredClone(stateSnapshot(app)),
 				path: newEditedPath,
 				policy,
-				draft_only: true,
 				draft: {
 					summary: summary,
 					value: structuredClone(stateSnapshot(app)),
@@ -558,33 +555,10 @@
 		try {
 			await computeTriggerables()
 			let path = appPath
-			if (savedApp.draft_only) {
-				await AppService.deleteApp({
-					workspace: $workspaceStore!,
-					path: path
-				})
-				let { css, js } = await getBundle()
-
-				await AppService.createAppRaw({
-					workspace: $workspaceStore!,
-					formData: {
-						app: {
-							value: app!,
-							summary: summary,
-							policy,
-							path: newEditedPath || path,
-							draft_only: true,
-							custom_path: customPath
-						},
-						js,
-						css
-					}
-				})
-			}
 			await DraftService.createDraft({
 				workspace: $workspaceStore!,
 				requestBody: {
-					path: savedApp.draft_only ? newEditedPath || path : path,
+					path: path,
 					typ: 'app',
 					value: {
 						value: app!,
@@ -596,16 +570,7 @@
 			})
 
 			savedApp = {
-				...(savedApp?.draft_only
-					? {
-							summary: summary,
-							value: structuredClone(stateSnapshot(app)),
-							path: savedApp.draft_only ? newEditedPath || path : path,
-							policy,
-							draft_only: true,
-							custom_path: customPath
-						}
-					: savedApp),
+				...savedApp,
 				draft: {
 					summary: summary,
 					value: structuredClone(stateSnapshot(app)),
@@ -618,7 +583,7 @@
 			sendUserToast('Draft saved')
 			if (!inSessionPane) UserDraft.remove('raw_app', path)
 			loading.saveDraft = false
-			if (newApp || savedApp.draft_only) {
+			if (newApp) {
 				dispatch('savedNewAppPath', newEditedPath || path)
 			}
 		} catch (e) {
@@ -788,7 +753,7 @@
 			<div class="flex flex-row gap-2">
 				<Button
 					variant="default"
-					disabled={!savedApp || savedApp.draft_only}
+					disabled={!savedApp}
 					on:click={async () => {
 						if (!savedApp) {
 							return

@@ -9,10 +9,10 @@
 	import Select from '../select/Select.svelte'
 
 	interface Props {
-		value?: string;
+		value?: string
 	}
 
-	let { value = $bindable('') }: Props = $props();
+	let { value = $bindable('') }: Props = $props()
 	let darkMode = $state(false)
 
 	const { appPath } = getContext<AppViewerContext>('AppViewerContext')
@@ -20,17 +20,15 @@
 	let apps: ListableApp[] = $state([])
 
 	async function loadApps(): Promise<void> {
-		apps = (await AppService.listApps({ workspace: $workspaceStore!, includeDraftOnly: true })).map(
-			(app: ListableApp) => {
-				return {
-					canWrite:
-						canWrite(app.path!, app.extra_perms!, $userStore) &&
-						app.workspace_id == $workspaceStore &&
-						!$userStore?.operator,
-					...app
-				}
+		apps = (await AppService.listApps({ workspace: $workspaceStore! })).map((app: ListableApp) => {
+			return {
+				canWrite:
+					canWrite(app.path!, app.extra_perms!, $userStore) &&
+					app.workspace_id == $workspaceStore &&
+					!$userStore?.operator,
+				...app
 			}
-		)
+		})
 	}
 
 	onMount(() => {

@@ -128,10 +128,7 @@ const INSTRUCTION_SUBJECTS = [
 // `datatable` is not a workspace item type, but the model can request the
 // datatable SDK reference (the wmill.datatable() runnable API) the same way.
 const INSTRUCTION_SUBJECTS_EXTRA = ['datatable'] as const
-const ALL_INSTRUCTION_SUBJECTS = [
-	...INSTRUCTION_SUBJECTS,
-	...INSTRUCTION_SUBJECTS_EXTRA
-] as const
+const ALL_INSTRUCTION_SUBJECTS = [...INSTRUCTION_SUBJECTS, ...INSTRUCTION_SUBJECTS_EXTRA] as const
 const MAX_LIST_LIMIT = 100
 type ActiveGlobalEditorType = Extract<WorkspaceItemType, 'script' | 'flow' | 'app'>
 type LiveEditorDraftKind = Parameters<typeof UserDraft.getLiveEditorDraft>[0]
@@ -163,7 +160,7 @@ const scriptLangSchema = z.enum($ScriptLang.enum)
 
 const getInstructionsSchema = z.object({
 	subject: instructionSubjectSchema.describe(
-		"What to get authoring instructions for: a workspace item type (script, flow, resource, app) or \"datatable\" for the wmill.datatable() SQL SDK used inside runnables. Schedules, triggers, and variables don't need instructions — their tool schemas describe everything."
+		'What to get authoring instructions for: a workspace item type (script, flow, resource, app) or "datatable" for the wmill.datatable() SQL SDK used inside runnables. Schedules, triggers, and variables don\'t need instructions — their tool schemas describe everything.'
 	),
 	language: scriptLangSchema
 		.optional()
@@ -1208,7 +1205,6 @@ async function listWorkspaceItems(
 			workspace,
 			pathStart: pathPrefix,
 			perPage,
-			includeDraftOnly: true,
 			withoutDescription: true
 		})
 		for (const script of scripts) items.push(scriptToItem(script, false))
@@ -1219,7 +1215,6 @@ async function listWorkspaceItems(
 			workspace,
 			pathStart: pathPrefix,
 			perPage,
-			includeDraftOnly: true,
 			withoutDescription: true
 		})
 		for (const flow of flows) items.push(flowToItem(flow, false))
@@ -2208,13 +2203,7 @@ async function writeScriptDraft(
 			content: args.content,
 			language: args.language
 		}
-		UserDraft.setDraftAndMeta(
-			'script',
-			storagePath,
-			draft,
-			{ remoteRev: existing.hash, remoteDraftRev: existing.draft_created_at },
-			{ workspace }
-		)
+		UserDraft.save('script', storagePath, draft, { workspace })
 	} else {
 		const draft: NewScript = {
 			path: args.path,
@@ -2265,10 +2254,7 @@ async function writeFlowDraft(
 		}
 		UserDraft.save('flow', storagePath, draft, { workspace })
 	} else if (backendExists) {
-		const [existing, latestVersion] = await Promise.all([
-			FlowService.getFlowByPathWithDraft({ workspace, path: args.path }),
-			FlowService.getFlowLatestVersion({ workspace, path: args.path })
-		])
+		const existing = await FlowService.getFlowByPathWithDraft({ workspace, path: args.path })
 		const base = (existing.draft ?? existing) as Flow
 		const draft: Flow = {
 			...structuredClone(base),
@@ -2277,13 +2263,7 @@ async function writeFlowDraft(
 			value,
 			schema: draftValue.schema ?? base.schema
 		}
-		UserDraft.setDraftAndMeta(
-			'flow',
-			storagePath,
-			draft,
-			{ remoteRev: latestVersion.id, remoteDraftRev: existing.draft_created_at },
-			{ workspace }
-		)
+		UserDraft.save('flow', storagePath, draft, { workspace })
 	} else {
 		const draft: Flow = {
 			path: args.path,
@@ -2381,11 +2361,10 @@ async function writeResourceDraft(args: CreateResource, ctx: WriteDraftCtx): Pro
 		})
 	} else if (backendExists) {
 		const existing = await ResourceService.getResource({ workspace, path: args.path })
-		UserDraft.setDraftAndMeta(
+		UserDraft.save(
 			'resource',
 			args.path,
 			createResourceToDraftState(args, resourceToDraftState(existing)),
-			{ remoteRev: existing.edited_at },
 			{ workspace }
 		)
 	} else {
@@ -2418,11 +2397,10 @@ async function writeVariableDraft(args: CreateVariable, ctx: WriteDraftCtx): Pro
 			path: args.path,
 			decryptSecret: false
 		})
-		UserDraft.setDraftAndMeta(
+		UserDraft.save(
 			'variable',
 			args.path,
 			createVariableToDraftState(args, variableToDraftState(existing)),
-			{ remoteRev: existing.edited_at },
 			{ workspace }
 		)
 	} else {

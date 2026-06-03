@@ -131,7 +131,6 @@
 		onDeployError,
 		onDetails,
 		onSaveDraftError,
-		onSaveDraftOnlyAtNewPath,
 		onHistoryRestore,
 		onNavigate
 	}: FlowBuilderProps = $props()
@@ -299,14 +298,7 @@
 		loadingDraft = true
 		try {
 			const flow = cleanFlow(flowStore.val)
-			if (newFlow || savedFlow?.draft_only) {
-				if (savedFlow?.draft_only) {
-					await FlowService.deleteFlowByPath({
-						workspace: $workspaceStore!,
-						path: initialPath,
-						keepCaptures: true
-					})
-				}
+			if (newFlow) {
 				if (!initialPath || $pathStore != initialPath) {
 					await CaptureService.moveCapturesAndConfigs({
 						workspace: $workspaceStore!,
@@ -326,7 +318,6 @@
 						value: flow.value,
 						schema: flow.schema,
 						tag: flow.tag,
-						draft_only: true,
 						ws_error_handler_muted: flow.ws_error_handler_muted,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
@@ -337,7 +328,7 @@
 			await DraftService.createDraft({
 				workspace: $workspaceStore!,
 				requestBody: {
-					path: newFlow || savedFlow?.draft_only ? $pathStore : initialPath,
+					path: newFlow ? $pathStore : initialPath,
 					typ: 'flow',
 					value: {
 						...flow,
@@ -348,11 +339,10 @@
 			})
 
 			savedFlow = {
-				...(newFlow || savedFlow?.draft_only
+				...(newFlow
 					? {
 							...structuredClone($state.snapshot(flowStore.val)),
-							path: $pathStore,
-							draft_only: true
+							path: $pathStore
 						}
 					: savedFlow),
 				draft: {
@@ -365,11 +355,6 @@
 			let savedAtNewPath = false
 			if (newFlow) {
 				onSaveInitial?.({ path: $pathStore, id: getSelectedId() ?? 'settings' })
-			} else if (savedFlow?.draft_only && $pathStore !== initialPath) {
-				savedAtNewPath = true
-				initialPath = $pathStore
-				onSaveDraftOnlyAtNewPath?.({ path: $pathStore, selectedId: getSelectedId() ?? 'settings' })
-				// this is so we can use the flow builder outside of sveltekit
 			}
 			onSaveDraft?.({ path: $pathStore, savedAtNewPath, newFlow })
 			sendUserToast('Saved as draft')
@@ -400,7 +385,7 @@
 
 	async function handleSaveFlowInternal(deploymentMsg?: string) {
 		await compareVersions()
-		if (onLatest || initialPath == '' || savedFlow?.draft_only) {
+		if (onLatest || initialPath == '') {
 			// Handle directly
 			await saveFlow(deploymentMsg)
 		} else {
@@ -800,15 +785,13 @@
 	}> = []
 
 	if (untrack(() => customUi).topBar?.extraDeployOptions != false) {
-		if (savedFlow?.draft_only === false || savedFlow?.draft_only === undefined) {
-			dropdownItems.push({
-				label: 'Exit & see details',
-				// Use the deployed path, not the live `$pathStore` — the latter
-				// reflects local rename edits that haven't been deployed yet,
-				// which would land the user on a 404 details page.
-				onClick: () => onDetails?.({ path: initialPath })
-			})
-		}
+		dropdownItems.push({
+			label: 'Exit & see details',
+			// Use the deployed path, not the live `$pathStore` — the latter
+			// reflects local rename edits that haven't been deployed yet,
+			// which would land the user on a 404 details page.
+			onClick: () => onDetails?.({ path: initialPath })
+		})
 
 		if (!untrack(() => newFlow)) {
 			dropdownItems.push({
