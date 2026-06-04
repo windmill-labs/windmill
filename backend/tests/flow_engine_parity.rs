@@ -2967,6 +2967,92 @@ export function main() {
     Ok(())
 }
 
+// stop_after_if with `error_message` + `error_include_result` should fail the
+// flow but preserve the stopping step's own result alongside the raised error,
+// i.e. `{ "error": { .. }, "result": <step result> }`. With the flag off (the
+// default) the flow result is the bare `{ "error": { .. } }`. Regression for the
+// early-stop branch in `update_flow_status_after_job_completion_internal`.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_stop_after_if_error_include_result(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let make_flow = |include_result: bool| {
+        let mut m = flow_module(
+            "step",
+            FlowModuleValue::RawScript {
+                input_transforms: Default::default(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main() {
+    return { userErrors: ["email taken"], ok: false };
+}
+"#
+                .to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            },
+        );
+        m.stop_after_if = Some(windmill_common::flows::StopAfterIf {
+            expr: "true".to_string(),
+            skip_if_stopped: false,
+            error_message: Some("API returned userErrors".to_string()),
+            error_include_result: include_result,
+        });
+        FlowValue { modules: vec![m], same_worker: false, ..Default::default() }
+    };
+
+    // include_result = true: result preserves both the error and the step output
+    let job = RunJob::from(JobPayload::RawFlow {
+        value: make_flow(true),
+        path: None,
+        restarted_from: None,
+    })
+    .run_until_complete(&db, false, server.addr.port())
+    .await;
+    assert!(
+        !job.success,
+        "flow with raised early-stop error should fail"
+    );
+    let result = job.json_result().unwrap();
+    assert_eq!(
+        result["error"]["name"], "EarlyStopError",
+        "expected EarlyStopError; got {result:?}"
+    );
+    assert_eq!(result["error"]["message"], "API returned userErrors");
+    assert_eq!(
+        result["result"],
+        json!({ "userErrors": ["email taken"], "ok": false }),
+        "step result should be preserved under `result`; got {result:?}"
+    );
+
+    // include_result = false (default behavior): result is the bare error object
+    let job = RunJob::from(JobPayload::RawFlow {
+        value: make_flow(false),
+        path: None,
+        restarted_from: None,
+    })
+    .run_until_complete(&db, false, server.addr.port())
+    .await;
+    assert!(
+        !job.success,
+        "flow with raised early-stop error should fail"
+    );
+    let result = job.json_result().unwrap();
+    assert_eq!(result["error"]["name"], "EarlyStopError");
+    assert!(
+        result.get("result").is_none(),
+        "without the flag the step result must not be embedded; got {result:?}"
+    );
+
+    Ok(())
+}
+
 // retry_if predicate sees flow_env. Regression for the two evaluate_retry
 // call sites in `update_flow_status_after_job_completion_internal` (lines
 // 1194 and 1576) which used to pass `None` for flow_env.
