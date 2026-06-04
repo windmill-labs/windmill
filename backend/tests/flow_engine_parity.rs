@@ -3231,3 +3231,84 @@ export function main() {
 
     Ok(())
 }
+
+// stop_after_all_iters_if with `error_message` + `error_include_result` fails the
+// flow and embeds the loop's aggregated iteration results under `error.result`.
+// Covers the loop/branch-all path where `nresult` is already populated with the
+// aggregated results (distinct from the per-step fallback to `result`).
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_stop_after_all_iters_if_error_includes_result(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let inner = flow_module(
+        "iter_step",
+        FlowModuleValue::RawScript {
+            input_transforms: [js_input("i", "flow_input.iter.value")].into(),
+            language: ScriptLang::Deno,
+            content: r#"
+export function main(i: number) {
+    return { iter: i };
+}
+"#
+            .to_string(),
+            path: None,
+            lock: None,
+            tag: None,
+            concurrency_settings: Default::default(),
+            is_trigger: None,
+            assets: None,
+        },
+    );
+
+    let loop_module = {
+        let mut m = flow_module(
+            "loop",
+            FlowModuleValue::ForloopFlow {
+                iterator: InputTransform::Javascript { expr: "[1, 2, 3]".to_string() },
+                modules: vec![inner],
+                modules_node: None,
+                skip_failures: false,
+                parallel: false,
+                parallelism: None,
+                squash: None,
+            },
+        );
+        m.stop_after_all_iters_if = Some(windmill_common::flows::StopAfterIf {
+            expr: "true".to_string(),
+            skip_if_stopped: false,
+            error_message: Some("loop failed".to_string()),
+            error_include_result: true,
+        });
+        m
+    };
+
+    let flow = FlowValue { modules: vec![loop_module], same_worker: false, ..Default::default() };
+
+    let job = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .run_until_complete(&db, false, server.addr.port())
+        .await;
+
+    assert!(
+        !job.success,
+        "loop with a raised early-stop error should fail"
+    );
+    let result = job.json_result().unwrap();
+    assert_eq!(result["error"]["name"], "EarlyStopError", "got {result:?}");
+    assert_eq!(result["error"]["message"], "loop failed");
+    // error.result holds the aggregated iteration results (one per iteration)
+    let iters = result["error"]["result"].as_array().unwrap_or_else(|| {
+        panic!("error.result should be an array of iteration results; got {result:?}")
+    });
+    let iter_values: Vec<_> = iters.iter().map(|r| r["iter"].clone()).collect();
+    assert_eq!(
+        iter_values,
+        vec![json!(1), json!(2), json!(3)],
+        "error.result should contain each iteration's output; got {result:?}"
+    );
+
+    Ok(())
+}
