@@ -80,6 +80,7 @@
 	import DefaultScripts from './DefaultScripts.svelte'
 	import { getContext, onMount, setContext, untrack } from 'svelte'
 	import EditorHeader from './EditorHeader.svelte'
+	import AutosaveIndicator from './AutosaveIndicator.svelte'
 	import LabelsInput from './LabelsInput.svelte'
 
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
@@ -354,6 +355,7 @@
 		// new drafts). Resumed in the async `.finally` so language
 		// switches AFTER bootstrap (which also call `initContent`) sync
 		// normally.
+		console.log('Suspending autosave for script bootstrap', userDraftPath)
 		UserDraft.stopSync('script', userDraftPath)
 		if (template === 'wac_python') {
 			script.modules = {
@@ -1836,6 +1838,9 @@
 							pathEditable={customUi?.topBar?.editablePath != false}
 							onNavigate={(item) => onNavigate?.(item)}
 						/>
+					{/if}
+					{#if $workspaceStore}
+						<AutosaveIndicator workspace={$workspaceStore} itemKind="script" path={userDraftPath} />
 					{/if}
 				</div>
 

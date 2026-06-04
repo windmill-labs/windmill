@@ -5,7 +5,6 @@
 	import Path from '$lib/components/Path.svelte'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
-	import { notifyDraftLoaded } from '$lib/userDraftToast'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -139,14 +138,16 @@
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
 			dirtyPath = false
-			await loadTrigger(defaultConfig)
-			// Snapshot the *backend* config as the baseline before overlaying
-			// any local autosave, so hasChanged / onConfigChange correctly
-			// flag the local edits as unsaved changes.
+			const draftOverlay = await loadTrigger(defaultConfig)
+			// Snapshot the *deployed* config as the baseline before
+			// overlaying the saved draft, so hasChanged compares
+			// draft-vs-deployed and the banner fires whenever a draft
+			// exists.
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			if (draftOverlay) loadTriggerConfig(draftOverlay)
 			if (!defaultConfig) {
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
-			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			await draftSync.maybeRestore()
 		} catch (err) {
 			sendUserToast(`Could not load sqs trigger: ${err.body}`, true)
@@ -222,42 +223,28 @@
 		}
 	}
 
+	/** See `NatsTriggerEditorInner.loadTrigger` for the rationale. */
 	async function loadTrigger(
-		defaultConfig?: Record<string, any>,
-		opts: { getDraft?: boolean } = {}
-	): Promise<void> {
-		const getDraft = opts.getDraft ?? true
+		defaultConfig?: Record<string, any>
+	): Promise<Record<string, any> | undefined> {
 		try {
 			if (defaultConfig) {
 				loadTriggerConfig(defaultConfig)
-				return
-			} else {
-				const s = await SqsTriggerService.getSqsTrigger({
-					workspace: $workspaceStore!,
-					path: initialPath,
-					getDraft
-				})
-				if (s?.is_draft) {
-					notifyDraftLoaded({
-						workspace: $workspaceStore!,
-						itemKind: 'trigger_sqs',
-						path: initialPath,
-						draftOnly: s.no_deployed,
-						onResetToDeployed: async () => {
-							await loadTrigger(undefined, { getDraft: false })
-						}
-					})
-				}
-				// Layer the saved draft (if any) over the deployed at the field
-				// level so `loadTriggerConfig` sees the editor's last-saved state.
-				const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
-				const effective = draftFromBackend
-					? { ...deployedTrigger, ...draftFromBackend }
-					: deployedTrigger
-				loadTriggerConfig(effective)
+				return undefined
 			}
+			const s = await SqsTriggerService.getSqsTrigger({
+				workspace: $workspaceStore!,
+				path: initialPath,
+				getDraft: true
+			})
+			const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
+			loadTriggerConfig(deployedTrigger)
+			return draftFromBackend
+				? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
+				: undefined
 		} catch (error) {
 			sendUserToast(`Could not load SQS trigger: ${error.body}`, true)
+			return undefined
 		}
 	}
 

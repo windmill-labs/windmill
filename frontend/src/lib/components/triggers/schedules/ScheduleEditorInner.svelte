@@ -25,7 +25,6 @@
 	} from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
-	import { notifyDraftLoaded } from '$lib/userDraftToast'
 	import { base } from '$lib/base'
 	import Section from '$lib/components/Section.svelte'
 	import { List, Loader2, Save, AlertTriangle } from 'lucide-svelte'
@@ -153,11 +152,15 @@
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			path = defaultCfg?.path ?? ePath
-			await loadSchedule(defaultCfg)
+			const draftOverlay = await loadSchedule(defaultCfg)
 			edit = true
 			if (!defaultCfg) {
+				// Form holds DEPLOYED here. Capture `initialConfig` as the
+				// deployed baseline so the dirty check / unsaved banner
+				// fires whenever a saved draft exists.
 				initialConfig = structuredClone($state.snapshot(getScheduleCfg()))
 			}
+			if (draftOverlay) await loadScheduleCfg(draftOverlay)
 			await draftSync.maybeRestore()
 		} finally {
 			clearTimeout(loadingTimeout)
@@ -294,23 +297,10 @@
 					path: schedule_path,
 					getDraft
 				})
-				if (resp.is_draft) {
-					notifyDraftLoaded({
-						workspace: $workspaceStore!,
-						itemKind: 'trigger_schedule',
-						path: schedule_path,
-						draftOnly: resp.no_deployed,
-						onResetToDeployed: async () => {
-							await openNew(nis_flow, initial_script_path, defaultValues, schedule_path, {
-								getDraft: false
-							})
-						}
-					})
-				}
 				// The autosaved draft (when present) sits in `.draft` as the
 				// editor's saved Schedule shape. Layer it over the deployed
-				// at the field level so downstream `loadScheduleCfg` sees
-				// the editor's last-saved state.
+				// at the field level so the inline form assignments below
+				// see the editor's last-saved state.
 				const { draft: draftFromBackend, ...deployedSchedule } = resp as any
 				s = draftFromBackend
 					? ({ ...deployedSchedule, ...draftFromBackend } as Schedule)
@@ -477,41 +467,36 @@
 		}
 	}
 
+	/**
+	 * Apply the deployed schedule config to the form, then return the
+	 * saved-draft overlay (if any) so the caller can capture the
+	 * deployed-only form state as `initialConfig` BEFORE applying the
+	 * draft. The "unsaved changes" banner compares `current` vs
+	 * `initialConfig` (via `useTriggerDraftSync.deployed`), so capturing
+	 * from the deployed-only form makes the banner fire whenever a
+	 * draft is present.
+	 */
 	async function loadSchedule(
-		defaultCfg?: Record<string, any>,
-		opts: { getDraft?: boolean } = {}
-	): Promise<void> {
-		const getDraft = opts.getDraft ?? true
-		if (!defaultCfg) {
-			try {
-				const s = await ScheduleService.getSchedule({
-					workspace: $workspaceStore!,
-					path: initialPath,
-					getDraft
-				})
-				if (s.is_draft) {
-					notifyDraftLoaded({
-						workspace: $workspaceStore!,
-						itemKind: 'trigger_schedule',
-						path: initialPath,
-						draftOnly: s.no_deployed,
-						onResetToDeployed: async () => {
-							await loadSchedule(undefined, { getDraft: false })
-						}
-					})
-				}
-				// Layer the saved draft (if any) over the deployed so
-				// `loadScheduleCfg` sees the editor's last-saved fields.
-				const { draft: draftFromBackend, ...deployedSchedule } = s as any
-				const effectiveSchedule = draftFromBackend
-					? { ...deployedSchedule, ...draftFromBackend }
-					: deployedSchedule
-				await loadScheduleCfg(effectiveSchedule)
-			} catch (err) {
-				sendUserToast(`Could not load schedule: ${err}`, true)
-			}
-		} else {
+		defaultCfg?: Record<string, any>
+	): Promise<Record<string, any> | undefined> {
+		if (defaultCfg) {
 			await loadScheduleCfg(defaultCfg)
+			return undefined
+		}
+		try {
+			const s = await ScheduleService.getSchedule({
+				workspace: $workspaceStore!,
+				path: initialPath,
+				getDraft: true
+			})
+			const { draft: draftFromBackend, ...deployedSchedule } = s as any
+			await loadScheduleCfg(deployedSchedule)
+			return draftFromBackend
+				? ({ ...deployedSchedule, ...draftFromBackend } as Record<string, any>)
+				: undefined
+		} catch (err) {
+			sendUserToast(`Could not load schedule: ${err}`, true)
+			return undefined
 		}
 	}
 

@@ -7,7 +7,6 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { notifyDraftLoaded } from '$lib/userDraftToast'
 	import { canWrite } from '$lib/utils'
 	import { Save } from 'lucide-svelte'
 	import VariableForm from './VariableForm.svelte'
@@ -172,44 +171,14 @@
 				// draft (if any) sits in `.draft` as the editor's internal
 				// `VariableState` shape — the editor reads it directly.
 				const savedDraftState = (v as any).draft as VariableState | undefined
-				if (v.is_draft) {
-					notifyDraftLoaded({
-						workspace: ws,
-						itemKind: 'variable',
-						path: p,
-						draftOnly: v.no_deployed,
-						onResetToDeployed: async () => {
-							const fresh = await VariableService.getVariable({
-								workspace: ws,
-								path: p,
-								decryptSecret: false
-							})
-							const deployed: VariableState = {
-								path: fresh.path,
-								variable: {
-									value: fresh.value ?? '',
-									is_secret: fresh.is_secret,
-									description: fresh.description ?? ''
-								},
-								labels: fresh.labels ?? undefined,
-								wsSpecific: fresh.ws_specific ?? false
-							}
-							fetchedRev[ws] = fresh.edited_at
-							initialStates[ws] = structuredClone(deployed)
-							// Reset the live cell to the deployed state and drop the
-							// DB autosave. Setting the draft to `undefined` would
-							// blank the cell (and the editor) — `discard` reseeds it
-							// with the deployed baseline instead. The rev is re-recorded
-							// by the seeding effect on the user's next edit.
-							UserDraft.discard('variable', editPath ?? '', deployed, { workspace: ws })
-						}
-					})
-				}
 				fetchedRev[ws] = v.edited_at
-				// Translate the deployed wire shape into the editor's
-				// `VariableState` shape. When a saved draft exists, use it
-				// directly — it's already a `VariableState`.
-				const s: VariableState = savedDraftState ?? {
+				// The deployed baseline, translated into the editor's
+				// `VariableState` shape. Kept as the dirty-check reference
+				// so the "unsaved changes" banner compares draft-vs-deployed
+				// instead of loaded-vs-current — when a saved draft exists,
+				// the form opens with `draft != deployed` so the banner
+				// fires immediately, exactly as if the user had typed.
+				const deployedState: VariableState = {
 					path: v.path,
 					variable: {
 						value: v.value ?? '',
@@ -219,6 +188,9 @@
 					labels: v.labels ?? undefined,
 					wsSpecific: v.ws_specific ?? false
 				}
+				// What the editor opens with: the saved draft if present,
+				// otherwise the deployed.
+				const s: VariableState = savedDraftState ?? deployedState
 				// See ResourceEditor for the same pattern: a backend that
 				// moved on since the autosave was written → staleness modal;
 				// otherwise just a "showing your local autosave" toast with
@@ -237,7 +209,7 @@
 					}
 				}
 				ensureHandle(ws, s)
-				initialStates[ws] = structuredClone(s)
+				initialStates[ws] = structuredClone(deployedState)
 				existedInitially[ws] = true
 				extraPerms[ws] = v.extra_perms ?? {}
 				perWsUser[ws] = user

@@ -5,7 +5,6 @@
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { notifyDraftLoaded } from '$lib/userDraftToast'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
 	import ResourceForm from './ResourceForm.svelte'
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
@@ -259,48 +258,24 @@
 				// draft (if any) sits in `.draft` as the editor's internal
 				// `ResourceState` shape — the editor reads it directly.
 				const savedDraftState = (r as any).draft as ResourceState | undefined
-				if (r.is_draft) {
-					notifyDraftLoaded({
-						workspace: ws,
-						itemKind: 'resource',
-						path: initialPath ?? '',
-						draftOnly: r.no_deployed,
-						onResetToDeployed: async () => {
-							const fresh = await ResourceService.getResource({
-								workspace: ws,
-								path: initialPath ?? ''
-							})
-							const deployed: ResourceState = {
-								path: fresh.path,
-								description: fresh.description ?? '',
-								args: (fresh.value ?? {}) as any,
-								labels: fresh.labels ?? undefined,
-								wsSpecific: fresh.ws_specific ?? false
-							}
-							fetchedResources[ws] = fresh
-							fetchedRev[ws] = fresh.edited_at
-							initialStates[ws] = structuredClone(deployed)
-							// Reset the live cell to the deployed state and drop the
-							// DB autosave. Setting the draft to `undefined` would
-							// blank the cell (and the editor) — `discard` reseeds it
-							// with the deployed baseline instead. The rev is re-recorded
-							// by the seeding effect on the user's next edit.
-							UserDraft.discard('resource', initialPath ?? '', deployed, { workspace: ws })
-						}
-					})
-				}
 				fetchedResources[ws] = r
 				fetchedRev[ws] = r.edited_at
-				// Translate the deployed wire shape into the editor's
-				// `ResourceState` shape. When a saved draft exists, use it
-				// directly — it's already a `ResourceState`.
-				const s: ResourceState = savedDraftState ?? {
+				// The deployed baseline, translated into the editor's
+				// `ResourceState` shape. Kept as the dirty-check reference
+				// so the "unsaved changes" banner compares draft-vs-deployed
+				// instead of loaded-vs-current — when a saved draft exists,
+				// the form opens with `draft != deployed` so the banner
+				// fires immediately, exactly as if the user had typed.
+				const deployedState: ResourceState = {
 					path: r.path,
 					description: r.description ?? '',
 					args: (r.value ?? {}) as any,
 					labels: r.labels ?? undefined,
 					wsSpecific: r.ws_specific ?? false
 				}
+				// What the editor opens with: the saved draft if present,
+				// otherwise the deployed.
+				const s: ResourceState = savedDraftState ?? deployedState
 				// Reconcile the local autosave with the backend before the
 				// handle is registered. If the backend moved on since the
 				// autosave was written (recorded rev != current rev) surface
@@ -330,7 +305,7 @@
 					}
 				}
 				ensureHandle(ws, s)
-				initialStates[ws] = structuredClone(s)
+				initialStates[ws] = structuredClone(deployedState)
 				existedInitially[ws] = true
 				perWsUser[ws] = user
 				// Keep resource_type in sync for the base workspace (controls the schema)

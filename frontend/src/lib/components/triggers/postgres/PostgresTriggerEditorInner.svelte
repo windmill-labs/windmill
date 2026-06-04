@@ -15,7 +15,6 @@
 	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
-	import { notifyDraftLoaded } from '$lib/userDraftToast'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -251,11 +250,12 @@
 			relations = []
 			transaction_to_track = []
 			tab = 'basic'
-			await loadTrigger(defaultConfig)
+			const draftOverlay = await loadTrigger(defaultConfig)
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			if (draftOverlay) loadTriggerConfig(draftOverlay)
 			if (!defaultConfig) {
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
-			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			await draftSync.maybeRestore()
 		} catch (err) {
 			sendUserToast(`Could not load postgres trigger: ${err.body}`, true)
@@ -368,52 +368,62 @@
 		preservePermissionedAs = !!cfg?.permissioned_as
 	}
 
+	/**
+	 * Apply the deployed config to the form (incl. publication fetch),
+	 * then return the saved-draft overlay (already merged with the
+	 * publication payload) so the caller can capture the deployed-only
+	 * form state as `originalConfig` BEFORE applying the draft. See
+	 * `NatsTriggerEditorInner.loadTrigger` for the broader rationale.
+	 *
+	 * Postgres-specific wrinkle: the publication payload is fetched from
+	 * the resource — keyed by `postgres_resource_path` /
+	 * `publication_name`, which the draft may have changed. Fetch once
+	 * using the effective values so the overlay reflects the draft's
+	 * publication, not the deployed one.
+	 */
 	async function loadTrigger(
-		defaultConfig?: Record<string, any>,
-		opts: { getDraft?: boolean } = {}
-	): Promise<void> {
-		const getDraft = opts.getDraft ?? true
+		defaultConfig?: Record<string, any>
+	): Promise<Record<string, any> | undefined> {
 		if (defaultConfig) {
 			loadTriggerConfig(defaultConfig)
 			if (defaultConfig?.publication) {
 				transaction_to_track = [...defaultConfig.publication.transaction_to_track]
 				relations = defaultConfig.publication.table_to_track ?? []
 			}
-			return
-		} else {
-			const s = await PostgresTriggerService.getPostgresTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath,
-				getDraft
-			})
-			if (s?.is_draft) {
-				notifyDraftLoaded({
-					workspace: $workspaceStore!,
-					itemKind: 'trigger_postgres',
-					path: initialPath,
-					draftOnly: s.no_deployed,
-					onResetToDeployed: async () => {
-						await loadTrigger(undefined, { getDraft: false })
-					}
-				})
-			}
-			// Layer the saved draft (if any) over the deployed before the
-			// publication fetch — the draft might have changed
-			// `postgres_resource_path` / `publication_name`, which are the
-			// keys we look up the publication by.
-			const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
-			const effective = draftFromBackend
-				? { ...deployedTrigger, ...draftFromBackend }
-				: deployedTrigger
-
-			const publication_data = await PostgresTriggerService.getPostgresPublication({
-				path: effective.postgres_resource_path,
-				workspace: $workspaceStore!,
-				publication: effective.publication_name
-			})
-
-			loadTriggerConfig({ ...effective, publication: publication_data })
+			return undefined
 		}
+		const s = await PostgresTriggerService.getPostgresTrigger({
+			workspace: $workspaceStore!,
+			path: initialPath,
+			getDraft: true
+		})
+		const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
+
+		// Fetch deployed publication and apply deployed config — this
+		// becomes the `originalConfig` baseline for the dirty check.
+		const deployedPublication = await PostgresTriggerService.getPostgresPublication({
+			path: deployedTrigger.postgres_resource_path,
+			workspace: $workspaceStore!,
+			publication: deployedTrigger.publication_name
+		})
+		loadTriggerConfig({ ...deployedTrigger, publication: deployedPublication })
+
+		if (!draftFromBackend) return undefined
+
+		// Draft may have changed the resource/publication keys; fetch
+		// the publication that matches the effective values so the
+		// overlay opens on the draft's view.
+		const effective = { ...deployedTrigger, ...draftFromBackend }
+		const effectivePublication =
+			effective.postgres_resource_path === deployedTrigger.postgres_resource_path &&
+			effective.publication_name === deployedTrigger.publication_name
+				? deployedPublication
+				: await PostgresTriggerService.getPostgresPublication({
+						path: effective.postgres_resource_path,
+						workspace: $workspaceStore!,
+						publication: effective.publication_name
+					})
+		return { ...effective, publication: effectivePublication }
 	}
 
 	function getCaptureConfig() {

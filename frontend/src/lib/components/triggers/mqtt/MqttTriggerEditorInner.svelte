@@ -8,7 +8,6 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
-	import { notifyDraftLoaded } from '$lib/userDraftToast'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -156,11 +155,12 @@
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
 			dirtyPath = false
-			await loadTrigger(defaultConfig)
+			const draftOverlay = await loadTrigger(defaultConfig)
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			if (draftOverlay) loadTriggerConfig(draftOverlay)
 			if (!defaultConfig) {
 				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			}
-			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 			await draftSync.maybeRestore()
 		} catch (err) {
 			sendUserToast(`Could not load mqtt trigger: ${err.body}`, true)
@@ -245,42 +245,28 @@
 		}
 	}
 
+	/** See `NatsTriggerEditorInner.loadTrigger` for the rationale. */
 	async function loadTrigger(
-		defaultConfig?: Record<string, any>,
-		opts: { getDraft?: boolean } = {}
-	): Promise<void> {
-		const getDraft = opts.getDraft ?? true
+		defaultConfig?: Record<string, any>
+	): Promise<Record<string, any> | undefined> {
 		try {
 			if (defaultConfig) {
 				loadTriggerConfig(defaultConfig)
-				return
-			} else {
-				const s = await MqttTriggerService.getMqttTrigger({
-					workspace: $workspaceStore!,
-					path: initialPath,
-					getDraft
-				})
-				if (s?.is_draft) {
-					notifyDraftLoaded({
-						workspace: $workspaceStore!,
-						itemKind: 'trigger_mqtt',
-						path: initialPath,
-						draftOnly: s.no_deployed,
-						onResetToDeployed: async () => {
-							await loadTrigger(undefined, { getDraft: false })
-						}
-					})
-				}
-				// Layer the saved draft (if any) over the deployed at the field
-				// level so `loadTriggerConfig` sees the editor's last-saved state.
-				const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
-				const effective = draftFromBackend
-					? { ...deployedTrigger, ...draftFromBackend }
-					: deployedTrigger
-				loadTriggerConfig(effective)
+				return undefined
 			}
+			const s = await MqttTriggerService.getMqttTrigger({
+				workspace: $workspaceStore!,
+				path: initialPath,
+				getDraft: true
+			})
+			const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
+			loadTriggerConfig(deployedTrigger)
+			return draftFromBackend
+				? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
+				: undefined
 		} catch (error) {
 			sendUserToast(`Could not load mqtt trigger: ${error.body}`, true)
+			return undefined
 		}
 	}
 

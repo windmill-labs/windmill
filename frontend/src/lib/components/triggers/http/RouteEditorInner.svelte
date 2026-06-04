@@ -23,7 +23,6 @@
 		generateRandomString,
 		sendUserToast
 	} from '$lib/utils'
-	import { notifyDraftLoaded } from '$lib/userDraftToast'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, Pipette, Plus } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -231,12 +230,13 @@
 			edit = true
 			dirtyPath = false
 			dirtyRoutePath = false
-			await loadTrigger(defaultConfig)
+			const draftOverlay = await loadTrigger(defaultConfig)
+			originalConfig = structuredClone($state.snapshot(getRouteConfig())) as NewHttpTrigger
+			if (draftOverlay) loadTriggerConfig(draftOverlay as Partial<HttpTrigger>)
 			if (!defaultConfig) {
 				// If the route is loaded from the backend, we to set the initial config
-				initialConfig = structuredClone($state.snapshot(getRouteConfig()))
+				initialConfig = structuredClone($state.snapshot(getRouteConfig())) as NewHttpTrigger
 			}
-			originalConfig = structuredClone($state.snapshot(getRouteConfig()))
 			await draftSync.maybeRestore()
 		} catch (err) {
 			sendUserToast(`Could not load route: ${err}`, true)
@@ -340,40 +340,24 @@
 		preservePermissionedAs = !!cfg?.permissioned_as
 	}
 
+	/** See `NatsTriggerEditorInner.loadTrigger` for the rationale. */
 	async function loadTrigger(
-		defaultConfig?: Partial<HttpTrigger>,
-		opts: { getDraft?: boolean } = {}
-	): Promise<void> {
-		const getDraft = opts.getDraft ?? true
+		defaultConfig?: Partial<HttpTrigger>
+	): Promise<Record<string, any> | undefined> {
 		if (defaultConfig) {
 			loadTriggerConfig(defaultConfig)
-			return
-		} else {
-			const s = await HttpTriggerService.getHttpTrigger({
-				workspace: $workspaceStore!,
-				path: initialPath,
-				getDraft
-			})
-			if (s?.is_draft) {
-				notifyDraftLoaded({
-					workspace: $workspaceStore!,
-					itemKind: 'trigger_http',
-					path: initialPath,
-					draftOnly: s.no_deployed,
-					onResetToDeployed: async () => {
-						await loadTrigger(undefined, { getDraft: false })
-					}
-				})
-			}
-			// Layer the saved draft (if any) over the deployed at the field
-			// level so `loadTriggerConfig` sees the editor's last-saved state.
-			const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
-			const effective: any = draftFromBackend
-				? { ...deployedTrigger, ...draftFromBackend }
-				: deployedTrigger
-
-			loadTriggerConfig(effective)
+			return undefined
 		}
+		const s = await HttpTriggerService.getHttpTrigger({
+			workspace: $workspaceStore!,
+			path: initialPath,
+			getDraft: true
+		})
+		const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
+		loadTriggerConfig(deployedTrigger)
+		return draftFromBackend
+			? ({ ...deployedTrigger, ...draftFromBackend } as Record<string, any>)
+			: undefined
 	}
 
 	async function triggerScript(): Promise<void> {
