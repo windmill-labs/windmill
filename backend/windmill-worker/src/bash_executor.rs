@@ -194,17 +194,6 @@ exit $exit_status
     let _ = write_file(job_dir, "result.out", "")?;
     let _ = write_file(job_dir, "result2.out", "")?;
 
-    // Forward DOCKER_HOST to the bash script when in docker mode so the docker CLI
-    // connects to the right daemon (e.g. a dind sidecar instead of /var/run/docker.sock)
-    let docker_envs: Vec<(&str, String)> = if annotation.docker {
-        ["DOCKER_HOST", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"]
-            .iter()
-            .filter_map(|k| std::env::var(k).ok().map(|v| (*k, v)))
-            .collect()
-    } else {
-        vec![]
-    };
-
     // Check if this is a regular job (not init or periodic script)
     // Init/periodic scripts need full system access without isolation
     let is_regular_job = job
@@ -217,6 +206,75 @@ exit $exit_status
 
     // Use nsjail if globally enabled OR if script has #sandbox annotation
     let nsjail = (is_sandboxing_enabled() || annotation.sandbox) && is_regular_job;
+
+    // Under nsjail (untrusted), a docker job gets its OWN rootless podman instance so
+    // no container it spawns can outlive the job — it is torn down when this guard
+    // drops at the end of the function. Trusted (unshare) jobs keep using the shared
+    // worker DOCKER_HOST. Only applies when container_runtime=podman is configured.
+    #[cfg(feature = "dind")]
+    let per_job_podman: Option<PerJobPodman> = if annotation.docker
+        && nsjail
+        && windmill_common::worker::WORKER_CONFIG
+            .load()
+            .container_runtime
+            .as_deref()
+            == Some("podman")
+    {
+        Some(start_per_job_podman(job_dir).await?)
+    } else {
+        None
+    };
+
+    // In-jail socket path the script's docker CLI connects to (bind-mounted from the
+    // per-job podman host socket via {DOCKER_SOCK_MOUNT} below).
+    let docker_host_for_script: Option<String> = {
+        #[cfg(feature = "dind")]
+        {
+            per_job_podman
+                .as_ref()
+                .map(|_| "unix:///tmp/podman.sock".to_string())
+        }
+        #[cfg(not(feature = "dind"))]
+        {
+            None
+        }
+    };
+
+    // Forward DOCKER_HOST to the bash script in docker mode: the per-job podman
+    // socket under nsjail, else the shared DOCKER_HOST / dind sidecar.
+    let docker_envs: Vec<(&str, String)> = if annotation.docker {
+        if let Some(dh) = &docker_host_for_script {
+            vec![("DOCKER_HOST", dh.clone())]
+        } else {
+            ["DOCKER_HOST", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"]
+                .iter()
+                .filter_map(|k| std::env::var(k).ok().map(|v| (*k, v)))
+                .collect()
+        }
+    } else {
+        vec![]
+    };
+
+    // nsjail mount block that exposes the per-job podman socket inside the jail.
+    let docker_sock_mount: String = {
+        #[cfg(feature = "dind")]
+        {
+            per_job_podman
+                .as_ref()
+                .map(|p| {
+                    format!(
+                        "mount {{\n    src: \"{}\"\n    dst: \"/tmp/podman.sock\"\n    is_bind: true\n    rw: true\n}}\n",
+                        p.host_sock
+                    )
+                })
+                .unwrap_or_default()
+        }
+        #[cfg(not(feature = "dind"))]
+        {
+            String::new()
+        }
+    };
+
     let child = if nsjail {
         let nsjail_timeout =
             resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
@@ -233,6 +291,7 @@ exit $exit_status
                     "{TMP_MOUNT_BLOCK}",
                     &resolve_nsjail_tmp_mount_block(job_dir).await,
                 )
+                .replace("{DOCKER_SOCK_MOUNT}", &docker_sock_mount)
                 .replace("{TIMEOUT}", &nsjail_timeout),
         )?;
         let mut cmd_args = vec![
@@ -333,8 +392,11 @@ exit $exit_status
             worker_name,
             occupancy_metrics,
             _killpill_rx,
+            per_job_podman.as_ref().map(|p| p.docker_host.clone()),
         )
         .await;
+        // per_job_podman drops here (after handle_docker_job completes), tearing down
+        // the per-job podman instance so no container outlives the job.
     }
 
     let result_json_path = format!("{job_dir}/result.json");
@@ -383,14 +445,105 @@ async fn rm_container(client: &bollard::Docker, container_id: &str) {
 #[cfg(feature = "dind")]
 /// Connect to the Docker daemon, respecting DOCKER_HOST if set (e.g. for dind sidecar),
 /// otherwise falling back to the default unix socket at /var/run/docker.sock.
-fn connect_docker() -> Result<bollard::Docker, bollard::errors::Error> {
-    if std::env::var("DOCKER_HOST").is_ok() {
+fn connect_docker(docker_host: Option<&str>) -> Result<bollard::Docker, bollard::errors::Error> {
+    if let Some(dh) = docker_host {
+        // Per-job rootless podman (nsjail path): connect to the job's own unix socket.
+        let path = dh.strip_prefix("unix://").unwrap_or(dh);
+        bollard::Docker::connect_with_unix(path, 120, bollard::API_DEFAULT_VERSION)
+    } else if std::env::var("DOCKER_HOST").is_ok() {
         // DOCKER_HOST is set — use it (e.g. tcp://dind:2375 for docker-in-docker)
         bollard::Docker::connect_with_defaults()
     } else {
         // No DOCKER_HOST — use the unix socket (backward compatible default)
         bollard::Docker::connect_with_unix_defaults()
     }
+}
+
+// A per-job rootless podman instance used for docker jobs running under nsjail.
+// The job's docker CLI (inside the jail) and handle_docker_job (in the worker)
+// both talk to this one instance's socket; because every container the job can
+// create is registered in this instance's isolated storage, tearing it down
+// (`podman rm -af --force` + killing the service) guarantees no container
+// outlives the job — even detached or extra ones the script started.
+#[cfg(feature = "dind")]
+struct PerJobPodman {
+    dir: String,
+    host_sock: String,
+    docker_host: String,
+    service: Option<std::process::Child>,
+}
+
+#[cfg(feature = "dind")]
+impl Drop for PerJobPodman {
+    fn drop(&mut self) {
+        // Drop is synchronous: use blocking std::process for guaranteed teardown.
+        let storage = format!("{}/storage", self.dir);
+        let runroot = format!("{}/runroot", self.dir);
+        let _ = std::process::Command::new("podman")
+            .args([
+                "--root",
+                &storage,
+                "--runroot",
+                &runroot,
+                "rm",
+                "-af",
+                "--force",
+            ])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        if let Some(mut child) = self.service.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+// Start a per-job rootless podman service in <job_dir>/podman with isolated
+// storage, returning the host socket path. Inherits the worker's container
+// config (CONTAINERS_CONF etc.) but overrides storage so it is job-scoped.
+#[cfg(feature = "dind")]
+async fn start_per_job_podman(job_dir: &str) -> Result<PerJobPodman, Error> {
+    let dir = format!("{job_dir}/podman");
+    tokio::fs::create_dir_all(&dir).await.map_err(to_anyhow)?;
+    let host_sock = format!("{dir}/podman.sock");
+    let _ = tokio::fs::remove_file(&host_sock).await;
+    let storage = format!("{dir}/storage");
+    let runroot = format!("{dir}/runroot");
+    let service = std::process::Command::new("podman")
+        .args([
+            "--root",
+            &storage,
+            "--runroot",
+            &runroot,
+            "system",
+            "service",
+            "--time=0",
+            &format!("unix://{host_sock}"),
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| {
+            Error::ExecutionErr(format!(
+                "container_runtime=podman but failed to start the per-job podman service: {e}. \
+                 Use a windmill *-full image (ships podman)."
+            ))
+        })?;
+    // Wait (up to ~10s) for the rootless podman service socket to appear.
+    for _ in 0..50 {
+        if tokio::fs::metadata(&host_sock).await.is_ok() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    Ok(PerJobPodman {
+        dir,
+        docker_host: format!("unix://{host_sock}"),
+        host_sock,
+        service: Some(service),
+    })
 }
 
 #[cfg(feature = "dind")]
@@ -404,10 +557,13 @@ async fn handle_docker_job(
     worker_name: &str,
     occupancy_metrics: &mut OccupancyMetrics,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
+    // Some(socket) when a per-job rootless podman runs the container (nsjail path);
+    // None to use the process-wide DOCKER_HOST / default socket.
+    docker_host: Option<String>,
 ) -> Result<Box<RawValue>, Error> {
     use crate::job_logger::append_logs_with_compaction;
 
-    let client = connect_docker().map_err(to_anyhow)?;
+    let client = connect_docker(docker_host.as_deref()).map_err(to_anyhow)?;
 
     let container_id = job_id.to_string();
     let inspected = client.inspect_container(&container_id, None).await;
@@ -451,8 +607,9 @@ async fn handle_docker_job(
     let (tx, mut rx) = tokio::sync::broadcast::channel::<()>(1);
     let workspace_id2 = workspace_id.to_string();
     let mut killpill_rx = killpill_rx.resubscribe();
+    let docker_host_logs = docker_host.clone();
     let logs = tokio::spawn(async move {
-        let client = connect_docker().map_err(to_anyhow);
+        let client = connect_docker(docker_host_logs.as_deref()).map_err(to_anyhow);
         if let Ok(client) = client {
             let mut log_stream = client.logs(
                 &ncontainer_id,
@@ -520,7 +677,7 @@ async fn handle_docker_job(
         }
     });
 
-    let mem_client = connect_docker().map_err(to_anyhow);
+    let mem_client = connect_docker(docker_host.as_deref()).map_err(to_anyhow);
     let ncontainer_id = container_id.clone();
     let result = run_future_with_polling_update_job_poller(
         job_id,

@@ -70,6 +70,9 @@ mount {
 
 {TMP_MOUNT_BLOCK}
 
+# Per-job rootless podman socket (docker jobs under nsjail); empty otherwise.
+{DOCKER_SOCK_MOUNT}
+
 mount {
     src: "{JOB_DIR}/main.sh"
     dst: "/tmp/main.sh"
