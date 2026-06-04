@@ -437,7 +437,7 @@ async fn rm_container(client: &bollard::Docker, container_id: &str) {
 /// otherwise falling back to the default unix socket at /var/run/docker.sock.
 fn connect_docker(docker_host: Option<&str>) -> Result<bollard::Docker, bollard::errors::Error> {
     if let Some(dh) = docker_host {
-        // Per-job rootless podman (nsjail path): connect to the job's own unix socket.
+        // Per-job rootless podman: connect to the job's own unix socket.
         let path = dh.strip_prefix("unix://").unwrap_or(dh);
         bollard::Docker::connect_with_unix(path, 120, bollard::API_DEFAULT_VERSION)
     } else if std::env::var("DOCKER_HOST").is_ok() {
@@ -449,12 +449,13 @@ fn connect_docker(docker_host: Option<&str>) -> Result<bollard::Docker, bollard:
     }
 }
 
-// A per-job rootless podman instance used for docker jobs running under nsjail.
-// The job's docker CLI (inside the jail) and handle_docker_job (in the worker)
-// both talk to this one instance's socket; because every container the job can
-// create is registered in this instance's isolated storage, tearing it down
-// (`podman rm -af --force` + killing the service) guarantees no container
-// outlives the job — even detached or extra ones the script started.
+// A per-job rootless podman instance used for docker jobs (any sandbox mode —
+// nsjail, unshare, or none) when no Docker daemon is otherwise provided.
+// The job's docker CLI and handle_docker_job (in the worker) both talk to this
+// one instance's socket; because every container the job can create is registered
+// in this instance's isolated storage, tearing it down (`podman system reset`,
+// which also removes images and the subuid-owned overlay layers — see Drop)
+// guarantees no container outlives the job — even detached or extra ones.
 #[cfg(feature = "dind")]
 struct PerJobPodman {
     dir: String,
@@ -551,8 +552,8 @@ async fn handle_docker_job(
     worker_name: &str,
     occupancy_metrics: &mut OccupancyMetrics,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
-    // Some(socket) when a per-job rootless podman runs the container (nsjail path);
-    // None to use the process-wide DOCKER_HOST / default socket.
+    // Some(socket) when a per-job rootless podman runs the container;
+    // None to use the provided DOCKER_HOST / default socket (legacy).
     docker_host: Option<String>,
 ) -> Result<Box<RawValue>, Error> {
     use crate::job_logger::append_logs_with_compaction;

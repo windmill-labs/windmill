@@ -31,11 +31,12 @@ RUN apt-get install -y ruby ruby-bundler
 RUN apt-get install -y r-base-dev \
     && Rscript -e 'install.packages("renv", lib="/usr/lib/R/library", repos="https://cloud.r-project.org")'
 
-# Rootless container runtime (podman) for docker-mode jobs. Set the
-# `container_runtime: podman` worker-group option to run `# docker` scripts
-# without a privileged dind sidecar or the host Docker socket. Run the docker
-# worker group as `user: "1000:1000"` for a rootless (unprivileged) daemon;
-# running as root still works but is rootful (less isolated).
+# Rootless container runtime (podman) for docker-mode jobs. When a `# docker` job
+# runs on a worker with no Docker daemon provided (no DOCKER_HOST, no mounted
+# /var/run/docker.sock), Windmill automatically starts a per-job rootless podman —
+# no privileged dind sidecar or host Docker socket. Run the docker worker group as
+# `user: "1000:1000"` for a rootless (unprivileged) daemon; running as root still
+# works but is rootful (less isolated).
 RUN apt-get -y update \
     && apt-get install -y --no-install-recommends \
         podman \
