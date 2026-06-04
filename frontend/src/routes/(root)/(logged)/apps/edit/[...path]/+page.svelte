@@ -113,12 +113,41 @@
 			currentRevs = {}
 			return
 		}
-		const backendApp = await AppService.getAppByPath({
+		let backendApp = await AppService.getAppByPath({
 			path: page.params.path ?? '',
 			workspace: $workspaceStore!,
 			getDraft
 		})
 		if (tok !== loadAppToken) return
+		// When the backend falls back to `fetch_draft_only` (no deployed
+		// row at this path, only a per-user draft), the response's inner
+		// is the raw saved App value — `{grid, subgrids, hiddenInlineScripts,
+		// ...}` — without the `AppWithLastVersion` `{summary, value, path,
+		// policy, ...}` wrapper. The rest of this loader (and AppEditor's
+		// `app={app.value}` prop) expects the deployed shape. Synthesize
+		// the wrapper so both paths are uniform downstream.
+		if (backendApp.no_deployed) {
+			const innerAppValue: any = { ...backendApp }
+			delete innerAppValue.is_draft
+			delete innerAppValue.draft_saved_at
+			delete innerAppValue.no_deployed
+			backendApp = {
+				summary: '',
+				value: innerAppValue as App,
+				path: page.params.path ?? '',
+				policy: {} as any,
+				custom_path: undefined,
+				versions: undefined as any,
+				id: 0 as any,
+				extra_perms: {},
+				created_at: new Date().toISOString(),
+				created_by: '',
+				raw_app: false,
+				is_draft: true,
+				draft_saved_at: backendApp.draft_saved_at,
+				no_deployed: true
+			} as unknown as typeof backendApp
+		}
 		if (backendApp.is_draft) {
 			notifyDraftLoaded({
 				workspace: $workspaceStore!,

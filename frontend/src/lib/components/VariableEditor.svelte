@@ -168,7 +168,25 @@
 				}),
 				getUserExt(ws)
 			]).then(([v, user]) => {
+				// The autosaved draft is a `VariableState` (`{path, variable:
+				// {value, is_secret, description}, labels, wsSpecific}`) which
+				// doesn't line up with the `Variable` wire shape (`{path,
+				// value, is_secret, description, labels, ws_specific, ...}`):
+				// the editor fields are nested under `.variable` and
+				// `wsSpecific` is camelCase. So the deep-merge in
+				// `maybe_overlay_draft` leaves `v.value` / `v.is_secret` /
+				// `v.description` / `v.ws_specific` pointing at the deployed
+				// values, and on `fetch_draft_only` they're undefined. Flatten
+				// the draft keys back onto the wire keys before the rest of
+				// this loader reads them.
 				if (v.is_draft) {
+					const inner = (v as any).variable
+					if (inner && typeof inner === 'object') {
+						if (inner.value !== undefined) v.value = inner.value
+						if (inner.is_secret !== undefined) v.is_secret = inner.is_secret
+						if (inner.description !== undefined) v.description = inner.description
+					}
+					if ((v as any).wsSpecific !== undefined) v.ws_specific = (v as any).wsSpecific
 					notifyDraftLoaded({
 						workspace: ws,
 						itemKind: 'variable',

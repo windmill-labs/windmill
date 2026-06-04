@@ -254,7 +254,18 @@
 				ResourceService.getResource({ workspace: ws, path: initialPath, getDraft: true }),
 				getUserExt(ws)
 			]).then(([r, user]) => {
+				// The autosaved draft is a `ResourceState` (`{path, description,
+				// args, labels, wsSpecific}`) which doesn't line up with the
+				// `Resource` wire shape (`{path, value, description, labels,
+				// ws_specific, ...}`): `args` and `wsSpecific` are renames. So
+				// the deep-merge in `maybe_overlay_draft` leaves `r.value` and
+				// `r.ws_specific` pointing at the deployed values, and on
+				// `fetch_draft_only` they're undefined. Remap the draft keys
+				// back onto the wire keys before the rest of this loader reads
+				// them.
 				if (r.is_draft) {
+					if ((r as any).args !== undefined) (r as any).value = (r as any).args
+					if ((r as any).wsSpecific !== undefined) r.ws_specific = (r as any).wsSpecific
 					notifyDraftLoaded({
 						workspace: ws,
 						itemKind: 'resource',
