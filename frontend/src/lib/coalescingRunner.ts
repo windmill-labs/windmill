@@ -20,6 +20,17 @@ export type CoalescingKeyedRunner = {
 
 type Entry = { pending: CoalescingTask | undefined }
 
+/**
+ * 	
+ * @example
+ * const runner = createCoalescingKeyedRunner()
+ * // f, g, h are async functions
+ * runner.submit('key1', f) // run is synchronous but f is async. Here f is ran immediately.
+ * runner.submit('key1', g) // f is still running: g is postponed
+ * runner.submit('key2', someFn) // someFn runs immediately (different key, unrelated to the rest)
+ * runner.submit('key1', h) // f is still running: g is discarded, h is postponed
+ * // A while later: f finished : h runs now
+ */
 export function createCoalescingKeyedRunner(): CoalescingKeyedRunner {
 	const state = new Map<string, Entry>()
 
