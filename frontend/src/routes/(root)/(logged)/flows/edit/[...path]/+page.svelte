@@ -147,7 +147,8 @@
 	 * (e.g. picker navigation while a draft-discard reload is in flight),
 	 * the older promise no-ops at the next checkpoint. */
 	let loadFlowToken = 0
-	async function loadFlow(): Promise<void> {
+	async function loadFlow(opts: { getDraft?: boolean } = {}): Promise<void> {
+		const getDraft = opts.getDraft ?? true
 		const tok = ++loadFlowToken
 		loading = true
 		let flow: Flow
@@ -214,7 +215,7 @@
 		const backendFlow = await FlowService.getFlowByPath({
 			workspace: $workspaceStore!,
 			path: page.params.path ?? '',
-			getDraft: true
+			getDraft
 		})
 		if (tok !== loadFlowToken) return
 		if (backendFlow.is_draft) {
@@ -225,7 +226,7 @@
 				draftOnly: backendFlow.no_deployed,
 				onResetToDeployed: async () => {
 					flowHandle.setDraftAndMeta(undefined, {})
-					await loadFlow()
+					await loadFlow({ getDraft: false })
 				}
 			})
 		}

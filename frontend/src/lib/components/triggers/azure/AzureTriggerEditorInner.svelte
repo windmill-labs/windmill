@@ -185,7 +185,11 @@
 		}
 	}
 
-	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
+	async function loadTrigger(
+		defaultConfig?: Record<string, any>,
+		opts: { getDraft?: boolean } = {}
+	): Promise<void> {
+		const getDraft = opts.getDraft ?? true
 		if (defaultConfig) {
 			loadTriggerConfig(defaultConfig)
 			return
@@ -194,7 +198,7 @@
 			const s = await AzureTriggerService.getAzureTrigger({
 				workspace: $workspaceStore!,
 				path: initialPath,
-				getDraft: true
+				getDraft
 			})
 			if (s?.is_draft) {
 				notifyDraftLoaded({
@@ -203,7 +207,7 @@
 					path: initialPath,
 					draftOnly: s.no_deployed,
 					onResetToDeployed: async () => {
-						await loadTrigger()
+						await loadTrigger(undefined, { getDraft: false })
 					}
 				})
 			}

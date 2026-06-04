@@ -135,7 +135,8 @@
 	 * navigation races a draft-discard reload) bail at the next checkpoint
 	 * after their captured token no longer matches. */
 	let loadScriptToken = 0
-	async function loadScript(): Promise<void> {
+	async function loadScript(opts: { getDraft?: boolean } = {}): Promise<void> {
+		const getDraft = opts.getDraft ?? true
 		const tok = ++loadScriptToken
 		fullyLoaded = false
 		// `?new_draft=true` (set by `/scripts/add`'s redirect) means we
@@ -179,7 +180,7 @@
 			const backendScript = await ScriptService.getScriptByPath({
 				workspace: $workspaceStore!,
 				path: page.params.path ?? '',
-				getDraft: true
+				getDraft
 			})
 			if (tok !== loadScriptToken) return
 			if (backendScript.is_draft) {
@@ -189,12 +190,11 @@
 					path: page.params.path ?? '',
 					draftOnly: backendScript.no_deployed,
 					onResetToDeployed: async () => {
-						// Drop the in-memory draft so loadScript's no-localDraft
-						// branch fires; the next fetch with `getDraft: true` will
-						// return pure deployed because we just deleted the draft
-						// row server-side.
+						// Drop the in-memory draft and refetch *without* the
+						// draft overlay — we don't trust the eventual delete
+						// to have landed, so we read deployed directly.
 						scriptHandle.setDraftAndMeta(undefined, {})
-						await loadScript()
+						await loadScript({ getDraft: false })
 					}
 				})
 			}

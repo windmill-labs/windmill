@@ -43,11 +43,14 @@ export function notifyRestoredFromLocal(
  * draft) but omit the action.
  *
  * The action:
- *   1. POSTs `value: null` to delete the user's draft for this entity
- *   2. invokes `onResetToDeployed` so the editor can re-fetch without
- *      the overlay and apply the pure deployed version
- * Failures in either step surface a follow-up toast and leave the editor
- * state untouched.
+ *   1. Fires `value: null` at the syncer (fire-and-forget — the user's
+ *      delete races no reader; `onResetToDeployed` doesn't depend on it).
+ *   2. invokes `onResetToDeployed`, which MUST fetch deployed directly
+ *      (e.g. `getDraft: false`) instead of trusting that the delete has
+ *      already landed in the DB.
+ *
+ * A delete failure logs to console only — there's no UI state that
+ * depends on it. A reset-callback failure surfaces a toast.
  */
 export function notifyDraftLoaded(opts: {
 	workspace: string
@@ -64,17 +67,12 @@ export function notifyDraftLoaded(opts: {
 		{
 			label: 'Reset to deployed',
 			callback: async () => {
-				try {
-					await UserDraftDbSyncer.save({
-						workspace: opts.workspace,
-						itemKind: opts.itemKind,
-						path: opts.path,
-						value: null
-					})
-				} catch (e: any) {
-					sendUserToast(`Could not delete draft: ${e?.body ?? e}`, true)
-					return
-				}
+				UserDraftDbSyncer.save({
+					workspace: opts.workspace,
+					itemKind: opts.itemKind,
+					path: opts.path,
+					value: null
+				}).catch((e) => console.error('Reset to deployed: draft delete failed', e))
 				try {
 					await opts.onResetToDeployed()
 				} catch (e: any) {

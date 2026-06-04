@@ -278,8 +278,10 @@
 		nis_flow: boolean,
 		initial_script_path?: string,
 		defaultValues?: Schedule,
-		schedule_path?: string
+		schedule_path?: string,
+		opts: { getDraft?: boolean } = {}
 	) {
+		const getDraft = opts.getDraft ?? true
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -290,7 +292,7 @@
 				const resp = await ScheduleService.getSchedule({
 					workspace: $workspaceStore!,
 					path: schedule_path,
-					getDraft: true
+					getDraft
 				})
 				if (resp.is_draft) {
 					notifyDraftLoaded({
@@ -299,7 +301,9 @@
 						path: schedule_path,
 						draftOnly: resp.no_deployed,
 						onResetToDeployed: async () => {
-							await openNew(nis_flow, initial_script_path, defaultValues, schedule_path)
+							await openNew(nis_flow, initial_script_path, defaultValues, schedule_path, {
+								getDraft: false
+							})
 						}
 					})
 				}
@@ -466,13 +470,17 @@
 		}
 	}
 
-	async function loadSchedule(defaultCfg?: Record<string, any>): Promise<void> {
+	async function loadSchedule(
+		defaultCfg?: Record<string, any>,
+		opts: { getDraft?: boolean } = {}
+	): Promise<void> {
+		const getDraft = opts.getDraft ?? true
 		if (!defaultCfg) {
 			try {
 				const s = await ScheduleService.getSchedule({
 					workspace: $workspaceStore!,
 					path: initialPath,
-					getDraft: true
+					getDraft
 				})
 				if (s.is_draft) {
 					notifyDraftLoaded({
@@ -481,7 +489,7 @@
 						path: initialPath,
 						draftOnly: s.no_deployed,
 						onResetToDeployed: async () => {
-							await loadSchedule()
+							await loadSchedule(undefined, { getDraft: false })
 						}
 					})
 				}

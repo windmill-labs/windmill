@@ -207,7 +207,11 @@
 		preservePermissionedAs = !!cfg?.permissioned_as
 	}
 
-	async function loadTrigger(defaultConfig?: Partial<EmailTrigger>): Promise<void> {
+	async function loadTrigger(
+		defaultConfig?: Partial<EmailTrigger>,
+		opts: { getDraft?: boolean } = {}
+	): Promise<void> {
+		const getDraft = opts.getDraft ?? true
 		if (defaultConfig) {
 			loadTriggerConfig(defaultConfig)
 			return
@@ -215,7 +219,7 @@
 			const s = await EmailTriggerService.getEmailTrigger({
 				workspace: $workspaceStore!,
 				path: initialPath,
-				getDraft: true
+				getDraft
 			})
 			if (s?.is_draft) {
 				notifyDraftLoaded({
@@ -224,7 +228,7 @@
 					path: initialPath,
 					draftOnly: s.no_deployed,
 					onResetToDeployed: async () => {
-						await loadTrigger()
+						await loadTrigger(undefined, { getDraft: false })
 					}
 				})
 			}

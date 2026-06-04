@@ -76,7 +76,8 @@
 	 * navigation races a draft-discard reload) bail at the next checkpoint
 	 * after their captured token no longer matches. */
 	let loadAppToken = 0
-	async function loadApp(): Promise<void> {
+	async function loadApp(opts: { getDraft?: boolean } = {}): Promise<void> {
+		const getDraft = opts.getDraft ?? true
 		const tok = ++loadAppToken
 		// `?new_draft=true` (set by `/apps/add`'s redirect) means we landed
 		// on a fresh `u/{user}/draft_{uuid}` path that's never been saved.
@@ -115,7 +116,7 @@
 		const backendApp = await AppService.getAppByPath({
 			path: page.params.path ?? '',
 			workspace: $workspaceStore!,
-			getDraft: true
+			getDraft
 		})
 		if (tok !== loadAppToken) return
 		if (backendApp.is_draft) {
@@ -126,7 +127,7 @@
 				draftOnly: backendApp.no_deployed,
 				onResetToDeployed: async () => {
 					UserDraft.remove('app', path)
-					await loadApp()
+					await loadApp({ getDraft: false })
 					redraw++
 				}
 			})

@@ -58,19 +58,21 @@
 		// separate `.draft` field), so `saved.is_draft` is the signal that
 		// there's actually a draft worth deleting; the syncer's
 		// `value: null` POST is the canonical per-user delete.
+		//
+		// Fire-and-forget: every read here (`saved`, the snapshot we build
+		// below, the UserDraft.discard write) is purely in-memory, so we
+		// don't need the DELETE to have landed to finish the restore. We
+		// flip `is_draft` optimistically so the UI matches the new intent
+		// immediately. A failed DELETE only matters across a hard reload
+		// before it lands — log and move on.
 		if (saved.is_draft) {
-			try {
-				await UserDraftDbSyncer.save({
-					workspace: workspaceId,
-					itemKind: 'script',
-					path: saved.path,
-					value: null
-				})
-				saved.is_draft = false
-			} catch (e: any) {
-				sendUserToast(`Could not delete draft: ${e?.body ?? e}`, true)
-				return
-			}
+			saved.is_draft = false
+			UserDraftDbSyncer.save({
+				workspace: workspaceId,
+				itemKind: 'script',
+				path: saved.path,
+				value: null
+			}).catch((e) => console.error('restoreDeployed: draft delete failed', e))
 		}
 		const deployed = structuredClone($state.snapshot(saved)) as NewScript & { draft?: unknown }
 		delete deployed.draft
