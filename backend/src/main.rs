@@ -1664,6 +1664,12 @@ async fn process_notify_event(
                     match *source_type {
                         "script" => {
                             windmill_common::DEPLOYED_SCRIPT_HASH_CACHE.remove(&key);
+                            // Evict the relative-import latest-hash cache so a redeployed
+                            // imported script flips the content cache to its new version
+                            // across all replicas within a poll interval (see #6769). Keyed
+                            // by the bare path, matching this event's payload.
+                            windmill_api_scripts::scripts::RAW_SCRIPT_LATEST_HASH_CACHE
+                                .remove(&format!("{workspace_id}:{path}"));
                             if *kind == "preprocessor" {
                                 match sqlx::query_scalar::<_, i64>(
                                     "SELECT fv.id
