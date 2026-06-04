@@ -50,6 +50,14 @@ RUN useradd -u 1000 -m -s /bin/bash windmill 2>/dev/null || true
 # one already; only append if it didn't, to avoid a duplicate range).
 RUN grep -q '^windmill:' /etc/subuid || echo "windmill:100000:65536" >> /etc/subuid; \
     grep -q '^windmill:' /etc/subgid || echo "windmill:100000:65536" >> /etc/subgid
+# newuidmap/newgidmap need privilege to map the subuid range for rootless podman;
+# ensure they are setuid in case the package's file capabilities are lost in the
+# image layers.
+RUN chmod u+s /usr/bin/newuidmap /usr/bin/newgidmap
+# Default rootless container networking to slirp4netns: the netavark bridge default
+# (newer podman) fails rootless on hosts without the required nftables setup.
+RUN mkdir -p /etc/containers/containers.conf.d \
+    && printf '[containers]\nnetns = "slirp4netns"\n' > /etc/containers/containers.conf.d/01-windmill.conf
 
 # Fix UV cache permissions for non-root user support (uid 1000, etc.)
 # The uv tool install ansible command populates the UV cache with root-owned files
