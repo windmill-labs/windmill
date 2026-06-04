@@ -27,6 +27,7 @@ import QRCodeIcon from './QRCodeIcon.svelte'
 import LinkedinIcon from './LinkedinIcon.svelte'
 import HubspotIcon from './HubspotIcon.svelte'
 import DatadogIcon from './DatadogIcon.svelte'
+import DatabricksIcon from './DatabricksIcon.svelte'
 import AdobeAcrobatSignIcon from './AdobeAcrobatSignIcon.svelte'
 import StripeIcon from './StripeIcon.svelte'
 import TelegramIcon from './TelegramIcon.svelte'
@@ -246,6 +247,7 @@ export const APP_TO_ICON_COMPONENT = {
 	linkedin: LinkedinIcon,
 	hubspot: HubspotIcon,
 	datadog: DatadogIcon,
+	databricks: DatabricksIcon,
 	adobe_acrobat_sign: AdobeAcrobatSignIcon,
 	stripe: StripeIcon,
 	telegram: TelegramIcon,
