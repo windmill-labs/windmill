@@ -59,10 +59,19 @@ export type UserDraftListOptions = UserDraftOptions & {
  * handle for. The shape mirrors `use()`'s arguments, just bundled into
  * one object so a getter can return a list of them.
  */
-export type UserDraftSpec = {
+export type UserDraftSpec<V = unknown> = {
 	itemKind: UserDraftItemKind
 	path: string
 	workspace?: string
+	/**
+	 * Value the handle reports when the entry is first acquired and no
+	 * autosave is persisted. Seeded into the in-memory cell on acquire and
+	 * swallowed by the sync effect so it never POSTs — the user's first
+	 * real edit is the first synced write. An entry that already exists
+	 * (refcount > 0, e.g. another live handle) keeps its current value; the
+	 * default is ignored in that case (an existing autosave always wins).
+	 */
+	defaultValue?: V
 }
 
 /**
@@ -502,7 +511,7 @@ export const UserDraft = {
 		return handles[0]
 	},
 
-	useMany<V = unknown>(getSpecs: () => UserDraftSpec[]): UserDraftHandle<V>[] {
+	useMany<V = unknown>(getSpecs: () => UserDraftSpec<V>[]): UserDraftHandle<V>[] {
 		// Reactive handles array, reconciled against the latest
 		// `getSpecs()` output. Indices line up with the spec array.
 		// Handles for the same `(workspace, kind, path)` tuple are
@@ -524,7 +533,7 @@ export const UserDraft = {
 				seen.add(mk)
 
 				if (!acquired.has(mk)) {
-					acquireEntry(ws, spec.itemKind, spec.path)
+					acquireEntry(ws, spec.itemKind, spec.path, spec.defaultValue)
 					acquired.add(mk)
 				}
 				let handle = handleCache.get(mk)
@@ -570,20 +579,34 @@ export const UserDraft = {
 	}
 }
 
-function acquireEntry(workspace: string, itemKind: UserDraftItemKind, path: string): void {
+function acquireEntry(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string,
+	defaultValue?: unknown
+): void {
 	const mk = mapKey(workspace, itemKind, path)
 	const existing = entries.get(mk)
 	if (existing) {
 		existing.count++
 		return
 	}
+	// Seed the cell with the caller's `defaultValue` (deep-cloned so the
+	// cell owns its copy and the caller's baseline can't alias it). This is
+	// how editors report the deployed/draft state until the user edits —
+	// the sync effect treats this first write as the seed and never POSTs
+	// it (see `lastSerialized`/`skipNextWrite` below).
+	const seed =
+		defaultValue !== undefined
+			? (wrap(snapshotDraftValue(defaultValue)) as StoredDraft<unknown> | undefined)
+			: undefined
 	// `$effect.root` gives the entry its own scope, disposed only by
 	// `releaseEntry`. Without that, the sync `$effect` would parent to
 	// `useMany`'s reconcile effect and be torn down on the next
 	// reconcile.
 	let stateRef: DraftState<unknown> | undefined
 	const destroyRoot = $effect.root(() => {
-		const cell = $state<{ val: StoredDraft<unknown> | undefined }>({ val: undefined })
+		const cell = $state<{ val: StoredDraft<unknown> | undefined }>({ val: seed })
 		stateRef = cell
 		// Mirror every observable change of `cell.val` to the DB
 		// syncer. Reading `cell.val` alone only subscribes to the proxy
@@ -604,9 +627,12 @@ function acquireEntry(workspace: string, itemKind: UserDraftItemKind, path: stri
 		// callers that already POSTed (e.g. `discard`, `remove`,
 		// `saveMeta`) suppress a duplicate fire from their own
 		// reactive write.
-		let lastSerialized: string | undefined = untrack(() =>
-			cell.val === undefined ? undefined : JSON.stringify(cell.val)
-		)
+		// Start at `undefined` even when the cell was seeded above: that way
+		// the seed is the FIRST observable change the effect sees and gets
+		// swallowed by `skipNextWrite`, so seeding the deployed/draft
+		// baseline never POSTs. The user's first real edit is then the first
+		// synced write.
+		let lastSerialized: string | undefined = undefined
 		let skipNextWrite = true
 		$effect(() => {
 			const stored = cell.val
@@ -647,7 +673,7 @@ function acquireEntry(workspace: string, itemKind: UserDraftItemKind, path: stri
 	// isn't invoked. Unreachable in production (Svelte runs it
 	// synchronously). The fallback cell has no sync effect, so writes
 	// in tests stay in-memory.
-	const fallback = $state<{ val: StoredDraft<unknown> | undefined }>({ val: undefined })
+	const fallback = $state<{ val: StoredDraft<unknown> | undefined }>({ val: seed })
 	entries.set(mk, {
 		count: 1,
 		workspace,
