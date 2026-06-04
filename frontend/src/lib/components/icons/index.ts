@@ -214,6 +214,7 @@ import YnabIcon from './YnabIcon.svelte'
 import SpeechifyIcon from './SpeechifyIcon.svelte'
 import ConvertKitIcon from './ConvertKitIcon.svelte'
 import BrowserlessIcon from './BrowserlessIcon.svelte'
+import WizIcon from './WizIcon.svelte'
 import type { Component } from 'svelte'
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
@@ -436,7 +437,8 @@ export const APP_TO_ICON_COMPONENT = {
 	ynab: YnabIcon,
 	speechify: SpeechifyIcon,
 	convertkit: ConvertKitIcon,
-	browserless: BrowserlessIcon
+	browserless: BrowserlessIcon,
+	wiz: WizIcon
 } as unknown as Record<string, Component> // to generate correct svelte package types
 
 export {
@@ -647,5 +649,6 @@ export {
 	YnabIcon,
 	SpeechifyIcon,
 	ConvertKitIcon,
-	BrowserlessIcon
+	BrowserlessIcon,
+	WizIcon
 }
