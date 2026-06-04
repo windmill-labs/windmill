@@ -41,8 +41,8 @@ use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::{
     common::{
         build_args_map, build_command_with_isolation, get_reserved_variables, read_file,
-        read_file_content, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
-        OccupancyMetrics, DEV_CONF_NSJAIL,
+        read_file_content, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block,
+        start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
@@ -96,6 +96,20 @@ pub async fn handle_bash_job(
     let mut logs1 = "\n\n--- BASH CODE EXECUTION ---\n".to_string();
     if annotation.docker {
         logs1.push_str("docker mode\n");
+        // If neither DOCKER_HOST nor the host socket is available, the docker CLI
+        // in the script would fail with a generic "cannot connect to the Docker
+        // daemon" error. Surface a Windmill-specific hint instead.
+        if std::env::var("DOCKER_HOST").is_err()
+            && !std::path::Path::new("/var/run/docker.sock").exists()
+        {
+            logs1.push_str(
+                "WARNING: docker mode is set but no Docker daemon is reachable from this worker \
+                (DOCKER_HOST is unset and /var/run/docker.sock is not mounted). Give this worker \
+                Docker access: with docker-compose, enable the dind sidecar (`docker compose \
+                --profile dind up -d` and uncomment DOCKER_HOST in windmill_worker); with the Helm \
+                chart, set `exposeHostDocker: true`; otherwise set DOCKER_HOST or mount a Docker socket.\n",
+            );
+        }
     }
     if annotation.sandbox {
         logs1.push_str("sandbox mode (nsjail)\n");
