@@ -181,5 +181,18 @@
       "auth_url": "https://account-d.docusign.com/oauth/auth",
       "token_url": "https://account-d.docusign.com/oauth/token"
     }
+  },
+  "salesforce": {
+    "auth_url": "https://login.salesforce.com/services/oauth2/authorize",
+    "token_url": "https://login.salesforce.com/services/oauth2/token",
+    "scopes": [
+      "api",
+      "refresh_token",
+      "offline_access"
+    ],
+    "sandbox": {
+      "auth_url": "https://test.salesforce.com/services/oauth2/authorize",
+      "token_url": "https://test.salesforce.com/services/oauth2/token"
+    }
   }
 }

@@ -709,7 +709,9 @@ async fn test_get_copilot_settings_state_reports_instance_ai_fallback_flags(
                 "resource_path": "u/test-user/openai_instance",
                 "models": ["gpt-4o-mini"]
             }
-        }
+        },
+        "default_model": { "provider": "openai", "model": "gpt-4o-mini" },
+        "metadata_model": { "provider": "openai", "model": "gpt-4o-mini" }
     });
     let workspace_ai_config = json!({
         "providers": {
@@ -747,6 +749,10 @@ async fn test_get_copilot_settings_state_reports_instance_ai_fallback_flags(
     );
     assert_eq!(
         settings["instance_ai_summary"]["providers"][0]["models"][0],
+        "gpt-4o-mini"
+    );
+    assert_eq!(
+        settings["instance_ai_summary"]["metadata_model"]["model"],
         "gpt-4o-mini"
     );
 

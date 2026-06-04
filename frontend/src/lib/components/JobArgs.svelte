@@ -14,6 +14,7 @@
 	import { deepEqual } from 'fast-equals'
 	import { isWindmillTooBigObject } from './job_args'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
+	import { appendViewToken } from '$lib/viewToken'
 
 	interface Props {
 		id?: string | undefined
@@ -29,7 +30,9 @@
 	let jsonStr = $state('')
 
 	const argsDownloadName = 'windmill-args.json'
-	let argsApiPath = $derived(id && workspace ? `/w/${workspace}/jobs_u/get_args/${id}` : undefined)
+	let argsApiPath = $derived(
+		id && workspace ? appendViewToken(`/w/${workspace}/jobs_u/get_args/${id}`) : undefined
+	)
 	let argsDataHref = $derived(`data:text/json;charset=utf-8,${encodeURIComponent(jsonStr)}`)
 
 	function pythonCode() {

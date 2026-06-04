@@ -20,6 +20,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	import WorkspaceItemRow from '$lib/components/WorkspaceItemRow.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import { onMount, untrack } from 'svelte'
+	import { generateRandomString } from '$lib/utils'
 	import {
 		dirKey,
 		getCachedItems,
@@ -65,7 +66,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 
 	let searchInput: TextInput | undefined = $state()
 	let pickerRoot: HTMLElement | undefined = $state()
-	const instanceId = crypto.randomUUID()
+	const instanceId = generateRandomString(8)
 	const listboxId = `pkr-list-${instanceId}`
 	const idFor = (key: string) => `pkr-${instanceId}-${key.replace(/[^a-zA-Z0-9-]/g, '_')}`
 

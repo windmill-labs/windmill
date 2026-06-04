@@ -29,3 +29,6 @@ http = { workspace = true, optional = true }
 tokio-util = { workspace = true, features = ["rt"], optional = true }
 tokio = { workspace = true, optional = true }
 futures.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

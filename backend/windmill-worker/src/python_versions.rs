@@ -537,6 +537,11 @@ impl PyV {
                 &v,
                 "--python-preference=only-managed",
                 "--no-bin",
+                // Compile the runtime's stdlib to bytecode at install time. The
+                // runtime is mounted read-only into the job nsjail, so without
+                // precompiled .pyc Python would recompile ~stdlib from source on
+                // every job (and can never persist it). Requires uv >= 0.9.25.
+                "--compile-bytecode",
             ])
             // TODO: Do we need these?
             .envs([
