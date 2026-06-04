@@ -10,6 +10,8 @@
  * Use to collapse bursts of "save the latest version" calls down to
  * exactly two runs: the one in flight plus the most recent.
  */
+import { SvelteSet } from 'svelte/reactivity'
+
 export type CoalescingTask<T = unknown> = () => T | Promise<T>
 
 /** Thrown into the rejection of a `submitAndWait` promise (and a
@@ -41,6 +43,10 @@ export type CoalescingKeyedRunner = {
 	 * the dropped task was submitted via `submitAndWait`, its promise
 	 * rejects with `CoalescingDisplacedError`. */
 	cancel(key: string): boolean
+	/** Reactively whether a task for `key` is currently in flight (the
+	 * chain is running). Backed by a `SvelteSet`, so reading this inside a
+	 * `$derived` / `$effect` re-runs when the key starts/stops running. */
+	isRunning(key: string): boolean
 }
 
 type PendingTask = {
@@ -64,6 +70,11 @@ type Entry = { pending: PendingTask | undefined }
  */
 export function createCoalescingKeyedRunner(): CoalescingKeyedRunner {
 	const state = new Map<string, Entry>()
+	// Reactive mirror of the keys with a chain currently running. Updated
+	// in lock-step with `state`'s lifetime (added when a chain starts in
+	// `setOrDisplace`, removed when it drains in `chain`). A `SvelteSet`
+	// gives per-key subscriptions for `isRunning`.
+	const runningKeys = new SvelteSet<string>()
 
 	async function chain(key: string, first: PendingTask): Promise<void> {
 		let current: PendingTask | undefined = first
@@ -85,6 +96,7 @@ export function createCoalescingKeyedRunner(): CoalescingKeyedRunner {
 			entry.pending = undefined
 		}
 		state.delete(key)
+		runningKeys.delete(key)
 	}
 
 	/** Set `task` as the pending entry for `key`, displacing whatever
@@ -98,6 +110,7 @@ export function createCoalescingKeyedRunner(): CoalescingKeyedRunner {
 			return
 		}
 		state.set(key, { pending: undefined })
+		runningKeys.add(key)
 		void chain(key, task)
 	}
 
@@ -124,5 +137,9 @@ export function createCoalescingKeyedRunner(): CoalescingKeyedRunner {
 		return true
 	}
 
-	return { submit, submitAndWait, cancel }
+	function isRunning(key: string): boolean {
+		return runningKeys.has(key)
+	}
+
+	return { submit, submitAndWait, cancel, isRunning }
 }

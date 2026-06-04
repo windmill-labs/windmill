@@ -15,6 +15,8 @@
  * Errors from sync throws and from async rejections are logged and
  * swallowed so a bad task doesn't break future scheduling.
  */
+import { SvelteSet } from 'svelte/reactivity'
+
 export type DebouncedTask = () => unknown | Promise<unknown>
 
 export type DebouncerByKey = {
@@ -26,6 +28,10 @@ export type DebouncerByKey = {
 	 * to hand control of a key over to an imperative path (e.g. an
 	 * immediate save that supersedes the queued autosave). */
 	cancel(key: string): boolean
+	/** Reactively whether `key` currently has a queued (not-yet-fired)
+	 * task. Backed by a `SvelteSet`, so reading this inside a `$derived`
+	 * / `$effect` re-runs when the key's pending state flips. */
+	isPending(key: string): boolean
 }
 
 type Entry = {
@@ -42,11 +48,20 @@ export function createDebouncerByKey(opts: {
 }): DebouncerByKey {
 	const { debounceMs, maxDebounceMs } = opts
 	const entries = new Map<string, Entry>()
+	// Reactive mirror of `entries`' key set. Updated in lock-step with
+	// `entries` so `isPending` can be read from a reactive context. A
+	// `SvelteSet` (not a plain `$state` field) gives per-key subscriptions
+	// — readers only re-run when their own key flips.
+	const pendingKeys = new SvelteSet<string>()
 
 	function fire(key: string): void {
 		const entry = entries.get(key)
 		if (!entry) return
 		entries.delete(key)
+		// Drop from `pendingKeys` before running the task: the task hands
+		// off to the coalescing runner, which flips the key to "running" in
+		// the same synchronous tick, so there's no observable gap to "none".
+		pendingKeys.delete(key)
 		try {
 			const result = entry.task()
 			if (result && typeof (result as Promise<unknown>).then === 'function') {
@@ -69,6 +84,7 @@ export function createDebouncerByKey(opts: {
 		if (existing) clearTimeout(existing.timer)
 		const timer = setTimeout(() => fire(key), delay)
 		entries.set(key, { timer, task: fn, chainStart })
+		pendingKeys.add(key)
 	}
 
 	function cancel(key: string): boolean {
@@ -76,8 +92,13 @@ export function createDebouncerByKey(opts: {
 		if (!existing) return false
 		clearTimeout(existing.timer)
 		entries.delete(key)
+		pendingKeys.delete(key)
 		return true
 	}
 
-	return { schedule, cancel }
+	function isPending(key: string): boolean {
+		return pendingKeys.has(key)
+	}
+
+	return { schedule, cancel, isPending }
 }

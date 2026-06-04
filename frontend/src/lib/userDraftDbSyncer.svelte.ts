@@ -1,6 +1,6 @@
 import { DraftService, type UserDraftItemKind } from './gen'
-import { createCoalescingKeyedRunner } from './coalescingRunner'
-import { createDebouncerByKey } from './debouncerByKey'
+import { createCoalescingKeyedRunner } from './coalescingRunner.svelte'
+import { createDebouncerByKey } from './debouncerByKey.svelte'
 
 /**
  * Per-draft last-sync map persisted under a single localStorage key. Lets
@@ -92,6 +92,23 @@ export type UserDraftLastSyncQuery = {
 }
 
 /**
+ * Autosave lifecycle for a single draft, derived from the two-stage
+ * pipeline:
+ *   - `saving`:  a POST is currently in flight (coalescing runner busy).
+ *   - `pending`: a change is queued in the debouncer but not yet fired.
+ *   - `none`:    neither — the draft is in sync (or nothing happened).
+ * `saving` wins over `pending` when both hold (a request for an earlier
+ * change is in flight while a newer edit is still debouncing).
+ */
+export type UserDraftSyncState = 'none' | 'pending' | 'saving'
+
+export type UserDraftStateHandle = {
+	/** Reactive — read it inside a `$derived`/`$effect` and it re-runs as
+	 * the draft moves through the pipeline. */
+	readonly state: UserDraftSyncState
+}
+
+/**
  * Two-stage pipeline per draft key (`workspace/itemKind/path`):
  *   1. Debouncer collapses keystroke bursts so we don't POST per edit.
  *      `debounceMs = 1500` resets on each new submission; the
@@ -162,6 +179,25 @@ export const UserDraftDbSyncer = {
 	 */
 	getLastSync(opts: UserDraftLastSyncQuery): string | undefined {
 		return readLastSyncMap()[draftKey(opts.workspace, opts.itemKind, opts.path)]?.lastSync
+	},
+
+	/**
+	 * Reactive autosave state for a draft. Returns a handle whose `state`
+	 * getter reads the debouncer / runner's reactive key-sets, so a Svelte
+	 * consumer (`AutosaveIndicator`) can just `$derived(handle.state)` and
+	 * re-render as the draft flows through pending → saving → none. The key
+	 * is captured at call time; if the consumer's `(workspace, itemKind,
+	 * path)` can change, recompute the handle in a `$derived`.
+	 */
+	getState(query: UserDraftLastSyncQuery): UserDraftStateHandle {
+		const key = draftKey(query.workspace, query.itemKind, query.path)
+		return {
+			get state(): UserDraftSyncState {
+				if (runner.isRunning(key)) return 'saving'
+				if (debouncer.isPending(key)) return 'pending'
+				return 'none'
+			}
+		}
 	},
 
 	async save(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
