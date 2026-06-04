@@ -98,9 +98,16 @@ pub async fn handle_bash_job(
         logs1.push_str("docker mode\n");
         // If neither DOCKER_HOST nor the host socket is available, the docker CLI
         // in the script would fail with a generic "cannot connect to the Docker
-        // daemon" error. Surface a Windmill-specific hint instead.
+        // daemon" error. Surface a Windmill-specific hint instead. Skipped when
+        // container_runtime=podman is set: a per-job rootless podman is started
+        // below and provides the daemon.
         if std::env::var("DOCKER_HOST").is_err()
             && !std::path::Path::new("/var/run/docker.sock").exists()
+            && windmill_common::worker::WORKER_CONFIG
+                .load()
+                .container_runtime
+                .as_deref()
+                != Some("podman")
         {
             logs1.push_str(
                 "WARNING: docker mode is set but no Docker daemon is reachable from this worker \
@@ -207,13 +214,14 @@ exit $exit_status
     // Use nsjail if globally enabled OR if script has #sandbox annotation
     let nsjail = (is_sandboxing_enabled() || annotation.sandbox) && is_regular_job;
 
-    // Under nsjail (untrusted), a docker job gets its OWN rootless podman instance so
-    // no container it spawns can outlive the job — it is torn down when this guard
-    // drops at the end of the function. Trusted (unshare) jobs keep using the shared
-    // worker DOCKER_HOST. Only applies when container_runtime=podman is configured.
+    // Every docker job gets its OWN ephemeral rootless podman instance (started here,
+    // torn down when this guard drops at the end of the function) so no container it
+    // spawns can outlive the job, in any sandbox mode. Gated strictly on
+    // container_runtime=podman: legacy docker access (an externally-provided
+    // DOCKER_HOST or a mounted /var/run/docker.sock, without container_runtime=podman)
+    // is left exactly as before.
     #[cfg(feature = "dind")]
     let per_job_podman: Option<PerJobPodman> = if annotation.docker
-        && nsjail
         && windmill_common::worker::WORKER_CONFIG
             .load()
             .container_runtime
@@ -225,14 +233,19 @@ exit $exit_status
         None
     };
 
-    // In-jail socket path the script's docker CLI connects to (bind-mounted from the
-    // per-job podman host socket via {DOCKER_SOCK_MOUNT} below).
+    // DOCKER_HOST handed to the script's docker CLI when using per-job podman: under
+    // nsjail the per-job socket is bind-mounted into the jail at /tmp/podman.sock
+    // (via {DOCKER_SOCK_MOUNT}); otherwise the script reaches the host socket directly.
     let docker_host_for_script: Option<String> = {
         #[cfg(feature = "dind")]
         {
-            per_job_podman
-                .as_ref()
-                .map(|_| "unix:///tmp/podman.sock".to_string())
+            per_job_podman.as_ref().map(|p| {
+                if nsjail {
+                    "unix:///tmp/podman.sock".to_string()
+                } else {
+                    p.docker_host.clone()
+                }
+            })
         }
         #[cfg(not(feature = "dind"))]
         {
@@ -241,7 +254,7 @@ exit $exit_status
     };
 
     // Forward DOCKER_HOST to the bash script in docker mode: the per-job podman
-    // socket under nsjail, else the shared DOCKER_HOST / dind sidecar.
+    // socket when container_runtime=podman, else the legacy DOCKER_HOST / docker socket.
     let docker_envs: Vec<(&str, String)> = if annotation.docker {
         if let Some(dh) = &docker_host_for_script {
             vec![("DOCKER_HOST", dh.clone())]

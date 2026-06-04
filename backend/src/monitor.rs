@@ -3005,11 +3005,6 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
                     let _ = tx.send();
                 }
 
-                if wc.container_runtime != config.container_runtime {
-                    tracing::info!("Container runtime config changed, sending killpill. Expecting to be restarted by supervisor.");
-                    let _ = tx.send();
-                }
-
                 if wc.cache_clear != config.cache_clear {
                     tracing::info!("Cache clear changed, sending killpill. Expecting to be restarted by supervisor.");
                     let _ = tx.send();

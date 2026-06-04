@@ -2244,10 +2244,6 @@ pub async fn run_worker(
     ) = (HashMap::new(), vec![]);
 
     if i_worker == 1 {
-        // Start the configured container runtime (rootless podman) before any job
-        // runs, so docker-mode jobs have a Docker-API-compatible daemon and
-        // DOCKER_HOST is set process-wide. No-op unless container_runtime is set.
-        start_container_runtime_maybe().await;
         // Initialize runtime asset inserter for batched database inserts
         if let Connection::Sql(db) = conn {
             init_runtime_asset_loop(db.clone(), killpill_rx.resubscribe());
@@ -3237,93 +3233,6 @@ pub async fn run_worker(
     }
     tracing::info!(worker = %worker_name, hostname = %hostname, "worker {} exited", worker_name);
     tracing::info!(worker = %worker_name, hostname = %hostname, "number of jobs executed: {}", jobs_executed);
-}
-
-// Holds the managed podman service child so it is not dropped (and thus not
-// reaped) for the lifetime of the worker process.
-static PODMAN_SERVICE: std::sync::Mutex<Option<tokio::process::Child>> =
-    std::sync::Mutex::new(None);
-
-/// Start the container runtime configured on this worker group (currently only
-/// rootless "podman") so docker-mode jobs have a Docker-API-compatible daemon to
-/// talk to — without a privileged dind sidecar or the host Docker socket. Spawns
-/// a rootless `podman system service` on a unix socket and points DOCKER_HOST at
-/// it, which both `connect_docker()` (bollard) and the docker CLI forwarded to
-/// scripts then use. No-op unless `container_runtime` is set on the group.
-async fn start_container_runtime_maybe() {
-    let runtime = match WORKER_CONFIG.load().container_runtime.clone() {
-        Some(r) => r,
-        None => return,
-    };
-    if runtime != "podman" {
-        tracing::error!(
-            "Unknown container_runtime '{runtime}' (expected 'podman'); not starting a container runtime."
-        );
-        return;
-    }
-    // Respect an explicitly-provided DOCKER_HOST (e.g. a legacy dind/host socket).
-    if std::env::var("DOCKER_HOST").is_ok() {
-        tracing::info!(
-            "container_runtime=podman but DOCKER_HOST is already set; using the existing daemon and not starting the managed podman runtime."
-        );
-        return;
-    }
-    let podman_ok = tokio::process::Command::new("podman")
-        .arg("--version")
-        .output()
-        .await
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    if !podman_ok {
-        tracing::error!(
-            "container_runtime=podman but the 'podman' binary was not found on this worker. Use a windmill *-full image, or install podman via a worker-group init script. Docker-mode jobs will fail until podman is available."
-        );
-        return;
-    }
-
-    let sock_dir = "/tmp/windmill";
-    let _ = tokio::fs::create_dir_all(sock_dir).await;
-    let sock_path = format!("{sock_dir}/podman.sock");
-    let _ = tokio::fs::remove_file(&sock_path).await; // clear any stale socket
-    let docker_host = format!("unix://{sock_path}");
-
-    match tokio::process::Command::new("podman")
-        .args(["system", "service", "--time=0", &docker_host])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-    {
-        Ok(child) => {
-            if let Ok(mut guard) = PODMAN_SERVICE.lock() {
-                *guard = Some(child);
-            }
-            // Wait (up to ~10s) for the rootless podman service socket to appear
-            // so the first docker job doesn't race startup.
-            let mut ready = false;
-            for _ in 0..50 {
-                if tokio::fs::metadata(&sock_path).await.is_ok() {
-                    ready = true;
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-            }
-            std::env::set_var("DOCKER_HOST", &docker_host);
-            if ready {
-                tracing::info!(
-                    "Started rootless podman container runtime, DOCKER_HOST={docker_host}"
-                );
-            } else {
-                tracing::warn!(
-                    "Started rootless podman container runtime but socket {sock_path} did not appear within 10s; DOCKER_HOST set to {docker_host} anyway."
-                );
-            }
-        }
-        Err(e) => {
-            tracing::error!(
-                "Failed to start podman container runtime: {e:#}. Docker-mode jobs will fail."
-            );
-        }
-    }
 }
 
 async fn queue_init_bash_maybe<'c>(
