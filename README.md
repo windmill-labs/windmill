@@ -222,6 +222,19 @@ Go to http://localhost - default credentials: `admin@windmill.dev` / `changeme`
 > notes in
 > [docker-compose.yml](./docker-compose.yml). To use an external/host Docker daemon
 > instead (legacy), provide `DOCKER_HOST` or mount `/var/run/docker.sock`.
+>
+> **Mixed fleets:** `docker` is a default tag, so a base/slim default worker (no podman)
+> can pick up a docker job and fail it ("no Docker daemon… use a `*-full` image"). If not
+> all your default workers use a `*-full` image, route docker jobs to a dedicated
+> `*-full` group with `WORKER_TAGS=docker` rather than relying on the default tag.
+>
+> **Security:** the per-job podman daemon runs outside the worker's nsjail sandbox (only
+> its socket is exposed to the script), so it does **not** extend nsjail's filesystem
+> isolation to containers — a `# docker` script can bind-mount worker-visible paths (e.g.
+> other concurrent job dirs, caches) via the Docker API. Rootless uid-mapping limits this
+> to the unprivileged worker user (a big improvement over privileged dind), but treat
+> docker-capable workers as a trusted-tenant capability and prefer dedicated/per-workspace
+> docker workers on shared multi-tenant fleets.
 
 **Using an external database**: Set `DATABASE_URL` in `.env` to point to your managed Postgres (AWS RDS, GCP Cloud SQL, Azure, Neon, etc.) and set db replicas to 0.
 

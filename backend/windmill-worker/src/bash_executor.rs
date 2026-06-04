@@ -200,9 +200,15 @@ exit $exit_status
     // the end of the function, so no container it spawns can outlive the job, in any
     // sandbox mode). Requires podman in the image (the *-full images) — else
     // start_per_job_podman returns a clear error.
+    // A provided Docker daemon (legacy path) wins over per-job podman. DOCKER_HOST
+    // counts in all modes (a tcp:// dind stays reachable through the jail since the
+    // sandbox doesn't isolate the network). A mounted /var/run/docker.sock only
+    // counts when NOT under nsjail: the bash nsjail proto never bind-mounts the host
+    // socket into the jail, so under nsjail it is unreachable and we must fall back
+    // to the per-job podman socket (which IS mounted in) instead of failing the job.
     #[cfg(feature = "dind")]
     let docker_daemon_provided = std::env::var("DOCKER_HOST").is_ok()
-        || std::path::Path::new("/var/run/docker.sock").exists();
+        || (!nsjail && std::path::Path::new("/var/run/docker.sock").exists());
     #[cfg(feature = "dind")]
     let per_job_podman: Option<PerJobPodman> = if annotation.docker && !docker_daemon_provided {
         Some(start_per_job_podman(job_dir, job.id, &job.workspace_id, conn).await?)
@@ -466,6 +472,37 @@ struct PerJobPodman {
     monitor: Option<tokio::task::JoinHandle<()>>,
 }
 
+// Blocking teardown of a per-job podman instance: `system reset` removes ALL
+// containers AND images in the per-job store and, crucially, deletes the
+// subuid-owned overlay layers a plain `rm -rf` (or `rm -af`, which only touches
+// containers) cannot — preventing a storage leak. Wrapped in `timeout` so a wedged
+// runtime/storage can't hang the caller indefinitely.
+#[cfg(feature = "dind")]
+fn teardown_per_job_podman(dir: String, service: Option<std::process::Child>) {
+    let storage = format!("{dir}/storage");
+    let runroot = format!("{dir}/runroot");
+    let _ = std::process::Command::new("timeout")
+        .args([
+            "30",
+            "podman",
+            "--root",
+            &storage,
+            "--runroot",
+            &runroot,
+            "system",
+            "reset",
+            "--force",
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    if let Some(mut child) = service {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[cfg(feature = "dind")]
 impl Drop for PerJobPodman {
     fn drop(&mut self) {
@@ -473,30 +510,17 @@ impl Drop for PerJobPodman {
         if let Some(monitor) = self.monitor.take() {
             monitor.abort();
         }
-        // Drop is synchronous: use blocking std::process for guaranteed teardown.
-        // `system reset` removes ALL containers AND images in the per-job store and,
-        // crucially, deletes the subuid-owned overlay layers a plain `rm -rf` (or
-        // `rm -af`, which only touches containers) cannot — preventing a storage leak.
-        let storage = format!("{}/storage", self.dir);
-        let runroot = format!("{}/runroot", self.dir);
-        let _ = std::process::Command::new("podman")
-            .args([
-                "--root",
-                &storage,
-                "--runroot",
-                &runroot,
-                "system",
-                "reset",
-                "--force",
-            ])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
-        if let Some(mut child) = self.service.take() {
-            let _ = child.kill();
-            let _ = child.wait();
+        let dir = std::mem::take(&mut self.dir);
+        let service = self.service.take();
+        // Teardown shells out (`podman system reset`) and can do non-trivial I/O, so
+        // offload it to the blocking pool rather than stalling the Tokio worker thread
+        // this Drop runs on. If we're not on a runtime (e.g. tests), run inline.
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                handle.spawn_blocking(move || teardown_per_job_podman(dir, service));
+            }
+            Err(_) => teardown_per_job_podman(dir, service),
         }
-        let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
 
@@ -612,6 +636,17 @@ fn spawn_docker_storage_monitor(
 // storage, returning the host socket path. Inherits the worker's container
 // config (CONTAINERS_CONF etc.) but overrides storage so it is job-scoped. A
 // background monitor enforces a soft size cap on the image store.
+//
+// SECURITY: the daemon runs OUTSIDE the nsjail (only its socket is mounted in), so
+// it does NOT extend nsjail's filesystem isolation to docker containers. A `# docker`
+// script controls this daemon over the Docker API and can bind-mount any path the
+// worker user can read (e.g. `docker run -v /tmp/windmill/...`), reaching other
+// concurrent job dirs / caches that nsjail deliberately hid. Rootless uid-mapping
+// caps the blast radius to the unprivileged worker user (no root-owned secrets), and
+// this is a large improvement over the privileged dind it replaces — but the
+// per-job-podman path is NOT a full filesystem sandbox the way pure nsjail is. Treat
+// docker-capable workers as a trusted-tenant capability; on shared multi-tenant
+// fleets prefer per-workspace/dedicated docker workers so this stays intra-tenant.
 #[cfg(feature = "dind")]
 async fn start_per_job_podman(
     job_dir: &str,
