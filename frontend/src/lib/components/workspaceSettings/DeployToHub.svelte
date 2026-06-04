@@ -5,7 +5,7 @@
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
+	import Select from '$lib/components/select/Select.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import {
 		AppService,
@@ -134,25 +134,24 @@
 		timeStyle: 'short'
 	})
 
-	let selectedFolders = $state<string[]>([])
+	let selectedFolder = $state<string | undefined>(undefined)
 	let availableFolders = $derived(
 		Array.from(
 			new Set(
 				workspaceItems
 					.map((i) => i.path.split('/').slice(0, 2).join('/'))
-					.filter((p) => p.startsWith('f/') || p.startsWith('u/'))
+					.filter((p) => p.startsWith('f/'))
 			)
 		).sort()
 	)
 	let filteredWorkspaceItems = $derived(
-		selectedFolders.length === 0
-			? workspaceItems
-			: workspaceItems.filter((i) => selectedFolders.some((f) => i.path.startsWith(f + '/')))
+		selectedFolder ? workspaceItems.filter((i) => i.path.startsWith(selectedFolder + '/')) : []
 	)
 	let items = $derived(phase === 'predeploy' ? filteredWorkspaceItems : draftItems)
 	let manualDeselected = $state<Set<string>>(new Set())
 	$effect(() => {
-		selectedFolders
+		selectedFolder
+		phase
 		manualDeselected = new Set()
 	})
 	let selectedItemKeys = $derived(
@@ -267,10 +266,14 @@
 			const publicUrlByPath = new Map(publicApps.map((a, i) => [a.path, publicUrls[i]]))
 			for (const a of apps) {
 				const isPublic = a.execution_mode === 'anonymous'
+				// Raw apps live in the `app` table (value = files/runnables) but must be
+				// published to the Hub as raw apps, not low-code apps.
+				const isRaw = (a as any).raw_app === true
 				next.push({
-					key: `app:${a.path}`,
+					key: `${isRaw ? 'raw_app' : 'app'}:${a.path}`,
 					path: a.path,
-					kind: 'app',
+					kind: isRaw ? 'raw_app' : 'app',
+					appTable: isRaw || undefined,
 					summary: a.summary,
 					rec: 'none',
 					published: isPublic,
@@ -387,6 +390,8 @@
 			workspaceItems = []
 			workspaceTriggers = []
 			schedulePreviews = {}
+			selectedFolder = undefined
+			manualDeselected = new Set()
 			loadWorkspace($workspaceStore, seq)
 			loadTriggers($workspaceStore, seq)
 		}
@@ -502,9 +507,10 @@
 	})
 
 	function openBundle() {
-		bundleName = hubName
-		bundleSummary = hubSummary
-		bundleReadme = hubReadme
+		const folderName = selectedFolder?.split('/').pop() ?? ''
+		bundleName = bundleName || hubName || folderName
+		bundleSummary = bundleSummary || hubSummary
+		bundleReadme = bundleReadme || hubReadme
 		bundleDrawer?.openDrawer()
 	}
 	const TRIGGER_KIND_ROUTE: Record<TriggerKindLabel, string> = {
@@ -632,6 +638,40 @@
 						const a = await AppService.getAppByPath({ workspace, path: ref.path })
 						return { kind: 'app', path: ref.path, summary: a.summary, value: a.value }
 					} else if (ref.kind === 'raw_app') {
+						// Modern raw apps live in the `app` table: fetch source files +
+						// runnables + the compiled bundle, and shape them into the `raw`
+						// payload the Hub's RawAppView expects (JSON is valid YAML).
+						const isModern = workspaceItems.some(
+							(i) => i.kind === 'raw_app' && i.path === ref.path && i.appTable
+						)
+						if (isModern) {
+							const a = await AppService.getAppByPath({ workspace, path: ref.path })
+							const secret = await AppService.getPublicSecretOfLatestVersionOfApp({
+								workspace,
+								path: ref.path
+							})
+							// The compiled JS bundle is required; a missing one means the app
+							// was never built/deployed, so fail loudly instead of pushing a blank app.
+							const [jsRes, cssRes] = await Promise.all([
+								fetch(`/api/w/${workspace}/apps/get_data/v/${secret}.js`, {
+									credentials: 'include'
+								}),
+								fetch(`/api/w/${workspace}/apps/get_data/v/${secret}.css`, {
+									credentials: 'include'
+								})
+							])
+							if (!jsRes.ok) {
+								throw new Error(`raw app ${ref.path} has no compiled bundle — deploy it first`)
+							}
+							const js = await jsRes.text()
+							const css = cssRes.ok ? await cssRes.text() : ''
+							const v: any = a.value ?? {}
+							const content = JSON.stringify({
+								files: { ...(v.files ?? {}), '/bundle.js': js, '/bundle.css': css },
+								runnables: v.runnables ?? {}
+							})
+							return { kind: 'raw_app', path: ref.path, summary: a.summary, content }
+						}
 						const r = await fetch(`/api/w/${workspace}/raw_apps/get_data/0/${ref.path}`, {
 							credentials: 'include'
 						})
@@ -690,13 +730,14 @@
 				project_slug: slug
 			})
 		} else if (it.kind === 'raw_app') {
-			await postHub(workspace, '/hub/raw_apps', {
+			const resp = await postHub(workspace, '/hub/raw_apps', {
 				raw: it.content ?? '',
 				apps: [],
 				summary: it.summary || it.newPath,
 				description: undefined,
 				project_slug: slug
 			})
+			if (typeof resp?.id === 'number') hubItemIds = { ...hubItemIds, [key]: resp.id }
 		}
 	}
 
@@ -917,10 +958,13 @@
 		const workspace = $workspaceStore
 		if (!workspace) return
 		const slug = effectiveSlug || sanitizeSlug(hubName)
+		// Snapshot the selection up-front so a folder switch mid-deploy can't
+		// rewrite draftItems on success.
+		const itemsSnapshot = selectedItems.slice()
 		deploying = true
 		let failures = 0
 		try {
-			const seed: ItemRef[] = selectedItems
+			const seed: ItemRef[] = itemsSnapshot
 				.filter((i) => i.kind !== 'resource')
 				.map((i) => ({ kind: i.kind as ItemRef['kind'], path: i.path }))
 			const bundle = await buildProjectBundle(seed, slug, buildBundleDeps(workspace))
@@ -981,6 +1025,21 @@
 					}
 				}
 			}
+			// A re-bundle clears the Hub-side embed (idempotent replace), so re-push it
+			// for any raw app that is already public — keeps the live iframe in sync
+			// without forcing an unpublish/share round-trip.
+			for (const it of bundle.items) {
+				if (it.kind !== 'raw_app') continue
+				const hubId = hubItemIds[`${it.kind}:${it.path}`]
+				const src = itemsSnapshot.find((i) => i.kind === 'raw_app' && i.path === it.path)
+				if (hubId && src?.published && src?.publicUrl) {
+					try {
+						await pushRawAppEmbed(workspace, hubId, src.publicUrl)
+					} catch (e: any) {
+						sendUserToast(`Failed to sync iframe for ${it.path}: ${e?.message ?? e}`, true)
+					}
+				}
+			}
 			try {
 				await pushTriggers(workspace, slug)
 			} catch (e: any) {
@@ -990,7 +1049,7 @@
 
 			await delay(150)
 			deploymentStatus = {}
-			draftItems = selectedItems.map((i) => ({ ...i, rec: 'none' }))
+			draftItems = itemsSnapshot.map((i) => ({ ...i, rec: 'none' }))
 			recordings = {}
 			phase = 'draft'
 			if (failures > 0) {
@@ -1048,6 +1107,10 @@
 		}
 	}
 	async function startNewDraft() {
+		if (!selectedFolder || filteredWorkspaceItems.length === 0) {
+			sendUserToast(`Pick a folder with at least one item before starting a new draft.`, true)
+			return
+		}
 		draftItems = filteredWorkspaceItems.map((i) => ({ ...i, rec: 'none' }))
 		recordings = {}
 		phase = 'draft'
@@ -1250,21 +1313,54 @@
 		publishTarget = it
 		publishDrawer?.openDrawer()
 	}
+	// Set the Hub raw app's live-iframe URL (or clear it with null). The Hub renders
+	// from external_embed_url; project_slug scopes ownership.
+	async function pushRawAppEmbed(workspace: string, hubId: number, url: string | null) {
+		await postHub(workspace, `/hub/raw_apps/${hubId}/embed`, {
+			external_embed_url: url,
+			project_slug: effectiveSlug || sanitizeSlug(hubName)
+		})
+	}
+
+	// Flip an app/raw app between public (anonymous) and private (publisher) and keep
+	// the Hub raw-app iframe in sync. Returns the resolved public URL when shared.
+	async function setAppShared(
+		workspace: string,
+		it: DeployItem,
+		shared: boolean
+	): Promise<string | null> {
+		const app = await AppService.getAppByPath({ workspace, path: it.path })
+		const policy = {
+			...(app.policy ?? {}),
+			execution_mode: (shared ? 'anonymous' : 'publisher') as 'anonymous' | 'publisher'
+		}
+		await AppService.updateApp({
+			workspace,
+			path: it.path,
+			requestBody: { policy, deployment_message: shared ? 'Share as iframe' : 'Unshare iframe' }
+		})
+		const url = shared ? ((await resolvePublicUrl(workspace, it.path)) ?? null) : null
+		if (it.kind === 'raw_app') {
+			const hubId = hubItemIds[it.key]
+			if (!hubId) {
+				if (shared) sendUserToast('Push the bundle to the Hub first to share the live iframe', true)
+			} else if (!shared) {
+				await pushRawAppEmbed(workspace, hubId, null)
+			} else if (url) {
+				await pushRawAppEmbed(workspace, hubId, url)
+			}
+		}
+		return url
+	}
+
 	async function confirmPublish() {
 		const it = publishTarget
 		const workspace = $workspaceStore
-		if (!it || !workspace || it.kind !== 'app') return
+		if (!it || !workspace || !canPublishApp(it.kind)) return
 		publishing = true
 		try {
-			const app = await AppService.getAppByPath({ workspace, path: it.path })
-			const policy = { ...(app.policy ?? {}), execution_mode: 'anonymous' as const }
-			await AppService.updateApp({
-				workspace,
-				path: it.path,
-				requestBody: { policy, deployment_message: 'Share as iframe' }
-			})
-			const url = await resolvePublicUrl(workspace, it.path)
-			patchItem(it.key, { published: true, publicUrl: url })
+			const url = await setAppShared(workspace, it, true)
+			patchItem(it.key, { published: true, publicUrl: url ?? undefined })
 			sendUserToast(`${it.path} is now public`)
 			publishDrawer?.closeDrawer()
 		} catch (e: any) {
@@ -1275,15 +1371,9 @@
 	}
 	async function unpublishApp(it: DeployItem) {
 		const workspace = $workspaceStore
-		if (!workspace || it.kind !== 'app') return
+		if (!workspace || !canPublishApp(it.kind)) return
 		try {
-			const app = await AppService.getAppByPath({ workspace, path: it.path })
-			const policy = { ...(app.policy ?? {}), execution_mode: 'publisher' as const }
-			await AppService.updateApp({
-				workspace,
-				path: it.path,
-				requestBody: { policy, deployment_message: 'Unshare iframe' }
-			})
+			await setAppShared(workspace, it, false)
 			patchItem(it.key, { published: false, publicUrl: undefined })
 			sendUserToast('App unpublished')
 		} catch (e: any) {
@@ -1378,18 +1468,33 @@
 						</div>
 					{/if}
 				</div>
-				{#if phase === 'predeploy' && availableFolders.length > 0}
+				{#if phase === 'predeploy'}
 					<div class="flex flex-col gap-1 text-xs">
-						<span class="font-semibold text-primary">Filter by folder (optional)</span>
-						<MultiSelect
-							bind:value={selectedFolders}
-							items={availableFolders.map((f) => ({ value: f, label: f }))}
-							placeholder="All folders"
-						/>
+						<span class="font-semibold text-primary">Folder (required)</span>
+						{#if availableFolders.length === 0}
+							<span
+								class="rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+							>
+								This workspace has no <span class="font-mono">f/&lt;folder&gt;/</span> items.
+								Personal paths (<span class="font-mono">u/&lt;user&gt;/</span>) cannot be bundled —
+								move the items you want to publish into a shared folder first.
+							</span>
+						{:else}
+							<Select
+								bind:value={selectedFolder}
+								items={availableFolders.map((f) => ({ value: f, label: f }))}
+								placeholder="Pick a folder"
+								class="w-full"
+							/>
+						{/if}
 						<span class="text-[11px] text-hint">
-							{selectedItems.length} of {filteredWorkspaceItems.length} items selected{selectedFolders.length
-								? ` across ${selectedFolders.length} folder${selectedFolders.length > 1 ? 's' : ''}`
-								: ' from the whole workspace'}.
+							{#if selectedFolder}
+								{selectedItems.length} of {filteredWorkspaceItems.length} items selected in
+								<span class="font-mono">{selectedFolder}/</span>.
+							{:else if availableFolders.length > 0}
+								Pick a folder to bundle items from. Personal paths and multi-folder bundles are not
+								allowed — keeps relocated paths predictable on the Hub.
+							{/if}
 						</span>
 					</div>
 				{/if}
@@ -1567,7 +1672,7 @@
 					<Badge color="yellow" size="xs">No recording</Badge>
 				{/if}
 			{/if}
-			{#if canPublishApp(it.kind)}
+			{#if phase !== 'predeploy' && canPublishApp(it.kind)}
 				{#if it.published && it.publicUrl}
 					<Badge color="green" size="xs">
 						<Globe size={10} class="mr-0.5" />Public
@@ -1588,10 +1693,10 @@
 					>
 						Copy iframe
 					</Button>
-					{#if it.kind === 'app' && phase !== 'under_review'}
+					{#if canPublishApp(it.kind) && phase !== 'under_review'}
 						<Button size="xs" variant="subtle" onclick={() => unpublishApp(it)}>Unpublish</Button>
 					{/if}
-				{:else if it.kind === 'app' && phase !== 'under_review'}
+				{:else if canPublishApp(it.kind) && phase !== 'under_review'}
 					<Button
 						size="xs"
 						variant="subtle"
@@ -1613,7 +1718,7 @@
 					<Button
 						variant="accent"
 						loading={deploying}
-						disabled={selectedItems.length === 0}
+						disabled={!selectedFolder || selectedItems.length === 0}
 						startIcon={{ icon: Cloud }}
 						onclick={openBundle}
 					>
