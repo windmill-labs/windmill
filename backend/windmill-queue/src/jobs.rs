@@ -5292,6 +5292,7 @@ async fn push_inner<'c, 'd>(
                         expr: skip_handler.stop_condition,
                         skip_if_stopped: true,
                         error_message: Some(skip_handler.stop_message),
+                        error_include_result: false,
                     }),
                     ..Default::default()
                 });

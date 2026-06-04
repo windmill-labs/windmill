@@ -99,7 +99,8 @@
 						flowModule.stop_after_if = {
 							expr: 'result == undefined',
 							skip_if_stopped: false,
-							error_message: undefined
+							error_message: undefined,
+							error_include_result: false
 						}
 					}
 				}}
@@ -137,6 +138,7 @@
 								on:change={(event) => {
 									if (flowModule.stop_after_if && event.detail) {
 										flowModule.stop_after_if.error_message = undefined
+										flowModule.stop_after_if.error_include_result = false
 										raise_error_message_stop_after_if = false
 									}
 								}}
@@ -154,13 +156,14 @@
 											flowModule.stop_after_if.skip_if_stopped = false
 										} else {
 											flowModule.stop_after_if.error_message = undefined
+											flowModule.stop_after_if.error_include_result = false
 										}
 									}
 								}}
 								options={{
 									right: 'Raise an error message if stopped',
 									rightTooltip:
-										'If enabled and the stop condition is met, an error message will be raised and the flow fails. A custom message can be provided; otherwise, a default message will be used. The stopping step\'s result is included in the raised error (as error.result). Mutually exclusive with "Label flow as skipped".'
+										'If enabled and the stop condition is met, an error message will be raised. A custom message can be provided; otherwise, a default message will be used. Mutually exclusive with "Label flow as skipped".'
 								}}
 							/>
 						</div>
@@ -170,6 +173,15 @@
 							type="text"
 							bind:value={flowModule.stop_after_if.error_message}
 							placeholder="Enter custom error message (optional)"
+						/>
+						<Toggle
+							size="xs"
+							bind:checked={flowModule.stop_after_if.error_include_result}
+							options={{
+								right: "Include the stopping step's result in the error",
+								rightTooltip:
+									"When enabled, this step's output is embedded inside the raised error object (as error.result) instead of being discarded. The flow result stays { error }."
+							}}
 						/>
 					{/if}
 					<span class="mt-2 text-xs font-bold">Stop condition expression</span>
@@ -253,7 +265,8 @@
 						flowModule.stop_after_all_iters_if = {
 							expr: 'result == undefined',
 							skip_if_stopped: false,
-							error_message: undefined
+							error_message: undefined,
+							error_include_result: false
 						}
 					}
 				}}
@@ -283,6 +296,7 @@
 								on:change={(event) => {
 									if (flowModule.stop_after_all_iters_if && event.detail) {
 										flowModule.stop_after_all_iters_if.error_message = undefined
+										flowModule.stop_after_all_iters_if.error_include_result = false
 										raise_error_message_stop_after_all_if = false
 									}
 								}}
@@ -300,13 +314,14 @@
 											flowModule.stop_after_all_iters_if.skip_if_stopped = false
 										} else {
 											flowModule.stop_after_all_iters_if.error_message = undefined
+											flowModule.stop_after_all_iters_if.error_include_result = false
 										}
 									}
 								}}
 								options={{
 									right: 'Raise an error message if stopped',
 									rightTooltip:
-										'If enabled and the stop condition is met, an error message will be raised and the flow fails. A custom message can be provided; otherwise, a default message will be used. The stopping step\'s result is included in the raised error (as error.result). Mutually exclusive with "Label flow as skipped".'
+										'If enabled and the stop condition is met, an error message will be raised. A custom message can be provided; otherwise, a default message will be used. Mutually exclusive with "Label flow as skipped".'
 								}}
 							/>
 						</div>
@@ -316,6 +331,15 @@
 							type="text"
 							bind:value={flowModule.stop_after_all_iters_if.error_message}
 							placeholder="Enter custom error message (optional)"
+						/>
+						<Toggle
+							size="xs"
+							bind:checked={flowModule.stop_after_all_iters_if.error_include_result}
+							options={{
+								right: "Include the stopping step's result in the error",
+								rightTooltip:
+									"When enabled, this step's output is embedded inside the raised error object (as error.result) instead of being discarded. The flow result stays { error }."
+							}}
 						/>
 					{/if}
 					<span class="mt-2 text-xs font-bold">Stop condition expression</span>
