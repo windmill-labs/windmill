@@ -208,12 +208,15 @@ docker compose up -d
 Go to http://localhost - default credentials: `admin@windmill.dev` / `changeme`
 
 > [!NOTE]
-> To run `# docker` scripts (bash scripts with the `# docker` annotation): on a worker
-> with **no Docker daemon provided** (no `DOCKER_HOST`, no mounted `/var/run/docker.sock`),
-> Windmill automatically runs each docker job in its own ephemeral **rootless podman**,
-> torn down with the job — no privileged daemon, no host socket, scripts unchanged. Just
-> use a `*-full` image (ships podman) and tag your docker scripts to a dedicated worker
-> group; see the commented `windmill_worker_docker` service in
+> To run `# docker` scripts (bash scripts with the `# docker` annotation): these run
+> on the default worker like any bash job. Just give that worker a `*-full` image
+> (ships podman) and the `/dev/fuse` device. On a worker with **no Docker daemon
+> provided** (no `DOCKER_HOST`, no mounted `/var/run/docker.sock`), Windmill then runs
+> each docker job in its own ephemeral **rootless podman**, torn down with the job — no
+> privileged daemon, no host socket, scripts unchanged. The `*-full` image is also the
+> batteries-included runtime — on top of the base (TS/Bun/Deno, Python, Go) it adds
+> Java, .NET, Ruby, R, Rust, Ansible, and Nushell (plus Oracle/Kerberos in EE). See the
+> default `windmill_worker` notes in
 > [docker-compose.yml](./docker-compose.yml). To use an external/host Docker daemon
 > instead (legacy), provide `DOCKER_HOST` or mount `/var/run/docker.sock`.
 

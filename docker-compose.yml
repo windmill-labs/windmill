@@ -80,44 +80,32 @@ services:
 
     logging: *default-logging
 
-  ## To run `# docker` scripts (bash scripts with the `# docker` annotation), add a
-  ## dedicated worker group with the rootless podman container runtime. Each docker
-  ## job gets its OWN ephemeral rootless podman, torn down with the job, so no
-  ## container outlives it — no privileged dind sidecar and no host Docker socket.
-  ## Your scripts (docker pull / docker run --name $WM_JOB_ID ...) are unchanged.
+  ## Running `# docker` scripts (bash scripts with the `# docker` annotation that
+  ## do `docker pull` / `docker run --name $WM_JOB_ID ...`): these run on the
+  ## default worker like any bash job — no dedicated worker group or custom tag.
+  ## To enable them, give the worker above two things:
+  ##   1. a *-full image (ships podman + the docker CLI):
+  ##        image: ghcr.io/windmill-labs/windmill-full:main  # windmill-ee-full:main for EE
+  ##   2. the /dev/fuse device (rootless fuse-overlayfs storage):
+  ##        devices:
+  ##          - /dev/fuse
+  ## Each docker job then spins up its OWN ephemeral rootless podman, torn down
+  ## with the job — no privileged dind sidecar and no host Docker socket. Your
+  ## scripts are unchanged.
   ##
-  ## ROUTING: `# docker` scripts are tagged by language ("bash"), so to send them
-  ## here set the script's custom tag to "docker" (the tag this group listens on via
-  ## WORKER_TAGS below). Non-docker jobs keep running on the default worker group.
+  ## The *-full image is also the batteries-included runtime: on top of the base
+  ## (TypeScript/Bun/Deno, Python, Go, bash) it adds Java, .NET (C#), Ruby, R,
+  ## Rust, Ansible, and Nushell — plus the Oracle DB client and Kerberos in EE —
+  ## so the same worker can run those jobs too.
   ##
-  ## Requires a *-full image (ships podman). Runs as a non-root user so a container
-  ## escape lands as an unprivileged user. podman runs inside the worker container,
-  ## so the container needs privileged + /dev/fuse; full memory monitoring needs
-  ## cgroup v2 delegation from the host (else mem_peak may be 0). For the strongest
-  ## isolation, run this group on a dedicated host/node.
-  # windmill_worker_docker:
-  #   image: ghcr.io/windmill-labs/windmill-full:main # windmill-ee-full:main for EE
-  #   pull_policy: always
-  #   user: "1000:1000" # rootless: escapes land as an unprivileged user
-  #   privileged: true # required for rootless podman-in-container (userns + mounts)
-  #   restart: unless-stopped
-  #   environment:
-  #     - DATABASE_URL=${DATABASE_URL}
-  #     - MODE=worker
-  #     - WORKER_GROUP=docker
-  #     - WORKER_TAGS=docker # only serve jobs tagged "docker" (set that tag on your docker scripts)
-  #   # No DOCKER_HOST / docker socket is provided, so docker jobs automatically use
-  #   # the bundled rootless podman (per job). Provide a DOCKER_HOST or mount
-  #   # /var/run/docker.sock instead to use an external/host Docker daemon (legacy).
-  #   depends_on:
-  #     db:
-  #       condition: service_healthy
-  #   devices:
-  #     - /dev/fuse # for fuse-overlayfs storage
-  #   volumes:
-  #     - worker_dependency_cache:/tmp/windmill/cache
-  #     - worker_logs:/tmp/windmill/logs
-  #   logging: *default-logging
+  ## Hardening: the worker above runs as root (rootful podman, still works). For
+  ## the rootless benefit (a container escape lands as an unprivileged user) add
+  ## `user: "1000:1000"` and `- HOME=/tmp`. Full memory monitoring (mem_peak)
+  ## needs cgroup v2 delegation from the host. For the strongest isolation, run
+  ## docker workloads on a dedicated host/node.
+  ##
+  ## Legacy: to use an external/host Docker daemon instead of the bundled podman,
+  ## set DOCKER_HOST or mount /var/run/docker.sock into the worker.
 
   ## This worker is specialized for "native" jobs. Native jobs run in-process and thus are much more lightweight than other jobs
   windmill_worker_native:
