@@ -430,7 +430,15 @@ pub fn filter_list_completed_query(
             sqlb.and_where_in("created_by", &quoted);
         }
     }
-    if let Some(r) = &lq.success {
+    if let Some(status) = &lq.status {
+        let status = match status {
+            windmill_common::jobs::JobStatus::Success => "success",
+            windmill_common::jobs::JobStatus::Failure => "failure",
+            windmill_common::jobs::JobStatus::Canceled => "canceled",
+            windmill_common::jobs::JobStatus::Skipped => "skipped",
+        };
+        sqlb.and_where_eq("v2_job_completed.status", quote(status));
+    } else if let Some(r) = &lq.success {
         if *r {
             sqlb.and_where_eq("status", "'success'")
                 .or_where_eq("status", "'skipped'");
@@ -653,6 +661,7 @@ mod tests {
             created_after_queue: None,
             completed_after: None,
             completed_before: None,
+            status: None,
             success: None,
             running: None,
             parent_job: None,
@@ -926,6 +935,23 @@ mod tests {
         );
         let sql = build_sql(sqlb);
         assert!(sql.contains("'failure'"));
+    }
+
+    #[test]
+    fn test_completed_filter_status_canceled() {
+        let lq = ListCompletedQuery {
+            status: Some(windmill_common::jobs::JobStatus::Canceled),
+            ..empty_completed_query()
+        };
+        let sqlb = filter_list_completed_query(
+            SqlBuilder::select_from("v2_job_completed").clone(),
+            &lq,
+            "ws",
+            false,
+        );
+        let sql = build_sql(sqlb);
+        assert!(sql.contains("v2_job_completed.status"));
+        assert!(sql.contains("'canceled'"));
     }
 
     #[test]

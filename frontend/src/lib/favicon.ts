@@ -1,11 +1,12 @@
 import type { Job } from '$lib/gen'
 
-export type JobStatusKind = 'running' | 'success' | 'failure'
+export type JobStatusKind = 'running' | 'success' | 'failure' | 'canceled'
 
 const STATUS_COLORS: Record<JobStatusKind, string> = {
 	running: '#eab308',
 	success: '#22c55e',
-	failure: '#ef4444'
+	failure: '#ef4444',
+	canceled: '#6b7280'
 }
 
 const DEFAULT_FAVICON = '/logo.svg'
@@ -33,8 +34,8 @@ function faviconLink(): HTMLLinkElement {
  * discrimination as JobStatusIcon (`'success' in job` => completed). */
 export function getJobStatusKind(job: Job | undefined): JobStatusKind | undefined {
 	if (!job) return undefined
+	if (job.canceled) return 'canceled'
 	if ('success' in job) return job.success ? 'success' : 'failure'
-	if (job.canceled) return 'failure'
 	return 'running'
 }
 

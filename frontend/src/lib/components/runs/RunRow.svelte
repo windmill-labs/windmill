@@ -120,7 +120,7 @@
 					{displayDate(job.scheduled_for)}<Clock size={12} />
 				{:else if job.canceled}
 					{#if job.type == 'CompletedJob'}
-						Cancelled <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />
+						Canceled <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />
 					{:else}
 						Cancelling job... (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
 					{/if}
