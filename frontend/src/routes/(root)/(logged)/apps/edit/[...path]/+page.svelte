@@ -87,6 +87,12 @@
 		// non-empty (even `u/{user}/`) is parsed verbatim and the
 		// friendly seed never fires. Strip the flag last.
 		if (page.url.searchParams.get('new_draft') === 'true') {
+			// Suspend autosave for the new-draft bootstrap: the seed
+			// `app` assignment + AppEditor's `firstMirror` mirror are
+			// programmatic writes that shouldn't POST as the user's
+			// first edit. AppEditor lifts the suspension in `onMount`
+			// once mount-time effects have settled.
+			UserDraft.stopSync('app', page.params.path ?? '')
 			const url = new URL(window.location.href)
 			url.searchParams.delete('new_draft')
 			window.history.replaceState(window.history.state, '', url.toString())

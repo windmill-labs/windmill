@@ -163,6 +163,14 @@ export type ClearLiveEditorDraftOptions = UserDraftOptions & {
 
 const entries = new Map<string, DraftEntry>()
 const liveEditorDrafts = new Map<string, LiveEditorDraft>()
+/**
+ * Map keys (`workspace|kind|path`) that should start `syncSuspended`
+ * when their entry is acquired. Lets callers `stopSync` BEFORE an
+ * editor has mounted (and called `UserDraft.use`) — for routes that
+ * suspend the bootstrap save before triggering ScriptBuilder/AppEditor
+ * to mount. Consumed by `acquireEntry`; the matching `restartSync`
+ * (or a second `stopSync` on the live entry) clears it normally. */
+const pendingSuspensions = new Set<string>()
 
 function resolveWorkspace(opts?: UserDraftOptions): string {
 	const ws = opts?.workspace ?? get(workspaceStore)
@@ -427,15 +435,17 @@ export const UserDraft = {
 	 * seeding script content from `initialCode`, low-code app init)
 	 * so they don't appear on the server as the user's "first edit".
 	 *
-	 * The entry must already be live (acquired by `use`/`useMany`); a
-	 * no-op otherwise. Pair every `stopSync` with a `restartSync` —
-	 * forgetting to resume silently turns off autosave for the rest of
-	 * the session.
+	 * Safe to call BEFORE the entry is live — the suspension is queued
+	 * and applied when `acquireEntry` runs. Pair every `stopSync` with
+	 * a `restartSync` — forgetting to resume silently turns off
+	 * autosave for the rest of the session.
 	 */
 	stopSync(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
-		const entry = entries.get(mapKey(ws, itemKind, path))
+		const mk = mapKey(ws, itemKind, path)
+		const entry = entries.get(mk)
 		if (entry) entry.syncSuspended = true
+		else pendingSuspensions.add(mk)
 	},
 
 	/**
@@ -443,11 +453,13 @@ export const UserDraft = {
 	 * `stopSync`. Subsequent writes that differ from the suspended-time
 	 * state are POSTed normally; writes made during the suspension are
 	 * dropped from the server's view (the local cell still reflects
-	 * them). No-op if the entry isn't live or wasn't suspended.
+	 * them). Also clears any queued (pre-acquire) suspension.
 	 */
 	restartSync(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
-		const entry = entries.get(mapKey(ws, itemKind, path))
+		const mk = mapKey(ws, itemKind, path)
+		pendingSuspensions.delete(mk)
+		const entry = entries.get(mk)
 		if (entry) entry.syncSuspended = false
 	},
 
@@ -711,7 +723,7 @@ function acquireEntry(
 			path,
 			state: stateRef,
 			skipNextSync: false,
-			syncSuspended: false,
+			syncSuspended: pendingSuspensions.delete(mk),
 			destroyRoot
 		})
 		return
@@ -728,7 +740,7 @@ function acquireEntry(
 		path,
 		state: fallback,
 		skipNextSync: false,
-		syncSuspended: false
+		syncSuspended: pendingSuspensions.delete(mk)
 	})
 }
 

@@ -150,6 +150,14 @@
 		// fires. `initialPath = ''` also makes ScriptBuilder open the
 		// metadata drawer on mount. Strip the single-use flag last.
 		if (page.url.searchParams.get('new_draft') === 'true') {
+			// Suspend autosave for the whole new-draft bootstrap: the seed
+			// `setDraftAndMeta` AND ScriptBuilder's `initContent` (which
+			// fills `script.content` from a template) are both
+			// programmatic writes that shouldn't appear on the server as
+			// the user's first edit. ScriptBuilder lifts the suspension
+			// in `initContent`'s `.finally`; this overlap is harmless
+			// (both calls set the same flag).
+			UserDraft.stopSync('script', draftPath)
 			const url = new URL(window.location.href)
 			url.searchParams.delete('new_draft')
 			window.history.replaceState(window.history.state, '', url.toString())
