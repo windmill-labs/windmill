@@ -397,14 +397,22 @@
 					}
 				})
 			}
+			// Layer the saved draft (if any) over the deployed before the
+			// publication fetch — the draft might have changed
+			// `postgres_resource_path` / `publication_name`, which are the
+			// keys we look up the publication by.
+			const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
+			const effective = draftFromBackend
+				? { ...deployedTrigger, ...draftFromBackend }
+				: deployedTrigger
 
 			const publication_data = await PostgresTriggerService.getPostgresPublication({
-				path: s.postgres_resource_path,
+				path: effective.postgres_resource_path,
 				workspace: $workspaceStore!,
-				publication: s.publication_name
+				publication: effective.publication_name
 			})
 
-			loadTriggerConfig({ ...s, publication: publication_data })
+			loadTriggerConfig({ ...effective, publication: publication_data })
 		}
 	}
 

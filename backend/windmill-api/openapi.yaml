@@ -21028,14 +21028,18 @@ components:
     UserDraftOverlay:
       type: object
       description: |
-        Flattened overlay fields added to every "get by path" response that
-        accepts the `get_draft` query parameter. When `is_draft` is true the
-        response's editable fields come from the authed user's draft;
-        immutable metadata (hashes, timestamps, ownership) still come from
-        the deployed row. When `no_deployed` is true there is no deployed
-        row at all — the response is the draft JSON wrapped to match the
-        overlay shape, and callers should not offer "reset to deployed"
-        actions.
+        Overlay fields added to every "get by path" response that accepts
+        the `get_draft` query parameter. The deployed payload is sent
+        untouched in the response body; the authed user's saved draft
+        for this path — whatever shape the editor wrote — is attached
+        as the sibling `draft` field when `get_draft=true` and a draft
+        exists. The frontend pairs the two to present diff / reset /
+        discard UI; the server never merges them.
+
+        When `no_deployed=true` there is no deployed row at this path —
+        the response body is a best-effort stand-in synthesized from
+        the draft, and only `draft` is canonical. Callers should disable
+        "diff vs deployed" UI in that case.
       properties:
         is_draft:
           type: boolean
@@ -21044,6 +21048,9 @@ components:
           format: date-time
         no_deployed:
           type: boolean
+        draft:
+          type: object
+          additionalProperties: true
       required: [is_draft]
     UserDraftItemKind:
       type: string

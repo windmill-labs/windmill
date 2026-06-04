@@ -22,8 +22,15 @@ import {
 // overlayed response, which is the right behavior. The overlay's
 // `is_draft` / `draft_saved_at` ride alongside so downstream "is there
 // a draft to delete?" checks have a typed handle on them.
-type SavedScript = Script & UserDraftOverlay & { draft?: NewScript }
-type SavedFlow = Flow & UserDraftOverlay & { draft?: Flow }
+// The generated `UserDraftOverlay` types `draft` as a permissive
+// `{[key: string]: unknown}` because the backend doesn't constrain the
+// draft shape per kind. Locally we know it's a `NewScript` / `Flow`
+// (set by this editor's autosave), so we `Omit` the generic field and
+// re-add it with the precise type. Assignments from the generated
+// response type still need an explicit cast — the source has the wider
+// `{[key: string]: unknown}` shape.
+type SavedScript = Omit<Script & UserDraftOverlay, 'draft'> & { draft?: NewScript }
+type SavedFlow = Omit<Flow & UserDraftOverlay, 'draft'> & { draft?: Flow }
 import type { HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { workspaceStore } from '$lib/stores'
@@ -282,7 +289,7 @@ function createRuntime(session: Session): SessionRuntime {
 					// yet on the backend — draft-only flows are a valid state.
 					try {
 						const result = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
-						savedFlow.val = result
+						savedFlow.val = result as SavedFlow
 					} catch {
 						savedFlow.val = undefined
 					}
@@ -293,13 +300,14 @@ function createRuntime(session: Session): SessionRuntime {
 					return
 				}
 
-				// No draft yet. Seed one from the last deploy (or the
-				// backend-side draft, if one exists — the `get_draft=true`
-				// overlay folds it into the top-level response, so `result`
-				// itself is the draft-or-deployed merge).
+				// No draft yet. Seed one from the last deploy — or from the
+				// backend-side draft, if one exists. The `get_draft=true`
+				// response attaches the user's saved draft as `.draft`
+				// (deployed stays untouched in the response body), so the
+				// seed is `result.draft ?? result`.
 				const result = await FlowService.getFlowByPath({ workspace, path, getDraft: true })
-				savedFlow.val = result
-				const flow: Flow = result as Flow
+				savedFlow.val = result as SavedFlow
+				const flow: Flow = ((result as SavedFlow).draft ?? (result as Flow)) as Flow
 				UserDraft.save('flow', path, flow, { workspace })
 				await initFlow(flow, flowStore, flowStateStore)
 				if (deployedVersionId != null && flowStore.val) flowStore.val.version_id = deployedVersionId
@@ -346,7 +354,7 @@ function createRuntime(session: Session): SessionRuntime {
 					// savedScript undefined and skip parent_hash.
 					try {
 						const result = await ScriptService.getScriptByPath({ workspace, path, getDraft: true })
-						savedScript.val = result
+						savedScript.val = result as SavedScript
 					} catch {
 						savedScript.val = undefined
 					}
@@ -380,15 +388,18 @@ function createRuntime(session: Session): SessionRuntime {
 					return
 				}
 
-				// No draft yet. Seed from backend. `get_draft=true` already
-				// merges the user's draft into the response (if any), so the
-				// `result` itself is the seed.
+				// No draft yet. Seed from backend. `get_draft=true` returns
+				// the deployed in the response body plus the user's saved
+				// draft (if any) as `.draft` — seed from `.draft` when
+				// present, else from the deployed.
 				const result = await ScriptService.getScriptByPath({ workspace, path, getDraft: true })
-				savedScript.val = result
+				savedScript.val = result as SavedScript
 				// Clone before mutating: otherwise `baseline` would alias
 				// `result` (= savedScript.val), so `baseline.parent_hash` would
 				// corrupt the pristine baseline the diff drawer reads.
-				const baseline = structuredClone(result as NewScript)
+				const baseline = structuredClone(
+					((result as SavedScript).draft as NewScript | undefined) ?? (result as NewScript)
+				)
 				baseline.parent_hash = result.hash
 				UserDraft.save<NewScript>('script', path, baseline, { workspace })
 				scriptStore.val = baseline

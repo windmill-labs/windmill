@@ -211,20 +211,49 @@
 				}
 			})
 		}
-		// When the backend falls back to `fetch_draft_only` (no deployed
-		// row at this path, only a per-user draft), the response's inner
-		// is the raw draft JSON — flat `{files, runnables, data, summary,
-		// policy, custom_path}`, no `.value` wrapper. The rest of this
-		// loader (and `extractRawApp` below) expects the deployed shape
-		// where those live under `.value`. Synthesize the wrapper here
-		// so both paths are uniform downstream.
-		if (backendApp.is_draft && backendApp.value === undefined) {
+		// Apply the user's saved draft. The autosave for raw apps writes a
+		// flat `RawAppDraft` (`{files, runnables, data, summary, policy,
+		// custom_path}`); the backend returns it in `.draft`. The rest of
+		// this loader (and `extractRawApp` below) expects the deployed
+		// shape where `files`/`runnables`/`data` live under `.value` and
+		// the rest are top-level.
+		//   - `no_deployed`: no deployed row exists. The response body is
+		//     a best-effort stand-in equal to `.draft`. Synthesize the
+		//     wrapper so downstream sees the editor's saved state under
+		//     `.value` and as top-level metadata.
+		//   - deployed + draft: keep the deployed metadata, replace the
+		//     editable fields with the saved draft's.
+		const savedRawAppDraft = backendApp.draft as
+			| {
+					files?: any
+					runnables?: any
+					data?: any
+					summary?: string
+					policy?: any
+					custom_path?: string
+			  }
+			| undefined
+		if (backendApp.no_deployed) {
 			backendApp.value = {
-				files: backendApp.files ?? {},
-				runnables: backendApp.runnables ?? {},
-				data: backendApp.data
+				files: savedRawAppDraft?.files ?? {},
+				runnables: savedRawAppDraft?.runnables ?? {},
+				data: savedRawAppDraft?.data
 			}
-			if (backendApp.policy === undefined) backendApp.policy = {}
+			backendApp.summary = savedRawAppDraft?.summary ?? ''
+			backendApp.policy = savedRawAppDraft?.policy ?? {}
+			backendApp.custom_path = savedRawAppDraft?.custom_path
+			backendApp.path = page.params.path ?? ''
+		} else if (savedRawAppDraft) {
+			backendApp.value = {
+				...(backendApp.value ?? {}),
+				files: savedRawAppDraft.files ?? backendApp.value?.files ?? {},
+				runnables: savedRawAppDraft.runnables ?? backendApp.value?.runnables ?? {},
+				data: savedRawAppDraft.data ?? backendApp.value?.data
+			}
+			if (savedRawAppDraft.summary !== undefined) backendApp.summary = savedRawAppDraft.summary
+			if (savedRawAppDraft.policy !== undefined) backendApp.policy = savedRawAppDraft.policy
+			if (savedRawAppDraft.custom_path !== undefined)
+				backendApp.custom_path = savedRawAppDraft.custom_path
 		}
 		const backendApp_ = structuredClone(stateSnapshot(backendApp))
 		savedApp = {

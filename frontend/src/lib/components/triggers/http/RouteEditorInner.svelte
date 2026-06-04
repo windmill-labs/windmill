@@ -365,8 +365,14 @@
 					}
 				})
 			}
+			// Layer the saved draft (if any) over the deployed at the field
+			// level so `loadTriggerConfig` sees the editor's last-saved state.
+			const { draft: draftFromBackend, ...deployedTrigger } = (s ?? {}) as any
+			const effective: any = draftFromBackend
+				? { ...deployedTrigger, ...draftFromBackend }
+				: deployedTrigger
 
-			loadTriggerConfig(s)
+			loadTriggerConfig(effective)
 		}
 	}
 

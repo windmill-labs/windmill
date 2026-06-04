@@ -254,18 +254,12 @@
 				ResourceService.getResource({ workspace: ws, path: initialPath, getDraft: true }),
 				getUserExt(ws)
 			]).then(([r, user]) => {
-				// The autosaved draft is a `ResourceState` (`{path, description,
-				// args, labels, wsSpecific}`) which doesn't line up with the
-				// `Resource` wire shape (`{path, value, description, labels,
-				// ws_specific, ...}`): `args` and `wsSpecific` are renames. So
-				// the deep-merge in `maybe_overlay_draft` leaves `r.value` and
-				// `r.ws_specific` pointing at the deployed values, and on
-				// `fetch_draft_only` they're undefined. Remap the draft keys
-				// back onto the wire keys before the rest of this loader reads
-				// them.
+				// `r` is the deployed `Resource` (wire shape `{path, value,
+				// description, labels, ws_specific, ...}`); the autosaved
+				// draft (if any) sits in `.draft` as the editor's internal
+				// `ResourceState` shape — the editor reads it directly.
+				const savedDraftState = (r as any).draft as ResourceState | undefined
 				if (r.is_draft) {
-					if ((r as any).args !== undefined) (r as any).value = (r as any).args
-					if ((r as any).wsSpecific !== undefined) r.ws_specific = (r as any).wsSpecific
 					notifyDraftLoaded({
 						workspace: ws,
 						itemKind: 'resource',
@@ -286,14 +280,21 @@
 							fetchedResources[ws] = fresh
 							fetchedRev[ws] = fresh.edited_at
 							initialStates[ws] = structuredClone(deployed)
-							const handle = states[ws]
-							if (handle) handle.setDraftAndMeta(undefined, { remoteRev: fresh.edited_at })
+							// Reset the live cell to the deployed state and drop the
+							// DB autosave. Setting the draft to `undefined` would
+							// blank the cell (and the editor) — `discard` reseeds it
+							// with the deployed baseline instead. The rev is re-recorded
+							// by the seeding effect on the user's next edit.
+							UserDraft.discard('resource', initialPath ?? '', deployed, { workspace: ws })
 						}
 					})
 				}
 				fetchedResources[ws] = r
 				fetchedRev[ws] = r.edited_at
-				const s: ResourceState = {
+				// Translate the deployed wire shape into the editor's
+				// `ResourceState` shape. When a saved draft exists, use it
+				// directly — it's already a `ResourceState`.
+				const s: ResourceState = savedDraftState ?? {
 					path: r.path,
 					description: r.description ?? '',
 					args: (r.value ?? {}) as any,

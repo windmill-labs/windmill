@@ -119,21 +119,23 @@
 			getDraft
 		})
 		if (tok !== loadAppToken) return
-		// When the backend falls back to `fetch_draft_only` (no deployed
-		// row at this path, only a per-user draft), the response's inner
-		// is the raw saved App value — `{grid, subgrids, hiddenInlineScripts,
-		// ...}` — without the `AppWithLastVersion` `{summary, value, path,
-		// policy, ...}` wrapper. The rest of this loader (and AppEditor's
-		// `app={app.value}` prop) expects the deployed shape. Synthesize
-		// the wrapper so both paths are uniform downstream.
+		// Apply the user's saved draft to `.value`. The autosave for apps
+		// writes the raw `App` (just the editor's working value) — when a
+		// draft exists the backend sends it back in `.draft`, and the
+		// rest of this loader (plus AppEditor's `app={app.value}` prop)
+		// expects the `AppWithLastVersion` `{summary, value, path,
+		// policy, ...}` shape. Two branches:
+		//   - `no_deployed`: no deployed row exists. The response body is
+		//     a best-effort stand-in (same JSON as `.draft`). Synthesize
+		//     the wrapper with the saved App as `.value` and empty
+		//     deployed-metadata defaults.
+		//   - deployed + draft: keep the deployed metadata, replace
+		//     `.value` with the saved App.
+		const savedDraftApp = (backendApp as any).draft as App | undefined
 		if (backendApp.no_deployed) {
-			const innerAppValue: any = { ...backendApp }
-			delete innerAppValue.is_draft
-			delete innerAppValue.draft_saved_at
-			delete innerAppValue.no_deployed
 			backendApp = {
 				summary: '',
-				value: innerAppValue as App,
+				value: (savedDraftApp ?? {}) as App,
 				path: page.params.path ?? '',
 				policy: {} as any,
 				custom_path: undefined,
@@ -147,6 +149,8 @@
 				draft_saved_at: backendApp.draft_saved_at,
 				no_deployed: true
 			} as unknown as typeof backendApp
+		} else if (savedDraftApp) {
+			backendApp = { ...backendApp, value: savedDraftApp } as typeof backendApp
 		}
 		if (backendApp.is_draft) {
 			notifyDraftLoaded({

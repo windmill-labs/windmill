@@ -307,7 +307,14 @@
 						}
 					})
 				}
-				s = resp
+				// The autosaved draft (when present) sits in `.draft` as the
+				// editor's saved Schedule shape. Layer it over the deployed
+				// at the field level so downstream `loadScheduleCfg` sees
+				// the editor's last-saved state.
+				const { draft: draftFromBackend, ...deployedSchedule } = resp as any
+				s = draftFromBackend
+					? ({ ...deployedSchedule, ...draftFromBackend } as Schedule)
+					: (deployedSchedule as Schedule)
 				initNewPath = true
 			} else if (defaultValues) {
 				s = defaultValues
@@ -493,7 +500,13 @@
 						}
 					})
 				}
-				await loadScheduleCfg(s)
+				// Layer the saved draft (if any) over the deployed so
+				// `loadScheduleCfg` sees the editor's last-saved fields.
+				const { draft: draftFromBackend, ...deployedSchedule } = s as any
+				const effectiveSchedule = draftFromBackend
+					? { ...deployedSchedule, ...draftFromBackend }
+					: deployedSchedule
+				await loadScheduleCfg(effectiveSchedule)
 			} catch (err) {
 				sendUserToast(`Could not load schedule: ${err}`, true)
 			}

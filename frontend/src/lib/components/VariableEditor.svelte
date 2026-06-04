@@ -168,25 +168,11 @@
 				}),
 				getUserExt(ws)
 			]).then(([v, user]) => {
-				// The autosaved draft is a `VariableState` (`{path, variable:
-				// {value, is_secret, description}, labels, wsSpecific}`) which
-				// doesn't line up with the `Variable` wire shape (`{path,
-				// value, is_secret, description, labels, ws_specific, ...}`):
-				// the editor fields are nested under `.variable` and
-				// `wsSpecific` is camelCase. So the deep-merge in
-				// `maybe_overlay_draft` leaves `v.value` / `v.is_secret` /
-				// `v.description` / `v.ws_specific` pointing at the deployed
-				// values, and on `fetch_draft_only` they're undefined. Flatten
-				// the draft keys back onto the wire keys before the rest of
-				// this loader reads them.
+				// `v` is the deployed `Variable` (wire shape); the autosaved
+				// draft (if any) sits in `.draft` as the editor's internal
+				// `VariableState` shape — the editor reads it directly.
+				const savedDraftState = (v as any).draft as VariableState | undefined
 				if (v.is_draft) {
-					const inner = (v as any).variable
-					if (inner && typeof inner === 'object') {
-						if (inner.value !== undefined) v.value = inner.value
-						if (inner.is_secret !== undefined) v.is_secret = inner.is_secret
-						if (inner.description !== undefined) v.description = inner.description
-					}
-					if ((v as any).wsSpecific !== undefined) v.ws_specific = (v as any).wsSpecific
 					notifyDraftLoaded({
 						workspace: ws,
 						itemKind: 'variable',
@@ -210,13 +196,20 @@
 							}
 							fetchedRev[ws] = fresh.edited_at
 							initialStates[ws] = structuredClone(deployed)
-							const handle = states[ws]
-							if (handle) handle.setDraftAndMeta(undefined, { remoteRev: fresh.edited_at })
+							// Reset the live cell to the deployed state and drop the
+							// DB autosave. Setting the draft to `undefined` would
+							// blank the cell (and the editor) — `discard` reseeds it
+							// with the deployed baseline instead. The rev is re-recorded
+							// by the seeding effect on the user's next edit.
+							UserDraft.discard('variable', editPath ?? '', deployed, { workspace: ws })
 						}
 					})
 				}
 				fetchedRev[ws] = v.edited_at
-				const s: VariableState = {
+				// Translate the deployed wire shape into the editor's
+				// `VariableState` shape. When a saved draft exists, use it
+				// directly — it's already a `VariableState`.
+				const s: VariableState = savedDraftState ?? {
 					path: v.path,
 					variable: {
 						value: v.value ?? '',

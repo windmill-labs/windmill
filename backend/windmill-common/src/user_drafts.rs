@@ -61,19 +61,23 @@ pub enum UserDraftItemKind {
 /// `#[serde(flatten)]` when the route already has other query fields.
 #[derive(Debug, Deserialize, Default)]
 pub struct WithDraftQuery {
-    /// When true, overlay the authed user's draft for this entity (if any)
-    /// onto the deployed payload before serializing. Defaults to false so
+    /// When true, attach the authed user's draft for this entity (if any)
+    /// as a separate `draft` field on the response. Defaults to false so
     /// non-editor callers see the deployed shape unchanged.
     #[serde(default)]
     pub get_draft: bool,
 }
 
-/// Response wrapper that flattens its inner payload alongside the
-/// `is_draft` / `draft_saved_at` overlay fields.
+/// Response wrapper that sends the deployed entity untouched and attaches
+/// the authed user's draft (if any) as a sibling `draft` field — the
+/// frontend pairs the two to diff/restore/discard.
 ///
-/// Wire shape is `<inner fields...> + is_draft + draft_saved_at?` — i.e.
-/// callers that ignore the overlay fields keep getting the same response
-/// they used to. `draft_saved_at` is omitted on `is_draft = false`.
+/// Wire shape is `<deployed fields...> + is_draft + draft_saved_at? +
+/// no_deployed? + draft?` — non-editor callers ignore the overlay fields
+/// and keep getting the deployed shape they used to. The deployed and
+/// the draft are NEVER merged on the server; the editor's saved shape
+/// can diverge from the deployed shape arbitrarily, so any per-kind
+/// translation lives in the frontend loader where the types are known.
 ///
 /// `inner` is held as `serde_json::Value` so the caller only needs
 /// `Serialize` on its response type — most read-only response shapes
@@ -86,27 +90,25 @@ pub struct WithDraftOverlay {
     pub is_draft: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_saved_at: Option<DateTime<Utc>>,
-    /// True when the response is the user's draft only — no deployed row
-    /// exists at this path. Frontend uses this to hide "Reset to deployed"
-    /// actions that have nothing to fall back to. Omitted from the wire
-    /// when false to keep the no-overlay shape unchanged.
+    /// True when no deployed row exists at this path — the response
+    /// body is a best-effort stand-in synthesized from the draft, and
+    /// only `draft` is canonical. Frontend uses this to disable "diff
+    /// vs deployed" / "reset to deployed" actions and to skip its
+    /// own deployed-shape parsing of `inner`. Omitted when false.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub no_deployed: bool,
+    /// The user's saved draft payload (whatever shape the editor wrote).
+    /// Present when `get_draft=true` and a draft exists. Pair with the
+    /// deployed (the rest of the response) for diff/restore UI.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft: Option<serde_json::Value>,
 }
 
 /// If `get_draft` is true AND the authed user has a draft saved for
-/// `(workspace, kind, path)`, deep-merge the draft JSON onto the
-/// serialized form of `deployed` and return the result with
-/// `is_draft = true`. Otherwise return the deployed payload unchanged.
-///
-/// **Merge semantics** are draft-wins-per-key with object recursion:
-/// fields the user touched (editor fields like `content`, `summary`, ...)
-/// come from the draft; fields the user didn't touch (hashes, ownership,
-/// timestamps) fall through from the deployed row. Arrays are replaced
-/// wholesale, not concatenated.
-///
-/// `deployed` is serialized once up-front, so the on-wire shape is
-/// identical between the no-draft and the overlay branches.
+/// `(workspace, kind, path)`, attach it as `draft` on the response.
+/// The deployed payload (`deployed`) is always serialized into `inner`
+/// untouched — the wire response is `<deployed fields...> + is_draft +
+/// draft? + draft_saved_at?` regardless of whether a draft exists.
 pub async fn maybe_overlay_draft<T>(
     db: &DB,
     w_id: &str,
@@ -127,6 +129,7 @@ where
             is_draft: false,
             draft_saved_at: None,
             no_deployed: false,
+            draft: None,
         });
     }
 
@@ -152,34 +155,19 @@ where
             is_draft: false,
             draft_saved_at: None,
             no_deployed: false,
+            draft: None,
         });
     };
 
-    let mut merged = inner;
-    let patch: serde_json::Value = serde_json::from_str(row.value.0.get())?;
-    deep_merge(&mut merged, patch);
+    let draft_json: serde_json::Value = serde_json::from_str(row.value.0.get())?;
 
     Ok(WithDraftOverlay {
-        inner: merged,
+        inner,
         is_draft: true,
         draft_saved_at: Some(row.created_at),
         no_deployed: false,
+        draft: Some(draft_json),
     })
-}
-
-/// Recursive object merge: `source` wins at every overlapping key,
-/// scalars/arrays replace wholesale, missing keys from `source` leave
-/// `target` untouched.
-fn deep_merge(target: &mut serde_json::Value, source: serde_json::Value) {
-    use serde_json::Value;
-    match (target, source) {
-        (Value::Object(t), Value::Object(s)) => {
-            for (k, v) in s {
-                deep_merge(t.entry(k).or_insert(Value::Null), v);
-            }
-        }
-        (t, s) => *t = s,
-    }
 }
 
 /// Delete the authed user's draft for `(workspace, kind, path)`.
@@ -214,9 +202,10 @@ pub async fn delete_user_draft(
 
 /// Fetch the authed user's draft as a standalone payload, used by
 /// "get by path" routes when no deployed row exists at the path but a
-/// draft might. Returns the draft JSON wrapped as `WithDraftOverlay`
-/// with `is_draft = true`, so the response shape matches the overlay
-/// path the handler uses when a deployed row IS present.
+/// draft might. Returns the draft as `WithDraftOverlay` with both
+/// `inner` (best-effort stand-in for the missing deployed) and `draft`
+/// populated to the same JSON, and `no_deployed = true` so the frontend
+/// knows there's no real deployed to compare against.
 ///
 /// Callers must already have established that no deployed row exists.
 /// Returns `Ok(None)` when there's also no draft — caller should 404.
@@ -252,11 +241,15 @@ pub async fn fetch_draft_only(
         return Ok(None);
     };
 
-    let inner: serde_json::Value = serde_json::from_str(row.value.0.get())?;
+    let draft_json: serde_json::Value = serde_json::from_str(row.value.0.get())?;
     Ok(Some(WithDraftOverlay {
-        inner,
+        // Best-effort stand-in for the missing deployed — same JSON as
+        // `draft`. Frontend should read `.draft` for the editor state
+        // and skip "diff vs deployed" UI when `no_deployed` is set.
+        inner: draft_json.clone(),
         is_draft: true,
         draft_saved_at: Some(row.created_at),
         no_deployed: true,
+        draft: Some(draft_json),
     }))
 }

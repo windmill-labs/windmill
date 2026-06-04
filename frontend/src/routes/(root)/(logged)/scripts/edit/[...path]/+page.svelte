@@ -198,7 +198,19 @@
 					}
 				})
 			}
-			savedScript = structuredClone($state.snapshot(backendScript))
+			// `backendScript` is the deployed payload; the user's saved
+			// draft (if any) sits in `.draft`. Layer the draft over the
+			// deployed at the field level — the draft contributes editor
+			// state (content, summary, …) and the deployed contributes
+			// metadata the draft never carries (hash, version markers).
+			// Same effective shape the backend used to deep-merge for us;
+			// kept frontend-side now so the draft's editor shape can
+			// diverge from the wire shape without confusing the server.
+			const { draft: draftFromBackend, ...deployedScript } = backendScript as any
+			const effectiveScript: EditableScript = draftFromBackend
+				? { ...deployedScript, ...draftFromBackend }
+				: (deployedScript as EditableScript)
+			savedScript = structuredClone($state.snapshot(effectiveScript))
 
 			const localDraft = scriptHandle.draft
 			const previousMeta = scriptHandle.meta
@@ -212,12 +224,12 @@
 			// useLocalStorageValue's saveInitialValue=false contract and get
 			// persisted before the user has touched anything.
 			const bakedBaseline: EditableScript = {
-				...(backendScript as EditableScript),
+				...effectiveScript,
 				parent_hash: topHash ?? backendScript.hash
 			}
 
 			if (localDraft != undefined) {
-				const referenceClean = cleanValueProperties(backendScript)
+				const referenceClean = cleanValueProperties(effectiveScript)
 				const localClean = cleanValueProperties(localDraft)
 				if (orderedJsonStringify(referenceClean) === orderedJsonStringify(localClean)) {
 					// Local matches the saved version — silently drop it and use the saved one.

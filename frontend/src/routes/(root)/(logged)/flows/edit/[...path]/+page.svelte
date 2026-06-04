@@ -230,7 +230,16 @@
 				}
 			})
 		}
-		savedFlow = structuredClone($state.snapshot(backendFlow)) as Flow
+		// `backendFlow` is the deployed payload; the user's saved draft
+		// (if any) is attached as `.draft`. Layer the draft over the
+		// deployed at the field level so downstream code sees the
+		// "draft-on-deployed" shape it used to get pre-merged from the
+		// server. See /scripts/edit's loader for the rationale.
+		const { draft: draftFromBackend, ...deployedFlow } = backendFlow as any
+		const effectiveFlow: Flow = draftFromBackend
+			? ({ ...deployedFlow, ...draftFromBackend } as Flow)
+			: (deployedFlow as Flow)
+		savedFlow = structuredClone($state.snapshot(effectiveFlow)) as Flow
 
 		const localDraft = flowHandle.draft
 		const previousMeta = flowHandle.meta
@@ -240,17 +249,17 @@
 
 		if (localDraft != undefined) {
 			const localClean = cleanValueProperties(localDraft)
-			const backendClean = cleanValueProperties(backendFlow)
+			const backendClean = cleanValueProperties(effectiveFlow)
 			if (orderedJsonStringify(localClean) === orderedJsonStringify(backendClean)) {
 				// Local matches backend exactly — silently drop the autosave.
-				flow = backendFlow
+				flow = effectiveFlow
 				UserDraft.remove('flow', flowDraftPath)
-				flowHandle.setDraftAndMeta(backendFlow, newRevs)
+				flowHandle.setDraftAndMeta(effectiveFlow, newRevs)
 			} else {
 				flow = localDraft
 				const cause = checkStaleness(previousMeta, newRevs.remoteRev, newRevs.remoteDraftRev)
 				if (cause) {
-					pendingBaseline = { baseline: backendFlow, revs: newRevs }
+					pendingBaseline = { baseline: effectiveFlow, revs: newRevs }
 					staleModalCause = cause
 					staleModalOpen = true
 				} else {
@@ -261,7 +270,7 @@
 					notifyRestoredFromLocal(false, true, {
 						onResetToSavedDraft: () => {
 							UserDraft.remove('flow', flowDraftPath)
-							flowHandle.setDraftAndMeta(backendFlow, newRevs)
+							flowHandle.setDraftAndMeta(effectiveFlow, newRevs)
 							loadFlow()
 						},
 						onResetToDeployed: async () => {
@@ -276,8 +285,8 @@
 				}
 			}
 		} else {
-			flow = backendFlow
-			flowHandle.setDraftAndMeta(backendFlow, newRevs)
+			flow = effectiveFlow
+			flowHandle.setDraftAndMeta(effectiveFlow, newRevs)
 		}
 
 		flowBuilder?.setDraftTriggers(undefined)
