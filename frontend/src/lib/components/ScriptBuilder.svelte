@@ -100,6 +100,7 @@
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
 	import OnBehalfOfSelector, { type OnBehalfOfChoice } from './OnBehalfOfSelector.svelte'
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
+	import { UserDraft } from '$lib/userDraft.svelte'
 
 	let {
 		script = $bindable(),
@@ -343,6 +344,14 @@
 	let loadingSave = $state(false)
 
 	if (script.content == '') {
+		// Suspend autosave around the bootstrap mutations — seeding the
+		// editor with the template's `initialCode` is a programmatic
+		// write that shouldn't count as the user's "first edit" and
+		// shouldn't POST to the server. The route's UserDraft handle is
+		// keyed by `initialPath` (the URL path). Resumed in the async
+		// `.finally` so language switches AFTER bootstrap (which also
+		// call `initContent`) sync normally.
+		UserDraft.stopSync('script', initialPath)
 		if (template === 'wac_python') {
 			script.modules = {
 				'helper.py': {
@@ -358,7 +367,9 @@
 				}
 			}
 		}
-		initContent(script.language, script.kind, template)
+		initContent(script.language, script.kind, template).finally(() => {
+			UserDraft.restartSync('script', initialPath)
+		})
 	}
 
 	async function isTemplateScript() {

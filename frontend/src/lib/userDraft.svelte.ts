@@ -118,6 +118,15 @@ type DraftEntry = {
 	 */
 	skipNextSync: boolean
 	/**
+	 * Sticky version of `skipNextSync`. While true, the reactive sync
+	 * effect updates the local state but never POSTs — used by callers
+	 * that programmatically mutate the draft as part of bootstrapping
+	 * (e.g. setting the editor's `initialCode` after mount) and don't
+	 * want those writes to land on the server as the user's "first
+	 * autosave". Toggled via `UserDraft.stopSync` / `restartSync`.
+	 */
+	syncSuspended: boolean
+	/**
 	 * Tears down the `$effect.root` scope that owns the entry's sync
 	 * effect. Called when the refcount hits 0. `undefined` only when the
 	 * test runtime's broken `$effect.root` forced us through the
@@ -411,6 +420,38 @@ export const UserDraft = {
 	},
 
 	/**
+	 * Suspend the reactive sync for `(workspace, itemKind, path)`.
+	 * Writes after this call still update the in-memory cell and any
+	 * subscribers but don't POST to the syncer. Use to bracket
+	 * programmatic mutations that happen during editor bootstrap (e.g.
+	 * seeding script content from `initialCode`, low-code app init)
+	 * so they don't appear on the server as the user's "first edit".
+	 *
+	 * The entry must already be live (acquired by `use`/`useMany`); a
+	 * no-op otherwise. Pair every `stopSync` with a `restartSync` —
+	 * forgetting to resume silently turns off autosave for the rest of
+	 * the session.
+	 */
+	stopSync(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
+		const ws = resolveWorkspace(opts)
+		const entry = entries.get(mapKey(ws, itemKind, path))
+		if (entry) entry.syncSuspended = true
+	},
+
+	/**
+	 * Resume reactive sync for `(workspace, itemKind, path)` after a
+	 * `stopSync`. Subsequent writes that differ from the suspended-time
+	 * state are POSTed normally; writes made during the suspension are
+	 * dropped from the server's view (the local cell still reflects
+	 * them). No-op if the entry isn't live or wasn't suspended.
+	 */
+	restartSync(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
+		const ws = resolveWorkspace(opts)
+		const entry = entries.get(mapKey(ws, itemKind, path))
+		if (entry) entry.syncSuspended = false
+	},
+
+	/**
 	 * List currently-mounted live entries for `workspace`. Without the
 	 * localStorage layer, "list" is meaningful only for in-tab entries —
 	 * for a workspace-wide view across sessions, call
@@ -649,6 +690,11 @@ function acquireEntry(
 				entry.skipNextSync = false
 				return
 			}
+			// `syncSuspended` swallows the POST but still advances
+			// `lastSerialized` (above) so when sync resumes the next
+			// real change is detected as a change — only the writes
+			// made during suspension are dropped from the server's view.
+			if (entry?.syncSuspended) return
 			void UserDraftDbSyncer.save({
 				workspace,
 				itemKind,
@@ -665,6 +711,7 @@ function acquireEntry(
 			path,
 			state: stateRef,
 			skipNextSync: false,
+			syncSuspended: false,
 			destroyRoot
 		})
 		return
@@ -680,7 +727,8 @@ function acquireEntry(
 		itemKind,
 		path,
 		state: fallback,
-		skipNextSync: false
+		skipNextSync: false,
+		syncSuspended: false
 	})
 }
 

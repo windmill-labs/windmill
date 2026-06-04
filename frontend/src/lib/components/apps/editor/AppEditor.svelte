@@ -3,7 +3,7 @@
 
 	const bubble = createBubbler()
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
-	import { getContext, onMount, setContext, untrack } from 'svelte'
+	import { getContext, onMount, setContext, tick, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -94,6 +94,15 @@
 
 	const appDraftPath = newApp ? '' : (path ?? '')
 	const appDraftHandle = inSessionPane ? undefined : UserDraft.use<App>('app', appDraftPath)
+	// Suspend autosave around mount — the route may have seeded `app`
+	// from an empty template (e.g. `/apps/add` redirect with
+	// `new_draft=true`), and the `firstMirror` effect below writes that
+	// seed into the handle as a programmatic mutation. Without
+	// suspension that write fires a POST that looks like the user's
+	// first edit before they've touched anything. `onMount`-then-`tick`
+	// resumes once all mount-time effects have settled, so the user's
+	// real first edit is the first POST.
+	if (appDraftHandle) UserDraft.stopSync('app', appDraftPath)
 	// Prefer the persisted autosave over the prop when both exist (e.g.
 	// /apps/add reload: the route always initializes `app` to an empty
 	// template, but the user's last session is sitting in LS under the
@@ -481,6 +490,14 @@
 	let mounted = false
 	onMount(() => {
 		mounted = true
+		// Resume autosave now that mount-time effects (the
+		// `firstMirror` mirror, prop-driven initialization, ...) have
+		// all run. `tick` waits for the current pending effect flush
+		// to complete so the post-suspend writes have been observed by
+		// the sync effect and silently dropped.
+		if (appDraftHandle) {
+			tick().then(() => UserDraft.restartSync('app', appDraftPath))
+		}
 
 		setTimeout(() => {
 			if ($initialized?.initialized === false) {
