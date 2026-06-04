@@ -297,12 +297,8 @@ export async function handleFile(
   if (
     !isAppInlineScriptPath(path) &&
     !isFlowInlineScriptPath(path) &&
-    // Exclude EVERY file inside a raw_app folder, not just backend/ runnables.
-    // Frontend source files with a script extension (e.g. src/lib/util.ts) are
-    // part of the raw app's bundle (pushed via pushRawApp), never standalone
-    // scripts. Treating them as scripts here would push a bogus script at a
-    // truncated path AND short-circuit (return true) so the raw app itself
-    // never gets pushed — a silent no-op that still reports success.
+    // Raw-app files (frontend included) belong to the app bundle, never
+    // standalone scripts — pushed via pushRawApp, not here.
     !isRawAppPath(path) &&
     (!isScriptModulePath(path) || moduleEntryPoint) &&
     exts.some((exts) => path.endsWith(exts))
