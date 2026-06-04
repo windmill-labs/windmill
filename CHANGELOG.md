@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.717.0](https://github.com/windmill-labs/windmill/compare/v1.716.0...v1.717.0) (2026-06-04)
+
+
+### Features
+
+* let flow AI chat create and edit sticky notes ([#9412](https://github.com/windmill-labs/windmill/issues/9412)) ([e4e0984](https://github.com/windmill-labs/windmill/commit/e4e0984e55afd3c73f1c365cd0608493a9fd87ed))
+
+
+### Bug Fixes
+
+* **cli:** push whole raw app instead of treating frontend files as scripts ([#9442](https://github.com/windmill-labs/windmill/issues/9442)) ([b5a6a1e](https://github.com/windmill-labs/windmill/commit/b5a6a1eeab663c2d6aaec2c89eab7a550cb0bb6b))
+* read latest db draft for scripts/flows in global mode read tool ([#9441](https://github.com/windmill-labs/windmill/issues/9441)) ([819ba5e](https://github.com/windmill-labs/windmill/commit/819ba5e150ec9f5199919fbea50874fc156d0189))
+
 ## [1.716.0](https://github.com/windmill-labs/windmill/compare/v1.715.0...v1.716.0) (2026-06-03)
 
 
