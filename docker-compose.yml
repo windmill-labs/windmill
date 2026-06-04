@@ -106,7 +106,9 @@ services:
   #     - MODE=worker
   #     - WORKER_GROUP=docker
   #     - WORKER_TAGS=docker # only serve jobs tagged "docker" (set that tag on your docker scripts)
-  #     - CONTAINER_RUNTIME=podman
+  #   # No DOCKER_HOST / docker socket is provided, so docker jobs automatically use
+  #   # the bundled rootless podman (per job). Provide a DOCKER_HOST or mount
+  #   # /var/run/docker.sock instead to use an external/host Docker daemon (legacy).
   #   depends_on:
   #     db:
   #       condition: service_healthy

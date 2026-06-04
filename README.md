@@ -208,14 +208,14 @@ docker compose up -d
 Go to http://localhost - default credentials: `admin@windmill.dev` / `changeme`
 
 > [!NOTE]
-> To run `# docker` scripts (bash scripts with the `# docker` annotation), add a
-> dedicated worker group with the rootless **podman** container runtime: each docker
-> job runs in its own ephemeral rootless podman, torn down with the job — no
-> privileged daemon and no host Docker socket, with your scripts unchanged. Use a
-> `*-full` image (ships podman), set `CONTAINER_RUNTIME=podman`, and tag your docker
-> scripts to route them to that group. See the commented `windmill_worker_docker`
-> service in [docker-compose.yml](./docker-compose.yml), or the **Container runtime**
-> toggle on a worker group in the UI (Workers → worker group config).
+> To run `# docker` scripts (bash scripts with the `# docker` annotation): on a worker
+> with **no Docker daemon provided** (no `DOCKER_HOST`, no mounted `/var/run/docker.sock`),
+> Windmill automatically runs each docker job in its own ephemeral **rootless podman**,
+> torn down with the job — no privileged daemon, no host socket, scripts unchanged. Just
+> use a `*-full` image (ships podman) and tag your docker scripts to a dedicated worker
+> group; see the commented `windmill_worker_docker` service in
+> [docker-compose.yml](./docker-compose.yml). To use an external/host Docker daemon
+> instead (legacy), provide `DOCKER_HOST` or mount `/var/run/docker.sock`.
 
 **Using an external database**: Set `DATABASE_URL` in `.env` to point to your managed Postgres (AWS RDS, GCP Cloud SQL, Azure, Neon, etc.) and set db replicas to 0.
 

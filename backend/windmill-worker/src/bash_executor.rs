@@ -96,27 +96,6 @@ pub async fn handle_bash_job(
     let mut logs1 = "\n\n--- BASH CODE EXECUTION ---\n".to_string();
     if annotation.docker {
         logs1.push_str("docker mode\n");
-        // If neither DOCKER_HOST nor the host socket is available, the docker CLI
-        // in the script would fail with a generic "cannot connect to the Docker
-        // daemon" error. Surface a Windmill-specific hint instead. Skipped when
-        // container_runtime=podman is set: a per-job rootless podman is started
-        // below and provides the daemon.
-        if std::env::var("DOCKER_HOST").is_err()
-            && !std::path::Path::new("/var/run/docker.sock").exists()
-            && windmill_common::worker::WORKER_CONFIG
-                .load()
-                .container_runtime
-                .as_deref()
-                != Some("podman")
-        {
-            logs1.push_str(
-                "WARNING: docker mode is set but no Docker daemon is reachable from this worker \
-                (DOCKER_HOST is unset and /var/run/docker.sock is not mounted). Give this worker \
-                Docker access: with docker-compose, enable the dind sidecar (`docker compose \
-                --profile dind up -d` and uncomment DOCKER_HOST in windmill_worker); with the Helm \
-                chart, set `exposeHostDocker: true`; otherwise set DOCKER_HOST or mount a Docker socket.\n",
-            );
-        }
     }
     if annotation.sandbox {
         logs1.push_str("sandbox mode (nsjail)\n");
@@ -214,20 +193,18 @@ exit $exit_status
     // Use nsjail if globally enabled OR if script has #sandbox annotation
     let nsjail = (is_sandboxing_enabled() || annotation.sandbox) && is_regular_job;
 
-    // Every docker job gets its OWN ephemeral rootless podman instance (started here,
-    // torn down when this guard drops at the end of the function) so no container it
-    // spawns can outlive the job, in any sandbox mode. Gated strictly on
-    // container_runtime=podman: legacy docker access (an externally-provided
-    // DOCKER_HOST or a mounted /var/run/docker.sock, without container_runtime=podman)
-    // is left exactly as before.
+    // Docker runtime selection: if a Docker daemon is already provided — DOCKER_HOST
+    // set, or the host socket mounted at /var/run/docker.sock — use it (backwards
+    // compatible, unchanged). Otherwise start a per-job rootless podman instance for
+    // this docker job (its own ephemeral daemon, torn down when this guard drops at
+    // the end of the function, so no container it spawns can outlive the job, in any
+    // sandbox mode). Requires podman in the image (the *-full images) — else
+    // start_per_job_podman returns a clear error.
     #[cfg(feature = "dind")]
-    let per_job_podman: Option<PerJobPodman> = if annotation.docker
-        && windmill_common::worker::WORKER_CONFIG
-            .load()
-            .container_runtime
-            .as_deref()
-            == Some("podman")
-    {
+    let docker_daemon_provided = std::env::var("DOCKER_HOST").is_ok()
+        || std::path::Path::new("/var/run/docker.sock").exists();
+    #[cfg(feature = "dind")]
+    let per_job_podman: Option<PerJobPodman> = if annotation.docker && !docker_daemon_provided {
         Some(start_per_job_podman(job_dir).await?)
     } else {
         None
@@ -254,7 +231,7 @@ exit $exit_status
     };
 
     // Forward DOCKER_HOST to the bash script in docker mode: the per-job podman
-    // socket when container_runtime=podman, else the legacy DOCKER_HOST / docker socket.
+    // socket when one was started, else the provided DOCKER_HOST / docker socket.
     let docker_envs: Vec<(&str, String)> = if annotation.docker {
         if let Some(dh) = &docker_host_for_script {
             vec![("DOCKER_HOST", dh.clone())]
@@ -543,8 +520,9 @@ async fn start_per_job_podman(job_dir: &str) -> Result<PerJobPodman, Error> {
         .spawn()
         .map_err(|e| {
             Error::ExecutionErr(format!(
-                "container_runtime=podman but failed to start the per-job podman service: {e}. \
-                 Use a windmill *-full image (ships podman)."
+                "no Docker daemon provided (DOCKER_HOST/socket) and failed to start the per-job \
+                 podman runtime: {e}. Use a windmill *-full image (ships podman), or provide a \
+                 Docker daemon via DOCKER_HOST or a mounted /var/run/docker.sock."
             ))
         })?;
     // Wait (up to ~10s) for the rootless podman service socket to appear.

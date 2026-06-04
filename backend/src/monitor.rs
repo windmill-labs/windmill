@@ -315,9 +315,6 @@ pub async fn initial_load(
                     additional_python_paths: None,
                     pip_local_dependencies: None,
                     native_mode,
-                    container_runtime: std::env::var("CONTAINER_RUNTIME")
-                        .ok()
-                        .filter(|x| !x.is_empty()),
                 }));
             }
         }
