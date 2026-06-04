@@ -1,4 +1,6 @@
 import { DraftService, type UserDraftItemKind } from './gen'
+import { createCoalescingKeyedRunner } from './coalescingRunner'
+import { createDebouncerByKey } from './debouncerByKey'
 
 /**
  * Per-draft last-sync map persisted under a single localStorage key. Lets
@@ -81,9 +83,56 @@ export type UserDraftLastSyncQuery = {
 }
 
 /**
- * Server-side persistence for `UserDraft`. `UserDraft` owns the localStorage
- * cache; this module forwards each write through to `POST /drafts/save_draft`
- * so the per-user `draft` table on the server stays in sync.
+ * Two-stage pipeline per draft key (`workspace/itemKind/path`):
+ *   1. Debouncer collapses keystroke bursts so we don't POST per edit.
+ *      `debounceMs = 1500` resets on each new submission; the
+ *      `maxDebounceMs = 10000` ceiling guarantees sustained typing still
+ *      flushes at least once every 10s instead of getting deferred
+ *      forever.
+ *   2. When the debouncer fires, the captured `opts` is submitted to a
+ *      coalescing runner. The runner keeps at most one POST in flight
+ *      per key plus at most one "latest" follow-up — newer submissions
+ *      while a POST is running drop any prior pending and replace it,
+ *      so the server never sees stale-then-fresh out of order.
+ *
+ * Together: the debouncer absorbs typing, the runner absorbs network
+ * slowness. Imperative awaits (e.g. delete-then-refetch) MUST NOT rely
+ * on `save()` returning a settled promise — the returned promise
+ * resolves as soon as the work is queued, not when the POST lands. A
+ * bypass path for those callers is tracked separately.
+ */
+const debouncer = createDebouncerByKey({ debounceMs: 1500, maxDebounceMs: 10000 })
+const runner = createCoalescingKeyedRunner()
+
+async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
+	try {
+		const resp = await DraftService.saveDraft({
+			workspace: opts.workspace,
+			kind: opts.itemKind,
+			path: opts.path,
+			requestBody: {
+				value: opts.value as any,
+				force: true
+			}
+		})
+		// On a successful delete, drop the recorded last-sync so the
+		// next save starts fresh. On an upsert, remember the server's
+		// timestamp as our baseline for future conflict checks.
+		if (opts.value === null) {
+			clearLastSync(opts.workspace, opts.itemKind, opts.path)
+		} else {
+			setLastSync(opts.workspace, opts.itemKind, opts.path, resp.current_timestamp)
+		}
+	} catch (e) {
+		console.error('UserDraftDbSyncer.save failed', e)
+	}
+}
+
+/**
+ * Server-side persistence for `UserDraft`. Every write is funneled
+ * through the debouncer + coalescing runner above so editor autosave
+ * spam can't translate into one POST per keystroke or out-of-order
+ * writes under slow networks.
  *
  * Kept as a separate module so the two halves stay decoupled — `UserDraft`
  * just calls `UserDraftDbSyncer.save(...)` and doesn't reach into the
@@ -107,26 +156,9 @@ export const UserDraftDbSyncer = {
 	},
 
 	async save(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
-		try {
-			const resp = await DraftService.saveDraft({
-				workspace: opts.workspace,
-				kind: opts.itemKind,
-				path: opts.path,
-				requestBody: {
-					value: opts.value as any,
-					force: true
-				}
-			})
-			// On a successful delete, drop the recorded last-sync so the
-			// next save starts fresh. On an upsert, remember the server's
-			// timestamp as our baseline for future conflict checks.
-			if (opts.value === null) {
-				clearLastSync(opts.workspace, opts.itemKind, opts.path)
-			} else {
-				setLastSync(opts.workspace, opts.itemKind, opts.path, resp.current_timestamp)
-			}
-		} catch (e) {
-			console.error('UserDraftDbSyncer.save failed', e)
-		}
+		const key = draftKey(opts.workspace, opts.itemKind, opts.path)
+		debouncer.schedule(key, () => {
+			runner.submit(key, () => postSave(opts))
+		})
 	}
 }
