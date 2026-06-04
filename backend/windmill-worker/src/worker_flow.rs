@@ -1324,23 +1324,22 @@ pub async fn update_flow_status_after_job_completion_internal(
         };
 
         if stop_early && stop_early_err_msg.is_some() {
-            let error = serde_json::json!({
+            let mut error = serde_json::json!({
                 "name": "EarlyStopError",
                 "message": stop_early_err_msg.as_ref().unwrap(),
             });
-            let payload = if stop_early_include_result {
-                // Preserve the stopping step's own result alongside the raised error
-                // instead of discarding it. `nresult` is already set for loops/branchall
-                // (aggregated iteration results), otherwise fall back to the step result.
+            if stop_early_include_result {
+                // Embed the stopping step's own result inside the error object instead
+                // of discarding it, keeping the top-level result shape `{ "error": .. }`
+                // unchanged. `nresult` is already set for loops/branchall (aggregated
+                // iteration results), otherwise fall back to the step result.
                 let step_result = nresult.clone().unwrap_or_else(|| result.clone());
-                serde_json::json!({
-                    "error": error,
-                    "result": step_result,
-                })
-            } else {
-                serde_json::json!({ "error": error })
-            };
-            nresult = Some(Arc::new(to_raw_value(&payload)));
+                error["result"] =
+                    serde_json::to_value(&step_result).unwrap_or(serde_json::Value::Null);
+            }
+            nresult = Some(Arc::new(to_raw_value(
+                &serde_json::json!({ "error": error }),
+            )));
         }
 
         let step_counter = if inc_step_counter {

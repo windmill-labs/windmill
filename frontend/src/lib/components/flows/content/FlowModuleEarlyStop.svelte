@@ -180,7 +180,7 @@
 							options={{
 								right: "Include the stopping step's result in the error",
 								rightTooltip:
-									"When enabled, the raised error payload becomes { error, result } where result is this step's output, instead of replacing the flow result with only the error message."
+									"When enabled, this step's output is embedded inside the raised error object (as error.result) instead of being discarded. The flow result stays { error }."
 							}}
 						/>
 					{/if}
@@ -338,7 +338,7 @@
 							options={{
 								right: "Include the stopping step's result in the error",
 								rightTooltip:
-									"When enabled, the raised error payload becomes { error, result } where result is this step's output, instead of replacing the flow result with only the error message."
+									"When enabled, this step's output is embedded inside the raised error object (as error.result) instead of being discarded. The flow result stays { error }."
 							}}
 						/>
 					{/if}

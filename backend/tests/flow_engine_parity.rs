@@ -2968,9 +2968,9 @@ export function main() {
 }
 
 // stop_after_if with `error_message` + `error_include_result` should fail the
-// flow but preserve the stopping step's own result alongside the raised error,
-// i.e. `{ "error": { .. }, "result": <step result> }`. With the flag off (the
-// default) the flow result is the bare `{ "error": { .. } }`. Regression for the
+// flow but preserve the stopping step's own result inside the raised error
+// object, i.e. `{ "error": { .., "result": <step result> } }`. With the flag off
+// (the default) the error object carries no `result`. Regression for the
 // early-stop branch in `update_flow_status_after_job_completion_internal`.
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
@@ -3026,9 +3026,9 @@ export function main() {
     );
     assert_eq!(result["error"]["message"], "API returned userErrors");
     assert_eq!(
-        result["result"],
+        result["error"]["result"],
         json!({ "userErrors": ["email taken"], "ok": false }),
-        "step result should be preserved under `result`; got {result:?}"
+        "step result should be preserved under `error.result`; got {result:?}"
     );
 
     // include_result = false (default behavior): result is the bare error object
@@ -3046,8 +3046,8 @@ export function main() {
     let result = job.json_result().unwrap();
     assert_eq!(result["error"]["name"], "EarlyStopError");
     assert!(
-        result.get("result").is_none(),
-        "without the flag the step result must not be embedded; got {result:?}"
+        result["error"].get("result").is_none(),
+        "without the flag the error must not embed the step result; got {result:?}"
     );
 
     Ok(())

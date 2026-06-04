@@ -315,9 +315,9 @@ pub struct StopAfterIf {
     pub expr: String,
     pub skip_if_stopped: bool,
     pub error_message: Option<String>,
-    /// When stopping with an error (`error_message` set), also include the
-    /// stopping step's own result in the raised error payload instead of
-    /// replacing the flow result with only the static error object.
+    /// When stopping with an error (`error_message` set), embed the stopping
+    /// step's own result inside the raised error object (as `error.result`)
+    /// instead of discarding it. The top-level result stays `{ "error": .. }`.
     #[serde(default)]
     pub error_include_result: bool,
 }
