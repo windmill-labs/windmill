@@ -2916,6 +2916,7 @@ export function main() {
             expr: "flow_env.STOP === true".to_string(),
             skip_if_stopped: true,
             error_message: None,
+            error_include_result: false,
         });
         m
     };
@@ -3093,6 +3094,7 @@ export function main(i: number) {
             expr: "flow_env.STOP === true".to_string(),
             skip_if_stopped: true,
             error_message: None,
+            error_include_result: false,
         });
         m
     };
