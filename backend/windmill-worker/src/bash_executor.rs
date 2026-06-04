@@ -477,6 +477,9 @@ struct PerJobPodman {
 impl Drop for PerJobPodman {
     fn drop(&mut self) {
         // Drop is synchronous: use blocking std::process for guaranteed teardown.
+        // `system reset` removes ALL containers AND images in the per-job store and,
+        // crucially, deletes the subuid-owned overlay layers a plain `rm -rf` (or
+        // `rm -af`, which only touches containers) cannot — preventing a storage leak.
         let storage = format!("{}/storage", self.dir);
         let runroot = format!("{}/runroot", self.dir);
         let _ = std::process::Command::new("podman")
@@ -485,8 +488,8 @@ impl Drop for PerJobPodman {
                 &storage,
                 "--runroot",
                 &runroot,
-                "rm",
-                "-af",
+                "system",
+                "reset",
                 "--force",
             ])
             .stdout(std::process::Stdio::null())
