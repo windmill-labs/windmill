@@ -17,6 +17,7 @@ pub fn workspaced_service() -> Router {
         .route("/flows", post(publish_flow))
         .route("/apps", post(publish_app))
         .route("/raw_apps", post(publish_raw_app))
+        .route("/raw_apps/{id}/embed", post(publish_raw_app_embed))
         .route(
             "/scripts/{ask_id}/recording",
             post(publish_script_recording),
@@ -157,6 +158,22 @@ async fn publish_raw_app(
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
     forward_to_hub("/raw_apps", &body).await
+}
+
+#[derive(Deserialize, Serialize)]
+struct RawAppEmbedBody {
+    // No skip_serializing_if: `null` must reach the Hub to clear the embed (unpublish).
+    external_embed_url: Option<String>,
+    project_slug: String,
+}
+
+async fn publish_raw_app_embed(
+    authed: ApiAuthed,
+    Path((_workspace, id)): Path<(String, i64)>,
+    Json(body): Json<RawAppEmbedBody>,
+) -> Result<impl IntoResponse, Error> {
+    require_admin(authed.is_admin, &authed.username)?;
+    forward_to_hub(&format!("/raw_apps/{}/embed", id), &body).await
 }
 
 #[derive(Deserialize, Serialize)]
