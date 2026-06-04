@@ -4066,10 +4066,11 @@ export async function push(
                 continue;
               }
               if (
-                change.path.endsWith(".script.json") ||
-                change.path.endsWith(".script.yaml") ||
-                change.path.endsWith(".lock") ||
-                isFileResource(change.path)
+                !isRawAppFile(change.path) &&
+                (change.path.endsWith(".script.json") ||
+                  change.path.endsWith(".script.yaml") ||
+                  change.path.endsWith(".lock") ||
+                  isFileResource(change.path))
               ) {
                 continue;
               } else if (
