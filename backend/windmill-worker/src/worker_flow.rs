@@ -311,14 +311,13 @@ struct RecoveryObject {
     recover: Option<bool>,
 }
 
-/// Returns `(skip_if_stopped, error_message, include_step_result)`.
-fn get_stop_after_if_data(stop_after_if: Option<&StopAfterIf>) -> (bool, Option<String>, bool) {
+fn get_stop_after_if_data(stop_after_if: Option<&StopAfterIf>) -> (bool, Option<String>) {
     if let Some(stop_after_if) = stop_after_if {
         // skip_if_stopped and error_message are mutually exclusive:
         // skip_if_stopped=true means clean stop (mark remaining as skipped),
         // error_message means stop with error. skip_if_stopped takes precedence.
         if stop_after_if.skip_if_stopped {
-            return (true, None, false);
+            return (true, None);
         }
         let err_msg = stop_after_if.error_message.as_ref().and_then(|message| {
             if message.is_empty() {
@@ -327,9 +326,9 @@ fn get_stop_after_if_data(stop_after_if: Option<&StopAfterIf>) -> (bool, Option<
                 Some(message.clone())
             }
         });
-        return (false, err_msg, stop_after_if.error_include_result);
+        return (false, err_msg);
     }
-    return (false, None, false);
+    return (false, None);
 }
 
 async fn get_id_ctx_for_expr(
@@ -359,7 +358,6 @@ async fn evaluate_stop_after_all_iters_if(
     stop_early: &mut bool,
     skip_if_stop_early: &mut bool,
     stop_early_err_msg: &mut Option<String>,
-    stop_early_include_result: &mut bool,
     nresult: &mut Option<Arc<Box<RawValue>>>,
     args: HashMap<String, Box<RawValue>>,
     flow_env: Option<&HashMap<String, Box<RawValue>>>,
@@ -396,11 +394,8 @@ async fn evaluate_stop_after_all_iters_if(
 
     if stop_early_after_all_iters {
         *stop_early = true;
-        (
-            *skip_if_stop_early,
-            *stop_early_err_msg,
-            *stop_early_include_result,
-        ) = get_stop_after_if_data(Some(stop_after_all_iters_if));
+        (*skip_if_stop_early, *stop_early_err_msg) =
+            get_stop_after_if_data(Some(stop_after_all_iters_if));
     }
     Ok(())
 }
@@ -660,24 +655,19 @@ pub async fn update_flow_status_after_job_completion_internal(
             false
         };
 
-        let (
-            mut stop_early,
-            mut stop_early_err_msg,
-            mut skip_if_stop_early,
-            mut stop_early_include_result,
-            continue_on_error,
-        ) = if stop_early_override.is_some()
-            && !is_flow_stop_early_override
-            && !parallel_loop
-            && !parallel_branchall
-        {
-            // we ignore stop_early_override (stop_early in children) if module is parallel or is a flow step
-            let se = stop_early_override.as_ref().unwrap();
-            (true, None, *se, false, false)
-        } else if is_failure_step || module_step.is_preprocessor_step() {
-            (false, None, false, false, false)
-        } else if let Some(current_module) = current_module {
-            let stop_early = success
+        let (mut stop_early, mut stop_early_err_msg, mut skip_if_stop_early, continue_on_error) =
+            if stop_early_override.is_some()
+                && !is_flow_stop_early_override
+                && !parallel_loop
+                && !parallel_branchall
+            {
+                // we ignore stop_early_override (stop_early in children) if module is parallel or is a flow step
+                let se = stop_early_override.as_ref().unwrap();
+                (true, None, *se, false)
+            } else if is_failure_step || module_step.is_preprocessor_step() {
+                (false, None, false, false)
+            } else if let Some(current_module) = current_module {
+                let stop_early = success
                     && !is_branch_all // we don't support stop_early per branch
                     && !parallel_loop // we don't support anymore stop_early per iteration when parallel for loop (removed from frontend)
                     && !is_identity_job // don't evaluate stop_after_if for skipped (identity) steps
@@ -727,22 +717,21 @@ pub async fn update_flow_status_after_job_completion_internal(
                     } else {
                         false
                     };
-            let (skip_if_stopped, stop_early_err_msg, include_result) = if stop_early {
-                get_stop_after_if_data(current_module.stop_after_if.as_ref())
-            } else {
-                (false, None, false)
-            };
+                let (skip_if_stopped, stop_early_err_msg) = if stop_early {
+                    get_stop_after_if_data(current_module.stop_after_if.as_ref())
+                } else {
+                    (false, None)
+                };
 
-            (
-                stop_early,
-                stop_early_err_msg,
-                skip_if_stopped,
-                include_result,
-                current_module.continue_on_error.unwrap_or(false),
-            )
-        } else {
-            (false, None, false, false, false)
-        };
+                (
+                    stop_early,
+                    stop_early_err_msg,
+                    skip_if_stopped,
+                    current_module.continue_on_error.unwrap_or(false),
+                )
+            } else {
+                (false, None, false, false)
+            };
 
         let skip_seq_branch_failure = match module_status {
             FlowStatusModule::InProgress {
@@ -985,7 +974,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                             &mut stop_early,
                             &mut skip_if_stop_early,
                             &mut stop_early_err_msg,
-                            &mut stop_early_include_result,
                             &mut nresult,
                             args,
                             resolved_flow_env.as_deref(),
@@ -1185,7 +1173,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                     stop_early = false;
                     stop_early_err_msg = None;
                     skip_if_stop_early = false;
-                    stop_early_include_result = false;
                 }
 
                 if is_loop || (is_branch_all && !stop_early) {
@@ -1207,7 +1194,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                             &mut stop_early,
                             &mut skip_if_stop_early,
                             &mut stop_early_err_msg,
-                            &mut stop_early_include_result,
                             &mut nresult,
                             args,
                             resolved_flow_env.as_deref(),
@@ -1324,22 +1310,18 @@ pub async fn update_flow_status_after_job_completion_internal(
         };
 
         if stop_early && stop_early_err_msg.is_some() {
-            let mut error = serde_json::json!({
-                "name": "EarlyStopError",
-                "message": stop_early_err_msg.as_ref().unwrap(),
-            });
-            if stop_early_include_result {
-                // Embed the stopping step's own result inside the error object instead
-                // of discarding it, keeping the top-level result shape `{ "error": .. }`
-                // unchanged. `nresult` is already set for loops/branchall (aggregated
-                // iteration results), otherwise fall back to the step result.
-                let step_result = nresult.clone().unwrap_or_else(|| result.clone());
-                error["result"] =
-                    serde_json::to_value(&step_result).unwrap_or(serde_json::Value::Null);
-            }
-            nresult = Some(Arc::new(to_raw_value(
-                &serde_json::json!({ "error": error }),
-            )));
+            // Embed the stopping step's own result inside the raised error object
+            // (as error.result) instead of discarding it. `nresult` is already set
+            // for loops/branchall (aggregated iteration results), otherwise fall back
+            // to the step result. The top-level result stays `{ "error": .. }`.
+            let step_result = nresult.clone().unwrap_or_else(|| result.clone());
+            nresult = Some(Arc::new(to_raw_value(&serde_json::json!({
+                "error": {
+                    "name": "EarlyStopError",
+                    "message": stop_early_err_msg.as_ref().unwrap(),
+                    "result": serde_json::to_value(&step_result).unwrap_or(serde_json::Value::Null),
+                }
+            }))));
         }
 
         let step_counter = if inc_step_counter {
