@@ -74,6 +74,15 @@ export type UserDraftDbSyncerSaveOpts = {
 	/** `null` signals a delete — the server removes the row under the same
 	 *  conflict rules as an upsert. */
 	value: unknown | null
+	/** Bypass the autosave debouncer for THIS save. Cancels any pending
+	 * debouncer task for the same key (the queued autosave would
+	 * otherwise overwrite what we're about to send), routes through the
+	 * coalescing runner so ordering against any in-flight POST is
+	 * preserved, and the returned promise resolves only after the POST
+	 * actually lands. Use for `await save(...); then-read-the-server`
+	 * flows (table-row delete, etc.) where a fire-and-forget save would
+	 * race the next read. */
+	immediate?: boolean
 }
 
 export type UserDraftLastSyncQuery = {
@@ -157,6 +166,18 @@ export const UserDraftDbSyncer = {
 
 	async save(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		const key = draftKey(opts.workspace, opts.itemKind, opts.path)
+		if (opts.immediate) {
+			// Drop the queued autosave (if any) — letting it fire after
+			// our POST would re-save the pre-delete value. The runner's
+			// own cancel is implicit in `submitAndWait`, which displaces
+			// any pending runner task with ours, but call it explicitly
+			// so a `submit` -> `cancel` -> `submitAndWait` sequence is
+			// observable in the runner's internal state for debugging.
+			debouncer.cancel(key)
+			runner.cancel(key)
+			await runner.submitAndWait(key, () => postSave(opts))
+			return
+		}
 		debouncer.schedule(key, () => {
 			runner.submit(key, () => postSave(opts))
 		})

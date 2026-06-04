@@ -112,7 +112,8 @@
 				workspace: $workspaceStore!,
 				itemKind: 'script',
 				path,
-				value: null
+				value: null,
+				immediate: true
 			})
 		} else {
 			await ScriptService.deleteScriptByPath({ workspace: $workspaceStore!, path })

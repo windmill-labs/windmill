@@ -21,6 +21,11 @@ export type DebouncerByKey = {
 	/** Replace any pending task under `key` with `fn`, set/extend the
 	 * timer to `min(now + debounceMs, chainStart + maxDebounceMs)`. */
 	schedule(key: string, fn: DebouncedTask): void
+	/** Clear the timer and drop the pending task for `key` without
+	 * running it. Returns true if there was something to cancel. Use
+	 * to hand control of a key over to an imperative path (e.g. an
+	 * immediate save that supersedes the queued autosave). */
+	cancel(key: string): boolean
 }
 
 type Entry = {
@@ -66,5 +71,13 @@ export function createDebouncerByKey(opts: {
 		entries.set(key, { timer, task: fn, chainStart })
 	}
 
-	return { schedule }
+	function cancel(key: string): boolean {
+		const existing = entries.get(key)
+		if (!existing) return false
+		clearTimeout(existing.timer)
+		entries.delete(key)
+		return true
+	}
+
+	return { schedule, cancel }
 }

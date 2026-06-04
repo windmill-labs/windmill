@@ -93,7 +93,8 @@
 					workspace: $workspaceStore!,
 					itemKind: 'flow',
 					path,
-					value: null
+					value: null,
+					immediate: true
 				})
 			} else {
 				await FlowService.deleteFlowByPath({ workspace: $workspaceStore!, path })

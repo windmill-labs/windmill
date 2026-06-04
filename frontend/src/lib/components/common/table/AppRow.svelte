@@ -81,7 +81,8 @@
 				workspace: $workspaceStore ?? '',
 				itemKind: app.raw_app ? 'raw_app' : 'app',
 				path,
-				value: null
+				value: null,
+				immediate: true
 			})
 		} else {
 			await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
