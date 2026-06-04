@@ -318,7 +318,7 @@ pub struct StopAfterIf {
     /// When stopping with an error (`error_message` set), embed the stopping
     /// step's own result inside the raised error object (as `error.result`)
     /// instead of discarding it. The top-level result stays `{ "error": .. }`.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub error_include_result: bool,
 }
 
