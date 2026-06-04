@@ -58,6 +58,11 @@ pub const NSJAIL_TMPFS_SIZE_MB_SETTING: &str = "nsjail_tmpfs_size_mb";
 pub const NSJAIL_TMP_BACKING_SETTING: &str = "nsjail_tmp_backing";
 pub const NSJAIL_TMP_BACKING_DISK: &str = "disk";
 pub const NSJAIL_TMP_BACKING_TMPFS: &str = "tmpfs";
+// Soft size cap (MB) for the per-job rootless-podman image store of `# docker`
+// jobs, enforced by polling (a uid-1000 rootless worker cannot mount a sized
+// tmpfs): past the cap the worker logs an error and tears the runtime down,
+// failing the job. Empty -> a generous default; 0 -> uncapped (host-disk bounded).
+pub const DOCKER_IMAGE_STORAGE_SIZE_MB_SETTING: &str = "docker_image_storage_size_mb";
 pub const OBJECT_STORE_CONFIG_SETTING: &str = "object_store_cache_config";
 pub const HUB_API_SECRET_SETTING: &str = "hub_api_secret";
 

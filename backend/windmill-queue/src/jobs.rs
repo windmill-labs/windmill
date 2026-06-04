@@ -5744,6 +5744,14 @@ async fn push_inner<'c, 'd>(
                             } else {
                                 ScriptLang::Nativets.as_str()
                             }
+                        } else if x == &ScriptLang::Bash
+                            && raw_code.as_deref().is_some_and(|c| {
+                                windmill_common::worker::BashAnnotations::parse(c).docker
+                            })
+                        {
+                            // Bash `# docker` previews/raw runs route to the `docker`
+                            // tag (deployed scripts get it stored at create time).
+                            windmill_common::worker::DOCKER_BASH_TAG
                         } else {
                             x.as_str()
                         };

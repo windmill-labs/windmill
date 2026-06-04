@@ -894,6 +894,19 @@ async fn create_script_internal<'c>(
     }
     check_scopes(&authed, || format!("scripts:write:{}", ns.path))?;
 
+    // Auto-route Bash `# docker` scripts to the `docker` tag (part of DEFAULT_TAGS)
+    // when no explicit tag is set, so they can be directed to docker-capable / bigger
+    // workers. Done here — before no-op detection and the insert — so an unchanged
+    // redeploy is still correctly detected as a no-op. Tag-only mechanism mirroring
+    // the routing half of bunnative/nativets (the bash executor handles `# docker`
+    // at runtime, so no distinct ScriptLang is needed).
+    if ns.tag.as_deref().map_or(true, |t| t.is_empty())
+        && ns.language == ScriptLang::Bash
+        && windmill_common::worker::BashAnnotations::parse(&ns.content).docker
+    {
+        ns.tag = Some(windmill_common::worker::DOCKER_BASH_TAG.to_string());
+    }
+
     guard_script_from_debounce_data(&ns).await?;
 
     let codebase = ns.codebase.as_ref();

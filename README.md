@@ -208,15 +208,18 @@ docker compose up -d
 Go to http://localhost - default credentials: `admin@windmill.dev` / `changeme`
 
 > [!NOTE]
-> To run `# docker` scripts (bash scripts with the `# docker` annotation): these run
-> on the default worker like any bash job. Just give that worker a `*-full` image
-> (ships podman) and the `/dev/fuse` device. On a worker with **no Docker daemon
-> provided** (no `DOCKER_HOST`, no mounted `/var/run/docker.sock`), Windmill then runs
-> each docker job in its own ephemeral **rootless podman**, torn down with the job — no
-> privileged daemon, no host socket, scripts unchanged. The `*-full` image is also the
-> batteries-included runtime — on top of the base (TS/Bun/Deno, Python, Go) it adds
-> Java, .NET, Ruby, R, Rust, Ansible, and Nushell (plus Oracle/Kerberos in EE). See the
-> default `windmill_worker` notes in
+> To run `# docker` scripts (bash scripts with the `# docker` annotation): just give a
+> worker a `*-full` image (ships podman). `# docker` scripts are auto-tagged `docker`
+> (served by default workers out of the box; route them to a dedicated/bigger group
+> with `WORKER_TAGS=docker`). On a worker with **no Docker daemon provided** (no
+> `DOCKER_HOST`, no mounted `/var/run/docker.sock`), Windmill runs each docker job in
+> its own ephemeral **rootless podman**, torn down with the job — no privileged daemon,
+> no host socket, scripts unchanged. Per-job image storage is capped via the
+> `docker_image_storage_size_mb` instance setting (default 8GB). On old kernels (<5.13)
+> also expose `/dev/fuse`. The `*-full` image is also the batteries-included runtime —
+> on top of the base (TS/Bun/Deno, Python, Go) it adds Java, .NET, Ruby, R, Rust,
+> Ansible, and Nushell (plus Oracle/Kerberos in EE). See the default `windmill_worker`
+> notes in
 > [docker-compose.yml](./docker-compose.yml). To use an external/host Docker daemon
 > instead (legacy), provide `DOCKER_HOST` or mount `/var/run/docker.sock`.
 

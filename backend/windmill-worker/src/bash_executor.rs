@@ -205,7 +205,7 @@ exit $exit_status
         || std::path::Path::new("/var/run/docker.sock").exists();
     #[cfg(feature = "dind")]
     let per_job_podman: Option<PerJobPodman> = if annotation.docker && !docker_daemon_provided {
-        Some(start_per_job_podman(job_dir).await?)
+        Some(start_per_job_podman(job_dir, job.id, &job.workspace_id, conn).await?)
     } else {
         None
     };
@@ -462,11 +462,17 @@ struct PerJobPodman {
     host_sock: String,
     docker_host: String,
     service: Option<std::process::Child>,
+    // Background task enforcing the soft image-store size cap; aborted on Drop.
+    monitor: Option<tokio::task::JoinHandle<()>>,
 }
 
 #[cfg(feature = "dind")]
 impl Drop for PerJobPodman {
     fn drop(&mut self) {
+        // Stop the soft size-cap monitor first so it can't fire mid-teardown.
+        if let Some(monitor) = self.monitor.take() {
+            monitor.abort();
+        }
         // Drop is synchronous: use blocking std::process for guaranteed teardown.
         // `system reset` removes ALL containers AND images in the per-job store and,
         // crucially, deletes the subuid-owned overlay layers a plain `rm -rf` (or
@@ -494,11 +500,125 @@ impl Drop for PerJobPodman {
     }
 }
 
+// Default soft cap (MB) for the per-job podman image store when
+// `docker_image_storage_size_mb` is unset. Images are large, so this is generous;
+// an explicit value of 0 (or negative) disables the cap entirely.
+#[cfg(feature = "dind")]
+const DEFAULT_DOCKER_IMAGE_STORAGE_SIZE_MB: i64 = 8192;
+
+// Resolve the soft size cap (bytes) for the per-job image store from the
+// `docker_image_storage_size_mb` instance setting. `None` means uncapped.
+#[cfg(feature = "dind")]
+async fn docker_image_store_limit_bytes() -> Option<u64> {
+    let mb = match *crate::worker::DOCKER_IMAGE_STORAGE_SIZE_MB.read().await {
+        Some(mb) if mb <= 0 => return None, // explicitly disabled
+        Some(mb) => mb,
+        None => DEFAULT_DOCKER_IMAGE_STORAGE_SIZE_MB,
+    };
+    Some(mb as u64 * 1024 * 1024)
+}
+
+// Measure the on-disk size (bytes) of the per-job podman graphroot. The overlay
+// layers are owned by remapped subuids, so a plain `du` as the worker user cannot
+// traverse them — run `du` inside the podman user namespace (`podman unshare`)
+// where those files map back to the caller.
+#[cfg(feature = "dind")]
+async fn podman_store_size_bytes(root: &str, runroot: &str) -> Option<u64> {
+    let out = tokio::process::Command::new("podman")
+        .args([
+            "--root",
+            root,
+            "--runroot",
+            runroot,
+            "unshare",
+            "du",
+            "-sb",
+            root,
+        ])
+        .output()
+        .await
+        .ok()?;
+    std::str::from_utf8(&out.stdout)
+        .ok()?
+        .split_whitespace()
+        .next()?
+        .parse::<u64>()
+        .ok()
+}
+
+// Soft size cap for the per-job image store, enforced by polling (the
+// rootless-compatible alternative to a sized tmpfs — a uid-1000 worker cannot
+// mount one). If the graphroot exceeds the limit, log a clear error and tear the
+// runtime down: kill the service so an in-flight `docker pull` fails, and
+// `system reset` to stop any running container and free the space. Soft: a job can
+// overshoot by up to one poll interval of writes before being caught.
+#[cfg(feature = "dind")]
+fn spawn_docker_storage_monitor(
+    root: String,
+    runroot: String,
+    service_pid: Option<u32>,
+    limit_bytes: u64,
+    job_id: Uuid,
+    workspace_id: String,
+    conn: Connection,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            let Some(size) = podman_store_size_bytes(&root, &runroot).await else {
+                continue;
+            };
+            if size > limit_bytes {
+                let limit_mb = limit_bytes / (1024 * 1024);
+                let used_mb = size / (1024 * 1024);
+                append_logs(
+                    &job_id,
+                    &workspace_id,
+                    &format!(
+                        "\nERROR: docker image storage for this job reached ~{used_mb}MB, over \
+                         the {limit_mb}MB limit (docker_image_storage_size_mb). Aborting the \
+                         docker runtime — raise the limit or route this job to a worker with \
+                         more disk.\n"
+                    ),
+                    &conn,
+                )
+                .await;
+                if let Some(pid) = service_pid {
+                    let _ = std::process::Command::new("kill")
+                        .arg("-9")
+                        .arg(pid.to_string())
+                        .status();
+                }
+                let _ = std::process::Command::new("podman")
+                    .args([
+                        "--root",
+                        &root,
+                        "--runroot",
+                        &runroot,
+                        "system",
+                        "reset",
+                        "--force",
+                    ])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status();
+                break;
+            }
+        }
+    })
+}
+
 // Start a per-job rootless podman service in <job_dir>/podman with isolated
 // storage, returning the host socket path. Inherits the worker's container
-// config (CONTAINERS_CONF etc.) but overrides storage so it is job-scoped.
+// config (CONTAINERS_CONF etc.) but overrides storage so it is job-scoped. A
+// background monitor enforces a soft size cap on the image store.
 #[cfg(feature = "dind")]
-async fn start_per_job_podman(job_dir: &str) -> Result<PerJobPodman, Error> {
+async fn start_per_job_podman(
+    job_dir: &str,
+    job_id: Uuid,
+    workspace_id: &str,
+    conn: &Connection,
+) -> Result<PerJobPodman, Error> {
     let dir = format!("{job_dir}/podman");
     tokio::fs::create_dir_all(&dir).await.map_err(to_anyhow)?;
     let host_sock = format!("{dir}/podman.sock");
@@ -526,6 +646,7 @@ async fn start_per_job_podman(job_dir: &str) -> Result<PerJobPodman, Error> {
                  Docker daemon via DOCKER_HOST or a mounted /var/run/docker.sock."
             ))
         })?;
+    let service_pid = service.id();
     // Wait (up to ~10s) for the rootless podman service socket to appear.
     for _ in 0..50 {
         if tokio::fs::metadata(&host_sock).await.is_ok() {
@@ -533,11 +654,24 @@ async fn start_per_job_podman(job_dir: &str) -> Result<PerJobPodman, Error> {
         }
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
+    // Soft size-cap monitor for the image store (rootless-compatible enforcement).
+    let monitor = docker_image_store_limit_bytes().await.map(|limit_bytes| {
+        spawn_docker_storage_monitor(
+            storage.clone(),
+            runroot.clone(),
+            Some(service_pid),
+            limit_bytes,
+            job_id,
+            workspace_id.to_string(),
+            conn.clone(),
+        )
+    });
     Ok(PerJobPodman {
         dir,
         docker_host: format!("unix://{host_sock}"),
         host_sock,
         service: Some(service),
+        monitor,
     })
 }
 

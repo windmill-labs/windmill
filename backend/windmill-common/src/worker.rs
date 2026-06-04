@@ -169,6 +169,10 @@ lazy_static::lazy_static! {
         "python3".to_string(),
         "go".to_string(),
         "bash".to_string(),
+        // Bash `# docker` scripts are auto-tagged `docker` (see DOCKER_BASH_TAG /
+        // BashAnnotations) so they can be routed to docker-capable workers; in
+        // DEFAULT_TAGS so default workers serve them out of the box.
+        DOCKER_BASH_TAG.to_string(),
         "powershell".to_string(),
         "nativets".to_string(),
         "mysql".to_string(),
@@ -858,6 +862,15 @@ pub struct BashAnnotations {
     pub docker: bool,
     pub sandbox: bool,
 }
+
+/// Tag assigned to Bash scripts carrying the `# docker` annotation so docker
+/// jobs can be routed to docker-capable / bigger workers. This is a tag-only
+/// mechanism (no distinct ScriptLang — the bash executor handles the annotation
+/// at runtime), mirroring the routing half of `bunnative`/`nativets`. It is part
+/// of DEFAULT_TAGS so default workers serve it out of the box; derived at script
+/// create (stored on `script.tag`) and at preview push when no explicit tag is
+/// set. Callers gate on `language == Bash`.
+pub const DOCKER_BASH_TAG: &str = "docker";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SqlResultCollectionStrategy {

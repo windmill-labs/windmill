@@ -694,6 +694,14 @@ lazy_static::lazy_static! {
     /// RAM-backed tmpfs sized by `nsjail_tmpfs_size_mb`.
     pub static ref NSJAIL_TMP_BACKING: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
+    /// Soft size cap (MB) for the per-job rootless-podman image store of `# docker`
+    /// jobs. Enforced by polling (a uid-1000 rootless worker cannot mount a sized
+    /// tmpfs): if the store exceeds the cap the worker logs a clear error and tears
+    /// the per-job runtime down, failing the job. When `None`, falls back to
+    /// `DEFAULT_DOCKER_IMAGE_STORAGE_SIZE_MB`; an explicit `0`/negative disables the
+    /// cap (uncapped, bounded only by host disk).
+    pub static ref DOCKER_IMAGE_STORAGE_SIZE_MB: Arc<RwLock<Option<i64>>> = Arc::new(RwLock::new(None));
+
     /// Optional mirror URL for `uv python install`. Wires to the `UV_PYTHON_INSTALL_MIRROR`
     /// env var when forwarded to uv. Can be set via the `UV_PYTHON_INSTALL_MIRROR` env var
     /// or the `uv_python_install_mirror` instance setting.
