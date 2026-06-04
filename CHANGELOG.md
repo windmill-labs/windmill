@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.717.1](https://github.com/windmill-labs/windmill/compare/v1.717.0...v1.717.1) (2026-06-04)
+
+
+### Bug Fixes
+
+* invalidate relative-import cache when imported script changes ([#9443](https://github.com/windmill-labs/windmill/issues/9443)) ([f595787](https://github.com/windmill-labs/windmill/commit/f595787409a3fcda9278bbcf2cfcc80092f16460))
+
 ## [1.717.0](https://github.com/windmill-labs/windmill/compare/v1.716.0...v1.717.0) (2026-06-04)
 
 
