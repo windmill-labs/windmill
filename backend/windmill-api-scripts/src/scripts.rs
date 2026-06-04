@@ -329,12 +329,18 @@ async fn list_scripts(
     tx.commit().await?;
 
     // Draft-only rows: drafts the authed user has at paths with no
-    // deployed script. Concatenated after the deployed page so the home
-    // page surfaces them too. Fields not in the draft JSON fall back to
-    // sensible defaults (the editor can still open the draft from
-    // /scripts/edit/{path}). Only included when no other filters narrow
-    // the list — pagination beyond page 0 also skips them.
-    if offset == 0
+    // deployed script. Gated on the same `include_draft_only` flag
+    // that controls deployed `draft_only` rows above so picker callers
+    // (workspace pickers, script selectors, ...) get the deployed
+    // listing only — the home page opts in explicitly.
+    //
+    // Concatenated after the deployed page so the home page surfaces
+    // them too. Fields not in the draft JSON fall back to sensible
+    // defaults. Skipped when filters narrow the list or we're past
+    // page 0 — keeps pagination semantics clean.
+    if lq.include_draft_only.unwrap_or(false)
+        && !authed.is_operator
+        && offset == 0
         && lq.path_start.is_none()
         && lq.path_exact.is_none()
         && lq.created_by.is_none()

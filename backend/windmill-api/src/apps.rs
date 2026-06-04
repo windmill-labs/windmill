@@ -451,11 +451,17 @@ async fn list_apps(
     tx.commit().await?;
 
     // Draft-only rows: drafts (of either `app` or `raw_app` kind) the
-    // authed user has at paths with no deployed app. Concatenated after
-    // the deployed page so the home page surfaces them too. Fields not
-    // in the draft JSON fall back to defaults. Only included when no
-    // filters narrow the list and we're on page 0.
-    if offset == 0
+    // authed user has at paths with no deployed app. Gated on the same
+    // `include_draft_only` flag that controls deployed `draft_only`
+    // rows above so picker callers get the deployed listing only — the
+    // home page opts in explicitly.
+    //
+    // Concatenated after the deployed page so the home page surfaces
+    // them too. Fields not in the draft JSON fall back to defaults.
+    // Skipped when filters narrow the list or we're past page 0.
+    if lq.include_draft_only.unwrap_or(false)
+        && !authed.is_operator
+        && offset == 0
         && lq.path_start.is_none()
         && lq.path_exact.is_none()
         && lq.label.is_none()
