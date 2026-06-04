@@ -106,6 +106,7 @@
 		script = $bindable(),
 		fullyLoaded = true,
 		initialPath = $bindable(''),
+		userDraftPath = '',
 		template = $bindable('script'),
 		initialArgs = {},
 		lockedLanguage = false,
@@ -348,10 +349,12 @@
 		// editor with the template's `initialCode` is a programmatic
 		// write that shouldn't count as the user's "first edit" and
 		// shouldn't POST to the server. The route's UserDraft handle is
-		// keyed by `initialPath` (the URL path). Resumed in the async
-		// `.finally` so language switches AFTER bootstrap (which also
-		// call `initContent`) sync normally.
-		UserDraft.stopSync('script', initialPath)
+		// keyed by `userDraftPath` (the URL path), distinct from
+		// `initialPath` which is the editor-displayed path (empty for
+		// new drafts). Resumed in the async `.finally` so language
+		// switches AFTER bootstrap (which also call `initContent`) sync
+		// normally.
+		UserDraft.stopSync('script', userDraftPath)
 		if (template === 'wac_python') {
 			script.modules = {
 				'helper.py': {
@@ -368,7 +371,7 @@
 			}
 		}
 		initContent(script.language, script.kind, template).finally(() => {
-			UserDraft.restartSync('script', initialPath)
+			UserDraft.restartSync('script', userDraftPath)
 		})
 	}
 

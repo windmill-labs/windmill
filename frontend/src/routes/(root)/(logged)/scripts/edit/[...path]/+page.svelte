@@ -344,6 +344,7 @@
 	<ScriptBuilder
 		bind:this={scriptBuilder}
 		{initialPath}
+		userDraftPath={draftPath}
 		bind:script={scriptHandle.draft}
 		{fullyLoaded}
 		bind:savedScript

@@ -15,6 +15,18 @@ export interface ScriptBuilderProps {
 	disableAi?: boolean
 	fullyLoaded?: boolean
 	initialPath?: string
+	/**
+	 * Path the route's `UserDraft.use<EditableScript>('script', ...)`
+	 * handle is keyed by. Distinct from `initialPath` for new drafts —
+	 * `initialPath` is the displayed/editor path (empty for new), while
+	 * this is the URL path the draft is persisted under (`u/{user}/
+	 * draft_{uuid}`). Used to bracket the bootstrap `initContent` write
+	 * with `UserDraft.stopSync` / `restartSync` so the template seed
+	 * doesn't POST before the user's first real edit. Default to `''`
+	 * for backwards compat with callers that don't manage drafts; the
+	 * stop/restart pair is a no-op on a non-live entry.
+	 */
+	userDraftPath?: string
 	template?:
 		| 'docker'
 		| 'bunnative'
