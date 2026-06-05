@@ -654,14 +654,14 @@ fn spawn_docker_storage_monitor(
 // SECURITY: this is only ever started in NON-nsjail modes (unshare/none) — caller
 // refuses to auto-provide it under nsjail, since the daemon runs outside any sandbox.
 // A `# docker` script controls this daemon over the Docker API and can bind-mount any
-// path the daemon user can read (e.g. `docker run -v /tmp/windmill/...`), reaching
-// other concurrent job dirs / caches — so it is NOT a filesystem sandbox, and
-// docker-capable workers stay a TRUSTED-TENANT capability (prefer dedicated/per-
+// WORLD-READABLE host path (e.g. `docker run -v /tmp/windmill/...` for other job dirs /
+// caches, or `-v /proc` for process cmdlines/args) — so it is NOT a filesystem sandbox,
+// and docker-capable workers stay a TRUSTED-TENANT capability (prefer dedicated/per-
 // workspace docker workers on shared fleets). What IS protected, when the worker runs
-// as root (the default) and the daemon is dropped to a non-root uid here: the worker's
-// secrets in `/proc/<worker>/environ` (DATABASE_URL etc.) stay root-owned and
-// unreadable by the uid-1000 container even via `docker run --pid=host`, and an escape
-// is unprivileged.
+// as root (the default) and the daemon is dropped to a non-root uid here: `0400` files
+// like the worker's `/proc/<worker>/environ` (DATABASE_URL etc.) stay root-owned and
+// unreadable by the uid-1000 container even via `-v /proc` or `--pid=host` (so don't
+// pass secrets as command-line args), and a container escape is unprivileged.
 #[cfg(feature = "dind")]
 async fn start_per_job_podman(
     job_dir: &str,

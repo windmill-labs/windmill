@@ -234,9 +234,13 @@ Go to http://localhost - default credentials: `admin@windmill.dev` / `changeme`
 > etc.) stay root-owned — unreadable by a `docker run --pid=host` container. What this
 > does **not** do is confine the container's *filesystem* view: the daemon runs outside
 > the job's nsjail sandbox, so a `# docker` script can still `docker run -v <worker path>`
-> to reach other concurrent job dirs / caches. So treat docker-capable workers as a
-> **trusted-tenant** capability (a big improvement over privileged dind, but not a full
-> sandbox) and prefer dedicated/per-workspace docker workers on shared multi-tenant fleets.
+> to reach **world-readable** host state: other concurrent job dirs' world-readable files,
+> the dependency cache, and world-readable `/proc` (e.g. `-v /proc` → process `cmdline`s /
+> args) — though **not** `0400` files like `/proc/<pid>/environ`, so the worker's env
+> secrets stay protected. (Corollary: don't pass secrets as command-line args; windmill
+> uses env, not args.) So treat docker-capable workers as a **trusted-tenant** capability
+> (a big improvement over privileged dind, but not a full sandbox) and prefer
+> dedicated/per-workspace docker workers on shared multi-tenant fleets.
 > If you enable **nsjail** (it's off by default), per-job podman is **not** auto-provided
 > for docker jobs — nsjail means "fully sandbox jobs" and the daemon runs outside the jail,
 > so docker jobs then require an explicit `DOCKER_HOST` or a separate non-nsjail worker group.

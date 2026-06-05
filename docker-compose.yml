@@ -70,8 +70,11 @@ services:
     # rootless AND the worker's own secrets in /proc (DATABASE_URL etc.) stay
     # root-owned, unreadable by a `docker run --pid=host` container. (NB: this does
     # not confine the container's filesystem view — a `# docker` script can still
-    # `docker run -v` worker-visible paths, so treat docker workers as trusted-tenant
-    # / dedicate them on shared fleets.) Cap per-job image storage via the
+    # `docker run -v` to read WORLD-READABLE host state: other job dirs' world-readable
+    # files, the dep cache, and world-readable /proc like process cmdlines/args — though
+    # NOT 0400 files like /proc/<pid>/environ (env secrets stay safe; don't pass secrets
+    # as args). So treat docker workers as trusted-tenant / dedicate them on shared
+    # fleets.) Cap per-job image storage via the
     # `docker_image_storage_size_mb` instance setting (default 8GB).
     # If you enable nsjail (DISABLE_NSJAIL=false or job isolation = nsjail), per-job
     # podman is NOT auto-provided for docker jobs — nsjail signals "fully sandbox jobs"
