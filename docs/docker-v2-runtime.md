@@ -82,8 +82,8 @@ the container inherits exactly the job's confinement:
   whose *compressed download* size (`crane manifest`) exceeds the cap are rejected
   **before any layer is downloaded**.
 - **Cache size cap (`SANDBOX_IMAGE_CACHE_MAX_MB`, default 0 = off):** best-effort
-  LRU eviction — after a run, the oldest cached rootfs tars are removed until the
-  cache is back under the cap.
+  eviction — after a run, the oldest cached rootfs tars (by creation time) are
+  removed until the cache is back under the cap.
 
 ## Requirements
 

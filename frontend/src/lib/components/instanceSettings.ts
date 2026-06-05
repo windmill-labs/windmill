@@ -281,7 +281,7 @@ export const settings: Record<string, Setting[]> = {
 			label: 'Sandbox image cache cap (MB)',
 			key: 'sandbox_image_cache_max_mb',
 			description:
-				"Best-effort cap on the worker's cached sandbox rootfs tars. When exceeded, the oldest are evicted (LRU) after a run. Leave empty for unbounded.",
+				"Best-effort cap on the worker's cached sandbox rootfs tars. When exceeded, the oldest (by creation time) are evicted after a run. Leave empty for unbounded.",
 			fieldType: 'number',
 			placeholder: 'unbounded',
 			storage: 'setting'
