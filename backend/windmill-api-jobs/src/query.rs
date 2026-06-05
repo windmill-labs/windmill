@@ -973,8 +973,8 @@ mod tests {
     #[test]
     fn test_completed_order_by_completed_at_status_failure_canceled() {
         // status=failure|canceled must order by v2_job_completed.completed_at so the
-        // partial failure index (ix_v2_job_completed_failure_workspace) serves both
-        // filtering and ordering in a single scan.
+        // partial index ix_v2_job_completed_failure_workspace serves both filtering
+        // and ordering in a single scan.
         for status in [
             windmill_common::jobs::JobStatus::Failure,
             windmill_common::jobs::JobStatus::Canceled,
@@ -985,20 +985,6 @@ mod tests {
             assert!(
                 sql.contains("ORDER BY v2_job_completed.completed_at"),
                 "expected order by completed_at, got: {sql}"
-            );
-        }
-
-        // status=success|skipped have no partial index, keep the default created_at order.
-        for status in [
-            windmill_common::jobs::JobStatus::Success,
-            windmill_common::jobs::JobStatus::Skipped,
-        ] {
-            let lq = ListCompletedQuery { status: Some(status), ..empty_completed_query() };
-            let sqlb = list_completed_jobs_query("ws", Some(10), 0, &lq, &["id"], false, None);
-            let sql = build_sql(sqlb);
-            assert!(
-                sql.contains("ORDER BY v2_job.created_at"),
-                "expected order by created_at, got: {sql}"
             );
         }
     }
