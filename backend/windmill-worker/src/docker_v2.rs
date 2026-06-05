@@ -279,7 +279,11 @@ async fn resolve_digest(
     }
     let digest = String::from_utf8_lossy(&out.stdout).trim().to_string();
     let _ = tokio::fs::create_dir_all(&refs_dir).await;
-    let _ = tokio::fs::write(&ref_file, &digest).await;
+    // tmp+rename so a concurrent `missing`/`never` reader never sees a torn ref file.
+    let ref_tmp = format!("{ref_file}.tmp.{}", digest_key(&digest));
+    if tokio::fs::write(&ref_tmp, &digest).await.is_ok() {
+        let _ = tokio::fs::rename(&ref_tmp, &ref_file).await;
+    }
     Ok(digest)
 }
 
@@ -320,10 +324,20 @@ async fn extract_image(image: &str, job_dir: &str) -> Result<OciConfig, Error> {
         }
         let config = read_oci_config(&cfg).await;
         let _ = tokio::fs::remove_file(&job_tar).await;
-        match tokio::fs::hard_link(&tar, &job_tar).await {
+        // Stage the cache tar into the job dir so concurrent eviction can't unlink it out
+        // from under `tar -xf`. Prefer a hardlink (free), but the cache volume and the job
+        // dir are usually on *different* filesystems in the shipped deployments (the cache
+        // is its own volume/PVC) — there `hard_link` returns EXDEV, so fall back to a copy.
+        // `copy` reads through the source inode, so an eviction mid-copy still completes.
+        let staged = match tokio::fs::hard_link(&tar, &job_tar).await {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(e), // vanished — re-fetch
+            Err(_) => tokio::fs::copy(&tar, &job_tar).await.map(|_| ()),
+        };
+        match staged {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound && attempt == 0 => {
-                continue; // evicted between the check and the link — re-fetch
+                continue; // evicted between the check and the staging — re-fetch
             }
             Err(e) => return Err(Error::ExecutionErr(format!("failed to stage rootfs: {e}"))),
         }
