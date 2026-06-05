@@ -471,14 +471,15 @@ pub async fn handle_docker_v2_job(
         .any(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'));
 
     let cmd_args: Vec<String> = if has_body {
-        write_file(
-            &rootfs,
-            ".windmill_docker_main.sh",
-            &format!("set -e\n{content}"),
-        )?;
+        // Pass the body straight to `sh -c` rather than writing a script file into
+        // the image-controlled rootfs: a malicious image could plant that path as a
+        // symlink to a host file and capture the worker's write before nsjail starts
+        // (sandbox-boundary bypass). `sh -c <body> sh <args...>` binds args as $1.. .
         let mut v = vec![
             "/bin/sh".to_string(),
-            "/.windmill_docker_main.sh".to_string(),
+            "-c".to_string(),
+            format!("set -e\n{content}"),
+            "sh".to_string(),
         ];
         v.extend(args_owned.iter().cloned());
         v

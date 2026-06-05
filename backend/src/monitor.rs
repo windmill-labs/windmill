@@ -2095,13 +2095,23 @@ pub async fn reload_sandbox_image_default_registry_setting(conn: &Connection) {
 }
 
 pub async fn reload_sandbox_registry_auth_setting(conn: &Connection) {
-    reload_option_setting_with_tracing(
-        conn,
-        SANDBOX_REGISTRY_AUTH_SETTING,
-        "SANDBOX_REGISTRY_AUTH",
-        SANDBOX_REGISTRY_AUTH.clone(),
-    )
-    .await;
+    // Secret-aware: the value is a raw docker/podman auth.json with credentials, so
+    // it must never be logged. Load directly (the generic reload_option_setting path
+    // logs the value via load_option_setting_value) and only log a redacted message.
+    let q =
+        match load_value_from_global_settings_with_conn(conn, SANDBOX_REGISTRY_AUTH_SETTING, true)
+            .await
+        {
+            Ok(q) => q,
+            Err(e) => {
+                tracing::error!("Error reloading setting SANDBOX_REGISTRY_AUTH: {e:?}");
+                return;
+            }
+        };
+    let value = q.and_then(|q| serde_json::from_value::<String>(q).ok());
+    let configured = value.as_ref().is_some_and(|v| !v.trim().is_empty());
+    *SANDBOX_REGISTRY_AUTH.write().await = value;
+    tracing::info!("Loaded setting SANDBOX_REGISTRY_AUTH (redacted), configured={configured}");
 }
 
 pub async fn reload_job_isolation_setting(conn: &Connection) {
