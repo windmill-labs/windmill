@@ -345,6 +345,12 @@
 	let pathError = $state('')
 	let loadingSave = $state(false)
 
+	console.log('[draft-sync] ScriptBuilder script-tag: enter', {
+		userDraftPath,
+		initialPath,
+		contentLen: script.content?.length ?? 0,
+		isEmpty: script.content == ''
+	})
 	if (script.content == '') {
 		// Suspend autosave around the bootstrap mutations — seeding the
 		// editor with the template's `initialCode` is a programmatic
@@ -355,7 +361,7 @@
 		// new drafts). Resumed in the async `.finally` so language
 		// switches AFTER bootstrap (which also call `initContent`) sync
 		// normally.
-		console.log('Suspending autosave for script bootstrap', userDraftPath)
+		console.log('[draft-sync] ScriptBuilder: bootstrap branch START', userDraftPath)
 		UserDraft.stopSync('script', userDraftPath)
 		if (template === 'wac_python') {
 			script.modules = {
@@ -372,9 +378,13 @@
 				}
 			}
 		}
+		console.log('[draft-sync] ScriptBuilder: calling initContent', userDraftPath)
 		initContent(script.language, script.kind, template).finally(() => {
+			console.log('[draft-sync] ScriptBuilder: initContent finally → restartSync', userDraftPath)
 			UserDraft.restartSync('script', userDraftPath)
 		})
+	} else {
+		console.log('[draft-sync] ScriptBuilder: bootstrap SKIPPED (content non-empty)', userDraftPath)
 	}
 
 	async function isTemplateScript() {
@@ -419,8 +429,16 @@
 		// doesn't run `inferArgs` on an empty `script.content` and toast
 		// "Could not parse code". If a template script is then loaded
 		// below we re-seed with the `templateScript=true` variant.
+		console.log('[draft-sync] initContent: SYNC seed content', userDraftPath, {
+			language,
+			template
+		})
 		script.content = initialCode(language, kind, template, false)
+		console.log('[draft-sync] initContent: awaiting isTemplateScript', userDraftPath)
 		const templateScript = await isTemplateScript()
+		console.log('[draft-sync] initContent: post-await', userDraftPath, {
+			hasTemplateScript: !!templateScript
+		})
 		if (templateScript) {
 			script.content = initialCode(language, kind, template, true)
 		}

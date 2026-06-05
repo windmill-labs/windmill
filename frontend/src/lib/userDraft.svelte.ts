@@ -444,8 +444,13 @@ export const UserDraft = {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
-		if (entry) entry.syncSuspended = true
-		else pendingSuspensions.add(mk)
+		if (entry) {
+			entry.syncSuspended = true
+			console.log('[draft-sync] stopSync (entry live)', mk)
+		} else {
+			pendingSuspensions.add(mk)
+			console.log('[draft-sync] stopSync (queued, no entry yet)', mk)
+		}
 	},
 
 	/**
@@ -458,9 +463,13 @@ export const UserDraft = {
 	restartSync(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
-		pendingSuspensions.delete(mk)
+		const hadPending = pendingSuspensions.delete(mk)
 		const entry = entries.get(mk)
 		if (entry) entry.syncSuspended = false
+		console.log('[draft-sync] restartSync', mk, {
+			entryLive: !!entry,
+			clearedPending: hadPending
+		})
 	},
 
 	/**
@@ -642,8 +651,13 @@ function acquireEntry(
 	const existing = entries.get(mk)
 	if (existing) {
 		existing.count++
+		console.log('[draft-sync] acquireEntry: reuse', mk, { newCount: existing.count })
 		return
 	}
+	console.log('[draft-sync] acquireEntry: NEW', mk, {
+		hasSeed: defaultValue !== undefined,
+		pendingSuspended: pendingSuspensions.has(mk)
+	})
 	// Seed the cell with the caller's `defaultValue` (deep-cloned so the
 	// cell owns its copy and the caller's baseline can't alias it). This is
 	// how editors report the deployed/draft state until the user edits —
@@ -691,22 +705,42 @@ function acquireEntry(
 			const stored = cell.val
 			if (stored !== undefined) readFieldsRecursively(stored.value)
 			const next = stored === undefined ? undefined : JSON.stringify(stored)
-			if (next === lastSerialized) return
+			if (next === lastSerialized) {
+				console.log('[draft-sync] effect: no change', mk, {
+					nextLen: next?.length ?? 0
+				})
+				return
+			}
+			const nextLen = next?.length ?? 0
+			const diff = nextLen - (lastSerialized?.length ?? 0)
 			lastSerialized = next
 			if (skipNextWrite) {
 				skipNextWrite = false
+				console.log('[draft-sync] effect: SWALLOW (skipNextWrite seed)', mk, {
+					nextLen,
+					diff
+				})
 				return
 			}
 			const entry = entries.get(mk)
 			if (entry?.skipNextSync) {
 				entry.skipNextSync = false
+				console.log('[draft-sync] effect: SWALLOW (skipNextSync)', mk, { nextLen, diff })
 				return
 			}
 			// `syncSuspended` swallows the POST but still advances
 			// `lastSerialized` (above) so when sync resumes the next
 			// real change is detected as a change — only the writes
 			// made during suspension are dropped from the server's view.
-			if (entry?.syncSuspended) return
+			if (entry?.syncSuspended) {
+				console.log('[draft-sync] effect: SWALLOW (syncSuspended)', mk, { nextLen, diff })
+				return
+			}
+			console.log('[draft-sync] effect: POST', mk, {
+				nextLen,
+				diff,
+				stack: new Error().stack?.split('\n').slice(1, 6).join('\n')
+			})
 			void UserDraftDbSyncer.save({
 				workspace,
 				itemKind,

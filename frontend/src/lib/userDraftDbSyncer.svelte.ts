@@ -147,6 +147,9 @@ const pendingSaveOpts = new Map<string, UserDraftDbSyncerSaveOpts>()
 
 async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 	const key = draftKey(opts.workspace, opts.itemKind, opts.path)
+	console.log('[draft-sync] postSave START (sending POST)', key, {
+		valueIsNull: opts.value === null
+	})
 	try {
 		const resp = await DraftService.saveDraft({
 			workspace: opts.workspace,
@@ -169,8 +172,9 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		// newer `save()` that arrived during the POST replaces the entry
 		// and must survive for the next flush / debouncer round.
 		if (pendingSaveOpts.get(key) === opts) pendingSaveOpts.delete(key)
+		console.log('[draft-sync] postSave SUCCESS', key)
 	} catch (e) {
-		console.error('UserDraftDbSyncer.save failed', e)
+		console.error('[draft-sync] postSave FAILED', key, e)
 	}
 }
 
@@ -284,6 +288,10 @@ export const UserDraftDbSyncer = {
 
 	async save(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		const key = draftKey(opts.workspace, opts.itemKind, opts.path)
+		console.log('[draft-sync] UserDraftDbSyncer.save called', key, {
+			immediate: !!opts.immediate,
+			valueIsNull: opts.value === null
+		})
 		// Track the latest unconfirmed save BEFORE entering the pipeline
 		// so the unload flush has something to send even if the page
 		// hides before the debouncer fires.
