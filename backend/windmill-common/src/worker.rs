@@ -859,6 +859,36 @@ pub struct BashAnnotations {
     pub sandbox: bool,
 }
 
+impl BashAnnotations {
+    /// If the script declares `# docker <image>` (an image ref after the docker
+    /// annotation), returns that image ref. This selects the daemonless, sandboxed
+    /// "docker v2" runtime (extract the image's rootfs + run it inside the job's
+    /// nsjail sandbox).
+    ///
+    /// A bare `# docker` (no image argument) returns `None` and keeps the legacy
+    /// v1 (dind/daemon) behavior where the script body drives the `docker` CLI.
+    pub fn docker_image(code: &str) -> Option<String> {
+        for line in code.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            // Mirror the annotation parser: stop at the first non-comment line.
+            if !line.starts_with('#') {
+                break;
+            }
+            let mut tokens = line[1..].split_whitespace();
+            if tokens.next() == Some("docker") {
+                // `# docker <image>` -> v2 with the given image; bare `# docker` -> v1.
+                if let Some(image) = tokens.next() {
+                    return Some(image.to_string());
+                }
+            }
+        }
+        None
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SqlResultCollectionStrategy {
     LastStatementAllRows,
@@ -2223,6 +2253,31 @@ pub fn try_parse_locked_python_version_from_requirements<S: AsRef<str>>(
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn test_bash_docker_image_annotation() {
+        // `# docker <image>` selects v2 and returns the image.
+        assert_eq!(
+            BashAnnotations::docker_image("# docker alpine:latest\necho hi"),
+            Some("alpine:latest".to_string())
+        );
+        // Extra whitespace and a leading non-spaced `#` still work.
+        assert_eq!(
+            BashAnnotations::docker_image("#docker   python:3.12-slim\n"),
+            Some("python:3.12-slim".to_string())
+        );
+        // A bare `# docker` (no image) keeps the v1 path -> None.
+        assert_eq!(BashAnnotations::docker_image("# docker\necho hi"), None);
+        // `docker` must be its own token, not a prefix.
+        assert_eq!(BashAnnotations::docker_image("# dockerfile foo"), None);
+        // Stops at the first non-comment line (image declared too late is ignored).
+        assert_eq!(
+            BashAnnotations::docker_image("echo hi\n# docker alpine"),
+            None
+        );
+        // No docker annotation at all.
+        assert_eq!(BashAnnotations::docker_image("# sandbox\necho hi"), None);
+    }
 
     #[test]
     fn test_mixed_tags() {

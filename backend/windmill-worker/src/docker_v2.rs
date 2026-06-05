@@ -1,0 +1,390 @@
+//! Docker "v2" runtime: run a container as a sandboxed subprogram of the job.
+//!
+//! Unlike the v1 (`# docker`, dind/daemon) path, v2 has no daemon and no Docker
+//! API. It splits *pull* from *run*:
+//!
+//! 1. **pull/extract** (podman, rootless): materialize the image's root filesystem
+//!    into `{job_dir}/rootfs` and read its OCI config (Env/Cmd/Entrypoint/WorkingDir).
+//! 2. **run** (the job's own nsjail sandbox): execute the image command with the
+//!    extracted rootfs bound in as the new root, so the container inherits exactly
+//!    the job's confinement (filesystem mask, pid namespace, network, uid) and can't
+//!    escape past what the job itself can reach.
+//!
+//! Selected by `# docker <image>` (a bare `# docker` keeps the v1 path). The script
+//! body runs inside the image via `/bin/sh`; an empty body runs the image's
+//! ENTRYPOINT/CMD.
+
+use std::process::Stdio;
+
+use serde::Deserialize;
+use serde_json::{json, value::RawValue};
+use sqlx::types::Json;
+use tokio::process::Command;
+
+use windmill_common::{client::AuthedClient, scripts::ScriptLang};
+use windmill_common::{
+    error::Error,
+    worker::{to_raw_value, write_file, Connection},
+};
+
+use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
+
+use crate::{
+    common::{
+        build_args_map, get_reserved_variables, raw_to_string, resolve_nsjail_timeout,
+        start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
+    },
+    get_proxy_envs_for_lang,
+    handle_child::handle_child,
+    DISABLE_NUSER, NSJAIL_AVAILABLE, NSJAIL_PATH,
+};
+
+const NSJAIL_CONFIG_RUN_DOCKER_CONTENT: &str = include_str!("../nsjail/run.docker.config.proto");
+
+const DEFAULT_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+
+lazy_static::lazy_static! {
+    pub static ref PODMAN_PATH: String =
+        std::env::var("PODMAN_PATH").unwrap_or_else(|_| "podman".to_string());
+}
+
+/// The subset of an image's OCI config we apply to the run.
+#[derive(Deserialize, Default, Debug)]
+struct OciConfig {
+    #[serde(default, rename = "Env")]
+    env: Option<Vec<String>>,
+    #[serde(default, rename = "Cmd")]
+    cmd: Option<Vec<String>>,
+    #[serde(default, rename = "Entrypoint")]
+    entrypoint: Option<Vec<String>>,
+    #[serde(default, rename = "WorkingDir")]
+    working_dir: Option<String>,
+}
+
+/// Quote a string as a protobuf-text-format string literal for safe inclusion in
+/// the nsjail config. Image-controlled values (mount srcs/dsts, symlink targets,
+/// WorkingDir) flow into the config, so they MUST be escaped — an unescaped `"` or
+/// newline would otherwise let a hostile image config inject arbitrary nsjail
+/// directives and break out of the sandbox. Rust's `{:?}` escaping (`\"`, `\n`,
+/// `\\`, …) is a subset of protobuf text-format string escaping, so it is safe here.
+fn proto_str(s: &str) -> String {
+    format!("{s:?}")
+}
+
+async fn podman(args: &[&str]) -> Result<std::process::Output, Error> {
+    Command::new(PODMAN_PATH.as_str())
+        .args(args)
+        .output()
+        .await
+        .map_err(|e| Error::ExecutionErr(format!("failed to run podman {}: {e}", args.join(" "))))
+}
+
+/// Pull (if needed) and unpack `image` into `{job_dir}/rootfs`, returning its OCI
+/// config. Uses podman rootless: `create` (auto-pulls) + `export | tar -x`, with the
+/// config read from the resulting container (== image config, no command override).
+async fn extract_image(image: &str, job_dir: &str) -> Result<OciConfig, Error> {
+    let rootfs = format!("{job_dir}/rootfs");
+    tokio::fs::create_dir_all(&rootfs).await?;
+
+    // `podman create` (no command) pulls the image if missing and records the
+    // image's own Cmd/Entrypoint, which we then read back from the container config.
+    // `--` guards against an `image` ref that starts with `-` being parsed as a flag
+    // (e.g. `--authfile=...`) — the ref is attacker-controlled in the untrusted case.
+    let created = podman(&["create", "--", image]).await?;
+    if !created.status.success() {
+        return Err(Error::ExecutionErr(format!(
+            "failed to pull/create image {image}: {}",
+            String::from_utf8_lossy(&created.stderr)
+        )));
+    }
+    let container_id = String::from_utf8_lossy(&created.stdout).trim().to_string();
+
+    // Always clean up the container, even on a later failure.
+    let result = extract_created(image, &container_id, &rootfs).await;
+    let _ = podman(&["rm", "-f", &container_id]).await;
+    result
+}
+
+async fn extract_created(
+    image: &str,
+    container_id: &str,
+    rootfs: &str,
+) -> Result<OciConfig, Error> {
+    let inspected = podman(&["inspect", container_id, "--format", "{{json .Config}}"]).await?;
+    if !inspected.status.success() {
+        return Err(Error::ExecutionErr(format!(
+            "failed to inspect image {image}: {}",
+            String::from_utf8_lossy(&inspected.stderr)
+        )));
+    }
+    let config: OciConfig = serde_json::from_slice(&inspected.stdout)
+        .map_err(|e| Error::ExecutionErr(format!("failed to parse image {image} config: {e}")))?;
+
+    // Flatten the image's layers into a rootfs directory. Go through a tar on disk
+    // (in the job dir, cleaned up with the job) rather than a shell pipe. Extracted
+    // as the worker user, so the rootfs is owned by the worker user — which the
+    // single-uid jail maps to uid 0 inside.
+    let tar_path = format!("{rootfs}.tar");
+    let exported = podman(&["export", container_id, "--output", &tar_path]).await?;
+    if !exported.status.success() {
+        let _ = tokio::fs::remove_file(&tar_path).await;
+        return Err(Error::ExecutionErr(format!(
+            "failed to export image {image}: {}",
+            String::from_utf8_lossy(&exported.stderr)
+        )));
+    }
+    let untar = Command::new("tar")
+        .args(["-xf", &tar_path, "-C", rootfs])
+        .output()
+        .await
+        .map_err(|e| Error::ExecutionErr(format!("failed to run tar: {e}")))?;
+    let _ = tokio::fs::remove_file(&tar_path).await;
+    if !untar.status.success() {
+        return Err(Error::ExecutionErr(format!(
+            "failed to unpack image {image}: {}",
+            String::from_utf8_lossy(&untar.stderr)
+        )));
+    }
+
+    Ok(config)
+}
+
+/// Build the nsjail mount block that binds each top-level entry of the rootfs in
+/// place. Binding the whole rootfs at `/` trips nsjail's read-only remount of its
+/// base root in a rootless userns; per-entry binds avoid it. `proc`, `dev`, `tmp`
+/// and `sys` are skipped — the profile provides them.
+async fn generate_rootfs_mounts(rootfs: &str) -> Result<String, Error> {
+    let mut block = String::new();
+    let mut entries = tokio::fs::read_dir(rootfs).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if matches!(name.as_ref(), "proc" | "dev" | "tmp" | "sys") {
+            continue;
+        }
+        let src = proto_str(&format!("{rootfs}/{name}"));
+        let dst = proto_str(&format!("/{name}"));
+        let file_type = entry.file_type().await?;
+        if file_type.is_symlink() {
+            // Recreate top-level symlinks (e.g. usr-merged /bin -> usr/bin) as
+            // symlinks in the jail. The target is image-controlled but only ever
+            // *resolved inside the jail* (against the bound rootfs dirs / jail
+            // pseudo-fs) — there is no host `/` in the jail for it to point at — and
+            // it is escaped via proto_str, so it can neither escape nor inject config.
+            let target = tokio::fs::read_link(entry.path())
+                .await
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            block.push_str(&format!(
+                "mount {{\n  src: {}\n  dst: {dst}\n  is_symlink: true\n  mandatory: false\n}}\n",
+                proto_str(&target),
+            ));
+        } else {
+            block.push_str(&format!(
+                "mount {{\n  src: {src}\n  dst: {dst}\n  is_bind: true\n  rw: true\n  mandatory: false\n}}\n",
+            ));
+        }
+    }
+    Ok(block)
+}
+
+#[tracing::instrument(level = "trace", skip_all)]
+pub async fn handle_docker_v2_job(
+    image: &str,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    job: &MiniPulledJob,
+    conn: &Connection,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
+    content: &str,
+    job_dir: &str,
+    base_internal_url: &str,
+    worker_name: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
+) -> Result<Box<RawValue>, Error> {
+    // v2 *is* the nsjail-sandboxed docker runtime: it requires nsjail. (A bare
+    // `# docker` keeps the v1 dind path for non-sandboxed workers.)
+    if NSJAIL_AVAILABLE.is_none() {
+        return Err(Error::ExecutionErr(format!(
+            "`# docker {image}` uses the sandboxed docker v2 runtime, which requires nsjail. \
+            Install nsjail on this worker, or use a bare `# docker` (dind) instead."
+        )));
+    }
+
+    append_logs(
+        &job.id,
+        &job.workspace_id,
+        format!("\n\n--- DOCKER V2 (nsjail sandbox) ---\nextracting image {image}...\n"),
+        conn,
+    )
+    .await;
+
+    let config = extract_image(image, job_dir).await?;
+    let rootfs = format!("{job_dir}/rootfs");
+
+    // Resolve the script args from the bash signature, like the bash executor.
+    let args = build_args_map(job, client, conn).await?.map(Json);
+    let job_args = if args.is_some() {
+        args.as_ref()
+    } else {
+        job.args.as_ref()
+    };
+    let args_owned = windmill_parser_bash::parse_bash_sig(content)?
+        .args
+        .iter()
+        .map(|arg| {
+            job_args
+                .and_then(|x| x.get(&arg.name).map(|x| raw_to_string(x.get())))
+                .unwrap_or_else(String::new)
+        })
+        .collect::<Vec<String>>();
+
+    // The body is everything that isn't a leading `#` annotation/comment line. With
+    // a body we run it via the image's `/bin/sh`; without one we run the image's
+    // ENTRYPOINT + CMD.
+    let has_body = content
+        .lines()
+        .any(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'));
+
+    let cmd_args: Vec<String> = if has_body {
+        write_file(
+            &rootfs,
+            ".windmill_docker_main.sh",
+            &format!("set -e\n{content}"),
+        )?;
+        let mut v = vec![
+            "/bin/sh".to_string(),
+            "/.windmill_docker_main.sh".to_string(),
+        ];
+        v.extend(args_owned.iter().cloned());
+        v
+    } else {
+        let mut v = config.entrypoint.clone().unwrap_or_default();
+        v.extend(config.cmd.clone().unwrap_or_default());
+        if v.is_empty() {
+            return Err(Error::ExecutionErr(format!(
+                "image {image} has no ENTRYPOINT/CMD and the script body is empty — \
+                nothing to run"
+            )));
+        }
+        v.extend(args_owned.iter().cloned());
+        v
+    };
+
+    let working_dir = config
+        .working_dir
+        .as_deref()
+        .filter(|w| !w.is_empty())
+        .unwrap_or("/");
+
+    // Render the nsjail profile: dynamic per-entry rootfs binds + image WorkingDir.
+    let nsjail_timeout = resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
+    let rootfs_mounts = generate_rootfs_mounts(&rootfs).await?;
+    write_file(
+        job_dir,
+        "run.docker.config.proto",
+        &NSJAIL_CONFIG_RUN_DOCKER_CONTENT
+            .replace("{TIMEOUT}", &nsjail_timeout)
+            .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+            // proto_str-quoted: WorkingDir is image-controlled, must not break out
+            // of the `cwd:` string and inject nsjail directives.
+            .replace("{WORKDIR}", &proto_str(working_dir))
+            .replace("{ROOTFS_MOUNTS}", &rootfs_mounts)
+            .replace("#{DEV}", DEV_CONF_NSJAIL),
+    )?;
+
+    // Build the container environment: image Env, then the windmill reserved
+    // variables (so `wmill`/API calls work), then a PATH fallback.
+    let mut env: Vec<(String, String)> = Vec::new();
+    for kv in config.env.unwrap_or_default() {
+        if let Some((k, v)) = kv.split_once('=') {
+            env.push((k.to_string(), v.to_string()));
+        }
+    }
+    let mut reserved_variables =
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+    reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
+    reserved_variables.insert(
+        "BASE_INTERNAL_URL".to_string(),
+        base_internal_url.to_string(),
+    );
+    for (k, v) in reserved_variables {
+        env.push((k, v));
+    }
+    if !env.iter().any(|(k, _)| k == "PATH") {
+        env.push(("PATH".to_string(), DEFAULT_PATH.to_string()));
+    }
+    if !env.iter().any(|(k, _)| k == "HOME") {
+        env.push(("HOME".to_string(), "/root".to_string()));
+    }
+
+    let proxy_envs = get_proxy_envs_for_lang(
+        &ScriptLang::Bash,
+        job.kind,
+        &job.id,
+        &job.workspace_id,
+        conn,
+    )
+    .await?;
+
+    let mut nsjail_run_args = vec!["--config", "run.docker.config.proto", "--"];
+    nsjail_run_args.extend(cmd_args.iter().map(|s| s.as_str()));
+
+    let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
+    nsjail_cmd
+        .current_dir(job_dir)
+        .env_clear()
+        .envs(env)
+        .envs(proxy_envs)
+        .args(nsjail_run_args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let child = start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?;
+
+    handle_child(
+        &job.id,
+        conn,
+        mem_peak,
+        canceled_by,
+        child,
+        true,
+        worker_name,
+        &job.workspace_id,
+        "docker v2 run",
+        job.timeout,
+        true,
+        &mut Some(occupancy_metrics),
+        None,
+        None,
+    )
+    .await?;
+
+    Ok(to_raw_value(&json!(format!(
+        "docker v2 job ({image}) completed successfully"
+    ))))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::proto_str;
+
+    #[test]
+    fn proto_str_escapes_injection() {
+        // Normal paths are just wrapped in quotes.
+        assert_eq!(proto_str("/app"), "\"/app\"");
+        // A `"` is escaped so it cannot close the surrounding string and inject
+        // subsequent nsjail directives — this is what the WorkingDir / mount-src
+        // sandboxing fixes depend on.
+        let malicious = "/x\"\nmount { src: \"/\" dst: \"/host\" is_bind: true }\n#";
+        let escaped = proto_str(malicious);
+        assert!(escaped.starts_with('"') && escaped.ends_with('"'));
+        // No raw quote or newline survives inside the rendered literal.
+        let inner = &escaped[1..escaped.len() - 1];
+        assert!(!inner.contains('\n'));
+        assert!(!inner.contains("\"") || inner.contains("\\\""));
+        assert!(escaped.contains("\\\"")); // the inner quote is backslash-escaped
+        assert!(escaped.contains("\\n")); // the newline is escaped
+    }
+}
