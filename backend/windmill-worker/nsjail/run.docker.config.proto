@@ -39,14 +39,10 @@ gidmap {
 # and avoid it. Generated from the extracted rootfs.
 {ROOTFS_MOUNTS}
 
-# Pseudo-filesystems the image expects. /tmp is a private tmpfs; /dev gets the
-# standard nodes; /proc comes from mount_proc (the jail's own pid namespace).
-mount {
-    dst: "/tmp"
-    fstype: "tmpfs"
-    rw: true
-    is_bind: false
-}
+# Pseudo-filesystems the image expects. /tmp honors the same instance settings as
+# every other nsjail job (nsjail_tmp_backing tmpfs/disk, nsjail_tmpfs_size_mb);
+# /dev gets the standard nodes; /proc comes from mount_proc (the jail's own pid ns).
+{TMP_MOUNT_BLOCK}
 
 mount {
     src: "/dev/null"
@@ -89,6 +85,11 @@ mount {
     is_bind: true
     mandatory: false
 }
+
+# `# volume` mounts (and the same-worker /tmp/shared folder). Placed after the
+# rootfs binds and the tmpfs /tmp so a volume target overrides any colliding image
+# path and isn't shadowed by the tmpfs. Empty when there are no volumes.
+{SHARED_MOUNT}
 
 iface_no_lo: true
 

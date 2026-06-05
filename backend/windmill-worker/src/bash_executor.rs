@@ -90,6 +90,7 @@ pub async fn handle_bash_job(
             parent_runnable_path,
             content,
             job_dir,
+            shared_mount,
             base_internal_url,
             worker_name,
             occupancy_metrics,

@@ -32,7 +32,7 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 use crate::{
     common::{
         build_args_map, get_reserved_variables, raw_to_string, resolve_nsjail_timeout,
-        start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
+        resolve_nsjail_tmp_mount_block, start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
@@ -314,6 +314,7 @@ pub async fn handle_docker_v2_job(
     parent_runnable_path: Option<String>,
     content: &str,
     job_dir: &str,
+    shared_mount: &str,
     base_internal_url: &str,
     worker_name: &str,
     occupancy_metrics: &mut OccupancyMetrics,
@@ -409,6 +410,12 @@ pub async fn handle_docker_v2_job(
             // of the `cwd:` string and inject nsjail directives.
             .replace("{WORKDIR}", &proto_str(working_dir))
             .replace("{ROOTFS_MOUNTS}", &rootfs_mounts)
+            .replace(
+                "{TMP_MOUNT_BLOCK}",
+                &resolve_nsjail_tmp_mount_block(job_dir).await,
+            )
+            // `# volume` mounts + same-worker shared folder (empty if none).
+            .replace("{SHARED_MOUNT}", shared_mount)
             .replace("#{DEV}", DEV_CONF_NSJAIL),
     )?;
 

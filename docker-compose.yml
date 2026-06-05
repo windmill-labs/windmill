@@ -77,7 +77,7 @@ services:
     volumes:
       - worker_dependency_cache:/tmp/windmill/cache
       - worker_logs:/tmp/windmill/logs
-      ## Sandboxed docker (`# docker <image>`) runs daemonless via podman + nsjail
+      ## Sandboxed containers (`# sandbox <image>`) run daemonless via podman + nsjail
       ## inside the worker itself — no Docker socket or dind sidecar required.
       ## For the legacy full-compat docker (a bare `# docker`, trusted users only),
       ## mount the host Docker socket by uncommenting the line below. WARNING: this
