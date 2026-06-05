@@ -22,6 +22,7 @@
 		type UserDraftHandle
 	} from '$lib/userDraft.svelte'
 	import { notifyDraftLoaded, notifyRestoredFromLocal } from '$lib/userDraftToast'
+	import { random_adj } from '$lib/components/random_positive_adjetive'
 
 	type EditableScript = NewScript & { draft_triggers?: Trigger[] }
 
@@ -162,15 +163,34 @@
 			const url = new URL(window.location.href)
 			url.searchParams.delete('new_draft')
 			window.history.replaceState(window.history.state, '', url.toString())
+			// Seed the path synchronously with the same `u/{user}/
+			// {adj}_script` shape the `Path` widget would auto-generate.
+			// Otherwise the widget mutates `script.path` on its own a
+			// few ticks AFTER our `restartSync` (the mutation chain runs
+			// in an `$effect.pre`), and that mutation looks like the
+			// user's first edit — firing an unwanted POST. With a path
+			// already set the widget's `initPath` branch that calls
+			// `reset()` is skipped entirely.
+			const username = $userStore?.username ?? ''
+			const ownerPrefix =
+				username && !username.includes('@')
+					? `u/${username}/`
+					: username
+						? `u/${username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')}/`
+						: ''
+			const seededPath = ownerPrefix ? `${ownerPrefix}${random_adj()}_script` : ''
 			const empty: EditableScript = {
-				path: '',
+				path: seededPath,
 				summary: '',
 				description: '',
 				content: '',
 				language: 'bun',
 				schema: {}
 			} as unknown as EditableScript
-			initialPath = ''
+			// Path widget's `initPath` checks `initialPath` for the
+			// "reset to auto-name" decision — pass the same seeded path
+			// so it takes the "use initialPath" branch instead.
+			initialPath = seededPath
 			savedScript = structuredClone(empty)
 			console.log('[draft-sync] route: about to setDraftAndMeta(empty)', draftPath)
 			scriptHandle.setDraftAndMeta(empty, {})
