@@ -1,4 +1,5 @@
 import { DraftService, type UserDraftItemKind } from './gen'
+import { OpenAPI } from './gen/core/OpenAPI'
 import { createCoalescingKeyedRunner } from './coalescingRunner.svelte'
 import { createDebouncerByKey } from './debouncerByKey.svelte'
 
@@ -130,7 +131,22 @@ export type UserDraftStateHandle = {
 const debouncer = createDebouncerByKey({ debounceMs: 1500, maxDebounceMs: 10000 })
 const runner = createCoalescingKeyedRunner()
 
+/**
+ * Latest `save` opts per draft key that haven't been confirmed by a
+ * successful `postSave`. The unload flush walks this map and fires a
+ * `keepalive: true` POST for each entry so the browser commits the
+ * request even after the document is torn down.
+ *
+ * Updated on every `save()` (newer opts displace older) and cleared by
+ * `postSave` on a successful response — but only when the entry is
+ * still the same object the success was for. A newer `save()` that
+ * landed during the in-flight POST leaves its opts in the map so the
+ * next round (or the flush) still picks them up.
+ */
+const pendingSaveOpts = new Map<string, UserDraftDbSyncerSaveOpts>()
+
 async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
+	const key = draftKey(opts.workspace, opts.itemKind, opts.path)
 	try {
 		const resp = await DraftService.saveDraft({
 			workspace: opts.workspace,
@@ -149,9 +165,75 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		} else {
 			setLastSync(opts.workspace, opts.itemKind, opts.path, resp.current_timestamp)
 		}
+		// Clear pending only if it's still the opts we just saved — a
+		// newer `save()` that arrived during the POST replaces the entry
+		// and must survive for the next flush / debouncer round.
+		if (pendingSaveOpts.get(key) === opts) pendingSaveOpts.delete(key)
 	} catch (e) {
 		console.error('UserDraftDbSyncer.save failed', e)
 	}
+}
+
+/**
+ * Fire `keepalive: true` POSTs for every unconfirmed save in
+ * `pendingSaveOpts`. Browser-level guarantee: the request is committed
+ * to the network stack and continues running after the document is
+ * gone, so a tab close mid-debounce doesn't drop the in-flight edit.
+ *
+ * Trade-offs:
+ *   - Total keepalive body size per page is capped (Chrome: 64KB). For
+ *     huge editor states (low-code apps with many inline scripts) this
+ *     may exceed the cap and the request will be rejected. We log and
+ *     accept the loss for the oversized payload — still strictly better
+ *     than the status quo, which drops every pending save.
+ *   - We bypass the debouncer/runner pipeline because both are
+ *     async-scheduled and won't get a chance to run after the document
+ *     hides. The keepalive fetch is hand-rolled to mirror the generated
+ *     client's URL/auth/body shape.
+ *
+ * Called on `visibilitychange → hidden` (most reliable signal across
+ * browsers and mobile) and `pagehide` (belt-and-suspenders for navs
+ * that bypass `visibilitychange`).
+ */
+function flushOnUnload(): void {
+	if (pendingSaveOpts.size === 0) return
+	for (const opts of pendingSaveOpts.values()) {
+		try {
+			// Path encoding mirrors the generated client (`encodeURI`,
+			// not `encodeURIComponent`) so slashes inside the path
+			// (e.g. `u/user/myScript`) pass through.
+			const url =
+				OpenAPI.BASE +
+				`/w/${encodeURI(opts.workspace)}` +
+				`/drafts/save_draft/${encodeURI(opts.itemKind)}` +
+				`/${encodeURI(opts.path)}`
+			void fetch(url, {
+				method: 'POST',
+				credentials: 'include',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ value: opts.value, force: true }),
+				keepalive: true
+			}).catch((e) => {
+				// `keepalive` size cap or network error — log so the loss
+				// is at least visible in devtools. We can't await this
+				// during unload anyway.
+				console.error('UserDraftDbSyncer: keepalive flush failed', e)
+			})
+		} catch (e) {
+			console.error('UserDraftDbSyncer: keepalive flush threw', e)
+		}
+	}
+	pendingSaveOpts.clear()
+}
+
+if (typeof document !== 'undefined') {
+	document.addEventListener('visibilitychange', () => {
+		if (document.visibilityState === 'hidden') flushOnUnload()
+	})
+	// `pagehide` covers full-document navs (link clicks, back/forward,
+	// tab close) that don't always flip visibility — and is the
+	// recommended last-line signal for "the page is going away".
+	window.addEventListener('pagehide', flushOnUnload)
 }
 
 /**
@@ -202,6 +284,10 @@ export const UserDraftDbSyncer = {
 
 	async save(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		const key = draftKey(opts.workspace, opts.itemKind, opts.path)
+		// Track the latest unconfirmed save BEFORE entering the pipeline
+		// so the unload flush has something to send even if the page
+		// hides before the debouncer fires.
+		pendingSaveOpts.set(key, opts)
 		if (opts.immediate) {
 			// Drop the queued autosave (if any) — letting it fire after
 			// our POST would re-save the pre-delete value. The runner's
