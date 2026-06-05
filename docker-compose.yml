@@ -65,13 +65,16 @@ services:
     # host has it):
     # devices:
     #   - /dev/fuse
-    # Optional hardening: run rootless (a container escape lands as an unprivileged
-    # user) by uncommenting `user` below and `- HOME=/tmp` under environment — the
-    # named cache volumes must then be writable by uid 1000. To use an external/host
-    # Docker daemon instead (legacy): set DOCKER_HOST or mount /var/run/docker.sock.
-    # Cap per-job image storage via the `docker_image_storage_size_mb` instance
-    # setting (default 8GB; the worker aborts a job whose images exceed it).
-    # user: "1000:1000"
+    # Keep this worker running as ROOT (the default — do NOT set `user: 1000`):
+    # windmill itself drops the per-job podman to a non-root uid, so containers are
+    # rootless AND the worker's own secrets in /proc (DATABASE_URL etc.) stay
+    # root-owned, unreadable by a `docker run --pid=host` container. (NB: this does
+    # not confine the container's filesystem view — a `# docker` script can still
+    # `docker run -v` worker-visible paths, so treat docker workers as trusted-tenant
+    # / dedicate them on shared fleets.) Cap per-job image storage via the
+    # `docker_image_storage_size_mb` instance setting (default 8GB). To use an
+    # external/host Docker daemon instead (legacy): set DOCKER_HOST or mount
+    # /var/run/docker.sock.
     pull_policy: always
     deploy:
       replicas: 3
@@ -88,7 +91,6 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - MODE=worker
       - WORKER_GROUP=default
-      # - HOME=/tmp   # required when running as non-root (see `user` above)
       - FAVOR_UNSHARE_PID=true
     depends_on:
       db:

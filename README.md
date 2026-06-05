@@ -228,13 +228,15 @@ Go to http://localhost - default credentials: `admin@windmill.dev` / `changeme`
 > all your default workers use a `*-full` image, route docker jobs to a dedicated
 > `*-full` group with `WORKER_TAGS=docker` rather than relying on the default tag.
 >
-> **Security:** the per-job podman daemon runs outside the worker's nsjail sandbox (only
-> its socket is exposed to the script), so it does **not** extend nsjail's filesystem
-> isolation to containers — a `# docker` script can bind-mount worker-visible paths (e.g.
-> other concurrent job dirs, caches) via the Docker API. Rootless uid-mapping limits this
-> to the unprivileged worker user (a big improvement over privileged dind), but treat
-> docker-capable workers as a trusted-tenant capability and prefer dedicated/per-workspace
-> docker workers on shared multi-tenant fleets.
+> **Security:** keep the docker worker running as **root** (the default — don't set a
+> non-root `user`): windmill drops the per-job podman to a non-root uid itself, so
+> containers are rootless **and** the worker's own secrets in `/proc` (`DATABASE_URL`
+> etc.) stay root-owned — unreadable by a `docker run --pid=host` container. What this
+> does **not** do is confine the container's *filesystem* view: the daemon runs outside
+> the job's nsjail sandbox, so a `# docker` script can still `docker run -v <worker path>`
+> to reach other concurrent job dirs / caches. So treat docker-capable workers as a
+> **trusted-tenant** capability (a big improvement over privileged dind, but not a full
+> sandbox) and prefer dedicated/per-workspace docker workers on shared multi-tenant fleets.
 
 **Using an external database**: Set `DATABASE_URL` in `.env` to point to your managed Postgres (AWS RDS, GCP Cloud SQL, Azure, Neon, etc.) and set db replicas to 0.
 

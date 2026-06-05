@@ -497,6 +497,9 @@ fn teardown_per_job_podman(dir: String, service: Option<std::process::Child>) {
         .stderr(std::process::Stdio::null())
         .status();
     if let Some(mut child) = service {
+        // Kill the whole process group: when the worker is root the daemon runs as a
+        // `runuser` grandchild, so killing only the direct child would leak it.
+        unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL) };
         let _ = child.kill();
         let _ = child.wait();
     }
@@ -608,10 +611,8 @@ fn spawn_docker_storage_monitor(
                 )
                 .await;
                 if let Some(pid) = service_pid {
-                    let _ = std::process::Command::new("kill")
-                        .arg("-9")
-                        .arg(pid.to_string())
-                        .status();
+                    // Kill the process group (podman may be a runuser grandchild).
+                    unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
                 }
                 let _ = std::process::Command::new("podman")
                     .args([
@@ -637,16 +638,17 @@ fn spawn_docker_storage_monitor(
 // config (CONTAINERS_CONF etc.) but overrides storage so it is job-scoped. A
 // background monitor enforces a soft size cap on the image store.
 //
-// SECURITY: the daemon runs OUTSIDE the nsjail (only its socket is mounted in), so
-// it does NOT extend nsjail's filesystem isolation to docker containers. A `# docker`
+// SECURITY: the daemon runs OUTSIDE the nsjail (only its socket is mounted in), so it
+// does NOT extend nsjail's filesystem isolation to docker containers. A `# docker`
 // script controls this daemon over the Docker API and can bind-mount any path the
-// worker user can read (e.g. `docker run -v /tmp/windmill/...`), reaching other
-// concurrent job dirs / caches that nsjail deliberately hid. Rootless uid-mapping
-// caps the blast radius to the unprivileged worker user (no root-owned secrets), and
-// this is a large improvement over the privileged dind it replaces — but the
-// per-job-podman path is NOT a full filesystem sandbox the way pure nsjail is. Treat
-// docker-capable workers as a trusted-tenant capability; on shared multi-tenant
-// fleets prefer per-workspace/dedicated docker workers so this stays intra-tenant.
+// daemon user can read (e.g. `docker run -v /tmp/windmill/...`), reaching other
+// concurrent job dirs / caches that nsjail deliberately hid — so the per-job-podman
+// path is NOT a full filesystem sandbox like pure nsjail, and docker-capable workers
+// stay a TRUSTED-TENANT capability (prefer dedicated/per-workspace docker workers on
+// shared fleets). What IS protected, when the worker runs as root (the default) and
+// the daemon is dropped to a non-root uid here: the worker's secrets in
+// `/proc/<worker>/environ` (DATABASE_URL etc.) stay root-owned and unreadable by the
+// uid-1000 container even via `docker run --pid=host`, and an escape is unprivileged.
 #[cfg(feature = "dind")]
 async fn start_per_job_podman(
     job_dir: &str,
@@ -654,14 +656,39 @@ async fn start_per_job_podman(
     workspace_id: &str,
     conn: &Connection,
 ) -> Result<PerJobPodman, Error> {
+    use std::os::unix::process::CommandExt;
     let dir = format!("{job_dir}/podman");
-    tokio::fs::create_dir_all(&dir).await.map_err(to_anyhow)?;
+    let xdg = format!("{dir}/xdg");
+    tokio::fs::create_dir_all(&xdg).await.map_err(to_anyhow)?;
     let host_sock = format!("{dir}/podman.sock");
     let _ = tokio::fs::remove_file(&host_sock).await;
     let storage = format!("{dir}/storage");
     let runroot = format!("{dir}/runroot");
-    let service = std::process::Command::new("podman")
-        .args([
+    let sock_url = format!("unix://{host_sock}");
+
+    // If the worker is root (the default for docker workers), drop the per-job podman
+    // to a non-root uid via `runuser` so it runs ROOTLESS. This keeps the worker's
+    // secrets in `/proc/<worker>/environ` (DATABASE_URL etc.) root-owned and therefore
+    // unreadable by the uid-1000 container even via `docker run --pid=host`, and makes
+    // a container escape land as an unprivileged user. NB: it does NOT confine the
+    // daemon's filesystem view — a script can still `docker run -v <worker path>` to
+    // reach other job dirs / caches, so docker-capable workers remain trusted-tenant.
+    // A non-root worker can't drop further (it runs podman rootless as itself, and a
+    // `--pid=host` container shares its uid) — run the docker worker as root for the
+    // /proc env protection. `process_group(0)` lets teardown/monitor kill the whole
+    // tree (with `runuser`, podman is a grandchild, not the direct child).
+    let mut cmd = if unsafe { libc::geteuid() } == 0 {
+        let launch = format!(
+            "set -e\nchown -R 1000:1000 '{dir}'\nexec runuser -u \"$(id -nu 1000)\" -- env \
+             HOME='{dir}' XDG_RUNTIME_DIR='{xdg}' podman --root '{storage}' --runroot '{runroot}' \
+             system service --time=0 '{sock_url}'\n"
+        );
+        let mut c = std::process::Command::new("bash");
+        c.args(["-c", &launch]);
+        c
+    } else {
+        let mut c = std::process::Command::new("podman");
+        c.args([
             "--root",
             &storage,
             "--runroot",
@@ -669,8 +696,12 @@ async fn start_per_job_podman(
             "system",
             "service",
             "--time=0",
-            &format!("unix://{host_sock}"),
-        ])
+            &sock_url,
+        ]);
+        c
+    };
+    let service = cmd
+        .process_group(0)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()

@@ -115,6 +115,7 @@ pem = { workspace = true, optional = true }
 rsa = { workspace = true, optional = true }
 urlencoding.workspace = true
 nix.workspace = true
+libc = "0.2"
 bytes.workspace = true
 reqwest.workspace = true
 reqwest-middleware.workspace = true
