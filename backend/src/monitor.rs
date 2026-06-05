@@ -67,7 +67,8 @@ use windmill_common::{
         POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING,
         REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
         RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
-        SANDBOX_IMAGE_MAX_SIZE_MB_SETTING, SANDBOX_IMAGE_PULL_POLICY_SETTING, SCIM_TOKEN_SETTING,
+        SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
+        SANDBOX_IMAGE_PULL_POLICY_SETTING, SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING,
         STORE_AUDIT_LOGS_S3_SETTING, TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING,
         UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
@@ -114,8 +115,9 @@ use windmill_worker::{
     NO_DEFAULT_MAVEN, NPMRC, NPM_CONFIG_REGISTRY, NSJAIL_AVAILABLE, NSJAIL_TMPFS_SIZE_MB,
     NSJAIL_TMP_BACKING, NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL,
     PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, SANDBOX_IMAGE_CACHE_MAX_MB,
-    SANDBOX_IMAGE_MAX_SIZE_MB, SANDBOX_IMAGE_PULL_POLICY, UNSHARE_PATH, UV_EXCLUDE_NEWER,
-    UV_INDEX_STRATEGY, UV_PYTHON_INSTALL_MIRROR, WORKSPACE_REGISTRIES,
+    SANDBOX_IMAGE_DEFAULT_REGISTRY, SANDBOX_IMAGE_MAX_SIZE_MB, SANDBOX_IMAGE_PULL_POLICY,
+    SANDBOX_REGISTRY_AUTH, UNSHARE_PATH, UV_EXCLUDE_NEWER, UV_INDEX_STRATEGY,
+    UV_PYTHON_INSTALL_MIRROR, WORKSPACE_REGISTRIES,
 };
 
 #[cfg(feature = "parquet")]
@@ -412,6 +414,8 @@ pub async fn initial_load(
         reload_sandbox_image_max_size_setting(&conn).await;
         reload_sandbox_image_cache_max_setting(&conn).await;
         reload_sandbox_image_pull_policy_setting(&conn).await;
+        reload_sandbox_image_default_registry_setting(&conn).await;
+        reload_sandbox_registry_auth_setting(&conn).await;
         reload_extra_pip_index_url_setting(&conn).await;
         reload_pip_index_url_setting(&conn).await;
         reload_uv_index_strategy_setting(&conn).await;
@@ -2076,6 +2080,26 @@ pub async fn reload_sandbox_image_pull_policy_setting(conn: &Connection) {
         SANDBOX_IMAGE_PULL_POLICY_SETTING,
         "SANDBOX_IMAGE_PULL_POLICY",
         SANDBOX_IMAGE_PULL_POLICY.clone(),
+    )
+    .await;
+}
+
+pub async fn reload_sandbox_image_default_registry_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING,
+        "SANDBOX_IMAGE_DEFAULT_REGISTRY",
+        SANDBOX_IMAGE_DEFAULT_REGISTRY.clone(),
+    )
+    .await;
+}
+
+pub async fn reload_sandbox_registry_auth_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        SANDBOX_REGISTRY_AUTH_SETTING,
+        "SANDBOX_REGISTRY_AUTH",
+        SANDBOX_REGISTRY_AUTH.clone(),
     )
     .await;
 }

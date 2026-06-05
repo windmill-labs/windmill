@@ -61,6 +61,8 @@ pub const NSJAIL_TMP_BACKING_TMPFS: &str = "tmpfs";
 pub const SANDBOX_IMAGE_MAX_SIZE_MB_SETTING: &str = "sandbox_image_max_size_mb";
 pub const SANDBOX_IMAGE_CACHE_MAX_MB_SETTING: &str = "sandbox_image_cache_max_mb";
 pub const SANDBOX_IMAGE_PULL_POLICY_SETTING: &str = "sandbox_image_pull_policy";
+pub const SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING: &str = "sandbox_image_default_registry";
+pub const SANDBOX_REGISTRY_AUTH_SETTING: &str = "sandbox_registry_auth";
 pub const OBJECT_STORE_CONFIG_SETTING: &str = "object_store_cache_config";
 pub const HUB_API_SECRET_SETTING: &str = "hub_api_secret";
 

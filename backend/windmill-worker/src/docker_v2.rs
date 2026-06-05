@@ -37,7 +37,8 @@ use crate::{
     get_proxy_envs_for_lang,
     handle_child::handle_child,
     DISABLE_NUSER, NSJAIL_AVAILABLE, NSJAIL_PATH, SANDBOX_IMAGE_CACHE_MAX_MB,
-    SANDBOX_IMAGE_MAX_SIZE_MB, SANDBOX_IMAGE_PULL_POLICY,
+    SANDBOX_IMAGE_DEFAULT_REGISTRY, SANDBOX_IMAGE_MAX_SIZE_MB, SANDBOX_IMAGE_PULL_POLICY,
+    SANDBOX_REGISTRY_AUTH,
 };
 
 const NSJAIL_CONFIG_RUN_DOCKER_CONTENT: &str = include_str!("../nsjail/run.docker.config.proto");
@@ -73,6 +74,47 @@ async fn max_image_size_mb() -> u64 {
 /// `sandbox_image_cache_max_mb` instance setting; 0 (or unset/non-positive) = unbounded.
 async fn image_cache_max_mb() -> u64 {
     SANDBOX_IMAGE_CACHE_MAX_MB.read().await.unwrap_or(0).max(0) as u64
+}
+
+/// A ref is registry-qualified if the component before the first `/` looks like a
+/// host (contains `.` or `:`, or is `localhost`). Bare repos (`alpine`,
+/// `alpine:latest`, `myorg/img`) are unqualified and resolve against docker.io —
+/// or the configured default registry.
+fn registry_qualified(image: &str) -> bool {
+    match image.split_once('/') {
+        None => false,
+        Some((first, _)) => first.contains('.') || first.contains(':') || first == "localhost",
+    }
+}
+
+/// Prepend the `sandbox_image_default_registry` instance setting to unqualified image
+/// refs (fully-qualified refs are left untouched).
+async fn resolve_image_ref(image: &str) -> String {
+    let registry = SANDBOX_IMAGE_DEFAULT_REGISTRY.read().await.clone();
+    match registry {
+        Some(registry) if !registry.trim().is_empty() && !registry_qualified(image) => {
+            format!("{}/{}", registry.trim().trim_end_matches('/'), image)
+        }
+        _ => image.to_string(),
+    }
+}
+
+/// If the `sandbox_registry_auth` instance setting holds a docker/podman `auth.json`
+/// blob, write it to a per-job authfile (0600, removed with the job) and return its
+/// path to pass to `podman --authfile`. Returns `None` when unset.
+async fn write_auth_file(job_dir: &str) -> Result<Option<String>, Error> {
+    let auth = SANDBOX_REGISTRY_AUTH.read().await.clone();
+    let Some(auth) = auth.filter(|a| !a.trim().is_empty()) else {
+        return Ok(None);
+    };
+    let path = format!("{job_dir}/registry_auth.json");
+    tokio::fs::write(&path, auth).await?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).await;
+    }
+    Ok(Some(path))
 }
 
 /// The subset of an image's OCI config we apply to the run.
@@ -119,7 +161,15 @@ async fn extract_image(image: &str, job_dir: &str) -> Result<OciConfig, Error> {
     // parsed as a flag (e.g. `--authfile=...`) — the ref is attacker-controlled in
     // the untrusted case.
     let pull = format!("--pull={}", pull_policy().await);
-    let created = podman(&["create", &pull, "--", image]).await?;
+    let mut create_args = vec!["create", &pull];
+    let authfile = write_auth_file(job_dir).await?;
+    if let Some(authfile) = authfile.as_deref() {
+        create_args.push("--authfile");
+        create_args.push(authfile);
+    }
+    create_args.push("--");
+    create_args.push(image);
+    let created = podman(&create_args).await?;
     if !created.status.success() {
         return Err(Error::ExecutionErr(format!(
             "failed to pull/create image {image}: {}",
@@ -326,6 +376,10 @@ pub async fn handle_docker_v2_job(
             this worker. Install nsjail, or use a bare `# docker` (dind) instead."
         )));
     }
+
+    // Apply the default-registry instance setting to unqualified refs.
+    let resolved_image = resolve_image_ref(image).await;
+    let image = resolved_image.as_str();
 
     append_logs(
         &job.id,

@@ -303,6 +303,26 @@ export const settings: Record<string, Setting[]> = {
 			]
 		},
 		{
+			label: 'Sandbox image default registry',
+			key: 'sandbox_image_default_registry',
+			description:
+				'If set, unqualified <code># sandbox</code> images (e.g. <code>alpine</code>) are pulled from this registry instead of <code>docker.io</code>. Fully-qualified refs (e.g. <code>ghcr.io/org/img</code>) are unaffected. Example: <code>myregistry.example.com</code>.',
+			fieldType: 'text',
+			placeholder: 'docker.io',
+			storage: 'setting'
+		},
+		{
+			label: 'Sandbox registry auth',
+			key: 'sandbox_registry_auth',
+			description:
+				'Credentials for private registries used by <code># sandbox</code> images, in docker/podman <code>auth.json</code> format. Written to a per-job authfile (removed with the job) and passed to <code>podman --authfile</code>.',
+			fieldType: 'codearea',
+			codeAreaLang: 'json',
+			placeholder:
+				'{\n  "auths": {\n    "myregistry.example.com": {\n      "auth": "BASE64(username:password)"\n    }\n  }\n}',
+			storage: 'setting'
+		},
+		{
 			label: 'Default timeout',
 			key: 'job_default_timeout',
 			description:
