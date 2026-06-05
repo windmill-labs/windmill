@@ -941,8 +941,9 @@ pub async fn is_otel_tracing_proxy_enabled_for_lang(lang: &ScriptLang) -> bool {
 }
 
 /// Strict check that a string is a well-formed W3C `traceparent`
-/// (`version-traceid-spanid-flags`, all hex, non-zero ids). Used before
-/// forwarding an inbound header value to a job subprocess.
+/// (`version-traceid-spanid-flags`, lowercase hex, non-zero ids, version != ff).
+/// Used before forwarding an inbound header value verbatim to a job subprocess,
+/// so we don't hand downstream OTel parsers something they'll reject.
 #[cfg(all(feature = "private", feature = "enterprise"))]
 fn valid_w3c_traceparent(tp: &str) -> bool {
     let p: Vec<&str> = tp.split('-').collect();
@@ -951,9 +952,14 @@ fn valid_w3c_traceparent(tp: &str) -> bool {
         && p[1].len() == 32
         && p[2].len() == 16
         && p[3].len() == 2
+        // version "ff" is reserved/invalid per the W3C spec
+        && p[0] != "ff"
         && p[1] != "00000000000000000000000000000000"
         && p[2] != "0000000000000000"
-        && p.iter().all(|s| s.bytes().all(|b| b.is_ascii_hexdigit()))
+        // W3C mandates lowercase hex
+        && p
+            .iter()
+            .all(|s| s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
 }
 
 /// Get OTEL trace context environment variables for a job (TRACEPARENT, OTEL_TRACE_ID, OTEL_SPAN_ID).

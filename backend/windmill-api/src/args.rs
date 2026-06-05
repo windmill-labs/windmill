@@ -362,9 +362,16 @@ impl WebhookArgs {
             }
         };
 
-        // Stash the captured traceparent as a reserved arg key. It rides the
-        // `args` jsonb like `_ENTRYPOINT_OVERRIDE`; normal scripts never see it
-        // (args are bound by declared parameter name).
+        // `_wm_traceparent` is Windmill-controlled: strip any caller-supplied
+        // value (e.g. smuggled through the request body) so only the header we
+        // captured above can become the job's inbound trace context. Then stash
+        // the captured value as a reserved arg key — it rides the `args` jsonb
+        // like `_ENTRYPOINT_OVERRIDE`; normal scripts never see it (args are
+        // bound by declared parameter name).
+        push_args.args.remove(WM_TRACEPARENT);
+        if let Some(ref mut extra) = push_args.extra {
+            extra.remove(WM_TRACEPARENT);
+        }
         if let Some(trace_context) = trace_context {
             let raw = to_raw_value(&trace_context);
             match push_args.extra {
@@ -515,7 +522,10 @@ lazy_static::lazy_static! {
 /// Extract the inbound W3C `traceparent` header so the enqueued job can be
 /// linked back to the originating distributed trace. Returns `None` when OTel
 /// tracing is disabled (so non-tracing instances don't accumulate a stray
-/// reserved arg key) or when no valid header is present.
+/// reserved arg key) or when no `traceparent` header is present. The W3C format
+/// is not validated here — it is checked later at use time
+/// (`valid_w3c_traceparent` for the env, EE `span_cx_from_traceparent` for the
+/// span).
 fn inbound_traceparent(headers: &HeaderMap) -> Option<String> {
     if !OTEL_TRACING_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
         return None;
