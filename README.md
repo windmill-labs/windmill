@@ -214,8 +214,8 @@ Go to http://localhost - default credentials: `admin@windmill.dev` / `changeme`
 > with `WORKER_TAGS=docker`). On a worker with **no Docker daemon provided** (no
 > `DOCKER_HOST`, no mounted `/var/run/docker.sock`), Windmill runs each docker job in
 > its own ephemeral **rootless podman**, torn down with the job — no privileged daemon,
-> no host socket, scripts unchanged. Per-job image storage is capped via the
-> `docker_image_storage_size_mb` instance setting (default 8GB). On old kernels (<5.13)
+> no host socket, scripts unchanged. (Docker jobs use disk like any other job — bound it
+> at the infra level, e.g. a sized `/tmp/windmill` volume.) On old kernels (<5.13)
 > also expose `/dev/fuse`. The `*-full` image is also the batteries-included runtime —
 > on top of the base (TS/Bun/Deno, Python, Go) it adds Java, .NET, Ruby, R, Rust,
 > Ansible, and Nushell (plus Oracle/Kerberos in EE). See the default `windmill_worker`

@@ -269,15 +269,6 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
-			label: 'Docker image storage size (MB)',
-			key: 'docker_image_storage_size_mb',
-			description:
-				'Soft size cap for the per-job rootless-podman image store of <code># docker</code> jobs (image layers + container writes). The worker polls the store and, past this size, logs an error and aborts the job&apos;s docker runtime — so a job cannot fill the worker disk with images, the way other languages are capped by the nsjail tmpfs. Soft: a job may overshoot by up to one poll interval (~2s) of writes. Route heavy docker jobs to workers with more disk via the <code>docker</code> tag. When left empty, defaults to 8192MB; set to 0 to disable the cap (bounded only by host disk).',
-			fieldType: 'number',
-			placeholder: '8192',
-			storage: 'setting'
-		},
-		{
 			label: 'Default timeout',
 			key: 'job_default_timeout',
 			description:
