@@ -572,6 +572,11 @@
 		try {
 			script.schema = script.schema ?? emptySchema()
 			try {
+				console.log('[draft-sync] editScript: inferArgs', {
+					language: script.language,
+					contentLen: script.content?.length ?? 0,
+					contentHead: script.content?.slice(0, 80)
+				})
 				const result = await inferArgs(
 					script.language,
 					script.content,
@@ -586,6 +591,12 @@
 					script.has_preprocessor = result?.has_preprocessor || undefined
 				}
 			} catch (error) {
+				console.error('[draft-sync] editScript: inferArgs threw', {
+					language: script.language,
+					contentLen: script.content?.length ?? 0,
+					contentHead: script.content?.slice(0, 80),
+					error
+				})
 				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
 
