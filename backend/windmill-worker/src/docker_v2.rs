@@ -300,9 +300,11 @@ async fn enforce_image_size_limit(image: &str) -> Result<(), Error> {
 struct PodmanImage {
     #[serde(rename = "Id")]
     id: String,
-    #[serde(rename = "Size")]
+    // `default`: podman tags Size/Created `omitempty`, so a degenerate image with a
+    // zero value drops the key — without this the whole array would fail to parse.
+    #[serde(default, rename = "Size")]
     size: u64,
-    #[serde(rename = "Created")]
+    #[serde(default, rename = "Created")]
     created: i64,
 }
 
@@ -340,7 +342,16 @@ async fn enforce_image_cache_limit() {
         if !out.status.success() {
             break;
         }
-        let mut imgs: Vec<PodmanImage> = serde_json::from_slice(&out.stdout).unwrap_or_default();
+        let mut imgs: Vec<PodmanImage> = match serde_json::from_slice(&out.stdout) {
+            Ok(v) => v,
+            Err(e) => {
+                // Don't silently disable eviction on a schema hiccup — surface it.
+                tracing::warn!(
+                    "sandbox image cache eviction: cannot parse `podman images` json: {e}"
+                );
+                break;
+            }
+        };
         let total: u64 = imgs.iter().map(|i| i.size).sum();
         if total <= max_bytes || imgs.is_empty() {
             break;
