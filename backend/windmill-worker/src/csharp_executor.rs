@@ -515,9 +515,10 @@ pub async fn handle_csharp_job(
 
     let ws_suffix = crate::workspace_registry_cache_suffix(&job.workspace_id).await;
     let mut hash = calculate_hash(&format!(
-        "{}{}",
+        "{}{}{}",
         inner_content,
-        requirements_o.unwrap_or(&String::new())
+        requirements_o.unwrap_or(&String::new()),
+        DOTNET_TARGET_FRAMEWORK.as_str()
     ));
     hash.push_str(&ws_suffix);
     let bin_path = format!("{}/{hash}", *CSHARP_CACHE_DIR);
