@@ -976,6 +976,7 @@ const SENSITIVE_SETTINGS: &[&str] = &[
     "ruby_repos",
     "powershell_repo_pat",
     "workspace_registries",
+    "sandbox_registry_auth",
 ];
 
 /// Object-valued settings that contain sensitive sub-fields.

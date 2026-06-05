@@ -1007,21 +1007,6 @@
 
 	function onScriptLanguageTrigger(lang: 'docker' | 'bunnative' | ScriptLang) {
 		if (lang == 'docker') {
-			if (isCloudHosted()) {
-				sendUserToast(
-					'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
-					true,
-					[
-						{
-							label: 'Learn more',
-							callback: () => {
-								window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
-							}
-						}
-					]
-				)
-				return
-			}
 			template = 'docker'
 		} else if (lang == 'bunnative') {
 			template = 'bunnative'
