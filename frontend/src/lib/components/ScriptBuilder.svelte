@@ -78,7 +78,7 @@
 	import { writable } from 'svelte/store'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { getContext, onMount, setContext, untrack } from 'svelte'
+	import { getContext, onMount, setContext, tick, untrack } from 'svelte'
 	import EditorHeader from './EditorHeader.svelte'
 	import AutosaveIndicator from './AutosaveIndicator.svelte'
 	import LabelsInput from './LabelsInput.svelte'
@@ -379,35 +379,33 @@
 			}
 		}
 		console.log('[draft-sync] ScriptBuilder: calling initContent', userDraftPath)
-		initContent(script.language, script.kind, template).finally(() => {
+		initContent(script.language, script.kind, template).finally(async () => {
 			console.log('[draft-sync] ScriptBuilder: initContent finally', userDraftPath, {
 				pathAlreadySet: !!script.path
 			})
 			// The `Path` widget assigns `script.path` from its
 			// `$effect.pre` gated on `$workspaceStore + $userStore` —
 			// which on a HARD-REFRESH-then-first-nav can be unset when
-			// we get here, so we can't `restartSync` yet (its eventual
-			// path mutation would look like the user's first edit and
-			// POST). Wait for `script.path` to land instead; on
-			// subsequent in-app navs the stores are warm and this
-			// fires synchronously on the very first tick.
-			if (script.path) {
-				console.log('[draft-sync] ScriptBuilder: path already set → restartSync', userDraftPath)
-				UserDraft.restartSync('script', userDraftPath)
-				return
+			// we get here. Resuming sync before that assignment lands
+			// would let the widget's mutation POST as the user's first
+			// edit. Poll via `tick()` instead — each `tick()` returns
+			// only after Svelte has flushed all pending effects, so
+			// when we observe `script.path` set the sync effect has
+			// already processed the mutation (under suspension).
+			//
+			// Bounded to ~20 ticks so a stuck mount can't disable
+			// autosave forever; in practice 2–3 ticks is enough on
+			// warm subsequent navs and ~5 on a cold first nav.
+			let waited = 0
+			while (!script.path && waited < 20) {
+				await tick()
+				waited++
 			}
-			const stopWatch = $effect.root(() => {
-				$effect(() => {
-					if (!script.path) return
-					console.log('[draft-sync] ScriptBuilder: path settled → restartSync', userDraftPath, {
-						path: script.path
-					})
-					UserDraft.restartSync('script', userDraftPath)
-					// Tear down the scope so the watcher itself doesn't
-					// keep firing on future path edits.
-					queueMicrotask(stopWatch)
-				})
+			console.log('[draft-sync] ScriptBuilder: ticks done → restartSync', userDraftPath, {
+				ticks: waited,
+				path: script.path
 			})
+			UserDraft.restartSync('script', userDraftPath)
 		})
 	} else {
 		console.log('[draft-sync] ScriptBuilder: bootstrap SKIPPED (content non-empty)', userDraftPath)
