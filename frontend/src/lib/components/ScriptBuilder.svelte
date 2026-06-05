@@ -380,8 +380,34 @@
 		}
 		console.log('[draft-sync] ScriptBuilder: calling initContent', userDraftPath)
 		initContent(script.language, script.kind, template).finally(() => {
-			console.log('[draft-sync] ScriptBuilder: initContent finally → restartSync', userDraftPath)
-			UserDraft.restartSync('script', userDraftPath)
+			console.log('[draft-sync] ScriptBuilder: initContent finally', userDraftPath, {
+				pathAlreadySet: !!script.path
+			})
+			// The `Path` widget assigns `script.path` from its
+			// `$effect.pre` gated on `$workspaceStore + $userStore` —
+			// which on a HARD-REFRESH-then-first-nav can be unset when
+			// we get here, so we can't `restartSync` yet (its eventual
+			// path mutation would look like the user's first edit and
+			// POST). Wait for `script.path` to land instead; on
+			// subsequent in-app navs the stores are warm and this
+			// fires synchronously on the very first tick.
+			if (script.path) {
+				console.log('[draft-sync] ScriptBuilder: path already set → restartSync', userDraftPath)
+				UserDraft.restartSync('script', userDraftPath)
+				return
+			}
+			const stopWatch = $effect.root(() => {
+				$effect(() => {
+					if (!script.path) return
+					console.log('[draft-sync] ScriptBuilder: path settled → restartSync', userDraftPath, {
+						path: script.path
+					})
+					UserDraft.restartSync('script', userDraftPath)
+					// Tear down the scope so the watcher itself doesn't
+					// keep firing on future path edits.
+					queueMicrotask(stopWatch)
+				})
+			})
 		})
 	} else {
 		console.log('[draft-sync] ScriptBuilder: bootstrap SKIPPED (content non-empty)', userDraftPath)
