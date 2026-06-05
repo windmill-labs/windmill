@@ -269,6 +269,40 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
+			label: 'Sandbox image max size (MB)',
+			key: 'sandbox_image_max_size_mb',
+			description:
+				'Reject a <code># sandbox &lt;image&gt;</code> whose on-disk size exceeds this many MB, before extraction. Leave empty for no limit.',
+			fieldType: 'number',
+			placeholder: 'no limit',
+			storage: 'setting'
+		},
+		{
+			label: 'Sandbox image cache cap (MB)',
+			key: 'sandbox_image_cache_max_mb',
+			description:
+				"Best-effort cap on the worker's sandbox image store (podman). When exceeded, the oldest images are evicted after a run. Leave empty for unbounded.",
+			fieldType: 'number',
+			placeholder: 'unbounded',
+			storage: 'setting'
+		},
+		{
+			label: 'Sandbox image pull policy',
+			key: 'sandbox_image_pull_policy',
+			description:
+				'When to re-pull a <code># sandbox</code> image. <strong>newer</strong> (default) re-pulls only when the registry digest changed, so moving tags like <code>:latest</code> stay fresh without re-downloading unchanged layers. <strong>missing</strong> pulls only if absent (fastest, tags can go stale). <strong>always</strong> re-checks every job.',
+			fieldType: 'select',
+			storage: 'setting',
+			placeholder: 'newer',
+			defaultValue: () => 'newer',
+			select_items: [
+				{ label: 'Newer (default)', value: 'newer' },
+				{ label: 'Missing', value: 'missing' },
+				{ label: 'Always', value: 'always' },
+				{ label: 'Never', value: 'never' }
+			]
+		},
+		{
 			label: 'Default timeout',
 			key: 'job_default_timeout',
 			description:

@@ -58,6 +58,9 @@ pub const NSJAIL_TMPFS_SIZE_MB_SETTING: &str = "nsjail_tmpfs_size_mb";
 pub const NSJAIL_TMP_BACKING_SETTING: &str = "nsjail_tmp_backing";
 pub const NSJAIL_TMP_BACKING_DISK: &str = "disk";
 pub const NSJAIL_TMP_BACKING_TMPFS: &str = "tmpfs";
+pub const SANDBOX_IMAGE_MAX_SIZE_MB_SETTING: &str = "sandbox_image_max_size_mb";
+pub const SANDBOX_IMAGE_CACHE_MAX_MB_SETTING: &str = "sandbox_image_cache_max_mb";
+pub const SANDBOX_IMAGE_PULL_POLICY_SETTING: &str = "sandbox_image_pull_policy";
 pub const OBJECT_STORE_CONFIG_SETTING: &str = "object_store_cache_config";
 pub const HUB_API_SECRET_SETTING: &str = "hub_api_secret";
 

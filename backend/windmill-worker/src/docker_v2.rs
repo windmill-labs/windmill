@@ -36,7 +36,8 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    DISABLE_NUSER, NSJAIL_AVAILABLE, NSJAIL_PATH,
+    DISABLE_NUSER, NSJAIL_AVAILABLE, NSJAIL_PATH, SANDBOX_IMAGE_CACHE_MAX_MB,
+    SANDBOX_IMAGE_MAX_SIZE_MB, SANDBOX_IMAGE_PULL_POLICY,
 };
 
 const NSJAIL_CONFIG_RUN_DOCKER_CONTENT: &str = include_str!("../nsjail/run.docker.config.proto");
@@ -46,35 +47,33 @@ const DEFAULT_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/s
 lazy_static::lazy_static! {
     pub static ref PODMAN_PATH: String =
         std::env::var("PODMAN_PATH").unwrap_or_else(|_| "podman".to_string());
-
-    /// podman pull policy for sandbox images. `newer` (default) re-pulls only when the
-    /// registry digest changed — one cheap manifest check per job, no transfer if
-    /// unchanged — so moving tags like `:latest` don't go stale. `missing` is fastest
-    /// (pull only if absent, tags can go stale), `always` re-checks every job.
-    static ref IMAGE_PULL_POLICY: String = {
-        let p = std::env::var("SANDBOX_IMAGE_PULL_POLICY")
-            .unwrap_or_else(|_| "newer".to_string());
-        if matches!(p.as_str(), "missing" | "newer" | "always" | "never") {
-            p
-        } else {
-            tracing::warn!("invalid SANDBOX_IMAGE_PULL_POLICY '{p}', falling back to 'newer'");
-            "newer".to_string()
-        }
-    };
-
-    /// Reject a sandbox image whose on-disk (uncompressed) size exceeds this many MB,
-    /// before extracting it. 0 = no limit (default).
-    static ref IMAGE_MAX_SIZE_MB: u64 = std::env::var("SANDBOX_IMAGE_MAX_SIZE_MB")
-        .ok().and_then(|v| v.parse().ok()).unwrap_or(0);
-
-    /// Best-effort cap on the total size of podman's sandbox-image store (MB). When
-    /// exceeded, the oldest images are evicted after a run. 0 = unbounded (default).
-    static ref IMAGE_CACHE_MAX_MB: u64 = std::env::var("SANDBOX_IMAGE_CACHE_MAX_MB")
-        .ok().and_then(|v| v.parse().ok()).unwrap_or(0);
 }
 
 /// Guards against overlapping cache-eviction passes across concurrent jobs.
 static EVICTION_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// podman pull policy from the `sandbox_image_pull_policy` instance setting. `newer`
+/// (the default when unset/invalid) re-pulls only when the registry digest changed —
+/// one cheap manifest check per job, no transfer if unchanged — so moving tags like
+/// `:latest` don't go stale. `missing` is fastest (tags can go stale); `always`
+/// re-checks every job.
+async fn pull_policy() -> String {
+    let p = SANDBOX_IMAGE_PULL_POLICY.read().await.clone();
+    match p.as_deref() {
+        Some(p @ ("missing" | "newer" | "always" | "never")) => p.to_string(),
+        _ => "newer".to_string(),
+    }
+}
+
+/// `sandbox_image_max_size_mb` instance setting; 0 (or unset/non-positive) = no limit.
+async fn max_image_size_mb() -> u64 {
+    SANDBOX_IMAGE_MAX_SIZE_MB.read().await.unwrap_or(0).max(0) as u64
+}
+
+/// `sandbox_image_cache_max_mb` instance setting; 0 (or unset/non-positive) = unbounded.
+async fn image_cache_max_mb() -> u64 {
+    SANDBOX_IMAGE_CACHE_MAX_MB.read().await.unwrap_or(0).max(0) as u64
+}
 
 /// The subset of an image's OCI config we apply to the run.
 #[derive(Deserialize, Default, Debug)]
@@ -119,7 +118,7 @@ async fn extract_image(image: &str, job_dir: &str) -> Result<OciConfig, Error> {
     // container config. `--` guards against an `image` ref that starts with `-` being
     // parsed as a flag (e.g. `--authfile=...`) — the ref is attacker-controlled in
     // the untrusted case.
-    let pull = format!("--pull={}", *IMAGE_PULL_POLICY);
+    let pull = format!("--pull={}", pull_policy().await);
     let created = podman(&["create", &pull, "--", image]).await?;
     if !created.status.success() {
         return Err(Error::ExecutionErr(format!(
@@ -185,7 +184,7 @@ async fn extract_created(
 /// Reject the image if its on-disk (uncompressed) size exceeds
 /// `SANDBOX_IMAGE_MAX_SIZE_MB`. No-op when the limit is 0 (unset).
 async fn enforce_image_size_limit(image: &str) -> Result<(), Error> {
-    let max = *IMAGE_MAX_SIZE_MB;
+    let max = max_image_size_mb().await;
     if max == 0 {
         return Ok(());
     }
@@ -222,7 +221,7 @@ struct PodmanImage {
 /// `rmi` and stop the pass, so in-use images are never removed.
 async fn enforce_image_cache_limit() {
     use std::sync::atomic::Ordering;
-    let max_mb = *IMAGE_CACHE_MAX_MB;
+    let max_mb = image_cache_max_mb().await;
     if max_mb == 0 {
         return;
     }
