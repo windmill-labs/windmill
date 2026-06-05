@@ -1,15 +1,7 @@
 <script lang="ts">
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { forLater } from '$lib/forLater'
-	import {
-		Calendar,
-		Check,
-		FastForward,
-		Hourglass,
-		Play,
-		ShieldQuestion,
-		X
-	} from 'lucide-svelte'
+	import { Calendar, Check, FastForward, Hourglass, Play, ShieldQuestion, X } from 'lucide-svelte'
 	import type { Job } from '$lib/gen'
 
 	interface Props {
@@ -26,7 +18,7 @@
 		<Badge color="gray" {roundedFull} baseClass={roundedFull ? '' : '!px-1.5'}>
 			<ShieldQuestion size={14} />
 		</Badge>
-	{:else if job.canceled}
+	{:else if job.canceled && 'success' in job}
 		<Badge color="gray" {roundedFull} baseClass={roundedFull ? '' : '!px-1.5'} title="Canceled">
 			<Hourglass size={14} />
 		</Badge>

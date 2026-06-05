@@ -30,11 +30,12 @@ function faviconLink(): HTMLLinkElement {
 	return link
 }
 
-/** Maps a job to one of the three favicon status colors, following the same
- * discrimination as JobStatusIcon (`'success' in job` => completed). */
+/** Maps a job to one of the favicon status colors, following the same
+ * discrimination as JobStatusIcon (`'success' in job` => completed). A job that
+ * is still running while being canceled stays 'running' until it completes. */
 export function getJobStatusKind(job: Job | undefined): JobStatusKind | undefined {
 	if (!job) return undefined
-	if (job.canceled) return 'canceled'
+	if (job.canceled && 'success' in job) return 'canceled'
 	if ('success' in job) return job.success ? 'success' : 'failure'
 	return 'running'
 }

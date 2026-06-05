@@ -11822,7 +11822,7 @@ paths:
           schema:
             type: boolean
         - name: status
-          description: filter on completed job status
+          description: filter on the exact completed job status. Unlike `success=true` (which also matches `skipped`), `status=success` matches only `success`.
           in: query
           schema:
             type: string
@@ -12067,7 +12067,7 @@ paths:
         - $ref: "#/components/parameters/StartedAfter"
         - $ref: "#/components/parameters/Success"
         - name: status
-          description: filter on completed job status
+          description: filter on the exact completed job status. Unlike `success=true` (which also matches `skipped`), `status=success` matches only `success`.
           in: query
           schema:
             type: string
@@ -12284,7 +12284,7 @@ paths:
           schema:
             type: boolean
         - name: status
-          description: filter on completed job status
+          description: filter on the exact completed job status. Unlike `success=true` (which also matches `skipped`), `status=success` matches only `success`.
           in: query
           schema:
             type: string
@@ -19803,7 +19803,7 @@ paths:
           schema:
             type: boolean
         - name: status
-          description: filter on completed job status
+          description: filter on the exact completed job status. Unlike `success=true` (which also matches `skipped`), `status=success` matches only `success`.
           in: query
           schema:
             type: string
