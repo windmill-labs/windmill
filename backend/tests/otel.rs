@@ -594,3 +594,36 @@ fn test_inbound_span_cx_from_job_absent_or_malformed() {
             .is_none()
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_root_job_span_relocated_to_inbound_trace() {
+    let state = ensure_setup().await;
+    state.span_exporter.reset();
+
+    let job = job_with_traceparent(Some(SAMPLE_TRACEPARENT));
+    let job_id = job.id;
+    windmill_worker::otel_ee::add_root_flow_job_to_otlp(&job, true);
+
+    let spans = state.span_exporter.get_finished_spans().unwrap();
+    let span = spans
+        .iter()
+        .find(|s| s.name == "full_job")
+        .expect("full_job span not found");
+
+    // Relocated into the inbound trace, keeping the job-UUID-derived span id and
+    // parented on the inbound caller span.
+    assert_eq!(span.span_context.trace_id(), sample_trace_id());
+    let expected_span_id =
+        opentelemetry::trace::SpanId::from_bytes(job_id.as_u64_pair().1.to_be_bytes());
+    assert_eq!(span.span_context.span_id(), expected_span_id);
+    assert_eq!(span.parent_span_id, sample_span_id());
+
+    // Linked back to the UUID-derived context so trace-by-job-id still resolves.
+    assert_eq!(span.links.links.len(), 1);
+    let expected_uuid_trace =
+        opentelemetry::trace::TraceId::from_bytes(job_id.as_u128().to_be_bytes());
+    assert_eq!(
+        span.links.links[0].span_context.trace_id(),
+        expected_uuid_trace
+    );
+}

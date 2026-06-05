@@ -940,14 +940,44 @@ pub async fn is_otel_tracing_proxy_enabled_for_lang(lang: &ScriptLang) -> bool {
     }
 }
 
+/// Strict check that a string is a well-formed W3C `traceparent`
+/// (`version-traceid-spanid-flags`, all hex, non-zero ids). Used before
+/// forwarding an inbound header value to a job subprocess.
+#[cfg(all(feature = "private", feature = "enterprise"))]
+fn valid_w3c_traceparent(tp: &str) -> bool {
+    let p: Vec<&str> = tp.split('-').collect();
+    p.len() == 4
+        && p[0].len() == 2
+        && p[1].len() == 32
+        && p[2].len() == 16
+        && p[3].len() == 2
+        && p[1] != "00000000000000000000000000000000"
+        && p[2] != "0000000000000000"
+        && p.iter().all(|s| s.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
 /// Get OTEL trace context environment variables for a job (TRACEPARENT, OTEL_TRACE_ID, OTEL_SPAN_ID).
 /// Returns an empty vec when OTEL tracing is not enabled or on non-enterprise builds.
+///
+/// When the request that enqueued the job carried a valid inbound `traceparent`
+/// (propagated via the job's [`LogContext`](windmill_common::log_context::LogContext)),
+/// it is forwarded verbatim so the script's spans join the originating
+/// distributed trace. Otherwise the trace context is derived from the job UUID.
 pub fn get_otel_context_envs(job_id: &uuid::Uuid) -> Vec<(&'static str, String)> {
     #[cfg(all(feature = "private", feature = "enterprise"))]
     if windmill_common::OTEL_TRACING_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-        let trace_id = format!("{:032x}", job_id.as_u128());
-        let span_id = format!("{:016x}", job_id.as_u64_pair().1);
-        let traceparent = format!("00-{}-{}-01", trace_id, span_id);
+        let inbound = windmill_common::log_context::current_log_context()
+            .and_then(|c| c.inbound_traceparent.clone())
+            .filter(|tp| valid_w3c_traceparent(tp));
+        let (traceparent, trace_id, span_id) = if let Some(tp) = inbound {
+            let trace_id = tp[3..35].to_string();
+            let span_id = tp[36..52].to_string();
+            (tp, trace_id, span_id)
+        } else {
+            let trace_id = format!("{:032x}", job_id.as_u128());
+            let span_id = format!("{:016x}", job_id.as_u64_pair().1);
+            (format!("00-{}-{}-01", trace_id, span_id), trace_id, span_id)
+        };
         return vec![
             ("TRACEPARENT", traceparent),
             ("OTEL_TRACE_ID", trace_id),
@@ -1487,12 +1517,10 @@ pub fn create_span_with_name(
         span.record("script_hash", script_hash.to_string().as_str());
     }
 
-    windmill_common::otel_oss::set_span_parent(&span, &rj);
-    // Link the job's span to the originating distributed trace when the request
-    // that enqueued it carried a W3C `traceparent` (reserved `_wm_traceparent`
-    // arg). Only directly-triggered jobs carry the key, so this is a no-op for
-    // flow steps and internally-created jobs.
-    crate::otel_oss::add_inbound_trace_link(&span, arc_job);
+    // Parent the job span on the inbound distributed trace when the request that
+    // enqueued it (or its flow root) carried a W3C `traceparent`; otherwise on
+    // the UUID-derived context. See `otel_ee::set_job_span_parent`.
+    crate::otel_oss::set_job_span_parent(&span, arc_job, &rj);
     span
 }
 
@@ -1593,8 +1621,19 @@ pub fn log_context_for_job(
         trigger_kind: arc_job.trigger_kind.as_ref().map(|k| k.to_string()),
         trigger: arc_job.trigger.clone(),
         hostname: hostname.map(|h| h.to_string()),
+        inbound_traceparent: job_inbound_traceparent(arc_job),
         ..existing
     }
+}
+
+/// Extract the inbound W3C `traceparent` captured at enqueue from a job's args
+/// (reserved `_wm_traceparent` key). Present only on directly-triggered jobs
+/// (and flow steps that inherited it).
+pub(crate) fn job_inbound_traceparent(job: &MiniPulledJob) -> Option<String> {
+    job.args
+        .as_ref()
+        .and_then(|a| a.get(windmill_common::jobs::WM_TRACEPARENT))
+        .and_then(|raw| serde_json::from_str::<String>(raw.get()).ok())
 }
 
 pub async fn handle_all_job_kind_error(
