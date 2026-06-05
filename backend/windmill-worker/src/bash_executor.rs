@@ -76,10 +76,10 @@ pub async fn handle_bash_job(
 ) -> Result<Box<RawValue>, Error> {
     let annotation = windmill_common::worker::BashAnnotations::parse(&content);
 
-    // `# docker <image>` selects the daemonless, nsjail-sandboxed "docker v2"
-    // runtime (extract the image's rootfs + run it inside the job's sandbox). A bare
-    // `# docker` (no image) keeps the legacy v1 (dind) path below.
-    if let Some(image) = windmill_common::worker::BashAnnotations::docker_image(content) {
+    // `# sandbox <image>` selects the daemonless, nsjail-sandboxed container runtime
+    // (extract the image's rootfs + run it inside the job's sandbox). A bare
+    // `# sandbox` keeps the plain nsjail-bash modifier; `# docker` keeps v1 (dind).
+    if let Some(image) = windmill_common::worker::BashAnnotations::sandbox_image(content) {
         return crate::docker_v2::handle_docker_v2_job(
             &image,
             mem_peak,

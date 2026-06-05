@@ -1,6 +1,6 @@
-//! Docker "v2" runtime: run a container as a sandboxed subprogram of the job.
+//! Sandboxed container runtime: run a container as a sandboxed subprogram of the job.
 //!
-//! Unlike the v1 (`# docker`, dind/daemon) path, v2 has no daemon and no Docker
+//! Unlike the legacy `# docker` (dind/daemon) path, this has no daemon and no Docker
 //! API. It splits *pull* from *run*:
 //!
 //! 1. **pull/extract** (podman, rootless): materialize the image's root filesystem
@@ -10,9 +10,9 @@
 //!    the job's confinement (filesystem mask, pid namespace, network, uid) and can't
 //!    escape past what the job itself can reach.
 //!
-//! Selected by `# docker <image>` (a bare `# docker` keeps the v1 path). The script
-//! body runs inside the image via `/bin/sh`; an empty body runs the image's
-//! ENTRYPOINT/CMD.
+//! Selected by `# sandbox <image>` (a bare `# sandbox` keeps plain nsjail-bash;
+//! `# docker` keeps the v1 daemon path). The script body runs inside the image via
+//! `/bin/sh`; an empty body runs the image's ENTRYPOINT/CMD.
 
 use std::process::Stdio;
 
@@ -46,7 +46,35 @@ const DEFAULT_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/s
 lazy_static::lazy_static! {
     pub static ref PODMAN_PATH: String =
         std::env::var("PODMAN_PATH").unwrap_or_else(|_| "podman".to_string());
+
+    /// podman pull policy for sandbox images. `newer` (default) re-pulls only when the
+    /// registry digest changed — one cheap manifest check per job, no transfer if
+    /// unchanged — so moving tags like `:latest` don't go stale. `missing` is fastest
+    /// (pull only if absent, tags can go stale), `always` re-checks every job.
+    static ref IMAGE_PULL_POLICY: String = {
+        let p = std::env::var("SANDBOX_IMAGE_PULL_POLICY")
+            .unwrap_or_else(|_| "newer".to_string());
+        if matches!(p.as_str(), "missing" | "newer" | "always" | "never") {
+            p
+        } else {
+            tracing::warn!("invalid SANDBOX_IMAGE_PULL_POLICY '{p}', falling back to 'newer'");
+            "newer".to_string()
+        }
+    };
+
+    /// Reject a sandbox image whose on-disk (uncompressed) size exceeds this many MB,
+    /// before extracting it. 0 = no limit (default).
+    static ref IMAGE_MAX_SIZE_MB: u64 = std::env::var("SANDBOX_IMAGE_MAX_SIZE_MB")
+        .ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+
+    /// Best-effort cap on the total size of podman's sandbox-image store (MB). When
+    /// exceeded, the oldest images are evicted after a run. 0 = unbounded (default).
+    static ref IMAGE_CACHE_MAX_MB: u64 = std::env::var("SANDBOX_IMAGE_CACHE_MAX_MB")
+        .ok().and_then(|v| v.parse().ok()).unwrap_or(0);
 }
+
+/// Guards against overlapping cache-eviction passes across concurrent jobs.
+static EVICTION_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// The subset of an image's OCI config we apply to the run.
 #[derive(Deserialize, Default, Debug)]
@@ -86,11 +114,13 @@ async fn extract_image(image: &str, job_dir: &str) -> Result<OciConfig, Error> {
     let rootfs = format!("{job_dir}/rootfs");
     tokio::fs::create_dir_all(&rootfs).await?;
 
-    // `podman create` (no command) pulls the image if missing and records the
-    // image's own Cmd/Entrypoint, which we then read back from the container config.
-    // `--` guards against an `image` ref that starts with `-` being parsed as a flag
-    // (e.g. `--authfile=...`) — the ref is attacker-controlled in the untrusted case.
-    let created = podman(&["create", "--", image]).await?;
+    // `podman create` (no command) pulls the image per the configured policy and
+    // records the image's own Cmd/Entrypoint, which we then read back from the
+    // container config. `--` guards against an `image` ref that starts with `-` being
+    // parsed as a flag (e.g. `--authfile=...`) — the ref is attacker-controlled in
+    // the untrusted case.
+    let pull = format!("--pull={}", *IMAGE_PULL_POLICY);
+    let created = podman(&["create", &pull, "--", image]).await?;
     if !created.status.success() {
         return Err(Error::ExecutionErr(format!(
             "failed to pull/create image {image}: {}",
@@ -110,6 +140,9 @@ async fn extract_created(
     container_id: &str,
     rootfs: &str,
 ) -> Result<OciConfig, Error> {
+    // Reject oversized images before paying the (large) extraction cost.
+    enforce_image_size_limit(image).await?;
+
     let inspected = podman(&["inspect", container_id, "--format", "{{json .Config}}"]).await?;
     if !inspected.status.success() {
         return Err(Error::ExecutionErr(format!(
@@ -147,6 +180,88 @@ async fn extract_created(
     }
 
     Ok(config)
+}
+
+/// Reject the image if its on-disk (uncompressed) size exceeds
+/// `SANDBOX_IMAGE_MAX_SIZE_MB`. No-op when the limit is 0 (unset).
+async fn enforce_image_size_limit(image: &str) -> Result<(), Error> {
+    let max = *IMAGE_MAX_SIZE_MB;
+    if max == 0 {
+        return Ok(());
+    }
+    let out = podman(&["image", "inspect", image, "--format", "{{.Size}}"]).await?;
+    if out.status.success() {
+        let bytes: u64 = String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .parse()
+            .unwrap_or(0);
+        let mb = bytes / 1_000_000;
+        if mb > max {
+            return Err(Error::ExecutionErr(format!(
+                "image {image} is {mb} MB, over the SANDBOX_IMAGE_MAX_SIZE_MB limit of {max} MB"
+            )));
+        }
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct PodmanImage {
+    #[serde(rename = "Id")]
+    id: String,
+    #[serde(rename = "Size")]
+    size: u64,
+    #[serde(rename = "Created")]
+    created: i64,
+}
+
+/// Best-effort eviction: while the summed size of podman's images exceeds
+/// `SANDBOX_IMAGE_CACHE_MAX_MB`, remove the oldest (by created time, an LRU proxy).
+/// No-op when the limit is 0 (unset). Skipped if another pass is already running.
+/// Images currently backing a container (e.g. a concurrent job mid-extract) fail
+/// `rmi` and stop the pass, so in-use images are never removed.
+async fn enforce_image_cache_limit() {
+    use std::sync::atomic::Ordering;
+    let max_mb = *IMAGE_CACHE_MAX_MB;
+    if max_mb == 0 {
+        return;
+    }
+    if EVICTION_RUNNING
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+    let max_bytes = max_mb.saturating_mul(1_000_000);
+    loop {
+        let Ok(out) = podman(&["images", "--format", "json"]).await else {
+            break;
+        };
+        if !out.status.success() {
+            break;
+        }
+        let mut imgs: Vec<PodmanImage> = serde_json::from_slice(&out.stdout).unwrap_or_default();
+        let total: u64 = imgs.iter().map(|i| i.size).sum();
+        if total <= max_bytes || imgs.is_empty() {
+            break;
+        }
+        imgs.sort_by_key(|i| i.created);
+        let victim = imgs[0].id.clone();
+        match podman(&["rmi", &victim]).await {
+            Ok(rm) if rm.status.success() => {
+                tracing::info!("sandbox image cache eviction: removed {victim}");
+            }
+            Ok(rm) => {
+                tracing::warn!(
+                    "sandbox image cache eviction: cannot remove {victim} (in use?): {}",
+                    String::from_utf8_lossy(&rm.stderr)
+                );
+                break;
+            }
+            Err(_) => break,
+        }
+    }
+    EVICTION_RUNNING.store(false, Ordering::SeqCst);
 }
 
 /// Build the nsjail mount block that binds each top-level entry of the rootfs in
@@ -203,25 +318,28 @@ pub async fn handle_docker_v2_job(
     worker_name: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
-    // v2 *is* the nsjail-sandboxed docker runtime: it requires nsjail. (A bare
-    // `# docker` keeps the v1 dind path for non-sandboxed workers.)
+    // The sandboxed container runtime *is* nsjail, so it requires nsjail. (`# docker`
+    // keeps the v1 dind path for non-sandboxed workers.)
     if NSJAIL_AVAILABLE.is_none() {
         return Err(Error::ExecutionErr(format!(
-            "`# docker {image}` uses the sandboxed docker v2 runtime, which requires nsjail. \
-            Install nsjail on this worker, or use a bare `# docker` (dind) instead."
+            "`# sandbox {image}` runs the image inside nsjail, which is not available on \
+            this worker. Install nsjail, or use a bare `# docker` (dind) instead."
         )));
     }
 
     append_logs(
         &job.id,
         &job.workspace_id,
-        format!("\n\n--- DOCKER V2 (nsjail sandbox) ---\nextracting image {image}...\n"),
+        format!("\n\n--- SANDBOXED CONTAINER (nsjail) ---\nextracting image {image}...\n"),
         conn,
     )
     .await;
 
     let config = extract_image(image, job_dir).await?;
     let rootfs = format!("{job_dir}/rootfs");
+
+    // Best-effort: keep podman's image store under its size cap (overlaps the run).
+    tokio::spawn(enforce_image_cache_limit());
 
     // Resolve the script args from the bash signature, like the bash executor.
     let args = build_args_map(job, client, conn).await?.map(Json);
@@ -352,7 +470,7 @@ pub async fn handle_docker_v2_job(
         true,
         worker_name,
         &job.workspace_id,
-        "docker v2 run",
+        "sandboxed container run",
         job.timeout,
         true,
         &mut Some(occupancy_metrics),
@@ -362,7 +480,7 @@ pub async fn handle_docker_v2_job(
     .await?;
 
     Ok(to_raw_value(&json!(format!(
-        "docker v2 job ({image}) completed successfully"
+        "sandboxed container ({image}) completed successfully"
     ))))
 }
 

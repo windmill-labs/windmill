@@ -1,25 +1,29 @@
-# Docker v2 runtime (sandboxed, daemonless)
+# Sandboxed container runtime (daemonless docker)
 
-Windmill bash scripts can run a container image. There are now **two** runtimes,
-selected by the `# docker` annotation:
+Windmill bash scripts can run a container image. There are **two** runtimes:
 
-| | v1 — bare `# docker` | v2 — `# docker <image>` |
+| | legacy `# docker` | sandboxed `# sandbox <image>` |
 |---|---|---|
+| selected by | bare `# docker` | `# sandbox <image>` |
 | runtime | dind / Docker daemon (bollard, `dind` feature) | daemonless: extract rootfs + nsjail-run |
 | boundary | separate (daemon outside the jail) | the job's own nsjail sandbox |
-| nsjail | not provided (trusted-tenant) | **required** — this is how you run docker under nsjail |
+| nsjail | not provided (trusted-tenant) | **required** — this *is* the sandbox |
 | safety | trusted-tenant | sandboxed (untrusted-capable) |
 | compat | full `docker run`/`-d`/API | run-a-command subset |
 
-v1 is unchanged. v2 is additive.
+The three bash annotations are distinct and don't overload each other:
 
-## Using v2
+- `# docker` → legacy daemon docker (unchanged).
+- `# sandbox` → run the bash script under nsjail.
+- `# sandbox <image>` → run that image's command under nsjail (this runtime).
 
-Put the image ref on the `# docker` annotation line; the rest of the script runs
+## Using it
+
+Put the image ref on a `# sandbox` annotation line; the rest of the script runs
 **inside** that image:
 
 ```bash
-# docker python:3.12-slim
+# sandbox python:3.12-slim
 name="$1"          # windmill args bind positionally, like any bash script
 python3 -c "import sys; print('hello', sys.argv[1])" "$name"
 ```
@@ -30,15 +34,12 @@ python3 -c "import sys; print('hello', sys.argv[1])" "$name"
 - The image's `Env`, `WorkingDir` are applied; the windmill reserved variables
   (`WM_TOKEN`, `BASE_INTERNAL_URL`, …) are injected so `wmill`/API calls work.
 
-A **bare** `# docker` (no image) keeps the legacy v1 (dind) behavior where the
-script body drives the `docker` CLI against a daemon.
-
 ## How it works
 
-1. **Pull/extract** (podman, rootless): `podman create <image>` (auto-pulls) +
+1. **Pull/extract** (podman, rootless): `podman create --pull=<policy> <image>` +
    `podman export | tar -x` materializes the image's flattened root filesystem
    into `{job_dir}/rootfs`, and `podman inspect` reads its OCI config. podman's
-   image cache dedups pulls across jobs.
+   image store dedups pulls across jobs.
 2. **Run** (the job's nsjail sandbox): nsjail binds each top-level entry of the
    rootfs in place (binding the whole rootfs at `/` trips nsjail's read-only
    remount of its base root in a rootless userns), mounts the standard
@@ -47,8 +48,8 @@ script body drives the `docker` CLI against a daemon.
    command. The container *is* the jail.
 
 ```
-# docker <image>  ──▶  podman create+export ──▶  {job_dir}/rootfs  ──▶  nsjail (chroot rootfs)
-                       podman inspect (OCI config) ───────────────────▶  Env / Cmd / WorkingDir
+# sandbox <image>  ─▶  podman create+export ─▶  {job_dir}/rootfs  ─▶  nsjail (chroot rootfs)
+                       podman inspect (OCI config) ──────────────────▶  Env / Cmd / WorkingDir
 ```
 
 Because the run is just the job's own nsjail with the image's filesystem as root,
@@ -61,11 +62,28 @@ the container inherits exactly the job's confinement:
 - **uid**: a single-uid jail — an escape lands as the unprivileged worker user.
 - **network**: the job's network (same as any bash job).
 
+## Image storage, freshness & limits
+
+- **Where pulls live:** podman's rootless graph root (default
+  `$HOME/.local/share/containers/storage`) — persistent, dedups pulls across jobs.
+  The per-job extracted rootfs lives in `{job_dir}/rootfs` and is removed with the
+  job; the transient `rootfs.tar` is removed right after extraction.
+- **Freshness (`SANDBOX_IMAGE_PULL_POLICY`, default `newer`):** `newer` re-pulls
+  only when the registry digest changed (one cheap manifest check per job, no data
+  transfer if unchanged) — so moving tags like `:latest` don't go stale. `missing`
+  is fastest but tags can go stale; `always` re-checks every job. Pinning a digest
+  (`img@sha256:…`) is immutable and never stale.
+- **Per-image size cap (`SANDBOX_IMAGE_MAX_SIZE_MB`, default 0 = off):** images
+  whose on-disk size exceeds the cap are rejected before extraction.
+- **Cache size cap (`SANDBOX_IMAGE_CACHE_MAX_MB`, default 0 = off):** best-effort
+  LRU eviction — after a run, the oldest images are removed until podman's image
+  store is back under the cap. In-use images are never removed.
+
 ## Requirements
 
 - `podman` (rootless) and `tar` on the worker for image pull/extract.
-- `nsjail` on the worker — v2 **requires** it. If nsjail is absent, a
-  `# docker <image>` job errors clearly (use a bare `# docker` + dind instead).
+- `nsjail` on the worker — **required**. If nsjail is absent, a `# sandbox <image>`
+  job errors clearly (use a bare `# docker` + a daemon instead).
 
 ## Limitations (by design — daemonless, run-to-completion)
 
@@ -81,7 +99,8 @@ the container inherits exactly the job's confinement:
 ## Follow-ups
 
 - Content-addressed rootfs cache keyed by image digest (today each job re-exports;
-  podman's image cache still dedups the network pull).
+  podman's image store still dedups the network pull).
+- Pre-pull size guard via `skopeo` manifest inspection (reject before download).
 - Subuid-range nsjail variant for multi-uid images.
 - Per-container isolated networking (slirp/pasta).
-- v2 support under the non-nsjail `unshare` isolation mode.
+- Support under the non-nsjail `unshare` isolation mode.

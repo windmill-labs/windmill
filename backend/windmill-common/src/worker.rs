@@ -860,14 +860,15 @@ pub struct BashAnnotations {
 }
 
 impl BashAnnotations {
-    /// If the script declares `# docker <image>` (an image ref after the docker
+    /// If the script declares `# sandbox <image>` (an image ref after the sandbox
     /// annotation), returns that image ref. This selects the daemonless, sandboxed
-    /// "docker v2" runtime (extract the image's rootfs + run it inside the job's
-    /// nsjail sandbox).
+    /// container runtime: extract the image's rootfs and run it inside the job's
+    /// nsjail sandbox.
     ///
-    /// A bare `# docker` (no image argument) returns `None` and keeps the legacy
-    /// v1 (dind/daemon) behavior where the script body drives the `docker` CLI.
-    pub fn docker_image(code: &str) -> Option<String> {
+    /// A bare `# sandbox` (no image argument) returns `None` and keeps the plain
+    /// nsjail-sandboxed-bash behavior (the `sandbox` boolean modifier). `# docker`
+    /// is unaffected and keeps the legacy v1 (dind/daemon) path.
+    pub fn sandbox_image(code: &str) -> Option<String> {
         for line in code.lines() {
             let line = line.trim();
             if line.is_empty() {
@@ -878,8 +879,8 @@ impl BashAnnotations {
                 break;
             }
             let mut tokens = line[1..].split_whitespace();
-            if tokens.next() == Some("docker") {
-                // `# docker <image>` -> v2 with the given image; bare `# docker` -> v1.
+            if tokens.next() == Some("sandbox") {
+                // `# sandbox <image>` -> container; bare `# sandbox` -> nsjail bash.
                 if let Some(image) = tokens.next() {
                     return Some(image.to_string());
                 }
@@ -2255,28 +2256,31 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
-    fn test_bash_docker_image_annotation() {
-        // `# docker <image>` selects v2 and returns the image.
+    fn test_bash_sandbox_image_annotation() {
+        // `# sandbox <image>` selects the container runtime and returns the image.
         assert_eq!(
-            BashAnnotations::docker_image("# docker alpine:latest\necho hi"),
+            BashAnnotations::sandbox_image("# sandbox alpine:latest\necho hi"),
             Some("alpine:latest".to_string())
         );
         // Extra whitespace and a leading non-spaced `#` still work.
         assert_eq!(
-            BashAnnotations::docker_image("#docker   python:3.12-slim\n"),
+            BashAnnotations::sandbox_image("#sandbox   python:3.12-slim\n"),
             Some("python:3.12-slim".to_string())
         );
-        // A bare `# docker` (no image) keeps the v1 path -> None.
-        assert_eq!(BashAnnotations::docker_image("# docker\necho hi"), None);
-        // `docker` must be its own token, not a prefix.
-        assert_eq!(BashAnnotations::docker_image("# dockerfile foo"), None);
+        // A bare `# sandbox` (no image) keeps the nsjail-bash modifier -> None.
+        assert_eq!(BashAnnotations::sandbox_image("# sandbox\necho hi"), None);
+        // `sandbox` must be its own token, not a prefix.
+        assert_eq!(BashAnnotations::sandbox_image("# sandboxed foo"), None);
         // Stops at the first non-comment line (image declared too late is ignored).
         assert_eq!(
-            BashAnnotations::docker_image("echo hi\n# docker alpine"),
+            BashAnnotations::sandbox_image("echo hi\n# sandbox alpine"),
             None
         );
-        // No docker annotation at all.
-        assert_eq!(BashAnnotations::docker_image("# sandbox\necho hi"), None);
+        // `# docker` is a different annotation -> not a sandbox image.
+        assert_eq!(
+            BashAnnotations::sandbox_image("# docker alpine\necho hi"),
+            None
+        );
     }
 
     #[test]
