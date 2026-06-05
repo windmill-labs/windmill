@@ -13,9 +13,10 @@ use serde_json::value::RawValue;
 use sqlx::types::JsonRawValue;
 use windmill_common::{
     error::Error,
+    jobs::WM_TRACEPARENT,
     triggers::{RunnableFormat, RunnableFormatVersion, TriggerKind},
     worker::to_raw_value,
-    DB,
+    DB, OTEL_TRACING_ENABLED,
 };
 use windmill_queue::PushArgsOwned;
 
@@ -280,6 +281,13 @@ impl WebhookArgs {
         self,
         runnable_format: RunnableFormat,
     ) -> Result<PushArgsOwned, Error> {
+        // Capture the inbound W3C `traceparent` before `self.metadata` is
+        // consumed below. Read back at root-job completion to link the job's
+        // OTLP span to the originating distributed trace. Deliberately bypasses
+        // the header whitelist, and is gated to OTel-enabled instances so others
+        // don't get a stray `_wm_traceparent` arg key.
+        let trace_context = inbound_traceparent(&self.metadata.headers);
+
         let headers = build_headers(
             &self.metadata.headers,
             self.metadata.query_include_header,
@@ -292,7 +300,7 @@ impl WebhookArgs {
             runnable_format.has_preprocessor,
         );
 
-        match runnable_format {
+        let mut push_args = match runnable_format {
             RunnableFormat { has_preprocessor: true, version: RunnableFormatVersion::V2 } => {
                 let mut args = HashMap::new();
 
@@ -307,7 +315,7 @@ impl WebhookArgs {
                     }),
                 );
 
-                Ok(PushArgsOwned { args, extra: None })
+                PushArgsOwned { args, extra: None }
             }
             RunnableFormat { has_preprocessor, .. } => {
                 let mut extra = HashMap::new();
@@ -343,16 +351,33 @@ impl WebhookArgs {
                         if query_wrap_body {
                             body = HashMap::from([("body".to_string(), to_raw_value(&body))]);
                         }
-                        Ok(PushArgsOwned { args: body, extra })
+                        PushArgsOwned { args: body, extra }
                     }
                     Body::NoHashMap(args) => {
                         let mut hm = HashMap::new();
                         hm.insert("body".to_string(), args);
-                        Ok(PushArgsOwned { args: hm, extra })
+                        PushArgsOwned { args: hm, extra }
                     }
                 }
             }
+        };
+
+        // Stash the captured traceparent as a reserved arg key. It rides the
+        // `args` jsonb like `_ENTRYPOINT_OVERRIDE`; normal scripts never see it
+        // (args are bound by declared parameter name).
+        if let Some(trace_context) = trace_context {
+            let raw = to_raw_value(&trace_context);
+            match push_args.extra {
+                Some(ref mut extra) => {
+                    extra.insert(WM_TRACEPARENT.to_string(), raw);
+                }
+                None => {
+                    push_args.args.insert(WM_TRACEPARENT.to_string(), raw);
+                }
+            }
         }
+
+        Ok(push_args)
     }
 }
 
@@ -485,6 +510,20 @@ lazy_static::lazy_static! {
         .split(',')
         .map(|s| s.to_string())
         .collect()).unwrap_or_default();
+}
+
+/// Extract the inbound W3C `traceparent` header so the enqueued job can be
+/// linked back to the originating distributed trace. Returns `None` when OTel
+/// tracing is disabled (so non-tracing instances don't accumulate a stray
+/// reserved arg key) or when no valid header is present.
+fn inbound_traceparent(headers: &HeaderMap) -> Option<String> {
+    if !OTEL_TRACING_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+        return None;
+    }
+    headers
+        .get("traceparent")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
 }
 
 pub fn build_headers(

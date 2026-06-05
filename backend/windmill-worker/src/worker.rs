@@ -1467,6 +1467,11 @@ pub fn create_span_with_name(
     }
 
     windmill_common::otel_oss::set_span_parent(&span, &rj);
+    // Link the job's span to the originating distributed trace when the request
+    // that enqueued it carried a W3C `traceparent` (reserved `_wm_traceparent`
+    // arg). Only directly-triggered jobs carry the key, so this is a no-op for
+    // flow steps and internally-created jobs.
+    crate::otel_oss::add_inbound_trace_link(&span, arc_job);
     span
 }
 
