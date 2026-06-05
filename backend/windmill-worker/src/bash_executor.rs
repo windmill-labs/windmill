@@ -194,23 +194,36 @@ exit $exit_status
     let nsjail = (is_sandboxing_enabled() || annotation.sandbox) && is_regular_job;
 
     // Docker runtime selection: if a Docker daemon is already provided — DOCKER_HOST
-    // set, or the host socket mounted at /var/run/docker.sock — use it (backwards
-    // compatible, unchanged). Otherwise start a per-job rootless podman instance for
-    // this docker job (its own ephemeral daemon, torn down when this guard drops at
-    // the end of the function, so no container it spawns can outlive the job, in any
-    // sandbox mode). Requires podman in the image (the *-full images) — else
-    // start_per_job_podman returns a clear error.
-    // A provided Docker daemon (legacy path) wins over per-job podman. DOCKER_HOST
-    // counts in all modes (a tcp:// dind stays reachable through the jail since the
-    // sandbox doesn't isolate the network). A mounted /var/run/docker.sock only
-    // counts when NOT under nsjail: the bash nsjail proto never bind-mounts the host
-    // socket into the jail, so under nsjail it is unreachable and we must fall back
-    // to the per-job podman socket (which IS mounted in) instead of failing the job.
+    // set, or the host socket mounted at /var/run/docker.sock — use it (legacy,
+    // backwards compatible). DOCKER_HOST counts in all modes (a tcp:// dind stays
+    // reachable through the jail since the sandbox doesn't isolate the network); a
+    // mounted /var/run/docker.sock only counts when NOT under nsjail (the bash nsjail
+    // proto never bind-mounts it into the jail, so it's unreachable there).
+    //
+    // Otherwise, for a `# docker` job, start a per-job rootless podman — BUT NOT under
+    // nsjail. The per-job daemon runs OUTSIDE the jail and a `# docker` script can
+    // bind-mount worker-visible paths through it, bypassing the jail's filesystem
+    // isolation. Auto-providing that under nsjail would be a surprising hole: enabling
+    // nsjail is an explicit "fully sandbox jobs" signal, so we refuse instead and make
+    // the operator opt into docker explicitly (a provided DOCKER_HOST, or a worker
+    // group without nsjail). Requires podman in the image (the *-full images).
     #[cfg(feature = "dind")]
     let docker_daemon_provided = std::env::var("DOCKER_HOST").is_ok()
         || (!nsjail && std::path::Path::new("/var/run/docker.sock").exists());
     #[cfg(feature = "dind")]
     let per_job_podman: Option<PerJobPodman> = if annotation.docker && !docker_daemon_provided {
+        if nsjail {
+            return Err(Error::ExecutionErr(
+                "`# docker` jobs are not given an automatic container runtime under nsjail \
+                 sandboxing: the per-job podman would run outside the sandbox and a docker \
+                 script could bind-mount worker-visible paths through it, weakening the \
+                 isolation you enabled nsjail for. Run docker jobs on a worker group without \
+                 nsjail, or provide a Docker daemon explicitly via DOCKER_HOST (a \
+                 network-reachable daemon — a mounted unix socket is not reachable inside the \
+                 jail)."
+                    .to_string(),
+            ));
+        }
         Some(start_per_job_podman(job_dir, job.id, &job.workspace_id, conn).await?)
     } else {
         None
@@ -638,17 +651,17 @@ fn spawn_docker_storage_monitor(
 // config (CONTAINERS_CONF etc.) but overrides storage so it is job-scoped. A
 // background monitor enforces a soft size cap on the image store.
 //
-// SECURITY: the daemon runs OUTSIDE the nsjail (only its socket is mounted in), so it
-// does NOT extend nsjail's filesystem isolation to docker containers. A `# docker`
-// script controls this daemon over the Docker API and can bind-mount any path the
-// daemon user can read (e.g. `docker run -v /tmp/windmill/...`), reaching other
-// concurrent job dirs / caches that nsjail deliberately hid — so the per-job-podman
-// path is NOT a full filesystem sandbox like pure nsjail, and docker-capable workers
-// stay a TRUSTED-TENANT capability (prefer dedicated/per-workspace docker workers on
-// shared fleets). What IS protected, when the worker runs as root (the default) and
-// the daemon is dropped to a non-root uid here: the worker's secrets in
-// `/proc/<worker>/environ` (DATABASE_URL etc.) stay root-owned and unreadable by the
-// uid-1000 container even via `docker run --pid=host`, and an escape is unprivileged.
+// SECURITY: this is only ever started in NON-nsjail modes (unshare/none) — caller
+// refuses to auto-provide it under nsjail, since the daemon runs outside any sandbox.
+// A `# docker` script controls this daemon over the Docker API and can bind-mount any
+// path the daemon user can read (e.g. `docker run -v /tmp/windmill/...`), reaching
+// other concurrent job dirs / caches — so it is NOT a filesystem sandbox, and
+// docker-capable workers stay a TRUSTED-TENANT capability (prefer dedicated/per-
+// workspace docker workers on shared fleets). What IS protected, when the worker runs
+// as root (the default) and the daemon is dropped to a non-root uid here: the worker's
+// secrets in `/proc/<worker>/environ` (DATABASE_URL etc.) stay root-owned and
+// unreadable by the uid-1000 container even via `docker run --pid=host`, and an escape
+// is unprivileged.
 #[cfg(feature = "dind")]
 async fn start_per_job_podman(
     job_dir: &str,

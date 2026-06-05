@@ -72,8 +72,13 @@ services:
     # not confine the container's filesystem view — a `# docker` script can still
     # `docker run -v` worker-visible paths, so treat docker workers as trusted-tenant
     # / dedicate them on shared fleets.) Cap per-job image storage via the
-    # `docker_image_storage_size_mb` instance setting (default 8GB). To use an
-    # external/host Docker daemon instead (legacy): set DOCKER_HOST or mount
+    # `docker_image_storage_size_mb` instance setting (default 8GB).
+    # If you enable nsjail (DISABLE_NSJAIL=false or job isolation = nsjail), per-job
+    # podman is NOT auto-provided for docker jobs — nsjail signals "fully sandbox jobs"
+    # and the podman daemon runs outside the jail, so docker jobs then require an
+    # explicit DOCKER_HOST or a separate non-nsjail worker group. (nsjail is off by
+    # default; the default worker uses unshare, so docker works out of the box here.)
+    # To use an external/host Docker daemon instead (legacy): set DOCKER_HOST or mount
     # /var/run/docker.sock.
     pull_policy: always
     deploy:

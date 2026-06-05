@@ -237,6 +237,9 @@ Go to http://localhost - default credentials: `admin@windmill.dev` / `changeme`
 > to reach other concurrent job dirs / caches. So treat docker-capable workers as a
 > **trusted-tenant** capability (a big improvement over privileged dind, but not a full
 > sandbox) and prefer dedicated/per-workspace docker workers on shared multi-tenant fleets.
+> If you enable **nsjail** (it's off by default), per-job podman is **not** auto-provided
+> for docker jobs — nsjail means "fully sandbox jobs" and the daemon runs outside the jail,
+> so docker jobs then require an explicit `DOCKER_HOST` or a separate non-nsjail worker group.
 
 **Using an external database**: Set `DATABASE_URL` in `.env` to point to your managed Postgres (AWS RDS, GCP Cloud SQL, Azure, Neon, etc.) and set db replicas to 0.
 
