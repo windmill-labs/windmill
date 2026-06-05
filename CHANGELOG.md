@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.718.0](https://github.com/windmill-labs/windmill/compare/v1.717.1...v1.718.0) (2026-06-05)
+
+
+### Features
+
+* **flows:** opt-in to include the stopping step's result in early-stop errors ([#9446](https://github.com/windmill-labs/windmill/issues/9446)) ([f2f0812](https://github.com/windmill-labs/windmill/commit/f2f0812a04c9256cfc8eba5e0dcf38d71d971410))
+* make C# dotnet target framework configurable via DOTNET_TARGET_FRAMEWORK ([#9454](https://github.com/windmill-labs/windmill/issues/9454)) ([9a609bf](https://github.com/windmill-labs/windmill/commit/9a609bf08ac1b6157dbdfb827fc01e771d71262e))
+* sandboxed daemonless container runtime via '# sandbox &lt;image&gt;' ([#9453](https://github.com/windmill-labs/windmill/issues/9453)) ([1727271](https://github.com/windmill-labs/windmill/commit/1727271e197b34026efeaf1b6561bb404a440baa))
+* **sandbox:** pull/extract images with crane instead of podman ([#9455](https://github.com/windmill-labs/windmill/issues/9455)) ([7590b28](https://github.com/windmill-labs/windmill/commit/7590b281085afd1fc2774e8fb37a4c0af3aedbad))
+
+
+### Bug Fixes
+
+* distinguish canceled jobs in runs ([#9452](https://github.com/windmill-labs/windmill/issues/9452)) ([9067787](https://github.com/windmill-labs/windmill/commit/90677872f6185eb0c81e0e84a426a54653818457))
+
 ## [1.717.1](https://github.com/windmill-labs/windmill/compare/v1.717.0...v1.717.1) (2026-06-04)
 
 
