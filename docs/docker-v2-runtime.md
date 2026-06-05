@@ -36,10 +36,14 @@ python3 -c "import sys; print('hello', sys.argv[1])" "$name"
 
 ## How it works
 
-1. **Pull/extract** (podman, rootless): `podman create --pull=<policy> <image>` +
-   `podman export | tar -x` materializes the image's flattened root filesystem
-   into `{job_dir}/rootfs`, and `podman inspect` reads its OCI config. podman's
-   image store dedups pulls across jobs.
+1. **Pull/extract** ([`crane`](https://github.com/google/go-containerregistry), no
+   daemon/store/root): `crane export <image>` streams the image's flattened root
+   filesystem to a tar (layers + whiteouts applied, like `docker export`) and
+   `crane config` reads its OCI config. The tar + config are cached
+   content-addressed by digest (`crane digest`) so unchanged digests reuse the
+   cache; `tar -x` materializes the per-job `{job_dir}/rootfs`. crane is a single
+   ~25 MB static binary — we never *run* the image with it (nsjail does), so a full
+   container engine like podman isn't needed.
 2. **Run** (the job's nsjail sandbox): nsjail binds each top-level entry of the
    rootfs in place (binding the whole rootfs at `/` trips nsjail's read-only
    remount of its base root in a rootless userns), mounts the standard
@@ -48,8 +52,8 @@ python3 -c "import sys; print('hello', sys.argv[1])" "$name"
    command. The container *is* the jail.
 
 ```
-# sandbox <image>  ─▶  podman create+export ─▶  {job_dir}/rootfs  ─▶  nsjail (chroot rootfs)
-                       podman inspect (OCI config) ──────────────────▶  Env / Cmd / WorkingDir
+# sandbox <image>  ─▶  crane export → digest-keyed rootfs cache → tar -x → {job_dir}/rootfs  ─▶  nsjail (chroot rootfs)
+                       crane config (OCI config) ───────────────────────────────────────────▶  Env / Cmd / WorkingDir
 ```
 
 Because the run is just the job's own nsjail with the image's filesystem as root,
@@ -64,24 +68,27 @@ the container inherits exactly the job's confinement:
 
 ## Image storage, freshness & limits
 
-- **Where pulls live:** podman's rootless graph root (default
-  `$HOME/.local/share/containers/storage`) — persistent, dedups pulls across jobs.
-  The per-job extracted rootfs lives in `{job_dir}/rootfs` and is removed with the
-  job; the transient `rootfs.tar` is removed right after extraction.
-- **Freshness (`SANDBOX_IMAGE_PULL_POLICY`, default `newer`):** `newer` re-pulls
-  only when the registry digest changed (one cheap manifest check per job, no data
-  transfer if unchanged) — so moving tags like `:latest` don't go stale. `missing`
-  is fastest but tags can go stale; `always` re-checks every job. Pinning a digest
+- **Where pulls live:** a content-addressed cache of flattened rootfs tars (+ OCI
+  config sidecars) keyed by image digest, under `{ROOT_CACHE_DIR}/sandbox_rootfs`
+  (persistent, dedups pulls across jobs). The per-job extracted rootfs lives in
+  `{job_dir}/rootfs` and is removed with the job.
+- **Freshness (`SANDBOX_IMAGE_PULL_POLICY`, default `newer`):** the cache is keyed
+  by digest, so a moving tag whose digest changed re-pulls automatically. `newer`
+  (default) / `always` re-resolve the digest each job (one cheap `crane digest`
+  manifest fetch); `missing` reuses a cached digest for the ref without hitting the
+  registry; `never` only uses the cache (errors if absent). Pinning a digest
   (`img@sha256:…`) is immutable and never stale.
 - **Per-image size cap (`SANDBOX_IMAGE_MAX_SIZE_MB`, default 0 = off):** images
-  whose on-disk size exceeds the cap are rejected before extraction.
+  whose *compressed download* size (`crane manifest`) exceeds the cap are rejected
+  **before any layer is downloaded**.
 - **Cache size cap (`SANDBOX_IMAGE_CACHE_MAX_MB`, default 0 = off):** best-effort
-  LRU eviction — after a run, the oldest images are removed until podman's image
-  store is back under the cap. In-use images are never removed.
+  LRU eviction — after a run, the oldest cached rootfs tars are removed until the
+  cache is back under the cap.
 
 ## Requirements
 
-- `podman` (rootless) and `tar` on the worker for image pull/extract.
+- [`crane`](https://github.com/google/go-containerregistry) and `tar` on the worker
+  for image pull/extract (a single static binary — no daemon, root, or privileged).
 - `nsjail` on the worker — **required**. If nsjail is absent, a `# sandbox <image>`
   job errors clearly (use a bare `# docker` + a daemon instead).
 
@@ -98,9 +105,6 @@ the container inherits exactly the job's confinement:
 
 ## Follow-ups
 
-- Content-addressed rootfs cache keyed by image digest (today each job re-exports;
-  podman's image store still dedups the network pull).
-- Pre-pull size guard via `skopeo` manifest inspection (reject before download).
 - Subuid-range nsjail variant for multi-uid images.
 - Per-container isolated networking (slirp/pasta).
 - Support under the non-nsjail `unshare` isolation mode.

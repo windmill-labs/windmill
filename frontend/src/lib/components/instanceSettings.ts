@@ -272,7 +272,7 @@ export const settings: Record<string, Setting[]> = {
 			label: 'Sandbox image max size (MB)',
 			key: 'sandbox_image_max_size_mb',
 			description:
-				'Reject a <code># sandbox &lt;image&gt;</code> whose on-disk size exceeds this many MB, before extraction. Leave empty for no limit.',
+				'Reject a <code># sandbox &lt;image&gt;</code> whose compressed download size exceeds this many MB, before any layer is downloaded. Leave empty for no limit.',
 			fieldType: 'number',
 			placeholder: 'no limit',
 			storage: 'setting'
@@ -281,7 +281,7 @@ export const settings: Record<string, Setting[]> = {
 			label: 'Sandbox image cache cap (MB)',
 			key: 'sandbox_image_cache_max_mb',
 			description:
-				"Best-effort cap on the worker's sandbox image store (podman). When exceeded, the oldest images are evicted after a run. Leave empty for unbounded.",
+				"Best-effort cap on the worker's cached sandbox rootfs tars. When exceeded, the oldest are evicted (LRU) after a run. Leave empty for unbounded.",
 			fieldType: 'number',
 			placeholder: 'unbounded',
 			storage: 'setting'
@@ -315,7 +315,7 @@ export const settings: Record<string, Setting[]> = {
 			label: 'Sandbox registry auth',
 			key: 'sandbox_registry_auth',
 			description:
-				'Credentials for private registries used by <code># sandbox</code> images, in docker/podman <code>auth.json</code> format. Written to a per-job authfile (removed with the job) and passed to <code>podman --authfile</code>.',
+				'Credentials for private registries used by <code># sandbox</code> images, in docker <code>config.json</code> / <code>auth.json</code> format. Written to a per-job <code>DOCKER_CONFIG</code> dir (removed with the job) and used by crane for the pull.',
 			fieldType: 'codearea',
 			codeAreaLang: 'json',
 			placeholder:

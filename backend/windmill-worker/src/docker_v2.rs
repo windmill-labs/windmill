@@ -3,8 +3,9 @@
 //! Unlike the legacy `# docker` (dind/daemon) path, this has no daemon and no Docker
 //! API. It splits *pull* from *run*:
 //!
-//! 1. **pull/extract** (podman, rootless): materialize the image's root filesystem
-//!    into `{job_dir}/rootfs` and read its OCI config (Env/Cmd/Entrypoint/WorkingDir).
+//! 1. **pull/extract** (`crane`, no daemon/store/root): materialize the image's root
+//!    filesystem into `{job_dir}/rootfs` and read its OCI config
+//!    (Env/Cmd/Entrypoint/WorkingDir), via a digest-keyed rootfs cache.
 //! 2. **run** (the job's own nsjail sandbox): execute the image command with the
 //!    extracted rootfs bound in as the new root, so the container inherits exactly
 //!    the job's confinement (filesystem mask, pid namespace, network, uid) and can't
@@ -46,18 +47,36 @@ const NSJAIL_CONFIG_RUN_DOCKER_CONTENT: &str = include_str!("../nsjail/run.docke
 const DEFAULT_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
 lazy_static::lazy_static! {
-    pub static ref PODMAN_PATH: String =
-        std::env::var("PODMAN_PATH").unwrap_or_else(|_| "podman".to_string());
+    /// `crane` (google/go-containerregistry) — pulls + flattens an image to a rootfs
+    /// without a daemon, store, root, or privileged container. We never *run* the
+    /// image via crane (nsjail does the run), so a full container engine is overkill.
+    pub static ref CRANE_PATH: String =
+        std::env::var("CRANE_PATH").unwrap_or_else(|_| "crane".to_string());
+
+    /// `linux/<arch>` for the worker, pinned on every crane call so multi-arch images
+    /// resolve deterministically (and `crane manifest` returns a real manifest, not an
+    /// index).
+    static ref CRANE_PLATFORM: String = format!("linux/{}", match std::env::consts::ARCH {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        other => other,
+    });
+
+    /// Content-addressed cache of flattened rootfs tars, keyed by image digest. crane
+    /// has no persistent store, so this is what gives cross-job dedup (and, since it's
+    /// digest-keyed, automatic freshness when a moving tag changes).
+    static ref ROOTFS_CACHE_DIR: String =
+        format!("{}sandbox_rootfs", *windmill_common::worker::ROOT_CACHE_DIR);
 }
 
 /// Guards against overlapping cache-eviction passes across concurrent jobs.
 static EVICTION_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// podman pull policy from the `sandbox_image_pull_policy` instance setting. `newer`
-/// (the default when unset/invalid) re-pulls only when the registry digest changed —
-/// one cheap manifest check per job, no transfer if unchanged — so moving tags like
-/// `:latest` don't go stale. `missing` is fastest (tags can go stale); `always`
-/// re-checks every job.
+/// `sandbox_image_pull_policy` instance setting. With the digest-keyed cache, `newer`
+/// (default) re-resolves the digest each job (cheap manifest fetch) so moving tags
+/// like `:latest` stay fresh while unchanged digests reuse the cache. `missing` skips
+/// the registry when a digest is already cached for the ref; `never` only uses the
+/// cache (errors if absent); `always` == `newer` here.
 async fn pull_policy() -> String {
     let p = SANDBOX_IMAGE_PULL_POLICY.read().await.clone();
     match p.as_deref() {
@@ -99,15 +118,19 @@ async fn resolve_image_ref(image: &str) -> String {
     }
 }
 
-/// If the `sandbox_registry_auth` instance setting holds a docker/podman `auth.json`
-/// blob, write it to a per-job authfile (0600, removed with the job) and return its
-/// path to pass to `podman --authfile`. Returns `None` when unset.
-async fn write_auth_file(job_dir: &str) -> Result<Option<String>, Error> {
+/// If the `sandbox_registry_auth` instance setting holds a docker `auth.json` blob,
+/// write it to a per-job `DOCKER_CONFIG` dir (`{job_dir}/.docker/config.json`, 0600,
+/// removed with the job) and return the dir to pass to crane via `DOCKER_CONFIG`.
+/// Returns `None` when unset. (docker `config.json` and podman `auth.json` share the
+/// `{"auths": {...}}` schema, so the same blob works.)
+async fn write_auth_dir(job_dir: &str) -> Result<Option<String>, Error> {
     let auth = SANDBOX_REGISTRY_AUTH.read().await.clone();
     let Some(auth) = auth.filter(|a| !a.trim().is_empty()) else {
         return Ok(None);
     };
-    let path = format!("{job_dir}/registry_auth.json");
+    let dir = format!("{job_dir}/.docker");
+    tokio::fs::create_dir_all(&dir).await?;
+    let path = format!("{dir}/config.json");
     // Create 0600 from the start (registry credentials) — no world-readable window.
     #[cfg(unix)]
     {
@@ -123,7 +146,7 @@ async fn write_auth_file(job_dir: &str) -> Result<Option<String>, Error> {
     }
     #[cfg(not(unix))]
     tokio::fs::write(&path, auth).await?;
-    Ok(Some(path))
+    Ok(Some(dir))
 }
 
 /// The subset of an image's OCI config we apply to the run.
@@ -174,87 +197,164 @@ fn render_envars(env: &[(String, String)]) -> String {
         .join("\n")
 }
 
-async fn podman(args: &[&str]) -> Result<std::process::Output, Error> {
-    Command::new(PODMAN_PATH.as_str())
-        .args(args)
-        .output()
+/// Run `crane` with the optional per-job `DOCKER_CONFIG` auth dir.
+async fn crane(args: &[&str], auth_dir: Option<&str>) -> Result<std::process::Output, Error> {
+    let mut cmd = Command::new(CRANE_PATH.as_str());
+    cmd.args(args);
+    if let Some(dir) = auth_dir {
+        cmd.env("DOCKER_CONFIG", dir);
+    }
+    cmd.output()
         .await
-        .map_err(|e| Error::ExecutionErr(format!("failed to run podman {}: {e}", args.join(" "))))
+        .map_err(|e| Error::ExecutionErr(format!("failed to run crane {}: {e}", args.join(" "))))
 }
 
-/// Pull (if needed) and unpack `image` into `{job_dir}/rootfs`, returning its OCI
-/// config. Uses podman rootless: `create` (auto-pulls) + `export | tar -x`, with the
-/// config read from the resulting container (== image config, no command override).
+/// `crane config` output: the image config (Env/Cmd/Entrypoint/WorkingDir) is nested
+/// under the top-level `config` key.
+#[derive(Deserialize, Default)]
+struct CraneConfig {
+    #[serde(default)]
+    config: OciConfig,
+}
+
+/// Filesystem-safe cache key for a digest (`sha256:ab..` -> `sha256_ab..`).
+fn digest_key(digest: &str) -> String {
+    digest.replace([':', '/'], "_")
+}
+
+/// Filesystem-safe, collision-resistant key for an image ref (the ref->digest file).
+fn ref_key(image: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    image.hash(&mut h);
+    let safe: String = image
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let safe = &safe[safe.len().saturating_sub(80)..];
+    format!("{safe}_{:016x}", h.finish())
+}
+
+/// Resolve the image ref to a content digest, honoring the pull policy + a ref->digest
+/// cache. `missing`/`never` reuse a cached digest without hitting the registry (`never`
+/// errors if absent); `newer`/`always` always re-resolve via `crane digest`.
+async fn resolve_digest(
+    image: &str,
+    policy: &str,
+    auth_dir: Option<&str>,
+) -> Result<String, Error> {
+    let refs_dir = format!("{}/refs", *ROOTFS_CACHE_DIR);
+    let ref_file = format!("{refs_dir}/{}", ref_key(image));
+
+    if matches!(policy, "missing" | "never") {
+        if let Ok(d) = tokio::fs::read_to_string(&ref_file).await {
+            let d = d.trim().to_string();
+            if !d.is_empty()
+                && tokio::fs::metadata(format!("{}/{}.tar", *ROOTFS_CACHE_DIR, digest_key(&d)))
+                    .await
+                    .is_ok()
+            {
+                return Ok(d);
+            }
+        }
+        if policy == "never" {
+            return Err(Error::ExecutionErr(format!(
+                "image {image} is not in the sandbox cache and SANDBOX_IMAGE_PULL_POLICY=never"
+            )));
+        }
+    }
+
+    let out = crane(&["digest", "--platform", &CRANE_PLATFORM, image], auth_dir).await?;
+    if !out.status.success() {
+        return Err(Error::ExecutionErr(format!(
+            "failed to resolve image {image}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        )));
+    }
+    let digest = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let _ = tokio::fs::create_dir_all(&refs_dir).await;
+    let _ = tokio::fs::write(&ref_file, &digest).await;
+    Ok(digest)
+}
+
+/// Pull (if not cached) and unpack `image` into `{job_dir}/rootfs`, returning its OCI
+/// config. Uses `crane export`/`config` (no daemon/store/root) with a content-addressed
+/// rootfs+config cache keyed by digest for cross-job dedup.
 async fn extract_image(image: &str, job_dir: &str) -> Result<OciConfig, Error> {
     let rootfs = format!("{job_dir}/rootfs");
     tokio::fs::create_dir_all(&rootfs).await?;
+    tokio::fs::create_dir_all(&*ROOTFS_CACHE_DIR).await?;
 
-    // `podman create` (no command) pulls the image per the configured policy and
-    // records the image's own Cmd/Entrypoint, which we then read back from the
-    // container config. `--` guards against an `image` ref that starts with `-` being
-    // parsed as a flag (e.g. `--authfile=...`) — the ref is attacker-controlled in
-    // the untrusted case.
-    let pull = format!("--pull={}", pull_policy().await);
-    let mut create_args = vec!["create", &pull];
-    let authfile = write_auth_file(job_dir).await?;
-    if let Some(authfile) = authfile.as_deref() {
-        create_args.push("--authfile");
-        create_args.push(authfile);
+    let auth_dir = write_auth_dir(job_dir).await?;
+    let auth = auth_dir.as_deref();
+    let digest = resolve_digest(image, &pull_policy().await, auth).await?;
+    let key = digest_key(&digest);
+    let tar = format!("{}/{key}.tar", *ROOTFS_CACHE_DIR);
+    let cfg = format!("{}/{key}.json", *ROOTFS_CACHE_DIR);
+
+    // Cache miss: fetch + flatten the image with crane (no daemon/store/root) into the
+    // content-addressed cache. A digest hit reuses the cached tar — no download.
+    if tokio::fs::metadata(&tar).await.is_err() {
+        // Reject oversized images before downloading any layer.
+        enforce_image_size_limit(image, auth).await?;
+
+        // Export to a per-job temp file then atomically rename, so a concurrent job
+        // pulling the same digest never sees a half-written tar.
+        let job_token = std::path::Path::new(job_dir)
+            .file_name()
+            .map(|x| x.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let tmp = format!("{tar}.tmp.{job_token}");
+        let exported = crane(
+            &["export", "--platform", &CRANE_PLATFORM, image, &tmp],
+            auth,
+        )
+        .await?;
+        if !exported.status.success() {
+            let _ = tokio::fs::remove_file(&tmp).await;
+            return Err(Error::ExecutionErr(format!(
+                "failed to export image {image}: {}",
+                String::from_utf8_lossy(&exported.stderr)
+            )));
+        }
+        let config = crane(&["config", "--platform", &CRANE_PLATFORM, image], auth).await?;
+        if !config.status.success() {
+            let _ = tokio::fs::remove_file(&tmp).await;
+            return Err(Error::ExecutionErr(format!(
+                "failed to read image {image} config: {}",
+                String::from_utf8_lossy(&config.stderr)
+            )));
+        }
+        let _ = tokio::fs::write(&cfg, &config.stdout).await;
+        tokio::fs::rename(&tmp, &tar).await?;
     }
-    create_args.push("--");
-    create_args.push(image);
-    let created = podman(&create_args).await?;
-    if !created.status.success() {
-        return Err(Error::ExecutionErr(format!(
-            "failed to pull/create image {image}: {}",
-            String::from_utf8_lossy(&created.stderr)
-        )));
-    }
-    let container_id = String::from_utf8_lossy(&created.stdout).trim().to_string();
 
-    // Always clean up the container, even on a later failure.
-    let result = extract_created(image, &container_id, &rootfs).await;
-    let _ = podman(&["rm", "-f", &container_id]).await;
-    result
-}
+    // Read the image config (Env/Cmd/Entrypoint/WorkingDir); tolerate a missing/old
+    // config sidecar by falling back to defaults.
+    let config: OciConfig = match tokio::fs::read(&cfg).await {
+        Ok(bytes) => {
+            serde_json::from_slice::<CraneConfig>(&bytes)
+                .map_err(|e| {
+                    Error::ExecutionErr(format!("failed to parse image {image} config: {e}"))
+                })?
+                .config
+        }
+        Err(_) => OciConfig::default(),
+    };
 
-async fn extract_created(
-    image: &str,
-    container_id: &str,
-    rootfs: &str,
-) -> Result<OciConfig, Error> {
-    // Reject oversized images before paying the (large) extraction cost.
-    enforce_image_size_limit(image).await?;
-
-    let inspected = podman(&["inspect", container_id, "--format", "{{json .Config}}"]).await?;
-    if !inspected.status.success() {
-        return Err(Error::ExecutionErr(format!(
-            "failed to inspect image {image}: {}",
-            String::from_utf8_lossy(&inspected.stderr)
-        )));
-    }
-    let config: OciConfig = serde_json::from_slice(&inspected.stdout)
-        .map_err(|e| Error::ExecutionErr(format!("failed to parse image {image} config: {e}")))?;
-
-    // Flatten the image's layers into a rootfs directory. Go through a tar on disk
-    // (in the job dir, cleaned up with the job) rather than a shell pipe. Extracted
-    // as the worker user, so the rootfs is owned by the worker user — which the
-    // single-uid jail maps to uid 0 inside.
-    let tar_path = format!("{rootfs}.tar");
-    let exported = podman(&["export", container_id, "--output", &tar_path]).await?;
-    if !exported.status.success() {
-        let _ = tokio::fs::remove_file(&tar_path).await;
-        return Err(Error::ExecutionErr(format!(
-            "failed to export image {image}: {}",
-            String::from_utf8_lossy(&exported.stderr)
-        )));
-    }
+    // Materialize the flattened rootfs for this job. Extracted as the worker user, so
+    // the rootfs is worker-owned — which the single-uid jail maps to uid 0 inside.
     let untar = Command::new("tar")
-        .args(["-xf", &tar_path, "-C", rootfs])
+        .args(["-xf", &tar, "-C", &rootfs])
         .output()
         .await
         .map_err(|e| Error::ExecutionErr(format!("failed to run tar: {e}")))?;
-    let _ = tokio::fs::remove_file(&tar_path).await;
     if !untar.status.success() {
         return Err(Error::ExecutionErr(format!(
             "failed to unpack image {image}: {}",
@@ -265,54 +365,64 @@ async fn extract_created(
     Ok(config)
 }
 
-/// Reject the image if its on-disk (uncompressed) size exceeds
-/// `SANDBOX_IMAGE_MAX_SIZE_MB`. No-op when the limit is 0 (unset).
-async fn enforce_image_size_limit(image: &str) -> Result<(), Error> {
+/// Manifest descriptor (`crane manifest`), for the pre-download size guard.
+#[derive(Deserialize, Default)]
+struct CraneDescriptor {
+    #[serde(default)]
+    size: u64,
+}
+#[derive(Deserialize, Default)]
+struct CraneManifest {
+    #[serde(default)]
+    layers: Vec<CraneDescriptor>,
+    #[serde(default)]
+    config: CraneDescriptor,
+}
+
+/// Reject the image if its compressed download size exceeds `SANDBOX_IMAGE_MAX_SIZE_MB`,
+/// BEFORE downloading any layer (`crane manifest` is a small metadata fetch). No-op
+/// when the limit is 0 (unset).
+async fn enforce_image_size_limit(image: &str, auth_dir: Option<&str>) -> Result<(), Error> {
     let max = max_image_size_mb().await;
     if max == 0 {
         return Ok(());
     }
-    let out = podman(&["image", "inspect", image, "--format", "{{.Size}}"]).await?;
+    let out = crane(
+        &["manifest", "--platform", &CRANE_PLATFORM, image],
+        auth_dir,
+    )
+    .await?;
     if !out.status.success() {
         // Don't silently bypass the guard — surface it so an operator can see the
         // size limit isn't being enforced for this image.
         tracing::warn!(
-            "sandbox image size guard: `podman image inspect {image}` failed, not \
-            enforcing SANDBOX_IMAGE_MAX_SIZE_MB: {}",
+            "sandbox image size guard: `crane manifest {image}` failed, not enforcing \
+            SANDBOX_IMAGE_MAX_SIZE_MB: {}",
             String::from_utf8_lossy(&out.stderr)
         );
         return Ok(());
     }
-    let bytes: u64 = String::from_utf8_lossy(&out.stdout)
-        .trim()
-        .parse()
-        .unwrap_or(0);
+    let manifest: CraneManifest = match serde_json::from_slice(&out.stdout) {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::warn!("sandbox image size guard: cannot parse `crane manifest` json: {e}");
+            return Ok(());
+        }
+    };
+    let bytes = manifest.config.size + manifest.layers.iter().map(|l| l.size).sum::<u64>();
     let mb = bytes / 1_000_000;
     if mb > max {
         return Err(Error::ExecutionErr(format!(
-            "image {image} is {mb} MB, over the SANDBOX_IMAGE_MAX_SIZE_MB limit of {max} MB"
+            "image {image} is {mb} MB (compressed), over the SANDBOX_IMAGE_MAX_SIZE_MB limit of {max} MB"
         )));
     }
     Ok(())
 }
 
-#[derive(Deserialize)]
-struct PodmanImage {
-    #[serde(rename = "Id")]
-    id: String,
-    // `default`: podman tags Size/Created `omitempty`, so a degenerate image with a
-    // zero value drops the key — without this the whole array would fail to parse.
-    #[serde(default, rename = "Size")]
-    size: u64,
-    #[serde(default, rename = "Created")]
-    created: i64,
-}
-
-/// Best-effort eviction: while the summed size of podman's images exceeds
-/// `SANDBOX_IMAGE_CACHE_MAX_MB`, remove the oldest (by created time, an LRU proxy).
-/// No-op when the limit is 0 (unset). Skipped if another pass is already running.
-/// Images currently backing a container (e.g. a concurrent job mid-extract) fail
-/// `rmi` and stop the pass, so in-use images are never removed.
+/// Best-effort eviction: while the cached rootfs tars exceed `SANDBOX_IMAGE_CACHE_MAX_MB`,
+/// remove the oldest by mtime (true LRU). No-op when the limit is 0 (unset). Skipped if
+/// another pass is already running. The per-job extracted rootfs lives in the job dir
+/// (cleaned with the job), so only the content-addressed tar+config cache is pruned.
 async fn enforce_image_cache_limit() {
     use std::sync::atomic::Ordering;
     let max_mb = image_cache_max_mb().await;
@@ -335,42 +445,39 @@ async fn enforce_image_cache_limit() {
     }
     let _reset = ResetOnDrop;
     let max_bytes = max_mb.saturating_mul(1_000_000);
+
+    // (path, size, mtime) for every cached rootfs tar.
+    async fn list_tars() -> Vec<(std::path::PathBuf, u64, std::time::SystemTime)> {
+        let mut out = Vec::new();
+        let Ok(mut rd) = tokio::fs::read_dir(&*ROOTFS_CACHE_DIR).await else {
+            return out;
+        };
+        while let Ok(Some(e)) = rd.next_entry().await {
+            let p = e.path();
+            if p.extension().and_then(|x| x.to_str()) != Some("tar") {
+                continue;
+            }
+            if let Ok(m) = e.metadata().await {
+                let mtime = m.modified().unwrap_or(std::time::UNIX_EPOCH);
+                out.push((p, m.len(), mtime));
+            }
+        }
+        out
+    }
+
     loop {
-        let Ok(out) = podman(&["images", "--format", "json"]).await else {
-            break;
-        };
-        if !out.status.success() {
-            break;
-        }
-        let mut imgs: Vec<PodmanImage> = match serde_json::from_slice(&out.stdout) {
-            Ok(v) => v,
-            Err(e) => {
-                // Don't silently disable eviction on a schema hiccup — surface it.
-                tracing::warn!(
-                    "sandbox image cache eviction: cannot parse `podman images` json: {e}"
-                );
-                break;
-            }
-        };
-        let total: u64 = imgs.iter().map(|i| i.size).sum();
-        if total <= max_bytes || imgs.is_empty() {
+        let mut tars = list_tars().await;
+        let total: u64 = tars.iter().map(|(_, s, _)| *s).sum();
+        if total <= max_bytes || tars.is_empty() {
             break;
         }
-        imgs.sort_by_key(|i| i.created);
-        let victim = imgs[0].id.clone();
-        match podman(&["rmi", &victim]).await {
-            Ok(rm) if rm.status.success() => {
-                tracing::info!("sandbox image cache eviction: removed {victim}");
-            }
-            Ok(rm) => {
-                tracing::warn!(
-                    "sandbox image cache eviction: cannot remove {victim} (in use?): {}",
-                    String::from_utf8_lossy(&rm.stderr)
-                );
-                break;
-            }
-            Err(_) => break,
+        tars.sort_by_key(|(_, _, mtime)| *mtime);
+        let victim = tars[0].0.clone();
+        if tokio::fs::remove_file(&victim).await.is_err() {
+            break; // can't reclaim — stop rather than spin on the same victim
         }
+        let _ = tokio::fs::remove_file(victim.with_extension("json")).await;
+        tracing::info!("sandbox image cache eviction: removed {}", victim.display());
     }
     // `_reset` drops here and clears EVICTION_RUNNING.
 }
@@ -454,7 +561,7 @@ pub async fn handle_docker_v2_job(
     let config = extract_image(image, job_dir).await?;
     let rootfs = format!("{job_dir}/rootfs");
 
-    // Best-effort: keep podman's image store under its size cap (overlaps the run).
+    // Best-effort: keep the cached rootfs tars under their size cap (overlaps the run).
     tokio::spawn(enforce_image_cache_limit());
 
     // Resolve the script args from the bash signature, like the bash executor.
