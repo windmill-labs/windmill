@@ -14,8 +14,15 @@ clone_newuser: {CLONE_NEWUSER}
 
 skip_setsid: true
 keep_caps: false
+# keep_env forwards nsjail's OWN process env (only windmill-trusted keys: reserved
+# vars + proxy) to the child. The image's attacker-controlled Env is delivered via
+# the envar directives below — NEVER nsjail's process env, so a hostile image cannot
+# set LD_PRELOAD/LD_LIBRARY_PATH/LD_AUDIT on the nsjail binary itself.
 keep_env: true
 mount_proc: true
+
+# Image Env (+ PATH/HOME fallbacks), proto-escaped. Applied to the child only.
+{ENVARS}
 
 # Map uid/gid 0 inside the jail to the (single) worker user outside. The image's
 # rootfs is extracted as the worker user, so a root process inside the container

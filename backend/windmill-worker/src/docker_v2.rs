@@ -164,6 +164,16 @@ fn proto_str(s: &str) -> String {
     out
 }
 
+/// Render container env vars as nsjail `envar:` directives (one per line). Each
+/// `KEY=VALUE` is proto-escaped, so image-controlled keys/values can neither break
+/// the config nor reach nsjail's own process environment.
+fn render_envars(env: &[(String, String)]) -> String {
+    env.iter()
+        .map(|(k, v)| format!("envar: {}", proto_str(&format!("{k}={v}"))))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 async fn podman(args: &[&str]) -> Result<std::process::Output, Error> {
     Command::new(PODMAN_PATH.as_str())
         .args(args)
@@ -263,17 +273,25 @@ async fn enforce_image_size_limit(image: &str) -> Result<(), Error> {
         return Ok(());
     }
     let out = podman(&["image", "inspect", image, "--format", "{{.Size}}"]).await?;
-    if out.status.success() {
-        let bytes: u64 = String::from_utf8_lossy(&out.stdout)
-            .trim()
-            .parse()
-            .unwrap_or(0);
-        let mb = bytes / 1_000_000;
-        if mb > max {
-            return Err(Error::ExecutionErr(format!(
-                "image {image} is {mb} MB, over the SANDBOX_IMAGE_MAX_SIZE_MB limit of {max} MB"
-            )));
-        }
+    if !out.status.success() {
+        // Don't silently bypass the guard — surface it so an operator can see the
+        // size limit isn't being enforced for this image.
+        tracing::warn!(
+            "sandbox image size guard: `podman image inspect {image}` failed, not \
+            enforcing SANDBOX_IMAGE_MAX_SIZE_MB: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        return Ok(());
+    }
+    let bytes: u64 = String::from_utf8_lossy(&out.stdout)
+        .trim()
+        .parse()
+        .unwrap_or(0);
+    let mb = bytes / 1_000_000;
+    if mb > max {
+        return Err(Error::ExecutionErr(format!(
+            "image {image} is {mb} MB, over the SANDBOX_IMAGE_MAX_SIZE_MB limit of {max} MB"
+        )));
     }
     Ok(())
 }
@@ -305,6 +323,15 @@ async fn enforce_image_cache_limit() {
     {
         return;
     }
+    // Reset the guard on every exit path (incl. an early `break` or a panic), so a
+    // stuck flag can never permanently disable eviction until a worker restart.
+    struct ResetOnDrop;
+    impl Drop for ResetOnDrop {
+        fn drop(&mut self) {
+            EVICTION_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    let _reset = ResetOnDrop;
     let max_bytes = max_mb.saturating_mul(1_000_000);
     loop {
         let Ok(out) = podman(&["images", "--format", "json"]).await else {
@@ -334,7 +361,7 @@ async fn enforce_image_cache_limit() {
             Err(_) => break,
         }
     }
-    EVICTION_RUNNING.store(false, Ordering::SeqCst);
+    // `_reset` drops here and clears EVICTION_RUNNING.
 }
 
 /// Build the nsjail mount block that binds each top-level entry of the rootfs in
@@ -474,6 +501,25 @@ pub async fn handle_docker_v2_job(
         .filter(|w| !w.is_empty())
         .unwrap_or("/");
 
+    // The image's OCI Env is attacker-controlled (BOTH keys and values), so it must
+    // NOT enter the nsjail launcher's own process env: a hostile image could set
+    // LD_PRELOAD / LD_LIBRARY_PATH / LD_AUDIT and have the dynamic loader run code in
+    // the nsjail binary as the worker — outside the jail — before it sandboxes.
+    // Deliver it to the *child only* via proto-escaped `envar:` directives.
+    let mut container_env: Vec<(String, String)> = Vec::new();
+    for kv in config.env.unwrap_or_default() {
+        if let Some((k, v)) = kv.split_once('=') {
+            container_env.push((k.to_string(), v.to_string()));
+        }
+    }
+    if !container_env.iter().any(|(k, _)| k == "PATH") {
+        container_env.push(("PATH".to_string(), DEFAULT_PATH.to_string()));
+    }
+    if !container_env.iter().any(|(k, _)| k == "HOME") {
+        container_env.push(("HOME".to_string(), "/root".to_string()));
+    }
+    let envars = render_envars(&container_env);
+
     // Render the nsjail profile: dynamic per-entry rootfs binds + image WorkingDir.
     let nsjail_timeout = resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
     let rootfs_mounts = generate_rootfs_mounts(&rootfs).await?;
@@ -493,17 +539,15 @@ pub async fn handle_docker_v2_job(
             )
             // `# volume` mounts + same-worker shared folder (empty if none).
             .replace("{SHARED_MOUNT}", shared_mount)
+            // Image env as `envar:` directives (child-only), so it never touches
+            // nsjail's process env.
+            .replace("{ENVARS}", &envars)
             .replace("#{DEV}", DEV_CONF_NSJAIL),
     )?;
 
-    // Build the container environment: image Env, then the windmill reserved
-    // variables (so `wmill`/API calls work), then a PATH fallback.
-    let mut env: Vec<(String, String)> = Vec::new();
-    for kv in config.env.unwrap_or_default() {
-        if let Some((k, v)) = kv.split_once('=') {
-            env.push((k.to_string(), v.to_string()));
-        }
-    }
+    // nsjail's OWN process env: only windmill-trusted keys (reserved vars so
+    // `wmill`/API calls work, + proxy). `keep_env: true` forwards these to the
+    // child. The image env is NOT here — see container_env above.
     let mut reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
@@ -511,15 +555,6 @@ pub async fn handle_docker_v2_job(
         "BASE_INTERNAL_URL".to_string(),
         base_internal_url.to_string(),
     );
-    for (k, v) in reserved_variables {
-        env.push((k, v));
-    }
-    if !env.iter().any(|(k, _)| k == "PATH") {
-        env.push(("PATH".to_string(), DEFAULT_PATH.to_string()));
-    }
-    if !env.iter().any(|(k, _)| k == "HOME") {
-        env.push(("HOME".to_string(), "/root".to_string()));
-    }
 
     let proxy_envs = get_proxy_envs_for_lang(
         &ScriptLang::Bash,
@@ -537,7 +572,7 @@ pub async fn handle_docker_v2_job(
     nsjail_cmd
         .current_dir(job_dir)
         .env_clear()
-        .envs(env)
+        .envs(reserved_variables)
         .envs(proxy_envs)
         .args(nsjail_run_args)
         .stdin(Stdio::null())
@@ -570,7 +605,29 @@ pub async fn handle_docker_v2_job(
 
 #[cfg(test)]
 mod tests {
-    use super::{proto_str, registry_qualified};
+    use super::{proto_str, registry_qualified, render_envars};
+
+    #[test]
+    fn render_envars_emits_proto_directives() {
+        // Image-controlled env (incl. loader vars) is rendered as `envar:` directives
+        // — i.e. delivered to the child via the config, NOT nsjail's process env, so
+        // it can never set LD_PRELOAD/etc. on the nsjail binary itself.
+        let env = vec![
+            ("PATH".to_string(), "/usr/bin".to_string()),
+            ("LD_PRELOAD".to_string(), "rootfs/evil.so".to_string()),
+        ];
+        let out = render_envars(&env);
+        assert_eq!(
+            out,
+            "envar: \"PATH=/usr/bin\"\nenvar: \"LD_PRELOAD=rootfs/evil.so\""
+        );
+        // A value trying to inject extra directives is escaped, not interpreted.
+        let evil = vec![("X".to_string(), "v\"\nclone_newuser: false".to_string())];
+        let line = render_envars(&evil);
+        assert!(line.starts_with("envar: \""));
+        assert!(!line.contains("\nclone_newuser"));
+        assert!(line.contains("\\n"));
+    }
 
     #[test]
     fn proto_str_escapes_injection() {
