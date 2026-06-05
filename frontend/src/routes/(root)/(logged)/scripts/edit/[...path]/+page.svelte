@@ -150,7 +150,6 @@
 		// fires. `initialPath = ''` also makes ScriptBuilder open the
 		// metadata drawer on mount. Strip the single-use flag last.
 		if (page.url.searchParams.get('new_draft') === 'true') {
-			console.log('[draft-sync] route: new_draft branch START', draftPath)
 			// Suspend autosave for the whole new-draft bootstrap: the seed
 			// `setDraftAndMeta` AND ScriptBuilder's `initContent` (which
 			// fills `script.content` from a template) are both
@@ -172,11 +171,9 @@
 			} as unknown as EditableScript
 			initialPath = ''
 			savedScript = structuredClone(empty)
-			console.log('[draft-sync] route: about to setDraftAndMeta(empty)', draftPath)
 			scriptHandle.setDraftAndMeta(empty, {})
 			fullyLoaded = true
 			renderEditor = true
-			console.log('[draft-sync] route: new_draft branch DONE', draftPath)
 			return
 		}
 		if (hash) {

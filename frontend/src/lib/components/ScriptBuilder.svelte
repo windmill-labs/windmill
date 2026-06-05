@@ -78,7 +78,7 @@
 	import { writable } from 'svelte/store'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { getContext, onMount, setContext, tick, untrack } from 'svelte'
+	import { getContext, onMount, setContext, untrack } from 'svelte'
 	import EditorHeader from './EditorHeader.svelte'
 	import AutosaveIndicator from './AutosaveIndicator.svelte'
 	import LabelsInput from './LabelsInput.svelte'
@@ -345,12 +345,6 @@
 	let pathError = $state('')
 	let loadingSave = $state(false)
 
-	console.log('[draft-sync] ScriptBuilder script-tag: enter', {
-		userDraftPath,
-		initialPath,
-		contentLen: script.content?.length ?? 0,
-		isEmpty: script.content == ''
-	})
 	if (script.content == '') {
 		// Suspend autosave around the bootstrap mutations — seeding the
 		// editor with the template's `initialCode` is a programmatic
@@ -361,7 +355,13 @@
 		// new drafts). Resumed in the async `.finally` so language
 		// switches AFTER bootstrap (which also call `initContent`) sync
 		// normally.
-		console.log('[draft-sync] ScriptBuilder: bootstrap branch START', userDraftPath)
+		//
+		// NOTE: this is a best-effort partial defense — on warm in-app
+		// navs it suppresses the seed/template writes, but on a HARD
+		// PAGE RELOAD the Path widget's `$userStore`-gated mutation
+		// cascade lands AFTER our `restartSync` and still POSTs. Fixing
+		// that robustly needs a different "first user edit" signal
+		// (e.g. Monaco input event) that hasn't been wired up yet.
 		UserDraft.stopSync('script', userDraftPath)
 		if (template === 'wac_python') {
 			script.modules = {
@@ -378,50 +378,9 @@
 				}
 			}
 		}
-		console.log('[draft-sync] ScriptBuilder: calling initContent', userDraftPath)
-		initContent(script.language, script.kind, template).finally(async () => {
-			console.log('[draft-sync] ScriptBuilder: initContent finally', userDraftPath, {
-				pathAlreadySet: !!script.path
-			})
-			// The `Path` widget assigns `script.path` from its
-			// `$effect.pre` gated on `$workspaceStore + $userStore` —
-			// which on a HARD-REFRESH-then-first-nav can be unset when
-			// we get here. Worse, even on a warm reload the widget's
-			// `reset()` mutates `meta` in TWO steps (`{owner: ''}` then
-			// `meta.owner = username`), producing two distinct path
-			// writes — exiting on the first non-empty value lets the
-			// second one POST as the user's "first edit".
-			//
-			// Wait for `script.path` to STABILIZE: same value across
-			// two consecutive ticks. `tick()` returns only after Svelte
-			// has flushed pending effects, so a stable read means the
-			// Path widget's cascade settled and any intermediate
-			// mutations were already swallowed under suspension.
-			//
-			// Bounded so a stuck mount can't disable autosave forever.
-			let waited = 0
-			let last: string | undefined = undefined
-			let stable = 0
-			while (waited < 30) {
-				await tick()
-				waited++
-				const cur = script.path
-				if (cur && cur === last) {
-					stable++
-					if (stable >= 2) break
-				} else {
-					last = cur
-					stable = 0
-				}
-			}
-			console.log('[draft-sync] ScriptBuilder: path stable → restartSync', userDraftPath, {
-				ticks: waited,
-				path: script.path
-			})
+		initContent(script.language, script.kind, template).finally(() => {
 			UserDraft.restartSync('script', userDraftPath)
 		})
-	} else {
-		console.log('[draft-sync] ScriptBuilder: bootstrap SKIPPED (content non-empty)', userDraftPath)
 	}
 
 	async function isTemplateScript() {
@@ -466,16 +425,8 @@
 		// doesn't run `inferArgs` on an empty `script.content` and toast
 		// "Could not parse code". If a template script is then loaded
 		// below we re-seed with the `templateScript=true` variant.
-		console.log('[draft-sync] initContent: SYNC seed content', userDraftPath, {
-			language,
-			template
-		})
 		script.content = initialCode(language, kind, template, false)
-		console.log('[draft-sync] initContent: awaiting isTemplateScript', userDraftPath)
 		const templateScript = await isTemplateScript()
-		console.log('[draft-sync] initContent: post-await', userDraftPath, {
-			hasTemplateScript: !!templateScript
-		})
 		if (templateScript) {
 			script.content = initialCode(language, kind, template, true)
 		}
@@ -585,11 +536,6 @@
 		try {
 			script.schema = script.schema ?? emptySchema()
 			try {
-				console.log('[draft-sync] editScript: inferArgs', {
-					language: script.language,
-					contentLen: script.content?.length ?? 0,
-					contentHead: script.content?.slice(0, 80)
-				})
 				const result = await inferArgs(
 					script.language,
 					script.content,
@@ -604,12 +550,6 @@
 					script.has_preprocessor = result?.has_preprocessor || undefined
 				}
 			} catch (error) {
-				console.error('[draft-sync] editScript: inferArgs threw', {
-					language: script.language,
-					contentLen: script.content?.length ?? 0,
-					contentHead: script.content?.slice(0, 80),
-					error
-				})
 				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
 
