@@ -294,75 +294,106 @@ async fn extract_image(image: &str, job_dir: &str) -> Result<OciConfig, Error> {
     let auth_dir = write_auth_dir(job_dir).await?;
     let auth = auth_dir.as_deref();
     let digest = resolve_digest(image, &pull_policy().await, auth).await?;
+    // Pin every subsequent fetch to the resolved digest, not the (mutable) tag, so the
+    // content can't diverge from the digest we cache under if the tag moves mid-fetch.
+    let pinned = format!("{}@{digest}", image.split('@').next().unwrap_or(image));
     let key = digest_key(&digest);
     let tar = format!("{}/{key}.tar", *ROOTFS_CACHE_DIR);
     let cfg = format!("{}/{key}.json", *ROOTFS_CACHE_DIR);
+    let size_file = format!("{}/{key}.size", *ROOTFS_CACHE_DIR);
+    let token = std::path::Path::new(job_dir)
+        .file_name()
+        .map(|x| x.to_string_lossy().into_owned())
+        .unwrap_or_default();
 
-    // Cache miss: fetch + flatten the image with crane (no daemon/store/root) into the
-    // content-addressed cache. A digest hit reuses the cached tar — no download.
-    if tokio::fs::metadata(&tar).await.is_err() {
-        // Reject oversized images before downloading any layer.
-        enforce_image_size_limit(image, auth).await?;
+    // Enforce the size cap on EVERY job (not just cache misses), using a cached size so
+    // a cache reuse needs no registry call — lowering the limit rejects cached images too.
+    enforce_image_size_limit(&pinned, &size_file, auth).await?;
 
-        // Export to a per-job temp file then atomically rename, so a concurrent job
-        // pulling the same digest never sees a half-written tar.
-        let job_token = std::path::Path::new(job_dir)
-            .file_name()
-            .map(|x| x.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let tmp = format!("{tar}.tmp.{job_token}");
-        let exported = crane(
-            &["export", "--platform", &CRANE_PLATFORM, image, &tmp],
-            auth,
-        )
-        .await?;
-        if !exported.status.success() {
-            let _ = tokio::fs::remove_file(&tmp).await;
+    // Materialize the flattened rootfs. The cache tar can be evicted concurrently, so up
+    // to two attempts: hardlink the cache tar into the job dir (pins the inode against
+    // eviction) before extracting; if it vanished first, re-fetch.
+    let job_tar = format!("{job_dir}/rootfs.tar");
+    for attempt in 0..2 {
+        if tokio::fs::metadata(&tar).await.is_err() {
+            fetch_into_cache(&pinned, &tar, &cfg, &token, auth).await?;
+        }
+        let config = read_oci_config(&cfg).await;
+        let _ = tokio::fs::remove_file(&job_tar).await;
+        match tokio::fs::hard_link(&tar, &job_tar).await {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound && attempt == 0 => {
+                continue; // evicted between the check and the link — re-fetch
+            }
+            Err(e) => return Err(Error::ExecutionErr(format!("failed to stage rootfs: {e}"))),
+        }
+        // Extract as the worker user (rootfs is worker-owned → uid 0 inside the jail).
+        let untar = Command::new("tar")
+            .args(["-xf", &job_tar, "-C", &rootfs])
+            .output()
+            .await
+            .map_err(|e| Error::ExecutionErr(format!("failed to run tar: {e}")))?;
+        let _ = tokio::fs::remove_file(&job_tar).await;
+        if !untar.status.success() {
             return Err(Error::ExecutionErr(format!(
-                "failed to export image {image}: {}",
-                String::from_utf8_lossy(&exported.stderr)
+                "failed to unpack image {image}: {}",
+                String::from_utf8_lossy(&untar.stderr)
             )));
         }
-        let config = crane(&["config", "--platform", &CRANE_PLATFORM, image], auth).await?;
-        if !config.status.success() {
-            let _ = tokio::fs::remove_file(&tmp).await;
-            return Err(Error::ExecutionErr(format!(
-                "failed to read image {image} config: {}",
-                String::from_utf8_lossy(&config.stderr)
-            )));
-        }
-        let _ = tokio::fs::write(&cfg, &config.stdout).await;
-        tokio::fs::rename(&tmp, &tar).await?;
+        return Ok(config);
     }
+    Err(Error::ExecutionErr(format!(
+        "failed to materialize rootfs for {image} (cache evicted twice)"
+    )))
+}
 
-    // Read the image config (Env/Cmd/Entrypoint/WorkingDir); tolerate a missing/old
-    // config sidecar by falling back to defaults.
-    let config: OciConfig = match tokio::fs::read(&cfg).await {
-        Ok(bytes) => {
-            serde_json::from_slice::<CraneConfig>(&bytes)
-                .map_err(|e| {
-                    Error::ExecutionErr(format!("failed to parse image {image} config: {e}"))
-                })?
-                .config
-        }
-        Err(_) => OciConfig::default(),
-    };
-
-    // Materialize the flattened rootfs for this job. Extracted as the worker user, so
-    // the rootfs is worker-owned — which the single-uid jail maps to uid 0 inside.
-    let untar = Command::new("tar")
-        .args(["-xf", &tar, "-C", &rootfs])
-        .output()
-        .await
-        .map_err(|e| Error::ExecutionErr(format!("failed to run tar: {e}")))?;
-    if !untar.status.success() {
+/// Fetch + flatten `pinned` (a `name@digest` ref) into the cache: export the rootfs tar
+/// and write the OCI config sidecar, both via tmp+rename so concurrent readers never see
+/// a torn file. The tar is published last (a present tar implies a present config).
+async fn fetch_into_cache(
+    pinned: &str,
+    tar: &str,
+    cfg: &str,
+    token: &str,
+    auth: Option<&str>,
+) -> Result<(), Error> {
+    let tar_tmp = format!("{tar}.tmp.{token}");
+    let cfg_tmp = format!("{cfg}.tmp.{token}");
+    let exported = crane(
+        &["export", "--platform", &CRANE_PLATFORM, pinned, &tar_tmp],
+        auth,
+    )
+    .await?;
+    if !exported.status.success() {
+        let _ = tokio::fs::remove_file(&tar_tmp).await;
         return Err(Error::ExecutionErr(format!(
-            "failed to unpack image {image}: {}",
-            String::from_utf8_lossy(&untar.stderr)
+            "failed to export image {pinned}: {}",
+            String::from_utf8_lossy(&exported.stderr)
         )));
     }
+    let config = crane(&["config", "--platform", &CRANE_PLATFORM, pinned], auth).await?;
+    if !config.status.success() {
+        let _ = tokio::fs::remove_file(&tar_tmp).await;
+        return Err(Error::ExecutionErr(format!(
+            "failed to read image {pinned} config: {}",
+            String::from_utf8_lossy(&config.stderr)
+        )));
+    }
+    let _ = tokio::fs::write(&cfg_tmp, &config.stdout).await;
+    let _ = tokio::fs::rename(&cfg_tmp, cfg).await;
+    tokio::fs::rename(&tar_tmp, tar).await?;
+    Ok(())
+}
 
-    Ok(config)
+/// Read the cached OCI config (Env/Cmd/Entrypoint/WorkingDir); tolerate a missing or torn
+/// sidecar by falling back to defaults (the run still works off the body + image FS).
+async fn read_oci_config(cfg: &str) -> OciConfig {
+    match tokio::fs::read(cfg).await {
+        Ok(bytes) => serde_json::from_slice::<CraneConfig>(&bytes)
+            .map(|c| c.config)
+            .unwrap_or_default(),
+        Err(_) => OciConfig::default(),
+    }
 }
 
 /// Manifest descriptor (`crane manifest`), for the pre-download size guard.
@@ -379,50 +410,71 @@ struct CraneManifest {
     config: CraneDescriptor,
 }
 
-/// Reject the image if its compressed download size exceeds `SANDBOX_IMAGE_MAX_SIZE_MB`,
-/// BEFORE downloading any layer (`crane manifest` is a small metadata fetch). No-op
-/// when the limit is 0 (unset).
-async fn enforce_image_size_limit(image: &str, auth_dir: Option<&str>) -> Result<(), Error> {
+/// Reject the image if its compressed download size exceeds `SANDBOX_IMAGE_MAX_SIZE_MB`.
+/// Runs on EVERY job (so lowering the limit rejects already-cached images too); the size
+/// is read from a `{digest}.size` sidecar when present (no registry call on cache reuse)
+/// and otherwise fetched once via `crane manifest` (before any layer download) and cached.
+/// No-op when the limit is 0 (unset).
+async fn enforce_image_size_limit(
+    pinned: &str,
+    size_file: &str,
+    auth_dir: Option<&str>,
+) -> Result<(), Error> {
     let max = max_image_size_mb().await;
     if max == 0 {
         return Ok(());
     }
-    let out = crane(
-        &["manifest", "--platform", &CRANE_PLATFORM, image],
-        auth_dir,
-    )
-    .await?;
-    if !out.status.success() {
-        // Don't silently bypass the guard — surface it so an operator can see the
-        // size limit isn't being enforced for this image.
-        tracing::warn!(
-            "sandbox image size guard: `crane manifest {image}` failed, not enforcing \
-            SANDBOX_IMAGE_MAX_SIZE_MB: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        return Ok(());
-    }
-    let manifest: CraneManifest = match serde_json::from_slice(&out.stdout) {
-        Ok(m) => m,
-        Err(e) => {
-            tracing::warn!("sandbox image size guard: cannot parse `crane manifest` json: {e}");
-            return Ok(());
+    let bytes = match tokio::fs::read_to_string(size_file)
+        .await
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+    {
+        Some(b) => b,
+        None => {
+            let out = crane(
+                &["manifest", "--platform", &CRANE_PLATFORM, pinned],
+                auth_dir,
+            )
+            .await?;
+            if !out.status.success() {
+                // Don't silently bypass the guard — surface it so an operator can see the
+                // size limit isn't being enforced for this image.
+                tracing::warn!(
+                    "sandbox image size guard: `crane manifest {pinned}` failed, not enforcing \
+                    SANDBOX_IMAGE_MAX_SIZE_MB: {}",
+                    String::from_utf8_lossy(&out.stderr)
+                );
+                return Ok(());
+            }
+            let manifest: CraneManifest = match serde_json::from_slice(&out.stdout) {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::warn!(
+                        "sandbox image size guard: cannot parse `crane manifest` json: {e}"
+                    );
+                    return Ok(());
+                }
+            };
+            let b = manifest.config.size + manifest.layers.iter().map(|l| l.size).sum::<u64>();
+            let _ = tokio::fs::write(size_file, b.to_string()).await;
+            b
         }
     };
-    let bytes = manifest.config.size + manifest.layers.iter().map(|l| l.size).sum::<u64>();
     let mb = bytes / 1_000_000;
     if mb > max {
         return Err(Error::ExecutionErr(format!(
-            "image {image} is {mb} MB (compressed), over the SANDBOX_IMAGE_MAX_SIZE_MB limit of {max} MB"
+            "image {pinned} is {mb} MB (compressed), over the SANDBOX_IMAGE_MAX_SIZE_MB limit of {max} MB"
         )));
     }
     Ok(())
 }
 
 /// Best-effort eviction: while the cached rootfs tars exceed `SANDBOX_IMAGE_CACHE_MAX_MB`,
-/// remove the oldest by mtime (true LRU). No-op when the limit is 0 (unset). Skipped if
-/// another pass is already running. The per-job extracted rootfs lives in the job dir
-/// (cleaned with the job), so only the content-addressed tar+config cache is pruned.
+/// remove the oldest by mtime (creation order — tars are write-once, cache hits don't
+/// touch mtime). No-op when the limit is 0 (unset). Skipped if another pass is already
+/// running. The per-job extracted rootfs lives in the job dir (cleaned with the job), so
+/// only the content-addressed tar+config+size cache is pruned. Also sweeps orphaned
+/// `*.tmp.*` files left by a crashed mid-export.
 async fn enforce_image_cache_limit() {
     use std::sync::atomic::Ordering;
     let max_mb = image_cache_max_mb().await;
@@ -446,7 +498,7 @@ async fn enforce_image_cache_limit() {
     let _reset = ResetOnDrop;
     let max_bytes = max_mb.saturating_mul(1_000_000);
 
-    // (path, size, mtime) for every cached rootfs tar.
+    // (path, size, mtime) for every cached rootfs tar; also sweep orphaned tmp files.
     async fn list_tars() -> Vec<(std::path::PathBuf, u64, std::time::SystemTime)> {
         let mut out = Vec::new();
         let Ok(mut rd) = tokio::fs::read_dir(&*ROOTFS_CACHE_DIR).await else {
@@ -454,6 +506,13 @@ async fn enforce_image_cache_limit() {
         };
         while let Ok(Some(e)) = rd.next_entry().await {
             let p = e.path();
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            // Reclaim leftover `*.tmp.<token>` files from a crashed mid-export.
+            if name.contains(".tmp.") {
+                let _ = tokio::fs::remove_file(&p).await;
+                continue;
+            }
             if p.extension().and_then(|x| x.to_str()) != Some("tar") {
                 continue;
             }
@@ -476,7 +535,9 @@ async fn enforce_image_cache_limit() {
         if tokio::fs::remove_file(&victim).await.is_err() {
             break; // can't reclaim — stop rather than spin on the same victim
         }
+        // Drop the sibling config + size sidecars too.
         let _ = tokio::fs::remove_file(victim.with_extension("json")).await;
+        let _ = tokio::fs::remove_file(victim.with_extension("size")).await;
         tracing::info!("sandbox image cache eviction: removed {}", victim.display());
     }
     // `_reset` drops here and clears EVICTION_RUNNING.
@@ -724,7 +785,34 @@ pub async fn handle_docker_v2_job(
 
 #[cfg(test)]
 mod tests {
-    use super::{proto_str, registry_qualified, render_envars};
+    use super::{digest_key, proto_str, ref_key, registry_qualified, render_envars};
+
+    #[test]
+    fn digest_key_is_filesystem_safe() {
+        assert_eq!(digest_key("sha256:4d889c14e7d5"), "sha256_4d889c14e7d5");
+        // No `:` or `/` survives (both would break the cache filename).
+        let k = digest_key("sha256:ab/cd:ef");
+        assert!(!k.contains(':') && !k.contains('/'));
+    }
+
+    #[test]
+    fn ref_key_is_safe_and_stable() {
+        // Deterministic for a given ref...
+        assert_eq!(ref_key("ghcr.io/o/i:tag"), ref_key("ghcr.io/o/i:tag"));
+        // ...distinguishes different refs...
+        assert_ne!(ref_key("alpine:latest"), ref_key("alpine:edge"));
+        // ...and is filesystem-safe (no `/` or `:`), incl. for multibyte refs (no panic
+        // on the trailing-80 byte slice since every char maps to single-byte ASCII).
+        for r in [
+            "alpine",
+            "ghcr.io/o/i:tag",
+            "localhost:5000/r@sha256:ab",
+            "rég/imagé:tag",
+        ] {
+            let k = ref_key(r);
+            assert!(!k.contains('/') && !k.contains(':'));
+        }
+    }
 
     #[test]
     fn render_envars_emits_proto_directives() {
