@@ -386,22 +386,35 @@
 			// The `Path` widget assigns `script.path` from its
 			// `$effect.pre` gated on `$workspaceStore + $userStore` —
 			// which on a HARD-REFRESH-then-first-nav can be unset when
-			// we get here. Resuming sync before that assignment lands
-			// would let the widget's mutation POST as the user's first
-			// edit. Poll via `tick()` instead — each `tick()` returns
-			// only after Svelte has flushed all pending effects, so
-			// when we observe `script.path` set the sync effect has
-			// already processed the mutation (under suspension).
+			// we get here. Worse, even on a warm reload the widget's
+			// `reset()` mutates `meta` in TWO steps (`{owner: ''}` then
+			// `meta.owner = username`), producing two distinct path
+			// writes — exiting on the first non-empty value lets the
+			// second one POST as the user's "first edit".
 			//
-			// Bounded to ~20 ticks so a stuck mount can't disable
-			// autosave forever; in practice 2–3 ticks is enough on
-			// warm subsequent navs and ~5 on a cold first nav.
+			// Wait for `script.path` to STABILIZE: same value across
+			// two consecutive ticks. `tick()` returns only after Svelte
+			// has flushed pending effects, so a stable read means the
+			// Path widget's cascade settled and any intermediate
+			// mutations were already swallowed under suspension.
+			//
+			// Bounded so a stuck mount can't disable autosave forever.
 			let waited = 0
-			while (!script.path && waited < 20) {
+			let last: string | undefined = undefined
+			let stable = 0
+			while (waited < 30) {
 				await tick()
 				waited++
+				const cur = script.path
+				if (cur && cur === last) {
+					stable++
+					if (stable >= 2) break
+				} else {
+					last = cur
+					stable = 0
+				}
 			}
-			console.log('[draft-sync] ScriptBuilder: ticks done → restartSync', userDraftPath, {
+			console.log('[draft-sync] ScriptBuilder: path stable → restartSync', userDraftPath, {
 				ticks: waited,
 				path: script.path
 			})
