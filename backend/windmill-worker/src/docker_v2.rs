@@ -108,12 +108,21 @@ async fn write_auth_file(job_dir: &str) -> Result<Option<String>, Error> {
         return Ok(None);
     };
     let path = format!("{job_dir}/registry_auth.json");
-    tokio::fs::write(&path, auth).await?;
+    // Create 0600 from the start (registry credentials) — no world-readable window.
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).await;
+        use tokio::io::AsyncWriteExt;
+        let mut f = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&path)
+            .await?;
+        f.write_all(auth.as_bytes()).await?;
     }
+    #[cfg(not(unix))]
+    tokio::fs::write(&path, auth).await?;
     Ok(Some(path))
 }
 
@@ -134,10 +143,25 @@ struct OciConfig {
 /// the nsjail config. Image-controlled values (mount srcs/dsts, symlink targets,
 /// WorkingDir) flow into the config, so they MUST be escaped — an unescaped `"` or
 /// newline would otherwise let a hostile image config inject arbitrary nsjail
-/// directives and break out of the sandbox. Rust's `{:?}` escaping (`\"`, `\n`,
-/// `\\`, …) is a subset of protobuf text-format string escaping, so it is safe here.
+/// directives and break out of the sandbox. Every byte is emitted as a printable
+/// ASCII char or a valid protobuf escape (`\"`, `\\`, `\n`/`\r`/`\t`, or 3-digit
+/// octal `\NNN` for control/non-ASCII bytes), so the result always parses.
 fn proto_str(s: &str) -> String {
-    format!("{s:?}")
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for &b in s.as_bytes() {
+        match b {
+            b'"' => out.push_str("\\\""),
+            b'\\' => out.push_str("\\\\"),
+            b'\n' => out.push_str("\\n"),
+            b'\r' => out.push_str("\\r"),
+            b'\t' => out.push_str("\\t"),
+            0x20..=0x7e => out.push(b as char),
+            _ => out.push_str(&format!("\\{b:03o}")),
+        }
+    }
+    out.push('"');
+    out
 }
 
 async fn podman(args: &[&str]) -> Result<std::process::Output, Error> {
@@ -546,7 +570,7 @@ pub async fn handle_docker_v2_job(
 
 #[cfg(test)]
 mod tests {
-    use super::proto_str;
+    use super::{proto_str, registry_qualified};
 
     #[test]
     fn proto_str_escapes_injection() {
@@ -564,5 +588,27 @@ mod tests {
         assert!(!inner.contains("\"") || inner.contains("\\\""));
         assert!(escaped.contains("\\\"")); // the inner quote is backslash-escaped
         assert!(escaped.contains("\\n")); // the newline is escaped
+                                          // Control and non-ASCII bytes render as valid 3-digit octal escapes (never
+                                          // a raw byte or an invalid `\u{..}` that nsjail's parser would reject).
+        assert_eq!(proto_str("a\u{1b}b"), "\"a\\033b\""); // ESC (0x1b)
+        assert_eq!(proto_str("é"), "\"\\303\\251\""); // UTF-8 bytes 0xc3 0xa9
+    }
+
+    #[test]
+    fn registry_qualified_classifies_refs() {
+        // Unqualified: bare repos (with/without tag) and docker.io org/repo.
+        for img in ["alpine", "alpine:latest", "myorg/img", "myorg/img:1.2"] {
+            assert!(!registry_qualified(img), "{img} should be unqualified");
+        }
+        // Qualified: the first path component is a host (has `.`/`:`) or localhost.
+        for img in [
+            "ghcr.io/org/img",
+            "registry.example.com/img:tag",
+            "localhost:5000/img",
+            "localhost/img",
+            "host:5000/a/b",
+        ] {
+            assert!(registry_qualified(img), "{img} should be qualified");
+        }
     }
 }
