@@ -53,15 +53,15 @@
 	})
 
 	const label = $derived(
-		syncState === 'saving' || syncState === 'pending' ? 'Saving' : savedVisible ? 'Saved' : ''
+		syncState === 'saving' || syncState === 'pending' ? 'Saving...' : savedVisible ? 'Saved' : ''
 	)
 </script>
 
-<div class="flex items-center gap-1.5 text-primary text-xs">
+<div class="flex items-center gap-1.5 text-primary">
 	{#if syncState === 'saving' || syncState === 'pending'}
 		<RefreshCcw size={14} class="animate-spin" />
 	{:else}
-		<CloudCheck size={14} />
+		<CloudCheck size={16} />
 	{/if}
 	{#if label}
 		<span class="text-secondary text-2xs">{label}</span>

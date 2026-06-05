@@ -414,8 +414,16 @@
 			| 'ci_test_python'
 	) {
 		scriptEditor?.disableCollaboration()
+		// Seed the template content SYNCHRONOUSLY so a user clicking
+		// Deploy before the (async) template-script fetch resolves
+		// doesn't run `inferArgs` on an empty `script.content` and toast
+		// "Could not parse code". If a template script is then loaded
+		// below we re-seed with the `templateScript=true` variant.
+		script.content = initialCode(language, kind, template, false)
 		const templateScript = await isTemplateScript()
-		script.content = initialCode(language, kind, template, templateScript != undefined)
+		if (templateScript) {
+			script.content = initialCode(language, kind, template, true)
+		}
 		if (templateScript) {
 			script.content += '\r\n' + templateScript
 		}

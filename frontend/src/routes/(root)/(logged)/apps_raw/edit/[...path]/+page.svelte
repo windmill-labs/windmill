@@ -162,6 +162,10 @@
 	 * navigation races a draft-discard reload) bail at the next checkpoint
 	 * after their captured token no longer matches. */
 	let loadAppToken = 0
+	/** Mirrors `/apps/edit`'s `isNewApp`: true when no deployed row
+	 * exists at the URL path. Flips RawAppEditor's deploy from
+	 * `updateApp` to `createApp` so a user-typed path is used. */
+	let isNewApp = $state(false)
 	async function loadApp(opts: { getDraft?: boolean } = {}): Promise<void> {
 		const getDraft = opts.getDraft ?? true
 		const tok = ++loadAppToken
@@ -174,21 +178,25 @@
 		// `Path` widget's `initPath` calls `reset()` and generates the
 		// friendly `<random_adj>_raw_app` name. Strip the flag last.
 		if (page.url.searchParams.get('new_draft') === 'true') {
+			isNewApp = true
 			const url = new URL(window.location.href)
 			url.searchParams.delete('new_draft')
 			window.history.replaceState(window.history.state, '', url.toString())
+			// Backend's `Policy` requires `execution_mode` — an empty
+			// object fails to deserialize on deploy.
+			const emptyPolicy = { execution_mode: 'publisher' } as any
 			savedApp = {
 				summary: '',
 				value: { files: {}, runnables: {} },
 				path: '',
-				policy: {},
+				policy: emptyPolicy,
 				custom_path: undefined
 			}
 			files = {}
 			runnables = {}
 			data = { ...DEFAULT_DATA }
 			summary = ''
-			policy = {}
+			policy = emptyPolicy
 			newPath = ''
 			return
 		}
@@ -199,6 +207,7 @@
 			rawApp: true
 		})) as any
 		if (tok !== loadAppToken) return
+		isNewApp = !!backendApp.no_deployed
 		if (backendApp.is_draft) {
 			notifyDraftLoaded({
 				workspace: $workspaceStore!,
@@ -240,7 +249,10 @@
 				data: savedRawAppDraft?.data
 			}
 			backendApp.summary = savedRawAppDraft?.summary ?? ''
-			backendApp.policy = savedRawAppDraft?.policy ?? {}
+			// Backend's `Policy` requires `execution_mode` — fall back
+			// to the publisher default when the saved draft (or
+			// fetched payload) didn't carry one.
+			backendApp.policy = savedRawAppDraft?.policy ?? { execution_mode: 'publisher' }
 			backendApp.custom_path = savedRawAppDraft?.custom_path
 			backendApp.path = page.params.path ?? ''
 		} else if (savedRawAppDraft) {
@@ -422,7 +434,7 @@
 				{policy}
 				bind:savedApp
 				{diffDrawer}
-				newApp={false}
+				newApp={isNewApp}
 			/>
 		</div>
 	{/key}
