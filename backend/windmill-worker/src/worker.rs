@@ -694,6 +694,27 @@ lazy_static::lazy_static! {
     /// RAM-backed tmpfs sized by `nsjail_tmpfs_size_mb`.
     pub static ref NSJAIL_TMP_BACKING: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
+    /// Reject a `# sandbox <image>` whose on-disk size exceeds this many MB, before
+    /// extraction. `None`/non-positive = no limit. (`sandbox_image_max_size_mb`.)
+    pub static ref SANDBOX_IMAGE_MAX_SIZE_MB: Arc<RwLock<Option<i64>>> = Arc::new(RwLock::new(None));
+
+    /// Best-effort cap (MB) on podman's sandbox-image store; oldest images evicted
+    /// after a run when exceeded. `None`/non-positive = unbounded. (`sandbox_image_cache_max_mb`.)
+    pub static ref SANDBOX_IMAGE_CACHE_MAX_MB: Arc<RwLock<Option<i64>>> = Arc::new(RwLock::new(None));
+
+    /// podman pull policy for sandbox images (`missing`/`newer`/`always`/`never`).
+    /// `None`/unrecognized falls back to `newer`. (`sandbox_image_pull_policy`.)
+    pub static ref SANDBOX_IMAGE_PULL_POLICY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+
+    /// If set, unqualified sandbox image refs (e.g. `alpine`) are pulled from this
+    /// registry instead of docker.io. Fully-qualified refs are unaffected.
+    /// (`sandbox_image_default_registry`.)
+    pub static ref SANDBOX_IMAGE_DEFAULT_REGISTRY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+
+    /// Optional docker/podman `auth.json` blob for private registries, written to a
+    /// per-job authfile and passed to `podman --authfile`. (`sandbox_registry_auth`.)
+    pub static ref SANDBOX_REGISTRY_AUTH: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+
     /// Optional mirror URL for `uv python install`. Wires to the `UV_PYTHON_INSTALL_MIRROR`
     /// env var when forwarded to uv. Can be set via the `UV_PYTHON_INSTALL_MIRROR` env var
     /// or the `uv_python_install_mirror` instance setting.

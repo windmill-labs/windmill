@@ -40,9 +40,9 @@ use crate::handle_child::run_future_with_polling_update_job_poller;
 
 use crate::{
     common::{
-        build_args_map, build_command_with_isolation, get_reserved_variables, read_file,
-        read_file_content, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
-        OccupancyMetrics, DEV_CONF_NSJAIL,
+        build_args_map, build_command_with_isolation, get_reserved_variables, raw_to_string,
+        read_file, read_file_content, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block,
+        start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
@@ -55,14 +55,6 @@ use windmill_common::scripts::ScriptLang;
 lazy_static::lazy_static! {
 
     pub static ref ANSI_ESCAPE_RE: Regex = Regex::new(r"\x1b\[[0-9;]*m").unwrap();
-}
-
-fn raw_to_string(x: &str) -> String {
-    match serde_json::from_str::<serde_json::Value>(x) {
-        Ok(serde_json::Value::String(x)) => x,
-        Ok(x) => serde_json::to_string(&x).unwrap_or_else(|_| String::new()),
-        _ => String::new(),
-    }
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -83,6 +75,28 @@ pub async fn handle_bash_job(
     _killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
 ) -> Result<Box<RawValue>, Error> {
     let annotation = windmill_common::worker::BashAnnotations::parse(&content);
+
+    // `# sandbox <image>` selects the daemonless, nsjail-sandboxed container runtime
+    // (extract the image's rootfs + run it inside the job's sandbox). A bare
+    // `# sandbox` keeps the plain nsjail-bash modifier; `# docker` keeps v1 (dind).
+    if let Some(image) = windmill_common::worker::BashAnnotations::sandbox_image(content) {
+        return crate::docker_v2::handle_docker_v2_job(
+            &image,
+            mem_peak,
+            canceled_by,
+            job,
+            conn,
+            client,
+            parent_runnable_path,
+            content,
+            job_dir,
+            shared_mount,
+            base_internal_url,
+            worker_name,
+            occupancy_metrics,
+        )
+        .await;
+    }
 
     // Check if sandbox annotation is used but nsjail is not available
     if annotation.sandbox && NSJAIL_AVAILABLE.is_none() {
