@@ -190,7 +190,12 @@ async fn verify_slack_payload(
     let provided = hex::decode(signature).map_err(|_| {
         Error::NotAuthorized("Slack callback rejected: malformed payload signature".to_string())
     })?;
-    let key = get_workspace_key(w_id, db).await?;
+    // Map a missing workspace key (e.g. non-existent workspace) to the same generic 401 as a
+    // bad signature, so an unauthenticated caller cannot use the status code (500 vs 401) as a
+    // workspace-existence oracle.
+    let key = get_workspace_key(w_id, db).await.map_err(|_| {
+        Error::NotAuthorized("Slack callback rejected: invalid payload signature".to_string())
+    })?;
     let mut mac = SlackPayloadHmac::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
     mac.update(w_id.as_bytes());
     for part in parts {
@@ -424,6 +429,14 @@ async fn handle_submission(
         return Ok(());
     }
 
+    let w_id = extract_w_id_from_resume_url(&resume_url)?;
+    // Authorize the submission BEFORE taking any action. `resource_path` comes from the
+    // (client-held) modal metadata and is not covered by the resume-URL signature, so a
+    // tampered/unsigned submission must be rejected up front — otherwise it could still drive
+    // the resume/cancel and reach the decryption below with a swapped path. Require the
+    // workspace-keyed HMAC minted when the modal was built.
+    verify_slack_payload(&db, w_id, &[resource_path.as_bytes()], signature.as_deref()).await?;
+
     // Use the common handler to process the resume/cancel action
     handle_resume_action(
         authed,
@@ -435,12 +448,6 @@ async fn handle_submission(
     )
     .await?;
 
-    let w_id = extract_w_id_from_resume_url(&resume_url)?;
-    // `resource_path` comes from the (client-held) modal metadata and is not covered by the
-    // resume-URL signature, so a holder of one valid approval could otherwise swap it to an
-    // arbitrary variable. Require the workspace-keyed HMAC minted when the modal was built
-    // before decrypting it.
-    verify_slack_payload(&db, w_id, &[resource_path.as_bytes()], signature.as_deref()).await?;
     let slack_token = get_slack_token(&db, &resource_path, w_id)
         .await
         .map_err(|e| {

@@ -45,6 +45,56 @@ async fn post_open_modal(port: u16, value: serde_json::Value) -> reqwest::Respon
         .unwrap()
 }
 
+/// POST a `view_submission` to the unauthenticated `/api/slack` callback with the given
+/// private_metadata.
+async fn post_view_submission(port: u16, private_metadata: serde_json::Value) -> reqwest::Response {
+    let payload = json!({
+        "type": "view_submission",
+        "view": {
+            "state": { "values": {} },
+            "private_metadata": private_metadata.to_string(),
+        },
+    });
+    client()
+        .post(format!("http://localhost:{port}/api/slack"))
+        .form(&[("payload", payload.to_string())])
+        .send()
+        .await
+        .unwrap()
+}
+
+/// A submission with an unsigned (or tampered) `private_metadata` must be rejected with 401
+/// BEFORE the resume/cancel action runs — the signature gate is checked first. The resume_url
+/// here is well-formed (so it parses) but never acted upon.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_view_submission_without_signature_is_rejected(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let job_id = Uuid::new_v4();
+    let resume_url = format!("/api/w/test-workspace/jobs_u/resume/{job_id}/1/deadbeef");
+
+    let resp = post_view_submission(
+        port,
+        json!({
+            "resume_url": resume_url,
+            "resource_path": "u/admin/secret",
+            "container": { "message_ts": "0", "channel_id": "C1" },
+            "hide_cancel": false,
+        }),
+    )
+    .await;
+    assert_eq!(
+        resp.status(),
+        401,
+        "unsigned submission must be rejected before the resume action"
+    );
+
+    Ok(())
+}
+
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_open_modal_without_signature_is_rejected(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
