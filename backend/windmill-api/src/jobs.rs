@@ -1001,13 +1001,38 @@ async fn require_job_read_access(
     // Fast path: you can always read a job you launched. This is also load-bearing
     // for apps — a component job runs as the app policy's `permissioned_as`, but its
     // `created_by` is the launching viewer, so the RLS probe below would hide it.
-    if created_by == authed.username
-        || authed
-            .username_override
-            .as_deref()
-            .is_some_and(|u| u == created_by)
-    {
+    if created_by == authed.username {
         return Ok(());
+    }
+
+    // `username_override` is derived from the token *label* (`username_override_from_label`),
+    // which is fully user-controlled with no uniqueness/ownership check (webhook-/http-/
+    // email-/ws- trigger tokens, `ephemeral-script-end-user-*`, and the generic `label-*`
+    // all flow through it). A bare `username_override == created_by` match is therefore
+    // forgeable: any member can mint a token with a colliding label and read another
+    // principal's jobs (IDOR — results/args/logs with resolved secrets). Bind the grant to
+    // a non-forgeable attribute instead: the job must actually run as the caller's own
+    // identity, i.e. its `permissioned_as_email` (the token owner's email, never set from
+    // the label) equals `authed.email`. This still admits every legitimate same-owner
+    // re-read (trigger tokens reading their own webhook/http/email jobs, the
+    // ephemeral-script-end-user worker token, generic labeled tokens) while denying
+    // cross-principal collisions. The DB hit only happens when an override is present and
+    // matches, so the common session/token path stays query-free.
+    if authed
+        .username_override
+        .as_deref()
+        .is_some_and(|u| u == created_by)
+    {
+        let job_email = sqlx::query_scalar!(
+            "SELECT permissioned_as_email FROM v2_job WHERE id = $1 AND workspace_id = $2",
+            job_id,
+            w_id,
+        )
+        .fetch_optional(db)
+        .await?;
+        if job_email.as_deref() == Some(authed.email.as_str()) {
+            return Ok(());
+        }
     }
 
     // Share read link: a valid view token minted by someone with read access grants
