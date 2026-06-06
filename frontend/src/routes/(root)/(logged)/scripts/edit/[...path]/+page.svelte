@@ -4,7 +4,7 @@
 	import { initialArgsStore, userStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
-	import { cleanValueProperties, orderedJsonStringify } from '$lib/utils'
+	import { cleanValueProperties, emptySchema, orderedJsonStringify } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
@@ -167,7 +167,13 @@
 				description: '',
 				content: '',
 				language: 'bun',
-				schema: {}
+				// MUST be `emptySchema()` (`{properties: {}, required: [],
+				// type: 'object'}`), NOT `{}`. `inferArgs` does
+				// `JSON.parse(JSON.stringify(schema.properties))` —
+				// `JSON.stringify(undefined)` returns the value `undefined`,
+				// and `JSON.parse(undefined)` coerces to the literal string
+				// "undefined", throwing the toast "Could not parse code".
+				schema: emptySchema()
 			} as unknown as EditableScript
 			initialPath = ''
 			savedScript = structuredClone(empty)
