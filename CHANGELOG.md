@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.719.0](https://github.com/windmill-labs/windmill/compare/v1.718.0...v1.719.0) (2026-06-06)
+
+
+### Features
+
+* **otel:** connect jobs to the inbound distributed trace ([#9456](https://github.com/windmill-labs/windmill/issues/9456)) ([fad1a54](https://github.com/windmill-labs/windmill/commit/fad1a549d95c00d0746a48163c4f95fc69733e1a))
+
+
+### Bug Fixes
+
+* authenticate slack callback payload with per-workspace hmac ([#9461](https://github.com/windmill-labs/windmill/issues/9461)) ([fbdf81b](https://github.com/windmill-labs/windmill/commit/fbdf81ba5f77d282c025360ecee14138dd4cb4a2))
+* prevent token label collision bypassing job read access control ([#9462](https://github.com/windmill-labs/windmill/issues/9462)) ([e1e7af6](https://github.com/windmill-labs/windmill/commit/e1e7af6a25a44eb06b67332ce1efeae2a21e0c6d))
+* **python:** escape reserved-keyword step ids in wrapper codegen ([#9460](https://github.com/windmill-labs/windmill/issues/9460)) ([6a15a9b](https://github.com/windmill-labs/windmill/commit/6a15a9b152ad20be4b5c3de6000516da231e41e0)), closes [#8893](https://github.com/windmill-labs/windmill/issues/8893)
+
 ## [1.718.0](https://github.com/windmill-labs/windmill/compare/v1.717.1...v1.718.0) (2026-06-05)
 
 
