@@ -191,6 +191,7 @@ async fn get_concurrent_intervals(
             script_path_exact: None,
             script_hash: None,
             created_by: None,
+            status: None,
             success: None,
             running: None,
             parent_job: None,
