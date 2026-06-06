@@ -68,6 +68,7 @@
 	import { tutorialsToDo } from '$lib/stores'
 	import { getTutorialIndex } from '$lib/tutorials/config'
 	import EditorHeader from './EditorHeader.svelte'
+	import AutosaveIndicator from './AutosaveIndicator.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
@@ -1017,7 +1018,7 @@
 				bind:clientWidth={topbarWidth}
 				class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
 			>
-				<div class="min-w-[200px] max-w-full">
+				<div class="flex flex-row items-center gap-2 min-w-[200px] max-w-full">
 					<EditorHeader
 						bind:summary={flowStore.val.summary}
 						bind:path={$pathStore}
@@ -1025,6 +1026,13 @@
 						onBehalfOfEmail={$savedOnBehalfOfEmail}
 						onNavigate={(item) => onNavigate?.(item)}
 					/>
+					{#if $workspaceStore && liveEditorDraftStoragePath !== undefined}
+						<AutosaveIndicator
+							workspace={$workspaceStore}
+							itemKind="flow"
+							path={liveEditorDraftStoragePath}
+						/>
+					{/if}
 				</div>
 				<div class="flex flex-row gap-2 items-center">
 					{#if $enterpriseLicense && !newFlow}

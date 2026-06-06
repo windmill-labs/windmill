@@ -897,6 +897,7 @@
 		<AppEditorHeader
 			{newPath}
 			{newApp}
+			userDraftPath={appDraftPath}
 			on:restore
 			{policy}
 			{fromHub}

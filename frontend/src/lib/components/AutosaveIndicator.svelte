@@ -57,7 +57,7 @@
 	)
 </script>
 
-<div class="flex items-center gap-1.5 text-primary">
+<div class="flex items-center gap-1.5 text-primary min-w-[4.2rem]">
 	{#if syncState === 'saving' || syncState === 'pending'}
 		<RefreshCcw size={14} class="animate-spin" />
 	{:else}

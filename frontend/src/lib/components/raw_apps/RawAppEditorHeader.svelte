@@ -38,6 +38,7 @@
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 
 	import EditorHeader from '$lib/components/EditorHeader.svelte'
+	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
 	import { goto } from '$app/navigation'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 
@@ -729,7 +730,13 @@
 			raw_app
 			onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
 		/>
-		<div></div>
+		{#if $workspaceStore && liveEditorDraftStoragePath !== undefined}
+			<AutosaveIndicator
+				workspace={$workspaceStore}
+				itemKind="raw_app"
+				path={liveEditorDraftStoragePath}
+			/>
+		{/if}
 	</div>
 
 	{#if $enterpriseLicense && appPath != ''}

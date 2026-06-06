@@ -59,6 +59,7 @@
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
 
 	import EditorHeader from '$lib/components/EditorHeader.svelte'
+	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
 	import { editPathFor } from '$lib/components/workspacePicker'
 	import { invalidateWorkspacePaths } from '$lib/components/PathNameAutocomplete.svelte'
 	import { beforeNavigate, goto } from '$app/navigation'
@@ -94,6 +95,9 @@
 		bottomPanelHidden?: boolean
 		newApp: boolean
 		newPath?: string
+		/** URL path under which the per-user draft is keyed. Empty string for
+		 * the `/apps/add` route since no draft is persisted there yet. */
+		userDraftPath?: string
 		onSavedNewAppPath?: (path: string) => void
 		onShowRightPanel?: () => void
 		onShowLeftPanel?: () => void
@@ -115,6 +119,7 @@
 		bottomPanelHidden = false,
 		newApp,
 		newPath = '',
+		userDraftPath = '',
 		onSavedNewAppPath,
 		onShowLeftPanel,
 		onShowRightPanel,
@@ -907,6 +912,11 @@
 				</ToggleButtonGroup>
 			</div>
 		</div>
+		{#if $workspaceStore}
+			<div class="ml-4">
+				<AutosaveIndicator workspace={$workspaceStore} itemKind="app" path={userDraftPath} />
+			</div>
+		{/if}
 	</div>
 
 	{#if $mode !== 'preview'}
