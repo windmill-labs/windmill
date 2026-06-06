@@ -2159,6 +2159,17 @@ async fn create_token(
 ) -> Result<(StatusCode, String)> {
     check_token_create_rate_limit(&authed.username)?;
 
+    // Reject system-minted labels (webhook-/http-/email-/ws-/ephemeral-*): they map to a
+    // trusted `username_override`, so allowing a user to set one would let them forge another
+    // principal's identity and bypass `created_by`-based access checks (e.g. job read access).
+    if let Some(label) = token_config.label.as_deref() {
+        if windmill_api_auth::is_reserved_token_label(label) {
+            return Err(Error::BadRequest(format!(
+                "Token label '{label}' is reserved for internal use and cannot be set manually"
+            )));
+        }
+    }
+
     windmill_api_auth::ensure_scopes_within_caller(&authed, token_config.scopes.as_deref())?;
 
     let mut tx = db.begin().await?;

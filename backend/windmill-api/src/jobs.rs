@@ -1001,12 +1001,21 @@ async fn require_job_read_access(
     // Fast path: you can always read a job you launched. This is also load-bearing
     // for apps — a component job runs as the app policy's `permissioned_as`, but its
     // `created_by` is the launching viewer, so the RLS probe below would hide it.
-    if created_by == authed.username
-        || authed
-            .username_override
-            .as_deref()
-            .is_some_and(|u| u == created_by)
-    {
+    //
+    // `username_override` is derived from the token *label* (`username_override_from_label`).
+    // System-minted labels (webhook-/http-/email-/ws-/ephemeral-*) are a trustworthy
+    // identity because users cannot create tokens with those labels (enforced at token
+    // creation via `is_reserved_token_label`). The generic `label-*` override, however,
+    // comes from a fully user-controlled label with no uniqueness or ownership check —
+    // matching it against `created_by` would let any member create a colliding token and
+    // read another principal's jobs (IDOR, incl. results/args/logs with resolved secrets).
+    // So a `label-*` override never satisfies the fast path; those callers fall through to
+    // the RLS probe below under their real identity (`authed.username`).
+    let override_grants_read = authed
+        .username_override
+        .as_deref()
+        .is_some_and(|u| u == created_by && !u.starts_with("label-"));
+    if created_by == authed.username || override_grants_read {
         return Ok(());
     }
 
