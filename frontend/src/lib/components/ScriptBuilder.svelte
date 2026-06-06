@@ -534,7 +534,16 @@
 
 		loadingSave = true
 		try {
-			script.schema = script.schema ?? emptySchema()
+			// `?? emptySchema()` only catches null/undefined — a legacy draft
+			// (seeded with `schema: {}` before the new-draft route was
+			// fixed) lands here with an object missing `properties`. That
+			// trips `inferArgs` at `JSON.parse(JSON.stringify(schema.properties))`
+			// (stringify of undefined → undefined, parse → "undefined is
+			// not valid JSON"), which surfaces as the "Could not parse
+			// code" toast even on perfectly valid bun template content.
+			if (!script.schema || !(script.schema as any).properties) {
+				script.schema = emptySchema()
+			}
 			try {
 				const result = await inferArgs(
 					script.language,
