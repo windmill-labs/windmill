@@ -21,6 +21,7 @@ fn client() -> reqwest::Client {
 /// The fixture sets `workspace_key.key = 'test-key'` for `test-workspace`.
 fn sign(w_id: &str, parts: &[&[u8]]) -> String {
     let mut mac = Hmac::<Sha256>::new_from_slice(b"test-key").unwrap();
+    mac.update(b"slack_payload_v1\0"); // SLACK_PAYLOAD_HMAC_DOMAIN
     mac.update(w_id.as_bytes());
     for p in parts {
         mac.update(b"\0");

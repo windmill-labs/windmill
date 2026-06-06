@@ -162,12 +162,20 @@ fn verify_slack_callback_signature(_headers: &HeaderMap, _body: &str) -> Result<
 /// regardless of whether `SLACK_SIGNING_SECRET` is configured.
 type SlackPayloadHmac = Hmac<Sha256>;
 
+/// Domain-separation tag prepended to every Slack-payload MAC. The workspace key is also used
+/// for resume-secret signatures (`create_signature` in `jobs.rs`), and those secrets are
+/// distributed to approvers in resume URLs — so a fixed, scheme-specific prefix makes the two
+/// MAC families non-interchangeable by construction rather than relying on their byte layouts
+/// happening to differ. Bump the version suffix if the signed layout ever changes.
+const SLACK_PAYLOAD_HMAC_DOMAIN: &[u8] = b"slack_payload_v1\0";
+
 /// Sign the security-sensitive fields of a Slack callback payload with the workspace key.
 /// Parts are joined with a `\0` delimiter (absent from paths/UUIDs) so distinct field tuples
 /// cannot collide into the same MAC.
 async fn sign_slack_payload(db: &DB, w_id: &str, parts: &[&[u8]]) -> Result<String, Error> {
     let key = get_workspace_key(w_id, db).await?;
     let mut mac = SlackPayloadHmac::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
+    mac.update(SLACK_PAYLOAD_HMAC_DOMAIN);
     mac.update(w_id.as_bytes());
     for part in parts {
         mac.update(b"\0");
@@ -197,6 +205,7 @@ async fn verify_slack_payload(
         Error::NotAuthorized("Slack callback rejected: invalid payload signature".to_string())
     })?;
     let mut mac = SlackPayloadHmac::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
+    mac.update(SLACK_PAYLOAD_HMAC_DOMAIN);
     mac.update(w_id.as_bytes());
     for part in parts {
         mac.update(b"\0");
