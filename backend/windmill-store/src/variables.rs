@@ -43,7 +43,9 @@ use windmill_common::{
     worker::CLOUD_HOSTED,
 };
 
-use crate::var_resource_cache::{cache_variable, get_cached_variable};
+use crate::var_resource_cache::{
+    auth_identity, cache_variable, get_cached_variable, CachedVariable,
+};
 use lazy_static::lazy_static;
 use serde::Deserialize;
 use sqlx::{Acquire, Postgres, Transaction};
@@ -1230,15 +1232,55 @@ fn replace_path(v: serde_json::Value, path: &str, npath: &str) -> Value {
     }
 }
 
+/// Emit the `variables.decrypt_secret` audit event for a secret-variable read. Run on both
+/// the cache-miss and cache-hit paths so `allow_cache` never skips secret-access auditing.
+async fn audit_decrypt_secret(
+    db_with_opt_authed: &DbWithOptAuthed<'_, ApiAuthed>,
+    w_id: &str,
+    path: &str,
+) -> Result<()> {
+    let mut tx = db_with_opt_authed.db().begin().await?;
+    audit_log(
+        &mut *tx,
+        db_with_opt_authed,
+        "variables.decrypt_secret",
+        ActionKind::Execute,
+        w_id,
+        Some(path),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
 pub async fn get_value_internal<'a>(
     db_with_opt_authed: &'a DbWithOptAuthed<'a, ApiAuthed>,
     w_id: &str,
     path: &str,
     allow_cache: bool,
 ) -> Result<String> {
-    if allow_cache {
-        if let Some(cached_variable) = get_cached_variable(&w_id, &path) {
-            return Ok(cached_variable);
+    // Scope the cache to the caller's full authorization identity (not just email): the
+    // cached value is the decrypted variable, resolved under this caller's RLS context.
+    let cache_identity = allow_cache.then(|| match db_with_opt_authed.authed() {
+        Some(authed) => auth_identity(authed),
+        None => format!("\0system:{}", db_with_opt_authed.email()),
+    });
+
+    if let Some(identity) = cache_identity.as_deref() {
+        if let Some(cached) = get_cached_variable(&w_id, &path, identity) {
+            // A cache hit must be observably equivalent to a miss: re-run the per-read side
+            // effects a secret read performs (the `variables.decrypt_secret` audit and
+            // running-job secret registration) so `allow_cache` never silently skips them.
+            if cached.is_secret {
+                audit_decrypt_secret(db_with_opt_authed, &w_id, &path).await?;
+                if !cached.value.is_empty() {
+                    windmill_common::sensitive_log_masks::register_secret_for_all_running_jobs(
+                        &cached.value,
+                    );
+                }
+            }
+            return Ok(cached.value);
         }
     }
 
@@ -1260,19 +1302,7 @@ pub async fn get_value_internal<'a>(
     };
 
     let r = if variable.is_secret {
-        // let audit_author =
-        let mut tx = db_with_opt_authed.db().begin().await?;
-        audit_log(
-            &mut *tx,
-            db_with_opt_authed,
-            "variables.decrypt_secret",
-            ActionKind::Execute,
-            &w_id,
-            Some(&variable.path),
-            None,
-        )
-        .await?;
-        tx.commit().await?;
+        audit_decrypt_secret(db_with_opt_authed, &w_id, &variable.path).await?;
 
         let value = variable.value;
         if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
@@ -1308,9 +1338,16 @@ pub async fn get_value_internal<'a>(
         windmill_common::sensitive_log_masks::register_secret_for_all_running_jobs(&r);
     }
 
-    // Cache the result when explicitly allowed and caching appropriate
-    if allow_cache {
-        cache_variable(&w_id, &path, db_with_opt_authed.email(), r.clone());
+    // Cache the result when explicitly allowed. Secrets are cached too: their per-read side
+    // effects (audit + running-job registration) are re-run on a hit (see the hit path above),
+    // and `is_secret` is stored so the hit knows to do so.
+    if let Some(identity) = cache_identity.as_deref() {
+        cache_variable(
+            &w_id,
+            &path,
+            identity,
+            CachedVariable { value: r.clone(), is_secret: variable.is_secret },
+        );
     }
 
     Ok(r)

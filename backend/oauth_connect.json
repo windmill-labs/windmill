@@ -154,32 +154,61 @@
   "zoho": {
     "auth_url": "https://accounts.zoho.com/oauth/v2/auth",
     "token_url": "https://accounts.zoho.com/oauth/v2/token",
-    "scopes": [
-      "ZohoAssist.sessionapi.ALL"
-    ],
+    "scopes": ["ZohoAssist.sessionapi.ALL"],
     "extra_params": {
       "access_type": "offline"
     }
   },
-  "snowflake_oauth": {},
+  "snowflake_oauth": {
+    "connect_config_template": {
+      "display_name": "Snowflake",
+      "label": "Snowflake Account Identifier",
+      "placeholder": "<orgname>-<account_name>",
+      "help_url": "https://docs.snowflake.com/en/user-guide/admin-account-identifier#using-an-account-name-as-an-identifier",
+      "auth_url": "https://{instance}.snowflakecomputing.com/oauth/authorize",
+      "token_url": "https://{instance}.snowflakecomputing.com/oauth/token-request",
+      "req_body_auth": false,
+      "extra_params_key": "account_identifier",
+      "resource_mapping": { "account_identifier": "{instance}" }
+    }
+  },
   "apify": {
     "auth_url": "https://console.apify.com/authorize/oauth",
     "token_url": "https://console-backend.apify.com/oauth/apps/token",
-    "scopes": [
-      "profile",
-      "full_api_access"
-    ],
+    "scopes": ["profile", "full_api_access"],
     "extra_params": {}
   },
   "docusign": {
     "auth_url": "https://account.docusign.com/oauth/auth",
     "token_url": "https://account.docusign.com/oauth/token",
-    "scopes": [
-      "signature"
-    ],
+    "scopes": ["signature"],
     "sandbox": {
       "auth_url": "https://account-d.docusign.com/oauth/auth",
       "token_url": "https://account-d.docusign.com/oauth/token"
+    }
+  },
+  "salesforce": {
+    "auth_url": "https://login.salesforce.com/services/oauth2/authorize",
+    "token_url": "https://login.salesforce.com/services/oauth2/token",
+    "scopes": ["api", "refresh_token", "offline_access"],
+    "sandbox": {
+      "auth_url": "https://test.salesforce.com/services/oauth2/authorize",
+      "token_url": "https://test.salesforce.com/services/oauth2/token"
+    }
+  },
+  "servicenow": {
+    "connect_config_template": {
+      "display_name": "ServiceNow",
+      "label": "ServiceNow Instance",
+      "placeholder": "<instance> (e.g. dev12345)",
+      "help_url": "https://www.servicenow.com/docs/bundle/zurich-platform-security/page/administer/security/concept/c_OAuthApplications.html",
+      "auth_url": "https://{instance}.service-now.com/oauth_auth.do",
+      "token_url": "https://{instance}.service-now.com/oauth_token.do",
+      "req_body_auth": true,
+      "strip_suffix": ".service-now.com",
+      "resource_mapping": {
+        "instance_url": "https://{instance}.service-now.com"
+      }
     }
   }
 }

@@ -297,7 +297,9 @@ export async function handleFile(
   if (
     !isAppInlineScriptPath(path) &&
     !isFlowInlineScriptPath(path) &&
-    !isRawAppBackendPath(path) &&
+    // Raw-app files (frontend included) belong to the app bundle, never
+    // standalone scripts — pushed via pushRawApp, not here.
+    !isRawAppPath(path) &&
     (!isScriptModulePath(path) || moduleEntryPoint) &&
     exts.some((exts) => path.endsWith(exts))
   ) {

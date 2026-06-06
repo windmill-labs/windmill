@@ -351,6 +351,28 @@
 		})
 	}
 
+	async function openDiffDrawer() {
+		if (!savedApp) {
+			return
+		}
+
+		// deployedValue should be syncronized when we open Diff
+		await syncWithDeployed()
+
+		diffDrawer?.openDrawer()
+		diffDrawer?.setDiff({
+			mode: 'normal',
+			deployed: deployedValue ?? savedApp,
+			current: {
+				summary: summary,
+				value: app,
+				path: newEditedPath || savedApp.path,
+				policy,
+				custom_path: customPath
+			}
+		})
+	}
+
 	async function updateApp(npath: string) {
 		if (!app) {
 			sendUserToast(`App hasn't been loaded yet`, true)
@@ -493,32 +515,6 @@
 			action: () => {
 				publishToHubDrawerOpen = true
 			}
-		},
-		{
-			displayName: 'Diff',
-			icon: DiffIcon,
-			action: async () => {
-				if (!savedApp) {
-					return
-				}
-
-				// deployedValue should be syncronized when we open Diff
-				await syncWithDeployed()
-
-				diffDrawer?.openDrawer()
-				diffDrawer?.setDiff({
-					mode: 'normal',
-					deployed: deployedValue ?? savedApp,
-					current: {
-						summary: summary,
-						value: app,
-						path: newEditedPath || savedApp.path,
-						policy,
-						custom_path: customPath
-					}
-				})
-			},
-			disabled: !savedApp
 		}
 	])
 
@@ -754,6 +750,18 @@
 				></Button>
 			{/snippet}
 		</DropdownV2>
+
+		<Button
+			variant="default"
+			unifiedSize="md"
+			on:click={() => openDiffDrawer()}
+			disabled={!savedApp}
+			iconOnly={compactTopbar}
+			title="Diff"
+			startIcon={{ icon: DiffIcon }}
+		>
+			Diff
+		</Button>
 
 		<div class="{compactTopbar ? 'hidden' : 'hidden md:inline'} relative overflow-visible">
 			<Button

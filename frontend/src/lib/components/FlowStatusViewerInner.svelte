@@ -28,6 +28,7 @@
 	import ModuleStatus from './ModuleStatus.svelte'
 	import { clone, isScriptPreview, msToSec, readFieldsRecursively, truncateRev } from '$lib/utils'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
+	import { appendViewToken } from '$lib/viewToken'
 	import JobArgs from './JobArgs.svelte'
 	import { ChevronDown, Download, ExternalLink, Hourglass } from 'lucide-svelte'
 	import { deepEqual } from 'fast-equals'
@@ -1839,7 +1840,9 @@
 				style="min-height: {minTabHeight}px"
 			>
 				{#if !hideDownloadLogs && !isReplay && job?.id}
-					{@const logsApiPath = `/w/${workspace}/jobs_u/get_flow_all_logs/${job.id}`}
+					{@const logsApiPath = appendViewToken(
+						`/w/${workspace}/jobs_u/get_flow_all_logs/${job.id}`
+					)}
 					{@const logsName = `windmill_flow_logs_${job.id}.txt`}
 					<div class="flex justify-end p-1">
 						{#if shouldDownloadViaClient()}

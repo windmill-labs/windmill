@@ -13,6 +13,7 @@
 		type ResourceType
 	} from '$lib/gen'
 	import { emptyString, truncateRev, urlize } from '$lib/utils'
+	import oauthConnectRegistry from '$oauth_connect_registry'
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import Path from './Path.svelte'
 	import { Button, Skeleton } from './common'
@@ -489,12 +490,25 @@
 				throw Error(`Resource at path ${path} already exists. Delete it or pick another path`)
 			}
 
-			if (resourceType == 'snowflake_oauth') {
-				const account_identifier = extra_params.find(([key, _]) => key == 'account_identifier')
-				if (account_identifier) {
-					args['account_identifier'] = account_identifier[1]
+			// Per-instance OAuth providers (Snowflake, ServiceNow, …): copy the
+			// admin-configured instance from the OAuth client's extra_params into the
+			// resource args, per the registry template's resource_mapping (e.g.
+			// ServiceNow -> instance_url: https://{instance}.service-now.com). Generic
+			// so a new per-instance provider needs only a registry entry.
+			const connectTemplate = (oauthConnectRegistry as Record<string, any>)[resourceType]
+				?.connect_config_template
+			if (connectTemplate?.resource_mapping) {
+				const instanceKey = connectTemplate.extra_params_key ?? 'instance'
+				const found = extra_params.find(([key, _]) => key === instanceKey)
+				if (found) {
+					for (const [argField, valueTemplate] of Object.entries(
+						connectTemplate.resource_mapping as Record<string, string>
+					)) {
+						args[argField] = valueTemplate.replaceAll('{instance}', found[1])
+					}
 				}
-			} else if (resourceType === 'quickbooks' && responseExtra['realmId']) {
+			}
+			if (resourceType === 'quickbooks' && responseExtra['realmId']) {
 				args['realmId'] = responseExtra['realmId']
 			}
 

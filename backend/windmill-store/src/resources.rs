@@ -17,7 +17,7 @@ use windmill_common::db::DB;
 use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
 
 use crate::secret_backend_ext::rename_vault_secret;
-use crate::var_resource_cache::{cache_resource, get_cached_resource};
+use crate::var_resource_cache::{auth_identity, cache_resource, get_cached_resource};
 use windmill_common::utils::{escape_ilike_pattern, BulkDeleteRequest};
 use windmill_common::webhook::{WebhookMessage, WebhookShared};
 
@@ -564,8 +564,18 @@ pub async fn get_resource_value_interpolated_internal<'a>(
         return Ok(Some(pg_creds));
     }
 
-    if allow_cache {
-        if let Some(cached_value) = get_cached_resource(&workspace, &path) {
+    // Scope the cache to the caller's full authorization identity (not just email): the
+    // cached value is already decrypted/interpolated under this caller's RLS context, so it
+    // must never be served to a context that resolves to different permissions. Only
+    // job-independent values are ever stored (see the write below), so a hit is always safe
+    // to return regardless of the current `job_id`.
+    let cache_identity = allow_cache.then(|| match db_with_opt_authed.authed() {
+        Some(authed) => auth_identity(authed),
+        None => format!("\0system:{}", db_with_opt_authed.email()),
+    });
+
+    if let Some(identity) = cache_identity.as_deref() {
+        if let Some(cached_value) = get_cached_resource(&workspace, &path, identity) {
             return Ok(Some(cached_value));
         }
     }
@@ -589,17 +599,24 @@ pub async fn get_resource_value_interpolated_internal<'a>(
 
     let value = not_found_if_none(value_o, "Resource", path)?;
     if let Some(value) = value {
-        let r = transform_json_value(
+        // Track whether interpolation pulled in a `$WM_*` contextual variable. If it did, the
+        // result is job-dependent (and may embed `$WM_TOKEN`) and must not be cached; if not,
+        // it's job-independent and safe to cache and to serve to any job context.
+        let used_job_context = std::sync::atomic::AtomicBool::new(false);
+        let r = transform_json_value_tracked(
             &db_with_opt_authed,
             workspace,
             value,
             &job_id,
             token_for_context,
             0,
+            &used_job_context,
         )
         .await?;
-        if allow_cache {
-            cache_resource(&workspace, &path, r.clone());
+        if let Some(identity) = cache_identity.as_deref() {
+            if !used_job_context.load(std::sync::atomic::Ordering::Relaxed) {
+                cache_resource(&workspace, &path, identity, r.clone());
+            }
         }
         Ok(Some(r))
     } else {
@@ -615,14 +632,41 @@ pub async fn get_resource_value_interpolated_internal<'a>(
 // access could otherwise use to crash the API process.
 pub const MAX_RESOURCE_INTERPOLATION_DEPTH: u8 = 50;
 
-#[async_recursion]
 pub async fn transform_json_value(
-    db_with_opt_authed: &DbWithOptAuthed<ApiAuthed>,
+    db_with_opt_authed: &DbWithOptAuthed<'_, ApiAuthed>,
     workspace: &str,
     v: Value,
     job_id: &Option<Uuid>,
     token: Option<&str>,
     depth: u8,
+) -> Result<Value> {
+    // Discard the job-context flag; callers that need it use `transform_json_value_tracked`.
+    let used_job_context = std::sync::atomic::AtomicBool::new(false);
+    transform_json_value_tracked(
+        db_with_opt_authed,
+        workspace,
+        v,
+        job_id,
+        token,
+        depth,
+        &used_job_context,
+    )
+    .await
+}
+
+/// Like [`transform_json_value`], but records into `used_job_context` whether the value
+/// contains a `$WM_*` contextual variable (resolved from `job_id`/`token`). A value that did
+/// not is job-independent and safe to cache; one that did must not be cached or shared across
+/// jobs.
+#[async_recursion]
+pub async fn transform_json_value_tracked(
+    db_with_opt_authed: &DbWithOptAuthed<'_, ApiAuthed>,
+    workspace: &str,
+    v: Value,
+    job_id: &Option<Uuid>,
+    token: Option<&str>,
+    depth: u8,
+    used_job_context: &std::sync::atomic::AtomicBool,
 ) -> Result<Value> {
     if depth >= MAX_RESOURCE_INTERPOLATION_DEPTH {
         return Err(Error::internal_err(format!(
@@ -666,15 +710,35 @@ pub async fn transform_json_value(
             tx.commit().await?;
             let v = not_found_if_none(v, "Resource", path)?;
             if let Some(v) = v {
-                transform_json_value(db_with_opt_authed, workspace, v, job_id, token, depth + 1)
-                    .await
+                transform_json_value_tracked(
+                    db_with_opt_authed,
+                    workspace,
+                    v,
+                    job_id,
+                    token,
+                    depth + 1,
+                    used_job_context,
+                )
+                .await
             } else {
                 Ok(Value::Null)
             }
         }
-        Value::String(y) if y.starts_with("$") && job_id.is_some() => {
+        // `$WM_*` is the reserved contextual-variable namespace (`$WM_TOKEN`, `$WM_JOB_ID`,
+        // ...); its resolved value depends on the job, so a value containing one is
+        // job-dependent and must never be cached — including on a no-job read, where the
+        // placeholder is left unresolved (caching it would then serve a stale placeholder to a
+        // later job read). Any other `$...` string (custom workspace envs, `$5.00`, `$HOME`, jq
+        // paths) is NOT interpolated here — it resolves to itself regardless of context and so
+        // stays cacheable (handled by the catch-all below). Note: custom workspace envs are
+        // intentionally not resolved inside resource values (they remain available to scripts).
+        Value::String(y) if y.starts_with("$WM_") => {
+            used_job_context.store(true, std::sync::atomic::Ordering::Relaxed);
+            let Some(job_id) = *job_id else {
+                // No job context to resolve against; leave the placeholder unchanged.
+                return Ok(Value::String(y));
+            };
             let mut tx = db_with_opt_authed.begin().await?;
-            let job_id = job_id.unwrap();
             let job = sqlx::query!(
                 "SELECT
                     v2_job.permissioned_as_email,
@@ -745,13 +809,14 @@ pub async fn transform_json_value(
         Value::Array(mut arr) if depth <= 2 && arr.len() <= 1000 => {
             for i in 0..arr.len() {
                 let val = std::mem::take(&mut arr[i]);
-                arr[i] = transform_json_value(
+                arr[i] = transform_json_value_tracked(
                     db_with_opt_authed,
                     workspace,
                     val,
                     job_id,
                     token,
                     depth + 1,
+                    used_job_context,
                 )
                 .await?;
             }
@@ -768,13 +833,14 @@ pub async fn transform_json_value(
         }
         Value::Object(mut m) => {
             for (a, b) in m.clone().into_iter() {
-                let v = transform_json_value(
+                let v = transform_json_value_tracked(
                     db_with_opt_authed,
                     workspace,
                     b,
                     job_id,
                     token,
                     depth + 1,
+                    used_job_context,
                 )
                 .await?;
                 m.insert(a.clone(), v);

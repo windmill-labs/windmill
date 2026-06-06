@@ -269,6 +269,60 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
+			label: 'Sandbox image max size (MB)',
+			key: 'sandbox_image_max_size_mb',
+			description:
+				'Reject a <code># sandbox &lt;image&gt;</code> whose compressed download size exceeds this many MB, before any layer is downloaded. Leave empty for no limit.',
+			fieldType: 'number',
+			placeholder: 'no limit',
+			storage: 'setting'
+		},
+		{
+			label: 'Sandbox image cache cap (MB)',
+			key: 'sandbox_image_cache_max_mb',
+			description:
+				"Best-effort cap on the worker's cached sandbox rootfs tars. When exceeded, the oldest (by creation time) are evicted after a run. Leave empty for unbounded.",
+			fieldType: 'number',
+			placeholder: 'unbounded',
+			storage: 'setting'
+		},
+		{
+			label: 'Sandbox image pull policy',
+			key: 'sandbox_image_pull_policy',
+			description:
+				'When to re-pull a <code># sandbox</code> image. <strong>newer</strong> (default) re-pulls only when the registry digest changed, so moving tags like <code>:latest</code> stay fresh without re-downloading unchanged layers. <strong>missing</strong> pulls only if absent (fastest, tags can go stale). <strong>always</strong> re-checks every job.',
+			fieldType: 'select',
+			storage: 'setting',
+			placeholder: 'newer',
+			defaultValue: () => 'newer',
+			select_items: [
+				{ label: 'Newer (default)', value: 'newer' },
+				{ label: 'Missing', value: 'missing' },
+				{ label: 'Always', value: 'always' },
+				{ label: 'Never', value: 'never' }
+			]
+		},
+		{
+			label: 'Sandbox image default registry',
+			key: 'sandbox_image_default_registry',
+			description:
+				'If set, unqualified <code># sandbox</code> images (e.g. <code>alpine</code>) are pulled from this registry instead of <code>docker.io</code>. Fully-qualified refs (e.g. <code>ghcr.io/org/img</code>) are unaffected. Example: <code>myregistry.example.com</code>.',
+			fieldType: 'text',
+			placeholder: 'docker.io',
+			storage: 'setting'
+		},
+		{
+			label: 'Sandbox registry auth',
+			key: 'sandbox_registry_auth',
+			description:
+				'Credentials for private registries used by <code># sandbox</code> images, in docker <code>config.json</code> / <code>auth.json</code> format. Written to a per-job <code>DOCKER_CONFIG</code> dir (removed with the job) and used by crane for the pull.',
+			fieldType: 'codearea',
+			codeAreaLang: 'json',
+			placeholder:
+				'{\n  "auths": {\n    "myregistry.example.com": {\n      "auth": "BASE64(username:password)"\n    }\n  }\n}',
+			storage: 'setting'
+		},
+		{
 			label: 'Default timeout',
 			key: 'job_default_timeout',
 			description:

@@ -4,7 +4,6 @@
 </script>
 
 <script lang="ts">
-	import { isCloudHosted } from '$lib/cloud'
 	import { sendUserToast } from '$lib/toast'
 	import FlowScriptPickerQuick from '../pickers/FlowScriptPickerQuick.svelte'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
@@ -401,24 +400,6 @@
 					{label}
 					lang={lang == 'docker' ? 'bash' : lang}
 					on:click={() => {
-						if (lang == 'docker') {
-							if (isCloudHosted()) {
-								sendUserToast(
-									'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
-									true,
-									[
-										{
-											label: 'Learn more',
-											callback: () => {
-												window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
-											}
-										}
-									]
-								)
-								return
-							}
-						}
-
 						dispatch('new', {
 							kind: selectedKind,
 							inlineScript: {

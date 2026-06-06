@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ExternalLink, Wand2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
-	import { getNonStreamingCompletion } from './lib'
+	import { getNonStreamingMetadataCompletion } from './lib'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { base } from '$lib/base'
@@ -95,7 +95,7 @@
 				}
 			]
 
-			let response = await getNonStreamingCompletion(messages, abortController)
+			let response = await getNonStreamingMetadataCompletion(messages, abortController)
 
 			// Strip markdown fences if present
 			response = response.trim()
@@ -151,7 +151,7 @@
 								generateResource()
 							}
 						}}
-					/>
+					></textarea>
 					<Button
 						size="xs"
 						color="light"

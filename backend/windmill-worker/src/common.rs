@@ -68,6 +68,16 @@ mount {
 #[cfg(not(debug_assertions))]
 pub const DEV_CONF_NSJAIL: &str = "";
 
+/// Turn a JSON value into the string a shell/CLI arg should receive: a JSON string
+/// becomes its inner value, anything else is re-serialized compactly.
+pub(crate) fn raw_to_string(x: &str) -> String {
+    match serde_json::from_str::<serde_json::Value>(x) {
+        Ok(serde_json::Value::String(x)) => x,
+        Ok(x) => serde_json::to_string(&x).unwrap_or_else(|_| String::new()),
+        _ => String::new(),
+    }
+}
+
 pub async fn build_args_map<'a>(
     job: &'a MiniPulledJob,
     client: &AuthedClient,

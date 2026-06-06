@@ -283,6 +283,24 @@ pub async fn shutdown_signal(
         Ok(())
     }
 
+    // Defined for the whole non-unix scope (not just windows) so it can be a
+    // plain `tokio::select!` branch: that macro does not accept `#[cfg(...)]`
+    // attributes on individual branches. On non-windows non-unix targets the
+    // future never resolves, so the branch is effectively inert there.
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    async fn ctrl_break() -> std::io::Result<()> {
+        #[cfg(windows)]
+        {
+            tokio::signal::windows::ctrl_break()?.recv().await;
+            Ok(())
+        }
+        #[cfg(not(windows))]
+        {
+            std::future::pending::<()>().await;
+            Ok(())
+        }
+    }
+
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     tokio::select! {
         _ = terminate() => {
@@ -298,7 +316,12 @@ pub async fn shutdown_signal(
 
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     tokio::select! {
-        _ = tokio::signal::ctrl_c() => {},
+        _ = tokio::signal::ctrl_c() => {
+            tracing::info!("shutdown monitor received ctrl-c");
+        },
+        _ = ctrl_break() => {
+            tracing::info!("shutdown monitor received ctrl-break");
+        },
         _ = rx.recv() => {
             tracing::info!("shutdown monitor received killpill");
         },
@@ -319,6 +342,9 @@ pub async fn shutdown_signal(
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 tracing::error!("2nd shutdown monitor received ctrl-c")
+            },
+            _ = ctrl_break() => {
+                tracing::error!("2nd shutdown monitor received ctrl-break")
             },
         }
 

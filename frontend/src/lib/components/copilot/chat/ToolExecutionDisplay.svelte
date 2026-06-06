@@ -4,7 +4,7 @@
 	import { getAiChatManager } from './aiChatManagerContext'
 
 	const aiChatManager = getAiChatManager()
-	import type { ToolDisplayMessage } from './shared'
+	import { isActiveUserQuestion, type ToolDisplayMessage } from './shared'
 	import { twMerge } from 'tailwind-merge'
 	import ToolContentDisplay from './ToolContentDisplay.svelte'
 	import ToolMessageActions from './ToolMessageActions.svelte'
@@ -41,13 +41,7 @@
 	)
 
 	const activeUserQuestion = $derived(
-		message.userQuestion &&
-			message.isLoading &&
-			!message.error &&
-			!message.userQuestion.selectedChoice &&
-			!message.userQuestion.canceled
-			? message.userQuestion
-			: undefined
+		isActiveUserQuestion(message) ? message.userQuestion : undefined
 	)
 </script>
 
