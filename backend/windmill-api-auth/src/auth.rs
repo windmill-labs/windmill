@@ -781,31 +781,6 @@ pub async fn resolve_opt_job_authed(
     Err((Error::NotAuthorized("Unauthorized".to_string()), parts))
 }
 
-/// System-minted token label prefixes (and exact labels) that map to a *trusted*
-/// `username_override` in [`username_override_from_label`]. Tokens with these labels are
-/// only ever created internally (native-trigger webhooks, ephemeral end-user/script/lsp
-/// sessions, etc.). They MUST NOT be creatable through the user-facing token API, otherwise
-/// a member could forge another principal's identity and bypass `created_by`-based checks
-/// (e.g. job read access). Enforced by [`is_reserved_token_label`].
-const RESERVED_TOKEN_LABEL_PREFIXES: &[&str] = &[
-    "ephemeral-webhook-",
-    "webhook-",
-    "http-",
-    "email-",
-    "ws-",
-    "ephemeral-script-end-user-",
-];
-const RESERVED_TOKEN_LABEL_EXACT: &[&str] = &["ephemeral-script", "session", "Ephemeral lsp token"];
-
-/// Returns true if `label` is reserved for system-minted tokens and must be rejected when
-/// supplied through the user-facing token creation API. See [`RESERVED_TOKEN_LABEL_PREFIXES`].
-pub fn is_reserved_token_label(label: &str) -> bool {
-    RESERVED_TOKEN_LABEL_EXACT.contains(&label)
-        || RESERVED_TOKEN_LABEL_PREFIXES
-            .iter()
-            .any(|p| label.starts_with(p))
-}
-
 fn username_override_from_label(label: Option<String>) -> Option<String> {
     match label {
         Some(label)

@@ -1001,22 +1001,38 @@ async fn require_job_read_access(
     // Fast path: you can always read a job you launched. This is also load-bearing
     // for apps — a component job runs as the app policy's `permissioned_as`, but its
     // `created_by` is the launching viewer, so the RLS probe below would hide it.
-    //
-    // `username_override` is derived from the token *label* (`username_override_from_label`).
-    // System-minted labels (webhook-/http-/email-/ws-/ephemeral-*) are a trustworthy
-    // identity because users cannot create tokens with those labels (enforced at token
-    // creation via `is_reserved_token_label`). The generic `label-*` override, however,
-    // comes from a fully user-controlled label with no uniqueness or ownership check —
-    // matching it against `created_by` would let any member create a colliding token and
-    // read another principal's jobs (IDOR, incl. results/args/logs with resolved secrets).
-    // So a `label-*` override never satisfies the fast path; those callers fall through to
-    // the RLS probe below under their real identity (`authed.username`).
-    let override_grants_read = authed
+    if created_by == authed.username {
+        return Ok(());
+    }
+
+    // `username_override` is derived from the token *label* (`username_override_from_label`),
+    // which is fully user-controlled with no uniqueness/ownership check (webhook-/http-/
+    // email-/ws- trigger tokens, `ephemeral-script-end-user-*`, and the generic `label-*`
+    // all flow through it). A bare `username_override == created_by` match is therefore
+    // forgeable: any member can mint a token with a colliding label and read another
+    // principal's jobs (IDOR — results/args/logs with resolved secrets). Bind the grant to
+    // a non-forgeable attribute instead: the job must actually run as the caller's own
+    // identity, i.e. its `permissioned_as_email` (the token owner's email, never set from
+    // the label) equals `authed.email`. This still admits every legitimate same-owner
+    // re-read (trigger tokens reading their own webhook/http/email jobs, the
+    // ephemeral-script-end-user worker token, generic labeled tokens) while denying
+    // cross-principal collisions. The DB hit only happens when an override is present and
+    // matches, so the common session/token path stays query-free.
+    if authed
         .username_override
         .as_deref()
-        .is_some_and(|u| u == created_by && !u.starts_with("label-"));
-    if created_by == authed.username || override_grants_read {
-        return Ok(());
+        .is_some_and(|u| u == created_by)
+    {
+        let job_email = sqlx::query_scalar!(
+            "SELECT permissioned_as_email FROM v2_job WHERE id = $1 AND workspace_id = $2",
+            job_id,
+            w_id,
+        )
+        .fetch_optional(db)
+        .await?;
+        if job_email.as_deref() == Some(authed.email.as_str()) {
+            return Ok(());
+        }
     }
 
     // Share read link: a valid view token minted by someone with read access grants

@@ -1,11 +1,15 @@
 //! Regression tests for GHSA-8x8x-88qc-qp4r: token label collision bypassing job read
 //! access control (IDOR).
 //!
-//! Two layers are covered:
-//! - System-minted token labels (webhook-/http-/email-/ws-/ephemeral-*) must not be
-//!   creatable through the user-facing token API (`is_reserved_token_label`).
-//! - A user-forgeable `label-*` override must not satisfy the `created_by` fast path in
-//!   `require_job_read_access`, while a legitimate self-read still resolves via RLS.
+//! `username_override` is derived from a fully user-controlled token label, so a bare
+//! `username_override == created_by` match in `require_job_read_access` is forgeable. The fix
+//! binds that fast path to a non-forgeable attribute — the job's `permissioned_as_email` (the
+//! token owner's email) must equal the caller's email. This:
+//! - denies a colliding-label token created by a different principal, while
+//! - still allowing a principal to re-read its own labeled-token jobs (incl. when RLS would
+//!   otherwise hide them), and
+//! - leaving user-facing webhook/http/email trigger token creation untouched (those labels
+//!   are created through the public token API by design).
 
 use serde_json::json;
 use sqlx::{Pool, Postgres};
@@ -31,23 +35,24 @@ async fn create_token_with_label(port: u16, caller_token: &str, label: &str) -> 
     .unwrap()
 }
 
-/// Insert a completed job whose `created_by` is a labeled-token identity, running in some
-/// principal's space (`runnable_path`/`permissioned_as`), so RLS visibility is governed by
-/// that path rather than by `created_by`.
+/// Insert a completed job with a labeled-token `created_by`, running as `permissioned_as`
+/// (email `permissioned_as_email`) with the given `runnable_path` (which governs RLS).
 async fn insert_labeled_job(
     db: &Pool<Postgres>,
     created_by: &str,
     runnable_path: &str,
     permissioned_as: &str,
+    permissioned_as_email: &str,
 ) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query(
-        "INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, runnable_path, kind, tag, args, visible_to_owner)
-         VALUES ($1, 'test-workspace', $2, $3, $4, 'script', 'deno', '{}'::jsonb, true)",
+        "INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, permissioned_as_email, runnable_path, kind, tag, args, visible_to_owner)
+         VALUES ($1, 'test-workspace', $2, $3, $4, $5, 'script', 'deno', '{}'::jsonb, true)",
     )
     .bind(id)
     .bind(created_by)
     .bind(permissioned_as)
+    .bind(permissioned_as_email)
     .bind(runnable_path)
     .execute(db)
     .await
@@ -63,72 +68,9 @@ async fn insert_labeled_job(
     id
 }
 
-/// Pure check of the reserved-label classifier (no DB / server needed).
-#[test]
-fn reserved_token_labels_are_recognized() {
-    // System-minted prefixes that map to a trusted username_override must be reserved.
-    for reserved in [
-        "webhook-foo",
-        "ephemeral-webhook-foo",
-        "http-bar",
-        "email-baz",
-        "ws-qux",
-        "ephemeral-script-end-user-admin",
-        "ephemeral-script",
-        "session",
-        "Ephemeral lsp token",
-    ] {
-        assert!(
-            windmill_api_auth::is_reserved_token_label(reserved),
-            "{reserved:?} must be treated as a reserved system label"
-        );
-    }
-
-    // Ordinary user labels (and the generic `label-*` form, which is not a reserved
-    // *prefix* — it is produced internally, never accepted verbatim) must be allowed.
-    for ok in ["myci", "deploy", "label-foo", "webhookish", "", "http"] {
-        assert!(
-            !windmill_api_auth::is_reserved_token_label(ok),
-            "{ok:?} must not be treated as reserved"
-        );
-    }
-}
-
-/// The user-facing token creation API must reject system-minted labels but accept ordinary
-/// ones.
-#[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_reserved_label_rejected_by_create_api(db: Pool<Postgres>) -> anyhow::Result<()> {
-    initialize_tracing().await;
-    let server = ApiServer::start(db.clone()).await?;
-    let port = server.addr.port();
-
-    // A non-admin member trying to forge a system identity is rejected.
-    for reserved in [
-        "webhook-evil",
-        "http-evil",
-        "ephemeral-script-end-user-admin",
-    ] {
-        let resp = create_token_with_label(port, "SECRET_TOKEN_2", reserved).await;
-        assert_eq!(
-            resp.status(),
-            400,
-            "creating a token with reserved label {reserved:?} must be rejected"
-        );
-    }
-
-    // An ordinary label still works.
-    let resp = create_token_with_label(port, "SECRET_TOKEN_2", "my-ci-token").await;
-    assert_eq!(
-        resp.status(),
-        201,
-        "creating a token with an ordinary label must succeed"
-    );
-
-    Ok(())
-}
-
-/// The core IDOR: an operator who creates a token whose label collides with another
-/// principal's labeled-token identity must NOT be able to read that principal's job.
+/// The core IDOR: an operator who mints a token whose label collides with another
+/// principal's labeled-token identity must NOT be able to read that principal's job — the
+/// `permissioned_as_email` of that job is the victim's, not the attacker's.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_label_collision_does_not_grant_job_read(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -136,12 +78,13 @@ async fn test_label_collision_does_not_grant_job_read(db: Pool<Postgres>) -> any
     let port = server.addr.port();
     let base = format!("http://localhost:{port}/api/w/test-workspace/jobs");
 
-    // A job submitted with a token labeled "collide", running in the admin's space.
+    // A job submitted with a token labeled "collide", running as the admin (test-user).
     let job_id = insert_labeled_job(
         &db,
         "label-collide",
         "u/test-user/secret_script",
         "u/test-user",
+        "test@windmill.dev",
     )
     .await;
 
@@ -152,13 +95,9 @@ async fn test_label_collision_does_not_grant_job_read(db: Pool<Postgres>) -> any
     )
     .send()
     .await?;
-    assert_eq!(
-        resp.status(),
-        200,
-        "admin must still be able to read the job"
-    );
+    assert_eq!(resp.status(), 200, "admin must still read the job");
 
-    // The attacker (non-admin member) mints a colliding-label token.
+    // The attacker (a different member, test-user-2) mints a colliding-label token.
     let resp = create_token_with_label(port, "SECRET_TOKEN_2", "collide").await;
     assert_eq!(resp.status(), 201);
     let attacker_token = resp.text().await?;
@@ -185,8 +124,9 @@ async fn test_label_collision_does_not_grant_job_read(db: Pool<Postgres>) -> any
     Ok(())
 }
 
-/// The fix must not regress the legitimate case: a member reading back their own
-/// labeled-token job in their own space still works via RLS (no fast path needed).
+/// The fix must not regress the legitimate case: a principal re-reading its own
+/// labeled-token job is granted via the email-bound fast path, even when RLS would hide the
+/// job (the runnable lives in another user's space the caller has no RLS path to).
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_legit_labeled_self_read_still_works(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -194,16 +134,18 @@ async fn test_legit_labeled_self_read_still_works(db: Pool<Postgres>) -> anyhow:
     let port = server.addr.port();
     let base = format!("http://localhost:{port}/api/w/test-workspace/jobs");
 
-    // A job created by test-user-2's labeled token, in test-user-2's own space.
+    // Created by test-user-2's labeled token, running as test-user-2, but the runnable lives
+    // under u/test-user so RLS alone would not reveal it to test-user-2 — the grant must come
+    // from the email-bound fast path.
     let job_id = insert_labeled_job(
         &db,
         "label-mine",
-        "u/test-user-2/my_script",
+        "u/test-user/shared_script",
         "u/test-user-2",
+        "test2@windmill.dev",
     )
     .await;
 
-    // test-user-2 mints a token with that same label and reads its own job.
     let resp = create_token_with_label(port, "SECRET_TOKEN_2", "mine").await;
     assert_eq!(resp.status(), 201);
     let token = resp.text().await?;
@@ -217,8 +159,34 @@ async fn test_legit_labeled_self_read_still_works(db: Pool<Postgres>) -> anyhow:
     assert_eq!(
         resp.status(),
         200,
-        "owner must still read their own labeled-token job via RLS"
+        "owner must still read their own labeled-token job via the email-bound fast path"
     );
+
+    Ok(())
+}
+
+/// P1 regression guard: the user-facing token API must keep accepting the labels that the
+/// webhook / http-route / email trigger panels mint (e.g. `webhook-<user>-<rand>`). The fix
+/// must not reserve those prefixes.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_trigger_token_labels_still_creatable(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    for label in [
+        "webhook-test-user-2-ab12",
+        "http-test-user-2-cd34",
+        "email-test-user-2-ef56",
+        "my-ci-token",
+    ] {
+        let resp = create_token_with_label(port, "SECRET_TOKEN_2", label).await;
+        assert_eq!(
+            resp.status(),
+            201,
+            "creating a token with label {label:?} must succeed"
+        );
+    }
 
     Ok(())
 }
