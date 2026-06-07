@@ -97,7 +97,7 @@
 			// Bypass the autosave debouncer so the fork lands on the
 			// server BEFORE we navigate. The destination route loads
 			// via `getDraft=true` and 404s if no draft yet exists at
-			// the fork path — the prior `UserDraft.save` call
+			// the fork path — `UserDraft.save` alone would have
 			// scheduled a debounced POST 1.5s out, so a fresh nav was
 			// always too early.
 			await UserDraftDbSyncer.save({
@@ -107,6 +107,12 @@
 				value,
 				immediate: true
 			})
+			// Close the banner BEFORE the navigation so the user sees the
+			// modal disappear on click. Without this the modal stays
+			// visible during the navigation tear-down — Svelte hasn't
+			// torn down the previous route's components by the time
+			// `goto` returns, so the banner lingers on top of the
+			// destination editor for a beat.
 			isOpen = false
 			goto(editPathFor(target))
 		} catch (e) {
@@ -122,6 +128,7 @@
 	title="Other users are currently working on {path}"
 	fixedWidth="sm"
 	fixedHeight="sm"
+	closeOnOutsideClick={!jsonOpen}
 >
 	<div class="flex flex-col w-full gap-4">
 		<div class="flex gap-3 items-start">

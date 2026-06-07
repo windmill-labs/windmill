@@ -17,6 +17,11 @@
 		fixedWidth?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
 		fixedHeight?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
 		contentClasses?: string
+		/** Close when the user clicks outside the modal body. Default
+		 * true. Set false when the caller stacks a child modal on top
+		 * and clicks "outside" the child would otherwise propagate
+		 * here and close the underlying modal. */
+		closeOnOutsideClick?: boolean
 		headerLeft?: import('svelte').Snippet
 		headerRight?: import('svelte').Snippet
 		children?: import('svelte').Snippet
@@ -33,6 +38,7 @@
 		fixedWidth = 'md',
 		fixedHeight = 'md',
 		contentClasses = '',
+		closeOnOutsideClick = true,
 		headerLeft,
 		headerRight,
 		children
@@ -64,6 +70,7 @@
 	}
 
 	function handleKeyDown(event: KeyboardEvent) {
+		if (!isOpen) return
 		if (event.key === 'Escape') {
 			event.preventDefault()
 			event.stopPropagation()
@@ -94,7 +101,9 @@
 						css?.popup?.class,
 						'wm-modal-form-popup'
 					)}
-					use:clickOutside={{ onClickOutside: () => close() }}
+					use:clickOutside={{
+						onClickOutside: () => closeOnOutsideClick && close()
+					}}
 				>
 					<List gap="md">
 						<div class="flex w-full">
