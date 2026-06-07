@@ -4,7 +4,9 @@
  * which reset actions are offered; the reset side-effects live at each call
  * site (route-specific state).
  */
+import { tick } from 'svelte'
 import { sendUserToast } from '$lib/toast'
+import { UserDraft } from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import type { UserDraftItemKind } from '$lib/gen'
 
@@ -67,6 +69,14 @@ export function notifyDraftLoaded(opts: {
 		{
 			label: 'Reset to deployed',
 			callback: async () => {
+				// Suspend the reactive sync effect around the whole reset
+				// flow: the route's callback wipes the in-memory handle
+				// then re-seeds it with the deployed payload, both of
+				// which would otherwise fire the autosave mirror and
+				// resurrect the draft we just deleted. We restart sync
+				// only after two ticks so the deployed-seed write has
+				// observably advanced `lastSerialized` first.
+				UserDraft.stopSync(opts.itemKind, opts.path, { workspace: opts.workspace })
 				UserDraftDbSyncer.save({
 					workspace: opts.workspace,
 					itemKind: opts.itemKind,
@@ -77,6 +87,10 @@ export function notifyDraftLoaded(opts: {
 					await opts.onResetToDeployed()
 				} catch (e: any) {
 					sendUserToast(`Could not reset to deployed: ${e?.body ?? e}`, true)
+				} finally {
+					await tick()
+					await tick()
+					UserDraft.restartSync(opts.itemKind, opts.path, { workspace: opts.workspace })
 				}
 			}
 		}
