@@ -352,16 +352,7 @@
 		// shouldn't POST to the server. The route's UserDraft handle is
 		// keyed by `userDraftPath` (the URL path), distinct from
 		// `initialPath` which is the editor-displayed path (empty for
-		// new drafts). Resumed in the async `.finally` so language
-		// switches AFTER bootstrap (which also call `initContent`) sync
-		// normally.
-		//
-		// NOTE: this is a best-effort partial defense — on warm in-app
-		// navs it suppresses the seed/template writes, but on a HARD
-		// PAGE RELOAD the Path widget's `$userStore`-gated mutation
-		// cascade lands AFTER our `restartSync` and still POSTs. Fixing
-		// that robustly needs a different "first user edit" signal
-		// (e.g. Monaco input event) that hasn't been wired up yet.
+		// new drafts).
 		UserDraft.stopSync('script', userDraftPath)
 		if (template === 'wac_python') {
 			script.modules = {
@@ -378,9 +369,47 @@
 				}
 			}
 		}
-		initContent(script.language, script.kind, template).finally(() => {
+		// Two cascades have to settle before sync resumes: the async
+		// `initContent` filling `script.content` from the template, AND
+		// the Path widget's `$workspaceStore && $userStore`-gated
+		// `initPath → reset → onMetaChange → bind:path` chain that
+		// auto-generates a friendly path for new drafts. Whichever lands
+		// last calls `tryRestart`; we await two ticks past it so the
+		// `bind:path` cascade itself observably settles before sync
+		// re-arms — without that gap, the auto-generated path is the
+		// first observable change post-restart and POSTs as a "user
+		// edit".
+		let initContentDone = false
+		let storesReady = !!($userStore && $workspaceStore)
+		let restarted = false
+		async function tryRestart() {
+			if (restarted || !initContentDone || !storesReady) return
+			// 500ms past initContent + stores-ready: the Path widget's
+			// `$workspaceStore && $userStore`-gated cascade (`initPath →
+			// await tick → reset → onMetaChange → bind:path`) lands well
+			// inside this window even on cold reload. Two `tick()`s were
+			// not enough in practice — the bind:path mutation fired ~100ms
+			// after `restartSync` and posted as a "user edit".
+			await new Promise((r) => setTimeout(r, 500))
+			if (restarted) return
+			restarted = true
 			UserDraft.restartSync('script', userDraftPath)
+		}
+		initContent(script.language, script.kind, template).finally(() => {
+			initContentDone = true
+			void tryRestart()
 		})
+		// Cold-reload path: the auth stores load over the network, so
+		// `storesReady` may flip from false → true after mount. The
+		// effect cleans itself up via the `restarted` guard.
+		if (!storesReady) {
+			$effect(() => {
+				if ($userStore && $workspaceStore) {
+					storesReady = true
+					untrack(() => void tryRestart())
+				}
+			})
+		}
 	}
 
 	async function isTemplateScript() {

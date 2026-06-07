@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
-	import { untrack } from 'svelte'
+	import { tick, untrack } from 'svelte'
 
 	import { AppService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -74,6 +74,29 @@
 	let templatePicker = $state(false)
 
 	const draftHandle = UserDraft.use<RawAppDraft>('raw_app', path)
+
+	/** True while the framework picker has been opened at least once in this
+	 *  mount — flips to false (and triggers the sync resume) when the picker
+	 *  closes (either after `onStart` or via the X). Decoupled from
+	 *  `templatePicker` itself so the watcher fires on the true → false
+	 *  edge instead of the initial-false render. */
+	let templatePickerHasBeenOpen = false
+	$effect(() => {
+		if (templatePicker) {
+			templatePickerHasBeenOpen = true
+		} else if (templatePickerHasBeenOpen) {
+			templatePickerHasBeenOpen = false
+			const ws = untrack(() => $workspaceStore)
+			const p = untrack(() => path)
+			// Two ticks past the picker close so the picker's `onStart`
+			// mirror to `draftHandle.draft` (and its own reactive
+			// settle) observably advances `lastSerialized` before sync
+			// re-arms — without that gap the very next change posts.
+			void tick()
+				.then(() => tick())
+				.then(() => UserDraft.restartSync('raw_app', p, { workspace: ws }))
+		}
+	})
 
 	// Local-draft staleness modal: opened when the remote has moved on since
 	// the local autosave was written.
@@ -197,6 +220,12 @@
 		// friendly `<random_adj>_raw_app` name. Strip the flag last.
 		if (page.url.searchParams.get('new_draft') === 'true') {
 			isNewApp = true
+			// Suspend autosave around the new-draft bootstrap: the
+			// seed template + the framework picker's `onStart` are both
+			// programmatic writes that shouldn't POST as the user's
+			// first edit. Resumed when the picker closes (`onStart` or
+			// X dismissal) via the `templatePicker` watcher below.
+			UserDraft.stopSync('raw_app', path, { workspace: $workspaceStore })
 			const url = new URL(window.location.href)
 			url.searchParams.delete('new_draft')
 			window.history.replaceState(window.history.state, '', url.toString())
