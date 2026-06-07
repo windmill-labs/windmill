@@ -64,4 +64,10 @@ export interface ScriptBuilderProps {
 	// overwrite it. Used by the session preview, which opens AI-created scripts
 	// as new but with a path the AI already assigned.
 	initialPathChosen?: boolean
+	// Threaded to the `AutosaveIndicator` popover so its "Reset to
+	// deployed" button can do the same thing the load-time toast offers.
+	// Routes pass their own re-load-without-draft callback here; omit on
+	// callers (session preview, embedded SDK) that shouldn't surface the
+	// action at all.
+	onResetToDeployed?: () => void | Promise<void>
 }

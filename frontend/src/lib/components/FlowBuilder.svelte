@@ -122,7 +122,8 @@
 		onDeployError,
 		onDetails,
 		onHistoryRestore,
-		onNavigate
+		onNavigate,
+		onResetToDeployed
 	}: FlowBuilderProps = $props()
 
 	let initialPathStore = writable(initialPath)
@@ -1054,6 +1055,8 @@
 							workspace={$workspaceStore}
 							itemKind="flow"
 							path={liveEditorDraftStoragePath}
+							draftOnly={newFlow}
+							{onResetToDeployed}
 						/>
 					{/if}
 				</div>
@@ -1087,6 +1090,7 @@
 					{#if !compactTopbar}
 						{@render previewButtons()}
 					{/if}
+
 
 					<DeployButton
 						on:save={async ({ detail }) => await handleSaveFlow(detail)}

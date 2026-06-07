@@ -395,6 +395,10 @@
 		{diffDrawer}
 		{savedPrimarySchedule}
 		searchParams={page.url.searchParams}
+		onResetToDeployed={async () => {
+			scriptHandle.setDraftAndMeta(undefined, {})
+			await loadScript({ getDraft: false })
+		}}
 		onDeploy={(e) => {
 			// "Deploy & Stay here" / lib: stay on the editor (just confirm).
 			if (e.stay) {

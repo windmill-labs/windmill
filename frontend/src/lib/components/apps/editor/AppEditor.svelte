@@ -79,7 +79,8 @@
 		gotoFn = (path: string, opt?: Record<string, any>) => window.history.pushState(null, '', path),
 		onSavedNewAppPath,
 		onNavigate,
-		initialRevs
+		initialRevs,
+		onResetToDeployed
 	}: AppEditorProps = $props()
 
 	migrateApp(untrack(() => app))
@@ -904,6 +905,7 @@
 			{newPath}
 			{newApp}
 			userDraftPath={appDraftPath}
+			{onResetToDeployed}
 			on:restore
 			{policy}
 			{fromHub}

@@ -38,4 +38,7 @@ export type FlowBuilderProps = {
 	onDetails?: ({ path }: { path: string }) => void
 	onHistoryRestore?: () => void
 	onNavigate?: (item: WorkspaceItem) => void
+	// Threaded to the `AutosaveIndicator` popover so its "Reset to
+	// deployed" button can do the same thing the load-time toast offers.
+	onResetToDeployed?: () => void | Promise<void>
 }

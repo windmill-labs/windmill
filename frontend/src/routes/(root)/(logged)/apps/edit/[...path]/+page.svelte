@@ -355,6 +355,11 @@
 				initialRevs={currentRevs}
 				replaceStateFn={(path) => replaceState(path, page.state)}
 				gotoFn={(path, opt) => goto(path, opt)}
+				onResetToDeployed={async () => {
+					UserDraft.remove('app', path)
+					await loadApp({ getDraft: false })
+					redraw++
+				}}
 			/>
 		</div>
 	{/if}

@@ -127,7 +127,8 @@
 		onNavigate,
 		disableAi,
 		initialTestPanelCollapsed = false,
-		initialPathChosen = false
+		initialPathChosen = false,
+		onResetToDeployed
 	}: ScriptBuilderProps = $props()
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
@@ -1866,7 +1867,13 @@
 						/>
 					{/if}
 					{#if $workspaceStore}
-						<AutosaveIndicator workspace={$workspaceStore} itemKind="script" path={userDraftPath} />
+						<AutosaveIndicator
+							workspace={$workspaceStore}
+							itemKind="script"
+							path={userDraftPath}
+							draftOnly={(savedScript as any)?.no_deployed === true}
+							{onResetToDeployed}
+						/>
 					{/if}
 				</div>
 
@@ -1946,6 +1953,7 @@
 					{/if}
 					{@render settingsButton()}
 				{/if}
+
 
 				<DeployButton
 					loading={!fullyLoaded}

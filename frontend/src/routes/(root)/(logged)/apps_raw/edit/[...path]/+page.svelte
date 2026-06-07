@@ -559,6 +559,10 @@
 				bind:savedApp
 				{diffDrawer}
 				newApp={isNewApp}
+				onResetToDeployed={async () => {
+					draftHandle.setDraftAndMeta(undefined, {})
+					await loadApp({ getDraft: false })
+				}}
 			/>
 		</div>
 	{/key}

@@ -106,6 +106,9 @@
 		onHideLeftPanel?: () => void
 		onHideBottomPanel?: () => void
 		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
+		// Threaded to the `AutosaveIndicator` popover so its "Reset to
+		// deployed" button can do the same thing the load-time toast offers.
+		onResetToDeployed?: () => void | Promise<void>
 	}
 
 	let {
@@ -127,7 +130,8 @@
 		onHideLeftPanel,
 		onHideRightPanel,
 		onHideBottomPanel,
-		onNavigate = undefined
+		onNavigate = undefined,
+		onResetToDeployed
 	}: Props = $props()
 
 	/** Mirror of the path the user is editing in the pen popover. Initialized
@@ -940,7 +944,13 @@
 		</div>
 		{#if $workspaceStore}
 			<div class="ml-4">
-				<AutosaveIndicator workspace={$workspaceStore} itemKind="app" path={userDraftPath} />
+				<AutosaveIndicator
+					workspace={$workspaceStore}
+					itemKind="app"
+					path={userDraftPath}
+					draftOnly={newApp}
+					{onResetToDeployed}
+				/>
 			</div>
 		{/if}
 	</div>

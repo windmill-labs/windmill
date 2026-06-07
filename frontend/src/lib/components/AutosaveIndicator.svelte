@@ -1,14 +1,39 @@
 <script lang="ts">
-	import { untrack } from 'svelte'
-	import { CloudCheck, RefreshCcw } from 'lucide-svelte'
+	import { tick, untrack } from 'svelte'
+	import { CloudCheck, RefreshCcw, RotateCcw } from 'lucide-svelte'
 	import type { UserDraftItemKind } from '$lib/gen'
 	import { UserDraftDbSyncer, type UserDraftSyncState } from '$lib/userDraftDbSyncer.svelte'
+	import { UserDraft } from '$lib/userDraft.svelte'
+	import { sendUserToast } from '$lib/toast'
+	import Popover from './meltComponents/Popover.svelte'
+	import Button from './common/button/Button.svelte'
 
 	let {
 		workspace,
 		itemKind,
-		path
-	}: { workspace: string; itemKind: UserDraftItemKind; path: string } = $props()
+		path,
+		// Reactive — when true, the indicator's popover hides "Reset to
+		// deployed" because there's nothing to fall back to (the editor
+		// is on a per-user draft at a path with no deployed row). Routes
+		// thread their own `isNewX` / `savedX.no_deployed` here.
+		draftOnly = false,
+		// Route-specific reset logic. The popover button stops sync,
+		// fires `value: null` at the syncer, awaits this, then restarts
+		// sync after two ticks — mirrors `notifyDraftLoaded`'s "Reset to
+		// deployed" toast action so the discard sticks.
+		onResetToDeployed
+	}: {
+		workspace: string
+		itemKind: UserDraftItemKind
+		path: string
+		draftOnly?: boolean
+		onResetToDeployed?: () => void | Promise<void>
+	} = $props()
+
+	// `UserDraft.has` reads `entry.state.val` (a $state), so the $derived
+	// re-runs when the in-memory draft appears / disappears — flips on
+	// after the first edit and back off after a successful reset.
+	const hasDraft = $derived(UserDraft.has(itemKind, path, { workspace }))
 
 	// Recompute the handle when the target draft changes; its `.state` getter
 	// is itself reactive to the autosave pipeline, so `syncState` tracks both.
@@ -55,15 +80,77 @@
 	const label = $derived(
 		syncState === 'saving' || syncState === 'pending' ? 'Saving...' : savedVisible ? 'Saved' : ''
 	)
+
+	const showResetAction = $derived(!draftOnly && hasDraft && !!onResetToDeployed)
+
+	let popoverOpen = $state(false)
+	let resetting = $state(false)
+
+	async function resetToDeployed() {
+		if (!onResetToDeployed || resetting) return
+		resetting = true
+		// Mirror the `notifyDraftLoaded` toast action so the discard
+		// sticks: suspend sync, POST the explicit delete, run the
+		// route's reload, then restart sync two ticks past the
+		// deployed-seed write.
+		UserDraft.stopSync(itemKind, path, { workspace })
+		UserDraftDbSyncer.save({ workspace, itemKind, path, value: null }).catch((e) =>
+			console.error('Reset to deployed: draft delete failed', e)
+		)
+		try {
+			await onResetToDeployed()
+		} catch (e: any) {
+			sendUserToast(`Could not reset to deployed: ${e?.body ?? e}`, true)
+		} finally {
+			await tick()
+			await tick()
+			UserDraft.restartSync(itemKind, path, { workspace })
+			resetting = false
+			popoverOpen = false
+		}
+	}
 </script>
 
-<div class="flex items-center gap-1.5 text-primary min-w-[4.2rem]">
-	{#if syncState === 'saving' || syncState === 'pending'}
-		<RefreshCcw size={14} class="animate-spin" />
-	{:else}
-		<CloudCheck size={16} />
-	{/if}
-	{#if label}
-		<span class="text-secondary text-2xs">{label}</span>
-	{/if}
-</div>
+<Popover
+	bind:isOpen={popoverOpen}
+	placement="bottom-end"
+	contentClasses="p-3 max-w-xs"
+	usePointerDownOutside
+	closeOnOutsideClick
+>
+	{#snippet trigger()}
+		<div
+			class="flex items-center gap-1.5 text-primary min-w-[4.2rem] rounded-md px-1 py-0.5 hover:bg-surface-hover cursor-pointer"
+			aria-label="Autosave status"
+		>
+			{#if syncState === 'saving' || syncState === 'pending'}
+				<RefreshCcw size={14} class="animate-spin" />
+			{:else}
+				<CloudCheck size={16} />
+			{/if}
+			{#if label}
+				<span class="text-secondary text-2xs">{label}</span>
+			{/if}
+		</div>
+	{/snippet}
+
+	{#snippet content()}
+		<div class="flex flex-col gap-3 text-sm">
+			<p class="text-secondary leading-snug">
+				All changes are saved as a draft on the server. The draft is per-user — your teammates'
+				editors keep their own.
+			</p>
+			{#if showResetAction}
+				<Button
+					variant="default"
+					size="xs"
+					loading={resetting}
+					startIcon={{ icon: RotateCcw }}
+					on:click={() => void resetToDeployed()}
+				>
+					Reset to deployed
+				</Button>
+			{/if}
+		</div>
+	{/snippet}
+</Popover>

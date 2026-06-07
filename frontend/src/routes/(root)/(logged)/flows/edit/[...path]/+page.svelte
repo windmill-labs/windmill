@@ -449,6 +449,10 @@
 		onHistoryRestore={() => {
 			loadFlow()
 		}}
+		onResetToDeployed={async () => {
+			flowHandle.setDraftAndMeta(undefined, {})
+			await loadFlow({ getDraft: false })
+		}}
 		onNavigate={(item) => goto(editPathFor(item))}
 		{flowStore}
 		{flowStateStore}
