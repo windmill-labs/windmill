@@ -13,7 +13,6 @@ pub use windmill_api_auth::{check_scopes, require_devops_role, require_super_adm
 
 #[cfg(feature = "private")]
 pub use windmill_common::usernames::generate_instance_wide_unique_username;
-pub use windmill_common::utils::WithStarredInfoQuery;
 
 #[cfg(feature = "enterprise")]
 pub use windmill_alerting::{
