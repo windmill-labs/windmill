@@ -23,7 +23,13 @@
 
 	let app: any | undefined = undefined
 
-	export async function open(path_l: string) {
+	/**
+	 * Open the JSON drawer for an item from the home list. `rawApp` MUST
+	 * be set when the row is a raw-app draft, since `get_draft=true` has
+	 * no deployed row to read the kind from — without it the backend
+	 * looks for an `app` draft, doesn't find one, and 404s.
+	 */
+	export async function open(path_l: string, rawApp = false) {
 		loading = true
 		jsonViewerDrawer?.toggleDrawer()
 		path = path_l
@@ -34,16 +40,20 @@
 		const fapp = (await AppService.getAppByPath({
 			workspace: $workspaceStore!,
 			path,
-			getDraft: true
+			getDraft: true,
+			rawApp
 		})) as any
 		app = { ...fapp }
 		isDraftOnly = !!fapp.no_deployed
-		isRawApp = !!fapp.raw_app
-		// For deployed (or app drafts overlaid on a deployed row) the
-		// editable shape is the App definition under `.value`. For raw-app
-		// drafts there is no nested `.value` — the editable shape is the
-		// whole flattened draft (`{files, runnables, data, ...}`).
-		const display = isDraftOnly && isRawApp ? fapp : fapp.value
+		isRawApp = !!fapp.raw_app || rawApp
+		// Draft-only items: the editor's autosave writes the bare editable
+		// shape (low-code: App; raw-app: `{files, runnables, data, ...}`)
+		// straight into `draft`, so render that. The flattened `inner` has
+		// the same content but is polluted with overlay fields
+		// (`is_draft`, `no_deployed`, …) we don't want in the JSON.
+		// Deployed items: the editable shape is the App definition under
+		// `.value` (raw-app deploys keep the same response wrapper).
+		const display = isDraftOnly ? fapp.draft : fapp.value
 		code = JSON.stringify(display, null, 4)
 		loading = false
 	}
@@ -55,13 +65,15 @@
 			// 404. Route the edit through the syncer (`immediate: true`
 			// so the caller's `await` resolves only after the POST lands)
 			// so the user keeps editing under the draft path until they
-			// rename + deploy from the regular editor.
-			const value = isRawApp ? { ...app, ...parsed } : { ...app, value: parsed }
+			// rename + deploy from the regular editor. `parsed` is already
+			// the bare editable shape (App or raw-app value) — match what
+			// the autosave writes so the regular editor reads it back
+			// unchanged on next mount.
 			await UserDraftDbSyncer.save({
 				workspace: $workspaceStore!,
 				itemKind: isRawApp ? 'raw_app' : 'app',
 				path,
-				value,
+				value: parsed,
 				immediate: true
 			})
 			dispatch('change')

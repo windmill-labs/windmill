@@ -65,11 +65,14 @@
 
 	const dispatch = createEventDispatcher()
 
-	let appExport: { open: (path: string) => void } | undefined = $state(undefined)
+	let appExport: { open: (path: string, rawApp?: boolean) => void } | undefined = $state(undefined)
 	let appDeploymentHistory: AppDeploymentHistory | undefined = $state(undefined)
 
 	async function loadAppJson() {
-		appExport?.open(app.path)
+		// Thread the row's `raw_app` flag so the JSON drawer's backend
+		// fetch picks the right draft kind on draft-only items (no
+		// deployed row to read the kind from server-side).
+		appExport?.open(app.path, !!app.raw_app)
 	}
 
 	async function deleteApp(path: string): Promise<void> {
