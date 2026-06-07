@@ -17,7 +17,11 @@
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
-	import OtherUsersDraftsModal from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
+	import DraftSyncConflictModal from '$lib/components/common/confirmationModal/DraftSyncConflictModal.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import OtherUsersDraftsModal, {
+		type OtherDraftUser
+	} from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import { tick, untrack } from 'svelte'
@@ -48,6 +52,7 @@
 	}
 
 	let savedFlow: Flow | undefined = $state(undefined)
+	let otherDraftsUsers = $state<OtherDraftUser[]>([])
 
 	// Derived so client-side nav (breadcrumb) re-keys the handle to the new path.
 	let flowDraftPath = $derived(page.params.path ?? '')
@@ -229,6 +234,13 @@
 			getDraft
 		})
 		if (tok !== loadFlowToken) return
+		otherDraftsUsers = ((backendFlow as any).other_drafts_users ?? []) as OtherDraftUser[]
+		if ($workspaceStore && flowDraftPath) {
+			UserDraftDbSyncer.recordRemoteSync(
+				{ workspace: $workspaceStore, itemKind: 'flow', path: flowDraftPath },
+				(backendFlow as any).draft_saved_at as string | undefined
+			)
+		}
 		// Re-evaluate the "new flow" signal on each load — flips to
 		// true for draft-only paths and back to false once a deploy
 		// lands at this URL path.
@@ -365,19 +377,23 @@
 	onKeepDraft={onStaleKeepDraft}
 />
 {#if $workspaceStore && flowDraftPath}
-	<OtherUsersDraftsModal
-		workspace={$workspaceStore}
-		itemKind="flow"
-		path={flowDraftPath}
-		currentValue={flowHandle.draft}
-		currentUserEmail={$userStore?.email}
-		{diffDrawer}
-		userHasLocalDraft={UserDraft.has('flow', flowDraftPath)}
-		onFork={(otherValue) => {
-			UserDraft.save('flow', flowDraftPath, otherValue, { workspace: $workspaceStore })
-			diffDrawer?.closeDrawer()
-		}}
+	<DraftSyncConflictModal
+		query={{ workspace: $workspaceStore, itemKind: 'flow', path: flowDraftPath }}
+		onLoadFromServer={() => loadFlow()}
+		getLocalDraft={() => flowHandle.draft}
 	/>
+{/if}
+{#if $workspaceStore && flowDraftPath && otherDraftsUsers.length > 0}
+	{#key flowDraftPath}
+		<OtherUsersDraftsModal
+			workspace={$workspaceStore}
+			itemKind="flow"
+			path={flowDraftPath}
+			currentUserUsername={$userStore?.username}
+			{otherDraftsUsers}
+			editPathFor={(forkedPath) => `/flows/edit/${forkedPath}`}
+		/>
+	{/key}
 {/if}
 {#if notFound}
 	<div class="flex flex-col items-center justify-center h-full">

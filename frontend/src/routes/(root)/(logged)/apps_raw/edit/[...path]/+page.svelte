@@ -21,7 +21,20 @@
 	} from '$lib/userDraft.svelte'
 	import { notifyDraftLoaded, notifyRestoredFromLocal } from '$lib/userDraftToast'
 	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
-	import OtherUsersDraftsModal from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
+	import DraftSyncConflictModal from '$lib/components/common/confirmationModal/DraftSyncConflictModal.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import OtherUsersDraftsModal, {
+		type OtherDraftUser
+	} from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
+	import RawAppTemplatePicker, {
+		type RawAppTemplatePickerResult
+	} from '$lib/components/raw_apps/RawAppTemplatePicker.svelte'
+	import {
+		react19Template,
+		STARTER_RUNNABLE,
+		STARTER_RUNNABLE_KEY
+	} from '$lib/components/raw_apps/templates'
+	import { aiChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 
 	type RawAppDraft = {
 		files: Record<string, string>
@@ -55,6 +68,10 @@
 		| undefined = $state(undefined)
 	let redraw = $state(0)
 	let path = page.params.path ?? ''
+	/** Open the framework picker when the user lands on a brand-new draft
+	 * (route flag `new_draft=true`). Lets them pick React/Svelte + data
+	 * config + optional AI prompt before the editor goes live. */
+	let templatePicker = $state(false)
 
 	const draftHandle = UserDraft.use<RawAppDraft>('raw_app', path)
 
@@ -166,6 +183,7 @@
 	 * exists at the URL path. Flips RawAppEditor's deploy from
 	 * `updateApp` to `createApp` so a user-typed path is used. */
 	let isNewApp = $state(false)
+	let otherDraftsUsers = $state<OtherDraftUser[]>([])
 	async function loadApp(opts: { getDraft?: boolean } = {}): Promise<void> {
 		const getDraft = opts.getDraft ?? true
 		const tok = ++loadAppToken
@@ -184,20 +202,32 @@
 			window.history.replaceState(window.history.state, '', url.toString())
 			// Backend's `Policy` requires `execution_mode` — an empty
 			// object fails to deserialize on deploy.
-			const emptyPolicy = { execution_mode: 'publisher' } as any
+			const defaultPolicy = {
+				on_behalf_of: $userStore?.username.includes('@')
+					? $userStore?.username
+					: `u/${$userStore?.username}`,
+				on_behalf_of_email: $userStore?.email,
+				execution_mode: 'publisher'
+			} as any
+			// Seed the React 19 template up-front so the editor mounts with
+			// a usable starting state even if the user dismisses the picker
+			// modal without an explicit selection (matches main's /add).
+			const seedFiles = { ...react19Template }
+			const seedRunnables = { [STARTER_RUNNABLE_KEY]: STARTER_RUNNABLE }
 			savedApp = {
 				summary: '',
-				value: { files: {}, runnables: {} },
+				value: { files: seedFiles as any, runnables: seedRunnables as any },
 				path: '',
-				policy: emptyPolicy,
+				policy: defaultPolicy,
 				custom_path: undefined
 			}
-			files = {}
-			runnables = {}
+			files = seedFiles
+			runnables = seedRunnables
 			data = { ...DEFAULT_DATA }
 			summary = ''
-			policy = emptyPolicy
+			policy = defaultPolicy
 			newPath = ''
+			templatePicker = true
 			return
 		}
 		const backendApp = (await AppService.getAppByPath({
@@ -207,6 +237,13 @@
 			rawApp: true
 		})) as any
 		if (tok !== loadAppToken) return
+		otherDraftsUsers = (backendApp.other_drafts_users ?? []) as OtherDraftUser[]
+		if ($workspaceStore && path) {
+			UserDraftDbSyncer.recordRemoteSync(
+				{ workspace: $workspaceStore, itemKind: 'raw_app', path },
+				backendApp.draft_saved_at as string | undefined
+			)
+		}
 		isNewApp = !!backendApp.no_deployed
 		if (backendApp.is_draft) {
 			notifyDraftLoaded({
@@ -389,6 +426,31 @@
 		}
 		redraw++
 	}
+
+	function onTemplatePickerStart(result: RawAppTemplatePickerResult, withPrompt: boolean) {
+		files = { ...result.files }
+		runnables = { ...result.runnables, [STARTER_RUNNABLE_KEY]: STARTER_RUNNABLE }
+		data = result.data
+		summary = result.summary
+		policy = result.policy
+		// Remount RawAppEditor so the UI builder iframe picks up the
+		// new files instead of leaving the React 19 seed on screen.
+		redraw++
+		// Sync to aiChatManager so its prompts respect the picked data config.
+		aiChatManager.datatableCreationPolicy = {
+			enabled: !!result.data.datatable,
+			datatable: result.data.datatable,
+			schema: result.data.schema
+		}
+		if (withPrompt && result.prompt) {
+			setTimeout(() => {
+				aiChatManager.changeMode(AIMode.APP)
+				if (!aiChatManager.open) aiChatManager.toggleOpen()
+				aiChatManager.instructions = result.prompt!
+				aiChatManager.sendRequest()
+			}, 500)
+		}
+	}
 </script>
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} />
@@ -399,20 +461,26 @@
 	onKeepDraft={onStaleKeepDraft}
 />
 {#if $workspaceStore && path}
-	<OtherUsersDraftsModal
-		workspace={$workspaceStore}
-		itemKind="raw_app"
-		{path}
-		currentValue={draftHandle.draft}
-		currentUserEmail={$userStore?.email}
-		{diffDrawer}
-		userHasLocalDraft={UserDraft.has('raw_app', path)}
-		onFork={(otherValue) => {
-			UserDraft.save('raw_app', path, otherValue, { workspace: $workspaceStore })
-			diffDrawer?.closeDrawer()
-		}}
+	<DraftSyncConflictModal
+		query={{ workspace: $workspaceStore, itemKind: 'raw_app', path }}
+		onLoadFromServer={() => loadApp()}
+		getLocalDraft={() => draftHandle.draft}
 	/>
 {/if}
+{#if $workspaceStore && path && otherDraftsUsers.length > 0}
+	{#key path}
+		<OtherUsersDraftsModal
+			workspace={$workspaceStore}
+			itemKind="raw_app"
+			{path}
+			currentUserUsername={$userStore?.username}
+			{otherDraftsUsers}
+			editPathFor={(forkedPath) => `/apps_raw/edit/${forkedPath}`}
+		/>
+	{/key}
+{/if}
+
+<RawAppTemplatePicker bind:open={templatePicker} onStart={onTemplatePickerStart} />
 
 {#if files}
 	{#key redraw}

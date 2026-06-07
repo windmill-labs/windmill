@@ -9,7 +9,11 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { App } from '$lib/components/apps/types'
 	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
-	import OtherUsersDraftsModal from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
+	import DraftSyncConflictModal from '$lib/components/common/confirmationModal/DraftSyncConflictModal.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import OtherUsersDraftsModal, {
+		type OtherDraftUser
+	} from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { emptyApp } from '$lib/components/apps/editor/appUtils'
 	import { untrack } from 'svelte'
@@ -36,6 +40,7 @@
 	 * (e.g. workspace switch on the same draft path). Flips back to
 	 * false once a deployed row exists at this path. */
 	let isNewApp = $state(false)
+	let otherDraftsUsers = $state<OtherDraftUser[]>([])
 
 	// Local-draft staleness modal: opened when the remote has moved on since
 	// the local autosave was written.
@@ -142,6 +147,13 @@
 			getDraft
 		})
 		if (tok !== loadAppToken) return
+		otherDraftsUsers = ((backendApp as any).other_drafts_users ?? []) as OtherDraftUser[]
+		if ($workspaceStore && path) {
+			UserDraftDbSyncer.recordRemoteSync(
+				{ workspace: $workspaceStore, itemKind: 'app', path },
+				(backendApp as any).draft_saved_at as string | undefined
+			)
+		}
 		// Apply the user's saved draft to `.value`. The autosave for apps
 		// writes the raw `App` (just the editor's working value) — when a
 		// draft exists the backend sends it back in `.draft`, and the
@@ -301,19 +313,23 @@
 	onKeepDraft={onStaleKeepDraft}
 />
 {#if $workspaceStore && path}
-	<OtherUsersDraftsModal
-		workspace={$workspaceStore}
-		itemKind="app"
-		{path}
-		currentValue={app?.value}
-		currentUserEmail={$userStore?.email}
-		{diffDrawer}
-		userHasLocalDraft={UserDraft.has('app', path)}
-		onFork={(otherValue) => {
-			UserDraft.save('app', path, otherValue, { workspace: $workspaceStore })
-			diffDrawer?.closeDrawer()
-		}}
+	<DraftSyncConflictModal
+		query={{ workspace: $workspaceStore, itemKind: 'app', path }}
+		onLoadFromServer={() => loadApp()}
+		getLocalDraft={() => app?.value}
 	/>
+{/if}
+{#if $workspaceStore && path && otherDraftsUsers.length > 0}
+	{#key path}
+		<OtherUsersDraftsModal
+			workspace={$workspaceStore}
+			itemKind="app"
+			{path}
+			currentUserUsername={$userStore?.username}
+			{otherDraftsUsers}
+			editPathFor={(forkedPath) => `/apps/edit/${forkedPath}`}
+		/>
+	{/key}
 {/if}
 
 {#key redraw}

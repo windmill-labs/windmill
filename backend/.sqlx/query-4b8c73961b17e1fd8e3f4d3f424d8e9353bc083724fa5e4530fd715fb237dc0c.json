@@ -1,17 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT email, created_at\n           FROM draft\n           WHERE workspace_id = $1\n             AND path = $2\n             AND typ = $3\n           ORDER BY email NULLS LAST",
+  "query": "SELECT u.username as \"username?\"\n           FROM draft d\n           LEFT JOIN usr u\n                  ON u.workspace_id = d.workspace_id\n                 AND u.email = d.email\n           WHERE d.workspace_id = $1\n             AND d.path = $2\n             AND d.typ = $3\n             AND (d.email IS NULL OR d.email <> $4)\n           ORDER BY d.email NULLS LAST",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "email",
+        "name": "username?",
         "type_info": "Varchar"
-      },
-      {
-        "ordinal": 1,
-        "name": "created_at",
-        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
@@ -50,13 +45,13 @@
               ]
             }
           }
-        }
+        },
+        "Text"
       ]
     },
     "nullable": [
-      true,
       false
     ]
   },
-  "hash": "ca70f58d3c301c5b31749ea753dd1f63989c2fdae78e7e33053986862853dda5"
+  "hash": "4b8c73961b17e1fd8e3f4d3f424d8e9353bc083724fa5e4530fd715fb237dc0c"
 }

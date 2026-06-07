@@ -83,6 +83,16 @@ pub struct WithDraftQuery {
 /// `Serialize` on its response type — most read-only response shapes
 /// (e.g. `ScriptWithStarred`) only derive `Serialize`, and requiring
 /// `DeserializeOwned` would force derive cascades through many crates.
+/// One row of `other_drafts_users` — represents a draft on the same path
+/// owned by someone other than the authed user. `username` is `None` for
+/// the legacy NULL-email row (workspace-scoped pre-migration draft), which
+/// the frontend surfaces as a "Legacy draft" entry with an info tooltip.
+#[derive(Debug, Serialize)]
+pub struct OtherDraftUser {
+    /// `None` represents a legacy workspace-level draft (no owner).
+    pub username: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct WithDraftOverlay {
     #[serde(flatten)]
@@ -102,13 +112,56 @@ pub struct WithDraftOverlay {
     /// deployed (the rest of the response) for diff/restore UI.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft: Option<serde_json::Value>,
+    /// Other users with a draft on the same path (excludes the authed
+    /// user). Frontend surfaces this list in a banner so the user can
+    /// view another's JSON or fork it. Empty list is omitted to keep
+    /// the common-case response lean.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub other_drafts_users: Vec<OtherDraftUser>,
+}
+
+/// List every other user (and the legacy NULL-email row, if any) that
+/// has a draft at `(workspace, kind, path)`. Returns usernames only —
+/// emails never leave the server. LEFT JOIN against `usr` so an
+/// orphaned draft (user removed from the workspace) still surfaces, with
+/// its `username` falling back to `None` rather than dropping the row.
+/// The authed user is excluded via `email <> authed_email`; the legacy
+/// row matches because `email IS NULL` fails that comparison.
+async fn fetch_other_drafts_users(
+    db: &DB,
+    w_id: &str,
+    authed_email: &str,
+    kind: UserDraftItemKind,
+    path: &str,
+) -> Result<Vec<OtherDraftUser>> {
+    let rows = sqlx::query_as!(
+        OtherDraftUser,
+        r#"SELECT u.username as "username?"
+           FROM draft d
+           LEFT JOIN usr u
+                  ON u.workspace_id = d.workspace_id
+                 AND u.email = d.email
+           WHERE d.workspace_id = $1
+             AND d.path = $2
+             AND d.typ = $3
+             AND (d.email IS NULL OR d.email <> $4)
+           ORDER BY d.email NULLS LAST"#,
+        w_id,
+        path,
+        kind as UserDraftItemKind,
+        authed_email,
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows)
 }
 
 /// If `get_draft` is true AND the authed user has a draft saved for
 /// `(workspace, kind, path)`, attach it as `draft` on the response.
 /// The deployed payload (`deployed`) is always serialized into `inner`
 /// untouched — the wire response is `<deployed fields...> + is_draft +
-/// draft? + draft_saved_at?` regardless of whether a draft exists.
+/// draft? + draft_saved_at? + other_drafts_users?` regardless of whether
+/// the authed user has a draft.
 pub async fn maybe_overlay_draft<T>(
     db: &DB,
     w_id: &str,
@@ -130,6 +183,7 @@ where
             draft_saved_at: None,
             no_deployed: false,
             draft: None,
+            other_drafts_users: Vec::new(),
         });
     }
 
@@ -149,6 +203,8 @@ where
     .fetch_optional(db)
     .await?;
 
+    let other_drafts_users = fetch_other_drafts_users(db, w_id, email, kind, path).await?;
+
     let Some(row) = row else {
         return Ok(WithDraftOverlay {
             inner,
@@ -156,6 +212,7 @@ where
             draft_saved_at: None,
             no_deployed: false,
             draft: None,
+            other_drafts_users,
         });
     };
 
@@ -167,6 +224,7 @@ where
         draft_saved_at: Some(row.created_at),
         no_deployed: false,
         draft: Some(draft_json),
+        other_drafts_users,
     })
 }
 
@@ -242,6 +300,7 @@ pub async fn fetch_draft_only(
     };
 
     let draft_json: serde_json::Value = serde_json::from_str(row.value.0.get())?;
+    let other_drafts_users = fetch_other_drafts_users(db, w_id, email, kind, path).await?;
     Ok(Some(WithDraftOverlay {
         // Best-effort stand-in for the missing deployed — same JSON as
         // `draft`. Frontend should read `.draft` for the editor state
@@ -251,5 +310,6 @@ pub async fn fetch_draft_only(
         draft_saved_at: Some(row.created_at),
         no_deployed: true,
         draft: Some(draft_json),
+        other_drafts_users,
     }))
 }

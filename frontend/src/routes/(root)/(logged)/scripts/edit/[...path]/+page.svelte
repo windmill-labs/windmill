@@ -9,7 +9,9 @@
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
-	import OtherUsersDraftsModal from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
+	import OtherUsersDraftsModal, {
+		type OtherDraftUser
+	} from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import { get } from 'svelte/store'
@@ -22,6 +24,8 @@
 		type UserDraftHandle
 	} from '$lib/userDraft.svelte'
 	import { notifyDraftLoaded, notifyRestoredFromLocal } from '$lib/userDraftToast'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import DraftSyncConflictModal from '$lib/components/common/confirmationModal/DraftSyncConflictModal.svelte'
 
 	type EditableScript = NewScript & { draft_triggers?: Trigger[] }
 
@@ -86,6 +90,10 @@
 
 	let savedScript: Script | NewScript | undefined = $state(undefined)
 	let fullyLoaded = $state(false)
+	/** Other workspace users (and the legacy NULL-email row, if any) with
+	 *  a draft on this path. Populated from the deployed-overlay response
+	 *  on each `loadScript`; the banner opens when the list is non-empty. */
+	let otherDraftsUsers = $state<OtherDraftUser[]>([])
 
 	// Remounts ScriptBuilder on nav: false while a reload runs, true once data is
 	// ready. A synchronous `{#key}` swap instead races Monaco's init against the
@@ -197,6 +205,18 @@
 				getDraft
 			})
 			if (tok !== loadScriptToken) return
+			otherDraftsUsers = ((backendScript as any).other_drafts_users ?? []) as OtherDraftUser[]
+			// Seed the per-tab `last_sync` map with the server's draft
+			// timestamp so the next autosave attaches a matching
+			// `last_sync` and the backend can reject stale writes.
+			// `undefined` (no draft existed) clears the entry — the
+			// next save then takes the "first push" branch on the server.
+			if ($workspaceStore && page.params.path) {
+				UserDraftDbSyncer.recordRemoteSync(
+					{ workspace: $workspaceStore, itemKind: 'script', path: page.params.path },
+					(backendScript as any).draft_saved_at as string | undefined
+				)
+			}
 			if (backendScript.is_draft) {
 				notifyDraftLoaded({
 					workspace: $workspaceStore!,
@@ -340,19 +360,23 @@
 	onKeepDraft={onStaleKeepDraft}
 />
 {#if !hash && $workspaceStore && page.params.path}
-	<OtherUsersDraftsModal
-		workspace={$workspaceStore}
-		itemKind="script"
-		path={page.params.path}
-		currentValue={scriptHandle.draft}
-		currentUserEmail={$userStore?.email}
-		{diffDrawer}
-		userHasLocalDraft={UserDraft.has('script', draftPath)}
-		onFork={(otherValue) => {
-			UserDraft.save('script', draftPath, otherValue, { workspace: $workspaceStore })
-			diffDrawer?.closeDrawer()
-		}}
+	<DraftSyncConflictModal
+		query={{ workspace: $workspaceStore, itemKind: 'script', path: page.params.path }}
+		onLoadFromServer={() => loadScript()}
+		getLocalDraft={() => scriptHandle.draft}
 	/>
+{/if}
+{#if !hash && $workspaceStore && page.params.path && otherDraftsUsers.length > 0}
+	{#key page.params.path}
+		<OtherUsersDraftsModal
+			workspace={$workspaceStore}
+			itemKind="script"
+			path={page.params.path}
+			currentUserUsername={$userStore?.username}
+			{otherDraftsUsers}
+			editPathFor={(forkedPath) => `/scripts/edit/${forkedPath}`}
+		/>
+	{/key}
 {/if}
 {#if scriptHandle.draft && renderEditor}
 	<ScriptBuilder

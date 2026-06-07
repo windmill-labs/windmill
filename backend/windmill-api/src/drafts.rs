@@ -22,10 +22,6 @@ use windmill_common::{
 
 pub fn workspaced_service() -> Router {
     Router::new()
-        .route(
-            "/users_with_draft/{kind}/{*path}",
-            get(list_users_with_draft_on_path),
-        )
         .route("/get/{kind}/{*path}", get(get_draft_for_user))
         .route("/save_draft/{kind}/{*path}", post(save_draft))
         .route("/list_drafts", get(list_drafts))
@@ -229,45 +225,13 @@ async fn get_draft(
         .ok_or_else(|| Error::NotFound(format!("no draft for current user at {path}")))
 }
 
-#[derive(Serialize, Debug)]
-pub struct UserWithDraft {
-    /// `None` represents a legacy workspace-level draft (no owner).
-    pub email: Option<String>,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-}
-
-async fn list_users_with_draft_on_path(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, kind, path)): Path<(String, UserDraftItemKind, windmill_common::utils::StripPath)>,
-) -> Result<Json<Vec<UserWithDraft>>> {
-    let path = path.to_path();
-    require_can_read_path(&authed, &user_db, &w_id, kind, path).await?;
-
-    let rows = sqlx::query_as!(
-        UserWithDraft,
-        r#"SELECT email, created_at
-           FROM draft
-           WHERE workspace_id = $1
-             AND path = $2
-             AND typ = $3
-           ORDER BY email NULLS LAST"#,
-        &w_id,
-        path,
-        kind as UserDraftItemKind,
-    )
-    .fetch_all(&db)
-    .await?;
-
-    Ok(Json(rows))
-}
-
 #[derive(Deserialize, Debug)]
 pub struct GetDraftQuery {
-    /// Owner of the draft to fetch. Omit to fetch the legacy
-    /// workspace-level (NULL email) row, if any.
-    pub email: Option<String>,
+    /// Workspace username of the draft owner to fetch. Omit to fetch the
+    /// legacy workspace-level (NULL email) row, if any. Emails are not
+    /// part of the public draft API — the username is resolved to an
+    /// email server-side.
+    pub username: Option<String>,
 }
 
 #[derive(Serialize, Debug)]
@@ -277,9 +241,10 @@ pub struct DraftForUser {
 }
 
 /// Fetch a specific user's (or the legacy NULL row's) draft content at a
-/// path. Used by the "other users' drafts" modal in editors after the list
-/// endpoint has surfaced who has a draft. Same path-permission check as
-/// the list endpoint.
+/// path. Used by the "other users' drafts" banner in editors after the
+/// list of other owners has been surfaced on the deployed-overlay
+/// response. The caller identifies the owner by workspace username so
+/// emails never reach the client.
 async fn get_draft_for_user(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -289,6 +254,29 @@ async fn get_draft_for_user(
 ) -> Result<Json<DraftForUser>> {
     let path = path.to_path();
     require_can_read_path(&authed, &user_db, &w_id, kind, path).await?;
+
+    // Username -> email lookup, scoped to the workspace. None signals
+    // "fetch the legacy NULL-email row" (kept distinct from a username
+    // that simply has no draft, which falls through to 404 below).
+    let owner_email: Option<String> = if let Some(username) = &query.username {
+        let email = sqlx::query_scalar!(
+            r#"SELECT email FROM usr WHERE workspace_id = $1 AND username = $2"#,
+            &w_id,
+            username,
+        )
+        .fetch_optional(&db)
+        .await?;
+        match email {
+            Some(e) => Some(e),
+            None => {
+                return Err(Error::NotFound(format!(
+                    "no user with username {username} in workspace"
+                )))
+            }
+        }
+    } else {
+        None
+    };
 
     let row = sqlx::query_as!(
         DraftForUser,
@@ -301,7 +289,7 @@ async fn get_draft_for_user(
         &w_id,
         path,
         kind as UserDraftItemKind,
-        query.email,
+        owner_email,
     )
     .fetch_optional(&db)
     .await?;
@@ -309,7 +297,7 @@ async fn get_draft_for_user(
     row.map(Json).ok_or_else(|| {
         Error::NotFound(format!(
             "no draft for {} at {path}",
-            query.email.as_deref().unwrap_or("<legacy>")
+            query.username.as_deref().unwrap_or("<legacy>")
         ))
     })
 }

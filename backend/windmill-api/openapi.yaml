@@ -7827,41 +7827,9 @@ paths:
                 items:
                   type: string
 
-  /w/{workspace}/drafts/users_with_draft/{kind}/{path}:
-    get:
-      summary: list users with a saved draft on a path
-      operationId: listUsersWithDraftOnPath
-      tags:
-        - draft
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - name: kind
-          in: path
-          required: true
-          schema:
-            $ref: "#/components/schemas/UserDraftItemKind"
-        - $ref: "#/components/parameters/ScriptPath"
-      responses:
-        "200":
-          description: list of users (by email) with a draft; `null` represents a legacy workspace-level draft
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    email:
-                      type: string
-                      nullable: true
-                    created_at:
-                      type: string
-                      format: date-time
-                  required: [created_at]
-
   /w/{workspace}/drafts/get/{kind}/{path}:
     get:
-      summary: fetch a single draft's content (own draft, another user's, or the legacy workspace-level row)
+      summary: fetch a single draft's content by workspace username (or the legacy workspace-level row)
       operationId: getDraftForUser
       tags:
         - draft
@@ -7873,10 +7841,10 @@ paths:
           schema:
             $ref: "#/components/schemas/UserDraftItemKind"
         - $ref: "#/components/parameters/ScriptPath"
-        - name: email
+        - name: username
           in: query
           required: false
-          description: Owner of the draft to fetch. Omit to fetch the legacy workspace-level (NULL email) row.
+          description: Workspace username of the draft owner. Omit to fetch the legacy workspace-level (NULL email) row.
           schema:
             type: string
       responses:

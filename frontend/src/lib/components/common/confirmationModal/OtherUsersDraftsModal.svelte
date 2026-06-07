@@ -1,198 +1,190 @@
 <script lang="ts">
 	/**
-	 * On editor mount, queries `/drafts/users_with_draft/...`, filters out
-	 * the requesting user, and surfaces every other user (and the legacy
-	 * NULL-email row, if any) who has a saved draft at the path. Each
-	 * entry has a "Load" button that opens the parent's `DiffDrawer` with
-	 * a simple diff against the editor's current value, plus a Fork
-	 * action that calls back into the parent to overwrite the local draft
-	 * with the other user's content.
+	 * Banner-style modal shown on editor mount when the deployed-overlay
+	 * response carries `other_drafts_users` — i.e. someone other than the
+	 * authed user (or the legacy NULL-email row) also has a saved draft at
+	 * this path.
 	 *
-	 * The modal is self-fetching and self-opening — drop it into a route
-	 * page with the right props and it'll only render UI when there's
-	 * actually something to show.
+	 * The list of owners is part of the get-by-path payload (so we don't
+	 * fan out a second request just to populate the banner); individual
+	 * drafts are fetched on-demand for the "View JSON" / "Fork" actions so
+	 * the deploy-overlay response stays lean when many users are working
+	 * on the same item.
 	 */
-	import { classNames } from '$lib/utils'
-	import { fade } from 'svelte/transition'
-	import Button from '../button/Button.svelte'
-	import { Users, X } from 'lucide-svelte'
 	import { DraftService, type UserDraftItemKind } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { onMount } from 'svelte'
-	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
+	import { goto } from '$lib/navigation'
+	import { Users, GitFork, Braces } from 'lucide-svelte'
+	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
+	import Button from '$lib/components/common/button/Button.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { UserDraft } from '$lib/userDraft.svelte'
 
-	type DraftOwner = { email?: string | null; created_at: string }
+	export type OtherDraftUser = { username?: string | null }
 
 	type Props = {
 		workspace: string
-		/** UserDraft item kind — passed verbatim to the backend; matches the
-		 *  `draft.typ` column. */
 		itemKind: UserDraftItemKind
 		path: string
-		/** Current local value (post-restore-from-localstorage) shown on the
-		 *  right side of the diff. */
-		currentValue: unknown
-		/** Email of the requesting user — filtered out of the list so the
-		 *  user doesn't see themselves. */
-		currentUserEmail: string | undefined
-		diffDrawer: DiffDrawer | undefined
-		/** Whether the user currently has unsaved local changes. Toggles the
-		 *  diff drawer button label between `Fork` and
-		 *  `Discard current and fork`. */
-		userHasLocalDraft: boolean
-		/** Called with the chosen other-user value when the user confirms
-		 *  the fork. The route page wires this to its `UserDraft.save` so
-		 *  the value lands in the live handle (and gets synced). */
-		onFork: (otherUserValue: unknown) => void
+		/** Workspace username of the authed user — used to namespace the
+		 *  fork path (`u/{currentUserUsername}/...`). */
+		currentUserUsername: string | undefined
+		/** Owners list from the deployed-overlay response. Each entry has a
+		 *  workspace `username` (or `null` for the legacy workspace-level
+		 *  row). The authed user is already filtered out server-side. */
+		otherDraftsUsers: OtherDraftUser[]
+		/** Route hook: build the per-editor edit URL for a forked draft path.
+		 *  Different editors live under different roots (`/scripts/edit/`,
+		 *  `/flows/edit/`, ...) so the route owns the URL shape. */
+		editPathFor: (forkedPath: string) => string
 	}
 
-	let {
-		workspace,
-		itemKind,
-		path,
-		currentValue,
-		currentUserEmail,
-		diffDrawer,
-		userHasLocalDraft,
-		onFork
-	}: Props = $props()
+	let { workspace, itemKind, path, currentUserUsername, otherDraftsUsers, editPathFor }: Props =
+		$props()
 
-	let others = $state<DraftOwner[]>([])
-	let open = $state(false)
-	let loadingFor = $state<string | null>(null)
+	let isOpen = $state(otherDraftsUsers.length > 0)
+	let busyFor = $state<string | null>(null)
+	let jsonOpen = $state(false)
+	let jsonOwnerLabel = $state('')
+	let jsonValue = $state<unknown>(undefined)
 
-	onMount(async () => {
-		if (!path) return
-		try {
-			const list = await DraftService.listUsersWithDraftOnPath({
-				workspace,
-				kind: itemKind,
-				path
-			})
-			others = list.filter((u) => u.email !== currentUserEmail)
-			if (others.length > 0) open = true
-		} catch (e) {
-			// Permission errors / 404 are expected for paths the user can't see
-			// other users on. The modal just stays closed.
-			console.debug('[OtherUsersDraftsModal] list failed:', e)
-		}
-	})
-
-	function ownerLabel(o: DraftOwner): string {
-		return o.email ?? 'Legacy workspace-level draft'
+	function ownerLabel(owner: OtherDraftUser): string {
+		return owner.username ?? 'Legacy draft'
 	}
 
-	function ownerKey(o: DraftOwner): string {
-		return o.email ?? '__legacy__'
+	function ownerKey(owner: OtherDraftUser): string {
+		return owner.username ?? '__legacy__'
 	}
 
-	async function loadDraft(owner: DraftOwner) {
-		if (!diffDrawer) {
-			sendUserToast('Diff drawer not ready', true)
-			return
-		}
-		loadingFor = ownerKey(owner)
-		try {
-			const draft = await DraftService.getDraftForUser({
+	/** Derive the fork target path. `u/{currentUser}/{leaf}_{owner}_fork`
+	 *  where leaf = the last segment of the source path. For the legacy
+	 *  row we use `_legacy_fork` instead of an owner username. */
+	function forkPath(owner: OtherDraftUser): string {
+		const leaf = path.split('/').pop() ?? path
+		const ownerSuffix = owner.username ?? 'legacy'
+		return `u/${currentUserUsername ?? 'me'}/${leaf}_${ownerSuffix}_fork`
+	}
+
+	async function fetchDraft(owner: OtherDraftUser): Promise<unknown> {
+		return (
+			await DraftService.getDraftForUser({
 				workspace,
 				kind: itemKind,
 				path,
-				email: owner.email ?? undefined
+				username: owner.username ?? undefined
 			})
-			open = false
-			diffDrawer.openDrawer()
-			diffDrawer.setDiff({
-				mode: 'simple',
-				original: draft.value as any,
-				current: currentValue as any,
-				title: `${ownerLabel(owner)} <> your current`,
-				button: {
-					text: userHasLocalDraft ? 'Discard current and fork' : 'Fork',
-					onClick: () => onFork(draft.value)
-				}
-			})
+		).value
+	}
+
+	async function viewJson(owner: OtherDraftUser) {
+		busyFor = ownerKey(owner)
+		try {
+			jsonValue = await fetchDraft(owner)
+			jsonOwnerLabel = ownerLabel(owner)
+			jsonOpen = true
 		} catch (e) {
 			sendUserToast(`Could not load draft: ${e.body ?? e.message}`, true)
 		} finally {
-			loadingFor = null
+			busyFor = null
 		}
 	}
 
-	function fadeFast(node: HTMLElement) {
-		return fade(node, { duration: 100 })
+	async function fork(owner: OtherDraftUser) {
+		busyFor = ownerKey(owner)
+		try {
+			const value = await fetchDraft(owner)
+			const target = forkPath(owner)
+			UserDraft.save(itemKind, target, value, { workspace })
+			isOpen = false
+			goto(editPathFor(target))
+		} catch (e) {
+			sendUserToast(`Could not fork draft: ${e.body ?? e.message}`, true)
+		} finally {
+			busyFor = null
+		}
 	}
 </script>
 
-{#if open}
-	<div transition:fadeFast|local class="fixed top-0 bottom-0 left-0 right-0 z-[9999]" role="dialog">
-		<div
-			class={classNames(
-				'fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity',
-				'ease-out duration-300 opacity-100'
-			)}
-		></div>
+<Modal2
+	bind:isOpen
+	title="Other users are currently working on {path}"
+	fixedWidth="sm"
+	fixedHeight="sm"
+>
+	<div class="flex flex-col w-full gap-4">
+		<div class="flex gap-3 items-start">
+			<Users size={20} class="text-blue-500 shrink-0 mt-0.5" />
+			<p class="text-sm text-secondary">
+				Their drafts are independent of yours. Open one as JSON to inspect it, or fork it into your
+				own namespace to continue editing.
+			</p>
+		</div>
 
-		<div class="fixed inset-0 z-10 overflow-y-auto">
-			<div class="flex min-h-full items-center justify-center p-4">
-				<div
-					class="relative transform overflow-hidden rounded-lg bg-surface px-4 pt-5 pb-4 text-left shadow-xl sm:my-8 sm:w-full sm:max-w-lg sm:p-6"
-				>
-					<div class="flex">
-						<div
-							class="flex h-12 w-12 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-800/50"
-						>
-							<Users class="text-blue-600 dark:text-blue-300" />
-						</div>
-						<div class="ml-4 flex-1 text-left min-w-0">
-							<h3 class="text-lg font-medium text-primary">
-								Other users have drafts on <code class="break-all">{path}</code>
-							</h3>
-							<p class="mt-2 text-sm text-secondary">
-								Click "Load" to preview their draft side-by-side with yours.
-							</p>
-						</div>
-						<button
-							type="button"
-							class="text-tertiary hover:text-primary"
-							aria-label="Dismiss"
-							onclick={() => (open = false)}
-						>
-							<X size={18} />
-						</button>
+		<ul class="divide-y border-t border-b">
+			{#each otherDraftsUsers as owner (ownerKey(owner))}
+				<li class="flex items-center gap-3 py-2">
+					<div class="flex-1 min-w-0 flex items-center gap-2">
+						<span class="text-sm font-medium text-primary truncate" class:italic={!owner.username}>
+							{ownerLabel(owner)}
+						</span>
+						{#if !owner.username}
+							<Tooltip>
+								Pre-migration workspace-scoped draft (no owner). Saved before drafts became per-user
+								— kept around so you can recover the content, but no current user owns it.
+							</Tooltip>
+						{/if}
 					</div>
+					<Button
+						variant="default"
+						size="xs"
+						startIcon={{ icon: Braces }}
+						disabled={busyFor !== null && busyFor !== ownerKey(owner)}
+						loading={busyFor === ownerKey(owner)}
+						on:click={() => viewJson(owner)}
+					>
+						View JSON
+					</Button>
+					<Button
+						variant="default"
+						size="xs"
+						startIcon={{ icon: GitFork }}
+						disabled={busyFor !== null && busyFor !== ownerKey(owner)}
+						loading={busyFor === ownerKey(owner)}
+						on:click={() => fork(owner)}
+					>
+						Fork
+					</Button>
+				</li>
+			{/each}
+		</ul>
 
-					<ul class="mt-4 divide-y border-t border-b">
-						{#each others as owner (ownerKey(owner))}
-							<li class="flex items-center gap-3 py-2">
-								<div class="flex-1 min-w-0">
-									<div
-										class="text-sm font-medium text-primary truncate"
-										class:italic={!owner.email}
-									>
-										{ownerLabel(owner)}
-									</div>
-									<div class="text-xs text-tertiary">
-										saved {new Date(owner.created_at).toLocaleString()}
-									</div>
-								</div>
-								<Button
-									variant="default"
-									size="xs"
-									disabled={loadingFor !== null && loadingFor !== ownerKey(owner)}
-									loading={loadingFor === ownerKey(owner)}
-									on:click={() => loadDraft(owner)}
-								>
-									Load
-								</Button>
-							</li>
-						{/each}
-					</ul>
-
-					<div class="flex justify-end mt-4">
-						<Button variant="default" size="sm" on:click={() => (open = false)}>Dismiss</Button>
-					</div>
-				</div>
-			</div>
+		<div class="flex justify-end">
+			<Button variant="default" size="sm" on:click={() => (isOpen = false)}>Continue</Button>
 		</div>
 	</div>
-{/if}
+</Modal2>
+
+<Modal2
+	bind:isOpen={jsonOpen}
+	title="Draft JSON — {jsonOwnerLabel}"
+	fixedWidth="lg"
+	fixedHeight="lg"
+>
+	{#snippet headerRight()}
+		<Button
+			variant="default"
+			size="xs"
+			on:click={() => {
+				navigator.clipboard?.writeText(JSON.stringify(jsonValue, null, 2))
+				sendUserToast('Copied to clipboard')
+			}}
+		>
+			Copy
+		</Button>
+	{/snippet}
+	<div class="w-full overflow-auto">
+		<pre class="text-xs whitespace-pre font-mono bg-surface-secondary rounded p-3"
+			>{JSON.stringify(jsonValue ?? {}, null, 2)}</pre
+		>
+	</div>
+</Modal2>

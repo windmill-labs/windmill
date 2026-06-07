@@ -1,3 +1,4 @@
+import { SvelteMap } from 'svelte/reactivity'
 import { DraftService, type UserDraftItemKind } from './gen'
 import { OpenAPI } from './gen/core/OpenAPI'
 import { createCoalescingKeyedRunner } from './coalescingRunner.svelte'
@@ -84,6 +85,23 @@ export type UserDraftDbSyncerSaveOpts = {
 	 * flows (table-row delete, etc.) where a fire-and-forget save would
 	 * race the next read. */
 	immediate?: boolean
+	/** Skip the optimistic-concurrency check on this save and overwrite
+	 *  the server row unconditionally. Used by the conflict-resolution UI
+	 *  ("Overwrite the remote") and by callers that have already resolved
+	 *  the conflict locally. Default `false`: regular autosaves attach
+	 *  `last_sync` and respect the server's reject response. */
+	force?: boolean
+}
+
+/**
+ * Snapshot of a rejected save. `localLastSync` is what we sent the
+ * server (or `null` if we'd never synced this key); `serverTimestamp` is
+ * the row's current `created_at`, surfaced so the resolution UI can show
+ * how recent the conflicting write was.
+ */
+export type DraftConflictInfo = {
+	serverTimestamp: string
+	localLastSync: string | null
 }
 
 export type UserDraftLastSyncQuery = {
@@ -145,8 +163,18 @@ const runner = createCoalescingKeyedRunner()
  */
 const pendingSaveOpts = new Map<string, UserDraftDbSyncerSaveOpts>()
 
+/**
+ * Reactive map of conflict snapshots — populated when the server rejects
+ * a save because the row's `created_at` is newer than the `last_sync` we
+ * sent. Read via `getConflict(query)` from the UI to drive the
+ * resolution modal. SvelteMap so consumer `$derived` re-runs when an
+ * entry is added/removed.
+ */
+const conflicts = new SvelteMap<string, DraftConflictInfo>()
+
 async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 	const key = draftKey(opts.workspace, opts.itemKind, opts.path)
+	const lastSync = readLastSyncMap()[key]?.lastSync
 	try {
 		const resp = await DraftService.saveDraft({
 			workspace: opts.workspace,
@@ -154,17 +182,37 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 			path: opts.path,
 			requestBody: {
 				value: opts.value as any,
-				force: true
+				// Force-saves skip the conflict check (callers that
+				// explicitly opted in via `overwrite(...)` already showed
+				// the user the conflict). Regular autosaves attach
+				// `last_sync` (when we have one) so the server can reject
+				// stale writes — defining behaviour for a first-ever save
+				// is "no last_sync field at all", matching the backend's
+				// "treat as fresh" branch.
+				last_sync: opts.force ? undefined : lastSync,
+				force: opts.force ?? false
 			}
 		})
-		// On a successful delete, drop the recorded last-sync so the
-		// next save starts fresh. On an upsert, remember the server's
-		// timestamp as our baseline for future conflict checks.
+		if (resp.status === 'conflict') {
+			// Server rejected the write because someone (another tab /
+			// browser / user) advanced the row past our `last_sync`. Park
+			// the snapshot in the conflict map for the UI to pick up; do
+			// NOT touch the local `lastSync` (the next save retries from
+			// the same baseline so the conflict persists until resolved).
+			conflicts.set(key, {
+				serverTimestamp: resp.current_timestamp,
+				localLastSync: lastSync ?? null
+			})
+			return
+		}
+		// resp.status === 'saved' — clear any prior conflict and bring
+		// the local lastSync forward (or drop it entirely on a delete).
 		if (opts.value === null) {
 			clearLastSync(opts.workspace, opts.itemKind, opts.path)
 		} else {
 			setLastSync(opts.workspace, opts.itemKind, opts.path, resp.current_timestamp)
 		}
+		conflicts.delete(key)
 		// Clear pending only if it's still the opts we just saved — a
 		// newer `save()` that arrived during the POST replaces the entry
 		// and must survive for the next flush / debouncer round.
@@ -207,11 +255,23 @@ function flushOnUnload(): void {
 				`/w/${encodeURI(opts.workspace)}` +
 				`/drafts/save_draft/${encodeURI(opts.itemKind)}` +
 				`/${encodeURI(opts.path)}`
+			const lastSync =
+				readLastSyncMap()[draftKey(opts.workspace, opts.itemKind, opts.path)]?.lastSync
+			// Unload flush respects optimistic concurrency: if the
+			// server moved on while the user was editing, dropping the
+			// keepalive write is the safer default (their colleague's
+			// edits stay intact). Callers that need force-overwrite
+			// would have called `overwrite(...)` explicitly before
+			// closing the tab.
 			void fetch(url, {
 				method: 'POST',
 				credentials: 'include',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ value: opts.value, force: true }),
+				body: JSON.stringify({
+					value: opts.value,
+					last_sync: opts.force ? undefined : lastSync,
+					force: opts.force ?? false
+				}),
 				keepalive: true
 			}).catch((e) => {
 				// `keepalive` size cap or network error — log so the loss
@@ -303,5 +363,64 @@ export const UserDraftDbSyncer = {
 		debouncer.schedule(key, () => {
 			runner.submit(key, () => postSave(opts))
 		})
+	},
+
+	/**
+	 * Seed the per-tab `last_sync` map after an editor reads a draft
+	 * from the server (via `?get_draft=true`). Calling this with the
+	 * `draft_saved_at` from the response makes the next save send a
+	 * matching `last_sync`, so the server accepts it unless someone
+	 * pushed a newer write in between. Pass `undefined` (or omit the
+	 * draftSavedAt) when no draft existed — that flips the next save
+	 * back to the "no last_sync" branch, which the backend treats as a
+	 * first-time push.
+	 */
+	recordRemoteSync(query: UserDraftLastSyncQuery, draftSavedAt: string | undefined): void {
+		const key = draftKey(query.workspace, query.itemKind, query.path)
+		if (draftSavedAt) {
+			setLastSync(query.workspace, query.itemKind, query.path, draftSavedAt)
+		} else {
+			clearLastSync(query.workspace, query.itemKind, query.path)
+		}
+		// Reading the server's authoritative timestamp resets the
+		// conflict state — by definition we're back in sync.
+		conflicts.delete(key)
+	},
+
+	/**
+	 * Reactive snapshot of the conflict (if any) for a draft. The
+	 * returned handle reads `conflicts` via a SvelteMap getter so a
+	 * `$derived` re-runs when the entry appears or clears.
+	 */
+	getConflict(query: UserDraftLastSyncQuery): {
+		readonly conflict: DraftConflictInfo | undefined
+	} {
+		const key = draftKey(query.workspace, query.itemKind, query.path)
+		return {
+			get conflict() {
+				return conflicts.get(key)
+			}
+		}
+	},
+
+	/**
+	 * Clear the conflict snapshot for a draft. Call after the
+	 * resolution UI lands a fresh read (the editor reloaded from
+	 * server) — `recordRemoteSync` does this implicitly, so the only
+	 * standalone use is the "dismiss without resolving" path.
+	 */
+	clearConflict(query: UserDraftLastSyncQuery): void {
+		conflicts.delete(draftKey(query.workspace, query.itemKind, query.path))
+	},
+
+	/**
+	 * Force-save: bypass the `last_sync` check and overwrite the
+	 * server row. Used by the conflict-resolution modal's "Overwrite
+	 * the remote" action. Goes through the same coalescing runner
+	 * (and resolves only after the POST lands) so the caller can `await`
+	 * it before navigating away or refetching.
+	 */
+	async overwrite(opts: Omit<UserDraftDbSyncerSaveOpts, 'force'>): Promise<void> {
+		await this.save({ ...opts, immediate: true, force: true })
 	}
 }
