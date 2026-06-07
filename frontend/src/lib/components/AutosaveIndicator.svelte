@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { tick, untrack } from 'svelte'
+	import { untrack } from 'svelte'
 	import { CloudCheck, RefreshCcw, RotateCcw } from 'lucide-svelte'
 	import type { UserDraftItemKind } from '$lib/gen'
 	import { UserDraftDbSyncer, type UserDraftSyncState } from '$lib/userDraftDbSyncer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
-	import { sendUserToast } from '$lib/toast'
+	import { runResetToDeployed } from '$lib/userDraftToast'
 	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
 
@@ -89,22 +89,9 @@
 	async function resetToDeployed() {
 		if (!onResetToDeployed || resetting) return
 		resetting = true
-		// Mirror the `notifyDraftLoaded` toast action so the discard
-		// sticks: suspend sync, POST the explicit delete, run the
-		// route's reload, then restart sync two ticks past the
-		// deployed-seed write.
-		UserDraft.stopSync(itemKind, path, { workspace })
-		UserDraftDbSyncer.save({ workspace, itemKind, path, value: null }).catch((e) =>
-			console.error('Reset to deployed: draft delete failed', e)
-		)
 		try {
-			await onResetToDeployed()
-		} catch (e: any) {
-			sendUserToast(`Could not reset to deployed: ${e?.body ?? e}`, true)
+			await runResetToDeployed({ workspace, itemKind, path, onResetToDeployed })
 		} finally {
-			await tick()
-			await tick()
-			UserDraft.restartSync(itemKind, path, { workspace })
 			resetting = false
 			popoverOpen = false
 		}

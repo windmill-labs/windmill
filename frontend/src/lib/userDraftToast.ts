@@ -4,11 +4,76 @@
  * which reset actions are offered; the reset side-effects live at each call
  * site (route-specific state).
  */
-import { tick } from 'svelte'
 import { sendUserToast } from '$lib/toast'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import type { UserDraftItemKind } from '$lib/gen'
+
+/**
+ * Run a "reset to deployed" action with the reactive autosave mirror
+ * suspended around it. The reset's own wipe-and-reload writes flow
+ * through the cell and would otherwise re-create the draft we just
+ * deleted; suspending swallows them silently.
+ *
+ * Restart sync ONLY on the user's next real interaction (keydown / input
+ * / pointerdown on the document) — `tick()` alone wasn't enough because
+ * editors keep cascading writes for a while after they remount (Monaco
+ * setValue acks, schema re-infer, framework iframe acks, …) and any of
+ * those landing post-restart would resurrect the draft. A 5-second
+ * fallback re-arms sync if the user walks away without touching the
+ * editor, so we don't leak the suspension forever.
+ *
+ * Exported so both the load-time toast (`notifyDraftLoaded`) and the
+ * AutosaveIndicator popover share one implementation — keep them in
+ * sync by funnelling through this helper.
+ */
+export async function runResetToDeployed(opts: {
+	workspace: string
+	itemKind: UserDraftItemKind
+	path: string
+	onResetToDeployed: () => void | Promise<void>
+}): Promise<void> {
+	UserDraft.stopSync(opts.itemKind, opts.path, { workspace: opts.workspace })
+	UserDraftDbSyncer.save({
+		workspace: opts.workspace,
+		itemKind: opts.itemKind,
+		path: opts.path,
+		value: null
+	}).catch((e) => console.error('Reset to deployed: draft delete failed', e))
+	try {
+		await opts.onResetToDeployed()
+	} catch (e: any) {
+		sendUserToast(`Could not reset to deployed: ${e?.body ?? e}`, true)
+	} finally {
+		armRestartOnFirstInteraction(opts.workspace, opts.itemKind, opts.path)
+	}
+}
+
+function armRestartOnFirstInteraction(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string
+): void {
+	let restarted = false
+	const restart = () => {
+		if (restarted) return
+		restarted = true
+		document.removeEventListener('keydown', restart, true)
+		document.removeEventListener('input', restart, true)
+		document.removeEventListener('pointerdown', restart, true)
+		clearTimeout(fallback)
+		UserDraft.restartSync(itemKind, path, { workspace })
+	}
+	// Capture phase + the three events that mean "the user touched the
+	// editor". keydown alone misses pointer-driven UI (sliders, color
+	// pickers, the path popover's OK button); pointerdown alone misses
+	// pure-keyboard edits in Monaco. Belt-and-braces fallback after 5s
+	// avoids stranding the suspension when the user navigates away.
+	document.addEventListener('keydown', restart, { capture: true, once: true })
+	document.addEventListener('input', restart, { capture: true, once: true })
+	document.addEventListener('pointerdown', restart, { capture: true, once: true })
+	const fallback = setTimeout(restart, 5000)
+}
 
 export type RestoreFromLocalActions = {
 	/** Drop the local autosave, apply the backend DB draft. Offered when `hasBackendDraft`. */
@@ -68,31 +133,13 @@ export function notifyDraftLoaded(opts: {
 	sendUserToast('Loaded your saved draft', false, [
 		{
 			label: 'Reset to deployed',
-			callback: async () => {
-				// Suspend the reactive sync effect around the whole reset
-				// flow: the route's callback wipes the in-memory handle
-				// then re-seeds it with the deployed payload, both of
-				// which would otherwise fire the autosave mirror and
-				// resurrect the draft we just deleted. We restart sync
-				// only after two ticks so the deployed-seed write has
-				// observably advanced `lastSerialized` first.
-				UserDraft.stopSync(opts.itemKind, opts.path, { workspace: opts.workspace })
-				UserDraftDbSyncer.save({
+			callback: () =>
+				runResetToDeployed({
 					workspace: opts.workspace,
 					itemKind: opts.itemKind,
 					path: opts.path,
-					value: null
-				}).catch((e) => console.error('Reset to deployed: draft delete failed', e))
-				try {
-					await opts.onResetToDeployed()
-				} catch (e: any) {
-					sendUserToast(`Could not reset to deployed: ${e?.body ?? e}`, true)
-				} finally {
-					await tick()
-					await tick()
-					UserDraft.restartSync(opts.itemKind, opts.path, { workspace: opts.workspace })
-				}
-			}
+					onResetToDeployed: opts.onResetToDeployed
+				})
 		}
 	])
 }
