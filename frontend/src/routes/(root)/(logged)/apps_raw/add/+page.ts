@@ -1,7 +1,6 @@
 import { redirect } from '@sveltejs/kit'
 import { base } from '$app/paths'
-import { get } from 'svelte/store'
-import { userStore } from '$lib/stores'
+import { getUsernameForNamespace } from '$lib/userNamespace'
 import type { PageLoad } from './$types'
 
 // See /scripts/add/+page.ts for the rationale — redirect at load time
@@ -10,7 +9,7 @@ import type { PageLoad } from './$types'
 export const prerender = false
 
 export const load: PageLoad = ({ url }) => {
-	const username = get(userStore)?.username ?? 'me'
+	const username = getUsernameForNamespace()
 	const uuid = crypto.randomUUID()
 	const params = new URLSearchParams(url.searchParams)
 	params.set('new_draft', 'true')

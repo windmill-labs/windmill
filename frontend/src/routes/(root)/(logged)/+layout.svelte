@@ -136,6 +136,16 @@
 			if (!deepEqual(user, $userStore)) {
 				userStore.set(user)
 			}
+			// Persist the workspace username so the synchronous `/add` →
+			// `/edit/u/{user}/draft_{uuid}` redirects (in each editor's
+			// `+page.ts`) can land on the right namespace without waiting
+			// for this async layout fetch. Without this they fall back to
+			// the `'me'` placeholder on every fresh nav.
+			try {
+				if (user?.username) localStorage.setItem('username', user.username)
+			} catch (e) {
+				console.error('Could not persist username to local storage', e)
+			}
 			if (isCloudHosted() && user?.is_admin) {
 				isPremiumStore.set(await WorkspaceService.getIsPremium({ workspace }))
 			}
