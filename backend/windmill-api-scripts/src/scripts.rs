@@ -391,6 +391,14 @@ async fn list_scripts(
                 .get("kind")
                 .and_then(|x| serde_json::from_value(x.clone()).ok())
                 .unwrap_or(ScriptKind::Script);
+            // Scripts bind the Path widget directly to `script.path`, so
+            // the user-typed path round-trips through the draft JSON's
+            // own `path` field — no separate `draft_path` field needed.
+            let draft_path = v
+                .get("path")
+                .and_then(|s| s.as_str())
+                .filter(|s| !s.is_empty() && *s != row.path.as_str())
+                .map(|s| s.to_string());
             rows.push(ListableScript {
                 hash: ScriptHash(0),
                 path: row.path,
@@ -418,6 +426,7 @@ async fn list_scripts(
                 kind,
                 labels: None,
                 is_draft: true,
+                draft_path,
             });
         }
     }

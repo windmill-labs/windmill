@@ -189,6 +189,22 @@
 			// path — FlowBuilder's Deploy button must `createFlow` at
 			// the user-typed path, not `updateFlow` at the URL.
 			isNewFlow = true
+			// Suspend autosave around the bootstrap cascade: the Path
+			// widget's `$workspaceStore && $userStore`-gated `initPath →
+			// reset → onMetaChange → bind:path` chain seeds a friendly
+			// auto-name into `$pathStore`, which FlowBuilder's
+			// `draft_path` effect mirrors into `flow.draft_path` — that
+			// programmatic write would otherwise fire as the user's
+			// first save before they've touched anything. Resumed once
+			// the cascade has settled (mirrors the other editors;
+			// 700ms covers cold reload where `$userStore` loads over
+			// the network).
+			if ($workspaceStore) {
+				const ws = $workspaceStore
+				const restartPath = flowDraftPath
+				UserDraft.stopSync('flow', restartPath, { workspace: ws })
+				setTimeout(() => UserDraft.restartSync('flow', restartPath, { workspace: ws }), 700)
+			}
 			// Clear `initialPath` so the Path widget's `initPath` falls
 			// into the empty-path branch and calls `reset()` to seed a
 			// friendly auto-name (mirrors the script editor — without

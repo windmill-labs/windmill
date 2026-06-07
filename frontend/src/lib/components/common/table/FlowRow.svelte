@@ -43,6 +43,7 @@
 		flow: Flow & {
 			draft_only?: boolean
 			is_draft?: boolean
+			draft_path?: string
 			canWrite: boolean
 		}
 		marked: string | undefined
@@ -127,7 +128,7 @@
 	kind="flow"
 	workspaceId={flow.workspace_id ?? $workspaceStore ?? ''}
 	{marked}
-	path={flow.path}
+	path={flow.draft_path ?? flow.path}
 	summary={flow.summary}
 	{errorHandlerMuted}
 	canFavorite={!flow.draft_only}

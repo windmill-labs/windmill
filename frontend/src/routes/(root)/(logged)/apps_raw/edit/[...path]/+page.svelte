@@ -43,6 +43,10 @@
 		summary: string
 		policy?: any
 		custom_path?: string
+		/** User-typed path the home list renders when set — written by
+		 *  the editor when (and only when) the typed path differs from
+		 *  the deployed/seeded `savedApp.path`. */
+		draft_path?: string
 	}
 
 	let files: Record<string, string> | undefined = $state(undefined)
@@ -53,6 +57,11 @@
 	// let lastVersion = 0
 	let policy: any = $state({})
 	let summary = $state('')
+	/** User-typed path surfaced from `RawAppEditorHeader` whenever it
+	 *  differs from `savedApp.path`. Mirrored into the autosaved raw-app
+	 *  draft below as `draft_path` so the home list can show the friendly
+	 *  name instead of the URL's `draft_{uuid}` slot. */
+	let pendingDraftPath = $state<string | undefined>(undefined)
 
 	let savedApp:
 		| {
@@ -137,14 +146,20 @@
 		readFieldsRecursively(data)
 		readFieldsRecursively(policy)
 		void summary
+		void pendingDraftPath
 		draftHandle.draft = {
 			files: currentFiles,
 			runnables,
 			data,
 			summary,
 			policy,
-			custom_path: savedApp?.custom_path
-		}
+			custom_path: savedApp?.custom_path,
+			// Only persist when set — `RawAppEditorHeader` clears it back
+			// to undefined once the typed path matches the baseline again,
+			// and deploy clears the whole draft, so the field disappears
+			// from the saved JSON in both cases.
+			...(pendingDraftPath ? { draft_path: pendingDraftPath } : {})
+		} as RawAppDraft
 	})
 
 	// Reflect an external UserDraft.save into the form. Idempotent; the
@@ -525,6 +540,7 @@
 				bind:runnables
 				bind:data
 				bind:summary
+				bind:pendingDraftPath
 				{newPath}
 				path={page.params.path ?? ''}
 				liveEditorDraftStoragePath={path}

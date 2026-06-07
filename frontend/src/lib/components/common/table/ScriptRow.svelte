@@ -56,6 +56,7 @@
 			canWrite: boolean
 			use_codebase: boolean
 			is_draft?: boolean
+			draft_path?: string
 		}
 		marked: string | undefined
 		shareModal: ShareModal
@@ -144,7 +145,7 @@
 		: `${base}/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
 	kind="script"
 	{marked}
-	path={script.path}
+	path={script.draft_path ?? script.path}
 	summary={script.summary}
 	{errorHandlerMuted}
 	workspaceId={$workspaceStore ?? ''}

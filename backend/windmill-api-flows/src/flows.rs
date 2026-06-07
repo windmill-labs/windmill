@@ -268,6 +268,17 @@ async fn list_flows(
         for row in draft_only_rows {
             let v: serde_json::Value =
                 serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
+            // The Flow editor's autosave never updates `flow.path` from
+            // the Path widget — the widget binds `$pathStore` directly,
+            // which is one-way `flow.path → $pathStore`. So the editor
+            // writes a separate `draft_path` field into the draft JSON
+            // when (and only when) the typed path differs from the
+            // deployed one. `None` here = unchanged.
+            let draft_path = v
+                .get("draft_path")
+                .and_then(|s| s.as_str())
+                .filter(|s| !s.is_empty() && *s != row.path.as_str())
+                .map(|s| s.to_string());
             rows.push(ListableFlow {
                 workspace_id: w_id.clone(),
                 path: row.path,
@@ -290,6 +301,7 @@ async fn list_flows(
                 deployment_msg: None,
                 labels: None,
                 is_draft: true,
+                draft_path,
             });
         }
     }

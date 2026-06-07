@@ -104,7 +104,7 @@
 	href="{base}/apps{app.raw_app ? '_raw' : ''}/get/{app.path}"
 	kind="app"
 	{marked}
-	path={app.path}
+	path={(app as any).draft_path ?? app.path}
 	summary={app.summary}
 	workspaceId={app.workspace_id ?? $workspaceStore ?? ''}
 	canFavorite={!app.draft_only}
