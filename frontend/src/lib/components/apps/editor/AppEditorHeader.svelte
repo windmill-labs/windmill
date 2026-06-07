@@ -141,7 +141,9 @@
 	 * rename detection still works. */
 	let newEditedPath = $state(
 		untrack(() =>
-			newApp ? userPathPrefix($userStore?.username) + random_adj() + '_app' : (newPath ?? '')
+			newApp && !newPath
+				? userPathPrefix($userStore?.username) + random_adj() + '_app'
+				: (newPath ?? '')
 		)
 	)
 	let deployedValue: Value | undefined = $state(undefined) // Value to diff against

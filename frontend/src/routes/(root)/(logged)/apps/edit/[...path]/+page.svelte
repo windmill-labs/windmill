@@ -345,7 +345,7 @@
 				on:restore={onRestore}
 				summary={app.summary}
 				app={app.value}
-				newPath={app.path}
+				newPath={(app.value as any)?.draft_path ?? app.path}
 				path={page.params.path ?? ''}
 				policy={app.policy}
 				bind:savedApp
