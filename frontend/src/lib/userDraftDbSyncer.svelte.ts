@@ -5,19 +5,29 @@ import { createCoalescingKeyedRunner } from './coalescingRunner.svelte'
 import { createDebouncerByKey } from './debouncerByKey.svelte'
 
 /**
- * Per-draft last-sync map persisted under a single localStorage key. Lets
- * the next `save_draft` (or a downstream UI) know the server's clock at
- * our most recent successful sync for `(workspace, itemKind, path)` —
- * without doing a network round-trip first.
+ * Per-draft last-sync map. Lets the next `save_draft` know the server's
+ * clock at our most recent successful sync for `(workspace, itemKind,
+ * path)` so it can attach `last_sync` and the backend can reject stale
+ * writes.
  *
- * Shape: `Record<draftKey, { lastSync: ISO-8601 string }>`. The map is
- * intentionally one storage slot for the whole tab; reading is one
- * `localStorage.getItem` + `JSON.parse`, not one per entry.
+ * Lives in TAB-LOCAL memory — not localStorage — because the whole point
+ * is that two tabs each track THEIR OWN baseline. If we shared the map,
+ * tab-1's successful save would update tab-2's "last_sync" to tab-1's
+ * fresh timestamp, and the next tab-2 save would attach that newer
+ * timestamp, the server's WHERE clause (`created_at <= last_sync`) would
+ * be true, and tab-2 would clobber tab-1's edit. That's the conflict
+ * detection failure mode the whole feature is meant to prevent.
+ *
+ * The cost of being tab-local: a fresh tab reload starts with no
+ * `last_sync`, so its first save sends nothing → the backend's "treat as
+ * fresh" branch fires and the save lands unconditionally. That's
+ * acceptable — the editor's load path calls `recordRemoteSync(query,
+ * draft_saved_at)` right after `get_draft=true` returns, which reseeds
+ * the map from the authoritative server timestamp before any user edit
+ * could fire a save.
  */
-const DRAFT_LAST_SYNC_KEY = 'userdraft/draftLastSync'
-
 type DraftLastSyncEntry = { lastSync: string }
-type DraftLastSyncMap = Record<string, DraftLastSyncEntry>
+const lastSyncMap = new Map<string, DraftLastSyncEntry>()
 
 /** Must match `mapKey` in `userDraft.svelte.ts` so the two files agree
  *  on what identifies a draft. */
@@ -25,29 +35,8 @@ function draftKey(workspace: string, itemKind: UserDraftItemKind, path: string):
 	return `${workspace}/${itemKind}/${path}`
 }
 
-function readLastSyncMap(): DraftLastSyncMap {
-	try {
-		const raw = localStorage.getItem(DRAFT_LAST_SYNC_KEY)
-		if (!raw) return {}
-		const parsed = JSON.parse(raw)
-		// Defensive: a corrupt slot (wrong type, array, null) shouldn't
-		// crash the syncer — reset to an empty map.
-		if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-			return parsed as DraftLastSyncMap
-		}
-		return {}
-	} catch (e) {
-		console.error('UserDraftDbSyncer: draftLastSync read failed', e)
-		return {}
-	}
-}
-
-function writeLastSyncMap(map: DraftLastSyncMap): void {
-	try {
-		localStorage.setItem(DRAFT_LAST_SYNC_KEY, JSON.stringify(map))
-	} catch (e) {
-		console.error('UserDraftDbSyncer: draftLastSync write failed', e)
-	}
+function getLastSyncEntry(key: string): DraftLastSyncEntry | undefined {
+	return lastSyncMap.get(key)
 }
 
 function setLastSync(
@@ -56,17 +45,11 @@ function setLastSync(
 	path: string,
 	lastSync: string
 ): void {
-	// Read-modify-write is fine: each step is synchronous, so two saves
-	// for different keys can't interleave their updates within a tab.
-	const map = readLastSyncMap()
-	map[draftKey(workspace, itemKind, path)] = { lastSync }
-	writeLastSyncMap(map)
+	lastSyncMap.set(draftKey(workspace, itemKind, path), { lastSync })
 }
 
 function clearLastSync(workspace: string, itemKind: UserDraftItemKind, path: string): void {
-	const map = readLastSyncMap()
-	delete map[draftKey(workspace, itemKind, path)]
-	writeLastSyncMap(map)
+	lastSyncMap.delete(draftKey(workspace, itemKind, path))
 }
 
 export type UserDraftDbSyncerSaveOpts = {
@@ -174,7 +157,7 @@ const conflicts = new SvelteMap<string, DraftConflictInfo>()
 
 async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 	const key = draftKey(opts.workspace, opts.itemKind, opts.path)
-	const lastSync = readLastSyncMap()[key]?.lastSync
+	const lastSync = getLastSyncEntry(key)?.lastSync
 	try {
 		const resp = await DraftService.saveDraft({
 			workspace: opts.workspace,
@@ -255,8 +238,9 @@ function flushOnUnload(): void {
 				`/w/${encodeURI(opts.workspace)}` +
 				`/drafts/save_draft/${encodeURI(opts.itemKind)}` +
 				`/${encodeURI(opts.path)}`
-			const lastSync =
-				readLastSyncMap()[draftKey(opts.workspace, opts.itemKind, opts.path)]?.lastSync
+			const lastSync = getLastSyncEntry(
+				draftKey(opts.workspace, opts.itemKind, opts.path)
+			)?.lastSync
 			// Unload flush respects optimistic concurrency: if the
 			// server moved on while the user was editing, dropping the
 			// keepalive write is the safer default (their colleague's
@@ -320,7 +304,7 @@ export const UserDraftDbSyncer = {
 	 * a first-time push.
 	 */
 	getLastSync(opts: UserDraftLastSyncQuery): string | undefined {
-		return readLastSyncMap()[draftKey(opts.workspace, opts.itemKind, opts.path)]?.lastSync
+		return getLastSyncEntry(draftKey(opts.workspace, opts.itemKind, opts.path))?.lastSync
 	},
 
 	/**
