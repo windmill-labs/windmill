@@ -25,7 +25,10 @@
 	let {
 		title,
 		css = {},
-		target = '',
+		// Forwarded to `Portal`. An empty string would hit
+		// `document.querySelector('')` and throw "The provided selector
+		// is empty" — match `Portal`'s own default instead.
+		target = 'body',
 		isOpen = $bindable(false),
 		fixedWidth = 'md',
 		fixedHeight = 'md',
