@@ -551,9 +551,9 @@
 			<div class="flex flex-row gap-2">
 				<Button
 					variant="default"
-					disabled={!savedApp}
+					disabled={!savedApp || newApp}
 					on:click={async () => {
-						if (!savedApp) {
+						if (!savedApp || newApp) {
 							return
 						}
 						// deployedValue should be syncronized when we open Diff
@@ -734,9 +734,9 @@
 			variant="default"
 			unifiedSize="md"
 			on:click={() => openDiffDrawer()}
-			disabled={!savedApp}
+			disabled={!savedApp || newApp}
 			iconOnly={compactTopbar}
-			title="Diff"
+			title={newApp ? 'Deploy this app once to compare against the deployed version' : 'Diff'}
 			startIcon={{ icon: DiffIcon }}
 		>
 			Diff

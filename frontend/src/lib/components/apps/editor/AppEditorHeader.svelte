@@ -526,7 +526,7 @@
 			displayName: 'Diff',
 			icon: DiffIcon,
 			action: async () => {
-				if (!savedApp) {
+				if (!savedApp || newApp) {
 					return
 				}
 
@@ -546,7 +546,7 @@
 					}
 				})
 			},
-			disabled: !savedApp
+			disabled: !savedApp || newApp
 		},
 		// App debug menu
 		{
@@ -696,9 +696,9 @@
 			<div class="flex flex-row gap-4">
 				<Button
 					variant="accent"
-					disabled={!savedApp}
+					disabled={!savedApp || newApp}
 					on:click={async () => {
-						if (!savedApp) {
+						if (!savedApp || newApp) {
 							return
 						}
 						// deployedValue should be syncronized when we open Diff

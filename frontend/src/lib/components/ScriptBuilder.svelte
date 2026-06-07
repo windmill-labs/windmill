@@ -1898,13 +1898,16 @@
 				{/snippet}
 				{#snippet diffButton()}
 					{#if customUi?.topBar?.diff != false}
+						{@const isDraftOnly = (savedScript as any)?.no_deployed === true}
 						<Button
 							variant="default"
 							unifiedSize="md"
 							on:click={() => openDiffDrawer()}
-							disabled={!savedScript || !diffDrawer}
+							disabled={!savedScript || !diffDrawer || isDraftOnly}
 							iconOnly={compactTopbar}
-							title="Diff"
+							title={isDraftOnly
+								? 'Deploy this script once to compare against the deployed version'
+								: 'Diff'}
 							startIcon={{ icon: DiffIcon }}
 						>
 							Diff

@@ -1051,9 +1051,11 @@
 							variant="default"
 							unifiedSize="md"
 							on:click={() => openDiffDrawer()}
-							disabled={!savedFlow}
+							disabled={!savedFlow || newFlow}
 							iconOnly={compactTopbar}
-							title="Diff"
+							title={newFlow
+								? 'Deploy this flow once to compare against the deployed version'
+								: 'Diff'}
 							startIcon={{ icon: DiffIcon }}
 						>
 							Diff

@@ -181,7 +181,12 @@
 				// `JSON.stringify(undefined)` returns the value `undefined`,
 				// and `JSON.parse(undefined)` coerces to the literal string
 				// "undefined", throwing the toast "Could not parse code".
-				schema: emptySchema()
+				schema: emptySchema(),
+				// Mirrors the backend's overlay shape for deployed=null
+				// paths — ScriptBuilder's Diff button gates on this so
+				// /add (and any other draft-only state) doesn't offer a
+				// diff that has no baseline to compare against.
+				no_deployed: true
 			} as unknown as EditableScript
 			initialPath = ''
 			savedScript = structuredClone(empty)
