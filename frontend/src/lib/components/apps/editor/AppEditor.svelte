@@ -92,7 +92,13 @@
 	// sides' autosaves. Skip UserDraft entirely in that case.
 	const inSessionPane = !!getContext('aiChatManager')
 
-	const appDraftPath = newApp ? '' : (path ?? '')
+	// `path` is the URL path (e.g. `u/{user}/draft_{uuid}` after the
+	// `/apps/add` redirect, or a deployed app's path on `/apps/edit/...`).
+	// The autosave keys on it directly so a refresh of
+	// `/apps/edit/u/{user}/draft_{uuid}` finds the user's saved draft at
+	// the same path, and the listing's draft-only branch (which scans the
+	// `draft` table by exact path) picks it up.
+	const appDraftPath = path ?? ''
 	const appDraftHandle = inSessionPane ? undefined : UserDraft.use<App>('app', appDraftPath)
 	// Suspend autosave around mount — the route may have seeded `app`
 	// from an empty template (e.g. `/apps/add` redirect with
@@ -103,10 +109,10 @@
 	// resumes once all mount-time effects have settled, so the user's
 	// real first edit is the first POST.
 	if (appDraftHandle) UserDraft.stopSync('app', appDraftPath)
-	// Prefer the persisted autosave over the prop when both exist (e.g.
-	// /apps/add reload: the route always initializes `app` to an empty
-	// template, but the user's last session is sitting in LS under the
-	// empty-path entry). The route is responsible for wiping the entry
+	// Prefer the persisted autosave over the prop when both exist (the
+	// route always initializes `app` to an empty template on
+	// `new_draft=true`, but a prior session at this draft path may have
+	// left an autosave). The route is responsible for wiping the entry
 	// (`UserDraft.remove`) when it wants to force a fresh start
 	// (template/hub loads, etc.).
 	const stateApp = $state(untrack(() => appDraftHandle?.draft ?? app))
