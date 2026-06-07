@@ -71,8 +71,6 @@
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
-	import UnsavedConfirmationModal from '../common/confirmationModal/UnsavedConfirmationModal.svelte'
-	import type { SavedAndModifiedValue } from '../common/confirmationModal/unsavedTypes'
 
 	// async function hash(message) {
 	// 	try {
@@ -525,32 +523,12 @@
 
 	let jobsDrawerOpen = $state(false)
 
-	function getInitialAndModifiedValues(): SavedAndModifiedValue {
-		return {
-			savedValue: savedApp,
-			modifiedValue: {
-				summary: summary,
-				value: app,
-				path: newEditedPath || savedApp?.path,
-				policy,
-				custom_path: customPath
-			}
-		}
-	}
 	let app = $derived(files ? { runnables: runnables, files, data } : undefined)
 
 	$effect(() => {
 		saveDrawerOpen && compareVersions()
 	})
 </script>
-
-<!-- Inside a session pane the editor's content is continuously persisted to the
-     UserDraft (localStorage), so tearing the editor down on navigation loses
-     nothing — skip the unsaved-changes prompt. The standalone /apps_raw editor
-     keeps it. -->
-{#if !inSessionPane}
-	<UnsavedConfirmationModal {diffDrawer} {getInitialAndModifiedValues} />
-{/if}
 
 <DeployOverrideConfirmationModal
 	{deployedBy}
