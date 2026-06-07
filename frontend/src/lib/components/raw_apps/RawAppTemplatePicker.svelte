@@ -167,7 +167,12 @@
 </script>
 
 {#if open}
-	<Modal kind="X" open title="New App setup">
+	<!-- `bind:open` (not `open`) so the inner Modal's X / Esc / click-
+	     outside dismissal propagates back to the parent. Without it the
+	     Modal closes its own UI but the picker's `open` prop stays true,
+	     so the route's `templatePicker → false` watcher never fires and
+	     autosave stays suspended after the dismissal. -->
+	<Modal kind="X" bind:open title="New App setup">
 		<div class="flex flex-col gap-6 min-w-sm">
 			<div>
 				<h2 class="text-xs font-semibold text-emphasis mb-1">Summary</h2>
