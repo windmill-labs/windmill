@@ -53,6 +53,12 @@
 
 	let savedFlow: Flow | undefined = $state(undefined)
 	let otherDraftsUsers = $state<OtherDraftUser[]>([])
+	// `initialPath` is the editor-displayed path. Defaults to the URL
+	// path so a deployed (or existing-draft) reload mounts FlowBuilder
+	// with the real path; cleared to '' inside the `new_draft` branch
+	// below so the Path widget's `initPath` calls `reset()` and seeds
+	// the friendly `<random_adj>_flow` name on `/flows/add`.
+	let flowInitialPath = $state(page.params.path ?? '')
 
 	// Derived so client-side nav (breadcrumb) re-keys the handle to the new path.
 	let flowDraftPath = $derived(page.params.path ?? '')
@@ -183,6 +189,11 @@
 			// path — FlowBuilder's Deploy button must `createFlow` at
 			// the user-typed path, not `updateFlow` at the URL.
 			isNewFlow = true
+			// Clear `initialPath` so the Path widget's `initPath` falls
+			// into the empty-path branch and calls `reset()` to seed a
+			// friendly auto-name (mirrors the script editor — without
+			// this the topbar would just show the raw `draft_{uuid}`).
+			flowInitialPath = ''
 			const url = new URL(window.location.href)
 			url.searchParams.delete('new_draft')
 			window.history.replaceState(window.history.state, '', url.toString())
@@ -416,7 +427,7 @@
 		onNavigate={(item) => goto(editPathFor(item))}
 		{flowStore}
 		{flowStateStore}
-		initialPath={page.params.path ?? ''}
+		bind:initialPath={flowInitialPath}
 		liveEditorDraftStoragePath={flowDraftPath}
 		newFlow={isNewFlow}
 		{selectedId}
