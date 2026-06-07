@@ -61,8 +61,8 @@
 			<AlertTriangle size={20} class="text-yellow-500 shrink-0 mt-0.5" />
 			<div class="text-sm text-secondary flex flex-col gap-1">
 				<p>
-					Someone else (another tab, browser or AI Agent) saved a newer version of this draft. Your
-					autosave was rejected to avoid overwriting their work.
+					Another tab, browser, or AI agent saved a newer version of this draft. Your autosave was
+					rejected to avoid overwriting their work.
 				</p>
 				{#if conflictHandle.conflict}
 					<p class="text-xs text-tertiary">
