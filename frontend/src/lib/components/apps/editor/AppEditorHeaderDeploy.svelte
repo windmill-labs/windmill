@@ -278,7 +278,7 @@
 					policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
 					setPublishState()
 				}}
-				disabled={!savedApp}
+				disabled={!savedApp || newApp}
 			/>
 		</div>
 		{#if !savedApp || newApp}
