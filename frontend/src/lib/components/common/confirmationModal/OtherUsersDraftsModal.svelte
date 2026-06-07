@@ -120,7 +120,7 @@
 			</p>
 		</div>
 
-		<ul class="divide-y border-t border-b">
+		<ul class="divide-y border-t border-b flex-1 overflow-y-auto">
 			{#each otherDraftsUsers as owner (ownerKey(owner))}
 				<li class="flex items-center gap-3 py-2">
 					<div class="flex-1 min-w-0 flex items-center gap-2">
@@ -159,7 +159,7 @@
 		</ul>
 
 		<div class="flex justify-end">
-			<Button variant="default" size="sm" on:click={() => (isOpen = false)}>Continue</Button>
+			<Button variant="default" size="sm" on:click={() => (isOpen = false)}>Continue anyway</Button>
 		</div>
 	</div>
 </Modal2>
