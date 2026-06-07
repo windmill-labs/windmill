@@ -757,6 +757,7 @@
 		{/snippet}
 		<AppEditorHeaderDeploy
 			{newPath}
+			{newApp}
 			{policy}
 			{setPublishState}
 			appPath={$appPath}

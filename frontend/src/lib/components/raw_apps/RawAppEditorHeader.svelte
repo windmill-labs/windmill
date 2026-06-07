@@ -609,6 +609,7 @@
 
 		<AppEditorHeaderDeploy
 			{newPath}
+			{newApp}
 			{policy}
 			{setPublishState}
 			{appPath}
