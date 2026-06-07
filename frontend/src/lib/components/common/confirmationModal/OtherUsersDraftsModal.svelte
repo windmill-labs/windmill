@@ -18,7 +18,7 @@
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
 	export type OtherDraftUser = { username?: string | null }
 
@@ -94,7 +94,19 @@
 		try {
 			const value = await fetchDraft(owner)
 			const target = forkPath(owner)
-			UserDraft.save(itemKind, target, value, { workspace })
+			// Bypass the autosave debouncer so the fork lands on the
+			// server BEFORE we navigate. The destination route loads
+			// via `getDraft=true` and 404s if no draft yet exists at
+			// the fork path — the prior `UserDraft.save` call
+			// scheduled a debounced POST 1.5s out, so a fresh nav was
+			// always too early.
+			await UserDraftDbSyncer.save({
+				workspace,
+				itemKind,
+				path: target,
+				value,
+				immediate: true
+			})
 			isOpen = false
 			goto(editPathFor(target))
 		} catch (e) {
