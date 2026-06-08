@@ -33,6 +33,21 @@ pub fn workspaced_service() -> Router {
         .route("/projects/{slug}/export", get(get_project_export))
 }
 
+fn validate_project_slug(slug: &str) -> Result<(), Error> {
+    let ok = slug.len() >= 3
+        && slug.len() <= 50
+        && !slug.starts_with('-')
+        && !slug.ends_with('-')
+        && slug
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+    if ok {
+        Ok(())
+    } else {
+        Err(Error::BadRequest(format!("invalid project slug: {slug}")))
+    }
+}
+
 #[derive(Deserialize)]
 struct PublishDraftBody {
     slug: String,
@@ -231,6 +246,7 @@ async fn publish_resource_type(
     Json(body): Json<PublishResourceTypeBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
+    validate_project_slug(&body.project_slug)?;
     forward_to_hub(
         &format!("/projects/{}/resource_types", body.project_slug),
         &workspace,
@@ -259,6 +275,7 @@ async fn publish_resources(
     Json(body): Json<PublishResourcesBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
+    validate_project_slug(&body.project_slug)?;
     forward_to_hub(
         &format!("/projects/{}/resources", body.project_slug),
         &workspace,
@@ -294,6 +311,7 @@ async fn publish_triggers(
     Json(body): Json<PublishTriggersBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
+    validate_project_slug(&body.project_slug)?;
     forward_to_hub(
         &format!("/projects/{}/triggers", body.project_slug),
         &workspace,
@@ -307,6 +325,7 @@ async fn get_project_export(
     Path((workspace, slug)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
+    validate_project_slug(&slug)?;
     get_from_hub(&format!("/projects/{}/export", slug), &workspace).await
 }
 
