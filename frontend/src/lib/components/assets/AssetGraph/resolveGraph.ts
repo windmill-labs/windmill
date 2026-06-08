@@ -2,6 +2,7 @@ import type { AssetGraphResponse, NativeTriggerKind } from './types'
 import { parsePipelineAnnotations, type PipelineAnnotations } from './parsePipelineAnnotations'
 import {
 	extractWrites,
+	extractReads,
 	type AssetKind,
 	type AssetWithAltAccessType
 } from '$lib/components/assets/lib'
@@ -66,7 +67,47 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 	// all render as their own subgraph at once.
 	const runnables = [...base.runnables]
 	const assets = [...base.assets]
-	const edges = [...base.edges]
+	// A drafted path's content-derived lineage is owned entirely by the draft
+	// overlay (live inference for the active draft, parsed annotations /
+	// snapshot for inactive ones). Drop the persisted base asset edges for those
+	// paths so it shows only the draft's I/O, not the union of the saved version
+	// and the in-flight edits. (Base asset triggers are dropped at the return;
+	// native triggers are kept — they bind by path.)
+	const draftedPaths = new Set(drafts.keys())
+	const isDrafted = (kind: string, p: string) => kind === 'script' && draftedPaths.has(p)
+
+	// Editing a *saved* script does NOT create a `drafts` entry — it stays an
+	// open selection with live overlays. So the draft filter above doesn't cover
+	// it: its persisted edges/triggers would linger next to the live edits (e.g.
+	// renaming an input leaves the old asset linked alongside the new one). For
+	// the open, live-inferred saved script, treat its current content as
+	// authoritative and drop persisted asset edges/triggers it no longer
+	// references. `liveRefKeys` unions the reliable `// on <asset>` annotations
+	// with the inferred body assets, so an unchanged selection drops nothing
+	// (every base asset is still referenced).
+	const openPath = liveBodyAssets.scriptPath
+	const openIsSavedEdit = openPath !== undefined && !draftedPaths.has(openPath)
+	const liveRefKeys = new Set<string>()
+	if (openIsSavedEdit) {
+		if (liveAnnotations.scriptPath === openPath) {
+			for (const a of liveAnnotations.annotations.triggerAssets)
+				liveRefKeys.add(`${a.kind}:${a.path}`)
+		}
+		for (const a of liveBodyAssets.assets) liveRefKeys.add(`${a.kind}:${a.path}`)
+	}
+	const staleForOpen = (kind: AssetKind, path: string) =>
+		openIsSavedEdit && !liveRefKeys.has(`${kind}:${path}`)
+
+	const edges = base.edges.filter((e) => {
+		if (isDrafted(e.runnable_kind, e.runnable_path)) return false
+		if (
+			e.runnable_kind === 'script' &&
+			e.runnable_path === openPath &&
+			staleForOpen(e.asset_kind, e.asset_path)
+		)
+			return false
+		return true
+	})
 	const extraTriggers: AssetGraphResponse['triggers'] = []
 
 	for (const [path, d] of drafts) {
@@ -78,9 +119,7 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 		// duplicate (which would crash svelte-flow's keyed each), so the
 		// canvas + trigger-node labels reflect that there's pending body
 		// editing for this path.
-		const baseIdx = runnables.findIndex(
-			(r) => r.usage_kind === 'script' && r.path === path
-		)
+		const baseIdx = runnables.findIndex((r) => r.usage_kind === 'script' && r.path === path)
 		if (baseIdx === -1) {
 			runnables.push({
 				path,
@@ -122,7 +161,10 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 		for (const out of writeOuts) {
 			const hasAsset = assets.some((a) => a.kind === out.kind && a.path === out.path)
 			if (!hasAsset) assets.push({ kind: out.kind, path: out.path })
-			const hasWriteEdge = base.edges.some(
+			// Dedup against edges already in the overlay (this draft's base
+			// edges were dropped above, so this only guards against duplicate
+			// writeOuts entries — not against the persisted version).
+			const hasWriteEdge = edges.some(
 				(e) =>
 					e.runnable_kind === 'script' &&
 					e.runnable_path === path &&
@@ -139,6 +181,35 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 				access_type: 'w',
 				unsaved: true
 			})
+		}
+		// Live read lineage for the active draft (body reads like loadS3File /
+		// SELECT). Only the open draft has live-inferred assets; inactive drafts
+		// fall back to their `// on <asset>` annotations below for inputs. Without
+		// this, dropping the persisted base edges above would lose the input
+		// edges of a saved script the moment the user starts editing it.
+		if (liveForThisDraft) {
+			for (const inp of extractReads(liveBodyAssets.assets)) {
+				if (!assets.some((a) => a.kind === inp.kind && a.path === inp.path)) {
+					assets.push({ kind: inp.kind, path: inp.path })
+				}
+				const hasReadEdge = edges.some(
+					(e) =>
+						e.runnable_kind === 'script' &&
+						e.runnable_path === path &&
+						e.asset_kind === inp.kind &&
+						e.asset_path === inp.path &&
+						(e.access_type === 'r' || e.access_type === 'rw')
+				)
+				if (hasReadEdge) continue
+				edges.push({
+					runnable_path: path,
+					runnable_kind: 'script',
+					asset_kind: inp.kind,
+					asset_path: inp.path,
+					access_type: 'r',
+					unsaved: true
+				})
+			}
 		}
 		// Seed trigger edges from the draft's template so the graph stays
 		// stable when the user clicks off this draft. Live annotations
@@ -180,16 +251,23 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 	// them out. Scoped to one path (only one pane is open at a time).
 	const livePath = liveAnnotations.scriptPath
 	if (livePath) {
-		const persistedAssetKeys = new Set(
-			base.triggers
-				.filter(
-					(t) =>
-						t.trigger_kind === 'asset' &&
-						t.runnable_kind === 'script' &&
-						t.runnable_path === livePath
+		// When the open buffer is a draft, its base asset triggers were dropped
+		// above (draft-owned), so don't dedup live asset triggers against them —
+		// every live `// on <asset>` is emitted as unsaved. For a non-draft open
+		// script (viewing a saved one), keep deduping so live re-parse doesn't
+		// double the persisted triggers.
+		const persistedAssetKeys = draftedPaths.has(livePath)
+			? new Set<string>()
+			: new Set(
+					base.triggers
+						.filter(
+							(t) =>
+								t.trigger_kind === 'asset' &&
+								t.runnable_kind === 'script' &&
+								t.runnable_path === livePath
+						)
+						.map((t) => (t.trigger_kind === 'asset' ? `${t.asset_kind}:${t.asset_path}` : ''))
 				)
-				.map((t) => (t.trigger_kind === 'asset' ? `${t.asset_kind}:${t.asset_path}` : ''))
-		)
 		// Strip seeded triggers we computed above for the active draft;
 		// live annotations are authoritative for the open buffer.
 		for (let i = extraTriggers.length - 1; i >= 0; i--) {
@@ -316,5 +394,21 @@ export function resolveGraph(input: ResolveGraphInput): AssetGraphResponse {
 	overlayLineage(inferredWritesByPath, 'w')
 	overlayLineage(inferredReadsByPath, 'r')
 
-	return { ...base, assets, runnables, edges, triggers: [...base.triggers, ...extraTriggers] }
+	// Drop persisted ASSET triggers for drafted paths — those come from the
+	// deployed `// on <asset>` annotations, which the draft's live/parsed
+	// annotations now own. Native triggers (kafka/schedule/…) are kept: they
+	// bind by `script_path`, which the draft shares, so the attachment is still
+	// valid regardless of content edits.
+	const baseTriggers = base.triggers.filter((t) => {
+		if (t.trigger_kind !== 'asset') return true
+		if (isDrafted(t.runnable_kind, t.runnable_path)) return false
+		if (
+			t.runnable_kind === 'script' &&
+			t.runnable_path === openPath &&
+			staleForOpen(t.asset_kind, t.asset_path)
+		)
+			return false
+		return true
+	})
+	return { ...base, assets, runnables, edges, triggers: [...baseTriggers, ...extraTriggers] }
 }

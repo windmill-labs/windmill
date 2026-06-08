@@ -233,6 +233,188 @@ describe('resolveGraph', () => {
 		).toBe(true)
 	})
 
+	it('editing a saved script shows only the draft I/O, not the persisted edges', () => {
+		// Saved script with persisted read/write lineage + an asset trigger.
+		const base = baseGraph({
+			runnables: [{ path: 'f/x/prod', usage_kind: 'script' }],
+			edges: [
+				{
+					runnable_path: 'f/x/prod',
+					runnable_kind: 'script',
+					asset_kind: 's3object',
+					asset_path: '/old-out.json',
+					access_type: 'w'
+				},
+				{
+					runnable_path: 'f/x/prod',
+					runnable_kind: 'script',
+					asset_kind: 's3object',
+					asset_path: '/old-in.json',
+					access_type: 'r'
+				}
+			],
+			triggers: [
+				{
+					trigger_kind: 'asset',
+					asset_kind: 's3object',
+					asset_path: '/old-trig.json',
+					runnable_kind: 'script',
+					runnable_path: 'f/x/prod'
+				}
+			]
+		})
+		// The user is now editing it: a draft at the same path, open, with new
+		// live-inferred reads/writes and a new live `// on` annotation.
+		const drafts = new Map([['f/x/prod', { script: { content: '// on s3:///new-trig.json' } }]])
+		const r = resolveGraph(
+			input({
+				base,
+				drafts,
+				liveBodyAssets: {
+					scriptPath: 'f/x/prod',
+					assets: [s3('/new-out.json', 'w'), s3('/new-in.json', 'r')]
+				},
+				liveAnnotations: {
+					scriptPath: 'f/x/prod',
+					annotations: ann({ triggerAssets: [{ kind: 's3object', path: '/new-trig.json' }] })
+				}
+			})
+		)
+		const paths = r.edges.filter((e) => e.runnable_path === 'f/x/prod').map((e) => e.asset_path)
+		// Only the draft's I/O — the persisted edges are gone.
+		expect(paths.sort()).toEqual(['/new-in.json', '/new-out.json'])
+		const trigs = r.triggers.filter((t) => t.runnable_path === 'f/x/prod')
+		expect(trigs).toHaveLength(1)
+		expect(trigs[0]).toMatchObject({ trigger_kind: 'asset', asset_path: '/new-trig.json' })
+	})
+
+	it('editing a saved script (open, not a draft) drops the renamed input, keeps output', () => {
+		// Saved DuckDB-style script: `// on s3://old.csv` + body read of old.csv
+		// + datatable write. Persisted base has all three.
+		const base = baseGraph({
+			runnables: [{ path: 'f/x/prod', usage_kind: 'script' }],
+			edges: [
+				{
+					runnable_path: 'f/x/prod',
+					runnable_kind: 'script',
+					asset_kind: 's3object',
+					asset_path: 'old.csv',
+					access_type: 'r'
+				},
+				{
+					runnable_path: 'f/x/prod',
+					runnable_kind: 'script',
+					asset_kind: 'datatable',
+					asset_path: 'main/out',
+					access_type: 'w'
+				}
+			],
+			triggers: [
+				{
+					trigger_kind: 'asset',
+					asset_kind: 's3object',
+					asset_path: 'old.csv',
+					runnable_kind: 'script',
+					runnable_path: 'f/x/prod'
+				}
+			]
+		})
+		// Open + edited (NOT a draft): input renamed old.csv → new.csv in both the
+		// `// on` annotation and the body read; output unchanged.
+		const r = resolveGraph(
+			input({
+				base,
+				liveAnnotations: {
+					scriptPath: 'f/x/prod',
+					annotations: ann({ triggerAssets: [{ kind: 's3object', path: 'new.csv' }] })
+				},
+				liveBodyAssets: {
+					scriptPath: 'f/x/prod',
+					assets: [
+						s3('new.csv', 'r'),
+						{ kind: 'datatable', path: 'main/out', access_type: 'w' } as AssetWithAltAccessType
+					]
+				}
+			})
+		)
+		// The old input is gone from both edges and triggers…
+		expect(r.edges.some((e) => e.asset_path === 'old.csv')).toBe(false)
+		expect(r.triggers.some((t) => (t as any).asset_path === 'old.csv')).toBe(false)
+		// …the new input shows (as an unsaved trigger from the live annotation)…
+		expect(
+			r.triggers.some(
+				(t) => t.trigger_kind === 'asset' && (t as any).asset_path === 'new.csv' && t.unsaved
+			)
+		).toBe(true)
+		// …and the unchanged output write edge is preserved.
+		expect(r.edges.some((e) => e.asset_path === 'main/out' && e.access_type === 'w')).toBe(true)
+	})
+
+	it('selecting a saved script unchanged drops nothing (no stale removal)', () => {
+		const base = baseGraph({
+			runnables: [{ path: 'f/x/prod', usage_kind: 'script' }],
+			edges: [
+				{
+					runnable_path: 'f/x/prod',
+					runnable_kind: 'script',
+					asset_kind: 's3object',
+					asset_path: 'in.csv',
+					access_type: 'r'
+				}
+			],
+			triggers: [
+				{
+					trigger_kind: 'asset',
+					asset_kind: 's3object',
+					asset_path: 'in.csv',
+					runnable_kind: 'script',
+					runnable_path: 'f/x/prod'
+				}
+			]
+		})
+		const r = resolveGraph(
+			input({
+				base,
+				liveAnnotations: {
+					scriptPath: 'f/x/prod',
+					annotations: ann({ triggerAssets: [{ kind: 's3object', path: 'in.csv' }] })
+				},
+				liveBodyAssets: { scriptPath: 'f/x/prod', assets: [s3('in.csv', 'r')] }
+			})
+		)
+		// Persisted edge + trigger untouched (not marked unsaved, not dropped).
+		expect(r.edges).toEqual(base.edges)
+		const assetTrigs = r.triggers.filter((t) => t.trigger_kind === 'asset')
+		expect(assetTrigs).toHaveLength(1)
+		expect(assetTrigs[0]).not.toHaveProperty('unsaved', true)
+	})
+
+	it('editing a saved script keeps its native (path-bound) triggers', () => {
+		// A kafka trigger row points at the script by path — editing the body
+		// (draft) must not drop it, since the binding survives content edits.
+		const base = baseGraph({
+			runnables: [{ path: 'f/x/prod', usage_kind: 'script' }],
+			triggers: [
+				{
+					trigger_kind: 'kafka',
+					path: 'f/x/kafka_trig',
+					runnable_kind: 'script',
+					runnable_path: 'f/x/prod'
+				} as any
+			]
+		})
+		const drafts = new Map([['f/x/prod', { script: { content: '// on kafka' } }]])
+		const r = resolveGraph(input({ base, drafts }))
+		expect(
+			r.triggers.some(
+				(t) =>
+					t.trigger_kind === 'kafka' &&
+					t.runnable_path === 'f/x/prod' &&
+					(t as any).path === 'f/x/kafka_trig'
+			)
+		).toBe(true)
+	})
+
 	it('live annotations for a draft replace that draft’s seeded triggers', () => {
 		// Draft body seeds a schedule annotation; the live buffer has
 		// replaced it with an asset trigger — only the live one should remain.
