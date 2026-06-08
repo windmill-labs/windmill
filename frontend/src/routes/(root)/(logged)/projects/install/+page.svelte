@@ -92,7 +92,7 @@
 
 	async function install() {
 		if (!data || !workspace) return
-		const folder = (folderName || data.project.slug).trim()
+		const folder = folderName.trim() || data.project.slug
 		installing = true
 		results = []
 		done = false
@@ -246,7 +246,8 @@
 			</p>
 			<FolderPicker bind:folderName disabled={installing || done} size="sm" />
 			<p class="mt-1 text-xs text-tertiary">
-				Items import under <span class="font-mono">f/{folderName || data.project.slug}/</span>.
+				Items import under <span class="font-mono">f/{folderName.trim() || data.project.slug}/</span
+				>.
 			</p>
 		</div>
 
