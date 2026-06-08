@@ -343,12 +343,12 @@ async fn list_scripts(
     //
     // Concatenated after the deployed page so the home page surfaces
     // them too. Fields not in the draft JSON fall back to sensible
-    // defaults. Skipped when filters narrow the list or we're past
-    // page 0 — keeps pagination semantics clean.
+    // defaults. `path_start` is honored in-query (so prefix listings
+    // still include draft-only rows); other narrowing filters or pages
+    // past 0 skip the append to keep pagination semantics clean.
     if lq.include_draft_only.unwrap_or(false)
         && !authed.is_operator
         && offset == 0
-        && lq.path_start.is_none()
         && lq.path_exact.is_none()
         && lq.created_by.is_none()
         && lq.first_parent_hash.is_none()
@@ -369,6 +369,7 @@ async fn list_scripts(
                WHERE workspace_id = $1
                  AND typ = 'script'
                  AND email = $2
+                 AND ($3::text IS NULL OR path LIKE $3 || '%')
                  AND NOT EXISTS (
                      SELECT 1 FROM script s
                      WHERE s.workspace_id = draft.workspace_id
@@ -376,6 +377,7 @@ async fn list_scripts(
                  )"#,
             &w_id,
             &authed.email,
+            lq.path_start.as_deref(),
         )
         .fetch_all(&db)
         .await?;

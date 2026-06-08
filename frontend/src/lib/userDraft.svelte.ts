@@ -408,6 +408,20 @@ export const UserDraft = {
 		return entry.state.val !== undefined
 	},
 
+	/**
+	 * Whether a live handle/entry is currently mounted for
+	 * `(workspace, itemKind, path)` in this tab — regardless of whether
+	 * it holds a draft value yet. Distinct from `has`, which additionally
+	 * requires a non-`undefined` value. Headless callers (the global AI
+	 * chat) use this to decide whether a write should flow through the
+	 * in-memory cell — so a mounted editor reflects it reactively — or go
+	 * straight to the DB syncer.
+	 */
+	isLive(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): boolean {
+		const ws = resolveWorkspace(opts)
+		return entries.has(mapKey(ws, itemKind, path))
+	},
+
 	remove(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
@@ -466,8 +480,8 @@ export const UserDraft = {
 	/**
 	 * List currently-mounted live entries for `workspace`. Without the
 	 * localStorage layer, "list" is meaningful only for in-tab entries —
-	 * for a workspace-wide view across sessions, call
-	 * `DraftService.listDrafts` instead.
+	 * for a workspace-wide view across sessions, use the deployed list
+	 * endpoints with `includeDraftOnly` (which flag the caller's drafts).
 	 */
 	list<V = unknown>(opts?: UserDraftListOptions): UserDraftEntry<V>[] {
 		const ws = resolveWorkspace(opts)

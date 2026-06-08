@@ -32,8 +32,6 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		type WorkspaceItem,
 		type WorkspaceItemKind
 	} from './workspacePicker'
-	import { listGlobalDrafts } from '$lib/components/copilot/chat/global/userDraftAdapter'
-	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 
 	type Kind = WorkspaceItemKind
 	type Item = WorkspaceItem
@@ -155,32 +153,6 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		}
 	}
 
-	// Chat tools and session editor previews write drafts through
-	// `UserDraft` (workspace-scoped, localStorage-backed). Merge those into
-	// the picker so users can navigate to in-flight items that haven't been
-	// deployed yet. Filter to kinds the picker actually displays.
-	//
-	// Gated on the same dev flag as the rest of the sessions feature: without
-	// it there are no sessions, so the only UserDrafts present are the
-	// standalone editors' autosaves — surfacing those in the breadcrumb picker
-	// would be surprising (they'd appear as navigable items that 404 on the
-	// backend draft fetch). When the flag is off this is a no-op.
-	const KIND_TO_DRAFT_TYPE = { flow: 'flow', script: 'script', app: 'app' } as const
-	function aiDraftsForKind(k: Kind): Item[] {
-		if (!isGlobalAiEnabled()) return []
-		if (!$workspaceStore) return []
-		const targetType = KIND_TO_DRAFT_TYPE[k]
-		return listGlobalDrafts($workspaceStore)
-			.filter((d) => d.type === targetType)
-			.map((d) => ({
-				path: d.path,
-				summary: d.summary ?? '',
-				kind: k,
-				// `raw_app` lives on the draft envelope for legacy/raw-app distinction.
-				raw_app: k === 'app' ? !!(d.value as { files?: unknown })?.files : undefined
-			}))
-	}
-
 	// Searching is global → load every kind.
 	$effect(() => {
 		if (filter.trim() !== '') for (const k of kinds) ensureLoaded(k)
@@ -192,17 +164,6 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		isScope: boolean
 		children: DirNode[]
 		leaves: Item[]
-	}
-
-	/** Merge AI-created in-memory drafts into a kind's list. The AI may have
-	 * scaffolded a script/flow/app via chat tools without the user saving
-	 * yet — those drafts should be navigable from the picker. Existing items
-	 * (same path) win to keep the backend's metadata (summary etc.). */
-	function withAiDrafts(items: Item[], k: Kind): Item[] {
-		const ai = aiDraftsForKind(k)
-		if (ai.length === 0) return items
-		const known = new Set(items.map((it) => it.path))
-		return items.concat(ai.filter((d) => !known.has(d.path)))
 	}
 
 	/** Inject the currently-edited item into a kind's list at its live path,
@@ -272,7 +233,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	 * cached. */
 	function buildIfActive(k: Kind, list: Item[] | undefined): DirNode[] {
 		if (!kinds.includes(k)) return []
-		const items = withAiDrafts(withCurrent(list ?? [], k), k)
+		const items = withCurrent(list ?? [], k)
 		if (items.length === 0) return []
 		return buildTreeFromItems(items)
 	}
@@ -284,7 +245,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	 * one folder hierarchy. Each leaf still carries its real kind, so the row
 	 * icon and `editPathFor` routing still work; folders contain a mix. */
 	const allTree = $derived.by(() => {
-		const merged = kinds.flatMap((k) => withAiDrafts(withCurrent(loaded[k] ?? [], k), k))
+		const merged = kinds.flatMap((k) => withCurrent(loaded[k] ?? [], k))
 		return merged.length === 0 ? [] : buildTreeFromItems(merged)
 	})
 
@@ -320,7 +281,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 
 	let allItems = $derived<SearchInput[]>(
 		kinds.flatMap((k) =>
-			withAiDrafts(withCurrent(loaded[k] ?? [], k), k).map((it) => ({
+			withCurrent(loaded[k] ?? [], k).map((it) => ({
 				...it,
 				_key: `${k}:${it.path}`
 			}))

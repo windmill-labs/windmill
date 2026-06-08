@@ -458,11 +458,12 @@ async fn list_apps(
     //
     // Concatenated after the deployed page so the home page surfaces
     // them too. Fields not in the draft JSON fall back to defaults.
-    // Skipped when filters narrow the list or we're past page 0.
+    // `path_start` is honored in-query (so prefix listings still include
+    // draft-only rows); other narrowing filters or pages past 0 skip the
+    // append to keep pagination clean.
     if lq.include_draft_only.unwrap_or(false)
         && !authed.is_operator
         && offset == 0
-        && lq.path_start.is_none()
         && lq.path_exact.is_none()
         && lq.label.is_none()
         && !lq.starred_only.unwrap_or(false)
@@ -476,6 +477,7 @@ async fn list_apps(
                WHERE workspace_id = $1
                  AND typ IN ('app', 'raw_app')
                  AND email = $2
+                 AND ($3::text IS NULL OR path LIKE $3 || '%')
                  AND NOT EXISTS (
                      SELECT 1 FROM app a
                      WHERE a.workspace_id = draft.workspace_id
@@ -483,6 +485,7 @@ async fn list_apps(
                  )"#,
             &w_id,
             &authed.email,
+            lq.path_start.as_deref(),
         )
         .fetch_all(&db)
         .await?;
