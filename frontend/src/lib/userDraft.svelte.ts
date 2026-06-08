@@ -355,12 +355,38 @@ export const UserDraft = {
 		// the getter so reactive opts (e.g. `$workspaceStore`) are
 		// captured once at call time — the current contract is "the
 		// handle stays bound to this workspace until the component
-		// unmounts." Use `useMany` directly if you want spec changes to
-		// release/acquire entries as you go.
+		// unmounts." For reactive `(kind, path)` use `useReactive`.
 		const handles = UserDraft.useMany<V>(() =>
 			untrack(() => [{ itemKind, path, workspace: opts?.workspace }])
 		)
 		return handles[0]
+	},
+
+	/**
+	 * Reactive single-spec variant of `use()`. `getSpec` is read inside the
+	 * `useMany` reconcile, so when the spec's `(workspace, kind, path)`
+	 * changes, the previous entry is released and a new one acquired. The
+	 * returned object is a stable handle proxy — its `draft` getter/setter
+	 * forwards to whichever underlying handle is current, so `bind:` lvalues
+	 * survive re-keying.
+	 *
+	 * Use this when the editor's path is reactive (`/scripts/edit/[...path]`
+	 * navigation between paths must re-key the autosave cell). For a
+	 * non-reactive path, `use()` is simpler.
+	 */
+	useReactive<V = unknown>(
+		getSpec: () => { itemKind: UserDraftItemKind; path: string; workspace?: string }
+	): UserDraftHandle<V> {
+		const handles = UserDraft.useMany<V>(() => [getSpec()])
+		return {
+			get draft(): V | undefined {
+				return handles[0]?.draft
+			},
+			set draft(value: V | undefined) {
+				const h = handles[0]
+				if (h) h.draft = value
+			}
+		}
 	},
 
 	useMany<V = unknown>(

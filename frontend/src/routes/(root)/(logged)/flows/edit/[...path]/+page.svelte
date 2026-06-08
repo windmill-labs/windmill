@@ -18,7 +18,7 @@
 	import { tick, untrack } from 'svelte'
 	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
 	import { page } from '$app/state'
-	import { UserDraft, type UserDraftHandle } from '$lib/userDraft.svelte'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import { notifyDraftLoaded } from '$lib/userDraftToast'
 
 	let version: undefined | number = $state(undefined)
@@ -56,18 +56,12 @@
 	 * deploy lands at this path. */
 	let isNewFlow = $state(false)
 
-	// `useMany` keyed off the reactive `flowDraftPath` re-keys the handle on nav;
-	// `flowHandle` proxies the current handle so `flowStore` keeps a fixed ref.
-	const flowHandles = UserDraft.useMany<Flow>(() => [{ itemKind: 'flow', path: flowDraftPath }])
-	const flowHandle: UserDraftHandle<Flow> = {
-		get draft() {
-			return flowHandles[0]?.draft
-		},
-		set draft(value) {
-			const handle = flowHandles[0]
-			if (handle) handle.draft = value
-		}
-	}
+	// Re-keys the handle on nav (the reactive `flowDraftPath` is read inside
+	// the reconcile) while keeping `flowStore` a stable ref.
+	const flowHandle = UserDraft.useReactive<Flow>(() => ({
+		itemKind: 'flow',
+		path: flowDraftPath
+	}))
 
 	function emptyFlow(): Flow {
 		return {

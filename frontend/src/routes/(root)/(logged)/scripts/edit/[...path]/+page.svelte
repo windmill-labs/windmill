@@ -15,7 +15,7 @@
 	import { get } from 'svelte/store'
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
-	import { UserDraft, type UserDraftHandle } from '$lib/userDraft.svelte'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import { notifyDraftLoaded } from '$lib/userDraftToast'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
@@ -35,20 +35,12 @@
 	// local draft — that view is read-only relative to drafts.
 	let draftPath = $derived(hash ? '' : (page.params.path ?? ''))
 
-	// `useMany` keyed off the reactive `draftPath` re-keys the handle on nav;
-	// `scriptHandle` proxies the current handle so `bind:script` stays a fixed lvalue.
-	const scriptHandles = UserDraft.useMany<EditableScript>(() => [
-		{ itemKind: 'script', path: draftPath }
-	])
-	const scriptHandle: UserDraftHandle<EditableScript> = {
-		get draft() {
-			return scriptHandles[0]?.draft
-		},
-		set draft(value) {
-			const handle = scriptHandles[0]
-			if (handle) handle.draft = value
-		}
-	}
+	// Re-keys the handle on nav (the reactive `draftPath` is read inside
+	// the reconcile) while keeping `bind:script` a stable lvalue.
+	const scriptHandle = UserDraft.useReactive<EditableScript>(() => ({
+		itemKind: 'script',
+		path: draftPath
+	}))
 
 	$effect(() => {
 		if (hash || !$workspaceStore) return
