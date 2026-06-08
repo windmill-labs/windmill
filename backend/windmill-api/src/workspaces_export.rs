@@ -157,20 +157,25 @@ pub fn is_none_or_false(val: &Option<bool>) -> bool {
     )
 ))]
 async fn fork_parent_trigger_modes(
-    tx: &mut sqlx::PgConnection,
+    db: &DB,
     table_name: &str,
     parent_workspace_id: Option<&str>,
 ) -> Result<HashMap<String, String>> {
     let Some(parent) = parent_workspace_id else {
         return Ok(HashMap::new());
     };
+    // Read the parent's rows on the non-RLS pool (like `workspace_is_fork`): the
+    // substitution must be complete regardless of the exporter's folder perms,
+    // otherwise a parent path the exporter can't read would fall back to the
+    // fork's own value and silently re-introduce the divergence we're fixing.
+    // No leak: only values for paths the fork already has (it's a clone) are used.
     // SAFETY: `table_name` is a compile-time `TriggerCrud::TABLE_NAME` constant.
     let rows: Vec<(String, String)> = sqlx::query_as(&format!(
         "SELECT path, mode::text FROM {} WHERE workspace_id = $1",
         table_name
     ))
     .bind(parent)
-    .fetch_all(&mut *tx)
+    .fetch_all(db)
     .await?;
     Ok(rows.into_iter().collect())
 }
@@ -210,16 +215,17 @@ fn trigger_mode_override(
 /// Schedule analog of [`fork_parent_trigger_modes`]: maps schedule `path` →
 /// parent `enabled`. Empty when not a fork.
 async fn fork_parent_schedule_enabled(
-    tx: &mut sqlx::PgConnection,
+    db: &DB,
     parent_workspace_id: Option<&str>,
 ) -> Result<HashMap<String, bool>> {
     let Some(parent) = parent_workspace_id else {
         return Ok(HashMap::new());
     };
+    // Non-RLS pool, same rationale as `fork_parent_trigger_modes`.
     let rows: Vec<(String, bool)> =
         sqlx::query_as("SELECT path, enabled FROM schedule WHERE workspace_id = $1")
             .bind(parent)
-            .fetch_all(&mut *tx)
+            .fetch_all(db)
             .await?;
     Ok(rows.into_iter().collect())
 }
@@ -887,7 +893,7 @@ pub(crate) async fn tarball_workspace(
         // For a fork, defer each schedule's `enabled` to the parent so the
         // synced file matches the parent and the merge doesn't flip it.
         let parent_enabled =
-            fork_parent_schedule_enabled(&mut *tx, parent_workspace_id.as_deref()).await?;
+            fork_parent_schedule_enabled(&db, parent_workspace_id.as_deref()).await?;
         for schedule in schedules {
             let enabled_override = parent_enabled.get(&schedule.path).map(|enabled| {
                 let mut o = serde_json::Map::new();
@@ -914,7 +920,7 @@ pub(crate) async fn tarball_workspace(
             let handler = HttpTrigger;
             let http_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
             let parent_modes = fork_parent_trigger_modes(
-                &mut *tx,
+                &db,
                 <HttpTrigger as TriggerCrud>::TABLE_NAME,
                 parent_workspace_id.as_deref(),
             )
@@ -944,7 +950,7 @@ pub(crate) async fn tarball_workspace(
             let handler = WebsocketTrigger;
             let websocket_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
             let parent_modes = fork_parent_trigger_modes(
-                &mut *tx,
+                &db,
                 <WebsocketTrigger as TriggerCrud>::TABLE_NAME,
                 parent_workspace_id.as_deref(),
             )
@@ -974,7 +980,7 @@ pub(crate) async fn tarball_workspace(
             let handler = KafkaTrigger;
             let kafka_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
             let parent_modes = fork_parent_trigger_modes(
-                &mut *tx,
+                &db,
                 <KafkaTrigger as TriggerCrud>::TABLE_NAME,
                 parent_workspace_id.as_deref(),
             )
@@ -1004,7 +1010,7 @@ pub(crate) async fn tarball_workspace(
             let handler = SqsTrigger;
             let sqs_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
             let parent_modes = fork_parent_trigger_modes(
-                &mut *tx,
+                &db,
                 <SqsTrigger as TriggerCrud>::TABLE_NAME,
                 parent_workspace_id.as_deref(),
             )
@@ -1034,7 +1040,7 @@ pub(crate) async fn tarball_workspace(
             let handler = GcpTrigger;
             let gcp_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
             let parent_modes = fork_parent_trigger_modes(
-                &mut *tx,
+                &db,
                 <GcpTrigger as TriggerCrud>::TABLE_NAME,
                 parent_workspace_id.as_deref(),
             )
@@ -1064,7 +1070,7 @@ pub(crate) async fn tarball_workspace(
             let handler = AzureTrigger;
             let azure_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
             let parent_modes = fork_parent_trigger_modes(
-                &mut *tx,
+                &db,
                 <AzureTrigger as TriggerCrud>::TABLE_NAME,
                 parent_workspace_id.as_deref(),
             )
@@ -1094,7 +1100,7 @@ pub(crate) async fn tarball_workspace(
             let handler = NatsTrigger;
             let nats_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
             let parent_modes = fork_parent_trigger_modes(
-                &mut *tx,
+                &db,
                 <NatsTrigger as TriggerCrud>::TABLE_NAME,
                 parent_workspace_id.as_deref(),
             )
@@ -1124,7 +1130,7 @@ pub(crate) async fn tarball_workspace(
             let handler = PostgresTrigger;
             let postgres_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
             let parent_modes = fork_parent_trigger_modes(
-                &mut *tx,
+                &db,
                 <PostgresTrigger as TriggerCrud>::TABLE_NAME,
                 parent_workspace_id.as_deref(),
             )
@@ -1154,7 +1160,7 @@ pub(crate) async fn tarball_workspace(
             let handler = MqttTrigger;
             let mqtt_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
             let parent_modes = fork_parent_trigger_modes(
-                &mut *tx,
+                &db,
                 <MqttTrigger as TriggerCrud>::TABLE_NAME,
                 parent_workspace_id.as_deref(),
             )
@@ -1184,7 +1190,7 @@ pub(crate) async fn tarball_workspace(
             let handler = EmailTrigger;
             let email_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
             let parent_modes = fork_parent_trigger_modes(
-                &mut *tx,
+                &db,
                 <EmailTrigger as TriggerCrud>::TABLE_NAME,
                 parent_workspace_id.as_deref(),
             )

@@ -188,7 +188,8 @@ is owned by the parent* above) — the two paths share the backend `create`/
 `update` handlers, so they can't diverge.
 
 - **Update**: the merge deploy strips `mode`/`enabled`
-  (`stripOperationalStateOnUpdate` in the shared `deploy.ts`), so the target's
+  (`stripOperationalStateOnUpdate` in the shared `windmill-utils-internal`
+  package, `cli/windmill-utils-internal/src/deploy.ts`), so the target's
   existing value is preserved — equivalent to substituting the target's value.
   For a fork target the backend preserves it regardless (`workspace_is_fork`);
   for a parent target the `is_mode_unspecified()` safeguard does. Schedules also
