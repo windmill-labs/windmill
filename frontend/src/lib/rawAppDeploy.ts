@@ -77,8 +77,9 @@ export async function deployRawAppDraft(
 	const summary = value.summary ?? ''
 
 	if (await AppService.existsApp({ workspace, path })) {
-		// Omit custom_path on update: the backend preserves it when absent, and
-		// sending it requires admin (mirrors the chat deploy path).
+		// Send the draft's custom_path on update so a route change/clear is applied,
+		// matching the fork deploy path (which spreads the full app, incl.
+		// custom_path) and the createAppRaw branch below.
 		await AppService.updateAppRaw({
 			workspace,
 			path,
@@ -88,7 +89,8 @@ export async function deployRawAppDraft(
 					value: rawAppValue,
 					summary,
 					policy,
-					deployment_message: deploymentMessage
+					deployment_message: deploymentMessage,
+					custom_path: value.custom_path
 				},
 				js: bundle.js,
 				css: bundle.css
