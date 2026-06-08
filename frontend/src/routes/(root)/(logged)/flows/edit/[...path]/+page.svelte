@@ -19,7 +19,7 @@
 	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
 	import { page } from '$app/state'
 	import { UserDraft } from '$lib/userDraft.svelte'
-	import { notifyDraftLoaded } from '$lib/userDraftToast'
+	import { armRestartOnFirstInteraction, notifyDraftLoaded } from '$lib/userDraftToast'
 
 	let version: undefined | number = $state(undefined)
 
@@ -137,17 +137,15 @@
 			// widget's `$workspaceStore && $userStore`-gated `initPath →
 			// reset → onMetaChange → bind:path` chain seeds a friendly
 			// auto-name into `$pathStore`, which FlowBuilder's
-			// `draft_path` effect mirrors into `flow.draft_path` — that
+			// `draft_path` effect mirrors into `flow.draft_path`. That
 			// programmatic write would otherwise fire as the user's
-			// first save before they've touched anything. Resumed once
-			// the cascade has settled (mirrors the other editors;
-			// 700ms covers cold reload where `$userStore` loads over
-			// the network).
+			// first save before they've touched anything. Resume on the
+			// first real interaction (or fall back after 5s) so any
+			// length of cascade is covered without picking a fragile
+			// per-editor timer.
 			if ($workspaceStore) {
-				const ws = $workspaceStore
-				const restartPath = flowDraftPath
-				UserDraft.stopSync('flow', restartPath, { workspace: ws })
-				setTimeout(() => UserDraft.restartSync('flow', restartPath, { workspace: ws }), 700)
+				UserDraft.stopSync('flow', flowDraftPath, { workspace: $workspaceStore })
+				armRestartOnFirstInteraction($workspaceStore, 'flow', flowDraftPath)
 			}
 			// Clear `initialPath` so the Path widget's `initPath` falls
 			// into the empty-path branch and calls `reset()` to seed a

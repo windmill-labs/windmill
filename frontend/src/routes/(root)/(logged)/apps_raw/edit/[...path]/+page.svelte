@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
-	import { tick, untrack } from 'svelte'
 
 	import { AppService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -14,7 +13,7 @@
 	import { page } from '$app/state'
 	import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 	import { UserDraft } from '$lib/userDraft.svelte'
-	import { notifyDraftLoaded } from '$lib/userDraftToast'
+	import { armRestartOnFirstInteraction, notifyDraftLoaded } from '$lib/userDraftToast'
 	import DraftEditorModals from '$lib/components/common/confirmationModal/DraftEditorModals.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { type OtherDraftUser } from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
@@ -75,29 +74,6 @@
 	let templatePicker = $state(false)
 
 	const draftHandle = UserDraft.use<RawAppDraft>('raw_app', path)
-
-	/** True while the framework picker has been opened at least once in this
-	 *  mount — flips to false (and triggers the sync resume) when the picker
-	 *  closes (either after `onStart` or via the X). Decoupled from
-	 *  `templatePicker` itself so the watcher fires on the true → false
-	 *  edge instead of the initial-false render. */
-	let templatePickerHasBeenOpen = false
-	$effect(() => {
-		if (templatePicker) {
-			templatePickerHasBeenOpen = true
-		} else if (templatePickerHasBeenOpen) {
-			templatePickerHasBeenOpen = false
-			const ws = untrack(() => $workspaceStore)
-			const p = untrack(() => path)
-			// Two ticks past the picker close so the picker's `onStart`
-			// mirror to `draftHandle.draft` (and its own reactive
-			// settle) observably advances `lastSerialized` before sync
-			// re-arms — without that gap the very next change posts.
-			void tick()
-				.then(() => tick())
-				.then(() => UserDraft.restartSync('raw_app', p, { workspace: ws }))
-		}
-	})
 
 	// Persist the bundle whenever any of the four pieces of state changes.
 	$effect(() => {
@@ -175,12 +151,17 @@
 		// friendly `<random_adj>_raw_app` name. Strip the flag last.
 		if (page.url.searchParams.get('new_draft') === 'true') {
 			isNewApp = true
-			// Suspend autosave around the new-draft bootstrap: the
-			// seed template + the framework picker's `onStart` are both
+			// Suspend autosave around the new-draft bootstrap: the seed
+			// template + the framework picker's `onStart` are both
 			// programmatic writes that shouldn't POST as the user's
-			// first edit. Resumed when the picker closes (`onStart` or
-			// X dismissal) via the `templatePicker` watcher below.
-			UserDraft.stopSync('raw_app', path, { workspace: $workspaceStore })
+			// first edit. Resume on the user's first real interaction
+			// (which is, in practice, their click on a template card or
+			// the picker's X) so the choice is persisted but earlier
+			// programmatic mutations aren't.
+			if ($workspaceStore) {
+				UserDraft.stopSync('raw_app', path, { workspace: $workspaceStore })
+				armRestartOnFirstInteraction($workspaceStore, 'raw_app', path)
+			}
 			const url = new URL(window.location.href)
 			url.searchParams.delete('new_draft')
 			window.history.replaceState(window.history.state, '', url.toString())

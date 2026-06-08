@@ -48,7 +48,23 @@ export async function runResetToDeployed(opts: {
 	}
 }
 
-function armRestartOnFirstInteraction(
+/**
+ * Defer `UserDraft.restartSync(workspace, itemKind, path)` to the first
+ * user interaction (keydown / input / pointerdown on document, capture
+ * phase). Falls back to a 5s timer if no interaction fires — without
+ * that, the suspension would leak when the user navigates away without
+ * touching the editor.
+ *
+ * Use to bracket bootstrap mutations that would otherwise POST as the
+ * "first edit": new-draft template fills, conflict-modal reloads, the
+ * reset-to-deployed dance. Pair with `UserDraft.stopSync` at the start
+ * of the bootstrap.
+ *
+ * keydown alone misses pointer-driven UI (sliders, color pickers, the
+ * Path popover's OK button); pointerdown alone misses pure-keyboard
+ * edits in Monaco. Hence the three-event capture.
+ */
+export function armRestartOnFirstInteraction(
 	workspace: string,
 	itemKind: UserDraftItemKind,
 	path: string
@@ -71,6 +87,9 @@ function armRestartOnFirstInteraction(
 	document.addEventListener('keydown', restart, { capture: true, once: true })
 	document.addEventListener('input', restart, { capture: true, once: true })
 	document.addEventListener('pointerdown', restart, { capture: true, once: true })
+	// Belt-and-braces ceiling: if the user navigates away before
+	// interacting, the suspension would otherwise leak and silently
+	// turn off autosave on the next visit.
 	const fallback = setTimeout(restart, 5000)
 }
 
