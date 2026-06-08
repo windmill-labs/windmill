@@ -888,6 +888,32 @@ impl BashAnnotations {
         }
         None
     }
+
+    /// If the script declares `#ssh <resource_path>` (a resource path after the
+    /// ssh annotation), returns that path. This reroutes execution to a remote
+    /// host over SSH (enterprise feature): the script runs on the host described
+    /// by the `ssh_target` resource at `<resource_path>` instead of on the worker.
+    ///
+    /// Mirrors `sandbox_image`: only leading comment lines are scanned, stopping
+    /// at the first non-comment line. A bare `#ssh` with no path returns `None`.
+    pub fn ssh_target(code: &str) -> Option<String> {
+        for line in code.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if !line.starts_with('#') {
+                break;
+            }
+            let mut tokens = line[1..].split_whitespace();
+            if tokens.next() == Some("ssh") {
+                if let Some(path) = tokens.next() {
+                    return Some(path.to_string());
+                }
+            }
+        }
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -2281,6 +2307,31 @@ mod tests {
             BashAnnotations::sandbox_image("# docker alpine\necho hi"),
             None
         );
+    }
+
+    #[test]
+    fn test_bash_ssh_target_annotation() {
+        // `#ssh <path>` returns the resource path (reroutes to remote execution).
+        assert_eq!(
+            BashAnnotations::ssh_target("#ssh f/infra/jump_node\nset -e\ndf -h"),
+            Some("f/infra/jump_node".to_string())
+        );
+        // `# ssh <path>` with a space after `#` also works.
+        assert_eq!(
+            BashAnnotations::ssh_target("# ssh u/me/box\n"),
+            Some("u/me/box".to_string())
+        );
+        // A bare `#ssh` with no path -> None.
+        assert_eq!(BashAnnotations::ssh_target("#ssh\necho hi"), None);
+        // `ssh` must be its own token, not a prefix.
+        assert_eq!(BashAnnotations::ssh_target("# sshd restart"), None);
+        // Stops at the first non-comment line (declared too late is ignored).
+        assert_eq!(
+            BashAnnotations::ssh_target("echo hi\n#ssh f/infra/box"),
+            None
+        );
+        // No annotation -> None (normal local bash).
+        assert_eq!(BashAnnotations::ssh_target("echo hello"), None);
     }
 
     #[test]
