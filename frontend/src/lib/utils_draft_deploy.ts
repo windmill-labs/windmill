@@ -163,16 +163,19 @@ export async function deployDraft(
 				path: r.path,
 				custom_path: r.custom_path
 			}
-			// custom_path requires admin on app update. Mirror AppEditorHeader and the
-			// raw-app path: admins send the draft's value ('' clears), non-admins send
-			// undefined so the backend preserves the existing route (no RequireAdmin 403).
+			// custom_path requires admin on app update. Non-admins send undefined so
+			// the backend preserves the existing route (no RequireAdmin 403). For
+			// admins, fall back to the *deployed* route (`r.custom_path`) when the
+			// draft doesn't carry one — the visual-app draft value usually omits
+			// custom_path, and sending `''` would clear the existing route. An
+			// explicit '' in the draft still clears (`'' ?? x === ''`).
 			const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
 			const requestBody = {
 				value: d.value,
 				summary: d.summary ?? '',
 				policy: d.policy,
 				path: d.path ?? path,
-				custom_path: isAdmin ? (d.custom_path ?? '') : undefined
+				custom_path: isAdmin ? (d.custom_path ?? r.custom_path) : undefined
 			}
 			// Same as flows: a draft always has an app row, so updateApp promotes a
 			// draft_only app (clearing the flag); createApp would 400 "already exists".
