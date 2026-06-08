@@ -17,7 +17,8 @@ use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
     user_drafts::{
-        delete_user_draft, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
+        delete_user_draft, fetch_draft_only, maybe_overlay_draft, UserDraftItemKind,
+        WithDraftOverlay, WithDraftQuery,
     },
     utils::{paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
@@ -561,14 +562,93 @@ async fn list_triggers<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,
     Query(query): Query<StandardTriggerQuery>,
 ) -> JsonResult<Vec<T::Trigger>> {
     let mut tx = user_db.begin(&authed).await?;
-    let triggers = handler
+    let mut triggers = handler
         .list_triggers(&mut *tx, &workspace_id, Some(&query))
         .await?;
     tx.commit().await?;
+
+    // Draft-only rows: per-user drafts whose path has no deployed
+    // trigger of this kind. Same gate as scripts/flows/apps — gated on
+    // `include_draft_only`, non-operators only, page 0, no narrowing
+    // filters. Synthesis is best-effort: the editor's TriggerData shape
+    // overlaps T::Trigger but each per-kind config can deviate, so we
+    // tolerate per-row deserialize failures and drop the row instead of
+    // failing the whole listing.
+    if query.include_draft_only.unwrap_or(false)
+        && !authed.is_operator
+        && query.page.unwrap_or(0) == 0
+        && query.path.is_none()
+        && query.is_flow.is_none()
+        && query.path_start.is_none()
+        && query.label.is_none()
+    {
+        let draft_kind = T::user_draft_item_kind();
+        // SAFETY: T::TABLE_NAME is a compile-time constant, not user input.
+        let exists_check = format!(
+            "NOT EXISTS (SELECT 1 FROM {} t WHERE t.workspace_id = draft.workspace_id AND t.path = draft.path)",
+            T::TABLE_NAME
+        );
+        let sql = format!(
+            r#"SELECT path,
+                      value::text as "value!: String",
+                      created_at
+               FROM draft
+               WHERE workspace_id = $1
+                 AND typ = $2
+                 AND email = $3
+                 AND {}"#,
+            exists_check
+        );
+        let draft_only_rows: Vec<(String, String, chrono::DateTime<chrono::Utc>)> =
+            sqlx::query_as(&sql)
+                .bind(&workspace_id)
+                .bind(draft_kind)
+                .bind(&authed.email)
+                .fetch_all(&db)
+                .await?;
+
+        for (_path, value_text, created_at) in draft_only_rows {
+            let v: serde_json::Value = match serde_json::from_str(&value_text) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            let serde_json::Value::Object(mut map) = v else {
+                continue;
+            };
+            // Fill in the operational fields the editor draft doesn't
+            // carry — workspace_id, edited_by/at, mode (from `enabled`
+            // when `mode` is absent), extra_perms — so the merged JSON
+            // matches `Trigger<T::TriggerConfig>`'s flattened shape.
+            map.insert(
+                "workspace_id".into(),
+                serde_json::Value::String(workspace_id.clone()),
+            );
+            map.insert("edited_by".into(), serde_json::Value::String(String::new()));
+            if let Ok(at) = serde_json::to_value(&created_at) {
+                map.insert("edited_at".into(), at);
+            }
+            map.entry("permissioned_as")
+                .or_insert(serde_json::Value::String(String::new()));
+            map.entry("extra_perms").or_insert(serde_json::Value::Null);
+            if !map.contains_key("mode") {
+                let enabled = map.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true);
+                map.insert(
+                    "mode".into(),
+                    serde_json::Value::String(if enabled { "enabled" } else { "disabled" }.into()),
+                );
+            }
+            map.insert("draft_only".into(), serde_json::Value::Bool(true));
+            match serde_json::from_value::<T::Trigger>(serde_json::Value::Object(map)) {
+                Ok(t) => triggers.push(t),
+                Err(_) => continue,
+            }
+        }
+    }
 
     Ok(Json(triggers))
 }
@@ -587,11 +667,36 @@ async fn get_trigger<T: TriggerCrud>(
     })?;
 
     let mut tx = user_db.begin(&authed).await?;
-    let trigger = handler
+    let trigger_res = handler
         .get_trigger_by_path(&mut *tx, &workspace_id, path)
-        .await?;
-
+        .await;
     tx.commit().await?;
+
+    let trigger = match trigger_res {
+        Ok(t) => t,
+        Err(Error::NotFound(_)) if q.get_draft => {
+            // Mirror scripts/flows/apps: no deployed trigger but the
+            // caller wants the draft if any. Synthesize the response
+            // from the draft alone with `no_deployed = true` so the
+            // frontend skips "diff vs deployed" UI.
+            if let Some(overlay) = fetch_draft_only(
+                &db,
+                &workspace_id,
+                &authed.email,
+                T::user_draft_item_kind(),
+                path,
+            )
+            .await?
+            {
+                return Ok(Json(overlay));
+            }
+            return Err(Error::NotFound(format!(
+                "Trigger not found at path: {}",
+                path
+            )));
+        }
+        Err(e) => return Err(e),
+    };
 
     let overlay = maybe_overlay_draft(
         &db,

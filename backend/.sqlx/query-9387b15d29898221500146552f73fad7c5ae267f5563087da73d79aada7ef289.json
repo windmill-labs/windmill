@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path,\n                      value as \"value!: sqlx::types::Json<Box<serde_json::value::RawValue>>\",\n                      created_at\n               FROM draft\n               WHERE workspace_id = $1\n                 AND typ = 'variable'\n                 AND email = $2\n                 AND NOT EXISTS (\n                     SELECT 1 FROM variable v\n                     WHERE v.workspace_id = draft.workspace_id\n                       AND v.path = draft.path\n                 )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 2,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "9387b15d29898221500146552f73fad7c5ae267f5563087da73d79aada7ef289"
+}

@@ -35,7 +35,10 @@ use windmill_common::{
     db::{DbWithOptAuthed, UserDB},
     error::{Error, JsonResult, Result},
     scripts::ScriptHash,
-    user_drafts::{delete_user_draft, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay},
+    user_drafts::{
+        delete_user_draft, fetch_draft_only, maybe_overlay_draft, UserDraftItemKind,
+        WithDraftOverlay,
+    },
     utils::{not_found_if_none, paginate, Pagination, StripPath, WarnAfterExt},
     variables::{
         build_crypt, get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable,
@@ -110,11 +113,17 @@ struct ListVariableQuery {
     pub value: Option<String>,
     pub broad_filter: Option<String>,
     pub label: Option<String>,
+    /// When true, append per-user draft rows whose path has no deployed
+    /// variable. Gated to operators-out + offset 0 + no narrowing
+    /// filters so picker callers (which want a deployed-only listing)
+    /// can opt out and pagination semantics stay clean.
+    pub include_draft_only: Option<bool>,
 }
 
 async fn list_variables(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(lq): Query<ListVariableQuery>,
     Query(pagination): Query<Pagination>,
@@ -195,7 +204,7 @@ async fn list_variables(
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let allowed = build_scope_path_predicate(&authed, "variables", "read");
-    let rows = sqlx::query_as::<_, ListableVariable>(&sql)
+    let mut rows = sqlx::query_as::<_, ListableVariable>(&sql)
         .fetch_all(&mut *tx)
         .await?
         .into_iter()
@@ -203,6 +212,111 @@ async fn list_variables(
         .collect::<Vec<_>>();
 
     tx.commit().await?;
+
+    // Draft-only rows: per-user drafts for paths with no deployed
+    // variable. Same guard as scripts/flows/apps — gated on
+    // `include_draft_only` so picker callers (variable selectors,
+    // resource ↔ variable links) stay deployed-only, skipped past
+    // page 0 and under any narrowing filter so pagination /
+    // search-by-X semantics stay predictable.
+    if lq.include_draft_only.unwrap_or(false)
+        && !authed.is_operator
+        && offset == 0
+        && lq.path_start.is_none()
+        && lq.path.is_none()
+        && lq.description.is_none()
+        && lq.value.is_none()
+        && lq.broad_filter.is_none()
+        && lq.label.is_none()
+    {
+        let draft_only_rows = sqlx::query!(
+            r#"SELECT path,
+                      value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+                      created_at
+               FROM draft
+               WHERE workspace_id = $1
+                 AND typ = 'variable'
+                 AND email = $2
+                 AND NOT EXISTS (
+                     SELECT 1 FROM variable v
+                     WHERE v.workspace_id = draft.workspace_id
+                       AND v.path = draft.path
+                 )"#,
+            &w_id,
+            &authed.email,
+        )
+        .fetch_all(&db)
+        .await?;
+
+        for row in draft_only_rows {
+            let v: serde_json::Value =
+                serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
+            // VariableEditor's `VariableState` shape:
+            //   { path, variable: { value, is_secret, description },
+            //     labels?, wsSpecific }
+            let path = v
+                .get("path")
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_string();
+            if path.is_empty() || !allowed(&path) {
+                continue;
+            }
+            let variable = v
+                .get("variable")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            let is_secret = variable
+                .get("is_secret")
+                .and_then(|x| x.as_bool())
+                .unwrap_or(false);
+            let description = variable
+                .get("description")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
+            // Mirror the deployed query: secret variables never expose
+            // their value in the list response — even from a draft.
+            let value = if is_secret {
+                None
+            } else {
+                variable
+                    .get("value")
+                    .and_then(|x| x.as_str())
+                    .map(|s| s.to_string())
+            };
+            let labels = v.get("labels").and_then(|x| {
+                x.as_array().map(|arr| {
+                    arr.iter()
+                        .filter_map(|s| s.as_str().map(|s| s.to_string()))
+                        .collect::<Vec<_>>()
+                })
+            });
+            let ws_specific = v.get("wsSpecific").and_then(|x| x.as_bool());
+
+            rows.push(ListableVariable {
+                workspace_id: w_id.clone(),
+                path,
+                value,
+                is_secret,
+                description,
+                extra_perms: serde_json::Value::Object(serde_json::Map::new()),
+                account: None,
+                is_oauth: None,
+                is_expired: None,
+                is_refreshed: None,
+                refresh_error: None,
+                is_linked: None,
+                expires_at: None,
+                labels,
+                ws_specific,
+                edited_at: Some(row.created_at),
+                edited_by: None,
+                draft_only: Some(true),
+            });
+        }
+    }
+
     Ok(Json(rows))
 }
 
@@ -253,6 +367,18 @@ async fn get_variable(
 
     let variable = if let Some(variable) = variable_o {
         variable
+    } else if q.get_draft {
+        // No deployed row but caller wants the draft if present —
+        // mirrors scripts/flows/apps. Drop the user_db tx first since
+        // `fetch_draft_only` runs on `db`.
+        tx.commit().await?;
+        if let Some(overlay) =
+            fetch_draft_only(&db, &w_id, &authed.email, UserDraftItemKind::Variable, path).await?
+        {
+            return Ok(Json(overlay));
+        }
+        explain_variable_perm_error(&path, &w_id, &db).await?;
+        unreachable!()
     } else {
         explain_variable_perm_error(&path, &w_id, &db).await?;
         unreachable!()

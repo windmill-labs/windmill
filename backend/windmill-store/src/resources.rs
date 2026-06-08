@@ -44,7 +44,8 @@ use windmill_common::{
     error::{self, Error, JsonResult, Result},
     get_database_url,
     user_drafts::{
-        delete_user_draft, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
+        delete_user_draft, fetch_draft_only, maybe_overlay_draft, UserDraftItemKind,
+        WithDraftOverlay, WithDraftQuery,
     },
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
@@ -152,6 +153,13 @@ pub struct ListableResource {
     pub labels: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_specific: Option<bool>,
+    /// True when this row is a per-user draft with no deployed resource
+    /// at the same path. Surfaced by `include_draft_only` so the frontend
+    /// can render a "Draft" badge and the editor can open from the draft
+    /// alone. `None`/omitted on rows fetched from the `resource` table.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub draft_only: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -184,6 +192,11 @@ pub struct ListResourceQuery {
     pub value: Option<String>,
     pub broad_filter: Option<String>,
     pub label: Option<String>,
+    /// When true, append per-user draft rows whose path has no deployed
+    /// resource. Gated to non-operators + offset 0 + no narrowing
+    /// filters so picker callers (resource selectors in script inputs)
+    /// stay deployed-only and pagination semantics stay clean.
+    pub include_draft_only: Option<bool>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -251,6 +264,7 @@ async fn list_resources(
     Query(lq): Query<ListResourceQuery>,
     Query(pagination): Query<Pagination>,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<ListableResource>> {
     let (per_page, offset) = paginate(pagination);
@@ -346,7 +360,7 @@ async fn list_resources(
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let allowed = build_scope_path_predicate(&authed, "resources", "read");
-    let rows = sqlx::query_as::<_, ListableResource>(&sql)
+    let mut rows = sqlx::query_as::<_, ListableResource>(&sql)
         .fetch_all(&mut *tx)
         .await?
         .into_iter()
@@ -354,6 +368,97 @@ async fn list_resources(
         .collect::<Vec<_>>();
 
     tx.commit().await?;
+
+    // Draft-only rows: per-user drafts for paths with no deployed
+    // resource. Same guard as variables/scripts/flows/apps — gated
+    // on `include_draft_only`, skipped past page 0 and under any
+    // narrowing filter so the deployed-only picker callers (resource
+    // selectors in script inputs) keep their lean shape.
+    if lq.include_draft_only.unwrap_or(false)
+        && !authed.is_operator
+        && offset == 0
+        && lq.path_start.is_none()
+        && lq.path.is_none()
+        && lq.description.is_none()
+        && lq.value.is_none()
+        && lq.broad_filter.is_none()
+        && lq.label.is_none()
+        && lq.resource_type.is_none()
+        && lq.resource_type_exclude.is_none()
+    {
+        let draft_only_rows = sqlx::query!(
+            r#"SELECT path,
+                      value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+                      created_at
+               FROM draft
+               WHERE workspace_id = $1
+                 AND typ = 'resource'
+                 AND email = $2
+                 AND NOT EXISTS (
+                     SELECT 1 FROM resource r
+                     WHERE r.workspace_id = draft.workspace_id
+                       AND r.path = draft.path
+                 )"#,
+            &w_id,
+            &authed.email,
+        )
+        .fetch_all(&db)
+        .await?;
+
+        for row in draft_only_rows {
+            let v: serde_json::Value =
+                serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
+            // ResourceEditor's `ResourceState` shape:
+            //   { path, description, args, labels?, wsSpecific,
+            //     resource_type? }
+            let path = v
+                .get("path")
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_string();
+            if path.is_empty() || !allowed(&path) {
+                continue;
+            }
+            let description = v
+                .get("description")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string());
+            let value = v.get("args").cloned();
+            let resource_type = v
+                .get("resource_type")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
+            let labels = v.get("labels").and_then(|x| {
+                x.as_array().map(|arr| {
+                    arr.iter()
+                        .filter_map(|s| s.as_str().map(|s| s.to_string()))
+                        .collect::<Vec<_>>()
+                })
+            });
+            let ws_specific = v.get("wsSpecific").and_then(|x| x.as_bool());
+
+            rows.push(ListableResource {
+                workspace_id: w_id.clone(),
+                path,
+                value,
+                description,
+                resource_type,
+                extra_perms: serde_json::Value::Object(serde_json::Map::new()),
+                created_by: None,
+                edited_at: Some(row.created_at),
+                is_linked: None,
+                is_refreshed: None,
+                is_oauth: None,
+                is_expired: None,
+                refresh_error: None,
+                account: None,
+                labels,
+                ws_specific,
+                draft_only: Some(true),
+            });
+        }
+    }
 
     Ok(Json(rows))
 }
@@ -371,6 +476,8 @@ async fn get_resource(
 
     let resource_o = sqlx::query_as!(
         ListableResource,
+        // `null::bool as draft_only` keeps the column-list aligned with
+        // the struct's new field; deployed-table rows are never draft-only.
         "SELECT resource.workspace_id, resource.path, resource.value, resource.description,
         resource.resource_type, resource.extra_perms, resource.created_by, resource.edited_at,
         resource.labels,
@@ -379,7 +486,8 @@ async fn get_resource(
         variable.path IS NOT NULL as is_linked,
         variable.is_oauth as \"is_oauth?\",
         variable.account,
-        ws_specific.path IS NOT NULL as ws_specific
+        ws_specific.path IS NOT NULL as ws_specific,
+        null::bool as draft_only
         FROM resource
         LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = $2
         LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $2
@@ -391,6 +499,17 @@ async fn get_resource(
     .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
+    if resource_o.is_none() && q.get_draft {
+        // No deployed row but caller wants the draft if present —
+        // mirrors scripts/flows/apps. Fallback synthesizes the
+        // response from the draft alone with `no_deployed = true`
+        // so the frontend skips "diff vs deployed" UI.
+        if let Some(overlay) =
+            fetch_draft_only(&db, &w_id, &authed.email, UserDraftItemKind::Resource, path).await?
+        {
+            return Ok(Json(overlay));
+        }
+    }
     if resource_o.is_none() {
         explain_resource_perm_error(&path, &w_id, &db, &authed).await?;
     }

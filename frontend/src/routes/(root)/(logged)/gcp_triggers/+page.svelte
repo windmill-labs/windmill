@@ -25,6 +25,7 @@
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense, usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
@@ -77,7 +78,7 @@
 	}
 	getDeployUiSettings()
 	async function loadTriggers(): Promise<void> {
-		triggers = (await GcpTriggerService.listGcpTriggers({ workspace: $workspaceStore! })).map(
+		triggers = (await GcpTriggerService.listGcpTriggers({ workspace: $workspaceStore!, includeDraftOnly: true })).map(
 			(x) => {
 				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 			}
@@ -383,7 +384,7 @@
 			<div class="text-center text-sm text-primary mt-2"> No GCP Pub/Sub triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { gcp_resource_path, topic_id, workspace_id, delivery_type, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, mode, server_id, subscription_id, retry, error_handler_path, error_handler_args, labels } (path)}
+				{#each items.slice(0, nbDisplayed) as { gcp_resource_path, topic_id, workspace_id, delivery_type, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, mode, server_id, subscription_id, retry, error_handler_path, error_handler_args, labels, draft_only } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const ping = new Date()}
 					{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
@@ -411,6 +412,9 @@
 
 							<div class="hidden lg:flex flex-row gap-1 items-center">
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
+									{#if draft_only}
+										<DraftBadge draft_only is_draft={false} />
+									{/if}
 								{#if labels?.length}
 									{#each labels as label}
 										<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>

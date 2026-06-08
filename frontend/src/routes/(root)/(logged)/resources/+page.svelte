@@ -22,6 +22,7 @@
 	import { buildResourcesFilterSchema } from '$lib/components/resources/resourcesFilter'
 	import { buildResourceTypesFilterSchema } from '$lib/components/resources/resourceTypesFilter'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import SupabaseConnect from '$lib/components/SupabaseConnect.svelte'
@@ -216,11 +217,16 @@
 	): Promise<ResourceW[]> {
 		const currentFilters = filters.val
 
-		// Build API parameters from filters
+		// Build API parameters from filters.
+		// `includeDraftOnly` surfaces per-user drafts at paths that have
+		// no deployed resource — appended server-side when no narrowing
+		// filter is set, so the user sees AI-agent-created drafts on
+		// the home page.
 		const apiParams: any = {
 			workspace: $workspaceStore!,
 			resourceTypeExclude,
-			resourceType: resourceType || (currentFilters.resource_type as string | undefined)
+			resourceType: resourceType || (currentFilters.resource_type as string | undefined),
+			includeDraftOnly: true
 		}
 
 		if (currentFilters.path) {
@@ -989,7 +995,7 @@
 						</Head>
 						<tbody class="divide-y bg-surface">
 							{#if filteredItems}
-								{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed, labels, ws_specific }}
+								{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed, labels, ws_specific, draft_only }}
 									<Row>
 										<Cell first>
 											<SharedBadge {canWrite} extraPerms={extra_perms} />
@@ -1002,6 +1008,9 @@
 													onclick={() => resourceEditor?.initEdit?.(path)}
 													>{#if marked}{@html marked}{:else}{path}{/if}</a
 												>
+												{#if draft_only}
+													<DraftBadge draft_only is_draft={false} />
+												{/if}
 												{#if labels?.length}
 													<div class="flex items-center gap-0.5">
 														{#each labels as label}

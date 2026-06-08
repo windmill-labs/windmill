@@ -5417,6 +5417,15 @@ paths:
           required: false
           schema:
             type: string
+        - name: include_draft_only
+          description: |
+            When true, append per-user draft variables whose path has no
+            deployed variable. Synthesized rows carry `draft_only: true`
+            so the home page can render a "Draft" badge.
+          in: query
+          required: false
+          schema:
+            type: boolean
       responses:
         "200":
           description: variable list
@@ -6800,6 +6809,15 @@ paths:
           required: false
           schema:
             type: string
+        - name: include_draft_only
+          description: |
+            When true, append per-user draft resources whose path has
+            no deployed resource. Synthesized rows carry
+            `draft_only: true`.
+          in: query
+          required: false
+          schema:
+            type: boolean
       responses:
         "200":
           description: resource list
@@ -10065,6 +10083,7 @@ paths:
           schema:
             type: string
           description: Filter by label
+        - $ref: "#/components/parameters/IncludeDraftOnly"
       responses:
         "200":
           description: All raw apps
@@ -13729,6 +13748,15 @@ paths:
           schema:
             type: string
           description: Filter by label
+        - name: include_draft_only
+          description: |
+            When true, append per-user draft schedules whose path has
+            no deployed schedule. Synthesized rows carry
+            `draft_only: true`.
+          in: query
+          required: false
+          schema:
+            type: boolean
       responses:
         "200":
           description: schedule list
@@ -13981,6 +14009,7 @@ paths:
           schema:
             type: string
           description: Filter by label
+        - $ref: "#/components/parameters/IncludeDraftOnly"
       responses:
         "200":
           description: http trigger list
@@ -14190,6 +14219,7 @@ paths:
           schema:
             type: string
           description: Filter by label
+        - $ref: "#/components/parameters/IncludeDraftOnly"
       responses:
         "200":
           description: websocket trigger list
@@ -14398,6 +14428,7 @@ paths:
           schema:
             type: string
           description: Filter by label
+        - $ref: "#/components/parameters/IncludeDraftOnly"
       responses:
         "200":
           description: kafka trigger list
@@ -14647,6 +14678,7 @@ paths:
           schema:
             type: string
           description: Filter by label
+        - $ref: "#/components/parameters/IncludeDraftOnly"
       responses:
         "200":
           description: nats trigger list
@@ -14850,6 +14882,7 @@ paths:
           schema:
             type: string
           description: Filter by label
+        - $ref: "#/components/parameters/IncludeDraftOnly"
       responses:
         "200":
           description: sqs trigger list
@@ -15305,6 +15338,7 @@ paths:
           schema:
             type: string
           description: Filter by label
+        - $ref: "#/components/parameters/IncludeDraftOnly"
       responses:
         "200":
           description: native triggers list
@@ -15646,6 +15680,7 @@ paths:
           schema:
             type: string
           description: Filter by label
+        - $ref: "#/components/parameters/IncludeDraftOnly"
       responses:
         "200":
           description: mqtt trigger list
@@ -15849,6 +15884,7 @@ paths:
           schema:
             type: string
           description: Filter by label
+        - $ref: "#/components/parameters/IncludeDraftOnly"
       responses:
         "200":
           description: gcp trigger list
@@ -16112,6 +16148,7 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/IncludeDraftOnly"
       responses:
         "200":
           description: azure trigger list
@@ -16665,6 +16702,7 @@ paths:
           schema:
             type: string
           description: Filter by label
+        - $ref: "#/components/parameters/IncludeDraftOnly"
       responses:
         "200":
           description: postgres trigger list
@@ -16868,6 +16906,7 @@ paths:
           schema:
             type: string
           description: Filter by label
+        - $ref: "#/components/parameters/IncludeDraftOnly"
       responses:
         "200":
           description: email trigger list
@@ -20592,6 +20631,18 @@ components:
       description: When true, overlay the authed user's draft (if any) onto the deployed payload.
       schema:
         type: boolean
+    IncludeDraftOnly:
+      name: include_draft_only
+      in: query
+      required: false
+      description: |
+        When true, append per-user draft rows whose path has no
+        deployed counterpart. Synthesized rows carry `draft_only: true`
+        so the home page can render a "Draft" badge. Gated to
+        non-operators + page 0 + no narrowing filters on the backend so
+        picker callers stay deployed-only and pagination stays clean.
+      schema:
+        type: boolean
     Id:
       name: id
       in: path
@@ -23185,6 +23236,11 @@ components:
           format: date-time
         edited_by:
           type: string
+        draft_only:
+          description: |
+            True when this row is a per-user draft with no deployed
+            variable at the same path. Frontend renders a "Draft" badge.
+          type: boolean
       required:
         - workspace_id
         - path
@@ -23768,6 +23824,11 @@ components:
             type: string
         ws_specific:
           type: boolean
+        draft_only:
+          description: |
+            True when this row is a per-user draft with no deployed
+            resource at the same path. Frontend renders a "Draft" badge.
+          type: boolean
       required:
         - path
         - resource_type
@@ -23924,6 +23985,11 @@ components:
           items:
             type: string
           default: []
+        draft_only:
+          description: |
+            True when this row is a per-user draft with no deployed
+            schedule at the same path. Frontend renders a "Draft" badge.
+          type: boolean
       required:
         - path
         - edited_by
@@ -24238,6 +24304,13 @@ components:
           items:
             type: string
           default: []
+        draft_only:
+          description: |
+            True when this row is a per-user draft with no deployed
+            trigger at the same path. Set by list endpoints when
+            `include_draft_only=true` synthesizes the row from the
+            draft. Frontend renders a "Draft" badge.
+          type: boolean
       required:
         - path
         - script_path

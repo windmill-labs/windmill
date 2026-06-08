@@ -14,6 +14,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { userStore, workspaceStore, userWorkspaces, enterpriseLicense } from '$lib/stores'
@@ -69,9 +70,14 @@
 	async function loadSchedules(): Promise<void> {
 		const currentFilters = filters.val
 
-		// Build API parameters from filters
+		// Build API parameters from filters.
+		// `includeDraftOnly` surfaces per-user drafts at paths that have
+		// no deployed schedule — appended server-side when no narrowing
+		// filter is set, so the user sees AI-agent-created drafts on
+		// the home page.
 		const apiParams: any = {
-			workspace: $workspaceStore!
+			workspace: $workspaceStore!,
+			includeDraftOnly: true
 		}
 
 		if (currentFilters.schedule_path) {
@@ -356,7 +362,7 @@
 				<div class="text-center text-xs font-semibold text-emphasis mt-2"> No schedules </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until, labels } (path)}
+					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until, labels, draft_only } (path)}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 						{@const avg_s = jobs
 							? jobs.reduce((acc, x) => acc + x.duration_ms, 0) / jobs.length
@@ -420,6 +426,9 @@
 
 								<div class="hidden lg:flex flex-row gap-1 items-center">
 									<SharedBadge {canWrite} extraPerms={extra_perms} />
+									{#if draft_only}
+										<DraftBadge draft_only is_draft={false} />
+									{/if}
 								</div>
 
 								<div class="w-10">

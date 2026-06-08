@@ -26,7 +26,8 @@ use windmill_common::{
     error::{Error, JsonResult, Result},
     schedule::Schedule,
     user_drafts::{
-        delete_user_draft, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
+        delete_user_draft, fetch_draft_only, maybe_overlay_draft, UserDraftItemKind,
+        WithDraftOverlay, WithDraftQuery,
     },
     utils::{
         escape_ilike_pattern, not_found_if_none, paginate, Pagination, ScheduleType, StripPath,
@@ -659,6 +660,11 @@ pub struct ListScheduleQuery {
     pub summary: Option<String>,
     pub broad_filter: Option<String>,
     pub label: Option<String>,
+    /// When true, append per-user draft rows whose path has no deployed
+    /// schedule. Gated to non-operators + offset 0 + no narrowing
+    /// filters so picker callers stay deployed-only and pagination
+    /// semantics stay clean.
+    pub include_draft_only: Option<bool>,
 }
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Debug, Clone)]
@@ -676,10 +682,17 @@ pub struct ScheduleLight {
     pub extra_perms: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// True when this row is a per-user draft with no deployed schedule
+    /// at the same path. Surfaced by `include_draft_only` so the frontend
+    /// can render a "Draft" badge.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub draft_only: Option<bool>,
 }
 async fn list_schedule(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(lsq): Query<ListScheduleQuery>,
 ) -> JsonResult<Vec<ScheduleLight>> {
@@ -705,8 +718,8 @@ async fn list_schedule(
         .offset(offset)
         .limit(per_page)
         .clone();
-    if let Some(path) = lsq.path {
-        sqlb.and_where_eq("script_path", "?".bind(&path));
+    if let Some(path) = lsq.path.as_ref() {
+        sqlb.and_where_eq("script_path", "?".bind(path));
     }
     if let Some(is_flow) = lsq.is_flow {
         sqlb.and_where_eq("is_flow", "?".bind(&is_flow));
@@ -745,10 +758,106 @@ async fn list_schedule(
         }
     }
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
-    let rows = sqlx::query_as::<_, ScheduleLight>(&sql)
+    let mut rows = sqlx::query_as::<_, ScheduleLight>(&sql)
         .fetch_all(&mut *tx)
         .await?;
     tx.commit().await?;
+
+    // Draft-only rows: per-user drafts (kind `trigger_schedule`) for
+    // paths with no deployed schedule. Same guard as the other kinds.
+    if lsq.include_draft_only.unwrap_or(false)
+        && !authed.is_operator
+        && offset == 0
+        && lsq.path.is_none()
+        && lsq.is_flow.is_none()
+        && lsq.args.is_none()
+        && lsq.path_start.is_none()
+        && lsq.schedule_path.is_none()
+        && lsq.description.is_none()
+        && lsq.summary.is_none()
+        && lsq.broad_filter.is_none()
+        && lsq.label.is_none()
+    {
+        let draft_only_rows = sqlx::query!(
+            r#"SELECT path,
+                      value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+                      created_at
+               FROM draft
+               WHERE workspace_id = $1
+                 AND typ = 'trigger_schedule'
+                 AND email = $2
+                 AND NOT EXISTS (
+                     SELECT 1 FROM schedule s
+                     WHERE s.workspace_id = draft.workspace_id
+                       AND s.path = draft.path
+                 )"#,
+            &w_id,
+            &authed.email,
+        )
+        .fetch_all(&db)
+        .await?;
+
+        for row in draft_only_rows {
+            let v: serde_json::Value =
+                serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
+            // Schedule editor's draft shape mirrors NewSchedule:
+            //   { path, schedule, timezone, script_path, is_flow,
+            //     enabled?, summary?, labels? }
+            let path = v
+                .get("path")
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_string();
+            if path.is_empty() {
+                continue;
+            }
+            let schedule = v
+                .get("schedule")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
+            let timezone = v
+                .get("timezone")
+                .and_then(|x| x.as_str())
+                .unwrap_or("UTC")
+                .to_string();
+            let script_path = v
+                .get("script_path")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
+            let is_flow = v.get("is_flow").and_then(|x| x.as_bool()).unwrap_or(false);
+            let enabled = v.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true);
+            let summary = v
+                .get("summary")
+                .and_then(|x| x.as_str())
+                .map(|s| s.to_string());
+            let labels = v.get("labels").and_then(|x| {
+                x.as_array().map(|arr| {
+                    arr.iter()
+                        .filter_map(|s| s.as_str().map(|s| s.to_string()))
+                        .collect::<Vec<_>>()
+                })
+            });
+
+            rows.push(ScheduleLight {
+                workspace_id: w_id.clone(),
+                path,
+                edited_by: String::new(),
+                edited_at: row.created_at,
+                schedule,
+                timezone,
+                enabled,
+                script_path,
+                is_flow,
+                summary,
+                extra_perms: serde_json::Value::Object(serde_json::Map::new()),
+                labels,
+                draft_only: Some(true),
+            });
+        }
+    }
+
     Ok(Json(rows))
 }
 
@@ -820,8 +929,21 @@ async fn get_schedule(
     let mut tx = user_db.begin(&authed).await?;
 
     let schedule_o = windmill_queue::schedule::get_schedule_opt(&mut *tx, &w_id, path).await?;
-    let schedule = not_found_if_none(schedule_o, "Schedule", path)?;
     tx.commit().await?;
+    if schedule_o.is_none() && q.get_draft {
+        if let Some(overlay) = fetch_draft_only(
+            &db,
+            &w_id,
+            &authed.email,
+            UserDraftItemKind::TriggerSchedule,
+            path,
+        )
+        .await?
+        {
+            return Ok(Json(overlay));
+        }
+    }
+    let schedule = not_found_if_none(schedule_o, "Schedule", path)?;
     let overlay = maybe_overlay_draft(
         &db,
         &w_id,
