@@ -480,8 +480,8 @@ export const UserDraft = {
 	/**
 	 * List currently-mounted live entries for `workspace`. Without the
 	 * localStorage layer, "list" is meaningful only for in-tab entries —
-	 * for a workspace-wide view across sessions, call
-	 * `DraftService.listDrafts` instead.
+	 * for a workspace-wide view across sessions, use the deployed list
+	 * endpoints with `includeDraftOnly` (which flag the caller's drafts).
 	 */
 	list<V = unknown>(opts?: UserDraftListOptions): UserDraftEntry<V>[] {
 		const ws = resolveWorkspace(opts)

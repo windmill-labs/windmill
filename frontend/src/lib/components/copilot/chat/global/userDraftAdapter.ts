@@ -37,24 +37,6 @@ const TRIGGER_KIND_BY_DRAFT_KIND = Object.fromEntries(
 	])
 ) as Partial<Record<UserDraftItemKind, TriggerKind>>
 
-const GLOBAL_DRAFT_KINDS = [
-	'script',
-	'flow',
-	'raw_app',
-	'trigger_schedule',
-	'trigger_http',
-	'trigger_websocket',
-	'trigger_kafka',
-	'trigger_nats',
-	'trigger_postgres',
-	'trigger_mqtt',
-	'trigger_sqs',
-	'trigger_gcp',
-	'trigger_azure',
-	'resource',
-	'variable'
-] as const satisfies UserDraftItemKind[]
-
 const secretVariableDraftValues = new Map<string, Map<string, string>>()
 
 function clone<T>(value: T): T {
@@ -103,7 +85,7 @@ export function clearEphemeralSecretVariableDraftValue(workspace: string, path: 
 	if (workspaceValues.size === 0) secretVariableDraftValues.delete(workspace)
 }
 
-function clearEphemeralSecretVariableDraftValues(workspace: string): void {
+export function clearEphemeralSecretVariableDraftValues(workspace: string): void {
 	secretVariableDraftValues.delete(workspace)
 }
 
@@ -568,25 +550,4 @@ export async function deleteGlobalDraft(
 		throwOnError: true
 	})
 	if (type === 'variable') clearEphemeralSecretVariableDraftValue(workspace, storagePath)
-}
-
-export async function clearGlobalDrafts(workspace: string): Promise<void> {
-	// `UserDraft.list` only sees in-tab mounted entries post #9351, so
-	// enumerate the user's persisted drafts from the DB instead and delete
-	// each global-mode kind.
-	const kinds = new Set<UserDraftItemKind>(GLOBAL_DRAFT_KINDS)
-	const drafts = await DraftService.listDrafts({ workspace })
-	for (const draft of drafts) {
-		if (!kinds.has(draft.typ)) continue
-		await UserDraftDbSyncer.save({
-			workspace,
-			itemKind: draft.typ,
-			path: draft.path,
-			value: null,
-			immediate: true,
-			force: true,
-			throwOnError: true
-		})
-	}
-	clearEphemeralSecretVariableDraftValues(workspace)
 }

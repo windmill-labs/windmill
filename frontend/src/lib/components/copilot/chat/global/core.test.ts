@@ -151,13 +151,7 @@ vi.mock('$lib/gen', async () => {
 					)
 				}
 				return { value: entry.value, saved_at: entry.saved_at }
-			}),
-			listDrafts: vi.fn(async () =>
-				[...draftDb.store.entries()].map(([k, v]) => {
-					const slash = k.indexOf('/')
-					return { typ: k.slice(0, slash), path: k.slice(slash + 1), saved_at: v.saved_at }
-				})
-			)
+			})
 		})
 	}
 })
@@ -179,7 +173,7 @@ import {
 	setOpenPreviewHandler
 } from './core'
 import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
-import { clearGlobalDrafts } from './userDraftAdapter'
+import { clearEphemeralSecretVariableDraftValues } from './userDraftAdapter'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
 	AppService,
@@ -273,7 +267,7 @@ describe('global AI tools', () => {
 		__resetUserDraftForTesting()
 		localStorage.clear()
 		draftDb.reset()
-		await clearGlobalDrafts(WORKSPACE)
+		clearEphemeralSecretVariableDraftValues(WORKSPACE)
 		vi.clearAllMocks()
 	})
 

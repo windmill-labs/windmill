@@ -24,7 +24,6 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/get/{kind}/{*path}", get(get_draft_for_user))
         .route("/save_draft/{kind}/{*path}", post(save_draft))
-        .route("/list_drafts", get(list_drafts))
         .route("/get_draft/{kind}/{*path}", get(get_draft))
 }
 
@@ -163,36 +162,6 @@ async fn save_draft(
             }))
         }
     }
-}
-
-#[derive(Serialize, Debug)]
-pub struct DraftListItem {
-    pub path: String,
-    pub typ: UserDraftItemKind,
-    pub saved_at: chrono::DateTime<chrono::Utc>,
-}
-
-/// Metadata-only listing of the current user's drafts in a workspace.
-/// Excludes the legacy NULL-email rows. Ordered most-recently-saved first.
-async fn list_drafts(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-) -> Result<Json<Vec<DraftListItem>>> {
-    let rows = sqlx::query_as!(
-        DraftListItem,
-        r#"SELECT path,
-                  typ as "typ!: UserDraftItemKind",
-                  created_at as "saved_at!"
-           FROM draft
-           WHERE workspace_id = $1 AND email = $2
-           ORDER BY created_at DESC"#,
-        &w_id,
-        &authed.email,
-    )
-    .fetch_all(&db)
-    .await?;
-    Ok(Json(rows))
 }
 
 #[derive(Serialize, Debug)]
