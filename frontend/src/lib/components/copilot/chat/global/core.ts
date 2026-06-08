@@ -355,9 +355,9 @@ const deleteWorkspaceItemSchema = z.object({
 		.describe('Required when type is trigger. Identifies which trigger service to call.')
 })
 
-const discardLocalDraftSchema = z.object({
+const discardDraftSchema = z.object({
 	type: itemTypeSchema,
-	path: z.string().describe('Workspace path of the local draft to discard.'),
+	path: z.string().describe('Workspace path of the draft to discard.'),
 	trigger_kind: triggerKindSchema
 		.optional()
 		.describe('Required when type is trigger. Must match the draft trigger kind.')
@@ -418,7 +418,7 @@ const testRunScriptSchema = z.object({
 const testRunScriptToolDef = createToolDef(
 	testRunScriptSchema,
 	'test_run_script',
-	'Execute a preview-style test run of a script by path, preferring local draft content when it exists.',
+	'Execute a preview-style test run of a script by path, preferring draft content when it exists.',
 	{ strict: false }
 )
 
@@ -430,7 +430,7 @@ const testRunFlowSchema = z.object({
 const testRunFlowToolDef = createToolDef(
 	testRunFlowSchema,
 	'test_run_flow',
-	'Execute a preview-style test run of a flow by path, preferring local draft content when it exists.',
+	'Execute a preview-style test run of a flow by path, preferring draft content when it exists.',
 	{ strict: false }
 )
 
@@ -443,7 +443,7 @@ const testRunStepSchema = z.object({
 const testRunStepToolDef = createToolDef(
 	testRunStepSchema,
 	'test_run_step',
-	'Execute a test run of one step in a flow by path, preferring local draft flow/script content when it exists.',
+	'Execute a test run of one step in a flow by path, preferring draft flow/script content when it exists.',
 	{ strict: false }
 )
 
@@ -581,7 +581,7 @@ const buildGlobalSystemPrompt = (
 
 The current user's workspace username is "${username}".
 
-Use tools to inspect workspace items and create local drafts for scripts, flows, schedules, triggers, resources, variables, and raw apps.
+Use tools to inspect workspace items and create drafts for scripts, flows, schedules, triggers, resources, variables, and raw apps.
 
 Path conventions:
 - Every workspace path has exactly three segments and starts with one of two namespaces:
@@ -592,15 +592,15 @@ Path conventions:
 - Only use an \`f/<folder>/<name>\` path when the user explicitly named the folder or you confirmed it exists.
 
 Rules:
-- Draft tools create or update local drafts only; they do not deploy or mutate deployed workspace items.
+- Draft tools create or update drafts only; they do not deploy or mutate deployed workspace items.
 - Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
 - If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".
-- Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a local draft to the workspace.
-- Use discard_local_draft to remove an unsaved local draft, including the matching open editor draft. Use delete_workspace_item only to delete a deployed workspace item.
+- Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.
+- Use discard_draft to remove an unsaved draft, including the matching open editor draft. Use delete_workspace_item only to delete a deployed workspace item.
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
 - Use search_resource_types before write_resource.
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
-- After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer local drafts, so testing does not require deployment.
+- After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
 - Keep context targeted.${
 	previewTools
@@ -1329,7 +1329,7 @@ function getFlowInstructions(): string {
 - \`read_workspace_item\` and \`patch_flow_json\` operate on a **compact view** of the flow: every rawscript module's \`value.content\` is replaced with the placeholder \`"inline_script.<moduleId>"\` so inline script bodies don't bloat tool I/O. Schema, groups, preprocessor_module and failure_module are all shown in this view.
 - Inline rawscript content is **not** part of the JSON \`patch_flow_json\` sees. Edits to inline bodies happen via dedicated tools:
   - \`read_flow_module_code(path, module_id)\` — returns the raw inline script content for one module.
-  - \`set_flow_module_code(path, module_id, code)\` — overwrites that module's inline script content; saves to the local draft.
+  - \`set_flow_module_code(path, module_id, code)\` — overwrites that module's inline script content; saves to the draft.
 - Use \`patch_flow_json\` for *structural* edits: module ids, paths, input_transforms, branch arrangement, summaries, preprocessor/failure swaps, schema/groups. Use \`set_flow_module_code\` for changes inside a specific rawscript body.
 - \`write_flow\` is for full overwrites / create-from-scratch. Its \`modules\`, \`preprocessor_module\`, and \`failure_module\` arguments use **non-compact** flow modules (rawscript content is the actual code, not a placeholder).
 
@@ -1481,7 +1481,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			listWorkspaceItemsSchema,
 			'list_workspace_items',
-			'List workspace items and local drafts. Returns metadata only.'
+			'List workspace items and drafts. Returns metadata only.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = listWorkspaceItemsSchema.parse(args)
@@ -1540,7 +1540,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			readWorkspaceItemSchema,
 			'read_workspace_item',
-			'Read one workspace item or local draft.'
+			'Read one workspace item or draft.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = readWorkspaceItemSchema.parse(args)
@@ -1552,7 +1552,7 @@ export const globalTools: Tool<{}>[] = [
 			const draft = await getGlobalDraft(workspace, parsed.type, parsed.path, parsed.trigger_kind)
 			if (draft) {
 				toolCallbacks.setToolStatus(toolId, {
-					content: `Read local draft ${parsed.type} "${parsed.path}"`
+					content: `Read draft ${parsed.type} "${parsed.path}"`
 				})
 				return JSON.stringify(serializeWorkspaceItemForRead(draft), null, 2)
 			}
@@ -1569,7 +1569,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeScriptSchema,
 			'write_script',
-			'Create or overwrite a local draft script.'
+			'Create or overwrite a draft script.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -1580,7 +1580,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
-		def: createToolDef(writeFlowSchema, 'write_flow', 'Create or overwrite a local draft flow.'),
+		def: createToolDef(writeFlowSchema, 'write_flow', 'Create or overwrite a draft flow.'),
 		showDetails: true,
 		streamArguments: true,
 		showFade: true,
@@ -1610,7 +1610,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeScheduleSchema,
 			'write_schedule',
-			'Create or overwrite a local draft schedule.',
+			'Create or overwrite a draft schedule.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -1625,7 +1625,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeTriggerSchema,
 			'write_trigger',
-			'Create or overwrite a local draft trigger.',
+			'Create or overwrite a draft trigger.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -1640,7 +1640,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			editScriptSchema,
 			'edit_script',
-			'Find/replace exact text in a script and save a local draft.'
+			'Find/replace exact text in a script and save a draft.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -1654,7 +1654,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			patchFlowJsonSchema,
 			'patch_flow_json',
-			'Find/replace exact text in compact flow JSON and save a local draft.'
+			'Find/replace exact text in compact flow JSON and save a draft.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -1701,13 +1701,13 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			deployWorkspaceItemSchema,
 			'deploy_workspace_item',
-			'Deploy a local draft to the workspace. Mutates the workspace.',
+			'Deploy a draft to the workspace. Mutates the workspace.',
 			{ strict: false }
 		),
 		showDetails: true,
 		showFade: true,
 		requiresConfirmation: true,
-		confirmationMessage: 'Deploy local draft to workspace',
+		confirmationMessage: 'Deploy draft to workspace',
 		fn: async (ctx) => {
 			const parsed = deployWorkspaceItemSchema.parse(ctx.args)
 			return deployDraft(parsed, { ...ctx, sessionId: sessionIdFromCtx(ctx) })
@@ -1730,24 +1730,24 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
-			discardLocalDraftSchema,
-			'discard_local_draft',
-			'Discard a local draft only. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted.'
+			discardDraftSchema,
+			'discard_draft',
+			'Discard a draft only. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted.'
 		),
 		showDetails: true,
 		showFade: true,
 		requiresConfirmation: true,
-		confirmationMessage: 'Discard local draft',
+		confirmationMessage: 'Discard draft',
 		fn: async (ctx) => {
-			const parsed = discardLocalDraftSchema.parse(ctx.args)
-			return discardLocalDraft(parsed, ctx)
+			const parsed = discardDraftSchema.parse(ctx.args)
+			return discardDraft(parsed, ctx)
 		}
 	},
 	{
 		def: createToolDef(
 			writeResourceSchema,
 			'write_resource',
-			'Create or overwrite a local draft resource.',
+			'Create or overwrite a draft resource.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -1762,7 +1762,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeVariableSchema,
 			'write_variable',
-			'Create or overwrite a local draft variable.',
+			'Create or overwrite a draft variable.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -1817,7 +1817,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			setFlowModuleCodeSchema,
 			'set_flow_module_code',
-			'Overwrite inline script code in one flow module and save a local draft.'
+			'Overwrite inline script code in one flow module and save a draft.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -1831,7 +1831,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			initAppSchema,
 			'init_app',
-			'Initialize a local draft raw app from a framework template.',
+			'Initialize a draft raw app from a framework template.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -1881,7 +1881,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			patchAppFileSchema,
 			'patch_app_file',
-			'Find/replace exact text in a raw app file and save a local draft.'
+			'Find/replace exact text in a raw app file and save a draft.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -2160,7 +2160,7 @@ function buildVariableDeployRequestBody(
 	const secretValue = getEphemeralSecretVariableDraftValue(workspace, storagePath)
 	if (secretValue === undefined) {
 		throw new Error(
-			`Secret value for local draft variable "${path}" is no longer available because secret draft values are kept only in memory. Run write_variable again before deploying this secret.`
+			`Secret value for draft variable "${path}" is no longer available because secret draft values are kept only in memory. Run write_variable again before deploying this secret.`
 		)
 	}
 
@@ -2784,7 +2784,7 @@ async function initApp(
 
 	if (await getGlobalDraft(workspace, 'app', path)) {
 		throw new Error(
-			`A local draft for app "${path}" already exists. Use write_app_file / write_app_runnable to modify it, or delete the existing draft first.`
+			`A draft for app "${path}" already exists. Use write_app_file / write_app_runnable to modify it, or delete the existing draft first.`
 		)
 	}
 	if (await AppService.existsApp({ workspace, path })) {
@@ -3142,7 +3142,7 @@ function createOpenVariableAction(path: string): ToolDisplayAction {
 	}
 }
 
-async function discardLocalDraft(
+async function discardDraft(
 	args: { type: WorkspaceItemType; path: string; trigger_kind?: TriggerKind },
 	ctx: WriteDraftCtx
 ): Promise<string> {
@@ -3155,7 +3155,7 @@ async function discardLocalDraft(
 
 	const draft = await getGlobalDraft(workspace, type, path, triggerKind)
 	if (!draft) {
-		throw new Error(`No local draft found for ${type} "${path}".`)
+		throw new Error(`No draft found for ${type} "${path}".`)
 	}
 
 	await deleteGlobalDraft(workspace, type, path, triggerKind)
@@ -3195,7 +3195,7 @@ async function deployDraft(
 
 	const draft = await getGlobalDraft(workspace, type, path, triggerKind)
 	if (!draft) {
-		throw new Error(`No local draft found for ${type} "${path}".`)
+		throw new Error(`No draft found for ${type} "${path}".`)
 	}
 	if (draft.value === undefined) {
 		throw new Error(`Draft ${type} "${path}" has no value to deploy.`)
@@ -3394,7 +3394,7 @@ async function deployDraft(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Deployed local draft ${type} "${path}" to the workspace. Draft removed from the local draft system.`,
+			message: `Deployed draft ${type} "${path}" to the workspace. Draft removed from the draft system.`,
 			type,
 			path,
 			triggerKind
@@ -3452,7 +3452,7 @@ async function deleteWorkspaceItem(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Deleted ${type} "${path}" from the workspace. Any matching local draft was also cleared.`,
+			message: `Deleted ${type} "${path}" from the workspace. Any matching draft was also cleared.`,
 			type,
 			path,
 			triggerKind

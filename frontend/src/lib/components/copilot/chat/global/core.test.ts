@@ -694,7 +694,7 @@ describe('global AI tools', () => {
 		expect(dbDraftValue('raw_app', 'u/admin/live_app')).toBeUndefined()
 	})
 
-	it('discards a local draft without deleting the workspace item', async () => {
+	it('discards a draft without deleting the workspace item', async () => {
 		await callGlobalTool('write_script', {
 			path: 'f/scripts/discard-me',
 			summary: 'Temporary draft',
@@ -704,7 +704,7 @@ describe('global AI tools', () => {
 
 		expect(dbDraftValue('script', 'f/scripts/discard-me')).toBeDefined()
 
-		const raw = await callGlobalTool('discard_local_draft', {
+		const raw = await callGlobalTool('discard_draft', {
 			type: 'script',
 			path: 'f/scripts/discard-me'
 		})
@@ -722,7 +722,7 @@ describe('global AI tools', () => {
 
 	it('requires trigger_kind when discarding a trigger draft', async () => {
 		await expect(
-			callGlobalTool('discard_local_draft', {
+			callGlobalTool('discard_draft', {
 				type: 'trigger',
 				path: 'f/routes/missing-kind'
 			})
@@ -1059,7 +1059,7 @@ describe('global AI tools', () => {
 		expect(dbDraftValue('raw_app', 'f/apps/report')).toBeUndefined()
 	})
 
-	it('reads raw app files without creating a local draft', async () => {
+	it('reads raw app files without creating a draft', async () => {
 		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
 			path: 'f/apps/report',
 			summary: 'deployed app',
@@ -1384,7 +1384,7 @@ describe('global AI tools', () => {
 		expect(item.value.value).toBeUndefined()
 	})
 
-	it('test_run_script previews local draft script content by path', async () => {
+	it('test_run_script previews draft script content by path', async () => {
 		const content = 'export async function main(name: string) {\n\treturn `hello ${name}`\n}'
 		await callGlobalTool('write_script', {
 			path: 'f/scripts/draft-test',
@@ -1414,7 +1414,7 @@ describe('global AI tools', () => {
 		expect(result).toContain('test logs')
 	})
 
-	it('test_run_script previews deployed script content when no local draft exists', async () => {
+	it('test_run_script previews deployed script content when no draft exists', async () => {
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
 			path: 'f/scripts/deployed-test',
 			summary: 'Deployed test script',
@@ -1444,7 +1444,7 @@ describe('global AI tools', () => {
 		})
 	})
 
-	it('test_run_flow previews local draft flow content by path', async () => {
+	it('test_run_flow previews draft flow content by path', async () => {
 		const modules = [{ id: 'start', value: { type: 'identity' } }]
 		await callGlobalTool('write_flow', {
 			path: 'f/flows/draft-test',
@@ -1470,7 +1470,7 @@ describe('global AI tools', () => {
 		})
 	})
 
-	it('test_run_flow previews deployed flow content when no local draft exists', async () => {
+	it('test_run_flow previews deployed flow content when no draft exists', async () => {
 		const modules = [{ id: 'deployed_start', value: { type: 'identity' } }]
 		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
 			path: 'f/flows/deployed-test',
@@ -1590,7 +1590,7 @@ describe('global AI tools', () => {
 		})
 	})
 
-	it('test_run_step previews rawscript steps from the local draft flow', async () => {
+	it('test_run_step previews rawscript steps from the draft flow', async () => {
 		const content = 'export async function main(name: string) {\n\treturn name.toUpperCase()\n}'
 		await callGlobalTool('write_flow', {
 			path: 'f/flows/rawscript-step',
@@ -1669,7 +1669,7 @@ describe('global AI tools', () => {
 		})
 	})
 
-	it('test_run_step previews local draft subflows for flow steps', async () => {
+	it('test_run_step previews draft subflows for flow steps', async () => {
 		const nestedModules = [{ id: 'nested_start', value: { type: 'identity' } }]
 		await callGlobalTool('write_flow', {
 			path: 'f/flows/nested-draft',
@@ -1860,9 +1860,9 @@ describe('prepareGlobalSystemMessage', () => {
 		const message = prepareGlobalSystemMessage()
 		const content = message.content
 
-		expect(content).toContain('Draft tools create or update local drafts only')
+		expect(content).toContain('Draft tools create or update drafts only')
 		expect(content).toContain(
-			'Use discard_local_draft to remove an unsaved local draft, including the matching open editor draft'
+			'Use discard_draft to remove an unsaved draft, including the matching open editor draft'
 		)
 		expect(content).toContain(
 			'After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step'
@@ -1875,11 +1875,11 @@ describe('prepareGlobalSystemMessage', () => {
 	})
 
 	it('exposes separate tools for discarding drafts and deleting workspace items', () => {
-		const discard = getGlobalTool('discard_local_draft')
+		const discard = getGlobalTool('discard_draft')
 		const deleteItem = getGlobalTool('delete_workspace_item')
 
 		expect(discard.def.function.description).toBe(
-			'Discard a local draft only. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted.'
+			'Discard a draft only. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted.'
 		)
 		expect(deleteItem.def.function.description).toBe(
 			'Delete a deployed workspace item. Mutates the workspace.'

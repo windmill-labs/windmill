@@ -124,7 +124,7 @@ Work one tool at a time; each is independently shippable behind the existing
 | 3 | `write_script` / `write_flow` / `write_app` | **✅ Done** — existing-draft read + read-back via the seam; save via `saveGlobalDraftValue` (live → `UserDraft`, headless → awaited forced DB save) |
 | 4 | `write` trigger / schedule | **✅ Done** — same seam as #3 for trigger kinds |
 | 5 | `write_resource` / `write_variable` | **✅ Done** — same seam as #3; secret ephemeral map untouched (DB value stays `''`) |
-| 6 | `delete_draft` (`deleteGlobalDraft`) | **✅ Done** — async; live → `UserDraft.remove/clear`, headless → awaited `save_draft` null |
+| 6 | `delete_draft` (`deleteGlobalDraft`) | **✅ Done** — async; always awaits an immediate forced `save_draft` null (DB row gone before return), and additionally clears the in-tab cell when an editor is mounted so a read-back can't resurrect it |
 | 7 | `clearGlobalDrafts` | **✅ Done** — enumerate via `DraftService.listDrafts` (filtered to `GLOBAL_DRAFT_KINDS`), delete each |
 | 8 | deploy path | **✅ Done** — reads the DB draft via async `getGlobalDraft` before deploying; post-deploy delete is awaited |
 
@@ -240,8 +240,18 @@ when an entry is mounted, regardless of whether it holds a value (distinct from
 and the ~15 read/write/delete call-sites thread `await`. `clearGlobalDrafts`
 enumerates `DraftService.listDrafts` (filtered to `GLOBAL_DRAFT_KINDS`).
 Secret-variable handling is unchanged: the draft value stays `''` and the real
-secret lives only in the in-memory `secretVariableDraftValues` map. The "local
-storage" copy in toasts/tool results was reworded to "draft".
+secret lives only in the in-memory `secretVariableDraftValues` map.
+
+**Naming.** The drafts are no longer browser-local, so the "local storage" /
+"local draft" copy across the model-facing surface (tool descriptions, system
+prompt, confirmation messages, schema help, tool-result messages) was reworded
+to "draft". The `discard_local_draft` tool was renamed to **`discard_draft`**
+(internal `discardLocalDraft`/`Schema` → `discardDraft`/`Schema`); editor-view
+comments referencing it were updated too. The unrelated `ResourceEditor`
+`discardLocalDraft()` method is left alone. `discard_draft` is still a needed,
+distinct operation (drop a draft, keep the deployed item) — not redundant with
+`delete_workspace_item` (deletes the deployed item) or `deploy_workspace_item`
+(promotes then drops the draft).
 
 ### Verification (done)
 
