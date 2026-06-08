@@ -440,19 +440,14 @@ describe('global AI tools', () => {
 		)
 	})
 
-	it('applies path_prefix to local drafts before enforcing the result limit', async () => {
-		await callGlobalTool('write_script', {
-			path: 'f/other/outside',
-			summary: 'Outside draft',
-			language: 'bun',
-			content: 'export async function main() { return "outside" }'
-		})
-		await callGlobalTool('write_script', {
-			path: 'f/matching/inside',
-			summary: 'Inside draft',
-			language: 'bun',
-			content: 'export async function main() { return "inside" }'
-		})
+	it('flags backend draft scripts and forwards path_prefix + limit', async () => {
+		// Post #9351 the list tool sources script drafts from `listScripts`
+		// (`includeDraftOnly` + the `draft_only`/`is_draft` flags), not a local
+		// store — so path_prefix (pathStart) and limit (perPage) are forwarded to
+		// the backend query, which does the filtering.
+		vi.mocked(ScriptService.listScripts).mockResolvedValueOnce([
+			{ path: 'f/matching/inside', summary: 'Inside draft', language: 'bun', draft_only: true }
+		] as any)
 
 		const raw = await callGlobalTool('list_workspace_items', {
 			types: ['script'],
@@ -460,6 +455,9 @@ describe('global AI tools', () => {
 			limit: 1
 		})
 
+		expect(ScriptService.listScripts).toHaveBeenCalledWith(
+			expect.objectContaining({ pathStart: 'f/matching/', perPage: 1, includeDraftOnly: true })
+		)
 		expect(JSON.parse(raw)).toEqual([
 			expect.objectContaining({
 				type: 'script',

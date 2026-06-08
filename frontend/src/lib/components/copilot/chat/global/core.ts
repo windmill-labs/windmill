@@ -104,7 +104,7 @@ import {
 	getEphemeralSecretVariableDraftValue,
 	getGlobalDraft,
 	getGlobalDraftStoragePath,
-	listGlobalDrafts,
+	listLiveEditorDrafts,
 	saveGlobalAppDraft,
 	setEphemeralSecretVariableDraftValue,
 	triggerKindToUserDraftKind
@@ -1210,7 +1210,14 @@ async function listWorkspaceItems(
 			includeDraftOnly: true,
 			withoutDescription: true
 		})
-		for (const script of scripts) items.push(scriptToItem(script, false))
+		// `includeDraftOnly` returns the current user's draft-only items and flags
+		// deployed items that have a pending draft (per-user, post #9351), so the
+		// draft state comes straight off the list response — no separate fetch.
+		for (const script of scripts)
+			items.push({
+				...scriptToItem(script, false),
+				isDraft: script.draft_only === true || script.is_draft === true
+			})
 	}
 
 	if (types.includes('flow')) {
@@ -1221,7 +1228,11 @@ async function listWorkspaceItems(
 			includeDraftOnly: true,
 			withoutDescription: true
 		})
-		for (const flow of flows) items.push(flowToItem(flow, false))
+		for (const flow of flows)
+			items.push({
+				...flowToItem(flow, false),
+				isDraft: flow.draft_only === true || flow.is_draft === true
+			})
 	}
 
 	if (types.includes('schedule')) {
@@ -1268,7 +1279,13 @@ async function listWorkspaceItems(
 			pathStart: pathPrefix,
 			perPage
 		})
-		for (const app of apps) items.push(appToItem(app, false))
+		// Draft-only apps also carry `is_draft === true`, so it covers both
+		// draft-only and deployed-with-draft (ListableApp exposes only `is_draft`).
+		for (const app of apps)
+			items.push({
+				...appToItem(app, false),
+				isDraft: app.is_draft === true
+			})
 	}
 
 	return items
@@ -1480,14 +1497,31 @@ export const globalTools: Tool<{}>[] = [
 				byKey.set(getWorkspaceItemKey(item.type, item.path, item.triggerKind), item)
 			}
 
-			for (const draft of listGlobalDrafts(workspace)) {
-				if (!types.includes(draft.type)) continue
-				if (parsed.path_prefix && !draft.path.startsWith(parsed.path_prefix)) continue
-				byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
-					...draft,
+			// Script/flow/app drafts (draft-only and deployed-with-draft) already
+			// arrive from `listWorkspaceItems` above via `includeDraftOnly` + the
+			// `isDraft` flag. The open editor's *live* draft is in-memory only — a
+			// new unsaved draft has no DB row (empty storage path) and an
+			// in-progress rename's effective path differs from storage — so merge
+			// those in at their effective path, overriding the deployed entry.
+			for (const { item: live, storagePath } of listLiveEditorDrafts(workspace)) {
+				if (!types.includes(live.type)) continue
+				// Renamed in the editor → drop the stale entry at the old path.
+				if (storagePath && storagePath !== live.path) {
+					byKey.delete(getWorkspaceItemKey(live.type, storagePath, live.triggerKind))
+				}
+				if (parsed.path_prefix && !live.path.startsWith(parsed.path_prefix)) continue
+				byKey.set(getWorkspaceItemKey(live.type, live.path, live.triggerKind), {
+					...live,
 					value: undefined
 				})
 			}
+
+			// TODO(db-drafts): schedule/trigger/resource/variable drafts are NOT
+			// discoverable through this tool yet — their list endpoints have no
+			// `includeDraftOnly` support, so a draft created for those kinds won't
+			// surface here until the backend adds per-user draft listing for them.
+			// Until then the AI can still reach such a draft by path via
+			// `read_workspace_item`.
 
 			const results = Array.from(byKey.values())
 				.filter((item) => itemMatches(item, parsed.query))

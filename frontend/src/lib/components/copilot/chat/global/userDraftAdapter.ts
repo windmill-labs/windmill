@@ -7,7 +7,6 @@ import {
 	type UserDraftMeta
 } from '$lib/userDraft.svelte'
 import {
-	getWorkspaceItemKey,
 	type AppDraftValue,
 	type ResourceDraftState,
 	type TriggerKind,
@@ -335,15 +334,55 @@ export function getGlobalDraft(
 	return getGlobalDraftSlot(workspace, type, path, triggerKind)?.item
 }
 
-export function listGlobalDrafts(workspace: string): WorkspaceItem[] {
-	const drafts = new Map<string, WorkspaceItem>()
-	for (const entry of UserDraft.list({ workspace, itemKinds: [...GLOBAL_DRAFT_KINDS] })) {
-		const { displayPath, isLiveDraft } = liveDisplayPath(workspace, entry.itemKind, entry.path)
-		const draft = userDraftEntryToWorkspaceItem(entry, displayPath, isLiveDraft)
-		if (!draft) continue
-		drafts.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), draft)
+const LIVE_EDITOR_DRAFT_KINDS = [
+	'script',
+	'flow',
+	'raw_app'
+] as const satisfies readonly UserDraftItemKind[]
+
+function liveEditorDraftType(kind: (typeof LIVE_EDITOR_DRAFT_KINDS)[number]): WorkspaceItemType {
+	return kind === 'raw_app' ? 'app' : kind
+}
+
+/**
+ * The open editor's in-flight draft for each editor kind (script/flow/raw_app)
+ * as a value-less `WorkspaceItem` at its *effective* path, flagged
+ * `isLiveDraft`.
+ *
+ * This is in-memory state that the DB draft list can't represent: a brand-new
+ * unsaved draft has no DB row (it lives at an empty storage path), and an
+ * in-progress rename's effective path differs from where the draft is stored.
+ * Persisted draft listing comes from the backend (`includeDraftOnly` +
+ * `isDraft`); this only fills that in-memory gap.
+ *
+ * Existence and path are taken straight from the live registry
+ * (`getLiveEditorDraft`) — not gated on the in-tab value cell, which is only
+ * populated while the editor's handle is mounted. `summary` is best-effort
+ * from that cell when present. `storagePath` is returned so the caller can drop
+ * a stale list entry at the pre-rename path.
+ */
+export function listLiveEditorDrafts(
+	workspace: string
+): { item: WorkspaceItem; storagePath: string }[] {
+	const out: { item: WorkspaceItem; storagePath: string }[] = []
+	for (const itemKind of LIVE_EDITOR_DRAFT_KINDS) {
+		const live = UserDraft.getLiveEditorDraft(itemKind, { workspace })
+		if (!live) continue
+		const path = live.effectivePath || live.storagePath
+		if (!path) continue
+		const value = UserDraft.get(itemKind, live.storagePath, { workspace })
+		out.push({
+			item: {
+				type: liveEditorDraftType(itemKind),
+				path,
+				summary: getItemSummary(value),
+				isDraft: true,
+				isLiveDraft: true
+			},
+			storagePath: live.storagePath
+		})
 	}
-	return Array.from(drafts.values())
+	return out
 }
 
 export function saveGlobalAppDraft(
