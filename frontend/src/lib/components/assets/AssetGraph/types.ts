@@ -53,6 +53,11 @@ export interface AssetGraphEdge {
 // `schedule` is in the family — the cron lives on the schedule row the user
 // creates separately; the annotation is just the binding declaration, same
 // as kafka/mqtt/etc.
+//
+// `data_upload` is the UI-first odd one out: no event source and no trigger
+// row anywhere. The script declares an `S3Object` input and the user uploads
+// a file via the auto-generated S3 picker, which runs the pipeline. Like
+// webhook, it's never rendered as a "missing" placeholder.
 export type NativeTriggerKind =
 	| 'schedule'
 	| 'webhook'
@@ -63,6 +68,7 @@ export type NativeTriggerKind =
 	| 'postgres'
 	| 'sqs'
 	| 'gcp'
+	| 'data_upload'
 
 export type AssetGraphTrigger =
 	| {

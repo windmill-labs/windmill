@@ -10,7 +10,8 @@
 		MessageSquare,
 		Database,
 		Send,
-		CloudCog
+		CloudCog,
+		Upload
 	} from 'lucide-svelte'
 	import type { ScriptLang } from '$lib/gen'
 	import type { NativeTriggerKind } from './types'
@@ -57,6 +58,12 @@
 
 <PipelineInsertMenu
 	kinds={[
+		{
+			id: 'data_upload',
+			label: 'On data upload',
+			description: 'UI-first: run by uploading a file via the S3 picker',
+			icon: Upload
+		},
 		{
 			id: 'schedule',
 			label: 'On schedule',

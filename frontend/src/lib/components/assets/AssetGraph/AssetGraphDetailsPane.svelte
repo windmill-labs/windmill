@@ -155,6 +155,11 @@
 		// runnable menu's "Run + trigger N downstream" item when the chosen
 		// script happens to be the currently-open one.
 		requestRunCascadeSignal?: number
+		// Bumped by the page when the user clicks a `data_upload` source node.
+		// Scrolls the run form's S3 file input into view and pulses a highlight
+		// so the UI-first "upload a file to run" affordance is obvious — the
+		// input lives below the editor and is otherwise easy to miss.
+		focusUploadSignal?: number
 	}
 	let {
 		selection,
@@ -181,8 +186,13 @@
 		onDraftPathChange,
 		requestRemoveSignal,
 		downstreamSubscribers = 0,
-		requestRunCascadeSignal
+		requestRunCascadeSignal,
+		focusUploadSignal
 	}: Props = $props()
+
+	// Root element of the pane — used to scope the S3-input lookup for the
+	// data_upload focus effect.
+	let paneEl: HTMLElement | undefined = $state(undefined)
 
 	// Held ref to ScriptEditor so we can route a canvas-side Run dispatch
 	// through .runTest() — gives the test panel logs/result/cancel for
@@ -234,6 +244,41 @@
 		if (!editorReadyForTarget) return
 		lastHandledCascadeSig = sig
 		void scriptEditorRef?.runTest({ cascade: true })
+	})
+
+	// Focus-the-upload bridge: when the page bumps `focusUploadSignal` (user
+	// clicked a data_upload source node), pulse the test panel's border once
+	// (Test button + args form + logs) so the UI-first "upload a file to run"
+	// affordance is obvious. Same gating as the run bridge — wait for the
+	// editor to settle on the target so the panel is mounted.
+	//
+	// The pulse is a throwaway fixed-position overlay appended to <body> rather
+	// than a class on the panel itself: the split panes clip descendant
+	// outlines/box-shadows via `overflow`, and a tall splitter paints over the
+	// panel's lower edge. A `position: fixed` element at the panel's rect (clamped
+	// to the viewport) escapes both — it can't be clipped by ancestors and, at a
+	// high z-index, paints above everything, so all four borders stay visible
+	// even when the panel content overflows below the fold.
+	let lastHandledFocusSig = 0
+	$effect(() => {
+		const sig = focusUploadSignal
+		if (sig === undefined || sig === 0 || sig === lastHandledFocusSig) return
+		if (!editorReadyForTarget) return
+		lastHandledFocusSig = sig
+		requestAnimationFrame(() => {
+			const target = paneEl?.querySelector('[data-test-panel]') as HTMLElement | null
+			if (!target) return
+			const r = target.getBoundingClientRect()
+			const m = 2
+			const top = Math.max(r.top, 0) + m
+			const bottom = Math.min(r.bottom, window.innerHeight) - m
+			if (bottom <= top) return
+			const ov = document.createElement('div')
+			ov.className = 'wm-upload-pulse'
+			ov.style.cssText = `position:fixed;left:${r.left + m}px;top:${top}px;width:${r.width - m * 2}px;height:${bottom - top}px;pointer-events:none;z-index:9999;border-radius:6px;`
+			document.body.appendChild(ov)
+			setTimeout(() => ov.remove(), 1500)
+		})
 	})
 
 	// True when the script that writes to the currently-selected asset is
@@ -521,7 +566,7 @@
 	}
 </script>
 
-<div class="flex flex-col h-full bg-surface">
+<div class="flex flex-col h-full bg-surface" bind:this={paneEl}>
 	<div
 		class="flex items-center justify-between gap-2 px-3 py-2 border-b shrink-0 min-h-10 whitespace-nowrap"
 	>
@@ -930,3 +975,26 @@
 		</div>
 	</div>
 {/if}
+
+<style>
+	/* Border-color pulse for the throwaway overlay appended to <body> when the
+	   user clicks a data_upload source node (hence :global). border-box keeps
+	   the 3px border inside the overlay's measured rect, so it traces the test
+	   panel's bounds exactly. */
+	:global(.wm-upload-pulse) {
+		animation: wm-upload-pulse 1.4s ease-out 1;
+		border: 3px solid transparent;
+		box-sizing: border-box;
+	}
+	@keyframes wm-upload-pulse {
+		0% {
+			border-color: rgba(217, 70, 239, 0);
+		}
+		20% {
+			border-color: rgba(217, 70, 239, 0.85);
+		}
+		100% {
+			border-color: rgba(217, 70, 239, 0);
+		}
+	}
+</style>

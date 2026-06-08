@@ -17,7 +17,8 @@
 		Send,
 		Webhook,
 		Zap,
-		CloudCog
+		CloudCog,
+		Upload
 	} from 'lucide-svelte'
 
 	type Presentation = {
@@ -102,6 +103,14 @@
 			border: 'outline-emerald-300 dark:outline-emerald-600/60',
 			borderUnsaved: 'outline-dashed outline-emerald-400',
 			iconText: 'text-emerald-700 dark:text-emerald-400'
+		},
+		data_upload: {
+			icon: Upload,
+			label: 'data upload',
+			bg: 'bg-fuchsia-50 dark:bg-fuchsia-900/30',
+			border: 'outline-fuchsia-300 dark:outline-fuchsia-600/60',
+			borderUnsaved: 'outline-dashed outline-fuchsia-400',
+			iconText: 'text-fuchsia-700 dark:text-fuchsia-400'
 		}
 	}
 </script>
@@ -144,6 +153,13 @@
 			// the node is always clickable to view its endpoint instead of
 			// rendering a dead "missing" placeholder.
 			onOpenWebhook?: (scriptPath: string) => void
+			// Page-supplied dispatcher that opens the run form for a
+			// `data_upload` source. Like webhook, data_upload has no trigger
+			// row — it's a UI-first entry point, so the node is always
+			// clickable and opens the script's run form (where the
+			// auto-generated S3 picker lets the user upload + run) instead of
+			// rendering a "missing" placeholder.
+			onOpenDataUpload?: (scriptPath: string) => void
 			// Page-supplied dispatcher to open the matching native trigger
 			// drawer in edit mode for an attached (non-missing) trigger.
 			// `triggerPath` is the trigger row's path (e.g. the mqtt_trigger
@@ -168,7 +184,11 @@
 	// implicit endpoint. Suppress the broken/red treatment for them so they
 	// render as a normal clickable source node.
 	let isWebhook = $derived(data.kind === 'webhook')
-	let displayMissing = $derived(data.missing && !isWebhook)
+	// data_upload, like webhook, has no trigger row — it's a UI-first entry
+	// point. Never render it as a red "missing" placeholder; it's always a
+	// clickable source that opens the run form.
+	let isDataUpload = $derived(data.kind === 'data_upload')
+	let displayMissing = $derived(data.missing && !isWebhook && !isDataUpload)
 	let Icon = $derived(displayMissing ? AlertTriangle : style.icon)
 	let missingTitle = $derived(
 		displayMissing
@@ -179,25 +199,37 @@
 	// than a create/edit flow, so it's clickable whenever the page supplies
 	// the handler.
 	let canOpenWebhook = $derived(isWebhook && !!data.runnable_path && !!data.onOpenWebhook)
-	// Schedule + the other native kinds all have dedicated editors. Webhook is
-	// excluded — it routes through `canOpenWebhook` instead.
+	// data_upload routes through its own handler — clicking opens the target
+	// script's run form (with the auto-generated S3 picker).
+	let canOpenDataUpload = $derived(isDataUpload && !!data.runnable_path && !!data.onOpenDataUpload)
+	// Schedule + the other native kinds all have dedicated editors. Webhook and
+	// data_upload are excluded — they route through their own open handlers.
 	let canCreate = $derived(
-		data.missing && data.kind !== 'webhook' && !!data.runnable_path && !!data.onCreateMissingTrigger
+		data.missing &&
+			data.kind !== 'webhook' &&
+			data.kind !== 'data_upload' &&
+			!!data.runnable_path &&
+			!!data.onCreateMissingTrigger
 	)
 	// Attached native trigger → clickable to open its drawer in edit mode.
 	let canEdit = $derived(
 		!data.missing &&
 			data.kind !== 'webhook' &&
+			data.kind !== 'data_upload' &&
 			!!data.ref &&
 			!!data.runnable_path &&
 			!!data.onEditTrigger
 	)
 
 	// Same gating as `canEdit`: the trigger row only exists when there's a
-	// non-missing ref + a backing editor (i.e. excludes webhook). Schedule
-	// has its own delete endpoint, same shape as the other natives.
+	// non-missing ref + a backing editor (i.e. excludes webhook + data_upload).
+	// Schedule has its own delete endpoint, same shape as the other natives.
 	let canDelete = $derived(
-		!data.missing && data.kind !== 'webhook' && !!data.ref && !!data.onDeleteTrigger
+		!data.missing &&
+			data.kind !== 'webhook' &&
+			data.kind !== 'data_upload' &&
+			!!data.ref &&
+			!!data.onDeleteTrigger
 	)
 
 	let menuItems: Item[] = $derived(
@@ -229,6 +261,11 @@
 	function handleWebhookClick() {
 		if (!canOpenWebhook || !data.runnable_path || !data.onOpenWebhook) return
 		data.onOpenWebhook(data.runnable_path)
+	}
+
+	function handleDataUploadClick() {
+		if (!canOpenDataUpload || !data.runnable_path || !data.onOpenDataUpload) return
+		data.onOpenDataUpload(data.runnable_path)
 	}
 </script>
 
@@ -308,6 +345,31 @@
 					{style.label}
 				</span>
 				<span class="text-2xs font-mono truncate text-emphasis"> URLs & token </span>
+			</div>
+		</button>
+	{:else if canOpenDataUpload}
+		<!-- Data upload: UI-first entry point (no trigger row). Clicking the
+		     node opens the target script's run form, where the auto-generated
+		     S3 picker lets the user upload a file and run the pipeline. Styled
+		     like an attached trigger, never the red "missing" state. -->
+		<button
+			type="button"
+			onclick={handleDataUploadClick}
+			class={twMerge(
+				'flex items-center rounded-md drop-shadow-sm overflow-hidden outline outline-1 w-full text-left',
+				style.bg,
+				data.unsaved ? `opacity-80 ${style.borderUnsaved}` : style.border,
+				'hover:brightness-95 dark:hover:brightness-110 transition-[filter]'
+			)}
+			style="width: {NODE.width}px; min-height: {NODE.height}px;"
+			title={`Data upload for ${data.runnable_path ?? ''} — click to open the run form and upload a file`}
+		>
+			<Icon size={14} class={`shrink-0 ml-2 mr-2 ${style.iconText}`} />
+			<div class="flex flex-col min-w-0 flex-1 pr-2 py-0.5 leading-tight">
+				<span class="text-3xs uppercase tracking-wide truncate text-tertiary">
+					{style.label}
+				</span>
+				<span class="text-2xs font-mono truncate text-emphasis"> Upload & run </span>
 			</div>
 		</button>
 	{:else}

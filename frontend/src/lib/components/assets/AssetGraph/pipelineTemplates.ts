@@ -234,22 +234,23 @@ function commentPrefix(lang: ScriptLang): string {
 export type DraftTriggerSource =
 	| { kind: 'asset'; ref: string }
 	| {
-		// All native triggers are marker-only — the binding lives on the
-		// trigger row's own `script_path` field. `path` is unused for
-		// drafts (kept as a no-op slot for shape parity with attached
-		// edges); the user creates the trigger row in its dedicated UI.
-		kind:
-			| 'schedule'
-			| 'webhook'
-			| 'email'
-			| 'kafka'
-			| 'mqtt'
-			| 'nats'
-			| 'postgres'
-			| 'sqs'
-			| 'gcp'
-		path: string | undefined
-	}
+			// All native triggers are marker-only — the binding lives on the
+			// trigger row's own `script_path` field. `path` is unused for
+			// drafts (kept as a no-op slot for shape parity with attached
+			// edges); the user creates the trigger row in its dedicated UI.
+			kind:
+				| 'schedule'
+				| 'webhook'
+				| 'email'
+				| 'kafka'
+				| 'mqtt'
+				| 'nats'
+				| 'postgres'
+				| 'sqs'
+				| 'gcp'
+				| 'data_upload'
+			path: string | undefined
+	  }
 
 export type TemplateContext = {
 	language: ScriptLang
@@ -291,11 +292,29 @@ function header(language: ScriptLang, triggers: DraftTriggerSource[]): string {
 //   - output asset → real `wmill.writeS3File` / `wmill.datatable(...).fetch()`
 //   - no module-scope OUT constant — the parser reads write paths from the
 //     SDK call sites directly, so the constant was redundant.
+// Whether this draft is a UI-first "data upload" entry point. When true the
+// generated `main` takes an `S3Object` parameter (rendered as the
+// auto-generated S3 picker on the run form) instead of reading from a fixed
+// upstream asset — the user uploads the file that runs the pipeline.
+function isDataUpload(triggers: DraftTriggerSource[]): boolean {
+	return triggers.some((t) => t.kind === 'data_upload')
+}
+
 function bodyTs(ctx: TemplateContext): string {
 	const { input, output, outputKind } = ctx
+	const dataUpload = isDataUpload(ctx.triggers)
 	const importLine = `import * as wmill from "windmill-client"\n`
 
 	const inputBlock = (() => {
+		if (dataUpload) {
+			// `file` comes from the auto-generated S3 picker on the run form.
+			return [
+				`  // Uploaded via the S3 picker on the run form.`,
+				`  const buf = await wmill.loadS3File(file)`,
+				`  const rows = JSON.parse(new TextDecoder().decode(buf))`,
+				``
+			].join('\n')
+		}
 		if (!input) return ''
 		switch (input.kind) {
 			case 's3object':
@@ -363,24 +382,28 @@ function bodyTs(ctx: TemplateContext): string {
 		}
 	})()
 
-	const rowsFallback = !input ? `  const rows: any[] = []\n` : ''
+	const rowsFallback = !input && !dataUpload ? `  const rows: any[] = []\n` : ''
+	const signature = dataUpload
+		? 'export async function main(file: wmill.S3Object) {'
+		: 'export async function main() {'
 
-	return [
-		importLine,
-		'export async function main() {',
-		inputBlock,
-		rowsFallback,
-		outputBlock,
-		'}',
-		''
-	].join('\n')
+	return [importLine, signature, inputBlock, rowsFallback, outputBlock, '}', ''].join('\n')
 }
 
 function bodyPython(ctx: TemplateContext): string {
 	const { input, output, outputKind } = ctx
+	const dataUpload = isDataUpload(ctx.triggers)
 	const importLine = `import wmill\n`
 
 	const inputBlock = (() => {
+		if (dataUpload) {
+			// `file` comes from the auto-generated S3 picker on the run form.
+			return [
+				`    # Uploaded via the S3 picker on the run form.`,
+				`    buf = wmill.load_s3_file(file)`,
+				`    import json; rows = json.loads(buf.decode("utf-8"))`
+			].join('\n')
+		}
 		if (!input) return ''
 		switch (input.kind) {
 			case 's3object':
@@ -443,14 +466,22 @@ function bodyPython(ctx: TemplateContext): string {
 		}
 	})()
 
-	const rowsFallback = !input ? `    rows: list = []` : ''
+	const rowsFallback = !input && !dataUpload ? `    rows: list = []` : ''
+	const signature = dataUpload ? 'def main(file: wmill.S3Object):' : 'def main():'
 
-	return [importLine, 'def main():', inputBlock, rowsFallback, outputBlock, ''].join('\n')
+	return [importLine, signature, inputBlock, rowsFallback, outputBlock, ''].join('\n')
 }
 
 function bodyDuckdb(ctx: TemplateContext): string {
 	const { input, output, outputKind } = ctx
+	const dataUpload = isDataUpload(ctx.triggers)
 	const lines: string[] = []
+	if (dataUpload) {
+		// `(s3object)` param declaration → the run form renders the S3 picker
+		// for `$file`; DuckDB reads the uploaded file directly via read_*().
+		lines.push(`-- $file (s3object)`)
+		lines.push(`-- \`file\` is uploaded via the S3 picker on the run form.`)
+	}
 	if (input) lines.push(`-- Upstream: ${assetUri(input)}`)
 	if (output) lines.push(`-- Output: ${assetUri(output)}`)
 	lines.push('')
@@ -479,6 +510,10 @@ function bodyDuckdb(ctx: TemplateContext): string {
 	if (datatableDb || ducklakeDb) lines.push('')
 
 	const inSql = (() => {
+		// Uploaded file param wins — read the S3 object the user picks at run
+		// time. read_json_auto matches the JSON default of the TS/Python
+		// templates; swap for read_csv_auto / read_parquet as needed.
+		if (dataUpload) return `read_json_auto($file)`
 		if (!input) return null
 		switch (input.kind) {
 			case 's3object':
@@ -546,7 +581,9 @@ function bodyDuckdb(ctx: TemplateContext): string {
 			break
 		case 'none':
 		default:
-			lines.push(`SELECT 1;`)
+			// With an uploaded file but no output asset, at least surface its
+			// rows so the script runs end-to-end against the picked file.
+			lines.push(dataUpload && inSql ? `SELECT * FROM ${inSql};` : `SELECT 1;`)
 	}
 	lines.push('')
 	return lines.join('\n')

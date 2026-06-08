@@ -82,3 +82,20 @@ describe('parsePipelineAnnotations: combined', () => {
 		expect(out.retry).toEqual({ count: 3, delay: '5s' })
 	})
 })
+
+describe('parsePipelineAnnotations: data_upload', () => {
+	it('parses the marker', () => {
+		const out = parsePipelineAnnotations('// on data_upload')
+		expect(out.nativeTriggers).toEqual([{ kind: 'data_upload' }])
+	})
+
+	it('rejects trailing content (marker-only)', () => {
+		const out = parsePipelineAnnotations('// on data_upload f/foo')
+		expect(out.nativeTriggers).toEqual([])
+	})
+
+	it('requires a whole word', () => {
+		const out = parsePipelineAnnotations('// on data_uploadish')
+		expect(out.nativeTriggers).toEqual([])
+	})
+})

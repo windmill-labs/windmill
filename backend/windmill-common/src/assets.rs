@@ -231,7 +231,10 @@ pub fn trigger_spec_to_row(spec: &TriggerSpec) -> Option<(ScriptTriggerKind, Str
         | TriggerSpec::Nats
         | TriggerSpec::Postgres
         | TriggerSpec::Sqs
-        | TriggerSpec::Gcp => None,
+        | TriggerSpec::Gcp
+        // data_upload is a UI-first marker — no event source, no trigger row.
+        // The script's S3Object input + auto-generated S3 picker drive it.
+        | TriggerSpec::DataUpload => None,
     }
 }
 

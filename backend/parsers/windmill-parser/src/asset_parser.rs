@@ -139,6 +139,14 @@ pub enum TriggerSpec {
     Postgres,
     Sqs,
     Gcp,
+    // `// on data_upload` — UI-first entry point. Unlike the other native
+    // kinds there is no external event source and no trigger row anywhere:
+    // the script declares an `S3Object` input parameter and the user uploads
+    // a file via the auto-generated S3 picker, which runs the pipeline. The
+    // graph renders it as a clickable upload source (never a "missing"
+    // placeholder, mirroring webhook).
+    #[serde(rename = "data_upload")]
+    DataUpload,
 }
 
 impl TriggerSpec {
@@ -679,6 +687,7 @@ fn parse_trigger_spec(s: &str) -> Option<TriggerSpec> {
         ("postgres", TriggerSpec::Postgres),
         ("sqs", TriggerSpec::Sqs),
         ("gcp", TriggerSpec::Gcp),
+        ("data_upload", TriggerSpec::DataUpload),
     ];
     for (kw, spec) in NATIVE_KINDS {
         if let Some(rest) = s.strip_prefix(kw) {
@@ -910,9 +919,9 @@ mod pipeline_annotation_tests {
     #[test]
     fn all_native_marker_keywords_parse() {
         let code = "// on webhook\n// on email\n// on kafka\n// on mqtt\n\
-                    // on nats\n// on postgres\n// on sqs\n// on gcp";
+                    // on nats\n// on postgres\n// on sqs\n// on gcp\n// on data_upload";
         let out = parse_pipeline_annotations(code);
-        assert_eq!(out.triggers.len(), 8);
+        assert_eq!(out.triggers.len(), 9);
         assert!(matches!(out.triggers[0], TriggerSpec::Webhook));
         assert!(matches!(out.triggers[1], TriggerSpec::Email));
         assert!(matches!(out.triggers[2], TriggerSpec::Kafka));
@@ -921,6 +930,23 @@ mod pipeline_annotation_tests {
         assert!(matches!(out.triggers[5], TriggerSpec::Postgres));
         assert!(matches!(out.triggers[6], TriggerSpec::Sqs));
         assert!(matches!(out.triggers[7], TriggerSpec::Gcp));
+        assert!(matches!(out.triggers[8], TriggerSpec::DataUpload));
+    }
+
+    #[test]
+    fn data_upload_marker_is_marker_only() {
+        // `// on data_upload` parses to the unit variant — no path.
+        let out = parse_pipeline_annotations("// on data_upload");
+        assert_eq!(out.triggers.len(), 1);
+        assert!(matches!(out.triggers[0], TriggerSpec::DataUpload));
+
+        // Trailing content makes it malformed (marker-only).
+        let out = parse_pipeline_annotations("// on data_upload f/foo");
+        assert!(out.triggers.is_empty());
+
+        // `data_uploadish` mustn't match `data_upload`.
+        let out = parse_pipeline_annotations("// on data_uploadish");
+        assert!(out.triggers.is_empty());
     }
 
     #[test]

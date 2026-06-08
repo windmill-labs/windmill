@@ -1688,6 +1688,7 @@
 				class={customUi?.previewPanel?.hideArgs ? '!overflow-visible' : ''}
 			>
 				<div
+					data-test-panel
 					class={customUi?.previewPanel?.hideArgs
 						? 'flex flex-col h-full !overflow-visible'
 						: 'flex flex-col h-full'}

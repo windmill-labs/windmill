@@ -34,7 +34,8 @@ const NATIVE_TRIGGER_KEYWORDS: NativeTriggerKind[] = [
 	'nats',
 	'postgres',
 	'sqs',
-	'gcp'
+	'gcp',
+	'data_upload'
 ]
 
 // Token recognized inside declared asset URIs that the runtime substitutes

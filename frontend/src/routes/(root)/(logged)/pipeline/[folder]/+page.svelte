@@ -974,6 +974,10 @@
 	// Counter (vs boolean) so successive triggers re-fire even if the user
 	// dismissed the previous modal without acting.
 	let requestRemoveSignal = $state(0)
+	// Counter bumped when the user clicks a data_upload source node — asks the
+	// pane to scroll the run form's S3 file input into view and pulse it, so
+	// the UI-first "upload a file to run" affordance is obvious.
+	let focusDataUploadSignal = $state(0)
 
 	// Producers (write/rw edges) for the currently-selected asset, derived
 	// from `graphWithDraft.edges`. Threaded into the details pane so the
@@ -1068,6 +1072,26 @@
 			return
 		}
 		webhookEditor?.openDrawer(scriptPath, false)
+	}
+
+	// Data upload is a UI-first entry point — no trigger row. Clicking the
+	// node opens the target script in the details pane, where its
+	// auto-generated run form (the script declares an `S3Object` input, so the
+	// form renders the S3 picker) lets the user upload a file and run the
+	// pipeline. Drafts open in-place too so the user can fill the body first.
+	function openDataUploadRun(scriptPath: string) {
+		if (drafts.has(scriptPath)) {
+			activeDraftPath = scriptPath
+			selection = undefined
+		} else {
+			activeDraftPath = undefined
+			selection = { kind: 'runnable', runnable_kind: 'script', path: scriptPath }
+		}
+		// Bump after a tick so the pane has reacted to the new selection/draft
+		// and begun mounting the run form before it hunts for the S3 input.
+		// The pane's effect additionally gates on the editor being ready, so a
+		// re-click (pane already open) re-pulses immediately.
+		void tick().then(() => focusDataUploadSignal++)
 	}
 
 	function openMissingTriggerDrawer(kind: NativeTriggerKind, scriptPath: string) {
@@ -1474,6 +1498,7 @@
 								onEditTrigger={openEditTriggerDrawer}
 								onDeleteTrigger={deleteAttachedTrigger}
 								onOpenWebhook={openWebhookDrawer}
+								onOpenDataUpload={openDataUploadRun}
 								onselect={(s) => {
 									// Clicking a draft runnable node re-opens it in the pane;
 									// clicking anything else selects it normally and detaches
@@ -1664,6 +1689,7 @@
 								{requestRemoveSignal}
 								{requestRunSignal}
 								{requestRunCascadeSignal}
+								focusUploadSignal={focusDataUploadSignal}
 								draftScript={activeDraft?.script}
 								{pathPrefix}
 								onDraftPathChange={renameDraft}

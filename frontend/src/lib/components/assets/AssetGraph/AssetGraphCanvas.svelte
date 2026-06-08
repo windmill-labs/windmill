@@ -120,6 +120,10 @@
 		// webhook-specific token creation) for the given script. Webhooks have
 		// no trigger row, so they don't use the create/edit/delete flows.
 		onOpenWebhook?: (scriptPath: string) => void
+		// Click handler for a data_upload node — opens the target script's run
+		// form (with the auto-generated S3 picker) for the given script.
+		// data_upload has no trigger row; it's a UI-first entry point.
+		onOpenDataUpload?: (scriptPath: string) => void
 	}
 	let {
 		graph,
@@ -137,7 +141,8 @@
 		onCreateMissingTrigger,
 		onEditTrigger,
 		onDeleteTrigger,
-		onOpenWebhook
+		onOpenWebhook,
+		onOpenDataUpload
 	}: Props = $props()
 
 	const ADD_NODE_ID = '__add__'
@@ -385,12 +390,23 @@
 				})
 				continue
 			}
-			const isMissing = (t as any).missing === true
-			// Native (attached): trigger row path. Native (missing):
-			// synthesize a per-script ref so each placeholder is its own
-			// node ("missing kafka on f/foo/bar"). Schedule joins the native
-			// family — its ref is the schedule row's path, same shape.
-			const ref = isMissing ? `missing:${t.runnable_path}` : ((t as any).path ?? '')
+			// Rowless kinds (webhook, data_upload) never have a trigger row by
+			// design — webhook is an implicit endpoint, data_upload is a
+			// UI-first entry point. They're per-script source nodes, not
+			// "missing" placeholders, so suppress the missing/red treatment on
+			// both node and edge while keeping a per-script identity.
+			const isRowless = t.trigger_kind === 'webhook' || t.trigger_kind === 'data_upload'
+			const isMissing = (t as any).missing === true && !isRowless
+			// Attached native: trigger row path. Rowless: per-script ref so each
+			// script gets its own node. Missing: synthesize a per-script ref so
+			// each placeholder is its own node ("missing kafka on f/foo/bar").
+			// Schedule joins the native family — its ref is the schedule row's
+			// path, same shape.
+			const ref = isRowless
+				? `rowless:${t.runnable_path}`
+				: isMissing
+					? `missing:${t.runnable_path}`
+					: ((t as any).path ?? '')
 			const sourceId = `trigger:${t.trigger_kind}:${ref}`
 			recordSourceTrigger(
 				sourceId,
@@ -431,7 +447,8 @@
 					onCreateMissingTrigger,
 					onEditTrigger,
 					onDeleteTrigger,
-					onOpenWebhook
+					onOpenWebhook,
+					onOpenDataUpload
 				}
 			})
 		}
@@ -502,7 +519,7 @@
 						: 1
 			)
 	})
-	let layoutPositions = $derived(layoutAssetGraph(layoutInput))
+	let layoutPositions = $derived(layoutAssetGraph(layoutInput, ADD_NODE_ID))
 
 	let positionedNodes = $derived.by(() => {
 		// Compute bbox width from layout; shift every x so the graph is
