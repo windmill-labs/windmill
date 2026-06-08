@@ -521,6 +521,8 @@
 			// a future "+ App" click opens on a clean slate.
 			if (!inSessionPane) UserDraft.remove('raw_app', appPath)
 			dispatch('savedNewAppPath', newEditedPath)
+			sendUserToast('Draft saved')
+			onSaveDraft?.({ path: newEditedPath })
 		} catch (e) {
 			sendUserToast(`Error saving initial draft: ${e.body ?? e.message}`, true)
 		}
@@ -533,8 +535,15 @@
 			return
 		}
 		if (newApp) {
-			// initial draft
-			draftDrawerOpen = true
+			if (appPath === '') {
+				// Standalone "+ App" with no path chosen yet — pick one via the drawer.
+				draftDrawerOpen = true
+				return
+			}
+			// Path already known (e.g. an AI-created raw app in the session preview).
+			// The path-picker drawer is gated on `appPath == ''`, so opening it here
+			// renders nothing — save the initial draft directly instead.
+			await saveInitialDraft()
 			return
 		}
 		if (!savedApp) {
