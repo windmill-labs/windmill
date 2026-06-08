@@ -188,7 +188,7 @@
 </script>
 
 <CenteredPage>
-	<PageHeader title="Compare workspaces">
+	<PageHeader title="Compare & Deploy">
 		<div class="flex flex-row gap-2 items-center">
 			<!-- The merged compare toggle (fork direction + deployed↔draft) now lives
 			     inside each comparison card; only the fork lifecycle actions remain
