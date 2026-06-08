@@ -488,25 +488,30 @@ export async function deleteGlobalDraft(
 	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
 	if (UserDraft.isLive(itemKind, storagePath, { workspace })) {
 		// An editor is open on this draft: reset its in-memory cell so the
-		// UI reflects the delete (`remove`/`clear` both POST `value: null`).
+		// UI reflects the delete. `remove`/`clear` also queue a *debounced*
+		// `value: null` sync, which the awaited immediate delete below
+		// supersedes — `immediate` cancels the queued debouncer task, so
+		// exactly one delete lands.
 		const liveDraft = UserDraft.getLiveEditorDraft(itemKind, { workspace })
 		if (options.preserveLiveDraft && liveDraft?.storagePath === storagePath) {
 			UserDraft.remove(itemKind, storagePath, { workspace })
 		} else {
 			UserDraft.clear(itemKind, storagePath, { workspace })
 		}
-	} else {
-		// Headless: delete the DB row directly and await it so a read-back
-		// in the same turn no longer sees the draft.
-		await UserDraftDbSyncer.save({
-			workspace,
-			itemKind,
-			path: storagePath,
-			value: null,
-			immediate: true,
-			force: true
-		})
 	}
+	// Always delete the DB row with an awaited, immediate, forced write. The
+	// live branch above only clears the in-tab cell and queues a *debounced*
+	// null sync; without this, an immediate read-back would fall through
+	// `readGlobalDraftValue`'s empty-cell check to `DraftService.getDraft` and
+	// resurrect the still-present DB row until the debounce flushed.
+	await UserDraftDbSyncer.save({
+		workspace,
+		itemKind,
+		path: storagePath,
+		value: null,
+		immediate: true,
+		force: true
+	})
 	if (type === 'variable') clearEphemeralSecretVariableDraftValue(workspace, storagePath)
 }
 
