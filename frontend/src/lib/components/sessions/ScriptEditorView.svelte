@@ -58,6 +58,9 @@
 			try {
 				await DraftService.deleteDraft({ workspace: workspaceId, kind: 'script', path: saved.path })
 				saved.draft = undefined
+				// Server draft gone — refresh the session draft-bar count immediately
+				// instead of waiting for an AI turn-end / tab-refocus signal.
+				invalidateWorkspaceDrafts(workspaceId)
 			} catch (e: any) {
 				sendUserToast(`Could not delete draft: ${e?.body ?? e}`, true)
 				return

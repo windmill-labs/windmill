@@ -98,15 +98,18 @@ export async function deployDraft(
 			const d = r.draft ?? r
 			// Drop editor-only / server-managed keys; deploy as a real (non-draft) version.
 			const { draft_triggers: _t, draft_only: _o, ...rest } = d
+			// Deploy at the draft's path so a rename in the draft is honored (same as
+			// the editor: createScript at the new path with parent_hash links lineage).
 			await ScriptService.createScript({
 				workspace,
-				requestBody: { ...rest, path, parent_hash: r.hash }
+				requestBody: { ...rest, path: d.path ?? path, parent_hash: r.hash }
 			})
 		} else if (kind === 'flow') {
 			const r = (await FlowService.getFlowByPathWithDraft({ workspace, path })) as any
 			const d = r.draft ?? r
 			const requestBody = {
-				path,
+				// Honor a renamed draft path; the URL `path` stays the existing item key.
+				path: d.path ?? path,
 				summary: d.summary ?? '',
 				description: d.description ?? '',
 				value: d.value,

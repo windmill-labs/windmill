@@ -54,7 +54,10 @@ export async function deployRawAppDraft(
 	deploymentMessage?: string
 ): Promise<void> {
 	const app = await AppService.getAppByPathWithDraft({ workspace, path })
-	const value = appSourceToDraftValue((app as any).draft ?? app, app)
+	const draft = (app as any).draft
+	// Honor a renamed draft path; the URL `path` below stays the existing item key.
+	const targetPath = draft?.path ?? path
+	const value = appSourceToDraftValue(draft ?? app, app)
 
 	const policy = (await updateRawAppPolicy(
 		value.runnables as any,
@@ -80,7 +83,13 @@ export async function deployRawAppDraft(
 			workspace,
 			path,
 			formData: {
-				app: { path, value: rawAppValue, summary, policy, deployment_message: deploymentMessage },
+				app: {
+					path: targetPath,
+					value: rawAppValue,
+					summary,
+					policy,
+					deployment_message: deploymentMessage
+				},
 				js: bundle.js,
 				css: bundle.css
 			}
@@ -90,7 +99,7 @@ export async function deployRawAppDraft(
 			workspace,
 			formData: {
 				app: {
-					path,
+					path: targetPath,
 					value: rawAppValue,
 					summary,
 					policy,

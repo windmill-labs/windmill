@@ -35,8 +35,11 @@
 			const items = await getDraftItems(workspaceId)
 			const donly: Record<string, boolean> = {}
 			rows = items.map((it) => {
-				donly[`${it.kind}/${it.path}`] = it.draft_only
-				return { kind: it.kind, path: it.path, status: it.draft_only ? 'added' : 'modified' }
+				// Raw apps must surface as `raw_app` so the row's edit link points at the
+				// raw-app editor (mirrors CompareDrafts); `getDraftItems` carries the flag.
+				const kind = it.raw_app ? 'raw_app' : it.kind
+				donly[`${kind}/${it.path}`] = it.draft_only
+				return { kind, path: it.path, status: it.draft_only ? 'added' : 'modified' }
 			})
 			draftOnlyByKey = donly
 		} catch (e) {
@@ -50,12 +53,9 @@
 
 	async function loadValues(d: DiffRow): Promise<{ before: unknown; after: unknown }> {
 		const draftOnly = draftOnlyByKey[`${d.kind}/${d.path}`] ?? false
-		const { deployed, draft } = await getDraftDiffValues(
-			d.kind as DraftKind,
-			d.path,
-			workspaceId,
-			draftOnly
-		)
+		// getDraftDiffValues works on the draft_type kind ('app' for raw apps too).
+		const kind: DraftKind = d.kind === 'raw_app' ? 'app' : (d.kind as DraftKind)
+		const { deployed, draft } = await getDraftDiffValues(kind, d.path, workspaceId, draftOnly)
 		// draft_only items have never been deployed → render as "added" (empty
 		// before), matching how the fork drawer renders added items.
 		return { before: draftOnly ? undefined : deployed, after: draft }
