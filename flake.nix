@@ -5,15 +5,29 @@
     rust-overlay.url = "github:oxalica/rust-overlay";
     # Pin openapi-generator-cli to 7.10.0
     nixpkgs-oapi-gen.url = "nixpkgs/2d068ae5c6516b2d04562de50a58c682540de9bf";
+    # Fresh nixos-unstable for the k8s sim tools (minikube/libvirt/kvm2-driver).
+    # The main `nixpkgs` lock can lag behind the host system, but the kvm2
+    # driver MUST link against system-compatible glibc/libvirt — otherwise it
+    # crashes loading the system libvirt's transitive libs at runtime. Verified
+    # at this rev: minikube 1.38.1, libvirt 12.2.0 (matches NixOS 26.05 hosts).
+    nixpkgs-sim.url = "nixpkgs/64c08a7ca051951c8eae34e3e3cb1e202fe36786";
   };
 
-  outputs = { self, nixpkgs, flake-utils, rust-overlay, nixpkgs-oapi-gen }:
+  outputs = { self, nixpkgs, flake-utils, rust-overlay, nixpkgs-oapi-gen, nixpkgs-sim }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
           inherit system;
           config.allowUnfree = true;
           overlays = [ (import rust-overlay) ];
+        };
+
+        # Fresh nixos-unstable just for the k8s sim tools — keeps the kvm2
+        # driver / minikube / helm aligned with the host system's libvirtd.
+        # See `inputs.nixpkgs-sim` above for the why.
+        pkgsSim = import nixpkgs-sim {
+          inherit system;
+          config.allowUnfree = true;
         };
 
         lib = pkgs.lib;
@@ -287,6 +301,33 @@
         # Helper scripts — base set (default + full)
         # ---------------------------------------------------------------
 
+        # minikube kvm2 driver for the k8s benchmark sim (not in nixpkgs).
+        # Built against pkgsSim so glibc/libvirt match the host system.
+        kvm2Driver = import ./benchmarks/sim/nix/kvm2-driver.nix { pkgs = pkgsSim; };
+
+        # `wm_sim` — k8s sim entry, factored out so wasm/cli devShells can pull
+        # just it without inheriting the rest of helperScriptsBase.
+        wmSimWrapper = pkgs.writeShellScriptBin "wm_sim" ''
+          export SIM_KVM2_DRIVER_DIR="${kvm2Driver}/bin"
+          # minikube + helm from pkgsSim so they share the kvm2 driver's libc.
+          export SIM_MINIKUBE_BIN="${pkgsSim.minikube}/bin/minikube"
+          export SIM_HELM_BIN="${pkgsSim.kubernetes-helm}/bin/helm"
+          # System libvirt — matches the system virsh that minikube's kvm2
+          # preflight invokes. Falls back to pkgsSim's libvirt (also 12.2 in
+          # nixos-unstable) if the system path can't be resolved.
+          sysvirsh="$(command -v virsh 2>/dev/null || echo /run/current-system/sw/bin/virsh)"
+          syslib="$(ldd "$sysvirsh" 2>/dev/null | awk '/libvirt\.so\.0/{print $3}' | head -1)"
+          if [ -n "$syslib" ]; then
+            export SIM_LIBVIRT_LIB_DIR="$(dirname "$syslib")"
+          else
+            export SIM_LIBVIRT_LIB_DIR="${pkgsSim.libvirt}/lib"
+          fi
+          # virsh path for the provisioner's pre-start sweep of leaked domains.
+          export SIM_VIRSH_BIN="$sysvirsh"
+          root="$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+          exec ${pkgs.deno}/bin/deno run --no-check -A "$root/benchmarks/sim/sim.ts" "$@"
+        '';
+
         helperScriptsBase = [
           (pkgs.writeScriptBin "wm" ''
             cd ./frontend
@@ -344,6 +385,25 @@
             echo "bucket: wmill"
             echo "endpoint: http://localhost:9000"
           '')
+          # k8s sim entry — provisioning only, no bench. See `wmSimWrapper`.
+          wmSimWrapper
+          # Bench entry — same env shape as wm_sim so `--topology` (sim-driven
+          # provisioning) works. For plain `--host` benches the env is harmless.
+          (pkgs.writeShellScriptBin "wm-bench" ''
+            export SIM_KVM2_DRIVER_DIR="${kvm2Driver}/bin"
+            export SIM_MINIKUBE_BIN="${pkgsSim.minikube}/bin/minikube"
+            export SIM_HELM_BIN="${pkgsSim.kubernetes-helm}/bin/helm"
+            sysvirsh="$(command -v virsh 2>/dev/null || echo /run/current-system/sw/bin/virsh)"
+            syslib="$(ldd "$sysvirsh" 2>/dev/null | awk '/libvirt\.so\.0/{print $3}' | head -1)"
+            if [ -n "$syslib" ]; then
+              export SIM_LIBVIRT_LIB_DIR="$(dirname "$syslib")"
+            else
+              export SIM_LIBVIRT_LIB_DIR="${pkgsSim.libvirt}/lib"
+            fi
+            export SIM_VIRSH_BIN="$sysvirsh"
+            root="$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+            exec ${pkgs.deno}/bin/deno run --no-check -A "$root/benchmarks/main.ts" -e admin@windmill.dev -p changeme "$@"
+          '')
         ];
 
         # ---------------------------------------------------------------
@@ -362,9 +422,6 @@
             wm-build
             wm-caddy
             wm-migrate
-          '')
-          (pkgs.writeScriptBin "wm-bench" ''
-            deno run -A benchmarks/main.ts -e admin@windmill.dev -p changeme "$@"
           '')
         ];
 
@@ -385,6 +442,21 @@
             gh
             asciinema
             mermaid-cli
+
+            # Network shaping / topology benches
+            toxiproxy
+            pgbadger
+
+            # Local k8s for sim topologies. Single-node uses the built-in qemu2
+            # driver (no libvirt, no sudo). Multi-node (--nodes=N) needs the
+            # kvm2 driver — the docker-machine-driver-kvm2 binary isn't in
+            # nixpkgs and minikube's auto-download won't run on NixOS, so kvm2
+            # requires a custom overlay + host-level libvirtd. qemu is shared by
+            # both. VM-based nodes sidestep the rootless-cgroup wall (k3d/kind).
+            minikube
+            kubectl
+            kubernetes-helm
+            qemu
           ]);
 
         # Playwright: use Nix-provided browsers (version-matched to playwright-driver)
@@ -536,6 +608,7 @@
             nodejs
             glibc_multi
           ]);
+          packages = [ wmSimWrapper ];
         });
 
         # =============================================================
@@ -555,6 +628,7 @@
           buildInputs = with pkgs; [ bun nodejs git ];
 
           packages = [
+            wmSimWrapper
             (pkgs.writeScriptBin "wm-cli" ''
               bun run $FLAKE_ROOT/cli/src/main.ts "$@"
             '')

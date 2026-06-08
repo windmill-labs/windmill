@@ -1,0 +1,37 @@
+{
+  "_comment": "Four-phase burst pattern: light IO baseline -> mixed mid -> CPU-heavy burst -> cooldown. Demonstrates phase transitions in mode mix, pusher count, and job heaviness. Total push window = 100s. Designed for max 50 pushers so it fits the PG cgroup ceiling (we OOM'd PG at 100 workers in earlier benches).",
+  "phases": [
+    {
+      "name": "light_io",
+      "duration_s": 20,
+      "pushers": 8,
+      "ram_mb":      { "dist": "lognormal", "median": 100, "shape": 0.5, "cap": 512,  "floor": 1 },
+      "duration_ms": { "dist": "lognormal", "median": 200, "shape": 0.8, "cap": 2000, "floor": 1 },
+      "mode":        { "dist": "categorical", "weights": { "sleep": 1.0, "busy": 0.0 } }
+    },
+    {
+      "name": "mixed",
+      "duration_s": 30,
+      "pushers": 25,
+      "ram_mb":      { "dist": "lognormal", "median": 400, "shape": 1.0, "cap": 2048, "floor": 1 },
+      "duration_ms": { "dist": "lognormal", "median": 600, "shape": 1.2, "cap": 5000, "floor": 1 },
+      "mode":        { "dist": "categorical", "weights": { "sleep": 0.5, "busy": 0.5 } }
+    },
+    {
+      "name": "cpu_burst",
+      "duration_s": 30,
+      "pushers": 50,
+      "ram_mb":      { "dist": "lognormal", "median": 800, "shape": 1.5, "cap": 4096, "floor": 1 },
+      "duration_ms": { "dist": "lognormal", "median": 1500, "shape": 1.5, "cap": 8000, "floor": 1 },
+      "mode":        { "dist": "categorical", "weights": { "sleep": 0.0, "busy": 1.0 } }
+    },
+    {
+      "name": "cooldown",
+      "duration_s": 20,
+      "pushers": 8,
+      "ram_mb":      { "dist": "lognormal", "median": 100, "shape": 0.5, "cap": 512,  "floor": 1 },
+      "duration_ms": { "dist": "lognormal", "median": 200, "shape": 0.8, "cap": 2000, "floor": 1 },
+      "mode":        { "dist": "categorical", "weights": { "sleep": 1.0, "busy": 0.0 } }
+    }
+  ]
+}

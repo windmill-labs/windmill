@@ -6,11 +6,41 @@ import { main as runBenchmark } from "./benchmark_oneoff.ts";
 
 import { VERSION, loadJsonConfig } from "./lib.ts";
 
-type Config = {
+// Two accepted on-disk shapes:
+//   - array of benchmark entries (the original shape; runs unchanged here).
+//   - object with optional `topology` + `benchmarks`. If `topology` is set the
+//     suite needs the sim layer, so we redirect; if it's an array-equivalent
+//     object (no topology) we accept it and run the same as the array form.
+// `normaliseConfig` returns the array form so the run loop stays unchanged.
+type BenchmarkEntry = {
   kind: string;
   jobs: number;
   noSave?: boolean;
-}[];
+};
+type Config = BenchmarkEntry[];
+type SuiteFile = Config | {
+  topology?: string;
+  benchmarks: BenchmarkEntry[];
+};
+
+function normaliseConfig(raw: SuiteFile, configPath: string): Config {
+  if (Array.isArray(raw)) return raw;
+  if (raw && typeof raw === "object" && Array.isArray(raw.benchmarks)) {
+    if (raw.topology) {
+      console.error(
+        `[benchmark_suite] Suite ${configPath} declares a topology ` +
+        `(${raw.topology}). benchmark_suite.ts only runs against an already-` +
+        `running Windmill; for provisioned topologies use sim/sim.ts instead.`,
+      );
+      Deno.exit(2);
+    }
+    return raw.benchmarks;
+  }
+  throw new Error(
+    `Suite ${configPath}: expected either an array or an object with ` +
+    `a "benchmarks" array.`,
+  );
+}
 
 async function warmUp(
   host: string,
@@ -55,7 +85,8 @@ async function main({
   }
 
   try {
-    const config = await loadJsonConfig<Config>(configPath);
+    const raw = await loadJsonConfig<SuiteFile>(configPath);
+    const config = normaliseConfig(raw, configPath);
     for (const benchmark of config) {
       try {
         console.log(

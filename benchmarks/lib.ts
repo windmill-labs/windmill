@@ -91,6 +91,37 @@ export async function createBenchScript(
     scriptContent =
       'export function main(){ return Deno.env.get("WM_JOB_ID"); }';
     language = "deno";
+  } else if (scriptPattern === "deno_sleep_150") {
+    // Sleep-based deno script — every job awaits 150ms. Gives the bench a
+    // realistic non-zero per-job duration so headroom is visible (queue can
+    // actually drain, throughput reflects scheduling, not script cold-start).
+    scriptContent =
+      'export async function main(){ await new Promise(r => setTimeout(r, 150)); return Deno.env.get("WM_JOB_ID"); }';
+    language = "deno";
+  } else if (scriptPattern === "random") {
+    // Synthetic parametric workload: each job carries its own (ram_mb,
+    // duration_ms, mode) tuple sampled by the bench client from a workload
+    // config (benchmarks/workloads/*.json). RAM is allocated AND touched
+    // every 4KB so the kernel actually maps pages (Uint8Array(N) alone is
+    // lazy). `sleep` mode is IO-bound; `busy` mode is CPU-bound.
+    scriptContent =
+      'export async function main(ram_mb: number, duration_ms: number, mode: "sleep" | "busy") {\n' +
+      '  const buf = new Uint8Array(ram_mb * 1024 * 1024);\n' +
+      '  for (let i = 0; i < buf.length; i += 4096) buf[i] = (Math.random() * 256) | 0;\n' +
+      '  if (mode === "sleep") {\n' +
+      '    await new Promise(r => setTimeout(r, duration_ms));\n' +
+      '  } else {\n' +
+      '    const end = performance.now() + duration_ms;\n' +
+      '    while (performance.now() < end) { /* busy */ }\n' +
+      '  }\n' +
+      '  return { ram_mb, duration_ms, mode };\n' +
+      '}';
+    language = "deno";
+    schemaProperties = {
+      ram_mb: { type: "number", description: "MB of RAM to allocate + touch" },
+      duration_ms: { type: "number", description: "Sleep / busy-loop duration" },
+      mode: { type: "string", enum: ["sleep", "busy"], description: "IO-bound or CPU-bound" },
+    };
   } else if (scriptPattern === "nativets") {
     scriptContent =
       '//native\nexport async function main(){ return (await fetch(BASE_URL + "/api/version")).text() }';

@@ -1,0 +1,38 @@
+{
+  "name": "k8s_4node",
+  "postgres": {
+    "cpu": 1,
+    "memory": "2G"
+  },
+  "nodes": [
+    {
+      "id": "n0",
+      "mode": "native",
+      "standalone": true,
+      "cpu": 2,
+      "memory": "4G",
+      "db_latency_ms": 5
+    },
+    {
+      "id": "n1",
+      "mode": "native",
+      "cpu": 4,
+      "memory": "20G",
+      "db_latency_ms": 5
+    },
+    {
+      "id": "n2",
+      "mode": "native",
+      "cpu": 4,
+      "memory": "20G",
+      "db_latency_ms": 5
+    },
+    {
+      "id": "n3",
+      "mode": "native",
+      "cpu": 4,
+      "memory": "20G",
+      "db_latency_ms": 5
+    }
+  ]
+}
