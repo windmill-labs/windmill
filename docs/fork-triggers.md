@@ -84,16 +84,24 @@ parent had also edited it. Substituting the parent's value makes the fork's
 file byte-identical to the parent on that field, so the merge has nothing to
 resolve.
 
-**Write half — fork writes never set operational state.** A write into a fork
-(git-sync push, merge deploy, clone, or a plain UI create) must not set the
-state, otherwise pulling the substituted parent value straight back into the
-fork would re-enable it. So `create_trigger`/`create_schedule` force `disabled`
-for a fork target, and `update_trigger` preserves the fork's existing `mode`
-(`workspace_is_fork` in `windmill-trigger/src/handler.rs`; schedule `enabled` is
-naturally preserved because `EditSchedule` has no `enabled` field). The same
-handlers serve both merge paths, so the two can't diverge. The fork owner
-re-enables locally via `setmode`/`setenabled` (which carry the conflict
-warning below).
+**Write half — an *update* into a fork preserves its existing state.** The
+read-half writes the *parent's* (often enabled) value into a fork's synced
+file. If that file is then written back into the fork — `wmill sync push`,
+compare-workspaces "Update current", or any bidirectional sync — a naive update
+would flip the fork's trigger to the parent's state and re-create the listener
+conflict. So `update_trigger` preserves the fork's existing `mode` for a fork
+target (`workspace_is_fork` in `windmill-trigger/src/handler.rs`); schedule
+`enabled` is naturally preserved because `EditSchedule` has no `enabled` field.
+
+**Create is *not* forced.** A create into a fork keeps the caller's chosen
+state, so creating a trigger/schedule in the fork UI works normally and a
+fork-only row lands enabled if the user wants it. A fork-only row has no parent
+counterpart, so it can't share an upstream identifier and can't conflict. (Rows
+*cloned* from the parent at fork creation still start disabled — that's forced
+in the SQL clone, `clone_triggers_and_schedules`, not in the create handler.)
+The fork owner toggles state via `setmode`/`setenabled` (which carry the
+conflict warning below) — those endpoints are unchanged, so the UI's enable/
+disable controls behave the same in a fork as anywhere else.
 
 For a non-fork target the incoming value is applied as given — so a fork→parent
 merge of an existing trigger writes the parent's own (substituted) value (a
@@ -199,11 +207,13 @@ is owned by the parent* above) — the two paths share the backend `create`/
   For a fork target the backend preserves it regardless (`workspace_is_fork`);
   for a parent target the `is_mode_unspecified()` safeguard does. Schedules also
   rely on `EditSchedule` lacking the `enabled` field.
-- **Create**: the source's `mode`/`enabled` is passed through. Into a **parent**
-  there's no row to preserve, so a fork-only trigger/schedule lands with the
-  state the fork creator chose (omitting the flag defaults to `enabled`:
-  `BaseTriggerData::mode()` → `Enabled`, schedule insert → `true`). Into a
-  **fork** the backend forces `disabled` — a fork write never enables anything.
+- **Create**: the source's `mode`/`enabled` is passed through (into a fork or a
+  parent alike) — there's no row to preserve, so the trigger/schedule lands with
+  the state the source chose (omitting the flag defaults to `enabled`:
+  `BaseTriggerData::mode()` → `Enabled`, schedule insert → `true`). Create is not
+  force-disabled for forks: a fork-only row has no parent counterpart and can't
+  conflict, and rows cloned from the parent already start disabled via the SQL
+  clone at fork creation.
 
 ## Future work — runtime listener suffix
 

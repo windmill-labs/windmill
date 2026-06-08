@@ -34,16 +34,15 @@ use windmill_git_sync::handle_deployment_metadata;
 
 /// True when the workspace is a fork (`parent_workspace_id IS NOT NULL`).
 ///
-/// Operational state (`mode`) belongs to the parent workspace: a git-sync /
-/// merge / clone / UI-create write into a fork must never set it. On create we
-/// force `disabled` so a fork trigger can't compete with the parent's listener;
-/// on update we preserve the fork's existing value. `setmode` is the intended
-/// explicit mutator of a fork's mode (and carries its own conflict warning) —
-/// runtime error handling may still auto-disable an errored trigger, which is
-/// orthogonal to this rule. This is the write half whose read half lives in
-/// `workspaces_export.rs` (parent-value substitution on fork export), and it is
-/// the single authority shared by both the git-sync round-trip and the in-app
-/// compare-workspaces merge.
+/// On *update* into a fork, preserve the fork's existing `mode` instead of
+/// writing the incoming value. This is the necessary complement to the export
+/// read-half (`workspaces_export.rs`): that substitutes the *parent's* `mode`
+/// into a fork's synced file, so a write-back of that file into the fork
+/// (`wmill sync push`, compare-workspaces "Update current") would otherwise
+/// flip the fork's trigger to the parent's (often enabled) state and re-create
+/// the listener conflict. `setmode` remains the explicit mutator of a fork's
+/// mode (with its own conflict warning); create deliberately does *not* force a
+/// state, so a fork-only trigger lands in whatever state its creator chose.
 async fn workspace_is_fork(db: &DB, workspace_id: &str) -> Result<bool> {
     let is_fork: Option<bool> =
         sqlx::query_scalar("SELECT parent_workspace_id IS NOT NULL FROM workspace WHERE id = $1")
@@ -460,13 +459,6 @@ async fn create_trigger<T: TriggerCrud>(
         .await?;
 
     let mut tx = user_db.begin(&authed).await?;
-
-    // Writing into a fork never sets operational state: force `disabled` so a
-    // cloned / synced / merged / UI-created trigger can't compete with the
-    // parent's listener. The fork owner re-enables locally via `setmode`.
-    if workspace_is_fork(&db, &workspace_id).await? {
-        new_trigger.base.set_mode(TriggerMode::Disabled);
-    }
 
     let new_path = new_trigger.base.path.clone();
     let labels = new_trigger.base.labels.clone();
