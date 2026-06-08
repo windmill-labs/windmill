@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE token SET label = $1\n           WHERE email = $2 AND token_prefix = $3\n           RETURNING token_prefix",
+  "query": "UPDATE token SET label = $1\n           WHERE email = $2 AND token_prefix = $3 AND label IS DISTINCT FROM 'session'\n           RETURNING token_prefix",
   "describe": {
     "columns": [
       {
@@ -20,5 +20,5 @@
       false
     ]
   },
-  "hash": "f5fecb97ef673ae2894c956a04c50dd9b688613a0e161bad4ce3d798199e9cad"
+  "hash": "bda63f3ded36244de44416c07a02dfe5870976e3f7c2da29f4fd699d5a523311"
 }

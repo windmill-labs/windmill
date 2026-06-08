@@ -192,6 +192,7 @@
 									<EditableInput
 										value={label ?? ''}
 										placeholder="Add a label..."
+										editable={isUserToken(label)}
 										onSave={(v) => handleLabelSave(token_prefix, v)}
 										textClass="text-xs text-primary"
 										class="max-w-32"

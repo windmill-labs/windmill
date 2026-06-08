@@ -2425,9 +2425,12 @@ async fn update_token_label(
 ) -> Result<String> {
     let mut tx = db.begin().await?;
 
+    // Guard against renaming the browser `session` token: its label is
+    // load-bearing for session cleanup on logout and super_admin propagation,
+    // so it must not be editable via this endpoint.
     let updated: Option<String> = sqlx::query_scalar!(
         "UPDATE token SET label = $1
-           WHERE email = $2 AND token_prefix = $3
+           WHERE email = $2 AND token_prefix = $3 AND label IS DISTINCT FROM 'session'
            RETURNING token_prefix",
         req.label.as_deref(),
         &authed.email,
@@ -2438,7 +2441,7 @@ async fn update_token_label(
 
     let prefix = updated.ok_or_else(|| {
         Error::NotFound(format!(
-            "token {token_prefix} not found or not owned by user"
+            "token {token_prefix} not found, not owned by user, or not editable"
         ))
     })?;
 
