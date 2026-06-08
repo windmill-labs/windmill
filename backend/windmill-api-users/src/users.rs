@@ -2435,18 +2435,31 @@ async fn update_token_label(
         ));
     }
 
+    // Matches the `token.label VARCHAR(1000)` column — reject overlong labels with
+    // a 400 rather than letting Postgres raise a 500.
+    const MAX_TOKEN_LABEL_LEN: usize = 1000;
+    if req
+        .label
+        .as_deref()
+        .is_some_and(|l| l.chars().count() > MAX_TOKEN_LABEL_LEN)
+    {
+        return Err(Error::BadRequest(format!(
+            "label must be at most {MAX_TOKEN_LABEL_LEN} characters"
+        )));
+    }
+
     let mut tx = db.begin().await?;
 
     // Only user-created tokens may be relabeled — system tokens carry the
     // load-bearing labels described above. This SQL mirrors the canonical
-    // `windmill_common::auth::is_user_token`; keep the two in sync.
+    // `windmill_common::auth::is_user_token`; keep the two in sync (note the
+    // case-insensitive `ephemeral` match).
     let updated: Option<String> = sqlx::query_scalar!(
         "UPDATE token SET label = $1
            WHERE email = $2 AND token_prefix = $3
              AND (label IS NULL OR (
                  label <> 'session'
-                 AND label NOT LIKE 'ephemeral%'
-                 AND label NOT LIKE 'Ephemeral%'
+                 AND lower(label) NOT LIKE 'ephemeral%'
                  AND label <> 'debugger-token'
                  AND label NOT LIKE 'mcp-oauth-%'
              ))
