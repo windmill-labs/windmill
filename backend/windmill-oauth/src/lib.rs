@@ -26,7 +26,6 @@ use windmill_common::error::{self, to_anyhow, Error};
 use windmill_common::more_serde::maybe_number_opt;
 use windmill_common::oauth2::*;
 use windmill_common::utils::now_from_db;
-use windmill_common::variables::{build_crypt, encrypt};
 use windmill_common::BASE_URL;
 
 pub type DB = sqlx::Pool<sqlx::Postgres>;
@@ -525,11 +524,14 @@ pub struct OAuthAccountInfo {
     pub scopes: Option<Vec<String>>,
 }
 
-/// Refresh an OAuth token and update the database.
+/// Refresh an OAuth token and update the `account` row.
 /// Fetches the account from DB, then delegates to `refresh_token_for_account`.
+///
+/// Returns the freshly minted access token. Persisting it to the secret variable
+/// backing the resource is the caller's responsibility (it must route through the
+/// configured secret backend — see `store_oauth_token_value` in `windmill-store`).
 pub async fn refresh_token<'c>(
     mut tx: Transaction<'c, Postgres>,
-    path: &str,
     w_id: &str,
     id: i32,
     db: &DB,
@@ -549,7 +551,6 @@ pub async fn refresh_token<'c>(
 
     refresh_token_for_account(
         tx,
-        path,
         w_id,
         id,
         db,
@@ -562,9 +563,14 @@ pub async fn refresh_token<'c>(
 }
 
 /// Refresh an OAuth token given pre-fetched account info (no additional SELECT).
+///
+/// Exchanges the refresh token, updates the `account` row (`refresh_token`,
+/// `expires_at`, `refresh_error`) and returns the new access token. It does NOT
+/// persist the token to the secret variable — the caller must do that through the
+/// configured secret backend (`store_oauth_token_value`), otherwise an external
+/// secret backend would keep serving the stale connect-time token.
 pub async fn refresh_token_for_account<'c>(
     mut tx: Transaction<'c, Postgres>,
-    path: &str,
     w_id: &str,
     id: i32,
     db: &DB,
@@ -676,17 +682,6 @@ pub async fn refresh_token_for_account<'c>(
     tx.commit().await?;
 
     let token_str = token.access_token.to_string();
-    let mc = build_crypt(db, w_id).await?;
-    let encrypted_token = encrypt(&mc, token_str.as_str());
-
-    sqlx::query!(
-        "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3",
-        encrypted_token,
-        w_id,
-        path
-    )
-    .execute(db)
-    .await?;
 
     tracing::info!(
         grant_type = %account.grant_type,
