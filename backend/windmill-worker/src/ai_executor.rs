@@ -45,7 +45,7 @@ use windmill_common::{
 use windmill_queue::{cancel_single_job, CanceledBy, MiniPulledJob};
 
 use crate::{
-    ai::query_builder::StreamEventProcessor,
+    ai::stream_event_processor::StreamEventProcessor,
     common::{build_args_map, resolve_job_timeout, OccupancyMetrics, StreamNotifier},
     handle_child::{run_future_with_polling_update_job_poller_graceful, GracefulPollOutcome},
 };
@@ -432,7 +432,7 @@ pub async fn handle_ai_agent_job(
 
     let mcp_clients = if !mcp_configs.is_empty() {
         let (clients, mcp_tools) =
-            load_mcp_tools(db, &job.workspace_id, mcp_configs, &client.token).await?;
+            load_mcp_tools(db, &job.workspace_id, mcp_configs, client).await?;
         tools.extend(mcp_tools);
         clients
     } else {
@@ -586,16 +586,12 @@ pub async fn run_agent(
     tool_abort_handles: ToolAbortHandles,
 ) -> error::Result<Box<RawValue>> {
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
-    // Skip get_base_url for Bedrock - it uses SDK directly, not HTTP
-    let base_url = if args.provider.kind == AIProvider::AWSBedrock {
-        String::new()
-    } else {
-        args.provider.get_base_url(db).await?
-    };
-    let api_key = args.provider.get_api_key().unwrap_or("");
+    let credentials = args.provider.to_provider_credentials(db).await?;
+    let base_url = &credentials.base_url;
+    let api_key = credentials.api_key.as_deref().unwrap_or("");
 
     // Create the query builder for the provider
-    let query_builder = create_query_builder(&args.provider);
+    let query_builder = create_query_builder(&credentials);
 
     // Initialize messages
     let mut messages =
@@ -859,12 +855,12 @@ pub async fn run_agent(
         }
 
         // Handle AWS Bedrock provider specially using the official SDK
-        let parsed = if args.provider.kind == AIProvider::AWSBedrock {
+        let parsed = if credentials.provider == AIProvider::AWSBedrock {
             #[cfg(feature = "bedrock")]
             {
-                let region = args
-                    .provider
-                    .get_region()
+                let region = credentials
+                    .region
+                    .as_deref()
                     .unwrap_or(windmill_ai::ai_providers::USE_ENV_REGION);
                 // Use Bedrock SDK via dedicated query builder
                 windmill_ai::providers::bedrock::BedrockQueryBuilder::default()
@@ -880,9 +876,9 @@ pub async fn run_agent(
                         client,
                         &job.workspace_id,
                         structured_output_tool_name.as_deref(),
-                        args.provider.get_aws_access_key_id(),
-                        args.provider.get_aws_secret_access_key(),
-                        args.provider.get_aws_session_token(),
+                        credentials.aws_access_key_id.as_deref(),
+                        credentials.aws_secret_access_key.as_deref(),
+                        credentials.aws_session_token.as_deref(),
                     )
                     .await?
             }
@@ -913,14 +909,14 @@ pub async fn run_agent(
                 .await?;
 
             let endpoint =
-                query_builder.get_endpoint(&base_url, args.provider.get_model(), output_type);
-            let auth_headers = query_builder.get_auth_headers(api_key, &base_url, output_type);
+                query_builder.get_endpoint(base_url, args.provider.get_model(), output_type);
+            let auth_headers = query_builder.get_auth_headers(api_key, base_url, output_type);
 
             let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
                 .await
                 .0;
 
-            let resource_headers = args.provider.get_headers();
+            let resource_headers = &credentials.custom_headers;
 
             // Helper to build HTTP request with headers
             let build_http_request = |body: String| {

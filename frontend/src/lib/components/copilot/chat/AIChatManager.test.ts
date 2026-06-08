@@ -16,7 +16,13 @@ vi.mock('$lib/gen', () => ({
 }))
 
 vi.mock('$lib/stores', () => ({
-	workspaceStore: { subscribe: () => () => undefined }
+	workspaceStore: { subscribe: () => () => undefined },
+	userStore: {
+		subscribe: (run: (value: { username: string }) => void) => {
+			run({ username: 'admin' })
+			return () => undefined
+		}
+	}
 }))
 
 vi.mock('$lib/toast', () => ({
@@ -46,12 +52,21 @@ vi.mock('./global/gate', () => ({
 	isGlobalAiEnabled: () => true
 }))
 
+// Force BROWSER=true so localStorage-backed autonomy persistence is exercised
+// (the vitest "server" env reports BROWSER=false, which would short-circuit it).
+vi.mock('esm-env', async (importOriginal) => ({
+	...(await importOriginal<typeof import('esm-env')>()),
+	BROWSER: true
+}))
+
 function createFlowHelpers({
 	hasPendingChanges,
-	acceptAllModuleActions
+	acceptAllModuleActions,
+	testFlow = vi.fn()
 }: {
 	hasPendingChanges: () => boolean
 	acceptAllModuleActions: () => void
+	testFlow?: FlowAIChatHelpers['testFlow']
 }): FlowAIChatHelpers {
 	return {
 		getFlowAndSelectedId: vi.fn(),
@@ -67,7 +82,7 @@ function createFlowHelpers({
 		rejectAllModuleActions: vi.fn(),
 		hasPendingChanges,
 		selectStep: vi.fn(),
-		testFlow: vi.fn(),
+		testFlow,
 		getLintErrors: vi.fn()
 	} as unknown as FlowAIChatHelpers
 }
@@ -75,6 +90,9 @@ function createFlowHelpers({
 describe('AIChatManager autonomy mode', () => {
 	beforeEach(() => {
 		localStorage.clear()
+		// These tests exercise the transition into auto-accept, so start from the
+		// ask-permission baseline rather than the new auto-accept-edits default.
+		localStorage.setItem('ai-chat-autonomy-mode', AIAutonomyMode.DEFAULT)
 		vi.clearAllMocks()
 	})
 
@@ -151,5 +169,51 @@ describe('AIChatManager autonomy mode', () => {
 		await applyPromise
 
 		expect(applied).toBe(true)
+	})
+
+	it('does not pass the AI session id as a flow test conversation id in global mode', async () => {
+		const manager = new AIChatManager()
+		const testFlow = vi.fn(async () => 'job-flow-preview')
+
+		manager.isSessionChat = true
+		manager.sessionId = 'htc1xouxd96dcyo6ruqo39'
+		manager.setFlowHelpers(
+			createFlowHelpers({
+				hasPendingChanges: () => false,
+				acceptAllModuleActions: vi.fn(),
+				testFlow
+			})
+		)
+
+		manager.changeMode(AIMode.GLOBAL)
+		const jobId = await manager.helpers.testActiveFlow({ name: 'Ada' })
+
+		expect(jobId).toBe('job-flow-preview')
+		expect(testFlow).toHaveBeenCalledWith({ name: 'Ada' })
+	})
+})
+
+describe('AIChatManager persisted autonomy default', () => {
+	// Mirrors the private storage keys in AIChatManager.svelte.ts.
+	const AUTONOMY_KEY = 'ai-chat-autonomy-mode'
+	const LEGACY_YOLO_KEY = 'ai-chat-yolo-mode'
+
+	beforeEach(() => {
+		localStorage.clear()
+		vi.clearAllMocks()
+	})
+
+	it('defaults to auto-accept edits when no preference is stored', () => {
+		expect(new AIChatManager().autonomyMode).toBe(AIAutonomyMode.ACCEPT_EDIT)
+	})
+
+	it('maps the legacy auto-accept-tool-confirmations flag to YOLO', () => {
+		localStorage.setItem(LEGACY_YOLO_KEY, 'true')
+		expect(new AIChatManager().autonomyMode).toBe(AIAutonomyMode.YOLO)
+	})
+
+	it('restores an explicitly persisted autonomy mode', () => {
+		localStorage.setItem(AUTONOMY_KEY, AIAutonomyMode.DEFAULT)
+		expect(new AIChatManager().autonomyMode).toBe(AIAutonomyMode.DEFAULT)
 	})
 })

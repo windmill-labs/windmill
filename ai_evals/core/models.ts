@@ -88,21 +88,12 @@ export const EVAL_MODELS: EvalModelSpec[] = [
     },
   },
   {
-    id: "gemini-flash",
-    label: "Gemini 2.5 Flash",
-    aliases: ["gemini", "gemini-flash", "gemini-2.5-flash"],
+    id: "gpt-5.5",
+    label: "GPT-5.5",
+    aliases: ["gpt-5.5", "gpt-55", "5.5"],
     frontend: {
-      provider: "googleai",
-      model: "gemini-2.5-flash",
-    },
-  },
-  {
-    id: "gemini-pro",
-    label: "Gemini 2.5 Pro",
-    aliases: ["gemini-pro", "gemini-2.5-pro"],
-    frontend: {
-      provider: "googleai",
-      model: "gemini-2.5-pro",
+      provider: "openai",
+      model: "gpt-5.5",
     },
   },
   {

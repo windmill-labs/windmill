@@ -484,13 +484,13 @@ async fn update_username_in_workpsace<'c>(
     ).execute(&mut **tx)
     .await?;
 
-    sqlx::query!(
-        r#"UPDATE workspace_runnable_dependencies SET app_path = REGEXP_REPLACE(app_path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE app_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
-        new_username,
-        old_username,
-        w_id
-    ).execute(&mut **tx)
-    .await?;
+    // NB: workspace_runnable_dependencies.app_path is intentionally NOT rewritten here.
+    // Its FK to app(path, workspace_id) is ON UPDATE CASCADE, so the `UPDATE app SET path`
+    // below propagates the new path automatically. Rewriting it manually here (before the
+    // app row is renamed) points the row at a not-yet-existing app path and violates
+    // fk_workspace_runnable_dependencies_app_path. (flow_path above DOES need the manual
+    // rewrite because flows are migrated via INSERT-new + DELETE-old, not UPDATE flow.path,
+    // so the cascade never fires for them.)
 
     sqlx::query!(
         r#"UPDATE workspace_runnable_dependencies SET runnable_path = REGEXP_REPLACE(runnable_path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE runnable_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,

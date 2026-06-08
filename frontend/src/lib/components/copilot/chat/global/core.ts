@@ -4,6 +4,7 @@ import {
 	FlowService,
 	GcpTriggerService,
 	HttpTriggerService,
+	JobService,
 	KafkaTriggerService,
 	MqttTriggerService,
 	NatsTriggerService,
@@ -18,11 +19,16 @@ import {
 import { $ScriptLang } from '$lib/gen/schemas.gen'
 import type {
 	AppWithLastVersion,
+	CreateResource,
+	CreateVariable,
 	Flow,
 	FlowValue,
 	ListableApp,
 	ListableResource,
 	ListableVariable,
+	NewSchedule,
+	NewScript,
+	Resource,
 	Schedule,
 	Script,
 	ScriptLang
@@ -34,6 +40,7 @@ import {
 	STARTER_RUNNABLE_KEY,
 	type FrameworkKey
 } from '$lib/components/raw_apps/templates'
+import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import {
 	applyEditableFlowJsonToFlow,
 	buildEditableFlowJson,
@@ -42,6 +49,7 @@ import {
 } from '../flow/editableFlowJson'
 import { createInlineScriptSession } from '../flow/inlineScriptsUtils'
 import {
+	getDatatableSdkReference,
 	getFlowPrompt,
 	getRawAppPrompt,
 	getResourcePrompt,
@@ -54,6 +62,9 @@ import type {
 import { z } from 'zod'
 import {
 	createToolDef,
+	createSearchHubScriptsTool,
+	executeFlowStepTestRun,
+	executeTestRun,
 	findAndReplace,
 	type CreatedResourceTriggerKind,
 	type Tool,
@@ -61,6 +72,10 @@ import {
 	type ToolDisplayAction
 } from '../shared'
 import type { ContextElement } from '../context'
+import { getDatatableTools } from '../datatableTools'
+import { UserDraft, type UserDraftMeta } from '$lib/userDraft.svelte'
+import { emptySchema } from '$lib/utils'
+import { inferArgs } from '$lib/infer'
 import {
 	resourceRequestSchema,
 	scheduleRequestSchema,
@@ -69,15 +84,31 @@ import {
 } from '../workspaceToolsZod.gen'
 import {
 	getWorkspaceItemKey,
-	globalDraftStore,
 	TRIGGER_KINDS,
 	type AppDraftValue,
 	type FlowDraftValue,
+	type ResourceDraftState,
 	type TriggerKind,
+	type TriggerRequestBody,
+	type VariableDraftState,
 	type WorkspaceItem,
 	type WorkspaceItemType
-} from './draftStore.svelte'
+} from './workspaceItems'
 import { buildFlowDeployRequestBody, buildScriptDeployRequestBody } from './deployRequests'
+import { userStore } from '$lib/stores'
+import { get } from 'svelte/store'
+import { bundleRawAppDraft } from './rawAppBundlerBridge'
+import {
+	clearEphemeralSecretVariableDraftValue,
+	deleteGlobalDraft,
+	getEphemeralSecretVariableDraftValue,
+	getGlobalDraft,
+	getGlobalDraftStoragePath,
+	listGlobalDrafts,
+	saveGlobalAppDraft,
+	setEphemeralSecretVariableDraftValue,
+	triggerKindToUserDraftKind
+} from './userDraftAdapter'
 
 const ITEM_TYPES = [
 	'script',
@@ -94,21 +125,50 @@ const INSTRUCTION_SUBJECTS = [
 	'resource',
 	'app'
 ] as const satisfies readonly WorkspaceItemType[]
+// `datatable` is not a workspace item type, but the model can request the
+// datatable SDK reference (the wmill.datatable() runnable API) the same way.
+const INSTRUCTION_SUBJECTS_EXTRA = ['datatable'] as const
+const ALL_INSTRUCTION_SUBJECTS = [
+	...INSTRUCTION_SUBJECTS,
+	...INSTRUCTION_SUBJECTS_EXTRA
+] as const
 const MAX_LIST_LIMIT = 100
+type ActiveGlobalEditorType = Extract<WorkspaceItemType, 'script' | 'flow' | 'app'>
+type LiveEditorDraftKind = Parameters<typeof UserDraft.getLiveEditorDraft>[0]
+
+const ACTIVE_GLOBAL_EDITOR_DRAFTS: readonly {
+	itemKind: LiveEditorDraftKind
+	type: ActiveGlobalEditorType
+}[] = [
+	{ itemKind: 'script', type: 'script' },
+	{ itemKind: 'flow', type: 'flow' },
+	{ itemKind: 'raw_app', type: 'app' }
+]
+
+export type GlobalActiveEditorContext = {
+	type: ActiveGlobalEditorType
+	path: string
+	isLiveDraft: true
+}
+
+export type GlobalUserMessageOptions = {
+	workspace?: string
+	activeEditor?: GlobalActiveEditorContext
+}
 
 const itemTypeSchema = z.enum(ITEM_TYPES)
-const instructionSubjectSchema = z.enum(INSTRUCTION_SUBJECTS)
+const instructionSubjectSchema = z.enum(ALL_INSTRUCTION_SUBJECTS)
 const triggerKindSchema = z.enum(TRIGGER_KINDS)
 const scriptLangSchema = z.enum($ScriptLang.enum)
 
 const getInstructionsSchema = z.object({
 	subject: instructionSubjectSchema.describe(
-		"The workspace item type to get authoring instructions for (script, flow, resource, app). Schedules, triggers, and variables don't need instructions — their tool schemas describe everything."
+		"What to get authoring instructions for: a workspace item type (script, flow, resource, app) or \"datatable\" for the wmill.datatable() SQL SDK used inside runnables. Schedules, triggers, and variables don't need instructions — their tool schemas describe everything."
 	),
 	language: scriptLangSchema
 		.optional()
 		.describe(
-			'Required when subject is script. Use the existing script language when modifying, or the requested target language when creating.'
+			'The target language. Required when subject is script. For subject "datatable" it selects which SDK to return (e.g. "bun" for TypeScript, "python3" for Python) and defaults to TypeScript if omitted. Use the existing language when modifying, or the requested target language when creating. Other subjects ignore it.'
 		)
 })
 
@@ -118,10 +178,10 @@ const askUserQuestionSchema = z.object({
 		.min(1)
 		.describe('The concise question to show to the user before continuing.'),
 	choices: z
-		.array(z.string().min(1).describe('Short answer text shown to the user and returned as-is.'))
+		.array(z.string().min(1).describe('Proposed answer text shown to the user and returned as-is.'))
 		.min(2)
-		.max(6)
-		.describe('Two to six mutually exclusive answer strings.')
+		.max(10)
+		.describe('Two to ten mutually exclusive proposed answer strings.')
 })
 
 const listWorkspaceItemsSchema = z.object({
@@ -154,9 +214,7 @@ const readWorkspaceItemSchema = z.object({
 })
 
 const writeScriptSchema = z.object({
-	path: z
-		.string()
-		.describe('Workspace path of the script, e.g. f/folder/name or u/user/name.'),
+	path: z.string().describe('Workspace path of the script, e.g. f/folder/name or u/user/name.'),
 	summary: z.string().optional().describe('Short human-readable summary.'),
 	language: scriptLangSchema.describe('Script language.'),
 	content: z.string().describe('Full script source code.')
@@ -178,7 +236,7 @@ const setFlowModuleCodeSchema = z.object({
 		.describe(
 			'Module id whose inline rawscript content to overwrite. Must reference a module whose value.type is "rawscript". Use patch_flow_json for structural changes.'
 		),
-	code: z.string().describe('New script source. Replaces the module\'s value.content entirely.')
+	code: z.string().describe("New script source. Replaces the module's value.content entirely.")
 })
 
 // Flow structure fields are taken as JSON strings rather than typed objects
@@ -187,9 +245,7 @@ const setFlowModuleCodeSchema = z.object({
 // rejects those keywords ("Unknown name $ref/$defs"). Same trick as
 // set_flow_json in chat/flow/core.ts.
 const writeFlowSchema = z.object({
-	path: z
-		.string()
-		.describe('Workspace path of the flow, e.g. f/folder/name or u/user/name.'),
+	path: z.string().describe('Workspace path of the flow, e.g. f/folder/name or u/user/name.'),
 	summary: z.string().optional().describe('Short human-readable summary.'),
 	modules: z.string().describe('JSON string containing the complete flow modules array.'),
 	schema: z
@@ -300,6 +356,14 @@ const deleteWorkspaceItemSchema = z.object({
 		.describe('Required when type is trigger. Identifies which trigger service to call.')
 })
 
+const discardLocalDraftSchema = z.object({
+	type: itemTypeSchema,
+	path: z.string().describe('Workspace path of the local draft to discard.'),
+	trigger_kind: triggerKindSchema
+		.optional()
+		.describe('Required when type is trigger. Must match the draft trigger kind.')
+})
+
 const deployWorkspaceItemSchema = z.object({
 	type: itemTypeSchema,
 	path: z.string().describe('Workspace path of the draft to deploy.'),
@@ -340,6 +404,49 @@ const patchFlowJsonSchema = z.object({
 			'When true, replace every exact match. When false, old_string must match exactly once.'
 		)
 })
+
+const testRunArgsSchema = z
+	.record(z.string(), z.any())
+	.nullable()
+	.optional()
+	.describe('Arguments to pass to the runnable. Omit or pass null when no arguments are needed.')
+
+const testRunScriptSchema = z.object({
+	path: z.string().describe('Workspace path of the script to test.'),
+	args: testRunArgsSchema
+})
+
+const testRunScriptToolDef = createToolDef(
+	testRunScriptSchema,
+	'test_run_script',
+	'Execute a preview-style test run of a script by path, preferring local draft content when it exists.',
+	{ strict: false }
+)
+
+const testRunFlowSchema = z.object({
+	path: z.string().describe('Workspace path of the flow to test.'),
+	args: testRunArgsSchema
+})
+
+const testRunFlowToolDef = createToolDef(
+	testRunFlowSchema,
+	'test_run_flow',
+	'Execute a preview-style test run of a flow by path, preferring local draft content when it exists.',
+	{ strict: false }
+)
+
+const testRunStepSchema = z.object({
+	path: z.string().describe('Workspace path of the flow containing the step to test.'),
+	stepId: z.string().describe('The id of the step/module to test.'),
+	args: testRunArgsSchema
+})
+
+const testRunStepToolDef = createToolDef(
+	testRunStepSchema,
+	'test_run_step',
+	'Execute a test run of one step in a flow by path, preferring local draft flow/script content when it exists.',
+	{ strict: false }
+)
 
 // ============= App tools (raw apps) =============
 
@@ -436,7 +543,23 @@ const deleteAppRunnableSchema = z.object({
 	key: z.string().describe('Key of the backend runnable to remove.')
 })
 
-const FRAMEWORK_KEYS = ['react19', 'react18', 'svelte5', 'vue'] as const satisfies readonly FrameworkKey[]
+const openPreviewSchema = z.object({
+	kind: z
+		.enum(['script', 'flow', 'raw_app'])
+		.describe(
+			'Item kind to preview. Use "raw_app" for code-based apps (created via init_app). The legacy drag-and-drop app builder ("app") is not previewable in the session panel — don\'t pass it.'
+		),
+	path: z.string().describe('Workspace path of the item to preview.')
+})
+
+const getPreviewStatusSchema = z.object({})
+
+const FRAMEWORK_KEYS = [
+	'react19',
+	'react18',
+	'svelte5',
+	'vue'
+] as const satisfies readonly FrameworkKey[]
 
 const initAppSchema = z.object({
 	path: z
@@ -449,46 +572,62 @@ const initAppSchema = z.object({
 		.enum(FRAMEWORK_KEYS)
 		.describe(
 			'Frontend framework template. Confirm with the user before calling — never default silently. react19 is recommended for new apps.'
-		),
-	data: z
-		.object({
-			datatable: z.string().optional().describe('Default datatable name (e.g. "main").'),
-			schema: z.string().optional().describe('Default schema (PostgreSQL schema, optional).'),
-			tables: z
-				.array(z.string())
-				.optional()
-				.describe(
-					'Initially-whitelisted tables, in the format "<datatable>/<table>" or "<datatable>/<schema>:<table>".'
-				)
-		})
-		.optional()
-		.describe('Optional datatable configuration. Omit unless the user asked to wire one up.')
+		)
 })
 
-const GLOBAL_SYSTEM_PROMPT = `You are Windmill's global workspace assistant.
+const buildGlobalSystemPrompt = (
+	username: string,
+	previewTools: boolean
+) => `You are Windmill's global workspace assistant.
 
-You can inspect workspace scripts, flows, schedules, triggers, resources, variables, and apps, then create draft changes in the frontend AI draft store.
+The current user's workspace username is "${username}".
 
-Important rules:
-- write_{script,flow,schedule,trigger,resource,variable} create or overwrite drafts. They do not save, deploy, or mutate workspace items.
-- edit_script and patch_flow_json apply small exact-text edits and save the result as a draft. Prefer them for localized changes; use write_* for large rewrites.
-- For flows specifically: read_workspace_item and patch_flow_json work on a COMPACT view where rawscript module bodies are replaced with the placeholder "inline_script.<moduleId>". Use read_flow_module_code / set_flow_module_code to inspect or overwrite an inline script body; use patch_flow_json for structural edits.
-- deploy_workspace_item persists a draft to the workspace via the real backend create/update API and removes the draft. Requires user confirmation. Only call after the user has reviewed the draft and explicitly asked to deploy.
-- delete_workspace_item permanently removes a workspace item (and any matching draft). Irreversible. Requires user confirmation. Only call when the user has explicitly asked to delete.
-- Use list_workspace_items before broad reads.
-- Use read_workspace_item before overwriting an existing item, unless the user already provided the complete current item. For triggers, pass trigger_kind.
-- Variable values are NEVER returned by read_workspace_item or list_workspace_items — only metadata (path, description, is_secret). The model cannot read secret values, by design.
-- For resources that need secrets, write a Variable first (with is_secret: true), then in the resource value reference it as "$var:path/to/variable". When deploying both, deploy the variable before the resource.
-- Use search_resource_types before write_resource to discover the resource_type name and the JSON Schema its value must match.
-- Use get_instructions before writing a script, flow, resource, or app. For scripts, pass the target language; when modifying, use the language from the item you read.
-- Schedules, triggers, and variables do not need get_instructions — their tool schemas describe every field.
-- When a required decision is ambiguous, use askUserQuestion with two to six clear answer strings instead of guessing.
-- A workspace item is { type, path, summary?, language?, triggerKind?, value, isDraft }. For scripts, value is the source code string. For flows, read_workspace_item returns value as the compact flow object { modules, schema, preprocessor_module, failure_module, groups }; write_flow takes the same flow fields as top-level tool arguments plus path/summary. For schedules/triggers/resources/variables, value is the full request body for that type. For apps, value is { files, runnables, data?, policy?, custom_path? } with frontend file contents and backend runnable definitions.
-- Apps (raw apps): use list_workspace_items with types: ['app'] to find them, read_workspace_item with type 'app' for a metadata summary (file paths + runnable list, no contents), then read_app_file to read individual files. Edit with write_app_file / patch_app_file / delete_app_file for frontend files and write_app_runnable / delete_app_runnable for backend runnables. Frontend file paths start with "/" (e.g. /index.tsx). Backend inline runnables are addressed as "backend/<key>/main.{ts|py}". /wmill.d.ts is generated and cannot be written.
-- To create a new raw app, use init_app. Before calling it, confirm framework (react19 / react18 / svelte5 / vue), path, and summary with the user — do not silently default to react19, even though it is the recommended choice.
-- Apps cannot be deployed from chat. The app editor bundles JS/CSS before save; tell the user to open the app editor to deploy app drafts.
-- Keep context targeted. Do not read unrelated items.
-- Be explicit with the user when you create or update a draft.`
+Use tools to inspect workspace items and create local drafts for scripts, flows, schedules, triggers, resources, variables, and raw apps.
+
+Path conventions:
+- Every workspace path has exactly three segments and starts with one of two namespaces:
+  - \`u/${username}/<name>\` — the current user's personal scope. Default for ad-hoc, exploratory, or scratch work.
+  - \`f/<folder>/<name>\` — a shared folder scope. The folder must already exist; bare \`f/<name>\` is INVALID and will fail.
+- When the user gives a bare name without a namespace prefix (e.g. "create a flow called myflow"), default to \`u/${username}/<name>\`. Do NOT invent \`f/<name>\` — that is a structurally invalid path.
+- If the request implies shared / team work but doesn't name a specific folder (e.g. "the marketing flow"), ask which folder to use rather than guessing. Call \`list_workspace_items\` with \`type: ['folder']\` (or rely on the user's hint) before assuming a folder exists.
+- Only use an \`f/<folder>/<name>\` path when the user explicitly named the folder or you confirmed it exists.
+
+Rules:
+- Draft tools create or update local drafts only; they do not deploy or mutate deployed workspace items.
+- Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
+- If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".
+- Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a local draft to the workspace.
+- Use discard_local_draft to remove an unsaved local draft, including the matching open editor draft. Use delete_workspace_item only to delete a deployed workspace item.
+- Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
+- Use search_resource_types before write_resource.
+- Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
+- After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer local drafts, so testing does not require deployment.
+- When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
+- Keep context targeted.${
+	previewTools
+		? `
+- After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.`
+		: ''
+}
+
+Flows:
+- read_workspace_item returns compact flow JSON. Inline script bodies appear as "inline_script.<moduleId>".
+- Use read_flow_module_code and set_flow_module_code for inline script bodies.
+- Use patch_flow_json for structural flow edits and write_flow for full flow rewrites.
+
+Raw apps:
+- read_workspace_item returns app metadata only. Use read_app_file for file and inline runnable contents.
+- Use write_app_file, patch_app_file, and delete_app_file for frontend files.
+- Use write_app_runnable and delete_app_runnable for backend runnables.
+- Use init_app only after confirming framework, path, and summary with the user.
+- Use deploy_workspace_item after explicit user deploy intent; raw app deploy bundles JS/CSS before saving.
+
+Data Tables:
+- Datatables are workspace-scoped managed PostgreSQL databases, shared across the workspace (not owned by any single app). They must be configured by the user in their workspace settings (Workspace settings → Data Tables); they cannot be created via SQL.
+- Use list_datatables to discover the available datatables and their tables. Reuse an existing table rather than creating a duplicate. If list_datatables reports none, this is a blocking prerequisite — tell the user to set up a datatable in their workspace settings and stop; do not assume a "main" datatable exists or call exec_datatable_sql.
+- Use get_datatable_table_schema only when you need a table's column names/types; list_datatables is enough for table-list or availability summaries.
+- Use exec_datatable_sql to explore data, run queries, mutate rows, or change schema (CREATE/ALTER/DROP). Creating a table is a normal CREATE TABLE statement — it appears in list_datatables afterward, with no registration step.
+- When writing runnable code (inline app runnables, scripts, flow modules) that reads or writes datatable data at runtime, it accesses a datatable via wmill.datatable(). Default to TypeScript (bun) unless the user asked for another language. Call get_instructions with subject "datatable" and language "bun" for the TypeScript SQL SDK reference (or language "python3" for Python) — it returns only that language so you get just what you need.`
 
 const DEFAULT_LIST_TYPES = ['script', 'flow'] as const satisfies readonly WorkspaceItemType[]
 
@@ -508,7 +647,7 @@ function itemMatches(
 	)
 }
 
-function scriptToItem(script: Script, includeValue: boolean): WorkspaceItem {
+function scriptToItem(script: Script | NewScript, includeValue: boolean): WorkspaceItem {
 	return {
 		type: 'script',
 		path: script.path,
@@ -544,6 +683,21 @@ function serializeWorkspaceItemForRead(item: WorkspaceItem): unknown {
 			type: 'variable',
 			path: item.path,
 			summary: item.summary,
+			isDraft: item.isDraft
+		}
+	}
+
+	if (
+		item.type === 'app' &&
+		item.value &&
+		typeof item.value === 'object' &&
+		'files' in item.value
+	) {
+		return {
+			type: 'app',
+			path: item.path,
+			summary: item.summary,
+			value: summarizeAppValue(item.value as AppDraftValue),
 			isDraft: item.isDraft
 		}
 	}
@@ -658,7 +812,7 @@ function buildPersistedRunnable(
 					{ type: 'static', value: v, fieldType: 'object' }
 				])
 			)
-		: existing?.fields ?? {}
+		: (existing?.fields ?? {})
 
 	if (input.type === 'inline') {
 		if (!input.inlineScript) {
@@ -711,11 +865,18 @@ type AppMetadata = {
 	data?: any
 }
 
+type LoadedAppDraftValue = {
+	value: AppDraftValue
+	meta?: UserDraftMeta
+}
+
 function summarizeAppValue(value: AppDraftValue): AppMetadata {
-	const frontend: AppFrontendFileMetadata[] = Object.entries(value.files).map(([path, content]) => ({
-		path,
-		size: typeof content === 'string' ? content.length : 0
-	}))
+	const frontend: AppFrontendFileMetadata[] = Object.entries(value.files).map(
+		([path, content]) => ({
+			path,
+			size: typeof content === 'string' ? content.length : 0
+		})
+	)
 	const backend: AppBackendRunnableMetadata[] = Object.entries(value.runnables).map(
 		([key, runnable]) => {
 			const converted = convertPersistedToBackendRunnable(runnable as PersistedRunnable, key)
@@ -815,32 +976,73 @@ function getInlineRunnableContent(
 	return { content: runnable.inlineScript?.content ?? '', runnable }
 }
 
-async function loadAppDraftValue(path: string, workspace: string): Promise<AppDraftValue> {
-	const draft = globalDraftStore.getDraft(workspace, 'app', path)
+function normalizeRawAppData(value: Record<string, any>): AppDraftValue['data'] {
+	if (value.data?.creation) {
+		return {
+			tables: value.data.tables ?? [],
+			datatable: value.data.creation.datatable,
+			schema: value.data.creation.schema
+		}
+	}
+	if (value.data) {
+		return value.data
+	}
+	if (value.datatables) {
+		return { ...DEFAULT_RAW_APP_DATA, tables: value.datatables }
+	}
+	if (value.dataTableRefs) {
+		return { ...DEFAULT_RAW_APP_DATA, tables: value.dataTableRefs }
+	}
+	return { ...DEFAULT_RAW_APP_DATA }
+}
+
+function appSourceToDraftValue(app: any, fallback?: any): AppDraftValue {
+	const value = (app.value ?? {}) as Record<string, any>
+	return {
+		summary: app.summary ?? '',
+		files: { ...(value.files ?? {}) },
+		runnables: { ...(value.runnables ?? {}) },
+		data: normalizeRawAppData(value),
+		policy: app.policy ?? fallback?.policy,
+		custom_path: app.custom_path ?? fallback?.custom_path
+	}
+}
+
+function appDraftMeta(app: { versions?: number[]; draft_created_at?: string }): UserDraftMeta {
+	return {
+		remoteRev: app.versions ? app.versions[app.versions.length - 1] : undefined,
+		remoteDraftRev: app.draft_created_at
+	}
+}
+
+async function loadAppValueForRead(path: string, workspace: string): Promise<AppDraftValue> {
+	const draft = getGlobalDraft(workspace, 'app', path)
 	if (draft && draft.value && typeof draft.value === 'object' && 'files' in draft.value) {
 		return draft.value as AppDraftValue
 	}
 
-	const app = await AppService.getAppByPath({ workspace, path })
-	const value = (app.value ?? {}) as Partial<AppDraftValue>
-	return {
-		summary: app.summary,
-		files: { ...(value.files ?? {}) },
-		runnables: { ...(value.runnables ?? {}) },
-		data: value.data,
-		policy: app.policy as any,
-		custom_path: app.custom_path
-	}
+	const app = await AppService.getAppByPathWithDraft({ workspace, path })
+	return appSourceToDraftValue(app.draft ?? app, app)
 }
 
-function saveAppDraft(workspace: string, path: string, value: AppDraftValue): WorkspaceItem {
-	return globalDraftStore.setDraft(workspace, {
-		type: 'app',
-		path,
-		summary: value.summary,
-		value,
-		isDraft: true
-	})
+async function loadAppDraftValue(path: string, workspace: string): Promise<LoadedAppDraftValue> {
+	const draft = getGlobalDraft(workspace, 'app', path)
+	if (draft && draft.value && typeof draft.value === 'object' && 'files' in draft.value) {
+		return { value: draft.value as AppDraftValue }
+	}
+
+	const app = await AppService.getAppByPathWithDraft({ workspace, path })
+	const value = appSourceToDraftValue(app.draft ?? app, app)
+	return { value, meta: appDraftMeta(app) }
+}
+
+function saveAppDraft(
+	workspace: string,
+	path: string,
+	value: AppDraftValue,
+	meta?: UserDraftMeta
+): WorkspaceItem {
+	return saveGlobalAppDraft(workspace, path, value, meta)
 }
 
 type TriggerLike = { path: string; summary?: string | null }
@@ -863,11 +1065,7 @@ function triggerToItem(
 type TriggerService = {
 	exists(args: { workspace: string; path: string }): Promise<boolean>
 	get(args: { workspace: string; path: string }): Promise<TriggerLike>
-	list(args: {
-		workspace: string
-		pathStart?: string
-		perPage?: number
-	}): Promise<TriggerLike[]>
+	list(args: { workspace: string; pathStart?: string; perPage?: number }): Promise<TriggerLike[]>
 	create(args: { workspace: string; requestBody: any }): Promise<string>
 	update(args: { workspace: string; path: string; requestBody: any }): Promise<string>
 	delete(args: { workspace: string; path: string }): Promise<string>
@@ -948,31 +1146,6 @@ const triggerServices: Record<TriggerKind, TriggerService> = {
 	}
 }
 
-async function workspaceItemExists(
-	type: WorkspaceItemType,
-	path: string,
-	workspace: string,
-	triggerKind?: TriggerKind
-): Promise<boolean> {
-	switch (type) {
-		case 'script':
-			return ScriptService.existsScriptByPath({ workspace, path })
-		case 'flow':
-			return FlowService.existsFlowByPath({ workspace, path })
-		case 'schedule':
-			return ScheduleService.existsSchedule({ workspace, path })
-		case 'trigger':
-			if (!triggerKind) return false
-			return triggerServices[triggerKind].exists({ workspace, path })
-		case 'resource':
-			return ResourceService.existsResource({ workspace, path })
-		case 'variable':
-			return VariableService.existsVariable({ workspace, path })
-		case 'app':
-			return AppService.existsApp({ workspace, path })
-	}
-}
-
 async function readWorkspaceItem(
 	type: WorkspaceItemType,
 	path: string,
@@ -980,10 +1153,16 @@ async function readWorkspaceItem(
 	triggerKind?: TriggerKind
 ): Promise<WorkspaceItem> {
 	switch (type) {
-		case 'script':
-			return scriptToItem(await ScriptService.getScriptByPath({ workspace, path }), true)
-		case 'flow':
-			return flowToItem(await FlowService.getFlowByPath({ workspace, path }), true)
+		case 'script': {
+			// Prefer the DB draft (newer than the deployed version) when one exists.
+			const script = await ScriptService.getScriptByPathWithDraft({ workspace, path })
+			return scriptToItem(script.draft ?? script, true)
+		}
+		case 'flow': {
+			// Prefer the DB draft (newer than the deployed version) when one exists.
+			const flow = await FlowService.getFlowByPathWithDraft({ workspace, path })
+			return flowToItem(flow.draft ?? flow, true)
+		}
 		case 'schedule':
 			return scheduleToItem(await ScheduleService.getSchedule({ workspace, path }), true)
 		case 'trigger':
@@ -997,7 +1176,7 @@ async function readWorkspaceItem(
 			)
 		case 'resource':
 			return resourceToItem(
-				await ResourceService.getResource({ workspace, path }) as ListableResource,
+				(await ResourceService.getResource({ workspace, path })) as ListableResource,
 				true
 			)
 		case 'variable':
@@ -1008,18 +1187,13 @@ async function readWorkspaceItem(
 			)
 		case 'app': {
 			// Returns lightweight metadata only — file/runnable contents come via read_app_file.
-			const app = await AppService.getAppByPath({ workspace, path })
-			const value = (app.value ?? {}) as Partial<AppDraftValue>
-			const metadata = summarizeAppValue({
-				summary: app.summary,
-				files: value.files ?? {},
-				runnables: value.runnables ?? {},
-				data: value.data
-			})
+			const app = await AppService.getAppByPathWithDraft({ workspace, path })
+			const value = appSourceToDraftValue(app.draft ?? app)
+			const metadata = summarizeAppValue(value)
 			return {
 				type: 'app',
 				path: app.path,
-				summary: app.summary,
+				summary: value.summary,
 				value: metadata as unknown as AppDraftValue,
 				isDraft: false
 			}
@@ -1117,7 +1291,7 @@ function getScriptInstructions(language: ScriptLang | undefined): string {
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, or generate metadata.
 - A script draft is a workspace item: \`{ type: 'script', path, summary?, language, value, isDraft }\` where \`value\` is the source code string.
-- Use workspace paths such as \`f/folder/name\` or \`u/username/name\`. Preserve the current path/language when modifying unless the user asked to change them.
+- Paths follow the conventions in the system prompt: default to \`u/<current-user>/<name>\` when the user gave a bare name; only use \`f/<folder>/<name>\` when the folder is known to exist. Preserve the current path/language when modifying unless the user asked to change them.
 - Use \`edit_script\` for small localized changes (provide \`old_string\`/\`new_string\`); use \`write_script\` for full rewrites.${note}
 
 # Windmill script authoring reference (${selected})
@@ -1129,6 +1303,7 @@ function getFlowInstructions(): string {
 	return `# Global draft flow instructions
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
+- Paths follow the conventions in the system prompt: default to \`u/<current-user>/<name>\` when the user gave a bare name; only use \`f/<folder>/<name>\` when the folder is known to exist. Never invent a folder.
 - \`write_flow\` mirrors flow mode's \`set_flow_json\`: pass \`path\`, optional \`summary\`, required \`modules\`, and optional \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\`. The flow-structure arguments are JSON strings, matching the tool schema descriptions.
 - \`read_workspace_item\` returns a compact flow \`value\` object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\`.
 - \`modules\` contains normal sequential modules. Use top-level \`preprocessor_module\` and \`failure_module\` for special modules; do not put \`preprocessor\` or \`failure\` in \`modules\`.
@@ -1141,7 +1316,7 @@ function getFlowInstructions(): string {
 - \`read_workspace_item\` and \`patch_flow_json\` operate on a **compact view** of the flow: every rawscript module's \`value.content\` is replaced with the placeholder \`"inline_script.<moduleId>"\` so inline script bodies don't bloat tool I/O. Schema, groups, preprocessor_module and failure_module are all shown in this view.
 - Inline rawscript content is **not** part of the JSON \`patch_flow_json\` sees. Edits to inline bodies happen via dedicated tools:
   - \`read_flow_module_code(path, module_id)\` — returns the raw inline script content for one module.
-  - \`set_flow_module_code(path, module_id, code)\` — overwrites that module's inline script content; saves to the AI draft.
+  - \`set_flow_module_code(path, module_id, code)\` — overwrites that module's inline script content; saves to the local draft.
 - Use \`patch_flow_json\` for *structural* edits: module ids, paths, input_transforms, branch arrangement, summaries, preprocessor/failure swaps, schema/groups. Use \`set_flow_module_code\` for changes inside a specific rawscript body.
 - \`write_flow\` is for full overwrites / create-from-scratch. Its \`modules\`, \`preprocessor_module\`, and \`failure_module\` arguments use **non-compact** flow modules (rawscript content is the actual code, not a placeholder).
 
@@ -1150,20 +1325,20 @@ function getFlowInstructions(): string {
 ${getFlowPrompt()}`
 }
 
-type InstructionSubject = (typeof INSTRUCTION_SUBJECTS)[number]
+type InstructionSubject = (typeof ALL_INSTRUCTION_SUBJECTS)[number]
 
 function getAppInstructions(): string {
 	return `# Global draft app instructions
 
-- Global mode edits raw app drafts only; it does not save, deploy, or bundle.
-- App drafts are addressed by workspace path (e.g. \`f/folder/my_app\`). The first write tool snapshots the workspace app onto the draft, and subsequent writes accumulate.
+- Global mode edits raw app drafts only; it does not save or deploy unless the user explicitly asks to deploy.
+- App drafts are addressed by workspace path. Follow the path conventions in the system prompt: default to \`u/<current-user>/<name>\` for bare names; only use \`f/<folder>/<name>\` when the folder is known to exist. The first write tool snapshots the workspace app onto the draft, and subsequent writes accumulate.
 - To create a new app, use \`init_app\` with a path, optional summary, and a framework (\`react19\` / \`react18\` / \`svelte5\` / \`vue\`). Confirm framework + path + summary with the user before calling — do not silently default to \`react19\` even though it is the recommended choice. \`init_app\` errors if an app already exists at the path or a draft is already in flight; in that case, edit the existing one rather than re-initializing.
 - \`init_app\` seeds a starter inline runnable named \`a\` (bun, \`main(x: string) => string\`) so the React/Svelte demo button works on first render. Replace or remove it once you start building real backend runnables.
 - Frontend file paths start with \`/\` (e.g. \`/index.tsx\`, \`/App.tsx\`, \`/styles.css\`). Use \`write_app_file\` / \`patch_app_file\` / \`delete_app_file\`.
 - Backend inline runnables are addressed as \`backend/<key>/main.{ts|py}\` from the file tools, but you create or update them via \`write_app_runnable\` / \`delete_app_runnable\` (which take the runnable shape directly: \`{ name, type, inlineScript?, path?, staticInputs? }\`).
 - \`/wmill.d.ts\` (or \`wmill.ts\`) is generated automatically from the backend runnables — never write it directly.
 - Inline runnables only support \`bun\` or \`python3\` in chat. Path runnables (\`script\`/\`flow\`/\`hubscript\`) reference an existing item.
-- Apps cannot be deployed from chat. The app editor bundles JS/CSS before save; tell the user to open the app editor to deploy app drafts.
+- Use \`deploy_workspace_item\` after explicit user deploy intent. The deploy tool bundles JS/CSS before saving the raw app.
 - Use \`read_workspace_item\` with \`type: 'app'\` for a metadata summary (file paths and runnable list, no contents). Use \`read_app_file\` to read an individual file.
 - Note: the authoring reference below mentions the CLI on-disk layout (\`backend/<id>.<ext>\`, \`raw_app.yaml\`, \`sql_to_apply/\`). That layout is only relevant for the terminal workflow — in chat, apps are addressed via the tool surface above.
 
@@ -1189,6 +1364,19 @@ function getResourceInstructions(): string {
 ${getResourcePrompt()}`
 }
 
+function getDatatableInstructions(language?: ScriptLang): string {
+	// Default to the TypeScript SDK so we return only what's needed, not both.
+	const lang = language ?? 'bun'
+	return `# Datatable SQL SDK reference
+
+Datatables are workspace-scoped managed PostgreSQL databases. In chat, explore and shape them with the \`list_datatables\`, \`get_datatable_table_schema\`, and \`exec_datatable_sql\` tools. The reference below is for code you author inside runnables (inline app runnables, scripts, or flow rawscript modules) that reads or writes datatable data at runtime.
+
+- A runnable accesses a datatable via \`wmill.datatable()\` (the default "main") or \`wmill.datatable('<name>')\`, referencing tables as \`schema.table\`.
+- Use parameterized queries (the tagged template in TypeScript, \`$1\`/\`$2\` placeholders in Python) — never interpolate untrusted values into SQL strings.
+
+${getDatatableSdkReference(lang)}`
+}
+
 function getInstructions(subject: InstructionSubject, language?: ScriptLang): string {
 	switch (subject) {
 		case 'script':
@@ -1199,6 +1387,8 @@ function getInstructions(subject: InstructionSubject, language?: ScriptLang): st
 			return getResourceInstructions()
 		case 'app':
 			return getAppInstructions()
+		case 'datatable':
+			return getDatatableInstructions(language)
 	}
 }
 
@@ -1207,7 +1397,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			getInstructionsSchema,
 			'get_instructions',
-			'Get Windmill authoring instructions for scripts, flows, resources, or apps. For scripts, pass the target language.'
+			'Get authoring guidance for scripts, flows, resources, apps, or the datatable SQL SDK (wmill.datatable()) used inside runnables.'
 		),
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			const parsed = getInstructionsSchema.parse(args)
@@ -1219,11 +1409,12 @@ export const globalTools: Tool<{}>[] = [
 			return getInstructions(parsed.subject, parsed.language)
 		}
 	},
+	createSearchHubScriptsTool(false),
 	{
 		def: createToolDef(
 			askUserQuestionSchema,
 			'askUserQuestion',
-			'Ask the user a multiple-choice question and wait for their selection before continuing.'
+			'Ask the user a question with proposed answers and wait for their selected or custom answer before continuing.'
 		),
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			const parsed = askUserQuestionSchema.parse(args)
@@ -1277,7 +1468,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			listWorkspaceItemsSchema,
 			'list_workspace_items',
-			'List workspace items (scripts, flows, schedules, triggers, resources, variables, apps) and AI drafts. Returns metadata only (no value). Defaults to scripts and flows.'
+			'List workspace items and local drafts. Returns metadata only.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = listWorkspaceItemsSchema.parse(args)
@@ -1296,8 +1487,9 @@ export const globalTools: Tool<{}>[] = [
 				byKey.set(getWorkspaceItemKey(item.type, item.path, item.triggerKind), item)
 			}
 
-			for (const draft of globalDraftStore.listDrafts(workspace)) {
+			for (const draft of listGlobalDrafts(workspace)) {
 				if (!types.includes(draft.type)) continue
+				if (parsed.path_prefix && !draft.path.startsWith(parsed.path_prefix)) continue
 				byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
 					...draft,
 					value: undefined
@@ -1318,7 +1510,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			readWorkspaceItemSchema,
 			'read_workspace_item',
-			'Read one workspace item or AI draft by type and path. Returns the full workspace item including value.'
+			'Read one workspace item or local draft.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = readWorkspaceItemSchema.parse(args)
@@ -1327,15 +1519,10 @@ export const globalTools: Tool<{}>[] = [
 				toolCallbacks.setToolStatus(toolId, { content: message, error: message })
 				return JSON.stringify({ success: false, error: message })
 			}
-			const draft = globalDraftStore.getDraft(
-				workspace,
-				parsed.type,
-				parsed.path,
-				parsed.trigger_kind
-			)
+			const draft = getGlobalDraft(workspace, parsed.type, parsed.path, parsed.trigger_kind)
 			if (draft) {
 				toolCallbacks.setToolStatus(toolId, {
-					content: `Read AI draft ${parsed.type} "${parsed.path}"`
+					content: `Read local draft ${parsed.type} "${parsed.path}"`
 				})
 				return JSON.stringify(serializeWorkspaceItemForRead(draft), null, 2)
 			}
@@ -1343,12 +1530,7 @@ export const globalTools: Tool<{}>[] = [
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Reading ${parsed.type} "${parsed.path}"...`
 			})
-			const item = await readWorkspaceItem(
-				parsed.type,
-				parsed.path,
-				workspace,
-				parsed.trigger_kind
-			)
+			const item = await readWorkspaceItem(parsed.type, parsed.path, workspace, parsed.trigger_kind)
 			toolCallbacks.setToolStatus(toolId, { content: `Read ${parsed.type} "${parsed.path}"` })
 			return JSON.stringify(serializeWorkspaceItemForRead(item), null, 2)
 		}
@@ -1357,32 +1539,18 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeScriptSchema,
 			'write_script',
-			'Create or overwrite an AI draft script. Does not save or deploy. Read the existing script first when overwriting.'
+			'Create or overwrite a local draft script.'
 		),
 		showDetails: true,
 		streamArguments: true,
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = writeScriptSchema.parse(ctx.args)
-			return writeDraft(
-				{
-					type: 'script',
-					path: parsed.path,
-					summary: parsed.summary,
-					language: parsed.language,
-					value: parsed.content,
-					isDraft: true
-				},
-				ctx
-			)
+			return writeScriptDraft(parsed, ctx)
 		}
 	},
 	{
-		def: createToolDef(
-			writeFlowSchema,
-			'write_flow',
-			'Create or overwrite an AI draft flow. Does not save or deploy. Read the existing flow first when overwriting. Uses the same flow-structure arguments as set_flow_json plus path and summary.'
-		),
+		def: createToolDef(writeFlowSchema, 'write_flow', 'Create or overwrite a local draft flow.'),
 		showDetails: true,
 		streamArguments: true,
 		showFade: true,
@@ -1398,13 +1566,11 @@ export const globalTools: Tool<{}>[] = [
 				failure_module: parseOptionalJsonArg(parsed.failure_module, 'failure_module'),
 				groups: parseOptionalJsonArg(parsed.groups, 'groups')
 			})
-			return writeDraft(
+			return writeFlowDraft(
 				{
-					type: 'flow',
 					path: parsed.path,
 					summary: parsed.summary,
-					value: editableFlowToDraftValue(editable),
-					isDraft: true
+					flow: editableFlowToDraftValue(editable)
 				},
 				ctx
 			)
@@ -1414,7 +1580,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeScheduleSchema,
 			'write_schedule',
-			'Create or overwrite an AI draft schedule. Does not save or deploy. Provide script_path and is_flow to point to the runnable.',
+			'Create or overwrite a local draft schedule.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -1422,23 +1588,14 @@ export const globalTools: Tool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = writeScheduleSchema.parse(ctx.args)
-			return writeDraft(
-				{
-					type: 'schedule',
-					path: parsed.path,
-					summary: parsed.summary ?? undefined,
-					value: parsed,
-					isDraft: true
-				},
-				ctx
-			)
+			return writeScheduleDraft(parsed, ctx)
 		}
 	},
 	{
 		def: createToolDef(
 			writeTriggerSchema,
 			'write_trigger',
-			'Create or overwrite an AI draft trigger. Does not save or deploy. Provide kind plus the kind-specific config (including path, script_path, is_flow).',
+			'Create or overwrite a local draft trigger.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -1446,25 +1603,14 @@ export const globalTools: Tool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = writeTriggerSchema.parse(ctx.args)
-			const config = parsed.config as { path: string; summary?: string | null }
-			return writeDraft(
-				{
-					type: 'trigger',
-					triggerKind: parsed.kind,
-					path: config.path,
-					summary: config.summary ?? undefined,
-					value: parsed.config,
-					isDraft: true
-				},
-				ctx
-			)
+			return writeTriggerDraft(parsed, ctx)
 		}
 	},
 	{
 		def: createToolDef(
 			editScriptSchema,
 			'edit_script',
-			'Find/replace exact text in a script. Edits the existing draft if one exists, otherwise reads the workspace script and saves the result as a new draft.'
+			'Find/replace exact text in a script and save a local draft.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -1478,7 +1624,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			patchFlowJsonSchema,
 			'patch_flow_json',
-			'Find/replace exact text in a flow value (compact JSON). Edits the existing draft if one exists, otherwise reads the workspace flow and saves the result as a new draft. Use write_flow for larger structural rewrites.'
+			'Find/replace exact text in compact flow JSON and save a local draft.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -1489,26 +1635,59 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
+		def: testRunScriptToolDef,
+		fn: async (ctx) => {
+			const parsed = testRunScriptSchema.parse(ctx.args)
+			return testRunScriptByPath(parsed, ctx)
+		},
+		requiresConfirmation: true,
+		confirmationMessage: 'Run script test',
+		showDetails: true,
+		autoCollapseDetails: false
+	},
+	{
+		def: testRunFlowToolDef,
+		fn: async (ctx) => {
+			const parsed = testRunFlowSchema.parse(ctx.args)
+			return testRunFlowByPath(parsed, ctx)
+		},
+		requiresConfirmation: true,
+		confirmationMessage: 'Run flow test',
+		showDetails: true,
+		autoCollapseDetails: false
+	},
+	{
+		def: testRunStepToolDef,
+		fn: async (ctx) => {
+			const parsed = testRunStepSchema.parse(ctx.args)
+			return testRunFlowStepByPath(parsed, ctx)
+		},
+		requiresConfirmation: true,
+		confirmationMessage: 'Run flow step test',
+		showDetails: true,
+		autoCollapseDetails: false
+	},
+	{
 		def: createToolDef(
 			deployWorkspaceItemSchema,
 			'deploy_workspace_item',
-			'Persist an AI draft to the workspace by calling the real backend create/update API. This MUTATES the workspace. Requires user confirmation.',
+			'Deploy a local draft to the workspace. Mutates the workspace.',
 			{ strict: false }
 		),
 		showDetails: true,
 		showFade: true,
 		requiresConfirmation: true,
-		confirmationMessage: 'Deploy AI draft to workspace',
+		confirmationMessage: 'Deploy local draft to workspace',
 		fn: async (ctx) => {
 			const parsed = deployWorkspaceItemSchema.parse(ctx.args)
-			return deployDraft(parsed, ctx)
+			return deployDraft(parsed, { ...ctx, sessionId: sessionIdFromCtx(ctx) })
 		}
 	},
 	{
 		def: createToolDef(
 			deleteWorkspaceItemSchema,
 			'delete_workspace_item',
-			'Permanently delete a workspace item by path. This MUTATES the workspace and is irreversible. Also clears any matching AI draft. Requires user confirmation.'
+			'Delete a deployed workspace item. Mutates the workspace.'
 		),
 		showDetails: true,
 		showFade: true,
@@ -1521,9 +1700,24 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
+			discardLocalDraftSchema,
+			'discard_local_draft',
+			'Discard a local draft only. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted.'
+		),
+		showDetails: true,
+		showFade: true,
+		requiresConfirmation: true,
+		confirmationMessage: 'Discard local draft',
+		fn: async (ctx) => {
+			const parsed = discardLocalDraftSchema.parse(ctx.args)
+			return discardLocalDraft(parsed, ctx)
+		}
+	},
+	{
+		def: createToolDef(
 			writeResourceSchema,
 			'write_resource',
-			'Create or overwrite an AI draft resource. Does not save or deploy. Reference secret values via $var:path/to/variable; create the variable separately with write_variable.',
+			'Create or overwrite a local draft resource.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -1531,23 +1725,14 @@ export const globalTools: Tool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = writeResourceSchema.parse(ctx.args)
-			return writeDraft(
-				{
-					type: 'resource',
-					path: parsed.path,
-					summary: parsed.description,
-					value: parsed,
-					isDraft: true
-				},
-				ctx
-			)
+			return writeResourceDraft(parsed, ctx)
 		}
 	},
 	{
 		def: createToolDef(
 			writeVariableSchema,
 			'write_variable',
-			'Create or overwrite an AI draft variable. Does not save or deploy. Use is_secret: true for secret values. After deploy, reference from a resource as $var:path/to/variable.',
+			'Create or overwrite a local draft variable.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -1555,23 +1740,14 @@ export const globalTools: Tool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = writeVariableSchema.parse(ctx.args)
-			return writeDraft(
-				{
-					type: 'variable',
-					path: parsed.path,
-					summary: parsed.description,
-					value: parsed,
-					isDraft: true
-				},
-				ctx
-			)
+			return writeVariableDraft(parsed, ctx)
 		}
 	},
 	{
 		def: createToolDef(
 			searchResourceTypesSchema,
 			'search_resource_types',
-			'Search for resource types in the workspace by substring. Returns names, descriptions, and JSON Schemas — use this before write_resource to know what shape value should have.'
+			'Search workspace resource types and schemas.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = searchResourceTypesSchema.parse(args)
@@ -1600,7 +1776,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			readFlowModuleCodeSchema,
 			'read_flow_module_code',
-			'Read the inline rawscript content of one flow module by id. Reads from the AI draft when one exists, otherwise from the workspace flow. Use this instead of patch_flow_json when you only need to inspect an inline script body.'
+			'Read inline script code from one flow module.'
 		),
 		fn: async (ctx) => {
 			const parsed = readFlowModuleCodeSchema.parse(ctx.args)
@@ -1611,7 +1787,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			setFlowModuleCodeSchema,
 			'set_flow_module_code',
-			'Overwrite the inline rawscript content of one flow module by id. Saves to the AI draft only — does not deploy. Use this for inline script body changes; structural changes (module ids, paths, input_transforms, branches) go through patch_flow_json.'
+			'Overwrite inline script code in one flow module and save a local draft.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -1625,7 +1801,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			initAppSchema,
 			'init_app',
-			'Initialize a new raw app draft from a framework template. Errors if an app already exists at the path or a draft is already in flight. Confirm framework, path, and summary with the user before calling — do not silently default to react19.',
+			'Initialize a local draft raw app from a framework template.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -1639,7 +1815,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			readAppFileSchema,
 			'read_app_file',
-			'Read one frontend file or inline backend runnable script from a raw app. Use file_path "/foo.tsx" for frontend files and "backend/<key>/main.{ts|py}" for inline runnables. Prefers the AI draft when one exists.'
+			'Read one raw app frontend file or inline backend runnable.'
 		),
 		fn: async (ctx) => {
 			const parsed = readAppFileSchema.parse(ctx.args)
@@ -1650,7 +1826,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeAppFileSchema,
 			'write_app_file',
-			'Create or overwrite a frontend file in an app draft. Saves to the AI draft only — does not deploy. First write snapshots the workspace app onto the draft.'
+			'Create or overwrite a frontend file in a local app draft.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -1664,7 +1840,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			deleteAppFileSchema,
 			'delete_app_file',
-			'Remove a frontend file from an app draft. Saves to the AI draft only — does not deploy.'
+			'Remove a frontend file from a local app draft.'
 		),
 		fn: async (ctx) => {
 			const parsed = deleteAppFileSchema.parse(ctx.args)
@@ -1675,7 +1851,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			patchAppFileSchema,
 			'patch_app_file',
-			'Find/replace exact text in a frontend file or inline backend runnable script. Saves the result to the AI draft.'
+			'Find/replace exact text in a raw app file and save a local draft.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -1689,7 +1865,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeAppRunnableSchema,
 			'write_app_runnable',
-			'Create or overwrite a backend runnable in an app draft. Saves to the AI draft only — does not deploy. Re-derives the app policy after the change.',
+			'Create or overwrite a backend runnable in a local app draft.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -1704,26 +1880,574 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			deleteAppRunnableSchema,
 			'delete_app_runnable',
-			'Remove a backend runnable from an app draft. Saves to the AI draft only — does not deploy. Re-derives the app policy after the change.'
+			'Remove a backend runnable from a local app draft.'
 		),
 		fn: async (ctx) => {
 			const parsed = deleteAppRunnableSchema.parse(ctx.args)
 			return deleteAppRunnable(parsed, ctx)
 		}
-	}
+	},
+	{
+		def: createToolDef(
+			openPreviewSchema,
+			'open_preview',
+			'Open the live preview / editor for a workspace item in the side panel next to the chat. ONLY works inside an AI session — call this after writing or editing a script, flow, or raw app to let the user see and interact with it. The path you pass is the path of the item; for code-based apps use kind="raw_app" (legacy drag-and-drop apps are not previewable). Returns an error if there is no active session.'
+		),
+		fn: async (ctx) => {
+			const parsed = openPreviewSchema.parse(ctx.args)
+			return openSessionPreview(parsed, sessionIdFromCtx(ctx))
+		}
+	},
+	{
+		def: createToolDef(
+			getPreviewStatusSchema,
+			'get_preview_status',
+			'Check whether the side-panel preview is open in this AI session and which item (kind + path) it is showing. Call this before offering or calling open_preview so you do not re-open a preview that is already showing the item you just edited. Only meaningful inside a session.'
+		),
+		fn: async (ctx) => getSessionPreviewStatus(sessionIdFromCtx(ctx))
+	},
+	// Workspace-scoped datatable tools (unrestricted: no whitelist, no creation policy)
+	...getDatatableTools()
 ]
+
+// Tools that only make sense inside an AI session (they drive the session's
+// side-panel preview). The regular global side-panel chat shouldn't even be
+// offered them — see `globalToolsFor`.
+export const SESSION_PREVIEW_TOOL_NAMES = new Set(['open_preview', 'get_preview_status'])
+
+/**
+ * The global tool set for a given chat: the full `globalTools` for a session
+ * chat, or `globalTools` minus the session-only preview tools for the regular
+ * global side-panel chat.
+ */
+export function globalToolsFor({ sessionPreview }: { sessionPreview: boolean }): Tool<{}>[] {
+	return sessionPreview
+		? globalTools
+		: globalTools.filter((t) => !SESSION_PREVIEW_TOOL_NAMES.has(t.def.function.name))
+}
 
 type WriteDraftCtx = {
 	workspace: string
 	toolId: string
 	toolCallbacks: ToolCallbacks
+	// Calling session id (session chats only), threaded through so a deploy
+	// reloads the preview of the session that issued the deploy — not the
+	// UI-active one. Undefined for the global side-panel chat.
+	sessionId?: string
+}
+
+// Sessions are the only context where `open_preview` makes sense — the global
+// singleton chat in the right side panel has nowhere to mount an editor pane.
+// The session runtime registers a handler at construction time so the tool
+// has somewhere to dispatch. When no session is active the handler is
+// undefined and the tool returns a polite error.
+// Per-manager tool helpers for a session chat. Each session's AIChatManager
+// sets `helpers = { sessionId }`, so a tool call carries the *calling* session's
+// id even when a different session is the UI-active one. Without this the
+// handlers below would route a backgrounded session's tool call to whatever
+// session the user happens to be viewing.
+export type SessionToolHelpers = { sessionId?: string }
+export type GlobalToolHelpers = SessionToolHelpers & {
+	testActiveFlow?: (args?: Record<string, any>) => Promise<string | undefined>
+}
+
+function sessionIdFromCtx(ctx: { helpers?: unknown }): string | undefined {
+	return (ctx.helpers as GlobalToolHelpers | undefined)?.sessionId
+}
+
+function activeFlowTestFromCtx(
+	ctx: { workspace: string; helpers?: unknown },
+	path: string
+): GlobalToolHelpers['testActiveFlow'] | undefined {
+	const activeEditor = getActiveGlobalEditorContext(ctx.workspace)
+	if (activeEditor?.type !== 'flow' || activeEditor.path !== path) {
+		return undefined
+	}
+	return (ctx.helpers as GlobalToolHelpers | undefined)?.testActiveFlow
+}
+
+export type OpenPreviewHandler = (req: {
+	sessionId: string | undefined
+	kind: 'script' | 'flow' | 'raw_app'
+	path: string
+}) => string
+
+let openPreviewHandler: OpenPreviewHandler | undefined
+
+export function setOpenPreviewHandler(handler: OpenPreviewHandler | undefined): void {
+	openPreviewHandler = handler
+}
+
+function openSessionPreview(
+	args: { kind: 'script' | 'flow' | 'raw_app'; path: string },
+	sessionId: string | undefined
+) {
+	if (!openPreviewHandler) {
+		return 'Error: open_preview is only available inside an AI session. Tell the user to switch to a session to view the preview, or describe the item textually.'
+	}
+	return openPreviewHandler({ ...args, sessionId })
+}
+
+// Companion to `open_preview`: lets the assistant query the current preview
+// state (open? which item?) so it can avoid re-opening a preview already
+// showing the item it just edited. Registered by the session runtime
+// alongside the open-preview handler.
+export type GetPreviewStatusHandler = (sessionId: string | undefined) => string
+
+let getPreviewStatusHandler: GetPreviewStatusHandler | undefined
+
+export function setGetPreviewStatusHandler(handler: GetPreviewStatusHandler | undefined): void {
+	getPreviewStatusHandler = handler
+}
+
+function getSessionPreviewStatus(sessionId: string | undefined): string {
+	if (!getPreviewStatusHandler) {
+		return 'Error: get_preview_status is only available inside an AI session.'
+	}
+	return getPreviewStatusHandler(sessionId)
+}
+
+// Registered by the session runtime to reload the open preview after a chat
+// deploy. Undefined outside a session.
+export type DeployedInSessionHandler = (req: {
+	sessionId: string | undefined
+	kind: 'script' | 'flow' | 'raw_app'
+	path: string
+}) => void
+
+let deployedInSessionHandler: DeployedInSessionHandler | undefined
+
+export function setDeployedInSessionHandler(handler: DeployedInSessionHandler | undefined): void {
+	deployedInSessionHandler = handler
+}
+
+type DraftConfig = Record<string, any>
+type ScheduleDraftConfig = NewSchedule & DraftConfig
+type TriggerDraftConfig = TriggerRequestBody & DraftConfig & { path: string }
+
+function stripBackendMetadata<T extends DraftConfig>(value: T): T {
+	const draft = structuredClone(value)
+	delete draft.workspace_id
+	delete draft.edited_by
+	delete draft.edited_at
+	delete draft.email
+	delete draft.error
+	return draft
+}
+
+function mergeDraftConfig<T extends DraftConfig>(
+	base: T | undefined,
+	overrides: DraftConfig,
+	path: string
+): T {
+	return {
+		...(base ? stripBackendMetadata(base) : {}),
+		...structuredClone(overrides),
+		path
+	} as unknown as T
+}
+
+function resourceToDraftState(resource: Resource): ResourceDraftState {
+	return {
+		path: resource.path,
+		description: resource.description ?? '',
+		args: structuredClone((resource.value ?? {}) as Record<string, any>),
+		labels: resource.labels ?? undefined,
+		wsSpecific: resource.ws_specific ?? false,
+		resource_type: resource.resource_type
+	}
+}
+
+function createResourceToDraftState(
+	args: CreateResource,
+	base?: ResourceDraftState
+): ResourceDraftState {
+	return {
+		...base,
+		path: args.path,
+		description: args.description ?? base?.description ?? '',
+		args: structuredClone((args.value ?? base?.args ?? {}) as Record<string, any>),
+		labels: args.labels ?? base?.labels,
+		wsSpecific: args.ws_specific ?? base?.wsSpecific ?? false,
+		resource_type: args.resource_type ?? base?.resource_type
+	}
+}
+
+function variableToDraftState(variable: ListableVariable): VariableDraftState {
+	return {
+		path: variable.path,
+		variable: {
+			value: variable.value ?? '',
+			is_secret: variable.is_secret,
+			description: variable.description ?? ''
+		},
+		labels: variable.labels ?? undefined,
+		wsSpecific: variable.ws_specific ?? false,
+		account: variable.account,
+		is_oauth: variable.is_oauth,
+		expires_at: variable.expires_at
+	}
+}
+
+function createVariableToDraftState(
+	args: CreateVariable,
+	base?: VariableDraftState
+): VariableDraftState {
+	return {
+		...base,
+		path: args.path,
+		variable: {
+			value: args.is_secret ? '' : args.value,
+			is_secret: args.is_secret,
+			description: args.description
+		},
+		labels: args.labels ?? base?.labels,
+		wsSpecific: args.ws_specific ?? base?.wsSpecific ?? false,
+		account: args.account ?? base?.account,
+		is_oauth: args.is_oauth ?? base?.is_oauth,
+		expires_at: args.expires_at ?? base?.expires_at
+	}
+}
+
+function syncEphemeralSecretVariableDraftValue(workspace: string, args: CreateVariable): void {
+	const storagePath = getGlobalDraftStoragePath(workspace, 'variable', args.path)
+	if (args.is_secret) {
+		setEphemeralSecretVariableDraftValue(workspace, storagePath, args.value)
+	} else {
+		clearEphemeralSecretVariableDraftValue(workspace, storagePath)
+	}
+}
+
+function buildVariableDeployRequestBody(
+	workspace: string,
+	path: string,
+	draftValue: CreateVariable
+): CreateVariable {
+	const requestBody = structuredClone(draftValue)
+	if (!requestBody.is_secret) return requestBody
+
+	const storagePath = getGlobalDraftStoragePath(workspace, 'variable', path)
+	const secretValue = getEphemeralSecretVariableDraftValue(workspace, storagePath)
+	if (secretValue === undefined) {
+		throw new Error(
+			`Secret value for local draft variable "${path}" is no longer available because secret draft values are kept only in memory. Run write_variable again before deploying this secret.`
+		)
+	}
+
+	return { ...requestBody, value: secretValue }
+}
+
+function startDraftWrite(ctx: WriteDraftCtx, type: WorkspaceItemType, path: string): void {
+	ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+		content: `Saving ${type} "${path}" to local storage…`
+	})
+}
+
+function getRequiredGlobalDraft(
+	workspace: string,
+	type: WorkspaceItemType,
+	path: string,
+	triggerKind?: TriggerKind
+): WorkspaceItem {
+	const draft = getGlobalDraft(workspace, type, path, triggerKind)
+	if (!draft) {
+		throw new Error(`Could not read written draft ${type} "${path}".`)
+	}
+	return draft
+}
+
+function finishDraftWrite(stored: WorkspaceItem, existed: boolean, ctx: WriteDraftCtx): string {
+	const verb = existed ? 'Updated' : 'Created'
+	const serializedItem =
+		stored.type === 'variable' || stored.type === 'flow'
+			? serializeWorkspaceItemForRead(stored)
+			: stored
+
+	ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+		content: `${verb} ${stored.type} "${stored.path}" in local storage`,
+		result: `Saved to local storage`
+	})
+	return JSON.stringify(
+		{
+			success: true,
+			message: `${verb} ${stored.type} "${stored.path}" in local storage (a browser-only local draft, not a workspace draft). It was not deployed.`,
+			item: serializedItem
+		},
+		null,
+		2
+	)
+}
+
+async function writeScriptDraft(
+	args: { path: string; summary?: string; language: ScriptLang; content: string },
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace } = ctx
+	startDraftWrite(ctx, 'script', args.path)
+	const storagePath = getGlobalDraftStoragePath(workspace, 'script', args.path)
+
+	const existingDraft = UserDraft.get<NewScript>('script', storagePath, { workspace })
+	const backendExists = existingDraft
+		? false
+		: await ScriptService.existsScriptByPath({ workspace, path: args.path })
+
+	if (existingDraft) {
+		const draft: NewScript = {
+			...structuredClone(existingDraft),
+			path: args.path,
+			summary: args.summary ?? existingDraft.summary,
+			content: args.content,
+			language: args.language
+		}
+		UserDraft.save('script', storagePath, draft, { workspace })
+	} else if (backendExists) {
+		const existing = await ScriptService.getScriptByPathWithDraft({
+			workspace,
+			path: args.path
+		})
+		const base = (existing.draft ?? existing) as NewScript
+		const draft: NewScript = {
+			...structuredClone(base),
+			parent_hash: existing.hash,
+			path: args.path,
+			summary: args.summary ?? base.summary,
+			content: args.content,
+			language: args.language
+		}
+		UserDraft.setDraftAndMeta(
+			'script',
+			storagePath,
+			draft,
+			{ remoteRev: existing.hash, remoteDraftRev: existing.draft_created_at },
+			{ workspace }
+		)
+	} else {
+		const draft: NewScript = {
+			path: args.path,
+			summary: args.summary ?? '',
+			description: '',
+			content: args.content,
+			schema: emptySchema(),
+			is_template: false,
+			language: args.language,
+			kind: 'script'
+		}
+		UserDraft.save('script', storagePath, draft, { workspace })
+	}
+
+	return finishDraftWrite(
+		getRequiredGlobalDraft(workspace, 'script', args.path),
+		existingDraft !== undefined || backendExists,
+		ctx
+	)
+}
+
+async function writeFlowDraft(
+	args: { path: string; summary?: string; flow: FlowDraftValue },
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace } = ctx
+	startDraftWrite(ctx, 'flow', args.path)
+	const storagePath = getGlobalDraftStoragePath(workspace, 'flow', args.path)
+
+	const draftValue = args.flow
+	const value = structuredClone(draftValue.value)
+	if (draftValue.groups !== undefined && draftValue.groups !== null) {
+		value.groups = structuredClone(draftValue.groups)
+	}
+
+	const existingDraft = UserDraft.get<Flow>('flow', storagePath, { workspace })
+	const backendExists = existingDraft
+		? false
+		: await FlowService.existsFlowByPath({ workspace, path: args.path })
+
+	if (existingDraft) {
+		const draft: Flow = {
+			...structuredClone(existingDraft),
+			path: args.path,
+			summary: args.summary ?? existingDraft.summary,
+			value,
+			schema: draftValue.schema ?? existingDraft.schema
+		}
+		UserDraft.save('flow', storagePath, draft, { workspace })
+	} else if (backendExists) {
+		const [existing, latestVersion] = await Promise.all([
+			FlowService.getFlowByPathWithDraft({ workspace, path: args.path }),
+			FlowService.getFlowLatestVersion({ workspace, path: args.path })
+		])
+		const base = (existing.draft ?? existing) as Flow
+		const draft: Flow = {
+			...structuredClone(base),
+			path: args.path,
+			summary: args.summary ?? base.summary,
+			value,
+			schema: draftValue.schema ?? base.schema
+		}
+		UserDraft.setDraftAndMeta(
+			'flow',
+			storagePath,
+			draft,
+			{ remoteRev: latestVersion.id, remoteDraftRev: existing.draft_created_at },
+			{ workspace }
+		)
+	} else {
+		const draft: Flow = {
+			path: args.path,
+			summary: args.summary ?? '',
+			value,
+			schema: draftValue.schema ?? emptySchema(),
+			edited_by: '',
+			edited_at: '',
+			archived: false,
+			extra_perms: {}
+		}
+		UserDraft.save('flow', storagePath, draft, { workspace })
+	}
+
+	return finishDraftWrite(
+		getRequiredGlobalDraft(workspace, 'flow', args.path),
+		existingDraft !== undefined || backendExists,
+		ctx
+	)
+}
+
+async function writeScheduleDraft(args: NewSchedule, ctx: WriteDraftCtx): Promise<string> {
+	const { workspace } = ctx
+	startDraftWrite(ctx, 'schedule', args.path)
+
+	const existingDraft = UserDraft.get<ScheduleDraftConfig>('trigger_schedule', args.path, {
+		workspace
+	})
+	const backendExists = existingDraft
+		? false
+		: await ScheduleService.existsSchedule({ workspace, path: args.path })
+
+	const base = existingDraft
+		? existingDraft
+		: backendExists
+			? ((await ScheduleService.getSchedule({
+					workspace,
+					path: args.path
+				})) as ScheduleDraftConfig)
+			: undefined
+	const draft = mergeDraftConfig<ScheduleDraftConfig>(base, args as DraftConfig, args.path)
+
+	UserDraft.save('trigger_schedule', args.path, draft, { workspace })
+
+	return finishDraftWrite(
+		getRequiredGlobalDraft(workspace, 'schedule', args.path),
+		existingDraft !== undefined || backendExists,
+		ctx
+	)
+}
+
+async function writeTriggerDraft(
+	args: { kind: TriggerKind; config: unknown },
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace } = ctx
+	const config = args.config as TriggerDraftConfig
+	const path = config.path
+	const itemKind = triggerKindToUserDraftKind(args.kind)
+	startDraftWrite(ctx, 'trigger', path)
+
+	const existingDraft = UserDraft.get<TriggerDraftConfig>(itemKind, path, { workspace })
+	const backendExists = existingDraft
+		? false
+		: await triggerServices[args.kind].exists({ workspace, path })
+
+	const base = existingDraft
+		? existingDraft
+		: backendExists
+			? ((await triggerServices[args.kind].get({ workspace, path })) as TriggerDraftConfig)
+			: undefined
+	const draft = mergeDraftConfig<TriggerDraftConfig>(base, config, path)
+
+	UserDraft.save(itemKind, path, draft, { workspace })
+
+	return finishDraftWrite(
+		getRequiredGlobalDraft(workspace, 'trigger', path, args.kind),
+		existingDraft !== undefined || backendExists,
+		ctx
+	)
+}
+
+async function writeResourceDraft(args: CreateResource, ctx: WriteDraftCtx): Promise<string> {
+	const { workspace } = ctx
+	startDraftWrite(ctx, 'resource', args.path)
+
+	const existingDraft = UserDraft.get<ResourceDraftState>('resource', args.path, { workspace })
+	const backendExists = existingDraft
+		? false
+		: await ResourceService.existsResource({ workspace, path: args.path })
+
+	if (existingDraft) {
+		UserDraft.save('resource', args.path, createResourceToDraftState(args, existingDraft), {
+			workspace
+		})
+	} else if (backendExists) {
+		const existing = await ResourceService.getResource({ workspace, path: args.path })
+		UserDraft.setDraftAndMeta(
+			'resource',
+			args.path,
+			createResourceToDraftState(args, resourceToDraftState(existing)),
+			{ remoteRev: existing.edited_at },
+			{ workspace }
+		)
+	} else {
+		UserDraft.save('resource', args.path, createResourceToDraftState(args), { workspace })
+	}
+
+	return finishDraftWrite(
+		getRequiredGlobalDraft(workspace, 'resource', args.path),
+		existingDraft !== undefined || backendExists,
+		ctx
+	)
+}
+
+async function writeVariableDraft(args: CreateVariable, ctx: WriteDraftCtx): Promise<string> {
+	const { workspace } = ctx
+	startDraftWrite(ctx, 'variable', args.path)
+
+	const existingDraft = UserDraft.get<VariableDraftState>('variable', args.path, { workspace })
+	const backendExists = existingDraft
+		? false
+		: await VariableService.existsVariable({ workspace, path: args.path })
+
+	if (existingDraft) {
+		UserDraft.save('variable', args.path, createVariableToDraftState(args, existingDraft), {
+			workspace
+		})
+	} else if (backendExists) {
+		const existing = await VariableService.getVariable({
+			workspace,
+			path: args.path,
+			decryptSecret: false
+		})
+		UserDraft.setDraftAndMeta(
+			'variable',
+			args.path,
+			createVariableToDraftState(args, variableToDraftState(existing)),
+			{ remoteRev: existing.edited_at },
+			{ workspace }
+		)
+	} else {
+		UserDraft.save('variable', args.path, createVariableToDraftState(args), { workspace })
+	}
+	syncEphemeralSecretVariableDraftValue(workspace, args)
+
+	return finishDraftWrite(
+		getRequiredGlobalDraft(workspace, 'variable', args.path),
+		existingDraft !== undefined || backendExists,
+		ctx
+	)
 }
 
 async function loadScriptForEdit(
 	path: string,
 	workspace: string
 ): Promise<{ content: string; language: ScriptLang; summary?: string }> {
-	const draft = globalDraftStore.getDraft(workspace, 'script', path)
+	const draft = getGlobalDraft(workspace, 'script', path)
 	if (draft) {
 		if (typeof draft.value !== 'string' || !draft.language) {
 			throw new Error(`Draft script "${path}" is missing content or language.`)
@@ -1743,14 +2467,12 @@ async function editScript(
 
 	const base = await loadScriptForEdit(path, ctx.workspace)
 	const updated = findAndReplace(base.content, oldString, newString, replaceAll, 'script source')
-	return writeDraft(
+	return writeScriptDraft(
 		{
-			type: 'script',
 			path,
 			summary: base.summary,
 			language: base.language,
-			value: updated,
-			isDraft: true
+			content: updated
 		},
 		ctx
 	)
@@ -1760,7 +2482,7 @@ async function loadFlowDraftValue(
 	path: string,
 	workspace: string
 ): Promise<{ flow: FlowDraftValue; summary?: string }> {
-	const draft = globalDraftStore.getDraft(workspace, 'flow', path)
+	const draft = getGlobalDraft(workspace, 'flow', path)
 	if (draft) {
 		if (draft.value === undefined || typeof draft.value === 'string') {
 			throw new Error(`Draft flow "${path}" has no value.`)
@@ -1807,18 +2529,16 @@ async function patchFlowJson(
 	const patchedEditable = validateEditableFlowJson(parsedValue)
 	const newFlowValue = applyEditableFlowJsonToFlow(base.flow.value, patchedEditable, session)
 
-	return writeDraft(
+	return writeFlowDraft(
 		{
-			type: 'flow',
 			path,
 			summary: base.summary,
-			value: {
+			flow: {
 				...base.flow,
 				value: newFlowValue,
 				schema: patchedEditable.schema,
 				groups: patchedEditable.groups
-			},
-			isDraft: true
+			}
 		},
 		ctx
 	)
@@ -1865,16 +2585,153 @@ async function setFlowModuleCode(
 	}
 	session.set(args.module_id, args.code)
 	const newFlowValue = applyEditableFlowJsonToFlow(base.flow.value, editable, session)
-	return writeDraft(
+	return writeFlowDraft(
 		{
-			type: 'flow',
 			path: args.path,
 			summary: base.summary,
-			value: { ...base.flow, value: newFlowValue },
-			isDraft: true
+			flow: { ...base.flow, value: newFlowValue }
 		},
 		ctx
 	)
+}
+
+function normalizeTestRunArgs(args: Record<string, any> | null | undefined): Record<string, any> {
+	return args ?? {}
+}
+
+function flowDraftValueForPreview(flowDraft: FlowDraftValue): FlowValue {
+	return flowDraftAsEditableInput(flowDraft).value
+}
+
+async function loadScriptForFlowStep(
+	moduleValue: { path: string; hash?: string },
+	workspace: string
+): Promise<{ content: string; language: ScriptLang }> {
+	const draft = getGlobalDraft(workspace, 'script', moduleValue.path)
+	if (draft) {
+		if (typeof draft.value !== 'string' || !draft.language) {
+			throw new Error(`Draft script "${moduleValue.path}" is missing content or language.`)
+		}
+		return { content: draft.value, language: draft.language }
+	}
+
+	const script = moduleValue.hash
+		? await ScriptService.getScriptByHash({ workspace, hash: moduleValue.hash })
+		: await ScriptService.getScriptByPath({ workspace, path: moduleValue.path })
+	return { content: script.content, language: script.language }
+}
+
+async function loadDraftFlowPreviewValue(
+	path: string,
+	workspace: string
+): Promise<FlowValue | undefined> {
+	if (!getGlobalDraft(workspace, 'flow', path)) {
+		return undefined
+	}
+	const nestedFlow = await loadFlowDraftValue(path, workspace)
+	return flowDraftValueForPreview(nestedFlow.flow)
+}
+
+async function testRunScriptByPath(
+	args: z.infer<typeof testRunScriptSchema>,
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const script = await loadScriptForEdit(args.path, workspace)
+	const testArgs = normalizeTestRunArgs(args.args)
+
+	return executeTestRun({
+		jobStarter: () =>
+			JobService.runScriptPreview({
+				workspace,
+				requestBody: {
+					path: args.path,
+					content: script.content,
+					args: testArgs,
+					language: script.language
+				}
+			}),
+		workspace,
+		toolCallbacks,
+		toolId,
+		startMessage: `Running test for script "${args.path}"...`,
+		contextName: 'script'
+	})
+}
+
+async function testRunFlowByPath(
+	args: z.infer<typeof testRunFlowSchema>,
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const testArgs = normalizeTestRunArgs(args.args)
+	const testActiveFlow = activeFlowTestFromCtx(ctx, args.path)
+
+	if (testActiveFlow) {
+		return executeTestRun({
+			jobStarter: async () => {
+				const jobId = await testActiveFlow(testArgs)
+				if (jobId) {
+					return jobId
+				}
+
+				const flow = await loadFlowDraftValue(args.path, workspace)
+				return JobService.runFlowPreview({
+					workspace,
+					requestBody: {
+						path: args.path,
+						value: flowDraftValueForPreview(flow.flow),
+						args: testArgs
+					}
+				})
+			},
+			workspace,
+			toolCallbacks,
+			toolId,
+			startMessage: `Starting flow test run for "${args.path}"...`,
+			contextName: 'flow'
+		})
+	}
+
+	const flow = await loadFlowDraftValue(args.path, workspace)
+
+	return executeTestRun({
+		jobStarter: () =>
+			JobService.runFlowPreview({
+				workspace,
+				requestBody: {
+					path: args.path,
+					value: flowDraftValueForPreview(flow.flow),
+					args: testArgs
+				}
+			}),
+		workspace,
+		toolCallbacks,
+		toolId,
+		startMessage: `Starting flow test run for "${args.path}"...`,
+		contextName: 'flow'
+	})
+}
+
+async function testRunFlowStepByPath(
+	args: z.infer<typeof testRunStepSchema>,
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const flow = await loadFlowDraftValue(args.path, workspace)
+	const flowValue = flowDraftValueForPreview(flow.flow)
+	const testArgs = normalizeTestRunArgs(args.args)
+
+	return executeFlowStepTestRun({
+		flowValue,
+		stepId: args.stepId,
+		args: testArgs,
+		workspace,
+		toolCallbacks,
+		toolId,
+		loadScript: loadScriptForFlowStep,
+		loadFlowPreviewValue: loadDraftFlowPreviewValue
+	})
 }
 
 async function initApp(
@@ -1882,16 +2739,15 @@ async function initApp(
 		path: string
 		summary?: string
 		framework: FrameworkKey
-		data?: { datatable?: string; schema?: string; tables?: string[] }
 	},
 	ctx: WriteDraftCtx
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
-	const { path, summary, framework, data } = args
+	const { path, summary, framework } = args
 
-	if (globalDraftStore.getDraft(workspace, 'app', path)) {
+	if (getGlobalDraft(workspace, 'app', path)) {
 		throw new Error(
-			`An AI draft for app "${path}" already exists. Use write_app_file / write_app_runnable to modify it, or delete the existing draft first.`
+			`A local draft for app "${path}" already exists. Use write_app_file / write_app_runnable to modify it, or delete the existing draft first.`
 		)
 	}
 	if (await AppService.existsApp({ workspace, path })) {
@@ -1901,33 +2757,26 @@ async function initApp(
 	}
 
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Initializing app draft "${path}" with ${framework} template...`
+		content: `Saving app "${path}" to local storage (${framework} template)…`
 	})
 
 	const template = FRAMEWORK_TEMPLATES[framework]
 	const value: AppDraftValue = {
 		summary,
 		files: { ...template },
-		runnables: { [STARTER_RUNNABLE_KEY]: { ...STARTER_RUNNABLE } },
-		...(data && {
-			data: {
-				tables: data.tables ?? [],
-				datatable: data.datatable,
-				schema: data.schema
-			}
-		})
+		runnables: { [STARTER_RUNNABLE_KEY]: { ...STARTER_RUNNABLE } }
 	}
 	await recomputeAppPolicy(value)
 	const stored = saveAppDraft(workspace, path, value)
 
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Initialized app draft "${path}" (${framework})`,
-		result: 'Draft initialized'
+		content: `Saved app "${path}" to local storage (${framework})`,
+		result: 'Saved to local storage'
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Initialized AI draft app "${path}" from the ${framework} template with a starter runnable "${STARTER_RUNNABLE_KEY}". Use write_app_file / write_app_runnable to evolve the draft.`,
+			message: `Initialized app "${path}" in local storage from the ${framework} template with a starter runnable "${STARTER_RUNNABLE_KEY}" (a browser-only local draft, not a workspace draft). Use write_app_file / write_app_runnable to evolve it.`,
 			item: stored
 		},
 		null,
@@ -1945,7 +2794,7 @@ async function readAppFile(
 		content: `Reading ${target.filePath} from app "${args.path}"...`
 	})
 
-	const value = await loadAppDraftValue(args.path, workspace)
+	const value = await loadAppValueForRead(args.path, workspace)
 
 	if (target.kind === 'frontend') {
 		const content = value.files[target.filePath]
@@ -1978,18 +2827,18 @@ async function writeAppFile(
 		content: `Writing ${target.filePath} to app "${args.path}"...`
 	})
 
-	const value = await loadAppDraftValue(args.path, workspace)
+	const { value, meta } = await loadAppDraftValue(args.path, workspace)
 	value.files = { ...value.files, [target.filePath]: args.content }
-	const stored = saveAppDraft(workspace, args.path, value)
+	const stored = saveAppDraft(workspace, args.path, value, meta)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Updated ${target.filePath} in app "${args.path}"`,
-		result: 'Draft updated'
+		result: 'Saved to local storage'
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Updated AI draft app "${args.path}" with frontend file "${target.filePath}".`,
+			message: `Updated app "${args.path}" in local storage with frontend file "${target.filePath}".`,
 			item: stored
 		},
 		null,
@@ -2014,22 +2863,22 @@ async function deleteAppFile(
 		content: `Deleting ${target.filePath} from app "${args.path}"...`
 	})
 
-	const value = await loadAppDraftValue(args.path, workspace)
+	const { value, meta } = await loadAppDraftValue(args.path, workspace)
 	if (!(target.filePath in value.files)) {
 		throw new Error(`Frontend file "${target.filePath}" not found in app "${args.path}".`)
 	}
 	const { [target.filePath]: _removed, ...remaining } = value.files
 	value.files = remaining
-	const stored = saveAppDraft(workspace, args.path, value)
+	const stored = saveAppDraft(workspace, args.path, value, meta)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Removed ${target.filePath} from app "${args.path}"`,
-		result: 'Draft updated'
+		result: 'Saved to local storage'
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Removed "${target.filePath}" from AI draft app "${args.path}".`,
+			message: `Removed "${target.filePath}" from app "${args.path}" in local storage.`,
 			item: stored
 		},
 		null,
@@ -2048,15 +2897,23 @@ async function patchAppFile(
 	ctx: WriteDraftCtx
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
-	const { path, file_path: filePath, old_string: oldString, new_string: newString, replace_all: replaceAll } = args
+	const {
+		path,
+		file_path: filePath,
+		old_string: oldString,
+		new_string: newString,
+		replace_all: replaceAll
+	} = args
 	const target = resolveAppFileTarget(filePath)
 	if (target.kind === 'frontend') {
 		assertNotGeneratedAppFile(target.filePath)
 	}
 
-	toolCallbacks.setToolStatus(toolId, { content: `Patching ${target.filePath} in app "${path}"...` })
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Patching ${target.filePath} in app "${path}"...`
+	})
 
-	const value = await loadAppDraftValue(path, workspace)
+	const { value, meta } = await loadAppDraftValue(path, workspace)
 	let currentContent: string
 	let runnable: PersistedRunnable | undefined
 
@@ -2088,22 +2945,23 @@ async function patchAppFile(
 			[target.key]: {
 				...runnable!,
 				inlineScript: {
-					language: runnable!.inlineScript?.language ?? (target.extension === 'py' ? 'python3' : 'bun'),
+					language:
+						runnable!.inlineScript?.language ?? (target.extension === 'py' ? 'python3' : 'bun'),
 					content: updated
 				}
 			}
 		}
 	}
 
-	const stored = saveAppDraft(workspace, path, value)
+	const stored = saveAppDraft(workspace, path, value, meta)
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Patched ${target.filePath} in app "${path}"`,
-		result: 'Draft updated'
+		result: 'Saved to local storage'
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Patched "${target.filePath}" in AI draft app "${path}".`,
+			message: `Patched "${target.filePath}" in app "${path}" in local storage.`,
 			item: stored
 		},
 		null,
@@ -2112,10 +2970,14 @@ async function patchAppFile(
 }
 
 async function recomputeAppPolicy(value: AppDraftValue): Promise<void> {
-	value.policy = (await updateRawAppPolicy(
+	const policy = (await updateRawAppPolicy(
 		value.runnables as any,
 		value.policy as any
-	)) as any
+	)) as NonNullable<AppDraftValue['policy']>
+	if (!policy.execution_mode) {
+		policy.execution_mode = 'publisher'
+	}
+	value.policy = policy
 }
 
 async function writeAppRunnable(
@@ -2128,21 +2990,21 @@ async function writeAppRunnable(
 		content: `Writing runnable "${key}" to app "${path}"...`
 	})
 
-	const value = await loadAppDraftValue(path, workspace)
+	const { value, meta } = await loadAppDraftValue(path, workspace)
 	const existing = value.runnables[key] as PersistedRunnable | undefined
 	const persisted = buildPersistedRunnable(input, existing)
 	value.runnables = { ...value.runnables, [key]: persisted }
 	await recomputeAppPolicy(value)
-	const stored = saveAppDraft(workspace, path, value)
+	const stored = saveAppDraft(workspace, path, value, meta)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Updated runnable "${key}" in app "${path}"`,
-		result: 'Draft updated'
+		result: 'Saved to local storage'
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Updated AI draft app "${path}" with runnable "${key}".`,
+			message: `Updated app "${path}" in local storage with runnable "${key}".`,
 			item: stored
 		},
 		null,
@@ -2160,23 +3022,23 @@ async function deleteAppRunnable(
 		content: `Removing runnable "${key}" from app "${path}"...`
 	})
 
-	const value = await loadAppDraftValue(path, workspace)
+	const { value, meta } = await loadAppDraftValue(path, workspace)
 	if (!(key in value.runnables)) {
 		throw new Error(`Backend runnable "${key}" not found in app "${path}".`)
 	}
 	const { [key]: _removed, ...remaining } = value.runnables
 	value.runnables = remaining
 	await recomputeAppPolicy(value)
-	const stored = saveAppDraft(workspace, path, value)
+	const stored = saveAppDraft(workspace, path, value, meta)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Removed runnable "${key}" from app "${path}"`,
-		result: 'Draft updated'
+		result: 'Saved to local storage'
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Removed runnable "${key}" from AI draft app "${path}".`,
+			message: `Removed runnable "${key}" from app "${path}" in local storage.`,
 			item: stored
 		},
 		null,
@@ -2196,10 +3058,7 @@ const triggerLabels: Record<TriggerKind, string> = {
 	azure: 'Azure Event Grid trigger'
 }
 
-function createOpenScheduleAction(
-	path: string,
-	targetKind: 'script' | 'flow'
-): ToolDisplayAction {
+function createOpenScheduleAction(path: string, targetKind: 'script' | 'flow'): ToolDisplayAction {
 	return {
 		id: `open-deployed-schedule:${path}`,
 		type: 'open_created_resource',
@@ -2246,6 +3105,41 @@ function createOpenVariableAction(path: string): ToolDisplayAction {
 	}
 }
 
+async function discardLocalDraft(
+	args: { type: WorkspaceItemType; path: string; trigger_kind?: TriggerKind },
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const { type, path, trigger_kind: triggerKind } = args
+
+	if (type === 'trigger' && !triggerKind) {
+		throw new Error('trigger_kind is required when discarding a trigger draft.')
+	}
+
+	const draft = getGlobalDraft(workspace, type, path, triggerKind)
+	if (!draft) {
+		throw new Error(`No local draft found for ${type} "${path}".`)
+	}
+
+	deleteGlobalDraft(workspace, type, path, triggerKind)
+
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Discarded ${type} "${path}" from local storage`,
+		result: 'Discarded from local storage'
+	})
+	return JSON.stringify(
+		{
+			success: true,
+			message: `Discarded the local-storage draft for ${type} "${path}". The deployed workspace item was not changed.`,
+			type,
+			path,
+			triggerKind
+		},
+		null,
+		2
+	)
+}
+
 async function deployDraft(
 	args: {
 		type: WorkspaceItemType
@@ -2255,22 +3149,16 @@ async function deployDraft(
 	},
 	ctx: WriteDraftCtx
 ): Promise<string> {
-	const { workspace, toolId, toolCallbacks } = ctx
+	const { workspace, toolId, toolCallbacks, sessionId } = ctx
 	const { type, path, trigger_kind: triggerKind, deployment_message: deploymentMessage } = args
-
-	if (type === 'app') {
-		throw new Error(
-			'Apps cannot be deployed from chat. Open the app editor to deploy (the editor bundles JS/CSS before save).'
-		)
-	}
 
 	if (type === 'trigger' && !triggerKind) {
 		throw new Error('trigger_kind is required when deploying a trigger.')
 	}
 
-	const draft = globalDraftStore.getDraft(workspace, type, path, triggerKind)
+	const draft = getGlobalDraft(workspace, type, path, triggerKind)
 	if (!draft) {
-		throw new Error(`No AI draft found for ${type} "${path}".`)
+		throw new Error(`No local draft found for ${type} "${path}".`)
 	}
 	if (draft.value === undefined) {
 		throw new Error(`Draft ${type} "${path}" has no value to deploy.`)
@@ -2287,10 +3175,16 @@ async function deployDraft(
 			const existing = (await ScriptService.existsScriptByPath({ workspace, path }))
 				? await ScriptService.getScriptByPath({ workspace, path })
 				: undefined
-			await ScriptService.createScript({
-				workspace,
-				requestBody: buildScriptDeployRequestBody(path, draft, existing, deploymentMessage)
-			})
+			const requestBody = buildScriptDeployRequestBody(path, draft, existing, deploymentMessage)
+			// Infer the arg schema from the content so it matches the code, like the editor does.
+			try {
+				const schema = emptySchema()
+				await inferArgs(requestBody.language, requestBody.content, schema)
+				requestBody.schema = schema
+			} catch (e) {
+				console.error('Failed to infer script schema before deploy', e)
+			}
+			await ScriptService.createScript({ workspace, requestBody })
 			break
 		}
 		case 'flow': {
@@ -2346,7 +3240,11 @@ async function deployDraft(
 			break
 		}
 		case 'variable': {
-			const requestBody = draft.value as any
+			const requestBody = buildVariableDeployRequestBody(
+				workspace,
+				path,
+				draft.value as CreateVariable
+			)
 			if (await VariableService.existsVariable({ workspace, path })) {
 				await VariableService.updateVariable({ workspace, path, requestBody })
 			} else {
@@ -2355,9 +3253,101 @@ async function deployDraft(
 			actions = [createOpenVariableAction(path)]
 			break
 		}
+		case 'app': {
+			const appDraft = draft.value as AppDraftValue
+			const appValue: AppDraftValue = {
+				...appDraft,
+				files: { ...(appDraft.files ?? {}) },
+				runnables: { ...(appDraft.runnables ?? {}) },
+				data: appDraft.data ?? { ...DEFAULT_RAW_APP_DATA }
+			}
+			await recomputeAppPolicy(appValue)
+			const policy = appValue.policy
+			if (!policy) {
+				throw new Error(`Draft app "${path}" has no policy to deploy.`)
+			}
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Bundling app "${path}"...`
+			})
+			const bundle = await bundleRawAppDraft({
+				workspace,
+				files: appValue.files,
+				onLog: (delta) => {
+					const lines = delta
+						.split('\n')
+						.map((line) => line.trim())
+						.filter(Boolean)
+					const latest = lines[lines.length - 1]
+					if (latest) {
+						toolCallbacks.setToolStatus(toolId, {
+							content: `Bundling app "${path}"... ${latest}`
+						})
+					}
+				}
+			})
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Deploying app "${path}"...`
+			})
+			const rawAppValue = {
+				files: appValue.files,
+				runnables: appValue.runnables,
+				data: appValue.data ?? { ...DEFAULT_RAW_APP_DATA }
+			}
+			const summary = appValue.summary ?? draft.summary ?? ''
+			if (await AppService.existsApp({ workspace, path })) {
+				// Omit custom_path on update for now. The backend preserves it when absent, while
+				// sending it requires admin privileges; this chat deploy path does not yet mirror
+				// the raw app editor's user/admin-specific custom_path handling.
+				await AppService.updateAppRaw({
+					workspace,
+					path,
+					formData: {
+						app: {
+							path,
+							value: rawAppValue,
+							summary,
+							policy,
+							deployment_message: deploymentMessage
+						},
+						js: bundle.js,
+						css: bundle.css
+					}
+				})
+			} else {
+				await AppService.createAppRaw({
+					workspace,
+					formData: {
+						app: {
+							path,
+							value: rawAppValue,
+							summary,
+							policy,
+							deployment_message: deploymentMessage,
+							custom_path: appValue.custom_path
+						},
+						js: bundle.js,
+						css: bundle.css
+					}
+				})
+			}
+			break
+		}
 	}
 
-	globalDraftStore.deleteDraft(workspace, type, path, triggerKind)
+	deleteGlobalDraft(workspace, type, path, triggerKind, { preserveLiveDraft: true })
+
+	// Reload the session preview if it's open on the deployed item. Map the
+	// deploy type to the preview kind — a raw app deploys under 'app' but the
+	// preview addresses it as 'raw_app'; non-previewable types map to undefined.
+	const previewKindByType: Partial<Record<WorkspaceItemType, 'script' | 'flow' | 'raw_app'>> = {
+		script: 'script',
+		flow: 'flow',
+		app: 'raw_app'
+	}
+	const kind = previewKindByType[type]
+	if (kind) deployedInSessionHandler?.({ sessionId, kind, path })
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deployed ${type} "${path}"`,
@@ -2367,7 +3357,7 @@ async function deployDraft(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Deployed AI draft ${type} "${path}" to the workspace. Draft removed from the AI draft store.`,
+			message: `Deployed local draft ${type} "${path}" to the workspace. Draft removed from the local draft system.`,
 			type,
 			path,
 			triggerKind
@@ -2416,7 +3406,7 @@ async function deleteWorkspaceItem(
 			break
 	}
 
-	globalDraftStore.deleteDraft(workspace, type, path, triggerKind)
+	deleteGlobalDraft(workspace, type, path, triggerKind)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deleted ${type} "${path}"`,
@@ -2425,7 +3415,7 @@ async function deleteWorkspaceItem(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Deleted ${type} "${path}" from the workspace. Any matching AI draft was also cleared.`,
+			message: `Deleted ${type} "${path}" from the workspace. Any matching local draft was also cleared.`,
 			type,
 			path,
 			triggerKind
@@ -2435,42 +3425,12 @@ async function deleteWorkspaceItem(
 	)
 }
 
-async function writeDraft(item: WorkspaceItem, ctx: WriteDraftCtx): Promise<string> {
-	const { workspace, toolId, toolCallbacks } = ctx
-	toolCallbacks.setToolStatus(toolId, {
-		content: `Writing draft ${item.type} "${item.path}"...`
-	})
-
-	const exists =
-		globalDraftStore.getDraft(workspace, item.type, item.path, item.triggerKind) !== undefined ||
-		(await workspaceItemExists(item.type, item.path, workspace, item.triggerKind))
-
-	const stored = globalDraftStore.setDraft(workspace, item)
-	const serializedItem =
-		stored.type === 'variable' || stored.type === 'flow'
-			? serializeWorkspaceItemForRead(stored)
-			: stored
-
-	const verb = exists ? 'Updated' : 'Created'
-	toolCallbacks.setToolStatus(toolId, {
-		content: `${verb} AI draft ${item.type} "${item.path}"`,
-		result: `Draft ${verb.toLowerCase()}`
-	})
-	return JSON.stringify(
-		{
-			success: true,
-			message: `${verb} AI draft ${item.type} "${item.path}". The workspace was not saved or deployed.`,
-			item: serializedItem
-		},
-		null,
-		2
-	)
-}
-
 export function prepareGlobalSystemMessage(
-	customPrompt?: string
+	customPrompt?: string,
+	opts?: { previewTools?: boolean }
 ): ChatCompletionSystemMessageParam {
-	let content = GLOBAL_SYSTEM_PROMPT
+	const username = get(userStore)?.username ?? ''
+	let content = buildGlobalSystemPrompt(username, opts?.previewTools ?? false)
 	if (customPrompt?.trim()) {
 		content = `${content}\n\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
 	}
@@ -2481,14 +3441,36 @@ export function prepareGlobalSystemMessage(
 	}
 }
 
+export function getActiveGlobalEditorContext(
+	workspace: string
+): GlobalActiveEditorContext | undefined {
+	for (const { itemKind, type } of ACTIVE_GLOBAL_EDITOR_DRAFTS) {
+		const liveDraft = UserDraft.getLiveEditorDraft(itemKind, { workspace })
+		const path = liveDraft?.effectivePath || liveDraft?.storagePath
+		if (!path) continue
+		return { type, path, isLiveDraft: true }
+	}
+}
+
 export function prepareGlobalUserMessage(
 	instructions: string,
-	selectedContext: ContextElement[] = []
+	selectedContext: ContextElement[] = [],
+	options: GlobalUserMessageOptions = {}
 ): ChatCompletionUserMessageParam {
 	const selectedWorkspaceItems = selectedContext.filter(
 		(context) => context.type === 'workspace_script' || context.type === 'workspace_flow'
 	)
+	const activeEditor =
+		options.activeEditor ??
+		(options.workspace ? getActiveGlobalEditorContext(options.workspace) : undefined)
 	let content = ''
+
+	if (activeEditor) {
+		content += '## ACTIVE EDITOR\n'
+		content += `type: ${activeEditor.type}\n`
+		content += `path: ${activeEditor.path}\n`
+		content += `isLiveDraft: true\n\n`
+	}
 
 	if (selectedWorkspaceItems.length > 0) {
 		content += '## SELECTED CONTEXT\n'

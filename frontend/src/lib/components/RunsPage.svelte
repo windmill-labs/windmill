@@ -259,12 +259,11 @@
 			createdBy: filters.val.user || undefined,
 			scriptPathStart: filters.val.folder ? `f/${filters.val.folder}/` : undefined,
 			jobKinds: jobKinds == '' ? undefined : jobKinds,
-			success:
-				filters.val.status == 'success'
-					? true
-					: filters.val.status == 'failure'
-						? false
-						: undefined,
+			success: filters.val.status == 'success' ? true : undefined,
+			status:
+				filters.val.status == 'failure' || filters.val.status == 'canceled'
+					? filters.val.status
+					: undefined,
 			running:
 				filters.val.status == 'running' || filters.val.status == 'suspended'
 					? true
@@ -675,6 +674,14 @@
 							iconProps={{
 								class: 'group-data-[state=on]:text-red-500 dark:group-data-[state=on]:text-red-300'
 							}}
+							{item}
+						/>
+						<ToggleButton
+							value={'canceled'}
+							tooltip="Canceled"
+							class="whitespace-nowrap"
+							icon={Hourglass}
+							selectedColor="gray"
 							{item}
 						/>
 						{#if filters.val.status == 'waiting'}

@@ -57,11 +57,14 @@ use windmill_common::{
         PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RESTART_COORDINATION_SETTING,
         RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING, SAML_METADATA_SETTING,
-        SCIM_TOKEN_SETTING, SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING, TEAMS_SETTING,
-        TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING,
-        UV_PYTHON_INSTALL_MIRROR_SETTING, WORKSPACE_FAIRNESS_DURATION_SECS_SETTING,
-        WORKSPACE_FAIRNESS_ENABLED_SETTING, WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING,
-        WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING, WORKSPACE_REGISTRIES_SETTING,
+        SANDBOX_IMAGE_CACHE_MAX_MB_SETTING, SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING,
+        SANDBOX_IMAGE_MAX_SIZE_MB_SETTING, SANDBOX_IMAGE_PULL_POLICY_SETTING,
+        SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING,
+        STORE_AUDIT_LOGS_S3_SETTING, TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
+        UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
+        WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
+        WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
+        WORKSPACE_REGISTRIES_SETTING,
     },
     scripts::ScriptLang,
     stats_oss::schedule_stats,
@@ -134,8 +137,11 @@ use crate::monitor::{
     reload_job_default_timeout_setting, reload_job_isolation_setting, reload_jwt_secret_setting,
     reload_license_key, reload_npm_config_registry_setting, reload_nsjail_tmp_backing_setting,
     reload_nsjail_tmpfs_size_setting, reload_otel_tracing_proxy_setting,
-    reload_pip_index_url_setting, reload_retention_period_setting, reload_scim_token_setting,
-    reload_smtp_config, reload_store_audit_logs_s3_setting, reload_uv_exclude_newer_setting,
+    reload_pip_index_url_setting, reload_retention_period_setting,
+    reload_sandbox_image_cache_max_setting, reload_sandbox_image_default_registry_setting,
+    reload_sandbox_image_max_size_setting, reload_sandbox_image_pull_policy_setting,
+    reload_sandbox_registry_auth_setting, reload_scim_token_setting, reload_smtp_config,
+    reload_store_audit_logs_s3_setting, reload_uv_exclude_newer_setting,
     reload_uv_index_strategy_setting, reload_uv_python_install_mirror_setting,
     reload_worker_config, MonitorIteration,
 };
@@ -258,6 +264,15 @@ pub fn main() -> anyhow::Result<()> {
 }
 
 async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
+    // The `cache` CLI mode never connects to the DB, so HUB_BASE_URL keeps its
+    // compiled default. Allow overriding it via env so the prebuild cache step can
+    // be pointed at a private/staging hub (e.g. a local proxy for testing).
+    if let Ok(hub_base_url) = std::env::var("HUB_BASE_URL") {
+        if !hub_base_url.is_empty() {
+            tracing::info!("Overriding hub base url from env: {hub_base_url}");
+            windmill_common::HUB_BASE_URL.store(std::sync::Arc::new(hub_base_url));
+        }
+    }
     let file_path = file_path.unwrap_or("./hubPaths.json".to_string());
     let mut file = File::open(&file_path)
         .await
@@ -567,6 +582,7 @@ fn print_help() {
     println!("  RUN_UPDATE_CA_CERTIFICATE_AT_START = false  Run system CA update at startup");
     println!("  RUN_UPDATE_CA_CERTIFICATE_PATH = /usr/sbin/update-ca-certificates  Path to CA update tool");
     println!("  SYNC_CACHED_RT = false                 Sync cached resource types to admins workspace on server start");
+    println!("  HUB_BASE_URL = https://hub.windmill.dev  Hub to fetch scripts from in `cache` mode (server/worker use the DB setting instead)");
     println!();
     println!("Notes:");
     println!("- Advanced and less commonly used settings are managed via the database and are omitted here.");
@@ -1654,6 +1670,12 @@ async fn process_notify_event(
                     match *source_type {
                         "script" => {
                             windmill_common::DEPLOYED_SCRIPT_HASH_CACHE.remove(&key);
+                            // Evict the relative-import latest-hash cache so a redeployed
+                            // imported script flips the content cache to its new version
+                            // across all replicas within a poll interval (see #6769). Keyed
+                            // by the bare path, matching this event's payload.
+                            windmill_api_scripts::scripts::RAW_SCRIPT_LATEST_HASH_CACHE
+                                .remove(&format!("{workspace_id}:{path}"));
                             if *kind == "preprocessor" {
                                 match sqlx::query_scalar::<_, i64>(
                                     "SELECT fv.id
@@ -1811,6 +1833,19 @@ async fn process_notify_event(
                 JOB_ISOLATION_SETTING => reload_job_isolation_setting(conn).await,
                 NSJAIL_TMPFS_SIZE_MB_SETTING => reload_nsjail_tmpfs_size_setting(conn).await,
                 NSJAIL_TMP_BACKING_SETTING => reload_nsjail_tmp_backing_setting(conn).await,
+                SANDBOX_IMAGE_MAX_SIZE_MB_SETTING => {
+                    reload_sandbox_image_max_size_setting(conn).await
+                }
+                SANDBOX_IMAGE_CACHE_MAX_MB_SETTING => {
+                    reload_sandbox_image_cache_max_setting(conn).await
+                }
+                SANDBOX_IMAGE_PULL_POLICY_SETTING => {
+                    reload_sandbox_image_pull_policy_setting(conn).await
+                }
+                SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING => {
+                    reload_sandbox_image_default_registry_setting(conn).await
+                }
+                SANDBOX_REGISTRY_AUTH_SETTING => reload_sandbox_registry_auth_setting(conn).await,
                 #[cfg(feature = "parquet")]
                 OBJECT_STORE_CONFIG_SETTING => {
                     if !disable_s3_store {

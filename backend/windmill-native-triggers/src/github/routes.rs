@@ -2,9 +2,10 @@ use std::sync::Arc;
 
 use axum::{extract::Path, routing::get, Extension, Json, Router};
 use http::Method;
+use windmill_api_auth::ApiAuthed;
 use windmill_common::{error::JsonResult, DB};
 
-use crate::{get_workspace_integration, External, ServiceName};
+use crate::{get_workspace_integration, require_native_integration_use, External, ServiceName};
 
 use super::{GitHub, GithubApiRepoResponse, GithubRepoEntry};
 
@@ -12,10 +13,12 @@ const PER_PAGE: usize = 100;
 const MAX_PAGES: usize = 10;
 
 async fn list_repos(
+    authed: ApiAuthed,
     Extension(handler): Extension<Arc<GitHub>>,
     Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,
 ) -> JsonResult<Vec<GithubRepoEntry>> {
+    require_native_integration_use(&authed)?;
     get_workspace_integration(&db, &workspace_id, ServiceName::Github).await?;
 
     let mut all_entries = Vec::new();

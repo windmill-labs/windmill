@@ -252,6 +252,17 @@ lazy_static::lazy_static! {
     pub static ref WORKSPACE_FAIRNESS_OVERLOADED: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
     pub static ref WORKSPACE_FAIRNESS_LAST_REFRESH_MICROS: AtomicI64 = AtomicI64::new(0);
 
+    /// Stochastic admission probability for capped workspaces, expressed in
+    /// parts per 10_000 (so `420` = 4.2%). The refresh computes this from the
+    /// observed worker-second distribution and the configured cap so that
+    /// admission converges to the target *worker-second* share — independent
+    /// of how the capped vs uncapped workspaces compare on per-job durations.
+    /// See `workspace_fairness_ee::refresh_overloaded` for the derivation.
+    /// `10_000` (= admit all) is the default until the first refresh
+    /// classifies an overloaded set — before that, no workspace is capped so
+    /// `should_admit_capped` is moot and "admit all" is the correct no-op.
+    pub static ref WORKSPACE_FAIRNESS_ADMISSION_PPM: AtomicU32 = AtomicU32::new(10_000);
+
 
     pub static ref SMTP_CONFIG: arc_swap::ArcSwap<Option<Smtp>> = arc_swap::ArcSwap::from_pointee(None);
     pub static ref INDEXER_CONFIG: arc_swap::ArcSwap<TantivyIndexerSettings> = arc_swap::ArcSwap::from_pointee(TantivyIndexerSettings::default());
@@ -846,6 +857,37 @@ pub struct SqlAnnotations {
 pub struct BashAnnotations {
     pub docker: bool,
     pub sandbox: bool,
+}
+
+impl BashAnnotations {
+    /// If the script declares `# sandbox <image>` (an image ref after the sandbox
+    /// annotation), returns that image ref. This selects the daemonless, sandboxed
+    /// container runtime: extract the image's rootfs and run it inside the job's
+    /// nsjail sandbox.
+    ///
+    /// A bare `# sandbox` (no image argument) returns `None` and keeps the plain
+    /// nsjail-sandboxed-bash behavior (the `sandbox` boolean modifier). `# docker`
+    /// is unaffected and keeps the legacy v1 (dind/daemon) path.
+    pub fn sandbox_image(code: &str) -> Option<String> {
+        for line in code.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            // Mirror the annotation parser: stop at the first non-comment line.
+            if !line.starts_with('#') {
+                break;
+            }
+            let mut tokens = line[1..].split_whitespace();
+            if tokens.next() == Some("sandbox") {
+                // `# sandbox <image>` -> container; bare `# sandbox` -> nsjail bash.
+                if let Some(image) = tokens.next() {
+                    return Some(image.to_string());
+                }
+            }
+        }
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -2212,6 +2254,34 @@ pub fn try_parse_locked_python_version_from_requirements<S: AsRef<str>>(
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn test_bash_sandbox_image_annotation() {
+        // `# sandbox <image>` selects the container runtime and returns the image.
+        assert_eq!(
+            BashAnnotations::sandbox_image("# sandbox alpine:latest\necho hi"),
+            Some("alpine:latest".to_string())
+        );
+        // Extra whitespace and a leading non-spaced `#` still work.
+        assert_eq!(
+            BashAnnotations::sandbox_image("#sandbox   python:3.12-slim\n"),
+            Some("python:3.12-slim".to_string())
+        );
+        // A bare `# sandbox` (no image) keeps the nsjail-bash modifier -> None.
+        assert_eq!(BashAnnotations::sandbox_image("# sandbox\necho hi"), None);
+        // `sandbox` must be its own token, not a prefix.
+        assert_eq!(BashAnnotations::sandbox_image("# sandboxed foo"), None);
+        // Stops at the first non-comment line (image declared too late is ignored).
+        assert_eq!(
+            BashAnnotations::sandbox_image("echo hi\n# sandbox alpine"),
+            None
+        );
+        // `# docker` is a different annotation -> not a sandbox image.
+        assert_eq!(
+            BashAnnotations::sandbox_image("# docker alpine\necho hi"),
+            None
+        );
+    }
 
     #[test]
     fn test_mixed_tags() {

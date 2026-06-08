@@ -130,7 +130,26 @@ export type UserDraftEntry<V = unknown> = {
 	live: boolean
 }
 
+export type LiveEditorDraft = {
+	workspace: string
+	itemKind: UserDraftItemKind
+	storagePath: string
+	effectivePath?: string
+}
+
+export type LiveEditorDraftSpec = {
+	itemKind: UserDraftItemKind
+	storagePath: string
+	effectivePath?: string
+	workspace?: string
+}
+
+export type ClearLiveEditorDraftOptions = UserDraftOptions & {
+	storagePath?: string
+}
+
 const entries = new Map<string, DraftEntry>()
+const liveEditorDrafts = new Map<string, LiveEditorDraft>()
 
 function resolveWorkspace(opts?: UserDraftOptions): string {
 	const ws = opts?.workspace ?? get(workspaceStore)
@@ -228,6 +247,10 @@ function mapKey(workspace: string, itemKind: UserDraftItemKind, path: string): s
 
 function localStorageKey(workspace: string, itemKind: UserDraftItemKind, path: string): string {
 	return `userdraft/w/${workspace}/${itemKind}/${path}`
+}
+
+function liveEditorDraftKey(workspace: string, itemKind: UserDraftItemKind): string {
+	return `${workspace}/${itemKind}`
 }
 
 function parseLocalStorageKey(
@@ -331,10 +354,13 @@ export const UserDraft = {
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) {
-			// Notify observers; preserve existing rev metadata. `untrack`ed
-			// read — see `set draft` below for why.
+			// Static writes are external mutations. Update live observers and
+			// force the storage slot to match, even if the live entry still has
+			// its initial-write skip armed.
 			const current = untrack(() => entry.state.val as StoredDraft<unknown> | undefined)
-			entry.state.val = wrap(value, extractMeta(current))
+			const meta = extractMeta(current)
+			entry.state.setWithoutPersist(wrap(value, meta))
+			persistDirect(localStorageKey(ws, itemKind, path), value, meta)
 			return
 		}
 		// No live handle: preserve any persisted meta so the staleness
@@ -361,10 +387,10 @@ export const UserDraft = {
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) {
-			entry.state.val = wrap(value, meta)
 			// Static writes represent explicit external draft mutations. A
 			// freshly acquired live entry may still have the initial-write skip
 			// armed, so force the storage slot to match the live value.
+			entry.state.setWithoutPersist(wrap(value, meta))
 			persistDirect(localStorageKey(ws, itemKind, path), value, meta)
 			return
 		}
@@ -401,9 +427,9 @@ export const UserDraft = {
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) {
-			return unwrap(entry.state.val as StoredDraft<V> | undefined)
+			return snapshotDraftValue(unwrap(entry.state.val as StoredDraft<V> | undefined))
 		}
-		return unwrap(readPersisted<V>(localStorageKey(ws, itemKind, path)))
+		return snapshotDraftValue(unwrap(readPersisted<V>(localStorageKey(ws, itemKind, path))))
 	},
 
 	/**
@@ -523,11 +549,45 @@ export const UserDraft = {
 		return Array.from(out.values())
 	},
 
+	setLiveEditorDraft(spec: LiveEditorDraftSpec): void {
+		const ws = resolveWorkspace({ workspace: spec.workspace })
+		liveEditorDrafts.set(liveEditorDraftKey(ws, spec.itemKind), {
+			workspace: ws,
+			itemKind: spec.itemKind,
+			storagePath: spec.storagePath,
+			effectivePath: spec.effectivePath || undefined
+		})
+	},
+
+	getLiveEditorDraft(
+		itemKind: UserDraftItemKind,
+		opts?: UserDraftOptions
+	): LiveEditorDraft | undefined {
+		const ws = resolveWorkspace(opts)
+		const draft = liveEditorDrafts.get(liveEditorDraftKey(ws, itemKind))
+		return draft ? { ...draft } : undefined
+	},
+
+	clearLiveEditorDraft(itemKind: UserDraftItemKind, opts?: ClearLiveEditorDraftOptions): void {
+		const ws = resolveWorkspace(opts)
+		const key = liveEditorDraftKey(ws, itemKind)
+		const draft = liveEditorDrafts.get(key)
+		if (!draft) return
+		if (opts?.storagePath !== undefined && draft.storagePath !== opts.storagePath) return
+		liveEditorDrafts.delete(key)
+	},
+
 	/**
 	 * Like `remove`, but also resets any live handle's `draft` to
 	 * `fallback` in-memory (so reactive readers see it immediately) and
 	 * skips re-persisting it, leaving the LS slot empty until the next real
 	 * edit. Pass the deployed baseline as `fallback`.
+	 *
+	 * `fallback` is deep-cloned before being installed — otherwise a caller
+	 * who passes their own live `$state` baseline (e.g. resource/variable
+	 * editors' `initialStates[ws]`) would end up with `handle.draft` and the
+	 * baseline pointing at the *same* proxy; subsequent edits would mutate
+	 * both sides in lock-step and the dirty check would never fire.
 	 */
 	discard<V>(
 		itemKind: UserDraftItemKind,
@@ -538,12 +598,13 @@ export const UserDraft = {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
+		const safeFallback = snapshotDraftValue(fallback)
 		if (entry) {
 			// Drop any queued debounced write owned by this live entry before
 			// resetting the in-memory value. Otherwise a timer from the old
 			// entry can outlive unmount and later delete a freshly written
 			// draft for the same key.
-			entry.state.setWithoutPersist(wrap(fallback) as StoredDraft<unknown> | undefined)
+			entry.state.setWithoutPersist(wrap(safeFallback) as StoredDraft<unknown> | undefined)
 		}
 		try {
 			localStorage.removeItem(localStorageKey(ws, itemKind, path))
@@ -802,4 +863,5 @@ export function gcUserDrafts(maxAgeMs: number = USER_DRAFT_GC_MAX_AGE_MS): void 
 /** Test-only: clear all in-memory entries. */
 export function __resetUserDraftForTesting(): void {
 	entries.clear()
+	liveEditorDrafts.clear()
 }

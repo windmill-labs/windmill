@@ -283,12 +283,14 @@
 	})
 
 	const overlayPaddingX: Record<InputSize, string> = {
+		'2xs': 'px-1',
 		xs: 'px-1',
 		sm: 'px-2',
 		md: 'px-2',
 		lg: 'px-2'
 	}
 	const overlayHeight: Record<InputSize, string> = {
+		'2xs': 'h-5',
 		xs: 'h-5',
 		sm: 'h-7',
 		md: 'h-8',

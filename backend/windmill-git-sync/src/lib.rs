@@ -13,10 +13,14 @@ pub mod git_sync_ee;
 pub mod git_sync_oss;
 
 #[cfg(feature = "private")]
-pub use git_sync_ee::{handle_deployment_metadata, handle_fork_branch_creation};
+pub use git_sync_ee::{
+    handle_deployment_metadata, handle_deployment_metadata_batch, handle_fork_branch_creation,
+};
 
 #[cfg(not(feature = "private"))]
-pub use git_sync_oss::{handle_deployment_metadata, handle_fork_branch_creation};
+pub use git_sync_oss::{
+    handle_deployment_metadata, handle_deployment_metadata_batch, handle_fork_branch_creation,
+};
 
 #[derive(Clone, Debug)]
 pub enum DeployedObject {
