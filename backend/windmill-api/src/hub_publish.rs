@@ -8,7 +8,11 @@ use axum::{
     Router,
 };
 use serde::{Deserialize, Serialize};
-use windmill_common::{error::Error, utils::require_admin, HUB_BASE_URL};
+use windmill_common::{
+    error::{to_anyhow, Error},
+    utils::require_admin,
+    HUB_BASE_URL,
+};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -40,7 +44,6 @@ struct PublishDraftBody {
 
 #[derive(Serialize)]
 struct HubProjectBody {
-    source_id: String,
     slug: String,
     name: String,
     summary: String,
@@ -54,10 +57,11 @@ async fn publish_draft(
     Json(body): Json<PublishDraftBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
+    // source_id is injected from the trusted `workspace` path by forward_to_hub.
     forward_to_hub(
         "/projects",
+        &workspace,
         &HubProjectBody {
-            source_id: workspace,
             slug: body.slug,
             name: body.name,
             summary: body.summary,
@@ -88,11 +92,11 @@ struct PublishScriptBody {
 
 async fn publish_script(
     authed: ApiAuthed,
-    Path(_workspace): Path<String>,
+    Path(workspace): Path<String>,
     Json(body): Json<PublishScriptBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
-    forward_to_hub("/scripts/add", &body).await
+    forward_to_hub("/scripts/add", &workspace, &body).await
 }
 
 #[derive(Deserialize, Serialize)]
@@ -118,11 +122,11 @@ struct PublishFlowBody {
 
 async fn publish_flow(
     authed: ApiAuthed,
-    Path(_workspace): Path<String>,
+    Path(workspace): Path<String>,
     Json(body): Json<PublishFlowBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
-    forward_to_hub("/flows", &body).await
+    forward_to_hub("/flows", &workspace, &body).await
 }
 
 #[derive(Deserialize, Serialize)]
@@ -139,11 +143,11 @@ struct PublishAppBody {
 
 async fn publish_app(
     authed: ApiAuthed,
-    Path(_workspace): Path<String>,
+    Path(workspace): Path<String>,
     Json(body): Json<PublishAppBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
-    forward_to_hub("/apps", &body).await
+    forward_to_hub("/apps", &workspace, &body).await
 }
 
 #[derive(Deserialize, Serialize)]
@@ -162,11 +166,11 @@ struct PublishRawAppBody {
 
 async fn publish_raw_app(
     authed: ApiAuthed,
-    Path(_workspace): Path<String>,
+    Path(workspace): Path<String>,
     Json(body): Json<PublishRawAppBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
-    forward_to_hub("/raw_apps", &body).await
+    forward_to_hub("/raw_apps", &workspace, &body).await
 }
 
 #[derive(Deserialize, Serialize)]
@@ -178,11 +182,11 @@ struct RawAppEmbedBody {
 
 async fn publish_raw_app_embed(
     authed: ApiAuthed,
-    Path((_workspace, id)): Path<(String, i64)>,
+    Path((workspace, id)): Path<(String, i64)>,
     Json(body): Json<RawAppEmbedBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
-    forward_to_hub(&format!("/raw_apps/{}/embed", id), &body).await
+    forward_to_hub(&format!("/raw_apps/{}/embed", id), &workspace, &body).await
 }
 
 #[derive(Deserialize, Serialize)]
@@ -194,20 +198,20 @@ struct RecordingBody {
 
 async fn publish_script_recording(
     authed: ApiAuthed,
-    Path((_workspace, ask_id)): Path<(String, i64)>,
+    Path((workspace, ask_id)): Path<(String, i64)>,
     Json(body): Json<RecordingBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
-    forward_to_hub(&format!("/scripts/{}/recording", ask_id), &body).await
+    forward_to_hub(&format!("/scripts/{}/recording", ask_id), &workspace, &body).await
 }
 
 async fn publish_flow_recording(
     authed: ApiAuthed,
-    Path((_workspace, flow_id)): Path<(String, i64)>,
+    Path((workspace, flow_id)): Path<(String, i64)>,
     Json(body): Json<RecordingBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
-    forward_to_hub(&format!("/flows/{}/recording", flow_id), &body).await
+    forward_to_hub(&format!("/flows/{}/recording", flow_id), &workspace, &body).await
 }
 
 #[derive(Deserialize, Serialize)]
@@ -224,12 +228,13 @@ struct PublishResourceTypeBody {
 
 async fn publish_resource_type(
     authed: ApiAuthed,
-    Path(_workspace): Path<String>,
+    Path(workspace): Path<String>,
     Json(body): Json<PublishResourceTypeBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
     forward_to_hub(
         &format!("/projects/{}/resource_types", body.project_slug),
+        &workspace,
         &body,
     )
     .await
@@ -251,11 +256,16 @@ struct PublishResourcesBody {
 
 async fn publish_resources(
     authed: ApiAuthed,
-    Path(_workspace): Path<String>,
+    Path(workspace): Path<String>,
     Json(body): Json<PublishResourcesBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
-    forward_to_hub(&format!("/projects/{}/resources", body.project_slug), &body).await
+    forward_to_hub(
+        &format!("/projects/{}/resources", body.project_slug),
+        &workspace,
+        &body,
+    )
+    .await
 }
 
 #[derive(Deserialize, Serialize)]
@@ -281,22 +291,32 @@ struct PublishTriggersBody {
 
 async fn publish_triggers(
     authed: ApiAuthed,
-    Path(_workspace): Path<String>,
+    Path(workspace): Path<String>,
     Json(body): Json<PublishTriggersBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
-    forward_to_hub(&format!("/projects/{}/triggers", body.project_slug), &body).await
+    forward_to_hub(
+        &format!("/projects/{}/triggers", body.project_slug),
+        &workspace,
+        &body,
+    )
+    .await
 }
 
 async fn get_project_export(
     authed: ApiAuthed,
-    Path((_workspace, slug)): Path<(String, String)>,
+    Path((workspace, slug)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
-    get_from_hub(&format!("/projects/{}/export", slug)).await
+    get_from_hub(&format!("/projects/{}/export", slug), &workspace).await
 }
 
-async fn get_from_hub(path: &str) -> Result<(StatusCode, String), Error> {
+// `source_id` is the server-trusted workspace from the `{workspace}` path — NOT
+// client-supplied — so the Hub can enforce that the targeted project belongs to
+// the calling workspace. Without it, any workspace admin could mutate or read
+// another workspace's Hub project by passing its `project_slug`, since the Hub
+// authenticates every call with the same instance-wide HUB_DEV_TOKEN.
+async fn get_from_hub(path: &str, source_id: &str) -> Result<(StatusCode, String), Error> {
     let hub_token = std::env::var("HUB_DEV_TOKEN")
         .map_err(|_| Error::BadRequest("HUB_DEV_TOKEN not set".into()))?;
 
@@ -304,6 +324,7 @@ async fn get_from_hub(path: &str) -> Result<(StatusCode, String), Error> {
 
     let res = HTTP_CLIENT
         .get(&url)
+        .query(&[("source_id", source_id)])
         .bearer_auth(&hub_token)
         .send()
         .await
@@ -318,16 +339,31 @@ async fn get_from_hub(path: &str) -> Result<(StatusCode, String), Error> {
     Ok((status, text))
 }
 
-async fn forward_to_hub<T: Serialize>(path: &str, body: &T) -> Result<(StatusCode, String), Error> {
+async fn forward_to_hub<T: Serialize>(
+    path: &str,
+    source_id: &str,
+    body: &T,
+) -> Result<(StatusCode, String), Error> {
     let hub_token = std::env::var("HUB_DEV_TOKEN")
         .map_err(|_| Error::BadRequest("HUB_DEV_TOKEN not set".into()))?;
 
     let url = format!("{}{}", **HUB_BASE_URL.load(), path);
 
+    // Stamp the trusted workspace onto the payload so the Hub can verify
+    // ownership; never trust the client-supplied project_slug alone.
+    let mut payload = serde_json::to_value(body).map_err(to_anyhow)?;
+    let obj = payload
+        .as_object_mut()
+        .ok_or_else(|| Error::internal_err("hub publish body must be a JSON object".to_string()))?;
+    obj.insert(
+        "source_id".to_string(),
+        serde_json::Value::String(source_id.to_string()),
+    );
+
     let res = HTTP_CLIENT
         .post(&url)
         .bearer_auth(&hub_token)
-        .json(body)
+        .json(&payload)
         .send()
         .await
         .map_err(|e| Error::InternalErr(format!("hub request failed: {e}")))?;
