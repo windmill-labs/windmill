@@ -17,7 +17,7 @@ use windmill_common::db::DB;
 use windmill_common::error;
 use windmill_common::variables::{build_crypt, decrypt, encrypt};
 
-use crate::oauth::AuthorizationManager;
+use crate::oauth::{no_redirect_http_client, AuthorizationManager};
 
 /// MCP client credentials returned by [`get_or_refresh_mcp_client`].
 pub struct McpClientCredentials {
@@ -83,9 +83,7 @@ async fn register_client(
     )
     .await?;
 
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
+    let client = no_redirect_http_client()
         .map_err(|e| error::Error::BadRequest(format!("Failed to build DCR client: {e}")))?;
     let request = DcrRequest {
         client_name: client_name.to_string(),
@@ -168,12 +166,9 @@ pub async fn get_or_refresh_mcp_client(
     let mut manager = AuthorizationManager::new(mcp_server_url)
         .await
         .map_err(|e| error::Error::BadRequest(format!("Failed to create auth manager: {e}")))?;
-    let discovery_client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| {
-            error::Error::BadRequest(format!("Failed to build MCP OAuth discovery client: {e}"))
-        })?;
+    let discovery_client = no_redirect_http_client().map_err(|e| {
+        error::Error::BadRequest(format!("Failed to build MCP OAuth discovery client: {e}"))
+    })?;
     manager
         .with_client(discovery_client)
         .map_err(|e| error::Error::BadRequest(format!("Failed to configure auth manager: {e}")))?;
