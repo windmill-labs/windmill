@@ -206,32 +206,6 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 }
 
 /**
- * Tab/app switch flush — the document is hidden but the page is still
- * alive. Route every pending edit through the normal runner pipeline so
- * the server's response can land and `setLastSync` can bump the local
- * baseline. Without that, the next foreground edit attaches the stale
- * `last_sync` we sent before the flush, the server's `created_at` is
- * now ahead, and the user gets a spurious conflict modal for their own
- * background-tab write.
- *
- * `debouncer.cancel(key)` first so a still-pending keystroke debounce
- * can't fire a second runner POST with the same stale `last_sync`
- * after the flush submission — that would also self-conflict.
- *
- * Doesn't clear `pendingSaveOpts`: `postSave` deletes the entry on
- * success (gated on `pendingSaveOpts.get(key) === opts`), and a later
- * `pagehide` keepalive needs to see anything that's still in flight or
- * that the user edited after this flush.
- */
-function flushOnVisibilityHidden(): void {
-	if (pendingSaveOpts.size === 0) return
-	for (const [key, opts] of pendingSaveOpts) {
-		debouncer.cancel(key)
-		runner.submit(key, () => postSave(opts))
-	}
-}
-
-/**
  * True-unload flush — `pagehide` is the browser's commitment that the
  * document is going away. Use `keepalive: true` so the network stack
  * commits the request even after the JS context is torn down; the
@@ -291,14 +265,14 @@ function flushOnPageHide(): void {
 }
 
 if (typeof document !== 'undefined') {
-	document.addEventListener('visibilitychange', () => {
-		if (document.visibilityState === 'hidden') flushOnVisibilityHidden()
-	})
-	// `pagehide` is the only signal we trust to mean "the document is
-	// truly going away" — `visibilitychange → hidden` is too broad
-	// (fires on every tab/app switch with the page surviving), which is
-	// why we route THAT through the normal runner above and reserve
-	// keepalive for here.
+	// `pagehide` is the only signal that means "the document is truly
+	// going away". We deliberately do NOT listen for
+	// `visibilitychange → hidden`: it fires on every tab/app switch with
+	// the page surviving, and on a surviving page the debouncer's
+	// pending `setTimeout` keeps running in the background, the runner
+	// POST eventually fires, and the server's response updates
+	// `lastSync` — no flush needed, no spurious conflict modal on the
+	// user's own background-tab write.
 	window.addEventListener('pagehide', flushOnPageHide)
 }
 
