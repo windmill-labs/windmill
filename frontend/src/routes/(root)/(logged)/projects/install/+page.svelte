@@ -1,0 +1,278 @@
+<script lang="ts">
+	import { page } from '$app/stores'
+	import { goto } from '$app/navigation'
+	import { workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/toast'
+	import { Button } from '$lib/components/common'
+	import {
+		ScriptService,
+		FlowService,
+		AppService,
+		ResourceService,
+		ScheduleService
+	} from '$lib/gen'
+	import { Cloud, Download, Loader2 } from 'lucide-svelte'
+
+	type ExportItem = Record<string, any>
+	interface ProjectExport {
+		project: { slug: string; name: string; summary: string; readme: string | null }
+		scripts: ExportItem[]
+		flows: ExportItem[]
+		apps: ExportItem[]
+		resources: ExportItem[]
+		triggers: ExportItem[]
+	}
+
+	let slug = $derived($page.url.searchParams.get('hub') ?? '')
+	let workspace = $derived($workspaceStore)
+
+	let loading = $state(true)
+	let loadError = $state<string | undefined>(undefined)
+	let data = $state<ProjectExport | undefined>(undefined)
+	let installing = $state(false)
+	let results = $state<{ path: string; ok: boolean; error?: string }[]>([])
+	let done = $state(false)
+
+	$effect(() => {
+		if (slug && workspace) void load()
+	})
+
+	async function load() {
+		loading = true
+		loadError = undefined
+		try {
+			const res = await fetch(
+				`/api/w/${workspace}/hub/projects/${encodeURIComponent(slug)}/export`,
+				{ credentials: 'include', headers: { accept: 'application/json' } }
+			)
+			if (!res.ok) throw new Error(`export ${res.status}: ${await res.text()}`)
+			data = JSON.parse(await res.text())
+		} catch (e: any) {
+			loadError = e?.message ?? String(e)
+		} finally {
+			loading = false
+		}
+	}
+
+	const counts = $derived(
+		data
+			? {
+					scripts: data.scripts.length,
+					flows: data.flows.length,
+					apps: data.apps.length,
+					resources: data.resources.length,
+					triggers: data.triggers.length
+				}
+			: undefined
+	)
+
+	function record(path: string, p: Promise<unknown>): Promise<void> {
+		return p.then(
+			() => {
+				results = [...results, { path, ok: true }]
+			},
+			(e: any) => {
+				results = [...results, { path, ok: false, error: e?.message ?? String(e) }]
+			}
+		)
+	}
+
+	// Minimal non-public policy for re-created apps.
+	const defaultPolicy = { execution_mode: 'publisher', triggerables_v2: {} } as any
+
+	async function install() {
+		if (!data || !workspace) return
+		installing = true
+		results = []
+		done = false
+		try {
+			for (const s of data.scripts) {
+				await record(
+					s.path,
+					ScriptService.createScript({
+						workspace,
+						requestBody: {
+							path: s.path,
+							summary: s.summary ?? '',
+							description: s.description ?? '',
+							content: s.content ?? '',
+							language: s.language,
+							schema: s.schema ?? undefined,
+							kind: s.kind ?? 'script',
+							lock: s.lockfile ?? undefined
+						}
+					})
+				)
+			}
+			for (const f of data.flows) {
+				await record(
+					f.path,
+					FlowService.createFlow({
+						workspace,
+						requestBody: {
+							path: f.path,
+							summary: f.summary ?? '',
+							description: f.description ?? '',
+							value: f.value,
+							schema: f.schema ?? undefined
+						}
+					})
+				)
+			}
+			for (const r of data.resources) {
+				await record(
+					r.path,
+					ResourceService.createResource({
+						workspace,
+						updateIfExists: true,
+						requestBody: {
+							path: r.path,
+							resource_type: r.resource_type,
+							value: {},
+							description: 'Imported stub — fill in the value.'
+						}
+					})
+				)
+			}
+			for (const a of data.apps) {
+				if (a.app_type === 'raw') {
+					const parsed = JSON.parse(a.value?.raw ?? '{}')
+					const files = { ...(parsed.files ?? {}) }
+					const js = files['/bundle.js'] ?? ''
+					const css = files['/bundle.css'] ?? ''
+					delete files['/bundle.js']
+					delete files['/bundle.css']
+					await record(
+						a.path,
+						AppService.createAppRaw({
+							workspace,
+							formData: {
+								app: {
+									path: a.path,
+									summary: a.summary ?? '',
+									value: { files, runnables: parsed.runnables ?? {} },
+									policy: defaultPolicy
+								},
+								js,
+								css
+							}
+						})
+					)
+				} else {
+					await record(
+						a.path,
+						AppService.createApp({
+							workspace,
+							requestBody: {
+								path: a.path,
+								summary: a.summary ?? '',
+								value: a.value,
+								policy: defaultPolicy
+							}
+						})
+					)
+				}
+			}
+			for (const t of data.triggers) {
+				if (t.kind === 'schedule') {
+					await record(
+						t.path,
+						ScheduleService.createSchedule({
+							workspace,
+							requestBody: {
+								path: t.path,
+								schedule: t.config?.schedule ?? '0 0 * * * *',
+								timezone: t.config?.timezone ?? 'UTC',
+								script_path: t.runnable_path,
+								is_flow: t.runnable_kind === 'flow',
+								enabled: false,
+								args: t.config?.args ?? {}
+							}
+						})
+					)
+				} else {
+					results = [
+						...results,
+						{ path: t.path, ok: false, error: `trigger kind '${t.kind}' not supported yet` }
+					]
+				}
+			}
+			done = true
+			const failed = results.filter((r) => !r.ok).length
+			sendUserToast(
+				failed > 0
+					? `Imported with ${failed} item(s) failed.`
+					: `Project imported into ${workspace}.`,
+				failed > 0
+			)
+		} finally {
+			installing = false
+		}
+	}
+</script>
+
+<div class="mx-auto w-full max-w-screen-md px-4 py-10">
+	{#if !slug}
+		<p class="text-sm text-secondary">Missing <span class="font-mono">?hub=&lt;slug&gt;</span>.</p>
+	{:else if loading}
+		<div class="flex items-center gap-2 text-sm text-secondary">
+			<Loader2 size={16} class="animate-spin" /> Loading project…
+		</div>
+	{:else if loadError}
+		<p class="text-sm text-red-600">Failed to load project: {loadError}</p>
+	{:else if data}
+		<h1 class="text-2xl font-semibold text-primary">Add “{data.project.name}” to workspace</h1>
+		<p class="mt-1 text-sm text-secondary">{data.project.summary}</p>
+		<p class="mt-1 text-xs text-tertiary">
+			Imported into <span class="font-mono">{workspace}</span> under
+			<span class="font-mono">f/{data.project.slug}/</span>.
+		</p>
+
+		<div class="mt-6 flex flex-wrap gap-2 text-xs">
+			<span class="rounded border px-2 py-1">{counts?.scripts} scripts</span>
+			<span class="rounded border px-2 py-1">{counts?.flows} flows</span>
+			<span class="rounded border px-2 py-1">{counts?.apps} apps</span>
+			<span class="rounded border px-2 py-1">{counts?.resources} resources</span>
+			<span class="rounded border px-2 py-1">{counts?.triggers} triggers</span>
+		</div>
+
+		<div
+			class="mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+		>
+			Resources are imported as empty stubs — set their values after import. Schedules are imported
+			disabled.
+		</div>
+
+		<div class="mt-6 flex items-center gap-3">
+			<Button
+				variant="accent"
+				startIcon={{ icon: done ? Cloud : Download }}
+				disabled={installing || done}
+				onclick={install}
+			>
+				{#if installing}
+					<Loader2 size={16} class="animate-spin mr-1" /> Importing…
+				{:else if done}
+					Imported
+				{:else}
+					Import to {workspace}
+				{/if}
+			</Button>
+			{#if done}
+				<Button variant="border" onclick={() => goto(`/`)}>Go to workspace</Button>
+			{/if}
+		</div>
+
+		{#if results.length}
+			<ul class="mt-6 flex flex-col gap-1 text-xs">
+				{#each results as r}
+					<li class="flex items-center gap-2">
+						<span class={r.ok ? 'text-emerald-600' : 'text-red-600'}>{r.ok ? '✓' : '✗'}</span>
+						<span class="font-mono">{r.path}</span>
+						{#if !r.ok}<span class="text-red-600">— {r.error}</span>{/if}
+					</li>
+				{/each}
+			</ul>
+		{/if}
+	{/if}
+</div>
