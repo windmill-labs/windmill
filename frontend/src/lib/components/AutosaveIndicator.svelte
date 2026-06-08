@@ -98,46 +98,47 @@
 	}
 </script>
 
-<Popover
-	bind:isOpen={popoverOpen}
-	placement="bottom-end"
-	contentClasses="p-3 max-w-xs"
-	usePointerDownOutside
-	closeOnOutsideClick
+<div
+	class="flex items-center gap-1.5 text-primary min-w-[4.2rem]"
+	aria-label="Autosave status"
 >
-	{#snippet trigger()}
-		<div
-			class="flex items-center gap-1.5 text-primary min-w-[4.2rem] rounded-md px-1 py-0.5 hover:bg-surface-hover cursor-pointer"
-			aria-label="Autosave status"
-		>
-			{#if syncState === 'saving' || syncState === 'pending'}
-				<RefreshCcw size={14} class="animate-spin" />
-			{:else}
-				<CloudCheck size={16} />
-			{/if}
-			{#if label}
-				<span class="text-secondary text-2xs">{label}</span>
-			{/if}
-		</div>
-	{/snippet}
+	<Popover
+		bind:isOpen={popoverOpen}
+		placement="bottom-end"
+		usePointerDownOutside
+		closeOnOutsideClick
+	>
+		{#snippet trigger()}
+			<div class='rounded-md p-1.5 hover:bg-surface-hover cursor-pointer'>
+				{#if syncState === 'saving' || syncState === 'pending'}
+					<RefreshCcw size={14} class="animate-spin" />
+				{:else}
+					<CloudCheck size={16}  />
+				{/if}
+			</div>
+		{/snippet}
 
-	{#snippet content()}
-		<div class="flex flex-col gap-3 text-sm">
-			<p class="text-secondary leading-snug">
-				All changes are saved as a draft on the server. The draft is per-user — your teammates'
-				editors keep their own.
-			</p>
-			{#if showResetAction}
-				<Button
-					variant="default"
-					size="xs"
-					loading={resetting}
-					startIcon={{ icon: RotateCcw }}
-					on:click={() => void resetToDeployed()}
-				>
-					Reset to deployed
-				</Button>
-			{/if}
-		</div>
-	{/snippet}
-</Popover>
+		{#snippet content()}
+			<div class="flex flex-col gap-3 text-sm w-72 p-3">
+				<p class="text-primary text-sm">
+					All changes are saved as a draft on the server. The draft is per-user — your teammates'
+					editors keep their own.
+				</p>
+				{#if showResetAction}
+					<Button
+						variant="default"
+						size="xs"
+						loading={resetting}
+						startIcon={{ icon: RotateCcw }}
+						on:click={() => void resetToDeployed()}
+					>
+						Reset to deployed
+					</Button>
+				{/if}
+			</div>
+		{/snippet} 
+	</Popover>
+	{#if label}
+		<span class="text-secondary text-2xs">{label}</span>
+	{/if}
+</div>
