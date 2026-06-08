@@ -12,8 +12,6 @@ pub mod common;
 // Client module
 pub mod client;
 
-mod ssrf;
-
 // Re-export common types at crate root for convenience
 pub use common::{
     convert_schema_to_schema_type, is_resource_allowed, parse_mcp_scopes, transform_hub_path,
@@ -41,6 +39,12 @@ pub mod oauth {
     //! Re-exports of rmcp auth and oauth2 types for MCP OAuth implementations
 
     pub use rmcp::transport::auth::AuthorizationManager;
+
+    pub fn no_redirect_http_client() -> Result<reqwest::Client, reqwest::Error> {
+        reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+    }
 
     // Re-export oauth2 types needed for MCP OAuth flow
     pub use oauth2::{

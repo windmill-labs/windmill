@@ -77,7 +77,7 @@ async fn register_client(
     redirect_uri: &str,
     client_name: &str,
 ) -> Result<DcrResponse, error::Error> {
-    crate::ssrf::validate_mcp_server_url_for_bad_request(
+    windmill_common::ssrf::validate_mcp_server_url_for_bad_request(
         registration_endpoint,
         "MCP server registration endpoint URL",
     )
@@ -130,7 +130,11 @@ pub async fn get_or_refresh_mcp_client(
     let base_url = (**windmill_common::BASE_URL.load()).clone();
     let redirect_uri = format!("{}/api/mcp/oauth/callback", base_url);
 
-    crate::ssrf::validate_mcp_server_url_for_bad_request(mcp_server_url, "MCP server URL").await?;
+    windmill_common::ssrf::validate_mcp_server_url_for_bad_request(
+        mcp_server_url,
+        "MCP server URL",
+    )
+    .await?;
 
     let cached_client: Option<McpOAuthClient> =
         sqlx::query_as("SELECT mcp_server_url, client_id, client_secret, client_secret_expires_at, token_endpoint FROM mcp_oauth_client WHERE mcp_server_url = $1")
@@ -142,7 +146,7 @@ pub async fn get_or_refresh_mcp_client(
     if let Some(client) = cached_client {
         if !client.is_expired() {
             tracing::debug!("Using cached MCP client for {}", mcp_server_url);
-            crate::ssrf::validate_mcp_server_url_for_bad_request(
+            windmill_common::ssrf::validate_mcp_server_url_for_bad_request(
                 &client.token_endpoint,
                 "MCP server token endpoint URL",
             )
@@ -179,7 +183,7 @@ pub async fn get_or_refresh_mcp_client(
         .await
         .map_err(|e| error::Error::BadRequest(format!("OAuth discovery failed: {e}")))?;
 
-    crate::ssrf::validate_mcp_server_url_for_bad_request(
+    windmill_common::ssrf::validate_mcp_server_url_for_bad_request(
         &metadata.token_endpoint,
         "MCP server token endpoint URL",
     )
