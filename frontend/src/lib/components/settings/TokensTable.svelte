@@ -6,7 +6,6 @@
 	import { sendUserToast } from '$lib/toast'
 	import CreateToken from './CreateToken.svelte'
 	import EditTokenScopesModal from './EditTokenScopesModal.svelte'
-	import EditableInput from '../common/EditableInput.svelte'
 	import Button from '../common/button/Button.svelte'
 	import Badge from '../common/badge/Badge.svelte'
 	import Alert from '../common/alert/Alert.svelte'
@@ -36,7 +35,13 @@
 	let tokenPage = $state(1)
 	let newTokenLabel = $state<string | undefined>(untrack(() => defaultNewTokenLabel))
 	let editingToken = $state<
-		{ prefix: string; scopes: string[] | undefined; workspaceId: string | undefined } | undefined
+		| {
+				prefix: string
+				label: string | undefined
+				scopes: string[] | undefined
+				workspaceId: string | undefined
+		  }
+		| undefined
 	>(undefined)
 	let editModalOpen = $state(false)
 
@@ -104,26 +109,15 @@
 		listTokens()
 	}
 
-	async function handleLabelSave(tokenPrefix: string, newLabel: string) {
-		try {
-			await UserService.updateTokenLabel({
-				tokenPrefix,
-				requestBody: { label: newLabel === '' ? null : newLabel }
-			})
-			sendUserToast('Token label updated')
-			listTokens()
-		} catch (err) {
-			sendUserToast(`Failed to update label: ${err.body ?? err.message}`, true)
-		}
-	}
-
 	function handleEditClick(
 		tokenPrefix: string,
+		tokenLabel: string | undefined,
 		tokenScopes: string[] | undefined,
 		tokenWorkspaceId: string | undefined
 	) {
 		editingToken = {
 			prefix: tokenPrefix,
+			label: tokenLabel,
 			scopes: tokenScopes,
 			workspaceId: tokenWorkspaceId
 		}
@@ -189,16 +183,7 @@
 							{@const badge = expirationBadge(expiration, label)}
 							<tr>
 								<td class="w-32 text-xs text-primary">{token_prefix}****</td>
-								<td class="min-w-0 max-w-32 text-xs text-primary">
-									<EditableInput
-										value={label ?? ''}
-										placeholder="Add a label..."
-										editable={isUserToken(label)}
-										onSave={(v) => handleLabelSave(token_prefix, v)}
-										textClass="text-xs text-primary"
-										class="max-w-32"
-									/>
-								</td>
+								<td class="min-w-0 max-w-32 truncate text-xs text-primary">{label ?? ''}</td>
 								<td class="w-40 whitespace-nowrap text-xs text-secondary">
 									<div class="flex items-center gap-1.5">
 										{displayDate(expiration ?? '')}
@@ -222,9 +207,11 @@
 									<div class="flex items-center justify-center gap-1">
 										<Button
 											variant="subtle"
+											title="Edit token"
 											on:click={() =>
 												handleEditClick(
 													token_prefix,
+													label ?? undefined,
 													scopes ?? undefined,
 													workspace_id ?? undefined
 												)}
@@ -268,6 +255,8 @@
 <EditTokenScopesModal
 	bind:open={editModalOpen}
 	tokenPrefix={editingToken?.prefix}
+	initialLabel={editingToken?.label}
+	labelEditable={isUserToken(editingToken?.label)}
 	initialScopes={editingToken?.scopes}
 	tokenWorkspaceId={editingToken?.workspaceId}
 	onSaved={listTokens}
