@@ -139,6 +139,10 @@ pub fn global_service() -> Router {
             "/tokens/update_scopes/{token_prefix}",
             post(update_token_scopes),
         )
+        .route(
+            "/tokens/update_label/{token_prefix}",
+            post(update_token_label),
+        )
         .route("/tokens/list", get(list_tokens))
         .route("/tokens/impersonate", post(impersonate))
         .route("/usage", get(get_usage))
@@ -2406,6 +2410,54 @@ async fn update_token_scopes(
     windmill_api_auth::invalidate_token_from_cache(&prefix);
 
     Ok(format!("updated scopes for token {prefix}"))
+}
+
+#[derive(Deserialize)]
+struct UpdateTokenLabelRequest {
+    label: Option<String>,
+}
+
+async fn update_token_label(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Path(token_prefix): Path<String>,
+    Json(req): Json<UpdateTokenLabelRequest>,
+) -> Result<String> {
+    let mut tx = db.begin().await?;
+
+    let updated: Option<String> = sqlx::query_scalar!(
+        "UPDATE token SET label = $1
+           WHERE email = $2 AND token_prefix = $3
+           RETURNING token_prefix",
+        req.label.as_deref(),
+        &authed.email,
+        &token_prefix,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let prefix = updated.ok_or_else(|| {
+        Error::NotFound(format!(
+            "token {token_prefix} not found or not owned by user"
+        ))
+    })?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.token.update_label",
+        ActionKind::Update,
+        &"global",
+        Some(&prefix),
+        Some([("label", req.label.as_deref().unwrap_or(""))].into()),
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    windmill_api_auth::invalidate_token_from_cache(&prefix);
+
+    Ok(format!("updated label for token {prefix}"))
 }
 
 async fn leave_workspace(
