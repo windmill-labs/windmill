@@ -46,11 +46,34 @@ interface DraftListEntry {
 	raw_app?: boolean
 }
 
+// The list endpoints are paginated; without paging, drafts past the first page
+// would be silently missing from the count/list (and "Deploy all"). Page through
+// with a generous page size until a short page signals the end.
+const DRAFT_LIST_PER_PAGE = 100
+
+async function listAllPages(
+	fetchPage: (page: number, perPage: number) => Promise<DraftListEntry[]>
+): Promise<DraftListEntry[]> {
+	const all: DraftListEntry[] = []
+	for (let page = 1; ; page++) {
+		const batch = await fetchPage(page, DRAFT_LIST_PER_PAGE)
+		all.push(...batch)
+		if (batch.length < DRAFT_LIST_PER_PAGE) break
+	}
+	return all
+}
+
 export async function getDraftItems(workspace: string): Promise<DraftItem[]> {
 	const [scripts, flows, apps] = await Promise.all([
-		ScriptService.listScripts({ workspace, includeDraftOnly: true }),
-		FlowService.listFlows({ workspace, includeDraftOnly: true }),
-		AppService.listApps({ workspace, includeDraftOnly: true })
+		listAllPages((page, perPage) =>
+			ScriptService.listScripts({ workspace, includeDraftOnly: true, page, perPage })
+		),
+		listAllPages((page, perPage) =>
+			FlowService.listFlows({ workspace, includeDraftOnly: true, page, perPage })
+		),
+		listAllPages((page, perPage) =>
+			AppService.listApps({ workspace, includeDraftOnly: true, page, perPage })
+		)
 	])
 	const items: DraftItem[] = []
 	const push = (kind: DraftKind, list: DraftListEntry[]) => {

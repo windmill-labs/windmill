@@ -10,8 +10,10 @@
  * (appSourceToDraftValue / normalizeRawAppData) are re-implemented here to avoid
  * importing the heavy chat module.
  */
+import { get } from 'svelte/store'
 import { AppService } from '$lib/gen'
 import type { Policy } from '$lib/gen'
+import { userStore } from '$lib/stores'
 import { bundleRawAppDraft } from '$lib/components/copilot/chat/global/rawAppBundlerBridge'
 import type { AppDraftValue } from '$lib/components/copilot/chat/global/workspaceItems'
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
@@ -77,9 +79,13 @@ export async function deployRawAppDraft(
 	const summary = value.summary ?? ''
 
 	if (await AppService.existsApp({ workspace, path })) {
-		// Send the draft's custom_path on update so a route change/clear is applied,
-		// matching the fork deploy path (which spreads the full app, incl.
-		// custom_path) and the createAppRaw branch below.
+		// custom_path changes require admin. Mirror RawAppEditorHeader's update path:
+		// admins send the draft's value (`''` to clear), non-admins send undefined so
+		// the backend ignores it and preserves the existing route — otherwise a
+		// non-admin deploying a draft for an app that has a custom route would hit
+		// RequireAdmin (the deployed custom_path is sent via the appSourceToDraftValue
+		// fallback even when unchanged).
+		const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
 		await AppService.updateAppRaw({
 			workspace,
 			path,
@@ -90,7 +96,7 @@ export async function deployRawAppDraft(
 					summary,
 					policy,
 					deployment_message: deploymentMessage,
-					custom_path: value.custom_path
+					custom_path: isAdmin ? (value.custom_path ?? '') : undefined
 				},
 				js: bundle.js,
 				css: bundle.css
