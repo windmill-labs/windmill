@@ -59,7 +59,7 @@
 		scrollTop?: number
 		localModuleStates?: Record<string, GraphModuleState>
 		localDurationStatuses?: Record<string, DurationStatus>
-		onRunPreview?: () => void
+		onRunPreview?: (jobId?: string) => void
 		render?: boolean
 		onJobDone?: () => void
 		upToId?: string | undefined
@@ -200,7 +200,7 @@
 				savedArgs = $state.snapshot(previewArgs.val)
 				inputSelected = undefined
 			}
-			onRunPreview?.()
+			onRunPreview?.(newJobId)
 		} catch (e) {
 			sendUserToast('Could not run preview', true, undefined, e.toString())
 			isRunning = false
