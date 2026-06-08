@@ -444,7 +444,9 @@ describe('global AI tools', () => {
 		// Post #9351 the list tool sources script drafts from `listScripts`
 		// (`includeDraftOnly` + the `draft_only`/`is_draft` flags), not a local
 		// store — so path_prefix (pathStart) and limit (perPage) are forwarded to
-		// the backend query, which does the filtering.
+		// the backend query, which does the filtering. The backend now filters
+		// draft-only rows by `path_start` too (the (c) fix in scripts/flows/apps),
+		// so a draft-only row under the prefix is returned and flagged here.
 		vi.mocked(ScriptService.listScripts).mockResolvedValueOnce([
 			{ path: 'f/matching/inside', summary: 'Inside draft', language: 'bun', draft_only: true }
 		] as any)
@@ -464,6 +466,25 @@ describe('global AI tools', () => {
 				path: 'f/matching/inside',
 				isDraft: true
 			})
+		])
+	})
+
+	it('requests draft-only apps and flags them via is_draft', async () => {
+		// Regression guard: `listApps` must be called with `includeDraftOnly`
+		// (the app call previously omitted it, so DB-only app drafts were missed),
+		// and a draft row maps to `isDraft: true` (draft-only apps carry
+		// `is_draft === true`).
+		vi.mocked(AppService.listApps).mockResolvedValueOnce([
+			{ path: 'f/apps/inflight', summary: 'In-flight app', draft_only: true, is_draft: true }
+		] as any)
+
+		const raw = await callGlobalTool('list_workspace_items', { types: ['app'] })
+
+		expect(AppService.listApps).toHaveBeenCalledWith(
+			expect.objectContaining({ includeDraftOnly: true })
+		)
+		expect(JSON.parse(raw)).toEqual([
+			expect.objectContaining({ type: 'app', path: 'f/apps/inflight', isDraft: true })
 		])
 	})
 

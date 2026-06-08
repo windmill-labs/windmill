@@ -1277,7 +1277,8 @@ async function listWorkspaceItems(
 		const apps = await AppService.listApps({
 			workspace,
 			pathStart: pathPrefix,
-			perPage
+			perPage,
+			includeDraftOnly: true
 		})
 		// Draft-only apps also carry `is_draft === true`, so it covers both
 		// draft-only and deployed-with-draft (ListableApp exposes only `is_draft`).

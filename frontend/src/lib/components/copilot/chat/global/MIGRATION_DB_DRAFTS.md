@@ -139,13 +139,19 @@ row:
 - `draft_only` — the item exists only as a draft (never deployed)
 - `is_draft` — a deployed item that has a pending draft for this user
 
-(draft-only rows also set `is_draft = true`). `listWorkspaceItems` *already* called those
-endpoints with `includeDraftOnly: true` — it just hardcoded `isDraft: false`. So the fix
-is to read the flags: no new endpoint, no `DraftService.listDrafts`, no `typ`→type mapper.
+(draft-only rows also set `is_draft = true`). `listWorkspaceItems` *already* called the
+script/flow endpoints with `includeDraftOnly: true` — it just hardcoded `isDraft: false`.
+So the core fix is to read the flags: no new endpoint, no `DraftService.listDrafts`, no
+`typ`→type mapper. Two follow-ups from review were also needed: the **app** call was
+missing `includeDraftOnly` (issue #1), and listing under a **`path_prefix`** needed a
+small backend change so draft-only rows are filtered by prefix instead of dropped (issue
+#2 / option (c) — see below).
 
 ### What was implemented
 
-- **`core.ts` `listWorkspaceItems`** — `isDraft` is now derived from the flags:
+- **`core.ts` `listWorkspaceItems`** — all three list calls pass `includeDraftOnly: true`
+  (the app call previously omitted it — **issue #1 fix**), and `isDraft` is derived from
+  the returned flags:
   - script/flow: `draft_only === true || is_draft === true` (both fields on the list row)
   - app: `is_draft === true` (`ListableApp` exposes only `is_draft`; draft-only apps set it)
 - **`core.ts` list tool** — dropped the `listGlobalDrafts` merge. Script/flow/app drafts
@@ -168,6 +174,19 @@ is to read the flags: no new endpoint, no `DraftService.listDrafts`, no `typ`→
 - **`global_drafts/+page.svelte`** (dev inspector) — now calls `DraftService.listDrafts`
   directly (raw `{ path, typ, saved_at }`) and deletes via `DraftService.saveDraft`
   (`value: null`). Self-contained; no dependency on the adapter.
+- **Backend — `scripts.rs` / `flows.rs` / `apps.rs` `list_*`** (**issue #2, option (c)**):
+  the draft-only append no longer bails when `path_start` is set; instead the draft-only
+  query filters by it (`AND ($N::text IS NULL OR path LIKE $N || '%')`, mirroring the
+  deployed query's `and_where_like_left`). Other narrowing filters (`path_exact`,
+  `created_by`, `label`, languages, pages past 0) still skip the append. sqlx offline cache
+  regenerated for the three changed queries.
+
+> **⚠️ Reviewer — please confirm (c):** removing the `path_start.is_none()` guard from the
+> draft-only append is the chosen fix for issue #2. The guard was presumably there so
+> pickers/selectors get a deployed-only listing; the global-chat list tool needs draft-only
+> rows under a prefix, and honoring `path_start` in-query (rather than dropping draft-only)
+> is the least-surprising behavior. If a caller relies on "prefix query ⇒ no synthesized
+> draft-only rows", this changes that. Flagging for sign-off.
 
 ### Known limitation (intentional, awaiting backend)
 
@@ -180,11 +199,13 @@ Lift it by adding `includeDraftOnly` (email-scoped) to those endpoints.
 
 - Backend confirmed live: a seeded draft-only script returns `draft_only: true,
   is_draft: true` from `listScripts?include_draft_only=true`, scoped to the authed email.
-- Unit (`core.test.ts`): `flags backend draft scripts and forwards path_prefix + limit`
-  passes; the live-editor **list** assertions in `lists … the live script/flow editor
-  draft` pass too. Those two tests then fail later in their *edit/write* half on the
-  unrelated read-after-write gap (`getXByPath mock not configured` — see §3/§8). Net
-  suite delta: **29 → 28 failures, no regressions.**
+  After the (c) change, the same query **with** `path_start` set returns the draft-only row
+  when it matches the prefix (and omits it otherwise) — verified via the API.
+- Unit (`core.test.ts`): `flags backend draft scripts and forwards path_prefix + limit` and
+  `requests draft-only apps and flags them via is_draft` (issue #1 guard) pass; the
+  live-editor **list** assertions in `lists … the live script/flow editor draft` pass too.
+  Those two live-editor tests then fail later in their *edit/write* half on the unrelated
+  read-after-write gap (`getXByPath mock not configured` — see §3/§8). No regressions.
 - E2E (not yet run): with `wm_dev_global_ai` enabled, create a draft script via the global
   mode, reload, confirm `list_workspace_items` flags it `isDraft: true`.
 
