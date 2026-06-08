@@ -9,8 +9,10 @@
 		FlowService,
 		AppService,
 		ResourceService,
-		ScheduleService
+		ScheduleService,
+		FolderService
 	} from '$lib/gen'
+	import FolderPicker from '$lib/components/FolderPicker.svelte'
 	import { Cloud, Download, Loader2 } from 'lucide-svelte'
 
 	type ExportItem = Record<string, any>
@@ -32,6 +34,7 @@
 	let installing = $state(false)
 	let results = $state<{ path: string; ok: boolean; error?: string }[]>([])
 	let done = $state(false)
+	let folderName = $state('')
 
 	$effect(() => {
 		if (slug && workspace) void load()
@@ -47,6 +50,8 @@
 			)
 			if (!res.ok) throw new Error(`export ${res.status}: ${await res.text()}`)
 			data = JSON.parse(await res.text())
+			// Default the target folder to the project slug.
+			if (data && !folderName) folderName = data.project.slug
 		} catch (e: any) {
 			loadError = e?.message ?? String(e)
 		} finally {
@@ -80,13 +85,29 @@
 	// Minimal non-public policy for re-created apps.
 	const defaultPolicy = { execution_mode: 'publisher', triggerables_v2: {} } as any
 
+	// Everything in the bundle lives under `f/<slug>/`. To import into a different
+	// folder we swap that prefix everywhere (item paths, `$res:`/script refs,
+	// schedule runnable paths) by rewriting the serialized bundle in one pass.
+	function retarget(bundle: ProjectExport, fromSlug: string, folder: string): ProjectExport {
+		if (folder === fromSlug) return bundle
+		const json = JSON.stringify(bundle).split(`f/${fromSlug}/`).join(`f/${folder}/`)
+		return JSON.parse(json)
+	}
+
 	async function install() {
 		if (!data || !workspace) return
+		const folder = (folderName || data.project.slug).trim()
 		installing = true
 		results = []
 		done = false
 		try {
-			for (const s of data.scripts) {
+			// Ensure the target folder exists (no-op/ignored if it already does).
+			try {
+				await FolderService.createFolder({ workspace, requestBody: { name: folder } })
+			} catch {}
+
+			const proj = retarget(data, data.project.slug, folder)
+			for (const s of proj.scripts) {
 				await record(
 					s.path,
 					ScriptService.createScript({
@@ -104,7 +125,7 @@
 					})
 				)
 			}
-			for (const f of data.flows) {
+			for (const f of proj.flows) {
 				await record(
 					f.path,
 					FlowService.createFlow({
@@ -119,7 +140,7 @@
 					})
 				)
 			}
-			for (const r of data.resources) {
+			for (const r of proj.resources) {
 				await record(
 					r.path,
 					ResourceService.createResource({
@@ -134,7 +155,7 @@
 					})
 				)
 			}
-			for (const a of data.apps) {
+			for (const a of proj.apps) {
 				if (a.app_type === 'raw') {
 					const parsed = JSON.parse(a.value?.raw ?? '{}')
 					const files = { ...(parsed.files ?? {}) }
@@ -173,7 +194,7 @@
 					)
 				}
 			}
-			for (const t of data.triggers) {
+			for (const t of proj.triggers) {
 				if (t.kind === 'schedule') {
 					await record(
 						t.path,
@@ -223,10 +244,16 @@
 	{:else if data}
 		<h1 class="text-2xl font-semibold text-primary">Add “{data.project.name}” to workspace</h1>
 		<p class="mt-1 text-sm text-secondary">{data.project.summary}</p>
-		<p class="mt-1 text-xs text-tertiary">
-			Imported into <span class="font-mono">{workspace}</span> under
-			<span class="font-mono">f/{data.project.slug}/</span>.
-		</p>
+
+		<div class="mt-4 max-w-xs">
+			<p class="mb-1 text-xs text-tertiary">
+				Folder in <span class="font-mono">{workspace}</span>
+			</p>
+			<FolderPicker bind:folderName disabled={installing || done} size="sm" />
+			<p class="mt-1 text-xs text-tertiary">
+				Items import under <span class="font-mono">f/{folderName || data.project.slug}/</span>.
+			</p>
+		</div>
 
 		<div class="mt-6 flex flex-wrap gap-2 text-xs">
 			<span class="rounded border px-2 py-1">{counts?.scripts} scripts</span>
