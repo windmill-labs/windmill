@@ -69,3 +69,40 @@ Generates SVG graphs from `*_benchmark.json` data files.
 ## CI
 
 The GitHub Actions workflow (`.github/workflows/benchmark.yml`) runs hourly with 1/4/8 worker configurations plus WAC benchmarks. Results are committed to the `benchmarks` branch.
+
+## Cluster benchmarks — sim mode
+
+Provisioning + measuring throughput on a real multi-node Kubernetes cluster
+(minikube + helm + per-pod cgroup sampling + PG analysis) is a separate
+workflow on top of `main.ts`. See [`sim/README.md`](sim/README.md) for:
+
+- bringing up the cluster (`wm_sim up`)
+- firing a phased or flood workload from `workloads/`
+- the consolidated dashboard with throughput, queue depth, per-node CPU +
+  oversaturation, PG latency / conn counts, OOM events, restart events
+- the JSONL poller pipeline + reliability fixes (sampler host-log, rollout-
+  complete readiness, procs_running oversaturation)
+
+Quick path:
+
+```sh
+# Provision cluster + deploy Windmill (foreground; Ctrl-C tears down):
+wm_sim up \
+  --topology    sim/topologies/k8s-4node.json \
+  --helm        ../windmill-helm-charts/charts/windmill \
+  --helm-values sim/values/smoke.yaml \
+  --helm-values sim/values/local.yaml
+
+# In another shell — port-forward + run bench:
+kubectl --context wm-sim-k8s-4node port-forward --address 0.0.0.0 \
+  -n default svc/windmill-app 33405:8000 &
+
+deno run -A main.ts \
+  --host http://127.0.0.1:33405 \
+  --token <admin-token> \
+  --workload-config workloads/io_150ms_flood.json \
+  --minikube-profile wm-sim-k8s-4node \
+  --wait-ready 60
+
+# Report appears at reports/<timestamp>/dashboard.svg
+```
