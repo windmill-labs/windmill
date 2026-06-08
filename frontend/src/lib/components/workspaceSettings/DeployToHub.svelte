@@ -186,8 +186,6 @@
 	)
 
 	const EMPTY_SCHEMA = { type: 'object', properties: {}, required: [] }
-	let hubSlug = $derived($workspaceStore ?? '')
-	let hubUrl = $derived(`https://hub.windmill.dev/projects/${hubSlug}`)
 
 	let hubVersion = $state<number>(0)
 	let deploymentStatus = $state<
@@ -224,6 +222,9 @@
 	let hubReadme = $state('')
 
 	let effectiveSlug = $state('')
+
+	let hubSlug = $derived(effectiveSlug || sanitizeSlug(hubName))
+	let hubUrl = $derived(`https://hub.windmill.dev/projects/${hubSlug}`)
 
 	const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
