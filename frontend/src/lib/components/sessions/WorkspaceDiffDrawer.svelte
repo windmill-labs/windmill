@@ -196,7 +196,7 @@
 				root.children.push(scope)
 			}
 			if (parts.length === 2) {
-				scope.children.push({ type: 'file', name: scopeKey, diff: d })
+				scope.children.push({ type: 'file', name: parts[1], diff: d })
 				continue
 			}
 			const rest = parts.slice(2)

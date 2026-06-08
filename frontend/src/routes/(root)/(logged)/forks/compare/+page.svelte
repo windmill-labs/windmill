@@ -27,12 +27,15 @@
 	let parentWorkspaceId = $derived(currentWorkspaceData?.parent_workspace_id)
 	const isFork = $derived(!!parentWorkspaceId && currentWorkspaceId?.startsWith('wm-fork-'))
 
-	// Mode is seeded from the URL (?mode=draft|fork). When absent it defaults to
-	// fork in a fork workspace, draft otherwise — resolved once the workspace list
-	// has loaded (so `isFork` is known).
+	// Mode is seeded from the URL (?mode=draft|fork). `draft` is valid for any
+	// workspace, so it resolves immediately. `fork` is only valid for an actual
+	// fork, so it (like an absent mode) defers to the effect below, which falls
+	// back to draft for a non-fork once the workspace list has loaded (so `isFork`
+	// is known) — otherwise `?mode=fork` on a non-fork would strand the page on the
+	// fork UI, which can't render without a parent.
 	const urlMode = page.url.searchParams.get('mode')
-	let mode = $state<CompareMode>(urlMode === 'draft' || urlMode === 'fork' ? urlMode : 'fork')
-	let modeResolved = $state(urlMode === 'draft' || urlMode === 'fork')
+	let mode = $state<CompareMode>(urlMode === 'draft' ? 'draft' : 'fork')
+	let modeResolved = $state(urlMode === 'draft')
 
 	// Which fork direction to restore when switching back from draft mode. The
 	// merged toggle (CompareModeToggle, rendered inside each card) reports its

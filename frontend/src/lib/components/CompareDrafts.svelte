@@ -185,9 +185,13 @@
 	// --- Diff ---
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 	let isFlow = $state(false)
+	// Monotonic token so that two quick "Show diff" clicks don't race: a slower
+	// earlier fetch must not overwrite a faster later one in the (single) drawer.
+	let diffRequestId = 0
 
 	async function showDiff(item: Row) {
 		if (!diffDrawer) return
+		const reqId = ++diffRequestId
 		isFlow = item.kind === 'flow'
 		diffDrawer.openDrawer()
 		const { deployed, draft } = await getDraftDiffValues(
@@ -196,6 +200,8 @@
 			currentWorkspaceId,
 			item.draft_only
 		)
+		// A newer Show-diff click superseded this one — drop the stale result.
+		if (reqId !== diffRequestId) return
 		diffDrawer.setDiff({
 			mode: 'simple',
 			original: deployed as any,
