@@ -326,7 +326,21 @@
 			return
 		}
 		const fresh = scriptRes.current
-		script = fresh ? structuredClone($state.snapshot(fresh) as Script) : undefined
+		if (fresh) {
+			script = structuredClone($state.snapshot(fresh) as Script)
+			return
+		}
+		// Resource is loading with no cached value. If we already hold the
+		// script for the selected path — e.g. a draft the user just deployed,
+		// whose now-persisted version is being fetched — keep showing it so the
+		// editor doesn't blink through the loading state (the "pane closed then
+		// reopened" flicker). Only blank when the selection points elsewhere.
+		const selPath =
+			selection?.kind === 'runnable' && selection.runnable_kind === 'script'
+				? selection.path
+				: undefined
+		if (script && selPath && script.path === selPath) return
+		script = undefined
 	})
 
 	// Persist draft edits back to the parent's drafts Map on transitions
@@ -842,7 +856,14 @@
 				Failed to load: {scriptRes.error.message}
 			</div>
 		{:else if script}
-			{#key (script.hash ?? `draft:${script.path}`) + script.language}
+			<!-- Key on path alone, NOT hash: deploying a draft or re-saving turns
+			     hash ''→<hash> for the *same* script, and a hash-based key would
+			     needlessly remount the editor (a visible flash) even though the
+			     content is unchanged. Path uniquely identifies the script (and its
+			     language never changes in place), so switching scripts still
+			     remounts while a same-script save doesn't. History is disabled
+			     here, so there's no revert-to-old-hash case needing a reset. -->
+			{#key script.path}
 				<ScriptEditor
 					bind:this={scriptEditorRef}
 					showCaptures={false}
