@@ -177,6 +177,9 @@
 		 * to clicking a run button on the graph.
 		 */
 		onTestStateChange?: (running: boolean) => void
+		// Fired whenever a test run is started from this editor, with the
+		// preview job id. Used by whitelabel embedders to track test jobs.
+		onTestJob?: (e: { jobId: string }) => void
 		// When true the right-hand test/run pane mounts collapsed. The user
 		// can still expand it via `toggleTestPanel`. Defaults to false so the
 		// regular /scripts/edit route keeps its current open-by-default UX;
@@ -218,6 +221,7 @@
 		enablePreprocessorSnippet = false,
 		previewLayout = 'right',
 		onTestStateChange,
+		onTestJob,
 		initialTestPanelCollapsed = false
 	}: Props = $props()
 
@@ -774,6 +778,9 @@
 			undefined,
 			activeModuleTab !== null ? undefined : modules
 		)
+		if (job) {
+			onTestJob?.({ jobId: job })
+		}
 		logPanel?.setFocusToLogs()
 		return job
 	}

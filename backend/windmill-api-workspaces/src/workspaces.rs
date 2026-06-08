@@ -340,6 +340,8 @@ pub struct InstanceAISummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_model: Option<InstanceAIModelSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata_model: Option<InstanceAIModelSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub code_completion_model: Option<InstanceAIModelSummary>,
 }
 
@@ -825,6 +827,7 @@ pub fn build_instance_ai_summary(config: Option<&serde_json::Value>) -> Option<I
     Some(InstanceAISummary {
         providers: provider_summaries,
         default_model: extract_instance_ai_model_summary(config, "default_model"),
+        metadata_model: extract_instance_ai_model_summary(config, "metadata_model"),
         code_completion_model: extract_instance_ai_model_summary(config, "code_completion_model"),
     })
 }

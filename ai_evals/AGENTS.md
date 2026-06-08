@@ -86,6 +86,31 @@ Global prompts should exercise workspace-level drafting behavior:
 
 Keep deterministic validation focused on the draft contract: required draft type/path, required content snippets, forbidden draft paths, and forbidden mutating tools such as deploy/delete unless the case explicitly asks for them.
 
+Datatable cases should set `skipJudge: true` and validate through tool-use
+(`requiredToolsUsed` / `forbiddenToolsUsed`) and SQL-argument assertions
+(`toolCallArgs` with `stringIncludesAnyOf`, e.g. `['select']`, `['create table']`,
+`['update', 'insert into']`). Two reasons the judge is unreliable here:
+
+- `list_datatables`, `get_datatable_table_schema`, and `exec_datatable_sql`
+  produce no drafts, and the global judge only sees the drafts artifact — it
+  scores a no-draft conversational answer as empty (same as the
+  `askUserQuestion` cases).
+- Even a case that *does* produce a draft (a script reading the data table via
+  `wmill.datatable()` at runtime) is mis-judged: the judge has no datatable SDK
+  reference and penalizes correct `wmill.datatable()` usage as wrong. Verify the
+  SDK call deterministically instead — `requiredDrafts.valueIncludes: ['wmill.datatable(']`
+  plus forbidding `exec_datatable_sql` (keeping chat-time SQL distinct from
+  runtime SDK use).
+
+`stringIncludesAnyOf` is existential over calls (at least one matching call), so a
+mutation case still passes when the model mixes its UPDATE/INSERT with
+verification SELECTs. The in-memory engine (`datatableSqlEngine.ts`) is stateful
+within a case — writes persist, so a model that re-queries to verify its
+CREATE/UPDATE sees the change and does not loop. But the engine is best-effort
+(SELECT returns all rows of the referenced/first table with no WHERE/projection),
+so still never assert specific returned row values. Seed data via
+`workspace.datatables` in the `initial` fixture (see README).
+
 ## Deterministic validation
 
 Use deterministic validation only for hard failures such as:

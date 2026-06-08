@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.714.0"
+version = "1.719.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -87,7 +87,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.714.0"
+version = "1.719.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -251,6 +251,7 @@ windmill-object-store.workspace = true
 windmill-git-sync.workspace = true
 windmill-api = { workspace = true, default-features = false }
 windmill-api-agent-workers = { workspace = true, optional = true }
+windmill-api-scripts.workspace = true
 windmill-api-settings.workspace = true
 windmill-worker.workspace = true
 windmill-indexer = { workspace = true, optional = true }

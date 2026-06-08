@@ -18,6 +18,7 @@ import {
 import { generateRTNamespace } from "../resource-type/resource-type.ts";
 import { generateCommentedTemplate } from "./template.ts";
 import { refreshPrompts } from "../refresh/prompts.ts";
+import { refreshTsconfig } from "../refresh/tsconfig.ts";
 
 export interface InitOptions {
   useDefault?: boolean;
@@ -237,6 +238,18 @@ async function initAction(opts: InitOptions) {
   }
 
   await refreshPrompts({ yes: opts.useDefault === true });
+
+  // Generate the IDE tsconfig (managed tsconfig.wmill.json + user tsconfig.json
+  // that extends it). Independent of any workspace binding — it's purely local.
+  try {
+    await refreshTsconfig({ yes: opts.useDefault === true });
+  } catch (error) {
+    log.warn(
+      `Could not generate tsconfig: ${
+        error instanceof Error ? error.message : error
+      }`
+    );
+  }
 
   // Generate resource type namespace (only if a workspace was bound)
   if (didBindWorkspace && boundProfile) {

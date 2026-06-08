@@ -871,9 +871,6 @@ pub async fn create_token_internal(
 /// Insert a pending expiry notification row for user tokens that have an expiration.
 /// Stores the token_hash so the join in check_expiring_tokens works even when
 /// the plaintext token column is NULL (after hash migration).
-/// When updating this filter, also update:
-/// - `is_user_token` in src/monitor.rs
-/// - `isUserToken` in frontend/src/lib/components/settings/TokensTable.svelte
 pub async fn register_token_expiry_notification(
     tx: &mut sqlx::PgConnection,
     token_hash: &str,
@@ -881,14 +878,8 @@ pub async fn register_token_expiry_notification(
     expiration: Option<chrono::DateTime<chrono::Utc>>,
 ) {
     let Some(expiration) = expiration else { return };
-    if label == Some("session")
-        || label.is_some_and(|l| {
-            l.starts_with("ephemeral")
-                || l.starts_with("Ephemeral")
-                || l == "debugger-token"
-                || l.starts_with("mcp-oauth-")
-        })
-    {
+    // System tokens don't get expiry notifications.
+    if !windmill_common::auth::is_user_token(label) {
         return;
     }
     if let Err(e) = sqlx::query!(

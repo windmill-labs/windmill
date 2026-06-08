@@ -1,7 +1,7 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "version": "1.708.0",
+    "version": "1.713.1",
     "title": "Windmill API",
     "contact": {
       "name": "Windmill Team",
@@ -15229,6 +15229,10 @@
                       },
                       "deployment_message": {
                         "type": "string"
+                      },
+                      "skip_draft_deletion": {
+                        "type": "boolean",
+                        "description": "When true (set by the CLI / git sync), deploying this flow does not delete an existing user draft at the same path."
                       }
                     }
                   }
@@ -15295,6 +15299,10 @@
                     "properties": {
                       "deployment_message": {
                         "type": "string"
+                      },
+                      "skip_draft_deletion": {
+                        "type": "boolean",
+                        "description": "When true (set by the CLI / git sync), deploying this flow does not delete an existing user draft at the same path."
                       }
                     }
                   }
@@ -16069,6 +16077,10 @@
                     "items": {
                       "type": "string"
                     }
+                  },
+                  "skip_draft_deletion": {
+                    "type": "boolean",
+                    "description": "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
                   }
                 },
                 "required": [
@@ -16146,6 +16158,10 @@
                         "items": {
                           "type": "string"
                         }
+                      },
+                      "skip_draft_deletion": {
+                        "type": "boolean",
+                        "description": "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
                       }
                     },
                     "required": [
@@ -16679,6 +16695,10 @@
                     "items": {
                       "type": "string"
                     }
+                  },
+                  "skip_draft_deletion": {
+                    "type": "boolean",
+                    "description": "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
                   }
                 }
               }
@@ -16750,6 +16770,10 @@
                         "items": {
                           "type": "string"
                         }
+                      },
+                      "skip_draft_deletion": {
+                        "type": "boolean",
+                        "description": "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
                       }
                     }
                   },
@@ -28210,6 +28234,52 @@
         }
       }
     },
+    "/workers/workspace_fairness_events": {
+      "get": {
+        "summary": "list last 100 workspace-fairness cap/uncap events (cloud-only)",
+        "operationId": "getWorkspaceFairnessEvents",
+        "tags": [
+          "worker"
+        ],
+        "responses": {
+          "200": {
+            "description": "workspace fairness events (empty on non-cloud)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "operation": {
+                        "type": "string"
+                      },
+                      "workspace_id": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "parameters": {
+                        "type": "object",
+                        "nullable": true,
+                        "additionalProperties": true
+                      }
+                    },
+                    "required": [
+                      "timestamp",
+                      "operation"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/configs/list_worker_groups": {
       "get": {
         "summary": "list worker groups",
@@ -33130,6 +33200,10 @@
             "type": "boolean",
             "description": "If true, all steps run on the same worker for better performance"
           },
+          "preserve_step_tags": {
+            "type": "boolean",
+            "description": "If true and the flow runs on a custom worker tag, steps that declare their own non-empty tag run on it instead of inheriting the flow tag. Steps without their own tag still inherit the flow tag."
+          },
           "concurrent_limit": {
             "type": "number",
             "description": "Maximum number of concurrent executions of this flow"
@@ -35312,6 +35386,9 @@
           "default_model": {
             "$ref": "#/components/schemas/AIProviderModel"
           },
+          "metadata_model": {
+            "$ref": "#/components/schemas/AIProviderModel"
+          },
           "code_completion_model": {
             "$ref": "#/components/schemas/AIProviderModel"
           },
@@ -35359,6 +35436,9 @@
             }
           },
           "default_model": {
+            "$ref": "#/components/schemas/AIProviderModel"
+          },
+          "metadata_model": {
             "$ref": "#/components/schemas/AIProviderModel"
           },
           "code_completion_model": {
@@ -35837,6 +35917,10 @@
             "items": {
               "type": "string"
             }
+          },
+          "skip_draft_deletion": {
+            "type": "boolean",
+            "description": "When true (set by the CLI / git sync), deploying this script does not delete an existing user draft at the same path."
           }
         },
         "required": [
@@ -40538,6 +40622,13 @@
           },
           "tag": {
             "$ref": "#/components/schemas/CustomInstanceDbTag"
+          },
+          "used_by_workspaces": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Workspaces that reference this database via a ducklake catalog or datatable database with resource_type 'instance'. Computed at request time, not persisted."
           }
         }
       },
@@ -46175,6 +46266,10 @@
           "same_worker": {
             "type": "boolean",
             "description": "If true, all steps run on the same worker for better performance"
+          },
+          "preserve_step_tags": {
+            "type": "boolean",
+            "description": "If true and the flow runs on a custom worker tag, steps that declare their own non-empty tag run on it instead of inheriting the flow tag. Steps without their own tag still inherit the flow tag."
           },
           "concurrent_limit": {
             "type": "number",

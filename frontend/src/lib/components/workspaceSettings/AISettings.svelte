@@ -68,6 +68,7 @@
 	let aiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
 	let codeCompletionModel: string | undefined = $state(undefined)
 	let defaultModel: string | undefined = $state(undefined)
+	let metadataModel: string | undefined = $state(undefined)
 	let customPrompts: Record<string, string> = $state({})
 	let maxTokensPerModel: Record<string, number> = $state({})
 	let usingOpenaiClientCredentialsOauth = $state(false)
@@ -77,6 +78,7 @@
 	let initialAiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
 	let initialCodeCompletionModel: string | undefined = $state(undefined)
 	let initialDefaultModel: string | undefined = $state(undefined)
+	let initialMetadataModel: string | undefined = $state(undefined)
 	let initialCustomPrompts: Record<string, string> = $state({})
 	let initialMaxTokensPerModel: Record<string, number> = $state({})
 	let initialPrompts: Record<string, string> = $state({})
@@ -89,6 +91,7 @@
 	function applyConfig(config: AIConfig | undefined) {
 		aiProviders = clone(config?.providers ?? {})
 		defaultModel = config?.default_model?.model
+		metadataModel = config?.metadata_model?.model
 		codeCompletionModel = config?.code_completion_model?.model
 		customPrompts = clone(config?.custom_prompts ?? {})
 		maxTokensPerModel = clone(config?.max_tokens_per_model ?? {})
@@ -102,6 +105,7 @@
 	function storeInitialState() {
 		initialAiProviders = clone(aiProviders)
 		initialDefaultModel = defaultModel
+		initialMetadataModel = metadataModel
 		initialCodeCompletionModel = codeCompletionModel
 		initialCustomPrompts = clone(customPrompts)
 		initialMaxTokensPerModel = clone(maxTokensPerModel)
@@ -116,6 +120,7 @@
 	export function discard() {
 		aiProviders = clone(initialAiProviders)
 		defaultModel = initialDefaultModel
+		metadataModel = initialMetadataModel
 		codeCompletionModel = initialCodeCompletionModel
 		customPrompts = clone(initialCustomPrompts)
 		maxTokensPerModel = clone(initialMaxTokensPerModel)
@@ -149,6 +154,7 @@
 	let dirty = $derived(
 		JSON.stringify(aiProviders) !== JSON.stringify(initialAiProviders) ||
 			defaultModel !== initialDefaultModel ||
+			metadataModel !== initialMetadataModel ||
 			codeCompletionModel !== initialCodeCompletionModel ||
 			JSON.stringify(customPrompts) !== JSON.stringify(initialCustomPrompts) ||
 			JSON.stringify(maxTokensPerModel) !== JSON.stringify(initialMaxTokensPerModel)
@@ -200,6 +206,7 @@
 		if (Object.keys(aiProviders).length < 1) {
 			codeCompletionModel = undefined
 			defaultModel = undefined
+			metadataModel = undefined
 		}
 	})
 
@@ -239,6 +246,10 @@
 			defaultModel && modelProviderMap[defaultModel]
 				? { model: defaultModel, provider: modelProviderMap[defaultModel] }
 				: undefined
+		const metadata_model =
+			metadataModel && modelProviderMap[metadataModel]
+				? { model: metadataModel, provider: modelProviderMap[metadataModel] }
+				: undefined
 		const custom_prompts: Record<string, string> = Object.entries(customPrompts)
 			.filter(([_, prompt]) => prompt.trim().length > 0)
 			.reduce((acc, [mode, prompt]) => ({ ...acc, [mode]: prompt }), {})
@@ -248,6 +259,7 @@
 					providers: aiProviders,
 					code_completion_model,
 					default_model,
+					metadata_model,
 					custom_prompts: Object.keys(custom_prompts).length > 0 ? custom_prompts : undefined,
 					max_tokens_per_model:
 						Object.keys(maxTokensPerModel).length > 0 ? maxTokensPerModel : undefined
@@ -258,6 +270,7 @@
 	function isSaveDisabled(): boolean {
 		return (
 			!Object.values(aiProviders).every((p) => p.resource_path) ||
+			(metadataModel != undefined && metadataModel.length === 0) ||
 			(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
 			(Object.keys(aiProviders).length > 0 && !defaultModel)
 		)
@@ -397,6 +410,14 @@
 												codeCompletionModel = undefined
 											}
 										}
+										if (metadataModel) {
+											const currentMetadataModel = Object.values(aiProviders).find(
+												(p) => metadataModel && p.models.includes(metadataModel)
+											)
+											if (!currentMetadataModel) {
+												metadataModel = undefined
+											}
+										}
 									}
 								}}
 							/>
@@ -474,6 +495,23 @@
 					placeholder="Select a default model"
 					size="sm"
 					class="max-w-lg"
+				/>
+			{/key}
+		</SettingCard>
+
+		<SettingCard
+			label="Metadata generation model"
+			description="Used for automatic summaries, descriptions, and tool names. If unset, the default chat model is used."
+		>
+			{#key Object.keys(aiProviders).length}
+				<Select
+					items={safeSelectItems(selectedAiModels)}
+					bind:value={metadataModel}
+					disabled={false}
+					placeholder="Use default chat model"
+					size="sm"
+					class="max-w-lg"
+					clearable
 				/>
 			{/key}
 		</SettingCard>

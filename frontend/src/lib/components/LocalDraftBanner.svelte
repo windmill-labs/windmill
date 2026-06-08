@@ -3,7 +3,7 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import { classes } from '$lib/components/common/alert/model'
 	import { type Value } from '$lib/utils'
-	import { AlertCircle } from 'lucide-svelte'
+	import { AlertCircle, Diff } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { slide } from 'svelte/transition'
 
@@ -84,7 +84,8 @@
 		<div class="flex flex-row items-center gap-2 shrink-0">
 			<Button
 				unifiedSize="sm"
-				variant="subtle"
+				variant="default"
+				startIcon={{ icon: Diff }}
 				btnClasses={classes.warning.titleClass}
 				on:click={showDiff}>Show diff</Button
 			>

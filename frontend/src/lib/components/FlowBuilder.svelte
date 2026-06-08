@@ -133,7 +133,8 @@
 		onSaveDraftError,
 		onSaveDraftOnlyAtNewPath,
 		onHistoryRestore,
-		onNavigate
+		onNavigate,
+		onTestJob
 	}: FlowBuilderProps = $props()
 
 	let initialPathStore = writable(initialPath)
@@ -735,7 +736,18 @@
 		flowStore.val = redo(history)
 	}
 
+	let flowBuilderRoot: HTMLDivElement | undefined = $state()
+
 	function onKeyDown(event: KeyboardEvent) {
+		// Defer to anything that has explicitly grabbed focus — menus, modals,
+		// drawers etc. live outside the flow root. Flow nodes aren't focusable,
+		// so the unfocused default (activeElement === body) means "flow is the
+		// canvas" and we should react.
+		const active = document.activeElement
+		if (active && active !== document.body && !flowBuilderRoot?.contains(active)) {
+			return
+		}
+
 		let classes = event.target?.['className']
 		if (
 			(typeof classes === 'string' && classes.includes('inputarea')) ||
@@ -1175,7 +1187,7 @@
 		<ScriptEditorDrawer bind:this={$scriptEditorDrawer} />
 		<FlowEditorDrawer bind:this={$flowEditorDrawer} />
 
-		<div class="flex flex-col flex-1 h-screen">
+		<div bind:this={flowBuilderRoot} class="flex flex-col flex-1 h-screen">
 			<!-- Nav between steps-->
 			<div
 				bind:clientWidth={topbarWidth}
@@ -1256,11 +1268,14 @@
 					bind:localModuleStates
 					bind:this={flowPreviewButtons}
 					{loading}
-					onRunPreview={() => {
+					onRunPreview={(jobId) => {
 						stepsInputArgs.resetManuallyEditedArgs()
 						modulesTestStates.hideJobsInGraph()
 						localModuleStates = {}
 						showJobStatus = true
+						if (jobId) {
+							onTestJob?.({ jobId })
+						}
 					}}
 				/>
 			{/snippet}
