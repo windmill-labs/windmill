@@ -12,6 +12,8 @@ pub mod common;
 // Client module
 pub mod client;
 
+mod ssrf;
+
 // Re-export common types at crate root for convenience
 pub use common::{
     convert_schema_to_schema_type, is_resource_allowed, parse_mcp_scopes, transform_hub_path,

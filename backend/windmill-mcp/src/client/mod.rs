@@ -43,9 +43,14 @@ impl McpClient {
         // The resource URL is author-controlled and we send a (potentially
         // secret) bearer token to it, so it must be validated against SSRF
         // before we connect (e.g. cloud metadata endpoints, internal services).
-        windmill_common::ssrf::validate_url_for_ssrf(&resource.url)
+        crate::ssrf::validate_mcp_server_url(&resource.url)
             .await
-            .map_err(|e| anyhow::anyhow!("MCP server URL is not allowed: {}", e))?;
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "MCP server URL is not allowed: {}",
+                    crate::ssrf::mcp_ssrf_error_message(&e)
+                )
+            })?;
 
         // Build custom reqwest client with headers if provided
         let mut headers = HeaderMap::new();
@@ -237,6 +242,9 @@ mod tests {
     /// before any connection attempt, so this fails fast without network access.
     #[tokio::test]
     async fn from_resource_rejects_ssrf_url() {
+        let _lock = crate::ssrf::TEST_ENV_LOCK.lock().await;
+        let _guard = crate::ssrf::PrivateMcpServerUrlsEnvGuard::set(None);
+
         let resource = McpResource {
             name: "evil".to_string(),
             url: "http://169.254.169.254".to_string(),
