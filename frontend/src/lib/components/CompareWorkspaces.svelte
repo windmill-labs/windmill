@@ -28,7 +28,7 @@
 	} from '$lib/gen'
 	import Button from './common/button/Button.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
-	import ExternalEditLink from './ExternalEditLink.svelte'
+	import WorkspaceDeployItemSummary from './WorkspaceDeployItemSummary.svelte'
 	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 
@@ -864,27 +864,13 @@
 							(diff.exists_in_fork && !diff.exists_in_source) ||
 							(!diff.exists_in_fork && diff.exists_in_source)
 						)}
-						{#snippet label()}
-							{#if oldSummary != newSummary && isSelectable && existsInBothWorkspaces}
-								<span class="line-through text-secondary">{oldSummary || diff.path}</span>
-								{newSummary || diff.path}
-							{:else if !existsInBothWorkspaces}
-								{newSummary || oldSummary || diff.path}
-							{:else}
-								{newSummary || diff.path}
-							{/if}
-						{/snippet}
-						{#if editUrl}
-							<ExternalEditLink
-								href={editUrl}
-								title="Open {diff.path} in a new tab"
-								class="text-emphasis"
-							>
-								{@render label()}
-							</ExternalEditLink>
-						{:else}
-							{@render label()}
-						{/if}
+						<WorkspaceDeployItemSummary
+							path={diff.path}
+							{editUrl}
+							{oldSummary}
+							{newSummary}
+							renamed={oldSummary != newSummary && isSelectable && existsInBothWorkspaces}
+						/>
 					{/if}
 				{/snippet}
 

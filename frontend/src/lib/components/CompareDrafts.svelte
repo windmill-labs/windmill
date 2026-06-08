@@ -1,7 +1,7 @@
 <script lang="ts">
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
-	import ExternalEditLink from './ExternalEditLink.svelte'
+	import WorkspaceDeployItemSummary from './WorkspaceDeployItemSummary.svelte'
 	import { Badge } from './common'
 	import Button from './common/button/Button.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
@@ -9,7 +9,7 @@
 	import { untrack } from 'svelte'
 	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
 	import { editUrlFor } from './sessions/forkEditUrl'
-	import { type WorkspaceItemDiff } from '$lib/gen'
+	import { AppService, FlowService, ScriptService, type WorkspaceItemDiff } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { getDraftDiffValues, deployDraft, discardDraft } from '$lib/utils_draft_deploy'
 	import { type DraftItem } from '$lib/workspaceDrafts.svelte'
@@ -68,6 +68,51 @@
 	// that resource, so the list refetches and deployed items drop off without a
 	// manual reload here.
 	const items: Row[] = $derived(draftItems.map((d) => ({ ...d, key: getItemKey(d.kind, d.path) })))
+
+	// The Draft Items list only carries the *deployed* summary, so the draft's
+	// (new) display name isn't known yet. Fetch each item's draft blob once and
+	// cache both names — mirrors CompareWorkspaces' fetchSummaries (eager on load,
+	// keyed by row key) so the rename rendering is shared and consistent. Only
+	// non-`draft_only` items can show a rename: a `draft_only` item has no deployed
+	// side to diff the name against. Raw apps live on a separate route and aren't
+	// fetchable here, so they're skipped (no rename shown, same as before).
+	const summaryCache = $state<
+		Record<string, { deployed?: string; draft?: string; loading?: boolean }>
+	>({})
+
+	async function fetchDraftSummary(item: Row) {
+		if (summaryCache[item.key]) return
+		summaryCache[item.key] = { loading: true }
+		try {
+			const r = (await (item.kind === 'script'
+				? ScriptService.getScriptByPathWithDraft({ workspace: currentWorkspaceId, path: item.path })
+				: item.kind === 'flow'
+					? FlowService.getFlowByPathWithDraft({ workspace: currentWorkspaceId, path: item.path })
+					: AppService.getAppByPathWithDraft({
+							workspace: currentWorkspaceId,
+							path: item.path
+						}))) as any
+			summaryCache[item.key] = {
+				deployed: r.summary,
+				draft: (r.draft as any)?.summary,
+				loading: false
+			}
+		} catch (error) {
+			console.error(`Failed to fetch draft summary for ${item.kind}:${item.path}`, error)
+			summaryCache[item.key] = { loading: false }
+		}
+	}
+
+	$effect(() => {
+		const current = items
+		untrack(() => {
+			for (const item of current) {
+				if (!item.draft_only && !item.raw_app && !summaryCache[item.key]) {
+					void fetchDraftSummary(item)
+				}
+			}
+		})
+	})
 
 	let selectedItems = $state<string[]>([])
 	let deploying = $state(false)
@@ -268,17 +313,19 @@
 			{#snippet itemSummary(item)}
 				{@const draftItem = item as unknown as Row}
 				{@const editUrl = draftEditUrl(draftItem)}
-				{#if editUrl}
-					<ExternalEditLink
-						href={editUrl}
-						title="Open {draftItem.path} in a new tab"
-						class="text-emphasis truncate"
-					>
-						<span class="truncate">{draftItem.summary || draftItem.path}</span>
-					</ExternalEditLink>
-				{:else}
-					<span class="text-emphasis">{draftItem.summary || draftItem.path}</span>
-				{/if}
+				{@const cache = summaryCache[draftItem.key]}
+				{@const oldSummary = cache?.deployed ?? draftItem.summary}
+				{@const newSummary = cache?.draft ?? draftItem.summary}
+				<WorkspaceDeployItemSummary
+					path={draftItem.path}
+					{editUrl}
+					{oldSummary}
+					{newSummary}
+					renamed={!draftItem.draft_only &&
+						oldSummary != null &&
+						newSummary != null &&
+						oldSummary !== newSummary}
+				/>
 			{/snippet}
 
 			{#snippet itemActions(item)}
