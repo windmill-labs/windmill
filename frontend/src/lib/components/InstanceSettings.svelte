@@ -13,6 +13,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import AuthSettings from './AuthSettings.svelte'
+	import oauthConnectRegistry from '$oauth_connect_registry'
 	import InstanceSetting from './InstanceSetting.svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import { ExternalLink, Loader2 } from 'lucide-svelte'
@@ -54,7 +55,9 @@
 
 	let initialValues: Record<string, any> = $state({})
 	let baseUrlIsFallback = $state(false)
-	let snowflakeAccountIdentifier = $state('')
+	// Per-instance OAuth providers (Snowflake, ServiceNow, …): instance name
+	// keyed by provider, used to build their per-instance connect_config URLs.
+	let instanceInputs: Record<string, string> = $state({})
 	let version: string = $state('')
 	let loading = $state(true)
 
@@ -147,12 +150,8 @@
 		$values = nvalues
 		loading = false
 
-		// populate snowflake account identifier from db
-		const account_identifier =
-			oauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier
-		if (account_identifier) {
-			snowflakeAccountIdentifier = account_identifier
-		}
+		// populate per-instance OAuth provider inputs (snowflake, servicenow, …) from db
+		loadInstanceInputs(oauths)
 	}
 
 	export async function saveSettings() {
@@ -162,13 +161,7 @@
 			}
 		}
 
-		if (
-			oauths?.snowflake_oauth &&
-			oauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier !==
-				snowflakeAccountIdentifier
-		) {
-			setupSnowflakeUrls()
-		}
+		setupTemplatedOauthUrls()
 
 		// Remove empty or invalid entries for critical error channels
 		$values.critical_error_channels = $values.critical_error_channels.filter((entry: any) => {
@@ -283,19 +276,54 @@
 		}
 	}
 
-	function setupSnowflakeUrls() {
-		// strip all whitespaces from account identifier
-		snowflakeAccountIdentifier = snowflakeAccountIdentifier.replace(/\s/g, '')
+	// Per-instance OAuth providers (Snowflake, ServiceNow, …) keyed by name ->
+	// their registry connect_config_template. Adding a new one needs only a
+	// registry entry — no code here.
+	const connectConfigTemplates: Record<string, any> = Object.fromEntries(
+		Object.entries(oauthConnectRegistry)
+			.filter(([, cfg]) => cfg && typeof cfg === 'object' && 'connect_config_template' in cfg)
+			.map(([name, cfg]) => [name, (cfg as any).connect_config_template])
+	)
 
-		const connect_config = {
-			scopes: [],
-			auth_url: `https://${snowflakeAccountIdentifier}.snowflakecomputing.com/oauth/authorize`,
-			token_url: `https://${snowflakeAccountIdentifier}.snowflakecomputing.com/oauth/token-request`,
-			req_body_auth: false,
-			extra_params: { account_identifier: snowflakeAccountIdentifier },
-			extra_params_callback: {}
+	function normalizeInstanceInput(tmpl: any, raw: string): string {
+		let v = (raw ?? '').replace(/\s/g, '')
+		if (tmpl.strip_suffix) {
+			// accept a full host/URL or a bare name -> reduce to the bare instance
+			v = v.replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+			if (v.endsWith(tmpl.strip_suffix)) {
+				v = v.slice(0, -tmpl.strip_suffix.length)
+			}
 		}
-		oauths['snowflake_oauth'].connect_config = connect_config
+		return v
+	}
+
+	// Build each per-instance provider's connect_config from the admin-entered
+	// instance name + its registry template (substituting {instance} into the
+	// URLs). Replaces the old per-provider setup functions.
+	function setupTemplatedOauthUrls() {
+		for (const [name, tmpl] of Object.entries(connectConfigTemplates)) {
+			if (!oauths?.[name]) continue
+			const key = tmpl.extra_params_key ?? 'instance'
+			const v = normalizeInstanceInput(tmpl, instanceInputs[name] ?? '')
+			instanceInputs[name] = v
+			if (oauths[name].connect_config?.extra_params?.[key] === v) continue
+			oauths[name].connect_config = {
+				scopes: [],
+				auth_url: tmpl.auth_url.replaceAll('{instance}', v),
+				token_url: tmpl.token_url.replaceAll('{instance}', v),
+				req_body_auth: tmpl.req_body_auth ?? false,
+				extra_params: { [key]: v },
+				extra_params_callback: {}
+			}
+		}
+	}
+
+	// Recover the instance-name inputs from a saved oauths config (for load/discard).
+	function loadInstanceInputs(savedOauths: Record<string, any>) {
+		for (const [name, tmpl] of Object.entries(connectConfigTemplates)) {
+			const key = tmpl.extra_params_key ?? 'instance'
+			instanceInputs[name] = savedOauths?.[name]?.connect_config?.extra_params?.[key] ?? ''
+		}
 	}
 
 	let sendingStats = $state(false)
@@ -510,9 +538,7 @@
 		if (category === 'Auth/OAuth/SAML') {
 			oauths = JSON.parse(JSON.stringify(initialOauths))
 			requirePreexistingUserForOauth = initialRequirePreexistingUserForOauth
-			const account_identifier =
-				initialOauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier
-			snowflakeAccountIdentifier = account_identifier ?? ''
+			loadInstanceInputs(initialOauths)
 		} else if (category === 'Registries') {
 			const v = initialValues['workspace_registries']
 			$values['workspace_registries'] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
@@ -524,9 +550,7 @@
 		$values = JSON.parse(JSON.stringify(initialValues))
 		oauths = JSON.parse(JSON.stringify(initialOauths))
 		requirePreexistingUserForOauth = initialRequirePreexistingUserForOauth
-		const account_identifier =
-			initialOauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier
-		snowflakeAccountIdentifier = account_identifier ?? ''
+		loadInstanceInputs(initialOauths)
 		if (yamlMode) {
 			syncFormToYaml()
 		}
@@ -535,13 +559,7 @@
 	export async function saveCategorySettings(category: string) {
 		// Category-specific pre-processing
 		if (category === 'Auth/OAuth/SAML') {
-			if (
-				oauths?.snowflake_oauth &&
-				oauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier !==
-					snowflakeAccountIdentifier
-			) {
-				setupSnowflakeUrls()
-			}
+			setupTemplatedOauthUrls()
 		}
 
 		if (category === 'Alerts' && $values?.critical_error_channels) {
@@ -1116,7 +1134,7 @@
 		{:else if category == 'Auth/OAuth/SAML'}
 			<AuthSettings
 				bind:oauths
-				bind:snowflakeAccountIdentifier
+				bind:instanceInputs
 				bind:requirePreexistingUserForOauth
 				baseUrl={$values?.base_url}
 				bind:tab={authSubTab}

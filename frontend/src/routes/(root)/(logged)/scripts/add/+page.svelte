@@ -4,7 +4,7 @@
 	import { page } from '$app/state'
 	import { defaultScripts, initialArgsStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
-	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
+	import { editPathFor } from '$lib/components/workspacePicker'
 	import type { Schema } from '$lib/common'
 	import {
 		cleanValueProperties,
@@ -110,6 +110,18 @@
 	// blank editor.
 	const scriptHandle = UserDraft.use<Script>('script', '', {
 		defaultValue: templatePath || hubPath || urlScript ? undefined : defaultScript()
+	})
+
+	$effect(() => {
+		if (!$workspaceStore) return
+		const workspace = $workspaceStore
+		UserDraft.setLiveEditorDraft({
+			workspace,
+			itemKind: 'script',
+			storagePath: '',
+			effectivePath: scriptHandle.draft?.path
+		})
+		return () => UserDraft.clearLiveEditorDraft('script', { workspace, storagePath: '' })
 	})
 
 	// === BEGIN TEMP URL-HASH SYNC (remove with future PR) ===
@@ -265,11 +277,14 @@
 					? 'wac_typescript'
 					: 'script')}
 		onDeploy={(e) => {
-			if ($workspaceStore) invalidate($workspaceStore, 'script')
+			// "Deploy & Stay here" / lib: stay on the editor (just confirm).
+			if (e.stay) {
+				sendUserToast('Deployed')
+				return
+			}
 			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
 		}}
 		onSaveInitial={(e) => {
-			if ($workspaceStore) invalidate($workspaceStore, 'script')
 			goto(`/scripts/edit/${e.path}`)
 		}}
 		onNavigate={(item) => goto(editPathFor(item))}

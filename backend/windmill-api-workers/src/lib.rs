@@ -39,6 +39,10 @@ pub fn global_service() -> Router {
         .route("/queue_metrics", get(get_queue_metrics))
         .route("/queue_counts", get(get_queue_counts))
         .route("/queue_running_counts", get(get_queue_running_counts))
+        .route(
+            "/workspace_fairness_events",
+            get(get_workspace_fairness_events),
+        )
 }
 
 pub fn workspaced_service() -> Router {
@@ -282,4 +286,78 @@ async fn get_queue_running_counts(
     require_devops_role(&db, &authed.email).await?;
     let queue_running_counts = windmill_common::queue::get_queue_running_counts(&db).await;
     Ok(Json(queue_running_counts))
+}
+
+#[derive(Serialize)]
+pub struct WorkspaceFairnessEvent {
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub operation: String,
+    /// Affected workspace (stored in audit log `resource`). `None` only for very
+    /// old rows pre-dating the resource convention — UI should treat as "unknown".
+    pub workspace_id: Option<String>,
+    /// Snapshot of the relevant fairness settings at the time of the transition
+    /// (`max_percent`, `window_secs`, `total_overloaded`). `None` for uncap rows.
+    pub parameters: Option<serde_json::Value>,
+}
+
+/// Return the most recent ~200 cap and ~200 uncap transitions (merged into
+/// at most 400 rows) written by `workspace_fairness::emit_transition_audit`.
+/// Workspace fairness is an Enterprise feature; on non-EE / non-enabled
+/// instances the table is naturally empty.
+async fn get_workspace_fairness_events(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> JsonResult<Vec<WorkspaceFairnessEvent>> {
+    require_devops_role(&db, &authed.email).await?;
+
+    // No cloud-host gate — workspace fairness is an Enterprise feature
+    // available on any multi-tenant EE deployment. Non-EE / non-enabled
+    // instances will simply have no audit rows of these operation types,
+    // so the table is naturally empty.
+    //
+    // Return the most recent 200 cap **and** the most recent 200 uncap
+    // events separately, then merge — without this, a long stretch of caps
+    // can push every uncap off the unified `LIMIT 200` window and the UI
+    // appears to "never record uncaps". (The unified ordered limit was a
+    // real footgun in production audit drawers.)
+    let events = sqlx::query_as!(
+        WorkspaceFairnessEvent,
+        r#"
+        WITH capped AS (
+            SELECT timestamp, operation, resource, parameters
+            FROM audit_partitioned
+            WHERE workspace_id = 'admins'
+              AND operation = 'workspace_fairness.capped'
+            UNION ALL
+            SELECT timestamp, operation, resource, parameters
+            FROM audit
+            WHERE workspace_id = 'admins'
+              AND operation = 'workspace_fairness.capped'
+            ORDER BY timestamp DESC
+            LIMIT 200
+        ), uncapped AS (
+            SELECT timestamp, operation, resource, parameters
+            FROM audit_partitioned
+            WHERE workspace_id = 'admins'
+              AND operation = 'workspace_fairness.uncapped'
+            UNION ALL
+            SELECT timestamp, operation, resource, parameters
+            FROM audit
+            WHERE workspace_id = 'admins'
+              AND operation = 'workspace_fairness.uncapped'
+            ORDER BY timestamp DESC
+            LIMIT 200
+        )
+        SELECT timestamp AS "timestamp!",
+               operation::text AS "operation!",
+               resource AS workspace_id,
+               parameters
+        FROM (SELECT * FROM capped UNION ALL SELECT * FROM uncapped) e
+        ORDER BY timestamp DESC
+        "#,
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(events))
 }

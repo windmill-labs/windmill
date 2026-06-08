@@ -20,10 +20,15 @@
 	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
-	import { untrack } from 'svelte'
+	import { tick, untrack } from 'svelte'
 	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
 	import { page } from '$app/state'
-	import { UserDraft, checkStaleness, type UserDraftMeta } from '$lib/userDraft.svelte'
+	import {
+		UserDraft,
+		checkStaleness,
+		type UserDraftMeta,
+		type UserDraftHandle
+	} from '$lib/userDraft.svelte'
 	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 
 	let version: undefined | number = $state(undefined)
@@ -48,7 +53,8 @@
 		  })
 		| undefined = $state(undefined)
 
-	const flowDraftPath = page.params.path ?? ''
+	// Derived so client-side nav (breadcrumb) re-keys the handle to the new path.
+	let flowDraftPath = $derived(page.params.path ?? '')
 
 	// `?nodraft=true` is the callers' way of saying "skip the local autosave
 	// on this load." Wipe the UserDraft entry and strip the flag from the
@@ -61,7 +67,27 @@
 		window.history.replaceState(window.history.state, '', url.toString())
 	}
 
-	const flowHandle = UserDraft.use<Flow>('flow', flowDraftPath)
+	// `useMany` keyed off the reactive `flowDraftPath` re-keys the handle on nav;
+	// `flowHandle` proxies the current handle so `flowStore` keeps a fixed ref.
+	const flowHandles = UserDraft.useMany<Flow>(() => [{ itemKind: 'flow', path: flowDraftPath }])
+	const flowHandle: UserDraftHandle<Flow> = {
+		get draft() {
+			return flowHandles[0]?.draft
+		},
+		set draft(value) {
+			const handle = flowHandles[0]
+			if (handle) handle.draft = value
+		},
+		get meta() {
+			return flowHandles[0]?.meta ?? {}
+		},
+		setDraftAndMeta(value, meta) {
+			flowHandles[0]?.setDraftAndMeta(value, meta)
+		},
+		setMeta(meta, opts) {
+			flowHandles[0]?.setMeta(meta, opts)
+		}
+	}
 
 	function emptyFlow(): Flow {
 		return {
@@ -87,6 +113,10 @@
 	const flowStateStore = $state({ val: {} })
 
 	let loading = $state(false)
+
+	// Remounts FlowBuilder on nav: false while a reload runs, true once data is
+	// ready, so it mounts fresh instead of reusing the previous flow's state.
+	let renderEditor = $state(false)
 
 	let selectedId: string = $state('settings-metadata')
 
@@ -138,6 +168,11 @@
 		const tok = ++loadFlowToken
 		loading = true
 		let flow: Flow
+		// Builder-dependent setup is captured here and applied AFTER the builder
+		// remounts (see end of loadFlow): during a reload renderEditor is false,
+		// so flowBuilder is unmounted and direct calls would no-op.
+		let draftTriggersToApply: Trigger[] | undefined = undefined
+		let applyPrimarySchedule = false
 		// Currently there is no way to get version of flow with flow.
 		// So we have to request it here
 		const v = (
@@ -231,8 +266,8 @@
 
 		if (flowWithDraft.draft != undefined && !nobackenddraft) {
 			savedPrimarySchedule = flowWithDraft?.draft?.['primary_schedule']
-			flowBuilder?.setPrimarySchedule(savedPrimarySchedule)
-			flowBuilder?.setDraftTriggers(flowWithDraft?.draft?.['draft_triggers'])
+			applyPrimarySchedule = true
+			draftTriggersToApply = flowWithDraft?.draft?.['draft_triggers']
 
 			if (!flowWithDraft.draft_only && localDraft == undefined) {
 				const deployed = cleanValueProperties(flowWithDraft)
@@ -276,13 +311,21 @@
 				])
 			}
 		} else {
-			flowBuilder?.setDraftTriggers(undefined)
+			draftTriggersToApply = undefined
 		}
 
 		await initFlow(flow, flowStore, flowStateStore)
 		if (tok !== loadFlowToken) return
 		loading = false
 		selectedId = page.url.searchParams.get('selected') ?? 'settings-metadata'
+		// Remount the builder first, then apply builder-dependent setup once it
+		// has mounted — otherwise (during a reload) these would no-op on the
+		// unmounted builder and editor state restoration would be skipped.
+		renderEditor = true
+		await tick()
+		if (tok !== loadFlowToken) return
+		if (applyPrimarySchedule) flowBuilder?.setPrimarySchedule(savedPrimarySchedule)
+		flowBuilder?.setDraftTriggers(draftTriggersToApply)
 		flowBuilder?.loadFlowState()
 	}
 
@@ -291,7 +334,18 @@
 		// to another (e.g. via the workspace picker) reloads the new flow.
 		page.params.path
 		if ($workspaceStore) {
-			untrack(() => loadFlow())
+			untrack(() => {
+				nobackenddraft = false // fresh nav reconsiders the backend draft
+				renderEditor = false // remount the builder for the navigated-to flow
+				loadFlow().catch((e: any) => {
+					// A failed load must NOT leave renderEditor stuck false — otherwise
+					// the editor pane disappears and never remounts. Surface the error
+					// and remount so the user isn't stranded on a blank pane.
+					console.error('Failed to load flow', e)
+					sendUserToast(`Failed to load flow: ${e?.body ?? e?.message ?? e}`, true)
+					renderEditor = true
+				})
+			})
 		}
 	})
 
@@ -347,7 +401,7 @@
 		<h1 class="text-2xl font-bold">Flow not found at path {page.params.path}</h1>
 		<p class="text-gray-500">The flow you are looking for does not exist.</p>
 	</div>
-{:else}
+{:else if renderEditor}
 	<FlowBuilder
 		onDeploy={(e) => {
 			UserDraft.remove('flow', flowDraftPath)
@@ -367,6 +421,7 @@
 		{flowStore}
 		{flowStateStore}
 		initialPath={page.params.path ?? ''}
+		liveEditorDraftStoragePath={flowDraftPath}
 		newFlow={false}
 		{selectedId}
 		{initialArgs}

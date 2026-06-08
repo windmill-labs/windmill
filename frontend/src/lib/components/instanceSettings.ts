@@ -269,6 +269,60 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
+			label: 'Sandbox image max size (MB)',
+			key: 'sandbox_image_max_size_mb',
+			description:
+				'Reject a <code># sandbox &lt;image&gt;</code> whose compressed download size exceeds this many MB, before any layer is downloaded. Leave empty for no limit.',
+			fieldType: 'number',
+			placeholder: 'no limit',
+			storage: 'setting'
+		},
+		{
+			label: 'Sandbox image cache cap (MB)',
+			key: 'sandbox_image_cache_max_mb',
+			description:
+				"Best-effort cap on the worker's cached sandbox rootfs tars. When exceeded, the oldest (by creation time) are evicted after a run. Leave empty for unbounded.",
+			fieldType: 'number',
+			placeholder: 'unbounded',
+			storage: 'setting'
+		},
+		{
+			label: 'Sandbox image pull policy',
+			key: 'sandbox_image_pull_policy',
+			description:
+				'When to re-pull a <code># sandbox</code> image. <strong>newer</strong> (default) re-pulls only when the registry digest changed, so moving tags like <code>:latest</code> stay fresh without re-downloading unchanged layers. <strong>missing</strong> pulls only if absent (fastest, tags can go stale). <strong>always</strong> re-checks every job.',
+			fieldType: 'select',
+			storage: 'setting',
+			placeholder: 'newer',
+			defaultValue: () => 'newer',
+			select_items: [
+				{ label: 'Newer (default)', value: 'newer' },
+				{ label: 'Missing', value: 'missing' },
+				{ label: 'Always', value: 'always' },
+				{ label: 'Never', value: 'never' }
+			]
+		},
+		{
+			label: 'Sandbox image default registry',
+			key: 'sandbox_image_default_registry',
+			description:
+				'If set, unqualified <code># sandbox</code> images (e.g. <code>alpine</code>) are pulled from this registry instead of <code>docker.io</code>. Fully-qualified refs (e.g. <code>ghcr.io/org/img</code>) are unaffected. Example: <code>myregistry.example.com</code>.',
+			fieldType: 'text',
+			placeholder: 'docker.io',
+			storage: 'setting'
+		},
+		{
+			label: 'Sandbox registry auth',
+			key: 'sandbox_registry_auth',
+			description:
+				'Credentials for private registries used by <code># sandbox</code> images, in docker <code>config.json</code> / <code>auth.json</code> format. Written to a per-job <code>DOCKER_CONFIG</code> dir (removed with the job) and used by crane for the pull.',
+			fieldType: 'codearea',
+			codeAreaLang: 'json',
+			placeholder:
+				'{\n  "auths": {\n    "myregistry.example.com": {\n      "auth": "BASE64(username:password)"\n    }\n  }\n}',
+			storage: 'setting'
+		},
+		{
 			label: 'Default timeout',
 			key: 'job_default_timeout',
 			description:
@@ -307,22 +361,25 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Workspace fairness — enabled',
 			description:
-				'Cloud-only safeguard against a single workspace dominating the shared worker pool. When a workspace accounts for at least <em>Workspace fairness — max percent</em> of cluster activity over the last <em>Workspace fairness — duration</em> seconds, the pull query temporarily excludes that workspace until its share drops back below the threshold. Idle workers always fall back to running its jobs, so capping never starves the queue.',
+				'Multi-tenant safeguard against a single workspace dominating the shared worker pool. <strong>Only relevant on instances where multiple workspaces share one worker group</strong> — single-tenant deployments do not need this. When a workspace accounts for at least <em>Workspace fairness — max percent</em> of cluster activity over the last <em>Workspace fairness — duration</em> seconds, each worker pull stochastically excludes that workspace so its share converges to the cap without on/off oscillation. Idle workers always fall back to running its jobs, so capping never starves the queue.',
 			key: 'workspace_fairness_enabled',
 			fieldType: 'boolean',
 			storage: 'setting',
-			cloudonly: true,
+			cloudonly: false,
+			ee_only:
+				'Workspace fairness is an Enterprise feature — only useful on multi-tenant clusters where one noisy workspace would otherwise degrade QoS for other workspaces sharing the same worker pool.',
 			hideInQuickSetup: true
 		},
 		{
 			label: 'Workspace fairness — max percent',
 			description:
-				'Maximum percentage of cluster activity a single workspace may sustain before being temporarily excluded from the pull query. Default 50.',
+				'Maximum share of cluster activity any single workspace may sustain before being stochastically throttled by the pull query. The admitted probability for capped workspaces is set just above this value so the cap is statistically stable rather than oscillating. Default 50.',
 			key: 'workspace_fairness_max_percent',
 			fieldType: 'number',
 			placeholder: '50',
 			storage: 'setting',
-			cloudonly: true,
+			cloudonly: false,
+			ee_only: 'Workspace fairness is an Enterprise feature.',
 			hideInQuickSetup: true
 		},
 		{
@@ -333,7 +390,8 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'seconds',
 			placeholder: '10',
 			storage: 'setting',
-			cloudonly: true,
+			cloudonly: false,
+			ee_only: 'Workspace fairness is an Enterprise feature.',
 			hideInQuickSetup: true
 		},
 		{
@@ -344,7 +402,8 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'number',
 			placeholder: '4',
 			storage: 'setting',
-			cloudonly: true,
+			cloudonly: false,
+			ee_only: 'Workspace fairness is an Enterprise feature.',
 			hideInQuickSetup: true
 		}
 	],

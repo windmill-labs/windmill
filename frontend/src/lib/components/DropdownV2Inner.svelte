@@ -1,7 +1,7 @@
 <script lang="ts">
 	import MenuItem from '$lib/components/meltComponents/MenuItem.svelte'
 	import DropdownSubmenuItem from '$lib/components/DropdownSubmenuItem.svelte'
-	import { Loader2 } from 'lucide-svelte'
+	import { Check, Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { MenubarMenuElements, createDropdownMenu } from '@melt-ui/svelte'
 	import type { Item } from '$lib/utils'
@@ -62,8 +62,17 @@
 						{item.displayName}
 					</p>
 					{@render item.extra?.()}
-					{#if item.shortcut}
-						<span class="ml-auto pl-4 text-2xs text-secondary shrink-0">{item.shortcut}</span>
+					{#if item.shortcut || item.selected}
+						<!-- Single trailing group so `shortcut` and `selected` can coexist:
+						     two `ml-auto` siblings would collapse to one right-aligned item. -->
+						<div class="ml-auto flex shrink-0 items-center gap-2">
+							{#if item.shortcut}
+								<span class="pl-4 text-2xs text-secondary">{item.shortcut}</span>
+							{/if}
+							{#if item.selected}
+								<Check size={14} class="text-primary" />
+							{/if}
+						</div>
 					{/if}
 					{#if item.tooltip}
 						<Tooltip>

@@ -17,8 +17,10 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	import { ChevronLeft, ChevronRight, Folder, Layers, Loader2, User } from 'lucide-svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
+	import WorkspaceItemRow from '$lib/components/WorkspaceItemRow.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import { onMount, untrack } from 'svelte'
+	import { generateRandomString } from '$lib/utils'
 	import {
 		dirKey,
 		getCachedItems,
@@ -30,6 +32,8 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		type WorkspaceItem,
 		type WorkspaceItemKind
 	} from './workspacePicker'
+	import { listGlobalDrafts } from '$lib/components/copilot/chat/global/userDraftAdapter'
+	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 
 	type Kind = WorkspaceItemKind
 	type Item = WorkspaceItem
@@ -62,7 +66,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 
 	let searchInput: TextInput | undefined = $state()
 	let pickerRoot: HTMLElement | undefined = $state()
-	const instanceId = crypto.randomUUID()
+	const instanceId = generateRandomString(8)
 	const listboxId = `pkr-list-${instanceId}`
 	const idFor = (key: string) => `pkr-${instanceId}-${key.replace(/[^a-zA-Z0-9-]/g, '_')}`
 
@@ -72,8 +76,16 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 
 	// Sibling-popover open: melt-ui's `openFocus` runs once during the close→open
 	// transition; the picker may not be mounted yet. Retry after settle.
+	// Also kicks off the initial scope's fetch — drill/goUp do the same from
+	// their respective branches, so `ensureLoaded` is always a callback
+	// reaction to user navigation, never a reactive consequence.
 	onMount(() => {
 		const t = setTimeout(focus, 50)
+		const initial = untrack(() => scope)
+		if (initial) {
+			if (initial.kind === 'all') for (const k of kinds) ensureLoaded(k)
+			else ensureLoaded(initial.kind)
+		}
 		return () => clearTimeout(t)
 	})
 
@@ -81,6 +93,22 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 
 	let scope = $state<Scope>(untrack(() => initialScope))
 	let filter = $state('')
+
+	/**
+	 * Canonical entry point for changing the picker's scope. Triggers the
+	 * fetch for the kind(s) the new scope needs at the same point in time.
+	 * Replaces the older "react to `scope` change via `$effect`" wiring,
+	 * which had a subtle bug: `ensureLoaded` reads `loaded[kind]`, so the
+	 * effect ended up subscribed to the signal it fills — every fetch
+	 * result re-fired it. With explicit callbacks the fetch is tied to
+	 * the user's action, never to a reactive consequence of that action.
+	 */
+	function setScope(next: Scope) {
+		scope = next
+		if (!next) return
+		if (next.kind === 'all') for (const k of kinds) ensureLoaded(k)
+		else ensureLoaded(next.kind)
+	}
 
 	/** Tracks whether the last user action was mouse movement (true) or
 	 * keyboard nav (false). When false, row `mouseenter` events are ignored
@@ -90,10 +118,11 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	 * mounts under a stationary cursor doesn't clobber `initialHighlight`. */
 	let mouseActive = $state(false)
 
-	// Seed from cache so kinds already fetched in this session render on the
-	// first frame. Read once at mount: melt-ui mounts a fresh picker per
-	// popover open, so workspace changes are picked up at the next open
-	// without needing this seed to be reactive.
+	// Seed from the last fetched snapshot so kinds already fetched in this
+	// session render on the first frame. Each entry is replaced once
+	// `loadKind` returns fresh data — stale-while-revalidate, so deploys and
+	// AI-created drafts surface on the next open without explicit cache
+	// busting.
 	let loaded = $state<Partial<Record<Kind, Item[]>>>(
 		(() => {
 			if (!$workspaceStore) return {}
@@ -109,8 +138,15 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 
 	async function ensureLoaded(kind: Kind) {
 		if (!$workspaceStore) return
-		if (loaded[kind]) return
-		loadingKind[kind] = true
+		// Always re-fetch. If we have nothing cached, show a spinner; if we do,
+		// keep displaying it and quietly swap to fresh data when it lands.
+		// `loaded[kind]` is read inside `untrack(...)` because this function is
+		// reachable from the search `$effect` below — without the untrack,
+		// that effect would subscribe to the signal `ensureLoaded` fills, and
+		// each `loaded[kind] = items` (proxy `set` notifies even when the ref
+		// is unchanged from cache) would refire it → runaway loop. Drill
+		// navigation goes through `setScope` directly so it isn't affected.
+		if (!untrack(() => loaded[kind])) loadingKind[kind] = true
 		try {
 			const items = await loadKind($workspaceStore, kind)
 			loaded[kind] = items
@@ -119,13 +155,31 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		}
 	}
 
-	// Fetch the scope's kind on entry to a non-root level. The `'all'` scope
-	// needs every kind loaded since it merges items across them.
-	$effect(() => {
-		if (!scope) return
-		if (scope.kind === 'all') for (const k of kinds) ensureLoaded(k)
-		else ensureLoaded(scope.kind)
-	})
+	// Chat tools and session editor previews write drafts through
+	// `UserDraft` (workspace-scoped, localStorage-backed). Merge those into
+	// the picker so users can navigate to in-flight items that haven't been
+	// deployed yet. Filter to kinds the picker actually displays.
+	//
+	// Gated on the same dev flag as the rest of the sessions feature: without
+	// it there are no sessions, so the only UserDrafts present are the
+	// standalone editors' autosaves — surfacing those in the breadcrumb picker
+	// would be surprising (they'd appear as navigable items that 404 on the
+	// backend draft fetch). When the flag is off this is a no-op.
+	const KIND_TO_DRAFT_TYPE = { flow: 'flow', script: 'script', app: 'app' } as const
+	function aiDraftsForKind(k: Kind): Item[] {
+		if (!isGlobalAiEnabled()) return []
+		if (!$workspaceStore) return []
+		const targetType = KIND_TO_DRAFT_TYPE[k]
+		return listGlobalDrafts($workspaceStore)
+			.filter((d) => d.type === targetType)
+			.map((d) => ({
+				path: d.path,
+				summary: d.summary ?? '',
+				kind: k,
+				// `raw_app` lives on the draft envelope for legacy/raw-app distinction.
+				raw_app: k === 'app' ? !!(d.value as { files?: unknown })?.files : undefined
+			}))
+	}
 
 	// Searching is global → load every kind.
 	$effect(() => {
@@ -138,6 +192,17 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		isScope: boolean
 		children: DirNode[]
 		leaves: Item[]
+	}
+
+	/** Merge AI-created in-memory drafts into a kind's list. The AI may have
+	 * scaffolded a script/flow/app via chat tools without the user saving
+	 * yet — those drafts should be navigable from the picker. Existing items
+	 * (same path) win to keep the backend's metadata (summary etc.). */
+	function withAiDrafts(items: Item[], k: Kind): Item[] {
+		const ai = aiDraftsForKind(k)
+		if (ai.length === 0) return items
+		const known = new Set(items.map((it) => it.path))
+		return items.concat(ai.filter((d) => !known.has(d.path)))
 	}
 
 	/** Inject the currently-edited item into a kind's list at its live path,
@@ -207,7 +272,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	 * cached. */
 	function buildIfActive(k: Kind, list: Item[] | undefined): DirNode[] {
 		if (!kinds.includes(k)) return []
-		const items = withCurrent(list ?? [], k)
+		const items = withAiDrafts(withCurrent(list ?? [], k), k)
 		if (items.length === 0) return []
 		return buildTreeFromItems(items)
 	}
@@ -219,7 +284,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	 * one folder hierarchy. Each leaf still carries its real kind, so the row
 	 * icon and `editPathFor` routing still work; folders contain a mix. */
 	const allTree = $derived.by(() => {
-		const merged = kinds.flatMap((k) => withCurrent(loaded[k] ?? [], k))
+		const merged = kinds.flatMap((k) => withAiDrafts(withCurrent(loaded[k] ?? [], k), k))
 		return merged.length === 0 ? [] : buildTreeFromItems(merged)
 	})
 
@@ -255,7 +320,10 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 
 	let allItems = $derived<SearchInput[]>(
 		kinds.flatMap((k) =>
-			withCurrent(loaded[k] ?? [], k).map((it) => ({ ...it, _key: `${k}:${it.path}` }))
+			withAiDrafts(withCurrent(loaded[k] ?? [], k), k).map((it) => ({
+				...it,
+				_key: `${k}:${it.path}`
+			}))
 		)
 	)
 
@@ -383,9 +451,9 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 
 	function drill(entry: Entry) {
 		if (entry.type === 'kind') {
-			scope = { kind: entry.kind }
+			setScope({ kind: entry.kind })
 		} else if (entry.type === 'dir') {
-			scope = { kind: entry.kind, dir: entry.node.fullPath }
+			setScope({ kind: entry.kind, dir: entry.node.fullPath })
 		} else {
 			pick(entry.item)
 		}
@@ -397,13 +465,13 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		// just left, so the user sees where they came from.
 		if (!scope.dir) {
 			const leaving = kindKey(scope.kind)
-			scope = undefined
+			setScope(undefined)
 			highlightedKey = leaving
 			return
 		}
 		const leaving = dirKey(scope.kind, scope.dir)
 		const parent = parentDirPath(scope.dir)
-		scope = parent ? { kind: scope.kind, dir: parent } : { kind: scope.kind }
+		setScope(parent ? { kind: scope.kind, dir: parent } : { kind: scope.kind })
 		highlightedKey = leaving
 	}
 
@@ -528,32 +596,18 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 
 {#snippet leafRow(it: Item, secondary: string, baseClass: string)}
 	{@const key = leafKey(it)}
-	{@const isHl = key === highlightedKey}
-	{@const isCur = isCurrent(it)}
-	<button
-		type="button"
+	<WorkspaceItemRow
+		kind={it.kind}
+		summary={it.summary}
+		{secondary}
+		highlighted={key === highlightedKey}
+		current={isCurrent(it)}
 		id={idFor(key)}
-		role="option"
-		aria-selected={isHl}
-		data-nav-key={key}
-		aria-current={isCur ? 'true' : undefined}
-		class="w-full text-left flex items-center gap-2 px-3 transition-colors {baseClass} {isHl
-			? 'bg-surface-hover'
-			: ''} {isCur ? 'cursor-default text-emphasis font-medium' : ''}"
-		onmousedown={(e) => e.preventDefault()}
+		navKey={key}
+		{baseClass}
 		onclick={() => pick(it)}
 		onmouseenter={() => setHoverHighlight(key)}
-	>
-		<RowIcon kind={it.kind} size={12} />
-		<div class="min-w-0 flex-1">
-			{#if it.summary}
-				<div class="text-xs text-primary truncate">{it.summary}</div>
-				<div class="text-2xs text-secondary font-normal font-mono truncate">{secondary}</div>
-			{:else}
-				<div class="text-xs text-primary font-mono truncate">{secondary}</div>
-			{/if}
-		</div>
-	</button>
+	/>
 {/snippet}
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->

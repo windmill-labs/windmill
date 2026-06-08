@@ -20,7 +20,12 @@
 	import { get } from 'svelte/store'
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
-	import { UserDraft, checkStaleness, type UserDraftMeta } from '$lib/userDraft.svelte'
+	import {
+		UserDraft,
+		checkStaleness,
+		type UserDraftMeta,
+		type UserDraftHandle
+	} from '$lib/userDraft.svelte'
 	import { notifyRestoredFromLocal } from '$lib/userDraftToast'
 
 	type EditableScript = NewScript & { draft_triggers?: Trigger[] }
@@ -30,14 +35,50 @@
 	let initialArgs = get(initialArgsStore) ?? {}
 	if (get(initialArgsStore)) $initialArgsStore = undefined
 
-	let topHash = page.url.searchParams.get('topHash') ?? undefined
+	// Derived so client-side nav (breadcrumb) re-reads the URL, not mount-time values.
+	let topHash = $derived(page.url.searchParams.get('topHash') ?? undefined)
 
-	let hash = page.url.searchParams.get('hash') ?? undefined
+	let hash = $derived(page.url.searchParams.get('hash') ?? undefined)
 
 	// When viewing a specific historical hash we don't want to load or write a
 	// local draft — that view is read-only relative to drafts.
-	const draftPath = hash ? '' : (page.params.path ?? '')
-	const scriptHandle = UserDraft.use<EditableScript>('script', draftPath)
+	let draftPath = $derived(hash ? '' : (page.params.path ?? ''))
+
+	// `useMany` keyed off the reactive `draftPath` re-keys the handle on nav;
+	// `scriptHandle` proxies the current handle so `bind:script` stays a fixed lvalue.
+	const scriptHandles = UserDraft.useMany<EditableScript>(() => [
+		{ itemKind: 'script', path: draftPath }
+	])
+	const scriptHandle: UserDraftHandle<EditableScript> = {
+		get draft() {
+			return scriptHandles[0]?.draft
+		},
+		set draft(value) {
+			const handle = scriptHandles[0]
+			if (handle) handle.draft = value
+		},
+		get meta() {
+			return scriptHandles[0]?.meta ?? {}
+		},
+		setDraftAndMeta(value, meta) {
+			scriptHandles[0]?.setDraftAndMeta(value, meta)
+		},
+		setMeta(meta, opts) {
+			scriptHandles[0]?.setMeta(meta, opts)
+		}
+	}
+
+	$effect(() => {
+		if (hash || !$workspaceStore) return
+		const workspace = $workspaceStore
+		UserDraft.setLiveEditorDraft({
+			workspace,
+			itemKind: 'script',
+			storagePath: draftPath,
+			effectivePath: scriptHandle.draft?.path ?? draftPath
+		})
+		return () => UserDraft.clearLiveEditorDraft('script', { workspace, storagePath: draftPath })
+	})
 
 	/** Some pages base64-JSON-encode a NewScript-like payload into the URL
 	 * hash on `/scripts/edit/<path>#…`. Treat it as a one-shot seed that
@@ -72,6 +113,11 @@
 
 	let savedScript: NewScriptWithDraft | undefined = $state(undefined)
 	let fullyLoaded = $state(false)
+
+	// Remounts ScriptBuilder on nav: false while a reload runs, true once data is
+	// ready. A synchronous `{#key}` swap instead races Monaco's init against the
+	// torn-down container (mirrors how the raw-app editor clears `files`).
+	let renderEditor = $state(false)
 
 	let savedPrimarySchedule: ScheduleTrigger | undefined = $state(undefined)
 
@@ -324,6 +370,7 @@
 			scriptBuilder?.setCode(scriptHandle.draft.content)
 		}
 		fullyLoaded = true
+		renderEditor = true
 	}
 
 	$effect(() => {
@@ -331,7 +378,17 @@
 		// to another (e.g. via the workspace picker) reloads the new script.
 		page.params.path
 		if ($workspaceStore) {
-			untrack(() => loadScript())
+			untrack(() => {
+				renderEditor = false // remount the builder for the navigated-to script
+				loadScript().catch((e: any) => {
+					// A failed load must NOT leave renderEditor stuck false — otherwise
+					// the editor pane disappears and never remounts. Surface the error
+					// and remount so the user isn't stranded on a blank pane.
+					console.error('Failed to load script', e)
+					sendUserToast(`Failed to load script: ${e?.body ?? e?.message ?? e}`, true)
+					renderEditor = true
+				})
+			})
 		}
 	})
 
@@ -412,7 +469,7 @@
 	onLoadLatest={onUrlConflictUseUrl}
 	onKeepDraft={onUrlConflictKeepLocal}
 />
-{#if scriptHandle.draft}
+{#if scriptHandle.draft && renderEditor}
 	<ScriptBuilder
 		bind:this={scriptBuilder}
 		{initialPath}
@@ -424,12 +481,16 @@
 		{savedPrimarySchedule}
 		searchParams={page.url.searchParams}
 		onDeploy={(e) => {
+			// "Deploy & Stay here" / lib: stay on the editor (just confirm).
+			if (e.stay) {
+				sendUserToast('Deployed')
+				return
+			}
 			UserDraft.remove('script', draftPath)
 			if ($workspaceStore) invalidate($workspaceStore, 'script')
 			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
 		}}
 		onSaveInitial={(e) => {
-			if ($workspaceStore) invalidate($workspaceStore, 'script')
 			goto(`/scripts/edit/${e.path}`)
 		}}
 		onSeeDetails={(e) => {

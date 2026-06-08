@@ -207,6 +207,11 @@ pub struct GlobalUserInfo {
     username: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     operator_only: Option<bool>,
+    /// Populated only for service-account rows (which are workspace-scoped).
+    /// `None` for password users since their admin status varies per workspace
+    /// and is not surfaced by this aggregation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    is_workspace_admin: Option<bool>,
     first_time_user: bool,
     role_source: String,
     disabled: bool,
@@ -455,11 +460,11 @@ async fn list_users_as_super_admin(
             GlobalUserInfo,
             r#"WITH active_users AS (SELECT distinct username as email FROM (SELECT username, timestamp, operation FROM audit_partitioned UNION ALL SELECT username, timestamp, operation FROM audit) AS a WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login' OR operation = 'users.token.refresh')),
             authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)
-            SELECT email as "email!", (email NOT IN (SELECT email FROM authors)) as operator_only, login_type::text, verified as "verified!", super_admin as "super_admin!", devops as "devops!", name, company, username, first_time_user as "first_time_user!", role_source as "role_source!", disabled as "disabled!", NULL::text as workspace_id
+            SELECT email as "email!", (email NOT IN (SELECT email FROM authors)) as operator_only, NULL::bool as is_workspace_admin, login_type::text, verified as "verified!", super_admin as "super_admin!", devops as "devops!", name, company, username, first_time_user as "first_time_user!", role_source as "role_source!", disabled as "disabled!", NULL::text as workspace_id
             FROM password
             WHERE email IN (SELECT email FROM active_users)
             UNION ALL
-            SELECT email as "email!", true as operator_only, 'service_account'::text as login_type, true as "verified!", false as "super_admin!", false as "devops!", NULL::text as name, NULL::text as company, username, false as "first_time_user!", 'service_account'::text as "role_source!", disabled as "disabled!", workspace_id
+            SELECT email as "email!", operator as operator_only, is_admin as is_workspace_admin, 'service_account'::text as login_type, true as "verified!", false as "super_admin!", false as "devops!", NULL::text as name, NULL::text as company, username, false as "first_time_user!", 'service_account'::text as "role_source!", disabled as "disabled!", workspace_id
             FROM usr
             WHERE is_service_account IS true
             ORDER BY "super_admin!" DESC, "devops!" DESC
@@ -472,9 +477,9 @@ async fn list_users_as_super_admin(
     } else {
         sqlx::query_as!(
             GlobalUserInfo,
-            r#"SELECT email as "email!", login_type::text, verified as "verified!", super_admin as "super_admin!", devops as "devops!", name, company, username, NULL::bool as operator_only, first_time_user as "first_time_user!", role_source as "role_source!", disabled as "disabled!", NULL::text as workspace_id FROM password
+            r#"SELECT email as "email!", login_type::text, verified as "verified!", super_admin as "super_admin!", devops as "devops!", name, company, username, NULL::bool as operator_only, NULL::bool as is_workspace_admin, first_time_user as "first_time_user!", role_source as "role_source!", disabled as "disabled!", NULL::text as workspace_id FROM password
             UNION ALL
-            SELECT email as "email!", 'service_account'::text as login_type, true as "verified!", false as "super_admin!", false as "devops!", NULL::text as name, NULL::text as company, username, true as operator_only, false as "first_time_user!", 'service_account'::text as "role_source!", disabled as "disabled!", workspace_id
+            SELECT email as "email!", 'service_account'::text as login_type, true as "verified!", false as "super_admin!", false as "devops!", NULL::text as name, NULL::text as company, username, operator as operator_only, is_admin as is_workspace_admin, false as "first_time_user!", 'service_account'::text as "role_source!", disabled as "disabled!", workspace_id
             FROM usr
             WHERE is_service_account IS true
             ORDER BY "super_admin!" DESC, "devops!" DESC, "email!"
@@ -727,7 +732,7 @@ async fn global_whoami(
 ) -> JsonResult<GlobalUserInfo> {
     let user = sqlx::query_as!(
         GlobalUserInfo,
-        "SELECT email, login_type::TEXT, super_admin, devops, verified, name, company, username, NULL::bool as operator_only, first_time_user, role_source, disabled, NULL::text as workspace_id FROM password WHERE \
+        "SELECT email, login_type::TEXT, super_admin, devops, verified, name, company, username, NULL::bool as operator_only, NULL::bool as is_workspace_admin, first_time_user, role_source, disabled, NULL::text as workspace_id FROM password WHERE \
          email = $1",
         email
     )
@@ -748,13 +753,24 @@ async fn global_whoami(
             company: None,
             username: None,
             operator_only: None,
+            is_workspace_admin: None,
             first_time_user: false,
             role_source: "manual".to_string(),
             disabled: false,
             workspace_id: None,
         }))
     } else {
-        // Service accounts don't have a password row
+        // Service accounts don't have a password row. The SA email is unique
+        // per (workspace, username) and pinpoints a single usr row, so we can
+        // surface its real role rather than pinning to operator.
+        let sa_role = sqlx::query!(
+            "SELECT operator, is_admin FROM usr WHERE email = $1 AND is_service_account IS true LIMIT 1",
+            email
+        )
+        .fetch_optional(&db)
+        .await
+        .map_err(|e| Error::internal_err(format!("fetching service-account role: {e:#}")))?;
+
         Ok(Json(GlobalUserInfo {
             email: email.clone(),
             login_type: Some("service_account".to_string()),
@@ -764,7 +780,8 @@ async fn global_whoami(
             name: None,
             company: None,
             username: None,
-            operator_only: Some(true),
+            operator_only: sa_role.as_ref().map(|r| r.operator).or(Some(true)),
+            is_workspace_admin: sa_role.as_ref().map(|r| r.is_admin),
             first_time_user: false,
             role_source: "service_account".to_string(),
             disabled: false,
@@ -1947,7 +1964,8 @@ async fn login(
             windmill_common::login_rate_limit::record_login_failure(&email);
             Err(Error::BadRequest("Invalid login".to_string()))
         } else {
-            let token = create_session_token(&email, super_admin, &mut tx, cookies).await?;
+            let token =
+                create_session_token(&email, super_admin, None, false, &mut tx, cookies).await?;
 
             let audit_author = AuditAuthor {
                 email: email.clone(),
@@ -2019,7 +2037,15 @@ async fn refresh_token(
     .await?
     .unwrap_or(false);
 
-    let new_token = create_session_token(&authed.email, super_admin, &mut tx, cookies).await?;
+    let new_token = create_session_token(
+        &authed.email,
+        super_admin,
+        authed.scopes.as_deref(),
+        authed.read_only,
+        &mut tx,
+        cookies,
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -2049,6 +2075,8 @@ lazy_static::lazy_static! {
 pub async fn create_session_token<'c>(
     email: &str,
     super_admin: bool,
+    scopes: Option<&[String]>,
+    read_only: bool,
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
     cookies: Cookies,
 ) -> Result<String> {
@@ -2091,15 +2119,17 @@ pub async fn create_session_token<'c>(
 
     sqlx::query!(
         "INSERT INTO token
-            (token_hash, token_prefix, token, email, label, expiration, super_admin)
-            VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' seconds')::interval, $7)",
+            (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, read_only)
+            VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' seconds')::interval, $7, $8, $9)",
         t_hash,
         t_prefix,
         plaintext as Option<&str>,
         email,
         "session",
         &MAX_SESSION_VALIDITY_SECONDS.to_string(),
-        super_admin
+        super_admin,
+        scopes,
+        read_only,
     )
     .execute(&mut **tx)
     .await?;
@@ -2128,6 +2158,8 @@ async fn create_token(
     Json(token_config): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
     check_token_create_rate_limit(&authed.username)?;
+
+    windmill_api_auth::ensure_scopes_within_caller(&authed, token_config.scopes.as_deref())?;
 
     let mut tx = db.begin().await?;
 
@@ -2336,6 +2368,8 @@ async fn update_token_scopes(
     Path(token_prefix): Path<String>,
     Json(req): Json<UpdateTokenScopesRequest>,
 ) -> Result<String> {
+    windmill_api_auth::ensure_scopes_within_caller(&authed, req.scopes.as_deref())?;
+
     let mut tx = db.begin().await?;
 
     let updated: Option<String> = sqlx::query_scalar!(

@@ -55,7 +55,10 @@ use windmill_common::{
 use windmill_dep_map::scoped_dependency_map::{
     DependencyDependent, DependencyMap, ScopedDependencyMap,
 };
-use windmill_git_sync::{handle_deployment_metadata, handle_fork_branch_creation, DeployedObject};
+use windmill_git_sync::{
+    handle_deployment_metadata, handle_deployment_metadata_batch, handle_fork_branch_creation,
+    DeployedObject,
+};
 use windmill_types::s3::LargeFileStorage;
 
 use hyper::StatusCode;
@@ -336,6 +339,8 @@ pub struct InstanceAISummary {
     pub providers: Vec<InstanceAIProviderSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_model: Option<InstanceAIModelSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata_model: Option<InstanceAIModelSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code_completion_model: Option<InstanceAIModelSummary>,
 }
@@ -822,6 +827,7 @@ pub fn build_instance_ai_summary(config: Option<&serde_json::Value>) -> Option<I
     Some(InstanceAISummary {
         providers: provider_summaries,
         default_model: extract_instance_ai_model_summary(config, "default_model"),
+        metadata_model: extract_instance_ai_model_summary(config, "metadata_model"),
         code_completion_model: extract_instance_ai_model_summary(config, "code_completion_model"),
     })
 }
@@ -3403,6 +3409,7 @@ async fn set_encryption_key(
     .execute(&mut *tx)
     .await?;
 
+    let mut reencrypted_secret_paths: Vec<String> = Vec::new();
     if !request.skip_reencrypt.unwrap_or(false) {
         // Build the new cipher directly from the key string, since the transaction
         // hasn't committed yet and build_crypt() would read the old key from the pool.
@@ -3448,6 +3455,7 @@ async fn set_encryption_key(
             )
             .execute(&mut *tx)
             .await?;
+            reencrypted_secret_paths.push(variable.path);
         }
     }
 
@@ -3456,16 +3464,23 @@ async fn set_encryption_key(
     // Invalidate the cache only after the transaction has committed
     WORKSPACE_CRYPT_CACHE.remove(w_id.as_str());
 
-    // Trigger git sync for encryption key changes
-    handle_deployment_metadata(
+    // Build the batch: one event for the encryption key itself plus one per
+    // re-encrypted secret variable. The batch entrypoint dispatches a single
+    // git-sync job per repo carrying all items, so repos with Secrets sync
+    // enabled receive the new ciphertexts in one commit.
+    let mut batch: Vec<DeployedObject> = Vec::with_capacity(reencrypted_secret_paths.len() + 1);
+    batch.push(DeployedObject::Key { key_type: "encryption_key".to_string() });
+    for path in reencrypted_secret_paths {
+        batch.push(DeployedObject::Variable { path: path.clone(), parent_path: Some(path) });
+    }
+
+    handle_deployment_metadata_batch(
         &authed.email,
         &authed.username,
         &db,
         &w_id,
-        windmill_git_sync::DeployedObject::Key { key_type: "encryption_key".to_string() },
+        batch,
         Some("Encryption key updated".to_string()),
-        false,
-        None,
     )
     .await?;
 
@@ -5451,6 +5466,16 @@ If you do not have an account on {}, login with SSO or ask an admin to create an
 #[derive(Deserialize)]
 pub struct NewServiceAccount {
     pub username: String,
+    #[serde(default)]
+    pub is_admin: bool,
+    #[serde(default = "default_true")]
+    pub operator: bool,
+    #[serde(default)]
+    pub add_to_deployers: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 async fn create_service_account(

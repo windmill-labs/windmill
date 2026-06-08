@@ -79,6 +79,8 @@
 		runnables: Record<string, Runnable>
 		data: RawAppData
 		summary: string
+		policy?: Policy
+		custom_path?: string
 	}>('raw_app', '')
 	// Restore the persisted autosave so a plain reload of /apps_raw/add
 	// resumes the last session. Captured once; the $effect below mirrors
@@ -114,13 +116,15 @@
 
 	let summary = $state(restoredDraft?.summary ?? '')
 	let files: Record<string, string> = $state(restoredDraft?.files ?? react19Template)
-	let policy: Policy = $state({
-		on_behalf_of: $userStore?.username.includes('@')
-			? $userStore?.username
-			: `u/${$userStore?.username}`,
-		on_behalf_of_email: $userStore?.email,
-		execution_mode: 'publisher'
-	})
+	let policy: Policy = $state(
+		restoredDraft?.policy ?? {
+			on_behalf_of: $userStore?.username.includes('@')
+				? $userStore?.username
+				: `u/${$userStore?.username}`,
+			on_behalf_of_email: $userStore?.email,
+			execution_mode: 'publisher'
+		}
+	)
 
 	let runnables: Record<string, Runnable> = $state(restoredDraft?.runnables ?? defaultRunnables)
 	/** Data configuration including tables and creation policy */
@@ -133,13 +137,14 @@
 		readFieldsRecursively(files)
 		readFieldsRecursively(runnables)
 		readFieldsRecursively(data)
+		readFieldsRecursively(policy)
 		void summary
 		untrack(() => {
 			if (firstMirror) {
 				firstMirror = false
 				draftHandle.setDraftAndMeta(undefined, {})
 			}
-			draftHandle.draft = { files, runnables, data, summary }
+			draftHandle.draft = { files, runnables, data, summary, policy }
 		})
 	})
 
@@ -150,11 +155,12 @@
 		const d = draftHandle.draft
 		if (d == null) return
 		untrack(() => {
-			if (localDraftDiffers(d, { files, runnables, data, summary })) {
+			if (localDraftDiffers(d, { files, runnables, data, summary, policy })) {
 				files = d.files
 				runnables = d.runnables
 				data = d.data
 				summary = d.summary
+				if (d.policy !== undefined) policy = d.policy
 			}
 		})
 	})
@@ -666,6 +672,7 @@
 		bind:data
 		{policy}
 		path={''}
+		liveEditorDraftStoragePath=""
 		bind:summary
 		newApp
 	/>

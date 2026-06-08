@@ -140,6 +140,111 @@ describe("validateToolExpectations", () => {
       details: "tools used: write_script, deploy_workspace_item",
     });
   });
+
+  it("accepts a stringIncludesAnyOf substring regardless of case or position", () => {
+    const checks = validateToolExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 1,
+        toolsUsed: ["exec_datatable_sql"],
+        toolCallDetails: [
+          {
+            name: "exec_datatable_sql",
+            arguments: {
+              sql: "WITH recent AS (SELECT * FROM orders) SELECT count(*) FROM recent",
+            },
+          },
+        ],
+        skillsInvoked: [],
+      },
+      toolExpect: {
+        requiredToolsUsed: ["exec_datatable_sql"],
+        toolCallArgs: [
+          {
+            tool: "exec_datatable_sql",
+            field: "sql",
+            stringIncludesAnyOf: ["select"],
+          },
+        ],
+      },
+    });
+
+    expect(checks.every((check) => check.passed)).toBe(true);
+  });
+
+  it("accepts stringIncludesAnyOf when only one of several calls matches", () => {
+    // Existential: a mutation mixed with verification SELECTs still passes.
+    const checks = validateToolExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 2,
+        toolsUsed: ["exec_datatable_sql"],
+        toolCallDetails: [
+          {
+            name: "exec_datatable_sql",
+            arguments: { sql: "UPDATE orders SET status = 'shipped' WHERE id = 2" },
+          },
+          {
+            name: "exec_datatable_sql",
+            arguments: { sql: "SELECT * FROM orders WHERE id = 2" },
+          },
+        ],
+        skillsInvoked: [],
+      },
+      toolExpect: {
+        toolCallArgs: [
+          {
+            tool: "exec_datatable_sql",
+            field: "sql",
+            stringIncludesAnyOf: ["insert into", "update"],
+          },
+        ],
+      },
+    });
+
+    expect(checks.every((check) => check.passed)).toBe(true);
+  });
+
+  it("rejects stringIncludesAnyOf when no call matches any substring", () => {
+    const checks = validateToolExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 1,
+        toolsUsed: ["exec_datatable_sql"],
+        toolCallDetails: [
+          {
+            name: "exec_datatable_sql",
+            arguments: {
+              sql: "DROP TABLE orders",
+            },
+          },
+        ],
+        skillsInvoked: [],
+      },
+      toolExpect: {
+        toolCallArgs: [
+          {
+            tool: "exec_datatable_sql",
+            field: "sql",
+            stringIncludesAnyOf: ["insert into", "update"],
+          },
+        ],
+      },
+    });
+
+    expect(checks).toContainEqual({
+      name: "exec_datatable_sql.sql includes a required substring",
+      passed: false,
+      details:
+        'accepted substrings: insert into, update; values: "DROP TABLE orders"',
+    });
+  });
 });
 
 describe("validateGlobalState", () => {
@@ -192,6 +297,69 @@ describe("validateGlobalState", () => {
       name: "global includes script draft f/evals/global/greet_user",
       passed: false,
       details: "drafts: none",
+    });
+  });
+
+  it("accepts a required script draft without an exact path", () => {
+    const checks = validateGlobalState({
+      actual: {
+        drafts: [
+          {
+            type: "script",
+            path: "f/team_tools/friendly_greeting",
+            language: "bun",
+            summary: "Friendly greeting helper",
+            value:
+              "export async function main(name: string) {\n  return `Hello, ${name}!`\n}\n",
+            isDraft: true,
+          },
+        ],
+      },
+      validate: {
+        draftCountExactly: 1,
+        requiredDrafts: [
+          {
+            type: "script",
+            pathIncludes: ["greeting"],
+            language: "bun",
+            summaryIncludes: ["Friendly"],
+            valueIncludes: ["Hello"],
+          },
+        ],
+      },
+    });
+
+    expect(checks.every((check) => check.passed)).toBe(true);
+  });
+
+  it("reports flexible global draft path filters when no draft matches", () => {
+    const checks = validateGlobalState({
+      actual: {
+        drafts: [
+          {
+            type: "script",
+            path: "f/team_tools/friendly_greeting",
+            language: "bun",
+            value:
+              "export async function main(name: string) {\n  return `Hello, ${name}!`\n}\n",
+            isDraft: true,
+          },
+        ],
+      },
+      validate: {
+        requiredDrafts: [
+          {
+            type: "script",
+            pathIncludes: ["invoice"],
+          },
+        ],
+      },
+    });
+
+    expect(checks).toContainEqual({
+      name: "global includes script draft (path includes invoice)",
+      passed: false,
+      details: "drafts: script:f/team_tools/friendly_greeting",
     });
   });
 

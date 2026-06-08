@@ -18,9 +18,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 
 use anyhow::anyhow;
-use base64::Engine;
 use hmac::Mac;
-use itertools::Itertools;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
 use tower_cookies::{Cookie, Cookies};
@@ -89,6 +87,119 @@ pub struct OAuthConfig {
     pub req_body_auth: Option<bool>,
     #[serde(default = "default_grant_types")]
     pub grant_types: Vec<String>,
+    /// Optional URL overrides for the provider's sandbox environment. When
+    /// present and the admin has configured a `<name>_sandbox` credentials
+    /// entry, `build_oauth_clients` registers a second client under that key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<OAuthSandboxOverride>,
+    /// Frontend-only metadata for per-instance OAuth providers (Snowflake,
+    /// ServiceNow, …) whose authorize/token URLs are derived from an
+    /// admin-entered instance name. Ignored by the backend, which only ever
+    /// sees the resulting concrete `connect_config`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connect_config_template: Option<ConnectConfigTemplate>,
+}
+
+/// URL overrides for an OAuth provider's sandbox environment. Inherits
+/// scopes, extra_params, etc. from the parent [`OAuthConfig`].
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct OAuthSandboxOverride {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub userinfo_url: Option<String>,
+}
+
+/// Frontend metadata for a per-instance OAuth provider. The instance-settings
+/// UI renders one generic instance-name input and substitutes `{instance}` into
+/// `auth_url`/`token_url` to build the per-client `connect_config`. Adding a new
+/// per-instance provider needs only a registry entry carrying this template —
+/// no frontend code change. The backend never reads it.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ConnectConfigTemplate {
+    /// Properly-cased provider name for the settings dropdown (e.g. "ServiceNow");
+    /// the UI falls back to a capitalized registry key when absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    pub label: String,
+    pub placeholder: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub help_url: Option<String>,
+    pub auth_url: String,
+    pub token_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub req_body_auth: Option<bool>,
+    /// Key under `connect_config.extra_params` where the instance name is
+    /// stored (defaults to `instance`). Snowflake uses `account_identifier` for
+    /// backward compatibility with previously-saved configs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra_params_key: Option<String>,
+    /// Optional host suffix stripped from the input before substitution (e.g.
+    /// `.service-now.com`), so the admin can paste a full host or a bare name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strip_suffix: Option<String>,
+    /// Maps OAuth-connected resource arg fields to value templates substituting
+    /// `{instance}` (e.g. ServiceNow's `instance_url` ->
+    /// `https://{instance}.service-now.com`). Applied by the resource-connect
+    /// flow so the created resource carries the instance-specific fields the
+    /// scripts need (ServiceNow's token response omits the host).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resource_mapping: Option<HashMap<String, String>>,
+}
+
+impl OAuthConfig {
+    /// Returns a copy of this config with sandbox URL overrides applied and
+    /// the nested `sandbox` field cleared. Returns `None` if no overrides are
+    /// set.
+    pub fn as_sandbox(&self) -> Option<OAuthConfig> {
+        let sb = self.sandbox.as_ref()?;
+        let mut out = self.clone();
+        out.sandbox = None;
+        if let Some(u) = &sb.auth_url {
+            out.auth_url = u.clone();
+        }
+        if let Some(u) = &sb.token_url {
+            out.token_url = u.clone();
+        }
+        if sb.userinfo_url.is_some() {
+            out.userinfo_url = sb.userinfo_url.clone();
+        }
+        Some(out)
+    }
+}
+
+/// Suffix appended to a provider name to identify its sandbox variant in the
+/// instance credentials map and in `account.client`.
+pub const SANDBOX_SUFFIX: &str = "_sandbox";
+
+/// Strips [`SANDBOX_SUFFIX`] from a client name, returning the canonical
+/// provider name. Returns the input unchanged if no suffix is present.
+pub fn canonical_provider_name(client_name: &str) -> &str {
+    client_name
+        .strip_suffix(SANDBOX_SUFFIX)
+        .unwrap_or(client_name)
+}
+
+/// Resolves a registry [`OAuthConfig`] for `client_name`, transparently
+/// applying the `sandbox` override block when the name carries the sandbox
+/// suffix (e.g. `docusign_sandbox` resolves to `docusign` with sandbox URLs
+/// applied). Used so callers don't need to know whether a name is a sandbox
+/// variant before looking it up.
+pub fn resolve_registry_config(
+    static_configs: &HashMap<String, OAuthConfig>,
+    client_name: &str,
+) -> Option<OAuthConfig> {
+    if let Some(cfg) = static_configs.get(client_name) {
+        return Some(cfg.clone());
+    }
+    if client_name.ends_with(SANDBOX_SUFFIX) {
+        return static_configs
+            .get(canonical_provider_name(client_name))
+            .and_then(|cfg| cfg.as_sandbox());
+    }
+    None
 }
 
 /// OAuth client credentials
@@ -181,181 +292,6 @@ pub struct OAuthCallback {
     pub state: String,
 }
 
-/// Build all OAuth clients from configuration
-pub async fn build_oauth_clients(
-    base_url: &str,
-    oauths_from_config: Option<HashMap<String, OAuthClient>>,
-    connect_configs_json: &str,
-    login_configs_json: &str,
-) -> anyhow::Result<AllClients> {
-    let connect_configs =
-        serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json)?;
-    let login_configs = serde_json::from_str::<HashMap<String, OAuthConfig>>(login_configs_json)?;
-
-    let oauths = if let Some(oauths) = oauths_from_config {
-        tracing::info!("Using OAuth clients from config: {oauths:?}");
-        oauths
-    } else {
-        let path = "./oauth.json";
-        let content: String = if let Ok(e) = std::env::var("OAUTH_JSON_AS_BASE64") {
-            std::str::from_utf8(
-                &base64::engine::general_purpose::STANDARD
-                    .decode(e)
-                    .map_err(to_anyhow)?,
-            )?
-            .to_string()
-        } else if std::path::Path::new(path).exists() {
-            std::fs::read_to_string(path).map_err(to_anyhow)?
-        } else {
-            tracing::warn!("oauth.json not found, no OAuth clients loaded");
-            return Ok(AllClients {
-                logins: HashMap::new(),
-                connects: HashMap::new(),
-                slack: None,
-            });
-        };
-
-        if content.is_empty() {
-            tracing::warn!("oauth.json is empty, no OAuth clients loaded");
-            return Ok(AllClients {
-                logins: HashMap::new(),
-                connects: HashMap::new(),
-                slack: None,
-            });
-        };
-        match serde_json::from_str::<HashMap<String, OAuthClient>>(&content) {
-            Ok(clients) => clients,
-            Err(e) => {
-                tracing::error!("deserializing oauth.json: {e}");
-                HashMap::new()
-            }
-        }
-        .into_iter()
-        .collect()
-    };
-
-    tracing::info!("OAuth loaded clients: {}", oauths.keys().join(", "));
-
-    let logins = login_configs
-        .into_iter()
-        .filter_map(|x| oauths.get(&x.0).map(|c| (x.0, (c, x.1))))
-        .chain(oauths.iter().filter_map(|x| {
-            x.1.login_config
-                .as_ref()
-                .map(|c| (x.0.clone(), (x.1, c.clone())))
-        }))
-        .filter_map(|(k, (client_params, config))| {
-            let named_client = build_basic_client(
-                k.clone(),
-                config.clone(),
-                client_params.clone(),
-                true,
-                base_url,
-                None,
-            );
-            named_client
-                .map(|named_client| {
-                    (
-                        named_client.0,
-                        ClientWithScopes {
-                            client: named_client.1,
-                            scopes: config.scopes.unwrap_or(vec![]),
-                            extra_params: config.extra_params,
-                            extra_params_callback: config.extra_params_callback,
-                            allowed_domains: client_params.allowed_domains.clone(),
-                            userinfo_url: config.userinfo_url,
-                            display_name: client_params.display_name.clone(),
-                            grant_types: client_params.grant_types.clone(),
-                        },
-                    )
-                })
-                .map_err(|e| {
-                    tracing::error!("Error building oauth client {k}: {e}");
-                    e
-                })
-                .ok()
-        })
-        .collect();
-
-    let connects = connect_configs
-        .into_iter()
-        .filter_map(|x| oauths.get(&x.0).map(|c| (x.0, (c, x.1))))
-        .chain(oauths.iter().filter_map(|x| {
-            x.1.connect_config
-                .as_ref()
-                .map(|c| (x.0.clone(), (x.1, c.clone())))
-        }))
-        .filter_map(|(k, (client_params, config))| {
-            let named_client = build_basic_client(
-                k.clone(),
-                config.clone(),
-                client_params.clone(),
-                false,
-                base_url,
-                if k == "supabase_wizard" {
-                    Some(format!("{base_url}/oauth/callback_supabase"))
-                } else {
-                    None
-                },
-            );
-            named_client
-                .map(|named_client| {
-                    (
-                        named_client.0,
-                        ClientWithScopes {
-                            client: named_client.1,
-                            scopes: config.scopes.unwrap_or(vec![]),
-                            extra_params: config.extra_params,
-                            extra_params_callback: config.extra_params_callback,
-                            allowed_domains: None,
-                            userinfo_url: None,
-                            display_name: client_params.display_name.clone(),
-                            grant_types: client_params.grant_types.clone(),
-                        },
-                    )
-                })
-                .map_err(|e| {
-                    tracing::error!("Error building oauth client {k}: {e}");
-                    e
-                })
-                .ok()
-        })
-        .collect();
-
-    let slack = oauths
-        .get("slack")
-        .map(|v| {
-            build_basic_client(
-                "slack".to_string(),
-                OAuthConfig {
-                    auth_url: "https://slack.com/oauth/v2/authorize".to_string(),
-                    token_url: "https://slack.com/api/oauth.v2.access".to_string(),
-                    userinfo_url: None,
-                    scopes: None,
-                    extra_params: None,
-                    extra_params_callback: None,
-                    req_body_auth: None,
-                    grant_types: vec!["authorization_code".to_string()],
-                },
-                v.clone(),
-                false,
-                base_url,
-                Some(format!("{base_url}/oauth/callback_slack")),
-            )
-            .map(|x| x.1)
-            .map_err(|e| {
-                tracing::error!("Error building oauth slack client: {e}");
-                e
-            })
-            .ok()
-        })
-        .flatten();
-
-    let all_clients = AllClients { logins, connects, slack };
-    tracing::debug!("Final oauth config: {all_clients:#?}");
-    Ok(all_clients)
-}
-
 /// Build a basic OAuth client from configuration
 pub fn build_basic_client(
     name: String,
@@ -433,38 +369,29 @@ pub async fn build_client_credentials_oauth_client(
     let oauth_client_config: OAuthClient = serde_json::from_value(oauth_config.clone())
         .map_err(|e| error::Error::BadRequest(format!("Invalid OAuth config: {}", e)))?;
 
-    let mut connect_config = if let Some(ref config) = oauth_client_config.connect_config {
-        if !config.auth_url.is_empty() && !config.token_url.is_empty() {
-            config.clone()
-        } else {
-            let static_configs =
-                serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json)
-                    .map_err(|e| {
-                        error::Error::InternalErr(format!(
-                            "Failed to parse oauth_connect.json: {}",
-                            e
-                        ))
-                    })?;
-
-            static_configs.get(client_name).cloned().ok_or_else(|| {
-                error::Error::BadRequest(format!(
-                    "OAuth configuration not found for '{}' in either global settings or static config",
-                    client_name
-                ))
-            })?
-        }
-    } else {
-        let static_configs =
-            serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json).map_err(
-                |e| error::Error::InternalErr(format!("Failed to parse oauth_connect.json: {}", e)),
-            )?;
-
-        static_configs.get(client_name).cloned().ok_or_else(|| {
+    let parse_static_configs = || {
+        serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json).map_err(|e| {
+            error::Error::InternalErr(format!("Failed to parse oauth_connect.json: {}", e))
+        })
+    };
+    let resolve_from_registry = |client_name: &str| -> error::Result<OAuthConfig> {
+        let static_configs = parse_static_configs()?;
+        resolve_registry_config(&static_configs, client_name).ok_or_else(|| {
             error::Error::BadRequest(format!(
                 "OAuth configuration not found for '{}' in either global settings or static config",
                 client_name
             ))
-        })?
+        })
+    };
+
+    let mut connect_config = if let Some(ref config) = oauth_client_config.connect_config {
+        if !config.auth_url.is_empty() && !config.token_url.is_empty() {
+            config.clone()
+        } else {
+            resolve_from_registry(client_name)?
+        }
+    } else {
+        resolve_from_registry(client_name)?
     };
 
     if let Some(override_url) = cc_token_url_override {
@@ -904,5 +831,105 @@ mod tests {
     fn test_slack_verifier() {
         let verifier = SlackVerifier::new("test_secret").unwrap();
         assert!(verifier.verify("123", "body", "wrong_sig").is_err());
+    }
+
+    #[test]
+    fn canonical_provider_name_strips_sandbox_suffix() {
+        assert_eq!(canonical_provider_name("docusign_sandbox"), "docusign");
+        assert_eq!(canonical_provider_name("docusign"), "docusign");
+        assert_eq!(canonical_provider_name(""), "");
+        // Only strips the suffix once; trailing suffix on already-canonical name.
+        assert_eq!(
+            canonical_provider_name("foo_sandbox_sandbox"),
+            "foo_sandbox"
+        );
+    }
+
+    fn sample_oauth_config(with_sandbox: bool) -> OAuthConfig {
+        OAuthConfig {
+            auth_url: "https://account.example.com/oauth/auth".to_string(),
+            token_url: "https://account.example.com/oauth/token".to_string(),
+            userinfo_url: Some("https://account.example.com/userinfo".to_string()),
+            scopes: Some(vec!["signature".to_string()]),
+            extra_params: None,
+            extra_params_callback: None,
+            req_body_auth: None,
+            grant_types: default_grant_types(),
+            sandbox: with_sandbox.then(|| OAuthSandboxOverride {
+                auth_url: Some("https://account-d.example.com/oauth/auth".to_string()),
+                token_url: Some("https://account-d.example.com/oauth/token".to_string()),
+                userinfo_url: None,
+            }),
+            connect_config_template: None,
+        }
+    }
+
+    #[test]
+    fn as_sandbox_returns_none_when_no_override() {
+        assert!(sample_oauth_config(false).as_sandbox().is_none());
+    }
+
+    #[test]
+    fn as_sandbox_overlays_urls_and_inherits_rest() {
+        let resolved = sample_oauth_config(true).as_sandbox().unwrap();
+        // URLs overridden by sandbox block
+        assert_eq!(
+            resolved.auth_url,
+            "https://account-d.example.com/oauth/auth"
+        );
+        assert_eq!(
+            resolved.token_url,
+            "https://account-d.example.com/oauth/token"
+        );
+        // userinfo_url not in override → inherits from parent
+        assert_eq!(
+            resolved.userinfo_url,
+            Some("https://account.example.com/userinfo".to_string())
+        );
+        // Scopes/grant_types inherited from parent
+        assert_eq!(resolved.scopes, Some(vec!["signature".to_string()]));
+        assert_eq!(resolved.grant_types, default_grant_types());
+        // Nested sandbox field cleared on the resolved config
+        assert!(resolved.sandbox.is_none());
+    }
+
+    #[test]
+    fn resolve_registry_config_direct_lookup() {
+        let mut registry = HashMap::new();
+        registry.insert("docusign".to_string(), sample_oauth_config(true));
+
+        let resolved = resolve_registry_config(&registry, "docusign").unwrap();
+        assert_eq!(resolved.auth_url, "https://account.example.com/oauth/auth");
+        // Direct lookup returns the entry as-is (sandbox block still attached).
+        assert!(resolved.sandbox.is_some());
+    }
+
+    #[test]
+    fn resolve_registry_config_sandbox_fallback() {
+        let mut registry = HashMap::new();
+        registry.insert("docusign".to_string(), sample_oauth_config(true));
+
+        let resolved = resolve_registry_config(&registry, "docusign_sandbox").unwrap();
+        // Sandbox-suffixed lookup resolves to parent's sandbox-overlaid config.
+        assert_eq!(
+            resolved.auth_url,
+            "https://account-d.example.com/oauth/auth"
+        );
+        assert!(resolved.sandbox.is_none());
+    }
+
+    #[test]
+    fn resolve_registry_config_missing_returns_none() {
+        let registry: HashMap<String, OAuthConfig> = HashMap::new();
+        assert!(resolve_registry_config(&registry, "docusign").is_none());
+        assert!(resolve_registry_config(&registry, "docusign_sandbox").is_none());
+    }
+
+    #[test]
+    fn resolve_registry_config_sandbox_without_block_returns_none() {
+        let mut registry = HashMap::new();
+        // Parent exists but has no sandbox override.
+        registry.insert("docusign".to_string(), sample_oauth_config(false));
+        assert!(resolve_registry_config(&registry, "docusign_sandbox").is_none());
     }
 }

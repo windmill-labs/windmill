@@ -21,6 +21,7 @@ export const copilotInfo = writable<{
 	enabled: boolean
 	codeCompletionModel?: AIProviderModel
 	defaultModel?: AIProviderModel
+	metadataModel?: AIProviderModel
 	aiModels: AIProviderModel[]
 	customPrompts?: Record<string, string>
 	maxTokensPerModel?: Record<string, number>
@@ -28,6 +29,7 @@ export const copilotInfo = writable<{
 	enabled: false,
 	codeCompletionModel: undefined,
 	defaultModel: undefined,
+	metadataModel: undefined,
 	aiModels: [],
 	customPrompts: {},
 	maxTokensPerModel: {}
@@ -65,6 +67,7 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			enabled: true,
 			codeCompletionModel: aiConfig.code_completion_model,
 			defaultModel: aiConfig.default_model,
+			metadataModel: aiConfig.metadata_model,
 			aiModels: aiModels,
 			customPrompts: aiConfig.custom_prompts ?? {},
 			maxTokensPerModel: aiConfig.max_tokens_per_model ?? {}
@@ -76,6 +79,7 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			enabled: false,
 			codeCompletionModel: undefined,
 			defaultModel: undefined,
+			metadataModel: undefined,
 			aiModels: [],
 			customPrompts: {},
 			maxTokensPerModel: {}
@@ -86,6 +90,15 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 export function getCurrentModel(): AIProviderModel {
 	const model =
 		get(copilotSessionModel) ?? get(copilotInfo).defaultModel ?? get(copilotInfo).aiModels[0]
+	if (!model) {
+		throw new Error('No model selected')
+	}
+	return model
+}
+
+export function getMetadataModel(): AIProviderModel {
+	const info = get(copilotInfo)
+	const model = info.metadataModel ?? info.defaultModel ?? info.aiModels[0]
 	if (!model) {
 		throw new Error('No model selected')
 	}

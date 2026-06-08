@@ -19,7 +19,7 @@ enterprise_saml = ["dep:samael", "dep:libxml"]
 benchmark = []
 embedding = ["windmill-api-embeddings/embedding"]
 parquet = ["dep:datafusion", "windmill-common/parquet", "windmill-object-store/parquet", "windmill-worker?/parquet", "windmill-api-users/parquet", "windmill-api-settings/parquet", "windmill-api-workspaces/parquet", "dep:aws-sigv4", "dep:aws-sdk-config"]
-prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus", "windmill-worker?/prometheus"]
+prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus", "windmill-worker?/prometheus", "windmill-api-scripts/prometheus"]
 openidconnect = ["dep:openidconnect", "windmill-common/openidconnect", "windmill-store/openidconnect"]
 tantivy = ["dep:windmill-indexer"]
 kafka = ["dep:windmill-trigger-kafka", "windmill-store/kafka"]
@@ -40,7 +40,7 @@ gcp_trigger = ["dep:windmill-trigger-gcp", "windmill-store/gcp_trigger"]
 azure_trigger = ["dep:windmill-trigger-azure", "windmill-store/azure_trigger"]
 cloud = ["windmill-common/cloud", "windmill-api-auth/cloud", "windmill-store/cloud", "windmill-api-workspaces/cloud"]
 mcp = ["dep:windmill-mcp", "windmill-mcp/server", "windmill-mcp/auth", "windmill-api-auth/mcp", "windmill-store/mcp"]
-bedrock = ["windmill-ai/bedrock", "dep:aws-sdk-bedrock", "dep:aws-sdk-bedrockruntime", "dep:aws-config", "dep:aws-credential-types", "dep:aws-smithy-types"]
+bedrock = ["windmill-ai/bedrock"]
 python = ["windmill-dep-map/python", "dep:windmill-parser-py", "dep:windmill-parser-py-imports", "windmill-api-scripts/python", "windmill-api-configs/python", "windmill-api-agent-workers?/python", "windmill-trigger/python", "windmill-common/python"]
 no_auth = ["windmill-api-auth/no_auth", "windmill-store/no_auth", "windmill-api-users/no_auth"]
 quickjs = ["windmill-jseval/quickjs"]
@@ -172,11 +172,6 @@ rustls = { workspace = true }
 
 aws-sigv4 = { workspace = true, optional = true }
 aws-sdk-config = { workspace = true, optional = true }
-aws-config = { workspace = true, optional = true }
-aws-credential-types = { workspace = true, optional = true }
-aws-sdk-bedrock = { workspace = true, optional = true }
-aws-sdk-bedrockruntime = { workspace = true, optional = true }
-aws-smithy-types = { workspace = true, optional = true }
 async-trait.workspace = true
 eventsource-stream.workspace = true
 windmill-jseval.workspace = true

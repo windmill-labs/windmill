@@ -31,6 +31,7 @@ $PY_PATH
 $INDEX_URL_ARG $EXTRA_INDEX_URL_ARG $TRUSTED_HOST_ARG
 --system
 --reinstall
+--compile-bytecode
 "
 
 echo $CMD

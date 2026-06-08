@@ -3,7 +3,7 @@ import type { FlowModule, FlowValue } from '$lib/gen'
 import { collectAllFlowModuleIdsFromModules } from '$lib/components/flows/flowTree'
 import { SPECIAL_MODULE_IDS } from '../shared'
 import type { InlineScriptSession } from './inlineScriptsUtils'
-import { validateFlowGroups, type FlowGroup } from './helperUtils'
+import { validateFlowGroups, validateFlowNotes, type FlowGroup, type FlowNote } from './helperUtils'
 import { flowModuleSchema, flowModulesSchema } from './openFlowZod.gen'
 
 /**
@@ -19,6 +19,7 @@ export type EditableFlowJson = {
 	preprocessor_module: FlowModule | null
 	failure_module: FlowModule | null
 	groups: FlowGroup[] | null
+	notes: FlowNote[] | null
 }
 
 /** Optional input to the rich-error path of `validateEditableFlowJson`. */
@@ -145,8 +146,10 @@ function formatJsonSchemaForError(jsonSchema: any): string {
 	if (jsonSchema.enum) {
 		return `one of: ${jsonSchema.enum.map((v: any) => JSON.stringify(v)).join(', ')}`
 	}
-	if (jsonSchema.oneOf) return jsonSchema.oneOf.map((s: any) => formatJsonSchemaForError(s)).join(' | ')
-	if (jsonSchema.anyOf) return jsonSchema.anyOf.map((s: any) => formatJsonSchemaForError(s)).join(' | ')
+	if (jsonSchema.oneOf)
+		return jsonSchema.oneOf.map((s: any) => formatJsonSchemaForError(s)).join(' | ')
+	if (jsonSchema.anyOf)
+		return jsonSchema.anyOf.map((s: any) => formatJsonSchemaForError(s)).join(' | ')
 	if (jsonSchema.description) return jsonSchema.description
 	return jsonSchema.type || JSON.stringify(jsonSchema)
 }
@@ -177,7 +180,10 @@ function getExpectedFormat(schema: z.ZodType): string | null {
 	return null
 }
 
-export function validateFlowModules(rawModules: unknown, ctx: SchemaErrorContext = {}): FlowModule[] {
+export function validateFlowModules(
+	rawModules: unknown,
+	ctx: SchemaErrorContext = {}
+): FlowModule[] {
 	if (!Array.isArray(rawModules)) {
 		throw new Error('Flow modules must be an array')
 	}
@@ -275,6 +281,7 @@ export function validateEditableFlowJson(
 	const failureModule = validateOptionalFlowModule(flow.failure_module, 'failure_module')
 	const groupModuleIds = new Set(collectAllFlowModuleIdsFromModules(modules))
 	const groups = validateFlowGroups(flow.groups, groupModuleIds)
+	const notes = validateFlowNotes(flow.notes, groupModuleIds)
 
 	if (preprocessorModule) {
 		if (preprocessorModule.id !== SPECIAL_MODULE_IDS.PREPROCESSOR) {
@@ -316,7 +323,8 @@ export function validateEditableFlowJson(
 		schema,
 		preprocessor_module: preprocessorModule,
 		failure_module: failureModule,
-		groups
+		groups,
+		notes
 	}
 }
 
@@ -371,7 +379,8 @@ export function buildEditableFlowJson(
 		schema: flow.schema ?? null,
 		preprocessor_module: preprocessorModule ?? null,
 		failure_module: failureModule ?? null,
-		groups: flow.value.groups ?? null
+		groups: flow.value.groups ?? null,
+		notes: flow.value.notes ?? null
 	}
 }
 
@@ -407,6 +416,7 @@ export function applyEditableFlowJsonToFlow(
 		preprocessor_module:
 			restoreSpecialRawscriptModule(editable.preprocessor_module, session) ?? undefined,
 		failure_module: restoreSpecialRawscriptModule(editable.failure_module, session) ?? undefined,
-		groups: editable.groups ?? undefined
+		groups: editable.groups ?? undefined,
+		notes: editable.notes ?? undefined
 	}
 }
