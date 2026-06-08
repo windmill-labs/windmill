@@ -57,15 +57,15 @@
 
 <Modal2 bind:isOpen title="Draft out of sync" fixedWidth="sm" fixedHeight="xs">
 	<div class="flex flex-col w-full gap-4">
-		<div class="flex gap-3 items-start">
+		<div class="flex gap-3 items-start flex-1">
 			<AlertTriangle size={20} class="text-yellow-500 shrink-0 mt-0.5" />
-			<div class="text-sm text-secondary flex flex-col gap-1">
+			<div class="text-sm text-primary flex flex-col gap-1">
 				<p>
 					Another tab, browser, or AI agent saved a newer version of this draft. Your autosave was
 					rejected to avoid overwriting their work.
 				</p>
 				{#if conflictHandle.conflict}
-					<p class="text-xs text-tertiary">
+					<p class="text-xs text-secondary">
 						Server timestamp: {new Date(conflictHandle.conflict.serverTimestamp).toLocaleString()}
 					</p>
 				{/if}
