@@ -173,9 +173,7 @@ function normalizeGeneratedSummary(summary: string | undefined): string | undefi
 	return title.slice(0, GENERATED_SUMMARY_MAX_LENGTH).trim()
 }
 
-async function generateSessionSummary(
-	displayMessages: DisplayMessage[]
-): Promise<string | undefined> {
+async function generateSessionSummary(displayMessages: DisplayMessage[]): Promise<string | undefined> {
 	const transcript = buildSummaryTranscript(displayMessages)
 	if (!transcript) return undefined
 	const abortController = new AbortController()

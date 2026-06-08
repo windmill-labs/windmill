@@ -775,12 +775,9 @@
 										This workspace has {draftCount} undeployed draft{draftCount !== 1 ? 's' : ''}.
 									{/if}
 								</span>
-								<button
-									class="underline font-medium whitespace-nowrap"
-									onclick={() => onModeSelected?.('draft')}
-								>
+								<Button variant="subtle" unifiedSize="xs" onclick={() => onModeSelected?.('draft')}>
 									Deploy drafts
-								</button>
+								</Button>
 							</div>
 						</Alert>
 					{/if}
@@ -845,7 +842,13 @@
 				{#snippet itemSummary(item)}
 					{@const diff = item.diff as WorkspaceItemDiff}
 					{@const key = item.key}
-					{@const editUrl = editUrlFor(diff, currentWorkspaceId)}
+					<!-- Point the edit link at the workspace the item actually lives in:
+					     a parent-only row (deleted/absent in the fork) would 404 if linked
+					     into the fork, so link it into the parent instead. -->
+					{@const editUrl = editUrlFor(
+						diff,
+						diff.exists_in_fork ? currentWorkspaceId : parentWorkspaceId
+					)}
 					{#if isTriggerOrScheduleKind(diff.kind)}
 						<span class="text-emphasis">
 							{KIND_DISPLAY_NAMES[diff.kind as string] ?? diff.kind}
