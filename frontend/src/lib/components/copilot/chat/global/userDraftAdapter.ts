@@ -1,4 +1,5 @@
 import type { Flow, NewSchedule, NewScript } from '$lib/gen/types.gen'
+import { ApiError, DraftService } from '$lib/gen'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import {
 	UserDraft,
@@ -6,6 +7,7 @@ import {
 	type UserDraftItemKind,
 	type UserDraftMeta
 } from '$lib/userDraft.svelte'
+import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import {
 	type AppDraftValue,
 	type ResourceDraftState,
@@ -298,7 +300,78 @@ export function getGlobalDraftStoragePath(
 	return itemKind ? resolveDraftStoragePath(workspace, itemKind, path) : path
 }
 
-function getGlobalDraftSlot(
+function isNotFoundError(e: unknown): boolean {
+	return e instanceof ApiError && e.status === 404
+}
+
+/**
+ * Raw draft value for `(workspace, itemKind, storagePath)`. The in-tab
+ * mounted cell wins — it's the freshest, holding any unsaved live-editor
+ * edits that haven't been flushed to the server yet — otherwise the
+ * per-user DB draft. Returns `undefined` when no draft exists in either
+ * place. Async because the headless fallback is a fetch.
+ *
+ * Post #9351 the global mode is headless (never mounts a handle), so the
+ * in-memory branch only hits when an editor is open on the same item; the
+ * DB branch is the common one and is what makes a draft written in a
+ * previous turn / tab readable here.
+ */
+export async function readGlobalDraftValue<V>(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	storagePath: string
+): Promise<V | undefined> {
+	const local = UserDraft.get<V>(itemKind, storagePath, { workspace })
+	if (local !== undefined) return local
+	try {
+		const resp = await DraftService.getDraft({ workspace, kind: itemKind, path: storagePath })
+		return resp.value as V
+	} catch (e) {
+		if (isNotFoundError(e)) return undefined
+		throw e
+	}
+}
+
+/**
+ * Persist a draft value for `(workspace, itemKind, storagePath)`.
+ *
+ * When an editor handle is mounted for this entry, route through the
+ * in-memory `UserDraft` layer so the open editor reflects the write
+ * reactively (its background syncer still persists it). When headless —
+ * the common path for AI-driven writes — push straight to the DB and
+ * AWAIT it, so a read-back immediately after sees the value: this closes
+ * the read-after-write gap (`UserDraft.save` alone never seeds the in-tab
+ * cell for an unmounted entry, so a subsequent `UserDraft.get` would
+ * return `undefined`). Forced — AI overwrites have no human at a conflict
+ * modal. Rev metadata is in-memory only and is dropped on the headless
+ * path (the DB stores values, not revs); the next editor mount reseeds it.
+ */
+export async function saveGlobalDraftValue<V>(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	storagePath: string,
+	value: V,
+	meta?: UserDraftMeta
+): Promise<void> {
+	if (UserDraft.isLive(itemKind, storagePath, { workspace })) {
+		if (meta) {
+			UserDraft.setDraftAndMeta(itemKind, storagePath, value, meta, { workspace })
+		} else {
+			UserDraft.save(itemKind, storagePath, value, { workspace })
+		}
+		return
+	}
+	await UserDraftDbSyncer.save({
+		workspace,
+		itemKind,
+		path: storagePath,
+		value,
+		immediate: true,
+		force: true
+	})
+}
+
+async function getGlobalDraftSlot(
 	workspace: string,
 	type: WorkspaceItemType,
 	path: string,
@@ -307,7 +380,7 @@ function getGlobalDraftSlot(
 	const itemKind = itemKindFor(type, triggerKind)
 	if (!itemKind) return undefined
 	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
-	const draft = UserDraft.get(itemKind, storagePath, { workspace })
+	const draft = await readGlobalDraftValue(workspace, itemKind, storagePath)
 	if (draft === undefined) return undefined
 
 	const { displayPath, isLiveDraft } = liveDisplayPath(workspace, itemKind, storagePath)
@@ -325,13 +398,13 @@ function getGlobalDraftSlot(
 	return { itemKind, storagePath, displayPath, item }
 }
 
-export function getGlobalDraft(
+export async function getGlobalDraft(
 	workspace: string,
 	type: WorkspaceItemType,
 	path: string,
 	triggerKind?: TriggerKind
-): WorkspaceItem | undefined {
-	return getGlobalDraftSlot(workspace, type, path, triggerKind)?.item
+): Promise<WorkspaceItem | undefined> {
+	return (await getGlobalDraftSlot(workspace, type, path, triggerKind))?.item
 }
 
 const LIVE_EDITOR_DRAFT_KINDS = [
@@ -385,20 +458,16 @@ export function listLiveEditorDrafts(
 	return out
 }
 
-export function saveGlobalAppDraft(
+export async function saveGlobalAppDraft(
 	workspace: string,
 	path: string,
 	value: AppDraftValue,
 	meta?: UserDraftMeta
-): WorkspaceItem {
+): Promise<WorkspaceItem> {
 	const storagePath = resolveDraftStoragePath(workspace, 'raw_app', path)
 	const normalized = normalizeAppDraftValue(value)
-	if (meta) {
-		UserDraft.setDraftAndMeta('raw_app', storagePath, normalized, meta, { workspace })
-	} else {
-		UserDraft.save('raw_app', storagePath, normalized, { workspace })
-	}
-	const stored = getGlobalDraft(workspace, 'app', path)
+	await saveGlobalDraftValue(workspace, 'raw_app', storagePath, normalized, meta)
+	const stored = await getGlobalDraft(workspace, 'app', path)
 	if (!stored) throw new Error(`Could not read written app draft "${path}".`)
 	return stored
 }
@@ -407,28 +476,56 @@ type DeleteGlobalDraftOptions = {
 	preserveLiveDraft?: boolean
 }
 
-export function deleteGlobalDraft(
+export async function deleteGlobalDraft(
 	workspace: string,
 	type: WorkspaceItemType,
 	path: string,
 	triggerKind?: TriggerKind,
 	options: DeleteGlobalDraftOptions = {}
-): void {
+): Promise<void> {
 	const itemKind = itemKindFor(type, triggerKind)
 	if (!itemKind) return
 	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
-	const liveDraft = UserDraft.getLiveEditorDraft(itemKind, { workspace })
-	if (options.preserveLiveDraft && liveDraft?.storagePath === storagePath) {
-		UserDraft.remove(itemKind, storagePath, { workspace })
+	if (UserDraft.isLive(itemKind, storagePath, { workspace })) {
+		// An editor is open on this draft: reset its in-memory cell so the
+		// UI reflects the delete (`remove`/`clear` both POST `value: null`).
+		const liveDraft = UserDraft.getLiveEditorDraft(itemKind, { workspace })
+		if (options.preserveLiveDraft && liveDraft?.storagePath === storagePath) {
+			UserDraft.remove(itemKind, storagePath, { workspace })
+		} else {
+			UserDraft.clear(itemKind, storagePath, { workspace })
+		}
 	} else {
-		UserDraft.clear(itemKind, storagePath, { workspace })
+		// Headless: delete the DB row directly and await it so a read-back
+		// in the same turn no longer sees the draft.
+		await UserDraftDbSyncer.save({
+			workspace,
+			itemKind,
+			path: storagePath,
+			value: null,
+			immediate: true,
+			force: true
+		})
 	}
 	if (type === 'variable') clearEphemeralSecretVariableDraftValue(workspace, storagePath)
 }
 
-export function clearGlobalDrafts(workspace: string): void {
-	for (const draft of UserDraft.list({ workspace, itemKinds: [...GLOBAL_DRAFT_KINDS] })) {
-		UserDraft.clear(draft.itemKind, draft.path, { workspace })
+export async function clearGlobalDrafts(workspace: string): Promise<void> {
+	// `UserDraft.list` only sees in-tab mounted entries post #9351, so
+	// enumerate the user's persisted drafts from the DB instead and delete
+	// each global-mode kind.
+	const kinds = new Set<UserDraftItemKind>(GLOBAL_DRAFT_KINDS)
+	const drafts = await DraftService.listDrafts({ workspace })
+	for (const draft of drafts) {
+		if (!kinds.has(draft.typ)) continue
+		await UserDraftDbSyncer.save({
+			workspace,
+			itemKind: draft.typ,
+			path: draft.path,
+			value: null,
+			immediate: true,
+			force: true
+		})
 	}
 	clearEphemeralSecretVariableDraftValues(workspace)
 }

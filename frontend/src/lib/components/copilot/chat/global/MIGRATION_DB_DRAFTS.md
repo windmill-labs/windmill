@@ -120,13 +120,13 @@ Work one tool at a time; each is independently shippable behind the existing
 | # | Tool / helper | What changes |
 |---|---------------|--------------|
 | 1 | `list_workspace_items` | **✅ Done** — reuse list endpoints' `includeDraftOnly` + `isDraft` flag for script/flow/app; `listGlobalDrafts` removed (see §6) |
-| 2 | `read_workspace_item` (`getGlobalDraft`) | read → `DraftService.getDraft`; async |
-| 3 | `write_script` / `write_flow` / `write_app` | save-then-read → awaited DB save + DB read |
-| 4 | `write` trigger / schedule | same as #3 for trigger kinds |
-| 5 | `write_resource` / `write_variable` | same as #3; keep secret ephemeral map in-memory |
-| 6 | `delete_draft` (`deleteGlobalDraft`) | `save_draft` null; drop `UserDraft.clear` reliance |
-| 7 | `clearGlobalDrafts` | enumerate via `listDrafts` then delete each |
-| 8 | deploy path | unaffected by storage; verify it reads the DB draft before deploying |
+| 2 | `read_workspace_item` (`getGlobalDraft`) | **✅ Done** — read → `readGlobalDraftValue` (in-memory → `DraftService.getDraft`); `getGlobalDraft` now async (see §7) |
+| 3 | `write_script` / `write_flow` / `write_app` | **✅ Done** — existing-draft read + read-back via the seam; save via `saveGlobalDraftValue` (live → `UserDraft`, headless → awaited forced DB save) |
+| 4 | `write` trigger / schedule | **✅ Done** — same seam as #3 for trigger kinds |
+| 5 | `write_resource` / `write_variable` | **✅ Done** — same seam as #3; secret ephemeral map untouched (DB value stays `''`) |
+| 6 | `delete_draft` (`deleteGlobalDraft`) | **✅ Done** — async; live → `UserDraft.remove/clear`, headless → awaited `save_draft` null |
+| 7 | `clearGlobalDrafts` | **✅ Done** — enumerate via `DraftService.listDrafts` (filtered to `GLOBAL_DRAFT_KINDS`), delete each |
+| 8 | deploy path | **✅ Done** — reads the DB draft via async `getGlobalDraft` before deploying; post-deploy delete is awaited |
 
 ## 6. Tool #1 — `list_workspace_items` (implemented)
 
@@ -209,11 +209,66 @@ Lift it by adding `includeDraftOnly` (email-scoped) to those endpoints.
 - E2E (not yet run): with `wm_dev_global_ai` enabled, create a draft script via the global
   mode, reload, confirm `list_workspace_items` flags it `isDraft: true`.
 
-## 8. Handoff — current branch state & next steps
+## 7. Tools #2–#8 — the read/write seam (implemented)
 
-**Branch `claude-change-ed070a5a`** = PR #9351 (`remove-workspace-drafts`, head
-`9c8c4edb`) + a merge of latest `origin/main`, plus the tool #1 commit. Environment
-already prepared in this worktree:
+The read-after-write gap (§3) is closed by a small async seam in
+`userDraftAdapter.ts` that all global read/write/delete paths funnel through.
+Writes still flow through the synced `UserDraft` layer **when an editor is
+mounted**; otherwise they go straight to the DB and are awaited.
+
+**`readGlobalDraftValue<V>(workspace, itemKind, storagePath)`** — raw draft
+value. In-tab mounted cell wins (`UserDraft.get`, freshest — holds unsaved
+live-editor edits); else `DraftService.getDraft` (404 → `undefined` via
+`isNotFoundError`). Async. Replaces the writers' `UserDraft.get<…>` existing-draft
+probe, so a draft written in a prior turn/tab is now found.
+
+**`saveGlobalDraftValue<V>(workspace, itemKind, storagePath, value, meta?)`** —
+if `UserDraft.isLive(...)` (a handle is mounted), route through
+`UserDraft.save`/`setDraftAndMeta` so the open editor updates reactively (its
+background syncer persists). Else push to `UserDraftDbSyncer.save({ immediate:
+true, force: true })` and **await** it, so a read-back in the same turn sees the
+value. Forced — AI overwrites have no human at a conflict modal. Rev metadata is
+in-memory only and is dropped on the headless path (DB stores values, not revs;
+the next editor mount reseeds it).
+
+`UserDraft.isLive(itemKind, path, opts)` was added (`userDraft.svelte.ts`) — true
+when an entry is mounted, regardless of whether it holds a value (distinct from
+`has`).
+
+**Wiring (`core.ts`):** `getGlobalDraft` / `getGlobalDraftSlot` / `saveGlobalAppDraft`
+/ `deleteGlobalDraft` / `clearGlobalDrafts` are now async; `getRequiredGlobalDraft`
+and the ~15 read/write/delete call-sites thread `await`. `clearGlobalDrafts`
+enumerates `DraftService.listDrafts` (filtered to `GLOBAL_DRAFT_KINDS`).
+Secret-variable handling is unchanged: the draft value stays `''` and the real
+secret lives only in the in-memory `secretVariableDraftValues` map. The "local
+storage" copy in toasts/tool results was reworded to "draft".
+
+### Verification (done)
+
+- **Unit (`core.test.ts`):** all 61 pass (was 24/58). A hoisted in-memory
+  `DraftService` mock (`draftDb`) backs the tools; assertions read drafts via
+  `dbDraftValue(...)` (the DB store) and seed setup via `seedDbDraft(...)`. The
+  `getMeta` assertions were dropped (rev meta isn't DB-persisted); secret-safety
+  now also asserts against `dbSnapshot()`.
+- **Real backend round-trip** (dev `test` workspace, `force`): `get_draft` 404 →
+  `save_draft` (`{status:'saved',current_timestamp}`) → `get_draft`
+  (`{value,saved_at}`) → `list_drafts` (`{path,typ,saved_at}`) → `save_draft`
+  `value:null` → `get_draft` 404. Confirms the exact request/response shapes the
+  seam uses against the endpoints the unit tests mock.
+
+### Remaining
+
+- **E2E with the live LLM-driven chat** (§8 step 5) is still unrun — it needs a
+  copilot API key and `wm_dev_global_ai` enabled; not exercisable headlessly here.
+- Schedule/trigger/resource/variable drafts remain undiscoverable via
+  `list_workspace_items` (reachable by path through `read_workspace_item`) until
+  those list endpoints gain email-scoped `includeDraftOnly` (§6 limitation).
+
+## 8. Environment (branch `claude-change-ed070a5a`)
+
+= PR #9351 (`remove-workspace-drafts`, head `9c8c4edb`) + a merge of latest
+`origin/main` + the tool #1 commit + the tools #2–#8 seam (§7). Already prepared
+in this worktree:
 
 - DB migration `20260528143710_draft_user_sync_schema` is **applied** to the dev DB
   (`windmill_claude_change_ed070a5a`). A fresh DB just needs `sqlx migrate run`.
@@ -221,16 +276,3 @@ already prepared in this worktree:
   is gitignored, so a fresh checkout must regenerate it to get `DraftService.{saveDraft,
   getDraft, listDrafts, getDraftForUser}`.
 - Dev server runs with `REMOTE=http://localhost:8070 PORT=3070`.
-
-**Root cause of the ~28 failing `core.test.ts` tests (NOT tool #1):** the read-after-write
-gap from §3. The PR's `UserDraft.save`/`setDraftAndMeta` only update the in-tab store when
-a handle is *mounted*; the headless global tools never mount one, so `UserDraft.get` after
-a write returns `undefined` and `getRequiredGlobalDraft` throws *"Could not read written
-draft"*. In tests this also surfaces as `getXByPath mock not configured`. This blocks
-tools #2–#8 and is the highest-leverage thing to fix next.
-
-**Suggested next step:** either tool #2 (`read_workspace_item` → `DraftService.getDraft`),
-or — more impactful — close the read-after-write gap directly (make a write readable
-without a mounted handle: e.g. have `UserDraft.save` seed an entry, or route the global
-write/read tools through `DraftService` directly), which unblocks the bulk of the failing
-tests at once.

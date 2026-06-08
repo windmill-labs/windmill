@@ -408,6 +408,20 @@ export const UserDraft = {
 		return entry.state.val !== undefined
 	},
 
+	/**
+	 * Whether a live handle/entry is currently mounted for
+	 * `(workspace, itemKind, path)` in this tab — regardless of whether
+	 * it holds a draft value yet. Distinct from `has`, which additionally
+	 * requires a non-`undefined` value. Headless callers (the global AI
+	 * chat) use this to decide whether a write should flow through the
+	 * in-memory cell — so a mounted editor reflects it reactively — or go
+	 * straight to the DB syncer.
+	 */
+	isLive(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): boolean {
+		const ws = resolveWorkspace(opts)
+		return entries.has(mapKey(ws, itemKind, path))
+	},
+
 	remove(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)
