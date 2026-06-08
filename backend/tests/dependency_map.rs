@@ -451,6 +451,7 @@ def main():
                 preserve_on_behalf_of: None,
                 ws_error_handler_muted: None,
                 labels: None,
+                skip_draft_deletion: None,
             })
             .send()
             .await
@@ -513,6 +514,7 @@ def main():
                 custom_path: None,
                 preserve_on_behalf_of: None,
                 labels: None,
+                skip_draft_deletion: None,
             })
             .send()
             .await

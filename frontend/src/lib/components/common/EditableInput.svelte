@@ -78,6 +78,15 @@ this component just proposes new values.
 		})
 	}
 
+	// External trigger (e.g. from a Melt dropdown menu item). Melt's focus trap
+	// stays active for a brief window after the menu closes — focusing our
+	// input during that window causes checkFocusIn to slam focus back out, which
+	// fires onblur=save and instantly closes the edit. A 50ms defer is enough
+	// for Melt's trap to release.
+	export function edit() {
+		setTimeout(startEditing, 50)
+	}
+
 	function save() {
 		// Re-entry guard: Enter calls `save()` and sets `editing = false`,
 		// which unmounts the `<input>` and synchronously fires its `blur`

@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { AlertTriangle } from 'lucide-svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { aiChatManager } from './AIChatManager.svelte'
+	import { getAiChatManager } from './aiChatManagerContext'
+
+	const aiChatManager = getAiChatManager()
 	import DefaultDatabaseSelector from '$lib/components/raw_apps/DefaultDatabaseSelector.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { createDatatablesResource } from '$lib/components/raw_apps/datatableUtils.svelte'

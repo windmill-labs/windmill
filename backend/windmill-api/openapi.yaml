@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.710.1
+  version: 1.719.0
   title: Windmill API
 
   contact:
@@ -9318,6 +9318,33 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/jobs/job_view_token/{id}:
+    get:
+      summary: mint a read-only share token for a job
+      description: >
+        Returns a stateless `{job_id}.{hmac}` token that grants an authenticated
+        workspace member read access to this job (and its flow subtree) via a
+        `view_token` query param or `X-View-Token` header. Only callable by a user
+        who can already read the job.
+      operationId: getJobViewToken
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: the share read token
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/flows/list_paths:
     get:
       summary: list all flow paths
@@ -9751,6 +9778,9 @@ paths:
                       type: boolean
                     deployment_message:
                       type: string
+                    skip_draft_deletion:
+                      type: boolean
+                      description: "When true (set by the CLI / git sync), deploying this flow does not delete an existing user draft at the same path."
       responses:
         "201":
           description: flow created
@@ -9792,6 +9822,9 @@ paths:
                   properties:
                     deployment_message:
                       type: string
+                    skip_draft_deletion:
+                      type: boolean
+                      description: "When true (set by the CLI / git sync), deploying this flow does not delete an existing user draft at the same path."
 
       responses:
         "200":
@@ -10290,6 +10323,9 @@ paths:
                   type: array
                   items:
                     type: string
+                skip_draft_deletion:
+                  type: boolean
+                  description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
               required:
                 - path
                 - value
@@ -10342,6 +10378,9 @@ paths:
                       type: array
                       items:
                         type: string
+                    skip_draft_deletion:
+                      type: boolean
+                      description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
                   required:
                     - path
                     - value
@@ -10660,6 +10699,9 @@ paths:
                   type: array
                   items:
                     type: string
+                skip_draft_deletion:
+                  type: boolean
+                  description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
       responses:
         "200":
           description: app updated
@@ -10706,6 +10748,9 @@ paths:
                       type: array
                       items:
                         type: string
+                    skip_draft_deletion:
+                      type: boolean
+                      description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
                 js:
                   type: string
                 css:
@@ -11776,6 +11821,16 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: status
+          description: filter on the exact completed job status. Unlike `success=true` (which also matches `skipped`), `status=success` matches only `success`.
+          in: query
+          schema:
+            type: string
+            enum:
+              - success
+              - failure
+              - canceled
+              - skipped
         - name: all_workspaces
           description: get jobs from all workspaces (only valid if request come from the `admins` workspace)
           in: query
@@ -12011,6 +12066,16 @@ paths:
         - $ref: "#/components/parameters/StartedBefore"
         - $ref: "#/components/parameters/StartedAfter"
         - $ref: "#/components/parameters/Success"
+        - name: status
+          description: filter on the exact completed job status. Unlike `success=true` (which also matches `skipped`), `status=success` matches only `success`.
+          in: query
+          schema:
+            type: string
+            enum:
+              - success
+              - failure
+              - canceled
+              - skipped
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/ResultFilter"
@@ -12218,6 +12283,16 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: status
+          description: filter on the exact completed job status. Unlike `success=true` (which also matches `skipped`), `status=success` matches only `success`.
+          in: query
+          schema:
+            type: string
+            enum:
+              - success
+              - failure
+              - canceled
+              - skipped
         - name: all_workspaces
           description: get jobs from all workspaces (only valid if request come from the `admins` workspace)
           in: query
@@ -19727,6 +19802,16 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: status
+          description: filter on the exact completed job status. Unlike `success=true` (which also matches `skipped`), `status=success` matches only `success`.
+          in: query
+          schema:
+            type: string
+            enum:
+              - success
+              - failure
+              - canceled
+              - skipped
         - name: all_workspaces
           description: get jobs from all workspaces (only valid if request come from the `admins` workspace)
           in: query
@@ -21524,6 +21609,8 @@ components:
             $ref: "#/components/schemas/AIProviderConfig"
         default_model:
           $ref: "#/components/schemas/AIProviderModel"
+        metadata_model:
+          $ref: "#/components/schemas/AIProviderModel"
         code_completion_model:
           $ref: "#/components/schemas/AIProviderModel"
         custom_prompts:
@@ -21558,6 +21645,8 @@ components:
           items:
             $ref: "#/components/schemas/InstanceAIProviderSummary"
         default_model:
+          $ref: "#/components/schemas/AIProviderModel"
+        metadata_model:
           $ref: "#/components/schemas/AIProviderModel"
         code_completion_model:
           $ref: "#/components/schemas/AIProviderModel"
@@ -21883,6 +21972,9 @@ components:
           type: array
           items:
             type: string
+        skip_draft_deletion:
+          type: boolean
+          description: "When true (set by the CLI / git sync), deploying this script does not delete an existing user draft at the same path."
 
       required:
         - path
@@ -25405,6 +25497,11 @@ components:
           example: "Connection timeout"
         tag:
           $ref: "#/components/schemas/CustomInstanceDbTag"
+        used_by_workspaces:
+          type: array
+          items:
+            type: string
+          description: Workspaces that reference this database via a ducklake catalog or datatable database with resource_type 'instance'. Computed at request time, not persisted.
 
     NewSqsTrigger:
       type: object

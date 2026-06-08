@@ -4,30 +4,11 @@ use http::{HeaderMap, Method};
 use serde_json::value::RawValue;
 use windmill_common::error::{Error, Result};
 
-use crate::ai_providers::{AIPlatform, AIProvider};
+use crate::ai_providers::AIProvider;
+use crate::credentials::ProviderCredentials;
 use crate::utils::AI_HTTP_HEADERS;
 
-/// Resolved provider credentials shared by API proxy and worker execution.
-///
-/// Raw API resources and worker agent payloads convert into this shape at their
-/// execution boundaries. Request-specific state such as the selected model stays
-/// outside this type.
-#[derive(Clone, Debug)]
-pub struct ProviderCredentials {
-    pub provider: AIProvider,
-    pub base_url: String,
-    pub api_key: Option<String>,
-    pub access_token: Option<String>,
-    pub organization_id: Option<String>,
-    pub user: Option<String>,
-    pub region: Option<String>,
-    pub aws_access_key_id: Option<String>,
-    pub aws_secret_access_key: Option<String>,
-    pub aws_session_token: Option<String>,
-    pub platform: AIPlatform,
-    pub enable_1m_context: bool,
-    pub custom_headers: HashMap<String, String>,
-}
+pub mod fim;
 
 /// Inputs needed to transform an OpenAI-compatible proxy request for a provider.
 pub struct ProxyBuildArgs<'a> {
@@ -167,6 +148,9 @@ pub(crate) fn add_user_to_body(body: &[u8], user: &str) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+
+    use crate::ai_providers::AIPlatform;
 
     fn credentials(provider: AIProvider, base_url: &str) -> ProviderCredentials {
         ProviderCredentials {

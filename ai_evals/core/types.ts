@@ -110,7 +110,9 @@ export interface AppValidationSpec {
 
 export interface GlobalDraftRequirement {
   type: string;
-  path: string;
+  path?: string;
+  pathIncludes?: string[];
+  pathStartsWith?: string;
   triggerKind?: string;
   language?: string;
   summaryIncludes?: string[];
@@ -153,6 +155,15 @@ export interface ToolCallArgumentRule {
   field: string;
   stringStartsWithAnyOf?: string[];
   stringMustNotStartWithAnyOf?: string[];
+  /**
+   * Case-insensitive "contains", existential over calls: at least one recorded
+   * call to `tool` must have `field` containing one of these substrings. Other
+   * calls to the same tool may do anything. Use instead of `stringStartsWithAnyOf`
+   * (which is universal over calls) when the meaningful token can appear anywhere
+   * in the value and the model may make additional, unrelated calls to the same
+   * tool — e.g. SQL where a mutation is mixed with verification SELECTs.
+   */
+  stringIncludesAnyOf?: string[];
 }
 
 export interface ToolValidationSpec {
@@ -324,8 +335,11 @@ export interface BenchmarkRunResult {
   passedAttempts: number;
   passRate: number;
   averageDurationMs: number;
+  averagePassedDurationMs?: number | null;
   totalTokenUsage?: BenchmarkTokenUsage | null;
+  totalPassedTokenUsage?: BenchmarkTokenUsage | null;
   averageTokenUsagePerAttempt?: BenchmarkTokenUsage | null;
+  averageTokenUsagePerPassedAttempt?: BenchmarkTokenUsage | null;
   artifactsPath?: string | null;
   cases: BenchmarkCaseResult[];
 }

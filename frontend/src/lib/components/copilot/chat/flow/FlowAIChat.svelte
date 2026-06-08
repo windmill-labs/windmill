@@ -6,7 +6,9 @@
 	import type { FlowAIChatHelpers } from './core'
 	import { createInlineScriptSession } from './inlineScriptsUtils'
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
-	import { aiChatManager } from '../AIChatManager.svelte'
+	import { getAiChatManager } from '../aiChatManagerContext'
+
+	const aiChatManager = getAiChatManager()
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import type { FlowCopilotContext } from '../../flow'
 	import type { ScriptLintResult } from '../shared'
@@ -194,14 +196,15 @@
 			return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
 		},
 
-		setFlowJson: async ({ modules, schema, preprocessorModule, failureModule, groups }) => {
+		setFlowJson: async ({ modules, schema, preprocessorModule, failureModule, groups, notes }) => {
 			try {
 				if (
 					modules !== undefined ||
 					schema !== undefined ||
 					preprocessorModule !== undefined ||
 					failureModule !== undefined ||
-					groups !== undefined
+					groups !== undefined ||
+					notes !== undefined
 				) {
 					// Take snapshot of current flowStore and set as beforeFlow
 					if (!diffManager?.hasPendingChanges) {
@@ -216,7 +219,8 @@
 					schema,
 					preprocessorModule,
 					failureModule,
-					groups
+					groups,
+					notes
 				})
 
 				// Refresh the state store to update UI

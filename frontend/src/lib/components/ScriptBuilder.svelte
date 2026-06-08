@@ -55,6 +55,7 @@
 		Bug,
 		CheckCircle,
 		Code,
+		DiffIcon,
 		EllipsisVertical,
 		Plus,
 		Rocket,
@@ -81,7 +82,7 @@
 	import { writable } from 'svelte/store'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { onMount, setContext, untrack } from 'svelte'
+	import { getContext, onMount, setContext, untrack } from 'svelte'
 	import EditorHeader from './EditorHeader.svelte'
 	import LabelsInput from './LabelsInput.svelte'
 
@@ -101,7 +102,6 @@
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
 	import type { ScriptBuilderProps } from './script_builder'
-	import type { DiffDrawerI } from './diff_drawer'
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
 	import type { ButtonType } from './common/button/model'
 	import DebounceLimit from './flows/DebounceLimit.svelte'
@@ -134,7 +134,9 @@
 		onSaveDraftError,
 		onSaveDraft,
 		onNavigate,
-		disableAi
+		disableAi,
+		initialTestPanelCollapsed = false,
+		initialPathChosen = false
 	}: ScriptBuilderProps = $props()
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
@@ -626,17 +628,23 @@
 			if (!disableHistoryChange) {
 				history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
 			}
-			if (
+			// "Stay" deploys (explicit "Deploy & Stay here" or lib scripts) keep the
+			// editor in place rather than navigating to the deployed item.
+			const stayHere =
 				stay ||
 				(script.auto_kind === 'lib' &&
 					script.kind !== 'preprocessor' &&
 					!isWorkflowAsCode(script.content, script.language))
-			) {
+			if (stayHere) {
+				// Re-pin parent_hash so the next deploy's conflict check is against
+				// the version we just wrote.
 				script.parent_hash = newHash
-				sendUserToast('Deployed')
-			} else {
-				onDeploy?.({ path: script.path, hash: newHash })
 			}
+			// Always notify on a successful deploy; the consumer decides whether to
+			// navigate (route) or stay + sync the preview (session). Previously the
+			// stay/lib branch skipped onDeploy, so session previews didn't sync after
+			// a "Deploy & Stay here" or lib-script deploy.
+			onDeploy?.({ path: script.path, hash: newHash, stay: stayHere })
 		} catch (error) {
 			onDeployError?.({ path: script.path, error })
 			sendUserToast(`Error while saving the script: ${error.body || error.message}`, true)
@@ -793,66 +801,71 @@
 		loadingDraft = false
 	}
 
+	// Inside an AI session pane (which injects an aiChatManager via context) the
+	// extra deploy-dropdown options — Deploy & Stay here, Fork, Edit in workspace
+	// fork, Exit & See details, Export — don't make sense: the session always
+	// stays put and is already scoped to a fork. Diff is exposed as a standalone
+	// top-bar button (rendered independently of the session pane), not here.
+	const inSessionPane = !!getContext('aiChatManager')
+
+	async function openDiffDrawer() {
+		if (!savedScript) {
+			return
+		}
+		await syncWithDeployed()
+
+		const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
+
+		const deployed = deployedValue ?? savedScript
+		const current = { ...script, draft_triggers: currentDraftTriggers }
+		if (current.assets && !current.assets.length) delete current.assets
+
+		diffDrawer?.openDrawer()
+		diffDrawer?.setDiff({
+			mode: 'normal',
+			deployed,
+			draft: savedScript['draft'],
+			current
+		})
+	}
+
 	function computeDropdownItems(
 		initialPath: string,
-		savedScript: NewScriptWithDraftAndDraftTriggers | undefined,
-		diffDrawer: DiffDrawerI | undefined
+		savedScript: NewScriptWithDraftAndDraftTriggers | undefined
 	) {
 		let dropdownItems: { label: string; onClick: () => void }[] =
 			initialPath != '' && customUi?.topBar?.extraDeployOptions != false
 				? [
-						{
-							label: 'Deploy & Stay here',
-							onClick: () => {
-								handleEditScript(true)
-							}
-						},
-						{
-							label: 'Fork',
-							onClick: () => {
-								window.open(`/scripts/add?template=${initialPath}`)
-							}
-						},
-						...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
+						...(!inSessionPane
 							? [
 									{
-										label: 'Edit in workspace fork',
+										label: 'Deploy & Stay here',
 										onClick: () => {
-											window.open(buildForkEditUrl('script', initialPath))
+											handleEditScript(true)
 										}
-									}
-								]
-							: []),
-						...(customUi?.topBar?.diff !== false && savedScript && diffDrawer
-							? [
+									},
 									{
-										label: 'Show diff',
-										onClick: async () => {
-											if (!savedScript) {
-												return
-											}
-											await syncWithDeployed()
-
-											const currentDraftTriggers = structuredClone(
-												triggersState.getDraftTriggersSnapshot()
-											)
-
-											const deployed = deployedValue ?? savedScript
-											const current = { ...script, draft_triggers: currentDraftTriggers }
-											if (current.assets && !current.assets.length) delete current.assets
-
-											diffDrawer?.openDrawer()
-											diffDrawer?.setDiff({
-												mode: 'normal',
-												deployed,
-												draft: savedScript['draft'],
-												current
-											})
+										label: 'Fork',
+										onClick: () => {
+											window.open(`/scripts/add?template=${initialPath}`)
 										}
-									}
+									},
+									...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
+										? [
+												{
+													label: 'Edit in workspace fork',
+													onClick: () => {
+														window.open(buildForkEditUrl('script', initialPath))
+													}
+												}
+											]
+										: [])
 								]
 							: []),
-						...(!script.draft_only && script.kind === 'script' && !script.auto_kind
+						...(!inSessionPane &&
+						!script.draft_only &&
+						script.kind === 'script' &&
+						!script.auto_kind
 							? [
 									{
 										label: 'Exit & See details',
@@ -862,7 +875,7 @@
 									}
 								]
 							: []),
-						...(isWorkflowAsCode(script.content, script.language)
+						...(!inSessionPane && isWorkflowAsCode(script.content, script.language)
 							? [
 									{
 										label: 'Export as YAML/JSON',
@@ -875,7 +888,11 @@
 					]
 				: []
 
-		if (dropdownItems.length === 0 && isWorkflowAsCode(script.content, script.language)) {
+		if (
+			!inSessionPane &&
+			dropdownItems.length === 0 &&
+			isWorkflowAsCode(script.content, script.language)
+		) {
 			dropdownItems = [
 				{
 					label: 'Export as YAML/JSON',
@@ -901,7 +918,11 @@
 	}
 
 	let path: Path | undefined = $state(undefined)
-	let dirtyPath = $state(false)
+	// Seed "path is already chosen" so the summary→path auto-slug (which only
+	// runs for new scripts with initialPath == '') doesn't clobber a path the
+	// caller pre-assigned. The session preview opens AI-created scripts as new
+	// (empty initialPath) but with a path the AI already picked.
+	let dirtyPath = $state(initialPathChosen)
 
 	let selectedTab: 'metadata' | 'runtime' | 'ui' | 'triggers' = $state(
 		(() => {
@@ -986,21 +1007,6 @@
 
 	function onScriptLanguageTrigger(lang: 'docker' | 'bunnative' | ScriptLang) {
 		if (lang == 'docker') {
-			if (isCloudHosted()) {
-				sendUserToast(
-					'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
-					true,
-					[
-						{
-							label: 'Learn more',
-							callback: () => {
-								window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
-							}
-						}
-					]
-				)
-				return
-			}
 			template = 'docker'
 		} else if (lang == 'bunnative') {
 			template = 'bunnative'
@@ -2006,6 +2012,21 @@
 						</Button>
 					{/if}
 				{/snippet}
+				{#snippet diffButton()}
+					{#if customUi?.topBar?.diff != false}
+						<Button
+							variant="default"
+							unifiedSize="md"
+							on:click={() => openDiffDrawer()}
+							disabled={!savedScript || !diffDrawer}
+							iconOnly={compactTopbar}
+							title="Diff"
+							startIcon={{ icon: DiffIcon }}
+						>
+							Diff
+						</Button>
+					{/if}
+				{/snippet}
 				{#if compactTopbar}
 					<DropdownV2 items={getCompactMenuItems} placement="bottom-end">
 						{#snippet buttonReplacement()}
@@ -2019,8 +2040,10 @@
 							/>
 						{/snippet}
 					</DropdownV2>
+					{@render diffButton()}
 					{@render settingsButton()}
 				{:else}
+					{@render diffButton()}
 					{#if customUi?.topBar?.tagEdit != false}
 						{#if $workerTags}
 							{#if $workerTags?.length ?? 0 > 0}
@@ -2051,7 +2074,7 @@
 				<DeployButton
 					loading={!fullyLoaded}
 					{loadingSave}
-					dropdownItems={computeDropdownItems(initialPath, savedScript, diffDrawer)}
+					dropdownItems={computeDropdownItems(initialPath, savedScript)}
 					on:save={({ detail }) => handleEditScript(false, detail)}
 				/>
 			</div>
@@ -2091,6 +2114,7 @@
 			bind:assets={script.assets}
 			bind:modules={script.modules}
 			enablePreprocessorSnippet
+			{initialTestPanelCollapsed}
 		/>
 	</div>
 {:else}

@@ -56,7 +56,7 @@ bun run cli -- run flow flow-test4-order-processing-loop --model opus
 bun run cli -- run flow flow-test0-sum-two-numbers --models haiku,opus,4o
 bun run cli -- run flow flow-test0-sum-two-numbers --runs 3 --verbose
 bun run cli -- run flow --record
-GEMINI_API_KEY=... bun run cli -- run app app-test1-counter-create --model gemini-pro
+GEMINI_API_KEY=... bun run cli -- run app app-test1-counter-create --model gemini-3-flash-preview
 WMILL_AI_EVAL_BACKEND_URL=http://127.0.0.1:8000 bun run cli -- run flow --backend-validation preview
 bun run cli -- run global global-test1-script-create
 bun run cli -- run cli bun-hello-script
@@ -88,15 +88,16 @@ Today:
 - `sonnet`
 - `opus`
 - `4o`
-- `gemini-flash`
-- `gemini-pro`
+- `gpt-5.5`
 - `gemini-3-flash-preview`
 - `gemini-3.1-pro-preview`
+- `deepseek-v4-flash`
+- `deepseek-v4-pro`
 
 Notes:
 
-- the command also prints accepted alias spellings such as `gpt-4o`, `claude-opus-4.6`, and `claude-haiku-4.5`
-- frontend modes (`flow`, `script`, `app`, `global`) can use Anthropic, OpenAI, and Gemini-backed aliases
+- the command also prints accepted alias spellings such as `gpt-4o`, `gpt-55`, `claude-opus-4.6`, and `claude-haiku-4.5`
+- frontend modes (`flow`, `script`, `app`, `global`) can use Anthropic, OpenAI, Gemini, and DeepSeek-backed aliases
 - `cli` mode always uses the Anthropic agent SDK, so only Anthropic aliases are valid there
 - the judge model is separate and currently defaults to `claude-sonnet-4-6`
 
@@ -141,6 +142,32 @@ For `global` mode, `validate` can express draft-level requirements such as:
 - required or forbidden snippets in draft values
 - required or forbidden draft counts
 - forbidden draft paths
+
+Global initial fixtures can also seed `liveEditorDrafts` with `type`,
+`storagePath`, `effectivePath`, and `value` fields. These drafts emulate the
+currently open script, flow, or raw app editor so cases can test prompts that
+refer to "this" or the "current" item.
+
+Global (and flow) initial fixtures can seed `workspace.datatables` so the
+`list_datatables`, `get_datatable_table_schema`, and `exec_datatable_sql` tools
+return seeded data during evals. Each entry is
+`{ datatable_name, schemas: { <schema>: { <table>: { columns, rows? } } } }`.
+SQL runs through a small in-memory engine (`datatableSqlEngine.ts`), not a real
+database. Writes are **stateful within a case**: `CREATE`/`DROP`/`INSERT`/`UPDATE`/
+`DELETE` mutate the seeded datatable in place, so a later `list_datatables`,
+`get_datatable_table_schema`, `SELECT`, or `information_schema` query reflects them
+— this is what stops a model from looping when it re-queries to verify a write.
+The engine is best-effort: `SELECT` returns all rows of the referenced (or first)
+table with no WHERE filtering/projection/joins, `WHERE` on UPDATE/DELETE supports
+`col = value` predicates joined by `AND`, and anything unparseable is a no-op
+success. So validate datatable cases through tool-use and SQL-argument assertions
+(`requiredToolsUsed`, `stringIncludesAnyOf`) — not through exact returned row
+values. An empty/absent `datatables` seed makes `list_datatables` return `[]`,
+which is what the "no datatable configured" blocking cases rely on.
+
+Set `WMILL_AI_EVAL_DISABLE_ACTIVE_EDITOR_CONTEXT=1` to run those cases with
+the old behavior where the live editor is only discoverable through
+`list_workspace_items`.
 
 App fixtures can also include an optional `datatables.json` file at the fixture root.
 
@@ -189,10 +216,14 @@ If `--record` is used, the CLI also appends one compact JSON line to:
 Each recorded line contains:
 
 - run metadata (`createdAt`, `gitSha`, `mode`, `runModel`, `judgeModel`)
-- suite totals (`caseCount`, `attemptCount`, `passedAttempts`, `passRate`, `averageDurationMs`, `averageJudgeScore`)
-- average token usage (`averageTokenUsagePerAttempt`)
-- per-case metrics under `cases[]` (`averageDurationMs`, `averageJudgeScore`, `averageTokenUsagePerAttempt`, pass rate)
+- suite totals (`caseCount`, `attemptCount`, `passedAttempts`, `passRate`, `averageDurationMs`, `averagePassedDurationMs`, `averageJudgeScore`)
+- average token usage (`averageTokenUsagePerAttempt`, `averageTokenUsagePerPassedAttempt`)
+- per-case metrics under `cases[]` (`averageDurationMs`, `averagePassedDurationMs`, `averageJudgeScore`, `averageTokenUsagePerAttempt`, `averageTokenUsagePerPassedAttempt`, pass rate)
 - `failedCaseIds`
+
+The CLI headline duration and token averages use passed attempts only.
+All-attempt averages are still recorded to make failures auditable without
+letting failed attempts skew success cost comparisons.
 
 Example:
 

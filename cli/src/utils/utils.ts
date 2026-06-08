@@ -11,6 +11,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { fetchVersion } from "../core/context.ts";
 import { updateGlobalVersions } from "../commands/sync/global.ts";
 import { isRawAppPath } from "./resource_folders.ts";
+import { VERSION } from "../core/constants.ts";
 
 export function deepEqual<T>(a: T, b: T): boolean {
   if (a === b) return true;
@@ -320,6 +321,7 @@ export async function fetchRemoteVersion(
   if (version) {
     updateGlobalVersions(version);
   }
+  log.info(colors.gray("CLI version: " + VERSION));
   log.info(colors.gray("Remote version: " + version));
 }
 

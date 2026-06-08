@@ -6,7 +6,9 @@ pub mod openai;
 pub mod openrouter;
 pub mod other;
 
-use crate::{ai_providers::AIProvider, proxy::ProviderCredentials, query_builder::QueryBuilder};
+use crate::{
+    ai_providers::AIProvider, credentials::ProviderCredentials, query_builder::QueryBuilder,
+};
 
 use self::{
     anthropic::AnthropicQueryBuilder, google_ai::GoogleAIQueryBuilder, openai::OpenAIQueryBuilder,

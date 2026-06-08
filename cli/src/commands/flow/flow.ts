@@ -224,6 +224,8 @@ export async function pushFlow(
           deployment_message: message,
           ...localFlowBody,
           ...preserveFields,
+          // Preserve any user draft at this path (see backend skip_draft_deletion).
+          skip_draft_deletion: true,
         },
       });
     }
@@ -237,6 +239,8 @@ export async function pushFlow(
           deployment_message: message,
           ...localFlowBody,
           ...preserveFields,
+          // Preserve any user draft at this path (see backend skip_draft_deletion).
+          skip_draft_deletion: true,
         },
       });
     } catch (e) {
@@ -652,7 +656,7 @@ async function preview(
   // the anchor for relative-import resolution: inline scripts in this flow are
   // treated as living at "<flow_wm_path>/<step_id>", so "./util" resolves to
   // "<flow_wm_path_parent>/util" — matching the keys in temp_script_refs.
-  const flowWmPath = flowPath.substring(0, flowPath.indexOf(".flow")).replaceAll(SEP, "/");
+  const flowWmPath = stripFlowSuffix(flowPath).replaceAll(SEP, "/");
 
   if (opts.step) {
     await previewStep(opts.step, localFlow, flowWmPath, workspace, input, tempScriptRefs, opts.silent);
@@ -795,6 +799,19 @@ async function previewStep(
     log.info(colors.bold.underline.green(`Step '${stepId}' completed`));
     log.info(JSON.stringify(result, null, 2));
   }
+}
+
+// Strip the `.flow`/`__flow` directory suffix to recover the flow's logical
+// Windmill path. Workspaces with nonDottedPaths use `__flow`; the default
+// uses `.flow`. A previous version used `indexOf(".flow")` which returned -1
+// (and thus `substring(0, -1) === ""`) for `__flow` folders and for the
+// `dirname("flow.yaml") === "."` fallback — producing an empty path that
+// broke relative-import resolution downstream.
+function stripFlowSuffix(flowPath: string): string {
+  const stripped = flowPath.endsWith(SEP) ? flowPath.slice(0, -SEP.length) : flowPath;
+  if (stripped.endsWith(".flow")) return stripped.slice(0, -".flow".length);
+  if (stripped.endsWith("__flow")) return stripped.slice(0, -"__flow".length);
+  return stripped;
 }
 
 function findStepInFlowValue(flowValue: any, stepId: string): any | undefined {
@@ -1146,6 +1163,8 @@ const command = new Command()
         path: flowPath,
         on_behalf_of_email: email,
         preserve_on_behalf_of: true,
+        // Preserve any user draft at this path (see backend skip_draft_deletion).
+        skip_draft_deletion: true,
       } as any,
     });
     log.info(colors.green(`Updated permissioned_as for flow ${flowPath} to ${email}`));

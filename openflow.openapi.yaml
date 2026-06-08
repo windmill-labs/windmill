@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.710.1
+  version: 1.719.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -60,6 +60,9 @@ components:
         same_worker:
           type: boolean
           description: If true, all steps run on the same worker for better performance
+        preserve_step_tags:
+          type: boolean
+          description: If true and the flow runs on a custom worker tag, steps that declare their own non-empty tag run on it instead of inheriting the flow tag. Steps without their own tag still inherit the flow tag.
         concurrent_limit:
           type: number
           description: Maximum number of concurrent executions of this flow
@@ -268,6 +271,9 @@ components:
           type: string
           nullable: true
           description: Custom error message when stopping with an error. Mutually exclusive with skip_if_stopped. If set to a non-empty string, the flow stops with this error. If empty string, a default error message is used. If null or omitted, no error is raised.
+        error_include_result:
+          type: boolean
+          description: "When stopping with an error (error_message set), embed the stopping step's own result inside the raised error object (as error.result) instead of discarding it. The top-level result stays { error }. Defaults to false."
       required:
         - expr
 

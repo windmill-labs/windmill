@@ -1,0 +1,40 @@
+{
+  "workspace": {
+    "flows": [
+      {
+        "path": "f/evals/global/process_invoice",
+        "summary": "Process an invoice subtotal",
+        "description": "Calculates invoice totals from a subtotal.",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "subtotal": {
+              "type": "number"
+            }
+          },
+          "required": ["subtotal"]
+        },
+        "value": {
+          "modules": [
+            {
+              "id": "calculate_total",
+              "summary": "Calculate total from subtotal",
+              "value": {
+                "type": "rawscript",
+                "language": "bun",
+                "content": "export async function main(subtotal: number) {\n  return { subtotal, total: subtotal }\n}\n",
+                "input_transforms": {
+                  "subtotal": {
+                    "type": "javascript",
+                    "expr": "flow_input.subtotal"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

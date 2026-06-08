@@ -14,9 +14,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
-import { getDefaultChatTemperature } from './modelConfig'
+import { getDefaultChatTemperature, modelDisallowsSamplingParams } from './modelConfig'
 import { formatResourceTypes } from './utils'
-import { z } from 'zod'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
 import {
 	getNonStreamingOpenAIResponsesCompletion,
@@ -25,7 +24,7 @@ import {
 import { convertOpenAIToAnthropicMessages } from './chat/anthropic'
 import type { Stream } from 'openai/core/streaming.mjs'
 import { generateRandomString } from '$lib/utils'
-import { copilotInfo, getCurrentModel } from '$lib/aiStore'
+import { copilotInfo, getCurrentModel, getMetadataModel } from '$lib/aiStore'
 import {
 	emptyChatTokenUsage,
 	openAICompletionsUsageToChatTokenUsage,
@@ -36,6 +35,7 @@ import {
 	buildAssistantToolCallMessage,
 	getReasoningContentDelta
 } from './chat/openaiReasoning'
+import { parseFimCompletionChoice } from './fim'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
@@ -74,7 +74,7 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	},
 	deepseek: {
 		label: 'DeepSeek',
-		defaultModels: ['deepseek-chat', 'deepseek-reasoner']
+		defaultModels: ['deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner']
 	},
 	googleai: {
 		label: 'Google AI',
@@ -317,7 +317,7 @@ function getModelSpecificConfig(
 	const defaultTemperature = getDefaultChatTemperature(modelProvider)
 	if (
 		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
-		(modelProvider.model.startsWith('o') || modelProvider.model.startsWith('gpt-5'))
+		modelDisallowsSamplingParams(modelProvider.model)
 	) {
 		return {
 			model: modelProvider.model,
@@ -753,18 +753,18 @@ export function getProviderAndCompletionConfig<K extends boolean>({
 export async function getNonStreamingCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	testOptions?: {
+	options?: {
 		apiKey?: string // testing API KEY using the global ai proxy
 		resourcePath?: string // testing resource path passed as a header to the backend proxy
 		workspace?: string // use a specific workspace proxy when testing a workspace resource
-		forceModelProvider: AIProviderModel
+		forceModelProvider?: AIProviderModel
 	}
 ) {
 	let response: string | undefined = ''
 	const { provider, config } = getProviderAndCompletionConfig({
 		messages,
 		stream: false,
-		forceModelProvider: testOptions?.forceModelProvider
+		forceModelProvider: options?.forceModelProvider
 	})
 
 	// Use Responses API for OpenAI and Azure OpenAI
@@ -773,7 +773,7 @@ export async function getNonStreamingCompletion(
 			const response = await getNonStreamingOpenAIResponsesCompletion(
 				messages,
 				abortController,
-				testOptions
+				options
 			)
 			return response
 		} catch (error) {
@@ -790,25 +790,25 @@ export async function getNonStreamingCompletion(
 			'X-Provider': provider
 		}
 	}
-	if (testOptions?.resourcePath) {
+	if (options?.resourcePath) {
 		fetchOptions.headers = {
 			...fetchOptions.headers,
-			'X-Resource-Path': testOptions.resourcePath
+			'X-Resource-Path': options.resourcePath
 		}
-	} else if (testOptions?.apiKey) {
+	} else if (options?.apiKey) {
 		if (provider === 'customai') {
 			throw new Error('Cannot test API key for Custom AI, only resource path is supported')
 		}
 
 		fetchOptions.headers = {
 			...fetchOptions.headers,
-			'X-API-Key': testOptions.apiKey
+			'X-API-Key': options.apiKey
 		}
 	}
-	const openaiClient = testOptions?.apiKey
+	const openaiClient = options?.apiKey
 		? createOpenAIProxyClient(getAiProxyBaseURL())
-		: testOptions?.workspace
-			? workspaceAIClients.createOpenaiClient(testOptions.workspace)
+		: options?.workspace
+			? workspaceAIClients.createOpenaiClient(options.workspace)
 			: workspaceAIClients.getOpenaiClient()
 
 	const completion = await openaiClient.chat.completions.create(config, fetchOptions)
@@ -816,16 +816,14 @@ export async function getNonStreamingCompletion(
 	return response
 }
 
-const mistralFimResponseSchema = z.object({
-	choices: z.array(
-		z.object({
-			message: z.object({
-				content: z.string().optional()
-			}),
-			finish_reason: z.string()
-		})
-	)
-})
+export async function getNonStreamingMetadataCompletion(
+	messages: ChatCompletionMessageParam[],
+	abortController: AbortController
+) {
+	return getNonStreamingCompletion(messages, abortController, {
+		forceModelProvider: getMetadataModel()
+	})
+}
 
 export const FIM_MAX_TOKENS = 256
 const FIM_MAX_LINES = 8
@@ -864,12 +862,10 @@ export async function getFimCompletion(
 	)
 
 	const body = await response.json()
-	const parsedBody = mistralFimResponseSchema.parse(body)
+	const choice = parseFimCompletionChoice(body, providerModel.provider)
 
-	const choice = parsedBody.choices[0]
-
-	if (choice && choice.message.content !== undefined) {
-		let lines = choice.message.content.split('\n')
+	if (choice?.content !== undefined) {
+		let lines = choice.content.split('\n')
 
 		// If finish_reason is 'length', remove the last line
 		if (choice.finish_reason === 'length') {
@@ -908,7 +904,10 @@ export async function getCompletion(
 	// Use Responses API for OpenAI and Azure OpenAI
 	if ((provider === 'openai' || provider === 'azure_openai') && !options?.forceCompletions) {
 		try {
-			const stream = getOpenAIResponsesCompletionStream(messages, abortController, tools) as any
+			const stream = getOpenAIResponsesCompletionStream(messages, abortController, tools, {
+				forceModelProvider: options?.forceModelProvider,
+				openaiClient: options?.openaiClient
+			}) as any
 			return stream
 		} catch (error) {
 			console.error('Error using Responses API:', error)

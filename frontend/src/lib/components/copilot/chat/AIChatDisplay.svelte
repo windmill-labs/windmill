@@ -1,7 +1,7 @@
 <script lang="ts">
 	import AIChatMessage from './AIChatMessage.svelte'
 	import AppAvailableContextList from './AppAvailableContextList.svelte'
-	import AvailableContextList from './AvailableContextList.svelte'
+	import ChatContextPicker from './ChatContextPicker.svelte'
 	import { type Snippet } from 'svelte'
 	import {
 		AlertTriangle,
@@ -23,7 +23,7 @@
 	import { fade } from 'svelte/transition'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { type DisplayMessage } from './shared'
+	import { isActiveUserQuestion, type DisplayMessage } from './shared'
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ProviderModelSelector from './ProviderModelSelector.svelte'
@@ -271,17 +271,14 @@
 		const last = messages[messages.length - 1]
 		if (!last || last.role !== 'tool') return false
 		if (last.needsConfirmation && last.isLoading) return true
-		if (
-			last.userQuestion &&
-			last.isLoading &&
-			!last.error &&
-			!last.userQuestion.selectedChoice &&
-			!last.userQuestion.canceled
-		) {
-			return true
-		}
+		if (isActiveUserQuestion(last)) return true
 		return false
 	})
+
+	// While the AI is waiting on an answer to an askUserQuestion, the only valid
+	// input is one of the choices (or the custom answer) in the question card —
+	// so disable the main chat input until the question is answered or canceled.
+	const hasActiveUserQuestion = $derived(isActiveUserQuestion(messages[messages.length - 1]))
 
 	// Get app context for display when in APP mode
 	const appContext = $derived.by((): SelectedContext | undefined => {
@@ -510,7 +507,7 @@
 				bind:this={aiChatInput}
 				bind:selectedContext
 				{availableContext}
-				{disabled}
+				disabled={disabled || hasActiveUserQuestion}
 				isFirstMessage={messages.length === 0}
 			/>
 			<div
@@ -521,7 +518,7 @@
 				{#if showFooterLeftControls}
 					<div class="flex flex-row items-center gap-x-1.5 min-w-0 flex-wrap">
 						{#if showContextPicker && !disabled}
-							<Popover>
+							<Popover placement="bottom-start">
 								{#snippet trigger()}
 									<Button
 										nonCaptureEvent
@@ -543,16 +540,23 @@
 											}}
 										/>
 									{:else}
-										<AvailableContextList
+										<ChatContextPicker
 											{availableContext}
 											{selectedContext}
 											onSelect={(element) => {
 												void aiChatInput?.addContextToSelection(element)
+												aiChatInput?.insertMention(element.title)
 												close()
+												aiChatInput?.focusInput()
 											}}
 											onSelectWorkspaceItem={(element) => {
 												void aiChatInput?.addContextToSelection(element)
+												aiChatInput?.insertMention(element.title)
 												close()
+												aiChatInput?.focusInput()
+											}}
+											setShowing={(showing) => {
+												if (!showing) close()
 											}}
 										/>
 									{/if}

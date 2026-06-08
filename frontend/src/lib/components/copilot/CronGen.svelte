@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ExternalLink, Wand2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
-	import { getNonStreamingCompletion } from './lib'
+	import { getNonStreamingMetadataCompletion } from './lib'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { sendUserToast } from '$lib/toast'
 
@@ -54,7 +54,7 @@
 				}
 			]
 
-			const response = await getNonStreamingCompletion(messages, abortController)
+			const response = await getNonStreamingMetadataCompletion(messages, abortController)
 
 			if (response.startsWith('ERROR:')) {
 				throw response.replace('ERROR:', '').trim()

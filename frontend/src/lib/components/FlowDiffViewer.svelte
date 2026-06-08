@@ -6,13 +6,28 @@
 	interface Props {
 		beforeYaml: string
 		afterYaml: string
+		/** Side-by-side vs unified. Leave undefined to let
+		 * FlowGraphDiffViewer show its own user-facing toggle (matches the
+		 * pre-fork-diff-drawer behavior). */
+		inlineDiff?: boolean
+		/** Forwarded to FlowGraphDiffViewer — render an empty surface
+		 * placeholder for the "before" / "after" pane when the item is
+		 * added / removed. */
+		beforeMissing?: boolean
+		afterMissing?: boolean
 	}
 
-	let { beforeYaml, afterYaml }: Props = $props()
+	let {
+		beforeYaml,
+		afterYaml,
+		inlineDiff = undefined,
+		beforeMissing = false,
+		afterMissing = false
+	}: Props = $props()
 	let diffMode: 'yaml' | 'graph' = $state('graph')
 </script>
 
-<div class="flex flex-col h-full min-h-[500px] gap-2">
+<div class="flex flex-col h-full min-h-[500px]">
 	<Tabs bind:selected={diffMode}>
 		<Tab value="graph" label="Graph" />
 		<Tab value="yaml" label="YAML" />
@@ -30,6 +45,7 @@
 					defaultLang="yaml"
 					defaultOriginal={beforeYaml}
 					defaultModified={afterYaml}
+					{inlineDiff}
 					readOnly
 				/>
 			{/await}
@@ -37,7 +53,7 @@
 			{#await import('$lib/components/FlowGraphDiffViewer.svelte')}
 				<Loader2 class="animate-spin" />
 			{:then Module}
-				<Module.default {beforeYaml} {afterYaml} />
+				<Module.default {beforeYaml} {afterYaml} {beforeMissing} {afterMissing} {inlineDiff} />
 			{/await}
 		{/if}
 	</div>

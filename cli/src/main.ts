@@ -89,10 +89,14 @@ export {
   token,
 };
 
-export const VERSION = "1.710.1";
-
-// Re-exported from constants.ts to maintain backwards compatibility
-export { WM_FORK_PREFIX } from "./core/constants.ts";
+// VERSION and WM_FORK_PREFIX are defined in constants.ts (which keeps its
+// imports minimal) and re-exported here for backwards compatibility. VERSION is
+// also imported below for internal use. Defining VERSION in constants.ts rather
+// than here lets utils.ts read it without importing main.ts, which previously
+// created a circular dependency (main → workspace → utils → main) and a TDZ
+// crash ("Cannot access 'workspace' before initialization") on some load orders.
+import { VERSION } from "./core/constants.ts";
+export { VERSION, WM_FORK_PREFIX } from "./core/constants.ts";
 
 // Re-implementation of cliffy's internal `checkVersion` so the help path
 // can wrap it in try/catch. `_check_version` is not in cliffy's package
@@ -304,6 +308,10 @@ async function main() {
     if (shouldRunFreshnessCheck(process.argv)) {
       const { warnIfPromptsStale } = await import("./guidance/freshness.ts");
       await warnIfPromptsStale({ argv: process.argv }).catch(() => {});
+      const { warnIfTsconfigStale } = await import(
+        "./commands/refresh/tsconfig.ts"
+      );
+      await warnIfTsconfigStale().catch(() => {});
     }
 
     await command.parse(args);
