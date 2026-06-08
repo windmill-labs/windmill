@@ -138,6 +138,12 @@ would be surprising.
 	{leafIcon}
 	{branchIcon}
 	leafSecondary={(leaf, scope) => relativizeWorkspacePath(leaf.data.path, scope)}
-	onScopeChange={(scope) => scope.length > 0 && loader.ensureForScopeSegment(scope[0])}
+	onScopeChange={(scope) => {
+		if (scope.length > 0) loader.ensureForScopeSegment(scope[0])
+		// Single-kind layout has no kind branch at root — `buildWorkspaceTree`
+		// collapses to the kind's children. The picker mounts with scope=[],
+		// so without this fallback nothing fires until the user searches.
+		else if (kinds.length === 1) loader.ensureLoaded(kinds[0])
+	}}
 	onFilterChange={loader.onFilterChange}
 />

@@ -339,6 +339,20 @@
 		prevMentionedTitles = new Set()
 		value = ''
 	}
+
+	// Called by the host BEFORE it strips a mention token from `value`
+	// (badge-delete path). Drops the title from `prevMentionedTitles` so when
+	// the strip lands, the effect sees no diff and doesn't dispatch another
+	// `onRemoveContext` — the host has already mutated `selectedContext`.
+	// Critical when two `selectedContext` entries share a title (workspace
+	// script + flow with same path): without this, the effect would find the
+	// surviving sibling by title and remove it too.
+	export function unsyncMention(title: string) {
+		if (!prevMentionedTitles.has(title)) return
+		const next = new Set(prevMentionedTitles)
+		next.delete(title)
+		prevMentionedTitles = next
+	}
 </script>
 
 <div class="relative w-full scroll-pb-2 bg-surface">

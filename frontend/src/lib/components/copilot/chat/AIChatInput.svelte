@@ -149,6 +149,10 @@
 	 * bleed into other words; only the whitespace adjacent to the removed
 	 * mention is collapsed so unrelated double-spaces stay intact. */
 	export function removeMention(title: string) {
+		// Pre-zap the textarea's mention diff snapshot so the upcoming strip
+		// doesn't refire the removal effect on a same-title sibling — the host
+		// has already mutated `selectedContext` to drop the targeted entry.
+		contextTextareaComponent?.unsyncMention(title)
 		const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 		const re = new RegExp(`(^|\\s)@${escaped}(\\s|$)`, 'g')
 		instructions = instructions.replace(re, (_m, lead, trail) => {
@@ -258,11 +262,13 @@
 			onEditEnd()
 		} else {
 			aiChatManager.sendRequest({ instructions })
-			// clearForSend() (vs `instructions = ''`) signals the wipe is
-			// programmatic so ContextTextarea's mention-removal effect skips
-			// dropping `selectedContext` — `AIChatManager.beforeSend` snapshots
-			// it asynchronously after this returns.
+			// clearForSend() pre-zaps the textarea's mention-sync so the wipe
+			// doesn't drop `selectedContext` before `AIChatManager.beforeSend`
+			// snapshots it. Only mounted in SCRIPT/FLOW/GLOBAL — APP and the
+			// fallback textarea still rely on the plain `instructions = ''`
+			// reset (no `@`-mention state to coordinate).
 			contextTextareaComponent?.clearForSend()
+			instructions = ''
 		}
 	}
 
