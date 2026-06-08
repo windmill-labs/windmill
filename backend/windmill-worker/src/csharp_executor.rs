@@ -57,8 +57,12 @@ const DOTNET_ROOT_DEFAULT: &str = "C:\\Program Files\\dotnet";
 const DOTNET_ROOT_DEFAULT: &str = "/usr/share/dotnet";
 
 #[cfg(feature = "csharp")]
+const DOTNET_TARGET_FRAMEWORK_DEFAULT: &str = "net9.0";
+
+#[cfg(feature = "csharp")]
 lazy_static::lazy_static! {
     static ref DOTNET_ROOT: String = std::env::var("DOTNET_ROOT").unwrap_or_else(|_| DOTNET_ROOT_DEFAULT.to_string());
+    static ref DOTNET_TARGET_FRAMEWORK: String = std::env::var("DOTNET_TARGET_FRAMEWORK").unwrap_or_else(|_| DOTNET_TARGET_FRAMEWORK_DEFAULT.to_string());
 }
 
 #[cfg(feature = "csharp")]
@@ -212,6 +216,7 @@ fn gen_cs_proj(
         )
     };
 
+    let target_framework = DOTNET_TARGET_FRAMEWORK.as_str();
     write_file(
         job_dir,
         "Main.csproj",
@@ -219,7 +224,7 @@ fn gen_cs_proj(
             r#"<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>{target_framework}</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <StartupObject>WindmillScriptCSharpInternal.Wrapper</StartupObject>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
@@ -510,9 +515,10 @@ pub async fn handle_csharp_job(
 
     let ws_suffix = crate::workspace_registry_cache_suffix(&job.workspace_id).await;
     let mut hash = calculate_hash(&format!(
-        "{}{}",
+        "{}{}{}",
         inner_content,
-        requirements_o.unwrap_or(&String::new())
+        requirements_o.unwrap_or(&String::new()),
+        DOTNET_TARGET_FRAMEWORK.as_str()
     ));
     hash.push_str(&ws_suffix);
     let bin_path = format!("{}/{hash}", *CSHARP_CACHE_DIR);

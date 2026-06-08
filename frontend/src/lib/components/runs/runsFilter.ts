@@ -163,6 +163,7 @@ export function buildRunsFilterSearchbarSchema({
 				{ label: 'Running', value: 'running' as const },
 				{ label: 'Success', value: 'success' as const },
 				{ label: 'Failure', value: 'failure' as const },
+				{ label: 'Canceled', value: 'canceled' as const },
 				{ label: 'Waiting', value: 'waiting' as const },
 				{ label: 'Suspended', value: 'suspended' as const }
 			],

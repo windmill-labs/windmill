@@ -13,6 +13,7 @@ default = []
 enterprise = ["windmill-common/enterprise"]
 private = ["windmill-common/private", "windmill-dep-map/private"]
 python = ["dep:windmill-parser-py"]
+prometheus = ["dep:prometheus", "windmill-common/prometheus"]
 [dependencies]
 windmill-common = { workspace = true, default-features = false }
 windmill-object-store.workspace = true
@@ -38,4 +39,5 @@ tracing.workspace = true
 chrono.workspace = true
 lazy_static.workspace = true
 tokio.workspace = true
+prometheus = { workspace = true, optional = true }
 windmill-parser-py = { workspace = true, optional = true }

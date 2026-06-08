@@ -647,7 +647,7 @@ function itemMatches(
 	)
 }
 
-function scriptToItem(script: Script, includeValue: boolean): WorkspaceItem {
+function scriptToItem(script: Script | NewScript, includeValue: boolean): WorkspaceItem {
 	return {
 		type: 'script',
 		path: script.path,
@@ -1153,10 +1153,16 @@ async function readWorkspaceItem(
 	triggerKind?: TriggerKind
 ): Promise<WorkspaceItem> {
 	switch (type) {
-		case 'script':
-			return scriptToItem(await ScriptService.getScriptByPath({ workspace, path }), true)
-		case 'flow':
-			return flowToItem(await FlowService.getFlowByPath({ workspace, path }), true)
+		case 'script': {
+			// Prefer the DB draft (newer than the deployed version) when one exists.
+			const script = await ScriptService.getScriptByPathWithDraft({ workspace, path })
+			return scriptToItem(script.draft ?? script, true)
+		}
+		case 'flow': {
+			// Prefer the DB draft (newer than the deployed version) when one exists.
+			const flow = await FlowService.getFlowByPathWithDraft({ workspace, path })
+			return flowToItem(flow.draft ?? flow, true)
+		}
 		case 'schedule':
 			return scheduleToItem(await ScheduleService.getSchedule({ workspace, path }), true)
 		case 'trigger':

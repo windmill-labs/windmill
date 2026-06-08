@@ -1,5 +1,54 @@
 # Changelog
 
+## [1.719.0](https://github.com/windmill-labs/windmill/compare/v1.718.0...v1.719.0) (2026-06-06)
+
+
+### Features
+
+* **otel:** connect jobs to the inbound distributed trace ([#9456](https://github.com/windmill-labs/windmill/issues/9456)) ([fad1a54](https://github.com/windmill-labs/windmill/commit/fad1a549d95c00d0746a48163c4f95fc69733e1a))
+
+
+### Bug Fixes
+
+* authenticate slack callback payload with per-workspace hmac ([#9461](https://github.com/windmill-labs/windmill/issues/9461)) ([fbdf81b](https://github.com/windmill-labs/windmill/commit/fbdf81ba5f77d282c025360ecee14138dd4cb4a2))
+* prevent token label collision bypassing job read access control ([#9462](https://github.com/windmill-labs/windmill/issues/9462)) ([e1e7af6](https://github.com/windmill-labs/windmill/commit/e1e7af6a25a44eb06b67332ce1efeae2a21e0c6d))
+* **python:** escape reserved-keyword step ids in wrapper codegen ([#9460](https://github.com/windmill-labs/windmill/issues/9460)) ([6a15a9b](https://github.com/windmill-labs/windmill/commit/6a15a9b152ad20be4b5c3de6000516da231e41e0)), closes [#8893](https://github.com/windmill-labs/windmill/issues/8893)
+
+## [1.718.0](https://github.com/windmill-labs/windmill/compare/v1.717.1...v1.718.0) (2026-06-05)
+
+
+### Features
+
+* **flows:** opt-in to include the stopping step's result in early-stop errors ([#9446](https://github.com/windmill-labs/windmill/issues/9446)) ([f2f0812](https://github.com/windmill-labs/windmill/commit/f2f0812a04c9256cfc8eba5e0dcf38d71d971410))
+* make C# dotnet target framework configurable via DOTNET_TARGET_FRAMEWORK ([#9454](https://github.com/windmill-labs/windmill/issues/9454)) ([9a609bf](https://github.com/windmill-labs/windmill/commit/9a609bf08ac1b6157dbdfb827fc01e771d71262e))
+* sandboxed daemonless container runtime via '# sandbox &lt;image&gt;' ([#9453](https://github.com/windmill-labs/windmill/issues/9453)) ([1727271](https://github.com/windmill-labs/windmill/commit/1727271e197b34026efeaf1b6561bb404a440baa))
+* **sandbox:** pull/extract images with crane instead of podman ([#9455](https://github.com/windmill-labs/windmill/issues/9455)) ([7590b28](https://github.com/windmill-labs/windmill/commit/7590b281085afd1fc2774e8fb37a4c0af3aedbad))
+
+
+### Bug Fixes
+
+* distinguish canceled jobs in runs ([#9452](https://github.com/windmill-labs/windmill/issues/9452)) ([9067787](https://github.com/windmill-labs/windmill/commit/90677872f6185eb0c81e0e84a426a54653818457))
+
+## [1.717.1](https://github.com/windmill-labs/windmill/compare/v1.717.0...v1.717.1) (2026-06-04)
+
+
+### Bug Fixes
+
+* invalidate relative-import cache when imported script changes ([#9443](https://github.com/windmill-labs/windmill/issues/9443)) ([f595787](https://github.com/windmill-labs/windmill/commit/f595787409a3fcda9278bbcf2cfcc80092f16460))
+
+## [1.717.0](https://github.com/windmill-labs/windmill/compare/v1.716.0...v1.717.0) (2026-06-04)
+
+
+### Features
+
+* let flow AI chat create and edit sticky notes ([#9412](https://github.com/windmill-labs/windmill/issues/9412)) ([e4e0984](https://github.com/windmill-labs/windmill/commit/e4e0984e55afd3c73f1c365cd0608493a9fd87ed))
+
+
+### Bug Fixes
+
+* **cli:** push whole raw app instead of treating frontend files as scripts ([#9442](https://github.com/windmill-labs/windmill/issues/9442)) ([b5a6a1e](https://github.com/windmill-labs/windmill/commit/b5a6a1eeab663c2d6aaec2c89eab7a550cb0bb6b))
+* read latest db draft for scripts/flows in global mode read tool ([#9441](https://github.com/windmill-labs/windmill/issues/9441)) ([819ba5e](https://github.com/windmill-labs/windmill/commit/819ba5e150ec9f5199919fbea50874fc156d0189))
+
 ## [1.716.0](https://github.com/windmill-labs/windmill/compare/v1.715.0...v1.716.0) (2026-06-03)
 
 

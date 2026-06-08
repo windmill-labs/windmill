@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.716.0
+  version: 1.719.0
   title: Windmill API
 
   contact:
@@ -11821,6 +11821,16 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: status
+          description: filter on the exact completed job status. Unlike `success=true` (which also matches `skipped`), `status=success` matches only `success`.
+          in: query
+          schema:
+            type: string
+            enum:
+              - success
+              - failure
+              - canceled
+              - skipped
         - name: all_workspaces
           description: get jobs from all workspaces (only valid if request come from the `admins` workspace)
           in: query
@@ -12056,6 +12066,16 @@ paths:
         - $ref: "#/components/parameters/StartedBefore"
         - $ref: "#/components/parameters/StartedAfter"
         - $ref: "#/components/parameters/Success"
+        - name: status
+          description: filter on the exact completed job status. Unlike `success=true` (which also matches `skipped`), `status=success` matches only `success`.
+          in: query
+          schema:
+            type: string
+            enum:
+              - success
+              - failure
+              - canceled
+              - skipped
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/ResultFilter"
@@ -12263,6 +12283,16 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: status
+          description: filter on the exact completed job status. Unlike `success=true` (which also matches `skipped`), `status=success` matches only `success`.
+          in: query
+          schema:
+            type: string
+            enum:
+              - success
+              - failure
+              - canceled
+              - skipped
         - name: all_workspaces
           description: get jobs from all workspaces (only valid if request come from the `admins` workspace)
           in: query
@@ -19772,6 +19802,16 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: status
+          description: filter on the exact completed job status. Unlike `success=true` (which also matches `skipped`), `status=success` matches only `success`.
+          in: query
+          schema:
+            type: string
+            enum:
+              - success
+              - failure
+              - canceled
+              - skipped
         - name: all_workspaces
           description: get jobs from all workspaces (only valid if request come from the `admins` workspace)
           in: query

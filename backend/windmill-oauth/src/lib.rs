@@ -92,6 +92,12 @@ pub struct OAuthConfig {
     /// entry, `build_oauth_clients` registers a second client under that key.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sandbox: Option<OAuthSandboxOverride>,
+    /// Frontend-only metadata for per-instance OAuth providers (Snowflake,
+    /// ServiceNow, …) whose authorize/token URLs are derived from an
+    /// admin-entered instance name. Ignored by the backend, which only ever
+    /// sees the resulting concrete `connect_config`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connect_config_template: Option<ConnectConfigTemplate>,
 }
 
 /// URL overrides for an OAuth provider's sandbox environment. Inherits
@@ -104,6 +110,43 @@ pub struct OAuthSandboxOverride {
     pub token_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub userinfo_url: Option<String>,
+}
+
+/// Frontend metadata for a per-instance OAuth provider. The instance-settings
+/// UI renders one generic instance-name input and substitutes `{instance}` into
+/// `auth_url`/`token_url` to build the per-client `connect_config`. Adding a new
+/// per-instance provider needs only a registry entry carrying this template —
+/// no frontend code change. The backend never reads it.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ConnectConfigTemplate {
+    /// Properly-cased provider name for the settings dropdown (e.g. "ServiceNow");
+    /// the UI falls back to a capitalized registry key when absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    pub label: String,
+    pub placeholder: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub help_url: Option<String>,
+    pub auth_url: String,
+    pub token_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub req_body_auth: Option<bool>,
+    /// Key under `connect_config.extra_params` where the instance name is
+    /// stored (defaults to `instance`). Snowflake uses `account_identifier` for
+    /// backward compatibility with previously-saved configs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra_params_key: Option<String>,
+    /// Optional host suffix stripped from the input before substitution (e.g.
+    /// `.service-now.com`), so the admin can paste a full host or a bare name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strip_suffix: Option<String>,
+    /// Maps OAuth-connected resource arg fields to value templates substituting
+    /// `{instance}` (e.g. ServiceNow's `instance_url` ->
+    /// `https://{instance}.service-now.com`). Applied by the resource-connect
+    /// flow so the created resource carries the instance-specific fields the
+    /// scripts need (ServiceNow's token response omits the host).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resource_mapping: Option<HashMap<String, String>>,
 }
 
 impl OAuthConfig {
@@ -817,6 +860,7 @@ mod tests {
                 token_url: Some("https://account-d.example.com/oauth/token".to_string()),
                 userinfo_url: None,
             }),
+            connect_config_template: None,
         }
     }
 
