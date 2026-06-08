@@ -100,11 +100,27 @@
 
 	const clickToSelect = $derived(selectOnRowClick && isSelectable && !disabled)
 
+	// Interactive children that handle their own activation — selecting the row on
+	// top of them would double-fire (mouse) or hijack their keyboard activation.
+	function fromInteractiveChild(e: Event): boolean {
+		return !!(e.target as HTMLElement | null)?.closest('a, button, input, [data-row-actions]')
+	}
+
 	function handleRowClick(e: MouseEvent) {
 		if (!clickToSelect) return
 		// Don't double-toggle when the click originated from an interactive child
 		// (the checkbox itself, action buttons, or the title link).
-		if ((e.target as HTMLElement | null)?.closest('a, button, input, [data-row-actions]')) return
+		if (fromInteractiveChild(e)) return
+		onSelect?.(e as unknown as Event & { currentTarget: EventTarget & HTMLInputElement })
+	}
+
+	function handleRowKeydown(e: KeyboardEvent) {
+		if (!clickToSelect) return
+		if (e.key !== 'Enter' && e.key !== ' ') return
+		// Same guard as the click path: activating a child (checkbox / action button
+		// / title link) via Enter/Space must not also toggle the row's selection.
+		if (fromInteractiveChild(e)) return
+		e.preventDefault()
 		onSelect?.(e as unknown as Event & { currentTarget: EventTarget & HTMLInputElement })
 	}
 </script>
@@ -134,14 +150,7 @@
 	role={clickToSelect ? 'button' : undefined}
 	tabindex={clickToSelect ? 0 : undefined}
 	onclick={handleRowClick}
-	onkeydown={clickToSelect
-		? (e) => {
-				if (e.key === 'Enter' || e.key === ' ') {
-					e.preventDefault()
-					onSelect?.(e as unknown as Event & { currentTarget: EventTarget & HTMLInputElement })
-				}
-			}
-		: undefined}
+	onkeydown={clickToSelect ? handleRowKeydown : undefined}
 >
 	{#if isSelectable}
 		<input type="checkbox" checked={selected} onchange={onSelect} class="rounded max-w-4 w-full" />
