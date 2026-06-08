@@ -1236,6 +1236,59 @@ async fn require_job_update_read_access(
     require_job_read_access(db, user_db, authed, w_id, job_id, &created_by, view_token).await
 }
 
+/// Whether a validated approval token should grant the job-read bypass. The token alone
+/// is sufficient unless the current approval step has `user_auth_required`, in which case
+/// only an authorized approver may read the job (and thus its args/flow inputs).
+async fn approval_token_grants_view(
+    db: &DB,
+    w_id: &str,
+    flow_id: Uuid,
+    opt_authed: &Option<ApiAuthed>,
+) -> error::Result<bool> {
+    #[derive(sqlx::FromRow)]
+    struct FlowAuthRow {
+        script_path: Option<String>,
+        email: String,
+        flow_status: Option<serde_json::Value>,
+    }
+    let row = sqlx::query_as::<_, FlowAuthRow>(
+        "SELECT j.runnable_path as script_path, j.permissioned_as_email as email, s.flow_status
+         FROM v2_job j
+         LEFT JOIN v2_job_status s ON s.id = j.id
+         WHERE j.id = $1 AND j.workspace_id = $2",
+    )
+    .bind(flow_id)
+    .bind(w_id)
+    .fetch_optional(db)
+    .await?;
+    let Some(row) = row else {
+        return Ok(false);
+    };
+
+    // approval_conditions are stored at the top of flow_status for both classic and WAC flows.
+    let approval_conditions = row
+        .flow_status
+        .as_ref()
+        .and_then(|v| v.get("approval_conditions").cloned())
+        .and_then(|v| serde_json::from_value::<ApprovalConditions>(v).ok());
+
+    let user_auth_required = approval_conditions
+        .as_ref()
+        .map(|ac| ac.user_auth_required)
+        .unwrap_or(false);
+
+    if !user_auth_required {
+        return Ok(true);
+    }
+
+    Ok(can_approve_step(
+        opt_authed,
+        &approval_conditions,
+        row.script_path.as_deref(),
+        row.email.as_str(),
+    ))
+}
+
 async fn get_job(
     OptViewToken(view_token): OptViewToken,
     OptAuthed(opt_authed): OptAuthed,
@@ -1254,17 +1307,31 @@ async fn get_job(
     // so the approval page can render job metadata without login. The approval
     // URL usually carries the flow id directly — try that first and only
     // resolve the parent flow if the direct check fails.
-    let has_valid_approval_token = if let Some(ref token) = approval_token {
+    let approved_flow_id: Option<Uuid> = if let Some(ref token) = approval_token {
         if validate_approval_token(&db, token, id, &w_id).await.is_ok() {
-            true
+            Some(id)
         } else if let Ok(flow_id) = get_flow_id_for_job(&db, id).await {
-            flow_id != id
+            if flow_id != id
                 && validate_approval_token(&db, token, flow_id, &w_id)
                     .await
                     .is_ok()
+            {
+                Some(flow_id)
+            } else {
+                None
+            }
         } else {
-            false
+            None
         }
+    } else {
+        None
+    };
+
+    // A valid token grants the read bypass, but only to an authorized approver when the
+    // current approval step requires auth — otherwise the token (which lives in the shareable
+    // approval URL) would leak the flow inputs to anyone holding the link.
+    let has_valid_approval_token = if let Some(flow_id) = approved_flow_id {
+        approval_token_grants_view(&db, &w_id, flow_id, &opt_authed).await?
     } else {
         false
     };
@@ -3132,6 +3199,43 @@ struct ApprovalInfo {
     approvers: Vec<Approval>,
 }
 
+/// Whether `opt_authed` is allowed to approve — and therefore view — this approval step.
+/// Mirrors the authorization performed at the resume boundary: workspace admins and owners
+/// of the runnable always qualify; otherwise the approval conditions (user_auth_required /
+/// user_groups_required / self_approval_disabled) decide. When the step does not require auth,
+/// an anonymous (token-only) caller qualifies.
+fn can_approve_step(
+    opt_authed: &Option<ApiAuthed>,
+    approval_conditions: &Option<ApprovalConditions>,
+    script_path: Option<&str>,
+    trigger_email: &str,
+) -> bool {
+    match opt_authed {
+        Some(authed) => {
+            if authed.is_admin {
+                return true;
+            }
+            let is_owner = script_path
+                .map(|p| require_owner_of_path(authed, p).is_ok())
+                .unwrap_or(false);
+            if is_owner {
+                return true;
+            }
+            conditionally_require_authed_user(
+                Some(authed.clone()),
+                approval_conditions.clone(),
+                trigger_email,
+            )
+            .is_ok()
+        }
+        // Not logged in — only acceptable when the step does not require auth.
+        None => !approval_conditions
+            .as_ref()
+            .map(|ac| ac.user_auth_required)
+            .unwrap_or(false),
+    }
+}
+
 async fn get_approval_info(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
@@ -3290,32 +3394,33 @@ async fn get_approval_info(
         .map(|ac| ac.user_auth_required)
         .unwrap_or(false);
 
-    // Determine if current user can approve
-    let can_approve = if let Some(ref authed) = opt_authed {
-        if authed.is_admin {
-            true
-        } else {
-            let is_owner = row
-                .script_path
-                .as_deref()
-                .map(|p| require_owner_of_path(authed, p).is_ok())
-                .unwrap_or(false);
-            if is_owner {
-                true
-            } else {
-                let trigger_email = row.email.as_str();
-                conditionally_require_authed_user(
-                    Some(authed.clone()),
-                    approval_conditions.clone(),
-                    trigger_email,
-                )
-                .is_ok()
-            }
-        }
-    } else {
-        // Not logged in — can approve only if no auth required
-        !user_auth_required
-    };
+    // Determine if current user can approve this step.
+    let can_approve = can_approve_step(
+        &opt_authed,
+        &approval_conditions,
+        row.script_path.as_deref(),
+        row.email.as_str(),
+    );
+
+    // When the step requires auth, the approval details must be revealed only to authorized
+    // approvers — a valid token alone is not sufficient. Return a stripped response that lets
+    // the frontend render the sign-in / not-authorized state without leaking the form,
+    // description, prefilled args, or other approvers' identities.
+    let can_view = !user_auth_required || can_approve;
+    if !can_view {
+        return Ok(Json(ApprovalInfo {
+            flow_id: row.id,
+            form_schema: None,
+            description: None,
+            default_args: None,
+            enums: None,
+            approval_conditions,
+            can_approve: false,
+            user_auth_required,
+            hide_cancel: None,
+            approvers: vec![],
+        }));
+    }
 
     // Get existing approvers
     let approvers: Vec<Approval> = sqlx::query_as::<_, (i32, Option<String>)>(
@@ -9102,4 +9207,91 @@ async fn get_otel_traces(
     .await?;
 
     Ok(Json(traces))
+}
+
+#[cfg(test)]
+mod approval_view_gate_tests {
+    use super::*;
+
+    fn authed(username: &str, is_admin: bool, groups: Vec<String>) -> ApiAuthed {
+        ApiAuthed {
+            email: format!("{username}@example.com"),
+            username: username.to_string(),
+            is_admin,
+            is_operator: false,
+            groups,
+            folders: vec![],
+            scopes: None,
+            username_override: None,
+            token_prefix: None,
+            read_only: false,
+        }
+    }
+
+    fn conds(user_auth_required: bool, groups: Vec<String>) -> ApprovalConditions {
+        ApprovalConditions {
+            user_auth_required,
+            user_groups_required: groups,
+            self_approval_disabled: false,
+        }
+    }
+
+    // Mirrors the view gate applied in get_approval_info and get_job:
+    // details are revealed only when the step doesn't require auth OR the caller
+    // is an authorized approver.
+    fn can_view(
+        opt_authed: &Option<ApiAuthed>,
+        approval_conditions: &Option<ApprovalConditions>,
+        script_path: Option<&str>,
+        trigger_email: &str,
+    ) -> bool {
+        let user_auth_required = approval_conditions
+            .as_ref()
+            .map(|c| c.user_auth_required)
+            .unwrap_or(false);
+        !user_auth_required
+            || can_approve_step(opt_authed, approval_conditions, script_path, trigger_email)
+    }
+
+    #[test]
+    fn anonymous_cannot_view_when_auth_required() {
+        // The regression: an unauthenticated holder of the approval token must see nothing.
+        let c = Some(conds(true, vec![]));
+        assert!(!can_view(&None, &c, Some("f/team/flow"), "trigger@example.com"));
+    }
+
+    #[test]
+    fn anonymous_can_view_when_no_auth_required() {
+        // Unchanged behaviour: token alone is sufficient when auth isn't required.
+        let c = Some(conds(false, vec![]));
+        assert!(can_view(&None, &c, Some("f/team/flow"), "trigger@example.com"));
+        // No approval conditions at all also allows token-only view.
+        assert!(can_view(&None, &None, Some("f/team/flow"), "trigger@example.com"));
+    }
+
+    #[test]
+    fn admin_can_view_when_auth_required() {
+        let c = Some(conds(true, vec!["approvers".to_string()]));
+        let a = Some(authed("alice", true, vec![]));
+        assert!(can_view(&a, &c, Some("f/team/flow"), "trigger@example.com"));
+    }
+
+    #[test]
+    fn owner_can_view_when_auth_required() {
+        let c = Some(conds(true, vec!["approvers".to_string()]));
+        let a = Some(authed("bob", false, vec![]));
+        // bob owns u/bob/flow regardless of group membership.
+        assert!(can_view(&a, &c, Some("u/bob/flow"), "trigger@example.com"));
+    }
+
+    #[cfg(feature = "enterprise")]
+    #[test]
+    fn group_membership_decides_view_when_auth_required() {
+        let c = Some(conds(true, vec!["approvers".to_string()]));
+        let member = Some(authed("carol", false, vec!["approvers".to_string()]));
+        let outsider = Some(authed("dave", false, vec!["other".to_string()]));
+        // Use a non-owned folder path so ownership doesn't short-circuit the check.
+        assert!(can_view(&member, &c, Some("f/team/flow"), "trigger@example.com"));
+        assert!(!can_view(&outsider, &c, Some("f/team/flow"), "trigger@example.com"));
+    }
 }
