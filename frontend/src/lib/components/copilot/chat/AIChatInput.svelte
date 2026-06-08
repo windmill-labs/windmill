@@ -129,6 +129,42 @@
 			aiChatManager.mode === AIMode.GLOBAL
 	)
 
+	/** Append `@title` to the textarea so the button-picker path stays in
+	 * sync with the inline `@<word>` mention path — both leave a visible
+	 * token tied to the selectedContext entry, which the textarea diffs on
+	 * to auto-remove items when the user deletes them. No-op when the
+	 * mention is already present so re-picking the same item doesn't
+	 * leave duplicate tokens. */
+	export function insertMention(title: string) {
+		const target = `@${title}`
+		if (instructions.split(/\s+/).includes(target)) return
+		const sep = instructions.length === 0 || /\s$/.test(instructions) ? '' : ' '
+		instructions = `${instructions}${sep}${target} `
+	}
+
+	/** Strip every `@title` token from the textarea — used when the user
+	 * deletes the corresponding badge so the badge X-button mirrors the
+	 * inverse (text-delete-to-badge-remove) sync. Only matches `@title` as a
+	 * standalone token (boundary on both sides) so substring matches don't
+	 * bleed into other words; only the whitespace adjacent to the removed
+	 * mention is collapsed so unrelated double-spaces stay intact. */
+	export function removeMention(title: string) {
+		// Pre-zap the textarea's mention diff snapshot so the upcoming strip
+		// doesn't refire the removal effect on a same-title sibling — the host
+		// has already mutated `selectedContext` to drop the targeted entry.
+		contextTextareaComponent?.unsyncMention(title)
+		const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+		const re = new RegExp(`(^|\\s)@${escaped}(\\s|$)`, 'g')
+		instructions = instructions.replace(re, (_m, lead, trail) => {
+			// Boundary on at least one side → drop the mention entirely.
+			if (!lead || !trail) return ''
+			// Middle of text: keep ONE of the bracketing whitespace chars so
+			// the surviving tokens are still separated; preserve the leading
+			// one verbatim so newlines/tabs aren't downgraded to spaces.
+			return lead
+		})
+	}
+
 	export function focusInput() {
 		if (isContextEnabledMode) {
 			contextTextareaComponent?.focus()
@@ -226,6 +262,12 @@
 			onEditEnd()
 		} else {
 			aiChatManager.sendRequest({ instructions })
+			// clearForSend() pre-zaps the textarea's mention-sync so the wipe
+			// doesn't drop `selectedContext` before `AIChatManager.beforeSend`
+			// snapshots it. Only mounted in SCRIPT/FLOW/GLOBAL — APP and the
+			// fallback textarea still rely on the plain `instructions = ''`
+			// reset (no `@`-mention state to coordinate).
+			contextTextareaComponent?.clearForSend()
 			instructions = ''
 		}
 	}
@@ -460,6 +502,7 @@
 						selectedContext = selectedContext?.filter(
 							(c) => c.type !== element.type || c.title !== element.title
 						)
+						removeMention(element.title)
 					}}
 				/>
 			{/each}
@@ -488,9 +531,13 @@
 				bind:value={instructions}
 				{availableContext}
 				{selectedContext}
-				{isFirstMessage}
 				placeholder={modePlaceholder}
 				onAddContext={(contextElement) => void addContextToSelection(contextElement)}
+				onRemoveContext={(element) => {
+					selectedContext = selectedContext?.filter(
+						(c) => c.type !== element.type || c.title !== element.title
+					)
+				}}
 				onSendRequest={() => {
 					if (disabled) {
 						return

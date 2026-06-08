@@ -4198,6 +4198,21 @@ async fn push_next_flow_job(
             }
         }
 
+        // Propagate the inbound W3C traceparent captured at enqueue to each step
+        // so the whole flow shares the originating distributed trace (the trace
+        // identity is otherwise derived from the root job UUID). Observability
+        // only — no security impact — so unlike _TEMP_SCRIPT_REFS it is not
+        // gated to previews.
+        if let Some(traceparent) = arc_flow_job_args
+            .as_ref()
+            .get(windmill_common::jobs::WM_TRACEPARENT)
+        {
+            push_args.extra.get_or_insert_with(HashMap::new).insert(
+                windmill_common::jobs::WM_TRACEPARENT.to_string(),
+                traceparent.clone(),
+            );
+        }
+
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed args for job {i} of {len}");
 
         let value_with_parallel = module.get_value_with_parallel()?;

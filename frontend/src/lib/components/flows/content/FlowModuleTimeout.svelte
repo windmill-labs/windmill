@@ -13,6 +13,7 @@
 	import PropPickerWrapper from '$lib/components/flows/propPicker/PropPickerWrapper.svelte'
 	import type { FlowEditorContext } from '../types'
 	import { getStepPropPicker } from '../previousResults'
+	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 
 	interface Props {
 		flowModule: FlowModule
@@ -23,6 +24,8 @@
 
 	const { flowStore, flowStateStore, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
+
+	const customUi = getContext<FlowBuilderWhitelabelCustomUi | undefined>('customUi')
 
 	let schema = $state(emptySchema())
 	schema.properties['timeout'] = {
@@ -69,7 +72,7 @@
 			} else {
 				flowModule.timeout = {
 					type: 'static',
-					value: 300
+					value: customUi?.defaultTimeout ?? 300
 				}
 			}
 		}}
