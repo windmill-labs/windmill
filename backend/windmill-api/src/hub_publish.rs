@@ -4,7 +4,7 @@ use axum::{
     extract::{Json, Path},
     http::StatusCode,
     response::IntoResponse,
-    routing::post,
+    routing::{get, post},
     Router,
 };
 use serde::{Deserialize, Serialize};
@@ -26,6 +26,7 @@ pub fn workspaced_service() -> Router {
         .route("/resource_types", post(publish_resource_type))
         .route("/resources", post(publish_resources))
         .route("/triggers", post(publish_triggers))
+        .route("/projects/{slug}/export", get(get_project_export))
 }
 
 #[derive(Deserialize)]
@@ -80,6 +81,8 @@ struct PublishScriptBody {
     schema: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     lockfile: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
     project_slug: String,
 }
 
@@ -106,6 +109,8 @@ struct PublishFlowInner {
 struct PublishFlowBody {
     flow: PublishFlowInner,
     apps: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
     project_slug: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     recording: Option<serde_json::Value>,
@@ -127,6 +132,8 @@ struct PublishAppBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
     summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
     project_slug: String,
 }
 
@@ -148,6 +155,8 @@ struct PublishRawAppBody {
     summary: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     external_embed_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
     project_slug: String,
 }
 
@@ -277,6 +286,36 @@ async fn publish_triggers(
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
     forward_to_hub(&format!("/projects/{}/triggers", body.project_slug), &body).await
+}
+
+async fn get_project_export(
+    authed: ApiAuthed,
+    Path((_workspace, slug)): Path<(String, String)>,
+) -> Result<impl IntoResponse, Error> {
+    require_admin(authed.is_admin, &authed.username)?;
+    get_from_hub(&format!("/projects/{}/export", slug)).await
+}
+
+async fn get_from_hub(path: &str) -> Result<(StatusCode, String), Error> {
+    let hub_token = std::env::var("HUB_DEV_TOKEN")
+        .map_err(|_| Error::BadRequest("HUB_DEV_TOKEN not set".into()))?;
+
+    let url = format!("{}{}", **HUB_BASE_URL.load(), path);
+
+    let res = HTTP_CLIENT
+        .get(&url)
+        .bearer_auth(&hub_token)
+        .send()
+        .await
+        .map_err(|e| Error::InternalErr(format!("hub request failed: {e}")))?;
+
+    let status = StatusCode::from_u16(res.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    let text = res
+        .text()
+        .await
+        .map_err(|e| Error::InternalErr(format!("hub response read failed: {e}")))?;
+
+    Ok((status, text))
 }
 
 async fn forward_to_hub<T: Serialize>(path: &str, body: &T) -> Result<(StatusCode, String), Error> {
