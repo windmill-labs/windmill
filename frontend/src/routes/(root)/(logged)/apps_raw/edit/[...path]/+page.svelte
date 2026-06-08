@@ -15,11 +15,9 @@
 	import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { notifyDraftLoaded } from '$lib/userDraftToast'
-	import DraftSyncConflictModal from '$lib/components/common/confirmationModal/DraftSyncConflictModal.svelte'
+	import DraftEditorModals from '$lib/components/common/confirmationModal/DraftEditorModals.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
-	import OtherUsersDraftsModal, {
-		type OtherDraftUser
-	} from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
+	import { type OtherDraftUser } from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import RawAppTemplatePicker, {
 		type RawAppTemplatePickerResult
 	} from '$lib/components/raw_apps/RawAppTemplatePicker.svelte'
@@ -382,25 +380,15 @@
 </script>
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} />
-{#if $workspaceStore && path}
-	<DraftSyncConflictModal
-		query={{ workspace: $workspaceStore, itemKind: 'raw_app', path }}
-		onLoadFromServer={() => loadApp()}
-		getLocalDraft={() => draftHandle.draft}
-	/>
-{/if}
-{#if $workspaceStore && path && otherDraftsUsers.length > 0}
-	{#key path}
-		<OtherUsersDraftsModal
-			workspace={$workspaceStore}
-			itemKind="raw_app"
-			{path}
-			currentUserUsername={$userStore?.username}
-			{otherDraftsUsers}
-			editPathFor={(forkedPath) => `/apps_raw/edit/${forkedPath}`}
-		/>
-	{/key}
-{/if}
+<DraftEditorModals
+	workspace={$workspaceStore ?? ''}
+	itemKind="raw_app"
+	{path}
+	{otherDraftsUsers}
+	editPathFor={(forkedPath) => `/apps_raw/edit/${forkedPath}`}
+	onLoadFromServer={() => loadApp()}
+	getLocalDraft={() => draftHandle.draft}
+/>
 
 <RawAppTemplatePicker bind:open={templatePicker} onStart={onTemplatePickerStart} />
 

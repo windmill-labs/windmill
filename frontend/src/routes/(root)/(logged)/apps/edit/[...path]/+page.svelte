@@ -1,17 +1,15 @@
 <script lang="ts">
 	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
 	import { AppService, type AppWithLastVersion } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { App } from '$lib/components/apps/types'
-	import DraftSyncConflictModal from '$lib/components/common/confirmationModal/DraftSyncConflictModal.svelte'
+	import DraftEditorModals from '$lib/components/common/confirmationModal/DraftEditorModals.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
-	import OtherUsersDraftsModal, {
-		type OtherDraftUser
-	} from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
+	import { type OtherDraftUser } from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { emptyApp } from '$lib/components/apps/editor/appUtils'
 	import { untrack } from 'svelte'
@@ -221,25 +219,15 @@
 </script>
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} />
-{#if $workspaceStore && path}
-	<DraftSyncConflictModal
-		query={{ workspace: $workspaceStore, itemKind: 'app', path }}
-		onLoadFromServer={() => loadApp()}
-		getLocalDraft={() => app?.value}
-	/>
-{/if}
-{#if $workspaceStore && path && otherDraftsUsers.length > 0}
-	{#key path}
-		<OtherUsersDraftsModal
-			workspace={$workspaceStore}
-			itemKind="app"
-			{path}
-			currentUserUsername={$userStore?.username}
-			{otherDraftsUsers}
-			editPathFor={(forkedPath) => `/apps/edit/${forkedPath}`}
-		/>
-	{/key}
-{/if}
+<DraftEditorModals
+	workspace={$workspaceStore ?? ''}
+	itemKind="app"
+	{path}
+	{otherDraftsUsers}
+	editPathFor={(forkedPath) => `/apps/edit/${forkedPath}`}
+	onLoadFromServer={() => loadApp()}
+	getLocalDraft={() => app?.value}
+/>
 
 {#key redraw}
 	{#if app}

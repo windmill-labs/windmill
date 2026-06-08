@@ -1,16 +1,15 @@
 <script lang="ts">
 	import { ScriptService, type NewScript, type Script } from '$lib/gen'
 
-	import { initialArgsStore, userStore, workspaceStore } from '$lib/stores'
+	import { initialArgsStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
 	import { emptySchema } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import OtherUsersDraftsModal, {
-		type OtherDraftUser
-	} from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
+	import { type OtherDraftUser } from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
+	import DraftEditorModals from '$lib/components/common/confirmationModal/DraftEditorModals.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import { get } from 'svelte/store'
@@ -19,7 +18,6 @@
 	import { UserDraft, type UserDraftHandle } from '$lib/userDraft.svelte'
 	import { notifyDraftLoaded } from '$lib/userDraftToast'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
-	import DraftSyncConflictModal from '$lib/components/common/confirmationModal/DraftSyncConflictModal.svelte'
 
 	type EditableScript = NewScript & { draft_triggers?: Trigger[] }
 
@@ -250,25 +248,16 @@
 </script>
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} />
-{#if !hash && $workspaceStore && page.params.path}
-	<DraftSyncConflictModal
-		query={{ workspace: $workspaceStore, itemKind: 'script', path: page.params.path }}
-		onLoadFromServer={() => loadScript()}
-		getLocalDraft={() => scriptHandle.draft}
-	/>
-{/if}
-{#if !hash && $workspaceStore && page.params.path && otherDraftsUsers.length > 0}
-	{#key page.params.path}
-		<OtherUsersDraftsModal
-			workspace={$workspaceStore}
-			itemKind="script"
-			path={page.params.path}
-			currentUserUsername={$userStore?.username}
-			{otherDraftsUsers}
-			editPathFor={(forkedPath) => `/scripts/edit/${forkedPath}`}
-		/>
-	{/key}
-{/if}
+<DraftEditorModals
+	enabled={!hash}
+	workspace={$workspaceStore ?? ''}
+	itemKind="script"
+	path={page.params.path ?? ''}
+	{otherDraftsUsers}
+	editPathFor={(forkedPath) => `/scripts/edit/${forkedPath}`}
+	onLoadFromServer={() => loadScript()}
+	getLocalDraft={() => scriptHandle.draft}
+/>
 {#if scriptHandle.draft && renderEditor}
 	<ScriptBuilder
 		bind:this={scriptBuilder}

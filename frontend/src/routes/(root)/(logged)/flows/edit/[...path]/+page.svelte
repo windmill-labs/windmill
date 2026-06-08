@@ -3,18 +3,16 @@
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
-	import { initialArgsStore, userStore, workspaceStore } from '$lib/stores'
+	import { initialArgsStore, workspaceStore } from '$lib/stores'
 	import { decodeState, emptySchema, type StateStore } from '$lib/utils'
 	import { initFlow } from '$lib/components/flows/flowStore.svelte'
 	import { goto } from '$lib/navigation'
 
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import DraftSyncConflictModal from '$lib/components/common/confirmationModal/DraftSyncConflictModal.svelte'
+	import DraftEditorModals from '$lib/components/common/confirmationModal/DraftEditorModals.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
-	import OtherUsersDraftsModal, {
-		type OtherDraftUser
-	} from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
+	import { type OtherDraftUser } from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import { tick, untrack } from 'svelte'
@@ -317,25 +315,15 @@
 <!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} isFlow />
-{#if $workspaceStore && flowDraftPath}
-	<DraftSyncConflictModal
-		query={{ workspace: $workspaceStore, itemKind: 'flow', path: flowDraftPath }}
-		onLoadFromServer={() => loadFlow()}
-		getLocalDraft={() => flowHandle.draft}
-	/>
-{/if}
-{#if $workspaceStore && flowDraftPath && otherDraftsUsers.length > 0}
-	{#key flowDraftPath}
-		<OtherUsersDraftsModal
-			workspace={$workspaceStore}
-			itemKind="flow"
-			path={flowDraftPath}
-			currentUserUsername={$userStore?.username}
-			{otherDraftsUsers}
-			editPathFor={(forkedPath) => `/flows/edit/${forkedPath}`}
-		/>
-	{/key}
-{/if}
+<DraftEditorModals
+	workspace={$workspaceStore ?? ''}
+	itemKind="flow"
+	path={flowDraftPath}
+	{otherDraftsUsers}
+	editPathFor={(forkedPath) => `/flows/edit/${forkedPath}`}
+	onLoadFromServer={() => loadFlow()}
+	getLocalDraft={() => flowHandle.draft}
+/>
 {#if notFound}
 	<div class="flex flex-col items-center justify-center h-full">
 		<h1 class="text-2xl font-bold">Flow not found at path {page.params.path}</h1>
