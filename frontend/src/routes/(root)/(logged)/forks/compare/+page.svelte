@@ -54,6 +54,20 @@
 	const drafts = useWorkspaceDrafts(() => currentWorkspaceId)
 	const draftCount = $derived(drafts.count)
 
+	// Keys (`kind:path`) of fork items that are deployed *and* carry a pending
+	// draft (has_draft, i.e. not draft_only). CompareWorkspaces uses this to flag
+	// those rows — deploying/updating moves the deployed version, not the draft —
+	// and to leave them out of the default selection. Raw apps map to the
+	// `raw_app:` diff kind. draft_only items (never deployed) are excluded: they
+	// don't appear in the fork comparison as deployed rows.
+	const draftKeys = $derived(
+		new Set(
+			drafts.items
+				.filter((d) => !d.draft_only)
+				.map((d) => `${d.raw_app ? 'raw_app' : d.kind}:${d.path}`)
+		)
+	)
+
 	// Per-direction counts for the merged toggle badges. Deployable = items ahead
 	// (fork has changes the parent lacks); updateable = items behind. Computed
 	// here so they show on the toggle in draft mode too (where CompareDrafts has
@@ -227,6 +241,7 @@
 			{deployCount}
 			{updateCount}
 			{draftCount}
+			{draftKeys}
 			onChanged={refreshCounts}
 			onModeSelected={selectMode}
 		/>

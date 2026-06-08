@@ -27,6 +27,7 @@
 		type WorkspaceItemDiff
 	} from '$lib/gen'
 	import Button from './common/button/Button.svelte'
+	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import WorkspaceDeployItemSummary from './WorkspaceDeployItemSummary.svelte'
 	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
@@ -69,6 +70,11 @@
 		updateCount?: number
 		/** Draft count for the merged toggle's badge (the page owns it). */
 		draftCount?: number
+		/** Keys (`kind:path`) of fork items that are deployed *and* have a pending
+		 * draft (has_draft). Such rows get a "+Draft" warning badge and are left
+		 * out of the default selection — deploying/updating moves the deployed
+		 * version, not the draft. The page derives this from the fork drafts. */
+		draftKeys?: Set<string>
 		/** Selecting `draft` asks the page to swap us out for CompareDrafts;
 		 * deploy_to/update are handled internally but reported so the page can
 		 * remember the direction. */
@@ -86,9 +92,15 @@
 		deployCount = 0,
 		updateCount = 0,
 		draftCount = 0,
+		draftKeys = new Set<string>(),
 		onModeSelected,
 		onChanged
 	}: Props = $props()
+
+	// A fork row has a pending draft when its key is in the page-provided set.
+	function hasDraft(diff: WorkspaceItemDiff): boolean {
+		return draftKeys.has(getItemKey(diff))
+	}
 
 	let currentWorkspaceInfo = $derived($userWorkspaces.find((w) => w.id == currentWorkspaceId))
 	let parentWorkspaceInfo = $derived($userWorkspaces.find((w) => w.id == parentWorkspaceId))
@@ -112,6 +124,20 @@
 	)
 
 	let selectedItems = $state<string[]>([])
+
+	// Selected items that carry a pending draft. They're opt-in (excluded from the
+	// default selection), so a non-empty list means the user explicitly picked an
+	// item whose draft won't be included — confirm before deploying.
+	let selectedDraftKeys = $derived(selectedItems.filter((k) => draftKeys.has(k)))
+	let draftConfirmOpen = $state(false)
+
+	function requestDeploy() {
+		if (selectedDraftKeys.length > 0) {
+			draftConfirmOpen = true
+		} else {
+			deployChanges()
+		}
+	}
 
 	// Nothing actionable in the current direction (no items ahead to deploy, or
 	// none behind to update). When so we show a message instead of a table of
@@ -474,7 +500,9 @@
 		// parent (kafka group_id, postgres replication slot, schedule firing time)
 		// and pushing them by default would surprise users running a routine "Deploy
 		// to parent" flow. The user picks them à la carte by clicking the row.
-		const filtered = selectableDiffs.filter((d) => !isTriggerOrScheduleKind(d.kind))
+		// Items with a pending draft are also left out by default: the deployed
+		// version (not the draft) is what moves, so we make the user opt in.
+		const filtered = selectableDiffs.filter((d) => !isTriggerOrScheduleKind(d.kind) && !hasDraft(d))
 		const conflictSafe = mergeIntoParent
 			? filtered
 			: filtered.filter((d) => !(d.ahead > 0 && d.behind > 0))
@@ -776,7 +804,7 @@
 									{/if}
 								</span>
 								<Button variant="subtle" unifiedSize="xs" onclick={() => onModeSelected?.('draft')}>
-									Deploy drafts
+									See drafts
 								</Button>
 							</div>
 						</Alert>
@@ -904,6 +932,21 @@
 					{#if diff.kind === 'raw_app'}
 						<Badge small icon={{ icon: FileJson }}>Raw</Badge>
 					{/if}
+					{#if hasDraft(diff)}
+						<!-- This deployed fork item also has a pending draft. Deploying/updating
+						     moves the deployed version, not the draft — so we warn (yellow, ahead
+						     of the New/status badges) and leave it out of the default selection
+						     (see selectDefault). -->
+						<Badge
+							title={mergeIntoParent
+								? 'This item has a draft — deploying sends the deployed version, not the draft.'
+								: 'This item has a draft — updating replaces the deployed version your draft is based on.'}
+							color="yellow"
+							size="xs"
+						>
+							<AlertTriangle class="w-3 h-3 inline mr-0.5" />+Draft
+						</Badge>
+					{/if}
 					<!-- Status badges -->
 					{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead == 0 && diff.behind > 0}
 						<Badge
@@ -1002,7 +1045,7 @@
 												(mergeIntoParent && !canDeployToParent) ||
 												hasUnselectedOnBehalfOf}
 											loading={deploying}
-											on:click={deployChanges}
+											on:click={requestDeploy}
 										>
 											{mergeIntoParent ? 'Deploy' : 'Update'}
 											{selectedItems.length} Item{selectedItems.length !== 1 ? 's' : ''}
@@ -1058,6 +1101,35 @@
 	</div>
 
 	<DiffDrawer bind:this={diffDrawer} {isFlow} />
+
+	<ConfirmationModal
+		open={draftConfirmOpen}
+		title={mergeIntoParent ? 'Deploy items with a draft?' : 'Update items with a draft?'}
+		confirmationText={mergeIntoParent ? 'Deploy anyway' : 'Update anyway'}
+		onConfirmed={() => {
+			draftConfirmOpen = false
+			deployChanges()
+		}}
+		onCanceled={() => (draftConfirmOpen = false)}
+	>
+		<div class="flex flex-col gap-2">
+			<p>
+				{selectedDraftKeys.length} selected item{selectedDraftKeys.length !== 1 ? 's' : ''}
+				{selectedDraftKeys.length !== 1 ? 'have' : 'has'} an undeployed draft.
+				{#if mergeIntoParent}
+					Deploying sends the deployed version, not the draft — those draft changes won't be
+					included.
+				{:else}
+					Updating replaces the deployed version your draft is based on.
+				{/if}
+			</p>
+			<ul class="list-disc pl-5 text-sm font-mono text-secondary">
+				{#each selectedDraftKeys as k (k)}
+					<li>{k.split(':').slice(1).join(':')}</li>
+				{/each}
+			</ul>
+		</div>
+	</ConfirmationModal>
 {:else}
 	<div class="flex items-center justify-center h-full">
 		<div class="text-gray-500">No comparison data available</div>
