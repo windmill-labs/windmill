@@ -49,10 +49,9 @@
 		listTokens()
 	})
 
-	// When updating this filter, also update:
-	// - `is_user_token` in backend/src/monitor.rs
-	// - `register_token_expiry_notification` in backend/windmill-api-auth/src/lib.rs
-	// - the `update_token_label` editability guard in backend/windmill-api-users/src/users.rs
+	// Mirror of the canonical `is_user_token` in backend/windmill-common/src/auth.rs.
+	// When updating this filter, also update that function and the SQL `WHERE`
+	// mirror in `update_token_label` (backend/windmill-api-users/src/users.rs).
 	function isUserToken(label: string | undefined): boolean {
 		if (!label) return true
 		return (

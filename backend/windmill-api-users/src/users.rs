@@ -2423,22 +2423,23 @@ async fn update_token_label(
     Path(token_prefix): Path<String>,
     Json(req): Json<UpdateTokenLabelRequest>,
 ) -> Result<String> {
-    // `session` is reserved: it drives session cleanup on logout and
-    // super_admin propagation, so assigning it would let this token be deleted
-    // on the next logout.
-    if req.label.as_deref() == Some("session") {
+    // The new label must not collide with a system-token namespace (`session`,
+    // `ephemeral*`, `debugger-token`, `mcp-oauth-*`): those labels are
+    // load-bearing, and a user-set collision would orphan the token — hidden
+    // from the UI (`isUserToken`) and rejected by the editability guard below —
+    // while it still authenticates. (`is_user_token(None)` is true, so clearing
+    // the label is allowed.)
+    if !windmill_common::auth::is_user_token(req.label.as_deref()) {
         return Err(Error::BadRequest(
-            "`session` is a reserved token label".to_string(),
+            "label collides with a reserved system-token namespace".to_string(),
         ));
     }
 
     let mut tx = db.begin().await?;
 
-    // Only user-created tokens may be relabeled. System tokens carry
-    // load-bearing labels (used for session cleanup, super_admin propagation,
-    // expiry notifications and username overrides) and must not be editable via
-    // this endpoint. Keep this filter in sync with `is_user_token`
-    // (backend/src/monitor.rs) and `isUserToken` (TokensTable.svelte).
+    // Only user-created tokens may be relabeled — system tokens carry the
+    // load-bearing labels described above. This SQL mirrors the canonical
+    // `windmill_common::auth::is_user_token`; keep the two in sync.
     let updated: Option<String> = sqlx::query_scalar!(
         "UPDATE token SET label = $1
            WHERE email = $2 AND token_prefix = $3

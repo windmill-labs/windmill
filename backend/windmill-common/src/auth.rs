@@ -18,6 +18,29 @@ use crate::{
     DB,
 };
 
+/// Whether `label` denotes a user-created token rather than a system token
+/// (`session`, `ephemeral*`, `debugger-token`, `mcp-oauth-*`). System-token
+/// labels are load-bearing — session cleanup, super_admin propagation, expiry
+/// notifications and username overrides all key off them — so they must not be
+/// user-editable. `None` (no label) is treated as a user token.
+///
+/// This is the canonical copy. When updating it, also update its mirrors:
+/// - the `update_token_label` editability guard (SQL `WHERE`) in
+///   windmill-api-users/src/users.rs
+/// - `isUserToken` in frontend/src/lib/components/settings/TokensTable.svelte
+pub fn is_user_token(label: Option<&str>) -> bool {
+    match label {
+        None => true,
+        Some(l) => {
+            l != "session"
+                && !l.starts_with("ephemeral")
+                && !l.starts_with("Ephemeral")
+                && l != "debugger-token"
+                && !l.starts_with("mcp-oauth-")
+        }
+    }
+}
+
 /// Hash a raw token using SHA-256 (hex-encoded, 64 chars).
 /// Used to store and look up tokens without keeping plaintext in the DB.
 pub fn hash_token(token: &str) -> String {
