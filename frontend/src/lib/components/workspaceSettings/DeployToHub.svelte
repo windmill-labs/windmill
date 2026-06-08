@@ -706,6 +706,7 @@
 				language: it.language,
 				schema: it.schema ?? undefined,
 				lockfile: it.lock ?? undefined,
+				path: it.newPath,
 				project_slug: slug
 			})
 			if (typeof resp?.id === 'number') hubItemIds = { ...hubItemIds, [key]: resp.id }
@@ -718,6 +719,7 @@
 					schema: it.schema ?? undefined
 				},
 				apps: [],
+				path: it.newPath,
 				project_slug: slug
 			})
 			if (typeof resp?.id === 'number') hubItemIds = { ...hubItemIds, [key]: resp.id }
@@ -727,6 +729,7 @@
 				apps: [],
 				summary: it.summary || it.newPath,
 				description: undefined,
+				path: it.newPath,
 				project_slug: slug
 			})
 		} else if (it.kind === 'raw_app') {
@@ -734,6 +737,7 @@
 				raw: it.content ?? '',
 				apps: [],
 				summary: it.summary || it.newPath,
+				path: it.newPath,
 				description: undefined,
 				project_slug: slug
 			})
