@@ -568,7 +568,7 @@ describe('global AI tools', () => {
 	it('lists and edits the live script editor draft through its effective path', async () => {
 		seedDbDraft(
 			'script',
-			'',
+			'u/admin/draft_amazed',
 			{
 				path: 'u/admin/amazed_script',
 				summary: 'Live script',
@@ -584,7 +584,7 @@ describe('global AI tools', () => {
 		UserDraft.setLiveEditorDraft({
 			workspace: WORKSPACE,
 			itemKind: 'script',
-			storagePath: '',
+			storagePath: 'u/admin/draft_amazed',
 			effectivePath: 'u/admin/amazed_script'
 		})
 
@@ -604,7 +604,7 @@ describe('global AI tools', () => {
 			new_string: 'return a * b'
 		})
 
-		expect(dbDraftValue('script', '')).toMatchObject({
+		expect(dbDraftValue('script', 'u/admin/draft_amazed')).toMatchObject({
 			path: 'u/admin/amazed_script',
 			content: 'export async function main(a: number, b: number) {\n\treturn a * b\n}'
 		})
@@ -616,7 +616,7 @@ describe('global AI tools', () => {
 	it('lists and writes the live flow editor draft through its effective path', async () => {
 		seedDbDraft(
 			'flow',
-			'',
+			'u/admin/draft_live_flow',
 			{
 				path: '',
 				summary: 'Live flow',
@@ -632,7 +632,7 @@ describe('global AI tools', () => {
 		UserDraft.setLiveEditorDraft({
 			workspace: WORKSPACE,
 			itemKind: 'flow',
-			storagePath: '',
+			storagePath: 'u/admin/draft_live_flow',
 			effectivePath: 'u/admin/live_flow'
 		})
 
@@ -652,7 +652,7 @@ describe('global AI tools', () => {
 			modules: JSON.stringify([{ id: 'step', value: { type: 'identity' } }])
 		})
 
-		expect(dbDraftValue('flow', '')).toMatchObject({
+		expect(dbDraftValue('flow', 'u/admin/draft_live_flow')).toMatchObject({
 			path: 'u/admin/live_flow',
 			summary: 'Updated live flow',
 			value: { modules: [{ id: 'step', value: { type: 'identity' } }] }
@@ -663,7 +663,7 @@ describe('global AI tools', () => {
 	it('writes the live raw app editor draft through its effective path', async () => {
 		seedDbDraft(
 			'raw_app',
-			'',
+			'u/admin/draft_live_app',
 			{
 				summary: 'Live app',
 				files: { '/src/App.tsx': 'export default function App() { return null }' },
@@ -675,7 +675,7 @@ describe('global AI tools', () => {
 		UserDraft.setLiveEditorDraft({
 			workspace: WORKSPACE,
 			itemKind: 'raw_app',
-			storagePath: '',
+			storagePath: 'u/admin/draft_live_app',
 			effectivePath: 'u/admin/live_app'
 		})
 
@@ -685,7 +685,7 @@ describe('global AI tools', () => {
 			content: 'export default function New() { return null }'
 		})
 
-		expect(dbDraftValue('raw_app', '')).toMatchObject({
+		expect(dbDraftValue('raw_app', 'u/admin/draft_live_app')).toMatchObject({
 			files: {
 				'/src/App.tsx': 'export default function App() { return null }',
 				'/src/New.tsx': 'export default function New() { return null }'
@@ -1503,7 +1503,7 @@ describe('global AI tools', () => {
 	it('test_run_flow uses the live flow editor test hook when the active editor matches the path', async () => {
 		seedDbDraft(
 			'flow',
-			'',
+			'u/admin/draft_live_flow_hook',
 			{
 				path: 'u/admin/live_flow',
 				summary: 'Live flow',
@@ -1519,7 +1519,7 @@ describe('global AI tools', () => {
 		UserDraft.setLiveEditorDraft({
 			workspace: WORKSPACE,
 			itemKind: 'flow',
-			storagePath: '',
+			storagePath: 'u/admin/draft_live_flow_hook',
 			effectivePath: 'u/admin/live_flow'
 		})
 		const testActiveFlow = vi.fn(async () => 'job-live-flow')
@@ -1545,7 +1545,7 @@ describe('global AI tools', () => {
 	it('test_run_flow falls back to preview when the live flow editor test hook returns undefined', async () => {
 		seedDbDraft(
 			'flow',
-			'',
+			'u/admin/draft_live_flow_fallback',
 			{
 				path: 'u/admin/live_flow_fallback',
 				summary: 'Live flow fallback',
@@ -1561,7 +1561,7 @@ describe('global AI tools', () => {
 		UserDraft.setLiveEditorDraft({
 			workspace: WORKSPACE,
 			itemKind: 'flow',
-			storagePath: '',
+			storagePath: 'u/admin/draft_live_flow_fallback',
 			effectivePath: 'u/admin/live_flow_fallback'
 		})
 		const testActiveFlow = vi.fn(async () => undefined)
@@ -1952,7 +1952,7 @@ describe('prepareGlobalUserMessage', () => {
 		UserDraft.setLiveEditorDraft({
 			workspace: WORKSPACE,
 			itemKind: 'script',
-			storagePath: '',
+			storagePath: 'f/scripts/draft_live_greeting',
 			effectivePath: 'f/scripts/live_greeting'
 		})
 

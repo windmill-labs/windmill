@@ -284,7 +284,14 @@ function resolveDraftStoragePath(
 	path: string
 ): string {
 	const liveDraft = UserDraft.getLiveEditorDraft(itemKind, { workspace })
-	if (!liveDraft) return path
+	// Fall back to the caller's path when there's no live editor, or when
+	// the live editor hasn't committed a storage path yet. An empty
+	// storage path must never propagate to the DB seam: it can't be a
+	// `draft` row key and the draft routes (`/save_draft/{kind}/{*path}`)
+	// 404 on an empty wildcard tail. In practice new drafts always live at
+	// a real `u/{user}/draft_{uuid}` path (see `/scripts/add` et al.), so
+	// this is defensive — but it keeps `''` out of `DraftService` outright.
+	if (!liveDraft || !liveDraft.storagePath) return path
 	if (path === liveDraft.storagePath || path === liveDraft.effectivePath)
 		return liveDraft.storagePath
 	return path
@@ -465,10 +472,10 @@ function liveEditorDraftType(kind: (typeof LIVE_EDITOR_DRAFT_KINDS)[number]): Wo
  * `isLiveDraft`.
  *
  * This is in-memory state that the DB draft list can't represent: a brand-new
- * unsaved draft has no DB row (it lives at an empty storage path), and an
- * in-progress rename's effective path differs from where the draft is stored.
- * Persisted draft listing comes from the backend (`includeDraftOnly` +
- * `isDraft`); this only fills that in-memory gap.
+ * draft that hasn't been saved to the server yet has no DB row to list, and an
+ * in-progress rename's effective path differs from the `u/{user}/draft_{uuid}`
+ * path where the draft is stored. Persisted draft listing comes from the
+ * backend (`includeDraftOnly` + `isDraft`); this only fills that in-memory gap.
  *
  * Existence and path are taken straight from the live registry
  * (`getLiveEditorDraft`) — not gated on the in-tab value cell, which is only
