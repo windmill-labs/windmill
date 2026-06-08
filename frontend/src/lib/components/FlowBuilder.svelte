@@ -133,7 +133,8 @@
 		onSaveDraftError,
 		onSaveDraftOnlyAtNewPath,
 		onHistoryRestore,
-		onNavigate
+		onNavigate,
+		onTestJob
 	}: FlowBuilderProps = $props()
 
 	let initialPathStore = writable(initialPath)
@@ -1256,11 +1257,14 @@
 					bind:localModuleStates
 					bind:this={flowPreviewButtons}
 					{loading}
-					onRunPreview={() => {
+					onRunPreview={(jobId) => {
 						stepsInputArgs.resetManuallyEditedArgs()
 						modulesTestStates.hideJobsInGraph()
 						localModuleStates = {}
 						showJobStatus = true
+						if (jobId) {
+							onTestJob?.({ jobId })
+						}
 					}}
 				/>
 			{/snippet}
