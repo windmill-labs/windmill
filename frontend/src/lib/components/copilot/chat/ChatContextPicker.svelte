@@ -25,12 +25,8 @@ at message-prep time by `AIChatManager` — see PR #9216.
 	import type { FlowModule } from '$lib/gen/types.gen'
 	import DrillPicker from '$lib/components/DrillPicker.svelte'
 	import type { DrillBranch, DrillIcon, DrillLeaf, DrillNode } from '$lib/components/drillPicker'
-	import {
-		getCachedItems,
-		loadKind,
-		type WorkspaceItem,
-		type WorkspaceItemKind
-	} from '$lib/components/workspacePicker'
+	import { type WorkspaceItem, type WorkspaceItemKind } from '$lib/components/workspacePicker'
+	import { useWorkspaceItemsLoader } from '$lib/components/workspaceItemsLoader.svelte'
 	import { buildWorkspaceTree, relativizeWorkspacePath } from '$lib/components/workspaceTree'
 	import {
 		ContextIconMap,
@@ -78,33 +74,14 @@ at message-prep time by `AIChatManager` — see PR #9216.
 		return selectedContext.some((s) => s.type === c.type && s.title === c.title)
 	}
 
-	// Workspace state — same shape as WorkspaceItemDrillPicker. Seed from
-	// the module-level cache; load on scope entry or on global search.
+	// Workspace state shared with WorkspaceItemDrillPicker via the loader.
+	// Chat surfaces flows and scripts only — apps aren't useful as @-mention
+	// context because they're frontends, not callable units.
 	const WORKSPACE_KINDS: WorkspaceItemKind[] = ['flow', 'script']
-	let loaded = $state<Partial<Record<WorkspaceItemKind, WorkspaceItem[]>>>(
-		(() => {
-			if (!$workspaceStore) return {}
-			const out: Partial<Record<WorkspaceItemKind, WorkspaceItem[]>> = {}
-			for (const k of WORKSPACE_KINDS) {
-				const cached = getCachedItems($workspaceStore, k)
-				if (cached) out[k] = cached
-			}
-			return out
-		})()
+	const loader = useWorkspaceItemsLoader(
+		() => $workspaceStore,
+		() => WORKSPACE_KINDS
 	)
-	let loadingKind = $state<Partial<Record<WorkspaceItemKind, boolean>>>({})
-
-	async function ensureLoaded(kind: WorkspaceItemKind) {
-		if (!$workspaceStore) return
-		if (loaded[kind]) return
-		loadingKind[kind] = true
-		try {
-			const items = await loadKind($workspaceStore, kind)
-			loaded[kind] = items
-		} finally {
-			loadingKind[kind] = false
-		}
-	}
 
 	function contextLeaf(c: ContextElement): DrillLeaf<ChatLeafData> {
 		const displayLabel =
@@ -164,9 +141,9 @@ at message-prep time by `AIChatManager` — see PR #9216.
 			if (modules) branches.push(modules)
 			if (dbs) branches.push(dbs)
 			const wsChildren = buildWorkspaceTree({
-				loaded,
+				loaded: loader.loaded,
 				kinds: WORKSPACE_KINDS,
-				loadingKind
+				loadingKind: loader.loadingKind
 			}) as DrillNode<ChatLeafData>[]
 			// Workspace-only (e.g. global chat with no diffs/modules/dbs): skip
 			// the redundant 'Workspace' row and surface its children at the root.
@@ -227,7 +204,7 @@ at message-prep time by `AIChatManager` — see PR #9216.
 		// the workspace root itself (preload so kind branches don't render
 		// empty-without-spinner).
 		if (scope.length === 0) {
-			if (isWorkspaceOnly) for (const k of WORKSPACE_KINDS) ensureLoaded(k)
+			if (isWorkspaceOnly) loader.ensureAll()
 			return
 		}
 		const inWorkspace = scope[0] === 'workspace' || isWorkspaceOnly
@@ -237,32 +214,10 @@ at message-prep time by `AIChatManager` — see PR #9216.
 		// branch: preload every kind so the kind branches each show their
 		// spinner/items without a per-drill delay.
 		if (path.length === 0 || path[0] === 'kind:all') {
-			for (const k of WORKSPACE_KINDS) ensureLoaded(k)
+			loader.ensureAll()
 			return
 		}
-		if (path[0].startsWith('kind:')) {
-			const k = path[0].slice(5) as WorkspaceItemKind
-			if (WORKSPACE_KINDS.includes(k)) ensureLoaded(k)
-		} else if (path[0].startsWith('dir:')) {
-			// Unwrapped + single-kind: top scope is `dir:<kind>:<path>` directly.
-			// (In the wrapped layout the kind branch always precedes `dir:`.)
-			const rest = path[0].slice(4)
-			const colon = rest.indexOf(':')
-			if (colon > 0) {
-				const k = rest.slice(0, colon) as WorkspaceItemKind
-				if (WORKSPACE_KINDS.includes(k)) ensureLoaded(k)
-			}
-		}
-	}
-
-	// Global search loads every workspace kind so results appear across the
-	// tree. Driven by DrillPicker's onFilterChange so both layouts work:
-	// the inline `@<word>` path (externalFilter), AND the badge popover
-	// (internalFilter, where the host can't otherwise observe the picker's
-	// own search box).
-	function handleFilterChange(filter: string) {
-		if (filter.trim() === '') return
-		for (const k of WORKSPACE_KINDS) ensureLoaded(k)
+		loader.ensureForScopeSegment(path[0])
 	}
 
 	// Close the picker on Escape. The badge popover's melt-ui handles Esc
@@ -314,5 +269,5 @@ at message-prep time by `AIChatManager` — see PR #9216.
 	leafSecondary={(leaf, scope) =>
 		'kind' in leaf.data ? relativizeWorkspacePath(leaf.data.path, scope) : undefined}
 	onScopeChange={handleScopeChange}
-	onFilterChange={handleFilterChange}
+	onFilterChange={loader.onFilterChange}
 />

@@ -16,12 +16,8 @@ would be surprising.
 	import { workspaceStore } from '$lib/stores'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import { untrack } from 'svelte'
-	import {
-		getCachedItems,
-		loadKind,
-		type WorkspaceItem,
-		type WorkspaceItemKind
-	} from './workspacePicker'
+	import { type WorkspaceItem, type WorkspaceItemKind } from './workspacePicker'
+	import { useWorkspaceItemsLoader } from './workspaceItemsLoader.svelte'
 	import DrillPicker from './DrillPicker.svelte'
 	import type { DrillBranch, DrillLeaf } from './drillPicker'
 	import { buildWorkspaceTree, legacyScopeToPath, relativizeWorkspacePath } from './workspaceTree'
@@ -67,43 +63,10 @@ would be surprising.
 		inner?.pickHighlighted()
 	}
 
-	// Seed from the last fetched snapshot so kinds already fetched in this
-	// session render on the first frame. Each entry is replaced once
-	// `loadKind` returns fresh data — stale-while-revalidate, so deploys and
-	// AI-created drafts surface on the next open without explicit cache
-	// busting.
-	let loaded = $state<Partial<Record<Kind, WorkspaceItem[]>>>(
-		(() => {
-			if (!$workspaceStore) return {}
-			const out: Partial<Record<Kind, WorkspaceItem[]>> = {}
-			for (const k of kinds) {
-				const cached = getCachedItems($workspaceStore, k)
-				if (cached) out[k] = cached
-			}
-			return out
-		})()
+	const loader = useWorkspaceItemsLoader(
+		() => $workspaceStore,
+		() => kinds
 	)
-	let loadingKind = $state<Partial<Record<Kind, boolean>>>({})
-
-	async function ensureLoaded(kind: Kind) {
-		if (!$workspaceStore) return
-		// Always re-fetch. If we have nothing cached, show a spinner; if we do,
-		// keep displaying it and quietly swap to fresh data when it lands.
-		// `loaded[kind]` is read inside `untrack(...)` because this function is
-		// reachable from the search `$effect` below — without the untrack,
-		// that effect would subscribe to the signal `ensureLoaded` fills, and
-		// each `loaded[kind] = items` (proxy `set` notifies even when the ref
-		// is unchanged from cache) would refire it → runaway loop. Drill
-		// navigation goes through `handleScopeChange` so it's a callback
-		// reaction to user navigation, never a reactive consequence.
-		if (!untrack(() => loaded[kind])) loadingKind[kind] = true
-		try {
-			const items = await loadKind($workspaceStore, kind)
-			loaded[kind] = items
-		} finally {
-			loadingKind[kind] = false
-		}
-	}
 
 	// Chat tools and session editor previews write drafts through `UserDraft`
 	// (workspace-scoped, localStorage-backed). Merge those into the picker so
@@ -134,44 +97,19 @@ would be surprising.
 	)
 
 	const tree = $derived(
-		buildWorkspaceTree({ loaded, kinds, currentItem, loadingKind, extraItemsByKind })
+		buildWorkspaceTree({
+			loaded: loader.loaded,
+			kinds,
+			currentItem,
+			loadingKind: loader.loadingKind,
+			extraItemsByKind
+		})
 	)
 
 	// Mount-time only: callers (BreadcrumbSegment, EditorHeader) snapshot the
 	// scope when the popover opens, so re-evaluating on prop changes would
 	// fight the user's drilling.
 	const computedInitialScope = untrack(() => legacyScopeToPath(initialScope, kinds))
-
-	// Triggered on scope change: load the kind the user just drilled into.
-	// `'all'` triggers loads for every kind since it merges across them.
-	function handleScopeChange(scope: string[]) {
-		if (scope.length === 0) return
-		const top = scope[0]
-		// top is either `kind:<k>` or (when kinds.length===1) `dir:<k>:<path>`
-		if (top.startsWith('kind:')) {
-			const k = top.slice(5) as ScopeKind
-			if (k === 'all') for (const x of kinds) ensureLoaded(x)
-			else if (kinds.includes(k as Kind)) ensureLoaded(k as Kind)
-		} else if (top.startsWith('dir:')) {
-			// Single-kind mode: dir:<k>:<path>
-			const rest = top.slice(4)
-			const colon = rest.indexOf(':')
-			if (colon > 0) {
-				const k = rest.slice(0, colon) as ScopeKind
-				if (k === 'all') for (const x of kinds) ensureLoaded(x)
-				else if (kinds.includes(k as Kind)) ensureLoaded(k as Kind)
-			}
-		}
-	}
-
-	// Search is global → load every kind, but ONLY once the user has actually
-	// typed something. Both external-filter (chat) and internal-filter
-	// (breadcrumb / session "Open editor") paths flow through DrillPicker's
-	// `onFilterChange`, so we never cold-load on a bare mount.
-	function handleFilterChange(filter: string) {
-		if (filter.trim() === '') return
-		for (const k of kinds) ensureLoaded(k)
-	}
 </script>
 
 {#snippet leafIcon(leaf: DrillLeaf<WorkspaceItem>)}
@@ -200,6 +138,6 @@ would be surprising.
 	{leafIcon}
 	{branchIcon}
 	leafSecondary={(leaf, scope) => relativizeWorkspacePath(leaf.data.path, scope)}
-	onScopeChange={handleScopeChange}
-	onFilterChange={handleFilterChange}
+	onScopeChange={(scope) => scope.length > 0 && loader.ensureForScopeSegment(scope[0])}
+	onFilterChange={loader.onFilterChange}
 />
