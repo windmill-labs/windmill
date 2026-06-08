@@ -239,6 +239,49 @@ export function msToReadableTime(ms: number | undefined, maximumFractionDigits?:
 	}
 }
 
+/**
+ * A workflow-as-code (WAC) root is a script/preview job whose
+ * `workflow_as_code_status` carries the `_checkpoint` written by the WAC
+ * executor when it dispatches task jobs. AI-agent jobs also populate
+ * `workflow_as_code_status` but never write `_checkpoint`, so they are not
+ * matched here.
+ */
+export function isWorkflowAsCodeRoot(
+	job: { workflow_as_code_status?: unknown } | undefined
+): boolean {
+	const wac = job?.workflow_as_code_status as Record<string, unknown> | undefined
+	return wac != undefined && wac['_checkpoint'] != undefined
+}
+
+/**
+ * Total execution time to display for a job, in ms.
+ *
+ * WAC roots suspend while their task jobs run, so their worker-measured
+ * `duration_ms` only covers the orchestration script's own compute, not the
+ * end-to-end run. For those, show the wall-clock span (`completed_at -
+ * started_at`) — the same total a flow reports. Everything else (and any WAC
+ * root missing the timestamps) falls back to `duration_ms`.
+ */
+export function jobDisplayDurationMs(
+	job:
+		| {
+				started_at?: string
+				completed_at?: string
+				duration_ms?: number
+				workflow_as_code_status?: unknown
+		  }
+		| undefined
+): number | undefined {
+	if (isWorkflowAsCodeRoot(job) && job?.started_at && job?.completed_at) {
+		const start = new Date(job.started_at).getTime()
+		const end = new Date(job.completed_at).getTime()
+		if (isFinite(start) && isFinite(end) && end >= start) {
+			return end - start
+		}
+	}
+	return job?.duration_ms
+}
+
 export function msToReadableTimeShort(
 	ms: number | undefined,
 	maximumFractionDigits?: number
