@@ -317,23 +317,27 @@
 		// is gone now → drop the matching selectedContext entry. Reactive (not
 		// inside handleInput) so it catches both keystroke deletions AND any
 		// programmatic value changes from the picker insertion path.
-		// Skip on programmatic wipe (`sendRequest` sets `instructions = ''`
-		// right after dispatching, which would otherwise clear the contexts
-		// before `AIChatManager.beforeSend` snapshots them).
 		const prev = prevMentionedTitles
 		const cur = mentionedTitles
-		if (value !== '') {
-			for (const title of prev) {
-				if (cur.has(title)) continue
-				const entry = selectedContext.find((c) => c.title === title && c.deletable !== false)
-				if (entry) onRemoveContext?.(entry)
-			}
+		for (const title of prev) {
+			if (cur.has(title)) continue
+			const entry = selectedContext.find((c) => c.title === title && c.deletable !== false)
+			if (entry) onRemoveContext?.(entry)
 		}
 		prevMentionedTitles = cur
 	})
 
 	export function focus() {
 		textarea?.focus()
+	}
+
+	// Wipe after dispatching a send: pre-zero `prevMentionedTitles` so the
+	// effect above sees no diff when `value` clears, leaving `selectedContext`
+	// untouched until `AIChatManager.beforeSend` snapshots it. A manual
+	// textarea clear by the user keeps the old behaviour (badges drop).
+	export function clearForSend() {
+		prevMentionedTitles = new Set()
+		value = ''
 	}
 </script>
 

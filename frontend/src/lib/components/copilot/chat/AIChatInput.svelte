@@ -258,7 +258,11 @@
 			onEditEnd()
 		} else {
 			aiChatManager.sendRequest({ instructions })
-			instructions = ''
+			// clearForSend() (vs `instructions = ''`) signals the wipe is
+			// programmatic so ContextTextarea's mention-removal effect skips
+			// dropping `selectedContext` — `AIChatManager.beforeSend` snapshots
+			// it asynchronously after this returns.
+			contextTextareaComponent?.clearForSend()
 		}
 	}
 
