@@ -21049,6 +21049,25 @@ components:
         draft:
           type: object
           additionalProperties: true
+        other_drafts_users:
+          description: |
+            Other workspace users (and the legacy NULL-email row, if any)
+            with a saved draft at the same path. Populated only on the
+            authed user's "get by path" responses for kinds the editor
+            surfaces a fork banner for (script, flow, app, raw_app).
+            Empty / omitted for kinds without that UI.
+          type: array
+          items:
+            type: object
+            properties:
+              username:
+                type: string
+              email:
+                type: string
+              draft_saved_at:
+                type: string
+                format: date-time
+            required: [draft_saved_at]
       required: [is_draft]
     UserDraftItemKind:
       type: string

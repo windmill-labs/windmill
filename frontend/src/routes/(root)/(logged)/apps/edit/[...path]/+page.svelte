@@ -100,11 +100,11 @@
 			getDraft
 		})
 		if (tok !== loadAppToken) return
-		otherDraftsUsers = ((backendApp as any).other_drafts_users ?? []) as OtherDraftUser[]
+		otherDraftsUsers = (backendApp.other_drafts_users ?? []) as OtherDraftUser[]
 		if ($workspaceStore && path) {
 			UserDraftDbSyncer.recordRemoteSync(
 				{ workspace: $workspaceStore, itemKind: 'app', path },
-				(backendApp as any).draft_saved_at as string | undefined
+				backendApp.draft_saved_at
 			)
 		}
 		// Apply the user's saved draft to `.value`. The autosave for apps

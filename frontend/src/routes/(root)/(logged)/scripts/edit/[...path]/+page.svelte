@@ -148,7 +148,7 @@
 				getDraft
 			})
 			if (tok !== loadScriptToken) return
-			otherDraftsUsers = ((backendScript as any).other_drafts_users ?? []) as OtherDraftUser[]
+			otherDraftsUsers = (backendScript.other_drafts_users ?? []) as OtherDraftUser[]
 			// Seed the per-tab `last_sync` map with the server's draft
 			// timestamp so the next autosave attaches a matching
 			// `last_sync` and the backend can reject stale writes.
@@ -157,7 +157,7 @@
 			if ($workspaceStore && page.params.path) {
 				UserDraftDbSyncer.recordRemoteSync(
 					{ workspace: $workspaceStore, itemKind: 'script', path: page.params.path },
-					(backendScript as any).draft_saved_at as string | undefined
+					backendScript.draft_saved_at
 				)
 			}
 			if (backendScript.is_draft) {

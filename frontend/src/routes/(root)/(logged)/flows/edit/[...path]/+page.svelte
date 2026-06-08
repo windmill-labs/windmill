@@ -203,11 +203,11 @@
 			getDraft
 		})
 		if (tok !== loadFlowToken) return
-		otherDraftsUsers = ((backendFlow as any).other_drafts_users ?? []) as OtherDraftUser[]
+		otherDraftsUsers = (backendFlow.other_drafts_users ?? []) as OtherDraftUser[]
 		if ($workspaceStore && flowDraftPath) {
 			UserDraftDbSyncer.recordRemoteSync(
 				{ workspace: $workspaceStore, itemKind: 'flow', path: flowDraftPath },
-				(backendFlow as any).draft_saved_at as string | undefined
+				backendFlow.draft_saved_at
 			)
 		}
 		// Re-evaluate the "new flow" signal on each load — flips to
