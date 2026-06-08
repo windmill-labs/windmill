@@ -2423,14 +2423,32 @@ async fn update_token_label(
     Path(token_prefix): Path<String>,
     Json(req): Json<UpdateTokenLabelRequest>,
 ) -> Result<String> {
+    // `session` is reserved: it drives session cleanup on logout and
+    // super_admin propagation, so assigning it would let this token be deleted
+    // on the next logout.
+    if req.label.as_deref() == Some("session") {
+        return Err(Error::BadRequest(
+            "`session` is a reserved token label".to_string(),
+        ));
+    }
+
     let mut tx = db.begin().await?;
 
-    // Guard against renaming the browser `session` token: its label is
-    // load-bearing for session cleanup on logout and super_admin propagation,
-    // so it must not be editable via this endpoint.
+    // Only user-created tokens may be relabeled. System tokens carry
+    // load-bearing labels (used for session cleanup, super_admin propagation,
+    // expiry notifications and username overrides) and must not be editable via
+    // this endpoint. Keep this filter in sync with `is_user_token`
+    // (backend/src/monitor.rs) and `isUserToken` (TokensTable.svelte).
     let updated: Option<String> = sqlx::query_scalar!(
         "UPDATE token SET label = $1
-           WHERE email = $2 AND token_prefix = $3 AND label IS DISTINCT FROM 'session'
+           WHERE email = $2 AND token_prefix = $3
+             AND (label IS NULL OR (
+                 label <> 'session'
+                 AND label NOT LIKE 'ephemeral%'
+                 AND label NOT LIKE 'Ephemeral%'
+                 AND label <> 'debugger-token'
+                 AND label NOT LIKE 'mcp-oauth-%'
+             ))
            RETURNING token_prefix",
         req.label.as_deref(),
         &authed.email,

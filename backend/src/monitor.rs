@@ -1107,6 +1107,7 @@ struct TokenRow {
 /// When updating this filter, also update:
 /// - `register_token_expiry_notification` in windmill-api-auth/src/lib.rs
 /// - `isUserToken` in frontend/src/lib/components/settings/TokensTable.svelte
+/// - the `update_token_label` editability guard in windmill-api-users/src/users.rs
 fn is_user_token(label: Option<&str>) -> bool {
     match label {
         None => true,
