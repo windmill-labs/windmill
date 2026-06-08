@@ -20,7 +20,7 @@ pub use common::{
 };
 
 // Re-export client types at crate root for backward compatibility
-pub use client::{McpClient, McpResource, McpToolSource};
+pub use client::{is_auth_required_error, McpClient, McpResource, McpToolSource};
 
 // Re-export rmcp types for client usage
 pub use rmcp::model::Tool as McpTool;

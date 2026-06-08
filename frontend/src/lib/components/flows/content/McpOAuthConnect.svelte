@@ -12,14 +12,32 @@
 	import Path from '$lib/components/Path.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { sameTopDomainOrigin } from '$lib/cookies'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, onMount } from 'svelte'
 
 	interface Props {
 		onConnected: (resourcePath: string, resourceName: string) => void
-		onCancel: () => void
+		onCancel?: () => void
+		onDiscoveryStatus?: (
+			status: 'discovering' | 'supported' | 'unsupported',
+			error?: string
+		) => void
+		initialServerUrl?: string
+		initialResourceName?: string
+		initialResourcePath?: string
+		updateExistingResource?: boolean
+		hideUntilDiscovered?: boolean
 	}
 
-	let { onConnected, onCancel }: Props = $props()
+	let {
+		onConnected,
+		onCancel,
+		onDiscoveryStatus,
+		initialServerUrl = '',
+		initialResourceName = '',
+		initialResourcePath = '',
+		updateExistingResource = false,
+		hideUntilDiscovered = false
+	}: Props = $props()
 
 	let serverUrl = $state('')
 	let discoveryResult = $state<DiscoverMcpOauthResponse | null>(null)
@@ -27,29 +45,60 @@
 	let resourceName = $state('')
 	let resourcePath = $state('')
 	let pathError = $state('')
-	let status = $state<'idle' | 'discovering' | 'discovered' | 'connecting'>('idle')
+	let status = $state<'idle' | 'discovering' | 'discovered' | 'unsupported' | 'connecting'>(
+		'idle'
+	)
 	let error = $state<string | null>(null)
+
+	let connectDisabled = $derived(
+		!resourcePath || (!updateExistingResource && pathError !== '')
+	)
+	let shouldRender = $derived(
+		!hideUntilDiscovered || status === 'discovered' || status === 'connecting'
+	)
+
+	initializeFromProps()
+
+	function initializeFromProps() {
+		serverUrl = initialServerUrl
+		resourceName = initialResourceName
+		resourcePath = initialResourcePath
+		if (initialServerUrl) {
+			status = 'discovering'
+		}
+	}
+
+	onMount(() => {
+		if (initialServerUrl) {
+			void discoverOAuth()
+		}
+	})
 
 	async function discoverOAuth() {
 		status = 'discovering'
 		error = null
+		onDiscoveryStatus?.('discovering')
 		try {
 			discoveryResult = await McpOauthService.discoverMcpOauth({
 				requestBody: { mcp_server_url: serverUrl }
 			})
 			selectedScopes = discoveryResult?.scopes_supported ?? []
-			try {
-				const urlObj = new URL(serverUrl)
-				resourceName = urlObj.hostname.replace(/\./g, '_')
-			} catch {
-				resourceName = 'mcp_server'
+			if (!resourceName.trim()) {
+				try {
+					const urlObj = new URL(serverUrl)
+					resourceName = urlObj.hostname.replace(/\./g, '_')
+				} catch {
+					resourceName = 'mcp_server'
+				}
 			}
 			status = 'discovered'
-		} catch (e) {
+			onDiscoveryStatus?.('supported')
+		} catch (e: any) {
 			console.error('Error discovering OAuth settings', e)
 			const errorMessage = e.body?.message || e.body || e.message || 'Unknown error'
 			error = `Failed to discover OAuth settings: ${errorMessage}`
-			status = 'idle'
+			status = 'unsupported'
+			onDiscoveryStatus?.('unsupported', error)
 		}
 	}
 
@@ -102,6 +151,38 @@
 		window.removeEventListener('storage', handleStorageEvent)
 	}
 
+	function getVariablePathFromTokenRef(token: unknown): string | undefined {
+		if (typeof token !== 'string') {
+			return undefined
+		}
+
+		const variablePath = token.trim().startsWith('$var:')
+			? token.trim().slice('$var:'.length).trim()
+			: ''
+
+		return variablePath.length > 0 ? variablePath : undefined
+	}
+
+	async function getTokenVariablePath(existingTokenPath?: string): Promise<string> {
+		if (existingTokenPath) {
+			return existingTokenPath
+		}
+
+		const basePath = `${resourcePath}_token`
+		for (let index = 0; index < 20; index += 1) {
+			const candidatePath = index === 0 ? basePath : `${basePath}_${index + 1}`
+			const exists = await VariableService.existsVariable({
+				workspace: $workspaceStore!,
+				path: candidatePath
+			})
+			if (!exists) {
+				return candidatePath
+			}
+		}
+
+		throw new Error('Could not find an available variable path for the MCP OAuth token')
+	}
+
 	async function createMcpResource(data: {
 		access_token: string
 		refresh_token?: string
@@ -123,31 +204,79 @@
 				accountId = Number(accountIdStr)
 			}
 
-			await VariableService.createVariable({
+			let existingValue: Record<string, unknown> = {}
+			if (updateExistingResource) {
+				const existingResource = await ResourceService.getResource({
+					workspace: $workspaceStore!,
+					path: resourcePath
+				})
+				existingValue =
+					existingResource.value && typeof existingResource.value === 'object'
+						? (existingResource.value as Record<string, unknown>)
+						: {}
+			}
+
+			const existingTokenPath = getVariablePathFromTokenRef(existingValue.token)
+			const tokenVariablePath = await getTokenVariablePath(existingTokenPath)
+			const variableDescription = `MCP OAuth token for ${data.mcp_server_url}`
+			const variableExists = await VariableService.existsVariable({
 				workspace: $workspaceStore!,
-				requestBody: {
-					path: resourcePath,
-					value: data.access_token,
-					is_secret: true,
-					is_oauth: true,
-					account: accountId,
-					description: `MCP OAuth token for ${data.mcp_server_url}`
-				}
+				path: tokenVariablePath
 			})
 
-			await ResourceService.createResource({
-				workspace: $workspaceStore!,
-				requestBody: {
-					resource_type: 'mcp',
+			if (variableExists) {
+				await VariableService.updateVariable({
+					workspace: $workspaceStore!,
+					path: tokenVariablePath,
+					requestBody: {
+						path: tokenVariablePath,
+						value: data.access_token,
+						is_secret: true,
+						description: variableDescription
+					}
+				})
+			} else {
+				await VariableService.createVariable({
+					workspace: $workspaceStore!,
+					requestBody: {
+						path: tokenVariablePath,
+						value: data.access_token,
+						is_secret: true,
+						is_oauth: true,
+						account: accountId,
+						description: variableDescription
+					}
+				})
+			}
+
+			const updatedResourceValue = {
+				name: resourceName,
+				url: data.mcp_server_url,
+				token: `$var:${tokenVariablePath}`
+			}
+
+			if (updateExistingResource) {
+				await ResourceService.updateResourceValue({
+					workspace: $workspaceStore!,
 					path: resourcePath,
-					value: {
-						name: resourceName,
-						url: data.mcp_server_url,
-						token: `$var:${resourcePath}`
-					},
-					description: `MCP server connected via OAuth`
-				}
-			})
+					requestBody: {
+						value: {
+							...existingValue,
+							...updatedResourceValue
+						}
+					}
+				})
+			} else {
+				await ResourceService.createResource({
+					workspace: $workspaceStore!,
+					requestBody: {
+						resource_type: 'mcp',
+						path: resourcePath,
+						value: updatedResourceValue,
+						description: `MCP server connected via OAuth`
+					}
+				})
+			}
 
 			sendUserToast('Connected to MCP server')
 			onConnected(resourcePath, resourceName)
@@ -160,84 +289,105 @@
 	onDestroy(cleanup)
 </script>
 
-<div class="border rounded p-4 bg-surface-secondary flex flex-col gap-4">
-	<div class="flex justify-between items-center">
-		<span class="font-semibold text-sm">Connect MCP Server with OAuth</span>
-		<Button size="xs" color="light" onClick={onCancel}>Cancel</Button>
-	</div>
-
-	<Label label="MCP Server URL">
-		<input
-			type="url"
-			bind:value={serverUrl}
-			placeholder="https://mcp.example.com"
-			class="text-sm w-full"
-			disabled={status === 'connecting'}
-		/>
-	</Label>
-
-	{#if status === 'idle'}
-		<Button size="sm" onClick={discoverOAuth} disabled={!serverUrl}>Discover OAuth Settings</Button>
-	{:else if status === 'discovering'}
-		<div class="text-sm text-secondary">Discovering OAuth settings...</div>
-	{:else if status === 'discovered' && discoveryResult}
-		<div class="text-xs text-green-600 dark:text-green-400">
-			&#10003; OAuth supported
-			{#if discoveryResult.supports_dynamic_registration}
-				(Dynamic Client Registration available)
+{#if shouldRender}
+	<div class="border rounded p-4 bg-surface-secondary flex flex-col gap-4">
+		<div class="flex justify-between items-center">
+			<span class="font-semibold text-sm">
+				{updateExistingResource
+					? 'Connect selected MCP resource with OAuth'
+					: 'Connect MCP Server with OAuth'}
+			</span>
+			{#if onCancel}
+				<Button size="xs" color="light" onClick={onCancel}>Cancel</Button>
 			{/if}
 		</div>
 
-		{#if discoveryResult.scopes_supported && discoveryResult.scopes_supported.length > 0}
-			<Label label="Select Scopes">
-				<div class="flex flex-col flex-wrap gap-2">
-					{#each discoveryResult.scopes_supported as scope}
-						<label class="flex flex-row items-center gap-2 text-xs cursor-pointer">
-							<input
-								type="checkbox"
-								checked={selectedScopes.includes(scope)}
-								onchange={(e) => {
-									const target = e.target as HTMLInputElement
-									if (target.checked) {
-										selectedScopes = [...selectedScopes, scope]
-									} else {
-										selectedScopes = selectedScopes.filter((s) => s !== scope)
-									}
-								}}
-								class="!w-4 !h-4"
-							/>
-							{scope}
-						</label>
-					{/each}
-				</div>
-			</Label>
-		{/if}
-
-		<Label label="Resource Name">
+		<Label label="MCP Server URL">
 			<input
-				type="text"
-				bind:value={resourceName}
-				placeholder="my-mcp-server"
+				type="url"
+				bind:value={serverUrl}
+				placeholder="https://mcp.example.com"
 				class="text-sm w-full"
+				disabled={status === 'connecting'}
 			/>
 		</Label>
 
-		<Path
-			bind:path={resourcePath}
-			bind:error={pathError}
-			initialPath=""
-			namePlaceholder={resourceName}
-			kind="resource"
-		/>
+		{#if status === 'idle'}
+			<Button size="sm" onClick={discoverOAuth} disabled={!serverUrl}>Discover OAuth Settings</Button>
+		{:else if status === 'discovering'}
+			<div class="text-sm text-secondary">Discovering OAuth settings...</div>
+		{:else if status === 'unsupported'}
+			<div class="flex flex-col gap-1 text-xs text-red-600 dark:text-red-400">
+				<div>OAuth is not available for this MCP server.</div>
+				{#if error}
+					<div>{error}</div>
+				{/if}
+			</div>
+		{:else if status === 'discovered' && discoveryResult}
+			<div class="text-xs text-green-600 dark:text-green-400">
+				&#10003; OAuth supported
+				{#if discoveryResult.supports_dynamic_registration}
+					(Dynamic Client Registration available)
+				{/if}
+			</div>
 
-		<Button size="sm" onClick={startOAuth} disabled={!resourcePath || pathError !== ''}>
-			Connect with OAuth
-		</Button>
-	{:else if status === 'connecting'}
-		<div class="text-sm text-secondary">Complete authentication in popup window...</div>
-	{/if}
+			{#if discoveryResult.scopes_supported && discoveryResult.scopes_supported.length > 0}
+				<Label label="Select Scopes">
+					<div class="flex flex-col flex-wrap gap-2">
+						{#each discoveryResult.scopes_supported as scope (scope)}
+							<label class="flex flex-row items-center gap-2 text-xs cursor-pointer">
+								<input
+									type="checkbox"
+									checked={selectedScopes.includes(scope)}
+									onchange={(e) => {
+										const target = e.target as HTMLInputElement
+										if (target.checked) {
+											selectedScopes = [...selectedScopes, scope]
+										} else {
+											selectedScopes = selectedScopes.filter((s) => s !== scope)
+										}
+									}}
+									class="!w-4 !h-4"
+								/>
+								{scope}
+							</label>
+						{/each}
+					</div>
+				</Label>
+			{/if}
 
-	{#if error}
-		<div class="text-xs text-red-600 dark:text-red-400">{error}</div>
-	{/if}
-</div>
+			<Label label="Resource Name">
+				<input
+					type="text"
+					bind:value={resourceName}
+					placeholder="my-mcp-server"
+					class="text-sm w-full"
+				/>
+			</Label>
+
+			{#if updateExistingResource}
+				<Label label="Resource Path">
+					<div class="text-sm w-full rounded border bg-surface px-2 py-1">{resourcePath}</div>
+				</Label>
+			{:else}
+				<Path
+					bind:path={resourcePath}
+					bind:error={pathError}
+					initialPath=""
+					namePlaceholder={resourceName}
+					kind="resource"
+				/>
+			{/if}
+
+			<Button size="sm" onClick={startOAuth} disabled={connectDisabled}>
+				Connect with OAuth
+			</Button>
+		{:else if status === 'connecting'}
+			<div class="text-sm text-secondary">Complete authentication in popup window...</div>
+		{/if}
+
+		{#if error && status !== 'unsupported'}
+			<div class="text-xs text-red-600 dark:text-red-400">{error}</div>
+		{/if}
+	</div>
+{/if}

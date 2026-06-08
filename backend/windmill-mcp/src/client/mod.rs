@@ -14,9 +14,10 @@ use rmcp::{
         CallToolRequestParams, ClientCapabilities, ClientInfo, Implementation,
         InitializeRequestParams, Tool as McpTool,
     },
-    service::RunningService,
+    service::{ClientInitializeError, RunningService},
     transport::{
-        streamable_http_client::StreamableHttpClientTransportConfig, StreamableHttpClientTransport,
+        streamable_http_client::{StreamableHttpClientTransportConfig, StreamableHttpError},
+        StreamableHttpClientTransport,
     },
     RoleClient, ServiceExt,
 };
@@ -29,6 +30,30 @@ pub struct McpClient {
     client: RunningService<RoleClient, InitializeRequestParams>,
     /// Cached list of available tools from the server
     available_tools: Vec<McpTool>,
+}
+
+pub fn is_auth_required_error(error: &anyhow::Error) -> bool {
+    error.chain().any(|source| {
+        if matches!(
+            source.downcast_ref::<StreamableHttpError<reqwest::Error>>(),
+            Some(StreamableHttpError::AuthRequired(_))
+        ) {
+            return true;
+        }
+
+        if let Some(ClientInitializeError::TransportError { error, .. }) =
+            source.downcast_ref::<ClientInitializeError>()
+        {
+            return matches!(
+                error
+                    .error
+                    .downcast_ref::<StreamableHttpError<reqwest::Error>>(),
+                Some(StreamableHttpError::AuthRequired(_))
+            );
+        }
+
+        false
+    })
 }
 
 impl McpClient {
