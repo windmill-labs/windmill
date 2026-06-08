@@ -959,6 +959,13 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     }
 
     let result_columns = result_columns.as_ref();
+    // Worker-measured compute time (`$9`), captured before `duration` is shadowed
+    // by the value persisted to `v2_job_completed`. The persisted value is
+    // wall-clock for workflow-as-code roots (they suspend while their task jobs
+    // run), which is correct for display but would overstate worker service time
+    // for usage accounting — so accounting must use the worker-measured value.
+    #[cfg(feature = "cloud")]
+    let worker_measured_duration = duration;
     let (opt_uuid, duration, _skip_downstream_error_handlers, wac_job_ids) = (|| {
         commit_completed_job(
             db,
@@ -999,7 +1006,11 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     }
 
     #[cfg(feature = "cloud")]
-    apply_completed_job_cloud_usage(db, completed_job, duration);
+    apply_completed_job_cloud_usage(
+        db,
+        completed_job,
+        worker_measured_duration.unwrap_or(duration),
+    );
 
     #[cfg(all(feature = "enterprise", feature = "private"))]
     crate::jobs_ee::apply_completed_job_error_handlers(
