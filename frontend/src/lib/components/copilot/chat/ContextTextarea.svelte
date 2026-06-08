@@ -317,12 +317,17 @@
 		// is gone now → drop the matching selectedContext entry. Reactive (not
 		// inside handleInput) so it catches both keystroke deletions AND any
 		// programmatic value changes from the picker insertion path.
+		// Skip on programmatic wipe (`sendRequest` sets `instructions = ''`
+		// right after dispatching, which would otherwise clear the contexts
+		// before `AIChatManager.beforeSend` snapshots them).
 		const prev = prevMentionedTitles
 		const cur = mentionedTitles
-		for (const title of prev) {
-			if (cur.has(title)) continue
-			const entry = selectedContext.find((c) => c.title === title && c.deletable !== false)
-			if (entry) onRemoveContext?.(entry)
+		if (value !== '') {
+			for (const title of prev) {
+				if (cur.has(title)) continue
+				const entry = selectedContext.find((c) => c.title === title && c.deletable !== false)
+				if (entry) onRemoveContext?.(entry)
+			}
 		}
 		prevMentionedTitles = cur
 	})
