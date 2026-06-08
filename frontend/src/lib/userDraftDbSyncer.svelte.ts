@@ -206,10 +206,36 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 }
 
 /**
- * Fire `keepalive: true` POSTs for every unconfirmed save in
- * `pendingSaveOpts`. Browser-level guarantee: the request is committed
- * to the network stack and continues running after the document is
- * gone, so a tab close mid-debounce doesn't drop the in-flight edit.
+ * Tab/app switch flush — the document is hidden but the page is still
+ * alive. Route every pending edit through the normal runner pipeline so
+ * the server's response can land and `setLastSync` can bump the local
+ * baseline. Without that, the next foreground edit attaches the stale
+ * `last_sync` we sent before the flush, the server's `created_at` is
+ * now ahead, and the user gets a spurious conflict modal for their own
+ * background-tab write.
+ *
+ * `debouncer.cancel(key)` first so a still-pending keystroke debounce
+ * can't fire a second runner POST with the same stale `last_sync`
+ * after the flush submission — that would also self-conflict.
+ *
+ * Doesn't clear `pendingSaveOpts`: `postSave` deletes the entry on
+ * success (gated on `pendingSaveOpts.get(key) === opts`), and a later
+ * `pagehide` keepalive needs to see anything that's still in flight or
+ * that the user edited after this flush.
+ */
+function flushOnVisibilityHidden(): void {
+	if (pendingSaveOpts.size === 0) return
+	for (const [key, opts] of pendingSaveOpts) {
+		debouncer.cancel(key)
+		runner.submit(key, () => postSave(opts))
+	}
+}
+
+/**
+ * True-unload flush — `pagehide` is the browser's commitment that the
+ * document is going away. Use `keepalive: true` so the network stack
+ * commits the request even after the JS context is torn down; the
+ * response is necessarily discarded (no listener left to read it).
  *
  * Trade-offs:
  *   - Total keepalive body size per page is capped (Chrome: 64KB). For
@@ -217,18 +243,20 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
  *     may exceed the cap and the request will be rejected. We log and
  *     accept the loss for the oversized payload — still strictly better
  *     than the status quo, which drops every pending save.
- *   - We bypass the debouncer/runner pipeline because both are
+ *   - Bypasses the debouncer/runner pipeline because both are
  *     async-scheduled and won't get a chance to run after the document
- *     hides. The keepalive fetch is hand-rolled to mirror the generated
- *     client's URL/auth/body shape.
- *
- * Called on `visibilitychange → hidden` (most reliable signal across
- * browsers and mobile) and `pagehide` (belt-and-suspenders for navs
- * that bypass `visibilitychange`).
+ *     hides. `debouncer.cancel(key)` is still called so a queued
+ *     keystroke can't fire a second POST in between.
+ *   - The keepalive POST advances `created_at` server-side but we can't
+ *     read the response to update `lastSync`. That's fine on this path
+ *     because the page is dying — the next mount calls
+ *     `recordRemoteSync(draft_saved_at)` and reseeds from authoritative
+ *     server state before any user edit can fire a save.
  */
-function flushOnUnload(): void {
+function flushOnPageHide(): void {
 	if (pendingSaveOpts.size === 0) return
-	for (const opts of pendingSaveOpts.values()) {
+	for (const [key, opts] of pendingSaveOpts) {
+		debouncer.cancel(key)
 		try {
 			// Path encoding mirrors the generated client (`encodeURI`,
 			// not `encodeURIComponent`) so slashes inside the path
@@ -238,15 +266,7 @@ function flushOnUnload(): void {
 				`/w/${encodeURI(opts.workspace)}` +
 				`/drafts/save_draft/${encodeURI(opts.itemKind)}` +
 				`/${encodeURI(opts.path)}`
-			const lastSync = getLastSyncEntry(
-				draftKey(opts.workspace, opts.itemKind, opts.path)
-			)?.lastSync
-			// Unload flush respects optimistic concurrency: if the
-			// server moved on while the user was editing, dropping the
-			// keepalive write is the safer default (their colleague's
-			// edits stay intact). Callers that need force-overwrite
-			// would have called `overwrite(...)` explicitly before
-			// closing the tab.
+			const lastSync = getLastSyncEntry(key)?.lastSync
 			void fetch(url, {
 				method: 'POST',
 				credentials: 'include',
@@ -272,12 +292,14 @@ function flushOnUnload(): void {
 
 if (typeof document !== 'undefined') {
 	document.addEventListener('visibilitychange', () => {
-		if (document.visibilityState === 'hidden') flushOnUnload()
+		if (document.visibilityState === 'hidden') flushOnVisibilityHidden()
 	})
-	// `pagehide` covers full-document navs (link clicks, back/forward,
-	// tab close) that don't always flip visibility — and is the
-	// recommended last-line signal for "the page is going away".
-	window.addEventListener('pagehide', flushOnUnload)
+	// `pagehide` is the only signal we trust to mean "the document is
+	// truly going away" — `visibilitychange → hidden` is too broad
+	// (fires on every tab/app switch with the page surviving), which is
+	// why we route THAT through the normal runner above and reserve
+	// keepalive for here.
+	window.addEventListener('pagehide', flushOnPageHide)
 }
 
 /**
