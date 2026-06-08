@@ -24,14 +24,19 @@ wm_sim up \
   --helm-values sim/values/local.yaml      # gitignored; carries the EE license
 ```
 
-Then in a second shell, port-forward the API + fire a bench:
+`wm_sim up` opens its own port-forward to `svc/windmill-app` on a free local
+port and prints the URL — look for a line like:
+
+```
+[helm] API reachable at http://127.0.0.1:38291 (port-forward svc/windmill-app)
+```
+
+The forward dies with the wm_sim process, so leave the wm_sim terminal open.
+Then in a second shell, fire a bench against that URL:
 
 ```sh
-kubectl --context wm-sim-k8s-4node port-forward --address 0.0.0.0 \
-  -n default svc/windmill-app 33405:8000 &
-
 cd benchmarks && deno run -A main.ts \
-  --host http://127.0.0.1:33405 \
+  --host http://127.0.0.1:<port from wm_sim output> \
   --token <admin-token> \
   --workload-config workloads/io_150ms_flood.json \
   --minikube-profile wm-sim-k8s-4node \
@@ -40,6 +45,14 @@ cd benchmarks && deno run -A main.ts \
 
 Bench runs ~3 min. Report lands at `benchmarks/reports/<timestamp>/`, with
 `dashboard.svg` as the entry point. Open it in a browser.
+
+If the port-forward dies mid-bench (kubelet sometimes drops it under heavy
+load), restart it manually in a second shell with the same port:
+
+```sh
+kubectl --context wm-sim-k8s-4node port-forward -n default \
+  svc/windmill-app <same port>:8000
+```
 
 ## Prerequisites
 
@@ -221,9 +234,11 @@ pass regardless.
   `--minikube-profile <name>` to `main.ts` if you renamed it.
 - Default kubectl context comes from minikube. Use
   `kubectl --context wm-sim-k8s-4node …` to be explicit.
-- The port-forward dies easily under heavy bench load (kubelet drops the
-  connection). If a bench fails partway with "connection refused", restart
-  PF and re-fire.
+- `wm_sim up` runs the port-forward as a child process. Killing wm_sim
+  (Ctrl-C) kills the forward. The kubelet sometimes drops the forward under
+  heavy bench load; if a bench fails partway with "connection refused",
+  start a replacement forward manually with `kubectl port-forward` on the
+  same local port and re-fire.
 - `minikube stop` is safe — VM disks persist, etcd survives, helm releases
   + Secrets all come back when you `minikube start`. `wm_sim up` does
   `minikube delete` first, so it's destructive — only use it for clean reprovisions.

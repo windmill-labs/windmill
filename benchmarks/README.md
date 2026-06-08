@@ -86,19 +86,18 @@ workflow on top of `main.ts`. See [`sim/README.md`](sim/README.md) for:
 Quick path:
 
 ```sh
-# Provision cluster + deploy Windmill (foreground; Ctrl-C tears down):
+# Provision cluster + deploy Windmill (foreground; Ctrl-C tears down).
+# Prints `[helm] API reachable at http://127.0.0.1:<port>` — note the port.
+# Port-forward stays alive as a child of wm_sim, so keep this terminal open.
 wm_sim up \
   --topology    sim/topologies/k8s-4node.json \
   --helm        ../windmill-helm-charts/charts/windmill \
   --helm-values sim/values/smoke.yaml \
   --helm-values sim/values/local.yaml
 
-# In another shell — port-forward + run bench:
-kubectl --context wm-sim-k8s-4node port-forward --address 0.0.0.0 \
-  -n default svc/windmill-app 33405:8000 &
-
+# In another shell — fire bench against the wm_sim-managed port:
 deno run -A main.ts \
-  --host http://127.0.0.1:33405 \
+  --host http://127.0.0.1:<port> \
   --token <admin-token> \
   --workload-config workloads/io_150ms_flood.json \
   --minikube-profile wm-sim-k8s-4node \
