@@ -28,6 +28,7 @@
 		ScheduleService
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { goto } from '$app/navigation'
 	import { computeSecretUrl } from '$lib/components/apps/editor/appDeploy.svelte'
 	import {
 		buildProjectBundle,
@@ -1924,12 +1925,12 @@
 					</span>
 				{/if}
 				<a
-					href="#default_app"
+					href="?tab=default_app"
 					class="text-[11px] text-blue-600 underline"
 					onclick={(e) => {
 						e.preventDefault()
 						publishDrawer?.closeDrawer()
-						window.location.hash = 'default_app'
+						goto('?tab=default_app')
 					}}
 				>
 					Edit in Workspace settings → Apps
