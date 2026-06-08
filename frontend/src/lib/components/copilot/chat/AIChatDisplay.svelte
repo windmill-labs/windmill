@@ -1,7 +1,7 @@
 <script lang="ts">
 	import AIChatMessage from './AIChatMessage.svelte'
 	import AppAvailableContextList from './AppAvailableContextList.svelte'
-	import AvailableContextList from './AvailableContextList.svelte'
+	import ChatContextPicker from './ChatContextPicker.svelte'
 	import { type Snippet } from 'svelte'
 	import {
 		AlertTriangle,
@@ -518,7 +518,7 @@
 				{#if showFooterLeftControls}
 					<div class="flex flex-row items-center gap-x-1.5 min-w-0 flex-wrap">
 						{#if showContextPicker && !disabled}
-							<Popover>
+							<Popover placement="bottom-start">
 								{#snippet trigger()}
 									<Button
 										nonCaptureEvent
@@ -540,16 +540,23 @@
 											}}
 										/>
 									{:else}
-										<AvailableContextList
+										<ChatContextPicker
 											{availableContext}
 											{selectedContext}
 											onSelect={(element) => {
 												void aiChatInput?.addContextToSelection(element)
+												aiChatInput?.insertMention(element.title)
 												close()
+												aiChatInput?.focusInput()
 											}}
 											onSelectWorkspaceItem={(element) => {
 												void aiChatInput?.addContextToSelection(element)
+												aiChatInput?.insertMention(element.title)
 												close()
+												aiChatInput?.focusInput()
+											}}
+											setShowing={(showing) => {
+												if (!showing) close()
 											}}
 										/>
 									{/if}
