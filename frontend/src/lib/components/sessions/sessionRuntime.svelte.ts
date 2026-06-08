@@ -372,9 +372,10 @@ function createRuntime(session: Session): SessionRuntime {
 
 		async loadScript(workspace: string, path: string, force = false) {
 			if (scriptSlot.loadedPath === path && !force) return
-			// Forced reload: clearing loadedScriptPath drops us into the
-			// `{#if loading && !loadedScriptPath}` gate, which unmounts then remounts
-			// the editor — avoids the Monaco init race a synchronous {#key} would hit.
+			// Forced reload: clearing the slot's loadedPath drops us into
+			// SessionEditorTarget's `{:else if slot.loadedPath === undefined}` gate,
+			// which unmounts then remounts the editor — avoids the Monaco init race a
+			// synchronous {#key} would hit.
 			if (force) scriptSlot.loadedPath = undefined
 			scriptSlot.loading = true
 			scriptSlot.notFound = false

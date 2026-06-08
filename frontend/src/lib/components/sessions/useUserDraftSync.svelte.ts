@@ -92,6 +92,10 @@ export function useUserDraftSync<Draft>(opts: UserDraftSyncOptions<Draft>): void
 	// mutation. `lastInboundSig` (read tracked here) makes the echo from an
 	// inbound apply a no-op, terminating the loop.
 	let outboundTimer: ReturnType<typeof setTimeout> | undefined
+	// The latest scheduled-but-unwritten save (captures its own path/workspace),
+	// so a target swap or unmount can flush it instead of dropping the last
+	// `debounceMs` of edits. See the flush effect below.
+	let pendingFlush: (() => void) | undefined
 	$effect(() => {
 		if (!opts.ready()) return
 		const draft = codec.storeToDraft(undefined)
@@ -101,17 +105,34 @@ export function useUserDraftSync<Draft>(opts: UserDraftSyncOptions<Draft>): void
 		const path = opts.path()
 		const workspace = opts.workspace()
 		if (!path || !workspace) return
-		if (outboundTimer) clearTimeout(outboundTimer)
-		outboundTimer = setTimeout(() => {
+		const save = () => {
+			if (outboundTimer) {
+				clearTimeout(outboundTimer)
+				outboundTimer = undefined
+			}
+			pendingFlush = undefined
 			untrack(() => {
 				const current = UserDraft.get<Draft>(codec.itemKind, path, { workspace })
 				if (current && codec.sig(current) === sig) return
 				const toSave = codec.storeToDraft(current) ?? draft
 				UserDraft.save<Draft>(codec.itemKind, path, toSave, { workspace })
 			})
-		}, codec.debounceMs)
-		return () => {
-			if (outboundTimer) clearTimeout(outboundTimer)
 		}
+		pendingFlush = save
+		if (outboundTimer) clearTimeout(outboundTimer)
+		outboundTimer = setTimeout(save, codec.debounceMs)
+	})
+
+	// Flush a pending debounced write when the target path/workspace changes
+	// (breadcrumb swap) or on unmount. Tracks ONLY path/workspace — a normal
+	// typing burst (store mutation) re-runs the outbound effect above, not this
+	// one, so it never flushes mid-burst and the debounce is preserved. Without
+	// this, switching within the debounce window would silently drop the last
+	// edits (scripts previously saved immediately, so this is a regression guard
+	// for the new uniform debounce as well as a fix for flow/raw_app).
+	$effect(() => {
+		opts.path()
+		opts.workspace()
+		return () => pendingFlush?.()
 	})
 }
