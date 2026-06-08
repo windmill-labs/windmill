@@ -1,8 +1,8 @@
 /**
  * Workspace Drafts — the single source of truth for "which Server Drafts exist
- * in a workspace" (see CONTEXT.md). Lists the deployable Draft Items once; the
- * Draft Count is simply that list's length — never a separate query. This is
- * what makes the count reliable: count ≡ list, by construction.
+ * in a workspace". Lists the deployable Draft Items once; the Draft Count is
+ * simply that list's length — never a separate query. This is what makes the
+ * count reliable: count ≡ list, by construction.
  *
  * Behind this seam the list is currently assembled from the three version-aware
  * list endpoints (scripts/flows/apps with `include_draft_only`). A single
