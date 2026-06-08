@@ -136,6 +136,9 @@
 		liveEditorDraftStoragePath?: string
 		// Fired after a successful deploy; lets the session preview reload.
 		onDeploy?: (e: { path: string }) => void
+		// Fired after a successful server-draft save; lets the session refresh the
+		// draft-bar count (the script/flow editors do the same on save-draft).
+		onSaveDraft?: (e: { path: string }) => void
 	}
 
 	let {
@@ -162,7 +165,8 @@
 		onToggleSidebar = undefined,
 		onNavigate = undefined,
 		liveEditorDraftStoragePath = undefined,
-		onDeploy = undefined
+		onDeploy = undefined,
+		onSaveDraft = undefined
 	}: Props = $props()
 
 	let newEditedPath = $state(
@@ -621,6 +625,7 @@
 			if (newApp || savedApp.draft_only) {
 				dispatch('savedNewAppPath', newEditedPath || path)
 			}
+			onSaveDraft?.({ path: newEditedPath || path })
 		} catch (e) {
 			loading.saveDraft = false
 			throw e
