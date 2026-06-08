@@ -109,6 +109,7 @@ import {
 	saveGlobalAppDraft,
 	saveGlobalDraftValue,
 	setEphemeralSecretVariableDraftValue,
+	shapeGlobalDraftItem,
 	triggerKindToUserDraftKind
 } from './userDraftAdapter'
 
@@ -2173,17 +2174,26 @@ function startDraftWrite(ctx: WriteDraftCtx, type: WorkspaceItemType, path: stri
 	})
 }
 
-async function getRequiredGlobalDraft(
+/**
+ * Build the `WorkspaceItem` to return from a write tool from the value we
+ * just saved, rather than reading it back from the server. The preceding
+ * `saveGlobalDraftValue` rejects on a failed write, so by the time we get
+ * here the value is durably persisted (or the headless live cell holds
+ * it) — a read-back would only add a round trip and could return a stale
+ * copy if another writer raced in between.
+ */
+function requireWrittenDraftItem(
 	workspace: string,
 	type: WorkspaceItemType,
 	path: string,
+	value: unknown,
 	triggerKind?: TriggerKind
-): Promise<WorkspaceItem> {
-	const draft = await getGlobalDraft(workspace, type, path, triggerKind)
-	if (!draft) {
-		throw new Error(`Could not read written draft ${type} "${path}".`)
+): WorkspaceItem {
+	const item = shapeGlobalDraftItem(workspace, type, path, value, triggerKind)
+	if (!item) {
+		throw new Error(`Could not shape written draft ${type} "${path}".`)
 	}
-	return draft
+	return item
 }
 
 function finishDraftWrite(stored: WorkspaceItem, existed: boolean, ctx: WriteDraftCtx): string {
@@ -2221,8 +2231,9 @@ async function writeScriptDraft(
 		? false
 		: await ScriptService.existsScriptByPath({ workspace, path: args.path })
 
+	let draft: NewScript
 	if (existingDraft) {
-		const draft: NewScript = {
+		draft = {
 			...structuredClone(existingDraft),
 			path: args.path,
 			summary: args.summary ?? existingDraft.summary,
@@ -2236,7 +2247,7 @@ async function writeScriptDraft(
 			path: args.path
 		})
 		const base = existing as unknown as NewScript
-		const draft: NewScript = {
+		draft = {
 			...structuredClone(base),
 			parent_hash: existing.hash,
 			path: args.path,
@@ -2248,7 +2259,7 @@ async function writeScriptDraft(
 			remoteRev: existing.hash
 		})
 	} else {
-		const draft: NewScript = {
+		draft = {
 			path: args.path,
 			summary: args.summary ?? '',
 			description: '',
@@ -2262,7 +2273,7 @@ async function writeScriptDraft(
 	}
 
 	return finishDraftWrite(
-		await getRequiredGlobalDraft(workspace, 'script', args.path),
+		requireWrittenDraftItem(workspace, 'script', args.path, draft),
 		existingDraft !== undefined || backendExists,
 		ctx
 	)
@@ -2287,8 +2298,9 @@ async function writeFlowDraft(
 		? false
 		: await FlowService.existsFlowByPath({ workspace, path: args.path })
 
+	let draft: Flow
 	if (existingDraft) {
-		const draft: Flow = {
+		draft = {
 			...structuredClone(existingDraft),
 			path: args.path,
 			summary: args.summary ?? existingDraft.summary,
@@ -2301,7 +2313,7 @@ async function writeFlowDraft(
 			FlowService.getFlowByPath({ workspace, path: args.path }),
 			FlowService.getFlowLatestVersion({ workspace, path: args.path })
 		])
-		const draft: Flow = {
+		draft = {
 			...structuredClone(existing),
 			path: args.path,
 			summary: args.summary ?? existing.summary,
@@ -2312,7 +2324,7 @@ async function writeFlowDraft(
 			remoteRev: latestVersion.id
 		})
 	} else {
-		const draft: Flow = {
+		draft = {
 			path: args.path,
 			summary: args.summary ?? '',
 			value,
@@ -2326,7 +2338,7 @@ async function writeFlowDraft(
 	}
 
 	return finishDraftWrite(
-		await getRequiredGlobalDraft(workspace, 'flow', args.path),
+		requireWrittenDraftItem(workspace, 'flow', args.path, draft),
 		existingDraft !== undefined || backendExists,
 		ctx
 	)
@@ -2358,7 +2370,7 @@ async function writeScheduleDraft(args: NewSchedule, ctx: WriteDraftCtx): Promis
 	await saveGlobalDraftValue(workspace, 'trigger_schedule', args.path, draft)
 
 	return finishDraftWrite(
-		await getRequiredGlobalDraft(workspace, 'schedule', args.path),
+		requireWrittenDraftItem(workspace, 'schedule', args.path, draft),
 		existingDraft !== undefined || backendExists,
 		ctx
 	)
@@ -2389,7 +2401,7 @@ async function writeTriggerDraft(
 	await saveGlobalDraftValue(workspace, itemKind, path, draft)
 
 	return finishDraftWrite(
-		await getRequiredGlobalDraft(workspace, 'trigger', path, args.kind),
+		requireWrittenDraftItem(workspace, 'trigger', path, draft, args.kind),
 		existingDraft !== undefined || backendExists,
 		ctx
 	)
@@ -2408,28 +2420,23 @@ async function writeResourceDraft(args: CreateResource, ctx: WriteDraftCtx): Pro
 		? false
 		: await ResourceService.existsResource({ workspace, path: args.path })
 
+	let draftState: ResourceDraftState
 	if (existingDraft) {
-		await saveGlobalDraftValue(
-			workspace,
-			'resource',
-			args.path,
-			createResourceToDraftState(args, existingDraft)
-		)
+		draftState = createResourceToDraftState(args, existingDraft)
+		await saveGlobalDraftValue(workspace, 'resource', args.path, draftState)
 	} else if (backendExists) {
 		const existing = await ResourceService.getResource({ workspace, path: args.path })
-		await saveGlobalDraftValue(
-			workspace,
-			'resource',
-			args.path,
-			createResourceToDraftState(args, resourceToDraftState(existing)),
-			{ remoteRev: existing.edited_at }
-		)
+		draftState = createResourceToDraftState(args, resourceToDraftState(existing))
+		await saveGlobalDraftValue(workspace, 'resource', args.path, draftState, {
+			remoteRev: existing.edited_at
+		})
 	} else {
-		await saveGlobalDraftValue(workspace, 'resource', args.path, createResourceToDraftState(args))
+		draftState = createResourceToDraftState(args)
+		await saveGlobalDraftValue(workspace, 'resource', args.path, draftState)
 	}
 
 	return finishDraftWrite(
-		await getRequiredGlobalDraft(workspace, 'resource', args.path),
+		requireWrittenDraftItem(workspace, 'resource', args.path, draftState),
 		existingDraft !== undefined || backendExists,
 		ctx
 	)
@@ -2448,33 +2455,28 @@ async function writeVariableDraft(args: CreateVariable, ctx: WriteDraftCtx): Pro
 		? false
 		: await VariableService.existsVariable({ workspace, path: args.path })
 
+	let draftState: VariableDraftState
 	if (existingDraft) {
-		await saveGlobalDraftValue(
-			workspace,
-			'variable',
-			args.path,
-			createVariableToDraftState(args, existingDraft)
-		)
+		draftState = createVariableToDraftState(args, existingDraft)
+		await saveGlobalDraftValue(workspace, 'variable', args.path, draftState)
 	} else if (backendExists) {
 		const existing = await VariableService.getVariable({
 			workspace,
 			path: args.path,
 			decryptSecret: false
 		})
-		await saveGlobalDraftValue(
-			workspace,
-			'variable',
-			args.path,
-			createVariableToDraftState(args, variableToDraftState(existing)),
-			{ remoteRev: existing.edited_at }
-		)
+		draftState = createVariableToDraftState(args, variableToDraftState(existing))
+		await saveGlobalDraftValue(workspace, 'variable', args.path, draftState, {
+			remoteRev: existing.edited_at
+		})
 	} else {
-		await saveGlobalDraftValue(workspace, 'variable', args.path, createVariableToDraftState(args))
+		draftState = createVariableToDraftState(args)
+		await saveGlobalDraftValue(workspace, 'variable', args.path, draftState)
 	}
 	syncEphemeralSecretVariableDraftValue(workspace, args)
 
 	return finishDraftWrite(
-		await getRequiredGlobalDraft(workspace, 'variable', args.path),
+		requireWrittenDraftItem(workspace, 'variable', args.path, draftState),
 		existingDraft !== undefined || backendExists,
 		ctx
 	)

@@ -367,8 +367,60 @@ export async function saveGlobalDraftValue<V>(
 		path: storagePath,
 		value,
 		immediate: true,
-		force: true
+		force: true,
+		// Headless write: a failed POST must reject so the calling tool
+		// reports the failure, instead of being silently swallowed and
+		// then read back as a stale value (or 404) and mis-reported as a
+		// successful write.
+		throwOnError: true
 	})
+}
+
+/**
+ * Shape a draft `value` into a `WorkspaceItem` at its live-editor display
+ * path. Shared by the DB read path (`getGlobalDraftSlot`) and the
+ * write-then-shape path (`shapeGlobalDraftItem`) so both yield an
+ * identical item for the same value.
+ */
+function buildGlobalDraftItem<V>(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	storagePath: string,
+	value: V
+): { displayPath: string; item: WorkspaceItem } | undefined {
+	const { displayPath, isLiveDraft } = liveDisplayPath(workspace, itemKind, storagePath)
+	const entry: UserDraftEntry = {
+		workspace,
+		itemKind,
+		path: storagePath,
+		value,
+		meta: {}
+	}
+	const item = userDraftEntryToWorkspaceItem(entry, displayPath, isLiveDraft)
+	return item ? { displayPath, item } : undefined
+}
+
+/**
+ * Shape a freshly-written draft `value` into a `WorkspaceItem` WITHOUT a
+ * server read-back. The value is exactly what `saveGlobalDraftValue` just
+ * persisted (and that save now rejects on failure), so reading it back
+ * would be a redundant round trip — and, before the syncer learned to
+ * reject failed writes, the read-back could mask a failed save by
+ * returning the stale server copy. Mirrors `getGlobalDraftSlot`'s shaping
+ * (same live-editor display-path / `isLiveDraft` resolution), sourced
+ * from the in-hand value.
+ */
+export function shapeGlobalDraftItem<V>(
+	workspace: string,
+	type: WorkspaceItemType,
+	path: string,
+	value: V,
+	triggerKind?: TriggerKind
+): WorkspaceItem | undefined {
+	const itemKind = itemKindFor(type, triggerKind)
+	if (!itemKind) return undefined
+	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
+	return buildGlobalDraftItem(workspace, itemKind, storagePath, value)?.item
 }
 
 async function getGlobalDraftSlot(
@@ -383,19 +435,9 @@ async function getGlobalDraftSlot(
 	const draft = await readGlobalDraftValue(workspace, itemKind, storagePath)
 	if (draft === undefined) return undefined
 
-	const { displayPath, isLiveDraft } = liveDisplayPath(workspace, itemKind, storagePath)
-	const entry = {
-		workspace,
-		itemKind,
-		path: storagePath,
-		value: draft,
-		meta: {},
-		persisted: false,
-		live: false
-	}
-	const item = userDraftEntryToWorkspaceItem(entry, displayPath, isLiveDraft)
-	if (!item) return undefined
-	return { itemKind, storagePath, displayPath, item }
+	const shaped = buildGlobalDraftItem(workspace, itemKind, storagePath, draft)
+	if (!shaped) return undefined
+	return { itemKind, storagePath, displayPath: shaped.displayPath, item: shaped.item }
 }
 
 export async function getGlobalDraft(
@@ -467,8 +509,11 @@ export async function saveGlobalAppDraft(
 	const storagePath = resolveDraftStoragePath(workspace, 'raw_app', path)
 	const normalized = normalizeAppDraftValue(value)
 	await saveGlobalDraftValue(workspace, 'raw_app', storagePath, normalized, meta)
-	const stored = await getGlobalDraft(workspace, 'app', path)
-	if (!stored) throw new Error(`Could not read written app draft "${path}".`)
+	// Shape from the value we just persisted instead of reading it back —
+	// the save above rejects on failure, so a read-back would only add a
+	// round trip (and risk returning a stale copy).
+	const stored = shapeGlobalDraftItem(workspace, 'app', path, normalized)
+	if (!stored) throw new Error(`Could not shape written app draft "${path}".`)
 	return stored
 }
 
@@ -510,7 +555,10 @@ export async function deleteGlobalDraft(
 		path: storagePath,
 		value: null,
 		immediate: true,
-		force: true
+		force: true,
+		// A failed delete must reject so callers (discard / deploy /
+		// delete tools) don't report "discarded" while the row survives.
+		throwOnError: true
 	})
 	if (type === 'variable') clearEphemeralSecretVariableDraftValue(workspace, storagePath)
 }
@@ -529,7 +577,8 @@ export async function clearGlobalDrafts(workspace: string): Promise<void> {
 			path: draft.path,
 			value: null,
 			immediate: true,
-			force: true
+			force: true,
+			throwOnError: true
 		})
 	}
 	clearEphemeralSecretVariableDraftValues(workspace)

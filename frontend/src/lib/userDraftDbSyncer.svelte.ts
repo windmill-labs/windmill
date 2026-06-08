@@ -74,6 +74,17 @@ export type UserDraftDbSyncerSaveOpts = {
 	 *  the conflict locally. Default `false`: regular autosaves attach
 	 *  `last_sync` and respect the server's reject response. */
 	force?: boolean
+	/** Propagate a failed POST (network / HTTP error, or a rejected
+	 *  optimistic-concurrency check) by rejecting the returned promise
+	 *  instead of swallowing it. ONLY honored on the `immediate` path —
+	 *  the debounced autosave path is fire-and-forget and must never
+	 *  reject into an unhandled rejection. Use when the caller awaits the
+	 *  save and reports its success/failure to a user or model (the
+	 *  headless AI-chat draft writes): a swallowed failure would otherwise
+	 *  be read back as a stale value and reported as a successful write.
+	 *  Default `false` (preserves the swallow-and-log behaviour for
+	 *  `overwrite(...)` and other immediate callers). */
+	throwOnError?: boolean
 }
 
 /**
@@ -155,51 +166,72 @@ const pendingSaveOpts = new Map<string, UserDraftDbSyncerSaveOpts>()
  */
 const conflicts = new SvelteMap<string, DraftConflictInfo>()
 
-async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
+/**
+ * The network-and-state half of a save. THROWS on a failed POST (network
+ * / HTTP error) or — when `opts.throwOnError` is set — on a rejected
+ * optimistic-concurrency check. `postSave` wraps this with the
+ * swallow-and-log behaviour the debounced autosave path relies on; the
+ * `immediate` + `throwOnError` path calls it directly so the rejection
+ * reaches the awaiting caller.
+ */
+async function performSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 	const key = draftKey(opts.workspace, opts.itemKind, opts.path)
 	const lastSync = getLastSyncEntry(key)?.lastSync
-	try {
-		const resp = await DraftService.saveDraft({
-			workspace: opts.workspace,
-			kind: opts.itemKind,
-			path: opts.path,
-			requestBody: {
-				value: opts.value as any,
-				// Force-saves skip the conflict check (callers that
-				// explicitly opted in via `overwrite(...)` already showed
-				// the user the conflict). Regular autosaves attach
-				// `last_sync` (when we have one) so the server can reject
-				// stale writes — defining behaviour for a first-ever save
-				// is "no last_sync field at all", matching the backend's
-				// "treat as fresh" branch.
-				last_sync: opts.force ? undefined : lastSync,
-				force: opts.force ?? false
-			}
+	const resp = await DraftService.saveDraft({
+		workspace: opts.workspace,
+		kind: opts.itemKind,
+		path: opts.path,
+		requestBody: {
+			value: opts.value as any,
+			// Force-saves skip the conflict check (callers that
+			// explicitly opted in via `overwrite(...)` already showed
+			// the user the conflict). Regular autosaves attach
+			// `last_sync` (when we have one) so the server can reject
+			// stale writes — defining behaviour for a first-ever save
+			// is "no last_sync field at all", matching the backend's
+			// "treat as fresh" branch.
+			last_sync: opts.force ? undefined : lastSync,
+			force: opts.force ?? false
+		}
+	})
+	if (resp.status === 'conflict') {
+		// Server rejected the write because someone (another tab /
+		// browser / user) advanced the row past our `last_sync`. Park
+		// the snapshot in the conflict map for the UI to pick up; do
+		// NOT touch the local `lastSync` (the next save retries from
+		// the same baseline so the conflict persists until resolved).
+		conflicts.set(key, {
+			serverTimestamp: resp.current_timestamp,
+			localLastSync: lastSync ?? null
 		})
-		if (resp.status === 'conflict') {
-			// Server rejected the write because someone (another tab /
-			// browser / user) advanced the row past our `last_sync`. Park
-			// the snapshot in the conflict map for the UI to pick up; do
-			// NOT touch the local `lastSync` (the next save retries from
-			// the same baseline so the conflict persists until resolved).
-			conflicts.set(key, {
-				serverTimestamp: resp.current_timestamp,
-				localLastSync: lastSync ?? null
-			})
-			return
+		// A caller awaiting this save needs to know the write did NOT
+		// land — surface it rather than returning as if it had. (Forced
+		// saves never hit this branch, so the headless AI-chat writes,
+		// which always force, won't trip it.)
+		if (opts.throwOnError) {
+			throw new Error(
+				`UserDraftDbSyncer: save for ${key} was rejected by the optimistic-concurrency check`
+			)
 		}
-		// resp.status === 'saved' — clear any prior conflict and bring
-		// the local lastSync forward (or drop it entirely on a delete).
-		if (opts.value === null) {
-			clearLastSync(opts.workspace, opts.itemKind, opts.path)
-		} else {
-			setLastSync(opts.workspace, opts.itemKind, opts.path, resp.current_timestamp)
-		}
-		conflicts.delete(key)
-		// Clear pending only if it's still the opts we just saved — a
-		// newer `save()` that arrived during the POST replaces the entry
-		// and must survive for the next flush / debouncer round.
-		if (pendingSaveOpts.get(key) === opts) pendingSaveOpts.delete(key)
+		return
+	}
+	// resp.status === 'saved' — clear any prior conflict and bring
+	// the local lastSync forward (or drop it entirely on a delete).
+	if (opts.value === null) {
+		clearLastSync(opts.workspace, opts.itemKind, opts.path)
+	} else {
+		setLastSync(opts.workspace, opts.itemKind, opts.path, resp.current_timestamp)
+	}
+	conflicts.delete(key)
+	// Clear pending only if it's still the opts we just saved — a
+	// newer `save()` that arrived during the POST replaces the entry
+	// and must survive for the next flush / debouncer round.
+	if (pendingSaveOpts.get(key) === opts) pendingSaveOpts.delete(key)
+}
+
+async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
+	try {
+		await performSave(opts)
 	} catch (e) {
 		console.error('UserDraftDbSyncer.save failed', e)
 	}
@@ -337,7 +369,13 @@ export const UserDraftDbSyncer = {
 			// observable in the runner's internal state for debugging.
 			debouncer.cancel(key)
 			runner.cancel(key)
-			await runner.submitAndWait(key, () => postSave(opts))
+			// `throwOnError` callers await the result and report it — run
+			// the throwing `performSave` so `submitAndWait` rejects on a
+			// failed POST. Everyone else keeps the swallow-and-log
+			// `postSave` so an immediate autosave can't reject unhandled.
+			await runner.submitAndWait(key, () =>
+				opts.throwOnError ? performSave(opts) : postSave(opts)
+			)
 			return
 		}
 		debouncer.schedule(key, () => {

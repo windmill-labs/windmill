@@ -266,6 +266,40 @@ distinct operation (drop a draft, keep the deployed item) — not redundant with
   `value:null` → `get_draft` 404. Confirms the exact request/response shapes the
   seam uses against the endpoints the unit tests mock.
 
+### Hardening (post-review)
+
+The original seam did **save → read-back**: `saveGlobalDraftValue` pushed to
+`UserDraftDbSyncer.save`, then the writer re-read via `getRequiredGlobalDraft`
+to shape its return value. Two problems with that:
+
+1. **A failed write was reported as success.** `UserDraftDbSyncer.postSave`
+   swallows every error (`catch → console.error`) — correct for fire-and-forget
+   autosave, wrong for an awaited write whose result is reported to the model.
+   On a new draft a failed save surfaced as a misleading *"Could not read written
+   draft"*; on an **overwrite** the read-back returned the **stale** server copy
+   and the tool reported success with old content (silent write loss).
+2. **Every write cost a POST + a GET** to reconstruct a value already in hand.
+
+Both are closed:
+
+- **Errors propagate.** `postSave` is split into a throwing `performSave` core
+  and the swallow-and-log `postSave` wrapper. A new `throwOnError` opt (honored
+  **only** on the awaited `immediate` path) routes to `performSave`, so a failed
+  POST rejects the `save()` promise. The headless `saveGlobalDraftValue`,
+  `deleteGlobalDraft`, and `clearGlobalDrafts` pass `throwOnError: true`; the
+  debounced autosave path and `overwrite(...)` keep the swallow (default
+  `false`) so they can't reject unhandled.
+- **No read-back.** New `shapeGlobalDraftItem(workspace, type, path, value,
+  triggerKind?)` shapes the `WorkspaceItem` from the value just saved (same
+  `liveDisplayPath`/`isLiveDraft` logic as `getGlobalDraftSlot`, factored into a
+  shared `buildGlobalDraftItem`). `getRequiredGlobalDraft` is replaced by the
+  sync `requireWrittenDraftItem`; the six write handlers hoist their built draft
+  value and shape locally. `saveGlobalAppDraft` shapes locally too. Secret
+  variables are unaffected — the shaped value carries `value: ''` (the real
+  secret stays in the ephemeral map), same as the read-back produced.
+
+Unit suite stays green (`core.test.ts` 58/58).
+
 ### Remaining
 
 - **E2E with the live LLM-driven chat** (§8 step 5) is still unrun — it needs a
