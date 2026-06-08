@@ -4,6 +4,7 @@
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 	import SessionEditorTarget from './SessionEditorTarget.svelte'
+	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 
 	let {
 		runtime,
@@ -62,6 +63,13 @@
 				onDeploy={(e) => {
 					// Sync the preview to deployed (raw apps deploy only from this editor).
 					runtime.syncPreviewWithDeployed(workspaceId, 'raw_app', e.path)
+					// Deploying clears the item's pending draft — refresh the Draft Count.
+					invalidateWorkspaceDrafts(workspaceId)
+				}}
+				onSaveDraft={() => {
+					// Saving a server draft adds/updates a draft — refresh the Draft Count so
+					// the session draft bar appears/updates immediately (parity with script/flow).
+					invalidateWorkspaceDrafts(workspaceId)
 				}}
 				defaultSidebarCollapsed
 				sidebarStorageKey="raw-app-sidebar-collapsed-preview"

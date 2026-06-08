@@ -37,6 +37,7 @@
 	import { page } from '$app/state'
 	import { goto, replaceState } from '$app/navigation'
 	import ForkWorkspaceBanner from '$lib/components/ForkWorkspaceBanner.svelte'
+	import WorkspaceDraftsBanner from '$lib/components/WorkspaceDraftsBanner.svelte'
 	import WorkspaceTutorials from '$lib/components/WorkspaceTutorials.svelte'
 	import { onMount, setContext } from 'svelte'
 	import { tutorialsToDo } from '$lib/stores'
@@ -278,6 +279,7 @@
 	style="scrollbar-gutter: stable both-edges;"
 >
 	<ForkWorkspaceBanner />
+	<WorkspaceDraftsBanner />
 	<div class="max-w-7xl px-4 sm:px-8 md:px-8 h-fit w-full">
 		{#if $workspaceStore == 'admins'}
 			<div class="my-4"></div>
