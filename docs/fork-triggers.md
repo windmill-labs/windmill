@@ -57,8 +57,13 @@ The rule that makes both the normal-git PR merge and the in-app merge behave:
 
 > **A trigger's `mode` (and a schedule's `enabled`) belongs to the parent
 > workspace. Git-sync *reads* the parent's value into a fork's synced file and
-> *never writes* a fork's value back. The only mutator of a fork's operational
-> state is the `setmode` / `setenabled` endpoint.**
+> *never writes* a fork's value back. No git-sync / merge / create / update
+> write sets a fork's operational state; the `setmode` / `setenabled` endpoint
+> is the intended explicit mutator.**
+
+(Runtime error handling can still auto-disable an errored trigger or schedule —
+that's orthogonal to this rule, which governs git-sync/merge/create/update
+writes.)
 
 This is enforced in two halves, keyed off `parent_workspace_id IS NOT NULL`
 (the column, not the `wm-fork-*` naming convention — it stays consistent with

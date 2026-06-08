@@ -242,17 +242,19 @@ async fn create_schedule(
 
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
-    // Writing into a fork never sets operational state: force `enabled = false`
-    // so a cloned / synced / merged / UI-created schedule can't fire alongside
-    // the parent's. The fork owner re-enables locally via `setenabled`. This is
-    // the schedule analog of the trigger rule in
+    // A git-sync/merge/create write into a fork never sets operational state:
+    // force `enabled = false` so a cloned / synced / merged / UI-created schedule
+    // can't fire alongside the parent's. The fork owner re-enables locally via
+    // `setenabled`. Schedule analog of the trigger rule in
     // `windmill-trigger::handler::workspace_is_fork`; the read half (parent-value
-    // substitution on fork export) lives in `workspaces_export.rs`.
+    // substitution on fork export) lives in `workspaces_export.rs`. Read fork-ness
+    // on the non-RLS `db` pool (like the other two sites) so the determination is
+    // complete regardless of the caller's folder perms.
     let target_is_fork: bool = sqlx::query_scalar!(
         "SELECT parent_workspace_id IS NOT NULL FROM workspace WHERE id = $1",
         w_id
     )
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&db)
     .await?
     .flatten()
     .unwrap_or(false);

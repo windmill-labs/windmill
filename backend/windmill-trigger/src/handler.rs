@@ -34,15 +34,16 @@ use windmill_git_sync::handle_deployment_metadata;
 
 /// True when the workspace is a fork (`parent_workspace_id IS NOT NULL`).
 ///
-/// Operational state (`mode`) belongs to the parent workspace: a write into a
-/// fork (git-sync push, merge deploy, clone, or even a plain UI create) must
-/// never set it. On create we force `disabled` so a fork trigger can't compete
-/// with the parent's listener; on update we preserve the fork's existing value.
-/// The only mutator of a fork trigger's mode is the `setmode` endpoint (which
-/// carries its own conflict warning). This is the write half of the rule whose
-/// read half lives in `workspaces_export.rs` (parent-value substitution on
-/// fork export), and it is the single authority shared by both the git-sync
-/// round-trip and the in-app compare-workspaces merge.
+/// Operational state (`mode`) belongs to the parent workspace: a git-sync /
+/// merge / clone / UI-create write into a fork must never set it. On create we
+/// force `disabled` so a fork trigger can't compete with the parent's listener;
+/// on update we preserve the fork's existing value. `setmode` is the intended
+/// explicit mutator of a fork's mode (and carries its own conflict warning) —
+/// runtime error handling may still auto-disable an errored trigger, which is
+/// orthogonal to this rule. This is the write half whose read half lives in
+/// `workspaces_export.rs` (parent-value substitution on fork export), and it is
+/// the single authority shared by both the git-sync round-trip and the in-app
+/// compare-workspaces merge.
 async fn workspace_is_fork(db: &DB, workspace_id: &str) -> Result<bool> {
     let is_fork: Option<bool> =
         sqlx::query_scalar("SELECT parent_workspace_id IS NOT NULL FROM workspace WHERE id = $1")
