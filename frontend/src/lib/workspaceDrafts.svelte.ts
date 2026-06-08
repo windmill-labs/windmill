@@ -33,6 +33,19 @@ export interface DraftItem {
 /** The one place the "is this a deployable Draft Item?" rule lives on the
  * frontend: a pending draft on a deployed item (`has_draft`) OR a never-deployed
  * `draft_only` item. Mirrors the backend `count_drafts` predicate. */
+/** The list-endpoint fields this module reads. Kept as a narrow local interface
+ * (rather than `any`) so the count predicate isn't typed against `any`. NOTE:
+ * `openapi.yaml`'s `ListableApp` still omits `has_draft`/`draft_only` (the backend
+ * struct returns them) — the proper fix is to add them to the spec and regenerate
+ * the client; until then this interface documents the contract relied on. */
+interface DraftListEntry {
+	path: string
+	summary?: string
+	has_draft?: boolean
+	draft_only?: boolean
+	raw_app?: boolean
+}
+
 export async function getDraftItems(workspace: string): Promise<DraftItem[]> {
 	const [scripts, flows, apps] = await Promise.all([
 		ScriptService.listScripts({ workspace, includeDraftOnly: true }),
@@ -40,7 +53,7 @@ export async function getDraftItems(workspace: string): Promise<DraftItem[]> {
 		AppService.listApps({ workspace, includeDraftOnly: true })
 	])
 	const items: DraftItem[] = []
-	const push = (kind: DraftKind, list: Array<any>) => {
+	const push = (kind: DraftKind, list: DraftListEntry[]) => {
 		for (const it of list) {
 			if (it.has_draft || it.draft_only) {
 				items.push({

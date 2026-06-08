@@ -8,7 +8,6 @@
 		CircleCheck,
 		CircleX,
 		DiffIcon,
-		ExternalLink,
 		FileJson,
 		FlaskConical,
 		GitFork,
@@ -29,6 +28,7 @@
 	} from '$lib/gen'
 	import Button from './common/button/Button.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
+	import ExternalEditLink from './ExternalEditLink.svelte'
 	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 
@@ -875,19 +875,13 @@
 							{/if}
 						{/snippet}
 						{#if editUrl}
-							<a
+							<ExternalEditLink
 								href={editUrl}
-								target="_blank"
-								rel="noopener noreferrer"
 								title="Open {diff.path} in a new tab"
-								onclick={(e) => e.stopPropagation()}
-								class="group inline-flex items-center gap-1 max-w-full text-emphasis hover:underline"
+								class="text-emphasis"
 							>
 								{@render label()}
-								<ExternalLink
-									class="w-3 h-3 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity"
-								/>
-							</a>
+							</ExternalEditLink>
 						{:else}
 							{@render label()}
 						{/if}

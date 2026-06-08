@@ -34,8 +34,9 @@
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { DiffIcon, ExternalLink, SquareSplitHorizontal } from 'lucide-svelte'
+	import { DiffIcon, SquareSplitHorizontal } from 'lucide-svelte'
 	import { untrack, type Snippet } from 'svelte'
+	import ExternalEditLink from '../ExternalEditLink.svelte'
 
 	// Read-only, multi-item before/after diff viewer with a file tree. The data
 	// source (fork comparison vs deployed-vs-draft) is supplied by the parent
@@ -569,19 +570,13 @@
 										<RowIcon kind={d.kind as any} size={14} />
 										<div class="min-w-0 flex-1">
 											{#if editUrl}
-												<a
+												<ExternalEditLink
 													href={editUrl}
-													target="_blank"
-													rel="noopener noreferrer"
 													title={d.path}
-													onclick={(e) => e.stopPropagation()}
-													class="group inline-flex items-center gap-1 max-w-full text-xs text-primary font-mono truncate hover:underline"
+													class="text-xs text-primary font-mono truncate"
 												>
 													<span class="truncate">{d.path}</span>
-													<ExternalLink
-														class="w-3 h-3 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity"
-													/>
-												</a>
+												</ExternalEditLink>
 											{:else}
 												<div class="text-xs text-primary font-mono truncate" title={d.path}>
 													{d.path}

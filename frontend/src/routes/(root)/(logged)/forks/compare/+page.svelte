@@ -5,7 +5,7 @@
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import { page } from '$app/state'
 	import { userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
-	import { untrack } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -58,7 +58,9 @@
 	// (fork has changes the parent lacks); updateable = items behind. Computed
 	// here so they show on the toggle in draft mode too (where CompareDrafts has
 	// no comparison data of its own). Typed helpers avoid a $state `never`
-	// inference quirk on `comparison` inside $derived.
+	// inference quirk on `comparison` inside $derived. A conflict (ahead AND
+	// behind) is intentionally counted in both directions — it's actionable either
+	// way.
 	function countDir(c: WorkspaceComparison | undefined, dir: 'ahead' | 'behind'): number {
 		return c?.diffs.filter((d) => d[dir] > 0).length ?? 0
 	}
@@ -110,6 +112,10 @@
 			setTimeout(() => checkForChanges(), delay)
 		)
 	}
+
+	// Don't let the catch-up timers fire after navigating away (network call +
+	// $state write on a gone component).
+	onDestroy(() => comparisonPollTimers.forEach(clearTimeout))
 
 	// Fork lifecycle actions — placed in the page header so they're available
 	// regardless of merge state. Both go through a confirmation modal because
@@ -202,6 +208,8 @@
 	{:else if mode === 'draft'}
 		<CompareDrafts
 			{currentWorkspaceId}
+			draftItems={drafts.items}
+			draftsLoading={drafts.loading}
 			onChanged={refreshCounts}
 			{isFork}
 			parentWorkspaceId={parentWorkspaceId ?? undefined}

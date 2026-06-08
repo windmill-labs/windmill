@@ -1,19 +1,28 @@
 <script lang="ts">
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
+	import ExternalEditLink from './ExternalEditLink.svelte'
 	import { Badge } from './common'
 	import Button from './common/button/Button.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
-	import { ArrowRight, DiffIcon, ExternalLink, GitFork, Pencil, Undo2 } from 'lucide-svelte'
+	import { ArrowRight, DiffIcon, GitFork, Pencil, Undo2 } from 'lucide-svelte'
+	import { untrack } from 'svelte'
 	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
 	import { editUrlFor } from './sessions/forkEditUrl'
 	import { type WorkspaceItemDiff } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { getDraftDiffValues, deployDraft, discardDraft } from '$lib/utils_draft_deploy'
-	import { useWorkspaceDrafts, type DraftItem } from '$lib/workspaceDrafts.svelte'
+	import { type DraftItem } from '$lib/workspaceDrafts.svelte'
 
 	interface Props {
 		currentWorkspaceId: string
+		/** The Draft Items to review, owned by the page's Workspace Drafts resource
+		 * and passed down so we don't mount a second resource (which would double
+		 * the list fetches). Deploy/discard here invalidate that resource, so the
+		 * list refetches upstream and the new `draftItems` flow back in. */
+		draftItems: DraftItem[]
+		/** True while the page's Workspace Drafts resource is loading. */
+		draftsLoading?: boolean
 		/** Fork context drives the merged toggle: only a fork offers the
 		 * deploy_to/update directions, so the toggle is hidden otherwise. */
 		isFork?: boolean
@@ -31,6 +40,8 @@
 
 	let {
 		currentWorkspaceId,
+		draftItems,
+		draftsLoading = false,
 		isFork = false,
 		parentWorkspaceId,
 		deployCount = 0,
@@ -52,13 +63,11 @@
 		return `${kind}:${path}`
 	}
 
-	// The list (and the Draft Count) come from the shared Workspace Drafts module;
-	// deploy/discard invalidate it, so the list refetches and deployed items drop
-	// off without a manual reload here.
-	const drafts = useWorkspaceDrafts(() => currentWorkspaceId)
-	const items: Row[] = $derived(
-		drafts.items.map((d) => ({ ...d, key: getItemKey(d.kind, d.path) }))
-	)
+	// The list (and the Draft Count) come from the shared Workspace Drafts module,
+	// owned by the page and passed in via `draftItems`; deploy/discard invalidate
+	// that resource, so the list refetches and deployed items drop off without a
+	// manual reload here.
+	const items: Row[] = $derived(draftItems.map((d) => ({ ...d, key: getItemKey(d.kind, d.path) })))
 
 	let selectedItems = $state<string[]>([])
 	let deploying = $state(false)
@@ -70,6 +79,19 @@
 		string,
 		{ status: 'loading' | 'deployed' | 'failed'; error?: string }
 	> = $state({})
+
+	// Prune transient deploy status for items no longer in the list (a deployed
+	// item drops off after the resource refetches). Keeps the map from growing
+	// unbounded and avoids a stale 'deployed' entry suppressing a row if the same
+	// kind:path is re-drafted within this mount.
+	$effect(() => {
+		const live = new Set(items.map((i) => i.key))
+		untrack(() => {
+			for (const key of Object.keys(deploymentStatus)) {
+				if (!live.has(key)) delete deploymentStatus[key]
+			}
+		})
+	})
 
 	$effect(() => {
 		if (!hasAutoSelected && items.length > 0) {
@@ -208,7 +230,7 @@
 			onSelectOnly={(item) => (selectedItems = [item.key])}
 			onSelectAll={selectAll}
 			onDeselectAll={deselectAll}
-			emptyMessage={drafts.loading ? 'Loading drafts…' : 'No drafts in this workspace'}
+			emptyMessage={draftsLoading ? 'Loading drafts…' : 'No drafts in this workspace'}
 		>
 			{#snippet header()}
 				{#if isFork}
@@ -247,19 +269,13 @@
 				{@const draftItem = item as unknown as Row}
 				{@const editUrl = draftEditUrl(draftItem)}
 				{#if editUrl}
-					<a
+					<ExternalEditLink
 						href={editUrl}
-						target="_blank"
-						rel="noopener noreferrer"
 						title="Open {draftItem.path} in a new tab"
-						onclick={(e) => e.stopPropagation()}
-						class="group inline-flex items-center gap-1 max-w-full text-emphasis truncate hover:underline"
+						class="text-emphasis truncate"
 					>
 						<span class="truncate">{draftItem.summary || draftItem.path}</span>
-						<ExternalLink
-							class="w-3 h-3 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity"
-						/>
-					</a>
+					</ExternalEditLink>
 				{:else}
 					<span class="text-emphasis">{draftItem.summary || draftItem.path}</span>
 				{/if}
