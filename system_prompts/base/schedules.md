@@ -34,10 +34,10 @@ Windmill uses 6-field cron expressions (includes seconds):
 
 ## CLI Commands
 
-After writing, tell the user they can run these commands (do NOT run them yourself):
+`wmill sync push` deploys local changes to the workspace and can be destructive to remote state — only suggest/run it when the user explicitly asks to deploy/publish/push, not when they say "run", "try", or "test". The read-only commands below (`sync pull`, `schedule`) are safe to run yourself.
 
 ```bash
-# Push schedules to Windmill
+# Push schedules to Windmill — only when the user explicitly asks to deploy
 wmill sync push
 
 # Pull schedules from Windmill
