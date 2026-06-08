@@ -272,7 +272,6 @@
 			{allSelected}
 			selectablePredicate={(item) => deploymentStatus[item.key]?.status !== 'deployed'}
 			onToggleItem={toggleItem}
-			onSelectOnly={(item) => (selectedItems = [item.key])}
 			onSelectAll={selectAll}
 			onDeselectAll={deselectAll}
 			emptyMessage={draftsLoading ? 'Loading drafts…' : 'No drafts in this workspace'}

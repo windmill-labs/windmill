@@ -32,8 +32,6 @@
 
 		// Callbacks
 		onToggleItem?: (item: DeployableItem) => void
-		/** Replace the whole selection with just this item (plain row click). */
-		onSelectOnly?: (item: DeployableItem) => void
 		onSelectAll?: () => void
 		onDeselectAll?: () => void
 	}
@@ -51,7 +49,6 @@
 		itemActions,
 		footer,
 		onToggleItem,
-		onSelectOnly,
 		onSelectAll,
 		onDeselectAll
 	}: Props = $props()
@@ -59,46 +56,10 @@
 	let selectableItems = $derived(items.filter(selectablePredicate))
 	let hasSelectableItems = $derived(selectableItems.length > 0)
 
-	function isPickable(item: DeployableItem): boolean {
-		return selectablePredicate(item) && deploymentStatus[item.key]?.status !== 'deployed'
-	}
-
-	// Multi-select anchor (index of the last row whose selection was changed),
-	// for shift-click range selection like classic list/file pickers.
-	let anchorIndex: number | null = $state(null)
-
-	function handleSelect(item: DeployableItem, index: number, e?: Event) {
-		const me = e as MouseEvent | KeyboardEvent | undefined
-		const shift = me?.shiftKey ?? false
-		// metaKey (⌘) / ctrlKey toggle a single row in/out without disturbing the
-		// rest, classic-file-picker style.
-		const toggleMod = (me?.metaKey || me?.ctrlKey) ?? false
-		// The checkbox itself fires a `change` event (no modifier keys); there it
-		// must behave like a checkbox — toggle, never collapse to a single row.
-		const fromCheckbox = e?.type === 'change'
-
-		if (shift && anchorIndex !== null) {
-			// Shift+click: extend selection across the range from the anchor to the
-			// clicked row (selects pickable, not-yet-selected items; leaves the
-			// anchor where it was so further shift-clicks keep extending).
-			const lo = Math.min(anchorIndex, index)
-			const hi = Math.max(anchorIndex, index)
-			for (let i = lo; i <= hi; i++) {
-				const it = items[i]
-				if (it && isPickable(it) && !selectedItems.includes(it.key)) {
-					onToggleItem?.(it)
-				}
-			}
-			return
-		}
-		if (toggleMod || fromCheckbox || !onSelectOnly) {
-			// Cmd/Ctrl+click (or the checkbox): add/remove this row only.
-			onToggleItem?.(item)
-		} else {
-			// Plain row click: select just this row, replacing the prior selection.
-			onSelectOnly(item)
-		}
-		anchorIndex = index
+	// Plain row click and the checkbox both toggle this row in/out — multi-select
+	// is the default, no modifier needed.
+	function handleSelect(item: DeployableItem) {
+		onToggleItem?.(item)
 	}
 </script>
 
@@ -136,7 +97,7 @@
 		<!-- Items list -->
 		<div class="overflow-y-auto">
 			<div class="border rounded-md bg-surface-tertiary">
-				{#each items as item, index (item.key)}
+				{#each items as item (item.key)}
 					{@const isSelectable = selectablePredicate(item)}
 					{@const isSelected = selectedItems.includes(item.key)}
 					{@const status = deploymentStatus[item.key]}
@@ -148,7 +109,7 @@
 						alignWithSelectable={true}
 						disabled={!isSelectable}
 						selected={isSelected && !isDeployed}
-						onSelect={(e) => handleSelect(item, index, e)}
+						onSelect={() => handleSelect(item)}
 						path={item.kind !== 'resource' &&
 						item.kind !== 'variable' &&
 						item.kind !== 'resource_type'

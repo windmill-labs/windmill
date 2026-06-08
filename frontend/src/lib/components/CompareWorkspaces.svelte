@@ -684,7 +684,6 @@
 				selectablePredicate={(item) => selectableDiffs.some((d) => getItemKey(d) === item.key)}
 				{allSelected}
 				onToggleItem={(item) => toggleKey(item.key)}
-				onSelectOnly={(item) => (selectedItems = [item.key])}
 				onSelectAll={selectAll}
 				onDeselectAll={deselectAll}
 				emptyMessage={emptyDeployMessage}
