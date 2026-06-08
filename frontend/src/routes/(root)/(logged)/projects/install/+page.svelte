@@ -50,7 +50,6 @@
 			)
 			if (!res.ok) throw new Error(`export ${res.status}: ${await res.text()}`)
 			data = JSON.parse(await res.text())
-			// Default the target folder to the project slug.
 			if (data && !folderName) folderName = data.project.slug
 		} catch (e: any) {
 			loadError = e?.message ?? String(e)
@@ -85,9 +84,6 @@
 	// Minimal non-public policy for re-created apps.
 	const defaultPolicy = { execution_mode: 'publisher', triggerables_v2: {} } as any
 
-	// Everything in the bundle lives under `f/<slug>/`. To import into a different
-	// folder we swap that prefix everywhere (item paths, `$res:`/script refs,
-	// schedule runnable paths) by rewriting the serialized bundle in one pass.
 	function retarget(bundle: ProjectExport, fromSlug: string, folder: string): ProjectExport {
 		if (folder === fromSlug) return bundle
 		const json = JSON.stringify(bundle).split(`f/${fromSlug}/`).join(`f/${folder}/`)
@@ -101,7 +97,6 @@
 		results = []
 		done = false
 		try {
-			// Ensure the target folder exists (no-op/ignored if it already does).
 			try {
 				await FolderService.createFolder({ workspace, requestBody: { name: folder } })
 			} catch {}

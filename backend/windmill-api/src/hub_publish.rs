@@ -57,7 +57,6 @@ async fn publish_draft(
     Json(body): Json<PublishDraftBody>,
 ) -> Result<impl IntoResponse, Error> {
     require_admin(authed.is_admin, &authed.username)?;
-    // source_id is injected from the trusted `workspace` path by forward_to_hub.
     forward_to_hub(
         "/projects",
         &workspace,
@@ -311,11 +310,6 @@ async fn get_project_export(
     get_from_hub(&format!("/projects/{}/export", slug), &workspace).await
 }
 
-// `source_id` is the server-trusted workspace from the `{workspace}` path — NOT
-// client-supplied — so the Hub can enforce that the targeted project belongs to
-// the calling workspace. Without it, any workspace admin could mutate or read
-// another workspace's Hub project by passing its `project_slug`, since the Hub
-// authenticates every call with the same instance-wide HUB_DEV_TOKEN.
 async fn get_from_hub(path: &str, source_id: &str) -> Result<(StatusCode, String), Error> {
     let hub_token = std::env::var("HUB_DEV_TOKEN")
         .map_err(|_| Error::BadRequest("HUB_DEV_TOKEN not set".into()))?;
@@ -349,8 +343,6 @@ async fn forward_to_hub<T: Serialize>(
 
     let url = format!("{}{}", **HUB_BASE_URL.load(), path);
 
-    // Stamp the trusted workspace onto the payload so the Hub can verify
-    // ownership; never trust the client-supplied project_slug alone.
     let mut payload = serde_json::to_value(body).map_err(to_anyhow)?;
     let obj = payload
         .as_object_mut()

@@ -392,6 +392,19 @@
 			schedulePreviews = {}
 			selectedFolder = undefined
 			manualDeselected = new Set()
+			phase = 'predeploy'
+			draftItems = []
+			recordings = {}
+			deploymentStatus = {}
+			hubItemIds = {}
+			effectiveSlug = ''
+			hubVersion = 0
+			hubName = ''
+			hubSummary = ''
+			hubReadme = ''
+			bundleName = ''
+			bundleSummary = ''
+			bundleReadme = ''
 			loadWorkspace($workspaceStore, seq)
 			loadTriggers($workspaceStore, seq)
 		}
