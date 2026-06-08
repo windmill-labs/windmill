@@ -1223,7 +1223,12 @@ export async function renderReport(input: RenderInput): Promise<void> {
   // L1/L2 panels). This is what answers "did anything die during the bench"
   // without depending on event collectors, dmesg parsing, or kubelet log
   // reachability.
-  const benchStartMs = thr.length > 0 ? thr[0].ts : 0;
+  // benchStartMs from meta.json is the shared chart-time origin (declared at
+  // top of function). For the bench-window terminations check below we want
+  // the actual first/last throughput sample — those bookend "during the
+  // bench" more precisely than meta.json's wall-clock start (which can be
+  // a few seconds before any throughput data exists).
+  const termWindowStartMs = thr.length > 0 ? thr[0].ts : 0;
   const benchEndMs = thr.length > 0 ? thr[thr.length - 1].ts : Date.now();
   type Term = { pod: string; container: string; reason: string; exitCode: number; ts: number };
   const terms: Term[] = [];
@@ -1232,7 +1237,7 @@ export async function renderReport(input: RenderInput): Promise<void> {
       const t = c.lastState?.terminated;
       if (!t || !t.finishedAt) continue;
       const ts = Date.parse(t.finishedAt);
-      if (!Number.isFinite(ts) || ts < benchStartMs || ts > benchEndMs + 5000) continue;
+      if (!Number.isFinite(ts) || ts < termWindowStartMs || ts > benchEndMs + 5000) continue;
       terms.push({
         pod: p.name,
         container: c.name,
