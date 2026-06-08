@@ -1,6 +1,5 @@
 import { get } from 'svelte/store'
 import { onDestroy, untrack } from 'svelte'
-import { deepEqual } from 'fast-equals'
 import { workspaceStore } from './stores'
 import { readFieldsRecursively } from './utils'
 import { UserDraftDbSyncer } from './userDraftDbSyncer.svelte'
@@ -54,53 +53,8 @@ export type UserDraftListOptions = UserDraftOptions & {
 	itemKinds?: readonly UserDraftItemKind[]
 }
 
-/**
- * A single (kind, path, workspace) tuple that `useMany` should hold a
- * handle for. The shape mirrors `use()`'s arguments, just bundled into
- * one object so a getter can return a list of them.
- */
-export type UserDraftSpec<V = unknown> = {
-	itemKind: UserDraftItemKind
-	path: string
-	workspace?: string
-	/**
-	 * Value the handle reports when the entry is first acquired and no
-	 * autosave is persisted. Seeded into the in-memory cell on acquire and
-	 * swallowed by the sync effect so it never POSTs — the user's first
-	 * real edit is the first synced write. An entry that already exists
-	 * (refcount > 0, e.g. another live handle) keeps its current value; the
-	 * default is ignored in that case (an existing autosave always wins).
-	 */
-	defaultValue?: V
-}
-
-/**
- * Snapshot of the remote item's freshness at the moment the local draft
- * was seeded. Used by editor routes to detect that the remote has moved
- * on since the user last saw it.
- *
- * - `remoteRev`: the deployed version's id/hash/timestamp at draft load.
- * - `remoteDraftRev`: the DB-draft `created_at` at draft load, only set
- *   for kinds that have a DB-draft (`script`, `flow`, `app`, `raw_app`).
- *
- * Meta is in-memory only. It's seeded by the editor on every load (from
- * the backend response) and lost on page reload — which is fine because
- * the editor reseeds it.
- */
-export type UserDraftMeta = {
-	remoteRev?: string | number
-	remoteDraftRev?: string | number
-}
-
-/**
- * In-memory cell shape. The value + meta are wrapped together so a single
- * reactive assignment carries both, which keeps the DB sync effect's
- * "did anything change" comparison stable.
- */
-type StoredDraft<V> = { value: V } & UserDraftMeta
-
 type DraftState<V> = {
-	val: StoredDraft<V> | undefined
+	val: V | undefined
 }
 
 type DraftEntry = {
@@ -140,7 +94,6 @@ export type UserDraftEntry<V = unknown> = {
 	itemKind: UserDraftItemKind
 	path: string
 	value: V | undefined
-	meta: UserDraftMeta
 }
 
 export type LiveEditorDraft = {
@@ -182,46 +135,6 @@ function resolveWorkspace(opts?: UserDraftOptions): string {
 	return ws
 }
 
-function wrap<V>(value: V | undefined, meta?: UserDraftMeta): StoredDraft<V> | undefined {
-	if (value === undefined) return undefined
-	const out: StoredDraft<V> = { value }
-	if (meta?.remoteRev !== undefined) out.remoteRev = meta.remoteRev
-	if (meta?.remoteDraftRev !== undefined) out.remoteDraftRev = meta.remoteDraftRev
-	return out
-}
-
-function unwrap<V>(stored: StoredDraft<V> | undefined): V | undefined {
-	return stored?.value
-}
-
-function extractMeta(stored: StoredDraft<unknown> | undefined): UserDraftMeta {
-	if (!stored) return {}
-	const meta: UserDraftMeta = {}
-	if (stored.remoteRev !== undefined) meta.remoteRev = stored.remoteRev
-	if (stored.remoteDraftRev !== undefined) meta.remoteDraftRev = stored.remoteDraftRev
-	return meta
-}
-
-/**
- * Compares the rev metadata recorded against the local draft to the current
- * backend revs. Returns the staleness cause, or `null` when the local draft
- * is still based on the latest backend state we know about.
- */
-export type UserDraftStalenessCause = 'draft' | 'version'
-
-export function checkStaleness(
-	meta: UserDraftMeta,
-	currentRev: string | number | undefined,
-	currentDraftRev?: string | number | undefined
-): UserDraftStalenessCause | null {
-	if (meta.remoteRev === undefined && meta.remoteDraftRev === undefined) return null
-	if (meta.remoteDraftRev !== currentDraftRev) {
-		return currentDraftRev !== undefined ? 'draft' : 'version'
-	}
-	if (currentRev !== undefined && meta.remoteRev !== currentRev) return 'version'
-	return null
-}
-
 function mapKey(workspace: string, itemKind: UserDraftItemKind, path: string): string {
 	return `${workspace}/${itemKind}/${path}`
 }
@@ -246,58 +159,6 @@ function snapshotDraftValue<V>(value: V | undefined): V | undefined {
 export type UserDraftHandle<V> = {
 	get draft(): V | undefined
 	set draft(value: V | undefined)
-	/**
-	 * Read the rev metadata stored alongside the current draft. Empty
-	 * object if the entry has no draft or no rev was ever recorded.
-	 */
-	get meta(): UserDraftMeta
-	/**
-	 * Set value AND rev metadata in one write. Later `draft = X` writes
-	 * preserve the rev metadata.
-	 */
-	setDraftAndMeta(value: V | undefined, meta: UserDraftMeta): void
-	/**
-	 * Update rev metadata without touching the value. The `{ force }`
-	 * option is preserved for source compatibility but is now a no-op
-	 * (there is no localStorage layer to write synchronously through).
-	 */
-	setMeta(meta: UserDraftMeta, opts?: { force?: boolean }): void
-}
-
-/**
- * JSON round-trip normalization. Freshly-built config objects (e.g. a
- * trigger editor's `getXConfig()`) keep `undefined`-valued keys, so a
- * raw `deepEqual` reports spurious differences (`{ a: undefined }` ≠
- * `{}`). Normalize BOTH sides through the same round-trip before
- * comparing. Returns the input unchanged if it can't be serialized.
- */
-export function normalizeForCompare<V>(value: V | undefined): V | undefined {
-	if (value === undefined) return undefined
-	try {
-		return JSON.parse(JSON.stringify(value)) as V
-	} catch {
-		return value
-	}
-}
-
-/**
- * Whether the current draft differs meaningfully from a freshly-built
- * `currentConfig`. Editor restore guards use this to decide whether to
- * overlay the draft and toast.
- *
- * Returns `false` when there is no draft. Normalizes both sides (see
- * `normalizeForCompare`) so a draft that round-trips equal to the
- * deployed config is correctly treated as "no meaningful draft".
- *
- * Typed as a guard: a `true` result narrows `localDraft` to non-nullish
- * `V`.
- */
-export function localDraftDiffers<V>(
-	localDraft: V | undefined | null,
-	currentConfig: V
-): localDraft is V {
-	if (localDraft === undefined || localDraft === null) return false
-	return !deepEqual(normalizeForCompare(localDraft), normalizeForCompare(currentConfig))
 }
 
 export const UserDraft = {
@@ -306,12 +167,10 @@ export const UserDraft = {
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (entry) {
-			// Update the reactive cell — preserves any rev meta the
-			// editor had seeded earlier. The DB sync rides on the
-			// reactive effect in `acquireEntry`, which observes this
-			// write and POSTs it to the syncer.
-			const current = untrack(() => entry.state.val as StoredDraft<unknown> | undefined)
-			entry.state.val = wrap(value, extractMeta(current))
+			// Update the reactive cell. The DB sync rides on the reactive
+			// effect in `acquireEntry`, which observes this write and
+			// POSTs it to the syncer.
+			entry.state.val = value
 		} else {
 			// No live handle: push directly to the syncer. The next time
 			// an editor mounts for this (workspace, kind, path) it will
@@ -320,34 +179,10 @@ export const UserDraft = {
 		}
 	},
 
-	setDraftAndMeta<V>(
-		itemKind: UserDraftItemKind,
-		path: string,
-		value: V | undefined,
-		meta: UserDraftMeta,
-		opts?: UserDraftOptions
-	): void {
-		const ws = resolveWorkspace(opts)
-		const mk = mapKey(ws, itemKind, path)
-		const entry = entries.get(mk)
-		if (entry) {
-			entry.state.val = wrap(value, meta)
-			return
-		}
-		// No live handle and `save_draft` requires a value — skip the
-		// sync on `undefined` (delete-via-static-write), which the route
-		// can't represent. Use `discard` for that path.
-		if (value !== undefined) {
-			void UserDraftDbSyncer.save({ workspace: ws, itemKind, path, value })
-		}
-	},
-
 	/**
 	 * Read the current draft value from the in-memory cell. Returns
 	 * `undefined` when no editor has mounted a handle for this
-	 * `(workspace, kind, path)` in this tab — UserDraft no longer
-	 * persists anywhere local, so loading is the editor's job (fetch
-	 * via `get_draft=true` and seed via `setDraftAndMeta`).
+	 * `(workspace, kind, path)` in this tab.
 	 */
 	get<V = unknown>(
 		itemKind: UserDraftItemKind,
@@ -358,41 +193,7 @@ export const UserDraft = {
 		const mk = mapKey(ws, itemKind, path)
 		const entry = entries.get(mk)
 		if (!entry) return undefined
-		return snapshotDraftValue(unwrap(entry.state.val as StoredDraft<V> | undefined))
-	},
-
-	/**
-	 * Update the rev metadata without touching the value. No-op when no
-	 * live entry exists (there's no off-cell place to record meta now).
-	 */
-	saveMeta(
-		itemKind: UserDraftItemKind,
-		path: string,
-		meta: UserDraftMeta,
-		opts?: UserDraftOptions
-	): void {
-		const ws = resolveWorkspace(opts)
-		const mk = mapKey(ws, itemKind, path)
-		const entry = entries.get(mk)
-		if (!entry) return
-		const current = untrack(() => entry.state.val as StoredDraft<unknown> | undefined)
-		if (current === undefined) return
-		// Meta-only writes shouldn't fire a sync — the DB doesn't store
-		// rev meta and an empty POST to save_draft is wasteful.
-		entry.skipNextSync = true
-		entry.state.val = wrap(current.value, meta)
-	},
-
-	/**
-	 * Read the rev metadata for the entry. Returns an empty object if
-	 * there is no live entry. Useful for staleness checks.
-	 */
-	getMeta(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): UserDraftMeta {
-		const ws = resolveWorkspace(opts)
-		const mk = mapKey(ws, itemKind, path)
-		const entry = entries.get(mk)
-		if (!entry) return {}
-		return extractMeta(entry.state.val as StoredDraft<unknown> | undefined)
+		return snapshotDraftValue(entry.state.val as V | undefined)
 	},
 
 	/**
@@ -464,10 +265,9 @@ export const UserDraft = {
 	},
 
 	/**
-	 * List currently-mounted live entries for `workspace`. Without the
-	 * localStorage layer, "list" is meaningful only for in-tab entries —
-	 * for a workspace-wide view across sessions, call
-	 * `DraftService.listDrafts` instead.
+	 * List currently-mounted live entries for `workspace`. Limited to
+	 * in-tab handles — for a workspace-wide view across sessions, call
+	 * `DraftService` directly.
 	 */
 	list<V = unknown>(opts?: UserDraftListOptions): UserDraftEntry<V>[] {
 		const ws = resolveWorkspace(opts)
@@ -475,14 +275,13 @@ export const UserDraft = {
 		const out: UserDraftEntry<V>[] = []
 		for (const entry of entries.values()) {
 			if (entry.workspace !== ws || !itemKinds.includes(entry.itemKind)) continue
-			const stored = untrack(() => entry.state.val as StoredDraft<V> | undefined)
-			if (stored === undefined) continue
+			const val = untrack(() => entry.state.val as V | undefined)
+			if (val === undefined) continue
 			out.push({
 				workspace: entry.workspace,
 				itemKind: entry.itemKind,
 				path: entry.path,
-				value: snapshotDraftValue(unwrap(stored)),
-				meta: extractMeta(stored)
+				value: snapshotDraftValue(val)
 			})
 		}
 		return out
@@ -542,7 +341,7 @@ export const UserDraft = {
 		const safeFallback = snapshotDraftValue(fallback)
 		if (entry) {
 			entry.skipNextSync = true
-			entry.state.val = wrap(safeFallback) as StoredDraft<unknown> | undefined
+			entry.state.val = safeFallback
 		}
 		void UserDraftDbSyncer.save({ workspace: ws, itemKind, path, value: null })
 	},
@@ -564,7 +363,21 @@ export const UserDraft = {
 		return handles[0]
 	},
 
-	useMany<V = unknown>(getSpecs: () => UserDraftSpec<V>[]): UserDraftHandle<V>[] {
+	useMany<V = unknown>(
+		getSpecs: () => {
+			itemKind: UserDraftItemKind
+			path: string
+			workspace?: string
+			/**
+			 * Value the entry's cell is seeded with on first acquire. Swallowed
+			 * by the syncer's seed guard so it never POSTs — the user's first
+			 * real edit is the first synced write. An entry that already exists
+			 * (refcount > 0, e.g. another live handle) keeps its current value;
+			 * the default is ignored in that case.
+			 */
+			defaultValue?: V
+		}[]
+	): UserDraftHandle<V>[] {
 		// Reactive handles array, reconciled against the latest
 		// `getSpecs()` output. Indices line up with the spec array.
 		// Handles for the same `(workspace, kind, path)` tuple are
@@ -645,52 +458,39 @@ function acquireEntry(
 		return
 	}
 	// Seed the cell with the caller's `defaultValue` (deep-cloned so the
-	// cell owns its copy and the caller's baseline can't alias it). This is
-	// how editors report the deployed/draft state until the user edits —
-	// the sync effect treats this first write as the seed and never POSTs
-	// it (see `lastSerialized`/`skipNextWrite` below).
-	const seed =
-		defaultValue !== undefined
-			? (wrap(snapshotDraftValue(defaultValue)) as StoredDraft<unknown> | undefined)
-			: undefined
+	// cell owns its copy). The seed is treated as the first observable
+	// write and swallowed by `skipNextWrite` below — it never POSTs.
+	const seed = defaultValue !== undefined ? snapshotDraftValue(defaultValue) : undefined
 	// `$effect.root` gives the entry its own scope, disposed only by
 	// `releaseEntry`. Without that, the sync `$effect` would parent to
 	// `useMany`'s reconcile effect and be torn down on the next
 	// reconcile.
 	let stateRef: DraftState<unknown> | undefined
 	const destroyRoot = $effect.root(() => {
-		const cell = $state<{ val: StoredDraft<unknown> | undefined }>({ val: seed })
-		stateRef = cell
+		const cell = $state<{ val: unknown }>({ val: seed })
+		stateRef = cell as DraftState<unknown>
 		// Mirror every observable change of `cell.val` to the DB
 		// syncer. Reading `cell.val` alone only subscribes to the proxy
 		// root, so deep mutations (`handle.draft.content = '...'`)
 		// would slip past; `readFieldsRecursively` walks the value so
 		// the effect re-fires on nested writes too.
 		//
-		// `lastSerialized` + `skipNextWrite` mirror the dedup pattern
-		// useLocalStorageValue used to have for `saveInitialValue=false`:
-		// the effect ignores no-op `val` updates, and treats the FIRST
-		// observable change after mount as the seed/restore (no sync).
-		// That matches the editor's UX where landing on `?new_draft`
-		// or seeding the deployed baseline shouldn't fire a POST until
-		// the user actually edits something.
+		// `lastSerialized` + `skipNextWrite` dedup no-op `val` updates
+		// and treat the FIRST observable change after mount as the
+		// seed/restore (no sync). That matches the editor's UX where
+		// landing on `?new_draft` or seeding the deployed baseline
+		// shouldn't fire a POST until the user actually edits.
 		//
-		// `stored === undefined` is the delete signal — the server
+		// `cell.val === undefined` is the delete signal — the server
 		// route accepts `value: null` for that. `skipNextSync` lets
-		// callers that already POSTed (e.g. `discard`, `remove`,
-		// `saveMeta`) suppress a duplicate fire from their own
-		// reactive write.
-		// Start at `undefined` even when the cell was seeded above: that way
-		// the seed is the FIRST observable change the effect sees and gets
-		// swallowed by `skipNextWrite`, so seeding the deployed/draft
-		// baseline never POSTs. The user's first real edit is then the first
-		// synced write.
+		// callers that already POSTed (e.g. `discard`, `remove`)
+		// suppress a duplicate fire from their own reactive write.
 		let lastSerialized: string | undefined = undefined
 		let skipNextWrite = true
 		$effect(() => {
-			const stored = cell.val
-			if (stored !== undefined) readFieldsRecursively(stored.value)
-			const next = stored === undefined ? undefined : JSON.stringify(stored)
+			const val = cell.val
+			if (val !== undefined) readFieldsRecursively(val)
+			const next = val === undefined ? undefined : JSON.stringify(val)
 			if (next === lastSerialized) return
 			lastSerialized = next
 			if (skipNextWrite) {
@@ -711,7 +511,7 @@ function acquireEntry(
 				workspace,
 				itemKind,
 				path,
-				value: stored === undefined ? null : stored.value
+				value: val === undefined ? null : val
 			})
 		})
 	})
@@ -732,13 +532,13 @@ function acquireEntry(
 	// isn't invoked. Unreachable in production (Svelte runs it
 	// synchronously). The fallback cell has no sync effect, so writes
 	// in tests stay in-memory.
-	const fallback = $state<{ val: StoredDraft<unknown> | undefined }>({ val: seed })
+	const fallback = $state<{ val: unknown }>({ val: seed })
 	entries.set(mk, {
 		count: 1,
 		workspace,
 		itemKind,
 		path,
-		state: fallback,
+		state: fallback as DraftState<unknown>,
 		skipNextSync: false,
 		syncSuspended: pendingSuspensions.delete(mk)
 	})
@@ -769,38 +569,11 @@ function makeHandle<V>(
 	const stateOf = (): DraftState<unknown> | undefined => entries.get(mk)?.state
 	return {
 		get draft(): V | undefined {
-			return unwrap(stateOf()?.val as StoredDraft<V> | undefined)
+			return stateOf()?.val as V | undefined
 		},
 		set draft(value: V | undefined) {
-			// Preserve existing rev metadata on a value edit. `untrack`
-			// the read: callers often set this from inside a `$effect`
-			// mirroring `$state` into the handle; a tracked read would
-			// subscribe that effect to the cell it's about to write
-			// (self-loop → effect_update_depth_exceeded).
 			const state = stateOf()
-			if (!state) return
-			const current = untrack(() => state.val as StoredDraft<V> | undefined)
-			state.val = wrap(value, extractMeta(current))
-		},
-		get meta(): UserDraftMeta {
-			return extractMeta(stateOf()?.val as StoredDraft<unknown> | undefined)
-		},
-		setDraftAndMeta(value: V | undefined, meta: UserDraftMeta): void {
-			const state = stateOf()
-			if (!state) return
-			state.val = wrap(value, meta)
-		},
-		setMeta(meta: UserDraftMeta, _opts?: { force?: boolean }): void {
-			// `force` was useful when there was a localStorage layer to
-			// write through synchronously. Kept in the signature for
-			// source compatibility but ignored now.
-			const state = stateOf()
-			if (!state) return
-			const current = untrack(() => state.val as StoredDraft<V> | undefined)
-			if (current === undefined) return
-			const entry = entries.get(mk)
-			if (entry) entry.skipNextSync = true
-			state.val = wrap(current.value, meta)
+			if (state) state.val = value
 		}
 	}
 }

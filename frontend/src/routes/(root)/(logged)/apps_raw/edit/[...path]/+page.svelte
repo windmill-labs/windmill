@@ -4,7 +4,7 @@
 
 	import { AppService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { cleanValueProperties, orderedJsonStringify, readFieldsRecursively } from '$lib/utils'
+	import { readFieldsRecursively } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
@@ -13,14 +13,8 @@
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { page } from '$app/state'
 	import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
-	import {
-		UserDraft,
-		checkStaleness,
-		localDraftDiffers,
-		type UserDraftMeta
-	} from '$lib/userDraft.svelte'
-	import { notifyDraftLoaded, notifyRestoredFromLocal } from '$lib/userDraftToast'
-	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
+	import { UserDraft } from '$lib/userDraft.svelte'
+	import { notifyDraftLoaded } from '$lib/userDraftToast'
 	import DraftSyncConflictModal from '$lib/components/common/confirmationModal/DraftSyncConflictModal.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import OtherUsersDraftsModal, {
@@ -107,36 +101,6 @@
 		}
 	})
 
-	// Local-draft staleness modal: opened when the remote has moved on since
-	// the local autosave was written.
-	let staleModalOpen = $state(false)
-	let staleModalCause = $state<'draft' | 'version'>('version')
-	let pendingBaseline:
-		| { baseline: RawAppDraft; backendSource: any; revs: UserDraftMeta }
-		| undefined = undefined
-
-	function onStaleLoadLatest(): void {
-		if (!pendingBaseline) {
-			staleModalOpen = false
-			return
-		}
-		const { baseline, backendSource, revs } = pendingBaseline
-		UserDraft.remove('raw_app', path)
-		draftHandle.setDraftAndMeta(baseline, revs)
-		extractRawApp(backendSource)
-		pendingBaseline = undefined
-		staleModalOpen = false
-		redraw++
-	}
-
-	function onStaleKeepDraft(): void {
-		if (pendingBaseline) {
-			draftHandle.setMeta(pendingBaseline.revs, { force: true })
-		}
-		pendingBaseline = undefined
-		staleModalOpen = false
-	}
-
 	// Persist the bundle whenever any of the four pieces of state changes.
 	$effect(() => {
 		const currentFiles = files
@@ -160,32 +124,6 @@
 			// from the saved JSON in both cases.
 			...(pendingDraftPath ? { draft_path: pendingDraftPath } : {})
 		} as RawAppDraft
-	})
-
-	// Reflect an external UserDraft.save into the form. Idempotent; the
-	// `!files` guard skips the reload window so it doesn't fight loadApp.
-	$effect(() => {
-		const d = draftHandle.draft
-		const currentFiles = files
-		if (d == null || !currentFiles) return
-		untrack(() => {
-			if (
-				localDraftDiffers(d, {
-					files: currentFiles,
-					runnables,
-					data,
-					summary,
-					policy,
-					custom_path: savedApp?.custom_path
-				})
-			) {
-				files = d.files
-				runnables = d.runnables
-				data = d.data
-				summary = d.summary
-				if (d.policy !== undefined) policy = d.policy
-			}
-		})
 	})
 
 	function extractRawApp(app: any) {
@@ -300,7 +238,7 @@
 				path: page.params.path ?? '',
 				draftOnly: backendApp.no_deployed,
 				onResetToDeployed: async () => {
-					draftHandle.setDraftAndMeta(undefined, {})
+					draftHandle.draft = undefined
 					await loadApp({ getDraft: false })
 				}
 			})
@@ -367,77 +305,12 @@
 			policy: backendApp_.policy,
 			custom_path: backendApp_.custom_path
 		}
-
-		const backendSource: any = backendApp
-		const localDraft = draftHandle.draft
-		const previousMeta = draftHandle.meta
-		const newRevs: UserDraftMeta = {
-			remoteRev: backendApp.versions
-				? backendApp.versions[backendApp.versions.length - 1]
-				: undefined
-		}
-		const backendBundle: RawAppDraft = {
-			files: backendSource.value?.files ?? {},
-			runnables: backendSource.value?.runnables ?? {},
-			data:
-				backendSource.value?.data ??
-				(backendSource.value?.datatables
-					? { ...DEFAULT_DATA, tables: backendSource.value.datatables }
-					: { ...DEFAULT_DATA }),
-			summary: backendSource.summary ?? '',
-			policy: backendSource.policy ?? backendApp.policy,
-			custom_path: backendSource.custom_path ?? backendApp.custom_path
-		}
-
-		// Merge defaults from `backendBundle` first so a localDraft with a
-		// missing key (e.g. legacy autosaves written before `policy` /
-		// `custom_path` were added to the bundle) doesn't read as "user has
-		// unsaved changes" and fire the restore toast on every open.
-		const localBundle = localDraft != undefined ? { ...backendBundle, ...localDraft } : undefined
-		if (
-			localBundle != undefined &&
-			orderedJsonStringify(cleanValueProperties(localBundle)) !==
-				orderedJsonStringify(cleanValueProperties(backendBundle))
-		) {
-			const cause = checkStaleness(previousMeta, newRevs.remoteRev, newRevs.remoteDraftRev)
-			if (cause) {
-				pendingBaseline = { baseline: backendBundle, backendSource, revs: newRevs }
-				staleModalCause = cause
-				staleModalOpen = true
-			} else {
-				if (previousMeta.remoteRev === undefined && previousMeta.remoteDraftRev === undefined) {
-					// Legacy entry — backfill meta so the next load can detect staleness.
-					draftHandle.setMeta(newRevs, { force: true })
-				}
-				notifyRestoredFromLocal(false, true, {
-					onResetToSavedDraft: () => {
-						UserDraft.remove('raw_app', path)
-						draftHandle.setDraftAndMeta(backendBundle, newRevs)
-						extractRawApp(backendSource)
-						redraw++
-					},
-					onResetToDeployed: async () => {
-						UserDraft.remove('raw_app', path)
-						// UserDraft.remove only clears localStorage. Drop the
-						// entry's in-memory state too so loadApp doesn't re-read
-						// the stale autosave and re-fire the same toast.
-						draftHandle.setDraftAndMeta(undefined, {})
-						await loadApp()
-						redraw++
-					}
-				})
-			}
-			runnables = localBundle.runnables
-			data = localBundle.data
-			summary = localBundle.summary
-			policy = localBundle.policy ?? backendApp.policy
-			newPath = backendApp.path
-			files = localBundle.files
-		} else {
-			if (localDraft != undefined) UserDraft.remove('raw_app', path)
-			extractRawApp(backendSource)
-			draftHandle.setDraftAndMeta(backendBundle, newRevs)
-		}
+		// Backend canonical: extract the (deployed+draft overlay) raw
+		// app into the editor's local pieces. The bundle $effect above
+		// re-mirrors them into `draftHandle.draft`; the first such
+		// write is swallowed by `acquireEntry`'s seed guard so this
+		// load doesn't POST.
+		extractRawApp(backendApp)
 	}
 
 	run(() => {
@@ -460,7 +333,7 @@
 		}
 		diffDrawer?.closeDrawer()
 		UserDraft.remove('raw_app', path)
-		draftHandle.setDraftAndMeta(undefined, {})
+		draftHandle.draft = undefined
 		goto(`/apps/edit/${savedApp.path}`)
 		await loadApp()
 		redraw++
@@ -509,12 +382,6 @@
 </script>
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} />
-<LocalDraftStaleModal
-	open={staleModalOpen}
-	cause={staleModalCause}
-	onLoadLatest={onStaleLoadLatest}
-	onKeepDraft={onStaleKeepDraft}
-/>
 {#if $workspaceStore && path}
 	<DraftSyncConflictModal
 		query={{ workspace: $workspaceStore, itemKind: 'raw_app', path }}
@@ -560,7 +427,7 @@
 				{diffDrawer}
 				newApp={isNewApp}
 				onResetToDeployed={async () => {
-					draftHandle.setDraftAndMeta(undefined, {})
+					draftHandle.draft = undefined
 					await loadApp({ getDraft: false })
 				}}
 			/>

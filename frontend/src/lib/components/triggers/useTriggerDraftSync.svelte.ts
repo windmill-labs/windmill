@@ -1,7 +1,35 @@
 import { untrack } from 'svelte'
-import { UserDraft, localDraftDiffers, type UserDraftItemKind } from '$lib/userDraft.svelte'
+import { deepEqual } from 'fast-equals'
+import { UserDraft, type UserDraftItemKind } from '$lib/userDraft.svelte'
 
 type Cfg = Record<string, any>
+
+/**
+ * JSON round-trip normalization. Freshly-built config objects (e.g. a
+ * trigger editor's `getXConfig()`) keep `undefined`-valued keys, so a
+ * raw `deepEqual` reports spurious differences (`{ a: undefined }` ≠
+ * `{}`). Normalize BOTH sides through the same round-trip before
+ * comparing. Returns the input unchanged if it can't be serialized.
+ */
+function normalizeForCompare<V>(value: V | undefined): V | undefined {
+	if (value === undefined) return undefined
+	try {
+		return JSON.parse(JSON.stringify(value)) as V
+	} catch {
+		return value
+	}
+}
+
+/**
+ * Whether `a` differs meaningfully from `b` after JSON-normalizing
+ * both sides. Returns `false` when `a` is nullish (treats "no draft"
+ * as "no divergence"). Typed as a guard: a `true` result narrows `a`
+ * to non-nullish `V`.
+ */
+function cfgDiffers<V>(a: V | undefined | null, b: V | undefined): a is V {
+	if (a === undefined || a === null) return false
+	return !deepEqual(normalizeForCompare(a), normalizeForCompare(b))
+}
 
 export interface TriggerDraftSyncOptions {
 	/** UserDraft item kind for this trigger, e.g. `'trigger_postgres'`. */
@@ -66,7 +94,7 @@ export interface TriggerDraftSync {
  * - **persist-effect**: writes form edits back through the handle, dropping
  *   the draft when the form is back at the deployed baseline.
  *
- * Both effect bodies are `untrack`ed and gated by `localDraftDiffers`
+ * Both effect bodies are `untrack`ed and gated by `cfgDiffers`
  * idempotence so they can't feed back into each other. Must be called once
  * during component init (it registers `useMany` + two `$effect`s).
  */
@@ -85,7 +113,7 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 	const hasDraft = $derived(
 		!opts.drawerLoading() &&
 			opts.deployed() != null &&
-			localDraftDiffers(opts.getCfg() as Cfg, opts.deployed() as Cfg)
+			cfgDiffers(opts.getCfg() as Cfg, opts.deployed() as Cfg)
 	)
 
 	function discard(path: string, fallback: Cfg | undefined): void {
@@ -99,7 +127,7 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 		const d = handle?.draft
 		if (opts.drawerLoading() || d == null) return
 		untrack(() => {
-			if (localDraftDiffers(d, opts.getCfg() as Cfg)) {
+			if (cfgDiffers(d, opts.getCfg() as Cfg)) {
 				void opts.applyCfg(d)
 			}
 		})
@@ -115,8 +143,8 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 			const h = handle
 			if (!h) return
 			const deployed = opts.deployed()
-			if (localDraftDiffers(cfg, deployed)) {
-				if (localDraftDiffers(cfg, h.draft)) h.draft = cfg
+			if (cfgDiffers(cfg, deployed)) {
+				if (cfgDiffers(cfg, h.draft)) h.draft = cfg
 			} else {
 				discard(opts.path(), deployed)
 			}
@@ -138,7 +166,7 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 		},
 		async maybeRestore() {
 			const d = handle?.draft
-			if (!localDraftDiffers(d, opts.getCfg() as Cfg)) return
+			if (!cfgDiffers(d, opts.getCfg() as Cfg)) return
 			// Overlay the local autosave on the just-loaded backend config.
 			await opts.applyCfg(d)
 		},

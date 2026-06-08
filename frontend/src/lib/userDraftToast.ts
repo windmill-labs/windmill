@@ -1,8 +1,7 @@
 /**
- * "Restored from local storage" toast, shown when an editor reopens on a
- * local autosave that differs from the backend. Owns only the wording and
- * which reset actions are offered; the reset side-effects live at each call
- * site (route-specific state).
+ * Toast helpers shared by the editor routes when a per-user draft is loaded
+ * from the server. Owns only the wording and reset action; the reset
+ * side-effects live at each call site (route-specific state).
  */
 import { sendUserToast } from '$lib/toast'
 import { UserDraft } from '$lib/userDraft.svelte'
@@ -73,30 +72,6 @@ function armRestartOnFirstInteraction(
 	document.addEventListener('input', restart, { capture: true, once: true })
 	document.addEventListener('pointerdown', restart, { capture: true, once: true })
 	const fallback = setTimeout(restart, 5000)
-}
-
-export type RestoreFromLocalActions = {
-	/** Drop the local autosave, apply the backend DB draft. Offered when `hasBackendDraft`. */
-	onResetToSavedDraft?: () => void | Promise<void>
-	/** Drop the local autosave, load the deployed version. Offered when `hasDeployed`. */
-	onResetToDeployed?: () => void | Promise<void>
-}
-
-/** Show the toast with up to two reset actions, gated by what the backend has. */
-export function notifyRestoredFromLocal(
-	hasBackendDraft: boolean,
-	hasDeployed: boolean,
-	{ onResetToSavedDraft, onResetToDeployed }: RestoreFromLocalActions
-): void {
-	const actions: Array<{ label: string; callback: () => void | Promise<void> }> = []
-	if (hasBackendDraft && onResetToSavedDraft) {
-		actions.push({ label: 'Reset to saved draft', callback: onResetToSavedDraft })
-	}
-	if (hasDeployed && onResetToDeployed) {
-		actions.push({ label: 'Reset to deployed', callback: onResetToDeployed })
-	}
-	if (actions.length === 0) return
-	sendUserToast('Restored from local storage', false, actions)
 }
 
 /**

@@ -73,7 +73,7 @@ import {
 } from '../shared'
 import type { ContextElement } from '../context'
 import { getDatatableTools } from '../datatableTools'
-import { UserDraft, type UserDraftMeta } from '$lib/userDraft.svelte'
+import { UserDraft } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
 import { inferArgs } from '$lib/infer'
 import {
@@ -864,7 +864,6 @@ type AppMetadata = {
 
 type LoadedAppDraftValue = {
 	value: AppDraftValue
-	meta?: UserDraftMeta
 }
 
 function summarizeAppValue(value: AppDraftValue): AppMetadata {
@@ -1005,12 +1004,6 @@ function appSourceToDraftValue(app: any, fallback?: any): AppDraftValue {
 	}
 }
 
-function appDraftMeta(app: { versions?: number[] }): UserDraftMeta {
-	return {
-		remoteRev: app.versions ? app.versions[app.versions.length - 1] : undefined
-	}
-}
-
 async function loadAppValueForRead(path: string, workspace: string): Promise<AppDraftValue> {
 	const draft = getGlobalDraft(workspace, 'app', path)
 	if (draft && draft.value && typeof draft.value === 'object' && 'files' in draft.value) {
@@ -1028,17 +1021,11 @@ async function loadAppDraftValue(path: string, workspace: string): Promise<Loade
 	}
 
 	const app = await AppService.getAppByPath({ workspace, path })
-	const value = appSourceToDraftValue(app, app)
-	return { value, meta: appDraftMeta(app) }
+	return { value: appSourceToDraftValue(app, app) }
 }
 
-function saveAppDraft(
-	workspace: string,
-	path: string,
-	value: AppDraftValue,
-	meta?: UserDraftMeta
-): WorkspaceItem {
-	return saveGlobalAppDraft(workspace, path, value, meta)
+function saveAppDraft(workspace: string, path: string, value: AppDraftValue): WorkspaceItem {
+	return saveGlobalAppDraft(workspace, path, value)
 }
 
 type TriggerLike = { path: string; summary?: string | null }
@@ -2207,13 +2194,7 @@ async function writeScriptDraft(
 			content: args.content,
 			language: args.language
 		}
-		UserDraft.setDraftAndMeta(
-			'script',
-			storagePath,
-			draft,
-			{ remoteRev: existing.hash },
-			{ workspace }
-		)
+		UserDraft.save('script', storagePath, draft, { workspace })
 	} else {
 		const draft: NewScript = {
 			path: args.path,
@@ -2264,10 +2245,7 @@ async function writeFlowDraft(
 		}
 		UserDraft.save('flow', storagePath, draft, { workspace })
 	} else if (backendExists) {
-		const [existing, latestVersion] = await Promise.all([
-			FlowService.getFlowByPath({ workspace, path: args.path }),
-			FlowService.getFlowLatestVersion({ workspace, path: args.path })
-		])
+		const existing = await FlowService.getFlowByPath({ workspace, path: args.path })
 		const draft: Flow = {
 			...structuredClone(existing),
 			path: args.path,
@@ -2275,13 +2253,7 @@ async function writeFlowDraft(
 			value,
 			schema: draftValue.schema ?? existing.schema
 		}
-		UserDraft.setDraftAndMeta(
-			'flow',
-			storagePath,
-			draft,
-			{ remoteRev: latestVersion.id },
-			{ workspace }
-		)
+		UserDraft.save('flow', storagePath, draft, { workspace })
 	} else {
 		const draft: Flow = {
 			path: args.path,
@@ -2379,11 +2351,10 @@ async function writeResourceDraft(args: CreateResource, ctx: WriteDraftCtx): Pro
 		})
 	} else if (backendExists) {
 		const existing = await ResourceService.getResource({ workspace, path: args.path })
-		UserDraft.setDraftAndMeta(
+		UserDraft.save(
 			'resource',
 			args.path,
 			createResourceToDraftState(args, resourceToDraftState(existing)),
-			{ remoteRev: existing.edited_at },
 			{ workspace }
 		)
 	} else {
@@ -2416,11 +2387,10 @@ async function writeVariableDraft(args: CreateVariable, ctx: WriteDraftCtx): Pro
 			path: args.path,
 			decryptSecret: false
 		})
-		UserDraft.setDraftAndMeta(
+		UserDraft.save(
 			'variable',
 			args.path,
 			createVariableToDraftState(args, variableToDraftState(existing)),
-			{ remoteRev: existing.edited_at },
 			{ workspace }
 		)
 	} else {
@@ -2819,9 +2789,9 @@ async function writeAppFile(
 		content: `Writing ${target.filePath} to app "${args.path}"...`
 	})
 
-	const { value, meta } = await loadAppDraftValue(args.path, workspace)
+	const { value } = await loadAppDraftValue(args.path, workspace)
 	value.files = { ...value.files, [target.filePath]: args.content }
-	const stored = saveAppDraft(workspace, args.path, value, meta)
+	const stored = saveAppDraft(workspace, args.path, value)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Updated ${target.filePath} in app "${args.path}"`,
@@ -2855,13 +2825,13 @@ async function deleteAppFile(
 		content: `Deleting ${target.filePath} from app "${args.path}"...`
 	})
 
-	const { value, meta } = await loadAppDraftValue(args.path, workspace)
+	const { value } = await loadAppDraftValue(args.path, workspace)
 	if (!(target.filePath in value.files)) {
 		throw new Error(`Frontend file "${target.filePath}" not found in app "${args.path}".`)
 	}
 	const { [target.filePath]: _removed, ...remaining } = value.files
 	value.files = remaining
-	const stored = saveAppDraft(workspace, args.path, value, meta)
+	const stored = saveAppDraft(workspace, args.path, value)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Removed ${target.filePath} from app "${args.path}"`,
@@ -2905,7 +2875,7 @@ async function patchAppFile(
 		content: `Patching ${target.filePath} in app "${path}"...`
 	})
 
-	const { value, meta } = await loadAppDraftValue(path, workspace)
+	const { value } = await loadAppDraftValue(path, workspace)
 	let currentContent: string
 	let runnable: PersistedRunnable | undefined
 
@@ -2945,7 +2915,7 @@ async function patchAppFile(
 		}
 	}
 
-	const stored = saveAppDraft(workspace, path, value, meta)
+	const stored = saveAppDraft(workspace, path, value)
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Patched ${target.filePath} in app "${path}"`,
 		result: 'Saved to local storage'
@@ -2982,12 +2952,12 @@ async function writeAppRunnable(
 		content: `Writing runnable "${key}" to app "${path}"...`
 	})
 
-	const { value, meta } = await loadAppDraftValue(path, workspace)
+	const { value } = await loadAppDraftValue(path, workspace)
 	const existing = value.runnables[key] as PersistedRunnable | undefined
 	const persisted = buildPersistedRunnable(input, existing)
 	value.runnables = { ...value.runnables, [key]: persisted }
 	await recomputeAppPolicy(value)
-	const stored = saveAppDraft(workspace, path, value, meta)
+	const stored = saveAppDraft(workspace, path, value)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Updated runnable "${key}" in app "${path}"`,
@@ -3014,14 +2984,14 @@ async function deleteAppRunnable(
 		content: `Removing runnable "${key}" from app "${path}"...`
 	})
 
-	const { value, meta } = await loadAppDraftValue(path, workspace)
+	const { value } = await loadAppDraftValue(path, workspace)
 	if (!(key in value.runnables)) {
 		throw new Error(`Backend runnable "${key}" not found in app "${path}".`)
 	}
 	const { [key]: _removed, ...remaining } = value.runnables
 	value.runnables = remaining
 	await recomputeAppPolicy(value)
-	const stored = saveAppDraft(workspace, path, value, meta)
+	const stored = saveAppDraft(workspace, path, value)
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Removed runnable "${key}" from app "${path}"`,

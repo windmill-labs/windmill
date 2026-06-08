@@ -34,7 +34,7 @@
 		sendUserToast,
 		urlParamsToObject
 	} from '$lib/utils'
-	import { UserDraft, type UserDraftMeta } from '$lib/userDraft.svelte'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import AppPreview from './AppPreview.svelte'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
@@ -79,7 +79,6 @@
 		gotoFn = (path: string, opt?: Record<string, any>) => window.history.pushState(null, '', path),
 		onSavedNewAppPath,
 		onNavigate,
-		initialRevs,
 		onResetToDeployed
 	}: AppEditorProps = $props()
 
@@ -118,38 +117,16 @@
 	// (template/hub loads, etc.).
 	const stateApp = $state(untrack(() => appDraftHandle?.draft ?? app))
 	const appStore = writable<App>(stateApp)
-	// Captured once on mount: the load-time revs are only used as the
-	// seed meta on the very first persist of this entry. After that the
-	// handle's own meta wins.
-	const capturedInitialRevs = untrack(() => initialRevs)
-	// `useLocalStorageValue`'s `saveInitialValue: false` skips the first
-	// `set val` that DIFFERS from the loaded LS state — meant to absorb a
-	// route's "load baseline" write. In AppEditor's $effect-mirror pattern
-	// the loaded baseline always matches LS (stateApp is initialised from
-	// the handle's draft), so the skip slot survives until the user's
-	// FIRST edit and silently swallows it. Consume the slot up-front with
-	// a wipe-then-restore pair: the wipe sets state.val = undefined
-	// in-memory (the consumption side-effect of skipNextWrite, which
-	// suppresses the localStorage delete the wipe would otherwise schedule),
-	// and the restore immediately puts the value+meta back. Net effect: LS
-	// gets re-written once on mount and user edits persist normally.
-	let firstMirror = true
+	// Mirror local `stateApp` mutations (drag/drop, settings edits, etc.)
+	// back into the autosave cell. The first mirror writes the baseline
+	// back through the handle — `acquireEntry`'s `skipNextWrite` swallows
+	// that as the seed so it doesn't POST. Subsequent writes (user edits)
+	// fire the syncer normally.
 	$effect(() => {
 		readFieldsRecursively(stateApp)
 		if (!appDraftHandle) return
 		untrack(() => {
-			// Resolve the meta to attach BEFORE the wipe — the wipe clears
-			// in-memory meta and would otherwise force-seed `initialRevs`
-			// even when the handle had real meta.
-			const currentMeta = appDraftHandle.meta
-			const hasMeta =
-				currentMeta.remoteRev !== undefined || currentMeta.remoteDraftRev !== undefined
-			const meta: UserDraftMeta = hasMeta ? currentMeta : (capturedInitialRevs ?? {})
-			if (firstMirror) {
-				firstMirror = false
-				appDraftHandle.setDraftAndMeta(undefined, {})
-			}
-			appDraftHandle.setDraftAndMeta(stateApp, meta)
+			appDraftHandle.draft = stateApp
 		})
 	})
 	const selectedComponent = writable<string[] | undefined>(undefined)

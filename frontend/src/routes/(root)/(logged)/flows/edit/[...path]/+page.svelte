@@ -4,19 +4,12 @@
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
 	import { initialArgsStore, userStore, workspaceStore } from '$lib/stores'
-	import {
-		cleanValueProperties,
-		decodeState,
-		emptySchema,
-		orderedJsonStringify,
-		type StateStore
-	} from '$lib/utils'
+	import { decodeState, emptySchema, type StateStore } from '$lib/utils'
 	import { initFlow } from '$lib/components/flows/flowStore.svelte'
 	import { goto } from '$lib/navigation'
 
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
 	import DraftSyncConflictModal from '$lib/components/common/confirmationModal/DraftSyncConflictModal.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import OtherUsersDraftsModal, {
@@ -27,13 +20,8 @@
 	import { tick, untrack } from 'svelte'
 	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
 	import { page } from '$app/state'
-	import {
-		UserDraft,
-		checkStaleness,
-		type UserDraftMeta,
-		type UserDraftHandle
-	} from '$lib/userDraft.svelte'
-	import { notifyDraftLoaded, notifyRestoredFromLocal } from '$lib/userDraftToast'
+	import { UserDraft, type UserDraftHandle } from '$lib/userDraft.svelte'
+	import { notifyDraftLoaded } from '$lib/userDraftToast'
 
 	let version: undefined | number = $state(undefined)
 
@@ -80,15 +68,6 @@
 		set draft(value) {
 			const handle = flowHandles[0]
 			if (handle) handle.draft = value
-		},
-		get meta() {
-			return flowHandles[0]?.meta ?? {}
-		},
-		setDraftAndMeta(value, meta) {
-			flowHandles[0]?.setDraftAndMeta(value, meta)
-		},
-		setMeta(meta, opts) {
-			flowHandles[0]?.setMeta(meta, opts)
 		}
 	}
 
@@ -124,33 +103,6 @@
 	let selectedId: string = $state('settings-metadata')
 
 	let savedPrimarySchedule: ScheduleTrigger | undefined = $state(undefined)
-
-	// Local-draft staleness modal: opened when the remote has moved on since
-	// the local autosave was written.
-	let staleModalOpen = $state(false)
-	let staleModalCause = $state<'draft' | 'version'>('version')
-	let pendingBaseline: { baseline: Flow; revs: UserDraftMeta } | undefined = undefined
-
-	function onStaleLoadLatest(): void {
-		if (!pendingBaseline) {
-			staleModalOpen = false
-			return
-		}
-		const { baseline, revs } = pendingBaseline
-		UserDraft.remove('flow', flowDraftPath)
-		flowHandle.setDraftAndMeta(baseline, revs)
-		pendingBaseline = undefined
-		staleModalOpen = false
-		loadFlow()
-	}
-
-	function onStaleKeepDraft(): void {
-		if (pendingBaseline) {
-			flowHandle.setMeta(pendingBaseline.revs, { force: true })
-		}
-		pendingBaseline = undefined
-		staleModalOpen = false
-	}
 
 	let draftTriggersFromUrl: Trigger[] | undefined = $state(undefined)
 	let selectedTriggerIndexFromUrl: number | undefined = $state(undefined)
@@ -224,7 +176,7 @@
 				edited_by: ''
 			} as unknown as Flow
 			savedFlow = structuredClone(empty)
-			flowHandle.setDraftAndMeta(empty, {})
+			flowHandle.draft = empty
 			flow = empty
 			await initFlow(flow, flowStore, flowStateStore)
 			if (tok !== loadFlowToken) return
@@ -279,7 +231,7 @@
 				path: page.params.path ?? '',
 				draftOnly: backendFlow.no_deployed,
 				onResetToDeployed: async () => {
-					flowHandle.setDraftAndMeta(undefined, {})
+					flowHandle.draft = undefined
 					await loadFlow({ getDraft: false })
 				}
 			})
@@ -304,53 +256,12 @@
 		const renderedDraftPath = (effectiveFlow as any).draft_path as string | undefined
 		if (renderedDraftPath) flowInitialPath = renderedDraftPath
 
-		const localDraft = flowHandle.draft
-		const previousMeta = flowHandle.meta
-		const newRevs: UserDraftMeta = {
-			remoteRev: v
-		}
-
-		if (localDraft != undefined) {
-			const localClean = cleanValueProperties(localDraft)
-			const backendClean = cleanValueProperties(effectiveFlow)
-			if (orderedJsonStringify(localClean) === orderedJsonStringify(backendClean)) {
-				// Local matches backend exactly — silently drop the autosave.
-				flow = effectiveFlow
-				UserDraft.remove('flow', flowDraftPath)
-				flowHandle.setDraftAndMeta(effectiveFlow, newRevs)
-			} else {
-				flow = localDraft
-				const cause = checkStaleness(previousMeta, newRevs.remoteRev, newRevs.remoteDraftRev)
-				if (cause) {
-					pendingBaseline = { baseline: effectiveFlow, revs: newRevs }
-					staleModalCause = cause
-					staleModalOpen = true
-				} else {
-					if (previousMeta.remoteRev === undefined && previousMeta.remoteDraftRev === undefined) {
-						// Legacy entry — backfill meta so the next load can detect staleness.
-						flowHandle.setMeta(newRevs, { force: true })
-					}
-					notifyRestoredFromLocal(false, true, {
-						onResetToSavedDraft: () => {
-							UserDraft.remove('flow', flowDraftPath)
-							flowHandle.setDraftAndMeta(effectiveFlow, newRevs)
-							loadFlow()
-						},
-						onResetToDeployed: async () => {
-							UserDraft.remove('flow', flowDraftPath)
-							// UserDraft.remove only clears localStorage. Drop the
-							// entry's in-memory state too so loadFlow doesn't re-read
-							// the stale autosave and re-fire the same toast.
-							flowHandle.setDraftAndMeta(undefined, {})
-							loadFlow()
-						}
-					})
-				}
-			}
-		} else {
-			flow = effectiveFlow
-			flowHandle.setDraftAndMeta(effectiveFlow, newRevs)
-		}
+		// Backend canonical: overwrite the in-memory cell with the
+		// effective (deployed+draft overlay) flow. The first cell write
+		// after `acquireEntry` is swallowed by the syncer's seed guard,
+		// so this load doesn't POST.
+		flow = effectiveFlow
+		flowHandle.draft = effectiveFlow
 
 		flowBuilder?.setDraftTriggers(undefined)
 
@@ -397,7 +308,7 @@
 		}
 		diffDrawer?.closeDrawer()
 		UserDraft.remove('flow', flowDraftPath)
-		flowHandle.setDraftAndMeta(undefined, {})
+		flowHandle.draft = undefined
 		goto(`/flows/edit/${savedFlow.path}`)
 		loadFlow()
 	}
@@ -406,12 +317,6 @@
 <!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} isFlow />
-<LocalDraftStaleModal
-	open={staleModalOpen}
-	cause={staleModalCause}
-	onLoadLatest={onStaleLoadLatest}
-	onKeepDraft={onStaleKeepDraft}
-/>
 {#if $workspaceStore && flowDraftPath}
 	<DraftSyncConflictModal
 		query={{ workspace: $workspaceStore, itemKind: 'flow', path: flowDraftPath }}
@@ -450,7 +355,7 @@
 			loadFlow()
 		}}
 		onResetToDeployed={async () => {
-			flowHandle.setDraftAndMeta(undefined, {})
+			flowHandle.draft = undefined
 			await loadFlow({ getDraft: false })
 		}}
 		onNavigate={(item) => goto(editPathFor(item))}

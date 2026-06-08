@@ -4,11 +4,10 @@
 	import { initialArgsStore, userStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
-	import { cleanValueProperties, emptySchema, orderedJsonStringify } from '$lib/utils'
+	import { emptySchema } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
 	import OtherUsersDraftsModal, {
 		type OtherDraftUser
 	} from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
@@ -17,13 +16,8 @@
 	import { get } from 'svelte/store'
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
-	import {
-		UserDraft,
-		checkStaleness,
-		type UserDraftMeta,
-		type UserDraftHandle
-	} from '$lib/userDraft.svelte'
-	import { notifyDraftLoaded, notifyRestoredFromLocal } from '$lib/userDraftToast'
+	import { UserDraft, type UserDraftHandle } from '$lib/userDraft.svelte'
+	import { notifyDraftLoaded } from '$lib/userDraftToast'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import DraftSyncConflictModal from '$lib/components/common/confirmationModal/DraftSyncConflictModal.svelte'
 
@@ -55,15 +49,6 @@
 		set draft(value) {
 			const handle = scriptHandles[0]
 			if (handle) handle.draft = value
-		},
-		get meta() {
-			return scriptHandles[0]?.meta ?? {}
-		},
-		setDraftAndMeta(value, meta) {
-			scriptHandles[0]?.setDraftAndMeta(value, meta)
-		},
-		setMeta(meta, opts) {
-			scriptHandles[0]?.setMeta(meta, opts)
 		}
 	}
 
@@ -102,43 +87,6 @@
 
 	let savedPrimarySchedule: ScheduleTrigger | undefined = $state(undefined)
 
-	// Local-draft staleness modal: opened when the remote (deployed or DB
-	// draft) has moved on since the user's autosave was created.
-	let staleModalOpen = $state(false)
-	let staleModalCause = $state<'draft' | 'version'>('version')
-	let pendingBaseline: { baseline: EditableScript; revs: UserDraftMeta } | undefined = undefined
-
-	function applyBaseline(baseline: EditableScript): void {
-		initialPath = baseline.path
-		scriptBuilder?.setDraftTriggers(baseline.draft_triggers)
-		scriptBuilder?.setCode(baseline.content)
-		if (baseline['primary_schedule']) {
-			savedPrimarySchedule = baseline['primary_schedule']
-			scriptBuilder?.setPrimarySchedule(savedPrimarySchedule)
-		}
-	}
-
-	function onStaleLoadLatest(): void {
-		if (!pendingBaseline) {
-			staleModalOpen = false
-			return
-		}
-		const { baseline, revs } = pendingBaseline
-		UserDraft.remove('script', draftPath)
-		scriptHandle.setDraftAndMeta(baseline, revs)
-		applyBaseline(baseline)
-		pendingBaseline = undefined
-		staleModalOpen = false
-	}
-
-	function onStaleKeepDraft(): void {
-		if (pendingBaseline) {
-			scriptHandle.setMeta(pendingBaseline.revs, { force: true })
-		}
-		pendingBaseline = undefined
-		staleModalOpen = false
-	}
-
 	/** Increments per `loadScript` call. Stale loads (e.g. when picker
 	 * navigation races a draft-discard reload) bail at the next checkpoint
 	 * after their captured token no longer matches. */
@@ -159,12 +107,12 @@
 		// metadata drawer on mount. Strip the single-use flag last.
 		if (page.url.searchParams.get('new_draft') === 'true') {
 			// Suspend autosave for the whole new-draft bootstrap: the seed
-			// `setDraftAndMeta` AND ScriptBuilder's `initContent` (which
-			// fills `script.content` from a template) are both
-			// programmatic writes that shouldn't appear on the server as
-			// the user's first edit. ScriptBuilder lifts the suspension
-			// in `initContent`'s `.finally`; this overlap is harmless
-			// (both calls set the same flag).
+			// AND ScriptBuilder's `initContent` (which fills
+			// `script.content` from a template) are both programmatic
+			// writes that shouldn't appear on the server as the user's
+			// first edit. ScriptBuilder lifts the suspension in
+			// `initContent`'s `.finally`; this overlap is harmless (both
+			// calls set the same flag).
 			UserDraft.stopSync('script', draftPath)
 			const url = new URL(window.location.href)
 			url.searchParams.delete('new_draft')
@@ -190,7 +138,7 @@
 			} as unknown as EditableScript
 			initialPath = ''
 			savedScript = structuredClone(empty)
-			scriptHandle.setDraftAndMeta(empty, {})
+			scriptHandle.draft = empty
 			fullyLoaded = true
 			renderEditor = true
 			return
@@ -232,7 +180,7 @@
 						// Drop the in-memory draft and refetch *without* the
 						// draft overlay — we don't trust the eventual delete
 						// to have landed, so we read deployed directly.
-						scriptHandle.setDraftAndMeta(undefined, {})
+						scriptHandle.draft = undefined
 						await loadScript({ getDraft: false })
 					}
 				})
@@ -242,75 +190,19 @@
 			// deployed at the field level — the draft contributes editor
 			// state (content, summary, …) and the deployed contributes
 			// metadata the draft never carries (hash, version markers).
-			// Same effective shape the backend used to deep-merge for us;
-			// kept frontend-side now so the draft's editor shape can
-			// diverge from the wire shape without confusing the server.
 			const { draft: draftFromBackend, ...deployedScript } = backendScript as any
 			const effectiveScript: EditableScript = draftFromBackend
 				? { ...deployedScript, ...draftFromBackend }
 				: (deployedScript as EditableScript)
 			savedScript = structuredClone($state.snapshot(effectiveScript))
-
-			const localDraft = scriptHandle.draft
-			const previousMeta = scriptHandle.meta
-			const newRevs: UserDraftMeta = {
-				remoteRev: backendScript.hash
-			}
-
-			// Compute the fully-baked initial value once so the assignment
-			// below is a single write — otherwise post-load mutations like
-			// `parent_hash = ...` would count as a second write under
-			// useLocalStorageValue's saveInitialValue=false contract and get
-			// persisted before the user has touched anything.
-			const bakedBaseline: EditableScript = {
+			// Backend is canonical: write the baked baseline into the
+			// cell. `parent_hash` is grafted on so the editor's compile
+			// reuses the deployed lock. The first cell write after
+			// `acquireEntry` is swallowed by the syncer's seed guard, so
+			// this load doesn't POST.
+			scriptHandle.draft = {
 				...effectiveScript,
 				parent_hash: topHash ?? backendScript.hash
-			}
-
-			if (localDraft != undefined) {
-				const referenceClean = cleanValueProperties(effectiveScript)
-				const localClean = cleanValueProperties(localDraft)
-				if (orderedJsonStringify(referenceClean) === orderedJsonStringify(localClean)) {
-					// Local matches the saved version — silently drop it and use the saved one.
-					UserDraft.remove('script', draftPath)
-					scriptHandle.setDraftAndMeta(bakedBaseline, newRevs)
-				} else {
-					const cause = checkStaleness(previousMeta, newRevs.remoteRev, newRevs.remoteDraftRev)
-					if (cause) {
-						// Remote moved on since the local autosave was written —
-						// surface the choice via modal. The local draft stays on
-						// screen until the user picks.
-						pendingBaseline = { baseline: bakedBaseline, revs: newRevs }
-						staleModalCause = cause
-						staleModalOpen = true
-					} else {
-						if (previousMeta.remoteRev === undefined && previousMeta.remoteDraftRev === undefined) {
-							// Legacy entry (no meta recorded) — backfill so future
-							// loads can detect staleness even if the user doesn't edit.
-							scriptHandle.setMeta(newRevs, { force: true })
-						}
-						const scriptPath = bakedBaseline.path
-						notifyRestoredFromLocal(false, true, {
-							onResetToSavedDraft: () => {
-								UserDraft.remove('script', draftPath)
-								scriptHandle.setDraftAndMeta(bakedBaseline, newRevs)
-								applyBaseline(bakedBaseline)
-							},
-							onResetToDeployed: async () => {
-								UserDraft.remove('script', draftPath)
-								// UserDraft.remove only clears localStorage. The entry's
-								// in-memory state is kept alive by this route's handle, so
-								// loadScript would re-read the stale autosave and the toast
-								// would fire again. Drop the in-memory state first.
-								scriptHandle.setDraftAndMeta(undefined, {})
-								goto(`/scripts/edit/${scriptPath}`)
-								loadScript()
-							}
-						})
-					}
-				}
-			} else {
-				scriptHandle.setDraftAndMeta(bakedBaseline, newRevs)
 			}
 		}
 
@@ -351,19 +243,13 @@
 		}
 		diffDrawer?.closeDrawer()
 		UserDraft.remove('script', draftPath)
-		scriptHandle.setDraftAndMeta(undefined, {})
+		scriptHandle.draft = undefined
 		goto(`/scripts/edit/${savedScript.path}`)
 		loadScript()
 	}
 </script>
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} />
-<LocalDraftStaleModal
-	open={staleModalOpen}
-	cause={staleModalCause}
-	onLoadLatest={onStaleLoadLatest}
-	onKeepDraft={onStaleKeepDraft}
-/>
 {#if !hash && $workspaceStore && page.params.path}
 	<DraftSyncConflictModal
 		query={{ workspace: $workspaceStore, itemKind: 'script', path: page.params.path }}
@@ -396,7 +282,7 @@
 		{savedPrimarySchedule}
 		searchParams={page.url.searchParams}
 		onResetToDeployed={async () => {
-			scriptHandle.setDraftAndMeta(undefined, {})
+			scriptHandle.draft = undefined
 			await loadScript({ getDraft: false })
 		}}
 		onDeploy={(e) => {

@@ -2,13 +2,11 @@
 	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
 	import { AppService, type AppWithLastVersion } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { cleanValueProperties, orderedJsonStringify } from '$lib/utils'
 	import { replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { App } from '$lib/components/apps/types'
-	import LocalDraftStaleModal from '$lib/components/common/confirmationModal/LocalDraftStaleModal.svelte'
 	import DraftSyncConflictModal from '$lib/components/common/confirmationModal/DraftSyncConflictModal.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import OtherUsersDraftsModal, {
@@ -18,8 +16,8 @@
 	import { emptyApp } from '$lib/components/apps/editor/appUtils'
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
-	import { UserDraft, checkStaleness, type UserDraftMeta } from '$lib/userDraft.svelte'
-	import { notifyDraftLoaded, notifyRestoredFromLocal } from '$lib/userDraftToast'
+	import { UserDraft } from '$lib/userDraft.svelte'
+	import { notifyDraftLoaded } from '$lib/userDraftToast'
 
 	let app = $state(undefined as (AppWithLastVersion & { value: any }) | undefined)
 	let savedApp:
@@ -41,48 +39,6 @@
 	 * false once a deployed row exists at this path. */
 	let isNewApp = $state(false)
 	let otherDraftsUsers = $state<OtherDraftUser[]>([])
-
-	// Local-draft staleness modal: opened when the remote has moved on since
-	// the local autosave was written.
-	let staleModalOpen = $state(false)
-	let staleModalCause = $state<'draft' | 'version'>('version')
-	let pendingBaseline:
-		| { baseline: AppWithLastVersion & { value: any }; revs: UserDraftMeta }
-		| undefined = undefined
-
-	// Backend revs at the most recent `loadApp` — handed to AppEditor as
-	// `initialRevs` so the very first local autosave persists with a meta
-	// stamp. Without it the next reload's staleness check has nothing to
-	// compare against and the first external deploy/draft slips through.
-	let currentRevs = $state<UserDraftMeta | undefined>(undefined)
-
-	function onStaleLoadLatest(): void {
-		if (!pendingBaseline) {
-			staleModalOpen = false
-			return
-		}
-		// `discard` (not `remove`) so the entry's in-memory state.val is
-		// cleared synchronously. `redraw++` remounts AppEditor on the next
-		// microtask, but Svelte may mount the new instance before the old
-		// one's onDestroy releases its handle — the new instance would
-		// then re-acquire the SAME entry whose state.val still has the
-		// stale autosave, ignoring the just-emptied LS. Same reason every
-		// "reset" path below uses discard.
-		UserDraft.discard('app', path, undefined)
-		currentRevs = pendingBaseline.revs
-		app = pendingBaseline.baseline
-		pendingBaseline = undefined
-		staleModalOpen = false
-		redraw++
-	}
-
-	function onStaleKeepDraft(): void {
-		if (pendingBaseline) {
-			UserDraft.saveMeta('app', path, pendingBaseline.revs)
-		}
-		pendingBaseline = undefined
-		staleModalOpen = false
-	}
 
 	/** Increments per `loadApp` call. Stale loads (e.g. when picker
 	 * navigation races a draft-discard reload) bail at the next checkpoint
@@ -138,7 +94,6 @@
 				path: '',
 				policy: emptyPolicy
 			}
-			currentRevs = {}
 			return
 		}
 		let backendApp = await AppService.getAppByPath({
@@ -213,52 +168,12 @@
 			policy: backendApp_.policy,
 			custom_path: backendApp_.custom_path
 		}
-
-		const localDraftValue = UserDraft.get<App>('app', path)
-		const previousMeta = UserDraft.getMeta('app', path)
-		const newRevs: UserDraftMeta = {
-			remoteRev: backendApp.versions
-				? backendApp.versions[backendApp.versions.length - 1]
-				: undefined
-		}
-		currentRevs = newRevs
-		if (
-			localDraftValue != undefined &&
-			orderedJsonStringify(cleanValueProperties(localDraftValue)) !==
-				orderedJsonStringify(cleanValueProperties(backendApp.value as any))
-		) {
-			const cause = checkStaleness(previousMeta, newRevs.remoteRev, newRevs.remoteDraftRev)
-			if (cause) {
-				pendingBaseline = { baseline: backendApp, revs: newRevs }
-				staleModalCause = cause
-				staleModalOpen = true
-			} else {
-				if (previousMeta.remoteRev === undefined && previousMeta.remoteDraftRev === undefined) {
-					// Legacy entry — backfill meta so the next load can detect staleness.
-					UserDraft.saveMeta('app', path, newRevs)
-				}
-				notifyRestoredFromLocal(false, true, {
-					onResetToSavedDraft: () => {
-						UserDraft.discard('app', path, undefined)
-						currentRevs = newRevs
-						app = backendApp
-						redraw++
-					},
-					onResetToDeployed: async () => {
-						UserDraft.discard('app', path, undefined)
-						goto(`/apps/edit/${backendApp.path}`)
-						await loadApp()
-						redraw++
-					}
-				})
-			}
-			app = { ...backendApp, value: localDraftValue }
-		} else {
-			// Local is missing or matches backend — wipe any stale entry so it
-			// doesn't haunt the next session and use the backend value.
-			if (localDraftValue != undefined) UserDraft.remove('app', path)
-			app = backendApp
-		}
+		// Backend canonical: wipe the in-memory cell so AppEditor remounts
+		// fresh from `backendApp.value`. The cell will be re-seeded by
+		// AppEditor's mirror $effect; the first such write is swallowed
+		// by `acquireEntry`'s seed guard so this load doesn't POST.
+		UserDraft.discard('app', path, undefined)
+		app = backendApp
 	}
 
 	$effect(() => {
@@ -306,12 +221,6 @@
 </script>
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} />
-<LocalDraftStaleModal
-	open={staleModalOpen}
-	cause={staleModalCause}
-	onLoadLatest={onStaleLoadLatest}
-	onKeepDraft={onStaleKeepDraft}
-/>
 {#if $workspaceStore && path}
 	<DraftSyncConflictModal
 		query={{ workspace: $workspaceStore, itemKind: 'app', path }}
@@ -352,7 +261,6 @@
 				{diffDrawer}
 				version={app.versions ? app.versions[app.versions.length - 1] : undefined}
 				newApp={isNewApp}
-				initialRevs={currentRevs}
 				replaceStateFn={(path) => replaceState(path, page.state)}
 				gotoFn={(path, opt) => goto(path, opt)}
 				onResetToDeployed={async () => {
