@@ -16,6 +16,9 @@
 
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::OnceLock;
 
 use anyhow::anyhow;
 use hmac::Mac;
@@ -30,6 +33,28 @@ use windmill_common::variables::{build_crypt, encrypt};
 use windmill_common::BASE_URL;
 
 pub type DB = sqlx::Pool<sqlx::Postgres>;
+
+/// Hook used to persist a refreshed secret through the configured secret backend.
+///
+/// `windmill-oauth` cannot depend on `windmill-store` (that would create a crate
+/// dependency cycle), yet token refresh must route the new value through
+/// `store_secret_value` so external secret backends (Vault, AWS Secrets Manager,
+/// Azure Key Vault) receive the fresh token instead of serving a stale one.
+///
+/// `windmill-store` registers this hook via [`STORE_SECRET_VALUE_HOOK`]. The hook
+/// returns the value to store in the `variable` row: a DB-encrypted value for the
+/// database backend, or an external-backend marker (e.g. `$aws_sm:<path>`) once the
+/// secret has been written to the external store. When no hook is registered
+/// (pure OSS / database-only builds) refresh falls back to local encryption.
+pub type StoreSecretValueHook =
+    for<'a> fn(
+        &'a DB,
+        &'a str,
+        &'a str,
+        &'a str,
+    ) -> Pin<Box<dyn Future<Output = error::Result<String>> + Send + 'a>>;
+
+pub static STORE_SECRET_VALUE_HOOK: OnceLock<StoreSecretValueHook> = OnceLock::new();
 
 // Re-export oauth2 types that consumers need (also used internally)
 pub use oauth2::{
@@ -676,12 +701,21 @@ pub async fn refresh_token_for_account<'c>(
     tx.commit().await?;
 
     let token_str = token.access_token.to_string();
-    let mc = build_crypt(db, w_id).await?;
-    let encrypted_token = encrypt(&mc, token_str.as_str());
+
+    // Route the refreshed token through the configured secret backend so external
+    // stores (Vault, AWS SM, Azure KV) receive the fresh value. Falls back to local
+    // DB encryption when no backend hook is registered (database-only builds).
+    let stored_value = match STORE_SECRET_VALUE_HOOK.get() {
+        Some(store_secret_value) => store_secret_value(db, w_id, path, token_str.as_str()).await?,
+        None => {
+            let mc = build_crypt(db, w_id).await?;
+            encrypt(&mc, token_str.as_str())
+        }
+    };
 
     sqlx::query!(
         "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3",
-        encrypted_token,
+        stored_value,
         w_id,
         path
     )

@@ -26,7 +26,10 @@ use windmill_common::{
 #[cfg(all(feature = "private", feature = "enterprise"))]
 use windmill_common::{
     global_settings::{load_value_from_global_settings, SECRET_BACKEND_SETTING},
-    secret_backend::{AwsSecretsManagerBackend, AwsSecretsManagerSettings, AzureKeyVaultBackend, AzureKeyVaultSettings, SecretBackendConfig, VaultBackend, VaultSettings},
+    secret_backend::{
+        AwsSecretsManagerBackend, AwsSecretsManagerSettings, AzureKeyVaultBackend,
+        AzureKeyVaultSettings, SecretBackendConfig, VaultBackend, VaultSettings,
+    },
 };
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
@@ -225,7 +228,12 @@ pub async fn is_vault_backend_configured(db: &DB) -> Result<bool> {
         None => SecretBackendConfig::default(),
     };
 
-    Ok(matches!(config, SecretBackendConfig::HashiCorpVault(_) | SecretBackendConfig::AzureKeyVault(_) | SecretBackendConfig::AwsSecretsManager(_)))
+    Ok(matches!(
+        config,
+        SecretBackendConfig::HashiCorpVault(_)
+            | SecretBackendConfig::AzureKeyVault(_)
+            | SecretBackendConfig::AwsSecretsManager(_)
+    ))
 }
 
 /// Get a secret value using the configured backend
@@ -252,12 +260,8 @@ pub async fn get_secret_value(
             // Fetch from Vault directly
             backend.get_secret(workspace_id, path).await
         }
-        "azure_key_vault" => {
-            backend.get_secret(workspace_id, path).await
-        }
-        "aws_secrets_manager" => {
-            backend.get_secret(workspace_id, path).await
-        }
+        "azure_key_vault" => backend.get_secret(workspace_id, path).await,
+        "aws_secrets_manager" => backend.get_secret(workspace_id, path).await,
         _ => Err(Error::internal_err(format!(
             "Unknown backend: {}",
             backend.backend_name()
@@ -301,6 +305,28 @@ pub async fn store_secret_value(
             backend.backend_name()
         ))),
     }
+}
+
+/// Register the OAuth refresh secret-storage hook in `windmill-oauth`.
+///
+/// `windmill-oauth` performs OAuth token refresh but cannot depend on this crate
+/// (that would be a dependency cycle), so it exposes a hook that we populate with
+/// [`store_secret_value`]. This ensures refreshed tokens are written through the
+/// configured secret backend instead of always being DB-encrypted in place.
+///
+/// Idempotent: only the first call wins (the hook is process-global), subsequent
+/// calls are no-ops.
+#[cfg(feature = "oauth2")]
+pub fn register_oauth_store_secret_hook() {
+    fn hook<'a>(
+        db: &'a DB,
+        workspace_id: &'a str,
+        path: &'a str,
+        plain_value: &'a str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String>> + Send + 'a>> {
+        Box::pin(store_secret_value(db, workspace_id, path, plain_value))
+    }
+    let _ = windmill_oauth::STORE_SECRET_VALUE_HOOK.set(hook);
 }
 
 /// Delete a secret from the configured backend (if using Vault)
