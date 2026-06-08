@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.720.0](https://github.com/windmill-labs/windmill/compare/v1.719.0...v1.720.0) (2026-06-08)
+
+
+### Features
+
+* allow private MCP server URLs ([#9470](https://github.com/windmill-labs/windmill/issues/9470)) ([3bc5800](https://github.com/windmill-labs/windmill/commit/3bc5800197db383ae6f708415701a4bdbe2e3345))
+* **api:** add endpoint to update token label ([#9474](https://github.com/windmill-labs/windmill/issues/9474)) ([e8e0701](https://github.com/windmill-labs/windmill/commit/e8e0701a360d0614c4c5a74f6410ba6ac0638caa))
+* **frontend:** use unified drill picker for AI chat @-mention dropdown ([#9159](https://github.com/windmill-labs/windmill/issues/9159)) ([64b089c](https://github.com/windmill-labs/windmill/commit/64b089cd23cca4601abb09f092a32becb80d9394))
+
+
+### Bug Fixes
+
+* center auth0/okta icons and respect currentColor ([#9457](https://github.com/windmill-labs/windmill/issues/9457)) ([5d0ef7d](https://github.com/windmill-labs/windmill/commit/5d0ef7dfd91b3021d125a1b34f81f0788f173786))
+* **forks:** keep trigger/schedule operational state owned by the parent - WIN-2019 ([#9476](https://github.com/windmill-labs/windmill/issues/9476)) ([192574a](https://github.com/windmill-labs/windmill/commit/192574ab8f98d9521a232fc8a4935d407b00cb3a))
+* **frontend:** respect forced column order for numeric column names ([#9463](https://github.com/windmill-labs/windmill/issues/9463)) ([44f5dd6](https://github.com/windmill-labs/windmill/commit/44f5dd6636d4b23aa55383b8b8abe4c2f73bc88d))
+* **frontend:** use ban icon for canceled jobs instead of hourglass ([#9478](https://github.com/windmill-labs/windmill/issues/9478)) ([fa86c62](https://github.com/windmill-labs/windmill/commit/fa86c62b6600e7d47dadf4706d7002706333d919))
+* gate native integration pickers behind non-operator check ([#9465](https://github.com/windmill-labs/windmill/issues/9465)) ([6156e23](https://github.com/windmill-labs/windmill/commit/6156e2372a785ccd0c6f29cb74e90bee69e76483))
+* **oauth:** persist refreshed token through configured secret backend ([#9471](https://github.com/windmill-labs/windmill/issues/9471)) ([76c0d97](https://github.com/windmill-labs/windmill/commit/76c0d970a18bf28ddc48dd746570e73486542606))
+* refresh session editor preview on breadcrumb target switch ([#9475](https://github.com/windmill-labs/windmill/issues/9475)) ([6d522b3](https://github.com/windmill-labs/windmill/commit/6d522b3989ace1f214bd049d910bc0d2a2a6893e))
+
 ## [1.719.0](https://github.com/windmill-labs/windmill/compare/v1.718.0...v1.719.0) (2026-06-06)
 
 
