@@ -634,6 +634,69 @@ async fn test_compare_workspaces_comprehensive(db: Pool<Postgres>) -> anyhow::Re
         "Non-existent item should be deleted from workspace_diff"
     );
 
+    // ==============================================================
+    // Stale Archived Cache Test (regression)
+    // ==============================================================
+    //
+    // Unlike the lazy_test above (has_changes = NULL → always re-evaluated), a
+    // cached `has_changes = true` row is trusted without re-running the per-kind
+    // comparison. It can go stale: after a rename the old path keeps only
+    // archived versions, and for lock-gen languages the `has_changes = NULL`
+    // reset is deferred to the dependency job — so until that runs the archived
+    // old path lingers as a live "ahead" change carrying `exists_in_fork = true`.
+    // The visibility check treats archived as non-existent and finds nothing, so
+    // even this superadmin used to get `all_ahead_items_visible = false`. The fix
+    // re-validates such rows and drops the archived (== non-existent) item.
+    sqlx::query!(
+        "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, archived, schema_validation, ws_error_handler_muted, deleted)
+         VALUES ('wm-fork-test-workspace', 'f/shared/renamed_away', 67890, 'def main(): return 1', '', '', 'python3', 'test@windmill.dev', NOW(), true, false, false, false)"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork)
+         VALUES ('test-workspace', 'wm-fork-test-workspace', 'f/shared/renamed_away', 'script', 1, 0, true, false, true)"
+    )
+    .execute(&db)
+    .await?;
+
+    let comparison3: serde_json::Value = client
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-test-workspace"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    // The archived item must be dropped (not surfaced) and must not trip the
+    // "changes not visible to your user" warning for a superadmin.
+    assert_eq!(
+        comparison3["all_ahead_items_visible"].as_bool(),
+        Some(true),
+        "archived (renamed-away) item must not trip the 'changes not visible' warning: {comparison3}"
+    );
+    assert!(
+        !comparison3["diffs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["path"] == "f/shared/renamed_away"),
+        "archived item should be dropped, not surfaced as a diff: {comparison3}"
+    );
+    let stale_archived = sqlx::query!(
+        "SELECT has_changes FROM workspace_diff
+         WHERE path = 'f/shared/renamed_away' AND kind = 'script' AND source_workspace_id = 'test-workspace'"
+    )
+    .fetch_optional(&db)
+    .await?;
+    assert!(
+        stale_archived.is_none(),
+        "stale archived diff row should be re-evaluated and deleted"
+    );
+
     Ok(())
 }
 
