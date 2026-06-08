@@ -14,7 +14,7 @@
 // This module is intentionally free of API/Svelte deps so it can be unit-tested.
 // The async closure orchestrator that fetches items lives in the component.
 
-export type RefKind = 'resource' | 'script'
+export type RefKind = 'resource' | 'script' | 'flow'
 
 export interface Ref {
 	kind: RefKind
@@ -52,6 +52,7 @@ export function extractScriptRefs(content: string): Ref[] {
  *  - inline rawscript code with `$res:` (resource)
  *  - static step inputs whose value is a `$res:` literal (resource)
  *  - `type: script` steps that reference a script by path (script)
+ *  - `type: flow` steps that reference a sub-flow by path (flow)
  */
 export function extractFlowRefs(value: any): Ref[] {
 	const out: Ref[] = []
@@ -71,6 +72,7 @@ export function extractFlowRefs(value: any): Ref[] {
 		const v = mod?.value
 		if (!v || typeof v !== 'object') return
 		if (v.type === 'script' && typeof v.path === 'string') add('script', v.path)
+		if (v.type === 'flow' && typeof v.path === 'string') add('flow', v.path)
 		if (typeof v.content === 'string') {
 			for (const r of extractScriptRefs(v.content)) add('resource', r.path)
 		}
@@ -134,7 +136,11 @@ export function rewriteFlowValue(value: any, map: Map<string, string>): any {
 	const visitModule = (mod: any) => {
 		const v = mod?.value
 		if (!v || typeof v !== 'object') return
-		if (v.type === 'script' && typeof v.path === 'string' && map.has(v.path)) {
+		if (
+			(v.type === 'script' || v.type === 'flow') &&
+			typeof v.path === 'string' &&
+			map.has(v.path)
+		) {
 			v.path = map.get(v.path)
 		}
 		if (typeof v.content === 'string') v.content = rewriteContent(v.content, map)
@@ -245,10 +251,10 @@ export async function buildProjectBundle(
 			if (classifyPath(r.path, slug) === 'hub') continue
 			if (r.kind === 'resource') {
 				resourcePaths.add(r.path)
-			} else if (r.kind === 'script') {
+			} else if (r.kind === 'script' || r.kind === 'flow') {
 				if (!fetched.has(r.path) && !queued.has(r.path)) {
 					queued.add(r.path)
-					queue.push({ kind: 'script', path: r.path })
+					queue.push({ kind: r.kind, path: r.path })
 				}
 			}
 		}

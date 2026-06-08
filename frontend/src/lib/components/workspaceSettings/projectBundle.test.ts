@@ -81,6 +81,17 @@ describe('extractFlowRefs', () => {
 		// a javascript expr (flow_input) is not a hardcoded ref
 		expect(refs.filter((r) => r.path === 'flow_input.x')).toEqual([])
 	})
+	it('finds sub-flow refs from type: flow steps', () => {
+		const value = {
+			modules: [
+				{ id: 'a', value: { type: 'flow', path: 'u/admin/sub_flow' } },
+				{ id: 'b', value: { type: 'flow', path: 'hub/9/x/y' } }
+			]
+		}
+		const refs = extractFlowRefs(value)
+		expect(refs).toContainEqual({ kind: 'flow', path: 'u/admin/sub_flow' })
+		expect(refs).toContainEqual({ kind: 'flow', path: 'hub/9/x/y' })
+	})
 })
 
 describe('buildPathMap', () => {
@@ -213,6 +224,43 @@ describe('buildProjectBundle', () => {
 		expect(stubs['u/admin/pg'].resource_type).toBe('postgresql')
 		expect(stubs['f/shared/api'].resource_type).toBe('http_api')
 
+		expect(bundle.unresolved).toEqual([])
+	})
+
+	it('pulls in a sub-flow referenced by a type: flow step and rewrites its path', async () => {
+		const parent: FetchedItem = {
+			kind: 'flow',
+			path: 'u/admin/parent_flow',
+			value: { modules: [{ id: 'a', value: { type: 'flow', path: 'u/admin/sub_flow' } }] }
+		}
+		const sub: FetchedItem = {
+			kind: 'flow',
+			path: 'u/admin/sub_flow',
+			value: {
+				modules: [{ id: 'a', value: { type: 'script', path: 'hub/1/keep/me' } }]
+			}
+		}
+		const d = {
+			fetchItem: async (ref: ItemRef) => {
+				if (ref.path === 'u/admin/parent_flow') return parent
+				if (ref.path === 'u/admin/sub_flow') return sub
+				return undefined
+			},
+			resolveResourceType: async () => undefined
+		}
+		const bundle = await buildProjectBundle(
+			[{ kind: 'flow', path: 'u/admin/parent_flow' }],
+			'proj',
+			d
+		)
+		const byPath = Object.fromEntries(bundle.items.map((i) => [i.path, i]))
+		// both flows bundled
+		expect(Object.keys(byPath).sort()).toEqual(['u/admin/parent_flow', 'u/admin/sub_flow'])
+		// parent's type: flow ref rewritten to the sub-flow's new path
+		expect(byPath['u/admin/parent_flow'].value.modules[0].value.path).toBe('f/proj/sub_flow')
+		expect(byPath['u/admin/sub_flow'].newPath).toBe('f/proj/sub_flow')
+		// hub ref inside the sub-flow left untouched
+		expect(byPath['u/admin/sub_flow'].value.modules[0].value.path).toBe('hub/1/keep/me')
 		expect(bundle.unresolved).toEqual([])
 	})
 
