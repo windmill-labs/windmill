@@ -7910,63 +7910,6 @@ paths:
                     format: date-time
                 required: [status, current_timestamp]
 
-  /w/{workspace}/drafts/list_drafts:
-    get:
-      summary: list the current user's drafts in a workspace (metadata only)
-      operationId: listDrafts
-      tags:
-        - draft
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      responses:
-        "200":
-          description: list of (path, kind, saved_at) tuples
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    path:
-                      type: string
-                    typ:
-                      $ref: "#/components/schemas/UserDraftItemKind"
-                    saved_at:
-                      type: string
-                      format: date-time
-                  required: [path, typ, saved_at]
-
-  /w/{workspace}/drafts/get_draft/{kind}/{path}:
-    get:
-      summary: fetch the current user's draft at a path
-      operationId: getDraft
-      tags:
-        - draft
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - name: kind
-          in: path
-          required: true
-          schema:
-            $ref: "#/components/schemas/UserDraftItemKind"
-        - $ref: "#/components/parameters/ScriptPath"
-      responses:
-        "200":
-          description: draft content
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  value: {}
-                  saved_at:
-                    type: string
-                    format: date-time
-                required: [value, saved_at]
-        "404":
-          description: no draft for the current user at that path
-
   /w/{workspace}/scripts/create:
     post:
       summary: create script

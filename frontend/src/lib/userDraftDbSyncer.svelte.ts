@@ -284,25 +284,14 @@ if (typeof document !== 'undefined') {
  *
  * Kept as a separate module so the two halves stay decoupled — `UserDraft`
  * just calls `UserDraftDbSyncer.save(...)` and doesn't reach into the
- * generated client. Adding conflict handling (`last_sync` + a reject UI)
- * later means changing this file, not every editor.
+ * generated client.
  *
- * NOTE: every save currently uses `force: true`, so the server copy is
- * unconditionally overwritten. This is intentional for the first cut —
- * we'll thread `last_sync` through (using `getLastSync` below) once the
- * client side is settled.
+ * Concurrency: every save attaches the per-tab `last_sync` recorded by
+ * `recordRemoteSync` (or the previous successful save). The server
+ * rejects on a stale `last_sync` and `postSave` surfaces a
+ * `DraftConflictInfo` for the conflict modal to resolve.
  */
 export const UserDraftDbSyncer = {
-	/**
-	 * Read the recorded last-sync timestamp (ISO string) for a draft.
-	 * Returns `undefined` when we've never successfully synced this
-	 * `(workspace, itemKind, path)` — a fresh save should be treated as
-	 * a first-time push.
-	 */
-	getLastSync(opts: UserDraftLastSyncQuery): string | undefined {
-		return getLastSyncEntry(draftKey(opts.workspace, opts.itemKind, opts.path))?.lastSync
-	},
-
 	/**
 	 * Reactive autosave state for a draft. Returns a handle whose `state`
 	 * getter reads the debouncer / runner's reactive key-sets, so a Svelte
