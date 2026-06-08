@@ -1103,7 +1103,7 @@
 				},
 				{
 					id: 'hub',
-					label: 'Publish project',
+					label: 'Publish to Hub',
 					aiId: 'workspace-settings-hub',
 					aiDescription: 'Publish a project from this workspace to the Hub'
 				}
