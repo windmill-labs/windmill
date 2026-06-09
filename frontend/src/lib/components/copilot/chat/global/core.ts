@@ -2383,9 +2383,16 @@ async function loadDbDraftItem(
 // Persist a script DB draft, creating the backing `draft_only` row first when
 // the script does not exist yet (mirrors ScriptBuilder: the row is needed so
 // `createDraft` passes the writer check on `f/` paths and so the draft is
-// discoverable via list/getWithDraft).
-async function saveScriptDbDraft(workspace: string, path: string, draft: NewScript): Promise<void> {
-	if (!(await ScriptService.existsScriptByPath({ workspace, path }))) {
+// discoverable via list/getWithDraft). `knownExists` lets callers that already
+// know whether the item exists skip the extra existence round-trip.
+async function saveScriptDbDraft(
+	workspace: string,
+	path: string,
+	draft: NewScript,
+	knownExists?: boolean
+): Promise<void> {
+	const exists = knownExists ?? (await ScriptService.existsScriptByPath({ workspace, path }))
+	if (!exists) {
 		await ScriptService.createScript({
 			workspace,
 			requestBody: { ...draft, path, draft_only: true }
@@ -2396,8 +2403,14 @@ async function saveScriptDbDraft(workspace: string, path: string, draft: NewScri
 
 // Persist a flow DB draft, creating the backing `draft_only` row first when the
 // flow does not exist yet (mirrors FlowBuilder).
-async function saveFlowDbDraft(workspace: string, path: string, draft: Flow): Promise<void> {
-	if (!(await FlowService.existsFlowByPath({ workspace, path }))) {
+async function saveFlowDbDraft(
+	workspace: string,
+	path: string,
+	draft: Flow,
+	knownExists?: boolean
+): Promise<void> {
+	const exists = knownExists ?? (await FlowService.existsFlowByPath({ workspace, path }))
+	if (!exists) {
 		await FlowService.createFlow({
 			workspace,
 			requestBody: {
@@ -2461,6 +2474,7 @@ async function writeScriptDraft(
 	// the live editor buffer if open, else the DB draft, else the deployed script.
 	let base: NewScript | undefined
 	let existed = false
+	let backendExists: boolean | undefined
 	if (liveOpen) {
 		base = UserDraft.get<NewScript>('script', storagePath, { workspace })
 		existed = base !== undefined
@@ -2469,11 +2483,13 @@ async function writeScriptDraft(
 		try {
 			const existing = await ScriptService.getScriptByPathWithDraft({ workspace, path: args.path })
 			existed = true
+			backendExists = true
 			const { draft: dbDraft, draft_created_at: _c, hash, ...deployed } = existing
 			// Link lineage to the latest deployed hash, like the editor does.
 			base = { ...(dbDraft ?? deployed), parent_hash: hash } as NewScript
 		} catch {
 			existed = false
+			backendExists = false
 		}
 	}
 
@@ -2496,7 +2512,7 @@ async function writeScriptDraft(
 				kind: 'script'
 			}
 
-	await saveScriptDbDraft(workspace, args.path, draft)
+	await saveScriptDbDraft(workspace, args.path, draft, backendExists)
 	// Mirror into the open editor's buffer so it reflects the change live.
 	if (liveOpen) UserDraft.save('script', storagePath, draft, { workspace })
 
@@ -2522,6 +2538,7 @@ async function writeFlowDraft(
 
 	let base: Flow | undefined
 	let existed = false
+	let backendExists: boolean | undefined
 	if (liveOpen) {
 		base = UserDraft.get<Flow>('flow', storagePath, { workspace })
 		existed = base !== undefined
@@ -2530,10 +2547,12 @@ async function writeFlowDraft(
 		try {
 			const existing = await FlowService.getFlowByPathWithDraft({ workspace, path: args.path })
 			existed = true
+			backendExists = true
 			const { draft: dbDraft, draft_created_at: _c, ...deployed } = existing
 			base = dbDraft ?? (deployed as Flow)
 		} catch {
 			existed = false
+			backendExists = false
 		}
 	}
 
@@ -2556,7 +2575,7 @@ async function writeFlowDraft(
 				extra_perms: {}
 			}
 
-	await saveFlowDbDraft(workspace, args.path, draft)
+	await saveFlowDbDraft(workspace, args.path, draft, backendExists)
 	// Mirror into the open editor's buffer so it reflects the change live.
 	if (liveOpen) UserDraft.save('flow', storagePath, draft, { workspace })
 
@@ -2887,11 +2906,9 @@ async function loadDraftFlowPreviewValue(
 	workspace: string
 ): Promise<FlowValue | undefined> {
 	// Only override the deployed flow when a draft (live editor or DB) exists.
-	if (!(await loadDbDraftItem(workspace, 'flow', path))) {
-		return undefined
-	}
-	const nestedFlow = await loadFlowDraftValue(path, workspace)
-	return flowDraftValueForPreview(nestedFlow.flow)
+	const draftItem = await loadDbDraftItem(workspace, 'flow', path)
+	if (!draftItem) return undefined
+	return flowDraftValueForPreview(draftItem.value as FlowDraftValue)
 }
 
 async function testRunScriptByPath(
