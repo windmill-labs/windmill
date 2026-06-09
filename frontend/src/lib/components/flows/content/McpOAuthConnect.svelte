@@ -17,26 +17,19 @@
 	interface Props {
 		onConnected: (resourcePath: string, resourceName: string) => void
 		onCancel?: () => void
-		onDiscoveryStatus?: (
-			status: 'discovering' | 'supported' | 'unsupported',
-			error?: string
-		) => void
 		initialServerUrl?: string
 		initialResourceName?: string
 		initialResourcePath?: string
 		updateExistingResource?: boolean
-		hideUntilDiscovered?: boolean
 	}
 
 	let {
 		onConnected,
 		onCancel,
-		onDiscoveryStatus,
 		initialServerUrl = '',
 		initialResourceName = '',
 		initialResourcePath = '',
-		updateExistingResource = false,
-		hideUntilDiscovered = false
+		updateExistingResource = false
 	}: Props = $props()
 
 	let serverUrl = $state('')
@@ -52,9 +45,6 @@
 
 	let connectDisabled = $derived(
 		!resourcePath || (!updateExistingResource && pathError !== '')
-	)
-	let shouldRender = $derived(
-		!hideUntilDiscovered || status === 'discovered' || status === 'connecting'
 	)
 
 	initializeFromProps()
@@ -77,7 +67,6 @@
 	async function discoverOAuth() {
 		status = 'discovering'
 		error = null
-		onDiscoveryStatus?.('discovering')
 		try {
 			discoveryResult = await McpOauthService.discoverMcpOauth({
 				requestBody: { mcp_server_url: serverUrl }
@@ -92,13 +81,11 @@
 				}
 			}
 			status = 'discovered'
-			onDiscoveryStatus?.('supported')
 		} catch (e: any) {
 			console.error('Error discovering OAuth settings', e)
 			const errorMessage = e.body?.message || e.body || e.message || 'Unknown error'
 			error = `Failed to discover OAuth settings: ${errorMessage}`
 			status = 'unsupported'
-			onDiscoveryStatus?.('unsupported', error)
 		}
 	}
 
@@ -289,105 +276,103 @@
 	onDestroy(cleanup)
 </script>
 
-{#if shouldRender}
-	<div class="border rounded p-4 bg-surface-secondary flex flex-col gap-4">
-		<div class="flex justify-between items-center">
-			<span class="font-semibold text-sm">
-				{updateExistingResource
-					? 'Connect selected MCP resource with OAuth'
-					: 'Connect MCP Server with OAuth'}
-			</span>
-			{#if onCancel}
-				<Button size="xs" color="light" onClick={onCancel}>Cancel</Button>
+<div class="border rounded p-4 bg-surface-secondary flex flex-col gap-4">
+	<div class="flex justify-between items-center">
+		<span class="font-semibold text-sm">
+			{updateExistingResource
+				? 'Connect selected MCP resource with OAuth'
+				: 'Connect MCP Server with OAuth'}
+		</span>
+		{#if onCancel}
+			<Button size="xs" color="light" onClick={onCancel}>Cancel</Button>
+		{/if}
+	</div>
+
+	<Label label="MCP Server URL">
+		<input
+			type="url"
+			bind:value={serverUrl}
+			placeholder="https://mcp.example.com"
+			class="text-sm w-full"
+			disabled={status === 'connecting'}
+		/>
+	</Label>
+
+	{#if status === 'idle'}
+		<Button size="sm" onClick={discoverOAuth} disabled={!serverUrl}>Discover OAuth Settings</Button>
+	{:else if status === 'discovering'}
+		<div class="text-sm text-secondary">Discovering OAuth settings...</div>
+	{:else if status === 'unsupported'}
+		<div class="flex flex-col gap-1 text-xs text-red-600 dark:text-red-400">
+			<div>OAuth is not available for this MCP server.</div>
+			{#if error}
+				<div>{error}</div>
+			{/if}
+		</div>
+	{:else if status === 'discovered' && discoveryResult}
+		<div class="text-xs text-green-600 dark:text-green-400">
+			&#10003; OAuth supported
+			{#if discoveryResult.supports_dynamic_registration}
+				(Dynamic Client Registration available)
 			{/if}
 		</div>
 
-		<Label label="MCP Server URL">
+		{#if discoveryResult.scopes_supported && discoveryResult.scopes_supported.length > 0}
+			<Label label="Select Scopes">
+				<div class="flex flex-col flex-wrap gap-2">
+					{#each discoveryResult.scopes_supported as scope (scope)}
+						<label class="flex flex-row items-center gap-2 text-xs cursor-pointer">
+							<input
+								type="checkbox"
+								checked={selectedScopes.includes(scope)}
+								onchange={(e) => {
+									const target = e.target as HTMLInputElement
+									if (target.checked) {
+										selectedScopes = [...selectedScopes, scope]
+									} else {
+										selectedScopes = selectedScopes.filter((s) => s !== scope)
+									}
+								}}
+								class="!w-4 !h-4"
+							/>
+							{scope}
+						</label>
+					{/each}
+				</div>
+			</Label>
+		{/if}
+
+		<Label label="Resource Name">
 			<input
-				type="url"
-				bind:value={serverUrl}
-				placeholder="https://mcp.example.com"
+				type="text"
+				bind:value={resourceName}
+				placeholder="my-mcp-server"
 				class="text-sm w-full"
-				disabled={status === 'connecting'}
 			/>
 		</Label>
 
-		{#if status === 'idle'}
-			<Button size="sm" onClick={discoverOAuth} disabled={!serverUrl}>Discover OAuth Settings</Button>
-		{:else if status === 'discovering'}
-			<div class="text-sm text-secondary">Discovering OAuth settings...</div>
-		{:else if status === 'unsupported'}
-			<div class="flex flex-col gap-1 text-xs text-red-600 dark:text-red-400">
-				<div>OAuth is not available for this MCP server.</div>
-				{#if error}
-					<div>{error}</div>
-				{/if}
-			</div>
-		{:else if status === 'discovered' && discoveryResult}
-			<div class="text-xs text-green-600 dark:text-green-400">
-				&#10003; OAuth supported
-				{#if discoveryResult.supports_dynamic_registration}
-					(Dynamic Client Registration available)
-				{/if}
-			</div>
-
-			{#if discoveryResult.scopes_supported && discoveryResult.scopes_supported.length > 0}
-				<Label label="Select Scopes">
-					<div class="flex flex-col flex-wrap gap-2">
-						{#each discoveryResult.scopes_supported as scope (scope)}
-							<label class="flex flex-row items-center gap-2 text-xs cursor-pointer">
-								<input
-									type="checkbox"
-									checked={selectedScopes.includes(scope)}
-									onchange={(e) => {
-										const target = e.target as HTMLInputElement
-										if (target.checked) {
-											selectedScopes = [...selectedScopes, scope]
-										} else {
-											selectedScopes = selectedScopes.filter((s) => s !== scope)
-										}
-									}}
-									class="!w-4 !h-4"
-								/>
-								{scope}
-							</label>
-						{/each}
-					</div>
-				</Label>
-			{/if}
-
-			<Label label="Resource Name">
-				<input
-					type="text"
-					bind:value={resourceName}
-					placeholder="my-mcp-server"
-					class="text-sm w-full"
-				/>
+		{#if updateExistingResource}
+			<Label label="Resource Path">
+				<div class="text-sm w-full rounded border bg-surface px-2 py-1">{resourcePath}</div>
 			</Label>
-
-			{#if updateExistingResource}
-				<Label label="Resource Path">
-					<div class="text-sm w-full rounded border bg-surface px-2 py-1">{resourcePath}</div>
-				</Label>
-			{:else}
-				<Path
-					bind:path={resourcePath}
-					bind:error={pathError}
-					initialPath=""
-					namePlaceholder={resourceName}
-					kind="resource"
-				/>
-			{/if}
-
-			<Button size="sm" onClick={startOAuth} disabled={connectDisabled}>
-				Connect with OAuth
-			</Button>
-		{:else if status === 'connecting'}
-			<div class="text-sm text-secondary">Complete authentication in popup window...</div>
+		{:else}
+			<Path
+				bind:path={resourcePath}
+				bind:error={pathError}
+				initialPath=""
+				namePlaceholder={resourceName}
+				kind="resource"
+			/>
 		{/if}
 
-		{#if error && status !== 'unsupported'}
-			<div class="text-xs text-red-600 dark:text-red-400">{error}</div>
-		{/if}
-	</div>
-{/if}
+		<Button size="sm" onClick={startOAuth} disabled={connectDisabled}>
+			Connect with OAuth
+		</Button>
+	{:else if status === 'connecting'}
+		<div class="text-sm text-secondary">Complete authentication in popup window...</div>
+	{/if}
+
+	{#if error && status !== 'unsupported'}
+		<div class="text-xs text-red-600 dark:text-red-400">{error}</div>
+	{/if}
+</div>
