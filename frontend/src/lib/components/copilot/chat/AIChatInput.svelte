@@ -13,7 +13,8 @@
 	import { ArrowUp, Square } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
-	import { type PasteAttachment, expandPasteTokens } from './pasteTokens'
+	import { type PasteAttachment } from './pasteTokens'
+	import { chatDraft, expanded } from './chatDraft'
 
 	const aiChatManager = getAiChatManager()
 
@@ -283,7 +284,7 @@
 	// for the conversation bubble and expands them for the LLM inside the manager.
 	function submitRequest() {
 		if (onSendRequest) {
-			onSendRequest(expandPasteTokens(instructions, pastes))
+			onSendRequest(expanded(chatDraft(instructions, pastes)))
 		} else {
 			sendRequest()
 		}

@@ -39,7 +39,8 @@ import { sendUserToast } from '$lib/toast'
 import { getModelContextWindow, workspaceAIClients } from '../lib'
 import { dfs } from '$lib/components/flows/previousResults'
 import { getStringError } from './utils'
-import { type PasteAttachment, expandPasteTokens } from './pasteTokens'
+import { type PasteAttachment } from './pasteTokens'
+import { chatDraft, expanded } from './chatDraft'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
@@ -924,7 +925,7 @@ export class AIChatManager {
 			]
 			// The LLM gets the full pasted content; the display message above keeps
 			// the compact tokens + registry so the bubble can render/expand chips.
-			const oldInstructions = expandPasteTokens(this.instructions, pastes)
+			const oldInstructions = expanded(chatDraft(this.instructions, pastes))
 			this.instructions = ''
 
 			if (this.mode === AIMode.SCRIPT && !this.scriptEditorOptions && !options.lang) {

@@ -9,7 +9,7 @@
 	import AIChatInput from './AIChatInput.svelte'
 	import type { ContextElement } from './context'
 	import ToolExecutionDisplay from './ToolExecutionDisplay.svelte'
-	import { splitPasteTokens } from './pasteTokens'
+	import { messageDraft, segments } from './chatDraft'
 
 	const aiChatManager = getAiChatManager()
 
@@ -40,8 +40,6 @@
 		editingMessageIndex = $bindable(null),
 		isLast = false
 	}: Props = $props()
-
-	const userPastes = $derived(message.role === 'user' ? message.pastes : undefined)
 
 	function editMessage() {
 		if (message.role !== 'user' || editingMessageIndex !== null || aiChatManager.loading) {
@@ -97,7 +95,7 @@
 				<div
 					class="text-xs px-3 py-2 w-fit max-w-[min(32rem,100%)] bg-surface-accent-selected text-accent rounded-lg relative group break-words"
 				>
-					{#each splitPasteTokens(message.content, userPastes) as seg}{#if seg.type === 'text'}<span
+					{#each segments(messageDraft(message)) as seg}{#if seg.type === 'text'}<span
 								class="whitespace-pre-wrap">{seg.value}</span
 							>{:else if expandedPastes.has(seg.att.id)}<button
 								type="button"
