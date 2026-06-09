@@ -88,12 +88,16 @@
 				Is deployed and has a draft
 			{/if}
 		{/snippet}
-		<div class="flex items-center gap-1">
+		<Badge small color="indigo">
 			{#if draft_users.length > 0}
-				<div class="flex -space-x-1">
+				<!-- Circles sit inside the Badge, before the label. `-space-x-1`
+				     overlaps them slightly; each circle's ring uses the badge's
+				     indigo tint instead of plain white so the overlap reads as
+				     intentional rather than a stack-of-floating-dots. -->
+				<span class="flex -space-x-1">
 					{#each visibleUsers as u}
 						<span
-							class="inline-flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-semibold text-white ring-1 ring-white {colorFor(
+							class="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full text-[8px] font-semibold text-white ring-1 ring-indigo-100 dark:ring-indigo-700/40 {colorFor(
 								u
 							)}"
 							title={fullLabel(u)}
@@ -103,15 +107,15 @@
 					{/each}
 					{#if overflowCount > 0}
 						<span
-							class="inline-flex h-4 w-4 items-center justify-center rounded-full bg-gray-500 text-[8px] font-semibold text-white ring-1 ring-white"
+							class="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-gray-500 text-[8px] font-semibold text-white ring-1 ring-indigo-100 dark:ring-indigo-700/40"
 							title="{overflowCount} more"
 						>
 							+{overflowCount}
 						</span>
 					{/if}
-				</div>
+				</span>
 			{/if}
-			<Badge small color="indigo">{draft_only ? 'Draft only' : 'Draft'}</Badge>
-		</div>
+			{draft_only ? 'Draft only' : 'Draft'}
+		</Badge>
 	</Popover>
 {/if}
