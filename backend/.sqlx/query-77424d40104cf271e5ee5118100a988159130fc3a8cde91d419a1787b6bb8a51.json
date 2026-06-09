@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            runnable_kind AS \"runnable_kind!: AssetUsageKind\",\n            runnable_path AS \"runnable_path!\",\n            trigger_kind::text AS \"trigger_kind!\",\n            trigger_ref   AS \"trigger_ref!\"\n        FROM script_trigger\n        WHERE workspace_id = $1\n          AND trigger_kind IN ('asset', 'schedule')\n          AND ($2::text IS NULL OR runnable_path LIKE $2)\n        ",
+  "query": "\n        SELECT\n            runnable_kind AS \"runnable_kind!: AssetUsageKind\",\n            runnable_path AS \"runnable_path!\",\n            trigger_kind::text AS \"trigger_kind!\",\n            trigger_ref   AS \"trigger_ref!\"\n        FROM script_trigger\n        WHERE workspace_id = $1\n          AND trigger_kind = 'asset'\n          AND ($2::text IS NULL OR runnable_path LIKE $2)\n        ",
   "describe": {
     "columns": [
       {
@@ -48,5 +48,5 @@
       false
     ]
   },
-  "hash": "ad75a63f5b757de1f4bb9789f8aa7ea25e1dd949ca957a8d5bbfd1166d4b80ce"
+  "hash": "77424d40104cf271e5ee5118100a988159130fc3a8cde91d419a1787b6bb8a51"
 }

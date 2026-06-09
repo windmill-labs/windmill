@@ -8,10 +8,11 @@
 
 //! Runtime fan-out for asset-triggered scripts.
 //!
-//! When a producer pipeline script (`// pipeline`) writes an asset and a
-//! downstream script subscribes to that asset via `// on s3://...`, this
-//! module pushes a job for each subscriber after the producer's job
-//! completes successfully.
+//! When a script writes an asset and a downstream script subscribes to
+//! that asset via `// on s3://...`, this module pushes a job for each
+//! subscriber after the producer's job completes successfully. Any
+//! asset-writing top-level script cascades — there is no `// pipeline`
+//! gate on the producer side; subscriptions alone define the graph.
 //!
 //! Eligibility (V1, narrow on purpose):
 //!   - Producer kind is `Script` or `Preview`. Flows defer.
@@ -49,14 +50,15 @@ use sqlx::types::Json;
 use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
 use uuid::Uuid;
-use windmill_common::assets::{parse_asset_trigger_ref, AssetKind, PARTITION_TOKEN};
+use windmill_common::assets::{AssetKind, PARTITION_TOKEN};
 use windmill_common::error::{self, Result};
-use windmill_common::get_latest_hash_for_path;
+use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::{JobKind, JobPayload, JobTriggerKind};
 use windmill_common::partition::PARTITION_ARG;
-use windmill_common::runnable_settings::{ConcurrencySettings, DebouncingSettings};
+use windmill_common::runnable_settings::DebouncingSettings;
+use windmill_common::scripts::ScriptHash;
 use windmill_common::triggers::TriggerMetadata;
-use windmill_common::users::username_to_permissioned_as;
+use windmill_common::users::{get_email_from_permissioned_as, username_to_permissioned_as};
 use windmill_common::worker::to_raw_value;
 use windmill_common::DB;
 
@@ -185,8 +187,15 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
         _ => return Ok(DispatchResult::default()),
     };
 
-    // Args were moved from v2_job to v2_job_completed by add_completed_job
-    // before dispatch runs. Fetch from v2_job_completed.
+    // Cheapest filter first: this hook runs on every top-level script
+    // completion, and the overwhelmingly common case is a script that
+    // writes no asset — one indexed query and out, before touching the
+    // job's args JSONB.
+    let writes = fetch_producer_writes(db, &job.workspace_id, runnable_path).await?;
+    if writes.is_empty() {
+        return Ok(DispatchResult::default());
+    }
+
     let args = fetch_args(db, &job.workspace_id, job.id).await?;
     if read_skip_arg(args.as_ref()) {
         return Ok(DispatchResult::default());
@@ -207,11 +216,6 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
             job.id,
             runnable_path
         );
-        return Ok(DispatchResult::default());
-    }
-
-    let writes = fetch_producer_writes(db, &job.workspace_id, runnable_path).await?;
-    if writes.is_empty() {
         return Ok(DispatchResult::default());
     }
 
@@ -507,14 +511,6 @@ async fn fetch_subscribers(
     )
     .fetch_all(db)
     .await?;
-    // Sanity check: parsing the stored trigger_ref must succeed. If it
-    // doesn't, the row is corrupt; skip it loudly rather than silently.
-    if parse_asset_trigger_ref(trigger_ref).is_none() {
-        tracing::warn!(
-            "asset-trigger dispatch: trigger_ref {} did not round-trip through parse_asset_trigger_ref",
-            trigger_ref
-        );
-    }
     Ok(rows
         .into_iter()
         .map(|r| Subscriber {
@@ -662,31 +658,29 @@ async fn push_subscriber(
     retry_count: Option<i16>,
     retry_delay_s: Option<i32>,
 ) -> Result<Uuid> {
-    let (
-        hash,
-        tag,
-        _concurrency_key,
-        _concurrent_limit,
-        _concurrency_time_window_s,
-        _debounce_key,
-        _debounce_delay_s,
-        cache_ttl,
-        cache_ignore_s3_path,
-        language,
-        dedicated_worker,
-        priority,
-        _timeout,
-        on_behalf_of_email,
-        created_by,
-        _runnable_settings_handle,
-        labels,
-    ) = get_latest_hash_for_path(db, &producer.workspace_id, subscriber_path, false).await?;
+    // Same resolution as every other trigger path (`script_path_to_payload`):
+    // latest deployed hash plus the script's own runnable settings
+    // (concurrency, debounce, timeout), resolved through the
+    // runnable-settings handle. The cascade must not bypass a subscriber's
+    // concurrency limit just because it was triggered by an asset write.
+    let script = get_latest_deployed_hash_for_path(
+        None,
+        db.clone(),
+        &producer.workspace_id,
+        subscriber_path,
+    )
+    .await?
+    .prefetch_cached(db)
+    .await?;
+    let hash = ScriptHash(script.hash);
+    let tag = script.tag;
+    let concurrency_settings = script.runnable_settings.concurrency_settings;
 
     // Debounce is opt-in per subscriber edge (`// debounce` /
-    // `// on … debounce=`). Default = none (fan-out — the user's intent
-    // unless they ask otherwise). When set, the window is keyed by
+    // `// on … debounce=`). When set, the window is keyed by
     // (subscriber, partition) so distinct partitions never collapse and
-    // "latest within the window" falls out for free.
+    // "latest within the window" falls out for free. When not set, the
+    // subscriber's own script-level debounce settings (if any) apply.
     let debouncing_settings = match debounce_s {
         Some(s) if s > 0 => DebouncingSettings {
             debounce_key: Some(format!(
@@ -697,7 +691,7 @@ async fn push_subscriber(
             debounce_delay_s: Some(s),
             ..DebouncingSettings::default()
         },
-        _ => DebouncingSettings::default(),
+        _ => script.runnable_settings.debouncing_settings,
     };
 
     // Retry is only available via the flow runtime — wrap the script in a
@@ -725,42 +719,45 @@ async fn push_subscriber(
             error_handler_path: None,
             error_handler_args: None,
             skip_handler: None,
-            cache_ttl,
-            cache_ignore_s3_path,
-            priority,
+            cache_ttl: script.cache_ttl,
+            cache_ignore_s3_path: script.cache_ignore_s3_path,
+            priority: script.priority,
             tag_override: tag.clone(),
             trigger_path: None,
             apply_preprocessor: false,
-            concurrency_settings: ConcurrencySettings::default(),
+            concurrency_settings,
             debouncing_settings,
         }
     } else {
         JobPayload::ScriptHash {
             hash,
             path: subscriber_path.to_string(),
-            cache_ttl,
-            cache_ignore_s3_path,
-            dedicated_worker,
-            language,
-            priority,
+            cache_ttl: script.cache_ttl,
+            cache_ignore_s3_path: script.cache_ignore_s3_path,
+            dedicated_worker: script.dedicated_worker,
+            language: script.language,
+            priority: script.priority,
             apply_preprocessor: false,
             debouncing_settings,
-            concurrency_settings: ConcurrencySettings::default(),
-            labels,
+            concurrency_settings,
+            labels: script.labels,
         }
     };
 
-    // Subscriber's own on_behalf_of_email controls identity when set;
-    // otherwise we run as the producer. This keeps the asset cascade
-    // attributable to whoever originally wrote the asset, while still
-    // honoring scripts that explicitly opted into a service-account email.
-    let (permissioned_as, email) = if let Some(obo) = on_behalf_of_email {
-        (username_to_permissioned_as(&created_by), obo)
-    } else {
-        (
-            producer.permissioned_as.clone(),
-            producer.permissioned_as_email.clone(),
-        )
+    // Run the subscriber under its deployer's identity — never the
+    // producer's. Subscriptions are workspace-wide, so attributing the run
+    // to the producer would let anyone who can deploy a `// on` script
+    // execute code with the permissions of whoever happens to write the
+    // asset (e.g. an admin's scheduled job). `on_behalf_of_email` (an
+    // explicit service-account opt-in at deploy) takes precedence for the
+    // email; otherwise the deployer's email is resolved from their
+    // username.
+    let permissioned_as = username_to_permissioned_as(&script.created_by);
+    let email = match script.on_behalf_of_email {
+        Some(obo) => obo,
+        None => {
+            get_email_from_permissioned_as(&permissioned_as, &producer.workspace_id, db).await?
+        }
     };
 
     let mut args: HashMap<String, Box<RawValue>> = HashMap::new();
@@ -808,7 +805,7 @@ async fn push_subscriber(
         None,
         true,
         tag,
-        None,
+        script.timeout,
         None,
         None,
         None,

@@ -472,8 +472,8 @@ fn parse_kv_opts(s: &str) -> BTreeMap<String, String> {
 // whose first non-whitespace tokens are a comment prefix (`//`, `#`, or
 // `--`) followed by one of the recognized keywords:
 //   - `pipeline`                 → opt-in marker (must be alone on the line)
-//   - `schedule "<cron>"`        → top-level inline cron schedule
-//   - `on <trigger-spec>`        → asset / native trigger edge
+//   - `on <trigger-spec>`        → asset / native trigger edge (including
+//                                  the marker-only `on schedule` form)
 //   - `partitioned <kind> [opts]` → partition declaration
 //   - `freshness <duration>`     → SLA / active backstop
 //   - `tag <name>`               → worker-tag override (annotation wins
@@ -837,7 +837,7 @@ mod pipeline_annotation_tests {
         let out = parse_pipeline_annotations(
             "// on s3://lake/raw/{partition}/events.parquet\n\
              // on s3://lake/dim/customers.parquet\n\
-             // schedule \"@daily\"",
+             // on schedule",
         );
         assert_eq!(out.triggers.len(), 3);
         assert!(out.triggers[0].is_partition_bearing());
@@ -1064,7 +1064,7 @@ mod pipeline_annotation_tests {
     fn combined() {
         let code = concat!(
             "// pipeline\n",
-            "// schedule \"0 0 * * *\"\n",
+            "// on schedule\n",
             "// on s3://in.csv\n",
             "// partitioned daily tz=\"UTC\"\n",
             "// freshness 2h\n",

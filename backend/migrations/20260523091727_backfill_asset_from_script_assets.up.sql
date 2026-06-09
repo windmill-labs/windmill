@@ -5,7 +5,7 @@
 -- (asset-trigger cascade) and the asset-graph lineage view actually query.
 -- Without this, a pre-feature script "succeeds" but the dispatcher sees
 -- no writes, no subscribers are matched, and the dispatch_event panel
--- stays empty — exactly the gap we hit in https://… (no public link yet).
+-- stays empty.
 --
 -- Idempotent: scoped to (workspace, path) pairs that have ZERO asset rows
 -- under `usage_kind = 'script'`, so re-running can't duplicate. The

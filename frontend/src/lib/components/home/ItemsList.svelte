@@ -4,13 +4,13 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
 		AppService,
+		AssetService,
 		FlowService,
 		type ListableApp,
 		type Script,
 		ScriptService,
 		type Flow,
-		type ListableRawApp,
-		OpenAPI
+		type ListableRawApp
 	} from '$lib/gen'
 	import { resource } from 'runed'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -79,16 +79,15 @@
 	// thanks to the partial index on script.auto_kind.
 	let pipelineFoldersRes = resource(
 		() => $workspaceStore,
-		async (ws, _prev, { signal }) => {
+		async (ws) => {
 			if (!ws) return new Set<string>()
-			const base_url = OpenAPI.BASE ?? ''
-			const res = await fetch(`${base_url}/w/${ws}/assets/pipelines`, {
-				credentials: 'include',
-				signal
-			})
-			if (!res.ok) return new Set<string>()
-			const rows = (await res.json()) as Array<{ folder: string }>
-			return new Set(rows.map((r) => r.folder))
+			try {
+				const rows = await AssetService.listPipelineFolders({ workspace: ws })
+				return new Set(rows.map((r) => r.folder))
+			} catch {
+				// Decorative tree entry — degrade to "no pipelines" on failure.
+				return new Set<string>()
+			}
 		}
 	)
 	let pipelineFolders = $derived(pipelineFoldersRes.current ?? new Set<string>())

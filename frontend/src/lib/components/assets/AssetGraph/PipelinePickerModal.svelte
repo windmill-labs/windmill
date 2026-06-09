@@ -5,14 +5,9 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import FolderPicker from '$lib/components/FolderPicker.svelte'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
-	import { OpenAPI } from '$lib/gen'
+	import { AssetService, type ListPipelineFoldersResponse } from '$lib/gen'
 	import { resource } from 'runed'
 	import { ArrowRight, Loader2 } from 'lucide-svelte'
-
-	interface PipelineFolder {
-		folder: string
-		script_count: number
-	}
 
 	interface Props {
 		open: boolean
@@ -24,15 +19,9 @@
 
 	let pipelines = resource(
 		() => $workspaceStore,
-		async (ws, _prev, { signal }) => {
-			if (!ws) return [] as PipelineFolder[]
-			const base_url = OpenAPI.BASE ?? ''
-			const res = await fetch(`${base_url}/w/${ws}/assets/pipelines`, {
-				credentials: 'include',
-				signal
-			})
-			if (!res.ok) throw new Error(`GET /assets/pipelines → ${res.status}`)
-			return (await res.json()) as PipelineFolder[]
+		async (ws) => {
+			if (!ws) return [] as ListPipelineFoldersResponse
+			return await AssetService.listPipelineFolders({ workspace: ws })
 		}
 	)
 

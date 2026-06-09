@@ -1754,33 +1754,14 @@
 											class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch"
 										>
 											{#if testIsLoading}
-												<Button
-													on:click={jobLoader?.cancelJob}
-													btnClasses="w-full"
-													unifiedSize="md"
-												>
-													<WindmillIcon
-														white={true}
-														class="mr-2 text-white"
-														height="16px"
-														width="20px"
-														spin="fast"
-													/>
-													Cancel
-												</Button>
+												{@render cancelTestButton('md', 'w-full')}
 											{:else}
 												{@const disableTriggerButton =
 													customUi?.previewPanel?.disableTriggerButton === true}
-												<Button
-													on:click={() => runTest()}
-													unifiedSize="md"
-													btnClasses="w-full {!disableTriggerButton ? 'rounded-r-none' : ''}"
-													variant="accent-secondary"
-													startIcon={{ icon: Play, classes: 'animate-none' }}
-													shortCut={{ Icon: CornerDownLeft }}
-												>
-													Test
-												</Button>
+												{@render runTestButton(
+													'md',
+													`w-full ${!disableTriggerButton ? 'rounded-r-none' : ''}`
+												)}
 												{#if !disableTriggerButton}
 													<CaptureButton on:openTriggers />
 												{/if}
@@ -1853,16 +1834,7 @@
 								{/if}
 								<div class="absolute top-1 left-2 z-10">
 									{#if testIsLoading}
-										<Button on:click={jobLoader?.cancelJob} unifiedSize="sm" btnClasses="shadow-md">
-											<WindmillIcon
-												white={true}
-												class="mr-2 text-white"
-												height="14px"
-												width="16px"
-												spin="fast"
-											/>
-											Cancel
-										</Button>
+										{@render cancelTestButton('sm', 'shadow-md')}
 									{:else if (customUi?.previewPanel?.downstreamSubscribers ?? 0) > 0}
 										<!-- Split button: primary "Test" runs just this step
 									     (skips the asset-trigger cascade); the caret
@@ -1964,16 +1936,7 @@
 											</Popover>
 										</div>
 									{:else}
-										<Button
-											on:click={() => runTest()}
-											unifiedSize="sm"
-											btnClasses="shadow-md"
-											variant="accent-secondary"
-											startIcon={{ icon: Play, classes: 'animate-none' }}
-											shortCut={{ Icon: CornerDownLeft }}
-										>
-											Test
-										</Button>
+										{@render runTestButton('sm', 'shadow-md')}
 									{/if}
 								</div>
 								{#if customUi?.previewPanel?.argsAboveLogs && schema?.properties && Object.keys(schema.properties).length > 0}
@@ -1999,44 +1962,7 @@
 									</div>
 								{/if}
 								<div class="grow min-h-0">
-									<LogPanel
-										bind:this={logPanel}
-										{lang}
-										previewJob={debugMode
-											? ({
-													id: 'debug',
-													logs: $debugState.logs,
-													result: $debugState.result,
-													success: !$debugState.error,
-													type: hasDebugResult ? 'CompletedJob' : 'QueuedJob'
-												} as any)
-											: testJob}
-										{pastPreviews}
-										onTabChange={(tab) => {
-											historyTabActive = tab === 'history'
-											if (historyTabActive) {
-												loadPastTests()
-											}
-										}}
-										previewIsLoading={debugMode
-											? $debugState.running && !$debugState.stopped
-											: testIsLoading}
-										{editor}
-										{diffEditor}
-										args={activeModuleTab !== null ? testPanelArgs : args}
-										{showCaptures}
-										customUi={customUi?.previewPanel}
-										showCustomResultPanel={showDebugPanel}
-									>
-										{#if scriptProgress && !debugMode}
-											<JobProgressBar
-												job={testJob}
-												{scriptProgress}
-												bind:this={jobProgressBar}
-												compact={true}
-											/>
-										{/if}
-									</LogPanel>
+									{@render testLogPanel()}
 								</div>
 							</div>
 						{:else}
@@ -2053,31 +1979,9 @@
 										{#if previewLayout === 'bottom' && !(debugMode && isDebuggableScript)}
 											<div class="px-3 pt-2 pb-1 flex items-center gap-2">
 												{#if testIsLoading}
-													<Button
-														on:click={jobLoader?.cancelJob}
-														unifiedSize="sm"
-														btnClasses="w-full"
-													>
-														<WindmillIcon
-															white={true}
-															class="mr-2 text-white"
-															height="14px"
-															width="16px"
-															spin="fast"
-														/>
-														Cancel
-													</Button>
+													{@render cancelTestButton('sm', 'w-full')}
 												{:else}
-													<Button
-														on:click={() => runTest()}
-														unifiedSize="sm"
-														btnClasses="w-full"
-														variant="accent-secondary"
-														startIcon={{ icon: Play, classes: 'animate-none' }}
-														shortCut={{ Icon: CornerDownLeft }}
-													>
-														Test
-													</Button>
+													{@render runTestButton('sm', 'w-full')}
 												{/if}
 											</div>
 										{/if}
@@ -2152,63 +2056,7 @@
 										{/if}
 									</Pane>
 									<Pane size={previewLayout === 'bottom' ? 60 : 67} class="relative">
-										<LogPanel
-											bind:this={logPanel}
-											{lang}
-											previewJob={debugMode
-												? ({
-														id: 'debug',
-														logs: $debugState.logs,
-														result: $debugState.result,
-														success: !$debugState.error,
-														type: hasDebugResult ? 'CompletedJob' : 'QueuedJob'
-													} as any)
-												: testJob}
-											{pastPreviews}
-											previewIsLoading={debugMode
-												? $debugState.running && !$debugState.stopped
-												: testIsLoading}
-											{editor}
-											{diffEditor}
-											args={activeModuleTab !== null ? testPanelArgs : args}
-											{showCaptures}
-											customUi={customUi?.previewPanel}
-											showCustomResultPanel={showDebugPanel}
-										>
-											{#if scriptProgress && !debugMode}
-												<!-- Put to the slot in logpanel -->
-												<JobProgressBar
-													job={testJob}
-													{scriptProgress}
-													bind:this={jobProgressBar}
-													compact={true}
-												/>
-											{/if}
-											{#snippet capturesTab()}
-												<div class="h-full p-2">
-													<CaptureTable
-														bind:this={captureTable}
-														{hasPreprocessor}
-														canHavePreprocessor={canHavePreprocessor(lang)}
-														isFlow={false}
-														path={stablePathForCaptures}
-														canEdit={true}
-														on:applyArgs
-														on:updateSchema
-														on:addPreprocessor
-													/>
-												</div>
-											{/snippet}
-											{#snippet customResultPanel()}
-												<DebugPanel
-													stackFrames={$debugState.stackFrames}
-													scopes={$debugState.scopes}
-													variables={$debugState.variables}
-													client={dapClient}
-													bind:selectedFrameId={selectedDebugFrameId}
-												/>
-											{/snippet}
-										</LogPanel>
+										{@render testLogPanel()}
 									</Pane>
 								</Splitpanes>
 							{/key}
@@ -2219,6 +2067,95 @@
 		</Splitpanes>
 	</div>
 </SplitPanesWrapper>
+
+{#snippet cancelTestButton(size: 'sm' | 'md', btnClasses: string)}
+	<Button on:click={jobLoader?.cancelJob} unifiedSize={size} {btnClasses}>
+		<WindmillIcon
+			white={true}
+			class="mr-2 text-white"
+			height={size === 'md' ? '16px' : '14px'}
+			width={size === 'md' ? '20px' : '16px'}
+			spin="fast"
+		/>
+		Cancel
+	</Button>
+{/snippet}
+
+{#snippet runTestButton(size: 'sm' | 'md', btnClasses: string)}
+	<Button
+		on:click={() => runTest()}
+		unifiedSize={size}
+		{btnClasses}
+		variant="accent-secondary"
+		startIcon={{ icon: Play, classes: 'animate-none' }}
+		shortCut={{ Icon: CornerDownLeft }}
+	>
+		Test
+	</Button>
+{/snippet}
+
+<!-- Single source of truth for the preview LogPanel — rendered by both the
+     compact (hideArgs) layout and the splitpane layouts. One invocation
+     prevents prop drift between copies (the history tab's lazy-load via
+     onTabChange was lost in one copy when they diverged). -->
+{#snippet testLogPanel()}
+	<LogPanel
+		bind:this={logPanel}
+		{lang}
+		previewJob={debugMode
+			? ({
+					id: 'debug',
+					logs: $debugState.logs,
+					result: $debugState.result,
+					success: !$debugState.error,
+					type: hasDebugResult ? 'CompletedJob' : 'QueuedJob'
+				} as any)
+			: testJob}
+		{pastPreviews}
+		onTabChange={(tab) => {
+			historyTabActive = tab === 'history'
+			if (historyTabActive) {
+				loadPastTests()
+			}
+		}}
+		previewIsLoading={debugMode ? $debugState.running && !$debugState.stopped : testIsLoading}
+		{editor}
+		{diffEditor}
+		args={activeModuleTab !== null ? testPanelArgs : args}
+		{showCaptures}
+		customUi={customUi?.previewPanel}
+		showCustomResultPanel={showDebugPanel}
+	>
+		{#if scriptProgress && !debugMode}
+			<!-- Put to the slot in logpanel -->
+			<JobProgressBar job={testJob} {scriptProgress} bind:this={jobProgressBar} compact={true} />
+		{/if}
+		{#snippet capturesTab()}
+			<div class="h-full p-2">
+				<CaptureTable
+					bind:this={captureTable}
+					{hasPreprocessor}
+					canHavePreprocessor={canHavePreprocessor(lang)}
+					isFlow={false}
+					path={stablePathForCaptures}
+					canEdit={true}
+					on:applyArgs
+					on:updateSchema
+					on:addPreprocessor
+				/>
+			</div>
+		{/snippet}
+		{#snippet customResultPanel()}
+			<DebugPanel
+				stackFrames={$debugState.stackFrames}
+				scopes={$debugState.scopes}
+				variables={$debugState.variables}
+				client={dapClient}
+				bind:selectedFrameId={selectedDebugFrameId}
+			/>
+		{/snippet}
+	</LogPanel>
+{/snippet}
 
 {#snippet addModuleForm(close: () => void)}
 	<div class="flex flex-col gap-2">

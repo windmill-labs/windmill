@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n              e.subscriber_path AS \"subscriber_path!\",\n              e.asset_kind AS \"asset_kind!: windmill_common::assets::AssetKind\",\n              e.asset_path AS \"asset_path!\",\n              e.outcome::text AS \"outcome!\",\n              e.child_job_id,\n              e.partition,\n              e.received_inputs,\n              e.required_inputs,\n              e.debounce_s,\n              e.reason,\n              e.created_at AS \"created_at!\"\n           FROM dispatch_event e\n           JOIN v2_job j ON j.id = e.producer_job_id\n           WHERE e.producer_job_id = $1\n             AND e.workspace_id = $2\n             AND ($3::text[] IS NULL OR j.tag = ANY($3))\n           ORDER BY e.id",
+  "query": "SELECT\n              subscriber_path AS \"subscriber_path!\",\n              asset_kind AS \"asset_kind!: windmill_common::assets::AssetKind\",\n              asset_path AS \"asset_path!\",\n              outcome::text AS \"outcome!\",\n              child_job_id,\n              partition,\n              received_inputs,\n              required_inputs,\n              debounce_s,\n              reason,\n              created_at AS \"created_at!\"\n           FROM dispatch_event\n           WHERE producer_job_id = $1 AND workspace_id = $2\n           ORDER BY id",
   "describe": {
     "columns": [
       {
@@ -76,8 +76,7 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Text",
-        "TextArray"
+        "Text"
       ]
     },
     "nullable": [
@@ -94,5 +93,5 @@
       false
     ]
   },
-  "hash": "1c9cc934ae0784c849e140dabd8cfbc43b7822a4a693220eaaf1317ec5f0c6bd"
+  "hash": "26e63135fcd8e7d48e25de190a2f72ece70ec92c5b04baad2622639850445900"
 }

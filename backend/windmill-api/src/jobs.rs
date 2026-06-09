@@ -8943,8 +8943,10 @@ struct DispatchEvent {
 }
 
 async fn get_dispatch_events(
+    OptViewToken(view_token): OptViewToken,
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::JsonResult<Vec<DispatchEvent>> {
     let tags = opt_authed
@@ -8952,31 +8954,58 @@ async fn get_dispatch_events(
         .map(|authed| get_scope_tags(authed))
         .flatten();
 
-    // Tag-gate via the producer's v2_job row so token scopes that restrict
-    // job visibility apply here too. The dispatch_event FK to v2_job(id)
-    // guarantees the producer row exists for any extant event.
-    let rows = sqlx::query!(
-        r#"SELECT
-              e.subscriber_path AS "subscriber_path!",
-              e.asset_kind AS "asset_kind!: windmill_common::assets::AssetKind",
-              e.asset_path AS "asset_path!",
-              e.outcome::text AS "outcome!",
-              e.child_job_id,
-              e.partition,
-              e.received_inputs,
-              e.required_inputs,
-              e.debounce_s,
-              e.reason,
-              e.created_at AS "created_at!"
-           FROM dispatch_event e
-           JOIN v2_job j ON j.id = e.producer_job_id
-           WHERE e.producer_job_id = $1
-             AND e.workspace_id = $2
-             AND ($3::text[] IS NULL OR j.tag = ANY($3))
-           ORDER BY e.id"#,
+    // Gate on the producer job's visibility, exactly like
+    // get_completed_job_timing on the same unauthed router: scope tags
+    // first, then per-job read access for authed users, anonymous-only
+    // jobs otherwise. The dispatch_event FK to v2_job(id) guarantees the
+    // producer row exists for any extant event.
+    let producer = sqlx::query!(
+        r#"SELECT created_by AS "created_by!"
+           FROM v2_job
+           WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))"#,
         id,
         &w_id,
         tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
+    )
+    .fetch_optional(&db)
+    .await?;
+    let producer = not_found_if_none(producer, "Job", id.to_string())?;
+
+    if let Some(authed) = opt_authed.as_ref() {
+        require_job_read_access(
+            &db,
+            &user_db,
+            authed,
+            &w_id,
+            &id,
+            &producer.created_by,
+            view_token.as_deref(),
+        )
+        .await?;
+    } else if producer.created_by != "anonymous" {
+        return Err(Error::BadRequest(
+            "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+        ));
+    }
+
+    let rows = sqlx::query!(
+        r#"SELECT
+              subscriber_path AS "subscriber_path!",
+              asset_kind AS "asset_kind!: windmill_common::assets::AssetKind",
+              asset_path AS "asset_path!",
+              outcome::text AS "outcome!",
+              child_job_id,
+              partition,
+              received_inputs,
+              required_inputs,
+              debounce_s,
+              reason,
+              created_at AS "created_at!"
+           FROM dispatch_event
+           WHERE producer_job_id = $1 AND workspace_id = $2
+           ORDER BY id"#,
+        id,
+        &w_id,
     )
     .fetch_all(&db)
     .await?;
