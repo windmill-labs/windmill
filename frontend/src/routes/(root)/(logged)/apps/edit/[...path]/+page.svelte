@@ -166,11 +166,14 @@
 			policy: backendApp_.policy,
 			custom_path: backendApp_.custom_path
 		}
-		// Backend canonical: wipe the in-memory cell so AppEditor remounts
-		// fresh from `backendApp.value`. The cell will be re-seeded by
-		// AppEditor's mirror $effect; the first such write is swallowed
-		// by `acquireEntry`'s seed guard so this load doesn't POST.
-		UserDraft.discard('app', path, undefined)
+		// Backend canonical: assign the fresh response onto `app`. The
+		// path-change $effect upstream sets `app = undefined` before
+		// calling loadApp, which unmounts AppEditor and releases the
+		// UserDraft entry — so when `app = backendApp` triggers a
+		// remount, the new handle starts fresh with no stale draft to
+		// dedup against. (`UserDraft.discard` was here previously but
+		// it POSTs `value: null` server-side, which surfaced as a
+		// spurious autosave on every /edit visit.)
 		app = backendApp
 	}
 
@@ -225,7 +228,14 @@
 	{path}
 	{otherDraftsUsers}
 	editPathFor={(forkedPath) => `/apps/edit/${forkedPath}`}
-	onLoadFromServer={() => loadApp()}
+	onLoadFromServer={async () => {
+		// AppEditor's `stateApp` is captured once at mount and doesn't
+		// react to prop changes, so a plain loadApp() reload would update
+		// `app` but leave the editor displaying the conflicting local
+		// state. `redraw++` remounts AppEditor against the fresh `app`.
+		await loadApp()
+		redraw++
+	}}
 	getLocalDraft={() => app?.value}
 />
 
