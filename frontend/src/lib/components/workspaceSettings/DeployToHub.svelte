@@ -1220,15 +1220,16 @@
 			syncing = false
 		}
 	}
-	async function startNewDraft() {
-		if (!selectedFolder || filteredWorkspaceItems.length === 0) {
-			sendUserToast(`Pick a folder with at least one item before starting a new draft.`, true)
-			return
-		}
-		draftItems = filteredWorkspaceItems.map((i) => ({ ...i, rec: 'none' }))
+	function startNewDraft() {
+		const folders = new Set(
+			draftItems
+				.map((i) => i.path.split('/').slice(0, 2).join('/'))
+				.filter((p) => p.startsWith('f/'))
+		)
+		selectedFolder = folders.size === 1 ? [...folders][0] : undefined
+		draftItems = []
 		recordings = {}
-		phase = 'draft'
-		sendUserToast(`New draft started.`)
+		phase = 'predeploy'
 	}
 
 	async function openRecord(it: DeployItem) {
