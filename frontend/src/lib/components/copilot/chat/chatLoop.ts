@@ -8,16 +8,9 @@ import type {
 import type { AIProviderModel } from '$lib/gen'
 import { getCompletion, parseOpenAICompletion } from '../lib'
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
-import {
-	getOpenAIResponsesCompletion,
-	parseOpenAIResponsesCompletion
-} from './openai-responses'
+import { getOpenAIResponsesCompletion, parseOpenAIResponsesCompletion } from './openai-responses'
 import type { Tool, ToolCallbacks } from './shared'
-import {
-	addChatTokenUsage,
-	emptyChatTokenUsage,
-	type ChatTokenUsage
-} from './tokenUsage'
+import { addChatTokenUsage, emptyChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
 
 export interface ChatClients {
 	openai: OpenAI
@@ -55,6 +48,15 @@ export interface ChatLoopConfig {
 export interface ChatLoopResult {
 	addedMessages: ChatCompletionMessageParam[]
 	tokenUsage: ChatTokenUsage
+	/**
+	 * Usage of the final loop iteration only (last write wins). Its prompt already
+	 * includes the fully-grown context (original messages + every tool result this
+	 * turn), and its completion is the final assistant reply now appended — so
+	 * `prompt + completion` approximates the whole conversation's token size after
+	 * the turn. Used as the accurate "current context size" anchor, distinct from
+	 * the cumulative `tokenUsage` above (which sums every iteration = total billed).
+	 */
+	lastIterationUsage: ChatTokenUsage
 	hitMaxIterations: boolean
 }
 
@@ -74,6 +76,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 
 	const addedMessages: ChatCompletionMessageParam[] = []
 	let tokenUsage = emptyChatTokenUsage()
+	let lastIterationUsage = emptyChatTokenUsage()
 	let iterations = 0
 	let hitMaxIterations = false
 
@@ -133,14 +136,12 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 						parseOptions
 					)
 					tokenUsage = addChatTokenUsage(tokenUsage, continueCompletion.tokenUsage)
+					lastIterationUsage = continueCompletion.tokenUsage
 					if (!continueCompletion.shouldContinue) {
 						break
 					}
 				} catch (err) {
-					console.warn(
-						'OpenAI Responses API failed, falling back to Completions API:',
-						err
-					)
+					console.warn('OpenAI Responses API failed, falling back to Completions API:', err)
 					const errorMessage = err instanceof Error ? err.message : String(err)
 					if (errorMessage.includes('Responses API is not enabled')) {
 						skipResponsesApi = true
@@ -167,20 +168,16 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 					parseOptions
 				)
 				tokenUsage = addChatTokenUsage(tokenUsage, continueCompletion.tokenUsage)
+				lastIterationUsage = continueCompletion.tokenUsage
 				if (!continueCompletion.shouldContinue) {
 					break
 				}
 			}
 		} else if (isAnthropic) {
-			const completion = await getAnthropicCompletion(
-				messageParams,
-				abortController,
-				toolDefs,
-				{
-					forceModelProvider: modelProvider,
-					anthropicClient: clients.anthropic
-				}
-			)
+			const completion = await getAnthropicCompletion(messageParams, abortController, toolDefs, {
+				forceModelProvider: modelProvider,
+				anthropicClient: clients.anthropic
+			})
 			if (completion) {
 				const continueCompletion = await parseAnthropicCompletion(
 					completion,
@@ -193,6 +190,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 					parseOptions
 				)
 				tokenUsage = addChatTokenUsage(tokenUsage, continueCompletion.tokenUsage)
+				lastIterationUsage = continueCompletion.tokenUsage
 				if (!continueCompletion.shouldContinue) {
 					break
 				}
@@ -214,6 +212,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 					parseOptions
 				)
 				tokenUsage = addChatTokenUsage(tokenUsage, continueCompletion.tokenUsage)
+				lastIterationUsage = continueCompletion.tokenUsage
 				if (!continueCompletion.shouldContinue) {
 					break
 				}
@@ -221,5 +220,5 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		}
 	}
 
-	return { addedMessages, tokenUsage, hitMaxIterations }
+	return { addedMessages, tokenUsage, lastIterationUsage, hitMaxIterations }
 }

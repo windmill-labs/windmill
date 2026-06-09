@@ -12,6 +12,10 @@ interface ChatSchema extends IDBSchema {
 			title: string
 			lastModified: number
 			sessionId?: string
+			// Accurate context size (tokens) at the last saved turn. Optional: chats saved
+			// before this field existed read back as undefined (no migration needed — IndexedDB
+			// stores plain objects).
+			contextTokens?: number
 		}
 	}
 }
@@ -28,6 +32,7 @@ export default class HistoryManager {
 			id: string
 			lastModified: number
 			sessionId?: string
+			contextTokens?: number
 		}
 	> = $state({})
 
@@ -104,7 +109,11 @@ export default class HistoryManager {
 		return Object.values(this.savedChats)
 	}
 
-	async saveChat(displayMessages: DisplayMessage[], messages: ChatCompletionMessageParam[]) {
+	async saveChat(
+		displayMessages: DisplayMessage[],
+		messages: ChatCompletionMessageParam[],
+		contextTokens?: number
+	) {
 		if (displayMessages.length > 0) {
 			// we don't want to save the snapshot in the history
 			const updatedChat = {
@@ -116,6 +125,7 @@ export default class HistoryManager {
 				title: displayMessages[0].content.slice(0, 50),
 				id: this.currentChatId,
 				lastModified: Date.now(),
+				...(contextTokens != null ? { contextTokens } : {}),
 				...(this.sessionId ? { sessionId: this.sessionId } : {})
 			}
 			this.savedChats = {
@@ -129,8 +139,12 @@ export default class HistoryManager {
 		}
 	}
 
-	async save(displayMessages: DisplayMessage[], messages: ChatCompletionMessageParam[]) {
-		await this.saveChat(displayMessages, messages)
+	async save(
+		displayMessages: DisplayMessage[],
+		messages: ChatCompletionMessageParam[],
+		contextTokens?: number
+	) {
+		await this.saveChat(displayMessages, messages, contextTokens)
 		this.currentChatId = createLongHash()
 	}
 

@@ -70,8 +70,18 @@ import {
 import { isGlobalAiEnabled } from './global/gate'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
-const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
-const MAX_TOKENS_HARD_LIMIT = 5000
+export const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
+export const MAX_TOKENS_HARD_LIMIT = 5000
+
+// The token count above which the oldest messages start being dropped for a given
+// context window. Shared with the UI so the context-size badge can colour itself to
+// match when trimming actually kicks in.
+export function getTrimThreshold(modelContextWindow: number): number {
+	return (
+		modelContextWindow -
+		Math.max(modelContextWindow * MAX_TOKENS_THRESHOLD_PERCENTAGE, MAX_TOKENS_HARD_LIMIT)
+	)
+}
 const AI_AUTONOMY_MODE_STORAGE_KEY = 'ai-chat-autonomy-mode'
 const LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY = 'ai-chat-yolo-mode'
 
@@ -169,6 +179,14 @@ export class AIChatManager {
 	currentReply = $state<string>('')
 	displayMessages = $state<DisplayMessage[]>([])
 	messages = $state<ChatCompletionMessageParam[]>([])
+	// Accurate "current context size" of the conversation, taken from the provider's
+	// reported usage on the last turn's final iteration (prompt + completion).
+	// Undefined until a turn completes (or a chat saved before this existed is restored).
+	// Doubles as the trim gate's accurate baseline (see checkTokenUsageOverLimit).
+	contextTokens = $state<number | undefined>(undefined)
+	// Crude chars÷4 estimate measured over the message set at the moment contextTokens
+	// was last set. Used to calibrate the crude estimator against the real API count.
+	#anchorCrude: number | undefined = undefined
 	autonomyMode = $state<AIAutonomyMode>(getPersistedAutonomyMode())
 	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
 	autoAcceptEditsActive = $derived(
@@ -239,27 +257,44 @@ export class AIChatManager {
 
 	open = $derived(chatState.size > 0)
 
-	checkTokenUsageOverLimit = (messages: ChatCompletionMessageParam[]) => {
-		const estimatedTokens = messages.reduce((acc, message) => {
-			// one token is ~ 4 characters
-			const tokenPerCharacter = 4
-			// handle content
+	// Crude chars÷4 estimate of the tokens a request carries: every message's content +
+	// tool_calls, PLUS the system message and tool schemas (which the API counts but the
+	// per-message loop above used to ignore — the source of context overflows in agentic mode).
+	#crudeEstimate = (messages: ChatCompletionMessageParam[]) => {
+		const tokenPerCharacter = 4
+		let estimate = messages.reduce((acc, message) => {
 			if (message.content) {
 				acc += message.content.length / tokenPerCharacter
 			}
-			// Handle tool calls
 			if (message.role === 'assistant' && message.tool_calls) {
 				acc += JSON.stringify(message.tool_calls).length / tokenPerCharacter
 			}
 			return acc
 		}, 0)
-		const model = getCurrentModel()
-		const modelContextWindow = getModelContextWindow(model.model)
-		return (
-			estimatedTokens >
-			modelContextWindow -
-				Math.max(modelContextWindow * MAX_TOKENS_THRESHOLD_PERCENTAGE, MAX_TOKENS_HARD_LIMIT)
-		)
+		estimate += (this.systemMessage?.content?.length ?? 0) / tokenPerCharacter
+		if (this.tools.length > 0) {
+			estimate += JSON.stringify(this.tools.map((t) => t.def)).length / tokenPerCharacter
+		}
+		return estimate
+	}
+
+	// Best estimate of the context size for a given message set. When we have a real
+	// provider-reported anchor (contextTokens) we scale the crude estimate by the
+	// anchor/crude ratio measured at anchor time — so the figure is accurate at the
+	// anchor and shrinks proportionally as messages are dropped during trimming.
+	// Falls back to the crude estimate (which now includes system + tools) on the first
+	// turn or for chats restored without a stored count.
+	#estimateContextTokens = (messages: ChatCompletionMessageParam[]) => {
+		const crude = this.#crudeEstimate(messages)
+		if (this.contextTokens != null && this.#anchorCrude && this.#anchorCrude > 0) {
+			return crude * (this.contextTokens / this.#anchorCrude)
+		}
+		return crude
+	}
+
+	checkTokenUsageOverLimit = (messages: ChatCompletionMessageParam[]) => {
+		const modelContextWindow = getModelContextWindow(tryGetCurrentModel()?.model ?? '')
+		return this.#estimateContextTokens(messages) > getTrimThreshold(modelContextWindow)
 	}
 
 	deleteOldestMessage = (messages: ChatCompletionMessageParam[], maxDepth: number = 10) => {
@@ -519,8 +554,7 @@ export class AIChatManager {
 			this.tools = globalToolsFor({ sessionPreview: this.isSessionChat })
 			this.helpers = {
 				...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
-				testActiveFlow: async (args?: Record<string, any>) =>
-					this.flowAiChatHelpers?.testFlow(args)
+				testActiveFlow: async (args?: Record<string, any>) => this.flowAiChatHelpers?.testFlow(args)
 			} satisfies GlobalToolHelpers
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
@@ -721,6 +755,14 @@ export class AIChatManager {
 					}
 				}
 			})
+			// Anchor the accurate context size on the provider-reported usage of the final
+			// iteration (prompt already holds the fully-grown context; completion is the
+			// final reply). Record the crude estimate over the same message set so the trim
+			// gate can calibrate against this anchor.
+			if (result.lastIterationUsage?.total) {
+				this.contextTokens = result.lastIterationUsage.total
+				this.#anchorCrude = this.#crudeEstimate([...messages, ...result.addedMessages])
+			}
 			return result.addedMessages
 		} catch (err) {
 			console.log('chatRequest error', err)
@@ -966,7 +1008,7 @@ export class AIChatManager {
 			}
 
 			this.messages.push(userMessage)
-			await this.historyManager.saveChat(this.displayMessages, this.messages)
+			await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextTokens)
 
 			this.currentReply = ''
 
@@ -1054,7 +1096,7 @@ export class AIChatManager {
 			if (this.autoAcceptEditsActive) {
 				this.acceptPendingFlowEdits()
 			}
-			await this.historyManager.saveChat(this.displayMessages, this.messages)
+			await this.historyManager.saveChat(this.displayMessages, this.messages, this.contextTokens)
 			if (isFirstUserTurn && this.afterFirstTurnSaved) {
 				void Promise.resolve(this.afterFirstTurnSaved()).catch((e) => {
 					console.error('AIChatManager afterFirstTurnSaved hook failed', e)
@@ -1152,9 +1194,11 @@ export class AIChatManager {
 
 	saveAndClear = async () => {
 		this.cancel('saveAndClear')
-		await this.historyManager.save(this.displayMessages, this.messages)
+		await this.historyManager.save(this.displayMessages, this.messages, this.contextTokens)
 		this.displayMessages = []
 		this.messages = []
+		this.contextTokens = undefined
+		this.#anchorCrude = undefined
 	}
 
 	loadPastChat = async (id: string) => {
@@ -1162,6 +1206,11 @@ export class AIChatManager {
 		if (chat) {
 			this.displayMessages = chat.displayMessages
 			this.messages = chat.actualMessages
+			this.contextTokens = chat.contextTokens
+			// Re-derive the calibration baseline so the trim gate is accurate on the next
+			// check even before a new turn. Undefined for chats saved before this existed.
+			this.#anchorCrude =
+				chat.contextTokens != null ? this.#crudeEstimate(chat.actualMessages) : undefined
 			this.#automaticScroll = true
 		}
 	}
