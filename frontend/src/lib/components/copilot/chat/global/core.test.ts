@@ -939,6 +939,51 @@ describe('global AI tools', () => {
 		).rejects.toThrow('trigger_kind is required')
 	})
 
+	it('preserves editor metadata in the DB draft when the AI edits an open live script', async () => {
+		// The live editor's buffer holds the FULL script, including metadata the
+		// user changed in the editor (concurrency, tag, description, …).
+		UserDraft.save(
+			'script',
+			'',
+			{
+				path: 'u/admin/meta_script',
+				summary: 'Live script',
+				description: 'keep me',
+				content: 'export async function main() {\n\treturn 1\n}',
+				schema: {},
+				is_template: false,
+				language: 'bun',
+				kind: 'script',
+				concurrent_limit: 7,
+				tag: 'custom-tag'
+			},
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'script',
+			storagePath: '',
+			effectivePath: 'u/admin/meta_script'
+		})
+
+		await callGlobalTool('write_script', {
+			path: 'u/admin/meta_script',
+			summary: 'Live script',
+			language: 'bun',
+			content: 'export async function main() {\n\treturn 2\n}'
+		})
+
+		// The AI only changes value; the editor's metadata is carried through to
+		// the DB draft, not wiped.
+		expect(dbScriptDraft('u/admin/meta_script')).toMatchObject({
+			path: 'u/admin/meta_script',
+			content: 'export async function main() {\n\treturn 2\n}',
+			concurrent_limit: 7,
+			tag: 'custom-tag',
+			description: 'keep me'
+		})
+	})
+
 	it('discards a draft-only item that has no separate draft row', async () => {
 		// An item that exists ONLY as a draft_only row, with no draft-table entry
 		// (e.g. created elsewhere) — the row itself is the draft content.
