@@ -98,11 +98,17 @@ export type UserDraftLastSyncQuery = {
  * pipeline:
  *   - `saving`:  a POST is currently in flight (coalescing runner busy).
  *   - `pending`: a change is queued in the debouncer but not yet fired.
- *   - `none`:    neither — the draft is in sync (or nothing happened).
- * `saving` wins over `pending` when both hold (a request for an earlier
- * change is in flight while a newer edit is still debouncing).
+ *   - `failed`:  the last POST threw (network / 5xx / etc.) and no later
+ *                attempt has succeeded. Conflicts use the conflict modal
+ *                path and don't surface here.
+ *   - `none`:    none of the above — the draft is in sync (or nothing
+ *                happened).
+ * Priority on render: `saving` > `pending` > `failed` > `none`. An active
+ * save attempt outranks the prior failure so the indicator shows the
+ * retry as in-flight; once it settles, either success clears `failed` or
+ * a fresh throw sets it again.
  */
-export type UserDraftSyncState = 'none' | 'pending' | 'saving'
+export type UserDraftSyncState = 'none' | 'pending' | 'saving' | 'failed'
 
 export type UserDraftStateHandle = {
 	/** Reactive — read it inside a `$derived`/`$effect` and it re-runs as
@@ -155,6 +161,18 @@ const pendingSaveOpts = new Map<string, UserDraftDbSyncerSaveOpts>()
  */
 const conflicts = new SvelteMap<string, DraftConflictInfo>()
 
+/**
+ * Reactive set of draft keys whose last save attempt threw (network
+ * error, 5xx, anything `DraftService.saveDraft` rejects with). Cleared
+ * on the next successful save for that key. Drives the
+ * AutosaveIndicator's "Save failed" label so a silent failure doesn't
+ * masquerade as "Saved" — the previous behaviour was to console.error
+ * and let the runner finish, which the indicator read as success.
+ * Conflicts are tracked separately (DraftSyncConflictModal handles
+ * those) and don't populate this map.
+ */
+const failures = new SvelteMap<string, true>()
+
 async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 	const key = draftKey(opts.workspace, opts.itemKind, opts.path)
 	const lastSync = getLastSyncEntry(key)?.lastSync
@@ -196,12 +214,18 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 			setLastSync(opts.workspace, opts.itemKind, opts.path, resp.current_timestamp)
 		}
 		conflicts.delete(key)
+		failures.delete(key)
 		// Clear pending only if it's still the opts we just saved — a
 		// newer `save()` that arrived during the POST replaces the entry
 		// and must survive for the next flush / debouncer round.
 		if (pendingSaveOpts.get(key) === opts) pendingSaveOpts.delete(key)
 	} catch (e) {
 		console.error('UserDraftDbSyncer.save failed', e)
+		// Surface the failure to the indicator. Leave the pending opts
+		// in place so the next flush / next save attempt retries the
+		// same payload — clearing only on success means we don't
+		// pretend the user's pending edit landed when it didn't.
+		failures.set(key, true)
 	}
 }
 
@@ -306,6 +330,7 @@ export const UserDraftDbSyncer = {
 			get state(): UserDraftSyncState {
 				if (runner.isRunning(key)) return 'saving'
 				if (debouncer.isPending(key)) return 'pending'
+				if (failures.has(key)) return 'failed'
 				return 'none'
 			}
 		}
@@ -352,8 +377,10 @@ export const UserDraftDbSyncer = {
 			clearLastSync(query.workspace, query.itemKind, query.path)
 		}
 		// Reading the server's authoritative timestamp resets the
-		// conflict state — by definition we're back in sync.
+		// conflict state and clears any prior failure flag — by
+		// definition we're now back in sync with the server.
 		conflicts.delete(key)
+		failures.delete(key)
 	},
 
 	/**

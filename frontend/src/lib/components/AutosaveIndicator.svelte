@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
-	import { CloudCheck, RefreshCcw, RotateCcw, Users } from 'lucide-svelte'
+	import { CloudCheck, CloudOff, RefreshCcw, RotateCcw, Users } from 'lucide-svelte'
 	import type { UserDraftItemKind } from '$lib/gen'
 	import { UserDraftDbSyncer, type UserDraftSyncState } from '$lib/userDraftDbSyncer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
@@ -60,8 +60,9 @@
 	const syncState: UserDraftSyncState = $derived(handle.state)
 
 	// The "Saved" label is shown only for a few seconds after a save actually
-	// completes (saving → none). Other transitions to `none` (e.g. a discarded
-	// pending change) leave just the idle cloud-check icon with no label.
+	// completes (saving → none). A transition straight to `failed` skips the
+	// "Saved" flash entirely — the persistent "Save failed" label takes its
+	// slot until the next attempt clears or replaces it.
 	const SAVED_LABEL_MS = 3000
 	let savedVisible = $state(false)
 	let prev: UserDraftSyncState = 'none'
@@ -85,6 +86,13 @@
 					savedVisible = false
 					timer = undefined
 				}, SAVED_LABEL_MS)
+			} else if (s === 'failed') {
+				// Failure replaces any in-flight "Saved" promise.
+				if (timer) {
+					clearTimeout(timer)
+					timer = undefined
+				}
+				savedVisible = false
 			}
 			prev = s
 		})
@@ -143,15 +151,20 @@
 		}
 	})
 
-	// "Saving..." / "Saved" beat any hint; otherwise the hint shows. Empty
-	// string collapses the label `<span>`.
+	// "Saving..." / "Saved" / "Save failed" beat any hint; otherwise the hint
+	// shows. Empty string collapses the label `<span>`. `Save failed` is
+	// sticky — stays until either a fresh save attempt fires (→ "Saving...")
+	// or the next attempt succeeds (→ "Saved" flash).
 	const label = $derived(
 		syncState === 'saving' || syncState === 'pending'
 			? 'Saving...'
-			: savedVisible
-				? 'Saved'
-				: hintLabel
+			: syncState === 'failed'
+				? 'Save failed'
+				: savedVisible
+					? 'Saved'
+					: hintLabel
 	)
+	const labelIsError = $derived(syncState === 'failed')
 
 	const showResetAction = $derived(!draftOnly && hasDraft && !!onResetToDeployed)
 
@@ -200,6 +213,8 @@
 			<div class="relative rounded-md p-1.5 hover:bg-surface-hover cursor-pointer">
 				{#if syncState === 'saving' || syncState === 'pending'}
 					<RefreshCcw size={14} class="animate-spin" />
+				{:else if syncState === 'failed'}
+					<CloudOff size={16} class="text-red-500" />
 				{:else}
 					<CloudCheck size={16} />
 				{/if}
@@ -242,7 +257,11 @@
 		{/snippet}
 	</Popover>
 	{#if label}
-		<span class="relative text-secondary text-2xs pr-1.5">{label}</span>
+		<span
+			class="relative text-2xs pr-1.5 {labelIsError
+				? 'text-red-500 font-semibold'
+				: 'text-secondary'}">{label}</span
+		>
 	{/if}
 </div>
 
