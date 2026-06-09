@@ -31,6 +31,8 @@ pub fn workspaced_service() -> Router {
         .route("/resources", post(publish_resources))
         .route("/triggers", post(publish_triggers))
         .route("/projects/{slug}/export", get(get_project_export))
+        .route("/projects/{slug}/submit", post(submit_project))
+        .route("/project", get(get_project_by_source))
 }
 
 fn validate_project_slug(slug: &str) -> Result<(), Error> {
@@ -101,6 +103,8 @@ struct PublishScriptBody {
     lockfile: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_path: Option<String>,
     project_slug: String,
 }
 
@@ -129,6 +133,8 @@ struct PublishFlowBody {
     apps: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_path: Option<String>,
     project_slug: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     recording: Option<serde_json::Value>,
@@ -152,6 +158,8 @@ struct PublishAppBody {
     summary: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_path: Option<String>,
     project_slug: String,
 }
 
@@ -175,6 +183,8 @@ struct PublishRawAppBody {
     external_embed_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_path: Option<String>,
     project_slug: String,
 }
 
@@ -327,6 +337,28 @@ async fn get_project_export(
     require_admin(authed.is_admin, &authed.username)?;
     validate_project_slug(&slug)?;
     get_from_hub(&format!("/projects/{}/export", slug), &workspace).await
+}
+
+async fn get_project_by_source(
+    authed: ApiAuthed,
+    Path(workspace): Path<String>,
+) -> Result<impl IntoResponse, Error> {
+    require_admin(authed.is_admin, &authed.username)?;
+    get_from_hub("/projects/by_source", &workspace).await
+}
+
+async fn submit_project(
+    authed: ApiAuthed,
+    Path((workspace, slug)): Path<(String, String)>,
+) -> Result<impl IntoResponse, Error> {
+    require_admin(authed.is_admin, &authed.username)?;
+    validate_project_slug(&slug)?;
+    forward_to_hub(
+        &format!("/projects/{}/submit", slug),
+        &workspace,
+        &serde_json::json!({}),
+    )
+    .await
 }
 
 async fn get_from_hub(path: &str, source_id: &str) -> Result<(StatusCode, String), Error> {

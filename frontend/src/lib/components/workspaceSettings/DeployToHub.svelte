@@ -187,7 +187,6 @@
 
 	const EMPTY_SCHEMA = { type: 'object', properties: {}, required: [] }
 
-	let hubVersion = $state<number>(0)
 	let deploymentStatus = $state<
 		Record<string, { status: 'loading' | 'deployed' | 'failed'; error?: string }>
 	>({})
@@ -385,6 +384,37 @@
 		}
 	}
 
+	async function rehydrateFromHub(workspace: string, seq: number) {
+		try {
+			const res = await fetch(`/api/w/${workspace}/hub/project`, {
+				credentials: 'include',
+				headers: { accept: 'application/json' }
+			})
+			if (seq !== workspaceLoadSeq) return
+			if (!res.ok) return // 404 = no project published for this workspace yet
+			const p = JSON.parse(await res.text())
+			if (seq !== workspaceLoadSeq || !p?.slug) return
+			effectiveSlug = p.slug
+			hubName = p.name ?? ''
+			hubSummary = p.summary ?? ''
+			hubReadme = p.readme ?? ''
+			phase = p.status === 'live' ? 'live' : p.status === 'under_review' ? 'under_review' : 'draft'
+			const ids: Record<string, number> = {}
+			draftItems = (p.items ?? []).map((it: any) => {
+				const wpath = it.source_path ?? it.path
+				const key = `${it.kind}:${wpath}`
+				if (typeof it.hub_id === 'number') ids[key] = it.hub_id
+				return {
+					key,
+					path: wpath,
+					kind: it.kind as Kind,
+					rec: it.has_recording ? 'recorded' : 'none'
+				} satisfies DeployItem
+			})
+			hubItemIds = ids
+		} catch {}
+	}
+
 	$effect(() => {
 		if ($workspaceStore) {
 			const seq = ++workspaceLoadSeq
@@ -400,7 +430,6 @@
 			deploymentStatus = {}
 			hubItemIds = {}
 			effectiveSlug = ''
-			hubVersion = 0
 			hubName = ''
 			hubSummary = ''
 			hubReadme = ''
@@ -409,6 +438,7 @@
 			bundleReadme = ''
 			loadWorkspace($workspaceStore, seq)
 			loadTriggers($workspaceStore, seq)
+			rehydrateFromHub($workspaceStore, seq)
 		}
 	})
 
@@ -722,6 +752,7 @@
 				schema: it.schema ?? undefined,
 				lockfile: it.lock ?? undefined,
 				path: it.newPath,
+				source_path: it.path,
 				project_slug: slug
 			})
 			if (typeof resp?.id === 'number') hubItemIds = { ...hubItemIds, [key]: resp.id }
@@ -735,6 +766,7 @@
 				},
 				apps: [],
 				path: it.newPath,
+				source_path: it.path,
 				project_slug: slug
 			})
 			if (typeof resp?.id === 'number') hubItemIds = { ...hubItemIds, [key]: resp.id }
@@ -745,6 +777,7 @@
 				summary: it.summary || it.newPath,
 				description: undefined,
 				path: it.newPath,
+				source_path: it.path,
 				project_slug: slug
 			})
 		} else if (it.kind === 'raw_app') {
@@ -753,6 +786,7 @@
 				apps: [],
 				summary: it.summary || it.newPath,
 				path: it.newPath,
+				source_path: it.path,
 				description: undefined,
 				project_slug: slug
 			})
@@ -1074,11 +1108,7 @@
 			if (failures > 0) {
 				sendUserToast(`Draft pushed with ${failures} failed item(s).`, true)
 			} else {
-				sendUserToast(
-					hubVersion === 0
-						? `Draft created on the Hub. Add recordings before submitting for review.`
-						: `New draft created (will become v${hubVersion + 1} after review).`
-				)
+				sendUserToast(`Draft created on the Hub. Add recordings before submitting for review.`)
 			}
 		} finally {
 			deploying = false
@@ -1087,9 +1117,24 @@
 
 	let submitting = $state(false)
 	async function submitForReview() {
+		const workspace = $workspaceStore
+		const slug = effectiveSlug || sanitizeSlug(hubName)
+		if (!workspace || !slug) return
 		submitting = true
 		try {
-			await delay(400)
+			const res = await fetch(
+				`/api/w/${workspace}/hub/projects/${encodeURIComponent(slug)}/submit`,
+				{
+					method: 'POST',
+					credentials: 'include',
+					headers: { 'Content-Type': 'application/json' },
+					body: '{}'
+				}
+			)
+			if (!res.ok) {
+				sendUserToast(`Submit for review failed: ${await res.text()}`, true)
+				return
+			}
 			phase = 'under_review'
 			sendUserToast('Submitted for review by the Windmill team.')
 		} finally {
@@ -1133,7 +1178,7 @@
 		draftItems = filteredWorkspaceItems.map((i) => ({ ...i, rec: 'none' }))
 		recordings = {}
 		phase = 'draft'
-		sendUserToast(`New draft started (will become v${hubVersion + 1}).`)
+		sendUserToast(`New draft started.`)
 	}
 
 	async function openRecord(it: DeployItem) {
@@ -1457,7 +1502,7 @@
 					{:else if phase === 'under_review'}
 						<span class="text-sm font-semibold text-primary">Step 3: Awaiting review</span>
 					{:else}
-						<span class="text-sm font-semibold text-primary">Live on the Hub — v{hubVersion}</span>
+						<span class="text-sm font-semibold text-primary">Live on the Hub</span>
 					{/if}
 					{#if phase !== 'predeploy'}
 						<Badge color="transparent" class="font-semibold">
@@ -1774,11 +1819,9 @@
 						onclick={syncWithHub}
 					/>
 				{:else}
-					<span class="text-[11px] text-hint">
-						Iterate further by starting a new draft for v{hubVersion + 1}.
-					</span>
+					<span class="text-[11px] text-hint"> Iterate further by starting a new draft. </span>
 					<Button variant="accent" startIcon={{ icon: RotateCcw }} onclick={startNewDraft}>
-						New draft (v{hubVersion + 1})
+						New draft
 					</Button>
 				{/if}
 			</div>
@@ -1795,8 +1838,8 @@
 			<p class="text-xs text-secondary">
 				Run this {recordTarget?.kind} once with the inputs below. The full execution — args, logs, intermediate
 				step outputs and final result — is saved as a <b>replayable recording</b> shown on the Hub
-				page for v{hubVersion}. Visitors can step through it to see how the {recordTarget?.kind} works
-				without running anything themselves.
+				page. Visitors can step through it to see how the {recordTarget?.kind} works without running
+				anything themselves.
 			</p>
 
 			{#if runState !== 'idle'}
@@ -1845,7 +1888,7 @@
 							class="mt-1 flex items-center justify-between gap-3 rounded-md border border-green-300 bg-green-50 p-2 dark:border-green-800 dark:bg-green-950/40"
 						>
 							<span class="text-xs text-green-900 dark:text-green-100">
-								Looks good? Save this run as the Hub recording for v{hubVersion}.
+								Looks good? Save this run as the Hub recording.
 							</span>
 							<Button
 								size="xs"
