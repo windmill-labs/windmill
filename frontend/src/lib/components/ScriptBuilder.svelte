@@ -125,6 +125,7 @@
 		onDeployError,
 		onSeeDetails,
 		onNavigate,
+		onTestJob,
 		disableAi,
 		initialTestPanelCollapsed = false,
 		initialPathChosen = false,
@@ -1447,7 +1448,7 @@
 													if (script.timeout && script.timeout != undefined) {
 														script.timeout = undefined
 													} else {
-														script.timeout = 300
+														script.timeout = customUi?.defaultTimeout ?? 300
 													}
 												}}
 												options={{
@@ -1968,6 +1969,7 @@
 			{disableAi}
 			bind:selectedTab={selectedInputTab}
 			{customUi}
+			{onTestJob}
 			collabMode
 			edit={initialPath != ''}
 			on:format={() => {

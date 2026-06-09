@@ -2,6 +2,8 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use crate::error::Error;
 
+pub const ALLOW_PRIVATE_MCP_SERVER_URLS_ENV: &str = "ALLOW_PRIVATE_MCP_SERVER_URLS";
+
 /// Why a URL failed SSRF validation.
 ///
 /// The distinction matters for callers that gate private endpoints behind a
@@ -116,6 +118,49 @@ pub async fn validate_url_for_ssrf(url: &str) -> Result<(), SsrfValidationError>
     Ok(())
 }
 
+pub fn allow_private_mcp_server_urls() -> bool {
+    std::env::var(ALLOW_PRIVATE_MCP_SERVER_URLS_ENV)
+        .ok()
+        .is_some_and(|v| v == "true" || v == "1")
+}
+
+pub async fn validate_mcp_server_url(url: &str) -> Result<(), SsrfValidationError> {
+    let parsed =
+        url::Url::parse(url).map_err(|e| SsrfValidationError::InvalidUrl(e.to_string()))?;
+
+    match parsed.scheme() {
+        "http" | "https" => {}
+        scheme => return Err(SsrfValidationError::DisallowedScheme(scheme.to_string())),
+    }
+
+    parsed.host_str().ok_or(SsrfValidationError::MissingHost)?;
+
+    if allow_private_mcp_server_urls() {
+        return Ok(());
+    }
+
+    validate_url_for_ssrf(url).await
+}
+
+pub async fn validate_mcp_server_url_for_bad_request(url: &str, label: &str) -> Result<(), Error> {
+    validate_mcp_server_url(url).await.map_err(|e| {
+        Error::BadRequest(format!(
+            "{label} is not allowed: {}",
+            mcp_ssrf_error_message(&e)
+        ))
+    })
+}
+
+pub fn mcp_ssrf_error_message(e: &SsrfValidationError) -> String {
+    match e {
+        SsrfValidationError::Private { .. } => format!(
+            "{e}. If you need to use private/internal MCP server URLs, \
+             set the {ALLOW_PRIVATE_MCP_SERVER_URLS_ENV}=true environment variable"
+        ),
+        _ => e.to_string(),
+    }
+}
+
 fn is_private_ip(ip: &IpAddr) -> bool {
     match ip {
         IpAddr::V4(ipv4) => is_private_ipv4(ipv4),
@@ -151,6 +196,32 @@ fn is_private_ipv6(ip: &Ipv6Addr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    static TEST_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    struct PrivateMcpServerUrlsEnvGuard {
+        previous: Option<String>,
+    }
+
+    impl PrivateMcpServerUrlsEnvGuard {
+        fn set(value: Option<&str>) -> Self {
+            let previous = std::env::var(ALLOW_PRIVATE_MCP_SERVER_URLS_ENV).ok();
+            match value {
+                Some(value) => std::env::set_var(ALLOW_PRIVATE_MCP_SERVER_URLS_ENV, value),
+                None => std::env::remove_var(ALLOW_PRIVATE_MCP_SERVER_URLS_ENV),
+            }
+            Self { previous }
+        }
+    }
+
+    impl Drop for PrivateMcpServerUrlsEnvGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => std::env::set_var(ALLOW_PRIVATE_MCP_SERVER_URLS_ENV, value),
+                None => std::env::remove_var(ALLOW_PRIVATE_MCP_SERVER_URLS_ENV),
+            }
+        }
+    }
 
     #[test]
     fn test_private_ipv4() {
@@ -226,5 +297,67 @@ mod tests {
             validate_url_for_ssrf("http://127.0.0.1/foo").await,
             Err(SsrfValidationError::Private { resolved: false })
         ));
+    }
+
+    #[tokio::test]
+    async fn validate_mcp_server_url_blocks_private_by_default() {
+        let _lock = TEST_ENV_LOCK.lock().await;
+        let _guard = PrivateMcpServerUrlsEnvGuard::set(None);
+
+        assert!(matches!(
+            validate_mcp_server_url("http://127.0.0.1/foo").await,
+            Err(SsrfValidationError::Private { resolved: false })
+        ));
+    }
+
+    #[tokio::test]
+    async fn validate_mcp_server_url_allows_private_when_env_is_enabled() {
+        let _lock = TEST_ENV_LOCK.lock().await;
+        let _guard = PrivateMcpServerUrlsEnvGuard::set(Some("true"));
+
+        assert!(validate_mcp_server_url("http://127.0.0.1/foo")
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn validate_mcp_server_url_allows_private_when_env_is_one() {
+        let _lock = TEST_ENV_LOCK.lock().await;
+        let _guard = PrivateMcpServerUrlsEnvGuard::set(Some("1"));
+
+        assert!(validate_mcp_server_url("http://10.0.0.1/foo").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn validate_mcp_server_url_keeps_syntax_guards_when_private_urls_are_allowed() {
+        let _lock = TEST_ENV_LOCK.lock().await;
+        let _guard = PrivateMcpServerUrlsEnvGuard::set(Some("true"));
+
+        assert!(matches!(
+            validate_mcp_server_url("localhost:11434/v1").await,
+            Err(SsrfValidationError::DisallowedScheme(_))
+        ));
+        assert!(matches!(
+            validate_mcp_server_url("file:///tmp/socket").await,
+            Err(SsrfValidationError::DisallowedScheme(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn private_mcp_error_message_includes_env_hint_only_for_private_urls() {
+        let _lock = TEST_ENV_LOCK.lock().await;
+        let _guard = PrivateMcpServerUrlsEnvGuard::set(None);
+
+        let private_error = validate_mcp_server_url("http://127.0.0.1/foo")
+            .await
+            .unwrap_err();
+        assert!(
+            mcp_ssrf_error_message(&private_error).contains("ALLOW_PRIVATE_MCP_SERVER_URLS=true")
+        );
+
+        let invalid_error = validate_mcp_server_url("localhost:11434/v1")
+            .await
+            .unwrap_err();
+        assert!(!mcp_ssrf_error_message(&invalid_error).contains(ALLOW_PRIVATE_MCP_SERVER_URLS_ENV));
     }
 }

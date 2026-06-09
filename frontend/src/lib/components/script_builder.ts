@@ -56,6 +56,9 @@ export interface ScriptBuilderProps {
 	onHistoryRestore?: () => void
 	onSeeDetails?: (e: { path: string }) => void
 	onNavigate?: (item: WorkspaceItem) => void
+	// Fired whenever a test run is started from the script editor, with the
+	// preview job id. Used by whitelabel embedders to track test jobs.
+	onTestJob?: (e: { jobId: string }) => void
 	// Forwarded to the underlying ScriptEditor. When true, the right-hand
 	// test/run pane opens collapsed. Used by the session preview.
 	initialTestPanelCollapsed?: boolean

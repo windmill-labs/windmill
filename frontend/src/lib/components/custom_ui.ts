@@ -44,6 +44,9 @@ export type FlowBuilderWhitelabelCustomUi = {
 	aiSandbox?: boolean
 	suggestIntegration?: boolean
 	suggestScript?: boolean
+	// Default timeout (in seconds) prefilled when enabling a custom step timeout.
+	// Defaults to 300 (5 minutes) when unset.
+	defaultTimeout?: number
 }
 
 export type DisplayResultUi = {
@@ -130,4 +133,7 @@ export type ScriptBuilderWhitelabelCustomUi = {
 	editorBar?: EditorBarUi
 	previewPanel?: PreviewPanelUi
 	tagSelectPlaceholder?: string
+	// Default timeout (in seconds) prefilled when enabling a custom script timeout.
+	// Defaults to 300 (5 minutes) when unset.
+	defaultTimeout?: number
 }

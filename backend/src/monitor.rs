@@ -1104,24 +1104,8 @@ struct TokenRow {
     workspace_id: Option<String>,
 }
 
-/// When updating this filter, also update:
-/// - `register_token_expiry_notification` in windmill-api-auth/src/lib.rs
-/// - `isUserToken` in frontend/src/lib/components/settings/TokensTable.svelte
-fn is_user_token(label: Option<&str>) -> bool {
-    match label {
-        None => true,
-        Some(l) => {
-            l != "session"
-                && !l.starts_with("ephemeral")
-                && !l.starts_with("Ephemeral")
-                && l != "debugger-token"
-                && !l.starts_with("mcp-oauth-")
-        }
-    }
-}
-
 async fn report_token_expiration(db: &DB, token: &TokenRow, expired: bool) {
-    if !is_user_token(token.label.as_deref()) {
+    if !windmill_common::auth::is_user_token(token.label.as_deref()) {
         return;
     }
     let prefix = token.token_prefix.as_deref().unwrap_or("??????????");

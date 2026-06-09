@@ -41,4 +41,7 @@ export type FlowBuilderProps = {
 	// Threaded to the `AutosaveIndicator` popover so its "Reset to
 	// deployed" button can do the same thing the load-time toast offers.
 	onResetToDeployed?: () => void | Promise<void>
+	// Fired whenever a test run is started from the flow editor, with the
+	// preview job id. Used by whitelabel embedders to track test jobs.
+	onTestJob?: (e: { jobId: string }) => void
 }

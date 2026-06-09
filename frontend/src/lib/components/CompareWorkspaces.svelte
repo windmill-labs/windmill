@@ -1,10 +1,8 @@
 <script lang="ts">
 	import {
 		AlertTriangle,
-		ArrowDown,
 		ArrowDownRight,
 		ArrowRight,
-		ArrowUp,
 		ArrowUpRight,
 		Building,
 		CircleCheck,
@@ -29,7 +27,9 @@
 		type WorkspaceItemDiff
 	} from '$lib/gen'
 	import Button from './common/button/Button.svelte'
+	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
+	import WorkspaceDeployItemSummary from './WorkspaceDeployItemSummary.svelte'
 	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 
@@ -54,22 +54,58 @@
 	import DeploymentRequestPanel from './deploymentRequest/DeploymentRequestPanel.svelte'
 	import { userStore } from '$lib/stores'
 	import { base } from '$lib/base'
-	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
+	import { editUrlFor } from './sessions/forkEditUrl'
 	import DatatableSchemaDiff from './DatatableSchemaDiff.svelte'
 
 	interface Props {
 		currentWorkspaceId: string
 		parentWorkspaceId: string
 		comparison: WorkspaceComparison | undefined
+		/** Initial merge direction; lets the page restore the chosen direction when
+		 * switching back from draft mode (deploy_to → true, update → false). */
+		initialMergeIntoParent?: boolean
+		/** Per-direction counts for the merged toggle badges (the page owns them). */
+		deployCount?: number
+		updateCount?: number
+		/** Draft count for the merged toggle's badge (the page owns it). */
+		draftCount?: number
+		/** Keys (`kind:path`) of fork items that are deployed *and* have a pending
+		 * draft (has_draft). Such rows get a "+Draft" warning badge and are left
+		 * out of the default selection — deploying/updating moves the deployed
+		 * version, not the draft. The page derives this from the fork drafts. */
+		draftKeys?: Set<string>
+		/** Selecting `draft` asks the page to swap us out for CompareDrafts;
+		 * deploy_to/update are handled internally but reported so the page can
+		 * remember the direction. */
+		onModeSelected?: (v: CompareMode) => void
+		/** Fired after a deploy/update so the page re-fetches the comparison and
+		 * draft count, keeping the toggle badges in sync with the new state. */
+		onChanged?: () => void
 	}
 
-	let { currentWorkspaceId, parentWorkspaceId, comparison }: Props = $props()
+	let {
+		currentWorkspaceId,
+		parentWorkspaceId,
+		comparison,
+		initialMergeIntoParent = true,
+		deployCount = 0,
+		updateCount = 0,
+		draftCount = 0,
+		draftKeys = new Set<string>(),
+		onModeSelected,
+		onChanged
+	}: Props = $props()
+
+	// A fork row has a pending draft when its key is in the page-provided set.
+	function hasDraft(diff: WorkspaceItemDiff): boolean {
+		return draftKeys.has(getItemKey(diff))
+	}
 
 	let currentWorkspaceInfo = $derived($userWorkspaces.find((w) => w.id == currentWorkspaceId))
 	let parentWorkspaceInfo = $derived($userWorkspaces.find((w) => w.id == parentWorkspaceId))
 
-	let mergeIntoParent = $state(true)
+	let mergeIntoParent = $state(initialMergeIntoParent)
 	let deploying = $state(false)
 	let hasAutoSelected = $state(false)
 	let canDeployToParent = $state(true)
@@ -88,6 +124,32 @@
 	)
 
 	let selectedItems = $state<string[]>([])
+
+	// Selected items that carry a pending draft. They're opt-in (excluded from the
+	// default selection), so a non-empty list means the user explicitly picked an
+	// item whose draft won't be included — confirm before deploying.
+	let selectedDraftKeys = $derived(selectedItems.filter((k) => draftKeys.has(k)))
+	let draftConfirmOpen = $state(false)
+
+	function requestDeploy() {
+		if (selectedDraftKeys.length > 0) {
+			draftConfirmOpen = true
+		} else {
+			deployChanges()
+		}
+	}
+
+	// Nothing actionable in the current direction (no items ahead to deploy, or
+	// none behind to update). When so we show a message instead of a table of
+	// greyed, non-actionable rows.
+	let nothingToAct = $derived(selectableDiffs.length === 0)
+	let emptyDeployMessage = $derived(
+		(comparison?.diffs.length ?? 0) === 0
+			? 'No changes between this fork and its parent.'
+			: mergeIntoParent
+				? `Nothing to deploy — ${parentWorkspaceId} already has every change from this fork.`
+				: `Nothing to update — this fork is up to date with ${parentWorkspaceId}.`
+	)
 
 	let conflictingDiffs = $derived(
 		comparison?.diffs.filter((diff) => diff.ahead > 0 && diff.behind > 0) ?? []
@@ -419,6 +481,10 @@
 				console.error('Failed to close open deployment request after merge', e)
 			}
 		}
+
+		// Deployed items are now in sync and should drop off the comparison; ask
+		// the page to re-fetch so the list and toggle badges reflect the new state.
+		onChanged?.()
 	}
 
 	function toggleKey(key: string) {
@@ -434,7 +500,9 @@
 		// parent (kafka group_id, postgres replication slot, schedule firing time)
 		// and pushing them by default would surprise users running a routine "Deploy
 		// to parent" flow. The user picks them à la carte by clicking the row.
-		const filtered = selectableDiffs.filter((d) => !isTriggerOrScheduleKind(d.kind))
+		// Items with a pending draft are also left out by default: the deployed
+		// version (not the draft) is what moves, so we make the user opt in.
+		const filtered = selectableDiffs.filter((d) => !isTriggerOrScheduleKind(d.kind) && !hasDraft(d))
 		const conflictSafe = mergeIntoParent
 			? filtered
 			: filtered.filter((d) => !(d.ahead > 0 && d.behind > 0))
@@ -447,6 +515,15 @@
 		deselectAll()
 		mergeIntoParent = v == 'deploy_to'
 		selectDefault()
+	}
+
+	// Merged toggle: deploy_to/update flip the direction in place; draft asks the
+	// page to swap us out for CompareDrafts. Either way report it up so the page
+	// remembers the chosen direction across mode switches.
+	function onToggleMode(v: CompareMode) {
+		onModeSelected?.(v)
+		if (v === 'draft') return
+		toggleDeploymentDirection(v)
 	}
 
 	// Fetch user permissions for both workspaces
@@ -601,7 +678,7 @@
 	<div class="flex flex-col gap-4">
 		<div class="bg-surface-tertiary p-4 rounded-md border">
 			<WorkspaceDeployLayout
-				items={deployableItems}
+				items={nothingToAct ? [] : deployableItems}
 				{selectedItems}
 				{deploymentStatus}
 				selectablePredicate={(item) => selectableDiffs.some((d) => getItemKey(d) === item.key)}
@@ -609,28 +686,22 @@
 				onToggleItem={(item) => toggleKey(item.key)}
 				onSelectAll={selectAll}
 				onDeselectAll={deselectAll}
-				emptyMessage="No comparison data available"
+				emptyMessage={emptyDeployMessage}
 			>
 				{#snippet header()}
 					<div class="flex items-center justify-between bg-surface-tertiary">
-						<div class="flex flex-col gap-2 w-full pb-4 border-b">
+						<div class="flex flex-col gap-2 w-full pb-4">
 							<div class="flex flex-wrap gap-1 items-center">
-								<ToggleButtonGroup
+								<CompareModeToggle
+									selected={mergeIntoParent ? 'deploy_to' : 'update'}
+									isFork={true}
+									{parentWorkspaceId}
+									{deployCount}
+									{updateCount}
+									{draftCount}
 									disabled={deploying}
-									selected="deploy_to"
-									onSelected={toggleDeploymentDirection}
-									noWFull
-								>
-									{#snippet children({ item })}
-										<ToggleButton
-											value="deploy_to"
-											label="Deploy to {parentWorkspaceId}"
-											icon={ArrowUp}
-											{item}
-										/>
-										<ToggleButton value="update" label="Update current" icon={ArrowDown} {item} />
-									{/snippet}
-								</ToggleButtonGroup>
+									onSelected={onToggleMode}
+								/>
 								{#if currentWorkspaceInfo && parentWorkspaceInfo}
 									<div class="flex-1 flex gap-1 items-center">
 										<Badge
@@ -719,6 +790,24 @@
 				{/if}
 
 				{#snippet alerts()}
+					{#if draftCount > 0}
+						<Alert title="Undeployed drafts" type="warning" size="xs" class="my-2">
+							<div class="flex items-center gap-2 flex-wrap">
+								<span>
+									{#if mergeIntoParent}
+										This workspace has {draftCount} undeployed draft{draftCount !== 1 ? 's' : ''}.
+										Only deployed versions in this fork can be sent to {parentWorkspaceId} — deploy
+										{draftCount !== 1 ? 'them' : 'it'} first, otherwise those changes won't be included.
+									{:else}
+										This workspace has {draftCount} undeployed draft{draftCount !== 1 ? 's' : ''}.
+									{/if}
+								</span>
+								<Button variant="subtle" unifiedSize="xs" onclick={() => onModeSelected?.('draft')}>
+									See drafts
+								</Button>
+							</div>
+						</Alert>
+					{/if}
 					{#if mergeIntoParent}
 						<ParentWorkspaceProtectionAlert
 							{parentWorkspaceId}
@@ -780,6 +869,13 @@
 				{#snippet itemSummary(item)}
 					{@const diff = item.diff as WorkspaceItemDiff}
 					{@const key = item.key}
+					<!-- Point the edit link at the workspace the item actually lives in:
+					     a parent-only row (deleted/absent in the fork) would 404 if linked
+					     into the fork, so link it into the parent instead. -->
+					{@const editUrl = editUrlFor(
+						diff,
+						diff.exists_in_fork ? currentWorkspaceId : parentWorkspaceId
+					)}
 					{#if isTriggerOrScheduleKind(diff.kind)}
 						<span class="text-emphasis">
 							{KIND_DISPLAY_NAMES[diff.kind as string] ?? diff.kind}
@@ -798,14 +894,13 @@
 							(diff.exists_in_fork && !diff.exists_in_source) ||
 							(!diff.exists_in_fork && diff.exists_in_source)
 						)}
-						{#if oldSummary != newSummary && isSelectable && existsInBothWorkspaces}
-							<span class="line-through text-secondary">{oldSummary || diff.path}</span>
-							{newSummary || diff.path}
-						{:else if !existsInBothWorkspaces}
-							{newSummary || oldSummary || diff.path}
-						{:else}
-							{newSummary || diff.path}
-						{/if}
+						<WorkspaceDeployItemSummary
+							path={diff.path}
+							{editUrl}
+							{oldSummary}
+							{newSummary}
+							renamed={oldSummary != newSummary && isSelectable && existsInBothWorkspaces}
+						/>
 					{/if}
 				{/snippet}
 
@@ -835,6 +930,21 @@
 					{/if}
 					{#if diff.kind === 'raw_app'}
 						<Badge small icon={{ icon: FileJson }}>Raw</Badge>
+					{/if}
+					{#if hasDraft(diff)}
+						<!-- This deployed fork item also has a pending draft. Deploying/updating
+						     moves the deployed version, not the draft — so we warn (yellow, ahead
+						     of the New/status badges) and leave it out of the default selection
+						     (see selectDefault). -->
+						<Badge
+							title={mergeIntoParent
+								? 'This item has a draft — deploying sends the deployed version, not the draft.'
+								: 'This item has a draft — updating replaces the deployed version your draft is based on.'}
+							color="yellow"
+							size="xs"
+						>
+							<AlertTriangle class="w-3 h-3 inline mr-0.5" />+Draft
+						</Badge>
 					{/if}
 					<!-- Status badges -->
 					{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead == 0 && diff.behind > 0}
@@ -898,11 +1008,11 @@
 						</div>
 						<div class:invisible={!existsInBothWorkspaces}>
 							<Button
-								size="xs"
+								unifiedSize="xs"
 								variant="subtle"
-								onclick={() => showDiff(diff.kind as Kind, diff.path)}
+								startIcon={{ icon: DiffIcon }}
+								onClick={() => showDiff(diff.kind as Kind, diff.path)}
 							>
-								<DiffIcon class="w-3 h-3" />
 								Show diff
 							</Button>
 						</div>
@@ -910,63 +1020,65 @@
 				{/snippet}
 
 				{#snippet footer()}
-					<div class="flex items-center justify-between">
-						<div></div>
+					{#if !nothingToAct}
+						<div class="flex items-center justify-between">
+							<div></div>
 
-						<div class="flex flex-col items-end gap-2">
-							{#if comparison.all_behind_items_visible && comparison.all_ahead_items_visible}
-								<div class="flex items-center gap-2">
-									{#if mergeIntoParent && !hasOpenDeploymentRequest && !deploymentRequestPanel?.isDialogOpen()}
-										<Button
-											variant="default"
-											startIcon={{ icon: UserPlus }}
-											on:click={() => deploymentRequestPanel?.openRequestDialog()}
-										>
-											Request deployment
-										</Button>
-									{/if}
-									<Button
-										variant="accent"
-										disabled={selectedItems.length === 0 ||
-											deploying ||
-											(hasBehindChanges && !allowBehindChangesOverride) ||
-											(mergeIntoParent && !canDeployToParent) ||
-											hasUnselectedOnBehalfOf}
-										loading={deploying}
-										on:click={deployChanges}
-									>
-										{mergeIntoParent ? 'Deploy' : 'Update'}
-										{selectedItems.length} Item{selectedItems.length !== 1 ? 's' : ''}
-										{#if selectedConflicts != 0}
-											({selectedConflicts} conflicts)
+							<div class="flex flex-col items-end gap-2">
+								{#if comparison.all_behind_items_visible && comparison.all_ahead_items_visible}
+									<div class="flex items-center gap-2">
+										{#if mergeIntoParent && !hasOpenDeploymentRequest && !deploymentRequestPanel?.isDialogOpen()}
+											<Button
+												variant="default"
+												startIcon={{ icon: UserPlus }}
+												on:click={() => deploymentRequestPanel?.openRequestDialog()}
+											>
+												Request deployment
+											</Button>
 										{/if}
-									</Button>
-								</div>
-								{#if !(mergeIntoParent && !canDeployToParent) && hasUnselectedOnBehalfOf}
-									<span class="text-xs text-yellow-600">
-										You must set the "on behalf of" user for all items before deploying
-										<Tooltip class="text-yellow-600">
-											The "run on behalf of" field defines which user's permissions will be applied
-											during execution. Make sure this is set to an appropriate user before
-											deploying.
-										</Tooltip>
-									</span>
+										<Button
+											variant="accent"
+											disabled={selectedItems.length === 0 ||
+												deploying ||
+												(hasBehindChanges && !allowBehindChangesOverride) ||
+												(mergeIntoParent && !canDeployToParent) ||
+												hasUnselectedOnBehalfOf}
+											loading={deploying}
+											on:click={requestDeploy}
+										>
+											{mergeIntoParent ? 'Deploy' : 'Update'}
+											{selectedItems.length} Item{selectedItems.length !== 1 ? 's' : ''}
+											{#if selectedConflicts != 0}
+												({selectedConflicts} conflicts)
+											{/if}
+										</Button>
+									</div>
+									{#if !(mergeIntoParent && !canDeployToParent) && hasUnselectedOnBehalfOf}
+										<span class="text-xs text-yellow-600">
+											You must set the "on behalf of" user for all items before deploying
+											<Tooltip class="text-yellow-600">
+												The "run on behalf of" field defines which user's permissions will be
+												applied during execution. Make sure this is set to an appropriate user
+												before deploying.
+											</Tooltip>
+										</span>
+									{/if}
 								{/if}
-							{/if}
 
-							{#if deploymentErrorMessage != ''}
-								<Alert
-									title="Cannot {mergeIntoParent ? 'deploy these changes' : 'update these items'}"
-									type="error"
-									class="my-2 max-w-80"
-								>
-									<span>
-										{deploymentErrorMessage}
-									</span>
-								</Alert>
-							{/if}
+								{#if deploymentErrorMessage != ''}
+									<Alert
+										title="Cannot {mergeIntoParent ? 'deploy these changes' : 'update these items'}"
+										type="error"
+										class="my-2 max-w-80"
+									>
+										<span>
+											{deploymentErrorMessage}
+										</span>
+									</Alert>
+								{/if}
+							</div>
 						</div>
-					</div>
+					{/if}
 				{/snippet}
 			</WorkspaceDeployLayout>
 
@@ -988,6 +1100,35 @@
 	</div>
 
 	<DiffDrawer bind:this={diffDrawer} {isFlow} />
+
+	<ConfirmationModal
+		open={draftConfirmOpen}
+		title={mergeIntoParent ? 'Deploy items with a draft?' : 'Update items with a draft?'}
+		confirmationText={mergeIntoParent ? 'Deploy anyway' : 'Update anyway'}
+		onConfirmed={() => {
+			draftConfirmOpen = false
+			deployChanges()
+		}}
+		onCanceled={() => (draftConfirmOpen = false)}
+	>
+		<div class="flex flex-col gap-2">
+			<p>
+				{selectedDraftKeys.length} selected item{selectedDraftKeys.length !== 1 ? 's' : ''}
+				{selectedDraftKeys.length !== 1 ? 'have' : 'has'} an undeployed draft.
+				{#if mergeIntoParent}
+					Deploying sends the deployed version, not the draft — those draft changes won't be
+					included.
+				{:else}
+					Updating replaces the deployed version your draft is based on.
+				{/if}
+			</p>
+			<ul class="list-disc pl-5 text-sm font-mono text-secondary">
+				{#each selectedDraftKeys as k (k)}
+					<li>{k.split(':').slice(1).join(':')}</li>
+				{/each}
+			</ul>
+		</div>
+	</ConfirmationModal>
 {:else}
 	<div class="flex items-center justify-center h-full">
 		<div class="text-gray-500">No comparison data available</div>
