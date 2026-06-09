@@ -14398,8 +14398,13 @@ dependencies = [
  "windmill-dep-map",
  "windmill-git-sync",
  "windmill-object-store",
+ "windmill-parser",
  "windmill-parser-py",
+ "windmill-parser-py-asset",
+ "windmill-parser-sql-asset",
  "windmill-parser-ts",
+ "windmill-parser-ts-asset",
+ "windmill-parser-yaml",
  "windmill-queue",
 ]
 

@@ -45,9 +45,9 @@ use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
 use windmill_common::{
     assets::{
         clear_script_triggers, clear_static_asset_usage, clear_static_asset_usage_by_script_hash,
-        insert_script_trigger, insert_static_asset_usage,
-        parse_duration_secs, parse_pipeline_annotations,
-        trigger_spec_to_row, AssetUsageKind, AssetWithAltAccessType, TriggerSpec,
+        insert_script_trigger, insert_static_asset_usage, parse_duration_secs,
+        parse_pipeline_annotations, trigger_spec_to_row, AssetUsageKind, AssetWithAltAccessType,
+        TriggerSpec,
     },
     error::{self, to_anyhow},
     min_version::{MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2},
@@ -1287,6 +1287,16 @@ async fn create_script_internal<'c>(
             .unwrap_or(0);
         (count, delay_s)
     });
+    // Asset presence is server-authoritative: re-parse the deployed content
+    // (same parsers the frontend wasm wraps) and union with the client list.
+    // The `asset` rows written below drive the asset-trigger cascade, so a
+    // client deploying `assets: null` (e.g. broken wasm inference) must not
+    // silently kill the producer side while `// on` subscribers stay wired.
+    let effective_assets = crate::asset_inference::effective_script_assets(
+        &ns.language,
+        &ns.content,
+        ns.assets.take(),
+    );
     let auto_kind = if in_pipeline {
         Some("pipeline".to_string())
     } else if ci_test_refs.is_some() {
@@ -1367,7 +1377,9 @@ async fn create_script_internal<'c>(
             &authed,
         ),
         validate_schema,
-        ns.assets.as_ref().and_then(|a| serde_json::to_value(a).ok()),
+        effective_assets
+            .as_ref()
+            .and_then(|a| serde_json::to_value(a).ok()),
         guarded_debounce_key,
         guarded_debounce_delay_s,
         ns.cache_ignore_s3_path,
@@ -1597,7 +1609,7 @@ async fn create_script_internal<'c>(
     }
 
     clear_static_asset_usage(&mut *tx, &w_id, &script_path, AssetUsageKind::Script).await?;
-    for asset in ns.assets.as_ref().into_iter().flatten() {
+    for asset in effective_assets.as_ref().into_iter().flatten() {
         insert_static_asset_usage(&mut *tx, &w_id, &asset, &ns.path, AssetUsageKind::Script)
             .await?;
     }
