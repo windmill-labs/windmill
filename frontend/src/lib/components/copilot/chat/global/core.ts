@@ -2339,6 +2339,13 @@ function finishDraftWrite(stored: WorkspaceItem, existed: boolean, ctx: WriteDra
 
 type DbDraftKind = Extract<WorkspaceItemType, 'script' | 'flow'>
 
+// A 404 from getXByPathWithDraft means the item genuinely doesn't exist (no
+// deployed version and no draft). Any other error (network, 403, 5xx) is real
+// and must surface rather than be silently swallowed as "no draft".
+function isNotFoundError(e: unknown): boolean {
+	return (e as { status?: number } | undefined)?.status === 404
+}
+
 // Returns the localStorage draft ONLY when a live editor is currently mounted
 // for the item (i.e. its draft is the live editor's working buffer). A stale,
 // non-live localStorage draft is ignored so the DB draft stays authoritative.
@@ -2378,9 +2385,9 @@ async function loadDbDraftItem(
 		const item = flowToItem(src as Flow, true)
 		item.isDraft = true
 		return item
-	} catch {
-		// Item doesn't exist (never deployed and no draft row).
-		return undefined
+	} catch (e) {
+		if (isNotFoundError(e)) return undefined // never deployed and no draft row
+		throw e
 	}
 }
 
@@ -2450,8 +2457,10 @@ async function deleteScriptFlowDbDraft(
 			const flow = await FlowService.getFlowByPathWithDraft({ workspace, path })
 			draftOnly = flow.draft_only === true
 		}
-	} catch {
-		// No backing row; nothing to delete server-side beyond the editor buffer.
+	} catch (e) {
+		// 404 = no backing row; nothing to delete server-side beyond the editor
+		// buffer. Any other error is real and should surface.
+		if (!isNotFoundError(e)) throw e
 	}
 
 	if (draftOnly) {

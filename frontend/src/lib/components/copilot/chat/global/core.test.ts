@@ -208,6 +208,11 @@ const WORKSPACE = 'global-core-test'
 // implementations re-wired in beforeEach.
 
 type SimRow = Record<string, any>
+// Mimic the generated client's ApiError shape so the code's `status === 404`
+// not-found discrimination behaves the same against the sim.
+function notFound(message: string): Error {
+	return Object.assign(new Error(message), { status: 404 })
+}
 const scriptRows = new Map<string, SimRow>()
 const scriptDrafts = new Map<string, SimRow>()
 const flowRows = new Map<string, SimRow>()
@@ -246,13 +251,13 @@ function resetDbSim(): void {
 	})
 	setImpl(ScriptService.getScriptByPathWithDraft, async ({ path }: any) => {
 		const row = scriptRows.get(path)
-		if (!row) throw new Error(`script "${path}" not found`)
+		if (!row) throw notFound(`script "${path}" not found`)
 		const draft = scriptDrafts.get(path)
 		return { ...row, draft, draft_created_at: draft ? DRAFT_TS : undefined }
 	})
 	setImpl(ScriptService.getScriptByPath, async ({ path }: any) => {
 		const row = scriptRows.get(path)
-		if (!row) throw new Error(`script "${path}" not found`)
+		if (!row) throw notFound(`script "${path}" not found`)
 		return row
 	})
 	setImpl(ScriptService.deleteScriptByPath, async ({ path }: any) => {
@@ -295,13 +300,13 @@ function resetDbSim(): void {
 	})
 	setImpl(FlowService.getFlowByPathWithDraft, async ({ path }: any) => {
 		const row = flowRows.get(path)
-		if (!row) throw new Error(`flow "${path}" not found`)
+		if (!row) throw notFound(`flow "${path}" not found`)
 		const draft = flowDrafts.get(path)
 		return { ...row, draft, draft_created_at: draft ? DRAFT_TS : undefined }
 	})
 	setImpl(FlowService.getFlowByPath, async ({ path }: any) => {
 		const row = flowRows.get(path)
-		if (!row) throw new Error(`flow "${path}" not found`)
+		if (!row) throw notFound(`flow "${path}" not found`)
 		return row
 	})
 	setImpl(FlowService.deleteFlowByPath, async ({ path }: any) => {
