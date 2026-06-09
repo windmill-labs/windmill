@@ -57,6 +57,7 @@
 			use_codebase: boolean
 			is_draft?: boolean
 			draft_path?: string
+			draft_users?: { username?: string | null }[]
 		}
 		marked: string | undefined
 		shareModal: ShareModal
@@ -187,7 +188,11 @@
 			>
 		{/if}
 		<SharedBadge canWrite={script.canWrite} extraPerms={script.extra_perms} />
-		<DraftBadge is_draft={script.is_draft} draft_only={script.draft_only} />
+		<DraftBadge
+			is_draft={script.is_draft}
+			draft_only={script.draft_only}
+			draft_users={script.draft_users}
+		/>
 		{#if script.labels?.length}
 			<div class="flex items-center gap-0.5">
 				{#each script.labels.slice(0, 3) as label}

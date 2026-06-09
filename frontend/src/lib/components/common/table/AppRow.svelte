@@ -119,7 +119,7 @@
 			<Badge small icon={{ icon: FileJson }}>Raw</Badge>
 		{/if}
 		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
-		<DraftBadge is_draft={app.is_draft} draft_only={app.draft_only} />
+		<DraftBadge is_draft={app.is_draft} draft_only={app.draft_only} draft_users={app.draft_users} />
 		{#if app.labels?.length}
 			<div class="flex items-center gap-0.5">
 				{#each app.labels.slice(0, 3) as label}

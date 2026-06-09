@@ -21,7 +21,9 @@ use windmill_api_auth::{
 };
 use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
 use windmill_common::{
-    user_drafts::{fetch_draft_only, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay},
+    user_drafts::{
+        fetch_draft_only, maybe_overlay_draft, DraftUserRef, UserDraftItemKind, WithDraftOverlay,
+    },
     utils::HTTP_CLIENT,
     webhook::{WebhookMessage, WebhookShared},
     DB,
@@ -155,6 +157,13 @@ async fn list_flows(
             "ws_error_handler_muted",
             "o.labels",
             "draft.email IS NOT NULL as is_draft",
+            // All workspace users with a per-user draft at this path,
+            // aggregated as a JSON array. Same shape & decoding as the
+            // scripts list — see scripts.rs for the rationale.
+            "(SELECT json_agg(json_build_object('username', u.username) ORDER BY u.username NULLS LAST) \
+              FROM draft d \
+              LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
+              WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND d.typ = 'flow') as draft_users",
         ])
         .left()
         .join("favorite")
@@ -302,6 +311,10 @@ async fn list_flows(
                 labels: None,
                 is_draft: true,
                 draft_path,
+                // Synthesized rows come from the authed user's own draft.
+                draft_users: Some(sqlx::types::Json(vec![DraftUserRef {
+                    username: Some(authed.username.clone()),
+                }])),
             });
         }
     }

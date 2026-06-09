@@ -58,7 +58,9 @@ use windmill_common::{
         get_payload_tag_from_prefixed_path, resolve_delete_after_secs, schedule_job_deletion,
         JobPayload, RawCode,
     },
-    user_drafts::{fetch_draft_only, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay},
+    user_drafts::{
+        fetch_draft_only, maybe_overlay_draft, DraftUserRef, UserDraftItemKind, WithDraftOverlay,
+    },
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
@@ -176,6 +178,13 @@ pub struct ListableApp {
     #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_path: Option<String>,
+    /// Workspace users (including the authed user, and the legacy
+    /// NULL-email row if any) who currently have a per-user draft at
+    /// this path. Drives the home page's user-avatar circles inside
+    /// the Draft badge. `None` when no drafts exist.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_users: Option<sqlx::types::Json<Vec<windmill_types::user_drafts::DraftUserRef>>>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -385,6 +394,13 @@ async fn list_apps(
             "app_version.raw_app",
             "app.labels",
             "draft.email IS NOT NULL as is_draft",
+            // All workspace users with a per-user draft at this path,
+            // aggregated as a JSON array. Same shape & decoding as the
+            // scripts/flows list — see scripts.rs for the rationale.
+            "(SELECT json_agg(json_build_object('username', u.username) ORDER BY u.username NULLS LAST) \
+              FROM draft d \
+              LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
+              WHERE d.workspace_id = app.workspace_id AND d.path = app.path AND d.typ = 'app') as draft_users",
         ])
         .left()
         .join("favorite")
@@ -520,6 +536,10 @@ async fn list_apps(
                 labels: None,
                 is_draft: true,
                 draft_path,
+                // Synthesized rows come from the authed user's own draft.
+                draft_users: Some(sqlx::types::Json(vec![DraftUserRef {
+                    username: Some(authed.username.clone()),
+                }])),
             });
         }
     }

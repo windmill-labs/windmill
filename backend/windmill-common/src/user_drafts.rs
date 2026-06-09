@@ -13,6 +13,14 @@
 //! directly without taking a dependency on the top-level `windmill-api`
 //! crate. Keep this file tiny and free of HTTP/axum concerns.
 
+// `DraftUserRef` lives in `windmill-types` so the list-endpoint row structs
+// (`ListableScript`, `ListableFlow`) — which sit in `windmill-types` and
+// can't reach `windmill-common` without a dependency cycle — can declare
+// `Vec<DraftUserRef>` aggregates. Re-exported here so the list/get
+// handlers in `windmill-api-scripts` / `windmill-api-flows` / `windmill-api`
+// keep a single import path for the per-user-draft surface.
+pub use windmill_types::user_drafts::DraftUserRef;
+
 use crate::db::DB;
 use crate::error::Result;
 use chrono::{DateTime, Utc};

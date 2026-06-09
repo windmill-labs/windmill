@@ -102,6 +102,13 @@ pub struct ListableFlow {
     #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_path: Option<String>,
+    /// Workspace users (including the authed user, and the legacy
+    /// NULL-email row if any) who currently have a per-user draft at
+    /// this path. Drives the home page's user-avatar circles inside
+    /// the Draft badge. `None` when no drafts exist.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_users: Option<sqlx::types::Json<Vec<crate::user_drafts::DraftUserRef>>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]

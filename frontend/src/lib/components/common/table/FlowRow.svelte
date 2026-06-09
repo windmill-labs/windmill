@@ -44,6 +44,7 @@
 			draft_only?: boolean
 			is_draft?: boolean
 			draft_path?: string
+			draft_users?: { username?: string | null }[]
 			canWrite: boolean
 		}
 		marked: string | undefined
@@ -140,7 +141,11 @@
 			<Badge color="red" baseClass="border">archived</Badge>
 		{/if}
 		<SharedBadge canWrite={flow.canWrite} extraPerms={flow.extra_perms} />
-		<DraftBadge is_draft={flow.is_draft} draft_only={flow.draft_only} />
+		<DraftBadge
+			is_draft={flow.is_draft}
+			draft_only={flow.draft_only}
+			draft_users={flow.draft_users}
+		/>
 		{#if flow.labels?.length}
 			<div class="flex items-center gap-0.5">
 				{#each flow.labels.slice(0, 3) as label}

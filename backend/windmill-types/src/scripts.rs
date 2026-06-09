@@ -476,6 +476,15 @@ pub struct ListableScript {
     #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_path: Option<String>,
+    /// Workspace users (including the authed user, and the legacy
+    /// NULL-email row if any) who currently have a per-user draft at
+    /// this path. Sourced from a SQL aggregate over the `draft` table —
+    /// each entry is `{ username }` (`None` for the legacy row). Drives
+    /// the home page's user-avatar circles inside the Draft badge.
+    /// `None` when no drafts exist; never an empty array.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_users: Option<sqlx::types::Json<Vec<crate::user_drafts::DraftUserRef>>>,
 }
 
 fn is_false(x: &bool) -> bool {

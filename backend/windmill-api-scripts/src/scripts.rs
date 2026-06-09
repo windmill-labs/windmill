@@ -13,7 +13,9 @@ use windmill_api_auth::{
     ApiAuthed,
 };
 use windmill_common::{
-    user_drafts::{fetch_draft_only, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay},
+    user_drafts::{
+        fetch_draft_only, maybe_overlay_draft, DraftUserRef, UserDraftItemKind, WithDraftOverlay,
+    },
     utils::{BulkDeleteRequest, WithStarredInfoQuery, HTTP_CLIENT},
     webhook::{WebhookMessage, WebhookShared},
     workspaces::{check_deploy_rules, RuleCheckResult},
@@ -208,6 +210,16 @@ async fn list_scripts(
             "kind",
             "o.labels",
             "draft.email IS NOT NULL as is_draft",
+            // All workspace users (and the legacy NULL-email row) with a
+            // per-user draft at this path. Aggregated as a JSON array so
+            // the row decodes via `sqlx::types::Json<Vec<DraftUserRef>>`.
+            // NULL (no rows) decodes to `None`; never returns an empty
+            // array. LEFT JOIN to `usr` lets orphaned drafts (user removed
+            // from the workspace) still surface with `username = None`.
+            "(SELECT json_agg(json_build_object('username', u.username) ORDER BY u.username NULLS LAST) \
+              FROM draft d \
+              LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
+              WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND d.typ = 'script') as draft_users",
         ])
         .left()
         .join("favorite")
@@ -427,6 +439,12 @@ async fn list_scripts(
                 labels: None,
                 is_draft: true,
                 draft_path,
+                // Synthesized rows come from the authed user's own draft
+                // (the WHERE clause above filters by `email = $2`), so
+                // they're known to be the single-user case.
+                draft_users: Some(sqlx::types::Json(vec![DraftUserRef {
+                    username: Some(authed.username.clone()),
+                }])),
             });
         }
     }
