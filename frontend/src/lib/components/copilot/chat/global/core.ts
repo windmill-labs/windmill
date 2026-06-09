@@ -1746,8 +1746,12 @@ export const globalTools: Tool<{}>[] = [
 				perPage: parsed.limit ?? 30
 			})
 			const runs = jobs.map(summarizeRun)
-			toolCallbacks.setToolStatus(toolId, { content: `Listed ${runs.length} run(s)` })
-			return JSON.stringify(runs, null, 2)
+			const result = JSON.stringify(runs, null, 2)
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Listed ${runs.length} run(s)`,
+				result
+			})
+			return result
 		}
 	},
 	{
@@ -1771,13 +1775,14 @@ export const globalTools: Tool<{}>[] = [
 				removeAnsiWarnings: true
 			})
 			const hasLogs = typeof logs === 'string' && logs.trim().length > 0
+			const result = hasLogs ? logs : 'No logs available for this job.'
 			toolCallbacks.setToolStatus(toolId, {
 				content: hasLogs
 					? `Fetched logs for job ${parsed.id}`
 					: `No logs available for job ${parsed.id}`,
-				logs: hasLogs ? logs : undefined
+				result
 			})
-			return hasLogs ? logs : 'No logs available for this job.'
+			return result
 		}
 	},
 	{

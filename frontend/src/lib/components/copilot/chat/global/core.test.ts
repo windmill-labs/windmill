@@ -305,6 +305,12 @@ describe('global AI tools', () => {
 		// Heavy / sensitive fields must not leak into the summary.
 		expect(result).not.toContain('verbose logs')
 		expect(result).not.toContain('do-not-leak')
+		// The result must be surfaced to the tool display, otherwise the details
+		// panel shows "No result yet" even though the call succeeded.
+		expect(toolCallbacks.setToolStatus).toHaveBeenCalledWith(
+			'test-list_runs',
+			expect.objectContaining({ result })
+		)
 	})
 
 	it('defaults list_runs to 30 results when no limit is given', async () => {
@@ -323,6 +329,12 @@ describe('global AI tools', () => {
 			removeAnsiWarnings: true
 		})
 		expect(result).toBe('job log line 1\njob log line 2')
+		// The logs must be surfaced as the tool result so the details panel shows
+		// them rather than "No result yet".
+		expect(toolCallbacks.setToolStatus).toHaveBeenCalledWith(
+			'test-get_job_logs',
+			expect.objectContaining({ result: 'job log line 1\njob log line 2' })
+		)
 	})
 
 	it('reports when a job has no logs', async () => {
