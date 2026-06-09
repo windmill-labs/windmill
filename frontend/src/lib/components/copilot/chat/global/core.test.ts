@@ -67,7 +67,40 @@ vi.mock('$lib/gen', async () => {
 				success: true,
 				result: { ok: true },
 				logs: 'test logs'
-			}))
+			})),
+			getJobLogs: vi.fn(async () => 'job log line 1\njob log line 2'),
+			listJobs: vi.fn(async () => [
+				{
+					type: 'CompletedJob',
+					id: 'completed-1',
+					job_kind: 'script',
+					script_path: 'f/team/runner',
+					created_by: 'alice',
+					created_at: '2026-06-09T10:00:00Z',
+					started_at: '2026-06-09T10:00:01Z',
+					duration_ms: 1200,
+					success: true,
+					canceled: false,
+					is_flow_step: false,
+					tag: 'default',
+					// fields that must be stripped from the summary
+					logs: 'verbose logs',
+					args: { secret: 'do-not-leak' },
+					result: { value: 42 }
+				},
+				{
+					type: 'QueuedJob',
+					id: 'queued-1',
+					job_kind: 'flow',
+					script_path: 'f/team/pipeline',
+					created_by: 'bob',
+					created_at: '2026-06-09T10:05:00Z',
+					running: true,
+					canceled: false,
+					is_flow_step: false,
+					tag: 'default'
+				}
+			])
 		}),
 		FlowService: wrapService(actual.FlowService, {
 			existsFlowByPath: vi.fn(async () => false),
@@ -238,6 +271,69 @@ describe('global AI tools', () => {
 		expect(names).toContain('test_run_script')
 		expect(names).toContain('test_run_flow')
 		expect(names).toContain('test_run_step')
+		expect(names).toContain('get_job_logs')
+		expect(names).toContain('list_runs')
+	})
+
+	it('lists recent runs with compact summaries and forwarded filters', async () => {
+		const result = await callGlobalTool('list_runs', {
+			path: 'f/team/runner',
+			created_by: 'alice',
+			success: true,
+			limit: 10
+		})
+
+		expect(JobService.listJobs).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			scriptPathExact: 'f/team/runner',
+			createdBy: 'alice',
+			label: undefined,
+			success: true,
+			running: undefined,
+			perPage: 10
+		})
+
+		const runs = JSON.parse(result)
+		expect(runs).toHaveLength(2)
+		expect(runs[0]).toMatchObject({
+			id: 'completed-1',
+			status: 'success',
+			path: 'f/team/runner',
+			duration_ms: 1200
+		})
+		expect(runs[1]).toMatchObject({ id: 'queued-1', status: 'running' })
+		// Heavy / sensitive fields must not leak into the summary.
+		expect(result).not.toContain('verbose logs')
+		expect(result).not.toContain('do-not-leak')
+	})
+
+	it('defaults list_runs to 30 results when no limit is given', async () => {
+		await callGlobalTool('list_runs', {})
+		expect(JobService.listJobs).toHaveBeenCalledWith(
+			expect.objectContaining({ workspace: WORKSPACE, perPage: 30 })
+		)
+	})
+
+	it('fetches job logs by id', async () => {
+		const result = await callGlobalTool('get_job_logs', {
+			id: 'job-123',
+			remove_ansi_warnings: true
+		})
+
+		expect(JobService.getJobLogs).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			id: 'job-123',
+			removeAnsiWarnings: true
+		})
+		expect(result).toBe('job log line 1\njob log line 2')
+	})
+
+	it('reports when a job has no logs', async () => {
+		vi.mocked(JobService.getJobLogs).mockResolvedValueOnce('   ')
+
+		const result = await callGlobalTool('get_job_logs', { id: 'job-empty' })
+
+		expect(result).toBe('No logs available for this job.')
 	})
 
 	it('searches hub scripts without fetching script contents', async () => {

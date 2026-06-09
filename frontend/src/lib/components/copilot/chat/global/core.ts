@@ -23,6 +23,7 @@ import type {
 	CreateVariable,
 	Flow,
 	FlowValue,
+	Job,
 	ListableApp,
 	ListableResource,
 	ListableVariable,
@@ -348,6 +349,38 @@ const searchResourceTypesSchema = z.object({
 		.describe('Max number of resource types to return. Defaults to 5.')
 })
 
+const getJobLogsSchema = z.object({
+	id: z.string().describe('The UUID of the job to fetch logs for.'),
+	remove_ansi_warnings: z
+		.boolean()
+		.optional()
+		.describe('Strip ANSI escape codes and truncation warnings from the returned logs.')
+})
+
+const listRunsSchema = z.object({
+	path: z
+		.string()
+		.optional()
+		.describe('Filter to runs of this exact script or flow path.'),
+	created_by: z
+		.string()
+		.optional()
+		.describe('Filter by the username that started the run.'),
+	label: z.string().optional().describe('Filter by job label.'),
+	success: z
+		.boolean()
+		.optional()
+		.describe('Only completed runs with this outcome (true = succeeded, false = failed).'),
+	running: z.boolean().optional().describe('Only currently running runs.'),
+	limit: z
+		.number()
+		.int()
+		.min(1)
+		.max(100)
+		.optional()
+		.describe('Max number of runs to return, most recent first. Defaults to 30.')
+})
+
 const deleteWorkspaceItemSchema = z.object({
 	type: itemTypeSchema,
 	path: z.string().describe('Workspace path of the item to delete.'),
@@ -602,6 +635,7 @@ Rules:
 - Use search_resource_types before write_resource.
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer local drafts, so testing does not require deployment.
+- Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
 - Keep context targeted.${
 	previewTools
@@ -742,6 +776,36 @@ function variableToItem(variable: ListableVariable): WorkspaceItem {
 		path: variable.path,
 		summary: variable.description,
 		isDraft: false
+	}
+}
+
+// Compact metadata for one run. The raw Job carries args/result/logs/raw_code
+// which can be huge — list_runs returns only what's needed to identify a run.
+function summarizeRun(job: Job): Record<string, unknown> {
+	const base = {
+		id: job.id,
+		job_kind: job.job_kind,
+		path: job.script_path,
+		created_by: job.created_by,
+		created_at: job.created_at,
+		started_at: job.started_at,
+		schedule_path: job.schedule_path,
+		is_flow_step: job.is_flow_step,
+		tag: job.tag,
+		worker: job.worker
+	}
+	if ('success' in job) {
+		// CompletedJob
+		return {
+			...base,
+			status: job.canceled ? 'canceled' : job.success ? 'success' : 'failure',
+			duration_ms: job.duration_ms
+		}
+	}
+	// QueuedJob (running or still waiting in the queue)
+	return {
+		...base,
+		status: job.running ? 'running' : 'queued'
 	}
 }
 
@@ -1666,6 +1730,57 @@ export const globalTools: Tool<{}>[] = [
 		confirmationMessage: 'Run flow step test',
 		showDetails: true,
 		autoCollapseDetails: false
+	},
+	{
+		def: createToolDef(
+			listRunsSchema,
+			'list_runs',
+			"List recent runs (jobs), most recent first. Optionally filter by path, creator, label, or status. Returns compact metadata only — use get_job_logs with a returned id to read a run's logs."
+		),
+		showDetails: true,
+		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+			const parsed = listRunsSchema.parse(args)
+			toolCallbacks.setToolStatus(toolId, { content: 'Listing runs...' })
+			const jobs = await JobService.listJobs({
+				workspace,
+				scriptPathExact: parsed.path,
+				createdBy: parsed.created_by,
+				label: parsed.label,
+				success: parsed.success,
+				running: parsed.running,
+				perPage: parsed.limit ?? 30
+			})
+			const runs = jobs.map(summarizeRun)
+			toolCallbacks.setToolStatus(toolId, { content: `Listed ${runs.length} run(s)` })
+			return JSON.stringify(runs, null, 2)
+		}
+	},
+	{
+		def: createToolDef(
+			getJobLogsSchema,
+			'get_job_logs',
+			'Fetch the logs of a job by its id. Use this to inspect the output of an existing run (e.g. a job id from the runs page or a flow step) rather than starting a new test run.'
+		),
+		showDetails: true,
+		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+			const parsed = getJobLogsSchema.parse(args)
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Fetching logs for job ${parsed.id}...`
+			})
+			const logs = await JobService.getJobLogs({
+				workspace,
+				id: parsed.id,
+				removeAnsiWarnings: parsed.remove_ansi_warnings
+			})
+			const hasLogs = typeof logs === 'string' && logs.trim().length > 0
+			toolCallbacks.setToolStatus(toolId, {
+				content: hasLogs
+					? `Fetched logs for job ${parsed.id}`
+					: `No logs available for job ${parsed.id}`,
+				logs: hasLogs ? logs : undefined
+			})
+			return hasLogs ? logs : 'No logs available for this job.'
+		}
 	},
 	{
 		def: createToolDef(
