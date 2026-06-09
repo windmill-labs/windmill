@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.721.0](https://github.com/windmill-labs/windmill/compare/v1.720.0...v1.721.0) (2026-06-09)
+
+
+### Features
+
+* deployed↔draft compare + AI-session draft bar ([#9435](https://github.com/windmill-labs/windmill/issues/9435)) ([b0b330c](https://github.com/windmill-labs/windmill/commit/b0b330c7864d0159af4b0f17dbb3c09bd015145b))
+
+
+### Bug Fixes
+
+* **cli:** reconcile case-only path drift during sync on case-insensitive filesystems (WIN-2020) ([#9485](https://github.com/windmill-labs/windmill/issues/9485)) ([c258928](https://github.com/windmill-labs/windmill/commit/c258928ab62adc1327913c21556520dfd1e5c24c))
+* drop archived items from fork compare (spurious 'not visible' warning) ([#9481](https://github.com/windmill-labs/windmill/issues/9481)) ([92c21bb](https://github.com/windmill-labs/windmill/commit/92c21bbe6586f3c285796a98692e976515a629d5))
+* require auth to view approval details when user_auth_required ([#9482](https://github.com/windmill-labs/windmill/issues/9482)) ([5f41ddd](https://github.com/windmill-labs/windmill/commit/5f41ddd3a592bcd504f94fc99060ca5d79c36190))
+
 ## [1.720.0](https://github.com/windmill-labs/windmill/compare/v1.719.0...v1.720.0) (2026-06-08)
 
 
