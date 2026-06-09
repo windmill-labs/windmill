@@ -155,6 +155,11 @@ pub struct ListableApp {
     pub execution_mode: String,
     pub starred: bool,
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// `Some(true)` only on rows synthesised from the `draft` table
+    /// (never-deployed items the authed user owns a draft for). Always
+    /// `None` for deployed rows — there's no longer a backing column to
+    /// surface.
+    #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
     #[sqlx(default)]
@@ -308,7 +313,6 @@ pub struct CreateApp {
     pub summary: String,
     pub value: sqlx::types::Json<Box<RawValue>>,
     pub policy: Policy,
-    pub draft_only: Option<bool>,
     pub deployment_message: Option<String>,
     pub custom_path: Option<String>,
     pub preserve_on_behalf_of: Option<bool>,
@@ -390,7 +394,6 @@ async fn list_apps(
             "app_version.created_at as edited_at",
             "app.extra_perms",
             "favorite.path IS NOT NULL as starred",
-            "draft_only",
             "app_version.raw_app",
             "app.labels",
             "draft.email IS NOT NULL as is_draft",
@@ -439,10 +442,6 @@ async fn list_apps(
 
     if let Some(path_exact) = &lq.path_exact {
         sqlb.and_where_eq("app.path", "?".bind(path_exact));
-    }
-
-    if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
-        sqlb.and_where("app.draft_only IS NOT TRUE");
     }
 
     if let Some(label) = &lq.label {
@@ -1461,13 +1460,12 @@ async fn create_app_internal<'a>(
     }
     let id = sqlx::query_scalar!(
         "INSERT INTO app
-            (workspace_id, path, summary, policy, versions, draft_only, custom_path, labels)
-            VALUES ($1, $2, $3, $4, '{}', $5, $6, $7) RETURNING id",
+            (workspace_id, path, summary, policy, versions, custom_path, labels)
+            VALUES ($1, $2, $3, $4, '{}', $5, $6) RETURNING id",
         w_id,
         app.path,
         app.summary,
         json!(app.policy),
-        app.draft_only,
         app.custom_path
             .as_ref()
             .map(|s| if s.is_empty() { None } else { Some(s) })
@@ -1904,7 +1902,6 @@ async fn update_app_internal<'a>(
         sqlb.and_where_eq("path", "?".bind(&path));
         sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
 
-        sqlb.set("draft_only", "NULL");
         if let Some(npath) = &ns.path {
             if npath != path {
                 require_owner_of_path(&authed, path)?;

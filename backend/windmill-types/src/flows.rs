@@ -30,8 +30,6 @@ pub struct Flow {
     pub schema: Option<Schema>,
     pub extra_perms: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub dedicated_worker: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
@@ -79,6 +77,11 @@ pub struct ListableFlow {
     pub archived: bool,
     pub extra_perms: serde_json::Value,
     pub starred: bool,
+    /// `Some(true)` only on rows synthesised from the `draft` table
+    /// (never-deployed items the authed user owns a draft for). Always
+    /// `None` for deployed rows — there's no longer a backing column to
+    /// surface.
+    #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -119,7 +122,6 @@ pub struct NewFlow {
     #[serde(deserialize_with = "validate_flow_value")]
     pub value: Box<RawValue>,
     pub schema: Option<Schema>,
-    pub draft_only: Option<bool>,
     pub tag: Option<String>,
     pub dedicated_worker: Option<bool>,
     pub timeout: Option<i32>,

@@ -203,7 +203,6 @@ async fn list_scripts(
             "language",
             "favorite.path IS NOT NULL as starred",
             "tag",
-            "draft_only",
             "ws_error_handler_muted",
             "auto_kind",
             "codebase IS NOT NULL as use_codebase",
@@ -255,10 +254,6 @@ async fn list_scripts(
         // deny-list: anything that isn't a 'lib' (library script without
         // main) is callable, including future `auto_kind` values.
         sqlb.and_where("(o.auto_kind IS NULL OR o.auto_kind <> 'lib')");
-    }
-
-    if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
-        sqlb.and_where("draft_only IS NOT TRUE");
     }
 
     if lq.show_archived.unwrap_or(false) {
@@ -716,7 +711,6 @@ async fn is_noop_deploy_against_parent(
         language,
         kind,
         tag,
-        draft_only,
         envs,
         concurrency_settings,
         debouncing_settings,
@@ -793,7 +787,6 @@ async fn is_noop_deploy_against_parent(
         || visible_to_runner_only != &parent.visible_to_runner_only
         || has_preprocessor != &parent.has_preprocessor
         || is_template.unwrap_or(false) != parent.is_template.unwrap_or(false)
-        || draft_only.unwrap_or(false) != parent.draft_only.unwrap_or(false)
     {
         return Ok(false);
     }
@@ -1021,20 +1014,10 @@ async fn create_script_internal<'c>(
 
     let parent_hashes_and_perms: Option<ParentInfo> = match (&ns.parent_hash, clashing_script) {
         (None, None) => Ok(None),
-        (None, Some(s)) if !s.draft_only.unwrap_or(false) => Err(Error::BadRequest(format!(
+        (None, Some(s)) => Err(Error::BadRequest(format!(
             "Path conflict for {} with non-archived hash {}",
             &ns.path, &s.hash
         ))),
-        (None, Some(s)) => {
-            sqlx::query!(
-                "DELETE FROM script WHERE hash = $1 AND workspace_id = $2",
-                s.hash.0,
-                &w_id
-            )
-            .execute(&mut *tx)
-            .await?;
-            Ok(None)
-        }
         (Some(p_hash), o) => {
             // Lock the parent row to prevent concurrent updates with the same parent_hash
             // This ensures linear lineage - only one script can have a given parent at a time
@@ -1287,10 +1270,10 @@ async fn create_script_internal<'c>(
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
-         draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
+         envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
          delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40)",
         &w_id,
         &hash.0,
         ns.path,
@@ -1306,7 +1289,6 @@ async fn create_script_internal<'c>(
         lang as ScriptLang,
         ns.kind.unwrap_or(ScriptKind::Script) as ScriptKind,
         ns.tag,
-        ns.draft_only,
         envs,
         guarded_concurrent_limit,
         guarded_concurrency_time_window_s,
@@ -2768,18 +2750,7 @@ async fn delete_script_by_path(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    let draft_only = sqlx::query_scalar!(
-        "SELECT draft_only FROM script WHERE path = $1 AND workspace_id = $2",
-        path,
-        w_id
-    )
-    .fetch_one(&db)
-    .await?
-    .unwrap_or(false);
-
-    if !draft_only {
-        require_admin(authed.is_admin, &authed.username)?;
-    }
+    require_admin(authed.is_admin, &authed.username)?;
 
     // Capture all script versions and drafts for trashbin before deleting
     let trash_scripts: Vec<serde_json::Value> = sqlx::query_scalar(

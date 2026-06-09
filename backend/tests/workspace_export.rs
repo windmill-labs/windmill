@@ -51,7 +51,6 @@ async fn test_tarball_export_all_tables(db: Pool<Postgres>) -> anyhow::Result<()
                 parent_hash: None,
                 schema: Default::default(),
                 is_template: None,
-                draft_only: None,
                 dedicated_worker: None,
                 ws_error_handler_muted: None,
                 priority: None,
