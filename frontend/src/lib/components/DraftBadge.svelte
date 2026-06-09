@@ -23,10 +23,11 @@
 		is_draft?: boolean
 		draft_only?: boolean
 		draft_users?: DraftUser[]
-		/** Authed user's workspace username — circles for THIS user are
-		 *  omitted because the row already signals their own draft via
-		 *  the asterisk appended to the displayed summary. Pass
-		 *  `$userStore?.username` from the row. */
+		/** Authed user's workspace username. Used to pin THIS user's
+		 *  circle to the first slot (so the authed user always shows
+		 *  up front when they have a draft) and to annotate the
+		 *  popover entry with `(you)`. Pass `$userStore?.username`
+		 *  from the row. */
 		currentUsername?: string | null
 	}
 
@@ -37,12 +38,19 @@
 		currentUsername = undefined
 	}: Props = $props()
 
-	// Drop the authed user from the circle row — their own draft is
-	// signalled by the asterisk on the row's summary, so showing both
-	// would be visual noise. Keep the legacy NULL-username row.
-	const otherUsers = $derived(
-		currentUsername ? draft_users.filter((u) => u.username !== currentUsername) : draft_users
-	)
+	// Authed user always lands FIRST in the circle row when they have a
+	// draft; everyone else keeps the backend's alphabetical ordering
+	// behind them. The asterisk on the row's summary still flags the
+	// own-draft case textually — the leading circle is the visual half
+	// of the same signal.
+	const orderedUsers = $derived.by(() => {
+		if (!currentUsername) return draft_users
+		const selfIdx = draft_users.findIndex((u) => u.username === currentUsername)
+		if (selfIdx < 0) return draft_users
+		const self = draft_users[selfIdx]
+		const rest = draft_users.filter((_, i) => i !== selfIdx)
+		return [self, ...rest]
+	})
 
 	/** Two-letter uppercase initials from a username — `john.doe`/`john_doe` →
 	 * `JD`, `alice` → `AL`, the legacy NULL-email row (no username) → `?`. */
@@ -77,16 +85,16 @@
 		return PALETTE[hash % PALETTE.length]
 	}
 
-	// First 3 circles when ≤3 OTHER users; first 2 + a "+N" overflow
-	// when 4+. The slice/overflow math applies to `otherUsers` (post
-	// current-user filter), not the raw `draft_users` — otherwise
-	// dropping the authed user would silently change the visible count.
+	// First 3 circles when ≤3 users; first 2 + a "+N" overflow when 4+.
+	// Slice from `orderedUsers` so the authed user — always the first
+	// element when present — is always kept (it would be wrong to drop
+	// their own draft into the +N bubble while showing strangers).
 	const MAX_CIRCLES = 3
 	const visibleUsers = $derived(
-		otherUsers.length <= MAX_CIRCLES ? otherUsers : otherUsers.slice(0, MAX_CIRCLES - 1)
+		orderedUsers.length <= MAX_CIRCLES ? orderedUsers : orderedUsers.slice(0, MAX_CIRCLES - 1)
 	)
 	const overflowCount = $derived(
-		otherUsers.length > MAX_CIRCLES ? otherUsers.length - (MAX_CIRCLES - 1) : 0
+		orderedUsers.length > MAX_CIRCLES ? orderedUsers.length - (MAX_CIRCLES - 1) : 0
 	)
 
 	// Show the badge whenever ANY draft exists (`draft_users` non-empty)
@@ -113,20 +121,20 @@
 			{/if}
 		{/snippet}
 		<Badge small color="indigo">
-			{#if otherUsers.length > 0}
+			{#if orderedUsers.length > 0}
 				<!-- Circles sit inside the Badge, before the label. `-space-x-1`
 				     overlaps them slightly; each circle's ring uses the badge's
 				     indigo tint instead of plain white so the overlap reads as
-				     intentional rather than a stack-of-floating-dots. Only OTHER
-				     users get a circle — the authed user's own draft is
-				     signalled by the row's asterisk. -->
+				     intentional rather than a stack-of-floating-dots. The
+				     authed user is pinned to the first slot when present (see
+				     `orderedUsers`). -->
 				<span class="flex -space-x-1">
 					{#each visibleUsers as u}
 						<span
 							class="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full text-[8px] font-semibold text-white ring-1 ring-indigo-100 dark:ring-indigo-700/40 {colorFor(
 								u
 							)}"
-							title={fullLabel(u)}
+							title={u.username === currentUsername ? `${fullLabel(u)} (you)` : fullLabel(u)}
 						>
 							{initials(u)}
 						</span>
