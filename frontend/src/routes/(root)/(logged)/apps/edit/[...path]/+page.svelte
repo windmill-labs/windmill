@@ -38,6 +38,8 @@
 	let otherDraftsUsers = $state<OtherDraftUser[]>([])
 	let loadedFromDraft = $state(false)
 	let othersModalOpen = $state(false)
+	let draftSavedAt = $state<string | undefined>(undefined)
+	let deployedAt = $state<string | undefined>(undefined)
 
 	/** Increments per `loadApp` call. Stale loads (e.g. when picker
 	 * navigation races a draft-discard reload) bail at the next checkpoint
@@ -149,6 +151,12 @@
 		if (backendApp.is_draft) {
 			loadedFromDraft = true
 		}
+		// App's deploy timestamp is `created_at` (sourced from the latest
+		// `app_version.created_at`); compare with `draft_saved_at` so
+		// DraftEditorModals can fire the StaleDraftModal. Skip when
+		// `no_deployed` — there's no deployed baseline to be older than.
+		draftSavedAt = backendApp.draft_saved_at as string | undefined
+		deployedAt = backendApp.no_deployed ? undefined : (backendApp.created_at as string | undefined)
 		const backendApp_ = structuredClone(stateSnapshot(backendApp))
 		savedApp = {
 			summary: backendApp_.summary,
@@ -229,6 +237,13 @@
 	}}
 	getLocalDraft={() => app?.value}
 	bind:othersModalOpen
+	{draftSavedAt}
+	{deployedAt}
+	onLoadLatestDeploy={async () => {
+		UserDraft.remove('app', path)
+		await loadApp({ getDraft: false })
+		redraw++
+	}}
 />
 
 {#key redraw}

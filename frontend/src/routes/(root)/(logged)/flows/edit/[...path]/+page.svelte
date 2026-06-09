@@ -41,6 +41,8 @@
 	let otherDraftsUsers = $state<OtherDraftUser[]>([])
 	let loadedFromDraft = $state(false)
 	let othersModalOpen = $state(false)
+	let draftSavedAt = $state<string | undefined>(undefined)
+	let deployedAt = $state<string | undefined>(undefined)
 	// `initialPath` is the editor-displayed path. Defaults to the URL
 	// path so a deployed (or existing-draft) reload mounts FlowBuilder
 	// with the real path; cleared to '' inside the `new_draft` branch
@@ -219,6 +221,12 @@
 		if (backendFlow.is_draft) {
 			loadedFromDraft = true
 		}
+		// Flow's `edited_at` is the deploy timestamp (sourced from
+		// `flow_version.created_at`); compare against the draft's own
+		// save time so DraftEditorModals can decide whether to open
+		// the StaleDraftModal.
+		draftSavedAt = backendFlow.draft_saved_at as string | undefined
+		deployedAt = backendFlow.edited_at as string | undefined
 		// `backendFlow` is the deployed payload; the user's saved draft
 		// (if any) is attached as `.draft`. Layer the draft over the
 		// deployed at the field level so downstream code sees the
@@ -309,6 +317,12 @@
 	onLoadFromServer={() => loadFlow()}
 	getLocalDraft={() => flowHandle.draft}
 	bind:othersModalOpen
+	{draftSavedAt}
+	{deployedAt}
+	onLoadLatestDeploy={async () => {
+		flowHandle.draft = undefined
+		await loadFlow({ getDraft: false })
+	}}
 />
 {#if notFound}
 	<div class="flex flex-col items-center justify-center h-full">

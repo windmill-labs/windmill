@@ -140,6 +140,8 @@
 	let otherDraftsUsers = $state<OtherDraftUser[]>([])
 	let loadedFromDraft = $state(false)
 	let othersModalOpen = $state(false)
+	let draftSavedAt = $state<string | undefined>(undefined)
+	let deployedAt = $state<string | undefined>(undefined)
 	async function loadApp(opts: { getDraft?: boolean } = {}): Promise<void> {
 		const getDraft = opts.getDraft ?? true
 		const tok = ++loadAppToken
@@ -215,6 +217,11 @@
 		if (backendApp.is_draft) {
 			loadedFromDraft = true
 		}
+		// Same shape as the regular app route — deploy timestamp lives
+		// on `app_version.created_at` (exposed as `backendApp.created_at`).
+		// Skip when `no_deployed`; nothing to be older than yet.
+		draftSavedAt = backendApp.draft_saved_at as string | undefined
+		deployedAt = backendApp.no_deployed ? undefined : (backendApp.created_at as string | undefined)
 		// Apply the user's saved draft. The autosave for raw apps writes a
 		// flat `RawAppDraft` (`{files, runnables, data, summary, policy,
 		// custom_path}`); the backend returns it in `.draft`. The rest of
@@ -363,6 +370,12 @@
 	onLoadFromServer={() => loadApp()}
 	getLocalDraft={() => draftHandle.draft}
 	bind:othersModalOpen
+	{draftSavedAt}
+	{deployedAt}
+	onLoadLatestDeploy={async () => {
+		draftHandle.draft = undefined
+		await loadApp({ getDraft: false })
+	}}
 />
 
 <RawAppTemplatePicker bind:open={templatePicker} onStart={onTemplatePickerStart} />

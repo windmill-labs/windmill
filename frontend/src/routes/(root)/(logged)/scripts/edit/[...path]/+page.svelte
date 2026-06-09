@@ -76,6 +76,13 @@
 	/** Bound through DraftEditorModals; flipped on from the
 	 *  AutosaveIndicator popover's "See others' drafts" button. */
 	let othersModalOpen = $state(false)
+	/** Timestamps DraftEditorModals compares to decide whether to open
+	 *  the StaleDraftModal: when `draftSavedAt < deployedAt` the
+	 *  authed user has been editing a draft that's now behind the
+	 *  latest deployed version. Cleared between loads so the modal
+	 *  re-fires when a fresh load surfaces fresh staleness. */
+	let draftSavedAt = $state<string | undefined>(undefined)
+	let deployedAt = $state<string | undefined>(undefined)
 
 	// Remounts ScriptBuilder on nav: false while a reload runs, true once data is
 	// ready. A synchronous `{#key}` swap instead races Monaco's init against the
@@ -170,6 +177,12 @@
 			if (backendScript.is_draft) {
 				loadedFromDraft = true
 			}
+			// Latest deploy's created_at on `script` is the row's
+			// `created_at`; the per-user draft's save time is
+			// `draft_saved_at`. DraftEditorModals takes the comparison
+			// from here, so we just pass both through.
+			draftSavedAt = backendScript.draft_saved_at as string | undefined
+			deployedAt = backendScript.created_at as string | undefined
 			// `backendScript` is the deployed payload; the user's saved
 			// draft (if any) sits in `.draft`. Layer the draft over the
 			// deployed at the field level — the draft contributes editor
@@ -245,6 +258,12 @@
 	onLoadFromServer={() => loadScript()}
 	getLocalDraft={() => scriptHandle.draft}
 	bind:othersModalOpen
+	{draftSavedAt}
+	{deployedAt}
+	onLoadLatestDeploy={async () => {
+		scriptHandle.draft = undefined
+		await loadScript({ getDraft: false })
+	}}
 />
 {#if scriptHandle.draft && renderEditor}
 	<ScriptBuilder
