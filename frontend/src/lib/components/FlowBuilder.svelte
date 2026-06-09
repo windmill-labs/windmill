@@ -23,6 +23,7 @@
 		type Value
 	} from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { Drawer } from '$lib/components/common'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
@@ -253,8 +254,26 @@
 
 	let loadingSave = $state(false)
 
-	// No-op: persistence happens via the page-level UserDraft autosave.
-	export function saveDraft(): void {}
+	// Ctrl/Cmd+S forces an immediate save of whatever the page-level
+	// autosave has pending. Unlike ScriptBuilder we don't have a direct
+	// Monaco ref to flush — any focused module Monaco's pending text is
+	// constrained by the editor's own ~1s max-wait cap, so the flush
+	// here picks up whatever's already in `pendingSaveOpts`. Worst case
+	// the user's very last keystroke (<1s ago) isn't in this POST and
+	// follows in the next autosave round.
+	export async function saveDraft(): Promise<void> {
+		if (!$workspaceStore || !liveEditorDraftStoragePath) return
+		try {
+			await UserDraftDbSyncer.flush({
+				workspace: $workspaceStore,
+				itemKind: 'flow',
+				path: liveEditorDraftStoragePath
+			})
+			sendUserToast('Draft saved')
+		} catch (e: any) {
+			sendUserToast(`Could not save draft: ${e?.body ?? e?.message ?? e}`, true)
+		}
+	}
 
 	export function computeUnlockedSteps(flow: Flow) {
 		return Object.fromEntries(
@@ -1102,7 +1121,6 @@
 					{#if !compactTopbar}
 						{@render previewButtons()}
 					{/if}
-
 
 					<DeployButton
 						on:save={async ({ detail }) => await handleSaveFlow(detail)}

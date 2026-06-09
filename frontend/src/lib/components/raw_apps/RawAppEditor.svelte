@@ -35,6 +35,7 @@
 	import { runScriptAndPollResult } from '../jobs/utils'
 	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
 	import { sendUserToast } from '$lib/utils'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import {
 		buildDataTableWhitelist,
 		parseDataTableRef,
@@ -1327,6 +1328,25 @@
 	})
 
 	function handleKeydown(e: KeyboardEvent) {
+		// Ctrl/Cmd + S forces an immediate flush of the page-level
+		// autosave queue. Catch this BEFORE the input/Monaco guard
+		// below so the shortcut fires regardless of focus — saving
+		// while still in the editor is the common case.
+		if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 's' || e.key === 'S')) {
+			e.preventDefault()
+			if (!$workspaceStore || !liveEditorDraftStoragePath) return
+			void UserDraftDbSyncer.flush({
+				workspace: $workspaceStore,
+				itemKind: 'raw_app',
+				path: liveEditorDraftStoragePath
+			})
+				.then(() => sendUserToast('Draft saved'))
+				.catch((err: any) =>
+					sendUserToast(`Could not save draft: ${err?.body ?? err?.message ?? err}`, true)
+				)
+			return
+		}
+
 		// Skip when typing in an input, textarea, or Monaco editor.
 		const classes = (e.target as HTMLElement | null)?.className
 		if (

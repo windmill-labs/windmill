@@ -79,7 +79,7 @@
 	import { writable } from 'svelte/store'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { getContext, onMount, setContext, untrack } from 'svelte'
+	import { getContext, onMount, setContext, tick, untrack } from 'svelte'
 	import EditorHeader from './EditorHeader.svelte'
 	import AutosaveIndicator from './AutosaveIndicator.svelte'
 	import LabelsInput from './LabelsInput.svelte'
@@ -102,6 +102,7 @@
 	import OnBehalfOfSelector, { type OnBehalfOfChoice } from './OnBehalfOfSelector.svelte'
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
 	let {
 		script = $bindable(),
@@ -694,8 +695,27 @@
 		loadingSave = false
 	}
 
-	// No-op: persistence happens via the page-level UserDraft autosave.
-	function saveDraft(): void {}
+	// Ctrl/Cmd+S forces an immediate save of whatever the page-level
+	// autosave has pending. Flush Monaco first so anything typed within
+	// the last `changeTimeout` ms reaches the bindable before we tell
+	// the syncer to flush — otherwise we'd POST the pre-burst content.
+	// `tick()` lets the bind:code → script.content → UserDraft mirror
+	// chain settle before the flush call sees `pendingSaveOpts`.
+	async function saveDraft(): Promise<void> {
+		if (!$workspaceStore || !userDraftPath) return
+		editor?.flushPendingChanges()
+		await tick()
+		try {
+			await UserDraftDbSyncer.flush({
+				workspace: $workspaceStore,
+				itemKind: 'script',
+				path: userDraftPath
+			})
+			sendUserToast('Draft saved')
+		} catch (e: any) {
+			sendUserToast(`Could not save draft: ${e?.body ?? e?.message ?? e}`, true)
+		}
+	}
 
 	// Inside an AI session pane (which injects an aiChatManager via context) the
 	// extra deploy-dropdown options — Deploy & Stay here, Fork, Edit in workspace
@@ -1954,7 +1974,6 @@
 					{/if}
 					{@render settingsButton()}
 				{/if}
-
 
 				<DeployButton
 					loading={!fullyLoaded}

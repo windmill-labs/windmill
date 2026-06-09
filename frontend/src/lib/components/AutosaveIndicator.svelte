@@ -120,7 +120,7 @@
 
 		{#snippet content()}
 			<div class="flex flex-col gap-3 text-sm w-72 p-3">
-				<p class="text-primary text-sm">
+				<p class="text-primary text-xs">
 					All changes are saved as a draft on the server. The draft is per-user — your teammates'
 					editors keep their own.
 				</p>

@@ -428,6 +428,22 @@
 		dispatch('change', ncode)
 	}
 
+	/** Force-materialize the latest Monaco content into the bindable
+	 * `code` prop right now, bypassing the trailing debounce. Use for
+	 * explicit "save now" shortcuts (Ctrl/Cmd+S) — without this, anything
+	 * the user typed within the last `changeTimeout` ms is still sitting
+	 * in Monaco's buffer and downstream consumers (autosave, lint) won't
+	 * see it. Clears the chain state so the next keystroke after this
+	 * flush is a fresh leading fire. */
+	export function flushPendingChanges(): void {
+		if (timeoutModel !== undefined) {
+			clearTimeout(timeoutModel)
+			timeoutModel = undefined
+		}
+		changeChainStart = undefined
+		updateCode()
+	}
+
 	export function append(code: string): void {
 		if (editor) {
 			const lineCount = editor.getModel()?.getLineCount() || 0

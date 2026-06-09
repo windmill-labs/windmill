@@ -391,5 +391,29 @@ export const UserDraftDbSyncer = {
 	 */
 	async overwrite(opts: Omit<UserDraftDbSyncerSaveOpts, 'force'>): Promise<void> {
 		await this.save({ ...opts, immediate: true, force: true })
+	},
+
+	/**
+	 * Flush whatever's queued in the autosave debouncer for this draft
+	 * RIGHT NOW. Use for explicit "save now" shortcuts (Ctrl/Cmd+S).
+	 *
+	 * Re-submits the latest opts captured by `save()` (held in
+	 * `pendingSaveOpts` until the POST lands) with `immediate: true`,
+	 * which cancels the queued debouncer and routes through the
+	 * coalescing runner. The returned promise resolves only after the
+	 * POST lands, so callers can `await flush(...); show "Saved"`.
+	 *
+	 * No-op when nothing is pending (the most recent save already
+	 * landed, or the editor never autosaved this entry). The caller
+	 * should NOT assume "no pending" means "nothing to save" — Monaco
+	 * may still have unmaterialized text in its own buffer; flush the
+	 * editor first (`Editor.flushPendingChanges()`) and await `tick()`
+	 * so the bind:code propagation reaches our save() before this.
+	 */
+	async flush(query: UserDraftLastSyncQuery): Promise<void> {
+		const key = draftKey(query.workspace, query.itemKind, query.path)
+		const opts = pendingSaveOpts.get(key)
+		if (!opts) return
+		await this.save({ ...opts, immediate: true })
 	}
 }
