@@ -33317,7 +33317,7 @@
                 "description": "Number of retry attempts"
               },
               "multiplier": {
-                "type": "integer",
+                "type": "number",
                 "description": "Multiplier for exponential backoff"
               },
               "seconds": {
@@ -46108,7 +46108,7 @@
                 "description": "Number of retry attempts"
               },
               "multiplier": {
-                "type": "integer",
+                "type": "number",
                 "description": "Multiplier for exponential backoff"
               },
               "seconds": {

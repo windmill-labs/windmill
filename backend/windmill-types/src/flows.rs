@@ -344,21 +344,25 @@ impl Retry {
             Some(Duration::from_secs(constant.seconds as u64))
         } else if previous_attempts - constant.attempts < exponential.attempts {
             let exp = previous_attempts.saturating_add(1) as u32;
-            let mut secs = exponential.multiplier * exponential.seconds.saturating_pow(exp);
+            // multiplier is a float (see ExponentialDelay), so compute the delay
+            // in f64 and only truncate to whole seconds at the end.
+            let mut secs =
+                exponential.multiplier * (exponential.seconds.saturating_pow(exp) as f64);
             if let Some(random_factor) = exponential.random_factor {
                 if random_factor > 0 {
-                    let random_component =
-                        rand::rng().random_range(0..(std::cmp::min(random_factor, 100) as u16));
+                    let random_component = rand::rng()
+                        .random_range(0..(std::cmp::min(random_factor, 100) as u16))
+                        as f64;
                     secs = match rand::rng().random_bool(1.0 / 2.0) {
-                        true => secs.saturating_add(secs * random_component / 100),
-                        false => secs.saturating_sub(secs * random_component / 100),
+                        true => secs + secs * random_component / 100.0,
+                        false => secs - secs * random_component / 100.0,
                     };
                 }
             }
             if !silent {
                 tracing::warn!("Rescheduling job in {} seconds due to failure", secs);
             }
-            Some(Duration::from_secs(secs as u64))
+            Some(Duration::from_secs(secs.max(0.0) as u64))
         } else {
             None
         }
@@ -393,14 +397,17 @@ pub struct ConstantDelay {
 #[serde(default)]
 pub struct ExponentialDelay {
     pub attempts: u32,
-    pub multiplier: u16,
+    /// Multiplier applied to `seconds ^ failures`. A float so fractional and
+    /// sub-1 multipliers (e.g. 0.4) are accepted rather than rejected at parse
+    /// time (see #5691).
+    pub multiplier: f64,
     pub seconds: u16,
     pub random_factor: Option<i8>,
 }
 
 impl Default for ExponentialDelay {
     fn default() -> Self {
-        Self { attempts: 0, multiplier: 1, seconds: 0, random_factor: None }
+        Self { attempts: 0, multiplier: 1.0, seconds: 0, random_factor: None }
     }
 }
 

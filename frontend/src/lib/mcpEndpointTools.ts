@@ -1665,7 +1665,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                                                         "description": "Number of retry attempts"
                                                 },
                                                 "multiplier": {
-                                                        "type": "integer",
+                                                        "type": "number",
                                                         "description": "Multiplier for exponential backoff"
                                                 },
                                                 "seconds": {
@@ -1869,7 +1869,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                                                         "description": "Number of retry attempts"
                                                 },
                                                 "multiplier": {
-                                                        "type": "integer",
+                                                        "type": "number",
                                                         "description": "Multiplier for exponential backoff"
                                                 },
                                                 "seconds": {

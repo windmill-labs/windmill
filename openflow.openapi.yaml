@@ -148,7 +148,7 @@ components:
               type: integer
               description: Number of retry attempts
             multiplier:
-              type: integer
+              type: number
               description: Multiplier for exponential backoff
             seconds:
               type: integer
