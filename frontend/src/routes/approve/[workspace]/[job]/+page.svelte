@@ -142,6 +142,10 @@
 		}
 	}
 
+	// When the step requires auth and the caller isn't an authorized approver, the backend
+	// strips the approval details (form, description, args, approvers) and getJob is denied.
+	// Hide the empty detail scaffolding and show only the sign-in / not-authorized state.
+	let isLocked = $derived(!!approvalInfo?.user_auth_required && !approvalInfo?.can_approve)
 	let isWac = $derived(!!(job as any)?.workflow_as_code_status)
 	let filteredArgs = $derived.by(() => {
 		if (!job?.args) return job?.args
@@ -219,44 +223,47 @@
 			{/if}
 		</div>
 	{:else if approvalInfo}
-		<div class="flex flex-row justify-between flex-wrap sm:flex-nowrap gap-x-4">
-			<div class="w-full">
-				<h2 class="text-sm font-semibold text-emphasis">Approvers</h2>
-				<div class="mt-2 text-xs font-normal text-primary">
-					{#if approvalInfo.approvers?.length > 0}
-						<ul>
-							{#each approvalInfo.approvers as a}
-								<li>
-									<p>
-										{a.approver}
-										<Tooltip>Unique id of approval: {a.resume_id}</Tooltip>
-									</p>
-								</li>
-							{/each}
-						</ul>
-					{:else}
-						<p class="text-xs text-secondary">
-							No current approvers for this step (approval steps can require more than one approval)
-						</p>
+		{#if !isLocked}
+			<div class="flex flex-row justify-between flex-wrap sm:flex-nowrap gap-x-4">
+				<div class="w-full">
+					<h2 class="text-sm font-semibold text-emphasis">Approvers</h2>
+					<div class="mt-2 text-xs font-normal text-primary">
+						{#if approvalInfo.approvers?.length > 0}
+							<ul>
+								{#each approvalInfo.approvers as a}
+									<li>
+										<p>
+											{a.approver}
+											<Tooltip>Unique id of approval: {a.resume_id}</Tooltip>
+										</p>
+									</li>
+								{/each}
+							</ul>
+						{:else}
+							<p class="text-xs text-secondary">
+								No current approvers for this step (approval steps can require more than one
+								approval)
+							</p>
+						{/if}
+					</div>
+				</div>
+				<div class="w-full">
+					{#if job && job.raw_flow}
+						<FlowMetadata {job} {scheduleEditor} />
 					{/if}
 				</div>
 			</div>
-			<div class="w-full">
-				{#if job && job.raw_flow}
-					<FlowMetadata {job} {scheduleEditor} />
-				{/if}
-			</div>
-		</div>
 
-		{#if !completed}
-			<h2 class="mt-4 mb-2 text-sm font-semibold text-emphasis">
-				{isWac ? 'Workflow' : 'Flow'} arguments
-			</h2>
-			<JobArgs
-				id={job?.id}
-				workspace={job?.workspace_id ?? $workspaceStore ?? 'no_w'}
-				args={filteredArgs}
-			/>
+			{#if !completed}
+				<h2 class="mt-4 mb-2 text-sm font-semibold text-emphasis">
+					{isWac ? 'Workflow' : 'Flow'} arguments
+				</h2>
+				<JobArgs
+					id={job?.id}
+					workspace={job?.workspace_id ?? $workspaceStore ?? 'no_w'}
+					args={filteredArgs}
+				/>
+			{/if}
 		{/if}
 
 		<div class="mt-8"></div>
@@ -337,16 +344,18 @@
 			{/if}
 		</div>
 
-		<div class="mt-4 flex flex-row flex-wrap justify-between">
-			<a
-				class="text-accent text-xs"
-				target="_blank"
-				rel="noreferrer"
-				href="{base}/run/{job?.id}?workspace={job?.workspace_id}"
-			>
-				Open run details (require auth) <ExternalLink size={12} class="inline" />
-			</a>
-		</div>
+		{#if !isLocked}
+			<div class="mt-4 flex flex-row flex-wrap justify-between">
+				<a
+					class="text-accent text-xs"
+					target="_blank"
+					rel="noreferrer"
+					href="{base}/run/{job?.id}?workspace={job?.workspace_id}"
+				>
+					Open run details (require auth) <ExternalLink size={12} class="inline" />
+				</a>
+			</div>
+		{/if}
 
 		{#if job && job.raw_flow && !completed}
 			<h2 class="mt-10 text-sm font-semibold text-emphasis mb-2">Flow details</h2>

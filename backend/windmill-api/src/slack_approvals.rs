@@ -3,15 +3,17 @@ use axum::{
     Extension,
 };
 use bytes::Bytes;
+use hmac::{Hmac, Mac};
 use http::HeaderMap;
 use hyper::StatusCode;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::Sha256;
 use sqlx::types::Uuid;
 use std::collections::HashMap;
-use windmill_common::error::Error;
-use windmill_common::variables::get_secret_value_as_admin;
+use windmill_common::error::{to_anyhow, Error};
+use windmill_common::variables::{get_secret_value_as_admin, get_workspace_key};
 
 use crate::db::{ApiAuthed, DB};
 use crate::jobs::{QueryApprover, ResumeUrls};
@@ -111,6 +113,9 @@ struct ModalActionValue {
     dynamic_enums_json: Option<String>,
     resume_button_text: Option<String>,
     cancel_button_text: Option<String>,
+    // HMAC over (w_id, job_id, path) keyed on the workspace key; minted by
+    // `send_slack_message`, required by the OpenModal callback branch.
+    signature: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -119,8 +124,16 @@ struct PrivateMetadata {
     resource_path: String,
     container: Container,
     hide_cancel: Option<bool>,
+    // HMAC over (w_id, resource_path) keyed on the workspace key; minted when the modal is
+    // built, required by `handle_submission` before the resource_path is decrypted.
+    signature: Option<String>,
 }
 
+// Opportunistic transport-level check: when `SLACK_SIGNING_SECRET` is configured we verify
+// the Slack request signature (which also defeats replay). It is NOT the primary defense:
+// the secret is unset in the default deployment, so authorization of the sensitive actions
+// is instead anchored on a per-workspace HMAC over the callback payload itself (see
+// `verify_slack_payload`), which holds even when this check is a no-op.
 #[cfg(feature = "oauth2")]
 fn verify_slack_callback_signature(headers: &HeaderMap, body: &str) -> Result<(), Error> {
     if let Some(sv) = crate::SLACK_SIGNING_SECRET.as_ref() {
@@ -141,6 +154,66 @@ fn verify_slack_callback_signature(headers: &HeaderMap, body: &str) -> Result<()
 #[cfg(not(feature = "oauth2"))]
 fn verify_slack_callback_signature(_headers: &HeaderMap, _body: &str) -> Result<(), Error> {
     Ok(())
+}
+
+/// HMAC keyed on the per-workspace encryption key (the same trust anchor as resume-URL
+/// signatures). Used to authenticate the `/api/slack` callback payload itself so the
+/// unauthenticated route cannot be driven into decrypting arbitrary workspace variables,
+/// regardless of whether `SLACK_SIGNING_SECRET` is configured.
+type SlackPayloadHmac = Hmac<Sha256>;
+
+/// Domain-separation tag prepended to every Slack-payload MAC. The workspace key is also used
+/// for resume-secret signatures (`create_signature` in `jobs.rs`), and those secrets are
+/// distributed to approvers in resume URLs — so a fixed, scheme-specific prefix makes the two
+/// MAC families non-interchangeable by construction rather than relying on their byte layouts
+/// happening to differ. Bump the version suffix if the signed layout ever changes.
+const SLACK_PAYLOAD_HMAC_DOMAIN: &[u8] = b"slack_payload_v1\0";
+
+/// Sign the security-sensitive fields of a Slack callback payload with the workspace key.
+/// Parts are joined with a `\0` delimiter (absent from paths/UUIDs) so distinct field tuples
+/// cannot collide into the same MAC.
+async fn sign_slack_payload(db: &DB, w_id: &str, parts: &[&[u8]]) -> Result<String, Error> {
+    let key = get_workspace_key(w_id, db).await?;
+    let mut mac = SlackPayloadHmac::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
+    mac.update(SLACK_PAYLOAD_HMAC_DOMAIN);
+    mac.update(w_id.as_bytes());
+    for part in parts {
+        mac.update(b"\0");
+        mac.update(part);
+    }
+    Ok(hex::encode(mac.finalize().into_bytes()))
+}
+
+/// Verify a signature produced by [`sign_slack_payload`] in constant time. A missing or
+/// malformed signature is rejected: an attacker cannot forge one without the workspace key.
+async fn verify_slack_payload(
+    db: &DB,
+    w_id: &str,
+    parts: &[&[u8]],
+    signature: Option<&str>,
+) -> Result<(), Error> {
+    let signature = signature.ok_or_else(|| {
+        Error::NotAuthorized("Slack callback rejected: missing payload signature".to_string())
+    })?;
+    let provided = hex::decode(signature).map_err(|_| {
+        Error::NotAuthorized("Slack callback rejected: malformed payload signature".to_string())
+    })?;
+    // Map a missing workspace key (e.g. non-existent workspace) to the same generic 401 as a
+    // bad signature, so an unauthenticated caller cannot use the status code (500 vs 401) as a
+    // workspace-existence oracle.
+    let key = get_workspace_key(w_id, db).await.map_err(|_| {
+        Error::NotAuthorized("Slack callback rejected: invalid payload signature".to_string())
+    })?;
+    let mut mac = SlackPayloadHmac::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
+    mac.update(SLACK_PAYLOAD_HMAC_DOMAIN);
+    mac.update(w_id.as_bytes());
+    for part in parts {
+        mac.update(b"\0");
+        mac.update(part);
+    }
+    mac.verify_slice(&provided).map_err(|_| {
+        Error::NotAuthorized("Slack callback rejected: invalid payload signature".to_string())
+    })
 }
 
 pub async fn slack_app_callback_handler(
@@ -188,7 +261,30 @@ pub async fn slack_app_callback_handler(
                             let job_id = Uuid::parse_str(&parsed_value.job_id)?;
                             let flow_step_id = parsed_value.flow_step_id.as_deref();
 
-                            let slack_token = get_slack_token(&db, path, w_id).await?;
+                            // Authorize the request before any privileged read: the button
+                            // payload was minted by `send_slack_message` with an HMAC over
+                            // (w_id, job_id, path) keyed on the workspace key. Without a valid
+                            // signature an unauthenticated caller cannot reach the decryption
+                            // below for an arbitrary variable, even when SLACK_SIGNING_SECRET
+                            // is unset.
+                            verify_slack_payload(
+                                &db,
+                                w_id,
+                                &[parsed_value.job_id.as_bytes(), path.as_bytes()],
+                                parsed_value.signature.as_deref(),
+                            )
+                            .await?;
+
+                            // Map any lookup/decryption failure to a generic error: the
+                            // raw error echoes the probed `path`/`w_id` back, which would be
+                            // a cross-workspace existence oracle. Log the detail server-side.
+                            let slack_token =
+                                get_slack_token(&db, path, w_id).await.map_err(|e| {
+                                    tracing::warn!(
+                                        "Failed to resolve slack token for {w_id}/{path}: {e:#}"
+                                    );
+                                    Error::BadRequest("Invalid Slack callback request".to_string())
+                                })?;
                             let client = Client::new();
                             let container = payload.container.ok_or_else(|| {
                                 Error::BadRequest("No container found.".to_string())
@@ -281,6 +377,7 @@ pub async fn request_slack_approval(
 
     send_slack_message(
         &client,
+        &db,
         slack_token.as_str(),
         channel_id.as_str(),
         &w_id,
@@ -334,11 +431,20 @@ async fn handle_submission(
     let resource_path = private_metadata.resource_path;
     let container: Container = private_metadata.container;
     let hide_cancel = private_metadata.hide_cancel;
+    let signature = private_metadata.signature;
 
     // If hide_cancel is true, we don't need to extract information from the private_metadata
     if hide_cancel.unwrap_or(false) && action == "cancel" {
         return Ok(());
     }
+
+    let w_id = extract_w_id_from_resume_url(&resume_url)?;
+    // Authorize the submission BEFORE taking any action. `resource_path` comes from the
+    // (client-held) modal metadata and is not covered by the resume-URL signature, so a
+    // tampered/unsigned submission must be rejected up front — otherwise it could still drive
+    // the resume/cancel and reach the decryption below with a swapped path. Require the
+    // workspace-keyed HMAC minted when the modal was built.
+    verify_slack_payload(&db, w_id, &[resource_path.as_bytes()], signature.as_deref()).await?;
 
     // Use the common handler to process the resume/cancel action
     handle_resume_action(
@@ -351,8 +457,12 @@ async fn handle_submission(
     )
     .await?;
 
-    let w_id = extract_w_id_from_resume_url(&resume_url)?;
-    let slack_token = get_slack_token(&db, &resource_path, w_id).await?;
+    let slack_token = get_slack_token(&db, &resource_path, w_id)
+        .await
+        .map_err(|e| {
+            tracing::warn!("Failed to resolve slack token for {w_id}/{resource_path}: {e:#}");
+            Error::BadRequest("Invalid Slack callback request".to_string())
+        })?;
     update_original_slack_message(action, slack_token, container).await?;
     Ok(())
 }
@@ -780,6 +890,7 @@ async fn get_slack_token(db: &DB, slack_resource_path: &str, w_id: &str) -> anyh
 // Sends a Slack message with a button that opens a modal
 async fn send_slack_message(
     client: &Client,
+    db: &DB,
     bot_token: &str,
     channel_id: &str,
     w_id: &str,
@@ -826,6 +937,18 @@ async fn send_slack_message(
     if let Some(cancel_button_text) = cancel_button_text {
         value["cancel_button_text"] = serde_json::json!(cancel_button_text);
     }
+
+    // Authenticate the button payload so the unauthenticated callback cannot be driven into
+    // decrypting an arbitrary variable: bind (w_id, job_id, path) with the workspace key.
+    // `job_id` is signed over its string form to match how it is parsed back on callback.
+    let signature = sign_slack_payload(
+        db,
+        w_id,
+        &[job_id.to_string().as_bytes(), resource_path.as_bytes()],
+    )
+    .await
+    .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+    value["signature"] = serde_json::json!(signature);
 
     let payload = serde_json::json!({
         "channel": channel_id,
@@ -893,6 +1016,12 @@ async fn get_modal_blocks(
     resume_button_text: Option<&str>,
     cancel_button_text: Option<&str>,
 ) -> Result<axum::Json<serde_json::Value>, Error> {
+    // Bind the resource_path embedded in the modal's private_metadata to the workspace key so
+    // it cannot be tampered with on the way back in `handle_submission`. Computed before `db`
+    // is moved into `get_approval_form_details`.
+    let private_metadata_signature =
+        sign_slack_payload(&db, w_id, &[resource_path.as_bytes()]).await?;
+
     let approval_details = crate::approvals::get_approval_form_details(
         db,
         w_id,
@@ -947,6 +1076,7 @@ async fn get_modal_blocks(
         container,
         resume_button_text,
         cancel_button_text,
+        &private_metadata_signature,
     )))
 }
 
@@ -959,6 +1089,7 @@ fn construct_payload(
     container: Container,
     resume_button_text: Option<&str>,
     cancel_button_text: Option<&str>,
+    signature: &str,
 ) -> serde_json::Value {
     let mut view = serde_json::json!({
         "type": "modal",
@@ -973,7 +1104,7 @@ fn construct_payload(
             "type": "plain_text",
             "text": resume_button_text.unwrap_or("Resume Workflow")
         },
-        "private_metadata": serde_json::json!({ "resume_url": resume_url, "resource_path": resource_path, "container": container, "hide_cancel": hide_cancel }).to_string(),
+        "private_metadata": serde_json::json!({ "resume_url": resume_url, "resource_path": resource_path, "container": container, "hide_cancel": hide_cancel, "signature": signature }).to_string(),
     });
 
     if !hide_cancel {

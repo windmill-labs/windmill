@@ -307,6 +307,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends libprotobuf32 l
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
+# crane: pulls + flattens images for the sandboxed container runtime (`# sandbox <image>`).
+# Single static binary — no daemon/store/root needed. See docs/docker-v2-runtime.md.
+ARG CRANE_VERSION=v0.20.6
+RUN arch="$(dpkg --print-architecture)"; \
+    case "$arch" in amd64) crane_arch=x86_64 ;; arm64) crane_arch=arm64 ;; *) echo >&2 "error: unsupported arch '$arch' for crane"; exit 1 ;; esac; \
+    wget -O /tmp/crane.tgz "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_${crane_arch}.tar.gz" \
+    && tar -xzf /tmp/crane.tgz -C /usr/local/bin crane \
+    && rm /tmp/crane.tgz \
+    && chmod +x /usr/local/bin/crane
+
 WORKDIR ${APP}
 
 RUN ln -s ${APP}/windmill /usr/local/bin/windmill

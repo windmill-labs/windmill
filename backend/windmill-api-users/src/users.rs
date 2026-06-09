@@ -139,6 +139,10 @@ pub fn global_service() -> Router {
             "/tokens/update_scopes/{token_prefix}",
             post(update_token_scopes),
         )
+        .route(
+            "/tokens/update_label/{token_prefix}",
+            post(update_token_label),
+        )
         .route("/tokens/list", get(list_tokens))
         .route("/tokens/impersonate", post(impersonate))
         .route("/usage", get(get_usage))
@@ -2406,6 +2410,89 @@ async fn update_token_scopes(
     windmill_api_auth::invalidate_token_from_cache(&prefix);
 
     Ok(format!("updated scopes for token {prefix}"))
+}
+
+#[derive(Deserialize)]
+struct UpdateTokenLabelRequest {
+    label: Option<String>,
+}
+
+async fn update_token_label(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Path(token_prefix): Path<String>,
+    Json(req): Json<UpdateTokenLabelRequest>,
+) -> Result<String> {
+    // The new label must not collide with a system-token namespace (`session`,
+    // `ephemeral*`, `debugger-token`, `mcp-oauth-*`): those labels are
+    // load-bearing, and a user-set collision would orphan the token — hidden
+    // from the UI (`isUserToken`) and rejected by the editability guard below —
+    // while it still authenticates. (`is_user_token(None)` is true, so clearing
+    // the label is allowed.)
+    if !windmill_common::auth::is_user_token(req.label.as_deref()) {
+        return Err(Error::BadRequest(
+            "label collides with a reserved system-token namespace".to_string(),
+        ));
+    }
+
+    // Matches the `token.label VARCHAR(1000)` column — reject overlong labels with
+    // a 400 rather than letting Postgres raise a 500.
+    const MAX_TOKEN_LABEL_LEN: usize = 1000;
+    if req
+        .label
+        .as_deref()
+        .is_some_and(|l| l.chars().count() > MAX_TOKEN_LABEL_LEN)
+    {
+        return Err(Error::BadRequest(format!(
+            "label must be at most {MAX_TOKEN_LABEL_LEN} characters"
+        )));
+    }
+
+    let mut tx = db.begin().await?;
+
+    // Only user-created tokens may be relabeled — system tokens carry the
+    // load-bearing labels described above. This SQL mirrors the canonical
+    // `windmill_common::auth::is_user_token`; keep the two in sync (note the
+    // case-insensitive `ephemeral` match).
+    let updated: Option<String> = sqlx::query_scalar!(
+        "UPDATE token SET label = $1
+           WHERE email = $2 AND token_prefix = $3
+             AND (label IS NULL OR (
+                 label <> 'session'
+                 AND lower(label) NOT LIKE 'ephemeral%'
+                 AND label <> 'debugger-token'
+                 AND label NOT LIKE 'mcp-oauth-%'
+             ))
+           RETURNING token_prefix",
+        req.label.as_deref(),
+        &authed.email,
+        &token_prefix,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let prefix = updated.ok_or_else(|| {
+        Error::NotFound(format!(
+            "token {token_prefix} not found, not owned by user, or not editable"
+        ))
+    })?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.token.update_label",
+        ActionKind::Update,
+        &"global",
+        Some(&prefix),
+        Some([("label", req.label.as_deref().unwrap_or(""))].into()),
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    windmill_api_auth::invalidate_token_from_cache(&prefix);
+
+    Ok(format!("updated label for token {prefix}"))
 }
 
 async fn leave_workspace(

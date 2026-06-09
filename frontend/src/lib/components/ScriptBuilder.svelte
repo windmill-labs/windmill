@@ -134,6 +134,7 @@
 		onSaveDraftError,
 		onSaveDraft,
 		onNavigate,
+		onTestJob,
 		disableAi,
 		initialTestPanelCollapsed = false,
 		initialPathChosen = false
@@ -1007,21 +1008,6 @@
 
 	function onScriptLanguageTrigger(lang: 'docker' | 'bunnative' | ScriptLang) {
 		if (lang == 'docker') {
-			if (isCloudHosted()) {
-				sendUserToast(
-					'You cannot use Docker scripts on the multi-tenant platform. Use a dedicated instance or self-host windmill instead.',
-					true,
-					[
-						{
-							label: 'Learn more',
-							callback: () => {
-								window.open('https://www.windmill.dev/docs/advanced/docker', '_blank')
-							}
-						}
-					]
-				)
-				return
-			}
 			template = 'docker'
 		} else if (lang == 'bunnative') {
 			template = 'bunnative'
@@ -1580,7 +1566,7 @@
 													if (script.timeout && script.timeout != undefined) {
 														script.timeout = undefined
 													} else {
-														script.timeout = 300
+														script.timeout = customUi?.defaultTimeout ?? 300
 													}
 												}}
 												options={{
@@ -2099,6 +2085,7 @@
 			{disableAi}
 			bind:selectedTab={selectedInputTab}
 			{customUi}
+			{onTestJob}
 			collabMode
 			edit={initialPath != ''}
 			on:format={() => {

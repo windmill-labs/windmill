@@ -410,6 +410,23 @@
 		return json
 	}
 
+	// The explicit column order from a leading header row (see
+	// handleArrayOfObjectsHeaders). Returned as an array so the order survives:
+	// baking it into object keys loses integer-like names like "1234", which JS
+	// enumerates first in ascending numeric order.
+	function getForcedColumnOrder(json: any): string[] | undefined {
+		if (
+			Array.isArray(json) &&
+			json.length > 0 &&
+			Array.isArray(json[0]) &&
+			json[0].length > 0 &&
+			json[0].every((item) => typeof item === 'string')
+		) {
+			return json[0]
+		}
+		return undefined
+	}
+
 	type InputObject = { [key: string]: number[] }
 
 	function objectOfArraysToObjects(input: InputObject): any[] {
@@ -643,6 +660,7 @@
 							? 'absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]'
 							: ''}
 						objects={handleArrayOfObjectsHeaders(data)}
+						headerOrder={getForcedColumnOrder(data)}
 					/>
 				{:else if !forceJson && resultKind === 'html'}
 					<div class="h-full">

@@ -185,6 +185,9 @@ async fn process_jc(
             span.record("labels", labels.join(","));
         }
     }
+    // The secondary `job_postprocessing` span stays on the UUID-derived context
+    // (MiniCompletedJob carries no args, so the inbound traceparent isn't
+    // available here); the primary job span is relocated in `create_span_with_name`.
     windmill_common::otel_oss::set_span_parent(&span, &rj);
 
     if let Some(lg) = jc.job.script_lang.as_ref() {

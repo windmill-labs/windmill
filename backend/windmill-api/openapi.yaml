@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.717.1
+  version: 1.720.0
   title: Windmill API
 
   contact:
@@ -5115,6 +5115,37 @@ paths:
       responses:
         "200":
           description: scopes updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /users/tokens/update_label/{token_prefix}:
+    post:
+      summary: update label of an existing token (owner only)
+      operationId: updateTokenLabel
+      tags:
+        - user
+      parameters:
+        - name: token_prefix
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: new label (null or omitted = no label)
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: label updated
           content:
             text/plain:
               schema:
@@ -11821,6 +11852,16 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: status
+          description: filter on the exact completed job status. Unlike `success=true` (which also matches `skipped`), `status=success` matches only `success`.
+          in: query
+          schema:
+            type: string
+            enum:
+              - success
+              - failure
+              - canceled
+              - skipped
         - name: all_workspaces
           description: get jobs from all workspaces (only valid if request come from the `admins` workspace)
           in: query
@@ -12056,6 +12097,16 @@ paths:
         - $ref: "#/components/parameters/StartedBefore"
         - $ref: "#/components/parameters/StartedAfter"
         - $ref: "#/components/parameters/Success"
+        - name: status
+          description: filter on the exact completed job status. Unlike `success=true` (which also matches `skipped`), `status=success` matches only `success`.
+          in: query
+          schema:
+            type: string
+            enum:
+              - success
+              - failure
+              - canceled
+              - skipped
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/ResultFilter"
@@ -12263,6 +12314,16 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: status
+          description: filter on the exact completed job status. Unlike `success=true` (which also matches `skipped`), `status=success` matches only `success`.
+          in: query
+          schema:
+            type: string
+            enum:
+              - success
+              - failure
+              - canceled
+              - skipped
         - name: all_workspaces
           description: get jobs from all workspaces (only valid if request come from the `admins` workspace)
           in: query
@@ -19772,6 +19833,16 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: status
+          description: filter on the exact completed job status. Unlike `success=true` (which also matches `skipped`), `status=success` matches only `success`.
+          in: query
+          schema:
+            type: string
+            enum:
+              - success
+              - failure
+              - canceled
+              - skipped
         - name: all_workspaces
           description: get jobs from all workspaces (only valid if request come from the `admins` workspace)
           in: query

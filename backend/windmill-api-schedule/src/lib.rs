@@ -242,6 +242,23 @@ async fn create_schedule(
 
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
+    // A git-sync/merge/create write into a fork never sets operational state:
+    // force `enabled = false` so a cloned / synced / merged / UI-created schedule
+    // can't fire alongside the parent's. The fork owner re-enables locally via
+    // `setenabled`. Schedule analog of the trigger rule in
+    // `windmill-trigger::handler::workspace_is_fork`; the read half (parent-value
+    // substitution on fork export) lives in `workspaces_export.rs`. Read fork-ness
+    // on the non-RLS `db` pool (like the other two sites) so the determination is
+    // complete regardless of the caller's folder perms.
+    let target_is_fork: bool = sqlx::query_scalar!(
+        "SELECT parent_workspace_id IS NOT NULL FROM workspace WHERE id = $1",
+        w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten()
+    .unwrap_or(false);
+
     // Check schedule for error
     ScheduleType::from_str(&ns.schedule, ns.cron_version.as_deref(), true)?;
 
@@ -341,7 +358,12 @@ async fn create_schedule(
         // flows (CLI merge, UI merge, `wmill push` of a fork tarball) — which
         // either send the source's actual flag (create case) or omit `enabled`
         // entirely (update case, where `EditSchedule` lacks the field).
-        ns.enabled.unwrap_or(true),
+        // A write into a fork always lands disabled regardless of the request.
+        if target_is_fork {
+            false
+        } else {
+            ns.enabled.unwrap_or(true)
+        },
         resolved_email,
         resolved_permissioned_as,
         ns.on_failure,
@@ -413,7 +435,7 @@ async fn create_schedule(
         .await?;
     }
 
-    if ns.enabled.unwrap_or(true) {
+    if !target_is_fork && ns.enabled.unwrap_or(true) {
         tx = push_scheduled_job(&db, tx, &schedule, Some(&authed.clone().into()), None).await?
     }
     tx.commit().await?;

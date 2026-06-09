@@ -230,7 +230,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		let scriptPathStart = folder == null || folder === '' ? undefined : `f/${folder}/`
 		let scriptPathExact = path == null || path === '' ? undefined : path
 		let isQueueOnly = success == 'running' || success == 'suspended' || success == 'waiting'
-		let isCompletedOnly = success == 'success' || success == 'failure'
+		let isCompletedOnly = success == 'success' || success == 'failure' || success == 'canceled'
 		let promise = JobService.listJobs({
 			workspace: currentWorkspace,
 			createdBefore: createdBefore ?? undefined,
@@ -247,7 +247,8 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			createdBy: user == null || user === '' ? undefined : user,
 			scriptPathStart: scriptPathStart,
 			jobKinds: jobKindsCat == 'all' || jobKinds == '' ? undefined : jobKinds,
-			success: success == 'success' ? true : success == 'failure' ? false : undefined,
+			success: success == 'success' ? true : undefined,
+			status: success == 'failure' || success == 'canceled' ? success : undefined,
 			running:
 				success == 'running' || success == 'suspended'
 					? true
@@ -313,7 +314,8 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			createdBy: user == null || user === '' ? undefined : user,
 			scriptPathStart: folder == null || folder === '' ? undefined : `f/${folder}/`,
 			jobKinds: jobKindsCat == 'all' || jobKinds == '' ? undefined : jobKinds,
-			success: success == 'success' ? true : success == 'failure' ? false : undefined,
+			success: success == 'success' ? true : undefined,
+			status: success == 'failure' || success == 'canceled' ? success : undefined,
 			running: success == 'running' ? true : undefined,
 			isSkipped: showSkipped ? undefined : false,
 			isFlowStep: jobKindsCat != 'all' ? false : undefined,
