@@ -314,11 +314,8 @@ describe('global AI tools', () => {
 		)
 	})
 
-	it('fetches job logs by id', async () => {
-		const result = await callGlobalTool('get_job_logs', {
-			id: 'job-123',
-			remove_ansi_warnings: true
-		})
+	it('fetches job logs by id and always suppresses the backend ansi hint line', async () => {
+		const result = await callGlobalTool('get_job_logs', { id: 'job-123' })
 
 		expect(JobService.getJobLogs).toHaveBeenCalledWith({
 			workspace: WORKSPACE,

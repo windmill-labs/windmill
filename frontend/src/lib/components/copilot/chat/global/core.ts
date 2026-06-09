@@ -350,11 +350,7 @@ const searchResourceTypesSchema = z.object({
 })
 
 const getJobLogsSchema = z.object({
-	id: z.string().describe('The UUID of the job to fetch logs for.'),
-	remove_ansi_warnings: z
-		.boolean()
-		.optional()
-		.describe('Strip ANSI escape codes and truncation warnings from the returned logs.')
+	id: z.string().describe('The UUID of the job to fetch logs for.')
 })
 
 const listRunsSchema = z.object({
@@ -1770,7 +1766,10 @@ export const globalTools: Tool<{}>[] = [
 			const logs = await JobService.getJobLogs({
 				workspace,
 				id: parsed.id,
-				removeAnsiWarnings: parsed.remove_ansi_warnings
+				// Always suppress the "to remove ansi colors, use: sed ..." hint the
+				// backend otherwise prepends — it is noise for the model and is not
+				// actual ANSI stripping (the raw logs are returned either way).
+				removeAnsiWarnings: true
 			})
 			const hasLogs = typeof logs === 'string' && logs.trim().length > 0
 			toolCallbacks.setToolStatus(toolId, {
