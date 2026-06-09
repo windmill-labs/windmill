@@ -1836,6 +1836,188 @@ export interface Skips {
   includeKey?: boolean | undefined;
 }
 
+// Detect paths (and their parent directories) within a single set that differ
+// only by letter case — e.g. a remote workspace that genuinely holds both
+// f/Caps/a and f/caps/b. On a case-insensitive filesystem (Windows, default
+// macOS) these cannot be represented as two distinct files/directories at all,
+// so we can only warn. Returns one group per collision, each listing the
+// distinct casings sorted for stable output.
+export function findCaseInsensitiveCollisions(
+  paths: Iterable<string>,
+): string[][] {
+  // lowercased prefix -> set of distinct original casings observed
+  const byLower = new Map<string, Set<string>>();
+  for (const full of paths) {
+    // Compare on normalized forward-slash paths so a Windows-style "\" map
+    // key and a remote "/" key collapse to the same prefix.
+    const segs = full.split(/[\\/]/).filter((s) => s.length > 0);
+    let acc = "";
+    for (let i = 0; i < segs.length; i++) {
+      // Accumulate every directory prefix as well as the full file path, so a
+      // "f/Caps" vs "f/caps" folder clash is caught even when the leaf files
+      // (e.g. a.ts vs b.ts) don't themselves collide.
+      acc = i === 0 ? segs[i] : `${acc}/${segs[i]}`;
+      const lower = acc.toLowerCase();
+      let set = byLower.get(lower);
+      if (!set) {
+        set = new Set();
+        byLower.set(lower, set);
+      }
+      set.add(acc);
+    }
+  }
+  const collisions: string[][] = [];
+  for (const set of byLower.values()) {
+    if (set.size > 1) {
+      collisions.push([...set].sort());
+    }
+  }
+  return collisions;
+}
+
+// Rewrite `localMap` keys to the canonical casing recorded on the server
+// (`remoteMap`) when they differ only by letter case. This is the core
+// WIN-2020 fix: on a case-insensitive filesystem a folder such as `f/Caps`
+// can have its on-disk casing silently drift (e.g. to `f/caps`) — Windows
+// stores whatever case the directory was first created with and reports that
+// from readdir, regardless of the server's path. Without this, the diff sees
+// the drifted local path as an entirely different item and emits a destructive
+// "delete f/Caps + add f/caps" pair, so a single capitalized folder appears to
+// vanish and a lowercase clone shows up out of nowhere. Adopting the server
+// casing collapses that phantom and leaves the canonical path on the server
+// untouched.
+//
+// Returns the rewritten map plus any genuinely ambiguous server-side groups
+// (two distinct remote paths that differ only by case) — those can't be
+// canonicalized to a single target and are left as-is for the caller to warn
+// about.
+export function canonicalizeCaseInsensitiveKeys(
+  localMap: Record<string, string>,
+  remoteMap: Record<string, string>,
+): {
+  map: Record<string, string>;
+  ambiguous: string[][];
+  rewritten: { from: string; to: string }[];
+} {
+  // Index every remote key by its lowercased form, tracking collisions where
+  // the server itself holds two paths that differ only by case.
+  const remoteByLower = new Map<string, string[]>();
+  for (const k of Object.keys(remoteMap)) {
+    const lk = k.toLowerCase();
+    const arr = remoteByLower.get(lk);
+    if (arr) {
+      arr.push(k);
+    } else {
+      remoteByLower.set(lk, [k]);
+    }
+  }
+
+  const out: Record<string, string> = {};
+  const rewritten: { from: string; to: string }[] = [];
+  for (const [k, v] of Object.entries(localMap)) {
+    const canon = remoteByLower.get(k.toLowerCase());
+    // Only rewrite when there is exactly one unambiguous server casing that
+    // actually differs from the local one. Ambiguous server collisions are
+    // left untouched so we never silently pick the wrong target.
+    if (canon && canon.length === 1 && canon[0] !== k) {
+      out[canon[0]] = v;
+      rewritten.push({ from: k, to: canon[0] });
+    } else {
+      out[k] = v;
+    }
+  }
+
+  const ambiguous: string[][] = [];
+  for (const arr of remoteByLower.values()) {
+    if (arr.length > 1) {
+      ambiguous.push([...arr].sort());
+    }
+  }
+  return { map: out, ambiguous, rewritten };
+}
+
+// Summarize case-only key rewrites by their differing path prefix (typically a
+// folder such as f/caps -> f/Caps) so a folder whose casing drifted is reported
+// once instead of once per contained file.
+export function summarizeCaseRewrites(
+  rewritten: { from: string; to: string }[],
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const { from, to } of rewritten) {
+    const fromSegs = from.split(/[\\/]/);
+    const toSegs = to.split(/[\\/]/);
+    // Find the shortest prefix at which the two casings first differ; that is
+    // the folder (or file) whose casing actually changed.
+    let i = 0;
+    while (
+      i < fromSegs.length &&
+      i < toSegs.length &&
+      fromSegs[i] === toSegs[i]
+    ) {
+      i++;
+    }
+    const fromPrefix = fromSegs.slice(0, i + 1).join("/");
+    const toPrefix = toSegs.slice(0, i + 1).join("/");
+    const key = `${fromPrefix} -> ${toPrefix}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(key);
+    }
+  }
+  return out;
+}
+
+// Emit a single grouped warning for case-only collisions that cannot be
+// represented on a case-insensitive filesystem (two distinct server paths
+// differing only by case). Unlike the drift handled by
+// canonicalizeCaseInsensitiveKeys, these require the user to rename one side.
+function warnUnrepresentableCaseCollisions(collisions: string[][]): void {
+  if (collisions.length === 0) return;
+  const groups = collisions.map((g) => `  - ${g.join("  <->  ")}`).join("\n");
+  log.warn(
+    `Found ${collisions.length} path(s) that differ only by letter case:\n` +
+      `${groups}\n` +
+      `On case-insensitive filesystems (Windows, default macOS) these collapse ` +
+      `into a single file/directory and cannot both be synced. Rename one side ` +
+      `to a distinct path to make the tree sync reliably across platforms.`,
+  );
+}
+
+// Probe (and cache) whether `dir` lives on a case-insensitive filesystem.
+// Auto-detected by round-tripping a probe file under two casings, with an
+// explicit WMILL_CASE_INSENSITIVE_FS=true/false override so Windows behaviour
+// can be forced (or emulated for cross-platform repos / tests) on any host.
+let _caseInsensitiveFsCache: boolean | undefined;
+export async function isCaseInsensitiveFilesystem(
+  dir: string,
+): Promise<boolean> {
+  const override = (process.env.WMILL_CASE_INSENSITIVE_FS ?? "")
+    .trim()
+    .toLowerCase();
+  if (override === "true" || override === "1") return true;
+  if (override === "false" || override === "0") return false;
+  if (_caseInsensitiveFsCache !== undefined) return _caseInsensitiveFsCache;
+  let result = false;
+  try {
+    const upper = path.join(dir, `.wmill-CASEPROBE-${process.pid}.tmp`);
+    const lower = path.join(dir, `.wmill-caseprobe-${process.pid}.tmp`);
+    await writeFile(upper, "", "utf-8");
+    try {
+      await stat(lower);
+      result = true; // lowercase name resolves to the file we wrote uppercase
+    } catch {
+      result = false;
+    }
+    await rm(upper).catch(() => {});
+    await rm(lower).catch(() => {});
+  } catch {
+    result = false;
+  }
+  _caseInsensitiveFsCache = result;
+  return result;
+}
+
 async function compareDynFSElement(
   els1: DynFSElement,
   els2: DynFSElement | undefined,
@@ -1848,13 +2030,54 @@ async function compareDynFSElement(
   specificItems?: SpecificItemsConfig,
   branchOverride?: string,
   isEls1Remote?: boolean,
+  caseInsensitiveFs?: boolean,
 ): Promise<{ changes: Change[]; localMap: Record<string, string> }> {
-  const [m1, m2] = els2
+  let [m1, m2] = els2
     ? await Promise.all([
         elementsToMap(els1, ignore, json, skips, specificItems, branchOverride, isEls1Remote),
         elementsToMap(els2, ignore, json, skips, specificItems, branchOverride, !isEls1Remote),
       ])
     : [await elementsToMap(els1, ignore, json, skips, specificItems, branchOverride, isEls1Remote), {}];
+
+  // Reconcile letter-case differences between the local tree and the
+  // authoritative server casing. Only meaningful for an actual two-sided diff
+  // (els2 defined) where we know which side is the remote.
+  if (els2 && isEls1Remote !== undefined) {
+    const remoteMap = isEls1Remote ? m1 : m2;
+
+    // Always warn about server paths that differ only by case (e.g. f/Caps and
+    // f/caps as two distinct items). These cannot coexist on a case-insensitive
+    // filesystem, so flag them on every platform — a Linux author needs to know
+    // their tree won't round-trip for a Windows/macOS teammate.
+    warnUnrepresentableCaseCollisions(
+      findCaseInsensitiveCollisions(Object.keys(remoteMap)),
+    );
+
+    // On a case-insensitive filesystem, the local on-disk casing of a folder
+    // can drift from the server's (Windows reports the case the directory was
+    // first created with). Rewrite those drifted local keys to the server
+    // casing so the diff treats them as the same item instead of a destructive
+    // delete+add pair. This is the WIN-2020 fix.
+    if (caseInsensitiveFs) {
+      const { map, rewritten } = canonicalizeCaseInsensitiveKeys(
+        isEls1Remote ? m2 : m1,
+        remoteMap,
+      );
+      if (isEls1Remote) {
+        m2 = map;
+      } else {
+        m1 = map;
+      }
+      const summary = summarizeCaseRewrites(rewritten);
+      if (summary.length > 0) {
+        log.info(
+          `Reconciled ${summary.length} local path(s) to the server's casing ` +
+            `(case-insensitive filesystem):\n` +
+            summary.map((s) => `  ${s}`).join("\n"),
+        );
+      }
+    }
+  }
 
   const changes: Change[] = [];
 
@@ -2613,6 +2836,7 @@ export async function pull(
     specificItems,
     wsNameForFiles,
     true, // els1 (remote) is the remote source
+    await isCaseInsensitiveFilesystem(process.cwd()),
   );
 
   log.info(
@@ -3361,6 +3585,7 @@ export async function push(
     specificItems,
     wsNameForFiles,
     false, // els1 (local) is not the remote source
+    await isCaseInsensitiveFilesystem(process.cwd()),
   );
 
   // Detect resources/variables that the local config flags as ws_specific
