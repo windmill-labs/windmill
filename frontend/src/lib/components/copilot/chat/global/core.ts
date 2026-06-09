@@ -74,6 +74,8 @@ import {
 } from '../shared'
 import type { ContextElement } from '../context'
 import { getDatatableTools } from '../datatableTools'
+import { fileTools } from '../files/fileTools'
+import type { AttachedFilesStore } from '../files/attachedFiles.svelte'
 import { UserDraft, type UserDraftMeta } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
 import { inferArgs } from '$lib/infer'
@@ -129,10 +131,7 @@ const INSTRUCTION_SUBJECTS = [
 // `datatable` is not a workspace item type, but the model can request the
 // datatable SDK reference (the wmill.datatable() runnable API) the same way.
 const INSTRUCTION_SUBJECTS_EXTRA = ['datatable'] as const
-const ALL_INSTRUCTION_SUBJECTS = [
-	...INSTRUCTION_SUBJECTS,
-	...INSTRUCTION_SUBJECTS_EXTRA
-] as const
+const ALL_INSTRUCTION_SUBJECTS = [...INSTRUCTION_SUBJECTS, ...INSTRUCTION_SUBJECTS_EXTRA] as const
 const MAX_LIST_LIMIT = 100
 type ActiveGlobalEditorType = Extract<WorkspaceItemType, 'script' | 'flow' | 'app'>
 type LiveEditorDraftKind = Parameters<typeof UserDraft.getLiveEditorDraft>[0]
@@ -164,7 +163,7 @@ const scriptLangSchema = z.enum($ScriptLang.enum)
 
 const getInstructionsSchema = z.object({
 	subject: instructionSubjectSchema.describe(
-		"What to get authoring instructions for: a workspace item type (script, flow, resource, app) or \"datatable\" for the wmill.datatable() SQL SDK used inside runnables. Schedules, triggers, and variables don't need instructions — their tool schemas describe everything."
+		'What to get authoring instructions for: a workspace item type (script, flow, resource, app) or "datatable" for the wmill.datatable() SQL SDK used inside runnables. Schedules, triggers, and variables don\'t need instructions — their tool schemas describe everything.'
 	),
 	language: scriptLangSchema
 		.optional()
@@ -2025,7 +2024,9 @@ export const globalTools: Tool<{}>[] = [
 		fn: async (ctx) => getSessionPreviewStatus(sessionIdFromCtx(ctx))
 	},
 	// Workspace-scoped datatable tools (unrestricted: no whitelist, no creation policy)
-	...getDatatableTools()
+	...getDatatableTools(),
+	// Read-only tools over files the user attached to the conversation
+	...fileTools
 ]
 
 // Tools that only make sense inside an AI session (they drive the session's
@@ -2067,6 +2068,7 @@ type WriteDraftCtx = {
 export type SessionToolHelpers = { sessionId?: string }
 export type GlobalToolHelpers = SessionToolHelpers & {
 	testActiveFlow?: (args?: Record<string, any>) => Promise<string | undefined>
+	attachedFiles?: AttachedFilesStore
 }
 
 function sessionIdFromCtx(ctx: { helpers?: unknown }): string | undefined {

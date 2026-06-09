@@ -68,6 +68,8 @@ import {
 	type GlobalToolHelpers
 } from './global/core'
 import { isGlobalAiEnabled } from './global/gate'
+import { AttachedFilesStore } from './files/attachedFiles.svelte'
+import { appendAttachedFilesRoster } from './files/fileTools'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
@@ -155,6 +157,8 @@ function persistAutonomyMode(mode: AIAutonomyMode) {
 export class AIChatManager {
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
+	/** Files the user attached to the current GLOBAL-mode conversation. */
+	attachedFiles = new AttachedFilesStore()
 	abortController: AbortController | undefined = undefined
 	inlineAbortController: AbortController | undefined = undefined
 	// Flag to skip Responses API if it's not available (e.g., Azure region doesn't support it)
@@ -520,7 +524,8 @@ export class AIChatManager {
 			this.helpers = {
 				...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
 				testActiveFlow: async (args?: Record<string, any>) =>
-					this.flowAiChatHelpers?.testFlow(args)
+					this.flowAiChatHelpers?.testFlow(args),
+				attachedFiles: this.attachedFiles
 			} satisfies GlobalToolHelpers
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
@@ -667,7 +672,13 @@ export class AIChatManager {
 			const result = await runChatLoop({
 				messages,
 				get systemMessage() {
-					return systemMessageOverride ?? self.systemMessage
+					const base = systemMessageOverride ?? self.systemMessage
+					// Inject the attached-files roster at request time (re-read each iteration)
+					// so it always reflects the live file list without reactive bookkeeping.
+					if (self.mode === AIMode.GLOBAL && self.attachedFiles.count > 0) {
+						return appendAttachedFilesRoster(base, self.attachedFiles.list())
+					}
+					return base
 				},
 				get tools() {
 					return self.tools
@@ -1155,6 +1166,7 @@ export class AIChatManager {
 		await this.historyManager.save(this.displayMessages, this.messages)
 		this.displayMessages = []
 		this.messages = []
+		this.attachedFiles.clear()
 	}
 
 	loadPastChat = async (id: string) => {
