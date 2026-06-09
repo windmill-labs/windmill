@@ -35,6 +35,7 @@ pub mod auth;
 pub mod bench;
 pub mod cache;
 pub mod client;
+pub mod datatable_migrations;
 pub mod db;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_entra_ee;

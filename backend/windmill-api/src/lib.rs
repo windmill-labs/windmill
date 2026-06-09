@@ -631,6 +631,10 @@ pub async fn run_server(
                             "/deployment_request",
                             windmill_api_workspaces::deployment_requests::workspaced_service(),
                         )
+                        .nest(
+                            "/datatable_migrations",
+                            windmill_api_workspaces::datatable_migrations::workspaced_service(),
+                        )
                         .nest("/oidc", oidc_oss::workspaced_service())
                         .nest("/openapi", {
                             #[cfg(feature = "http_trigger")]
