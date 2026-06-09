@@ -5,6 +5,16 @@
 	 * at this path. Up to 3 circles render inline; with 4+ users we show
 	 * the first 2 + a `+N` overflow circle so the badge stays compact.
 	 *
+	 * Popover (hover): one row per draft owner with a circle icon. When
+	 * the row knows the item kind (workspace + itemKind + path +
+	 * editPathFor passed through) each OTHER user's row also gets
+	 * "View JSON" / "Fork" buttons — same actions as the in-editor
+	 * OtherUsersDraftsModal, surfaced inline here so users don't need to
+	 * open the editor first. The authed user's own row never has those
+	 * actions (forking yourself is meaningless); when the entry is
+	 * draft-only AND it's the authed user's own draft, the popover ends
+	 * with "Only you can see this {kind}" so the row's privacy is clear.
+	 *
 	 * Variants:
 	 *   draft_only=true  → "Draft only" (no deployed row exists)
 	 *   draft_only=false → "Draft"      (deployed and at least one user
@@ -16,6 +26,13 @@
 	 */
 	import Popover from './Popover.svelte'
 	import { Badge } from './common'
+	import Button from './common/button/Button.svelte'
+	import Modal2 from './common/modal/Modal2.svelte'
+	import { Braces, GitFork } from 'lucide-svelte'
+	import { DraftService, type UserDraftItemKind } from '$lib/gen'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { sendUserToast } from '$lib/toast'
+	import { goto } from '$lib/navigation'
 
 	type DraftUser = { username?: string | null }
 
@@ -29,13 +46,28 @@
 		 *  popover entry with `(you)`. Pass `$userStore?.username`
 		 *  from the row. */
 		currentUsername?: string | null
+		/** Optional context needed to render the per-user View JSON /
+		 *  Fork actions. When any of these is missing the popover falls
+		 *  back to the legacy text-only list (used by trigger rows that
+		 *  don't have a per-user draft surface). */
+		workspace?: string
+		itemKind?: UserDraftItemKind
+		path?: string
+		/** Build the per-editor edit URL for a forked draft path. Same
+		 *  shape as the OtherUsersDraftsModal's `editPathFor` — different
+		 *  editors live under different roots. */
+		editPathFor?: (forkedPath: string) => string
 	}
 
 	let {
 		is_draft = false,
 		draft_only = false,
 		draft_users = [],
-		currentUsername = undefined
+		currentUsername = undefined,
+		workspace = undefined,
+		itemKind = undefined,
+		path = undefined,
+		editPathFor = undefined
 	}: Props = $props()
 
 	// Authed user always lands FIRST in the circle row when they have a
@@ -102,23 +134,155 @@
 	// endpoint sets this even for paths the user has a draft on but no
 	// one else does).
 	const showBadge = $derived(is_draft || draft_users.length > 0)
+
+	// The popover renders inline actions only when the parent supplied
+	// the full context (we need workspace + itemKind + path + editPathFor
+	// to actually fetch and fork drafts).
+	const actionsEnabled = $derived(
+		!!workspace && !!itemKind && !!path && !!editPathFor && draft_users.length > 0
+	)
+
+	const kindLabel = $derived(
+		itemKind === 'flow' ? 'flow' : itemKind === 'app' || itemKind === 'raw_app' ? 'app' : 'script'
+	)
+
+	// "Only you can see this {kind}" — true when the authed user owns the
+	// sole draft on a never-deployed item.
+	const onlyOwnDraft = $derived(
+		draft_only &&
+			draft_users.length === 1 &&
+			!!currentUsername &&
+			draft_users[0]?.username === currentUsername
+	)
+
+	let busyFor = $state<string | null>(null)
+	let jsonOpen = $state(false)
+	let jsonOwnerLabel = $state('')
+	let jsonValue = $state<unknown>(undefined)
+
+	function ownerKey(owner: DraftUser): string {
+		return owner.username ?? '__legacy__'
+	}
+
+	function forkPath(owner: DraftUser): string {
+		// `currentUsername` is required upstream for the badge to be
+		// meaningful, but defensively fall back to 'me' so the action
+		// still produces a well-formed path.
+		const leaf = (path ?? '').split('/').pop() ?? path ?? 'draft'
+		const ownerSuffix = owner.username ?? 'legacy'
+		return `u/${currentUsername ?? 'me'}/${leaf}_${ownerSuffix}_fork`
+	}
+
+	async function fetchDraft(owner: DraftUser): Promise<unknown> {
+		if (!workspace || !itemKind || !path) {
+			throw new Error('Missing context for draft fetch')
+		}
+		return (
+			await DraftService.getDraftForUser({
+				workspace,
+				kind: itemKind,
+				path,
+				username: owner.username ?? undefined
+			})
+		).value
+	}
+
+	async function viewJson(owner: DraftUser) {
+		busyFor = ownerKey(owner)
+		try {
+			jsonValue = await fetchDraft(owner)
+			jsonOwnerLabel = fullLabel(owner)
+			jsonOpen = true
+		} catch (e: any) {
+			sendUserToast(`Could not load draft: ${e.body ?? e.message}`, true)
+		} finally {
+			busyFor = null
+		}
+	}
+
+	async function fork(owner: DraftUser) {
+		if (!workspace || !itemKind || !editPathFor) return
+		busyFor = ownerKey(owner)
+		try {
+			const value = await fetchDraft(owner)
+			const target = forkPath(owner)
+			// Bypass the autosave debouncer so the fork lands BEFORE we
+			// navigate. The destination editor loads via `getDraft=true`
+			// and 404s if no draft yet exists at the fork path.
+			await UserDraftDbSyncer.save({
+				workspace,
+				itemKind,
+				path: target,
+				value,
+				immediate: true
+			})
+			goto(editPathFor(target))
+		} catch (e: any) {
+			sendUserToast(`Could not fork draft: ${e.body ?? e.message}`, true)
+		} finally {
+			busyFor = null
+		}
+	}
 </script>
 
 {#if showBadge}
 	<Popover notClickable>
 		{#snippet text()}
-			{#if draft_users.length > 0}
-				{draft_only ? 'Never deployed — only a draft exists.' : 'Deployed with drafts pending.'}
-				<div class="mt-1 flex flex-col gap-0.5">
-					{#each draft_users as u}
-						<span>• {fullLabel(u)}{u.username === currentUsername ? ' (you)' : ''}</span>
-					{/each}
-				</div>
-			{:else if draft_only}
-				Never deployed and is only a draft
-			{:else}
-				Is deployed and has a draft
-			{/if}
+			<div class="flex flex-col gap-2 min-w-[16rem]">
+				<p class="text-primary">
+					{#if draft_users.length > 0}
+						{draft_only ? 'Never deployed — only a draft exists.' : 'Deployed with drafts pending.'}
+					{:else if draft_only}
+						Never deployed and is only a draft
+					{:else}
+						Is deployed and has a draft
+					{/if}
+				</p>
+				{#if draft_users.length > 0}
+					<ul class="flex flex-col divide-y border-y">
+						{#each orderedUsers as u (u.username ?? '__legacy__')}
+							{@const isSelf = !!currentUsername && u.username === currentUsername}
+							<li class="flex items-center gap-2 py-1.5">
+								<span
+									class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold text-white {colorFor(
+										u
+									)}"
+								>
+									{initials(u)}
+								</span>
+								<span class="flex-1 truncate text-primary">
+									{fullLabel(u)}{isSelf ? ' (you)' : ''}
+								</span>
+								{#if actionsEnabled && !isSelf}
+									<Button
+										variant="default"
+										size="xs"
+										startIcon={{ icon: Braces }}
+										disabled={busyFor !== null && busyFor !== ownerKey(u)}
+										loading={busyFor === ownerKey(u)}
+										on:click={() => viewJson(u)}
+									>
+										View JSON
+									</Button>
+									<Button
+										variant="default"
+										size="xs"
+										startIcon={{ icon: GitFork }}
+										disabled={busyFor !== null && busyFor !== ownerKey(u)}
+										loading={busyFor === ownerKey(u)}
+										on:click={() => fork(u)}
+									>
+										Fork
+									</Button>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+				{/if}
+				{#if onlyOwnDraft}
+					<p class="text-tertiary italic">Only you can see this {kindLabel}.</p>
+				{/if}
+			</div>
 		{/snippet}
 		<Badge small color="indigo">
 			{#if orderedUsers.length > 0}
@@ -153,3 +317,28 @@
 		</Badge>
 	</Popover>
 {/if}
+
+<Modal2
+	bind:isOpen={jsonOpen}
+	title="Draft JSON — {jsonOwnerLabel}"
+	fixedWidth="lg"
+	fixedHeight="lg"
+>
+	{#snippet headerRight()}
+		<Button
+			variant="default"
+			size="xs"
+			on:click={() => {
+				navigator.clipboard?.writeText(JSON.stringify(jsonValue, null, 2))
+				sendUserToast('Copied to clipboard')
+			}}
+		>
+			Copy
+		</Button>
+	{/snippet}
+	<div class="w-full overflow-auto">
+		<pre class="text-xs whitespace-pre font-mono bg-surface-secondary rounded p-3"
+			>{JSON.stringify(jsonValue ?? {}, null, 2)}</pre
+		>
+	</div>
+</Modal2>
