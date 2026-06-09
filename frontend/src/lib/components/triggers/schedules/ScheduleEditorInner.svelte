@@ -129,15 +129,16 @@
 	// When the runnable input schema cannot be rendered (unavailable, empty, or
 	// without properties) but the schedule already has stored args, fall back to a
 	// raw JSON editor so existing args remain visible instead of implying the
-	// runnable takes no argument.
+	// runnable takes no argument. The editor's code is initialized once and the
+	// fallback stays visible until a renderable schema appears, so emptying the
+	// JSON while editing does not make the editor disappear from under the user.
 	let rawArgsEditorCode: string | undefined = $state(undefined)
+	let showRawArgsFallback = $derived(!hasRenderableSchema && rawArgsEditorCode !== undefined)
 	$effect(() => {
-		if (!hasRenderableSchema && hasArgs) {
-			if (rawArgsEditorCode === undefined) {
-				rawArgsEditorCode = JSON.stringify($state.snapshot(args), null, 2)
-			}
-		} else {
+		if (hasRenderableSchema) {
 			rawArgsEditorCode = undefined
+		} else if (hasArgs && rawArgsEditorCode === undefined) {
+			rawArgsEditorCode = JSON.stringify($state.snapshot(args), null, 2)
 		}
 	})
 
@@ -764,8 +765,8 @@
 		<div class="flex flex-col gap-8">
 			{#snippet rawArgsFallback()}
 				<Alert type="warning" size="xs" title="Input schema unavailable" class="mb-2">
-					The {is_flow ? 'flow' : 'script'} input schema could not be rendered. The stored
-					arguments are shown below as raw JSON.
+					The {is_flow ? 'flow' : 'script'} input schema could not be rendered. The stored arguments
+					are shown below as raw JSON.
 				</Alert>
 				{#await import('$lib/components/JsonEditor.svelte')}
 					<Loader2 class="animate-spin" />
@@ -984,7 +985,7 @@
 										bind:args
 									/>
 								{/await}
-							{:else if hasArgs}
+							{:else if showRawArgsFallback}
 								{@render rawArgsFallback()}
 							{:else}
 								<div class="text-xs text-secondary">
@@ -996,7 +997,7 @@
 								You cannot see the the {is_flow ? 'flow' : 'script'} input form as you do not have access
 								to it.
 							</div>
-							{#if hasArgs}
+							{#if showRawArgsFallback}
 								{@render rawArgsFallback()}
 							{/if}
 						{:else}
