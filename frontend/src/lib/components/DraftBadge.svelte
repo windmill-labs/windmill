@@ -23,9 +23,26 @@
 		is_draft?: boolean
 		draft_only?: boolean
 		draft_users?: DraftUser[]
+		/** Authed user's workspace username — circles for THIS user are
+		 *  omitted because the row already signals their own draft via
+		 *  the asterisk appended to the displayed summary. Pass
+		 *  `$userStore?.username` from the row. */
+		currentUsername?: string | null
 	}
 
-	let { is_draft = false, draft_only = false, draft_users = [] }: Props = $props()
+	let {
+		is_draft = false,
+		draft_only = false,
+		draft_users = [],
+		currentUsername = undefined
+	}: Props = $props()
+
+	// Drop the authed user from the circle row — their own draft is
+	// signalled by the asterisk on the row's summary, so showing both
+	// would be visual noise. Keep the legacy NULL-username row.
+	const otherUsers = $derived(
+		currentUsername ? draft_users.filter((u) => u.username !== currentUsername) : draft_users
+	)
 
 	/** Two-letter uppercase initials from a username — `john.doe`/`john_doe` →
 	 * `JD`, `alice` → `AL`, the legacy NULL-email row (no username) → `?`. */
@@ -60,15 +77,22 @@
 		return PALETTE[hash % PALETTE.length]
 	}
 
-	// First 3 circles when ≤3 users; first 2 + a "+N" overflow when 4+.
+	// First 3 circles when ≤3 OTHER users; first 2 + a "+N" overflow
+	// when 4+. The slice/overflow math applies to `otherUsers` (post
+	// current-user filter), not the raw `draft_users` — otherwise
+	// dropping the authed user would silently change the visible count.
 	const MAX_CIRCLES = 3
 	const visibleUsers = $derived(
-		draft_users.length <= MAX_CIRCLES ? draft_users : draft_users.slice(0, MAX_CIRCLES - 1)
+		otherUsers.length <= MAX_CIRCLES ? otherUsers : otherUsers.slice(0, MAX_CIRCLES - 1)
 	)
 	const overflowCount = $derived(
-		draft_users.length > MAX_CIRCLES ? draft_users.length - (MAX_CIRCLES - 1) : 0
+		otherUsers.length > MAX_CIRCLES ? otherUsers.length - (MAX_CIRCLES - 1) : 0
 	)
 
+	// Show the badge whenever ANY draft exists (`draft_users` non-empty)
+	// OR when the authed user has a draft (`is_draft` true — the list
+	// endpoint sets this even for paths the user has a draft on but no
+	// one else does).
 	const showBadge = $derived(is_draft || draft_users.length > 0)
 </script>
 
@@ -79,7 +103,7 @@
 				{draft_only ? 'Never deployed — only a draft exists.' : 'Deployed with drafts pending.'}
 				<div class="mt-1 flex flex-col gap-0.5">
 					{#each draft_users as u}
-						<span>• {fullLabel(u)}</span>
+						<span>• {fullLabel(u)}{u.username === currentUsername ? ' (you)' : ''}</span>
 					{/each}
 				</div>
 			{:else if draft_only}
@@ -89,11 +113,13 @@
 			{/if}
 		{/snippet}
 		<Badge small color="indigo">
-			{#if draft_users.length > 0}
+			{#if otherUsers.length > 0}
 				<!-- Circles sit inside the Badge, before the label. `-space-x-1`
 				     overlaps them slightly; each circle's ring uses the badge's
 				     indigo tint instead of plain white so the overlap reads as
-				     intentional rather than a stack-of-floating-dots. -->
+				     intentional rather than a stack-of-floating-dots. Only OTHER
+				     users get a circle — the authed user's own draft is
+				     signalled by the row's asterisk. -->
 				<span class="flex -space-x-1">
 					{#each visibleUsers as u}
 						<span

@@ -147,7 +147,9 @@
 	kind="script"
 	{marked}
 	path={script.draft_path ?? script.path}
-	summary={script.summary}
+	summary={script.is_draft
+		? `${script.summary || script.draft_path || script.path}*`
+		: script.summary}
 	{errorHandlerMuted}
 	workspaceId={$workspaceStore ?? ''}
 	canFavorite={!script.draft_only}
@@ -192,6 +194,7 @@
 			is_draft={script.is_draft}
 			draft_only={script.draft_only}
 			draft_users={script.draft_users}
+			currentUsername={$userStore?.username}
 		/>
 		{#if script.labels?.length}
 			<div class="flex items-center gap-0.5">

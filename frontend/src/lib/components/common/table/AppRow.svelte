@@ -105,7 +105,7 @@
 	kind="app"
 	{marked}
 	path={(app as any).draft_path ?? app.path}
-	summary={app.summary}
+	summary={app.is_draft ? `${app.summary || (app as any).draft_path || app.path}*` : app.summary}
 	workspaceId={app.workspace_id ?? $workspaceStore ?? ''}
 	canFavorite={!app.draft_only}
 	{depth}
@@ -119,7 +119,12 @@
 			<Badge small icon={{ icon: FileJson }}>Raw</Badge>
 		{/if}
 		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
-		<DraftBadge is_draft={app.is_draft} draft_only={app.draft_only} draft_users={app.draft_users} />
+		<DraftBadge
+			is_draft={app.is_draft}
+			draft_only={app.draft_only}
+			draft_users={app.draft_users}
+			currentUsername={$userStore?.username}
+		/>
 		{#if app.labels?.length}
 			<div class="flex items-center gap-0.5">
 				{#each app.labels.slice(0, 3) as label}

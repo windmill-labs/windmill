@@ -130,7 +130,7 @@
 	workspaceId={flow.workspace_id ?? $workspaceStore ?? ''}
 	{marked}
 	path={flow.draft_path ?? flow.path}
-	summary={flow.summary}
+	summary={flow.is_draft ? `${flow.summary || flow.draft_path || flow.path}*` : flow.summary}
 	{errorHandlerMuted}
 	canFavorite={!flow.draft_only}
 	{depth}
@@ -145,6 +145,7 @@
 			is_draft={flow.is_draft}
 			draft_only={flow.draft_only}
 			draft_users={flow.draft_users}
+			currentUsername={$userStore?.username}
 		/>
 		{#if flow.labels?.length}
 			<div class="flex items-center gap-0.5">
