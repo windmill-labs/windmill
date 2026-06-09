@@ -238,6 +238,7 @@ describe('global AI tools', () => {
 		expect(names).toContain('test_run_script')
 		expect(names).toContain('test_run_flow')
 		expect(names).toContain('test_run_step')
+		expect(names).toContain('get_documentation')
 	})
 
 	it('searches hub scripts without fetching script contents', async () => {

@@ -73,6 +73,7 @@ import {
 } from '../shared'
 import type { ContextElement } from '../context'
 import { getDatatableTools } from '../datatableTools'
+import { getDocumentationTool } from '../navigator/core'
 import { UserDraft, type UserDraftMeta } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
 import { inferArgs } from '$lib/infer'
@@ -601,6 +602,7 @@ Rules:
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
 - Use search_resource_types before write_resource.
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
+- Use get_documentation to look up Windmill product documentation (features, concepts, how-tos) when the user asks how something works or you need authoritative platform knowledge. This is distinct from get_instructions, which returns authoring guidance for writing a specific item type.
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer local drafts, so testing does not require deployment.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
 - Keep context targeted.${
@@ -1410,6 +1412,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	createSearchHubScriptsTool(false),
+	getDocumentationTool,
 	{
 		def: createToolDef(
 			askUserQuestionSchema,
