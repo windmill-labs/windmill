@@ -166,6 +166,10 @@ vi.mock('./rawAppBundlerBridge', () => ({
 	}))
 }))
 
+vi.mock('$lib/workspaceDrafts.svelte', () => ({
+	invalidateWorkspaceDrafts: vi.fn()
+}))
+
 import {
 	globalTools,
 	globalToolsFor,
@@ -176,6 +180,7 @@ import {
 	setOpenPreviewHandler
 } from './core'
 import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
+import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { clearGlobalDrafts } from './userDraftAdapter'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
@@ -927,6 +932,70 @@ describe('global AI tools', () => {
 				path: 'f/routes/missing-kind'
 			})
 		).rejects.toThrow('trigger_kind is required')
+	})
+
+	it('discards a draft-only item that has no separate draft row', async () => {
+		// An item that exists ONLY as a draft_only row, with no draft-table entry
+		// (e.g. created elsewhere) — the row itself is the draft content.
+		await ScriptService.createScript({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/scripts/orphan',
+				summary: 'Orphan',
+				content: 'export async function main() { return 1 }',
+				language: 'bun',
+				draft_only: true
+			} as any
+		})
+		expect(dbScriptDraft('f/scripts/orphan')).toBeUndefined()
+
+		const raw = await callGlobalTool('discard_local_draft', {
+			type: 'script',
+			path: 'f/scripts/orphan'
+		})
+
+		expect(JSON.parse(raw)).toMatchObject({ success: true, type: 'script', path: 'f/scripts/orphan' })
+		// draft_only with no deployed version -> the whole item is removed.
+		expect(ScriptService.deleteScriptByPath).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'f/scripts/orphan'
+		})
+	})
+
+	it('deploys a chat-created script draft and clears the draft', async () => {
+		const content = 'export async function main() { return 1 }'
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/to-deploy',
+			summary: 'Deploy me',
+			language: 'bun',
+			content
+		})
+		expect(dbScriptDraft('f/scripts/to-deploy')).toBeDefined()
+
+		vi.mocked(invalidateWorkspaceDrafts).mockClear()
+		const raw = await callGlobalTool('deploy_workspace_item', {
+			type: 'script',
+			path: 'f/scripts/to-deploy'
+		})
+
+		expect(JSON.parse(raw)).toMatchObject({ success: true, type: 'script', path: 'f/scripts/to-deploy' })
+		// Deploy writes a real (non-draft_only) version; the backend clears the draft.
+		const createCalls = vi.mocked(ScriptService.createScript).mock.calls
+		const lastCreate = createCalls[createCalls.length - 1]?.[0] as any
+		expect(lastCreate.requestBody.draft_only).toBeFalsy()
+		expect(lastCreate.requestBody.content).toBe(content)
+		expect(dbScriptDraft('f/scripts/to-deploy')).toBeUndefined()
+		expect(invalidateWorkspaceDrafts).toHaveBeenCalledWith(WORKSPACE)
+	})
+
+	it('invalidates workspace draft counts after writing a draft', async () => {
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/counted',
+			summary: '',
+			language: 'bun',
+			content: 'export async function main() {}'
+		})
+		expect(invalidateWorkspaceDrafts).toHaveBeenCalledWith(WORKSPACE)
 	})
 
 	it('preserves existing script metadata when writing over an existing item', async () => {

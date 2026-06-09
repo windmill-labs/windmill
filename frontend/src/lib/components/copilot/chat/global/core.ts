@@ -76,6 +76,7 @@ import {
 import type { ContextElement } from '../context'
 import { getDatatableTools } from '../datatableTools'
 import { UserDraft, type UserDraftMeta } from '$lib/userDraft.svelte'
+import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { emptySchema } from '$lib/utils'
 import { inferArgs } from '$lib/infer'
 import {
@@ -2352,8 +2353,9 @@ function liveDraftItem(
 }
 
 // The current chat draft for a script/flow: the live editor buffer if one is
-// open, else the DB draft (`.draft`). `undefined` when no draft exists (or the
-// item doesn't exist at all).
+// open, else the DB draft (`.draft`), else the `draft_only` row itself (a
+// never-deployed item whose row IS the draft content, even when no separate
+// draft row exists). `undefined` when no draft exists (or the item doesn't).
 async function loadDbDraftItem(
 	workspace: string,
 	type: DbDraftKind,
@@ -2364,14 +2366,16 @@ async function loadDbDraftItem(
 	try {
 		if (type === 'script') {
 			const script = await ScriptService.getScriptByPathWithDraft({ workspace, path })
-			if (!script.draft) return undefined
-			const item = scriptToItem(script.draft as NewScript, true)
+			const src = script.draft ?? (script.draft_only ? script : undefined)
+			if (!src) return undefined
+			const item = scriptToItem(src as NewScript, true)
 			item.isDraft = true
 			return item
 		}
 		const flow = await FlowService.getFlowByPathWithDraft({ workspace, path })
-		if (!flow.draft) return undefined
-		const item = flowToItem(flow.draft as Flow, true)
+		const src = flow.draft ?? (flow.draft_only ? flow : undefined)
+		if (!src) return undefined
+		const item = flowToItem(src as Flow, true)
 		item.isDraft = true
 		return item
 	} catch {
@@ -2399,6 +2403,8 @@ async function saveScriptDbDraft(
 		})
 	}
 	await DraftService.createDraft({ workspace, requestBody: { path, typ: 'script', value: draft } })
+	// Refresh mounted draft-count consumers (Drafts banner, compare page).
+	invalidateWorkspaceDrafts(workspace)
 }
 
 // Persist a flow DB draft, creating the backing `draft_only` row first when the
@@ -2424,6 +2430,7 @@ async function saveFlowDbDraft(
 		})
 	}
 	await DraftService.createDraft({ workspace, requestBody: { path, typ: 'flow', value: draft } })
+	invalidateWorkspaceDrafts(workspace)
 }
 
 // Delete a script/flow DB draft. If the item exists ONLY as a draft
@@ -2459,6 +2466,7 @@ async function deleteScriptFlowDbDraft(
 
 	// Reset any open live editor (and clear a stale localStorage buffer).
 	deleteGlobalDraft(workspace, type, path)
+	invalidateWorkspaceDrafts(workspace)
 }
 
 async function writeScriptDraft(
@@ -3461,6 +3469,9 @@ async function deployDraft(
 
 	switch (type) {
 		case 'script': {
+			// Script deploy writes a complete new version (createScript) — omitted
+			// fields are reset, not inherited. The AI only changes value/summary, so
+			// carry ALL other metadata forward from the currently-deployed version.
 			const existing = (await ScriptService.existsScriptByPath({ workspace, path }))
 				? await ScriptService.getScriptByPath({ workspace, path })
 				: undefined
@@ -3477,6 +3488,7 @@ async function deployDraft(
 			break
 		}
 		case 'flow': {
+			// Flow update is a full replace; carry metadata forward from deployed.
 			const flowDraft = draft.value as FlowDraftValue
 			const existing = (await FlowService.existsFlowByPath({ workspace, path }))
 				? await FlowService.getFlowByPath({ workspace, path })
@@ -3626,6 +3638,9 @@ async function deployDraft(
 	}
 
 	deleteGlobalDraft(workspace, type, path, triggerKind, { preserveLiveDraft: true })
+	// Deploying create/update-deletes the DB draft server-side; refresh mounted
+	// draft-count consumers so the Drafts banner/count drops immediately.
+	invalidateWorkspaceDrafts(workspace)
 
 	// Reload the session preview if it's open on the deployed item. Map the
 	// deploy type to the preview kind — a raw app deploys under 'app' but the
