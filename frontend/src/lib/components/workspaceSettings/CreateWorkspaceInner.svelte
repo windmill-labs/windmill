@@ -26,8 +26,9 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { AI_PROVIDERS } from '$lib/components/copilot/lib'
-	import { LoaderCircle } from 'lucide-svelte'
+	import { LoaderCircle, Trash2 } from 'lucide-svelte'
 	import PrefixedInput from '../PrefixedInput.svelte'
+	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import { jobManager } from '$lib/services/JobManager'
 	import Alert from '../common/alert/Alert.svelte'
@@ -68,9 +69,17 @@
 
 	async function validateName(id: string): Promise<void> {
 		checking = true
-		let exists = await WorkspaceService.existsWorkspace({ requestBody: { id } })
+		// For forks the actual workspace id is prefixed: checking the bare id
+		// would report the name as free even when `wm-fork-<id>` is taken
+		// (e.g. by an archived fork, which keeps its id reserved).
+		const effectiveId = isFork ? `${WM_FORK_PREFIX}${id}` : id
+		let exists =
+			id != '' && (await WorkspaceService.existsWorkspace({ requestBody: { id: effectiveId } }))
+		forkIdTaken = isFork && exists
 		if (exists) {
-			errorId = 'ID already exists'
+			errorId = isFork
+				? `A workspace with id '${effectiveId}' already exists. It may be an archived fork: archiving keeps the id reserved.`
+				: 'ID already exists'
 		} else if (id != '' && !/^\w+(-\w+)*$/.test(id)) {
 			errorId = 'ID can only contain letters, numbers and dashes and must not finish by a dash'
 		} else {
@@ -80,6 +89,25 @@
 	}
 
 	const WM_FORK_PREFIX = 'wm-fork-'
+
+	let forkIdTaken = $state(false)
+	let deleteExistingForkOpen = $state(false)
+	let deletingExistingFork = $state(false)
+
+	async function deleteExistingFork(): Promise<void> {
+		const prefixedId = `${WM_FORK_PREFIX}${id}`
+		deletingExistingFork = true
+		try {
+			await WorkspaceService.deleteWorkspace({ workspace: prefixedId })
+			sendUserToast(`Permanently deleted workspace ${prefixedId}`)
+			deleteExistingForkOpen = false
+			await validateName(id)
+		} catch (e: any) {
+			sendUserToast(`Failed to delete workspace ${prefixedId}: ${e?.body?.toString() ?? e}`, true)
+		} finally {
+			deletingExistingFork = false
+		}
+	}
 
 	let forkCreationLoading = $state(false)
 	let forkCreationError = $state('')
@@ -465,6 +493,22 @@
 				{/if}
 				{#if errorId}
 					<span class="text-red-500 text-2xs font-normal">{errorId}</span>
+					{#if forkIdTaken}
+						<div class="flex flex-row items-center gap-2 pt-1">
+							<Button
+								destructive
+								size="xs"
+								startIcon={{ icon: Trash2 }}
+								disabled={deletingExistingFork}
+								on:click={() => (deleteExistingForkOpen = true)}
+							>
+								Permanently delete existing fork
+							</Button>
+							<span class="text-2xs text-secondary">
+								Frees up the id so you can reuse it (fork owner or superadmin only)
+							</span>
+						</div>
+					{/if}
 				{/if}
 			</label>
 			<Label label="Workspace color">
@@ -660,3 +704,23 @@
 		{/if}
 	</div>
 </div>
+
+<ConfirmationModal
+	open={deleteExistingForkOpen}
+	title="Permanently delete existing fork"
+	confirmationText="Delete permanently"
+	on:canceled={() => {
+		deleteExistingForkOpen = false
+	}}
+	on:confirmed={() => {
+		deleteExistingFork()
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span>
+			This will permanently delete the workspace '{WM_FORK_PREFIX}{id}' and all of its content
+			(scripts, flows, apps, variables, resources, runs). This cannot be undone. Unlike archiving,
+			this frees up the workspace id for a new fork.
+		</span>
+	</div>
+</ConfirmationModal>
