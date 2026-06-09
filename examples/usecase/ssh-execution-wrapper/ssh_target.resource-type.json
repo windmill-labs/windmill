@@ -23,8 +23,13 @@
       },
       "host_pubkey": {
         "type": "string",
-        "description": "Server host public key line for known_hosts pinning, e.g. 'ssh-ed25519 AAAAC3Nz...'. When set, the wrapper enforces StrictHostKeyChecking=yes. Leave empty to fall back to weaker TOFU (accept-new).",
+        "description": "Server host public key line for known_hosts pinning, e.g. 'ssh-ed25519 AAAAC3Nz...' (get it with `ssh-keyscan -t ed25519 <host>`). When set, the wrapper enforces StrictHostKeyChecking=yes. When empty, execution is refused unless accept_unknown_host is true.",
         "default": ""
+      },
+      "accept_unknown_host": {
+        "type": "boolean",
+        "description": "Allow connecting without a pinned host_pubkey by trusting the host key on first use (StrictHostKeyChecking=accept-new). Insecure against MITM — development only.",
+        "default": false
       }
     },
     "required": ["host", "user", "private_key"]

@@ -27,7 +27,7 @@ What's here
 
 | File | Purpose |
 | --- | --- |
-| `ssh_target.resource-type.json` | Resource type: `host`, `port`, `user`, `private_key` (secret), `host_pubkey`. Shared by both approaches. |
+| `ssh_target.resource-type.json` | Resource type: `host`, `port`, `user`, `private_key` (secret), `host_pubkey`, `accept_unknown_host`. Shared by both approaches. |
 | `ssh_exec.sh` | The userland wrapper as a Windmill **bash** script. |
 | `ssh_exec.py` | Userland wrapper as a Windmill **python** script (interpreter-dispatch table). |
 
@@ -58,8 +58,9 @@ arguments come from the run form, the result is collected the same way
 non-zero remote exit fails the job. Only the *execution location* changes.
 
 **Host-key pinning** is enforced (`StrictHostKeyChecking=yes`) whenever the
-resource's `host_pubkey` is set; an empty `host_pubkey` falls back to weaker TOFU
-(`accept-new`) and logs a warning.
+resource's `host_pubkey` is set. An empty `host_pubkey` refuses to run unless the
+resource explicitly sets `accept_unknown_host: true`, which falls back to weaker
+TOFU (`accept-new`) and logs a warning — development only.
 
 **Parity boundary:** the remote receives the script body and its positional args
 only. The Windmill runtime is *not* forwarded — `BASE_INTERNAL_URL`, the `wmill`
@@ -167,7 +168,8 @@ These are deliberate and worth preserving if you adapt the wrapper:
   even if the script errors out.
 - **Host-key pinning.** With `host_pubkey` set, the wrapper pins it into a
   job-local `known_hosts` and enforces `StrictHostKeyChecking=yes` (non-default
-  ports use the `[host]:port` form). With it empty, it falls back to
+  ports use the `[host]:port` form). With it empty, the wrapper refuses to run
+  unless `accept_unknown_host: true` is set on the resource, which falls back to
   `accept-new` (TOFU) and warns — weaker; pin in production.
 - **Quoted heredoc.** The remote bootstrap is built with `<<'REMOTE'` so `$f`,
   `$?`, `$TMPDIR` are evaluated *remotely*, not expanded on the worker.
@@ -227,5 +229,6 @@ Tested
 Both wrappers were exercised against a local `sshd`: success path, remote
 exit-code propagation (bash `${PIPESTATUS[1]}`, python raises), clean
 stdout/stderr separation, `python -u` interpreter dispatch, host-key pinning
-rejecting a wrong key (script never runs), TOFU fallback, and confirmed remote
+rejecting a wrong key (script never runs), the TOFU opt-in
+(`accept_unknown_host: true`) and the refusal without it, and confirmed remote
 *and* local temp-file cleanup.

@@ -49,6 +49,7 @@ def main(ssh_target: dict, script_content: str, language: str = "bash"):
     private_key = ssh_target["private_key"]
     port = str(ssh_target.get("port") or 22)
     host_pubkey = (ssh_target.get("host_pubkey") or "").strip()
+    accept_unknown_host = bool(ssh_target.get("accept_unknown_host"))
 
     interp = INTERPRETERS.get(language, language)  # passthrough for unknown keys
 
@@ -74,15 +75,22 @@ def main(ssh_target: dict, script_content: str, language: str = "bash"):
             known_hosts.write(entry + "\n")
             known_hosts.close()
             ssh_opts += ["-o", "StrictHostKeyChecking=yes"]
-        else:
+        elif accept_unknown_host:
             known_hosts.close()
             print(
-                "WARN: ssh_target.host_pubkey is empty; using TOFU (accept-new). "
-                "Pin host_pubkey for production.",
+                "WARN: ssh_target.host_pubkey is empty; using TOFU (accept-new) "
+                "because accept_unknown_host=true. Pin host_pubkey for production.",
                 file=sys.stderr,
                 flush=True,
             )
             ssh_opts += ["-o", "StrictHostKeyChecking=accept-new"]
+        else:
+            known_hosts.close()
+            raise ValueError(
+                "ssh_target.host_pubkey is empty. Pin the host key "
+                f"(ssh-keyscan -t ed25519 {host}) or set accept_unknown_host=true "
+                "to allow TOFU (insecure against MITM)."
+            )
 
         remote = REMOTE_BOOTSTRAP.replace("@@INTERP@@", interp)
         # no -t/-tt: stdout and stderr stay separate for clean log capture.

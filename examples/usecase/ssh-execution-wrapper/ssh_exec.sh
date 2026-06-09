@@ -36,6 +36,7 @@ user=$(jq -er '.user'        <<<"$ssh_target") || { echo "FATAL: ssh_target.user
 private_key=$(jq -er '.private_key' <<<"$ssh_target") || { echo "FATAL: ssh_target.private_key missing" >&2; exit 2; }
 port=$(jq -r  '.port // 22'  <<<"$ssh_target")
 host_pubkey=$(jq -r '.host_pubkey // empty' <<<"$ssh_target")
+accept_unknown_host=$(jq -r '.accept_unknown_host // false' <<<"$ssh_target")
 
 # --- interpreter dispatch table --------------------------------------------
 # `python3 -u` forces unbuffered output so logs stream live. For chatty bash
@@ -76,9 +77,12 @@ if [ -n "$host_pubkey" ]; then
     printf '[%s]:%s %s\n' "$host" "$port" "$host_pubkey" >"$known_hosts"
   fi
   ssh_opts+=( -o StrictHostKeyChecking=yes )
-else
-  echo "WARN: ssh_target.host_pubkey is empty; using TOFU (accept-new). Pin host_pubkey for production." >&2
+elif [ "$accept_unknown_host" = "true" ]; then
+  echo "WARN: ssh_target.host_pubkey is empty; using TOFU (accept-new) because accept_unknown_host=true. Pin host_pubkey for production." >&2
   ssh_opts+=( -o StrictHostKeyChecking=accept-new )
+else
+  echo "FATAL: ssh_target.host_pubkey is empty. Pin the host key (ssh-keyscan -t ed25519 $host) or set accept_unknown_host=true to allow TOFU (insecure against MITM)." >&2
+  exit 2
 fi
 
 # --- remote bootstrap (runs ON the remote host) ----------------------------
