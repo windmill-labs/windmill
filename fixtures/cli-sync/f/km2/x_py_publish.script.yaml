@@ -1,5 +1,0 @@
-summary: 'Sink: datatable+resource+volume → ducklake (freshness 1h)'
-description: ''
-has_on_behalf_of: false
-kind: script
-schema: {}

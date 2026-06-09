@@ -1,7 +1,0 @@
-summary: Materialize summary into datatable://main/km_real_summary
-description: ''
-lock: '!inline f/km/r_to_datatable.script.lock'
-has_on_behalf_of: false
-kind: script
-schema:
-  required: []

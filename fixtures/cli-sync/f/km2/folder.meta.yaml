@@ -1,6 +1,0 @@
-summary: km2 — pipeline asset/syntax sanity check matrix
-display_name: km2
-extra_perms:
-  admin@windmill.dev: true
-owners:
-  - admin@windmill.dev

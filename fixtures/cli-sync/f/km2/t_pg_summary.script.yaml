@@ -1,6 +1,0 @@
-summary: 'Transform: datatable → datatable (CREATE TABLE)'
-description: ''
-lock: ''
-has_on_behalf_of: false
-kind: script
-schema: {}

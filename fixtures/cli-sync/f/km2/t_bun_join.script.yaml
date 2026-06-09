@@ -1,6 +1,0 @@
-summary: 'Transform: AND-join datatable + ducklake → s3+datatable'
-description: ''
-lock: '!inline f/km2/t_bun_join.script.lock'
-has_on_behalf_of: false
-kind: script
-schema: {}

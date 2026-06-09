@@ -1,6 +1,0 @@
-summary: Aggregate enriched events by category
-description: ''
-lock: '!inline f/km/r_aggregate.script.lock'
-has_on_behalf_of: false
-kind: script
-schema: {}

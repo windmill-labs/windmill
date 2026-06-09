@@ -1,6 +1,0 @@
-summary: Format summary as final report
-description: ''
-lock: '!inline f/km/r_publish.script.lock'
-has_on_behalf_of: false
-kind: script
-schema: {}

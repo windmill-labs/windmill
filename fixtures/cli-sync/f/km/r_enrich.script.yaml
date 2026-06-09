@@ -1,6 +1,0 @@
-summary: Read raw events, enrich with bucket label
-description: ''
-lock: '!inline f/km/r_enrich.script.lock'
-has_on_behalf_of: false
-kind: script
-schema: {}

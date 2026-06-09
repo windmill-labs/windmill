@@ -1,6 +1,0 @@
-summary: 'Transform: S3 csv → datatable + s3 parquet'
-description: ''
-lock: ''
-has_on_behalf_of: false
-kind: script
-schema: {}
