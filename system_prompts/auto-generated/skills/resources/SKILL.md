@@ -242,6 +242,7 @@ wmill resource-type list --schema
 # Get specific resource type schema
 wmill resource-type get postgresql
 
-# Push resources (tell the user to run this, do NOT run it yourself)
+# Push resources to Windmill — deploys to the workspace and can be destructive to
+# remote state, so only run it when the user explicitly asks to deploy/publish/push
 wmill sync push
 ```

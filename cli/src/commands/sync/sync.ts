@@ -3465,6 +3465,14 @@ function removeSuffix(str: string, suffix: string) {
   return str.slice(0, str.length - suffix.length);
 }
 
+// Shown after a `wmill sync push --dry-run` preview that has changes. `sync push`
+// deploys to the remote workspace and is destructive (it overwrites and prunes
+// remote items that differ from or are absent locally), so the preview reminds
+// the caller — especially an AI agent that ran the dry-run to inspect changes —
+// to get explicit user confirmation before applying it for real.
+const SYNC_PUSH_DESTRUCTIVE_WARNING =
+  "`wmill sync push` is destructive: applying it deploys these changes to the remote workspace and overwrites or deletes remote items that differ from or are absent locally — this is not automatically reversible. If you are an AI agent, do NOT run `wmill sync push` (without --dry-run) until the user has explicitly confirmed this deploy, unless your custom instructions explicitly allow bypassing that confirmation.";
+
 export async function push(
   opts: GlobalOptions & SyncOptions & { repository?: string; branch?: string; acceptOverridingPermissionedAsWithSelf?: boolean },
 ) {
@@ -4001,6 +4009,9 @@ export async function push(
           : {}),
       })),
       total: changes.length,
+      ...(changes.length > 0
+        ? { warning: SYNC_PUSH_DESTRUCTIVE_WARNING }
+        : {}),
     };
     console.log(JSON.stringify(result, null, 2));
     return;
@@ -4044,6 +4055,7 @@ export async function push(
 
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
+      log.warn(colors.yellow(`\n⚠ ${SYNC_PUSH_DESTRUCTIVE_WARNING}`));
       return;
     }
 
