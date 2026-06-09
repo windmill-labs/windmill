@@ -19,7 +19,7 @@
 	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
 	import { page } from '$app/state'
 	import { UserDraft } from '$lib/userDraft.svelte'
-	import { armRestartOnFirstInteraction, notifyDraftLoaded } from '$lib/userDraftToast'
+	import { armRestartOnFirstInteraction } from '$lib/userDraftToast'
 
 	let version: undefined | number = $state(undefined)
 
@@ -39,6 +39,8 @@
 
 	let savedFlow: Flow | undefined = $state(undefined)
 	let otherDraftsUsers = $state<OtherDraftUser[]>([])
+	let loadedFromDraft = $state(false)
+	let othersModalOpen = $state(false)
 	// `initialPath` is the editor-displayed path. Defaults to the URL
 	// path so a deployed (or existing-draft) reload mounts FlowBuilder
 	// with the real path; cleared to '' inside the `new_draft` branch
@@ -215,16 +217,7 @@
 		// lands at this URL path.
 		isNewFlow = !!backendFlow.no_deployed
 		if (backendFlow.is_draft) {
-			notifyDraftLoaded({
-				workspace: $workspaceStore!,
-				itemKind: 'flow',
-				path: page.params.path ?? '',
-				draftOnly: backendFlow.no_deployed,
-				onResetToDeployed: async () => {
-					flowHandle.draft = undefined
-					await loadFlow({ getDraft: false })
-				}
-			})
+			loadedFromDraft = true
 		}
 		// `backendFlow` is the deployed payload; the user's saved draft
 		// (if any) is attached as `.draft`. Layer the draft over the
@@ -315,6 +308,7 @@
 	editPathFor={(forkedPath) => `/flows/edit/${forkedPath}`}
 	onLoadFromServer={() => loadFlow()}
 	getLocalDraft={() => flowHandle.draft}
+	bind:othersModalOpen
 />
 {#if notFound}
 	<div class="flex flex-col items-center justify-center h-full">
@@ -338,6 +332,9 @@
 			flowHandle.draft = undefined
 			await loadFlow({ getDraft: false })
 		}}
+		{loadedFromDraft}
+		othersDraftsCount={otherDraftsUsers.length}
+		onOpenOthersDrafts={() => (othersModalOpen = true)}
 		onNavigate={(item) => goto(editPathFor(item))}
 		{flowStore}
 		{flowStateStore}

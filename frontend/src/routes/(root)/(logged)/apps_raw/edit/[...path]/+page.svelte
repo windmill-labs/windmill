@@ -13,7 +13,7 @@
 	import { page } from '$app/state'
 	import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 	import { UserDraft } from '$lib/userDraft.svelte'
-	import { armRestartOnFirstInteraction, notifyDraftLoaded } from '$lib/userDraftToast'
+	import { armRestartOnFirstInteraction } from '$lib/userDraftToast'
 	import DraftEditorModals from '$lib/components/common/confirmationModal/DraftEditorModals.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { type OtherDraftUser } from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
@@ -138,6 +138,8 @@
 	 * `updateApp` to `createApp` so a user-typed path is used. */
 	let isNewApp = $state(false)
 	let otherDraftsUsers = $state<OtherDraftUser[]>([])
+	let loadedFromDraft = $state(false)
+	let othersModalOpen = $state(false)
 	async function loadApp(opts: { getDraft?: boolean } = {}): Promise<void> {
 		const getDraft = opts.getDraft ?? true
 		const tok = ++loadAppToken
@@ -211,16 +213,7 @@
 		}
 		isNewApp = !!backendApp.no_deployed
 		if (backendApp.is_draft) {
-			notifyDraftLoaded({
-				workspace: $workspaceStore!,
-				itemKind: 'raw_app',
-				path: page.params.path ?? '',
-				draftOnly: backendApp.no_deployed,
-				onResetToDeployed: async () => {
-					draftHandle.draft = undefined
-					await loadApp({ getDraft: false })
-				}
-			})
+			loadedFromDraft = true
 		}
 		// Apply the user's saved draft. The autosave for raw apps writes a
 		// flat `RawAppDraft` (`{files, runnables, data, summary, policy,
@@ -369,6 +362,7 @@
 	editPathFor={(forkedPath) => `/apps_raw/edit/${forkedPath}`}
 	onLoadFromServer={() => loadApp()}
 	getLocalDraft={() => draftHandle.draft}
+	bind:othersModalOpen
 />
 
 <RawAppTemplatePicker bind:open={templatePicker} onStart={onTemplatePickerStart} />
@@ -399,6 +393,9 @@
 					draftHandle.draft = undefined
 					await loadApp({ getDraft: false })
 				}}
+				{loadedFromDraft}
+				othersDraftsCount={otherDraftsUsers.length}
+				onOpenOthersDrafts={() => (othersModalOpen = true)}
 			/>
 		</div>
 	{/key}

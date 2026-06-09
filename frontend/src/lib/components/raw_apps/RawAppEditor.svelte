@@ -97,6 +97,11 @@
 		// popover so its "Reset to deployed" button can do the same thing
 		// the load-time toast offers.
 		onResetToDeployed?: () => void | Promise<void>
+		// See ScriptBuilderProps — same semantics for the raw-app editor's
+		// indicator. Threaded through RawAppEditorHeader.
+		loadedFromDraft?: boolean
+		othersDraftsCount?: number
+		onOpenOthersDrafts?: () => void
 	}
 
 	let {
@@ -117,7 +122,10 @@
 		liveEditorDraftStoragePath = undefined,
 		defaultSplitWithPreview = true,
 		pendingDraftPath = $bindable(undefined),
-		onResetToDeployed
+		onResetToDeployed,
+		loadedFromDraft = false,
+		othersDraftsCount = 0,
+		onOpenOthersDrafts
 	}: Props = $props()
 	export const version: number | undefined = undefined
 
@@ -1405,6 +1413,9 @@
 		{onNavigate}
 		{onDeploy}
 		{onResetToDeployed}
+		{loadedFromDraft}
+		{othersDraftsCount}
+		{onOpenOthersDrafts}
 		canUndo={historyManager.canUndo}
 		canRedo={historyManager.canRedo}
 		onUndo={handleUndo}

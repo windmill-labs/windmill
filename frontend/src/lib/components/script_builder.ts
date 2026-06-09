@@ -73,4 +73,13 @@ export interface ScriptBuilderProps {
 	// callers (session preview, embedded SDK) that shouldn't surface the
 	// action at all.
 	onResetToDeployed?: () => void | Promise<void>
+	// Triggers the AutosaveIndicator's on-mount "Loaded from draft" hint
+	// (with a one-shot green flash) the first time it flips to true.
+	loadedFromDraft?: boolean
+	// Non-zero when other workspace users have a draft at this path.
+	// Drives both the indicator's hint label ("Others are working on
+	// this script") and the popover's "See others' drafts" button.
+	othersDraftsCount?: number
+	// Wired by the route to flip the OtherUsersDraftsModal open.
+	onOpenOthersDrafts?: () => void
 }

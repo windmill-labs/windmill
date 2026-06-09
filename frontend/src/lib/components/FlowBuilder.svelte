@@ -125,6 +125,9 @@
 		onHistoryRestore,
 		onNavigate,
 		onResetToDeployed,
+		loadedFromDraft = false,
+		othersDraftsCount = 0,
+		onOpenOthersDrafts,
 		onTestJob
 	}: FlowBuilderProps = $props()
 
@@ -1088,6 +1091,9 @@
 							path={liveEditorDraftStoragePath}
 							draftOnly={newFlow}
 							{onResetToDeployed}
+							{loadedFromDraft}
+							{othersDraftsCount}
+							{onOpenOthersDrafts}
 						/>
 					{/if}
 				</div>

@@ -16,7 +16,6 @@
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
 	import { UserDraft } from '$lib/userDraft.svelte'
-	import { notifyDraftLoaded } from '$lib/userDraftToast'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
 	type EditableScript = NewScript & { draft_triggers?: Trigger[] }
@@ -67,8 +66,16 @@
 	let fullyLoaded = $state(false)
 	/** Other workspace users (and the legacy NULL-email row, if any) with
 	 *  a draft on this path. Populated from the deployed-overlay response
-	 *  on each `loadScript`; the banner opens when the list is non-empty. */
+	 *  on each `loadScript`; the AutosaveIndicator picks up the count for
+	 *  its on-mount "Others are working on this script" hint. */
 	let otherDraftsUsers = $state<OtherDraftUser[]>([])
+	/** Whether the editor mounted on a per-user draft this load — flipped
+	 *  true once when the overlay response says so, drives the
+	 *  AutosaveIndicator's on-mount "Loaded from draft" hint. */
+	let loadedFromDraft = $state(false)
+	/** Bound through DraftEditorModals; flipped on from the
+	 *  AutosaveIndicator popover's "See others' drafts" button. */
+	let othersModalOpen = $state(false)
 
 	// Remounts ScriptBuilder on nav: false while a reload runs, true once data is
 	// ready. A synchronous `{#key}` swap instead races Monaco's init against the
@@ -161,19 +168,7 @@
 				)
 			}
 			if (backendScript.is_draft) {
-				notifyDraftLoaded({
-					workspace: $workspaceStore!,
-					itemKind: 'script',
-					path: page.params.path ?? '',
-					draftOnly: backendScript.no_deployed,
-					onResetToDeployed: async () => {
-						// Drop the in-memory draft and refetch *without* the
-						// draft overlay — we don't trust the eventual delete
-						// to have landed, so we read deployed directly.
-						scriptHandle.draft = undefined
-						await loadScript({ getDraft: false })
-					}
-				})
+				loadedFromDraft = true
 			}
 			// `backendScript` is the deployed payload; the user's saved
 			// draft (if any) sits in `.draft`. Layer the draft over the
@@ -249,6 +244,7 @@
 	editPathFor={(forkedPath) => `/scripts/edit/${forkedPath}`}
 	onLoadFromServer={() => loadScript()}
 	getLocalDraft={() => scriptHandle.draft}
+	bind:othersModalOpen
 />
 {#if scriptHandle.draft && renderEditor}
 	<ScriptBuilder
@@ -262,6 +258,9 @@
 		{diffDrawer}
 		{savedPrimarySchedule}
 		searchParams={page.url.searchParams}
+		{loadedFromDraft}
+		othersDraftsCount={otherDraftsUsers.length}
+		onOpenOthersDrafts={() => (othersModalOpen = true)}
 		onResetToDeployed={async () => {
 			scriptHandle.draft = undefined
 			await loadScript({ getDraft: false })

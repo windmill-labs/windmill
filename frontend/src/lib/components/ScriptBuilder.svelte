@@ -130,7 +130,10 @@
 		disableAi,
 		initialTestPanelCollapsed = false,
 		initialPathChosen = false,
-		onResetToDeployed
+		onResetToDeployed,
+		loadedFromDraft = false,
+		othersDraftsCount = 0,
+		onOpenOthersDrafts
 	}: ScriptBuilderProps = $props()
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
@@ -1894,6 +1897,9 @@
 							path={userDraftPath}
 							draftOnly={(savedScript as any)?.no_deployed === true}
 							{onResetToDeployed}
+							{loadedFromDraft}
+							{othersDraftsCount}
+							{onOpenOthersDrafts}
 						/>
 					{/if}
 				</div>

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
-	import { CloudCheck, RefreshCcw, RotateCcw } from 'lucide-svelte'
+	import { CloudCheck, RefreshCcw, RotateCcw, Users } from 'lucide-svelte'
 	import type { UserDraftItemKind } from '$lib/gen'
 	import { UserDraftDbSyncer, type UserDraftSyncState } from '$lib/userDraftDbSyncer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
@@ -21,13 +21,32 @@
 		// fires `value: null` at the syncer, awaits this, then restarts
 		// sync after two ticks — mirrors `notifyDraftLoaded`'s "Reset to
 		// deployed" toast action so the discard sticks.
-		onResetToDeployed
+		onResetToDeployed,
+		// Set true on the first overlay response that came back with
+		// `is_draft: true` — triggers the on-mount "Loaded from draft"
+		// hint label and green-flash animation. Replaces the old
+		// `notifyDraftLoaded` toast. We snapshot the prop at mount so
+		// re-renders from prop churn don't re-trigger the hint.
+		loadedFromDraft = false,
+		// Number of OTHER workspace users with a draft at this path
+		// (i.e. the deployed-overlay's `other_drafts_users` length).
+		// When > 0, the on-mount hint takes priority over "Loaded from
+		// draft" and the popover offers a "See others' drafts" button
+		// that flips the OtherUsersDraftsModal open through
+		// `onOpenOthersDrafts`.
+		othersDraftsCount = 0,
+		// Wired by the route to the bindable `othersModalOpen` it
+		// threads into DraftEditorModals.
+		onOpenOthersDrafts
 	}: {
 		workspace: string
 		itemKind: UserDraftItemKind
 		path: string
 		draftOnly?: boolean
 		onResetToDeployed?: () => void | Promise<void>
+		loadedFromDraft?: boolean
+		othersDraftsCount?: number
+		onOpenOthersDrafts?: () => void
 	} = $props()
 
 	// `UserDraft.has` reads `entry.state.val` (a $state), so the $derived
@@ -77,8 +96,61 @@
 		}
 	})
 
+	// On-mount load hint — "Others are working..." or "Loaded from draft".
+	// Stays for HINT_LABEL_MS, and the wrapper gets a one-shot green-flash
+	// CSS animation that fades to transparent. Snapshot the props at mount
+	// so we don't re-fire the hint as the route re-renders the indicator.
+	const HINT_LABEL_MS = 7000
+	let hintLabel = $state('')
+	let hintFlashKey = $state(0)
+	let hintTimer: ReturnType<typeof setTimeout> | undefined
+
+	const kindLabel = $derived(
+		itemKind === 'flow' ? 'flow' : itemKind === 'app' || itemKind === 'raw_app' ? 'app' : 'script'
+	)
+
+	// Triggers when either prop becomes truthy. Each truthy transition fires
+	// a fresh flash — wins precedence is computed here too (others > loaded).
+	// Seed to `false` (NOT to the props' current values) so a prop that is
+	// already truthy at mount counts as the first false → true transition
+	// and fires the hint; routes pass `loadedFromDraft = true` immediately
+	// after the overlay response comes back, so this is the common case.
+	let prevOthers = false
+	let prevLoaded = false
+	$effect(() => {
+		const othersNow = othersDraftsCount > 0
+		const loadedNow = !!loadedFromDraft
+		untrack(() => {
+			const othersTransition = othersNow && !prevOthers
+			const loadedTransition = loadedNow && !prevLoaded
+			if (othersTransition || loadedTransition) {
+				hintLabel = othersNow ? `Others are working on this ${kindLabel}` : 'Loaded from draft'
+				hintFlashKey++
+				if (hintTimer) clearTimeout(hintTimer)
+				hintTimer = setTimeout(() => {
+					hintLabel = ''
+					hintTimer = undefined
+				}, HINT_LABEL_MS)
+			}
+			prevOthers = othersNow
+			prevLoaded = loadedNow
+		})
+	})
+
+	$effect(() => {
+		return () => {
+			if (hintTimer) clearTimeout(hintTimer)
+		}
+	})
+
+	// "Saving..." / "Saved" beat any hint; otherwise the hint shows. Empty
+	// string collapses the label `<span>`.
 	const label = $derived(
-		syncState === 'saving' || syncState === 'pending' ? 'Saving...' : savedVisible ? 'Saved' : ''
+		syncState === 'saving' || syncState === 'pending'
+			? 'Saving...'
+			: savedVisible
+				? 'Saved'
+				: hintLabel
 	)
 
 	const showResetAction = $derived(!draftOnly && hasDraft && !!onResetToDeployed)
@@ -96,12 +168,28 @@
 			popoverOpen = false
 		}
 	}
+
+	function openOthersDrafts() {
+		popoverOpen = false
+		onOpenOthersDrafts?.()
+	}
 </script>
 
 <div
-	class="flex items-center gap-1.5 text-primary min-w-[4.2rem]"
+	class="autosave-indicator-wrap relative flex items-center gap-1.5 text-primary min-w-[4.2rem] rounded-md"
 	aria-label="Autosave status"
 >
+	{#if hintLabel}
+		<!-- One-shot green flash behind the indicator when a load hint appears.
+		     Keyed on `hintFlashKey` so re-triggering the hint replays the
+		     animation (Svelte tears the keyed block down and remounts). -->
+		{#key hintFlashKey}
+			<span
+				class="autosave-hint-flash absolute inset-0 rounded-md pointer-events-none"
+				aria-hidden="true"
+			></span>
+		{/key}
+	{/if}
 	<Popover
 		bind:isOpen={popoverOpen}
 		placement="bottom-end"
@@ -109,11 +197,11 @@
 		closeOnOutsideClick
 	>
 		{#snippet trigger()}
-			<div class='rounded-md p-1.5 hover:bg-surface-hover cursor-pointer'>
+			<div class="relative rounded-md p-1.5 hover:bg-surface-hover cursor-pointer">
 				{#if syncState === 'saving' || syncState === 'pending'}
 					<RefreshCcw size={14} class="animate-spin" />
 				{:else}
-					<CloudCheck size={16}  />
+					<CloudCheck size={16} />
 				{/if}
 			</div>
 		{/snippet}
@@ -124,6 +212,21 @@
 					All changes are saved as a draft on the server. The draft is per-user — your teammates'
 					editors keep their own.
 				</p>
+				{#if othersDraftsCount > 0}
+					<div class="flex flex-col gap-2 border-t pt-3">
+						<p class="text-primary text-xs">
+							Other users are working on this {kindLabel}.
+						</p>
+						<Button
+							variant="default"
+							size="xs"
+							startIcon={{ icon: Users }}
+							on:click={openOthersDrafts}
+						>
+							See others' drafts
+						</Button>
+					</div>
+				{/if}
 				{#if showResetAction}
 					<Button
 						variant="default"
@@ -136,9 +239,26 @@
 					</Button>
 				{/if}
 			</div>
-		{/snippet} 
+		{/snippet}
 	</Popover>
 	{#if label}
-		<span class="text-secondary text-2xs">{label}</span>
+		<span class="relative text-secondary text-2xs">{label}</span>
 	{/if}
 </div>
+
+<style>
+	/* Light-green fade behind the whole indicator when a load hint appears.
+	   `forwards` keeps the end state (transparent) so the backdrop disappears
+	   cleanly when the keyed wrapper unmounts. */
+	@keyframes autosave-hint-flash-anim {
+		0% {
+			background-color: rgba(34, 197, 94, 0.22);
+		}
+		100% {
+			background-color: transparent;
+		}
+	}
+	.autosave-hint-flash {
+		animation: autosave-hint-flash-anim 1.8s ease-out forwards;
+	}
+</style>

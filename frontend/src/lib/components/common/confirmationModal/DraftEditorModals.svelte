@@ -30,6 +30,10 @@
 		editPathFor: (forkedPath: string) => string
 		onLoadFromServer: () => void | Promise<void>
 		getLocalDraft: () => unknown
+		/** Bindable open-flag for the OtherUsersDraftsModal. The route owns
+		 *  the state (so the AutosaveIndicator popover button can flip it on)
+		 *  and binds it here. */
+		othersModalOpen: boolean
 		/** Defaults to true; set to false to suppress both modals. */
 		enabled?: boolean
 	}
@@ -42,6 +46,7 @@
 		editPathFor,
 		onLoadFromServer,
 		getLocalDraft,
+		othersModalOpen = $bindable(),
 		enabled = true
 	}: Props = $props()
 </script>
@@ -61,6 +66,7 @@
 				currentUserUsername={$userStore?.username}
 				{otherDraftsUsers}
 				{editPathFor}
+				bind:isOpen={othersModalOpen}
 			/>
 		{/key}
 	{/if}

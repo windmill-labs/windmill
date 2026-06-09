@@ -15,7 +15,6 @@
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
 	import { UserDraft } from '$lib/userDraft.svelte'
-	import { notifyDraftLoaded } from '$lib/userDraftToast'
 
 	let app = $state(undefined as (AppWithLastVersion & { value: any }) | undefined)
 	let savedApp:
@@ -37,6 +36,8 @@
 	 * false once a deployed row exists at this path. */
 	let isNewApp = $state(false)
 	let otherDraftsUsers = $state<OtherDraftUser[]>([])
+	let loadedFromDraft = $state(false)
+	let othersModalOpen = $state(false)
 
 	/** Increments per `loadApp` call. Stale loads (e.g. when picker
 	 * navigation races a draft-discard reload) bail at the next checkpoint
@@ -146,17 +147,7 @@
 			backendApp = { ...backendApp, value: savedDraftApp } as typeof backendApp
 		}
 		if (backendApp.is_draft) {
-			notifyDraftLoaded({
-				workspace: $workspaceStore!,
-				itemKind: 'app',
-				path: page.params.path ?? '',
-				draftOnly: backendApp.no_deployed,
-				onResetToDeployed: async () => {
-					UserDraft.remove('app', path)
-					await loadApp({ getDraft: false })
-					redraw++
-				}
-			})
+			loadedFromDraft = true
 		}
 		const backendApp_ = structuredClone(stateSnapshot(backendApp))
 		savedApp = {
@@ -237,6 +228,7 @@
 		redraw++
 	}}
 	getLocalDraft={() => app?.value}
+	bind:othersModalOpen
 />
 
 {#key redraw}
@@ -266,6 +258,9 @@
 					await loadApp({ getDraft: false })
 					redraw++
 				}}
+				{loadedFromDraft}
+				othersDraftsCount={otherDraftsUsers.length}
+				onOpenOthersDrafts={() => (othersModalOpen = true)}
 			/>
 		</div>
 	{/if}

@@ -1,15 +1,15 @@
 <script lang="ts">
 	/**
-	 * Banner-style modal shown on editor mount when the deployed-overlay
-	 * response carries `other_drafts_users` — i.e. someone other than the
-	 * authed user (or the legacy NULL-email row) also has a saved draft at
-	 * this path.
+	 * Modal opened on demand (from the AutosaveIndicator popover or the
+	 * home-page DraftBadge popover) when other workspace users have a
+	 * draft at the same path. The owner list is part of the
+	 * deployed-overlay / list payload; individual drafts are fetched
+	 * on-demand for the "View JSON" / "Fork" actions so the response
+	 * stays lean when many users are working on the same item.
 	 *
-	 * The list of owners is part of the get-by-path payload (so we don't
-	 * fan out a second request just to populate the banner); individual
-	 * drafts are fetched on-demand for the "View JSON" / "Fork" actions so
-	 * the deploy-overlay response stays lean when many users are working
-	 * on the same item.
+	 * The parent controls visibility — bind to `isOpen`. The modal does
+	 * NOT auto-open on mount; that used to surprise users every time
+	 * they opened an item with collaborators.
 	 */
 	import { DraftService, type UserDraftItemKind } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
@@ -37,12 +37,19 @@
 		 *  Different editors live under different roots (`/scripts/edit/`,
 		 *  `/flows/edit/`, ...) so the route owns the URL shape. */
 		editPathFor: (forkedPath: string) => string
+		/** Controlled visibility — bind from the parent. */
+		isOpen: boolean
 	}
 
-	let { workspace, itemKind, path, currentUserUsername, otherDraftsUsers, editPathFor }: Props =
-		$props()
-
-	let isOpen = $state(otherDraftsUsers.length > 0)
+	let {
+		workspace,
+		itemKind,
+		path,
+		currentUserUsername,
+		otherDraftsUsers,
+		editPathFor,
+		isOpen = $bindable()
+	}: Props = $props()
 	let busyFor = $state<string | null>(null)
 	let jsonOpen = $state(false)
 	let jsonOwnerLabel = $state('')
@@ -178,7 +185,7 @@
 		</ul>
 
 		<div class="flex justify-end">
-			<Button variant="default" size="sm" on:click={() => (isOpen = false)}>Continue anyway</Button>
+			<Button variant="default" size="sm" on:click={() => (isOpen = false)}>Close</Button>
 		</div>
 	</div>
 </Modal2>

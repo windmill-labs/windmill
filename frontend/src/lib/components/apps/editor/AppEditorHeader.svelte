@@ -109,6 +109,11 @@
 		// Threaded to the `AutosaveIndicator` popover so its "Reset to
 		// deployed" button can do the same thing the load-time toast offers.
 		onResetToDeployed?: () => void | Promise<void>
+		// See ScriptBuilderProps — same semantics for the app editor's
+		// indicator.
+		loadedFromDraft?: boolean
+		othersDraftsCount?: number
+		onOpenOthersDrafts?: () => void
 	}
 
 	let {
@@ -131,7 +136,10 @@
 		onHideRightPanel,
 		onHideBottomPanel,
 		onNavigate = undefined,
-		onResetToDeployed
+		onResetToDeployed,
+		loadedFromDraft = false,
+		othersDraftsCount = 0,
+		onOpenOthersDrafts
 	}: Props = $props()
 
 	/** Mirror of the path the user is editing in the pen popover. Initialized
@@ -950,6 +958,9 @@
 					path={userDraftPath}
 					draftOnly={newApp}
 					{onResetToDeployed}
+					{loadedFromDraft}
+					{othersDraftsCount}
+					{onOpenOthersDrafts}
 				/>
 			</div>
 		{/if}

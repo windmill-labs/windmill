@@ -167,6 +167,11 @@ export interface AppEditorProps {
 	// popover so its "Reset to deployed" button can do the same thing
 	// the load-time toast offers.
 	onResetToDeployed?: () => void | Promise<void>
+	// See ScriptBuilderProps — same semantics for the app editor's
+	// indicator. Threaded through AppEditorHeader.
+	loadedFromDraft?: boolean
+	othersDraftsCount?: number
+	onOpenOthersDrafts?: () => void
 }
 
 export type App = {
