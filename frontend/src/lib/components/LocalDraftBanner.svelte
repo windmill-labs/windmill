@@ -31,6 +31,15 @@
 		title = 'Deployed <> Local changes'
 	}: Props = $props()
 
+	// Suppress the banner when there's no deployed baseline to diff
+	// against — a brand-new entity (variable/resource/trigger with no
+	// deployed row yet) has deployed == null, so "Show diff" would do
+	// nothing (the drawer early-returns) and "Discard changes" is
+	// semantically backwards (there's nothing to revert to). The
+	// callers' own `show` is computed off `current != deployed` which
+	// is trivially true in that case, so the gate has to live here.
+	let visible = $derived(show && getDeployed() != null)
+
 	let diffDrawer: DiffDrawer | undefined = $state()
 
 	function showDiff() {
@@ -66,7 +75,7 @@
 
 <DiffDrawer bind:this={diffDrawer} />
 
-{#if show}
+{#if visible}
 	<div
 		transition:slide|local={{ duration: 120 }}
 		class={twMerge(
