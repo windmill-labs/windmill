@@ -57,7 +57,8 @@
 		Play,
 		RotateCcw,
 		TriangleAlert,
-		X
+		X,
+		Zap
 	} from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import Popover from '$lib/components/Popover.svelte'
@@ -120,6 +121,21 @@
 		nats: 'Verify NATS connection from the importing instance.',
 		gcp: 'Re-link GCP Pub/Sub subscription after import.',
 		azure: 'Re-link Azure Event Grid subscription after import.'
+	}
+	// Per-kind config field holding the resource path a trigger depends on.
+	const TRIGGER_RESOURCE_FIELD: Partial<Record<TriggerKindLabel, string>> = {
+		kafka: 'kafka_resource_path',
+		nats: 'nats_resource_path',
+		sqs: 'aws_resource_path',
+		mqtt: 'mqtt_resource_path',
+		gcp: 'gcp_resource_path',
+		azure: 'azure_resource_path',
+		postgres: 'postgres_resource_path'
+	}
+	function triggerResourcePath(t: WorkspaceTrigger): string | undefined {
+		const field = TRIGGER_RESOURCE_FIELD[t.kind]
+		const v = field ? (t.config as any)?.[field] : undefined
+		return typeof v === 'string' && v !== '' ? v : undefined
 	}
 
 	let phase = $state<Phase>('predeploy')
@@ -505,11 +521,11 @@
 			case 'kafka':
 				push('Resource', c.kafka_resource_path)
 				push('Group', c.group_id)
-				push('Topics', (c.topics ?? []).join(', '))
+				push('Topics', (Array.isArray(c.topics) ? c.topics : []).join(', '))
 				break
 			case 'nats':
 				push('Resource', c.nats_resource_path)
-				push('Subjects', (c.subjects ?? []).join(', '))
+				push('Subjects', (Array.isArray(c.subjects) ? c.subjects : []).join(', '))
 				push('Jetstream', c.use_jetstream)
 				break
 			case 'sqs':
@@ -518,7 +534,12 @@
 				break
 			case 'mqtt':
 				push('Resource', c.mqtt_resource_path)
-				push('Topics', (c.subscribe_topics ?? []).map((x: any) => x?.topic ?? x).join(', '))
+				push(
+					'Topics',
+					(Array.isArray(c.subscribe_topics) ? c.subscribe_topics : [])
+						.map((x: any) => x?.topic ?? x)
+						.join(', ')
+				)
 				break
 			case 'gcp':
 				push('Resource', c.gcp_resource_path)
@@ -535,7 +556,7 @@
 				push('Publication', c.publication_name)
 				break
 			case 'email':
-				push('Local part', c.local_part)
+				push('Email prefix', c.local_part ? `${c.local_part}@…` : undefined)
 				break
 		}
 		return out
@@ -824,15 +845,20 @@
 		return out
 	}
 
-	async function pushTriggers(workspace: string, slug: string): Promise<void> {
-		if (relevantTriggers.length === 0) return
+	async function pushTriggers(
+		workspace: string,
+		slug: string,
+		resourcePathMap: Map<string, string>,
+		relevant: WorkspaceTrigger[]
+	): Promise<void> {
+		if (relevant.length === 0) return
 		const pathMap = buildPathMap(
-			relevantTriggers.map((t) => t.path),
+			relevant.map((t) => t.path),
 			slug
 		)
 		const triggers: Array<Record<string, unknown>> = []
 		const skipped: string[] = []
-		for (const t of relevantTriggers) {
+		for (const t of relevant) {
 			const itemKind: ItemKind = t.is_flow ? 'flow' : 'script'
 			const runnableKey = `${itemKind}:${t.script_path}`
 			const hubId = hubItemIds[runnableKey]
@@ -840,12 +866,17 @@
 				skipped.push(t.path)
 				continue
 			}
+			const config = stripTriggerConfig(t.config)
+			const field = TRIGGER_RESOURCE_FIELD[t.kind]
+			if (field && typeof config[field] === 'string') {
+				config[field] = resourcePathMap.get(config[field] as string) ?? config[field]
+			}
 			triggers.push({
 				path: pathMap.get(t.path) ?? t.path,
 				kind: t.kind,
 				summary: t.summary ?? null,
 				description: (t.config as any)?.description ?? null,
-				config: stripTriggerConfig(t.config),
+				config,
 				script_ask_id: t.is_flow ? null : hubId,
 				flow_id: t.is_flow ? hubId : null
 			})
@@ -903,6 +934,7 @@
 	type DependencyUsage =
 		| { role: 'input'; label: string; kind: ItemKind; itemPath: string }
 		| { role: 'hardcoded'; label: string; kind: ItemKind; path: string; itemPath: string }
+		| { role: 'trigger'; label: string; triggerKind: TriggerKindLabel; path: string }
 	interface DependencyType {
 		resource_type: string
 		hasHardcoded: boolean
@@ -947,6 +979,19 @@
 				ensure(t).usages.push({ role: 'input', label, kind: it.kind, itemPath: it.path })
 			}
 		}
+		// Resources referenced only by a trigger (no item uses them in code).
+		const stubByOriginal = new Map(b.resourceStubs.map((s) => [s.originalPath, s]))
+		for (const t of relevantTriggers) {
+			const rp = triggerResourcePath(t)
+			const stub = rp ? stubByOriginal.get(rp) : undefined
+			if (!stub || HIDDEN_RESOURCE_TYPES.has(stub.resource_type)) continue
+			ensure(stub.resource_type).usages.push({
+				role: 'trigger',
+				label: t.summary?.trim() || t.path,
+				triggerKind: t.kind,
+				path: stub.originalPath
+			})
+		}
 		return [...byType.values()].sort((a, b) => a.resource_type.localeCompare(b.resource_type))
 	})
 
@@ -963,7 +1008,10 @@
 		const seed: ItemRef[] = selectedItems
 			.filter((i) => i.kind !== 'resource')
 			.map((i) => ({ kind: i.kind as ItemRef['kind'], path: i.path }))
-		buildProjectBundle(seed, slug, buildBundleDeps(workspace))
+		const triggerResources = relevantTriggers
+			.map(triggerResourcePath)
+			.filter((p): p is string => !!p)
+		buildProjectBundle(seed, slug, buildBundleDeps(workspace), triggerResources)
 			.then((b) => {
 				if (!cancelled) bundlePreview = b
 			})
@@ -1014,13 +1062,25 @@
 		// Snapshot the selection up-front so a folder switch mid-deploy can't
 		// rewrite draftItems on success.
 		const itemsSnapshot = selectedItems.slice()
+		const triggersSnapshot = relevantTriggers.slice()
 		deploying = true
 		let failures = 0
 		try {
 			const seed: ItemRef[] = itemsSnapshot
 				.filter((i) => i.kind !== 'resource')
 				.map((i) => ({ kind: i.kind as ItemRef['kind'], path: i.path }))
-			const bundle = await buildProjectBundle(seed, slug, buildBundleDeps(workspace))
+			const triggerResources = triggersSnapshot
+				.map(triggerResourcePath)
+				.filter((p): p is string => !!p)
+			const bundle = await buildProjectBundle(
+				seed,
+				slug,
+				buildBundleDeps(workspace),
+				triggerResources
+			)
+			// Full path map (incl. unresolved) so a trigger's resource path is always
+			// relocated — never leaks the publisher's original private path to the Hub.
+			const resourcePathMap = bundle.pathMap
 
 			if (bundle.unresolved.length > 0) {
 				sendUserToast(
@@ -1094,7 +1154,7 @@
 				}
 			}
 			try {
-				await pushTriggers(workspace, slug)
+				await pushTriggers(workspace, slug, resourcePathMap, triggersSnapshot)
 			} catch (e: any) {
 				sendUserToast(`Trigger sync failed: ${e?.message ?? e}`, true)
 				failures++
@@ -2022,59 +2082,71 @@
 							</span>
 						</div>
 						<div class="flex flex-col gap-3">
-							{#each r.usages as u (u.role + ':' + u.label + ':' + (u.role === 'hardcoded' ? u.path : ''))}
-								{@const itemUrl = openItemUrl(u.kind, u.itemPath)}
-								<div class="flex flex-col gap-1 text-xs">
-									<div class="flex items-center gap-2">
-										{#if u.kind === 'script'}
-											<Code2 size={14} class="shrink-0 text-hint" />
-										{:else if u.kind === 'flow'}
-											<BarsStaggered size={14} class="shrink-0 text-hint" />
-										{:else}
-											<LayoutDashboard size={14} class="shrink-0 text-hint" />
-										{/if}
+							{#each r.usages as u, ui (ui)}
+								{#if u.role === 'trigger'}
+									<div class="flex items-center gap-2 text-xs">
+										<Zap size={14} class="shrink-0 text-hint" />
 										<span class="break-all font-mono text-primary">{u.label}</span>
 										<span
-											class="ml-auto inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide {u.role ===
-											'hardcoded'
-												? 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200'
-												: 'bg-surface text-secondary'}"
+											class="ml-auto inline-flex shrink-0 items-center gap-1 rounded bg-surface px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-secondary"
 										>
-											{u.role === 'hardcoded' ? 'hardcoded path' : 'input'}
-											{#if u.role === 'hardcoded'}
-												<Popover notClickable placement="top">
-													<Info size={11} class="text-amber-600 dark:text-amber-400" />
-													{#snippet text()}
-														<div
-															class="flex w-80 max-w-[90vw] flex-col gap-2 text-left text-[11px] normal-case"
-														>
-															<span>
-																This {u.kind} references the resource by a hardcoded path
-																<span class="break-all font-mono">$res:{u.path}</span>.
-															</span>
-															<span class="text-hint">
-																For portability, prefer taking the resource as an input — a fork
-																won't have this exact path. It's relocated into the project on
-																publish, but converting it to an input keeps the item reusable.
-															</span>
-														</div>
-													{/snippet}
-												</Popover>
-											{/if}
+											{TRIGGER_KIND_BADGE[u.triggerKind]} trigger
 										</span>
-										{#if itemUrl}
-											<a
-												href={itemUrl}
-												target="_blank"
-												rel="noopener"
-												title="Open {u.kind} in new tab"
-												class="shrink-0 text-hint hover:text-primary"
-											>
-												<ExternalLink size={12} />
-											</a>
-										{/if}
 									</div>
-								</div>
+								{:else}
+									{@const itemUrl = openItemUrl(u.kind, u.itemPath)}
+									<div class="flex flex-col gap-1 text-xs">
+										<div class="flex items-center gap-2">
+											{#if u.kind === 'script'}
+												<Code2 size={14} class="shrink-0 text-hint" />
+											{:else if u.kind === 'flow'}
+												<BarsStaggered size={14} class="shrink-0 text-hint" />
+											{:else}
+												<LayoutDashboard size={14} class="shrink-0 text-hint" />
+											{/if}
+											<span class="break-all font-mono text-primary">{u.label}</span>
+											<span
+												class="ml-auto inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide {u.role ===
+												'hardcoded'
+													? 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200'
+													: 'bg-surface text-secondary'}"
+											>
+												{u.role === 'hardcoded' ? 'hardcoded path' : 'input'}
+												{#if u.role === 'hardcoded'}
+													<Popover notClickable placement="top">
+														<Info size={11} class="text-amber-600 dark:text-amber-400" />
+														{#snippet text()}
+															<div
+																class="flex w-80 max-w-[90vw] flex-col gap-2 text-left text-[11px] normal-case"
+															>
+																<span>
+																	This {u.kind} references the resource by a hardcoded path
+																	<span class="break-all font-mono">$res:{u.path}</span>.
+																</span>
+																<span class="text-hint">
+																	For portability, prefer taking the resource as an input — a fork
+																	won't have this exact path. It's relocated into the project on
+																	publish, but converting it to an input keeps the item reusable.
+																</span>
+															</div>
+														{/snippet}
+													</Popover>
+												{/if}
+											</span>
+											{#if itemUrl}
+												<a
+													href={itemUrl}
+													target="_blank"
+													rel="noopener"
+													title="Open {u.kind} in new tab"
+													class="shrink-0 text-hint hover:text-primary"
+												>
+													<ExternalLink size={12} />
+												</a>
+											{/if}
+										</div>
+									</div>
+								{/if}
 							{/each}
 						</div>
 					</div>

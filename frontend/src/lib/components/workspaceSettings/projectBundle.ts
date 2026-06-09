@@ -213,6 +213,8 @@ export interface ResourceStub {
 export interface ProjectBundle {
 	items: BundledItem[]
 	resourceStubs: ResourceStub[]
+	/** Original -> relocated path for every item and resource (incl. unresolved). */
+	pathMap: Map<string, string>
 	/** External paths we couldn't fetch/resolve (missing items or untyped resources). */
 	unresolved: string[]
 }
@@ -230,13 +232,19 @@ function refsForFetched(item: FetchedItem): Ref[] {
 export async function buildProjectBundle(
 	seed: ItemRef[],
 	slug: string,
-	deps: BundleDeps
+	deps: BundleDeps,
+	extraResourcePaths: string[] = []
 ): Promise<ProjectBundle> {
 	const fetched = new Map<string, FetchedItem>()
 	const queued = new Set<string>(seed.map((s) => s.path))
 	const queue: ItemRef[] = [...seed]
 	const resourcePaths = new Set<string>()
 	const unresolved: string[] = []
+
+	// Resources referenced by triggers (by config path, not `$res:` in code).
+	for (const p of extraResourcePaths) {
+		if (classifyPath(p, slug) !== 'hub') resourcePaths.add(p)
+	}
 
 	while (queue.length > 0) {
 		const ref = queue.shift()!
@@ -286,5 +294,5 @@ export async function buildProjectBundle(
 		resourceStubs.push({ originalPath: path, newPath: map.get(path) ?? path, resource_type: type })
 	}
 
-	return { items, resourceStubs, unresolved }
+	return { items, resourceStubs, pathMap: map, unresolved }
 }
