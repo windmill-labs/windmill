@@ -242,7 +242,7 @@
 		{/snippet}
 	</Popover>
 	{#if label}
-		<span class="relative text-secondary text-2xs">{label}</span>
+		<span class="relative text-secondary text-2xs pr-1.5">{label}</span>
 	{/if}
 </div>
 
