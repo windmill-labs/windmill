@@ -1,0 +1,173 @@
+import { describe, expect, it } from 'vitest'
+import { buildLineIndex, readFile, searchFiles, isTextFile, type FileEntry } from './fileEngine'
+
+function makeFile(content: string | Uint8Array, name = 'f.txt'): File {
+	return new File([content as BlobPart], name)
+}
+
+async function makeEntry(content: string, name = 'f.txt'): Promise<FileEntry> {
+	const file = makeFile(content, name)
+	const { lineIndex, lineCount } = await buildLineIndex(file)
+	return { name, file, lineIndex, lineCount }
+}
+
+describe('buildLineIndex', () => {
+	it('counts lines without a trailing newline', async () => {
+		const { lineIndex, lineCount } = await buildLineIndex(makeFile('a\nb'))
+		expect(lineCount).toBe(2)
+		expect(lineIndex).toEqual([0, 2])
+	})
+
+	it('does not count a single trailing newline as an extra line', async () => {
+		const { lineIndex, lineCount } = await buildLineIndex(makeFile('a\nb\n'))
+		expect(lineCount).toBe(2)
+		expect(lineIndex).toEqual([0, 2])
+	})
+
+	it('handles an empty file', async () => {
+		const { lineIndex, lineCount } = await buildLineIndex(makeFile(''))
+		expect(lineCount).toBe(0)
+		expect(lineIndex).toEqual([])
+	})
+
+	it('handles CRLF line endings (offsets by byte)', async () => {
+		// bytes: a=0 \r=1 \n=2 b=3 → line starts at 0 and 3
+		const { lineIndex, lineCount } = await buildLineIndex(makeFile('a\r\nb'))
+		expect(lineCount).toBe(2)
+		expect(lineIndex).toEqual([0, 3])
+	})
+
+	it('counts lines correctly across stream chunk boundaries', async () => {
+		const lines = Array.from({ length: 5000 }, (_, i) => `line ${i}`)
+		const { lineCount } = await buildLineIndex(makeFile(lines.join('\n')))
+		expect(lineCount).toBe(5000)
+	})
+})
+
+describe('readFile', () => {
+	it('reads a bounded window and reports pagination', async () => {
+		const entry = await makeEntry('l1\nl2\nl3')
+		const res = await readFile(entry, { startLine: 1, endLine: 2 })
+		expect(res.text).toBe('l1\nl2\n')
+		expect(res.startLine).toBe(1)
+		expect(res.endLine).toBe(2)
+		expect(res.totalLines).toBe(3)
+		expect(res.truncated).toBe(true)
+		expect(res.note).toContain('start_line=3')
+	})
+
+	it('reads the final line to end of file', async () => {
+		const entry = await makeEntry('l1\nl2\nl3')
+		const res = await readFile(entry, { startLine: 3 })
+		expect(res.text).toBe('l3')
+		expect(res.truncated).toBe(false)
+	})
+
+	it('clamps the window to maxLines', async () => {
+		const entry = await makeEntry(Array.from({ length: 100 }, (_, i) => `l${i}`).join('\n'))
+		const res = await readFile(entry, { startLine: 1, maxLines: 10 })
+		expect(res.endLine).toBe(10)
+		expect(res.truncated).toBe(true)
+	})
+
+	it('char-caps a degenerate single long line', async () => {
+		const entry = await makeEntry('x'.repeat(10000))
+		const res = await readFile(entry, { maxChars: 8000 })
+		expect(res.text.length).toBe(8000)
+		expect(res.truncated).toBe(true)
+		expect(res.note).toContain('8000 characters')
+	})
+
+	it('clamps a start line beyond the end', async () => {
+		const entry = await makeEntry('l1\nl2')
+		const res = await readFile(entry, { startLine: 99 })
+		expect(res.startLine).toBe(2)
+		expect(res.text).toBe('l2')
+	})
+
+	it('returns empty for an empty file', async () => {
+		const entry = await makeEntry('')
+		const res = await readFile(entry)
+		expect(res.text).toBe('')
+		expect(res.totalLines).toBe(0)
+	})
+})
+
+describe('searchFiles', () => {
+	it('finds matches with 1-based line numbers', async () => {
+		const entry = await makeEntry('alpha\nbeta\ngamma beta')
+		const res = await searchFiles([entry], 'beta')
+		expect(res.error).toBeUndefined()
+		expect(res.hits).toEqual([
+			{ file: 'f.txt', line: 2, text: 'beta' },
+			{ file: 'f.txt', line: 3, text: 'gamma beta' }
+		])
+	})
+
+	it('searches across multiple files', async () => {
+		const a = await makeEntry('needle here', 'a.txt')
+		const b = await makeEntry('nope\nneedle', 'b.txt')
+		const res = await searchFiles([a, b], 'needle')
+		expect(res.hits.map((h) => `${h.file}:${h.line}`)).toEqual(['a.txt:1', 'b.txt:2'])
+	})
+
+	it('restricts to a single file with pathFilter', async () => {
+		const a = await makeEntry('needle', 'a.txt')
+		const b = await makeEntry('needle', 'b.txt')
+		const res = await searchFiles([a, b], 'needle', { pathFilter: 'b.txt' })
+		expect(res.hits).toEqual([{ file: 'b.txt', line: 1, text: 'needle' }])
+	})
+
+	it('reports an unknown pathFilter as an error', async () => {
+		const a = await makeEntry('needle', 'a.txt')
+		const res = await searchFiles([a], 'needle', { pathFilter: 'missing.txt' })
+		expect(res.error).toContain('missing.txt')
+	})
+
+	it('truncates at maxHits', async () => {
+		const entry = await makeEntry(Array.from({ length: 10 }, () => 'match').join('\n'))
+		const res = await searchFiles([entry], 'match', { maxHits: 3 })
+		expect(res.hits.length).toBe(3)
+		expect(res.truncated).toBe(true)
+	})
+
+	it('supports case-insensitive flags', async () => {
+		const entry = await makeEntry('Hello\nworld')
+		const res = await searchFiles([entry], 'hello', { flags: 'i' })
+		expect(res.hits).toEqual([{ file: 'f.txt', line: 1, text: 'Hello' }])
+	})
+
+	it('strips trailing CR from matched CRLF lines', async () => {
+		const entry = await makeEntry('foo\r\nbar')
+		const res = await searchFiles([entry], 'foo')
+		expect(res.hits).toEqual([{ file: 'f.txt', line: 1, text: 'foo' }])
+	})
+
+	it('returns a friendly error for an invalid regex', async () => {
+		const entry = await makeEntry('anything')
+		const res = await searchFiles([entry], '(')
+		expect(res.error).toContain('Invalid regex')
+		expect(res.hits).toEqual([])
+	})
+
+	it('matches across stream chunk boundaries', async () => {
+		const lines = Array.from({ length: 5000 }, (_, i) => (i === 4999 ? 'TARGET' : `line ${i}`))
+		const entry = await makeEntry(lines.join('\n'))
+		const res = await searchFiles([entry], 'TARGET')
+		expect(res.hits).toEqual([{ file: 'f.txt', line: 5000, text: 'TARGET' }])
+	})
+})
+
+describe('isTextFile', () => {
+	it('accepts UTF-8 text', async () => {
+		expect(await isTextFile(makeFile('hello © world'))).toBe(true)
+	})
+
+	it('accepts an empty file', async () => {
+		expect(await isTextFile(makeFile(''))).toBe(true)
+	})
+
+	it('rejects content with NUL bytes', async () => {
+		expect(await isTextFile(makeFile(new Uint8Array([104, 0, 105]), 'b.bin'))).toBe(false)
+	})
+})

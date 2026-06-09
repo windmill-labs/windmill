@@ -41,6 +41,8 @@
 	import QueuedMessageChip from './QueuedMessageChip.svelte'
 	import { getModifierKey } from '$lib/utils'
 	import type { SelectedContext } from './app/core'
+	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
 	const aiChatManager = getAiChatManager()
@@ -252,6 +254,51 @@
 			aiChatManager.mode === AIMode.GLOBAL ||
 			aiChatManager.mode === AIMode.APP
 	)
+
+	// File attachment is GLOBAL-mode only.
+	const canAttachFiles = $derived(aiChatManager.mode === AIMode.GLOBAL && !disabled)
+	let fileInputEl = $state<HTMLInputElement | null>(null)
+	let dragDepth = $state(0)
+	const isDraggingFiles = $derived(dragDepth > 0)
+
+	async function handleAddFiles(files: FileList | File[]) {
+		const { rejected } = await aiChatManager.attachedFiles.addFiles(files)
+		for (const r of rejected) {
+			sendUserToast(`Could not attach "${r.name}": ${r.reason}`, true)
+		}
+	}
+
+	function dragHasFiles(e: DragEvent): boolean {
+		return Array.from(e.dataTransfer?.types ?? []).includes('Files')
+	}
+
+	function onPanelDragEnter(e: DragEvent) {
+		if (!canAttachFiles || !dragHasFiles(e)) return
+		e.preventDefault()
+		dragDepth++
+	}
+	function onPanelDragOver(e: DragEvent) {
+		if (!canAttachFiles || !dragHasFiles(e)) return
+		e.preventDefault()
+		if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+	}
+	function onPanelDragLeave(e: DragEvent) {
+		if (!canAttachFiles) return
+		dragDepth = Math.max(0, dragDepth - 1)
+	}
+	function onPanelDrop(e: DragEvent) {
+		dragDepth = 0
+		if (!canAttachFiles || !dragHasFiles(e)) return
+		e.preventDefault()
+		const files = e.dataTransfer?.files
+		if (files && files.length > 0) void handleAddFiles(files)
+	}
+
+	function onFileInputChange(e: Event) {
+		const input = e.currentTarget as HTMLInputElement
+		if (input.files && input.files.length > 0) void handleAddFiles(input.files)
+		input.value = '' // allow re-selecting the same file
+	}
 	const availableAutonomyModeOptions = $derived.by(() =>
 		autonomyModeOptions.filter((option) =>
 			isAutonomyModeAvailable(
@@ -339,7 +386,28 @@
 
 <!-- tabindex="-1": clicks on non-focusable chat content must move focus into
 the panel, or the Escape-to-stop focus check would wrongly reject them. -->
-<div class="flex flex-col h-full outline-none" tabindex="-1" bind:this={panelEl}>
+<div
+	class="flex flex-col h-full relative outline-none"
+	tabindex="-1"
+	bind:this={panelEl}
+	ondragenter={onPanelDragEnter}
+	ondragover={onPanelDragOver}
+	ondragleave={onPanelDragLeave}
+	ondrop={onPanelDrop}
+	role="region"
+	aria-label="AI chat"
+>
+	{#if isDraggingFiles}
+		<div
+			class="absolute inset-0 z-50 flex items-center justify-center pointer-events-none rounded-md border-2 border-dashed border-blue-400 bg-blue-500/10"
+			transition:fade={{ duration: 100 }}
+		>
+			<div class="flex flex-col items-center gap-1 text-blue-600 dark:text-blue-300">
+				<Plus size={24} />
+				<span class="text-sm font-medium">Drop files to attach</span>
+			</div>
+		</div>
+	{/if}
 	{#if !hideHeader}
 		<div
 			class="flex flex-row items-center justify-between gap-2 p-2 border-b border-gray-200 dark:border-gray-600"
@@ -540,6 +608,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			{/if}
 			<ContextUsageIndicator />
 
+			{#if aiChatManager.mode === AIMode.GLOBAL}
+				<AttachedFilesBar />
+			{/if}
 			<AIChatInput
 				bind:this={aiChatInput}
 				bind:selectedContext
@@ -599,6 +670,24 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 									{/if}
 								{/snippet}
 							</Popover>
+						{/if}
+						{#if canAttachFiles}
+							<Button
+								nonCaptureEvent
+								unifiedSize="2xs"
+								variant="default"
+								title="Attach files"
+								iconOnly
+								startIcon={{ icon: Plus }}
+								onclick={() => fileInputEl?.click()}
+							/>
+							<input
+								bind:this={fileInputEl}
+								type="file"
+								multiple
+								class="hidden no-default-style"
+								onchange={onFileInputChange}
+							/>
 						{/if}
 						{#if showAutonomyModeSelector}
 							<DropdownV2

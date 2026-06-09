@@ -74,6 +74,8 @@ import {
 } from '../shared'
 import type { ContextElement } from '../context'
 import { getDatatableTools } from '../datatableTools'
+import { fileTools } from '../files/fileTools'
+import type { AttachedFilesStore } from '../files/attachedFiles.svelte'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
 import { inferArgs } from '$lib/infer'
@@ -2084,7 +2086,9 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	// Workspace-scoped datatable tools (unrestricted: no whitelist, no creation policy)
-	...getDatatableTools()
+	...getDatatableTools(),
+	// Read-only tools over files the user attached to the conversation
+	...fileTools
 ]
 
 // Tools that only make sense inside an AI session (they drive the session's
@@ -2131,6 +2135,7 @@ type WriteDraftCtx = {
 export type SessionToolHelpers = { sessionId?: string }
 export type GlobalToolHelpers = SessionToolHelpers & {
 	testActiveFlow?: (args?: Record<string, any>) => Promise<string | undefined>
+	attachedFiles?: AttachedFilesStore
 }
 
 function sessionIdFromCtx(ctx: { helpers?: unknown }): string | undefined {

@@ -1,0 +1,315 @@
+/**
+ * Storage-agnostic streaming engine for reading and searching attached files.
+ *
+ * Files are kept as `File` handles (lazy references to bytes on disk). Nothing is
+ * decoded into the JS heap wholesale: we stream in chunks, so a large file never
+ * freezes the tab or blows up memory. The only per-file state held in RAM is a
+ * line-offset index (a flat array of byte offsets, ~8 bytes per line).
+ *
+ * Line semantics match `String.split('\n')` except a single trailing newline does
+ * NOT add an empty final line (so "a\nb\n" is 2 lines, like `wc -l`). Lines are
+ * 1-based in the public read/search API.
+ */
+
+/** Minimal shape the engine needs. The attached-files store extends this with reactive status. */
+export interface FileEntry {
+	name: string
+	file: File
+	lineIndex: number[]
+	lineCount: number
+}
+
+const CHUNK_NEWLINE = 0x0a // '\n' — in UTF-8 this byte never appears inside a multibyte sequence
+
+export const DEFAULT_READ_MAX_LINES = 200
+export const DEFAULT_READ_MAX_CHARS = 8000
+export const DEFAULT_SEARCH_MAX_HITS = 50
+/** Per-line cap when testing the regex, to bound catastrophic backtracking on degenerate long lines. */
+export const DEFAULT_SEARCH_LINE_SCAN_CAP = 100_000
+/** How much of a matching line we echo back, to keep search results bounded. */
+export const DEFAULT_SEARCH_LINE_ECHO_CAP = 500
+
+/**
+ * Stream the file once and record the byte offset at which each line starts.
+ * Scans raw bytes for '\n' (no decode needed — 0x0A is unambiguous in UTF-8).
+ */
+export async function buildLineIndex(
+	file: File
+): Promise<{ lineIndex: number[]; lineCount: number }> {
+	const fileSize = file.size
+	if (fileSize === 0) {
+		return { lineIndex: [], lineCount: 0 }
+	}
+
+	const lineIndex: number[] = [0]
+	let offset = 0
+	const reader = file.stream().getReader()
+	try {
+		while (true) {
+			const { done, value } = await reader.read()
+			if (done) break
+			const chunk = value as Uint8Array
+			for (let i = 0; i < chunk.length; i++) {
+				if (chunk[i] === CHUNK_NEWLINE) {
+					lineIndex.push(offset + i + 1)
+				}
+			}
+			offset += chunk.length
+		}
+	} finally {
+		reader.releaseLock()
+	}
+
+	// A trailing newline points one past the end (a phantom empty line) — drop it.
+	if (lineIndex.length > 1 && lineIndex[lineIndex.length - 1] === fileSize) {
+		lineIndex.pop()
+	}
+
+	return { lineIndex, lineCount: lineIndex.length }
+}
+
+export interface ReadResult {
+	text: string
+	startLine: number
+	endLine: number
+	totalLines: number
+	truncated: boolean
+	note: string
+}
+
+/**
+ * Read a bounded window of lines, reading only the relevant byte range from disk.
+ * Clamps the window to `maxLines` and the returned text to `maxChars` (protects
+ * against degenerate single-line files). Returns a self-describing pagination note.
+ */
+export async function readFile(
+	entry: FileEntry,
+	opts: {
+		startLine?: number
+		endLine?: number
+		maxLines?: number
+		maxChars?: number
+	} = {}
+): Promise<ReadResult> {
+	const totalLines = entry.lineCount
+	const maxLines = opts.maxLines ?? DEFAULT_READ_MAX_LINES
+	const maxChars = opts.maxChars ?? DEFAULT_READ_MAX_CHARS
+
+	if (totalLines === 0) {
+		return {
+			text: '',
+			startLine: 0,
+			endLine: 0,
+			totalLines: 0,
+			truncated: false,
+			note: 'File is empty.'
+		}
+	}
+
+	let start = opts.startLine ?? 1
+	if (start < 1) start = 1
+	if (start > totalLines) start = totalLines
+
+	const requestedEnd = opts.endLine ?? start + maxLines - 1
+	let end = requestedEnd
+	if (end < start) end = start
+	const cappedByLines = end - start + 1 > maxLines
+	if (cappedByLines) end = start + maxLines - 1
+	if (end > totalLines) end = totalLines
+
+	const byteStart = entry.lineIndex[start - 1]
+	const byteEnd = end < totalLines ? entry.lineIndex[end] : entry.file.size
+
+	let text: string
+	try {
+		text = await entry.file.slice(byteStart, byteEnd).text()
+	} catch (e) {
+		throw new FileReadError(entry.name, e instanceof Error ? e.message : String(e))
+	}
+
+	let cappedByChars = false
+	if (text.length > maxChars) {
+		text = text.slice(0, maxChars)
+		cappedByChars = true
+	}
+
+	const moreLinesAfter = end < totalLines
+	const truncated = moreLinesAfter || cappedByChars
+
+	let note = `Showing lines ${start}-${end} of ${totalLines}.`
+	if (cappedByChars) {
+		note += ` Output truncated to ${maxChars} characters (line(s) very long).`
+	}
+	if (moreLinesAfter) {
+		note += ` Call read_file again with start_line=${end + 1} for more.`
+	}
+
+	return { text, startLine: start, endLine: end, totalLines, truncated, note }
+}
+
+export interface SearchHit {
+	file: string
+	line: number
+	text: string
+}
+
+export interface SearchResult {
+	hits: SearchHit[]
+	truncated: boolean
+	error?: string
+}
+
+/**
+ * Run a regex across one or more files, streaming each (no full-file load), and
+ * return matching lines with 1-based line numbers. Stops at `maxHits`.
+ */
+export async function searchFiles(
+	entries: FileEntry[],
+	pattern: string,
+	opts: {
+		flags?: string
+		pathFilter?: string
+		maxHits?: number
+		lineScanCap?: number
+		lineEchoCap?: number
+	} = {}
+): Promise<SearchResult> {
+	const maxHits = opts.maxHits ?? DEFAULT_SEARCH_MAX_HITS
+	const lineScanCap = opts.lineScanCap ?? DEFAULT_SEARCH_LINE_SCAN_CAP
+	const lineEchoCap = opts.lineEchoCap ?? DEFAULT_SEARCH_LINE_ECHO_CAP
+
+	let regex: RegExp
+	try {
+		regex = new RegExp(pattern, opts.flags ?? '')
+	} catch (e) {
+		return {
+			hits: [],
+			truncated: false,
+			error: `Invalid regex: ${e instanceof Error ? e.message : String(e)}`
+		}
+	}
+
+	const targets = opts.pathFilter ? entries.filter((e) => e.name === opts.pathFilter) : entries
+	if (opts.pathFilter && targets.length === 0) {
+		return { hits: [], truncated: false, error: `No attached file named "${opts.pathFilter}".` }
+	}
+
+	const hits: SearchHit[] = []
+	let truncated = false
+
+	for (const entry of targets) {
+		if (hits.length >= maxHits) {
+			truncated = true
+			break
+		}
+		try {
+			await streamLines(entry.file, (line, lineNo) => {
+				// Bound backtracking on pathological long lines by only testing a prefix.
+				const scanned = line.length > lineScanCap ? line.slice(0, lineScanCap) : line
+				if (regex.test(scanned)) {
+					hits.push({
+						file: entry.name,
+						line: lineNo,
+						text: line.length > lineEchoCap ? line.slice(0, lineEchoCap) + '…' : line
+					})
+				}
+				return hits.length < maxHits // continue?
+			})
+		} catch (e) {
+			return {
+				hits,
+				truncated,
+				error: `Error reading "${entry.name}": ${e instanceof Error ? e.message : String(e)}`
+			}
+		}
+		if (hits.length >= maxHits) {
+			truncated = true
+			break
+		}
+	}
+
+	return { hits, truncated }
+}
+
+export class FileReadError extends Error {
+	constructor(
+		public fileName: string,
+		message: string
+	) {
+		super(message)
+		this.name = 'FileReadError'
+	}
+}
+
+/**
+ * Stream a file and invoke `onLine` for each line (1-based). A trailing newline
+ * does not produce an empty final line. `onLine` returns false to stop early.
+ * A trailing '\r' (CRLF) is stripped before the callback.
+ */
+async function streamLines(
+	file: File,
+	onLine: (line: string, lineNo: number) => boolean
+): Promise<void> {
+	const reader = file.stream().getReader()
+	const decoder = new TextDecoder('utf-8')
+	let buffer = ''
+	let lineNo = 0
+	try {
+		while (true) {
+			const { done, value } = await reader.read()
+			if (done) {
+				buffer += decoder.decode()
+				break
+			}
+			buffer += decoder.decode(value as Uint8Array, { stream: true })
+			let start = 0
+			let nlIdx: number
+			while ((nlIdx = buffer.indexOf('\n', start)) !== -1) {
+				let line = buffer.slice(start, nlIdx)
+				if (line.endsWith('\r')) line = line.slice(0, -1)
+				start = nlIdx + 1
+				lineNo++
+				if (!onLine(line, lineNo)) return
+			}
+			buffer = buffer.slice(start)
+		}
+		if (buffer.length > 0) {
+			let line = buffer
+			if (line.endsWith('\r')) line = line.slice(0, -1)
+			lineNo++
+			onLine(line, lineNo)
+		}
+	} finally {
+		reader.releaseLock()
+	}
+}
+
+/**
+ * Sniff the first bytes of a file to decide whether it is text (UTF-8 decodable,
+ * no NUL bytes). Used to reject binary files at attach time.
+ */
+export async function isTextFile(file: File, sampleBytes = 8192): Promise<boolean> {
+	if (file.size === 0) return true
+	const slice = file.slice(0, Math.min(sampleBytes, file.size))
+	const buf = new Uint8Array(await slice.arrayBuffer())
+	for (let i = 0; i < buf.length; i++) {
+		if (buf[i] === 0) return false // NUL byte → binary
+	}
+	try {
+		// `fatal` throws on invalid UTF-8. We may cut a multibyte char at the sample
+		// boundary, so only treat it as binary if the error is not at the very end.
+		new TextDecoder('utf-8', { fatal: true }).decode(buf)
+		return true
+	} catch {
+		// Could be a truncated trailing multibyte sequence — retry on a trimmed buffer.
+		if (buf.length >= 4) {
+			try {
+				new TextDecoder('utf-8', { fatal: true }).decode(buf.slice(0, buf.length - 3))
+				return true
+			} catch {
+				return false
+			}
+		}
+		return false
+	}
+}

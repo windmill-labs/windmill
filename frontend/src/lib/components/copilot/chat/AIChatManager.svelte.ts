@@ -79,6 +79,8 @@ import {
 import { isGlobalAiEnabled } from './global/gate'
 import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userScopedStorage'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
+import { AttachedFilesStore } from './files/attachedFiles.svelte'
+import { appendAttachedFilesRoster } from './files/fileTools'
 
 // Drop-oldest compaction of the stored history: once the projected request
 // size (contextTokens — the provider's report when current, a fresh chars/4
@@ -214,6 +216,8 @@ function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean)
 export class AIChatManager {
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
+	/** Files the user attached to the current GLOBAL-mode conversation. */
+	attachedFiles = new AttachedFilesStore()
 	abortController: AbortController | undefined = undefined
 	inlineAbortController: AbortController | undefined = undefined
 	// Flag to skip Responses API if it's not available (e.g., Azure region doesn't support it)
@@ -676,7 +680,9 @@ export class AIChatManager {
 			this.tools = globalToolsFor({ sessionPreview: this.isSessionChat })
 			this.helpers = {
 				...(this.isSessionChat ? { sessionId: this.sessionId } : {}),
-				testActiveFlow: async (args?: Record<string, any>) => this.flowAiChatHelpers?.testFlow(args)
+				testActiveFlow: async (args?: Record<string, any>) =>
+					this.flowAiChatHelpers?.testFlow(args),
+				attachedFiles: this.attachedFiles
 			} satisfies GlobalToolHelpers
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
@@ -876,7 +882,13 @@ export class AIChatManager {
 				messages,
 				addedMessages,
 				get systemMessage() {
-					return systemMessageOverride ?? self.systemMessage
+					const base = systemMessageOverride ?? self.systemMessage
+					// Inject the attached-files roster at request time (re-read each iteration)
+					// so it always reflects the live file list without reactive bookkeeping.
+					if (self.mode === AIMode.GLOBAL && self.attachedFiles.count > 0) {
+						return appendAttachedFilesRoster(base, self.attachedFiles.list())
+					}
+					return base
 				},
 				get tools() {
 					return self.tools
@@ -1560,6 +1572,7 @@ export class AIChatManager {
 		this.displayMessages = []
 		this.messages = []
 		this.contextUsage = undefined
+		this.attachedFiles.clear()
 	}
 
 	loadPastChat = async (id: string) => {

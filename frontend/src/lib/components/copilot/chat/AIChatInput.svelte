@@ -196,6 +196,13 @@
 		focusInput()
 	}
 
+	/** Insert a plain @filename mention for an attached file (used by the @ menu Files category). */
+	export function insertFileMention(name: string) {
+		const sep = instructions.length === 0 || instructions.endsWith(' ') ? '' : ' '
+		instructions = `${instructions}${sep}@${name} `
+		focusInput()
+	}
+
 	function clickOutside(node: HTMLElement) {
 		function handleClick(event: MouseEvent) {
 			if (node && !node.contains(event.target as Node)) {
