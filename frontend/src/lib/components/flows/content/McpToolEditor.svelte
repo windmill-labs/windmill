@@ -194,9 +194,8 @@
 						color="light"
 						onClick={() => (refreshCount += 1)}
 						startIcon={{ icon: RefreshCw }}
-						disabled={tools.status === 'loading'}
 					>
-						{tools.status === 'loading' ? 'Loading...' : 'Refresh Tools'}
+						Refresh Tools
 					</Button>
 				{/snippet}
 				<div class="w-full flex flex-col gap-2">
