@@ -141,10 +141,10 @@ const ACTIVE_GLOBAL_EDITOR_DRAFTS: readonly {
 	itemKind: LiveEditorDraftKind
 	type: ActiveGlobalEditorType
 }[] = [
-	{ itemKind: 'script', type: 'script' },
-	{ itemKind: 'flow', type: 'flow' },
-	{ itemKind: 'raw_app', type: 'app' }
-]
+		{ itemKind: 'script', type: 'script' },
+		{ itemKind: 'flow', type: 'flow' },
+		{ itemKind: 'raw_app', type: 'app' }
+	]
 
 export type GlobalActiveEditorContext = {
 	type: ActiveGlobalEditorType
@@ -633,12 +633,11 @@ Rules:
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer local drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
-- Keep context targeted.${
-	previewTools
+- Keep context targeted.${previewTools
 		? `
 - After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.`
 		: ''
-}
+	}
 
 Flows:
 - read_workspace_item returns compact flow JSON. Inline script bodies appear as "inline_script.<moduleId>".
@@ -867,11 +866,11 @@ function buildPersistedRunnable(
 ): PersistedRunnable {
 	const fields = input.staticInputs
 		? Object.fromEntries(
-				Object.entries(input.staticInputs).map(([k, v]) => [
-					k,
-					{ type: 'static', value: v, fieldType: 'object' }
-				])
-			)
+			Object.entries(input.staticInputs).map(([k, v]) => [
+				k,
+				{ type: 'static', value: v, fieldType: 'object' }
+			])
+		)
 		: (existing?.fields ?? {})
 
 	if (input.type === 'inline') {
@@ -1755,7 +1754,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			getJobLogsSchema,
 			'get_job_logs',
-			'Fetch the logs of a job by its id. Use this to inspect the output of an existing run (e.g. a job id from the runs page or a flow step) rather than starting a new test run.'
+			'Fetch the logs of a job by its id. Use this to inspect the output of an existing run.'
 		),
 		showDetails: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
@@ -2440,9 +2439,9 @@ async function writeScheduleDraft(args: NewSchedule, ctx: WriteDraftCtx): Promis
 		? existingDraft
 		: backendExists
 			? ((await ScheduleService.getSchedule({
-					workspace,
-					path: args.path
-				})) as ScheduleDraftConfig)
+				workspace,
+				path: args.path
+			})) as ScheduleDraftConfig)
 			: undefined
 	const draft = mergeDraftConfig<ScheduleDraftConfig>(base, args as DraftConfig, args.path)
 
