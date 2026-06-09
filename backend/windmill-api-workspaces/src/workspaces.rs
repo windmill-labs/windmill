@@ -3823,10 +3823,15 @@ async fn create_workspace(
     Ok(format!("Created workspace {}", &nw.id))
 }
 
+// `authed_email` is the forker's email — `clone_drafts` only carries this
+// user's per-user drafts (and the legacy NULL-email workspace draft, if any)
+// across, since other users aren't added to the fork's `usr` table and
+// their drafts would dangle as orphans.
 async fn clone_workspace_data(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
+    authed_email: &str,
 ) -> Result<()> {
     // Clone workspace settings (merge with existing basic settings)
     update_workspace_settings(tx, source_workspace_id, target_workspace_id).await?;
@@ -3867,9 +3872,13 @@ async fn clone_workspace_data(
     // Clone raw apps
     clone_raw_apps(tx, source_workspace_id, target_workspace_id).await?;
 
-    // Clone per-user drafts (and the legacy NULL-email workspace draft,
-    // if any) so users picking up the fork keep their pending edits.
-    clone_drafts(tx, source_workspace_id, target_workspace_id).await?;
+    // Clone the forker's own per-user drafts (plus the legacy NULL-email
+    // workspace draft, if any) so they keep their pending edits in the
+    // fork. Other users' drafts are intentionally NOT cloned — they don't
+    // own a `usr` row in the fork (see `clone_workspace_full`) so their
+    // drafts would dangle and the home-page `draft_users` aggregate would
+    // surface them as duplicate legacy entries.
+    clone_drafts(tx, source_workspace_id, target_workspace_id, authed_email).await?;
 
     // Clone workspace runnable dependencies and dependency map
     clone_workspace_runnable_dependencies(tx, source_workspace_id, target_workspace_id).await?;
@@ -4721,18 +4730,22 @@ async fn clone_raw_apps(
 /// `draft_saved_at`) lines up with the parent's timeline — otherwise the
 /// fork's first POST from any open editor would race a stale `last_sync`
 /// and trip the conflict modal on every cloned draft.
+// Only `email = authed_email` and the legacy NULL row are cloned — see
+// `clone_workspace_data` for the rationale.
 async fn clone_drafts(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
+    authed_email: &str,
 ) -> Result<()> {
     sqlx::query!(
         "INSERT INTO draft (workspace_id, path, typ, value, created_at, email)
          SELECT $2, path, typ, value, created_at, email
          FROM draft
-         WHERE workspace_id = $1",
+         WHERE workspace_id = $1 AND (email = $3 OR email IS NULL)",
         source_workspace_id,
         target_workspace_id,
+        authed_email,
     )
     .execute(&mut **tx)
     .await?;
@@ -5026,7 +5039,7 @@ async fn create_workspace_fork(
     .await?;
 
     // Clone all data from the parent workspace using Rust implementation
-    clone_workspace_data(&mut tx, &parent_workspace_id, &forked_id).await?;
+    clone_workspace_data(&mut tx, &parent_workspace_id, &forked_id, &authed.email).await?;
 
     // Clone triggers and schedules unconditionally, always with mode='disabled' /
     // enabled=false. Disabled rows have no side effects (no listener

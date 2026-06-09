@@ -6,6 +6,7 @@ use windmill_test_utils::init_client;
 
 fn quick_ns(content: &str, path: &str, kind: Option<&str>) -> NewScript {
     NewScript {
+        draft_only: None,
         content: content.into(),
         language: ScriptLang::Bun,
         lock: None,

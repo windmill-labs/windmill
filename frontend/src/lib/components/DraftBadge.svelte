@@ -240,7 +240,14 @@
 				</p>
 				{#if draft_users.length > 0}
 					<ul class="flex flex-col divide-y border-y">
-						{#each orderedUsers as u (u.username ?? '__legacy__')}
+						<!-- Key on the array index, NOT the username. The list is
+						     short-lived (the popover lifetime) so we don't need
+						     stable reordering, and multiple legacy NULL-email rows
+						     could otherwise collide on the same key and crash the
+						     page (the `draft_users` aggregate LEFT-JOINs `usr`, so
+						     drafts owned by users absent from the workspace surface
+						     as `username: null` too — not just the legacy row). -->
+						{#each orderedUsers as u, i (i)}
 							{@const isSelf = !!currentUsername && u.username === currentUsername}
 							<li class="flex items-center gap-2 py-1.5">
 								<span

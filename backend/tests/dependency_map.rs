@@ -16,6 +16,7 @@ mod dependency_map {
         parent_hash: Option<String>,
     ) -> NewScript {
         NewScript {
+            draft_only: None,
             content: content.into(),
             language,
             lock,

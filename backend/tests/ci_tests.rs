@@ -10,6 +10,7 @@ mod ci_tests {
 
     fn quick_ns(content: &str, path: &str, parent_hash: Option<String>) -> NewScript {
         NewScript {
+            draft_only: None,
             content: content.into(),
             language: ScriptLang::Python3,
             lock: None,
