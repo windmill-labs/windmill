@@ -49,7 +49,6 @@
 		Code2,
 		Copy,
 		ExternalLink,
-		GitCompare,
 		Globe,
 		Info,
 		LayoutDashboard,
@@ -424,6 +423,7 @@
 					key,
 					path: wpath,
 					kind: it.kind as Kind,
+					summary: it.summary ?? undefined,
 					rec: it.has_recording ? 'recorded' : 'none'
 				} satisfies DeployItem
 			})
@@ -1202,16 +1202,6 @@
 		}
 	}
 	let syncing = $state(false)
-	async function showDiff() {
-		const workspace = $workspaceStore
-		if (!workspace) return
-		await loadWorkspace(workspace, workspaceLoadSeq)
-		const draftKeys = new Set(draftItems.map((i) => i.key))
-		const workspaceKeys = new Set(workspaceItems.map((i) => i.key))
-		const added = workspaceItems.filter((i) => !draftKeys.has(i.key)).length
-		const removed = draftItems.filter((i) => !workspaceKeys.has(i.key)).length
-		sendUserToast(`Diff: +${added} added, -${removed} removed (vs submitted bundle).`)
-	}
 	async function syncWithHub() {
 		const workspace = $workspaceStore
 		if (!workspace) return
@@ -1578,18 +1568,6 @@
 						>
 							<ExternalLink size={12} /> Open in Hub
 						</a>
-					{/if}
-					{#if phase === 'live'}
-						<div class="ml-auto">
-							<Button
-								size="xs"
-								variant="subtle"
-								startIcon={{ icon: GitCompare }}
-								onclick={showDiff}
-							>
-								Diff vs submitted
-							</Button>
-						</div>
 					{/if}
 				</div>
 				{#if phase === 'predeploy'}
