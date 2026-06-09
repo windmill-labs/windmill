@@ -5266,10 +5266,10 @@ Text/HTML/inline parts are placed inline in \`body\` as strings.
 
 ## CLI Commands
 
-After writing, tell the user they can run these commands (do NOT run them yourself):
+\`wmill sync push\` deploys local changes to the workspace and can be destructive to remote state — only suggest/run it when the user explicitly asks to deploy/publish/push, not when they say "run", "try", or "test". \`sync pull\` is safe to run yourself — it never mutates remote state, though it does overwrite local files to match the remote (use \`sync pull --dry-run\` to only preview).
 
 \`\`\`bash
-# Push trigger configuration
+# Push trigger configuration — only when the user explicitly asks to deploy
 wmill sync push
 
 # Pull triggers from Windmill
@@ -5317,10 +5317,10 @@ Windmill uses 6-field cron expressions (includes seconds):
 
 ## CLI Commands
 
-After writing, tell the user they can run these commands (do NOT run them yourself):
+\`wmill sync push\` deploys local changes to the workspace and can be destructive to remote state — only suggest/run it when the user explicitly asks to deploy/publish/push, not when they say "run", "try", or "test". The commands below never mutate remote state, so they're safe to run yourself — note that \`sync pull\` does overwrite local files to match the remote (use \`sync pull --dry-run\` to only preview), while \`schedule\` just lists.
 
 \`\`\`bash
-# Push schedules to Windmill
+# Push schedules to Windmill — only when the user explicitly asks to deploy
 wmill sync push
 
 # Pull schedules from Windmill
@@ -5574,7 +5574,8 @@ wmill resource-type list --schema
 # Get specific resource type schema
 wmill resource-type get postgresql
 
-# Push resources (tell the user to run this, do NOT run it yourself)
+# Push resources to Windmill — deploys to the workspace and can be destructive to
+# remote state, so only run it when the user explicitly asks to deploy/publish/push
 wmill sync push
 \`\`\`
 `,

@@ -6,6 +6,7 @@
 	import { AlertTriangle, GitFork, CircleCheck, CircleX, Loader2 } from 'lucide-svelte'
 	import { goto } from '$app/navigation'
 	import { onMount, untrack } from 'svelte'
+	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 
 	let loading = $state(false)
 	let comparison: WorkspaceComparison | undefined = $state(undefined)
@@ -15,6 +16,23 @@
 	let currentWorkspaceData = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
 	let parentWorkspaceId = $derived(currentWorkspaceData?.parent_workspace_id)
 	let parentWorkspaceData = $derived($userWorkspaces.find((w) => w.id === parentWorkspaceId))
+
+	// Drafts in this fork. When the fork is otherwise in sync with its parent, a
+	// user with only pending drafts should still get the draft CTA (mirrors the
+	// non-fork WorkspaceDraftsBanner). Pass undefined when not a fork so it doesn't
+	// fetch.
+	const drafts = useWorkspaceDrafts(() => (isFork ? ($workspaceStore ?? undefined) : undefined))
+	const draftCount = $derived(drafts.count)
+
+	// Fork is fully in sync with its parent (comparison ran, no ahead/behind diffs).
+	// Typed helper avoids the $state `never`-inference quirk on `comparison` in $derived.
+	function isUpToDate(c: WorkspaceComparison | undefined): boolean {
+		return !!c && !c.skipped_comparison && c.summary.total_diffs === 0
+	}
+	let upToDate = $derived(isUpToDate(comparison))
+	// Up to date with the parent but local drafts are pending — show the draft
+	// state (same text + CTA as the draft banner) instead of "Everything is up to date".
+	let showDraftsOnly = $derived(upToDate && draftCount > 0)
 
 	$effect(() => {
 		;[$workspaceStore, parentWorkspaceId]
@@ -63,6 +81,14 @@
 	function openComparisonDrawer() {
 		if (parentWorkspaceId && $workspaceStore) {
 			goto('/forks/compare?workspace_id=' + encodeURIComponent($workspaceStore), {
+				replaceState: true
+			})
+		}
+	}
+
+	function openDraftCompare() {
+		if ($workspaceStore) {
+			goto('/forks/compare?workspace_id=' + encodeURIComponent($workspaceStore) + '&mode=draft', {
 				replaceState: true
 			})
 		}
@@ -270,6 +296,10 @@
 									This fork was created before the addition of certain windmill features, and
 									therefore the changes with its parent workspace cannot be displayed.</span
 								>
+							{:else if showDraftsOnly}
+								<span class="text-blue-700 dark:text-blue-100">
+									This workspace has {draftCount} draft{draftCount !== 1 ? 's' : ''}
+								</span>
 							{:else}
 								<span class="text-blue-600 dark:text-blue-200"> Everything is up to date </span>
 							{/if}
@@ -278,8 +308,14 @@
 				</div>
 
 				<div class="flex items-center gap-2">
-					<Button size="xs" color="blue" on:click={openComparisonDrawer}>
-						{#if (comparison?.summary.total_ahead ?? 0) > 0}
+					<Button
+						variant="default"
+						unifiedSize="sm"
+						onclick={showDraftsOnly ? openDraftCompare : openComparisonDrawer}
+					>
+						{#if showDraftsOnly}
+							Review & deploy drafts
+						{:else if (comparison?.summary.total_ahead ?? 0) > 0}
 							Review & Deploy Changes
 						{:else}
 							Review & Update fork

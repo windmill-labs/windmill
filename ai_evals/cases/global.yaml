@@ -822,6 +822,55 @@
     - returns the total revenue from the script
     - leaves the result as an AI draft and does not deploy or save it
 
+- id: global-test27-list-recent-runs
+  prompt: |-
+    What are the most recent runs in this workspace? Give me a quick rundown of what ran and whether it succeeded.
+  initial: ai_evals/fixtures/frontend/global/initial/jobs_seed.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_runs
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+      - write_script
+  # Read-only job inspection produces no draft, so the global judge (which only
+  # sees the drafts artifact) would score it empty — validate via tool use.
+  skipJudge: true
+  judgeChecklist:
+    - lists the recent runs from the workspace rather than fabricating them
+    - summarizes each run's path and success/failure from the returned data
+
+- id: global-test28-fetch-failed-run-logs
+  prompt: |-
+    The run with id 01920000-0000-7000-8000-0000000000f1 failed. Pull its logs and tell me what went wrong.
+  initial: ai_evals/fixtures/frontend/global/initial/jobs_seed.json
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - get_job_logs
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+      - write_script
+    toolCallArgs:
+      - tool: get_job_logs
+        field: id
+        stringIncludesAnyOf:
+          - 01920000-0000-7000-8000-0000000000f1
+  # Same as above — no draft is produced, so rely on the deterministic tool-use
+  # and argument checks rather than the judge.
+  skipJudge: true
+  judgeChecklist:
+    - fetches the logs for the requested job id
+    - explains the failure from the returned logs (connection refused to the upstream API)
+
 # --- get_documentation vs get_instructions boundary ---
 # get_documentation answers Windmill product questions (features, concepts,
 # how-tos) from the docs; get_instructions returns authoring guidance for
@@ -830,7 +879,7 @@
 # only sees the drafts artifact) would score them empty -> skipJudge, validate
 # purely on tool use.
 
-- id: global-test27-doc-resource-vs-variable-concept
+- id: global-test29-doc-resource-vs-variable-concept
   prompt: |-
     What's the difference between a resource and a variable in Windmill,
     and when should I use each?
@@ -856,7 +905,7 @@
     - does not create a resource, a variable, or any other draft
     - does not treat the word "resource" as a request to author a resource
 
-- id: global-test28-doc-feature-explanation
+- id: global-test30-doc-feature-explanation
   prompt: |-
     How does Windmill decide which worker runs a job?
   # Deliberately a pure platform-mechanics question (worker groups / tags /
@@ -883,7 +932,7 @@
     - answers the conceptual question without writing or editing any item
     - does not call get_instructions, since the user is not authoring anything
 
-- id: global-test29-authoring-uses-instructions-not-doc
+- id: global-test31-authoring-uses-instructions-not-doc
   prompt: |-
     Create a draft Bun script at `f/evals/global/celsius_to_fahrenheit`.
     It should take a number `celsius` and return the value converted to Fahrenheit.
