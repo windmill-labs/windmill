@@ -6,6 +6,12 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Jobs join the caller\'s inbound distributed trace',
+		href: 'https://www.windmill.dev/changelog/otel-inbound-distributed-trace',
+		date: '2026-06-05'
+	},
+
+	{
 		label: 'AWS Bedrock support for Windmill AI',
 		href: 'https://www.windmill.dev/changelog/aws-bedrock',
 		date: '2025-11-19'
