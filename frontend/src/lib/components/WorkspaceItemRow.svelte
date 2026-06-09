@@ -26,6 +26,9 @@ doesn't steal focus from a sibling search input (matches the picker).
 		/** For `kind: 'trigger'`, specifies the concrete trigger subtype.
 		 * Forwarded to RowIcon. */
 		triggerKind?: string
+		/** For `kind: 'raw_app_file'`, the file name/path — forwarded to RowIcon
+		 * to pick an extension-specific icon. */
+		iconPath?: string
 		/** Optional summary text shown above the path. */
 		summary?: string
 		/** Mono path (or any secondary identifier). When summary is empty
@@ -64,6 +67,7 @@ doesn't steal focus from a sibling search input (matches the picker).
 	let {
 		kind,
 		triggerKind,
+		iconPath,
 		summary,
 		secondary,
 		highlighted = false,
@@ -100,7 +104,7 @@ doesn't steal focus from a sibling search input (matches the picker).
 		{onclick}
 		{onmouseenter}
 	>
-		<RowIcon {kind} {triggerKind} size={12} />
+		<RowIcon {kind} {triggerKind} path={iconPath} size={12} />
 		<div class="min-w-0 flex-1">
 			{#if summary}
 				<div class="text-xs text-primary truncate">{summary}</div>
@@ -130,7 +134,7 @@ doesn't steal focus from a sibling search input (matches the picker).
 		{onclick}
 		{onmouseenter}
 	>
-		<RowIcon {kind} {triggerKind} size={12} />
+		<RowIcon {kind} {triggerKind} path={iconPath} size={12} />
 		<div class="min-w-0 flex-1">
 			{#if summary}
 				<div class="text-xs text-primary truncate">{summary}</div>

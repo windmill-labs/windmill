@@ -20,6 +20,12 @@
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import WorkspaceItemRow from '$lib/components/WorkspaceItemRow.svelte'
 	import WorkspaceItemDiffViewer from '$lib/components/WorkspaceItemDiffViewer.svelte'
+	import {
+		rawAppDiffToItems,
+		type RawAppish,
+		type RawAppFileItem,
+		type RawAppRunnableItem
+	} from '$lib/components/raw_apps/rawAppDiffUtils'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
@@ -88,21 +94,31 @@
 		}
 	}
 
+	// A row in the list is either a real backend diff or a synthesized raw-app
+	// item: a file/metadata leaf (`RawAppFileItem`) or a runnable rendered as a
+	// script/flow (`RawAppRunnableItem`). All are diff-shaped, so the tree /
+	// search / count / nav operate over `DisplayDiff` uniformly.
+	type DisplayDiff = WorkspaceItemDiff | RawAppFileItem | RawAppRunnableItem
+
 	type DiffStatus = 'added' | 'removed' | 'modified' | 'conflict'
 
-	function statusOf(d: WorkspaceItemDiff): DiffStatus {
+	function statusOf(d: DisplayDiff): DiffStatus {
 		if (d.exists_in_fork && !d.exists_in_source) return 'added'
 		if (!d.exists_in_fork && d.exists_in_source) return 'removed'
 		if (d.ahead > 0 && d.behind > 0) return 'conflict'
 		return 'modified'
 	}
 
-	function itemKey(d: WorkspaceItemDiff): string {
+	function itemKey(d: DisplayDiff): string {
 		return `${d.kind}/${d.path}`
 	}
 
-	// Editor URL for a diff row, scoped to the fork workspace.
-	function editUrlFor(d: WorkspaceItemDiff): string | undefined {
+	// Editor URL for a diff row, scoped to the fork workspace. A synthesized
+	// raw-app item (file or runnable) links to its owning app's editor.
+	function editUrlFor(d: DisplayDiff): string | undefined {
+		if ('appPath' in d) {
+			return buildEditUrl({ ...d, kind: 'raw_app', path: d.appPath }, forkWorkspaceId)
+		}
 		return buildEditUrl(d, forkWorkspaceId)
 	}
 
@@ -111,6 +127,7 @@
 		flow: 'Flow',
 		app: 'App',
 		raw_app: 'Raw app',
+		raw_app_file: 'File',
 		resource: 'Resource',
 		variable: 'Variable',
 		resource_type: 'Resource type',
@@ -140,6 +157,33 @@
 	// Per-item summary, derived from the fetched raw value so the tree on
 	// the left can show summary above the mono path (matches the picker).
 	let summaries: Record<string, string | undefined> = $state({})
+
+	// The rendered list: each raw_app whose value has loaded is expanded into
+	// its per-file items (so files are independent rows that flow through the
+	// tree / search / count). An unloaded raw_app stays a single placeholder row
+	// until its value arrives, then expands in place.
+	const displayDiffs = $derived.by(() => {
+		const c = comparison
+		if (!c) return [] as DisplayDiff[]
+		const out: DisplayDiff[] = []
+		for (const d of c.diffs) {
+			if (d.kind === 'raw_app') {
+				const loaded = loadedDiffs[itemKey(d)]
+				if (loaded?.state === 'ready') {
+					out.push(
+						...rawAppDiffToItems(
+							d.path,
+							loaded.parentRaw as RawAppish | undefined,
+							loaded.forkRaw as RawAppish | undefined
+						)
+					)
+					continue
+				}
+			}
+			out.push(d)
+		}
+		return out
+	})
 
 	async function loadDiffFor(d: WorkspaceItemDiff) {
 		const key = itemKey(d)
@@ -176,7 +220,9 @@
 		}
 	}
 
-	function onDetailsToggle(d: WorkspaceItemDiff, e: Event) {
+	function onDetailsToggle(d: DisplayDiff, e: Event) {
+		// Synthetic raw-app file rows carry their content already — nothing to load.
+		if (d.kind === 'raw_app_file') return
 		const target = e.currentTarget as HTMLDetailsElement | null
 		if (target?.open) {
 			void loadDiffFor(d)
@@ -208,10 +254,10 @@
 		isScope: boolean
 		children: TreeNode[]
 	}
-	type FileNode = { type: 'file'; name: string; diff: WorkspaceItemDiff }
+	type FileNode = { type: 'file'; name: string; diff: DisplayDiff }
 	type TreeNode = FolderNode | FileNode
 
-	function buildTree(diffs: WorkspaceItemDiff[]): FolderNode {
+	function buildTree(diffs: DisplayDiff[]): FolderNode {
 		const root: FolderNode = {
 			type: 'folder',
 			name: '',
@@ -281,22 +327,21 @@
 	// SearchItems' uFuzzy runs fuzzy matching over these. Reads `summaries`
 	// directly so the index re-derives as summaries trickle in from
 	// loadDiffFor.
-	function searchableText(d: WorkspaceItemDiff): string {
+	function searchableText(d: DisplayDiff): string {
 		const parts = [d.path, KIND_LABELS[d.kind] ?? d.kind]
 		const s = summaries[itemKey(d)]
 		if (s) parts.push(s)
 		return parts.join(' ')
 	}
-	let searchedDiffs: (WorkspaceItemDiff & { marked?: string })[] | undefined = $state(undefined)
+	let searchedDiffs: (DisplayDiff & { marked?: string })[] | undefined = $state(undefined)
 
 	// Empty query bypasses SearchItems entirely so we don't wait a tick for
 	// the async filter to run after open.
 	const filteredDiffs = $derived.by(() => {
-		const c = comparison
-		if (!c) return [] as WorkspaceItemDiff[]
+		if (!comparison) return [] as DisplayDiff[]
 		const q = searchQuery.trim()
-		if (!q) return c.diffs
-		return (searchedDiffs ?? []) as WorkspaceItemDiff[]
+		if (!q) return displayDiffs
+		return (searchedDiffs ?? []) as DisplayDiff[]
 	})
 
 	const tree = $derived.by(() => {
@@ -304,11 +349,11 @@
 		return c ? buildTree(filteredDiffs) : undefined
 	})
 
-	function rowId(d: WorkspaceItemDiff): string {
+	function rowId(d: DisplayDiff): string {
 		return `fork-diff-${itemKey(d)}`
 	}
 
-	function scrollToDiff(d: WorkspaceItemDiff) {
+	function scrollToDiff(d: DisplayDiff) {
 		const el = document.getElementById(rowId(d)) as HTMLDetailsElement | null
 		if (!el) return
 		el.open = true
@@ -328,7 +373,7 @@
 
 	type NavEntry =
 		| { type: 'folder'; key: string; node: FolderNode }
-		| { type: 'file'; key: string; diff: WorkspaceItemDiff }
+		| { type: 'file'; key: string; diff: DisplayDiff }
 
 	function flattenVisible(node: FolderNode): NavEntry[] {
 		const out: NavEntry[] = []
@@ -461,9 +506,9 @@
 
 <SearchItems
 	filter={searchQuery}
-	items={comparison?.diffs ?? []}
+	items={displayDiffs}
 	bind:filteredItems={searchedDiffs}
-	f={(d: WorkspaceItemDiff) => searchableText(d)}
+	f={(d: DisplayDiff) => searchableText(d)}
 />
 
 {#snippet renderTreeNode(node: TreeNode, depth: number)}
@@ -507,6 +552,7 @@
 		{@const key = itemKey(node.diff)}
 		<WorkspaceItemRow
 			kind={node.diff.kind}
+			iconPath={node.diff.path}
 			summary={summaries[key]}
 			secondary={node.name}
 			highlighted={key === highlightedKey}
@@ -550,7 +596,7 @@
 				<span class="font-medium truncate">{parentWs?.name ?? parentWorkspaceId}</span>
 				{#if comparison}
 					<Badge color="transparent" class="ml-2">
-						{comparison.summary.total_diffs} item{comparison.summary.total_diffs !== 1 ? 's' : ''}
+						{displayDiffs.length} item{displayDiffs.length !== 1 ? 's' : ''}
 					</Badge>
 					{#if comparison.summary.conflicts > 0}
 						<Badge color="orange">
@@ -653,7 +699,7 @@
 										<ChevronDown
 											class="w-3.5 h-3.5 shrink-0 text-tertiary transition-transform chevron"
 										/>
-										<RowIcon kind={d.kind} size={14} />
+										<RowIcon kind={d.kind} path={d.path} size={14} />
 										<div class="min-w-0 flex-1">
 											{#if editUrl}
 												<a
@@ -691,7 +737,18 @@
 									<div
 										class="border-t border-light bg-surface-tertiary rounded-b-md overflow-hidden"
 									>
-										{#if !loaded || loaded.state === 'loading'}
+										{#if d.kind === 'raw_app_file'}
+											<WorkspaceItemDiffViewer kind="raw_app_file" rawFile={d} {inlineDiff} />
+										{:else if 'appPath' in d}
+											<!-- Synthesized runnable: render script-style (Content + Metadata),
+											     forcing `script` so flow runnables don't hit FlowDiffViewer. -->
+											<WorkspaceItemDiffViewer
+												kind="script"
+												originalRaw={d.originalRaw}
+												currentRaw={d.currentRaw}
+												{inlineDiff}
+											/>
+										{:else if !loaded || loaded.state === 'loading'}
 											<div class="flex items-center gap-2 text-xs text-secondary p-3">
 												<Loader2 class="w-3.5 h-3.5 animate-spin" />
 												Loading diff…
