@@ -56,6 +56,12 @@
 			// downstream" alternative; the round Play button stays a single-
 			// click default. Undefined / 0 hides the cascade menu item.
 			downstreamCount?: number
+			// How many of those subscribers are unsaved drafts. The production
+			// asset-trigger dispatcher can't reach drafts, so when this (or the
+			// node itself) is unsaved the cascade run is orchestrated by the
+			// page instead, and the menu item says so — making the dev-run vs
+			// deployed-cascade distinction explicit.
+			downstreamUnsavedCount?: number
 			// Wired by the canvas. When set, the node renders an
 			// EllipsisVertical hover-button that opens a small action menu —
 			// "Discard" for drafts, "Delete…" (which the page maps to its
@@ -299,6 +305,17 @@
 										Let the asset-trigger cascade fan out to the {data.downstreamCount}
 										subscribed script{data.downstreamCount === 1 ? '' : 's'} after this run succeeds.
 									</span>
+									{#if data.unsaved || (data.downstreamUnsavedCount ?? 0) > 0}
+										<span class="text-2xs text-amber-700 dark:text-amber-400">
+											{#if data.unsaved}
+												Unsaved chain — runs as previews in dependency order.
+											{:else}
+												{data.downstreamUnsavedCount} unsaved — chain runs as previews in dependency
+												order.
+											{/if}
+											Deploy to enable automatic triggering.
+										</span>
+									{/if}
 								</div>
 							</button>
 						</div>

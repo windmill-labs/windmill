@@ -1,13 +1,14 @@
 import type { ScriptLang, AssetKind } from '$lib/gen'
 import { random_adj } from '$lib/components/random_positive_adjetive'
 
-// What kind of asset the new script will produce. Drives the auto-generated
-// output annotation, the random output path scheme, and the body skeleton.
+// What kind of asset the new script will produce. Drives the random output
+// path scheme and the body skeleton. The output asset is NOT declared in a
+// comment annotation — it's reconstructed from the body's SDK calls / SQL by
+// the asset parser, same as production scripts, so it can't go stale.
 //
-// `none` is the conservative default — no output asset annotation, body just
-// has a "fill in" comment. The other kinds inject their respective wmill SDK
-// calls / SQL setup so the script is runnable (modulo schema definition) the
-// moment it's created.
+// `none` is the conservative default — body just has a "fill in" comment. The
+// other kinds inject their respective wmill SDK calls / SQL setup so the
+// script is runnable (modulo schema definition) the moment it's created.
 export type PipelineOutputKind = 'none' | 'datatable' | 'ducklake' | 's3_parquet' | 's3_object'
 
 export type PipelineOutputKindMeta = {
@@ -202,7 +203,7 @@ function qualifiedDatatableRef(p: string, defaultSchema = 'public'): string {
 // (`pg.<ref>`, `lake.<ref>`) where the asset parser maps a 2-part name like
 // `pg.foo` straight to `datatable://main/foo` — adding a redundant `public.`
 // would shift the parsed asset to `datatable://main/public.foo` and silently
-// desync from the `// Output: ...` annotation.
+// desync from the output asset the user picked.
 function catalogTableRef(p: string): string {
 	const parsed = parseDatatablePath(p)
 	const table = parsed.table || 'table_name'
@@ -281,9 +282,11 @@ function header(language: ScriptLang, triggers: DraftTriggerSource[]): string {
 	// Discoverability hint — the three annotations users most often miss
 	// when authoring their first pipeline script. Single line, real
 	// example values (not placeholders) so users see the syntax. Docs
-	// link is the canonical reference once they want the details.
+	// link is the canonical reference once they want the details. A blank
+	// line separates it from the parsed annotations above (`// pipeline`,
+	// `// on …`) so the editor reads as "real annotations, then a hint".
 	const more = `${p} More: partitioned daily, freshness 1h, retry 3, tag heavy — https://www.windmill.dev/docs/pipelines/annotations`
-	return [`${p} pipeline`, ...lines, more, ''].join('\n')
+	return [`${p} pipeline`, ...lines, '', more, ''].join('\n')
 }
 
 // Bun / Deno bodies. These share the wmill SDK surface, so we treat them
@@ -349,7 +352,6 @@ function bodyTs(ctx: TemplateContext): string {
 			case 's3_parquet':
 			case 's3_object':
 				return [
-					`  // Output: ${assetUri(output)}`,
 					`  const payload = new TextEncoder().encode(JSON.stringify(rows))`,
 					`  await wmill.writeS3File({ s3: ${JSON.stringify(output.path)} }, payload)`
 				].join('\n')
@@ -357,7 +359,6 @@ function bodyTs(ctx: TemplateContext): string {
 				const dbName = output.path.split('/')[0] ?? 'main'
 				const tableName = output.path.split('/').slice(1).join('_') || 'table_name'
 				return [
-					`  // Output: ${assetUri(output)}`,
 					`  const dst = wmill.datatable(${JSON.stringify(dbName)})`,
 					`  await dst\`CREATE TABLE IF NOT EXISTS ${tableName} (id serial primary key, payload jsonb)\`.fetch()`,
 					`  for (const r of rows) {`,
@@ -369,7 +370,6 @@ function bodyTs(ctx: TemplateContext): string {
 				const dbName = output.path.split('/')[0] ?? 'main'
 				const tableName = output.path.split('/').slice(1).join('_') || 'table_name'
 				return [
-					`  // Output: ${assetUri(output)}`,
 					`  const lakeOut = wmill.ducklake(${JSON.stringify(dbName)})`,
 					`  await lakeOut\`CREATE TABLE IF NOT EXISTS ${tableName} (payload JSON)\`.fetch()`,
 					`  for (const r of rows) {`,
@@ -435,7 +435,6 @@ function bodyPython(ctx: TemplateContext): string {
 			case 's3_parquet':
 			case 's3_object':
 				return [
-					`    # Output: ${assetUri(output)}`,
 					`    import json`,
 					`    wmill.write_s3_file(${JSON.stringify(output.path)}, json.dumps(rows).encode("utf-8"))`
 				].join('\n')
@@ -443,7 +442,6 @@ function bodyPython(ctx: TemplateContext): string {
 				const dbName = output.path.split('/')[0] ?? 'main'
 				const tableName = output.path.split('/').slice(1).join('_') || 'table_name'
 				return [
-					`    # Output: ${assetUri(output)}`,
 					`    dst = wmill.datatable(${JSON.stringify(dbName)})`,
 					`    dst.query("CREATE TABLE IF NOT EXISTS ${tableName} (id serial primary key, payload jsonb)").execute()`,
 					`    for r in rows:`,
@@ -454,7 +452,6 @@ function bodyPython(ctx: TemplateContext): string {
 				const dbName = output.path.split('/')[0] ?? 'main'
 				const tableName = output.path.split('/').slice(1).join('_') || 'table_name'
 				return [
-					`    # Output: ${assetUri(output)}`,
 					`    lake_out = wmill.ducklake(${JSON.stringify(dbName)})`,
 					`    lake_out.query("CREATE TABLE IF NOT EXISTS ${tableName} (payload JSON)").execute()`,
 					`    for r in rows:`,
@@ -483,7 +480,6 @@ function bodyDuckdb(ctx: TemplateContext): string {
 		lines.push(`-- \`file\` is uploaded via the S3 picker on the run form.`)
 	}
 	if (input) lines.push(`-- Upstream: ${assetUri(input)}`)
-	if (output) lines.push(`-- Output: ${assetUri(output)}`)
 	lines.push('')
 
 	// Resolve the catalog db name to ATTACH. Output's db wins when both sides
@@ -568,7 +564,7 @@ function bodyDuckdb(ctx: TemplateContext): string {
 			if (output) {
 				// 2-part `pg.<table>` so the asset parser resolves the
 				// CREATE TABLE write to `datatable://<db>/<table>` —
-				// matching the `// Output` annotation. Postgres'
+				// matching the output asset the user picked. Postgres'
 				// search_path defaults to `public`, so the DDL still
 				// lands in the right schema. We only schema-qualify
 				// when the asset path itself carries an explicit schema.
@@ -593,7 +589,6 @@ function bodyPostgres(ctx: TemplateContext): string {
 	const { input, output, outputKind } = ctx
 	const lines: string[] = []
 	if (input) lines.push(`-- Upstream: ${assetUri(input)}`)
-	if (output) lines.push(`-- Output: ${assetUri(output)}`)
 	lines.push('')
 
 	if (outputKind === 'datatable' && output) {
@@ -625,7 +620,6 @@ function bodyBash(ctx: TemplateContext): string {
 	const { input, output, outputKind } = ctx
 	const lines: string[] = []
 	if (input) lines.push(`# Upstream: ${assetUri(input)}`)
-	if (output) lines.push(`# Output: ${assetUri(output)}`)
 	if (outputKind === 's3_object' && output) {
 		lines.push(
 			``,
@@ -643,7 +637,6 @@ function genericBody(ctx: TemplateContext): string {
 	const p = commentPrefix(ctx.language)
 	const lines: string[] = []
 	if (ctx.input) lines.push(`${p} Upstream: ${assetUri(ctx.input)}`)
-	if (ctx.output) lines.push(`${p} Output: ${assetUri(ctx.output)}`)
 	lines.push(`${p} Fill in pipeline logic.`)
 	return lines.join('\n') + '\n'
 }

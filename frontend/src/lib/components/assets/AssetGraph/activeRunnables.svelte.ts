@@ -47,8 +47,10 @@ function eventsEq(a: PipelineEvent[], b: PipelineEvent[]): boolean {
  * finish between ticks), per-runnable badge state (`states`), and a capped
  * activity log (`events`).
  *
- * Zero requests while idle: polling only runs after `arm()` (a launched run)
- * or while `setObserving(true)` (log open), and self-disarms when idle.
+ * Polling runs after `arm()` (a launched run, fast cadence) or while
+ * `setObserving(true)` (slow cadence — the page keeps this on the whole time
+ * the graph is open so node badges stay live). The armed window self-disarms
+ * when idle; the observe window stops on `setObserving(false)` / `dispose()`.
  * Read-only (`listExtendedJobs`), so a future operator view can reuse it.
  */
 export function useActiveRunnableIds(

@@ -14,17 +14,15 @@
 	import type { PipelineEvent } from './activeRunnables.svelte'
 
 	let {
-		events,
-		onToggle
+		events
 	}: {
 		events: PipelineEvent[]
-		// Called when the panel opens/closes so the parent can start/stop the
-		// observe poll — collapsed means zero extra requests.
-		onToggle: (open: boolean) => void
 	} = $props()
 
+	// Panel visibility only. The observe poll that feeds `events` (and the node
+	// badges) runs whenever the graph is open, independent of this panel, so
+	// the log is already populated when expanded and badges show while collapsed.
 	let open = $state(false)
-	$effect(() => onToggle(open))
 
 	let runningCount = $derived(
 		events.filter((e) => e.status === 'running' || e.status === 'queued').length

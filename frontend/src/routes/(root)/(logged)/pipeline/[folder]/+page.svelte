@@ -25,6 +25,14 @@
 		type PipelineAnnotations
 	} from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
+	import { computeDownstreamClosure } from '$lib/components/assets/AssetGraph/graphTraversal'
+	import { runCascade } from '$lib/components/assets/AssetGraph/cascadeOrchestrator'
+	import {
+		diffDeployedGraph,
+		extractCascadeFacts,
+		formatDrift,
+		type CascadeFacts
+	} from '$lib/components/assets/AssetGraph/deployGraphDiff'
 	import {
 		generatePipelineDraft,
 		autoOutputAsset,
@@ -553,6 +561,24 @@
 	let savingAll = $state(false)
 	let saveErrors = $state<Map<string, string>>(new Map())
 
+	// Post-deploy verification: capture the cascade-relevant facts (writes +
+	// `// on` subscriptions) the resolved draft graph promises for `paths`.
+	// MUST run before the deploy mutates `drafts` / the refetch replaces the
+	// base graph — afterwards the prediction is gone.
+	function predictCascadeFacts(paths: string[]): Map<string, CascadeFacts> {
+		const m = new Map<string, CascadeFacts>()
+		for (const p of paths) m.set(p, extractCascadeFacts(graphWithDraft, p))
+		return m
+	}
+	// After graphRes.refetch(): the frontend preview and the backend deploy
+	// derive edges independently (TS vs Rust parsers); if the deployed rows
+	// lost anything the preview promised, say so NOW — the alternative is a
+	// production cascade that silently doesn't fire.
+	function reportDeployDrift(predicted: Map<string, CascadeFacts>) {
+		const msg = formatDrift(diffDeployedGraph(predicted, graphRes.current ?? EMPTY_GRAPH))
+		if (msg) sendUserToast(msg, true)
+	}
+
 	async function saveDraft(path: string, draft: Draft, ws: string): Promise<void> {
 		const script = structuredClone($state.snapshot(draft.script) as Script)
 		script.schema = script.schema ?? emptySchema()
@@ -586,6 +612,9 @@
 		savingAll = true
 		const ws = $workspaceStore
 		const entries = [...drafts.entries()]
+		// Snapshot what the preview promises for every draft before anything
+		// deploys — used to verify the persisted graph below.
+		const predicted = predictCascadeFacts(entries.map(([p]) => p))
 		const errors = new Map<string, string>()
 		const savedPaths: string[] = []
 		// Parallel — every createScript is independent. The backend handles
@@ -631,6 +660,9 @@
 				activeDraftPath = undefined
 			}
 			await graphRes.refetch()
+			// Verify only what actually deployed — failed drafts would
+			// otherwise false-positive as "missing" rows.
+			reportDeployDrift(new Map([...predicted].filter(([p]) => savedPaths.includes(p))))
 		}
 		saveErrors = errors
 		savingAll = false
@@ -944,20 +976,155 @@
 	// AssetRunsPanel reports the run is done. The same hook will later
 	// be reused for live pipeline status.
 	let activeRunnable = $state<{ kind: 'script' | 'flow'; path: string } | undefined>(undefined)
+	// Job id backing `activeRunnable` when the run was launched from the canvas
+	// for a node that ISN'T open in the editor pane. The editor (Test) path
+	// clears `activeRunnable` via its own completion callbacks, but a per-node
+	// run of an unselected script has no such callback — so we track its job id
+	// and release the hint once that exact job finishes (see the effect below).
+	// Kept in lockstep with `activeRunnable`: set only alongside the canvas-run
+	// branch, cleared at every site that clears `activeRunnable`.
+	let activeRunnableJobId = $state<string | undefined>(undefined)
 	// Folder-scoped poll of in-flight (and just-finished) pipeline jobs. This
 	// is what lights up the *downstream cascade* on the canvas — jobs the user
-	// didn't launch directly. `arm()` is called when a run is launched from
-	// this view; it polls only while jobs are in flight and stops when idle
-	// (zero requests at rest). Re-scoped/torn down when the folder changes or
-	// the page unmounts.
+	// didn't launch directly. Observed in the background (slow cadence) the whole
+	// time the graph is open so the node badges stay live; `arm()` upgrades to
+	// the fast cadence when a run is launched from this view. Re-scoped/torn down
+	// when the folder changes or the page unmounts.
 	const activeRunnables = useActiveRunnableIds(
 		() => $workspaceStore,
 		() => pathPrefix
 	)
 	$effect(() => {
 		pathPrefix // re-scope poll to the current folder
+		// Observe in the background for the whole time the graph is open, so the
+		// node run-count badges (and the activity log) stay live without the user
+		// having to expand the activity panel first. `arm()` still upgrades to the
+		// fast cadence when a run is launched from here. Re-armed after a folder
+		// change because `dispose()` (below) turns observing off.
+		activeRunnables.setObserving(true)
 		return () => activeRunnables.dispose()
 	})
+	// Release the zero-latency `activeRunnable` hint for a per-node run of a
+	// script that isn't open in the pane: such runs have no editor Test callback
+	// to clear it, so without this the node's badge stays 'running' forever (the
+	// canvas forces 'running' while `activeRunnable` points at it, overriding the
+	// folder poll's completed status). We key off the exact launched job id
+	// reaching a terminal status in the poll's event log; `events` and the node
+	// `states` are reassigned in the same poll tick, so the handoff to the poll's
+	// success/failure badge is seamless (no flicker back to running).
+	$effect(() => {
+		if (!activeRunnableJobId) return
+		const ev = activeRunnables.events.find((e) => e.id === activeRunnableJobId)
+		if (ev && (ev.status === 'success' || ev.status === 'failure')) {
+			activeRunnable = undefined
+			activeRunnableJobId = undefined
+		}
+	})
+	// One dev-run cascade at a time (root path while running). Guards the
+	// Run+downstream affordance against overlapping chains stomping each
+	// other's storage writes.
+	let cascadeRunningRoot = $state<string | undefined>(undefined)
+	// Launch one pipeline script for the dev-run cascade. Always passes
+	// _wmill_skip_asset_dispatch — the orchestrator owns the whole closure,
+	// so the backend dispatcher must not double-fire the deployed part of a
+	// mixed chain. Drafts run as previews of their local content; deployed
+	// scripts run their *saved* version (an open editor buffer with unsaved
+	// edits is not picked up — same as production dispatch).
+	async function launchCascadeScript(path: string): Promise<string> {
+		if (!$workspaceStore) throw new Error('no workspace')
+		const draft = drafts.get(path)
+		if (draft) {
+			if (!draft.script.content || !draft.script.language) {
+				throw new Error(`draft ${path} has no content/language`)
+			}
+			return await JobService.runScriptPreview({
+				workspace: $workspaceStore,
+				requestBody: {
+					content: draft.script.content,
+					language: draft.script.language,
+					path,
+					args: { _wmill_skip_asset_dispatch: true }
+				}
+			})
+		}
+		return await JobService.runScriptByPath({
+			workspace: $workspaceStore,
+			path,
+			requestBody: { _wmill_skip_asset_dispatch: true }
+		})
+	}
+	// Poll a launched cascade job to a terminal state. Modest fixed cadence —
+	// chains are short and the folder poll is already watching the same jobs
+	// for the canvas animation.
+	async function waitJobTerminal(jobId: string): Promise<'success' | 'failure'> {
+		while (true) {
+			try {
+				const r = await JobService.getCompletedJobResultMaybe({
+					workspace: $workspaceStore!,
+					id: jobId,
+					getStarted: false
+				})
+				if (r.completed) return r.success ? 'success' : 'failure'
+			} catch {
+				// transient — retry on the next tick
+			}
+			await new Promise((res) => setTimeout(res, 1000))
+		}
+	}
+	// "Run + downstream" over a chain that includes drafts: the backend
+	// asset-trigger dispatcher only resolves deployed rows, so the page
+	// orchestrates the closure itself (topological order over the resolved
+	// graph the user is looking at). Deployed-only chains never come here —
+	// they keep the production dispatcher (see onRunProducer).
+	async function runDraftAwareCascade(rootPath: string): Promise<string | undefined> {
+		if (cascadeRunningRoot) {
+			sendUserToast(`A chain run from ${cascadeRunningRoot} is still in progress`, true)
+			return undefined
+		}
+		const closure = computeDownstreamClosure(graphWithDraft, rootPath)
+		if (closure.cyclic.length > 0) {
+			sendUserToast(
+				`Not running ${closure.cyclic.length} script(s) on a dependency cycle: ${closure.cyclic.join(', ')}`,
+				true
+			)
+		}
+		cascadeRunningRoot = rootPath
+		let rootJobId: string | undefined
+		try {
+			const res = await runCascade({
+				closure,
+				root: rootPath,
+				launch: async (path) => {
+					const jobId = await launchCascadeScript(path)
+					// Surface each hop exactly like a hand-launched run: poll
+					// fast-armed for edge/badge animation, runs panel refreshed.
+					activeRunnables.arm(`script:${path}`)
+					if (path === rootPath) {
+						rootJobId = jobId
+						runsPendingJobId = jobId
+						runsRefreshKey++
+					}
+					return jobId
+				},
+				waitTerminal: waitJobTerminal
+			})
+			const n = res.statuses.size
+			if (res.ok) {
+				sendUserToast(`Chain run complete — ${n} script${n === 1 ? '' : 's'} succeeded`)
+			} else {
+				const failed = [...res.statuses.entries()].filter(([, s]) => s.status === 'failure')
+				const skipped = [...res.statuses.values()].filter((s) => s.status === 'skipped').length
+				sendUserToast(
+					`Chain run failed at ${failed.map(([p]) => p).join(', ')}` +
+						(skipped > 0 ? ` — ${skipped} downstream skipped` : ''),
+					true
+				)
+			}
+		} finally {
+			cascadeRunningRoot = undefined
+		}
+		return rootJobId
+	}
 	// Counter bumped when the canvas Run button targets the currently-open
 	// script — the pane intercepts and routes through ScriptEditor.runTest
 	// so logs/result/cancel land in the test panel instead of going off
@@ -1581,6 +1748,22 @@
 									// affordance still passes `undefined` (legacy callers),
 									// which we treat as "skip" for consistency.
 									const cascade = producer.cascade === true
+									// Run + downstream over a chain with drafts in it: the
+									// backend dispatcher can't see drafts (no DB rows), so
+									// the page orchestrates the whole closure client-side.
+									// Deployed-only chains fall through to the production
+									// dispatcher below — the dev run then tests the real
+									// cascade machinery, not a simulation of it.
+									if (cascade) {
+										const hasDraftInChain =
+											producer.unsaved === true ||
+											computeDownstreamClosure(graphWithDraft, producer.path).nodes.some((p) =>
+												drafts.has(p)
+											)
+										if (hasDraftInChain) {
+											return await runDraftAwareCascade(producer.path)
+										}
+									}
 									// If the producer being run is the script currently
 									// edited in the pane, route through ScriptEditor's
 									// Test path — the test panel then shows logs/result
@@ -1621,14 +1804,15 @@
 										runsPendingJobId = jobId
 										runsRefreshKey++
 										activeRunnable = { kind: producer.kind, path: producer.path }
+										// Track this job so the effect above releases the
+										// hint when it finishes — there's no editor Test
+										// callback for an unselected node's run.
+										activeRunnableJobId = jobId
 									}
 									return jobId
 								}}
 							/>
-							<PipelineEventLog
-								events={activeRunnables.events}
-								onToggle={(o) => activeRunnables.setObserving(o)}
-							/>
+							<PipelineEventLog events={activeRunnables.events} />
 							{#if prefetchingAssets}
 								<div
 									class="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-2 py-1 rounded-md bg-surface/95 backdrop-blur-sm border border-gray-200 dark:border-gray-700 text-2xs text-secondary shadow-sm"
@@ -1668,7 +1852,10 @@
 								{runsPendingJobId}
 								{activeRunnable}
 								downstreamSubscribers={editedScriptDownstreamCount}
-								onRunCompleted={() => (activeRunnable = undefined)}
+								onRunCompleted={() => {
+									activeRunnable = undefined
+									activeRunnableJobId = undefined
+								}}
 								onTestStateChange={(running) => {
 									// Bridge: ScriptEditor's Test button triggers the
 									// same canvas-level "is running" hint as the
@@ -1682,8 +1869,13 @@
 											: undefined)
 									if (running && openPath) {
 										activeRunnable = { kind: 'script', path: openPath }
+										// Editor Test path clears via its own callbacks, not
+										// the job-id effect — drop any stale tracked id so a
+										// prior canvas run's completion can't clear this hint.
+										activeRunnableJobId = undefined
 									} else if (!running && activeRunnable?.path === openPath) {
 										activeRunnable = undefined
+										activeRunnableJobId = undefined
 									}
 								}}
 								{requestRemoveSignal}
@@ -1717,6 +1909,9 @@
 									if (activeDraftPath) discardDraft(activeDraftPath)
 								}}
 								onDraftSaved={async (savedPath) => {
+									// Snapshot the preview's promise while the draft
+									// overlay still exists (dropped from `drafts` below).
+									const predicted = predictCascadeFacts([savedPath])
 									// Drop the now-deployed draft and hand focus to its
 									// persisted runnable so the pane stays open on the
 									// same script. `discardDraft` would clear
@@ -1736,8 +1931,12 @@
 									}
 									clearSaveError(savedPath)
 									await graphRes.refetch()
+									reportDeployDrift(predicted)
 								}}
-								onPersistedSaved={async () => {
+								onPersistedSaved={async (savedPath) => {
+									// Snapshot before the refetch replaces the base graph
+									// — the live editor overlay is the prediction here.
+									const predicted = predictCascadeFacts([savedPath])
 									// Refresh the asset graph so the rows the deploy
 									// just inserted (from the body-asset write list we
 									// pass at save time) make it into base.edges. The
@@ -1746,6 +1945,7 @@
 									// instead of flickering when the ScriptEditor
 									// remounts on the new hash.
 									await graphRes.refetch()
+									reportDeployDrift(predicted)
 								}}
 								onScriptRenamed={async (oldPath, newPath) => {
 									// Repoint the selection at the new path before the

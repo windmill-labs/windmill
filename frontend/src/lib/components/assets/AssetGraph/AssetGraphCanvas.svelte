@@ -15,6 +15,7 @@
 	import AddNode from './AddNode.svelte'
 	import AssetGraphEdge from './AssetGraphEdge.svelte'
 	import { layoutAssetGraph } from './assetGraphLayout'
+	import { buildDownstreamMap } from './graphTraversal'
 	import type { AssetGraphResponse, AssetGraphSelection, NativeTriggerKind } from './types'
 	import type { RunnableRunState } from './activeRunnables.svelte'
 	import type { AssetKind } from '$lib/gen'
@@ -221,28 +222,19 @@
 		// dispatch policy) across all assets the script writes. Drives the
 		// "Run + trigger N downstream" menu item on RunnableNode and lets the
 		// pipeline page short-circuit cascade UX when there's nothing to fan
-		// out to.
-		const subscribersByAsset = new Map<string, Set<string>>()
-		for (const t of g.triggers ?? []) {
-			if (t.trigger_kind !== 'asset' || t.runnable_kind !== 'script') continue
-			const key = `${t.asset_kind}:${t.asset_path}`
-			const set = subscribersByAsset.get(key) ?? new Set<string>()
-			set.add(t.runnable_path)
-			subscribersByAsset.set(key, set)
-		}
-		const downstreamSetsByScript = new Map<string, Set<string>>()
-		for (const e of g.edges ?? []) {
-			if (e.runnable_kind !== 'script') continue
-			const access = e.access_type ?? 'r'
-			if (access !== 'w' && access !== 'rw') continue
-			const subs = subscribersByAsset.get(`${e.asset_kind}:${e.asset_path}`)
-			if (!subs) continue
-			const merged = downstreamSetsByScript.get(e.runnable_path) ?? new Set<string>()
-			for (const s of subs) if (s !== e.runnable_path) merged.add(s)
-			downstreamSetsByScript.set(e.runnable_path, merged)
-		}
+		// out to. Shared with the dev-run cascade orchestrator (graphTraversal).
 		const downstreamByScript = new Map<string, number>()
-		for (const [path, set] of downstreamSetsByScript) downstreamByScript.set(path, set.size)
+		// How many of those subscribers are unsaved drafts — the production
+		// dispatcher can't reach them, so the cascade menu item flags that the
+		// run is a dev orchestration / that deploy is needed for auto-trigger.
+		const downstreamUnsavedByScript = new Map<string, number>()
+		const unsavedRunnables = new Set(
+			(g.runnables ?? []).filter((r) => r.unsaved).map((r) => r.path)
+		)
+		for (const [path, set] of buildDownstreamMap(g)) {
+			downstreamByScript.set(path, set.size)
+			downstreamUnsavedByScript.set(path, [...set].filter((s) => unsavedRunnables.has(s)).length)
+		}
 
 		for (const a of g.assets) {
 			const assetId = `asset:${a.kind}:${a.path}`
@@ -307,6 +299,7 @@
 									})
 							: undefined,
 					downstreamCount: downstreamByScript.get(r.path) ?? 0,
+					downstreamUnsavedCount: downstreamUnsavedByScript.get(r.path) ?? 0,
 					runState,
 					onRequestRemove: onRunnableMenuRemove
 						? () =>
