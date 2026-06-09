@@ -95,6 +95,7 @@
 	let deletingExistingFork = $state(false)
 
 	async function deleteExistingFork(): Promise<void> {
+		if (deletingExistingFork) return
 		const prefixedId = `${WM_FORK_PREFIX}${id}`
 		deletingExistingFork = true
 		try {
@@ -709,6 +710,7 @@
 	open={deleteExistingForkOpen}
 	title="Permanently delete existing fork"
 	confirmationText="Delete permanently"
+	loading={deletingExistingFork}
 	on:canceled={() => {
 		deleteExistingForkOpen = false
 	}}
