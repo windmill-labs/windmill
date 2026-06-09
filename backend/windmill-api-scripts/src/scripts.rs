@@ -1353,10 +1353,18 @@ async fn create_script_internal<'c>(
     let p_path_opt = parent_hashes_and_perms.as_ref().map(|x| x.p_path.clone());
     if let Some(ref p_path) = p_path_opt {
         if !skip_draft_deletion {
+            // Only wipe the deployer's own draft (plus the legacy
+            // NULL-email workspace draft, if any). Other users' drafts
+            // are independent — they should NOT vanish silently when a
+            // teammate deploys. The home-page badge surfaces them, and
+            // the StaleDraftModal fires on their next reload because
+            // the draft now predates the new deploy.
             sqlx::query!(
-                "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
+                "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script' \
+                 AND (email = $3 OR email IS NULL)",
                 p_path,
-                &w_id
+                &w_id,
+                &authed.email,
             )
             .execute(&mut *tx)
             .await?;
@@ -1440,10 +1448,14 @@ async fn create_script_internal<'c>(
             }
         }
     } else if !skip_draft_deletion {
+        // See the matching branch above — only wipe the deployer's own
+        // draft (plus the legacy NULL-email row).
         sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script' \
+             AND (email = $3 OR email IS NULL)",
             ns.path,
-            &w_id
+            &w_id,
+            &authed.email,
         )
         .execute(&mut *tx)
         .await?;

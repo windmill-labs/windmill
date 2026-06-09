@@ -1448,12 +1448,16 @@ async fn create_app_internal<'a>(
         }
     }
     // CLI / git-sync deploys ask us to preserve any existing user draft at this
-    // path instead of wiping it as part of the deploy.
+    // path instead of wiping it as part of the deploy. Only wipe the deployer's
+    // own draft (plus the legacy NULL-email row) — other users' drafts surface
+    // as stale on their next reload instead of disappearing silently.
     if !app.skip_draft_deletion.unwrap_or(false) {
         sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app' \
+             AND (email = $3 OR email IS NULL)",
             &app.path,
-            &w_id
+            &w_id,
+            &authed.email,
         )
         .execute(&mut *tx)
         .await?;
@@ -2057,12 +2061,15 @@ async fn update_app_internal<'a>(
         }
     };
     // CLI / git-sync deploys ask us to preserve any existing user draft at this
-    // path instead of wiping it as part of the deploy.
+    // path instead of wiping it as part of the deploy. Only wipe the deployer's
+    // own draft (plus the legacy NULL-email row) — see create_app_internal.
     if !ns.skip_draft_deletion.unwrap_or(false) {
         sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app' \
+             AND (email = $3 OR email IS NULL)",
             path,
-            &w_id
+            &w_id,
+            &authed.email,
         )
         .execute(&mut *tx)
         .await?;

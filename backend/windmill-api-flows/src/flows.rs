@@ -657,12 +657,17 @@ async fn create_flow(
     ).execute(&mut *tx).await?;
 
     // CLI / git-sync deploys ask us to preserve any existing user draft at this
-    // path instead of wiping it as part of the deploy.
+    // path instead of wiping it as part of the deploy. Only wipe the deployer's
+    // own draft (plus the legacy NULL-email workspace draft) — other users'
+    // drafts are independent and should fire the StaleDraftModal on their next
+    // reload, not vanish silently.
     if !nf.skip_draft_deletion.unwrap_or(false) {
         sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow' \
+             AND (email = $3 OR email IS NULL)",
             nf.path,
-            &w_id
+            &w_id,
+            &authed.email,
         )
         .execute(&mut *tx)
         .await?;
@@ -1246,12 +1251,16 @@ async fn update_flow(
     }
 
     // CLI / git-sync deploys ask us to preserve any existing user draft at this
-    // path instead of wiping it as part of the deploy.
+    // path instead of wiping it as part of the deploy. Only wipe the deployer's
+    // own draft (plus the legacy NULL-email row) — other users' drafts surface
+    // as stale on their next reload instead of disappearing silently.
     if !nf.skip_draft_deletion.unwrap_or(false) {
         sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow' \
+             AND (email = $3 OR email IS NULL)",
             flow_path,
-            &w_id
+            &w_id,
+            &authed.email,
         )
         .execute(&mut *tx)
         .await?;
