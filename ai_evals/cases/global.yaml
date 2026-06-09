@@ -821,3 +821,95 @@
     - uses the wmill.datatable() SDK to query the orders table and sum the order totals
     - returns the total revenue from the script
     - leaves the result as an AI draft and does not deploy or save it
+
+# --- get_documentation vs get_instructions boundary ---
+# get_documentation answers Windmill product questions (features, concepts,
+# how-tos) from the docs; get_instructions returns authoring guidance for
+# writing a specific item type. These cases guard against the two being
+# confused in either direction. They make no draft, so the global judge (which
+# only sees the drafts artifact) would score them empty -> skipJudge, validate
+# purely on tool use.
+
+- id: global-test27-doc-resource-vs-variable-concept
+  prompt: |-
+    What's the difference between a resource and a variable in Windmill,
+    and when should I use each?
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - get_documentation
+    forbiddenToolsUsed:
+      # The word "resource" must not trigger get_instructions(subject: resource):
+      # this is a conceptual question, not a request to author a resource.
+      - get_instructions
+      - write_resource
+      - write_variable
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - looks up the answer in the Windmill documentation rather than authoring instructions
+    - explains the conceptual difference between resources and variables
+    - does not create a resource, a variable, or any other draft
+    - does not treat the word "resource" as a request to author a resource
+
+- id: global-test28-doc-feature-explanation
+  prompt: |-
+    How does Windmill decide which worker runs a job?
+  # Deliberately a pure platform-mechanics question (worker groups / tags /
+  # queues) with no authoring surface, so forbidding get_instructions is fair.
+  # An authoring-adjacent feature question (e.g. per-step retries) legitimately
+  # pulls get_instructions on some models, which would be a false negative here.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - get_documentation
+    forbiddenToolsUsed:
+      - get_instructions
+      - write_script
+      - write_flow
+      - write_app
+      - deploy_workspace_item
+      - delete_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - consults the Windmill documentation to explain how jobs are dispatched to workers
+    - answers the conceptual question without writing or editing any item
+    - does not call get_instructions, since the user is not authoring anything
+
+- id: global-test29-authoring-uses-instructions-not-doc
+  prompt: |-
+    Create a draft Bun script at `f/evals/global/celsius_to_fahrenheit`.
+    It should take a number `celsius` and return the value converted to Fahrenheit.
+    Leave it as an AI draft only; do not deploy or save it.
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/celsius_to_fahrenheit
+        language: bun
+        valueIncludes:
+          - celsius
+  toolExpect:
+    requiredToolsUsed:
+      - get_instructions
+      - write_script
+    forbiddenToolsUsed:
+      # Authoring a self-contained script needs authoring guidance, not a
+      # product-docs lookup -> get_documentation must not be used here.
+      - get_documentation
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - creates a Bun script draft at f/evals/global/celsius_to_fahrenheit
+    - the script accepts a numeric celsius input and returns the Fahrenheit conversion
+    - uses authoring guidance (get_instructions) rather than a product-docs lookup
+    - the result stays as an AI draft and is not deployed or saved to the workspace
