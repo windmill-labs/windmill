@@ -64,6 +64,19 @@
 		}
 	})
 
+	function resetDiscovery() {
+		discoveryResult = null
+		selectedScopes = []
+		error = null
+		status = 'idle'
+	}
+
+	function handleServerUrlInput() {
+		if (status === 'unsupported' || status === 'discovered') {
+			resetDiscovery()
+		}
+	}
+
 	async function discoverOAuth() {
 		status = 'discovering'
 		error = null
@@ -219,6 +232,7 @@
 						path: tokenVariablePath,
 						value: data.access_token,
 						is_secret: true,
+						account: accountId,
 						description: variableDescription
 					}
 				})
@@ -295,6 +309,7 @@
 			placeholder="https://mcp.example.com"
 			class="text-sm w-full"
 			disabled={status === 'connecting'}
+			oninput={handleServerUrlInput}
 		/>
 	</Label>
 
@@ -308,6 +323,9 @@
 			{#if error}
 				<div>{error}</div>
 			{/if}
+			<Button size="sm" color="light" onClick={discoverOAuth} disabled={!serverUrl}>
+				Retry Discovery
+			</Button>
 		</div>
 	{:else if status === 'discovered' && discoveryResult}
 		<div class="text-xs text-green-600 dark:text-green-400">

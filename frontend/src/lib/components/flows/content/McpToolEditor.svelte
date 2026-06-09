@@ -57,6 +57,7 @@
 
 	let { tool = $bindable() }: Props = $props()
 
+	let showOAuthForm = $state(false)
 	let refreshCount = $state(0)
 	let resourcePicker: ResourcePicker | undefined = $state()
 
@@ -134,6 +135,7 @@
 		await resourcePicker?.refreshResources()
 		tool.value.resource_path = connectedResourcePath
 		tool.summary = `MCP: ${connectedResourceName}`
+		showOAuthForm = false
 		selectedResource.refresh()
 		refreshCount += 1
 	}
@@ -159,6 +161,19 @@
 			<ResourcePicker bind:this={resourcePicker} resourceType="mcp" bind:value={tool.value.resource_path} />
 		</Label>
 	</div>
+
+	{#if !resourcePath}
+		{#if !showOAuthForm}
+			<Button size="xs" color="light" onClick={() => (showOAuthForm = true)}>
+				Connect with OAuth
+			</Button>
+		{:else}
+			<McpOAuthConnect
+				onConnected={handleOAuthConnected}
+				onCancel={() => (showOAuthForm = false)}
+			/>
+		{/if}
+	{/if}
 
 	{#if resourcePath?.length > 0}
 		{#if tools.status === 'loading' || selectedResource.status === 'loading'}
