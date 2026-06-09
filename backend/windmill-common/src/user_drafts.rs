@@ -184,6 +184,12 @@ where
 {
     let inner = serde_json::to_value(&deployed)?;
 
+    // `other_drafts_users` is independent of the authed user's own draft
+    // overlay — drop-from-draft callers (reset-to-deployed reloads, etc.)
+    // still need to know who else is editing this path so the home-page /
+    // editor surfaces stay coherent across reloads.
+    let other_drafts_users = fetch_other_drafts_users(db, w_id, email, kind, path).await?;
+
     if !get_draft {
         return Ok(WithDraftOverlay {
             inner,
@@ -191,7 +197,7 @@ where
             draft_saved_at: None,
             no_deployed: false,
             draft: None,
-            other_drafts_users: Vec::new(),
+            other_drafts_users,
         });
     }
 
@@ -210,8 +216,6 @@ where
     )
     .fetch_optional(db)
     .await?;
-
-    let other_drafts_users = fetch_other_drafts_users(db, w_id, email, kind, path).await?;
 
     let Some(row) = row else {
         return Ok(WithDraftOverlay {
