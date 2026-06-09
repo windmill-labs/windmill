@@ -1,6 +1,7 @@
 import {
 	AppService,
 	AzureTriggerService,
+	DraftService,
 	FlowService,
 	GcpTriggerService,
 	HttpTriggerService,
@@ -448,7 +449,7 @@ const testRunScriptSchema = z.object({
 const testRunScriptToolDef = createToolDef(
 	testRunScriptSchema,
 	'test_run_script',
-	'Execute a preview-style test run of a script by path, preferring local draft content when it exists.',
+	'Execute a preview-style test run of a script by path, preferring draft content when it exists.',
 	{ strict: false }
 )
 
@@ -460,7 +461,7 @@ const testRunFlowSchema = z.object({
 const testRunFlowToolDef = createToolDef(
 	testRunFlowSchema,
 	'test_run_flow',
-	'Execute a preview-style test run of a flow by path, preferring local draft content when it exists.',
+	'Execute a preview-style test run of a flow by path, preferring draft content when it exists.',
 	{ strict: false }
 )
 
@@ -473,7 +474,7 @@ const testRunStepSchema = z.object({
 const testRunStepToolDef = createToolDef(
 	testRunStepSchema,
 	'test_run_step',
-	'Execute a test run of one step in a flow by path, preferring local draft flow/script content when it exists.',
+	'Execute a test run of one step in a flow by path, preferring draft flow/script content when it exists.',
 	{ strict: false }
 )
 
@@ -611,7 +612,7 @@ const buildGlobalSystemPrompt = (
 
 The current user's workspace username is "${username}".
 
-Use tools to inspect workspace items and create local drafts for scripts, flows, schedules, triggers, resources, variables, and raw apps.
+Use tools to inspect workspace items and create drafts for scripts, flows, schedules, triggers, resources, variables, and raw apps.
 
 Path conventions:
 - Every workspace path has exactly three segments and starts with one of two namespaces:
@@ -622,15 +623,15 @@ Path conventions:
 - Only use an \`f/<folder>/<name>\` path when the user explicitly named the folder or you confirmed it exists.
 
 Rules:
-- Draft tools create or update local drafts only; they do not deploy or mutate deployed workspace items.
+- Draft tools create or update drafts only; they do not deploy or mutate deployed workspace items. Script and flow drafts are saved to the workspace (visible in the Drafts UI); other types are browser-local drafts.
 - Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
 - If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".
-- Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a local draft to the workspace.
-- Use discard_local_draft to remove an unsaved local draft, including the matching open editor draft. Use delete_workspace_item only to delete a deployed workspace item.
+- Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.
+- Use discard_local_draft to remove an unsaved draft, including the matching open editor draft. Use delete_workspace_item only to delete a deployed workspace item.
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
 - Use search_resource_types before write_resource.
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
-- After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer local drafts, so testing does not require deployment.
+- After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit.
 - Keep context targeted.${previewTools
@@ -1215,12 +1216,16 @@ async function readWorkspaceItem(
 		case 'script': {
 			// Prefer the DB draft (newer than the deployed version) when one exists.
 			const script = await ScriptService.getScriptByPathWithDraft({ workspace, path })
-			return scriptToItem(script.draft ?? script, true)
+			const item = scriptToItem(script.draft ?? script, true)
+			item.isDraft = !!script.draft
+			return item
 		}
 		case 'flow': {
 			// Prefer the DB draft (newer than the deployed version) when one exists.
 			const flow = await FlowService.getFlowByPathWithDraft({ workspace, path })
-			return flowToItem(flow.draft ?? flow, true)
+			const item = flowToItem(flow.draft ?? flow, true)
+			item.isDraft = !!flow.draft
+			return item
 		}
 		case 'schedule':
 			return scheduleToItem(await ScheduleService.getSchedule({ workspace, path }), true)
@@ -1276,7 +1281,11 @@ async function listWorkspaceItems(
 			includeDraftOnly: true,
 			withoutDescription: true
 		})
-		for (const script of scripts) items.push(scriptToItem(script, false))
+		for (const script of scripts) {
+			const item = scriptToItem(script, false)
+			item.isDraft = script.draft_only === true || script.has_draft === true
+			items.push(item)
+		}
 	}
 
 	if (types.includes('flow')) {
@@ -1287,7 +1296,11 @@ async function listWorkspaceItems(
 			includeDraftOnly: true,
 			withoutDescription: true
 		})
-		for (const flow of flows) items.push(flowToItem(flow, false))
+		for (const flow of flows) {
+			const item = flowToItem(flow, false)
+			item.isDraft = flow.draft_only === true || flow.has_draft === true
+			items.push(item)
+		}
 	}
 
 	if (types.includes('schedule')) {
@@ -1375,7 +1388,7 @@ function getFlowInstructions(): string {
 - \`read_workspace_item\` and \`patch_flow_json\` operate on a **compact view** of the flow: every rawscript module's \`value.content\` is replaced with the placeholder \`"inline_script.<moduleId>"\` so inline script bodies don't bloat tool I/O. Schema, groups, preprocessor_module and failure_module are all shown in this view.
 - Inline rawscript content is **not** part of the JSON \`patch_flow_json\` sees. Edits to inline bodies happen via dedicated tools:
   - \`read_flow_module_code(path, module_id)\` — returns the raw inline script content for one module.
-  - \`set_flow_module_code(path, module_id, code)\` — overwrites that module's inline script content; saves to the local draft.
+  - \`set_flow_module_code(path, module_id, code)\` — overwrites that module's inline script content; saves to the draft.
 - Use \`patch_flow_json\` for *structural* edits: module ids, paths, input_transforms, branch arrangement, summaries, preprocessor/failure swaps, schema/groups. Use \`set_flow_module_code\` for changes inside a specific rawscript body.
 - \`write_flow\` is for full overwrites / create-from-scratch. Its \`modules\`, \`preprocessor_module\`, and \`failure_module\` arguments use **non-compact** flow modules (rawscript content is the actual code, not a placeholder).
 
@@ -1527,7 +1540,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			listWorkspaceItemsSchema,
 			'list_workspace_items',
-			'List workspace items and local drafts. Returns metadata only.'
+			'List workspace items and drafts. Returns metadata only.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = listWorkspaceItemsSchema.parse(args)
@@ -1546,7 +1559,13 @@ export const globalTools: Tool<{}>[] = [
 				byKey.set(getWorkspaceItemKey(item.type, item.path, item.triggerKind), item)
 			}
 
+			// Script/flow drafts are DB-backed and already surface through the
+			// list endpoints above (includeDraftOnly), so their stale localStorage
+			// entries are NOT merged. We still merge apps (localStorage-backed) and
+			// any live editor buffer (the live-editor special case wins over the DB
+			// draft, even in listings).
 			for (const draft of listGlobalDrafts(workspace)) {
+				if (draft.type !== 'app' && draft.isLiveDraft !== true) continue
 				if (!types.includes(draft.type)) continue
 				if (parsed.path_prefix && !draft.path.startsWith(parsed.path_prefix)) continue
 				byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
@@ -1569,7 +1588,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			readWorkspaceItemSchema,
 			'read_workspace_item',
-			'Read one workspace item or local draft.'
+			'Read one workspace item or draft.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = readWorkspaceItemSchema.parse(args)
@@ -1578,10 +1597,17 @@ export const globalTools: Tool<{}>[] = [
 				toolCallbacks.setToolStatus(toolId, { content: message, error: message })
 				return JSON.stringify({ success: false, error: message })
 			}
-			const draft = getGlobalDraft(workspace, parsed.type, parsed.path, parsed.trigger_kind)
+			// Scripts/flows are DB-backed: only short-circuit to localStorage when a
+			// live editor is mounted (its buffer wins). Otherwise fall through to
+			// readWorkspaceItem, which already prefers the DB draft. Apps and the
+			// other types keep returning their localStorage draft first.
+			const draft =
+				parsed.type === 'script' || parsed.type === 'flow'
+					? liveDraftItem(workspace, parsed.type, parsed.path)
+					: getGlobalDraft(workspace, parsed.type, parsed.path, parsed.trigger_kind)
 			if (draft) {
 				toolCallbacks.setToolStatus(toolId, {
-					content: `Read local draft ${parsed.type} "${parsed.path}"`
+					content: `Read draft ${parsed.type} "${parsed.path}"`
 				})
 				return JSON.stringify(serializeWorkspaceItemForRead(draft), null, 2)
 			}
@@ -1598,7 +1624,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeScriptSchema,
 			'write_script',
-			'Create or overwrite a local draft script.'
+			'Create or overwrite a draft script.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -1609,7 +1635,7 @@ export const globalTools: Tool<{}>[] = [
 		}
 	},
 	{
-		def: createToolDef(writeFlowSchema, 'write_flow', 'Create or overwrite a local draft flow.'),
+		def: createToolDef(writeFlowSchema, 'write_flow', 'Create or overwrite a draft flow.'),
 		showDetails: true,
 		streamArguments: true,
 		showFade: true,
@@ -1669,7 +1695,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			editScriptSchema,
 			'edit_script',
-			'Find/replace exact text in a script and save a local draft.'
+			'Find/replace exact text in a script and save a draft.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -1683,7 +1709,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			patchFlowJsonSchema,
 			'patch_flow_json',
-			'Find/replace exact text in compact flow JSON and save a local draft.'
+			'Find/replace exact text in compact flow JSON and save a draft.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -1789,13 +1815,13 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			deployWorkspaceItemSchema,
 			'deploy_workspace_item',
-			'Deploy a local draft to the workspace. Mutates the workspace.',
+			'Deploy a draft to the workspace. Mutates the workspace.',
 			{ strict: false }
 		),
 		showDetails: true,
 		showFade: true,
 		requiresConfirmation: true,
-		confirmationMessage: 'Deploy local draft to workspace',
+		confirmationMessage: 'Deploy draft to workspace',
 		fn: async (ctx) => {
 			const parsed = deployWorkspaceItemSchema.parse(ctx.args)
 			return deployDraft(parsed, { ...ctx, sessionId: sessionIdFromCtx(ctx) })
@@ -1820,12 +1846,12 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			discardLocalDraftSchema,
 			'discard_local_draft',
-			'Discard a local draft only. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted.'
+			'Discard a draft only. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted. For scripts and flows this deletes the workspace draft (and the whole item if it only ever existed as a draft).'
 		),
 		showDetails: true,
 		showFade: true,
 		requiresConfirmation: true,
-		confirmationMessage: 'Discard local draft',
+		confirmationMessage: 'Discard draft',
 		fn: async (ctx) => {
 			const parsed = discardLocalDraftSchema.parse(ctx.args)
 			return discardLocalDraft(parsed, ctx)
@@ -1905,7 +1931,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			setFlowModuleCodeSchema,
 			'set_flow_module_code',
-			'Overwrite inline script code in one flow module and save a local draft.'
+			'Overwrite inline script code in one flow module and save a draft.'
 		),
 		showDetails: true,
 		streamArguments: true,
@@ -2257,7 +2283,7 @@ function buildVariableDeployRequestBody(
 
 function startDraftWrite(ctx: WriteDraftCtx, type: WorkspaceItemType, path: string): void {
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, {
-		content: `Saving ${type} "${path}" to local storage…`
+		content: `Saving ${type} "${path}" draft…`
 	})
 }
 
@@ -2281,19 +2307,145 @@ function finishDraftWrite(stored: WorkspaceItem, existed: boolean, ctx: WriteDra
 			? serializeWorkspaceItemForRead(stored)
 			: stored
 
+	// Scripts and flows persist to the workspace DB draft; the remaining item
+	// types are still browser-only localStorage drafts.
+	const dbBacked = stored.type === 'script' || stored.type === 'flow'
+	const where = dbBacked ? 'as a workspace draft' : 'as a browser-only local draft'
+
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, {
-		content: `${verb} ${stored.type} "${stored.path}" in local storage`,
-		result: `Saved to local storage`
+		content: `${verb} ${stored.type} "${stored.path}" ${where}`,
+		result: 'Saved draft'
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `${verb} ${stored.type} "${stored.path}" in local storage (a browser-only local draft, not a workspace draft). It was not deployed.`,
+			message: `${verb} ${stored.type} "${stored.path}" ${where} (not deployed).`,
 			item: serializedItem
 		},
 		null,
 		2
 	)
+}
+
+// ============= DB-backed drafts (scripts & flows) =============
+//
+// Scripts and flows persist their chat drafts to the workspace DB (the `draft`
+// table) so they survive across sessions/devices and show up in Windmill's
+// normal Drafts UI. localStorage stays in play ONLY as the bridge to an open
+// live editor: when one is mounted for the item, reads/writes go through it so
+// the editor reflects the change live. Apps and the remaining item types are
+// unchanged (still localStorage via `userDraftAdapter`).
+
+type DbDraftKind = Extract<WorkspaceItemType, 'script' | 'flow'>
+
+// Returns the localStorage draft ONLY when a live editor is currently mounted
+// for the item (i.e. its draft is the live editor's working buffer). A stale,
+// non-live localStorage draft is ignored so the DB draft stays authoritative.
+function liveDraftItem(
+	workspace: string,
+	type: WorkspaceItemType,
+	path: string,
+	triggerKind?: TriggerKind
+): WorkspaceItem | undefined {
+	const draft = getGlobalDraft(workspace, type, path, triggerKind)
+	return draft?.isLiveDraft ? draft : undefined
+}
+
+// The current chat draft for a script/flow: the live editor buffer if one is
+// open, else the DB draft (`.draft`). `undefined` when no draft exists (or the
+// item doesn't exist at all).
+async function loadDbDraftItem(
+	workspace: string,
+	type: DbDraftKind,
+	path: string
+): Promise<WorkspaceItem | undefined> {
+	const live = liveDraftItem(workspace, type, path)
+	if (live) return live
+	try {
+		if (type === 'script') {
+			const script = await ScriptService.getScriptByPathWithDraft({ workspace, path })
+			if (!script.draft) return undefined
+			const item = scriptToItem(script.draft as NewScript, true)
+			item.isDraft = true
+			return item
+		}
+		const flow = await FlowService.getFlowByPathWithDraft({ workspace, path })
+		if (!flow.draft) return undefined
+		const item = flowToItem(flow.draft as Flow, true)
+		item.isDraft = true
+		return item
+	} catch {
+		// Item doesn't exist (never deployed and no draft row).
+		return undefined
+	}
+}
+
+// Persist a script DB draft, creating the backing `draft_only` row first when
+// the script does not exist yet (mirrors ScriptBuilder: the row is needed so
+// `createDraft` passes the writer check on `f/` paths and so the draft is
+// discoverable via list/getWithDraft).
+async function saveScriptDbDraft(workspace: string, path: string, draft: NewScript): Promise<void> {
+	if (!(await ScriptService.existsScriptByPath({ workspace, path }))) {
+		await ScriptService.createScript({
+			workspace,
+			requestBody: { ...draft, path, draft_only: true }
+		})
+	}
+	await DraftService.createDraft({ workspace, requestBody: { path, typ: 'script', value: draft } })
+}
+
+// Persist a flow DB draft, creating the backing `draft_only` row first when the
+// flow does not exist yet (mirrors FlowBuilder).
+async function saveFlowDbDraft(workspace: string, path: string, draft: Flow): Promise<void> {
+	if (!(await FlowService.existsFlowByPath({ workspace, path }))) {
+		await FlowService.createFlow({
+			workspace,
+			requestBody: {
+				path,
+				summary: draft.summary ?? '',
+				description: draft.description ?? '',
+				value: draft.value,
+				schema: draft.schema ?? emptySchema(),
+				draft_only: true
+			}
+		})
+	}
+	await DraftService.createDraft({ workspace, requestBody: { path, typ: 'flow', value: draft } })
+}
+
+// Delete a script/flow DB draft. If the item exists ONLY as a draft
+// (`draft_only`) it has no deployed version to fall back to, so delete the whole
+// item; otherwise delete just the draft row. Also resets any open editor buffer.
+async function deleteScriptFlowDbDraft(
+	workspace: string,
+	type: DbDraftKind,
+	path: string
+): Promise<void> {
+	let draftOnly = false
+	try {
+		if (type === 'script') {
+			const script = await ScriptService.getScriptByPathWithDraft({ workspace, path })
+			draftOnly = script.draft_only === true
+		} else {
+			const flow = await FlowService.getFlowByPathWithDraft({ workspace, path })
+			draftOnly = flow.draft_only === true
+		}
+	} catch {
+		// No backing row; nothing to delete server-side beyond the editor buffer.
+	}
+
+	if (draftOnly) {
+		if (type === 'script') {
+			await ScriptService.deleteScriptByPath({ workspace, path })
+		} else {
+			await FlowService.deleteFlowByPath({ workspace, path })
+		}
+	} else {
+		await DraftService.deleteDraft({ workspace, path, kind: type })
+	}
+
+	// Reset any open live editor (and clear a stale localStorage buffer).
+	deleteGlobalDraft(workspace, type, path)
 }
 
 async function writeScriptDraft(
@@ -2303,61 +2455,54 @@ async function writeScriptDraft(
 	const { workspace } = ctx
 	startDraftWrite(ctx, 'script', args.path)
 	const storagePath = getGlobalDraftStoragePath(workspace, 'script', args.path)
+	const liveOpen = !!liveDraftItem(workspace, 'script', args.path)
 
-	const existingDraft = UserDraft.get<NewScript>('script', storagePath, { workspace })
-	const backendExists = existingDraft
-		? false
-		: await ScriptService.existsScriptByPath({ workspace, path: args.path })
-
-	if (existingDraft) {
-		const draft: NewScript = {
-			...structuredClone(existingDraft),
-			path: args.path,
-			summary: args.summary ?? existingDraft.summary,
-			content: args.content,
-			language: args.language
+	// Resolve the base to merge edits into (preserving fields the AI never sees):
+	// the live editor buffer if open, else the DB draft, else the deployed script.
+	let base: NewScript | undefined
+	let existed = false
+	if (liveOpen) {
+		base = UserDraft.get<NewScript>('script', storagePath, { workspace })
+		existed = base !== undefined
+	}
+	if (!base) {
+		try {
+			const existing = await ScriptService.getScriptByPathWithDraft({ workspace, path: args.path })
+			existed = true
+			const { draft: dbDraft, draft_created_at: _c, hash, ...deployed } = existing
+			// Link lineage to the latest deployed hash, like the editor does.
+			base = { ...(dbDraft ?? deployed), parent_hash: hash } as NewScript
+		} catch {
+			existed = false
 		}
-		UserDraft.save('script', storagePath, draft, { workspace })
-	} else if (backendExists) {
-		const existing = await ScriptService.getScriptByPathWithDraft({
-			workspace,
-			path: args.path
-		})
-		const base = (existing.draft ?? existing) as NewScript
-		const draft: NewScript = {
-			...structuredClone(base),
-			parent_hash: existing.hash,
-			path: args.path,
-			summary: args.summary ?? base.summary,
-			content: args.content,
-			language: args.language
-		}
-		UserDraft.setDraftAndMeta(
-			'script',
-			storagePath,
-			draft,
-			{ remoteRev: existing.hash, remoteDraftRev: existing.draft_created_at },
-			{ workspace }
-		)
-	} else {
-		const draft: NewScript = {
-			path: args.path,
-			summary: args.summary ?? '',
-			description: '',
-			content: args.content,
-			schema: emptySchema(),
-			is_template: false,
-			language: args.language,
-			kind: 'script'
-		}
-		UserDraft.save('script', storagePath, draft, { workspace })
 	}
 
-	return finishDraftWrite(
-		getRequiredGlobalDraft(workspace, 'script', args.path),
-		existingDraft !== undefined || backendExists,
-		ctx
-	)
+	const draft: NewScript = base
+		? {
+				...structuredClone(base),
+				path: args.path,
+				summary: args.summary ?? base.summary,
+				content: args.content,
+				language: args.language
+			}
+		: {
+				path: args.path,
+				summary: args.summary ?? '',
+				description: '',
+				content: args.content,
+				schema: emptySchema(),
+				is_template: false,
+				language: args.language,
+				kind: 'script'
+			}
+
+	await saveScriptDbDraft(workspace, args.path, draft)
+	// Mirror into the open editor's buffer so it reflects the change live.
+	if (liveOpen) UserDraft.save('script', storagePath, draft, { workspace })
+
+	const item = scriptToItem(draft, true)
+	item.isDraft = true
+	return finishDraftWrite(item, existed, ctx)
 }
 
 async function writeFlowDraft(
@@ -2367,6 +2512,7 @@ async function writeFlowDraft(
 	const { workspace } = ctx
 	startDraftWrite(ctx, 'flow', args.path)
 	const storagePath = getGlobalDraftStoragePath(workspace, 'flow', args.path)
+	const liveOpen = !!liveDraftItem(workspace, 'flow', args.path)
 
 	const draftValue = args.flow
 	const value = structuredClone(draftValue.value)
@@ -2374,59 +2520,49 @@ async function writeFlowDraft(
 		value.groups = structuredClone(draftValue.groups)
 	}
 
-	const existingDraft = UserDraft.get<Flow>('flow', storagePath, { workspace })
-	const backendExists = existingDraft
-		? false
-		: await FlowService.existsFlowByPath({ workspace, path: args.path })
-
-	if (existingDraft) {
-		const draft: Flow = {
-			...structuredClone(existingDraft),
-			path: args.path,
-			summary: args.summary ?? existingDraft.summary,
-			value,
-			schema: draftValue.schema ?? existingDraft.schema
+	let base: Flow | undefined
+	let existed = false
+	if (liveOpen) {
+		base = UserDraft.get<Flow>('flow', storagePath, { workspace })
+		existed = base !== undefined
+	}
+	if (!base) {
+		try {
+			const existing = await FlowService.getFlowByPathWithDraft({ workspace, path: args.path })
+			existed = true
+			const { draft: dbDraft, draft_created_at: _c, ...deployed } = existing
+			base = dbDraft ?? (deployed as Flow)
+		} catch {
+			existed = false
 		}
-		UserDraft.save('flow', storagePath, draft, { workspace })
-	} else if (backendExists) {
-		const [existing, latestVersion] = await Promise.all([
-			FlowService.getFlowByPathWithDraft({ workspace, path: args.path }),
-			FlowService.getFlowLatestVersion({ workspace, path: args.path })
-		])
-		const base = (existing.draft ?? existing) as Flow
-		const draft: Flow = {
-			...structuredClone(base),
-			path: args.path,
-			summary: args.summary ?? base.summary,
-			value,
-			schema: draftValue.schema ?? base.schema
-		}
-		UserDraft.setDraftAndMeta(
-			'flow',
-			storagePath,
-			draft,
-			{ remoteRev: latestVersion.id, remoteDraftRev: existing.draft_created_at },
-			{ workspace }
-		)
-	} else {
-		const draft: Flow = {
-			path: args.path,
-			summary: args.summary ?? '',
-			value,
-			schema: draftValue.schema ?? emptySchema(),
-			edited_by: '',
-			edited_at: '',
-			archived: false,
-			extra_perms: {}
-		}
-		UserDraft.save('flow', storagePath, draft, { workspace })
 	}
 
-	return finishDraftWrite(
-		getRequiredGlobalDraft(workspace, 'flow', args.path),
-		existingDraft !== undefined || backendExists,
-		ctx
-	)
+	const draft: Flow = base
+		? {
+				...structuredClone(base),
+				path: args.path,
+				summary: args.summary ?? base.summary,
+				value,
+				schema: draftValue.schema ?? base.schema
+			}
+		: {
+				path: args.path,
+				summary: args.summary ?? '',
+				value,
+				schema: draftValue.schema ?? emptySchema(),
+				edited_by: '',
+				edited_at: '',
+				archived: false,
+				extra_perms: {}
+			}
+
+	await saveFlowDbDraft(workspace, args.path, draft)
+	// Mirror into the open editor's buffer so it reflects the change live.
+	if (liveOpen) UserDraft.save('flow', storagePath, draft, { workspace })
+
+	const item = flowToItem(draft, true)
+	item.isDraft = true
+	return finishDraftWrite(item, existed, ctx)
 }
 
 async function writeScheduleDraft(args: NewSchedule, ctx: WriteDraftCtx): Promise<string> {
@@ -2565,15 +2701,17 @@ async function loadScriptForEdit(
 	path: string,
 	workspace: string
 ): Promise<{ content: string; language: ScriptLang; summary?: string }> {
-	const draft = getGlobalDraft(workspace, 'script', path)
-	if (draft) {
-		if (typeof draft.value !== 'string' || !draft.language) {
+	// Live editor buffer first; otherwise the DB draft, falling back to deployed.
+	const live = liveDraftItem(workspace, 'script', path)
+	if (live) {
+		if (typeof live.value !== 'string' || !live.language) {
 			throw new Error(`Draft script "${path}" is missing content or language.`)
 		}
-		return { content: draft.value, language: draft.language, summary: draft.summary }
+		return { content: live.value, language: live.language, summary: live.summary }
 	}
-	const script = await ScriptService.getScriptByPath({ workspace, path })
-	return { content: script.content, language: script.language, summary: script.summary }
+	const script = await ScriptService.getScriptByPathWithDraft({ workspace, path })
+	const src = (script.draft ?? script) as NewScript
+	return { content: src.content, language: src.language, summary: src.summary }
 }
 
 async function editScript(
@@ -2600,17 +2738,19 @@ async function loadFlowDraftValue(
 	path: string,
 	workspace: string
 ): Promise<{ flow: FlowDraftValue; summary?: string }> {
-	const draft = getGlobalDraft(workspace, 'flow', path)
-	if (draft) {
-		if (draft.value === undefined || typeof draft.value === 'string') {
+	// Live editor buffer first; otherwise the DB draft, falling back to deployed.
+	const live = liveDraftItem(workspace, 'flow', path)
+	if (live) {
+		if (live.value === undefined || typeof live.value === 'string') {
 			throw new Error(`Draft flow "${path}" has no value.`)
 		}
-		return { flow: draft.value as FlowDraftValue, summary: draft.summary }
+		return { flow: live.value as FlowDraftValue, summary: live.summary }
 	}
-	const flow = await FlowService.getFlowByPath({ workspace, path })
+	const flow = await FlowService.getFlowByPathWithDraft({ workspace, path })
+	const src = (flow.draft ?? flow) as Flow
 	return {
-		flow: { value: flow.value, schema: flow.schema, groups: flow.value.groups ?? null },
-		summary: flow.summary
+		flow: { value: src.value, schema: src.schema, groups: src.value.groups ?? null },
+		summary: src.summary
 	}
 }
 
@@ -2725,12 +2865,15 @@ async function loadScriptForFlowStep(
 	moduleValue: { path: string; hash?: string },
 	workspace: string
 ): Promise<{ content: string; language: ScriptLang }> {
-	const draft = getGlobalDraft(workspace, 'script', moduleValue.path)
-	if (draft) {
-		if (typeof draft.value !== 'string' || !draft.language) {
+	// A live editor buffer or a DB draft at this path takes precedence over the
+	// pinned hash (matches the prior draft-first behavior); else use the hash or
+	// the deployed script.
+	const stepDraft = await loadDbDraftItem(workspace, 'script', moduleValue.path)
+	if (stepDraft) {
+		if (typeof stepDraft.value !== 'string' || !stepDraft.language) {
 			throw new Error(`Draft script "${moduleValue.path}" is missing content or language.`)
 		}
-		return { content: draft.value, language: draft.language }
+		return { content: stepDraft.value, language: stepDraft.language }
 	}
 
 	const script = moduleValue.hash
@@ -2743,7 +2886,8 @@ async function loadDraftFlowPreviewValue(
 	path: string,
 	workspace: string
 ): Promise<FlowValue | undefined> {
-	if (!getGlobalDraft(workspace, 'flow', path)) {
+	// Only override the deployed flow when a draft (live editor or DB) exists.
+	if (!(await loadDbDraftItem(workspace, 'flow', path))) {
 		return undefined
 	}
 	const nestedFlow = await loadFlowDraftValue(path, workspace)
@@ -3234,21 +3378,28 @@ async function discardLocalDraft(
 		throw new Error('trigger_kind is required when discarding a trigger draft.')
 	}
 
-	const draft = getGlobalDraft(workspace, type, path, triggerKind)
+	const draft =
+		type === 'script' || type === 'flow'
+			? await loadDbDraftItem(workspace, type, path)
+			: getGlobalDraft(workspace, type, path, triggerKind)
 	if (!draft) {
-		throw new Error(`No local draft found for ${type} "${path}".`)
+		throw new Error(`No draft found for ${type} "${path}".`)
 	}
 
-	deleteGlobalDraft(workspace, type, path, triggerKind)
+	if (type === 'script' || type === 'flow') {
+		await deleteScriptFlowDbDraft(workspace, type, path)
+	} else {
+		deleteGlobalDraft(workspace, type, path, triggerKind)
+	}
 
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Discarded ${type} "${path}" from local storage`,
-		result: 'Discarded from local storage'
+		content: `Discarded ${type} "${path}" draft`,
+		result: 'Discarded draft'
 	})
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Discarded the local-storage draft for ${type} "${path}". The deployed workspace item was not changed.`,
+			message: `Discarded the draft for ${type} "${path}". The deployed workspace item was not changed.`,
 			type,
 			path,
 			triggerKind
@@ -3274,9 +3425,12 @@ async function deployDraft(
 		throw new Error('trigger_kind is required when deploying a trigger.')
 	}
 
-	const draft = getGlobalDraft(workspace, type, path, triggerKind)
+	const draft =
+		type === 'script' || type === 'flow'
+			? await loadDbDraftItem(workspace, type, path)
+			: getGlobalDraft(workspace, type, path, triggerKind)
 	if (!draft) {
-		throw new Error(`No local draft found for ${type} "${path}".`)
+		throw new Error(`No draft found for ${type} "${path}".`)
 	}
 	if (draft.value === undefined) {
 		throw new Error(`Draft ${type} "${path}" has no value to deploy.`)
@@ -3475,7 +3629,7 @@ async function deployDraft(
 	return JSON.stringify(
 		{
 			success: true,
-			message: `Deployed local draft ${type} "${path}" to the workspace. Draft removed from the local draft system.`,
+			message: `Deployed draft ${type} "${path}" to the workspace. The draft was removed.`,
 			type,
 			path,
 			triggerKind
