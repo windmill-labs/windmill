@@ -1842,13 +1842,18 @@ export interface Skips {
 // macOS) these cannot be represented as two distinct files/directories at all,
 // so we can only warn. Returns one group per collision, each listing the
 // distinct casings sorted for stable output.
+//
+// Only the shallowest clash is reported: when two case-variant folders also
+// contain same-named files (f/Caps/main.ts + f/caps/main.ts), the folder clash
+// is the root cause, so the nested per-file group is suppressed rather than
+// inflating the count with one entry per duplicated leaf.
 export function findCaseInsensitiveCollisions(
   paths: Iterable<string>,
 ): string[][] {
   // lowercased prefix -> set of distinct original casings observed
   const byLower = new Map<string, Set<string>>();
   for (const full of paths) {
-    // Compare on normalized forward-slash paths so a Windows-style "\" map
+    // Compare on normalized forward-slash prefixes so a Windows-style "\" map
     // key and a remote "/" key collapse to the same prefix.
     const segs = full.split(/[\\/]/).filter((s) => s.length > 0);
     let acc = "";
@@ -1866,14 +1871,37 @@ export function findCaseInsensitiveCollisions(
       set.add(acc);
     }
   }
+  const collidingLowers = new Set<string>();
+  for (const [lower, set] of byLower) {
+    if (set.size > 1) collidingLowers.add(lower);
+  }
   const collisions: string[][] = [];
-  for (const set of byLower.values()) {
-    if (set.size > 1) {
-      collisions.push([...set].sort());
+  for (const lower of collidingLowers) {
+    // Drop this group if any ancestor prefix is itself a collision — the
+    // shallower folder clash already names the root cause.
+    const parts = lower.split("/");
+    let hasCollidingAncestor = false;
+    for (let i = 1; i < parts.length; i++) {
+      if (collidingLowers.has(parts.slice(0, i).join("/"))) {
+        hasCollidingAncestor = true;
+        break;
+      }
+    }
+    if (!hasCollidingAncestor) {
+      collisions.push([...byLower.get(lower)!].sort());
     }
   }
   return collisions;
 }
+
+type CaseTrieNode = {
+  // lowercased segment -> child, recording the canonical (server) casing and
+  // whether the server holds more than one casing of that segment (ambiguous).
+  children: Map<
+    string,
+    { canonical: string; ambiguous: boolean; node: CaseTrieNode }
+  >;
+};
 
 // Rewrite `localMap` keys to the canonical casing recorded on the server
 // (`remoteMap`) when they differ only by letter case. This is the core
@@ -1887,9 +1915,17 @@ export function findCaseInsensitiveCollisions(
 // casing collapses that phantom and leaves the canonical path on the server
 // untouched.
 //
-// Returns the rewritten map plus any genuinely ambiguous server-side groups
-// (two distinct remote paths that differ only by case) — those can't be
-// canonicalized to a single target and are left as-is for the caller to warn
+// Canonicalization is segment-by-segment against a trie of remote paths, so it
+// also applies the server's folder casing to brand-new local files that have no
+// exact remote match (e.g. adding f/caps/New.ts under a drifted f/Caps folder
+// becomes f/Caps/New.ts) — otherwise the push would recreate the case-only
+// collision the fix is meant to prevent. A segment is only adopted when the
+// server casing is unambiguous; at the first ambiguous or unknown segment the
+// remainder of the path keeps its local casing.
+//
+// Returns the rewritten map, the per-key rewrites, and any genuinely ambiguous
+// server-side groups (two distinct remote paths differing only by case) — those
+// can't be canonicalized to a single target and are left for the caller to warn
 // about.
 export function canonicalizeCaseInsensitiveKeys(
   localMap: Record<string, string>,
@@ -1899,41 +1935,64 @@ export function canonicalizeCaseInsensitiveKeys(
   ambiguous: string[][];
   rewritten: { from: string; to: string }[];
 } {
-  // Index every remote key by its lowercased form, tracking collisions where
-  // the server itself holds two paths that differ only by case.
-  const remoteByLower = new Map<string, string[]>();
+  const root: CaseTrieNode = { children: new Map() };
   for (const k of Object.keys(remoteMap)) {
-    const lk = k.toLowerCase();
-    const arr = remoteByLower.get(lk);
-    if (arr) {
-      arr.push(k);
-    } else {
-      remoteByLower.set(lk, [k]);
+    let node = root;
+    for (const seg of k.split(/[\\/]/)) {
+      if (seg.length === 0) continue;
+      const lk = seg.toLowerCase();
+      let entry = node.children.get(lk);
+      if (!entry) {
+        entry = { canonical: seg, ambiguous: false, node: { children: new Map() } };
+        node.children.set(lk, entry);
+      } else if (entry.canonical !== seg) {
+        entry.ambiguous = true;
+      }
+      node = entry.node;
     }
   }
 
   const out: Record<string, string> = {};
   const rewritten: { from: string; to: string }[] = [];
   for (const [k, v] of Object.entries(localMap)) {
-    const canon = remoteByLower.get(k.toLowerCase());
-    // Only rewrite when there is exactly one unambiguous server casing that
-    // actually differs from the local one. Ambiguous server collisions are
-    // left untouched so we never silently pick the wrong target.
-    if (canon && canon.length === 1 && canon[0] !== k) {
-      out[canon[0]] = v;
-      rewritten.push({ from: k, to: canon[0] });
+    // Preserve the key's own separator style so the rewritten key still matches
+    // the rest of the map (and round-trips through push) on every platform.
+    const sep = k.includes("\\") ? "\\" : "/";
+    const segs = k.split(/[\\/]/);
+    const canonSegs: string[] = [];
+    let node: CaseTrieNode | undefined = root;
+    let changed = false;
+    for (const seg of segs) {
+      if (seg.length === 0) {
+        canonSegs.push(seg);
+        continue;
+      }
+      const entry = node?.children.get(seg.toLowerCase());
+      if (entry && !entry.ambiguous) {
+        if (entry.canonical !== seg) changed = true;
+        canonSegs.push(entry.canonical);
+        node = entry.node;
+      } else {
+        // No unambiguous server guidance for this segment: keep the local
+        // casing here and below (deeper server structure is unknown).
+        canonSegs.push(seg);
+        node = undefined;
+      }
+    }
+    const canonKey = canonSegs.join(sep);
+    if (changed && canonKey !== k) {
+      out[canonKey] = v;
+      rewritten.push({ from: k, to: canonKey });
     } else {
       out[k] = v;
     }
   }
 
-  const ambiguous: string[][] = [];
-  for (const arr of remoteByLower.values()) {
-    if (arr.length > 1) {
-      ambiguous.push([...arr].sort());
-    }
-  }
-  return { map: out, ambiguous, rewritten };
+  return {
+    map: out,
+    ambiguous: findCaseInsensitiveCollisions(Object.keys(remoteMap)),
+    rewritten,
+  };
 }
 
 // Summarize case-only key rewrites by their differing path prefix (typically a

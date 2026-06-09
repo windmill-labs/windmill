@@ -776,6 +776,32 @@ excludes: []
           );
         }
         expect(fixedChanges.length).toEqual(0);
+
+        // P1 regression: a brand-new item added under the drifted (lowercase)
+        // folder must be pushed under the server's folder casing (f/Caps), not
+        // recreate the case-only collision as f/caps. A self-contained variable
+        // YAML is used so the assertion targets path canonicalization without
+        // dragging in script lock/metadata generation.
+        await writeFile(
+          path.join(lowerDir, "NewVar.variable.yaml"),
+          `value: hello\nis_secret: false\ndescription: new under drifted folder\nis_oauth: false\n`,
+          "utf-8"
+        );
+        const added = await backend.runCLICommand(
+          ["sync", "push", "--yes", "--dry-run", "--json-output"],
+          tempDir
+        );
+        expect(added.code).toEqual(0);
+        const addedChanges = parseJsonFromCLIOutput(added.stdout).changes || [];
+        const addedPaths = addedChanges.map((c: any) =>
+          c.path.replace(/\\/g, "/")
+        );
+        expect(
+          addedPaths.some((p: string) => p === "f/Caps/NewVar.variable.yaml")
+        ).toBeTruthy();
+        expect(
+          addedPaths.some((p: string) => p.startsWith("f/caps/"))
+        ).toBeFalsy();
       } finally {
         if (!onWindows) delete process.env.WMILL_CASE_INSENSITIVE_FS;
       }
