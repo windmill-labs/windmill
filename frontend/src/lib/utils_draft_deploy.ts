@@ -386,8 +386,10 @@ export async function deployDraft(
 		}
 		// Mutated the workspace's Server Drafts — refresh every mounted reader.
 		invalidateWorkspaceDrafts(workspace)
-		// The draft is gone (deployed) — clear any `*` hint an editor
-		// published for this item on the list pages.
+		// Deploy deletes the draft server-side (for script/flow/app) without
+		// going through UserDraftDbSyncer, so the syncer-owned hint won't
+		// auto-clear here — clear it explicitly. (The drawer kinds reload
+		// their own hint state when reopened.)
 		setLocalDraftHint(workspace, kind, path, false)
 		return { success: true }
 	} catch (e: any) {
@@ -447,11 +449,11 @@ export async function discardDraft(
 	_draftOnly = false
 ): Promise<DeployResult> {
 	try {
+		// Routes through UserDraftDbSyncer.postSave, which clears the
+		// syncer-owned `*` hint on a `value: null` delete — no explicit
+		// clear needed here.
 		await UserDraftDbSyncer.save({ workspace, itemKind: kind, path, value: null })
 		invalidateWorkspaceDrafts(workspace)
-		// The draft is gone — clear any `*` hint an editor published for
-		// this item on the list pages.
-		setLocalDraftHint(workspace, kind, path, false)
 		return { success: true }
 	} catch (e: any) {
 		return { success: false, error: e?.body ?? e?.message ?? String(e) }

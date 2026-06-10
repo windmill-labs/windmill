@@ -118,16 +118,12 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 	)
 
 	function discard(path: string, fallback: Cfg | undefined): void {
-		const ws = opts.workspace()
+		// `UserDraft.discard` POSTs `value: null`, which routes through
+		// `UserDraftDbSyncer.postSave` and clears the list-page `*` hint
+		// (the syncer owns the hint). No explicit clear needed here.
 		UserDraft.discard(opts.itemKind, path, fallback, {
-			workspace: ws ?? undefined
+			workspace: opts.workspace() ?? undefined
 		})
-		// No draft anymore — clear the list page's `*` immediately. The
-		// hint effect below can't be relied on here: after a deploy the
-		// editor's `deployed()` baseline is stale (the form legitimately
-		// differs from the PREVIOUS deploy), so `hasDraft` would keep
-		// publishing true even though the draft row was just deleted.
-		if (ws && path) setLocalDraftHint(ws, opts.itemKind, path, false)
 	}
 
 	// apply-effect: external handle.draft → form.
@@ -159,16 +155,12 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 		})
 	})
 
-	// Publish the observed draft state as an optimistic hint so the list
-	// page behind the drawer shows the `*` suffix on the edited row
-	// immediately — the server's `is_draft` flag only catches up on the
-	// next list refetch. Only while the drawer is settled (not loading):
-	// the hint then mirrors the truth the editor can see, in BOTH
-	// directions — divergence sets it, and an open editor sitting at the
-	// deployed baseline clears it (covers a draft discarded from another
-	// tab: reopening re-syncs and the stale asterisk disappears).
-	// Deliberately NOT cleared on teardown — the divergence is autosaved
-	// server-side, so the draft (and the asterisk) outlives the drawer.
+	// The list-page `*` hint is OWNED by UserDraftDbSyncer (set on save,
+	// cleared on delete). This effect only CLEARS it: while the drawer is
+	// settled (not loading) and the form is at the deployed baseline (no
+	// draft), drop any stale hint — that's what makes a draft discarded
+	// from another tab disappear on reopen. Never SET here (the syncer is
+	// the single source). NOT cleared on teardown.
 	$effect(() => {
 		const ws = opts.workspace()
 		const p = opts.path()
@@ -176,7 +168,7 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 		const dirty = hasDraft
 		untrack(() => {
 			if (!ws || !p || loading) return
-			setLocalDraftHint(ws, opts.itemKind, p, dirty)
+			if (!dirty) setLocalDraftHint(ws, opts.itemKind, p, false)
 		})
 	})
 

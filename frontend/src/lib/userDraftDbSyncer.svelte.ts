@@ -3,6 +3,7 @@ import { DraftService, type UserDraftItemKind } from './gen'
 import { OpenAPI } from './gen/core/OpenAPI'
 import { createCoalescingKeyedRunner } from './coalescingRunner.svelte'
 import { createDebouncerByKey } from './debouncerByKey.svelte'
+import { setLocalDraftHint } from './localDraftHints.svelte'
 
 /**
  * Per-draft last-sync map. Lets the next `save_draft` know the server's
@@ -276,6 +277,14 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		} else {
 			setLastSync(opts.workspace, opts.itemKind, opts.path, resp.current_timestamp)
 		}
+		// postSave is the ONE choke point where a draft's existence actually
+		// changes on the server — so it's the single source for the list
+		// pages' optimistic `*` hint. value !== null → a draft exists; null
+		// → it's gone. This makes the hint a derived shadow that every
+		// delete path (autosave-to-baseline, banner discard, Review & Deploy
+		// deploy/discard) clears for free, instead of a third source of
+		// truth only the open editors wrote.
+		setLocalDraftHint(opts.workspace, opts.itemKind, opts.path, opts.value !== null)
 		conflicts.delete(key)
 		failures.delete(key)
 		// Clear pending only if it's still the opts we just saved — a
@@ -434,6 +443,13 @@ export const UserDraftDbSyncer = {
 		// Auto-save off: park the opts (done above) so an explicit flush
 		// sends the latest content, but never schedule the POST.
 		if (opts.auto && !autosaveEnabledState) return
+		// Optimistically light up the list-page `*` the moment a real save
+		// is scheduled, so the asterisk tracks the editor's unsaved-changes
+		// banner without waiting ~1.5s for the debounced POST. postSave
+		// reconciles to the confirmed server state (and clears on delete).
+		if (opts.value !== null) {
+			setLocalDraftHint(opts.workspace, opts.itemKind, opts.path, true)
+		}
 		debouncer.schedule(key, () => {
 			runner.submit(key, () => postSave(opts))
 		})

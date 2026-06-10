@@ -164,15 +164,11 @@
 	)
 	const anyDirty = $derived(dirtyWorkspaces.length > 0)
 
-	// Publish the observed draft state as an optimistic hint so the
-	// resources list behind the drawer shows the `*` suffix on the edited
-	// row immediately (the server's `is_draft` only catches up on the next
-	// refetch). For every workspace the editor has LOADED, the hint mirrors
-	// what the editor sees — divergence sets it, sitting at the deployed
-	// baseline clears it (covers a draft discarded from another tab:
-	// reopening re-syncs and the stale asterisk disappears). Deliberately
-	// NOT cleared on teardown — the divergence is autosaved server-side, so
-	// the draft (and the asterisk) outlives the drawer.
+	// The list-page `*` hint is OWNED by UserDraftDbSyncer (set on save,
+	// cleared on delete). The editor only CLEARS it: a loaded workspace at
+	// the deployed baseline (not dirty) has no draft, so drop any stale
+	// hint — this is what makes a draft discarded from another tab vanish
+	// on reopen. Never SET here (the syncer is the single source).
 	$effect(() => {
 		const p = initialPath
 		const loadedWs = Object.keys(states)
@@ -180,7 +176,7 @@
 		untrack(() => {
 			if (!p) return
 			for (const ws of loadedWs) {
-				setLocalDraftHint(ws, 'resource', p, dirty.includes(ws))
+				if (!dirty.includes(ws)) setLocalDraftHint(ws, 'resource', p, false)
 			}
 		})
 	})

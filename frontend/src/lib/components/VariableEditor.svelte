@@ -99,15 +99,14 @@
 		Object.keys(states).filter((ws) => !draftValuesEqual(states[ws].draft, initialStates[ws]))
 	)
 
-	// Publish the observed draft state as an optimistic hint so the
-	// variables list behind the drawer shows the `*` suffix on the edited
-	// row immediately (the server's `is_draft` only catches up on the next
-	// refetch). For every workspace the editor has LOADED, the hint mirrors
-	// what the editor sees — divergence sets it, sitting at the deployed
-	// baseline clears it (covers a draft discarded from another tab:
-	// reopening re-syncs and the stale asterisk disappears). Deliberately
-	// NOT cleared on teardown — the divergence is autosaved server-side, so
-	// the draft (and the asterisk) outlives the drawer.
+	// The list-page `*` hint is OWNED by UserDraftDbSyncer (set on save,
+	// cleared on delete) — the syncer is the one choke point where draft
+	// existence actually changes. The editor only CLEARS it: when a loaded
+	// workspace is at the deployed baseline (not dirty), there's no draft,
+	// so drop any stale hint. This is what makes a draft discarded from
+	// another tab disappear on reopen (the reopened editor settles clean
+	// and clears the leftover hint). Never SET here — that would make the
+	// editor a second source of truth.
 	$effect(() => {
 		const p = editPath
 		const loadedWs = Object.keys(states)
@@ -115,7 +114,7 @@
 		untrack(() => {
 			if (!p) return
 			for (const ws of loadedWs) {
-				setLocalDraftHint(ws, 'variable', p, dirty.includes(ws))
+				if (!dirty.includes(ws)) setLocalDraftHint(ws, 'variable', p, false)
 			}
 		})
 	})
