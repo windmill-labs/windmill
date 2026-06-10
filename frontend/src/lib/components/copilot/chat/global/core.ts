@@ -2359,36 +2359,59 @@ function liveDraftItem(
 	return draft?.isLiveDraft ? draft : undefined
 }
 
-// The current chat draft for a script/flow: the live editor buffer if one is
-// open, else the DB draft (`.draft`), else the `draft_only` row itself (a
-// never-deployed item whose row IS the draft content, even when no separate
-// draft row exists). `undefined` when no draft exists (or the item doesn't).
+// The current chat draft for a script/flow, as its FULL payload (the editor's
+// serialized `NewScript`/`Flow`, with every metadata field): the live editor
+// buffer if one is open, else the DB draft (`.draft`), else the `draft_only` row
+// itself (a never-deployed item whose row IS the draft content, even when no
+// separate draft row exists). `undefined` when no draft exists (or the item
+// doesn't). Deploy uses this so draft-side metadata isn't dropped.
+async function loadDbDraftRaw(
+	workspace: string,
+	type: DbDraftKind,
+	path: string
+): Promise<NewScript | Flow | undefined> {
+	const live = liveDraftItem(workspace, type, path)
+	if (live) {
+		// The live editor's localStorage buffer holds the full serialized payload.
+		const storagePath = getGlobalDraftStoragePath(workspace, type, path)
+		return UserDraft.get<NewScript | Flow>(type, storagePath, { workspace })
+	}
+	try {
+		if (type === 'script') {
+			const script = await ScriptService.getScriptByPathWithDraft({ workspace, path })
+			if (script.draft) return script.draft as NewScript
+			if (script.draft_only) {
+				const { draft: _d, draft_created_at: _c, hash, ...row } = script
+				return { ...row, parent_hash: hash } as NewScript
+			}
+			return undefined
+		}
+		const flow = await FlowService.getFlowByPathWithDraft({ workspace, path })
+		if (flow.draft) return flow.draft as Flow
+		if (flow.draft_only) {
+			const { draft: _d, draft_created_at: _c, ...row } = flow
+			return row as Flow
+		}
+		return undefined
+	} catch (e) {
+		if (isNotFoundError(e)) return undefined // never deployed and no draft row
+		throw e
+	}
+}
+
+// Like `loadDbDraftRaw` but shaped as the compact `WorkspaceItem` used by
+// read / list / existence checks (value-only; metadata stays in the payload).
 async function loadDbDraftItem(
 	workspace: string,
 	type: DbDraftKind,
 	path: string
 ): Promise<WorkspaceItem | undefined> {
-	const live = liveDraftItem(workspace, type, path)
-	if (live) return live
-	try {
-		if (type === 'script') {
-			const script = await ScriptService.getScriptByPathWithDraft({ workspace, path })
-			const src = script.draft ?? (script.draft_only ? script : undefined)
-			if (!src) return undefined
-			const item = scriptToItem(src as NewScript, true)
-			item.isDraft = true
-			return item
-		}
-		const flow = await FlowService.getFlowByPathWithDraft({ workspace, path })
-		const src = flow.draft ?? (flow.draft_only ? flow : undefined)
-		if (!src) return undefined
-		const item = flowToItem(src as Flow, true)
-		item.isDraft = true
-		return item
-	} catch (e) {
-		if (isNotFoundError(e)) return undefined // never deployed and no draft row
-		throw e
-	}
+	const raw = await loadDbDraftRaw(workspace, type, path)
+	if (!raw) return undefined
+	const item =
+		type === 'script' ? scriptToItem(raw as NewScript, true) : flowToItem(raw as Flow, true)
+	item.isDraft = true
+	return item
 }
 
 // Persist a script DB draft, creating the backing `draft_only` row first when
@@ -3479,12 +3502,15 @@ async function deployDraft(
 	switch (type) {
 		case 'script': {
 			// Script deploy writes a complete new version (createScript) — omitted
-			// fields are reset, not inherited. The AI only changes value/summary, so
-			// carry ALL other metadata forward from the currently-deployed version.
+			// fields are reset, not inherited. Carry metadata forward from the FULL
+			// draft payload (so edits made in the editor survive), falling back to
+			// the deployed version; keep the deployed hash for lineage.
 			const existing = (await ScriptService.existsScriptByPath({ workspace, path }))
 				? await ScriptService.getScriptByPath({ workspace, path })
 				: undefined
-			const requestBody = buildScriptDeployRequestBody(path, draft, existing, deploymentMessage)
+			const fullDraft = (await loadDbDraftRaw(workspace, 'script', path)) as NewScript | undefined
+			const metadataSource = { ...existing, ...fullDraft, hash: existing?.hash } as Script
+			const requestBody = buildScriptDeployRequestBody(path, draft, metadataSource, deploymentMessage)
 			// Infer the arg schema from the content so it matches the code, like the editor does.
 			try {
 				const schema = emptySchema()
@@ -3497,16 +3523,20 @@ async function deployDraft(
 			break
 		}
 		case 'flow': {
-			// Flow update is a full replace; carry metadata forward from deployed.
+			// Flow update is a full replace; carry metadata forward from the FULL
+			// draft payload (preserving editor edits), falling back to deployed.
 			const flowDraft = draft.value as FlowDraftValue
 			const existing = (await FlowService.existsFlowByPath({ workspace, path }))
 				? await FlowService.getFlowByPath({ workspace, path })
 				: undefined
+			const fullDraft = (await loadDbDraftRaw(workspace, 'flow', path)) as Flow | undefined
+			const metadataSource =
+				existing || fullDraft ? ({ ...existing, ...fullDraft } as Flow) : undefined
 			const requestBody = buildFlowDeployRequestBody(
 				path,
 				draft.summary,
 				flowDraft,
-				existing,
+				metadataSource,
 				deploymentMessage
 			)
 			if (existing) {

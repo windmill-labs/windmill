@@ -1048,6 +1048,48 @@ describe('global AI tools', () => {
 		expect(invalidateWorkspaceDrafts).toHaveBeenCalledWith(WORKSPACE)
 	})
 
+	it("deploys the draft's metadata, not the deployed item's", async () => {
+		// Deployed version with one set of metadata.
+		await ScriptService.createScript({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/scripts/meta-deploy',
+				summary: 'deployed',
+				content: 'export async function main() { return 0 }',
+				language: 'bun',
+				concurrent_limit: 1,
+				tag: 'old-tag'
+			} as any
+		})
+		// A DB draft (e.g. saved from the editor) with DIFFERENT metadata + new value.
+		await DraftService.createDraft({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/scripts/meta-deploy',
+				typ: 'script',
+				value: {
+					path: 'f/scripts/meta-deploy',
+					summary: 'drafted',
+					content: 'export async function main() { return 1 }',
+					language: 'bun',
+					concurrent_limit: 9,
+					tag: 'new-tag'
+				}
+			}
+		})
+
+		await callGlobalTool('deploy_workspace_item', { type: 'script', path: 'f/scripts/meta-deploy' })
+
+		const createCalls = vi.mocked(ScriptService.createScript).mock.calls
+		const deployBody = (createCalls[createCalls.length - 1]?.[0] as any).requestBody
+		expect(deployBody).toMatchObject({
+			path: 'f/scripts/meta-deploy',
+			content: 'export async function main() { return 1 }',
+			concurrent_limit: 9,
+			tag: 'new-tag'
+		})
+	})
+
 	it('preserves existing script metadata when writing over an existing item', async () => {
 		vi.mocked(ScriptService.getScriptByPathWithDraft).mockResolvedValueOnce({
 			path: 'f/scripts/existing',
