@@ -38,7 +38,6 @@
 	import { getAiChatManager } from './aiChatManagerContext'
 	import ChatTypingIndicator from './ChatTypingIndicator.svelte'
 	import AIChatInput from './AIChatInput.svelte'
-	import ContextElementBadge from './ContextElementBadge.svelte'
 	import { getModifierKey } from '$lib/utils'
 	import type { SelectedContext } from './app/core'
 	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
@@ -637,24 +636,10 @@
 		{/if}
 		<div>
 			{#if aiChatManager.mode === AIMode.GLOBAL}
-				<!-- In sessions, file/context badges sit above the fork/draft bar (inputPreface);
-				     the in-input context row is suppressed via showContext={false} below. -->
+				<!-- In sessions, file chips sit above the fork/draft bar (inputPreface). Selected
+				     context gets no badge row here — items already appear as highlighted @mentions
+				     in the input (deleting the mention deselects), so showContext={false} below. -->
 				<AttachedFilesBar />
-				{#if selectedContext.length > 0}
-					<div class="flex flex-row flex-wrap items-center gap-1 mb-1">
-						{#each selectedContext as element (element.type + '-' + element.title)}
-							<ContextElementBadge
-								contextElement={element}
-								deletable
-								onDelete={() => {
-									selectedContext = selectedContext?.filter(
-										(c) => c.type !== element.type || c.title !== element.title
-									)
-								}}
-							/>
-						{/each}
-					</div>
-				{/if}
 			{/if}
 			{#if inputPreface}
 				{@render inputPreface()}
