@@ -159,7 +159,7 @@ async fn save_draft(
 ) -> Result<Json<SaveDraftResponse>> {
     let email = &authed.email;
     let path = path.to_path();
-    require_can_write_path(&authed, &db, &w_id, path).await?;
+    require_can_write_path(&authed, &db, &w_id, kind, path).await?;
 
     let applied_at = if let Some(value) = &req.value {
         // Secret variable values must never sit in the draft table in
@@ -400,7 +400,13 @@ fn table_for_kind(kind: UserDraftItemKind) -> Option<&'static str> {
 ///
 /// JWT folder claims can lag behind fresh grants — refresh them the same
 /// way the deploy endpoints do before concluding "no write".
-async fn require_can_write_path(authed: &ApiAuthed, db: &DB, w_id: &str, path: &str) -> Result<()> {
+async fn require_can_write_path(
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+    kind: UserDraftItemKind,
+    path: &str,
+) -> Result<()> {
     if authed.is_admin {
         return Ok(());
     }
@@ -433,6 +439,30 @@ async fn require_can_write_path(authed: &ApiAuthed, db: &DB, w_id: &str, path: &
                 }
             }
             _ => {}
+        }
+    }
+    // Item-level extra_perms fallback: a user granted write on a specific
+    // deployed item (e.g. `u/alice/script` shared via the Share dialog with
+    // a write grant) can deploy it through RLS, so they must be able to
+    // save a draft on it too. Mirrors what `require_can_read_path` does for
+    // reads. Only applies when a deployed row exists at the path — draft-
+    // only items have no row to carry extra_perms, so they're governed by
+    // the namespace rules above.
+    if let Some(table) = kind.deployed_table() {
+        // `table` is from the closed `deployed_table()` enum, never user
+        // input. Every deployed table has an `extra_perms` column.
+        let query =
+            format!("SELECT extra_perms FROM {table} WHERE path = $1 AND workspace_id = $2");
+        let extra_perms: Option<serde_json::Value> = sqlx::query_scalar(&query)
+            .bind(path)
+            .bind(w_id)
+            .fetch_optional(db)
+            .await?;
+        if let Some(perms) = extra_perms {
+            if windmill_api_auth::get_perm_in_extra_perms_for_authed(perms, authed).unwrap_or(false)
+            {
+                return Ok(());
+            }
         }
     }
     Err(Error::NotAuthorized(format!(
