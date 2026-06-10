@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.719.0
+  version: 1.721.0
   title: Windmill API
 
   contact:
@@ -5115,6 +5115,37 @@ paths:
       responses:
         "200":
           description: scopes updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /users/tokens/update_label/{token_prefix}:
+    post:
+      summary: update label of an existing token (owner only)
+      operationId: updateTokenLabel
+      tags:
+        - user
+      parameters:
+        - name: token_prefix
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: new label (null or omitted = no label)
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: label updated
           content:
             text/plain:
               schema:

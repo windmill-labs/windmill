@@ -157,5 +157,13 @@ For flow failures, start with \`wmill job get <id>\` to identify the failing ste
 For specific guidance, ALWAYS use the skills listed below. Paths point at \`.agents/skills/\` — Claude Code reads identical copies under \`.claude/skills/\`.
 
 ${skillsReference}
+
+## Windmill Documentation
+
+For Windmill concepts not covered by the skills (triggers, schedules, workers, flows, error handling, etc.), read the official docs:
+
+- Fetch https://www.windmill.dev/llms.txt — a curated index of every docs page with one-line descriptions — to find the right page for any concept.
+- Every docs page is available as raw markdown by appending \`.md\` to its URL, e.g. https://www.windmill.dev/docs/core_concepts/scheduling.md — prefer these over the HTML pages.
+- https://www.windmill.dev/llms-full.txt is the entire documentation as a single ~2.3 MB file — only for bulk indexing/RAG, do NOT load it directly into context.
 `;
 }
