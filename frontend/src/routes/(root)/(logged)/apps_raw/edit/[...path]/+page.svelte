@@ -13,9 +13,9 @@
 	import { page } from '$app/state'
 	import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { usePageDraftSync } from '$lib/components/usePageDraftSync.svelte'
 	import { armRestartOnFirstInteraction } from '$lib/userDraftToast'
 	import DraftEditorModals from '$lib/components/common/confirmationModal/DraftEditorModals.svelte'
-	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { type OtherDraftUser } from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import RawAppTemplatePicker, {
 		type RawAppTemplatePickerResult
@@ -73,7 +73,16 @@
 	 * config + optional AI prompt before the editor goes live. */
 	let templatePicker = $state(false)
 
-	const draftHandle = UserDraft.use<RawAppDraft>('raw_app', path)
+	// Single page-level draft orchestration. `path` is a mount-scoped plain
+	// `let` (the editor remounts per path), so this re-keys only on
+	// workspace change, matching the prior `UserDraft.use` capture.
+	// effectivePath omitted: the live-editor-draft entry is registered by
+	// RawAppEditor (`liveEditorDraftStoragePath`).
+	const draftSync = usePageDraftSync<RawAppDraft>({
+		itemKind: 'raw_app',
+		path: () => path,
+		workspace: () => $workspaceStore
+	})
 
 	// Persist the bundle whenever any of the four pieces of state changes.
 	$effect(() => {
@@ -85,7 +94,7 @@
 		readFieldsRecursively(policy)
 		void summary
 		void pendingDraftPath
-		draftHandle.draft = {
+		draftSync.draft = {
 			files: currentFiles,
 			runnables,
 			data,
@@ -207,12 +216,7 @@
 		})) as any
 		if (tok !== loadAppToken) return
 		otherDraftsUsers = (backendApp.other_drafts_users ?? []) as OtherDraftUser[]
-		if ($workspaceStore && path) {
-			UserDraftDbSyncer.recordRemoteSync(
-				{ workspace: $workspaceStore, itemKind: 'raw_app', path },
-				backendApp.draft_saved_at as string | undefined
-			)
-		}
+		draftSync.recordRemoteSync(backendApp.draft_saved_at as string | undefined)
 		isNewApp = !!backendApp.no_deployed
 		if (backendApp.is_draft) {
 			loadedFromDraft = true
@@ -286,7 +290,7 @@
 		}
 		// Backend canonical: extract the (deployed+draft overlay) raw
 		// app into the editor's local pieces. The bundle $effect above
-		// re-mirrors them into `draftHandle.draft`; the first such
+		// re-mirrors them into `draftSync.draft`; the first such
 		// write is swallowed by `acquireEntry`'s seed guard so this
 		// load doesn't POST.
 		extractRawApp(backendApp)
@@ -311,8 +315,8 @@
 			return
 		}
 		diffDrawer?.closeDrawer()
-		UserDraft.remove('raw_app', path)
-		draftHandle.draft = undefined
+		draftSync.remove()
+		draftSync.draft = undefined
 		goto(`/apps/edit/${savedApp.path}`)
 		await loadApp()
 		redraw++
@@ -368,12 +372,12 @@
 	{otherDraftsUsers}
 	editPathFor={(forkedPath) => `/apps_raw/edit/${forkedPath}`}
 	onLoadFromServer={() => loadApp()}
-	getLocalDraft={() => draftHandle.draft}
+	getLocalDraft={() => draftSync.draft}
 	bind:othersModalOpen
 	{draftSavedAt}
 	{deployedAt}
 	onLoadLatestDeploy={async () => {
-		draftHandle.draft = undefined
+		draftSync.draft = undefined
 		await loadApp({ getDraft: false })
 	}}
 />
@@ -385,7 +389,7 @@
 		<div class="h-screen">
 			<RawAppEditor
 				on:savedNewAppPath={(event) => {
-					UserDraft.remove('raw_app', path)
+					draftSync.remove()
 					goto(`/apps_raw/edit/${event.detail}`)
 					newPath = event.detail
 				}}
@@ -403,7 +407,7 @@
 				{diffDrawer}
 				newApp={isNewApp}
 				onResetToDeployed={async () => {
-					draftHandle.draft = undefined
+					draftSync.draft = undefined
 					await loadApp({ getDraft: false })
 				}}
 				{loadedFromDraft}
