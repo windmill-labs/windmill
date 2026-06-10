@@ -22,7 +22,8 @@
 	import { tick } from 'svelte'
 	import { inferArgs } from '$lib/infer'
 	import { emptySchema, sendUserToast } from '$lib/utils'
-	import type { AssetGraphSelection } from './types'
+	import type { AssetGraphSelection, PipelineMode } from './types'
+	import PipelineScriptView from './PipelineScriptView.svelte'
 	import { parsePipelineAnnotations, type PipelineAnnotations } from './parsePipelineAnnotations'
 	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
 	import S3FilePreview from '$lib/components/S3FilePreview.svelte'
@@ -160,6 +161,23 @@
 		// so the UI-first "upload a file to run" affordance is obvious — the
 		// input lives below the editor and is otherwise easy to miss.
 		focusUploadSignal?: number
+		// Page mode. Outside 'edit' the pane is read-only: no editor, no
+		// rename/save/archive — scripts render through PipelineScriptView
+		// (code + runs), and the only dispatch is the legitimate
+		// data-upload run below.
+		mode?: PipelineMode
+		// Switch the page to edit mode focused on the current selection.
+		// Only passed for users who can edit (not operators) — gates the
+		// header's Edit button.
+		onRequestEdit?: () => void
+		// The selected script is a data-upload pipeline entry (page derives
+		// this from the displayed graph's triggers) — show the run form in
+		// the read-only script view.
+		canRunByPath?: boolean
+		// Legitimate run dispatch owned by the page: runScriptByPath with
+		// NO _wmill_skip_asset_dispatch, so the backend asset-trigger
+		// dispatcher cascades downstream for real.
+		onRunByPath?: (path: string, args: Record<string, any>) => Promise<string | undefined>
 	}
 	let {
 		selection,
@@ -187,8 +205,14 @@
 		requestRemoveSignal,
 		downstreamSubscribers = 0,
 		requestRunCascadeSignal,
-		focusUploadSignal
+		focusUploadSignal,
+		mode = 'edit',
+		onRequestEdit,
+		canRunByPath = false,
+		onRunByPath
 	}: Props = $props()
+
+	let readOnly = $derived(mode !== 'edit')
 
 	// Root element of the pane — used to scope the S3-input lookup for the
 	// data_upload focus effect.
@@ -259,14 +283,27 @@
 	// to the viewport) escapes both — it can't be clipped by ancestors and, at a
 	// high z-index, paints above everything, so all four borders stay visible
 	// even when the panel content overflows below the fold.
+	// Read-only sibling of `editorReadyForTarget`: no ScriptEditor mounts
+	// outside edit mode, so readiness is just "the pane settled on the
+	// target script" — the pulse then finds the [data-run-form] section
+	// PipelineScriptView renders instead of the test panel.
+	let viewReadyForTarget = $derived.by(
+		() =>
+			readOnly &&
+			runTargetPath !== undefined &&
+			script?.path === runTargetPath &&
+			(isDraft || (!scriptRes.loading && scriptRes.current?.path === runTargetPath))
+	)
 	let lastHandledFocusSig = 0
 	$effect(() => {
 		const sig = focusUploadSignal
 		if (sig === undefined || sig === 0 || sig === lastHandledFocusSig) return
-		if (!editorReadyForTarget) return
+		if (!editorReadyForTarget && !viewReadyForTarget) return
 		lastHandledFocusSig = sig
 		requestAnimationFrame(() => {
-			const target = paneEl?.querySelector('[data-test-panel]') as HTMLElement | null
+			const target = paneEl?.querySelector(
+				'[data-test-panel], [data-run-form]'
+			) as HTMLElement | null
 			if (!target) return
 			const r = target.getBoundingClientRect()
 			const m = 2
@@ -353,7 +390,10 @@
 	// the $effect doesn't re-fire when ScriptEditor updates the inferred
 	// asset list.
 	$effect(() => {
-		if (!draftScript || !script) return
+		// Read-only modes never mutate the draft (no editor mounted), so
+		// there's nothing to persist back — and emitting here would clash
+		// with the page's mode-switch overlay reset.
+		if (!draftScript || !script || readOnly) return
 		const captured = script
 		return () => {
 			const writes = (liveBodyAssets ?? [])
@@ -459,9 +499,15 @@
 				}
 	)
 	$effect(() => {
+		// Live-overlay emits are an edit-mode concern: in read-only modes
+		// the loaded content is the deployed version (already covered by
+		// the page's prefetch caches) and the page resets these overlays
+		// on mode switch — re-emitting would immediately repopulate them.
+		if (readOnly) return
 		onAnnotationsChange?.(script?.path, liveAnnotations)
 	})
 	$effect(() => {
+		if (readOnly) return
 		onAssetsChange?.(script?.path, liveBodyAssets ?? [])
 	})
 
@@ -588,7 +634,7 @@
 			{#if isDraft && script}
 				{@const draftScriptPath = script.path}
 				<Code2 size={16} class="shrink-0 text-emerald-700 dark:text-emerald-400" />
-				{#if onDraftPathChange}
+				{#if onDraftPathChange && !readOnly}
 					<!-- Inline rename popover for drafts. The persisted-script
 					     branch uses SummaryPathDisplay which round-trips through
 					     updateItemPathAndSummary; drafts have no server row yet,
@@ -685,25 +731,34 @@
 				</div>
 			{:else if selection?.kind === 'runnable' && selection.runnable_kind === 'script'}
 				<Code2 size={16} class="shrink-0 text-emerald-700 dark:text-emerald-400" />
-				<!-- Mirrors the rename UX from /scripts/get/[hash]: clicking the
-				     path/summary opens an inline popover that calls
-				     updateItemPathAndSummary. We forward `onSaved` upward so
-				     the parent page can repoint its selection and refetch the
-				     graph. Bound to the local `script` state so summary edits
-				     reflect immediately without waiting on the resource. -->
-				<SummaryPathDisplay
-					summary={script?.summary ?? ''}
-					path={selection.path}
-					labels={script?.labels ?? []}
-					kind="script"
-					onSaved={(newPath) => {
-						const oldPath = selection?.kind === 'runnable' ? selection.path : ''
-						if (script) {
-							script.path = newPath
-						}
-						onScriptRenamed?.(oldPath, newPath)
-					}}
-				/>
+				{#if readOnly}
+					<div class="flex flex-col min-w-0">
+						<span class="text-3xs uppercase tracking-wide text-tertiary">
+							{script?.summary ? script.summary : 'Script'}
+						</span>
+						<span class="text-xs font-mono truncate" title={selection.path}>{selection.path}</span>
+					</div>
+				{:else}
+					<!-- Mirrors the rename UX from /scripts/get/[hash]: clicking the
+					     path/summary opens an inline popover that calls
+					     updateItemPathAndSummary. We forward `onSaved` upward so
+					     the parent page can repoint its selection and refetch the
+					     graph. Bound to the local `script` state so summary edits
+					     reflect immediately without waiting on the resource. -->
+					<SummaryPathDisplay
+						summary={script?.summary ?? ''}
+						path={selection.path}
+						labels={script?.labels ?? []}
+						kind="script"
+						onSaved={(newPath) => {
+							const oldPath = selection?.kind === 'runnable' ? selection.path : ''
+							if (script) {
+								script.path = newPath
+							}
+							onScriptRenamed?.(oldPath, newPath)
+						}}
+					/>
+				{/if}
 			{:else if selection?.kind === 'runnable' && selection.runnable_kind === 'flow'}
 				<GitBranch size={16} class="shrink-0 text-emerald-700 dark:text-emerald-400" />
 				<div class="flex flex-col min-w-0">
@@ -713,7 +768,18 @@
 			{/if}
 		</div>
 		<div class="flex items-center gap-1 shrink-0">
-			{#if isDraft && onDiscard}
+			{#if readOnly && onRequestEdit}
+				<Button
+					variant="accent"
+					unifiedSize="sm"
+					startIcon={{ icon: Pencil }}
+					onclick={onRequestEdit}
+					title="Open this script in the pipeline editor"
+				>
+					Edit
+				</Button>
+			{/if}
+			{#if !readOnly && isDraft && onDiscard}
 				<Button
 					variant="subtle"
 					unifiedSize="sm"
@@ -728,7 +794,7 @@
 			     anchored at the right edge of the bar; trash lives at the
 			     far left so destructive ops are visually separated from
 			     navigation/commit. Mirrors the draft Discard placement. -->
-			{#if !isDraft && isScriptView && script?.hash}
+			{#if !readOnly && !isDraft && isScriptView && script?.hash}
 				<Button
 					variant="subtle"
 					unifiedSize="sm"
@@ -738,7 +804,7 @@
 					title="Archive or delete"
 				/>
 			{/if}
-			{#if !isDraft && selection?.kind === 'runnable'}
+			{#if !readOnly && !isDraft && selection?.kind === 'runnable'}
 				<Button
 					variant="subtle"
 					unifiedSize="sm"
@@ -751,7 +817,7 @@
 					title="Open in full editor"
 				/>
 			{/if}
-			{#if isScriptView && script && !atLatestSavePoint}
+			{#if !readOnly && isScriptView && script && !atLatestSavePoint}
 				<Button
 					variant="accent"
 					unifiedSize="sm"
@@ -844,7 +910,14 @@
 			</Splitpanes>
 		{:else if selection?.kind === 'runnable' && selection.runnable_kind === 'flow' && !isDraft}
 			<div class="p-3 text-xs text-secondary">
-				Flows are not editable inline. Use the open-in-editor button above.
+				{#if readOnly}
+					Flows have no inline view here. Open <a
+						class="text-blue-600 hover:underline"
+						href="{base}/flows/get/{selection.path}">the flow page</a
+					> for details and runs.
+				{:else}
+					Flows are not editable inline. Use the open-in-editor button above.
+				{/if}
 			</div>
 		{:else if !isDraft && scriptRes.loading && !script}
 			<div class="absolute inset-0 flex items-center justify-center gap-2 text-tertiary">
@@ -855,6 +928,25 @@
 			<div class="p-3 text-xs text-red-500">
 				Failed to load: {scriptRes.error.message}
 			</div>
+		{:else if script && readOnly}
+			<!-- Read-only modes: no Monaco/ScriptEditor (operators are
+			     backend-blocked from previews anyway) — highlighted source,
+			     the legitimate data-upload run form when applicable, and the
+			     same runs panel as the asset branch. -->
+			{#key script.path}
+				<PipelineScriptView
+					{script}
+					{isDraft}
+					canRun={canRunByPath}
+					onRun={onRunByPath}
+					{runsRefreshKey}
+					{runsPendingJobId}
+					onRunCompleted={() => {
+						previewRefreshKey += 1
+						onRunCompleted?.()
+					}}
+				/>
+			{/key}
 		{:else if script}
 			<!-- Key on path alone, NOT hash: deploying a draft or re-saving turns
 			     hash ''→<hash> for the *same* script, and a hash-based key would

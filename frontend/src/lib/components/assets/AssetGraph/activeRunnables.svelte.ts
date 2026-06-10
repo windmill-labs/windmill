@@ -88,6 +88,25 @@ export function useActiveRunnableIds(
 	let idleTicks = 0
 	let startedAtMs = 0
 	let lastPollTs = new Date(0).toISOString()
+	// Single-flight guard. `arm()` calls `tick()` directly; without this, an
+	// arm landing while a tick's request is still outstanding starts a SECOND
+	// concurrent fetch — and both then schedule their own setTimeout chain
+	// (the leaked chain's timer is no longer in `timer`, so stop()/arm()
+	// can't clear it). Every launch (each cascade hop arms once) added a
+	// chain, compounding into many concurrent identical list_jobs calls.
+	// With the guard, at most one request is ever in flight; an arm that
+	// lands mid-flight just queues one immediate re-poll.
+	let inFlight = false
+	let rerunAsap = false
+	// Bumped by stop(): a tick whose fetch resolves after its loop was
+	// stopped (folder change / dispose) must not write stale results into
+	// the new scope or schedule itself back to life.
+	let pollGen = 0
+
+	function schedule(delayMs: number) {
+		if (timer !== undefined) clearTimeout(timer)
+		timer = setTimeout(() => void tick(), delayMs)
+	}
 
 	// Persistent (non-reactive) accumulators — survive `stop()` so the badge
 	// keeps showing the last status while idle; only `dispose()` clears them.
@@ -118,6 +137,8 @@ export function useActiveRunnableIds(
 	}
 
 	function stop() {
+		pollGen++
+		rerunAsap = false
 		if (timer !== undefined) clearTimeout(timer)
 		timer = undefined
 		running = false
@@ -128,12 +149,20 @@ export function useActiveRunnableIds(
 	}
 
 	async function tick() {
+		if (inFlight) {
+			// A request is already outstanding — don't stack another; the
+			// running tick re-polls immediately when it lands.
+			rerunAsap = true
+			return
+		}
 		const ws = getWorkspace()
 		const prefix = getPathPrefix()
 		if (!ws || !prefix) {
 			stop()
 			return
 		}
+		inFlight = true
+		const gen = pollGen
 		const since = lastPollTs
 		const pollStartedMs = Date.now()
 		let next = new Set<string>()
@@ -147,6 +176,9 @@ export function useActiveRunnableIds(
 				perPage: PER_PAGE,
 				page: 1
 			})
+			// Stopped (folder change / dispose) while the request was in the
+			// air — drop the stale response and let the loop die here.
+			if (gen !== pollGen) return
 			for (const j of res.jobs ?? []) {
 				const id = idOf((j as any).job_kind, (j as any).script_path)
 				if (!id) continue
@@ -226,7 +258,12 @@ export function useActiveRunnableIds(
 			// Transient failure: keep the previous set, retry next tick.
 			next = ids
 			anyInFlight = ids.size > 0
+		} finally {
+			inFlight = false
 		}
+		// Same stale-loop check for the catch path — a failed fetch must not
+		// resurrect a stopped loop via the scheduling below.
+		if (gen !== pollGen) return
 		if (!setEq(ids, next)) ids = next
 		// Rebuild the badge snapshot: actually-running wins (spinner),
 		// otherwise the last completed status sticks. completedHistory
@@ -270,7 +307,12 @@ export function useActiveRunnableIds(
 			stop()
 			return
 		}
-		timer = setTimeout(() => void tick(), armedActive ? INTERVAL_MS : OBSERVE_INTERVAL_MS)
+		// An arm() that landed mid-flight queued an immediate re-poll;
+		// otherwise fall back to the cadence. schedule() clears any pending
+		// timer first, so there is always exactly one chain.
+		const asap = rerunAsap
+		rerunAsap = false
+		schedule(asap ? 0 : armedActive ? INTERVAL_MS : OBSERVE_INTERVAL_MS)
 	}
 
 	return {

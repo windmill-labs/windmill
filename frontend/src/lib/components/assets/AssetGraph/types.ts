@@ -114,3 +114,8 @@ export type AssetGraphNodeData =
 	  }
 
 export type AssetGraphSelection = AssetGraphNodeData
+
+/** Page-level mode for /pipeline/[folder]: read-only deployed view
+ * (default) or full editor. View can additionally overlay unsaved drafts
+ * ("show drafts" chip) — a view variant, not a separate mode. */
+export type PipelineMode = 'view' | 'edit'

@@ -6,7 +6,10 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
 	import { useActiveRunnableIds } from '$lib/components/assets/AssetGraph/activeRunnables.svelte'
+	import type { PipelineEvent } from '$lib/components/assets/AssetGraph/activeRunnables.svelte'
+	import { usePipelineHistory } from '$lib/components/assets/AssetGraph/pipelineHistory.svelte'
 	import PipelineEventLog from '$lib/components/assets/AssetGraph/PipelineEventLog.svelte'
+	import PipelineActivityPanel from '$lib/components/assets/AssetGraph/PipelineActivityPanel.svelte'
 	import AssetGraphDetailsPane from '$lib/components/assets/AssetGraph/AssetGraphDetailsPane.svelte'
 	import PipelinePickerModal from '$lib/components/assets/AssetGraph/PipelinePickerModal.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
@@ -18,8 +21,10 @@
 	import type {
 		AssetGraphResponse,
 		AssetGraphSelection,
-		NativeTriggerKind
+		NativeTriggerKind,
+		PipelineMode
 	} from '$lib/components/assets/AssetGraph/types'
+	import PipelineModeToggle from '$lib/components/assets/AssetGraph/PipelineModeToggle.svelte'
 	import {
 		parsePipelineAnnotations,
 		type PipelineAnnotations
@@ -51,7 +56,8 @@
 		Loader2,
 		NetworkIcon,
 		RefreshCw,
-		Save
+		Save,
+		Telescope
 	} from 'lucide-svelte'
 	import {
 		EmailTriggerService,
@@ -74,6 +80,7 @@
 	import { emptySchema, sendUserToast } from '$lib/utils'
 	import { beforeNavigate, goto } from '$app/navigation'
 	import { fade } from 'svelte/transition'
+	import { twMerge } from 'tailwind-merge'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
 	import { inferArgs, inferAssets } from '$lib/infer'
@@ -94,6 +101,26 @@
 
 	let folder = $derived(page.params.folder as string)
 	let selection = $state<AssetGraphSelection | undefined>(undefined)
+
+	// Page mode, URL-addressable via `?mode=`. No param = view (the
+	// default): deployed-only graph focused on past/live executions.
+	// Operators are clamped to view — the derived ignores a hand-typed
+	// `?mode=edit` rather than redirecting.
+	let isOperator = $derived($userStore?.operator ?? false)
+	let urlMode = $derived(page.url.searchParams.get('mode'))
+	let mode = $derived<PipelineMode>(isOperator ? 'view' : urlMode === 'edit' ? 'edit' : 'view')
+	function setMode(m: PipelineMode, opts?: { replace?: boolean }) {
+		const url = new URL(page.url)
+		if (m === 'view') url.searchParams.delete('mode')
+		else url.searchParams.set('mode', m)
+		// Same-pathname navigation — the drafts leave-guard skips it.
+		goto(url, { replaceState: opts?.replace ?? false, keepFocus: true, noScroll: true })
+	}
+	// View-mode drafts overlay: "what View will show once the drafts are
+	// deployed". A view variant rather than a third mode — ephemeral (not
+	// URL-addressable: drafts live in this browser's localStorage, so a
+	// shared link couldn't reproduce it anyway).
+	let includeDrafts = $state(false)
 
 	// Asset-kind → syntax-prefix for `// on <ref>` reconstruction. Mirrors
 	// ASSET_KINDS in backend/parsers/windmill-parser/src/asset_parser.rs.
@@ -167,8 +194,13 @@
 	// so re-opening the pane re-uses them. Mirrors AppEditor's
 	// hideRightPanel/showRightPanel pattern.
 	let panelHidden = $state(false)
+	// Edit mode opens the pane only for a selection/draft; view mode
+	// keeps it open permanently — it shows the activity panel when nothing
+	// is selected and swaps to the details pane on node select.
 	let detailsPaneOpen = $derived(
-		(selection != undefined || activeDraftPath != undefined) && !panelHidden
+		mode === 'edit'
+			? (selection != undefined || activeDraftPath != undefined) && !panelHidden
+			: !panelHidden
 	)
 
 	$effect(() => {
@@ -937,6 +969,200 @@
 		drafts = next
 	}
 
+	// Canvas callbacks, named so the prop refs stay stable across re-renders
+	// (same rationale as the live-callback handlers above) and so the
+	// template can gate them per-mode with simple ternaries — the canvas
+	// hides each affordance when its callback is undefined.
+	function handleCanvasSelect(s: AssetGraphSelection | undefined) {
+		// Clicking a draft runnable node re-opens it in the pane; clicking
+		// anything else selects it normally and detaches from any active
+		// draft (drafts stay overlaid until saved or discarded). In view
+		// mode drafts aren't on the graph, so the first branch never fires.
+		if (s && s.kind === 'runnable' && s.runnable_kind === 'script' && drafts.has(s.path)) {
+			activeDraftPath = s.path
+			selection = undefined
+		} else {
+			activeDraftPath = undefined
+			selection = s
+		}
+	}
+	function handleAddScriptForAsset(
+		asset: { kind: AssetKind; path: string },
+		language: ScriptLang,
+		scriptPath: string,
+		outputKind: PipelineOutputKind,
+		aiPrompt?: string
+	) {
+		const ref = `${ASSET_PREFIX[asset.kind]}${asset.path}`
+		openMaterializerDraft(
+			language,
+			scriptPath,
+			[{ kind: 'asset', ref }],
+			outputKind,
+			{
+				kind: asset.kind,
+				path: asset.path
+			},
+			aiPrompt
+		)
+	}
+	function handleAddPipelineScript(
+		language: ScriptLang,
+		scriptPath: string,
+		source: { kind: NativeTriggerKind; path: string | undefined },
+		outputKind: PipelineOutputKind,
+		aiPrompt?: string
+	) {
+		openMaterializerDraft(language, scriptPath, [source], outputKind, undefined, aiPrompt)
+	}
+	function handleRunnableMenuRemove(info: {
+		runnable_kind: 'script' | 'flow'
+		path: string
+		unsaved?: boolean
+	}) {
+		// Drafts: drop the local entry immediately — the existing onDiscard
+		// pathway already handles this without a confirm modal. Persisted:
+		// select the script (so the pane loads it), then bump the
+		// remove-signal counter so the pane opens its archive/delete modal.
+		if (info.unsaved) {
+			discardDraft(info.path)
+			return
+		}
+		if (info.runnable_kind !== 'script') return
+		activeDraftPath = undefined
+		selection = { kind: 'runnable', runnable_kind: 'script', path: info.path }
+		requestRemoveSignal++
+	}
+	async function handleRunProducer(producer: {
+		kind: 'script' | 'flow'
+		path: string
+		unsaved?: boolean
+		cascade?: boolean
+	}): Promise<string | undefined> {
+		// Saved scripts go through runScriptByPath; drafts have no DB row
+		// yet, so dispatch to runScriptPreview with the locally-cached
+		// content/language. Keeping this dispatch in the page (rather than
+		// the canvas or AssetNode) so the asset-graph components stay
+		// stateless wrt drafts. Bump runsRefreshKey on success so the runs
+		// panel picks up the new job immediately — its background poll only
+		// kicks in for already-listed in-flight jobs.
+		if (!$workspaceStore || producer.kind !== 'script') return undefined
+		// Start the folder-scoped poll so the downstream asset-trigger
+		// cascade (jobs not launched here) lights up its edges as it fans
+		// out. Pass the launched id so the catch-up pulse doesn't re-flash
+		// it (the page already animates it zero-latency via `activeRunnable`).
+		activeRunnables.arm(`${producer.kind}:${producer.path}`)
+		// Cascade default: same as the Test button — `cascade` undefined /
+		// false skips the asset-trigger dispatch via
+		// `_wmill_skip_asset_dispatch`; explicit `true` lets the dispatch
+		// fire normally. The asset-node affordance still passes `undefined`
+		// (legacy callers), which we treat as "skip" for consistency.
+		const cascade = producer.cascade === true
+		// Run + downstream over a chain with drafts in it: the backend
+		// dispatcher can't see drafts (no DB rows), so the page orchestrates
+		// the whole closure client-side. Deployed-only chains fall through
+		// to the production dispatcher below — the dev run then tests the
+		// real cascade machinery, not a simulation of it.
+		if (cascade) {
+			const hasDraftInChain =
+				producer.unsaved === true ||
+				computeDownstreamClosure(graphWithDraft, producer.path).nodes.some((p) => drafts.has(p))
+			if (hasDraftInChain) {
+				return await runDraftAwareCascade(producer.path)
+			}
+		}
+		// If the producer being run is the script currently edited in the
+		// pane, route through ScriptEditor's Test path — the test panel then
+		// shows logs/result and the user can cancel from there. Same UX as
+		// hitting the Test button directly.
+		const openPath =
+			activeDraftPath ??
+			(selection?.kind === 'runnable' && selection.runnable_kind === 'script'
+				? selection.path
+				: undefined)
+		if (openPath === producer.path) {
+			if (cascade) requestRunCascadeSignal++
+			else requestRunSignal++
+			return undefined
+		}
+		const skipArg = cascade ? {} : { _wmill_skip_asset_dispatch: true }
+		let jobId: string | undefined
+		if (producer.unsaved) {
+			const draft = drafts.get(producer.path)
+			if (!draft?.script.content || !draft.script.language) return undefined
+			jobId = await JobService.runScriptPreview({
+				workspace: $workspaceStore,
+				requestBody: {
+					content: draft.script.content,
+					language: draft.script.language,
+					path: producer.path,
+					args: { ...skipArg }
+				}
+			})
+		} else {
+			jobId = await JobService.runScriptByPath({
+				workspace: $workspaceStore,
+				path: producer.path,
+				requestBody: { ...skipArg }
+			})
+		}
+		if (jobId) {
+			runsPendingJobId = jobId
+			runsRefreshKey++
+			activeRunnable = { kind: producer.kind, path: producer.path }
+			// Track this job so the effect above releases the hint when it
+			// finishes — there's no editor Test callback for an unselected
+			// node's run.
+			activeRunnableJobId = jobId
+		}
+		return jobId
+	}
+
+	// Legitimate run for view mode (data-upload entry points): a
+	// plain runScriptByPath with NO _wmill_skip_asset_dispatch and no
+	// client-side orchestration — the backend asset-trigger dispatcher does
+	// the real downstream fan-out, and the folder poll animates the hops.
+	// This is also the one dispatch operators are allowed to use (previews
+	// are backend-blocked for them).
+	async function runByPathLegit(
+		path: string,
+		args: Record<string, any>
+	): Promise<string | undefined> {
+		if (!$workspaceStore) return undefined
+		activeRunnables.arm(`script:${path}`)
+		try {
+			const jobId = await JobService.runScriptByPath({
+				workspace: $workspaceStore,
+				path,
+				requestBody: { ...args }
+			})
+			runsPendingJobId = jobId
+			runsRefreshKey++
+			activeRunnable = { kind: 'script', path }
+			activeRunnableJobId = jobId
+			return jobId
+		} catch (e: any) {
+			sendUserToast(`Run failed: ${e?.body ?? e?.message ?? e}`, true)
+			return undefined
+		}
+	}
+
+	// Whether the script open in the pane is a data-upload pipeline entry —
+	// drives the read-only pane's run form. Derived from the displayed
+	// graph's triggers so the drafts overlay picks up draft annotations too.
+	let openScriptHasDataUpload = $derived.by(() => {
+		const path =
+			activeDraftPath ??
+			(selection?.kind === 'runnable' && selection.runnable_kind === 'script'
+				? selection.path
+				: undefined)
+		if (!path) return false
+		return displayGraph.triggers.some(
+			(t) =>
+				t.trigger_kind === 'data_upload' && t.runnable_kind === 'script' && t.runnable_path === path
+		)
+	})
+
 	// Overlay the draft runnable + live-parsed trigger edges onto the fetched
 	// graph. Live edges come from the editor buffer's `// on <spec>` lines
 	// and are marked `unsaved: true` unless they already match a persisted
@@ -954,6 +1180,58 @@
 			annotatedNativeKindsByPath
 		})
 	)
+
+	// Deployed-only resolution for view mode: same enrichment as the editor
+	// (prefetched body lineage, annotated-but-rowless trigger placeholders)
+	// but with no drafts and no live editor buffer. resolveGraph is pure, so
+	// feeding it empty overlays is the cheapest way to share the logic.
+	const EMPTY_DRAFTS: Map<string, Draft> = new Map()
+	const EMPTY_LIVE_ASSETS = { scriptPath: undefined, assets: [] }
+	const EMPTY_LIVE_ANNOTATIONS = {
+		scriptPath: undefined,
+		annotations: { inPipeline: false, triggerAssets: [], nativeTriggers: [] }
+	}
+	let deployedGraph = $derived.by<AssetGraphResponse>(() =>
+		resolveGraph({
+			base: graphRes.current ?? EMPTY_GRAPH,
+			drafts: EMPTY_DRAFTS,
+			liveBodyAssets: EMPTY_LIVE_ASSETS,
+			liveAnnotations: EMPTY_LIVE_ANNOTATIONS,
+			inferredWritesByPath,
+			inferredReadsByPath,
+			annotatedNativeKindsByPath
+		})
+	)
+	// What the canvas renders: drafts merged in edit, deployed-only in view —
+	// unless the "show drafts" chip is on, which overlays the drafts onto the
+	// view (what View will show once they're deployed).
+	let displayGraph = $derived(mode === 'edit' || includeDrafts ? graphWithDraft : deployedGraph)
+
+	// Leaving edit mode: drop the live editor overlays — they substitute the
+	// last keystroke buffer for one script inside inferredWritesByPath /
+	// annotatedNativeKindsByPath, and a stale buffer must not pollute the
+	// view graphs. Tracks `mode` only.
+	$effect(() => {
+		if (mode === 'edit') return
+		untrack(() => {
+			if (liveAnnotations.scriptPath != undefined || liveBodyAssets.scriptPath != undefined) {
+				liveAnnotations = {
+					scriptPath: undefined,
+					annotations: { inPipeline: false, triggerAssets: [], nativeTriggers: [] }
+				}
+				liveBodyAssets = { scriptPath: undefined, assets: [] }
+			}
+		})
+	})
+	// Drafts are only addressable in view mode while the drafts overlay is
+	// on — otherwise detach from any open one (the drafts Map itself is
+	// preserved, so toggling back to edit keeps them). Tracks activeDraftPath
+	// too, covering the onMount localStorage restore landing after a view load.
+	$effect(() => {
+		if (mode === 'view' && !includeDrafts && activeDraftPath != undefined) {
+			activeDraftPath = undefined
+		}
+	})
 
 	// Selection highlights the active draft (if any) or the user's picked
 	// node. Non-active drafts render without selection highlight but are
@@ -1003,6 +1281,36 @@
 		// change because `dispose()` (below) turns observing off.
 		activeRunnables.setObserving(true)
 		return () => activeRunnables.dispose()
+	})
+
+	// View-mode activity panel: historical runs preloaded for the last N
+	// days (user-configurable, persisted) merged with the live poll's events.
+	const ACTIVITY_DAYS_KEY = 'pipeline-activity-days'
+	let activityDays = $state(30)
+	onMount(() => {
+		if (typeof localStorage === 'undefined') return
+		const stored = Number(localStorage.getItem(ACTIVITY_DAYS_KEY))
+		if ([7, 30, 90].includes(stored)) activityDays = stored
+	})
+	function setActivityDays(days: number) {
+		activityDays = days
+		try {
+			localStorage.setItem(ACTIVITY_DAYS_KEY, String(days))
+		} catch {}
+	}
+	const pipelineHistory = usePipelineHistory(
+		() => $workspaceStore,
+		() => pathPrefix,
+		() => activityDays,
+		() => mode !== 'edit'
+	)
+	// Live events win on id collision — the poll upserts queued → running →
+	// terminal, while a history row is a frozen snapshot from preload time.
+	let activityEvents = $derived.by<PipelineEvent[]>(() => {
+		const byId = new Map<string, PipelineEvent>()
+		for (const e of pipelineHistory.events) byId.set(e.id, e)
+		for (const e of activeRunnables.events) byId.set(e.id, e)
+		return Array.from(byId.values()).sort((a, b) => b.at.localeCompare(a.at))
 	})
 	// Release the zero-latency `activeRunnable` hint for a per-node run of a
 	// script that isn't open in the pane: such runs have no editor Test callback
@@ -1415,11 +1723,14 @@
 	)
 
 	let folderSwitcherItems = $derived.by(() => {
+		// Keep the current mode across folder switches (view is the
+		// param-less default).
+		const modeQuery = mode !== 'view' ? `?mode=${mode}` : ''
 		const items = otherPipelineFolders.map((p) => ({
 			displayName: `f/${p.folder}`,
 			icon: Folder,
 			disabled: false,
-			action: () => goto(`${base}/pipeline/${encodeURIComponent(p.folder)}`)
+			action: () => goto(`${base}/pipeline/${encodeURIComponent(p.folder)}${modeQuery}`)
 		}))
 		items.push({
 			displayName: 'Choose another folder…',
@@ -1430,6 +1741,22 @@
 			}
 		})
 		return items
+	})
+
+	// Empty pipelines land straight in the editor — a view of nothing is a
+	// dead end. One-shot per folder, replaceState so Back doesn't bounce
+	// through the empty view. Deep links with an explicit ?mode are honored,
+	// and operators stay on the (empty) view.
+	let autoEditCheckedFolder = $state<string | undefined>(undefined)
+	$effect(() => {
+		const g = graphRes.current
+		const f = folder
+		if (!g || graphRes.loading || autoEditCheckedFolder === f) return
+		autoEditCheckedFolder = f
+		if (untrack(() => urlMode) != null || untrack(() => isOperator)) return
+		if (g.runnables.length === 0 && g.assets.length === 0) {
+			setMode('edit', { replace: true })
+		}
 	})
 
 	let graphRes = resource(
@@ -1532,320 +1859,228 @@
 	<title>Pipeline · {folder} — Windmill</title>
 </svelte:head>
 
-{#if $userStore?.operator}
-	<div class="p-8 text-tertiary">Page not available for operators.</div>
-{:else}
-	<div class="flex flex-col h-full">
-		<div
-			class="border-b flex flex-row justify-between gap-2 px-2 py-1 items-center overflow-y-visible overflow-x-auto min-h-10 shrink-0 whitespace-nowrap"
-		>
-			<div class="flex flex-row items-center gap-2">
-				<Button
-					variant="subtle"
-					unifiedSize="sm"
-					href="{base}/pipeline"
-					startIcon={{ icon: ArrowLeft }}
-					iconOnly
-					title="Back to pipelines"
-				/>
-				<NetworkIcon size={16} class="text-tertiary shrink-0" />
-				<h1 class="text-sm font-semibold">Pipeline editor</h1>
-				<span class="text-tertiary text-sm">·</span>
-				{#if otherPipelineFolders.length === 0}
+<div class="flex flex-col h-full">
+	<div
+		class="border-b flex flex-row justify-between gap-2 px-2 py-1 items-center overflow-y-visible overflow-x-auto min-h-12 shrink-0 whitespace-nowrap"
+	>
+		<div class="flex flex-row items-center gap-2 flex-1 min-w-0">
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
+				href="{base}/pipeline"
+				startIcon={{ icon: ArrowLeft }}
+				iconOnly
+				title="Back to pipelines"
+			/>
+			<NetworkIcon size={16} class="text-tertiary shrink-0" />
+			<h1 class="text-sm font-semibold">{mode === 'edit' ? 'Pipeline editor' : 'Pipeline'}</h1>
+			<span class="text-tertiary text-sm">·</span>
+			{#if otherPipelineFolders.length === 0}
+				<button
+					type="button"
+					onclick={() => (pickerModalOpen = true)}
+					class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-surface hover:bg-surface-hover transition-colors"
+					title="Switch pipeline folder"
+				>
+					<Folder size={14} class="text-emerald-600 dark:text-emerald-400 shrink-0" />
+					<span class="text-sm font-mono font-medium text-emphasis">f/{folder}</span>
+					<ChevronDown size={12} class="text-tertiary" />
+				</button>
+			{:else}
+				<DropdownV2 size="sm" items={folderSwitcherItems}>
+					{#snippet buttonReplacement()}
+						<span
+							class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-surface hover:bg-surface-hover transition-colors"
+							title="Switch pipeline folder"
+						>
+							<Folder size={14} class="text-emerald-600 dark:text-emerald-400 shrink-0" />
+							<span class="text-sm font-mono font-medium text-emphasis">f/{folder}</span>
+							<ChevronDown size={12} class="text-tertiary" />
+						</span>
+					{/snippet}
+				</DropdownV2>
+			{/if}
+			{#if summary.length > 0}
+				<span class="text-xs text-tertiary">· {summary.join(' · ')}</span>
+			{/if}
+		</div>
+		{#if !isOperator}
+			<!-- Center group: the mode toggle is the page's primary control —
+			     anchored between the two flex-1 side groups so it stays
+			     centered, with breathing room on both sides. -->
+			<div class="flex flex-row items-center gap-2 shrink-0 px-6">
+				<PipelineModeToggle {mode} draftCount={drafts.size} onModeChange={(m) => setMode(m)} />
+				{#if mode === 'view' && drafts.size > 0}
+					<!-- View variant: overlay the unsaved drafts onto the deployed
+					     graph — "what View will show once they're deployed". -->
 					<button
 						type="button"
-						onclick={() => (pickerModalOpen = true)}
-						class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-surface hover:bg-surface-hover transition-colors"
-						title="Switch pipeline folder"
+						onclick={() => (includeDrafts = !includeDrafts)}
+						class={twMerge(
+							'flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-colors',
+							includeDrafts
+								? 'bg-amber-50 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400'
+								: 'bg-surface border-gray-300 dark:border-gray-600 text-secondary hover:bg-surface-hover'
+						)}
+						title={includeDrafts
+							? 'Showing undeployed drafts overlaid on the deployed pipeline — click to hide them'
+							: 'Overlay your undeployed drafts to see what the pipeline will look like once deployed'}
 					>
-						<Folder size={14} class="text-emerald-600 dark:text-emerald-400 shrink-0" />
-						<span class="text-sm font-mono font-medium text-emphasis">f/{folder}</span>
-						<ChevronDown size={12} class="text-tertiary" />
+						<Telescope size={14} />
+						{includeDrafts ? 'Showing' : 'Show'}
+						{drafts.size} draft{drafts.size === 1 ? '' : 's'}
 					</button>
-				{:else}
-					<DropdownV2 size="sm" items={folderSwitcherItems}>
-						{#snippet buttonReplacement()}
-							<span
-								class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-surface hover:bg-surface-hover transition-colors"
-								title="Switch pipeline folder"
-							>
-								<Folder size={14} class="text-emerald-600 dark:text-emerald-400 shrink-0" />
-								<span class="text-sm font-mono font-medium text-emphasis">f/{folder}</span>
-								<ChevronDown size={12} class="text-tertiary" />
-							</span>
-						{/snippet}
-					</DropdownV2>
-				{/if}
-				{#if summary.length > 0}
-					<span class="text-xs text-tertiary">· {summary.join(' · ')}</span>
 				{/if}
 			</div>
-			<div class="flex flex-row items-center gap-2">
-				{#if saveErrors.size > 0}
-					<!-- Compact errors popover anchored next to Save all so users
-					     can see exactly which drafts failed and why without losing
-					     the editor context. Drafts that succeed disappear from
-					     the map; the ones still listed here are the unresolved
-					     failures. -->
-					<Popover placement="bottom-end" contentClasses="p-3 max-w-[480px]" usePointerDownOutside>
-						{#snippet trigger()}
-							<button
-								type="button"
-								class="flex items-center gap-1.5 px-2 py-1 rounded-md text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors text-xs font-medium"
-								title="View save errors"
-							>
-								<AlertTriangle size={14} />
-								<span>{saveErrors.size} failed</span>
-							</button>
-						{/snippet}
-						{#snippet content()}
-							<div class="flex flex-col gap-2">
-								<span class="text-xs font-semibold text-emphasis">Save errors</span>
-								<div class="flex flex-col gap-2 max-h-72 overflow-y-auto">
-									{#each [...saveErrors.entries()] as [path, message]}
-										<div class="flex flex-col gap-0.5 border-l-2 border-red-400 pl-2">
-											<span class="text-2xs font-mono text-emphasis">{path}</span>
-											<span class="text-2xs text-red-600 dark:text-red-400 break-words">
-												{message}
-											</span>
-										</div>
-									{/each}
-								</div>
+		{/if}
+		<div class="flex flex-row items-center gap-2 flex-1 justify-end">
+			{#if mode === 'edit' && saveErrors.size > 0}
+				<!-- Compact errors popover anchored next to Save all so users
+				     can see exactly which drafts failed and why without losing
+				     the editor context. Drafts that succeed disappear from
+				     the map; the ones still listed here are the unresolved
+				     failures. -->
+				<Popover placement="bottom-end" contentClasses="p-3 max-w-[480px]" usePointerDownOutside>
+					{#snippet trigger()}
+						<button
+							type="button"
+							class="flex items-center gap-1.5 px-2 py-1 rounded-md text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors text-xs font-medium"
+							title="View save errors"
+						>
+							<AlertTriangle size={14} />
+							<span>{saveErrors.size} failed</span>
+						</button>
+					{/snippet}
+					{#snippet content()}
+						<div class="flex flex-col gap-2">
+							<span class="text-xs font-semibold text-emphasis">Save errors</span>
+							<div class="flex flex-col gap-2 max-h-72 overflow-y-auto">
+								{#each [...saveErrors.entries()] as [path, message]}
+									<div class="flex flex-col gap-0.5 border-l-2 border-red-400 pl-2">
+										<span class="text-2xs font-mono text-emphasis">{path}</span>
+										<span class="text-2xs text-red-600 dark:text-red-400 break-words">
+											{message}
+										</span>
+									</div>
+								{/each}
 							</div>
-						{/snippet}
-					</Popover>
-				{/if}
-				{#if drafts.size > 0}
-					<Button
-						variant="accent"
-						unifiedSize="sm"
-						startIcon={{ icon: savingAll ? Loader2 : Save }}
-						onclick={saveAllDrafts}
-						disabled={savingAll}
-						title={savingAll ? 'Saving drafts…' : `Deploy all ${drafts.size} drafts`}
-					>
-						{savingAll ? 'Saving…' : `Save all (${drafts.size})`}
-					</Button>
-				{/if}
+						</div>
+					{/snippet}
+				</Popover>
+			{/if}
+			{#if mode === 'edit' && drafts.size > 0}
 				<Button
-					variant="subtle"
+					variant="accent"
 					unifiedSize="sm"
-					startIcon={{ icon: RefreshCw }}
-					onclick={() => graphRes.refetch()}
-					disabled={graphRes.loading}
-					iconOnly
-					title="Refresh"
-				/>
-			</div>
+					startIcon={{ icon: savingAll ? Loader2 : Save }}
+					onclick={saveAllDrafts}
+					disabled={savingAll}
+					title={savingAll ? 'Saving drafts…' : `Deploy all ${drafts.size} drafts`}
+				>
+					{savingAll ? 'Saving…' : `Save all (${drafts.size})`}
+				</Button>
+			{/if}
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
+				startIcon={{ icon: RefreshCw }}
+				onclick={() => graphRes.refetch()}
+				disabled={graphRes.loading}
+				iconOnly
+				title="Refresh"
+			/>
 		</div>
+	</div>
 
-		<div class="flex-1 min-h-0">
-			{#if graphRes.loading && !graphRes.current}
-				<div class="h-full flex items-center justify-center gap-2 text-tertiary">
-					<Loader2 size={18} class="animate-spin" />
-					<span>Loading pipeline…</span>
-				</div>
-			{:else if graphRes.error}
-				<div class="h-full flex items-center justify-center text-red-500 text-sm">
-					Failed to load pipeline: {graphRes.error.message}
-				</div>
-			{:else}
-				<Splitpanes class="!h-full">
-					<Pane bind:size={leftPaneSize}>
-						<div class="relative h-full">
-							<AssetGraphCanvas
-								graph={graphWithDraft}
-								selection={effectiveSelection}
-								{activeRunnable}
-								activeRunnableIds={activeRunnables.ids}
-								runStates={activeRunnables.states}
-								{pathPrefix}
-								defaultPathSuffix={DEFAULT_PATH_SUFFIX}
-								onCreateMissingTrigger={openMissingTriggerDrawer}
-								onEditTrigger={openEditTriggerDrawer}
-								onDeleteTrigger={deleteAttachedTrigger}
-								onOpenWebhook={openWebhookDrawer}
-								onOpenDataUpload={openDataUploadRun}
-								onselect={(s) => {
-									// Clicking a draft runnable node re-opens it in the pane;
-									// clicking anything else selects it normally and detaches
-									// from any active draft (drafts stay overlaid until saved
-									// or discarded).
-									if (
-										s &&
-										s.kind === 'runnable' &&
-										s.runnable_kind === 'script' &&
-										drafts.has(s.path)
-									) {
-										activeDraftPath = s.path
-										selection = undefined
-									} else {
-										activeDraftPath = undefined
-										selection = s
-									}
-								}}
-								onAddScriptForAsset={(asset, language, scriptPath, outputKind, aiPrompt) => {
-									const ref = `${ASSET_PREFIX[asset.kind]}${asset.path}`
-									openMaterializerDraft(
-										language,
-										scriptPath,
-										[{ kind: 'asset', ref }],
-										outputKind,
-										{
-											kind: asset.kind,
-											path: asset.path
-										},
-										aiPrompt
-									)
-								}}
-								onAddPipelineScript={(language, scriptPath, source, outputKind, aiPrompt) =>
-									openMaterializerDraft(
-										language,
-										scriptPath,
-										[source],
-										outputKind,
-										undefined,
-										aiPrompt
-									)}
-								onRunnableMenuRemove={(info) => {
-									// Drafts: drop the local entry immediately — the
-									// existing onDiscard pathway already handles this
-									// without a confirm modal. Persisted: select the
-									// script (so the pane loads it), then bump the
-									// remove-signal counter so the pane opens its
-									// archive/delete modal.
-									if (info.unsaved) {
-										discardDraft(info.path)
-										return
-									}
-									if (info.runnable_kind !== 'script') return
-									activeDraftPath = undefined
-									selection = { kind: 'runnable', runnable_kind: 'script', path: info.path }
-									requestRemoveSignal++
-								}}
-								onRunProducer={async (producer) => {
-									// Saved scripts go through runScriptByPath; drafts
-									// have no DB row yet, so dispatch to runScriptPreview
-									// with the locally-cached content/language. Keeping
-									// this dispatch in the page (rather than the canvas
-									// or AssetNode) so the asset-graph components stay
-									// stateless wrt drafts. Bump runsRefreshKey on
-									// success so the runs panel picks up the new job
-									// immediately — its background poll only kicks in
-									// for already-listed in-flight jobs.
-									if (!$workspaceStore || producer.kind !== 'script') return undefined
-									// Start the folder-scoped poll so the downstream
-									// asset-trigger cascade (jobs not launched here)
-									// lights up its edges as it fans out. Pass the
-									// launched id so the catch-up pulse doesn't
-									// re-flash it (the page already animates it
-									// zero-latency via `activeRunnable`).
-									activeRunnables.arm(`${producer.kind}:${producer.path}`)
-									// Cascade default: same as the Test button — `cascade`
-									// undefined / false skips the asset-trigger dispatch
-									// via `_wmill_skip_asset_dispatch`; explicit `true`
-									// lets the dispatch fire normally. The asset-node
-									// affordance still passes `undefined` (legacy callers),
-									// which we treat as "skip" for consistency.
-									const cascade = producer.cascade === true
-									// Run + downstream over a chain with drafts in it: the
-									// backend dispatcher can't see drafts (no DB rows), so
-									// the page orchestrates the whole closure client-side.
-									// Deployed-only chains fall through to the production
-									// dispatcher below — the dev run then tests the real
-									// cascade machinery, not a simulation of it.
-									if (cascade) {
-										const hasDraftInChain =
-											producer.unsaved === true ||
-											computeDownstreamClosure(graphWithDraft, producer.path).nodes.some((p) =>
-												drafts.has(p)
-											)
-										if (hasDraftInChain) {
-											return await runDraftAwareCascade(producer.path)
-										}
-									}
-									// If the producer being run is the script currently
-									// edited in the pane, route through ScriptEditor's
-									// Test path — the test panel then shows logs/result
-									// and the user can cancel from there. Same UX as
-									// hitting the Test button directly.
-									const openPath =
-										activeDraftPath ??
-										(selection?.kind === 'runnable' && selection.runnable_kind === 'script'
-											? selection.path
-											: undefined)
-									if (openPath === producer.path) {
-										if (cascade) requestRunCascadeSignal++
-										else requestRunSignal++
-										return undefined
-									}
-									const skipArg = cascade ? {} : { _wmill_skip_asset_dispatch: true }
-									let jobId: string | undefined
-									if (producer.unsaved) {
-										const draft = drafts.get(producer.path)
-										if (!draft?.script.content || !draft.script.language) return undefined
-										jobId = await JobService.runScriptPreview({
-											workspace: $workspaceStore,
-											requestBody: {
-												content: draft.script.content,
-												language: draft.script.language,
-												path: producer.path,
-												args: { ...skipArg }
-											}
-										})
-									} else {
-										jobId = await JobService.runScriptByPath({
-											workspace: $workspaceStore,
-											path: producer.path,
-											requestBody: { ...skipArg }
-										})
-									}
-									if (jobId) {
-										runsPendingJobId = jobId
-										runsRefreshKey++
-										activeRunnable = { kind: producer.kind, path: producer.path }
-										// Track this job so the effect above releases the
-										// hint when it finishes — there's no editor Test
-										// callback for an unselected node's run.
-										activeRunnableJobId = jobId
-									}
-									return jobId
-								}}
-							/>
+	<div class="flex-1 min-h-0">
+		{#if graphRes.loading && !graphRes.current}
+			<div class="h-full flex items-center justify-center gap-2 text-tertiary">
+				<Loader2 size={18} class="animate-spin" />
+				<span>Loading pipeline…</span>
+			</div>
+		{:else if graphRes.error}
+			<div class="h-full flex items-center justify-center text-red-500 text-sm">
+				Failed to load pipeline: {graphRes.error.message}
+			</div>
+		{:else}
+			<Splitpanes class="!h-full">
+				<Pane bind:size={leftPaneSize}>
+					<div class="relative h-full">
+						<AssetGraphCanvas
+							graph={displayGraph}
+							selection={effectiveSelection}
+							{activeRunnable}
+							activeRunnableIds={activeRunnables.ids}
+							runStates={activeRunnables.states}
+							{pathPrefix}
+							defaultPathSuffix={DEFAULT_PATH_SUFFIX}
+							onCreateMissingTrigger={mode === 'edit' ? openMissingTriggerDrawer : undefined}
+							onEditTrigger={mode === 'edit' ? openEditTriggerDrawer : undefined}
+							onDeleteTrigger={mode === 'edit' ? deleteAttachedTrigger : undefined}
+							onOpenWebhook={openWebhookDrawer}
+							onOpenDataUpload={openDataUploadRun}
+							onselect={handleCanvasSelect}
+							onAddScriptForAsset={mode === 'edit' ? handleAddScriptForAsset : undefined}
+							onAddPipelineScript={mode === 'edit' ? handleAddPipelineScript : undefined}
+							onRunnableMenuRemove={mode === 'edit' ? handleRunnableMenuRemove : undefined}
+							onRunProducer={mode === 'edit' ? handleRunProducer : undefined}
+						/>
+						{#if mode === 'edit'}
+							<!-- View mode surfaces activity as a full right pane
+							     instead — the overlay would double up. -->
 							<PipelineEventLog events={activeRunnables.events} />
-							{#if prefetchingAssets}
-								<div
-									class="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-2 py-1 rounded-md bg-surface/95 backdrop-blur-sm border border-gray-200 dark:border-gray-700 text-2xs text-secondary shadow-sm"
-									title="Inferring assets for every script in this folder so the graph is complete"
-								>
-									<Loader2 size={11} class="animate-spin" />
-									Parsing assets…
-								</div>
-							{/if}
-							{#if selection != undefined || activeDraftPath != undefined}
-								<!-- Floating panel toggle, mirrors the app builder's
-								     hide-bar pattern. Anchored to the canvas (not the
-								     toolbar) so it stays adjacent to the splitter
-								     handle. z-50 + bg-surface keep it visible above
-								     the SvelteFlow internals (panels, edges, controls
-								     all render at z>10) and against the canvas
-								     background — the bare HideButton uses
-								     bg-transparent which disappears on light themes. -->
-								<div
-									class="absolute top-2 right-2 z-50 rounded-md bg-surface shadow-sm border border-gray-200 dark:border-gray-700"
-								>
-									<HideButton
-										hidden={panelHidden}
-										direction="right"
-										on:click={() => (panelHidden = !panelHidden)}
-									/>
-								</div>
-							{/if}
-						</div></Pane
-					>
-					{#if detailsPaneOpen && $workspaceStore}
-						<Pane bind:size={rightPaneSize} minSize={25}>
+						{/if}
+						{#if prefetchingAssets}
+							<div
+								class="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-2 py-1 rounded-md bg-surface/95 backdrop-blur-sm border border-gray-200 dark:border-gray-700 text-2xs text-secondary shadow-sm"
+								title="Inferring assets for every script in this folder so the graph is complete"
+							>
+								<Loader2 size={11} class="animate-spin" />
+								Parsing assets…
+							</div>
+						{/if}
+						{#if mode !== 'edit' || selection != undefined || activeDraftPath != undefined}
+							<!-- Floating panel toggle, mirrors the app builder's
+							     hide-bar pattern. Anchored to the canvas (not the
+							     toolbar) so it stays adjacent to the splitter
+							     handle. z-50 + bg-surface keep it visible above
+							     the SvelteFlow internals (panels, edges, controls
+							     all render at z>10) and against the canvas
+							     background — the bare HideButton uses
+							     bg-transparent which disappears on light themes. -->
+							<div
+								class="absolute top-2 right-2 z-50 rounded-md bg-surface shadow-sm border border-gray-200 dark:border-gray-700"
+							>
+								<HideButton
+									hidden={panelHidden}
+									direction="right"
+									on:click={() => (panelHidden = !panelHidden)}
+								/>
+							</div>
+						{/if}
+					</div></Pane
+				>
+				{#if detailsPaneOpen && $workspaceStore}
+					<Pane bind:size={rightPaneSize} minSize={25}>
+						{#if mode !== 'edit' && selection == undefined && activeDraftPath == undefined}
+							<!-- Idle view mode: the pane is the pipeline's activity
+							     feed (preloaded history + live runs). Selecting a node
+							     swaps in the details pane below; closing it lands back
+							     here. -->
+							<PipelineActivityPanel
+								events={activityEvents}
+								loading={pipelineHistory.loading}
+								truncated={pipelineHistory.truncated}
+								error={pipelineHistory.error}
+								days={activityDays}
+								onDaysChange={setActivityDays}
+							/>
+						{:else}
 							<AssetGraphDetailsPane
+								{mode}
+								onRequestEdit={isOperator ? undefined : () => setMode('edit')}
+								canRunByPath={openScriptHasDataUpload}
+								onRunByPath={runByPathLegit}
 								selection={activeDraft ? undefined : selection}
 								selectionProducers={activeDraft ? [] : selectionProducers}
 								{runsRefreshKey}
@@ -1971,15 +2206,17 @@
 									await graphRes.refetch()
 								}}
 							/>
-						</Pane>
-					{/if}
-				</Splitpanes>
-			{/if}
-		</div>
+						{/if}
+					</Pane>
+				{/if}
+			</Splitpanes>
+		{/if}
 	</div>
+</div>
 
-	<PipelinePickerModal bind:open={pickerModalOpen} currentFolder={folder} />
+<PipelinePickerModal bind:open={pickerModalOpen} currentFolder={folder} {mode} />
 
+{#if mode === 'edit'}
 	<ConfirmationModal
 		open={triggerDeleteOpen}
 		loading={triggerDeleteLoading}
@@ -2002,7 +2239,9 @@
 	<!-- Native trigger editors mounted off-screen. Each only renders its
 	     inner drawer when `open=true` (set by openNew/openEdit), so this
 	     adds ~zero render cost while idle. `onUpdate` refreshes the graph
-	     so the new trigger row replaces the red missing placeholder. -->
+	     so the new trigger row replaces the red missing placeholder.
+	     Edit-mode only: every entry point (create/edit/delete trigger) is
+	     gated off the canvas outside edit mode. -->
 	<KafkaTriggerEditor bind:this={kafkaEditor} onUpdate={() => graphRes.refetch()} />
 	<MqttTriggerEditor bind:this={mqttEditor} onUpdate={() => graphRes.refetch()} />
 	<NatsTriggerEditor bind:this={natsEditor} onUpdate={() => graphRes.refetch()} />
@@ -2011,86 +2250,85 @@
 	<GcpTriggerEditor bind:this={gcpEditor} onUpdate={() => graphRes.refetch()} />
 	<EmailTriggerEditor bind:this={emailEditor} onUpdate={() => graphRes.refetch()} />
 	<ScheduleEditor bind:this={scheduleEditor} onUpdate={() => graphRes.refetch()} />
-	<WebhookEditor bind:this={webhookEditor} />
+{/if}
+<!-- Webhook drawer stays mounted in every mode — the webhook trigger node
+     is clickable in view mode too (informational: endpoint URLs/token). -->
+<WebhookEditor bind:this={webhookEditor} />
 
-	{#if leaveModalOpen}
-		<!-- Three-button leave guard. Built inline rather than reusing
-		     ConfirmationModal because that one is binary (confirm/cancel) and
-		     we need a distinct "Save all" path that runs the same dispatch as
-		     the bar button. Layout mirrors the archive/delete modal in
-		     AssetGraphDetailsPane for consistency. -->
-		<div
-			transition:fade={{ duration: 100 }}
-			class="fixed top-0 bottom-0 left-0 right-0 z-[9999]"
-			role="dialog"
-		>
-			<div class="fixed inset-0 bg-gray-500 bg-opacity-75"></div>
-			<div class="fixed inset-0 z-10 overflow-y-auto">
-				<div class="flex min-h-full items-center justify-center p-4">
-					<div
-						class="relative transform overflow-hidden rounded-lg bg-surface px-4 pt-5 pb-4 text-left shadow-xl sm:my-8 sm:w-full sm:max-w-lg sm:p-6"
-					>
-						<div class="flex">
-							<div
-								class="flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-800/50"
-							>
-								<AlertTriangle class="text-amber-500 dark:text-amber-400" />
-							</div>
-							<div class="ml-4 flex-1">
-								<h3 class="text-lg font-medium text-primary">
-									{drafts.size === 1 ? 'Unsaved draft' : `${drafts.size} unsaved drafts`}
-								</h3>
-								<div class="mt-2 text-sm text-secondary flex flex-col gap-2">
-									<p>
-										You have {drafts.size === 1
-											? 'a draft pipeline script'
-											: `${drafts.size} draft pipeline scripts`} that {drafts.size === 1
-											? 'has'
-											: 'have'} not been deployed yet. What would you like to do?
-									</p>
-									<ul
-										class="text-2xs font-mono pl-4 max-h-40 overflow-y-auto flex flex-col gap-0.5"
-									>
-										{#each [...drafts.keys()] as p}
-											<li class="truncate text-tertiary">{p}</li>
-										{/each}
-									</ul>
-								</div>
+{#if leaveModalOpen}
+	<!-- Three-button leave guard. Built inline rather than reusing
+	     ConfirmationModal because that one is binary (confirm/cancel) and
+	     we need a distinct "Save all" path that runs the same dispatch as
+	     the bar button. Layout mirrors the archive/delete modal in
+	     AssetGraphDetailsPane for consistency. -->
+	<div
+		transition:fade={{ duration: 100 }}
+		class="fixed top-0 bottom-0 left-0 right-0 z-[9999]"
+		role="dialog"
+	>
+		<div class="fixed inset-0 bg-gray-500 bg-opacity-75"></div>
+		<div class="fixed inset-0 z-10 overflow-y-auto">
+			<div class="flex min-h-full items-center justify-center p-4">
+				<div
+					class="relative transform overflow-hidden rounded-lg bg-surface px-4 pt-5 pb-4 text-left shadow-xl sm:my-8 sm:w-full sm:max-w-lg sm:p-6"
+				>
+					<div class="flex">
+						<div
+							class="flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-800/50"
+						>
+							<AlertTriangle class="text-amber-500 dark:text-amber-400" />
+						</div>
+						<div class="ml-4 flex-1">
+							<h3 class="text-lg font-medium text-primary">
+								{drafts.size === 1 ? 'Unsaved draft' : `${drafts.size} unsaved drafts`}
+							</h3>
+							<div class="mt-2 text-sm text-secondary flex flex-col gap-2">
+								<p>
+									You have {drafts.size === 1
+										? 'a draft pipeline script'
+										: `${drafts.size} draft pipeline scripts`} that {drafts.size === 1
+										? 'has'
+										: 'have'} not been deployed yet. What would you like to do?
+								</p>
+								<ul class="text-2xs font-mono pl-4 max-h-40 overflow-y-auto flex flex-col gap-0.5">
+									{#each [...drafts.keys()] as p}
+										<li class="truncate text-tertiary">{p}</li>
+									{/each}
+								</ul>
 							</div>
 						</div>
-						<div class="flex items-center gap-2 flex-row-reverse mt-4">
-							<Button
-								disabled={leaveSaving}
-								onclick={leaveModalSaveAll}
-								variant="accent"
-								unifiedSize="sm"
-								startIcon={{ icon: leaveSaving ? Loader2 : Save }}
-							>
-								<span class="min-w-20">{leaveSaving ? 'Saving…' : `Save all (${drafts.size})`}</span
-								>
-							</Button>
-							<Button
-								disabled={leaveSaving}
-								onclick={leaveModalCancel}
-								variant="default"
-								unifiedSize="sm"
-							>
-								Cancel
-							</Button>
-							<Button
-								disabled={leaveSaving}
-								onclick={leaveModalDiscard}
-								variant="contained"
-								color="red"
-								unifiedSize="sm"
-								destructive
-							>
-								Discard all
-							</Button>
-						</div>
+					</div>
+					<div class="flex items-center gap-2 flex-row-reverse mt-4">
+						<Button
+							disabled={leaveSaving}
+							onclick={leaveModalSaveAll}
+							variant="accent"
+							unifiedSize="sm"
+							startIcon={{ icon: leaveSaving ? Loader2 : Save }}
+						>
+							<span class="min-w-20">{leaveSaving ? 'Saving…' : `Save all (${drafts.size})`}</span>
+						</Button>
+						<Button
+							disabled={leaveSaving}
+							onclick={leaveModalCancel}
+							variant="default"
+							unifiedSize="sm"
+						>
+							Cancel
+						</Button>
+						<Button
+							disabled={leaveSaving}
+							onclick={leaveModalDiscard}
+							variant="contained"
+							color="red"
+							unifiedSize="sm"
+							destructive
+						>
+							Discard all
+						</Button>
 					</div>
 				</div>
 			</div>
 		</div>
-	{/if}
+	</div>
 {/if}
