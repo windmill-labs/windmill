@@ -7,6 +7,7 @@
 	import { runResetToDeployed } from '$lib/userDraftToast'
 	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
+	import Toggle from './Toggle.svelte'
 
 	let {
 		workspace,
@@ -227,6 +228,12 @@
 
 	const showResetAction = $derived(!draftOnly && hasDraft && !!onResetToDeployed)
 
+	// "Enable auto-save" preference — browser-wide, persisted by the
+	// syncer. When off, keystrokes never POST (they park for Ctrl/Cmd+S)
+	// and the indicator shows a muted cloud-off so the idle check-mark
+	// can't be mistaken for "everything saved".
+	const autosaveEnabled = $derived(UserDraftDbSyncer.autosaveEnabled)
+
 	let popoverOpen = $state(false)
 	let resetting = $state(false)
 
@@ -279,6 +286,10 @@
 					<RefreshCcw size={14} class="animate-spin" />
 				{:else if syncState === 'failed'}
 					<CloudOff size={16} class="text-red-500" />
+				{:else if !autosaveEnabled}
+					<!-- Muted (not red — that's the failure state): autosave is
+					     deliberately off, edits only persist on Ctrl/Cmd+S. -->
+					<CloudOff size={16} class="text-tertiary" />
 				{:else}
 					<CloudCheck size={16} />
 				{/if}
@@ -298,10 +309,25 @@
 						{/if}
 					</div>
 				{/if}
-				<p class="text-primary text-xs">
-					All changes are saved as a draft on the server. The draft is per-user — your teammates'
-					editors keep their own.
-				</p>
+				{#if autosaveEnabled}
+					<p class="text-primary text-xs">
+						All changes are saved as a draft on the server. The draft is per-user — your teammates'
+						editors keep their own.
+					</p>
+				{:else}
+					<p class="text-primary text-xs">
+						Auto-save is off — changes only persist when you press Ctrl/Cmd+S. The draft is per-user
+						— your teammates' editors keep their own.
+					</p>
+				{/if}
+				<Toggle
+					size="xs"
+					checked={autosaveEnabled}
+					options={{ right: 'Enable auto-save' }}
+					on:change={(e) => {
+						UserDraftDbSyncer.autosaveEnabled = e.detail
+					}}
+				/>
 				{#if othersDraftsCount > 0}
 					<div class="flex flex-col gap-2 border-t pt-3">
 						<p class="text-primary text-xs">

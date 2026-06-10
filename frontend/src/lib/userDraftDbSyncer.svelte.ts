@@ -74,6 +74,13 @@ export type UserDraftDbSyncerSaveOpts = {
 	 *  the conflict locally. Default `false`: regular autosaves attach
 	 *  `last_sync` and respect the server's reject response. */
 	force?: boolean
+	/** Marks this save as coming from the reactive autosave mirror (the
+	 * editor's keystroke-driven pipeline) rather than an explicit user
+	 * action (Ctrl/Cmd+S flush, discard, fork, overwrite). Auto saves are
+	 * suppressed while the "Enable auto-save" toggle is off — the latest
+	 * opts still land in `pendingSaveOpts` so an explicit flush sends
+	 * exactly what the user sees. Explicit saves always go through. */
+	auto?: boolean
 }
 
 /**
@@ -147,6 +154,24 @@ export type UserDraftStateHandle = {
  */
 const debouncer = createDebouncerByKey({ debounceMs: 1500, maxDebounceMs: 10000 })
 const runner = createCoalescingKeyedRunner()
+
+/**
+ * "Enable auto-save" user preference (AutosaveIndicator popover toggle).
+ * Browser-wide and persisted — a user who turns autosave off expects it
+ * to stay off across editors and reloads. While off, `auto: true` saves
+ * are suppressed (the latest opts still park in `pendingSaveOpts` so
+ * Ctrl/Cmd+S flushes exactly what's on screen) and the unload keepalive
+ * flush is skipped too — nothing leaves the tab except explicit saves.
+ */
+const AUTOSAVE_ENABLED_LS_KEY = 'userDraftAutosaveEnabled'
+function readAutosaveEnabled(): boolean {
+	try {
+		return localStorage.getItem(AUTOSAVE_ENABLED_LS_KEY) !== 'false'
+	} catch {
+		return true
+	}
+}
+let autosaveEnabledState = $state(readAutosaveEnabled())
 
 /**
  * Latest `save` opts per draft key that haven't been confirmed by a
@@ -291,6 +316,9 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
  *     server state before any user edit can fire a save.
  */
 function flushOnPageHide(): void {
+	// Auto-save off = nothing leaves the tab except explicit Ctrl/Cmd+S.
+	// The parked pendingSaveOpts are deliberately dropped with the page.
+	if (!autosaveEnabledState) return
 	if (pendingSaveOpts.size === 0) return
 	for (const [key, opts] of pendingSaveOpts) {
 		debouncer.cancel(key)
@@ -403,9 +431,34 @@ export const UserDraftDbSyncer = {
 			await runner.submitAndWait(key, () => postSave(opts))
 			return
 		}
+		// Auto-save off: park the opts (done above) so an explicit flush
+		// sends the latest content, but never schedule the POST.
+		if (opts.auto && !autosaveEnabledState) return
 		debouncer.schedule(key, () => {
 			runner.submit(key, () => postSave(opts))
 		})
+	},
+
+	/** "Enable auto-save" preference — see the module-level doc. Reactive
+	 * (backed by `$state`) so the AutosaveIndicator toggle re-renders;
+	 * persisted to localStorage. Turning it back ON re-schedules every
+	 * parked unsaved draft through the normal debouncer so the edits made
+	 * while it was off catch up without waiting for the next keystroke. */
+	get autosaveEnabled(): boolean {
+		return autosaveEnabledState
+	},
+	set autosaveEnabled(enabled: boolean) {
+		autosaveEnabledState = enabled
+		try {
+			localStorage.setItem(AUTOSAVE_ENABLED_LS_KEY, String(enabled))
+		} catch {}
+		if (enabled) {
+			for (const [key, opts] of pendingSaveOpts) {
+				debouncer.schedule(key, () => {
+					runner.submit(key, () => postSave(opts))
+				})
+			}
+		}
 	},
 
 	/**

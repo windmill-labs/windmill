@@ -556,7 +556,10 @@ function acquireEntry(
 				workspace,
 				itemKind,
 				path,
-				value: val === undefined ? null : val
+				value: val === undefined ? null : val,
+				// Reactive keystroke mirror — suppressed (but parked for
+				// Ctrl/Cmd+S) while the "Enable auto-save" toggle is off.
+				auto: true
 			})
 		})
 	})
