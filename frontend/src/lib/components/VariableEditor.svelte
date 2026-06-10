@@ -49,7 +49,11 @@
 			itemKind: 'variable' as const,
 			path: editPath ?? '',
 			workspace: s.ws,
-			defaultValue: s.defaultValue
+			defaultValue: s.defaultValue,
+			// Autosaves landing back on the deployed value become deletes —
+			// no baseline for draft-only/new items (the draft is the only
+			// copy; deleting it on equality would destroy the item).
+			discardIfEqualTo: () => (existedInitially[s.ws] ? initialStates[s.ws] : undefined)
 		}))
 	)
 	const states = $derived.by(() => {

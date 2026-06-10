@@ -1,5 +1,6 @@
 import { get } from 'svelte/store'
 import { onDestroy, untrack } from 'svelte'
+import { deepEqual } from 'fast-equals'
 import { workspaceStore } from './stores'
 import { readFieldsRecursively } from './utils'
 import { UserDraftDbSyncer } from './userDraftDbSyncer.svelte'
@@ -402,6 +403,18 @@ export const UserDraft = {
 			 * the default is ignored in that case.
 			 */
 			defaultValue?: V
+			/**
+			 * Reactive getter for the deployed baseline. When the cell's value
+			 * lands exactly on it, the autosave mirror POSTs a delete instead
+			 * of persisting a baseline-equal copy — a draft identical to the
+			 * deployed version is not a draft, and keeping it would leave the
+			 * server's `is_draft` flag (and the list pages' `*`) stuck on.
+			 * Return `undefined` while the baseline isn't known, or when no
+			 * deployed version exists (draft-only items: the draft is the only
+			 * copy, deleting it on equality would destroy the item).
+			 * Captured on first acquire, like `defaultValue`.
+			 */
+			discardIfEqualTo?: () => V | undefined
 		}[]
 	): UserDraftHandle<V>[] {
 		// Reactive handles array, reconciled against the latest
@@ -425,7 +438,7 @@ export const UserDraft = {
 				seen.add(mk)
 
 				if (!acquired.has(mk)) {
-					acquireEntry(ws, spec.itemKind, spec.path, spec.defaultValue)
+					acquireEntry(ws, spec.itemKind, spec.path, spec.defaultValue, spec.discardIfEqualTo)
 					acquired.add(mk)
 				}
 				let handle = handleCache.get(mk)
@@ -494,7 +507,8 @@ function acquireEntry(
 	workspace: string,
 	itemKind: UserDraftItemKind,
 	path: string,
-	defaultValue?: unknown
+	defaultValue?: unknown,
+	discardIfEqualTo?: () => unknown
 ): void {
 	const mk = mapKey(workspace, itemKind, path)
 	const existing = entries.get(mk)
@@ -552,11 +566,21 @@ function acquireEntry(
 			// real change is detected as a change — only the writes
 			// made during suspension are dropped from the server's view.
 			if (entry?.syncSuspended) return
+			// A value landing back exactly on the caller-declared deployed
+			// baseline is not a draft — sync the delete instead of a
+			// baseline-equal copy. `untrack` so baseline mutations alone
+			// (e.g. the editor refreshing it post-deploy) don't re-fire
+			// the mirror.
+			const atBaseline = untrack(() => {
+				if (val === undefined || discardIfEqualTo === undefined) return false
+				const baseline = discardIfEqualTo()
+				return baseline !== undefined && deepEqual(val, baseline)
+			})
 			void UserDraftDbSyncer.save({
 				workspace,
 				itemKind,
 				path,
-				value: val === undefined ? null : val,
+				value: val === undefined || atBaseline ? null : val,
 				// Reactive keystroke mirror — suppressed (but parked for
 				// Ctrl/Cmd+S) while the "Enable auto-save" toggle is off.
 				auto: true
