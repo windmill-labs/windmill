@@ -98,6 +98,7 @@ mount {
     src: "{JOB_DIR}/ansible_collections/"
     dst: "/tmp/ansible_collections/"
     is_bind: true
+    mandatory: false
 }
 
 mount {
