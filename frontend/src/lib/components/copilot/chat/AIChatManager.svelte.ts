@@ -886,7 +886,7 @@ export class AIChatManager {
 					// Inject the attached-files roster at request time (re-read each iteration)
 					// so it always reflects the live file list without reactive bookkeeping.
 					if (self.mode === AIMode.GLOBAL && self.attachedFiles.count > 0) {
-						return appendAttachedFilesRoster(base, self.attachedFiles.list())
+						return appendAttachedFilesRoster(base, self.attachedFiles)
 					}
 					return base
 				},

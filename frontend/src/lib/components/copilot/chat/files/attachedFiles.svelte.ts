@@ -38,8 +38,28 @@ export interface AttachedFile extends FileEntry {
 	handle?: FileSystemDirectoryHandle
 	/** Relative path within the folder (folder children only) — stable key for refresh diffing. */
 	relPath?: string
-	/** A single placeholder standing in for a not-yet-expanded folder (locked/unavailable). */
+	/**
+	 * Internal: a single placeholder row standing in for a not-yet-expanded folder
+	 * (locked/unavailable). Consumers should read `store.folders` instead of testing this.
+	 */
 	isFolderRoot?: boolean
+}
+
+/** A linked folder as a first-class object — consumers read this instead of re-grouping rows. */
+export interface AttachedFolder {
+	name: string
+	/** Aggregate status (locked > unavailable > indexing > error > ready). */
+	status: AttachedFileStatus
+	/** Child files; empty while the folder is locked/unavailable after a reload. */
+	files: AttachedFile[]
+}
+
+/** Aggregate a folder's rows (children + a possible placeholder) into one status. */
+function folderStatus(rows: AttachedFile[]): AttachedFileStatus {
+	for (const status of ['locked', 'unavailable', 'indexing', 'error'] as const) {
+		if (rows.some((f) => f.status === status)) return status
+	}
+	return 'ready'
 }
 
 export interface AddFilesResult {
@@ -75,9 +95,29 @@ export class AttachedFilesStore {
 	get count(): number {
 		return this.files.length
 	}
-	/** Number of distinct locked sources (folders) needing a re-grant. */
+
+	/** Linked folders, children grouped and status aggregated (placeholder rows hidden). */
+	folders: AttachedFolder[] = $derived.by(() => {
+		const byName = new Map<string, AttachedFile[]>()
+		for (const f of this.files) {
+			if (!f.folder) continue
+			const rows = byName.get(f.folder)
+			if (rows) rows.push(f)
+			else byName.set(f.folder, [f])
+		}
+		return [...byName.entries()].map(([name, rows]) => ({
+			name,
+			status: folderStatus(rows),
+			files: rows.filter((f) => !f.isFolderRoot)
+		}))
+	})
+
+	/** Files linked on their own (not as part of a folder). */
+	standalone: AttachedFile[] = $derived.by(() => this.files.filter((f) => !f.folder))
+
+	/** Number of locked folders needing a re-grant. */
 	get lockedCount(): number {
-		return new Set(this.files.filter((f) => f.status === 'locked').map((f) => f.sourceId)).size
+		return this.folders.filter((f) => f.status === 'locked').length
 	}
 
 	clear(): void {
@@ -141,15 +181,17 @@ export class AttachedFilesStore {
 		return result
 	}
 
-	/** Link a folder via a live directory handle (File System Access path only). */
-	async addFolder(
-		dirHandle: FileSystemDirectoryHandle,
-		files: { file: File; path: string }[]
-	): Promise<AddFilesResult> {
+	/**
+	 * Link a folder via a live directory handle (File System Access path only).
+	 * Enumerates the handle internally (junk-filtered, capped) — the same walk used
+	 * on restore and refresh, so callers never pre-enumerate.
+	 */
+	async addFolder(dirHandle: FileSystemDirectoryHandle): Promise<AddFilesResult> {
 		const result: AddFilesResult = { added: [], rejected: [] }
 		const folder = dirHandle.name
 		if (this.files.some((f) => f.folder === folder)) return result // already linked → no-op
 
+		const files = await enumerateDir(dirHandle)
 		const sourceId = createLongHash()
 		let addedAny = false
 		for (const { file, path } of files) {

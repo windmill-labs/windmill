@@ -1,24 +1,19 @@
 <script lang="ts">
 	import { Folder, X, Loader2, AlertTriangle, Lock } from 'lucide-svelte'
-	import type { AttachedFile } from './attachedFiles.svelte'
+	import type { AttachedFolder } from './attachedFiles.svelte'
 
-	let { folder, files, onRemove }: { folder: string; files: AttachedFile[]; onRemove: () => void } =
-		$props()
+	let { folder, onRemove }: { folder: AttachedFolder; onRemove: () => void } = $props()
 
 	let showDelete = $state(false)
 
-	// A not-yet-expanded folder (after reload) is a single placeholder entry.
-	let locked = $derived(files.some((f) => f.status === 'locked'))
-	let unavailable = $derived(files.some((f) => f.status === 'unavailable'))
-	let indexing = $derived(files.some((f) => f.status === 'indexing'))
-	let hasError = $derived(files.some((f) => f.status === 'error'))
-
 	// Native tooltip listing the contained files (capped).
 	let hoverList = $derived.by(() => {
+		if (folder.status === 'locked') return `${folder.name}/ — locked, click send to restore`
+		if (folder.status === 'unavailable') return `${folder.name}/ — unavailable`
 		const max = 20
-		const shown = files.slice(0, max).map((f) => f.name)
-		if (files.length > max) shown.push(`… +${files.length - max} more`)
-		return `${folder}/\n${shown.join('\n')}`
+		const shown = folder.files.slice(0, max).map((f) => f.name)
+		if (folder.files.length > max) shown.push(`… +${folder.files.length - max} more`)
+		return `${folder.name}/\n${shown.join('\n')}`
 	})
 </script>
 
@@ -31,7 +26,7 @@
 >
 	<button
 		class="shrink-0"
-		aria-label={`Remove folder ${folder}`}
+		aria-label={`Remove folder ${folder.name}`}
 		onclick={(e) => {
 			e.stopPropagation()
 			onRemove()
@@ -39,15 +34,15 @@
 	>
 		{#if showDelete}
 			<X size={16} />
-		{:else if indexing}
+		{:else if folder.status === 'indexing'}
 			<Loader2 size={16} class="animate-spin text-tertiary" />
-		{:else if hasError || unavailable}
+		{:else if folder.status === 'error' || folder.status === 'unavailable'}
 			<AlertTriangle size={16} class="text-red-500" />
-		{:else if locked}
+		{:else if folder.status === 'locked'}
 			<Lock size={16} class="text-amber-500" />
 		{:else}
 			<Folder size={16} class="text-tertiary" />
 		{/if}
 	</button>
-	<span class="truncate" title={folder}>{folder}</span>
+	<span class="truncate" title={folder.name}>{folder.name}</span>
 </div>

@@ -46,12 +46,7 @@
 	import type { SelectedContext } from './app/core'
 	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
 	import { MAX_ATTACHED_FILES, type FileToAttach } from './files/attachedFiles.svelte'
-	import {
-		hasFileSystemAccess,
-		pickDirectory,
-		handlesFromDataTransfer,
-		enumerateDir
-	} from './files/fsAccess'
+	import { hasFileSystemAccess, pickDirectory, handlesFromDataTransfer } from './files/fsAccess'
 	import { sendUserToast } from '$lib/toast'
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
@@ -302,8 +297,7 @@
 	}
 
 	async function addDirHandle(dir: FileSystemDirectoryHandle) {
-		const files = await enumerateDir(dir)
-		const { added, rejected } = await aiChatManager.attachedFiles.addFolder(dir, files)
+		const { added, rejected } = await aiChatManager.attachedFiles.addFolder(dir)
 		reportAddResult(added, rejected)
 	}
 

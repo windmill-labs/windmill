@@ -31,7 +31,7 @@ at message-prep time by `AIChatManager` — see PR #9216.
 	import { getFileIcon } from '$lib/components/icons/fileIcon'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { AIMode } from './AIChatManager.svelte'
-	import type { AttachedFile } from './files/attachedFiles.svelte'
+	import type { AttachedFile, AttachedFolder } from './files/attachedFiles.svelte'
 	import {
 		ContextIconMap,
 		type ContextElement,
@@ -137,11 +137,13 @@ at message-prep time by `AIChatManager` — see PR #9216.
 	// Attached files surface as a Files branch (GLOBAL mode only, and only when
 	// the host wired `onSelectFile`). Picking one inserts an `@filename` mention
 	// rather than adding a context element — the AI already has read/search tools.
-	const attachedList = $derived(
-		onSelectFile && aiChatManager.mode === AIMode.GLOBAL
-			? aiChatManager.attachedFiles.list().filter((f) => !f.isFolderRoot)
-			: []
+	const attachedEnabled = $derived(!!onSelectFile && aiChatManager.mode === AIMode.GLOBAL)
+	// Locked/unavailable folders have no pickable children — skip them here.
+	const attachedFolders = $derived(
+		attachedEnabled ? aiChatManager.attachedFiles.folders.filter((f) => f.files.length > 0) : []
 	)
+	const attachedStandalone = $derived(attachedEnabled ? aiChatManager.attachedFiles.standalone : [])
+	const hasAttachments = $derived(attachedFolders.length > 0 || attachedStandalone.length > 0)
 
 	function fileLeaf(f: AttachedFile, label: string): DrillLeaf<ChatLeafData> {
 		return {
@@ -157,13 +159,10 @@ at message-prep time by `AIChatManager` — see PR #9216.
 	// Build a nested directory tree for one linked folder. `relPath` is
 	// `folder/sub/leaf` (its first segment is the folder name — see
 	// `enumerateDir`), so we drill the segments below that root.
-	function buildFolderBranch(
-		folder: string,
-		files: AttachedFile[]
-	): DrillBranch<ChatLeafData> | null {
+	function buildFolderBranch(folder: AttachedFolder): DrillBranch<ChatLeafData> | null {
 		type Dir = { dirs: Map<string, Dir>; leaves: DrillLeaf<ChatLeafData>[] }
 		const root: Dir = { dirs: new Map(), leaves: [] }
-		for (const f of files) {
+		for (const f of folder.files) {
 			const segs = (f.relPath ?? f.name).split('/').slice(1) // drop the folder-name root
 			let cur = root
 			for (const seg of segs.slice(0, -1)) {
@@ -191,12 +190,12 @@ at message-prep time by `AIChatManager` — see PR #9216.
 				.sort(byLabel)
 			return [...branches, ...dir.leaves.sort(byLabel)]
 		}
-		const children = toNodes(root, `files:${folder}`)
+		const children = toNodes(root, `files:${folder.name}`)
 		if (children.length === 0) return null
 		return {
 			type: 'branch',
-			key: `files:${folder}`,
-			label: folder,
+			key: `files:${folder.name}`,
+			label: folder.name,
 			icon: Folder,
 			searchGroup: true,
 			children
@@ -204,24 +203,13 @@ at message-prep time by `AIChatManager` — see PR #9216.
 	}
 
 	function buildFilesBranch(): DrillBranch<ChatLeafData> | null {
-		if (attachedList.length === 0) return null
-		const folders = new Map<string, AttachedFile[]>()
-		const standalone: AttachedFile[] = []
-		for (const f of attachedList) {
-			if (f.folder) {
-				const g = folders.get(f.folder)
-				if (g) g.push(f)
-				else folders.set(f.folder, [f])
-			} else {
-				standalone.push(f)
-			}
-		}
+		if (!hasAttachments) return null
 		const children: DrillNode<ChatLeafData>[] = []
-		for (const [folder, files] of folders) {
-			const branch = buildFolderBranch(folder, files)
+		for (const folder of attachedFolders) {
+			const branch = buildFolderBranch(folder)
 			if (branch) children.push(branch)
 		}
-		for (const f of standalone) children.push(fileLeaf(f, f.name))
+		for (const f of attachedStandalone) children.push(fileLeaf(f, f.name))
 		if (children.length === 0) return null
 		return {
 			type: 'branch',
@@ -238,7 +226,7 @@ at message-prep time by `AIChatManager` — see PR #9216.
 	// at-root preload — only fires when scope `[]` literally IS the workspace
 	// root; otherwise we wait until the user enters the Workspace branch.
 	const isWorkspaceOnly = $derived(
-		attachedList.length === 0 &&
+		!hasAttachments &&
 			!availableContext.some(
 				(c) =>
 					(c.type === 'diff' || c.type === 'flow_module' || c.type === 'db') &&
