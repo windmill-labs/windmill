@@ -1,27 +1,29 @@
 /**
- * Optimistic "this item has a draft" hints for the list pages.
+ * Optimistic "this item has a draft" overrides for the list pages.
  *
  * The variable / resource / schedule / trigger list pages render a `*`
  * suffix from the server's `is_draft` flag, which only updates on a
- * refetch. While an editor drawer is open with unsaved changes (the
- * "You have unsaved changes" banner), the edited item should show the
- * asterisk immediately — the editors publish their dirty state here and
- * the pages OR it into the suffix condition.
+ * refetch. While an editor is open it knows the live truth — the
+ * "unsaved changes" banner state — and publishes it here; the pages
+ * read it with `getLocalDraftHint(...) ?? is_draft`, so the editor's
+ * observation OVERRIDES the stale server flag in both directions:
+ * editing sets the asterisk immediately, and discarding (or editing
+ * back to the deployed value) clears it immediately instead of waiting
+ * for the next refetch.
  *
- * Backed by a `SvelteSet`, so a page template reading
- * `hasLocalDraftHint(...)` re-renders when the editor flips the hint.
+ * Backed by a `SvelteMap`, so a page template reading
+ * `getLocalDraftHint(...)` re-renders when the editor flips the hint.
  *
- * Lifetime: hints PERSIST past editor teardown — the divergence the
- * editor observed is autosaved server-side, so the draft outlives the
- * drawer and the asterisk should too. They are corrected, not expired:
- * the next time an editor settles on the same item it re-publishes the
- * observed truth, so a draft discarded from another tab clears the
- * stale hint on reopen.
+ * Lifetime: hints PERSIST past editor teardown — they record the truth
+ * the editor last observed, which outlives the drawer (the divergence,
+ * or its discard, is synced server-side). They are corrected, not
+ * expired: the next time an editor settles on the same item it
+ * re-publishes what it sees.
  */
-import { SvelteSet } from 'svelte/reactivity'
+import { SvelteMap } from 'svelte/reactivity'
 import type { UserDraftItemKind } from '$lib/gen'
 
-const hints = new SvelteSet<string>()
+const hints = new SvelteMap<string, boolean>()
 
 function key(workspace: string, kind: UserDraftItemKind, path: string): string {
 	return `${workspace}/${kind}/${path}`
@@ -34,18 +36,17 @@ export function setLocalDraftHint(
 	on: boolean
 ): void {
 	if (!workspace || !path) return
-	if (on) {
-		hints.add(key(workspace, kind, path))
-	} else {
-		hints.delete(key(workspace, kind, path))
-	}
+	hints.set(key(workspace, kind, path), on)
 }
 
-export function hasLocalDraftHint(
+/** The editor-observed draft state, or `undefined` when no editor has
+ * published an opinion — callers fall back to the server flag:
+ * `getLocalDraftHint(...) ?? is_draft`. */
+export function getLocalDraftHint(
 	workspace: string | undefined,
 	kind: UserDraftItemKind,
 	path: string
-): boolean {
-	if (!workspace) return false
-	return hints.has(key(workspace, kind, path))
+): boolean | undefined {
+	if (!workspace) return undefined
+	return hints.get(key(workspace, kind, path))
 }
