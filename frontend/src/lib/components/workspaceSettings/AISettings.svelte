@@ -393,10 +393,6 @@
 														: []
 											}
 										}
-
-										if (availableAiModels[provider].length > 0 && !defaultModel) {
-											defaultModel = availableAiModels[provider][0]
-										}
 									} else {
 										aiProviders = Object.fromEntries(
 											Object.entries(aiProviders).filter(([key]) => key !== provider)
