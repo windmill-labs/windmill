@@ -11,6 +11,7 @@
 	import { flip, offset, shift } from 'svelte-floating-ui/dom'
 	import {
 		type PasteAttachment,
+		expandPasteTokens,
 		makePasteToken,
 		nextPasteId,
 		pasteTokenRegex,
@@ -242,24 +243,49 @@
 		return html
 	}
 
+	// Find the paste tokens that overlap a [start, end) selection, returning the
+	// range widened to cover each overlapped token whole (so a chip is never cut
+	// mid-token) plus the ids to drop from the registry. Strict overlap — merely
+	// abutting a token edge doesn't pull it in.
+	function tokensOverlapping(start: number, end: number) {
+		let from = start
+		let to = end
+		const ids: number[] = []
+		for (const m of value.matchAll(pasteTokenRegex())) {
+			if (m.index === undefined) continue
+			const tokenStart = m.index
+			const tokenEnd = m.index + m[0].length
+			if (tokenStart < end && tokenEnd > start) {
+				from = Math.min(from, tokenStart)
+				to = Math.max(to, tokenEnd)
+				ids.push(m[1].length)
+			}
+		}
+		return { from, to, ids }
+	}
+
 	// On a large paste, register the blob and insert a compact token instead of
-	// the raw lines (see pasteTokens.ts). Smaller pastes fall through to default.
+	// the raw lines (see pasteTokens.ts). Smaller pastes fall through to default
+	// (and beforeinput keeps any overlapped chip atomic). The insertion range is
+	// widened over overlapped tokens so pasting onto a chip replaces it whole.
 	function handlePaste(e: ClipboardEvent) {
 		const text = e.clipboardData?.getData('text/plain') ?? ''
 		if (!text || !shouldCollapsePaste(text)) return
 		e.preventDefault()
 		const ta = e.currentTarget as HTMLTextAreaElement
-		const start = ta.selectionStart ?? value.length
-		const end = ta.selectionEnd ?? value.length
+		const { from, to, ids } = tokensOverlapping(
+			ta.selectionStart ?? value.length,
+			ta.selectionEnd ?? value.length
+		)
 		const att: PasteAttachment = {
 			id: nextPasteId(pastes ?? []),
 			lines: text.split('\n').length,
 			content: text
 		}
 		const token = makePasteToken(att)
-		value = value.slice(0, start) + token + value.slice(end)
-		pastes = [...(pastes ?? []), att]
-		const caret = start + token.length
+		value = value.slice(0, from) + token + value.slice(to)
+		pastes = [...(pastes ?? []).filter((p) => !ids.includes(p.id)), att]
+		const caret = from + token.length
 		tick().then(() => ta.setSelectionRange(caret, caret))
 	}
 
@@ -296,59 +322,89 @@
 		}
 	}
 
-	// Delete the [from, to) range, drop the given paste ids, and collapse the
-	// caret to the deletion point — keeping value, the pastes registry, and the
-	// caret consistent.
-	function removePasteRange(from: number, to: number, ids: number[]) {
-		value = value.slice(0, from) + value.slice(to)
+	// Replace the [from, to) range with `insert`, drop the given paste ids, and
+	// place the caret after the inserted text — keeping value, the pastes
+	// registry, and the caret consistent.
+	function replacePasteRange(from: number, to: number, ids: number[], insert = '') {
+		value = value.slice(0, from) + insert + value.slice(to)
 		pastes = (pastes ?? []).filter((p) => !ids.includes(p.id))
-		tick().then(() => textarea?.setSelectionRange(from, from))
+		const caret = from + insert.length
+		tick().then(() => textarea?.setSelectionRange(caret, caret))
 	}
 
-	// Keep chip deletion atomic. A collapsed caret at a token boundary removes
-	// the whole chip + its blob; a selection that overlaps any token is widened
-	// to cover each overlapped token whole, so a partial deletion can never
-	// leave an orphaned zero-width run or a dangling pastes entry.
+	// Keep chip deletion atomic for Backspace/Delete with a collapsed caret at a
+	// token boundary (the one case beforeinput can't see, since nothing is
+	// selected). Selection-spanning edits — including Backspace/Delete over a
+	// selection — are handled uniformly in handlePasteBeforeInput.
 	function handlePasteDeletion(e: KeyboardEvent): boolean {
 		if ((e.key !== 'Backspace' && e.key !== 'Delete') || !textarea) return false
 		const start = textarea.selectionStart
 		const end = textarea.selectionEnd
-		if (start === null || end === null) return false
-
-		if (start === end) {
-			for (const m of value.matchAll(pasteTokenRegex())) {
-				if (m.index === undefined) continue
-				const tokenStart = m.index
-				const tokenEnd = m.index + m[0].length
-				const atEnd = e.key === 'Backspace' && start === tokenEnd
-				const atStart = e.key === 'Delete' && start === tokenStart
-				if (atEnd || atStart) {
-					e.preventDefault()
-					removePasteRange(tokenStart, tokenEnd, [m[1].length])
-					return true
-				}
-			}
-			return false
-		}
-
-		let delStart = start
-		let delEnd = end
-		const removedIds: number[] = []
+		if (start === null || start !== end) return false
 		for (const m of value.matchAll(pasteTokenRegex())) {
 			if (m.index === undefined) continue
 			const tokenStart = m.index
 			const tokenEnd = m.index + m[0].length
-			// Strict overlap — abutting an edge doesn't pull the chip in.
-			if (tokenStart < end && tokenEnd > start) {
-				delStart = Math.min(delStart, tokenStart)
-				delEnd = Math.max(delEnd, tokenEnd)
-				removedIds.push(m[1].length)
+			const atEnd = e.key === 'Backspace' && start === tokenEnd
+			const atStart = e.key === 'Delete' && start === tokenStart
+			if (atEnd || atStart) {
+				e.preventDefault()
+				replacePasteRange(tokenStart, tokenEnd, [m[1].length])
+				return true
 			}
 		}
-		if (removedIds.length === 0) return false
+		return false
+	}
+
+	// Any selection-spanning input (typing over a selection, paste, cut,
+	// drag-and-drop, Backspace/Delete over a selection) that overlaps a chip is
+	// taken over and applied to the whole token(s), so a partial edit can never
+	// leave an orphaned zero-width run or a dangling pastes entry. Backspace/
+	// Delete at a collapsed boundary is handled earlier in keydown.
+	function handlePasteBeforeInput(e: InputEvent) {
+		if (!textarea) return
+		const start = textarea.selectionStart
+		const end = textarea.selectionEnd
+		if (start === null || end === null || start === end) return
+		const { from, to, ids } = tokensOverlapping(start, end)
+		if (ids.length === 0) return
 		e.preventDefault()
-		removePasteRange(delStart, delEnd, removedIds)
-		return true
+		replacePasteRange(from, to, ids, insertedText(e))
+	}
+
+	// The text a beforeinput event will insert, by inputType. Deletions insert
+	// nothing; line breaks insert a newline; paste/drop/replacement carry their
+	// payload on dataTransfer, plain typing on `data`.
+	function insertedText(e: InputEvent): string {
+		const t = e.inputType
+		if (t.startsWith('delete')) return ''
+		if (t === 'insertLineBreak' || t === 'insertParagraph') return '\n'
+		if (
+			t === 'insertFromPaste' ||
+			t === 'insertFromDrop' ||
+			t === 'insertReplacementText' ||
+			t === 'insertFromYank'
+		) {
+			return e.dataTransfer?.getData('text/plain') ?? e.data ?? ''
+		}
+		return e.data ?? ''
+	}
+
+	// Copy/cut of a selection containing a chip puts the *expanded* content on the
+	// clipboard instead of the chip label + its invisible zero-width run; cut also
+	// removes the chip whole. Selections without a chip use the browser default.
+	function handlePasteCopyCut(e: ClipboardEvent) {
+		if (!textarea || !e.clipboardData) return
+		const start = textarea.selectionStart
+		const end = textarea.selectionEnd
+		if (start === null || end === null || start === end) return
+		const { from, to, ids } = tokensOverlapping(start, end)
+		if (ids.length === 0) return
+		e.preventDefault()
+		e.clipboardData.setData('text/plain', expandPasteTokens(value.slice(from, to), pastes ?? []))
+		if (e.type === 'cut') {
+			replacePasteRange(from, to, ids)
+		}
 	}
 
 	// Arrow-Left/Right step over a paste chip as one unit, so the caret jumps
@@ -572,6 +628,9 @@
 		rows={1}
 		oninput={handleInput}
 		onpaste={handlePaste}
+		onbeforeinput={handlePasteBeforeInput}
+		oncopy={handlePasteCopyCut}
+		oncut={handlePasteCopyCut}
 		onscroll={(e) => (scrollTop = e.currentTarget.scrollTop)}
 		onblur={() => {
 			setTimeout(() => {

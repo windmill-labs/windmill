@@ -33,12 +33,12 @@ export function shouldCollapsePaste(text: string): boolean {
 }
 
 /** "1 line" / "N lines" — the single source of line-count pluralization. */
-export function lineCount(lines: number): string {
+export function lineCountLabel(lines: number): string {
 	return `${lines} ${lines === 1 ? 'line' : 'lines'}`
 }
 
 export function pasteLabel(lines: number): string {
-	return `Pasted ${lineCount(lines)} · click to expand`
+	return `Pasted ${lineCountLabel(lines)} · click to expand`
 }
 
 /** The text inserted into the input for a collapsed paste. */
