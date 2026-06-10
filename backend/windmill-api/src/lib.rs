@@ -742,7 +742,11 @@ pub async fn run_server(
                 .nest("/apps_u", {
                     #[cfg(feature = "enterprise")]
                     {
-                        apps_oss::global_unauthed_service()
+                        // CORS so the opaque-origin app viewer (WIN-2006 embed, no
+                        // separate domain) can load a custom-path public app via
+                        // public_app_by_custom_path cross-origin. Consistent with
+                        // the workspaced /w/{workspace_id}/apps_u mount below.
+                        apps_oss::global_unauthed_service().layer(cors.clone())
                     }
 
                     #[cfg(not(feature = "enterprise"))]

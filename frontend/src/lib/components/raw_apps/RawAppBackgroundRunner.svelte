@@ -33,8 +33,10 @@
 
 	let listener = async (event) => {
 		// Only accept messages from the bundle iframe (opaque origin) so other
-		// frames/extensions can't drive the runnable bridge (WIN-2006).
-		if (iframe && event.source !== iframe.contentWindow) return
+		// frames/extensions can't drive the runnable bridge (WIN-2006). Reject
+		// unconditionally until the iframe is bound — never process a message from
+		// an unknown source.
+		if (!iframe || event.source !== iframe.contentWindow) return
 		const data = event.data
 
 		function respond(o: object) {

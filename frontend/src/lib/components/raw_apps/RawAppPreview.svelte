@@ -2,7 +2,8 @@
 	import { type UserExt } from '$lib/stores'
 	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
 	import type { Runnable } from './rawAppPolicy'
-	import { getContext, onMount } from 'svelte'
+	import { getContext, onMount, untrack } from 'svelte'
+	import { unsandboxedRawAppHtml } from './utils'
 
 	interface Props {
 		workspace: string
@@ -19,23 +20,9 @@
 	// Get initial hash from parent URL to pass to the iframe
 	let initialHash = ''
 
-	// WIN-2006: the bundle is served from a real API URL as a sandboxed,
-	// opaque-origin document (`CSP: sandbox` response header + the iframe sandbox
-	// attribute), so a malicious bundle can never reach the authenticated
-	// Windmill origin (no cookie, no window.parent, no token). The URL is
-	// root-relative so it resolves against the real host even when this component
-	// itself runs inside an opaque viewer (where `location.origin` is "null").
-	// The user context is handed over via postMessage — never baked into the
-	// document and never a credential.
-	let iframeSrc = $derived(
-		secret ? `/api/w/${workspace}/apps_u/get_data/v/${secret}.html` : undefined
-	)
-
 	// WIN-2006: when the publisher disabled sandbox isolation (and the viewer
 	// consented upstream in PublicAppFrame), run the bundle same-origin with full
-	// access — the backend serves the same wrapper URL without the `CSP: sandbox`
-	// header, and we add `allow-same-origin` so relative `fetch('/api/...')` and
-	// the session cookie work. Otherwise the default opaque-origin sandbox.
+	// access; otherwise the default opaque-origin sandbox.
 	const unsandboxedCtx = getContext<{ value: boolean }>('IS_APP_UNSANDBOXED')
 	let unsandboxed = $derived(unsandboxedCtx?.value ?? false)
 	let sandboxAttr = $derived(
@@ -43,6 +30,45 @@
 			? 'allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals allow-top-navigation'
 			: 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-top-navigation'
 	)
+
+	// WIN-2006: source of the bundle iframe.
+	// - DEFAULT (isolated): a real API URL serving a sandboxed, opaque-origin
+	//   document (`CSP: sandbox` response header + the iframe sandbox attribute),
+	//   so a malicious bundle can never reach the authenticated Windmill origin
+	//   (no cookie, no window.parent, no token). Root-relative so it resolves
+	//   against the real host even when this component itself runs inside an opaque
+	//   viewer (where `location.origin` is "null"). Context is handed over via
+	//   postMessage — never baked into the document, never a credential.
+	// - UNSANDBOXED (publisher opted out + viewer consented): a client-built
+	//   blob: wrapper (same-origin with the SPA) loaded with `allow-same-origin`,
+	//   so relative `fetch('/api/...')` and the session cookie work. The backend
+	//   `.html` is ALWAYS sandboxed, so we must build the same-origin wrapper here
+	//   rather than relax a real-origin endpoint a victim could be linked to.
+	let iframeSrc = $derived.by(() => {
+		if (!secret || typeof window === 'undefined') return undefined
+		if (unsandboxed) {
+			// untrack(user) so userStore refreshes don't regenerate the blob URL and
+			// reload the iframe (losing state); ctx is only needed for initial render.
+			const u = untrack(() => user)
+			const html = unsandboxedRawAppHtml(
+				workspace,
+				secret,
+				u ? { ctx: u, workspace } : undefined,
+				window.location.origin,
+				window.location.hash || ''
+			)
+			return URL.createObjectURL(new Blob([html], { type: 'text/html' }))
+		}
+		return `/api/w/${workspace}/apps_u/get_data/v/${secret}.html`
+	})
+
+	// Revoke blob: URLs (unsandboxed path) when they change or on unmount.
+	$effect(() => {
+		const url = iframeSrc
+		return () => {
+			if (url && url.startsWith('blob:')) URL.revokeObjectURL(url)
+		}
+	})
 
 	// Persistence for the bundle's (opaque-origin) localStorage, backed by a single
 	// store shared across all apps. In the logged-in workspace viewer this runs on
@@ -150,8 +176,9 @@
 
 {#if iframeSrc}
 	<!-- `unsandboxed` (publisher disabled isolation + viewer consented) adds
-	     allow-same-origin; the backend then omits the CSP: sandbox header so the
-	     bundle runs same-origin with full access. -->
+	     allow-same-origin and loads a same-origin blob: wrapper, so the bundle runs
+	     with full access. The default path loads the always-CSP-sandboxed backend
+	     wrapper, which stays opaque even on direct navigation. -->
 	<iframe
 		bind:this={iframe}
 		title="raw-app"

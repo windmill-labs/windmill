@@ -15,11 +15,61 @@ export type RawApp = {
 	files: string[]
 }
 
-// NOTE: the raw-app HTML wrapper is now generated server-side and served as a
-// sandboxed, opaque-origin document (see `get_raw_app_data` in the backend
-// `apps.rs`, WIN-2006). The former client-side `htmlContent()` blob wrapper was
-// removed because a blob: URL is same-origin with the SPA and cannot carry the
-// `CSP: sandbox` response header that enforces isolation.
+// The DEFAULT (isolated) raw-app wrapper is generated server-side and served as
+// a sandboxed, opaque-origin document (see `get_raw_app_data` in the backend
+// `apps.rs`, WIN-2006) — a blob: URL cannot carry the `CSP: sandbox` response
+// header that enforces isolation, so the wrapper must come from the backend.
+//
+// The function below is used ONLY for the opt-out path: a publisher who disabled
+// sandbox isolation AND a viewer who consented (per app version, upstream in
+// PublicAppFrame). It is loaded as a blob: URL — same-origin with the SPA — so,
+// with `allow-same-origin`, the bundle runs with the viewer's full session (the
+// publisher's explicit, consented choice). Crucially this is an in-memory blob,
+// not a real-origin endpoint, so it is not a URL an attacker can navigate a
+// logged-in victim to in order to bypass the consent prompt — the backend
+// `.html` document stays sandboxed in all cases.
+export function unsandboxedRawAppHtml(
+	workspace: string,
+	secret: string,
+	ctx: any,
+	baseUrl: string,
+	initialHash: string
+) {
+	return `<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="UTF-8" />
+	<title>App</title>
+	<link rel="stylesheet" href="${baseUrl}/api/w/${workspace}/apps_u/get_data/v/${secret}.css" />
+	<script>
+		window.ctx = ${ctx ? JSON.stringify(ctx) : 'undefined'};
+		(function () {
+			// Keep the parent URL hash in sync for shareable URLs.
+			function notifyParent() {
+				try {
+					if (window.parent !== window) {
+						window.parent.postMessage({ type: 'windmill:hashchange', hash: window.location.hash }, '*');
+					}
+				} catch (_) {}
+			}
+			var initialHash = ${JSON.stringify(initialHash)};
+			if (initialHash && initialHash !== '#' && !window.location.hash) {
+				try { history.replaceState(null, '', initialHash); } catch (_) {}
+			}
+			window.addEventListener('hashchange', notifyParent);
+			var _ps = history.pushState, _rs = history.replaceState;
+			history.pushState = function () { _ps.apply(this, arguments); notifyParent(); };
+			history.replaceState = function () { _rs.apply(this, arguments); notifyParent(); };
+			setTimeout(notifyParent, 0);
+		})();
+	</script>
+</head>
+<body>
+	<div id="root"></div>
+	<script src="${baseUrl}/api/w/${workspace}/apps_u/get_data/v/${secret}.js"></script>
+</body>
+</html>`
+}
 
 function removeStaticFields(schema: Schema, fields: Record<string, { type: string }>): Schema {
 	const staticFields = Object.keys(fields).filter((k) => fields[k].type == 'static')

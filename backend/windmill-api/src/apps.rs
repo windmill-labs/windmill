@@ -487,34 +487,27 @@ async fn get_raw_app_data(
     // bundle can then never reach the authenticated Windmill origin (WIN-2006).
     // The `.js`/`.css` are loaded as same-path subresources by this document.
     if file_type == "html" {
-        // The publisher can disable sandbox isolation (WIN-2006). When disabled we
-        // omit the `CSP: sandbox` header so the wrapper, embedded with
-        // allow-same-origin, runs same-origin (full access) — gated by the
-        // per-version consent prompt on the viewer. Decided server-side from the
-        // app policy, never a client parameter.
-        let disable_sandbox = sqlx::query_scalar!(
-            "SELECT a.policy->>'disable_sandbox' = 'true' FROM app a JOIN app_version av ON av.app_id = a.id WHERE av.id = $1 AND a.workspace_id = $2",
-            id,
-            &w_id
-        )
-        .fetch_optional(&db)
-        .await?
-        .flatten()
-        .unwrap_or(false);
-
+        // ALWAYS served with `CSP: sandbox`, which forces an opaque origin even on
+        // direct top-level navigation — so this real-origin URL can never be used
+        // to run a raw-app bundle with the viewer's session (WIN-2006). The
+        // publisher "disable sandbox isolation" opt-out is NOT applied here: it is
+        // handled entirely on the viewer side, which (after a per-version consent
+        // prompt) builds its own same-origin wrapper. Relaxing this header from a
+        // policy flag would let anyone with the share secret hand a logged-in
+        // victim a same-origin URL that runs the bundle with their session,
+        // bypassing the consent prompt — so the standalone document stays
+        // sandboxed no matter how it is reached.
         let html = raw_app_wrapper_html(secret_id);
-        let mut builder = Response::builder()
+        let builder = Response::builder()
             .header(http::header::CONTENT_TYPE, "text/html; charset=utf-8")
             .header("X-Content-Type-Options", "nosniff")
-            .header("Cross-Origin-Resource-Policy", "cross-origin");
-        if !disable_sandbox {
-            builder = builder.header(
+            .header("Cross-Origin-Resource-Policy", "cross-origin")
+            .header(
                 http::header::CONTENT_SECURITY_POLICY,
                 "sandbox allow-scripts allow-forms allow-popups \
                  allow-popups-to-escape-sandbox allow-downloads allow-modals \
                  allow-top-navigation",
             );
-        }
         return Ok(builder.body(Body::from(html)).unwrap());
     }
 

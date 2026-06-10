@@ -94,6 +94,42 @@
 		window.parent.postMessage({ type: 'wm_embed_unauthorized' }, expectedEmbedderOrigin ?? '*')
 	}
 
+	// WIN-2006: the app runs inside the (opaque) viewer iframe, so its in-app URL
+	// changes never reach the top address bar — breaking shareable deep links. Relay
+	// the hash up to the embedder, which mirrors it onto its own URL. Hash only: it
+	// can't spoof the path (the embedder keeps its own pathname), so a hostile app
+	// can't rewrite the address bar to an unrelated route.
+	let origPushState: typeof history.pushState | undefined
+	let origReplaceState: typeof history.replaceState | undefined
+	function relayHash() {
+		try {
+			window.parent.postMessage(
+				{ type: 'wm_embed_hash', hash: window.location.hash },
+				expectedEmbedderOrigin ?? '*'
+			)
+		} catch (_) {}
+	}
+	function installHashRelay() {
+		origPushState = history.pushState
+		origReplaceState = history.replaceState
+		history.pushState = function (data, unused, url) {
+			origPushState?.call(history, data, unused, url ?? null)
+			relayHash()
+		}
+		history.replaceState = function (data, unused, url) {
+			origReplaceState?.call(history, data, unused, url ?? null)
+			relayHash()
+		}
+		window.addEventListener('hashchange', relayHash)
+		window.addEventListener('popstate', relayHash)
+	}
+	function uninstallHashRelay() {
+		if (origPushState) history.pushState = origPushState
+		if (origReplaceState) history.replaceState = origReplaceState
+		window.removeEventListener('hashchange', relayHash)
+		window.removeEventListener('popstate', relayHash)
+	}
+
 	// ---------------------------- embedder mode ----------------------------
 	let status: 'loading' | 'ready' | 'noPermission' | 'notExists' = $state('loading')
 	let embedToken: string | null = $state(null)
@@ -207,12 +243,20 @@
 			iframeEl?.contentWindow?.postMessage({ type: 'wm_ls_hydrate', data: readSharedLs() }, '*')
 		} else if (e.data?.type === 'wm_ls_op') {
 			applyLsOp(e.data)
+		} else if (e.data?.type === 'wm_embed_hash') {
+			// Mirror the viewer's in-app hash onto our own URL (shareable deep links).
+			// Keep our pathname/search; only adopt the hash.
+			const hash = typeof e.data.hash === 'string' ? e.data.hash : ''
+			if (window.location.hash !== hash) {
+				history.replaceState(null, '', window.location.pathname + window.location.search + hash)
+			}
 		}
 	}
 
 	onMount(() => {
 		if (isViewer) {
 			window.addEventListener('message', handleViewerMessage)
+			installHashRelay()
 			// Announce readiness so the embedder sends us the token.
 			window.parent.postMessage({ type: 'wm_embed_ready' }, expectedEmbedderOrigin ?? '*')
 		} else {
@@ -225,6 +269,7 @@
 		if (!BROWSER) return
 		window.removeEventListener('message', handleViewerMessage)
 		window.removeEventListener('message', handleEmbedderMessage)
+		if (isViewer) uninstallHashRelay()
 	})
 </script>
 
