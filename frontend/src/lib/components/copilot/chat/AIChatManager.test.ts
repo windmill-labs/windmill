@@ -32,7 +32,8 @@ vi.mock('$lib/toast', () => ({
 vi.mock('$lib/aiStore', () => ({
 	getCurrentModel: () => undefined,
 	tryGetCurrentModel: () => undefined,
-	getCombinedCustomPrompt: () => ''
+	getCombinedCustomPrompt: () => '',
+	isWebSearchEnabledForProvider: () => true
 }))
 
 vi.mock('../lib', () => ({

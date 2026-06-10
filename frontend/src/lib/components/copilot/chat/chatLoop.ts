@@ -57,6 +57,62 @@ export interface ChatLoopResult {
 	hitMaxIterations: boolean
 }
 
+const WEB_SEARCH_UNAVAILABLE_MESSAGE =
+	'You can disable websearch in your workspace settings.'
+const unsupportedWebSearchCache = new Set<string>()
+
+function getWebSearchCacheKey(workspace: string, modelProvider: ReasoningProviderModel): string {
+	return [workspace, modelProvider.provider, modelProvider.model].join(':')
+}
+
+function getErrorText(err: unknown): string {
+	if (err instanceof Error) {
+		return err.message
+	}
+	if (typeof err === 'string') {
+		return err
+	}
+	try {
+		return JSON.stringify(err)
+	} catch {
+		return String(err)
+	}
+}
+
+function shouldRetryWithoutWebSearch(err: unknown): boolean {
+	const message = getErrorText(err).toLowerCase()
+	return (
+		message.includes('web_search') ||
+		message.includes('web search') ||
+		(message.includes('tool') &&
+			(message.includes('unsupported') ||
+				message.includes('not supported') ||
+				message.includes('not enabled') ||
+				message.includes('disabled') ||
+				message.includes('unknown')))
+	)
+}
+
+function markWebSearchUnsupported(
+	callbacks: ToolCallbacks & { onMessageEnd: () => void },
+	cacheKey: string,
+	err: unknown
+) {
+	unsupportedWebSearchCache.add(cacheKey)
+	console.warn('Native web search unavailable; retrying without web search:', err)
+	callbacks.onMessageEnd()
+	callbacks.setToolStatus(`web_search_unavailable:${cacheKey}`, {
+		content: WEB_SEARCH_UNAVAILABLE_MESSAGE,
+		error: WEB_SEARCH_UNAVAILABLE_MESSAGE,
+		isLoading: false,
+		isStreamingArguments: false,
+		needsConfirmation: false,
+		toolName: 'web_search',
+		showDetails: false,
+		autoCollapseDetails: true
+	})
+}
+
 export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResult> {
 	const {
 		messages,
@@ -90,8 +146,11 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		const helpers = config.helpers
 		const systemMessage = config.systemMessage
 		const modelProvider = config.modelProvider
+		const webSearchCacheKey = getWebSearchCacheKey(workspace, modelProvider)
 		const webSearch =
-			(config.webSearch ?? true) && providerSupportsWebSearch(modelProvider.provider)
+			(config.webSearch ?? true) &&
+			providerSupportsWebSearch(modelProvider.provider) &&
+			!unsupportedWebSearchCache.has(webSearchCacheKey)
 
 		if (onBeforeIteration) {
 			await onBeforeIteration(tools, helpers)
@@ -116,36 +175,56 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		const parseOptions = { workspace }
 
 		if (isOpenAI) {
+			const runOpenAIResponses = async (useWebSearch: boolean): Promise<boolean> => {
+				const completion = await getOpenAIResponsesCompletion(
+					messageParams,
+					abortController,
+					toolDefs,
+					{
+						forceModelProvider: modelProvider,
+						openaiClient: clients.openai,
+						webSearch: useWebSearch,
+						reasoningEffort
+					}
+				)
+				const continueCompletion = await parseOpenAIResponsesCompletion(
+					completion,
+					callbacks,
+					messages,
+					addedMessages,
+					tools,
+					helpers,
+					parseOptions
+				)
+				tokenUsage = addChatTokenUsage(tokenUsage, continueCompletion.tokenUsage)
+				return continueCompletion.shouldContinue
+			}
+
 			let useCompletionsApi = skipResponsesApi
 			if (!skipResponsesApi) {
 				try {
-					const completion = await getOpenAIResponsesCompletion(
-						messageParams,
-						abortController,
-						toolDefs,
-						{
-							forceModelProvider: modelProvider,
-							openaiClient: clients.openai,
-							webSearch,
-							reasoningEffort
-						}
-					)
-					const continueCompletion = await parseOpenAIResponsesCompletion(
-						completion,
-						callbacks,
-						messages,
-						addedMessages,
-						tools,
-						helpers,
-						parseOptions
-					)
-					tokenUsage = addChatTokenUsage(tokenUsage, continueCompletion.tokenUsage)
-					if (!continueCompletion.shouldContinue) {
+					if (!(await runOpenAIResponses(webSearch))) {
 						break
 					}
 				} catch (err) {
-					console.warn('OpenAI Responses API failed, falling back to Completions API:', err)
-					const errorMessage = err instanceof Error ? err.message : String(err)
+					let fallbackError = err
+					if (webSearch && shouldRetryWithoutWebSearch(err)) {
+						markWebSearchUnsupported(callbacks, webSearchCacheKey, err)
+						try {
+							if (!(await runOpenAIResponses(false))) {
+								break
+							}
+							continue
+						} catch (retryErr) {
+							fallbackError = retryErr
+						}
+					}
+
+					console.warn(
+						'OpenAI Responses API failed, falling back to Completions API:',
+						fallbackError
+					)
+					const errorMessage = getErrorText(fallbackError)
 					if (errorMessage.includes('Responses API is not enabled')) {
 						skipResponsesApi = true
 						onSkipResponsesApi?.()
@@ -182,18 +261,21 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 				}
 			}
 		} else if (isAnthropic) {
-			const completion = await getAnthropicCompletion(
-				messageParams,
-				abortController,
-				toolDefs,
-				{
-					forceModelProvider: modelProvider,
-					anthropicClient: clients.anthropic,
-					webSearch,
-					reasoningEffort
+			const runAnthropic = async (useWebSearch: boolean): Promise<boolean> => {
+				const completion = await getAnthropicCompletion(
+					messageParams,
+					abortController,
+					toolDefs,
+					{
+						forceModelProvider: modelProvider,
+						anthropicClient: clients.anthropic,
+						webSearch: useWebSearch,
+						reasoningEffort
+					}
+				)
+				if (!completion) {
+					return true
 				}
-			)
-			if (completion) {
 				const continueCompletion = await parseAnthropicCompletion(
 					completion,
 					callbacks,
@@ -205,8 +287,21 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 					parseOptions
 				)
 				tokenUsage = addChatTokenUsage(tokenUsage, continueCompletion.tokenUsage)
-				if (!continueCompletion.shouldContinue) {
+				return continueCompletion.shouldContinue
+			}
+
+			try {
+				if (!(await runAnthropic(webSearch))) {
 					break
+				}
+			} catch (err) {
+				if (webSearch && shouldRetryWithoutWebSearch(err)) {
+					markWebSearchUnsupported(callbacks, webSearchCacheKey, err)
+					if (!(await runAnthropic(false))) {
+						break
+					}
+				} else {
+					throw err
 				}
 			}
 		} else {

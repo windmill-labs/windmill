@@ -61,7 +61,12 @@ import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { runChatLoop } from './chatLoop'
 import type { ReviewChangesOpts } from './monaco-adapter'
-import { getCurrentModel, tryGetCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
+import {
+	getCurrentModel,
+	tryGetCurrentModel,
+	getCombinedCustomPrompt,
+	isWebSearchEnabledForProvider
+} from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
 import {
 	globalToolsFor,
@@ -682,6 +687,9 @@ export class AIChatManager {
 				callbacks,
 				get modelProvider() {
 					return getCurrentModel()
+				},
+				get webSearch() {
+					return isWebSearchEnabledForProvider(getCurrentModel().provider)
 				},
 				clients: {
 					openai: workspaceAIClients.getOpenaiClient(),
