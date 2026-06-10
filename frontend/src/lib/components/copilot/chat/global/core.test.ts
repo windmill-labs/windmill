@@ -45,6 +45,7 @@ vi.mock('$lib/gen', async () => {
 		ScriptService: wrapService(actual.ScriptService, {
 			existsScriptByPath: vi.fn(async () => false),
 			createScript: vi.fn(async () => 'created'),
+			deleteScriptByPath: vi.fn(async () => 'deleted'),
 			getScriptByPath: vi.fn(async () => {
 				throw new Error('getScriptByPath mock not configured')
 			}),
@@ -57,6 +58,10 @@ vi.mock('$lib/gen', async () => {
 			queryHubScripts: vi.fn(async () => []),
 			getHubScriptContentByPath: vi.fn(async () => ''),
 			listScripts: vi.fn(async () => [])
+		}),
+		DraftService: wrapService(actual.DraftService, {
+			createDraft: vi.fn(async () => 'created'),
+			deleteDraft: vi.fn(async () => 'deleted')
 		}),
 		JobService: wrapService(actual.JobService, {
 			runScriptPreview: vi.fn(async () => 'job-script-preview'),
@@ -106,6 +111,7 @@ vi.mock('$lib/gen', async () => {
 			existsFlowByPath: vi.fn(async () => false),
 			createFlow: vi.fn(async () => 'created'),
 			updateFlow: vi.fn(async () => 'updated'),
+			deleteFlowByPath: vi.fn(async () => 'deleted'),
 			getFlowByPath: vi.fn(async () => {
 				throw new Error('getFlowByPath mock not configured')
 			}),
@@ -160,6 +166,10 @@ vi.mock('./rawAppBundlerBridge', () => ({
 	}))
 }))
 
+vi.mock('$lib/workspaceDrafts.svelte', () => ({
+	invalidateWorkspaceDrafts: vi.fn()
+}))
+
 import {
 	globalTools,
 	globalToolsFor,
@@ -170,10 +180,12 @@ import {
 	setOpenPreviewHandler
 } from './core'
 import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
+import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { clearGlobalDrafts } from './userDraftAdapter'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
 	AppService,
+	DraftService,
 	FlowService,
 	HttpTriggerService,
 	JobService,
@@ -185,6 +197,141 @@ import {
 import type { Tool, ToolCallbacks } from '../shared'
 
 const WORKSPACE = 'global-core-test'
+
+// ---------------------------------------------------------------------------
+// In-memory simulation of the workspace DB drafts for scripts & flows.
+//
+// Script and flow chat drafts are now persisted to the DB (via DraftService and
+// a backing draft_only row), and read back through getXByPathWithDraft /
+// listX. We model just enough of that here so write -> read -> list -> discard
+// -> deploy round-trips behave like the real backend. Stores are reset and the
+// implementations re-wired in beforeEach.
+
+type SimRow = Record<string, any>
+// Mimic the generated client's ApiError shape so the code's `status === 404`
+// not-found discrimination behaves the same against the sim.
+function notFound(message: string): Error {
+	return Object.assign(new Error(message), { status: 404 })
+}
+const scriptRows = new Map<string, SimRow>()
+const scriptDrafts = new Map<string, SimRow>()
+const flowRows = new Map<string, SimRow>()
+const flowDrafts = new Map<string, SimRow>()
+const DRAFT_TS = '2026-06-09T00:00:00Z'
+
+function dbScriptDraft(path: string): any {
+	return scriptDrafts.get(path)
+}
+function dbFlowDraft(path: string): any {
+	return flowDrafts.get(path)
+}
+
+// The generated client methods are typed to return CancelablePromise; the sim
+// returns plain promises, so route mockImplementation through `as any`.
+function setImpl(fn: unknown, impl: (...args: any[]) => any): void {
+	vi.mocked(fn as any).mockImplementation(impl as any)
+}
+
+function resetDbSim(): void {
+	scriptRows.clear()
+	scriptDrafts.clear()
+	flowRows.clear()
+	flowDrafts.clear()
+
+	setImpl(ScriptService.existsScriptByPath, async ({ path }: any) => scriptRows.has(path))
+	setImpl(ScriptService.createScript, async ({ requestBody }: any) => {
+		const draftOnly = requestBody.draft_only === true
+		scriptRows.set(requestBody.path, {
+			...requestBody,
+			hash: `h:${requestBody.path}`,
+			draft_only: draftOnly
+		})
+		if (!draftOnly) scriptDrafts.delete(requestBody.path) // deploy clears the draft, like the backend
+		return 'created'
+	})
+	setImpl(ScriptService.getScriptByPathWithDraft, async ({ path }: any) => {
+		const row = scriptRows.get(path)
+		if (!row) throw notFound(`script "${path}" not found`)
+		const draft = scriptDrafts.get(path)
+		return { ...row, draft, draft_created_at: draft ? DRAFT_TS : undefined }
+	})
+	setImpl(ScriptService.getScriptByPath, async ({ path }: any) => {
+		const row = scriptRows.get(path)
+		if (!row) throw notFound(`script "${path}" not found`)
+		return row
+	})
+	setImpl(ScriptService.deleteScriptByPath, async ({ path }: any) => {
+		scriptRows.delete(path)
+		scriptDrafts.delete(path)
+		return 'deleted'
+	})
+	setImpl(ScriptService.listScripts, async ({ pathStart }: any) =>
+		[...scriptRows.values()]
+			.filter((row) => !pathStart || row.path.startsWith(pathStart))
+			.map((row) => ({ ...row, has_draft: scriptDrafts.has(row.path) }))
+	)
+
+	setImpl(FlowService.existsFlowByPath, async ({ path }: any) => flowRows.has(path))
+	setImpl(FlowService.createFlow, async ({ requestBody }: any) => {
+		const draftOnly = requestBody.draft_only === true
+		flowRows.set(requestBody.path, {
+			edited_by: '',
+			edited_at: '',
+			archived: false,
+			extra_perms: {},
+			...requestBody,
+			draft_only: draftOnly
+		})
+		if (!draftOnly) flowDrafts.delete(requestBody.path)
+		return 'created'
+	})
+	setImpl(FlowService.updateFlow, async ({ path, requestBody }: any) => {
+		flowRows.set(path, {
+			edited_by: '',
+			edited_at: '',
+			archived: false,
+			extra_perms: {},
+			...requestBody,
+			path,
+			draft_only: false
+		})
+		flowDrafts.delete(path)
+		return 'updated'
+	})
+	setImpl(FlowService.getFlowByPathWithDraft, async ({ path }: any) => {
+		const row = flowRows.get(path)
+		if (!row) throw notFound(`flow "${path}" not found`)
+		const draft = flowDrafts.get(path)
+		return { ...row, draft, draft_created_at: draft ? DRAFT_TS : undefined }
+	})
+	setImpl(FlowService.getFlowByPath, async ({ path }: any) => {
+		const row = flowRows.get(path)
+		if (!row) throw notFound(`flow "${path}" not found`)
+		return row
+	})
+	setImpl(FlowService.deleteFlowByPath, async ({ path }: any) => {
+		flowRows.delete(path)
+		flowDrafts.delete(path)
+		return 'deleted'
+	})
+	setImpl(FlowService.listFlows, async ({ pathStart }: any) =>
+		[...flowRows.values()]
+			.filter((row) => !pathStart || row.path.startsWith(pathStart))
+			.map((row) => ({ ...row, has_draft: flowDrafts.has(row.path) }))
+	)
+
+	setImpl(DraftService.createDraft, async ({ requestBody }: any) => {
+		const { path, typ, value } = requestBody
+		if (typ === 'script') scriptDrafts.set(path, value)
+		else if (typ === 'flow') flowDrafts.set(path, value)
+		return 'created'
+	})
+	setImpl(DraftService.deleteDraft, async ({ path, kind }: any) => {
+		if (kind === 'script') scriptDrafts.delete(path)
+		else if (kind === 'flow') flowDrafts.delete(path)
+		return 'deleted'
+	})
+}
 
 const toolCallbacks: ToolCallbacks = {
 	setToolStatus: vi.fn(),
@@ -240,6 +387,7 @@ describe('global AI tools', () => {
 		localStorage.clear()
 		clearGlobalDrafts(WORKSPACE)
 		vi.clearAllMocks()
+		resetDbSim()
 	})
 
 	it('defaults the datatable instruction subject to the TypeScript SQL SDK', async () => {
@@ -534,7 +682,7 @@ describe('global AI tools', () => {
 		expect(VariableService.updateVariable).not.toHaveBeenCalled()
 	})
 
-	it('writes script drafts into UserDraft', async () => {
+	it('writes script drafts into the workspace DB', async () => {
 		const content = 'export async function main() {\n\treturn "hello"\n}'
 
 		await callGlobalTool('write_script', {
@@ -544,14 +692,21 @@ describe('global AI tools', () => {
 			content
 		})
 
-		expect(UserDraft.get<any>('script', 'f/scripts/hello', { workspace: WORKSPACE })).toMatchObject(
-			{
-				path: 'f/scripts/hello',
-				summary: 'Hello script',
-				language: 'bun',
-				content
-			}
+		// A brand-new script gets a draft_only backing row plus a DB draft.
+		expect(ScriptService.createScript).toHaveBeenCalledWith(
+			expect.objectContaining({
+				workspace: WORKSPACE,
+				requestBody: expect.objectContaining({ path: 'f/scripts/hello', draft_only: true })
+			})
 		)
+		expect(dbScriptDraft('f/scripts/hello')).toMatchObject({
+			path: 'f/scripts/hello',
+			summary: 'Hello script',
+			language: 'bun',
+			content
+		})
+		// Not written to localStorage when no live editor is open.
+		expect(UserDraft.get('script', 'f/scripts/hello', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
 	it('applies path_prefix to local drafts before enforcing the result limit', async () => {
@@ -712,7 +867,7 @@ describe('global AI tools', () => {
 		expect(UserDraft.get('raw_app', 'u/admin/live_app', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
-	it('discards a local draft without deleting the workspace item', async () => {
+	it('discards a draft-only script by deleting the whole item', async () => {
 		await callGlobalTool('write_script', {
 			path: 'f/scripts/discard-me',
 			summary: 'Temporary draft',
@@ -720,7 +875,7 @@ describe('global AI tools', () => {
 			content: 'export async function main() { return 1 }'
 		})
 
-		expect(UserDraft.get('script', 'f/scripts/discard-me', { workspace: WORKSPACE })).toBeDefined()
+		expect(dbScriptDraft('f/scripts/discard-me')).toBeDefined()
 
 		const raw = await callGlobalTool('discard_local_draft', {
 			type: 'script',
@@ -733,9 +888,46 @@ describe('global AI tools', () => {
 			path: 'f/scripts/discard-me'
 		})
 		expect(raw).toContain('The deployed workspace item was not changed')
-		expect(
-			UserDraft.get('script', 'f/scripts/discard-me', { workspace: WORKSPACE })
-		).toBeUndefined()
+		// The script only ever existed as a draft, so the whole item is removed.
+		expect(ScriptService.deleteScriptByPath).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'f/scripts/discard-me'
+		})
+		expect(dbScriptDraft('f/scripts/discard-me')).toBeUndefined()
+	})
+
+	it('discards a draft on a deployed script by deleting only the draft row', async () => {
+		// Seed a deployed script (no draft_only) with a DB draft.
+		await ScriptService.createScript({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/scripts/deployed-with-draft',
+				summary: 'Deployed',
+				content: 'export async function main() { return 0 }',
+				language: 'bun'
+			} as any
+		})
+		await DraftService.createDraft({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/scripts/deployed-with-draft',
+				typ: 'script',
+				value: { path: 'f/scripts/deployed-with-draft', content: 'draft', language: 'bun' }
+			}
+		})
+
+		await callGlobalTool('discard_local_draft', {
+			type: 'script',
+			path: 'f/scripts/deployed-with-draft'
+		})
+
+		expect(DraftService.deleteDraft).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'f/scripts/deployed-with-draft',
+			kind: 'script'
+		})
+		expect(ScriptService.deleteScriptByPath).not.toHaveBeenCalled()
+		expect(dbScriptDraft('f/scripts/deployed-with-draft')).toBeUndefined()
 	})
 
 	it('requires trigger_kind when discarding a trigger draft', async () => {
@@ -747,8 +939,158 @@ describe('global AI tools', () => {
 		).rejects.toThrow('trigger_kind is required')
 	})
 
-	it('preserves existing script metadata and seeds freshness on first script write', async () => {
-		vi.mocked(ScriptService.existsScriptByPath).mockResolvedValueOnce(true)
+	it('preserves editor metadata in the DB draft when the AI edits an open live script', async () => {
+		// The live editor's buffer holds the FULL script, including metadata the
+		// user changed in the editor (concurrency, tag, description, …).
+		UserDraft.save(
+			'script',
+			'',
+			{
+				path: 'u/admin/meta_script',
+				summary: 'Live script',
+				description: 'keep me',
+				content: 'export async function main() {\n\treturn 1\n}',
+				schema: {},
+				is_template: false,
+				language: 'bun',
+				kind: 'script',
+				concurrent_limit: 7,
+				tag: 'custom-tag'
+			},
+			{ workspace: WORKSPACE }
+		)
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'script',
+			storagePath: '',
+			effectivePath: 'u/admin/meta_script'
+		})
+
+		await callGlobalTool('write_script', {
+			path: 'u/admin/meta_script',
+			summary: 'Live script',
+			language: 'bun',
+			content: 'export async function main() {\n\treturn 2\n}'
+		})
+
+		// The AI only changes value; the editor's metadata is carried through to
+		// the DB draft, not wiped.
+		expect(dbScriptDraft('u/admin/meta_script')).toMatchObject({
+			path: 'u/admin/meta_script',
+			content: 'export async function main() {\n\treturn 2\n}',
+			concurrent_limit: 7,
+			tag: 'custom-tag',
+			description: 'keep me'
+		})
+	})
+
+	it('discards a draft-only item that has no separate draft row', async () => {
+		// An item that exists ONLY as a draft_only row, with no draft-table entry
+		// (e.g. created elsewhere) — the row itself is the draft content.
+		await ScriptService.createScript({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/scripts/orphan',
+				summary: 'Orphan',
+				content: 'export async function main() { return 1 }',
+				language: 'bun',
+				draft_only: true
+			} as any
+		})
+		expect(dbScriptDraft('f/scripts/orphan')).toBeUndefined()
+
+		const raw = await callGlobalTool('discard_local_draft', {
+			type: 'script',
+			path: 'f/scripts/orphan'
+		})
+
+		expect(JSON.parse(raw)).toMatchObject({ success: true, type: 'script', path: 'f/scripts/orphan' })
+		// draft_only with no deployed version -> the whole item is removed.
+		expect(ScriptService.deleteScriptByPath).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'f/scripts/orphan'
+		})
+	})
+
+	it('deploys a chat-created script draft and clears the draft', async () => {
+		const content = 'export async function main() { return 1 }'
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/to-deploy',
+			summary: 'Deploy me',
+			language: 'bun',
+			content
+		})
+		expect(dbScriptDraft('f/scripts/to-deploy')).toBeDefined()
+
+		vi.mocked(invalidateWorkspaceDrafts).mockClear()
+		const raw = await callGlobalTool('deploy_workspace_item', {
+			type: 'script',
+			path: 'f/scripts/to-deploy'
+		})
+
+		expect(JSON.parse(raw)).toMatchObject({ success: true, type: 'script', path: 'f/scripts/to-deploy' })
+		// Deploy writes a real (non-draft_only) version; the backend clears the draft.
+		const createCalls = vi.mocked(ScriptService.createScript).mock.calls
+		const lastCreate = createCalls[createCalls.length - 1]?.[0] as any
+		expect(lastCreate.requestBody.draft_only).toBeFalsy()
+		expect(lastCreate.requestBody.content).toBe(content)
+		expect(dbScriptDraft('f/scripts/to-deploy')).toBeUndefined()
+		expect(invalidateWorkspaceDrafts).toHaveBeenCalledWith(WORKSPACE)
+	})
+
+	it('invalidates workspace draft counts after writing a draft', async () => {
+		await callGlobalTool('write_script', {
+			path: 'f/scripts/counted',
+			summary: '',
+			language: 'bun',
+			content: 'export async function main() {}'
+		})
+		expect(invalidateWorkspaceDrafts).toHaveBeenCalledWith(WORKSPACE)
+	})
+
+	it("deploys the draft's metadata, not the deployed item's", async () => {
+		// Deployed version with one set of metadata.
+		await ScriptService.createScript({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/scripts/meta-deploy',
+				summary: 'deployed',
+				content: 'export async function main() { return 0 }',
+				language: 'bun',
+				concurrent_limit: 1,
+				tag: 'old-tag'
+			} as any
+		})
+		// A DB draft (e.g. saved from the editor) with DIFFERENT metadata + new value.
+		await DraftService.createDraft({
+			workspace: WORKSPACE,
+			requestBody: {
+				path: 'f/scripts/meta-deploy',
+				typ: 'script',
+				value: {
+					path: 'f/scripts/meta-deploy',
+					summary: 'drafted',
+					content: 'export async function main() { return 1 }',
+					language: 'bun',
+					concurrent_limit: 9,
+					tag: 'new-tag'
+				}
+			}
+		})
+
+		await callGlobalTool('deploy_workspace_item', { type: 'script', path: 'f/scripts/meta-deploy' })
+
+		const createCalls = vi.mocked(ScriptService.createScript).mock.calls
+		const deployBody = (createCalls[createCalls.length - 1]?.[0] as any).requestBody
+		expect(deployBody).toMatchObject({
+			path: 'f/scripts/meta-deploy',
+			content: 'export async function main() { return 1 }',
+			concurrent_limit: 9,
+			tag: 'new-tag'
+		})
+	})
+
+	it('preserves existing script metadata when writing over an existing item', async () => {
 		vi.mocked(ScriptService.getScriptByPathWithDraft).mockResolvedValueOnce({
 			path: 'f/scripts/existing',
 			hash: 'deployed-hash',
@@ -767,6 +1109,7 @@ describe('global AI tools', () => {
 				kind: 'script'
 			}
 		} as any)
+		vi.mocked(ScriptService.existsScriptByPath).mockResolvedValueOnce(true)
 
 		await callGlobalTool('write_script', {
 			path: 'f/scripts/existing',
@@ -775,9 +1118,9 @@ describe('global AI tools', () => {
 			content: 'new content'
 		})
 
-		expect(
-			UserDraft.get<any>('script', 'f/scripts/existing', { workspace: WORKSPACE })
-		).toMatchObject({
+		// The DB draft keeps the existing item's lineage/metadata, applying only
+		// the new path/summary/content/language.
+		expect(dbScriptDraft('f/scripts/existing')).toMatchObject({
 			path: 'f/scripts/existing',
 			parent_hash: 'deployed-hash',
 			summary: 'new summary',
@@ -785,15 +1128,11 @@ describe('global AI tools', () => {
 			content: 'new content',
 			language: 'bun'
 		})
-		expect(UserDraft.getMeta('script', 'f/scripts/existing', { workspace: WORKSPACE })).toEqual({
-			remoteRev: 'deployed-hash',
-			remoteDraftRev: '2026-05-22T10:00:00Z'
-		})
+		// Existing item -> no new draft_only row is created.
+		expect(ScriptService.createScript).not.toHaveBeenCalled()
 	})
 
-	it('preserves existing flow metadata and seeds freshness on first flow write', async () => {
-		vi.mocked(FlowService.existsFlowByPath).mockResolvedValueOnce(true)
-		vi.mocked(FlowService.getFlowLatestVersion).mockResolvedValueOnce({ id: 42 } as any)
+	it('preserves existing flow metadata when writing over an existing item', async () => {
 		vi.mocked(FlowService.getFlowByPathWithDraft).mockResolvedValueOnce({
 			path: 'f/flows/existing',
 			summary: 'deployed summary',
@@ -817,6 +1156,7 @@ describe('global AI tools', () => {
 				extra_perms: {}
 			}
 		} as any)
+		vi.mocked(FlowService.existsFlowByPath).mockResolvedValueOnce(true)
 
 		await callGlobalTool('write_flow', {
 			path: 'f/flows/existing',
@@ -824,16 +1164,13 @@ describe('global AI tools', () => {
 			modules: JSON.stringify([{ id: 'step', value: { type: 'identity' } }])
 		})
 
-		expect(UserDraft.get<any>('flow', 'f/flows/existing', { workspace: WORKSPACE })).toMatchObject({
+		expect(dbFlowDraft('f/flows/existing')).toMatchObject({
 			path: 'f/flows/existing',
 			summary: 'new summary',
 			description: 'db draft description',
 			value: { modules: [{ id: 'step', value: { type: 'identity' } }] }
 		})
-		expect(UserDraft.getMeta('flow', 'f/flows/existing', { workspace: WORKSPACE })).toEqual({
-			remoteRev: 42,
-			remoteDraftRev: '2026-05-22T10:00:00Z'
-		})
+		expect(FlowService.createFlow).not.toHaveBeenCalled()
 	})
 
 	it('preserves editor schedule fields when writing over an existing schedule', async () => {
@@ -1489,9 +1826,10 @@ describe('global AI tools', () => {
 		expect(result).toContain('test logs')
 	})
 
-	it('test_run_script previews deployed script content when no local draft exists', async () => {
-		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+	it('test_run_script previews deployed script content when no draft exists', async () => {
+		vi.mocked(ScriptService.getScriptByPathWithDraft).mockResolvedValueOnce({
 			path: 'f/scripts/deployed-test',
+			hash: 'deployed-hash',
 			summary: 'Deployed test script',
 			content: 'def main(name):\n    return name',
 			language: 'python3'
@@ -1504,7 +1842,7 @@ describe('global AI tools', () => {
 			})
 		)
 
-		expect(ScriptService.getScriptByPath).toHaveBeenCalledWith({
+		expect(ScriptService.getScriptByPathWithDraft).toHaveBeenCalledWith({
 			workspace: WORKSPACE,
 			path: 'f/scripts/deployed-test'
 		})
@@ -1545,13 +1883,17 @@ describe('global AI tools', () => {
 		})
 	})
 
-	it('test_run_flow previews deployed flow content when no local draft exists', async () => {
+	it('test_run_flow previews deployed flow content when no draft exists', async () => {
 		const modules = [{ id: 'deployed_start', value: { type: 'identity' } }]
-		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
+		vi.mocked(FlowService.getFlowByPathWithDraft).mockResolvedValueOnce({
 			path: 'f/flows/deployed-test',
 			summary: 'Deployed test flow',
 			value: { modules },
-			schema: {}
+			schema: {},
+			edited_by: '',
+			edited_at: '',
+			archived: false,
+			extra_perms: {}
 		} as any)
 
 		await withCompletedTestJob(() =>
@@ -1561,7 +1903,7 @@ describe('global AI tools', () => {
 			})
 		)
 
-		expect(FlowService.getFlowByPath).toHaveBeenCalledWith({
+		expect(FlowService.getFlowByPathWithDraft).toHaveBeenCalledWith({
 			workspace: WORKSPACE,
 			path: 'f/flows/deployed-test'
 		})
@@ -1935,9 +2277,9 @@ describe('prepareGlobalSystemMessage', () => {
 		const message = prepareGlobalSystemMessage()
 		const content = message.content
 
-		expect(content).toContain('Draft tools create or update local drafts only')
+		expect(content).toContain('Draft tools create or update drafts only')
 		expect(content).toContain(
-			'Use discard_local_draft to remove an unsaved local draft, including the matching open editor draft'
+			'Use discard_local_draft to remove an unsaved draft, including the matching open editor draft'
 		)
 		expect(content).toContain(
 			'After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step'
@@ -1954,7 +2296,7 @@ describe('prepareGlobalSystemMessage', () => {
 		const deleteItem = getGlobalTool('delete_workspace_item')
 
 		expect(discard.def.function.description).toBe(
-			'Discard a local draft only. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted.'
+			'Discard a draft only. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted. For scripts and flows this deletes the workspace draft (and the whole item if it only ever existed as a draft).'
 		)
 		expect(deleteItem.def.function.description).toBe(
 			'Delete a deployed workspace item. Mutates the workspace.'
