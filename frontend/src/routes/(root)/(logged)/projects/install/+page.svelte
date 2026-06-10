@@ -152,40 +152,34 @@
 			}
 			for (const a of proj.apps) {
 				if (a.app_type === 'raw') {
-					let parsed: any
-					try {
-						parsed = JSON.parse(a.value?.raw ?? '{}')
-					} catch (e: any) {
-						results = [
-							...results,
-							{
-								path: a.path,
-								ok: false,
-								error: `invalid raw app bundle: ${e?.message ?? String(e)}`
-							}
-						]
-						continue
-					}
-					const files = { ...(parsed.files ?? {}) }
-					const js = files['/bundle.js'] ?? ''
-					const css = files['/bundle.css'] ?? ''
-					delete files['/bundle.js']
-					delete files['/bundle.css']
 					await record(
 						a.path,
-						AppService.createAppRaw({
-							workspace,
-							formData: {
-								app: {
-									path: a.path,
-									summary: a.summary ?? '',
-									value: { files, runnables: parsed.runnables ?? {} },
-									policy: defaultPolicy
-								},
-								js,
-								css
+						(async () => {
+							let parsed: any
+							try {
+								parsed = JSON.parse(a.value?.raw ?? '{}')
+							} catch (e: any) {
+								throw new Error(`invalid raw app bundle: ${e?.message ?? String(e)}`)
 							}
-						})
+							const files = { ...(parsed.files ?? {}) }
+							const js = files['/bundle.js'] ?? ''
+							const css = files['/bundle.css'] ?? ''
+							delete files['/bundle.js']
+							delete files['/bundle.css']
+							return AppService.createAppRaw({
+								workspace,
+								formData: {
+									app: {
+										path: a.path,
+										summary: a.summary ?? '',
+										value: { files, runnables: parsed.runnables ?? {} },
+										policy: defaultPolicy
+									},
+									js,
+									css
+								}
+							})
+						})()
 					)
 				} else {
 					await record(
@@ -220,10 +214,10 @@
 						})
 					)
 				} else {
-					results = [
-						...results,
-						{ path: t.path, ok: false, error: `trigger kind '${t.kind}' not supported yet` }
-					]
+					await record(
+						t.path,
+						Promise.reject(new Error(`trigger kind '${t.kind}' not supported yet`))
+					)
 				}
 			}
 			done = true
