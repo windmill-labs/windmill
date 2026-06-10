@@ -319,6 +319,49 @@
 		return false
 	}
 
+	// Arrow-Left/Right step over a paste chip as one unit, so the caret jumps
+	// edge-to-edge instead of crawling through the (invisible) token characters.
+	// Also snaps the caret out if it somehow lands inside a token. Shift extends
+	// the selection across the whole chip; word/line jumps (alt/cmd/ctrl) are
+	// left to the browser.
+	function handlePasteCaretSkip(e: KeyboardEvent): boolean {
+		if ((e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') || !textarea) return false
+		if (e.altKey || e.metaKey || e.ctrlKey) return false
+		const right = e.key === 'ArrowRight'
+		const collapsed = textarea.selectionStart === textarea.selectionEnd
+		// The end the caret is moving; for a non-collapsed selection that's the
+		// side opposite the anchor (given by selectionDirection).
+		const caret =
+			!collapsed && textarea.selectionDirection === 'backward'
+				? textarea.selectionStart
+				: textarea.selectionEnd
+		const anchor = collapsed
+			? caret
+			: textarea.selectionDirection === 'backward'
+				? textarea.selectionEnd
+				: textarea.selectionStart
+		for (const m of value.matchAll(pasteTokenRegex())) {
+			if (m.index === undefined) continue
+			const s = m.index
+			const en = m.index + m[0].length
+			const target =
+				right && caret >= s && caret < en ? en : !right && caret > s && caret <= en ? s : null
+			if (target === null) continue
+			e.preventDefault()
+			if (e.shiftKey) {
+				textarea.setSelectionRange(
+					Math.min(anchor, target),
+					Math.max(anchor, target),
+					target < anchor ? 'backward' : 'forward'
+				)
+			} else {
+				textarea.setSelectionRange(target, target)
+			}
+			return true
+		}
+		return false
+	}
+
 	function addContextToSelection(contextElement: ContextElement) {
 		onAddContext(contextElement)
 	}
@@ -410,6 +453,11 @@
 			if (e.key === 'Enter') {
 				e.preventDefault()
 			}
+			return
+		}
+
+		// Step the caret over a paste chip as one unit (picker closed only).
+		if (handlePasteCaretSkip(e)) {
 			return
 		}
 
