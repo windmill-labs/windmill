@@ -61,6 +61,7 @@ pub struct Folder {
     pub created_by: Option<String>,
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     pub default_permissioned_as: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
 }
 

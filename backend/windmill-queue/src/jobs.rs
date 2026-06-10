@@ -5956,13 +5956,10 @@ async fn push_inner<'c, 'd>(
             ($12::JSONB)->>'_ENTRYPOINT_OVERRIDE', $27,
             -- $44 (payload labels) merged with the labels of the runnable's folder, if any
             -- ($45/$46 are runnable_path/workspace_id again, kept separate to avoid parameter type conflicts)
-            COALESCE(
-                (SELECT CASE WHEN fld.labels IS NULL THEN $44
-                    ELSE (SELECT array_agg(DISTINCT lbl) FROM unnest(COALESCE($44, ARRAY[]::TEXT[]) || fld.labels) lbl)
-                END
-                FROM folder fld
-                WHERE $45 LIKE 'f/%' AND fld.name = split_part($45, '/', 2) AND fld.workspace_id = $46),
-                $44))
+            (SELECT CASE WHEN fl.labels IS NULL THEN $44
+                ELSE (SELECT array_agg(DISTINCT lbl) FROM unnest(COALESCE($44, ARRAY[]::TEXT[]) || fl.labels) lbl)
+            END
+            FROM folder_labels($46, $45) AS fl(labels)))
         ),
         inserted_runtime AS (
             INSERT INTO v2_job_runtime (id, ping) VALUES ($1, null)

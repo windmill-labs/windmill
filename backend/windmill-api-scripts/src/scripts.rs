@@ -324,7 +324,7 @@ async fn list_scripts(
             "codebase IS NOT NULL as use_codebase",
             "kind",
             "o.labels",
-            "(SELECT fld.labels FROM folder fld WHERE o.path LIKE 'f/%' AND fld.name = split_part(o.path, '/', 2) AND fld.workspace_id = o.workspace_id) as inherited_labels"
+            "folder_labels(o.workspace_id, o.path) as inherited_labels"
         ])
         .left()
         .join("favorite")
@@ -406,7 +406,7 @@ async fn list_scripts(
     if let Some(label) = &lq.label {
         for l in label.split(',') {
             sqlb.and_where(
-                "(o.labels @> ARRAY[?] OR EXISTS (SELECT 1 FROM folder fld WHERE o.path LIKE 'f/%' AND fld.name = split_part(o.path, '/', 2) AND fld.workspace_id = o.workspace_id AND fld.labels @> ARRAY[?]))"
+                "(o.labels @> ARRAY[?] OR folder_labels(o.workspace_id, o.path) @> ARRAY[?])"
                     .bind(&l.trim())
                     .bind(&l.trim()),
             );
@@ -1788,7 +1788,7 @@ async fn get_script_by_path(
     let script_o = if query.with_starred_info.unwrap_or(false) {
         sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(
             "SELECT s.*, favorite.path IS NOT NULL as starred,
-                (SELECT fld.labels FROM folder fld WHERE s.path LIKE 'f/%' AND fld.name = split_part(s.path, '/', 2) AND fld.workspace_id = s.workspace_id) as inherited_labels
+                folder_labels(s.workspace_id, s.path) as inherited_labels
             FROM script s
             LEFT JOIN favorite
             ON favorite.favorite_kind = 'script'
@@ -1807,7 +1807,7 @@ async fn get_script_by_path(
     } else {
         sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(
             &format!(
-                "SELECT {}, NULL as starred, (SELECT fld.labels FROM folder fld WHERE script.path LIKE 'f/%' AND fld.name = split_part(script.path, '/', 2) AND fld.workspace_id = script.workspace_id) as inherited_labels FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+                "SELECT {}, NULL as starred, folder_labels(workspace_id, path) as inherited_labels FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
                 windmill_common::scripts::SCRIPT_COLUMNS,
             ),
         )
@@ -2404,7 +2404,7 @@ async fn get_script_by_hash_internal<'c>(
     let script_o = if let Some(username) = with_starred_info_for_username {
         sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(
             "SELECT s.*, favorite.path IS NOT NULL as starred,
-                (SELECT fld.labels FROM folder fld WHERE s.path LIKE 'f/%' AND fld.name = split_part(s.path, '/', 2) AND fld.workspace_id = s.workspace_id) as inherited_labels
+                folder_labels(s.workspace_id, s.path) as inherited_labels
             FROM script s
             LEFT JOIN favorite
             ON favorite.favorite_kind = 'script'
@@ -2420,7 +2420,7 @@ async fn get_script_by_hash_internal<'c>(
         .await?
     } else {
         sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(&format!(
-            "SELECT {}, NULL as starred, (SELECT fld.labels FROM folder fld WHERE script.path LIKE 'f/%' AND fld.name = split_part(script.path, '/', 2) AND fld.workspace_id = script.workspace_id) as inherited_labels FROM script WHERE hash = $1 AND workspace_id = $2",
+            "SELECT {}, NULL as starred, folder_labels(workspace_id, path) as inherited_labels FROM script WHERE hash = $1 AND workspace_id = $2",
             windmill_common::scripts::SCRIPT_COLUMNS,
         ))
         .bind(hash)
