@@ -28,7 +28,7 @@ pub fn workspaced_service() -> Router {
         .route("/save_draft/{kind}/{*path}", post(save_draft))
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, sqlx::FromRow)]
 pub struct DraftListItem {
     pub kind: UserDraftItemKind,
     pub path: String,
@@ -58,42 +58,56 @@ async fn list_drafts(
     if authed.is_operator {
         return Ok(Json(vec![]));
     }
-    let rows = sqlx::query_as!(
-        DraftListItem,
+    // `draft_only` (no deployed counterpart at this path) is computed by a
+    // per-kind existence check. Generate the CASE from
+    // `UserDraftItemKind::deployed_table()` so the kind→table mapping has a
+    // SINGLE source — drift between this and the access check is impossible
+    // by construction. Table names come from the closed enum, never user
+    // input, so the interpolation can't inject. Kinds with no path-keyed
+    // table (`deployed_table() == None`: webhook, native triggers) get no
+    // arm and fall to the `ELSE true` default.
+    let rows = sqlx::query_as::<_, DraftListItem>(&list_drafts_query())
+        .bind(&w_id)
+        .bind(&authed.email)
+        .fetch_all(&db)
+        .await?;
+    Ok(Json(rows))
+}
+
+/// Build the `list_drafts` SQL, generating the `draft_only` CASE from the
+/// per-kind `deployed_table()` mapping. `$1` = workspace_id, `$2` = email.
+fn list_drafts_query() -> String {
+    let mut case = String::from("CASE d.typ::text\n");
+    for kind in UserDraftItemKind::ALL {
+        let Some(table) = kind.deployed_table() else {
+            continue;
+        };
+        // `script` rows are soft-deleted — a deleted script is "not
+        // deployed" for draft_only purposes. No other backing table has a
+        // `deleted` flag.
+        let extra = if matches!(kind, UserDraftItemKind::Script) {
+            " AND t.deleted = false"
+        } else {
+            ""
+        };
+        case.push_str(&format!(
+            "  WHEN '{}' THEN NOT EXISTS(SELECT 1 FROM {} t WHERE t.workspace_id = d.workspace_id AND t.path = d.path{})\n",
+            kind.as_str(),
+            table,
+            extra
+        ));
+    }
+    case.push_str("  ELSE true\nEND");
+    format!(
         r#"SELECT d.path,
-                  d.typ AS "kind!: UserDraftItemKind",
+                  d.typ AS kind,
                   d.created_at,
                   d.value ->> 'summary' AS summary,
-                  CASE d.typ::text
-                    WHEN 'script' THEN NOT EXISTS(SELECT 1 FROM script s WHERE s.workspace_id = d.workspace_id AND s.path = d.path AND s.deleted = false)
-                    WHEN 'flow' THEN NOT EXISTS(SELECT 1 FROM flow f WHERE f.workspace_id = d.workspace_id AND f.path = d.path)
-                    WHEN 'app' THEN NOT EXISTS(SELECT 1 FROM app a WHERE a.workspace_id = d.workspace_id AND a.path = d.path)
-                    WHEN 'raw_app' THEN NOT EXISTS(SELECT 1 FROM app a WHERE a.workspace_id = d.workspace_id AND a.path = d.path)
-                    WHEN 'resource' THEN NOT EXISTS(SELECT 1 FROM resource r WHERE r.workspace_id = d.workspace_id AND r.path = d.path)
-                    WHEN 'variable' THEN NOT EXISTS(SELECT 1 FROM variable v WHERE v.workspace_id = d.workspace_id AND v.path = d.path)
-                    WHEN 'trigger_schedule' THEN NOT EXISTS(SELECT 1 FROM schedule t WHERE t.workspace_id = d.workspace_id AND t.path = d.path)
-                    WHEN 'trigger_http' THEN NOT EXISTS(SELECT 1 FROM http_trigger t WHERE t.workspace_id = d.workspace_id AND t.path = d.path)
-                    WHEN 'trigger_websocket' THEN NOT EXISTS(SELECT 1 FROM websocket_trigger t WHERE t.workspace_id = d.workspace_id AND t.path = d.path)
-                    WHEN 'trigger_postgres' THEN NOT EXISTS(SELECT 1 FROM postgres_trigger t WHERE t.workspace_id = d.workspace_id AND t.path = d.path)
-                    WHEN 'trigger_kafka' THEN NOT EXISTS(SELECT 1 FROM kafka_trigger t WHERE t.workspace_id = d.workspace_id AND t.path = d.path)
-                    WHEN 'trigger_nats' THEN NOT EXISTS(SELECT 1 FROM nats_trigger t WHERE t.workspace_id = d.workspace_id AND t.path = d.path)
-                    WHEN 'trigger_mqtt' THEN NOT EXISTS(SELECT 1 FROM mqtt_trigger t WHERE t.workspace_id = d.workspace_id AND t.path = d.path)
-                    WHEN 'trigger_sqs' THEN NOT EXISTS(SELECT 1 FROM sqs_trigger t WHERE t.workspace_id = d.workspace_id AND t.path = d.path)
-                    WHEN 'trigger_gcp' THEN NOT EXISTS(SELECT 1 FROM gcp_trigger t WHERE t.workspace_id = d.workspace_id AND t.path = d.path)
-                    WHEN 'trigger_azure' THEN NOT EXISTS(SELECT 1 FROM azure_trigger t WHERE t.workspace_id = d.workspace_id AND t.path = d.path)
-                    WHEN 'trigger_email' THEN NOT EXISTS(SELECT 1 FROM email_trigger t WHERE t.workspace_id = d.workspace_id AND t.path = d.path)
-                    WHEN 'trigger_default_email' THEN NOT EXISTS(SELECT 1 FROM email_trigger t WHERE t.workspace_id = d.workspace_id AND t.path = d.path)
-                    ELSE true
-                  END AS "draft_only!"
+                  {case} AS draft_only
            FROM draft d
            WHERE d.workspace_id = $1 AND d.email = $2
-           ORDER BY d.path"#,
-        &w_id,
-        &authed.email,
+           ORDER BY d.path"#
     )
-    .fetch_all(&db)
-    .await?;
-    Ok(Json(rows))
 }
 
 #[derive(Deserialize, Debug)]
@@ -351,35 +365,14 @@ async fn get_draft_for_user(
     })
 }
 
-/// Each `UserDraftItemKind` maps to either its own table (where RLS can
-/// resolve item-level extra_perms grants that bypass folder/owner checks)
-/// or `None` (kinds without a backing table fall through to the path-only
-/// access check below).
+/// The deployed table whose `(workspace_id, path)` row RLS resolves
+/// item-level `extra_perms` grants against. Delegates to
+/// `UserDraftItemKind::deployed_table()` — the SINGLE source shared with
+/// the `draft_only` existence check — so the two can't drift. `None`
+/// kinds (webhook, native triggers) fall through to the path-only access
+/// check.
 fn table_for_kind(kind: UserDraftItemKind) -> Option<&'static str> {
-    use UserDraftItemKind::*;
-    match kind {
-        Script => Some("script"),
-        Flow => Some("flow"),
-        App | RawApp => Some("app"),
-        Resource => Some("resource"),
-        Variable => Some("variable"),
-        TriggerSchedule => Some("schedule"),
-        TriggerHttp => Some("http_trigger"),
-        TriggerWebsocket => Some("websocket_trigger"),
-        TriggerPostgres => Some("postgres_trigger"),
-        TriggerKafka => Some("kafka_trigger"),
-        TriggerNats => Some("nats_trigger"),
-        TriggerMqtt => Some("mqtt_trigger"),
-        TriggerSqs => Some("sqs_trigger"),
-        TriggerGcp => Some("gcp_trigger"),
-        TriggerAzure => Some("azure_trigger"),
-        TriggerEmail | TriggerDefaultEmail => Some("email_trigger"),
-        TriggerPoll | TriggerCli | TriggerNextcloud | TriggerGoogle | TriggerGithub => {
-            Some("native_trigger")
-        }
-        // trigger_webhook is a property of script/flow rows, not its own row.
-        TriggerWebhook => None,
-    }
+    kind.deployed_table()
 }
 
 /// Resolves to `Ok(())` if `authed` may SAVE a draft at `path`:

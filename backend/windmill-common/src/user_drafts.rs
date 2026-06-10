@@ -96,6 +96,71 @@ impl UserDraftItemKind {
             UserDraftItemKind::TriggerGithub => "trigger_github",
         }
     }
+
+    /// Every variant, for code that must enumerate kinds (e.g. generating
+    /// the `draft_only` existence SQL). Keep in lockstep with the enum.
+    pub const ALL: [UserDraftItemKind; 24] = [
+        UserDraftItemKind::Script,
+        UserDraftItemKind::Flow,
+        UserDraftItemKind::App,
+        UserDraftItemKind::RawApp,
+        UserDraftItemKind::Resource,
+        UserDraftItemKind::Variable,
+        UserDraftItemKind::TriggerSchedule,
+        UserDraftItemKind::TriggerWebhook,
+        UserDraftItemKind::TriggerDefaultEmail,
+        UserDraftItemKind::TriggerEmail,
+        UserDraftItemKind::TriggerHttp,
+        UserDraftItemKind::TriggerWebsocket,
+        UserDraftItemKind::TriggerPostgres,
+        UserDraftItemKind::TriggerKafka,
+        UserDraftItemKind::TriggerNats,
+        UserDraftItemKind::TriggerMqtt,
+        UserDraftItemKind::TriggerSqs,
+        UserDraftItemKind::TriggerGcp,
+        UserDraftItemKind::TriggerAzure,
+        UserDraftItemKind::TriggerPoll,
+        UserDraftItemKind::TriggerCli,
+        UserDraftItemKind::TriggerNextcloud,
+        UserDraftItemKind::TriggerGoogle,
+        UserDraftItemKind::TriggerGithub,
+    ];
+
+    /// The deployed table backing this kind, keyed by `(workspace_id,
+    /// path)`. SINGLE SOURCE for both the draft access check (which table
+    /// RLS resolves item-level `extra_perms` against) and the
+    /// `draft_only` existence check on the list endpoint.
+    ///
+    /// `None` for kinds with no per-path backing table:
+    ///   - `TriggerWebhook` is a property of a script/flow row, not its own row;
+    ///   - the native triggers (`poll`/`cli`/`nextcloud`/`google`/`github`)
+    ///     are keyed by `external_id`/`service_name`, not `path`, and are
+    ///     not supported as draftable items.
+    /// Callers treat `None` as "no deployed counterpart" → `draft_only =
+    /// true` on the list, and a path-only access check on save/get.
+    pub fn deployed_table(&self) -> Option<&'static str> {
+        use UserDraftItemKind::*;
+        match self {
+            Script => Some("script"),
+            Flow => Some("flow"),
+            App | RawApp => Some("app"),
+            Resource => Some("resource"),
+            Variable => Some("variable"),
+            TriggerSchedule => Some("schedule"),
+            TriggerHttp => Some("http_trigger"),
+            TriggerWebsocket => Some("websocket_trigger"),
+            TriggerPostgres => Some("postgres_trigger"),
+            TriggerKafka => Some("kafka_trigger"),
+            TriggerNats => Some("nats_trigger"),
+            TriggerMqtt => Some("mqtt_trigger"),
+            TriggerSqs => Some("sqs_trigger"),
+            TriggerGcp => Some("gcp_trigger"),
+            TriggerAzure => Some("azure_trigger"),
+            TriggerEmail | TriggerDefaultEmail => Some("email_trigger"),
+            TriggerWebhook | TriggerPoll | TriggerCli | TriggerNextcloud | TriggerGoogle
+            | TriggerGithub => None,
+        }
+    }
 }
 
 /// Query-string flag accepted by every "get by path" route that supports
