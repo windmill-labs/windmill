@@ -436,7 +436,14 @@
 									Waiting for your input
 								</span>
 							{:else}
-								<ChatTypingIndicator loading={aiChatManager.loading} />
+								<ChatTypingIndicator
+									loading={aiChatManager.loading}
+									label={aiChatManager.currentReasoningActive &&
+									!aiChatManager.currentReply &&
+									!aiChatManager.currentReasoning
+										? 'Thinking'
+										: undefined}
+								/>
 							{/if}
 						</div>
 					{/if}

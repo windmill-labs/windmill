@@ -1,4 +1,4 @@
-import type { AIProviderModel, ScriptLang } from '$lib/gen/types.gen'
+import type { ScriptLang } from '$lib/gen/types.gen'
 import { WorkspaceService } from '$lib/gen'
 import type { FlowOptions, ScriptOptions } from './ContextManager.svelte'
 import {
@@ -169,6 +169,8 @@ export class AIChatManager {
 	pendingPrompt = $state<string>('')
 	loading = $state<boolean>(false)
 	currentReply = $state<string>('')
+	currentReasoning = $state<string>('')
+	currentReasoningActive = $state<boolean>(false)
 	displayMessages = $state<DisplayMessage[]>([])
 	messages = $state<ChatCompletionMessageParam[]>([])
 	autonomyMode = $state<AIAutonomyMode>(getPersistedAutonomyMode())
@@ -975,6 +977,8 @@ export class AIChatManager {
 			await this.historyManager.saveChat(this.displayMessages, this.messages)
 
 			this.currentReply = ''
+			this.currentReasoning = ''
+			this.currentReasoningActive = false
 
 			let trimmedMessages = [...this.messages]
 			if (this.checkTokenUsageOverLimit(trimmedMessages)) {
@@ -993,13 +997,16 @@ export class AIChatManager {
 				abortController: this.abortController,
 				callbacks: {
 					onNewToken: (token) => (this.currentReply += token),
+					onReasoningDelta: (token) => (this.currentReasoning += token),
+					onReasoningStart: () => (this.currentReasoningActive = true),
 					onMessageEnd: () => {
-						if (this.currentReply) {
+						if (this.currentReply || this.currentReasoning) {
 							this.displayMessages = [
 								...this.displayMessages,
 								{
 									role: 'assistant',
 									content: this.currentReply,
+									...(this.currentReasoning ? { reasoning: this.currentReasoning } : {}),
 									contextElements:
 										this.mode === AIMode.SCRIPT
 											? oldSelectedContext.filter((c) => c.type === 'code')
@@ -1008,6 +1015,8 @@ export class AIChatManager {
 							]
 						}
 						this.currentReply = ''
+						this.currentReasoning = ''
+						this.currentReasoningActive = false
 					},
 					setToolStatus: (id, metadata) => {
 						const existingIdx = this.displayMessages.findIndex(
@@ -1201,17 +1210,13 @@ export class AIChatManager {
 		})
 	}
 
-	listenForContextChange = (
-		dbSchemas: DBSchemas,
-		workspaceStore: string | undefined,
-		copilotSessionModel: AIProviderModel | undefined
-	) => {
+	listenForContextChange = (dbSchemas: DBSchemas, workspaceStore: string | undefined) => {
 		if (this.mode === AIMode.SCRIPT && this.scriptEditorOptions) {
 			this.contextManager.updateAvailableContext(
 				this.scriptEditorOptions,
 				dbSchemas,
 				workspaceStore ?? '',
-				!copilotSessionModel?.model.endsWith('/thinking'),
+				true, // toolSupport: reasoning no longer disables DB/tool context
 				untrack(() => this.contextManager.getSelectedContext())
 			)
 		} else if (this.mode === AIMode.FLOW && this.flowOptions) {
@@ -1219,7 +1224,7 @@ export class AIChatManager {
 				this.flowOptions,
 				dbSchemas,
 				workspaceStore ?? '',
-				!copilotSessionModel?.model.endsWith('/thinking'),
+				true, // toolSupport: reasoning no longer disables DB/tool context
 				untrack(() => this.contextManager.getSelectedContext())
 			)
 		} else if (this.mode === AIMode.GLOBAL) {
