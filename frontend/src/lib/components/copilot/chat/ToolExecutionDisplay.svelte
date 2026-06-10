@@ -63,7 +63,9 @@
 				{#if message.isLoading && !message.needsConfirmation}
 					<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500" />
 				{/if}
-				<span class="text-primary font-medium text-2xs">
+				<span
+					class={twMerge('font-medium text-2xs', message.error ? 'text-red-500' : 'text-primary')}
+				>
 					{message.content}
 				</span>
 
