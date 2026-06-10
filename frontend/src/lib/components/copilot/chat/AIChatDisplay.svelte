@@ -33,8 +33,10 @@
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import { twMerge } from 'tailwind-merge'
-	import { AIAutonomyMode, AIMode } from './AIChatManager.svelte'
+	import { AIAutonomyMode, AIMode, getTrimThreshold } from './AIChatManager.svelte'
 	import { getAiChatManager } from './aiChatManagerContext'
+	import { getModelContextWindow } from '../lib'
+	import { tryGetCurrentModel } from '$lib/aiStore'
 	import ChatTypingIndicator from './ChatTypingIndicator.svelte'
 	import AIChatInput from './AIChatInput.svelte'
 	import { getModifierKey } from '$lib/utils'
@@ -287,6 +289,34 @@
 			return undefined
 		}
 		return aiChatManager.appAiChatHelpers.getSelectedContext()
+	})
+
+	function formatTokenCount(n: number): string {
+		if (n < 1000) return `${Math.round(n)}`
+		const k = n / 1000
+		if (k < 1000) return `${k < 10 ? k.toFixed(1) : Math.round(k)}k`
+		const m = n / 1_000_000
+		return `${m < 10 ? m.toFixed(1) : Math.round(m)}M`
+	}
+
+	// Accurate "current context size" badge. Hidden until a real provider-reported count
+	// exists (fresh chat, or a chat saved before this feature). Colour shifts as the
+	// context fills toward the threshold where older messages start being dropped.
+	const contextUsage = $derived.by(() => {
+		const tokens = aiChatManager.contextTokens
+		if (tokens == null) return undefined
+		const window = getModelContextWindow(tryGetCurrentModel()?.model ?? '')
+		const threshold = getTrimThreshold(window)
+		const colorClass =
+			tokens >= threshold
+				? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+				: tokens >= threshold * 0.8
+					? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+					: 'bg-surface-secondary text-tertiary'
+		return {
+			label: `${formatTokenCount(tokens)} / ${formatTokenCount(window)}`,
+			colorClass
+		}
 	})
 
 	const yoloBypassedTools = $derived.by(() => {
@@ -644,6 +674,18 @@
 						{/if}
 						<ProviderModelSelector />
 						<AIChatSettingsMenu />
+
+						{#if contextUsage}
+							<div
+								class={twMerge(
+									'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs tabular-nums',
+									contextUsage.colorClass
+								)}
+								title="Context used — older messages are dropped as this fills"
+							>
+								{contextUsage.label}
+							</div>
+						{/if}
 
 						{#if aiChatManager.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}
 							{#if appContext.inspectorElement}

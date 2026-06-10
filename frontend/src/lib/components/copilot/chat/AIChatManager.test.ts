@@ -217,3 +217,72 @@ describe('AIChatManager persisted autonomy default', () => {
 		expect(new AIChatManager().autonomyMode).toBe(AIAutonomyMode.DEFAULT)
 	})
 })
+
+describe('AIChatManager context trim gate', () => {
+	// Mocked window is 128000; threshold = 128000 - max(128000*0.05, 5000) = 121600 tokens.
+	// chars÷4, so ~486400 chars to exceed.
+	const big = (chars: number) => 'x'.repeat(chars)
+
+	beforeEach(() => {
+		vi.clearAllMocks()
+	})
+
+	it('counts the system message in the estimate (closes the overflow blind spot)', () => {
+		const manager = new AIChatManager()
+		const messages = [{ role: 'user', content: 'hi' }] as any
+
+		// Small messages alone are well under the limit...
+		expect(manager.checkTokenUsageOverLimit(messages)).toBe(false)
+
+		// ...but a large system message must push it over (the old gate ignored it).
+		manager.systemMessage = { role: 'system', content: big(520_000) }
+		expect(manager.checkTokenUsageOverLimit(messages)).toBe(true)
+	})
+
+	it('counts the tool schemas in the estimate', () => {
+		const manager = new AIChatManager()
+		const messages = [{ role: 'user', content: 'hi' }] as any
+
+		expect(manager.checkTokenUsageOverLimit(messages)).toBe(false)
+
+		manager.tools = [{ def: { name: 'huge', schema: big(520_000) } }] as any
+		expect(manager.checkTokenUsageOverLimit(messages)).toBe(true)
+	})
+
+	it('drops an assistant tool-call message together with its tool response', () => {
+		const manager = new AIChatManager()
+		const messages = [
+			{ role: 'assistant', content: null, tool_calls: [{ id: 't1', function: { name: 'f' } }] },
+			{ role: 'tool', tool_call_id: 't1', content: big(300_000) },
+			{ role: 'user', content: big(300_000) }
+		] as any
+
+		// 3 messages (~600k chars = 150k tokens) exceed the 121.6k threshold; the lone
+		// user message (~300k chars / 4 = 75k tokens) is under it.
+		expect(manager.checkTokenUsageOverLimit(messages)).toBe(true)
+
+		const trimmed = manager.deleteOldestMessage([...messages])
+
+		// The assistant+tool pair is removed together — never a dangling tool at the front.
+		expect(trimmed.map((m: any) => m.role)).toEqual(['user'])
+		expect(manager.checkTokenUsageOverLimit(trimmed)).toBe(false)
+	})
+
+	it('calibrates the estimate to the accurate anchor when one exists', () => {
+		const manager = new AIChatManager()
+		const messages = [{ role: 'user', content: big(200_000) }] as any // crude ≈ 50k tokens
+
+		// Without an anchor the crude estimate (~50k) is under the 121.6k threshold.
+		expect(manager.checkTokenUsageOverLimit(messages)).toBe(false)
+
+		// Restoring a chat whose real context was ~130k tokens sets the anchor; the gate
+		// scales the crude estimate by anchor/crude and now reports over-limit.
+		;(manager.historyManager as any).loadPastChat = () => ({
+			displayMessages: [],
+			actualMessages: messages,
+			contextTokens: 130_000
+		})
+		manager.loadPastChat('id')
+		expect(manager.checkTokenUsageOverLimit(messages)).toBe(true)
+	})
+})
