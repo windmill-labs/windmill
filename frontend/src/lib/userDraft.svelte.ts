@@ -462,6 +462,25 @@ export const UserDraft = {
 		untrack(reconcile)
 		$effect(reconcile)
 		onDestroy(() => {
+			// Flush every entry's pending autosave BEFORE releasing it.
+			// SPA nav doesn't fire `pagehide`, so without this a debounced
+			// edit (≤1.5s ago, up to maxDebounceMs) would silently disappear
+			// when the editor unmounts mid-typing. `flush(query)` re-submits
+			// the pending opts with `immediate: true`, routing through the
+			// runner; the returned promise resolves once queued, the POST
+			// itself rides the runner's own lifetime so destroying the
+			// in-memory cell here doesn't cancel it. Fire-and-forget — we
+			// can't await inside onDestroy, and the syncer's pendingSaveOpts
+			// + runner state outlive this component.
+			for (const mk of acquired) {
+				const entry = entries.get(mk)
+				if (!entry) continue
+				void UserDraftDbSyncer.flush({
+					workspace: entry.workspace,
+					itemKind: entry.itemKind,
+					path: entry.path
+				})
+			}
 			for (const mk of acquired) releaseEntry(mk)
 			acquired.clear()
 			handleCache.clear()
