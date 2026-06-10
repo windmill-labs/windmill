@@ -218,12 +218,10 @@ where
 {
     let inner = serde_json::to_value(&deployed)?;
 
-    // `other_drafts_users` is independent of the authed user's own draft
-    // overlay — drop-from-draft callers (reset-to-deployed reloads, etc.)
-    // still need to know who else is editing this path so the home-page /
-    // editor surfaces stay coherent across reloads.
-    let other_drafts_users = fetch_other_drafts_users(db, w_id, email, kind, path).await?;
-
+    // Non-editor callers (worker/CLI reads of possibly MB-scale flows &
+    // apps) pass `get_draft = false` and never render the draft overlay or
+    // the "others editing" surfaces — so skip the extra `usr` join entirely
+    // for them. Only editor reads (`get_draft = true`) pay for it.
     if !get_draft {
         return Ok(WithDraftOverlay {
             inner,
@@ -231,9 +229,14 @@ where
             draft_saved_at: None,
             no_deployed: false,
             draft: None,
-            other_drafts_users,
+            other_drafts_users: Vec::new(),
         });
     }
+
+    // `other_drafts_users` is independent of the authed user's OWN draft —
+    // drop-from-draft editor reloads (reset-to-deployed) still need to know
+    // who else is editing this path, and they pass `get_draft = true`.
+    let other_drafts_users = fetch_other_drafts_users(db, w_id, email, kind, path).await?;
 
     let row = sqlx::query!(
         r#"SELECT value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
