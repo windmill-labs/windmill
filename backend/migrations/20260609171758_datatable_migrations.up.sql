@@ -3,7 +3,7 @@
 -- _datatable_migrations/) and are applied to the datatable's backing database,
 -- with applied state tracked inside that database in a _windmill_datatable_migrations table.
 CREATE TABLE IF NOT EXISTS datatable_migration (
-    workspace_id VARCHAR(50) NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+    workspace_id VARCHAR(50) NOT NULL REFERENCES workspace(id) ON DELETE CASCADE ON UPDATE CASCADE,
     datatable TEXT NOT NULL,
     version TEXT NOT NULL,
     name TEXT NOT NULL DEFAULT '',
