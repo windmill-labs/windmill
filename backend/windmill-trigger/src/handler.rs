@@ -17,8 +17,8 @@ use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
     user_drafts::{
-        delete_all_drafts_for_path, fetch_draft_only, maybe_overlay_draft, UserDraftItemKind,
-        WithDraftOverlay, WithDraftQuery,
+        delete_all_drafts_for_path, overlay_or_draft_only, UserDraftItemKind, WithDraftOverlay,
+        WithDraftQuery,
     },
     utils::{paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
@@ -710,40 +710,23 @@ async fn get_trigger<T: TriggerCrud>(
         .await;
     tx.commit().await?;
 
-    let trigger = match trigger_res {
-        Ok(t) => t,
-        Err(Error::NotFound(_)) if q.get_draft => {
-            // Mirror scripts/flows/apps: no deployed trigger but the
-            // caller wants the draft if any. Synthesize the response
-            // from the draft alone with `no_deployed = true` so the
-            // frontend skips "diff vs deployed" UI.
-            if let Some(overlay) = fetch_draft_only(
-                &db,
-                &workspace_id,
-                &authed.email,
-                T::user_draft_item_kind(),
-                path,
-            )
-            .await?
-            {
-                return Ok(Json(overlay));
-            }
-            return Err(Error::NotFound(format!(
-                "Trigger not found at path: {}",
-                path
-            )));
-        }
+    // Map "no deployed trigger" to `None` and let the shared choreography
+    // handle the draft overlay / draft-only fallback / 404.
+    let deployed = match trigger_res {
+        Ok(t) => Some(t),
+        Err(Error::NotFound(_)) => None,
         Err(e) => return Err(e),
     };
 
-    let overlay = maybe_overlay_draft(
+    let overlay = overlay_or_draft_only(
         &db,
         &workspace_id,
         &authed.email,
         T::user_draft_item_kind(),
         path,
         q.get_draft,
-        trigger,
+        deployed,
+        || Error::NotFound(format!("Trigger not found at path: {}", path)),
     )
     .await?;
     Ok(Json(overlay))

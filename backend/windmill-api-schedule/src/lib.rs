@@ -26,8 +26,8 @@ use windmill_common::{
     error::{Error, JsonResult, Result},
     schedule::Schedule,
     user_drafts::{
-        delete_all_drafts_for_path, fetch_draft_only, maybe_overlay_draft, UserDraftItemKind,
-        WithDraftOverlay, WithDraftQuery,
+        delete_all_drafts_for_path, overlay_or_draft_only, UserDraftItemKind, WithDraftOverlay,
+        WithDraftQuery,
     },
     utils::{
         escape_ilike_pattern, not_found_if_none, paginate, Pagination, ScheduleType, StripPath,
@@ -968,28 +968,15 @@ async fn get_schedule(
 
     let schedule_o = windmill_queue::schedule::get_schedule_opt(&mut *tx, &w_id, path).await?;
     tx.commit().await?;
-    if schedule_o.is_none() && q.get_draft {
-        if let Some(overlay) = fetch_draft_only(
-            &db,
-            &w_id,
-            &authed.email,
-            UserDraftItemKind::TriggerSchedule,
-            path,
-        )
-        .await?
-        {
-            return Ok(Json(overlay));
-        }
-    }
-    let schedule = not_found_if_none(schedule_o, "Schedule", path)?;
-    let overlay = maybe_overlay_draft(
+    let overlay = overlay_or_draft_only(
         &db,
         &w_id,
         &authed.email,
         UserDraftItemKind::TriggerSchedule,
         path,
         q.get_draft,
-        schedule,
+        schedule_o,
+        || Error::NotFound(format!("Schedule not found at path {path}")),
     )
     .await?;
     Ok(Json(overlay))

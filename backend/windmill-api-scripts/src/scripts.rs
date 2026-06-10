@@ -13,9 +13,7 @@ use windmill_api_auth::{
     ApiAuthed,
 };
 use windmill_common::{
-    user_drafts::{
-        fetch_draft_only, maybe_overlay_draft, DraftUserRef, UserDraftItemKind, WithDraftOverlay,
-    },
+    user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
     utils::{BulkDeleteRequest, WithStarredInfoQuery, HTTP_CLIENT},
     webhook::{WebhookMessage, WebhookShared},
     workspaces::{check_deploy_rules, RuleCheckResult},
@@ -1824,37 +1822,23 @@ async fn get_script_by_path(
     // path will land here with no deployed row. When `get_draft` is set, fall
     // back to the draft table so /scripts/edit/draft_<uuid> works the same
     // way as a deployed-script reload.
-    let overlay = match script_o {
-        Some(script_o) => {
-            let script =
-                windmill_common::scripts::prefetch_cached_script_with_starred(script_o, &db)
-                    .await?;
-            maybe_overlay_draft(
-                &db,
-                &w_id,
-                &authed.email,
-                UserDraftItemKind::Script,
-                path,
-                query.get_draft,
-                script,
-            )
-            .await?
-        }
-        None if query.get_draft => {
-            fetch_draft_only(&db, &w_id, &authed.email, UserDraftItemKind::Script, path)
-                .await?
-                .ok_or_else(|| {
-                    windmill_common::error::Error::NotFound(format!(
-                        "Script not found at path {path}"
-                    ))
-                })?
-        }
-        None => {
-            return Err(windmill_common::error::Error::NotFound(format!(
-                "Script not found at path {path}"
-            )))
-        }
+    let deployed = match script_o {
+        Some(script_o) => Some(
+            windmill_common::scripts::prefetch_cached_script_with_starred(script_o, &db).await?,
+        ),
+        None => None,
     };
+    let overlay = overlay_or_draft_only(
+        &db,
+        &w_id,
+        &authed.email,
+        UserDraftItemKind::Script,
+        path,
+        query.get_draft,
+        deployed,
+        || windmill_common::error::Error::NotFound(format!("Script not found at path {path}")),
+    )
+    .await?;
 
     Ok(Json(overlay))
 }

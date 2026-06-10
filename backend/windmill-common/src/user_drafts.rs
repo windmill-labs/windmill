@@ -366,6 +366,39 @@ where
     })
 }
 
+/// The get-by-path draft choreography, shared by every entity's
+/// "get by path" route (scripts / flows / apps / variables / resources /
+/// schedules / triggers). Given the deployed entity as an `Option` (the
+/// caller maps its own "not found" to `None`):
+///   - `Some(deployed)` → overlay the authed user's draft (if `get_draft`).
+///   - `None` + `get_draft` → fall back to a draft-only response
+///     (`no_deployed = true`) when a draft exists, else the caller's 404.
+///   - `None` without `get_draft` → the caller's 404.
+///
+/// `not_found` is only invoked on the 404 paths, so each route keeps its
+/// own message. Promoted from the per-handler copies, which had drifted
+/// (different 404 text, some missing the draft-only fallback).
+pub async fn overlay_or_draft_only<T: serde::Serialize>(
+    db: &DB,
+    w_id: &str,
+    email: &str,
+    kind: UserDraftItemKind,
+    path: &str,
+    get_draft: bool,
+    deployed: Option<T>,
+    not_found: impl FnOnce() -> crate::error::Error,
+) -> Result<WithDraftOverlay> {
+    match deployed {
+        Some(deployed) => {
+            maybe_overlay_draft(db, w_id, email, kind, path, get_draft, deployed).await
+        }
+        None if get_draft => fetch_draft_only(db, w_id, email, kind, path)
+            .await?
+            .ok_or_else(not_found),
+        None => Err(not_found()),
+    }
+}
+
 /// Delete the authed user's draft for `(workspace, kind, path)`.
 /// Idempotent — returns Ok even when no row exists. Scoped to a single
 /// email so other users' drafts at the same path are untouched.

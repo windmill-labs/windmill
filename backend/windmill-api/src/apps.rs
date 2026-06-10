@@ -58,9 +58,7 @@ use windmill_common::{
         get_payload_tag_from_prefixed_path, resolve_delete_after_secs, schedule_job_deletion,
         JobPayload, RawCode,
     },
-    user_drafts::{
-        fetch_draft_only, maybe_overlay_draft, DraftUserRef, UserDraftItemKind, WithDraftOverlay,
-    },
+    user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
@@ -743,33 +741,26 @@ async fn get_app(
     // /apps_raw/edit/draft_<uuid> work the same way as a deployed reload.
     // For draft-only there's no `raw_app` row column to consult — the
     // caller's `raw_app` query param picks the draft kind.
-    let overlay = match app_o {
-        Some(app) => {
-            let kind = if app.app.raw_app {
-                UserDraftItemKind::RawApp
-            } else {
-                UserDraftItemKind::App
-            };
-            maybe_overlay_draft(&db, &w_id, &authed.email, kind, path, query.get_draft, app).await?
-        }
-        None if query.get_draft => {
-            let kind = if query.raw_app.unwrap_or(false) {
-                UserDraftItemKind::RawApp
-            } else {
-                UserDraftItemKind::App
-            };
-            fetch_draft_only(&db, &w_id, &authed.email, kind, path)
-                .await?
-                .ok_or_else(|| {
-                    windmill_common::error::Error::NotFound(format!("App not found at path {path}"))
-                })?
-        }
-        None => {
-            return Err(windmill_common::error::Error::NotFound(format!(
-                "App not found at path {path}"
-            )));
-        }
+    // Pick the draft kind from the deployed row's `raw_app` flag, or — when
+    // there's no deployed row (draft-only) — from the caller's `raw_app`
+    // query param. One kind feeds both the overlay and the draft-only fetch.
+    let kind = match &app_o {
+        Some(app) if app.app.raw_app => UserDraftItemKind::RawApp,
+        Some(_) => UserDraftItemKind::App,
+        None if query.raw_app.unwrap_or(false) => UserDraftItemKind::RawApp,
+        None => UserDraftItemKind::App,
     };
+    let overlay = overlay_or_draft_only(
+        &db,
+        &w_id,
+        &authed.email,
+        kind,
+        path,
+        query.get_draft,
+        app_o,
+        || windmill_common::error::Error::NotFound(format!("App not found at path {path}")),
+    )
+    .await?;
     Ok(Json(overlay))
 }
 
