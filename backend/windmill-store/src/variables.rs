@@ -37,7 +37,8 @@ use windmill_common::{
     scripts::ScriptHash,
     user_drafts::{
         decrypt_draft_secret_value, delete_all_drafts_for_path, fetch_draft_only,
-        maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, ENCRYPTED_DRAFT_PREFIX,
+        fetch_draft_only_list_rows, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay,
+        ENCRYPTED_DRAFT_PREFIX,
     },
     utils::{not_found_if_none, paginate, Pagination, StripPath, WarnAfterExt},
     variables::{
@@ -237,24 +238,9 @@ async fn list_variables(
         && lq.broad_filter.is_none()
         && lq.label.is_none()
     {
-        let draft_only_rows = sqlx::query!(
-            r#"SELECT path,
-                      value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
-                      created_at
-               FROM draft
-               WHERE workspace_id = $1
-                 AND typ = 'variable'
-                 AND email = $2
-                 AND NOT EXISTS (
-                     SELECT 1 FROM variable v
-                     WHERE v.workspace_id = draft.workspace_id
-                       AND v.path = draft.path
-                 )"#,
-            &w_id,
-            &authed.email,
-        )
-        .fetch_all(&db)
-        .await?;
+        let draft_only_rows =
+            fetch_draft_only_list_rows(&db, &w_id, &authed.email, UserDraftItemKind::Variable)
+                .await?;
 
         for row in draft_only_rows {
             let v: serde_json::Value =

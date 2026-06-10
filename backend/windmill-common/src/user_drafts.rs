@@ -369,6 +369,50 @@ where
     })
 }
 
+/// One row of a "draft-only" list synthesis: the authed user has a draft
+/// at `path` with no deployed counterpart. `value` is the editor's saved
+/// draft JSON (each list handler maps it into its own `Listable*` shape).
+#[derive(sqlx::FromRow)]
+pub struct DraftOnlyListRow {
+    pub path: String,
+    pub value: sqlx::types::Json<Box<serde_json::value::RawValue>>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Fetch the authed user's draft rows at paths with NO deployed
+/// counterpart, for synthesizing draft-only entries into a list response.
+/// The deployed table to check absence against comes from
+/// `kind.deployed_table()` — the same single source the access check and
+/// `draft_only` flag use — so the per-handler copies of this NOT EXISTS
+/// query can't drift. Returns empty for kinds with no path-keyed table.
+/// Callers keep their own gating (`include_draft_only`, page 0, no
+/// filters) and per-type row mapping.
+pub async fn fetch_draft_only_list_rows(
+    db: &DB,
+    w_id: &str,
+    email: &str,
+    kind: UserDraftItemKind,
+) -> Result<Vec<DraftOnlyListRow>> {
+    let Some(table) = kind.deployed_table() else {
+        return Ok(Vec::new());
+    };
+    // `table` is from the closed `deployed_table()` enum mapping, never
+    // user input. `typ` binds as text and casts to DRAFT_KIND.
+    let sql = format!(
+        "SELECT path, value, created_at FROM draft \
+         WHERE workspace_id = $1 AND typ = $2::text::DRAFT_KIND AND email = $3 \
+         AND NOT EXISTS (SELECT 1 FROM {table} t \
+             WHERE t.workspace_id = draft.workspace_id AND t.path = draft.path)"
+    );
+    let rows = sqlx::query_as::<_, DraftOnlyListRow>(&sql)
+        .bind(w_id)
+        .bind(kind.as_str())
+        .bind(email)
+        .fetch_all(db)
+        .await?;
+    Ok(rows)
+}
+
 /// The get-by-path draft choreography, shared by every entity's
 /// "get by path" route (scripts / flows / apps / variables / resources /
 /// schedules / triggers). Given the deployed entity as an `Option` (the

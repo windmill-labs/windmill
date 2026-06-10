@@ -44,8 +44,8 @@ use windmill_common::{
     error::{self, Error, JsonResult, Result},
     get_database_url,
     user_drafts::{
-        delete_all_drafts_for_path, fetch_draft_only, maybe_overlay_draft, UserDraftItemKind,
-        WithDraftOverlay, WithDraftQuery,
+        delete_all_drafts_for_path, fetch_draft_only, fetch_draft_only_list_rows,
+        maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
     },
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
@@ -413,24 +413,9 @@ async fn list_resources(
             .resource_type_exclude
             .as_deref()
             .map(|s| s.split(',').map(str::trim).collect());
-        let draft_only_rows = sqlx::query!(
-            r#"SELECT path,
-                      value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
-                      created_at
-               FROM draft
-               WHERE workspace_id = $1
-                 AND typ = 'resource'
-                 AND email = $2
-                 AND NOT EXISTS (
-                     SELECT 1 FROM resource r
-                     WHERE r.workspace_id = draft.workspace_id
-                       AND r.path = draft.path
-                 )"#,
-            &w_id,
-            &authed.email,
-        )
-        .fetch_all(&db)
-        .await?;
+        let draft_only_rows =
+            fetch_draft_only_list_rows(&db, &w_id, &authed.email, UserDraftItemKind::Resource)
+                .await?;
 
         for row in draft_only_rows {
             let v: serde_json::Value =

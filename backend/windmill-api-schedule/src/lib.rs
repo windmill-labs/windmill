@@ -26,8 +26,8 @@ use windmill_common::{
     error::{Error, JsonResult, Result},
     schedule::Schedule,
     user_drafts::{
-        delete_all_drafts_for_path, overlay_or_draft_only, UserDraftItemKind, WithDraftOverlay,
-        WithDraftQuery,
+        delete_all_drafts_for_path, fetch_draft_only_list_rows, overlay_or_draft_only,
+        UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
     },
     utils::{
         escape_ilike_pattern, not_found_if_none, paginate, Pagination, ScheduleType, StripPath,
@@ -814,23 +814,12 @@ async fn list_schedule(
         && lsq.broad_filter.is_none()
         && lsq.label.is_none()
     {
-        let draft_only_rows = sqlx::query!(
-            r#"SELECT path,
-                      value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
-                      created_at
-               FROM draft
-               WHERE workspace_id = $1
-                 AND typ = 'trigger_schedule'
-                 AND email = $2
-                 AND NOT EXISTS (
-                     SELECT 1 FROM schedule s
-                     WHERE s.workspace_id = draft.workspace_id
-                       AND s.path = draft.path
-                 )"#,
+        let draft_only_rows = fetch_draft_only_list_rows(
+            &db,
             &w_id,
             &authed.email,
+            UserDraftItemKind::TriggerSchedule,
         )
-        .fetch_all(&db)
         .await?;
 
         for row in draft_only_rows {

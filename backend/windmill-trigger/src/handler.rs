@@ -17,8 +17,8 @@ use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
     user_drafts::{
-        delete_all_drafts_for_path, overlay_or_draft_only, UserDraftItemKind, WithDraftOverlay,
-        WithDraftQuery,
+        delete_all_drafts_for_path, fetch_draft_only_list_rows, overlay_or_draft_only,
+        UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
     },
     utils::{paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
@@ -626,33 +626,17 @@ async fn list_triggers<T: TriggerCrud>(
         && query.path_start.is_none()
         && query.label.is_none()
     {
-        let draft_kind = T::user_draft_item_kind();
-        // SAFETY: T::TABLE_NAME is a compile-time constant, not user input.
-        let exists_check = format!(
-            "NOT EXISTS (SELECT 1 FROM {} t WHERE t.workspace_id = draft.workspace_id AND t.path = draft.path)",
-            T::TABLE_NAME
-        );
-        let sql = format!(
-            r#"SELECT path,
-                      value::text as "value!: String",
-                      created_at
-               FROM draft
-               WHERE workspace_id = $1
-                 AND typ = $2
-                 AND email = $3
-                 AND {}"#,
-            exists_check
-        );
-        let draft_only_rows: Vec<(String, String, chrono::DateTime<chrono::Utc>)> =
-            sqlx::query_as(&sql)
-                .bind(&workspace_id)
-                .bind(draft_kind)
-                .bind(&authed.email)
-                .fetch_all(&db)
-                .await?;
+        let draft_only_rows = fetch_draft_only_list_rows(
+            &db,
+            &workspace_id,
+            &authed.email,
+            T::user_draft_item_kind(),
+        )
+        .await?;
 
-        for (_path, value_text, created_at) in draft_only_rows {
-            let v: serde_json::Value = match serde_json::from_str(&value_text) {
+        for row in draft_only_rows {
+            let created_at = row.created_at;
+            let v: serde_json::Value = match serde_json::from_str(row.value.0.get()) {
                 Ok(v) => v,
                 Err(_) => continue,
             };
