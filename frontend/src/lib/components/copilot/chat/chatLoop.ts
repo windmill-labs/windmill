@@ -6,7 +6,7 @@ import type {
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import type { AIProviderModel } from '$lib/gen'
-import { getCompletion, parseOpenAICompletion } from '../lib'
+import { getCompletion, parseOpenAICompletion, providerSupportsWebSearch } from '../lib'
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
 import {
 	getOpenAIResponsesCompletion,
@@ -42,6 +42,12 @@ export interface ChatLoopConfig {
 	modelProvider: AIProviderModel
 	clients: ChatClients
 	workspace: string
+	/**
+	 * Enable provider-native web search. Defaults to true for compatible providers
+	 * and is re-read each iteration so model/provider changes take effect. Explicit
+	 * true is still ignored for providers without native web search support.
+	 */
+	webSearch?: boolean
 	/** Maximum iterations for the loop. undefined = unlimited (production). */
 	maxIterations?: number
 	skipResponsesApi?: boolean
@@ -91,6 +97,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		const helpers = config.helpers
 		const systemMessage = config.systemMessage
 		const modelProvider = config.modelProvider
+		const webSearch =
+			(config.webSearch ?? true) && providerSupportsWebSearch(modelProvider.provider)
 
 		if (onBeforeIteration) {
 			await onBeforeIteration(tools, helpers)
@@ -120,7 +128,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 						toolDefs,
 						{
 							forceModelProvider: modelProvider,
-							openaiClient: clients.openai
+							openaiClient: clients.openai,
+							webSearch
 						}
 					)
 					const continueCompletion = await parseOpenAIResponsesCompletion(
@@ -151,6 +160,11 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			}
 
 			if (useCompletionsApi) {
+				if (webSearch) {
+					console.warn(
+						'Web search is only supported via the OpenAI Responses API; ignoring it for the Completions API fallback.'
+					)
+				}
 				const completion = await getCompletion(messageParams, abortController, toolDefs, {
 					forceCompletions: true,
 					forceModelProvider: modelProvider,
@@ -178,7 +192,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 				toolDefs,
 				{
 					forceModelProvider: modelProvider,
-					anthropicClient: clients.anthropic
+					anthropicClient: clients.anthropic,
+					webSearch
 				}
 			)
 			if (completion) {
