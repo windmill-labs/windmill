@@ -46,6 +46,34 @@ export function formatRuntimeLogsForChat(entries: RawAppRuntimeLogEntry[]): stri
 	return `Last ${entries.length} runtime log line(s) from the app preview (oldest first):\n${lines.join('\n')}`
 }
 
+/** One backend runnable execution tracked by the live preview's runner. The
+ * `job_id` is the real Windmill job UUID — feed it to the chat's `get_job_logs`
+ * tool to read the server-side logs of that run. */
+export type RawAppRunSummary = {
+	job_id: string
+	/** The app component id that triggered the run (e.g. the `backend.<id>` key). */
+	component: string
+	status: 'running' | 'completed'
+	/** Epoch milliseconds. */
+	created_at?: number
+	started_at?: number
+	duration_ms?: number
+}
+/**
+ * Snapshot the backend runs the live preview has executed, newest first.
+ * Returns `undefined` when there is no running preview to read from.
+ */
+export type RawAppRunsProvider = () => RawAppRunSummary[] | undefined
+
+/** Render the tracked backend runs (newest first) for the chat tool result.
+ * Mirrors formatRuntimeLogsForChat: the first line is a clean user-facing
+ * summary (shown as the collapsed tool header), the JSON body lets the model
+ * extract `job_id`. The get_job_logs chaining hint lives in the tool description
+ * / system prompt, not here, so it can't leak into the user-facing header. */
+export function formatAppRunsForChat(runs: RawAppRunSummary[]): string {
+	return `Fetched ${runs.length} backend run(s) from the app preview (newest first):\n${JSON.stringify(runs, null, 2)}`
+}
+
 export function htmlContent(
 	workspace: string,
 	secret: string | undefined,

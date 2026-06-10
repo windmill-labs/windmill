@@ -593,6 +593,16 @@ const getRuntimeLogsSchema = z.object({
 		.describe('How many of the most recent runtime log lines to return. Defaults to 10.')
 })
 
+const listAppRunsSchema = z.object({
+	limit: z
+		.number()
+		.int()
+		.min(1)
+		.max(100)
+		.optional()
+		.describe('How many of the most recent backend runs to return, newest first. Defaults to 20.')
+})
+
 const FRAMEWORK_KEYS = [
 	'react19',
 	'react18',
@@ -646,7 +656,8 @@ Rules:
 - Keep context targeted.${previewTools
 		? `
 - After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.
-- When debugging a running raw app (blank screen, broken UI, an error the user reports), call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app"); the logs come from the running app, not from a stored history.`
+- When debugging a running raw app (blank screen, broken UI, an error the user reports), call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app"); the logs come from the running app, not from a stored history.
+- get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.`
 		: ''
 	}
 
@@ -2062,6 +2073,33 @@ export const globalTools: Tool<{}>[] = [
 			return result
 		}
 	},
+	{
+		def: createToolDef(
+			listAppRunsSchema,
+			'list_app_runs',
+			"List the backend runnable executions (jobs) the raw app preview currently open in this AI session has triggered, newest first. Use this to find the job id of a run the app just made — then call get_job_logs with that id to read its server-side logs. ONLY works inside a session with a raw app preview open; call open_preview(kind=\"raw_app\") first if needed. Returns up to `limit` runs (default 20), each with job_id, component, status and timings. Runs are tracked live from the running preview, not persisted."
+		),
+		showDetails: true,
+		showFade: true,
+		fn: async (ctx) => {
+			const parsed = listAppRunsSchema.parse(ctx.args)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: 'Listing app runs…' })
+			const result = await getSessionAppRuns(parsed.limit ?? 20, sessionIdFromCtx(ctx))
+			// UI vs AI (see ListAppRunsHandler): first line → collapsed header shown
+			// to the user, the rest → expandable details; the whole string is the
+			// return value read by the model. Single-line outcomes (no preview / no
+			// runs) keep just the header and auto-collapse.
+			const nl = result.indexOf('\n')
+			const header = nl === -1 ? result : result.slice(0, nl)
+			const body = nl === -1 ? undefined : result.slice(nl + 1)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+				content: header,
+				result: body,
+				autoCollapseDetails: body === undefined
+			})
+			return result
+		}
+	},
 	// Workspace-scoped datatable tools (unrestricted: no whitelist, no creation policy)
 	...getDatatableTools()
 ]
@@ -2072,7 +2110,8 @@ export const globalTools: Tool<{}>[] = [
 export const SESSION_PREVIEW_TOOL_NAMES = new Set([
 	'open_preview',
 	'get_preview_status',
-	'get_app_runtime_logs'
+	'get_app_runtime_logs',
+	'list_app_runs'
 ])
 
 /**
@@ -2187,6 +2226,35 @@ function getSessionRuntimeLogs(limit: number, sessionId: string | undefined): Pr
 		return Promise.resolve('Error: get_app_runtime_logs is only available inside an AI session.')
 	}
 	return getRuntimeLogsHandler({ sessionId, limit })
+}
+
+// Registered by the session runtime to answer list_app_runs: snapshots the
+// backend runs the calling session's live raw-app preview has executed, newest
+// first. Synchronous — the runs are tracked in the host, not the iframe.
+// Undefined outside a session.
+//
+// UI-vs-AI convention (same as get_app_runtime_logs): the returned string's
+// FIRST LINE is the user-facing status shown as the collapsed tool header; any
+// lines after it are the expandable details; the WHOLE string is the tool's
+// return value to the model. So keep the first line a clean user-facing summary
+// (no instructions) — model-only guidance belongs in the tool description and
+// system prompt, not in the per-call result.
+export type ListAppRunsHandler = (req: {
+	sessionId: string | undefined
+	limit: number
+}) => string
+
+let listAppRunsHandler: ListAppRunsHandler | undefined
+
+export function setListAppRunsHandler(handler: ListAppRunsHandler | undefined): void {
+	listAppRunsHandler = handler
+}
+
+function getSessionAppRuns(limit: number, sessionId: string | undefined): Promise<string> {
+	if (!listAppRunsHandler) {
+		return Promise.resolve('Error: list_app_runs is only available inside an AI session.')
+	}
+	return Promise.resolve(listAppRunsHandler({ sessionId, limit }))
 }
 
 // Registered by the session runtime to reload the open preview after a chat

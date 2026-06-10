@@ -168,6 +168,7 @@ import {
 	setDeployedInSessionHandler,
 	setGetPreviewStatusHandler,
 	setGetRuntimeLogsHandler,
+	setListAppRunsHandler,
 	setOpenPreviewHandler
 } from './core'
 import { UserDraft, __resetUserDraftForTesting } from '$lib/userDraft.svelte'
@@ -2022,37 +2023,72 @@ describe('prepareGlobalSystemMessage', () => {
 			expect(handler).toHaveBeenCalledWith({ sessionId: 'sess-logs', limit: 3 })
 		})
 	})
+
+	describe('list_app_runs', () => {
+		afterEach(() => {
+			setListAppRunsHandler(undefined)
+		})
+
+		it('returns the session-only error when no handler is registered', async () => {
+			setListAppRunsHandler(undefined)
+			const result = await callGlobalTool('list_app_runs', {})
+			expect(result).toBe('Error: list_app_runs is only available inside an AI session.')
+		})
+
+		it('dispatches to the registered handler with the session id and default limit of 20', async () => {
+			const handler = vi.fn(() => 'runs output')
+			setListAppRunsHandler(handler)
+			const result = await callGlobalTool('list_app_runs', {}, toolCallbacks, {
+				sessionId: 'sess-runs'
+			})
+			expect(result).toBe('runs output')
+			expect(handler).toHaveBeenCalledWith({ sessionId: 'sess-runs', limit: 20 })
+		})
+
+		it('passes an explicit limit through to the handler', async () => {
+			const handler = vi.fn(() => 'runs output')
+			setListAppRunsHandler(handler)
+			await callGlobalTool('list_app_runs', { limit: 5 }, toolCallbacks, {
+				sessionId: 'sess-runs'
+			})
+			expect(handler).toHaveBeenCalledWith({ sessionId: 'sess-runs', limit: 5 })
+		})
+	})
 })
 
 describe('session-only preview tools gating', () => {
 	const toolNames = (sessionPreview: boolean) =>
 		globalToolsFor({ sessionPreview }).map((t) => t.def.function.name)
 
-	it('excludes open_preview / get_preview_status / get_app_runtime_logs outside a session', () => {
+	it('excludes open_preview / get_preview_status / get_app_runtime_logs / list_app_runs outside a session', () => {
 		const names = toolNames(false)
 		expect(names).not.toContain('open_preview')
 		expect(names).not.toContain('get_preview_status')
 		expect(names).not.toContain('get_app_runtime_logs')
+		expect(names).not.toContain('list_app_runs')
 		// other tools are still present
 		expect(names).toContain('write_script')
 	})
 
-	it('includes open_preview / get_preview_status / get_app_runtime_logs inside a session', () => {
+	it('includes open_preview / get_preview_status / get_app_runtime_logs / list_app_runs inside a session', () => {
 		const names = toolNames(true)
 		expect(names).toContain('open_preview')
 		expect(names).toContain('get_preview_status')
 		expect(names).toContain('get_app_runtime_logs')
+		expect(names).toContain('list_app_runs')
 		// session set is the full globalTools
 		expect(names.length).toBe(globalTools.length)
 	})
 
-	it('mentions open_preview / get_app_runtime_logs in the system prompt only when preview tools are enabled', () => {
+	it('mentions open_preview / get_app_runtime_logs / list_app_runs in the system prompt only when preview tools are enabled', () => {
 		const off = prepareGlobalSystemMessage(undefined, { previewTools: false }).content as string
 		const on = prepareGlobalSystemMessage(undefined, { previewTools: true }).content as string
 		expect(off).not.toContain('open_preview')
 		expect(off).not.toContain('get_app_runtime_logs')
+		expect(off).not.toContain('list_app_runs')
 		expect(on).toContain('open_preview')
 		expect(on).toContain('get_app_runtime_logs')
+		expect(on).toContain('list_app_runs')
 	})
 })
 

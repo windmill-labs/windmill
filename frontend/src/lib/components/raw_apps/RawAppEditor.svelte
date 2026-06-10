@@ -19,7 +19,9 @@
 		genWmillTs,
 		type Runnable,
 		type RawAppRuntimeLogEntry,
-		type RawAppRuntimeLogRequester
+		type RawAppRuntimeLogRequester,
+		type RawAppRunSummary,
+		type RawAppRunsProvider
 	} from './utils'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import RawAppSidebar from './RawAppSidebar.svelte'
@@ -100,6 +102,12 @@
 		 * mount and with `undefined` on teardown. Only the session preview wires
 		 * this; the standalone editor leaves it unset. */
 		onRuntimeLogRequester?: (requester: RawAppRuntimeLogRequester | undefined) => void
+		/** Session host hook. Receives a provider that snapshots the backend runs
+		 * this editor's runner has executed, so the global chat's `list_app_runs`
+		 * tool can surface their job ids (paired with `get_job_logs`). Called with
+		 * the provider on mount and `undefined` on teardown. Only the session
+		 * preview wires this. */
+		onRunsProvider?: (provider: RawAppRunsProvider | undefined) => void
 	}
 
 	let {
@@ -120,7 +128,8 @@
 		sidebarStorageKey = 'raw-app-sidebar-collapsed',
 		liveEditorDraftStoragePath = undefined,
 		defaultSplitWithPreview = true,
-		onRuntimeLogRequester = undefined
+		onRuntimeLogRequester = undefined,
+		onRunsProvider = undefined
 	}: Props = $props()
 	export const version: number | undefined = undefined
 
@@ -1133,6 +1142,35 @@
 			for (const { timer } of pendingRuntimeLogReqs.values()) clearTimeout(timer)
 			pendingRuntimeLogReqs.clear()
 		}
+	})
+
+	// Snapshot the runner's tracked backend runs, newest first. `jobs` is the
+	// uuid list in execution order (oldest first); `jobsById` carries the
+	// component, timings and result. Read on demand by the chat's list_app_runs
+	// tool — no iframe round-trip needed since the runner lives in this host.
+	const getRuns: RawAppRunsProvider = () => {
+		const out: RawAppRunSummary[] = []
+		for (const id of jobs) {
+			const j = jobsById[id]
+			if (!j) continue
+			out.push({
+				job_id: j.job ?? id,
+				component: j.component,
+				// jobsById gets created_at immediately and result/duration once the
+				// job settles; treat either as "completed".
+				status: j.result !== undefined || j.duration_ms !== undefined ? 'completed' : 'running',
+				created_at: j.created_at,
+				started_at: j.started_at,
+				duration_ms: j.duration_ms
+			})
+		}
+		out.reverse()
+		return out
+	}
+
+	$effect(() => {
+		onRunsProvider?.(getRuns)
+		return () => onRunsProvider?.(undefined)
 	})
 
 	let darkMode: boolean = $state(false)

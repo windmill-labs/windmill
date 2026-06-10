@@ -5,7 +5,10 @@
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 	import SessionEditorTarget from './SessionEditorTarget.svelte'
 	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
-	import type { RawAppRuntimeLogRequester } from '$lib/components/raw_apps/utils'
+	import type {
+		RawAppRuntimeLogRequester,
+		RawAppRunsProvider
+	} from '$lib/components/raw_apps/utils'
 
 	let {
 		runtime,
@@ -37,6 +40,12 @@
 	// teardown, which clears it.
 	function registerRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined) {
 		runtime.setRuntimeLogRequester(requester)
+	}
+
+	// Same bridge for the chat's `list_app_runs` tool: expose this preview's
+	// backend-run snapshot provider on the session runtime.
+	function registerRunsProvider(provider: RawAppRunsProvider | undefined) {
+		runtime.setAppRunsProvider(provider)
 	}
 </script>
 
@@ -85,6 +94,7 @@
 				sidebarStorageKey="raw-app-sidebar-collapsed-preview"
 				defaultSplitWithPreview={false}
 				onRuntimeLogRequester={registerRuntimeLogRequester}
+				onRunsProvider={registerRunsProvider}
 			/>
 		{/if}
 	{/snippet}
