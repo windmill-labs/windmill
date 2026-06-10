@@ -53,11 +53,6 @@
 		args: Record<string, any>
 		labels: string[] | undefined
 		wsSpecific: boolean
-		/** Carried in the draft so the backend can resolve the resource-type
-		 * schema (to encrypt password fields at rest) and the list endpoint
-		 * can type-filter draft-only rows — without it draft-only paths have
-		 * no way to recover their type. */
-		resource_type?: string
 	}
 
 	const dispatch = createEventDispatcher()
@@ -226,8 +221,7 @@
 				description: '',
 				args: (defaultValues && Object.keys(defaultValues).length > 0 ? defaultValues : {}) as any,
 				labels: undefined,
-				wsSpecific: false,
-				resource_type
+				wsSpecific: false
 			}
 			ensureHandle(selected, s)
 			initialStates[selected] = structuredClone(s)
@@ -262,8 +256,7 @@
 					description: r.description ?? '',
 					args: (r.value ?? {}) as any,
 					labels: r.labels ?? undefined,
-					wsSpecific: r.ws_specific ?? false,
-					resource_type: r.resource_type
+					wsSpecific: r.ws_specific ?? false
 				}
 				// What the editor opens with: the saved draft if present,
 				// otherwise the deployed.
@@ -286,22 +279,6 @@
 	// Keep current.path bound to the outer `path` prop for consumers
 	$effect(() => {
 		if (current) path = current.path
-	})
-
-	// Keep `resource_type` stamped on both the draft and its baseline
-	// (covers drafts saved before the field existed, and the new-resource
-	// flow where the type is picked after the handle was bootstrapped).
-	// Patching both sides keeps the type itself out of the dirty check.
-	$effect(() => {
-		const rt = resource_type
-		const ws = selected
-		if (!rt || !ws) return
-		untrack(() => {
-			const cur = states[ws]?.draft
-			if (cur && cur.resource_type !== rt) cur.resource_type = rt
-			const ini = initialStates[ws]
-			if (ini && ini.resource_type !== rt) ini.resource_type = rt
-		})
 	})
 
 	$effect(() => {

@@ -44,8 +44,8 @@ use windmill_common::{
     error::{self, Error, JsonResult, Result},
     get_database_url,
     user_drafts::{
-        decrypt_draft_secret_fields, delete_user_draft, fetch_draft_only, maybe_overlay_draft,
-        UserDraftItemKind, WithDraftOverlay, WithDraftQuery, ENCRYPTED_DRAFT_PREFIX,
+        delete_user_draft, fetch_draft_only, maybe_overlay_draft, UserDraftItemKind,
+        WithDraftOverlay, WithDraftQuery,
     },
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
@@ -1038,25 +1038,6 @@ async fn check_path_conflict<'c>(
 struct CreateResourceQuery {
     update_if_exists: Option<bool>,
 }
-/// Resolve `$encrypted:` draft markers in a resource value back to
-/// plaintext before persisting — restored drafts deploy the markers as-is,
-/// and the deployed at-rest shape keeps password fields as the user typed
-/// them (the draft table is the only store that holds them encrypted).
-/// Cheap substring check before parsing; fails with a 400 when a marker
-/// doesn't decrypt against the workspace key.
-async fn resolve_encrypted_draft_fields(
-    db: &DB,
-    w_id: &str,
-    raw: Box<RawValue>,
-) -> Result<Box<RawValue>> {
-    if !raw.get().contains(ENCRYPTED_DRAFT_PREFIX) {
-        return Ok(raw);
-    }
-    let mut v: Value = serde_json::from_str(raw.get())?;
-    decrypt_draft_secret_fields(db, w_id, &mut v).await?;
-    Ok(RawValue::from_string(serde_json::to_string(&v)?)?)
-}
-
 async fn create_resource(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1102,7 +1083,6 @@ async fn create_resource(
     }
 
     let res_value = resource.value.unwrap_or_default();
-    let res_value = resolve_encrypted_draft_fields(&db, &w_id, res_value).await?;
     let raw_json = sqlx::types::Json(res_value.as_ref());
 
     if resource.path.starts_with("f/app_themes/") {
@@ -1694,8 +1674,7 @@ async fn update_resource(
     if let Some(npath) = &ns.path {
         sqlb.set_str("path", npath);
     }
-    if let Some(nvalue) = ns.value.clone() {
-        let nvalue = resolve_encrypted_draft_fields(&db, &w_id, nvalue).await?;
+    if let Some(nvalue) = &ns.value {
         sqlb.set_str("value", nvalue.to_string());
     }
     if let Some(ndesc) = ns.description {
@@ -1916,13 +1895,10 @@ async fn update_resource_value(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Json(mut nv): Json<UpdateResource>,
+    Json(nv): Json<UpdateResource>,
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:write:{}", path))?;
-    if let Some(v) = nv.value.as_mut() {
-        decrypt_draft_secret_fields(&db, &w_id, v).await?;
-    }
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
