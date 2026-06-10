@@ -223,6 +223,12 @@
 
 		{#snippet content()}
 			<div class="flex flex-col gap-3 text-sm w-72 p-3">
+				{#if syncState === 'failed'}
+					<p class="text-red-500 font-semibold text-xs">
+						Save failed — your latest changes did not reach the server. Editing again will retry the
+						save.
+					</p>
+				{/if}
 				<p class="text-primary text-xs">
 					All changes are saved as a draft on the server. The draft is per-user — your teammates'
 					editors keep their own.
