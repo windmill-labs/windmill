@@ -47,6 +47,8 @@ Typical flow:
 5. `mcp__playwright__browser_take_screenshot` for visual confirmation
 6. `mcp__playwright__browser_console_messages` / `browser_network_requests` to surface errors
 
+**Attach the screenshots to the PR.** For any change under `frontend/`, embed screenshots of the affected UI in the PR body — the `pr` skill requires this and carries the upload recipe.
+
 If you cannot exercise a UI change (no dev server, etc.), say so explicitly rather than claiming success.
 
 ## Banned Patterns
